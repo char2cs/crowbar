@@ -14,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/reconcile"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store/projections"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -177,6 +178,21 @@ type ReconcileOnOpener interface {
 	OnOpen(
 		ctx context.Context,
 		wsID string,
+	)
+}
+
+// BootSweeper is the boot orphan-sweep seam (spec §3.8). The app-layer
+// composition root reaches this repository's RAW read model — the direct
+// state/store/workspace.db read that never triggers the lazy Replay of the
+// per-request List (§3.7) — through this narrow interface, injecting the
+// idempotent purge it owns (the app layer holds the git/fs/asynx concretes; this
+// repository must not). It is kept OFF the main Workspace interface so a
+// boot-recovery concern does not leak into the per-request repository surface and
+// existing Workspace fakes stay untouched; the concrete *workspace satisfies it.
+type BootSweeper interface {
+	Sweep(
+		ctx context.Context,
+		purge func(ctx context.Context, wsID string) error,
 	)
 }
 
@@ -556,6 +572,19 @@ func (w *workspace) List(
 		return nil, fmt.Errorf("workspace: list: %w", err)
 	}
 	return rows, nil
+}
+
+// Sweep runs the boot orphan-sweep over this repository's RAW read model (spec
+// §3.8). It reads state/store/workspace.db DIRECTLY via w.readModel.List — NOT
+// the Replay-wrapped per-request List path — so boot pays no replay and an empty
+// model reaps nothing (§3.7/§3.8). For every residual Status="deleted" row it
+// re-drives the caller-supplied idempotent purge (cascade Forget + rm -rf worktree
+// + axWorkspace.Forget). Best-effort throughout: recovery work never fails boot.
+func (w *workspace) Sweep(
+	ctx context.Context,
+	purge func(ctx context.Context, wsID string) error,
+) {
+	reconcile.NewSweeper(reconcile.SweepListFunc(w.readModel.List), purge).Sweep(ctx)
 }
 
 // GetHomeForProject scans all workspaces for the project and returns the one

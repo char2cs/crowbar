@@ -81,9 +81,6 @@ type Usecase interface {
 		ctx context.Context,
 		rootID string,
 	) error
-	ReconcileAll(
-		ctx context.Context,
-	) error
 }
 
 // TerminalReaper is the narrow terminal-engine surface the cascade delete uses to
@@ -663,8 +660,8 @@ func (u *worktreeUsecase) finalizeMerge(
 // resyncSummary recomputes a workspace's working-tree summary from git and
 // pushes it into the read model so Added/Deleted/HasCommits/HasConflicts reflect
 // the post-merge state of both the parent and the kept child. It returns the
-// hasConflicts it computed so callers (e.g. ReconcileAll) can act on it without a
-// second WorkingTreeSummary call.
+// hasConflicts it computed so callers can act on it without a second
+// WorkingTreeSummary call.
 func (u *worktreeUsecase) resyncSummary(
 	ctx context.Context,
 	id string,
@@ -1078,107 +1075,6 @@ func (u *worktreeUsecase) repoPathFor(
 		return "", fmt.Errorf("worktree: repo %s not found", ws.RepoID)
 	}
 	return repo.Path, nil
-}
-
-// ReconcileAll is the one-shot startup recovery sweep (H19). After a crash or
-// restart the persisted per-workspace badge (Added/Deleted, pr-conflicts) is
-// whatever was last written and otherwise only self-corrects on the next
-// fsnotify event in that workspace — so a conflict resolved out-of-band stays
-// pr-conflicts, stale diff counts linger, and worktrees orphaned mid-teardown
-// are never reaped. This re-syncs each workspace's working-tree summary from
-// real git, clears a now-stale pr-conflicts, and prunes orphaned worktrees per
-// repo. It is best-effort throughout: a failure on one workspace or repo is
-// logged and skipped, never aborting the sweep, and ReconcileAll returns nil so
-// boot is never failed by recovery work.
-func (u *worktreeUsecase) ReconcileAll(
-	ctx context.Context,
-) error {
-	all, err := u.workspaces.List(ctx)
-	if err != nil {
-		// Listing is the only catastrophic failure: without the rows there is
-		// nothing to reconcile. Log and return nil — never fail boot.
-		slog.WarnContext(ctx, "recovery sweep: list workspaces failed; skipping", "err", err)
-		return nil
-	}
-	for _, ws := range all {
-		u.reconcileOne(ctx, ws)
-	}
-	u.pruneRepos(ctx, all)
-	return nil
-}
-
-// reconcileOne re-syncs a single workspace's working-tree summary from real git
-// and clears a stale pr-conflicts. Workspaces with no on-disk worktree (virtual
-// / no-path rows) are skipped — there is nothing to read from disk.
-func (u *worktreeUsecase) reconcileOne(
-	ctx context.Context,
-	ws domain.Workspace,
-) {
-	if ws.WorktreePath == "" {
-		return
-	}
-	// resyncSummary refreshes Added/Deleted/HasCommits and sets pr-conflicts when
-	// there are real conflict markers; it returns the hasConflicts it computed so
-	// we can clear a now-stale pr-conflicts without a second WorkingTreeSummary.
-	hasConflicts, err := u.resyncSummary(ctx, ws.ID, ws.WorktreePath, ws.ForkPointSha)
-	if err != nil {
-		slog.WarnContext(ctx, "recovery sweep: summary resync failed; skipping workspace",
-			"workspace_id", ws.ID, "worktree", ws.WorktreePath, "err", err)
-		return
-	}
-	if hasConflicts {
-		return
-	}
-	// hasConflicts==false only means there are no unresolved conflict markers in
-	// the working tree. A workspace can be MID conflict-resolution: the user (or a
-	// merge) staged the resolved files but never ran continue/abort, so the
-	// rebase-merge/MERGE_HEAD/AUTO_MERGE markers are still present even though no
-	// file shows `<<<<<<<`. Clearing pr-conflicts here would lose the signal that
-	// the operation is unfinished. Treat an in-progress op as still-conflicting
-	// and leave the status untouched. A marker-check failure is non-fatal — fall
-	// through and clear, matching the surrounding best-effort posture.
-	if op, opErr := u.git.OperationInProgress(ctx, ws.WorktreePath); opErr != nil {
-		slog.WarnContext(ctx, "recovery sweep: in-progress-op check failed; treating as resolved",
-			"workspace_id", ws.ID, "worktree", ws.WorktreePath, "err", opErr)
-	} else if op != "" {
-		slog.InfoContext(ctx, "recovery sweep: workspace mid conflict-resolution; keeping pr-conflicts",
-			"workspace_id", ws.ID, "operation", op)
-		return
-	}
-	// No real conflict on disk and no in-progress op: clear a sticky pr-conflicts
-	// (a no-op when the status isn't pr-conflicts) so a workspace whose conflict
-	// was resolved while the daemon was down drops its stale warning.
-	if _, err := u.workspaces.ResolveConflicts(ctx, ws.ID, u.now()); err != nil {
-		slog.WarnContext(ctx, "recovery sweep: resolve stale conflicts failed",
-			"workspace_id", ws.ID, "err", err)
-	}
-}
-
-// pruneRepos reaps orphaned worktree registrations for each DISTINCT repo among
-// the workspaces, so a worktree whose directory vanished mid-teardown (crash) no
-// longer blocks future ops. Best-effort: a repo-path resolution or prune failure
-// is logged and skipped.
-func (u *worktreeUsecase) pruneRepos(
-	ctx context.Context,
-	all []domain.Workspace,
-) {
-	pruned := make(map[string]struct{})
-	for _, ws := range all {
-		repoPath, err := u.repoPathFor(ctx, ws)
-		if err != nil {
-			slog.WarnContext(ctx, "recovery sweep: repo path unresolved; skipping prune",
-				"workspace_id", ws.ID, "repo_id", ws.RepoID, "err", err)
-			continue
-		}
-		if _, done := pruned[repoPath]; done {
-			continue
-		}
-		pruned[repoPath] = struct{}{}
-		if err := u.git.WorktreePrune(ctx, repoPath); err != nil {
-			slog.WarnContext(ctx, "recovery sweep: worktree prune failed",
-				"repo_path", repoPath, "err", err)
-		}
-	}
 }
 
 func (u *worktreeUsecase) childHasChildren(

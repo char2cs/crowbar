@@ -223,8 +223,8 @@ func (w *Watcher) loop(
 	// racing ahead of or behind the snapshot, it would either leak a stray frame to
 	// a wsId-scoped client (cross-workspace isolation) or suppress the first real
 	// change. Live git frames are driven purely by real file changes; the
-	// read-model summary badge is kept fresh by the startup ReconcileAll sweep and
-	// by file-change recomputes (H19).
+	// read-model summary badge is kept fresh by lazy reconcile-on-open and by
+	// file-change recomputes (spec §3.8).
 	timer := time.NewTimer(0)
 	if !timer.Stop() {
 		<-timer.C

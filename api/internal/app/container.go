@@ -2,18 +2,21 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/realtime"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
-	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/engine/provider"
@@ -89,7 +92,9 @@ func New(
 	}
 
 	startProviderSweep(ctx, engines, repos, ucs)
-	startRecoverySweep(ctx, ucs)
+	if err := startBootSweep(ctx, adapters, repos, axWorkspace); err != nil {
+		return nil, err
+	}
 	startRestoreTerminalSessions(ctx, ucs)
 
 	rt := realtime.New(
@@ -147,19 +152,69 @@ func startProviderSweep(
 	)
 }
 
-// startRecoverySweep runs the one-shot startup recovery sweep (H19) in the
-// background so boot stays fast. Unlike the provider sweep this is not a cron —
-// it runs exactly once at startup, re-syncing each workspace's git state from
-// disk and reaping orphaned worktrees. Its effects broadcast over WS as each
-// workspace re-syncs. A panic is contained by safego; ReconcileAll is itself
-// best-effort and never returns a fatal error, so its result is ignored.
-func startRecoverySweep(
+// startBootSweep runs the cheap, proactive boot orphan-sweep (spec §3.8)
+// SYNCHRONOUSLY before app.New returns (and thus before internal.Run serves) —
+// replacing the old async recovery sweep. It reaps any workspace stuck in
+// Status="deleted" by a delete reactor that crashed mid-cascade: it reads
+// store/workspace.db DIRECTLY (no lazy Replay, §3.7) and re-drives the idempotent
+// purge (rm -rf worktree + drop the id↔path row + axWorkspace.Forget), converging
+// to the delete invariant (no row, no worktree) whichever teardown step the crash
+// interrupted. The review-thread forget cascade is registered separately by
+// wireCallbacks (Task 14); the primary crash gap this closes is the lingering
+// worktree/row. Best-effort: recovery work never fails boot, but a failure to
+// construct the id↔path store is a real wiring error and is surfaced.
+func startBootSweep(
 	ctx context.Context,
-	ucs *usecases.Container,
-) {
-	safego.Go("app.recoverySweep", func() {
-		_ = ucs.Worktree.ReconcileAll(context.WithoutCancel(ctx))
-	})
+	adapters *adapter.Container,
+	repos *repositories.Container,
+	ax asynx.Asynx[domain.Workspace],
+) error {
+	sweeper, ok := repos.Workspace.(workspace.BootSweeper)
+	if !ok {
+		return nil
+	}
+	pathsStore, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
+	if err != nil {
+		return fmt.Errorf("app: boot sweep: paths store: %w", err)
+	}
+	sweeper.Sweep(ctx, bootSweepPurge(ax, pathsStore))
+	return nil
+}
+
+// bootSweepPurge builds the idempotent teardown the boot orphan-sweep re-drives
+// for each residual Status="deleted" workspace (spec §3.8): resolve the worktree
+// path from the id↔path map, rm -rf it, delete the id↔path row (§3.9 write-point
+// c), then Forget the aggregate — whose synchronous OnForget drops the read-model
+// row — as the terminal step. Every step is idempotent so a re-drive after a
+// crash is a no-op: a missing path row skips the rm, an absent worktree rm's to
+// nothing, and Forgetting an already-Forgotten aggregate (ErrValidation) is
+// swallowed. It mirrors the delete reactor's purge (§3.6) minus the tombstone
+// gate — the sweep already selected rows the projection persisted as "deleted".
+func bootSweepPurge(
+	ax asynx.Asynx[domain.Workspace],
+	pathsStore wspaths.WorkspacePaths,
+) func(ctx context.Context, wsID string) error {
+	return func(ctx context.Context, wsID string) error {
+		path, err := pathsStore.Get(ctx, wsID)
+		switch {
+		case errors.Is(err, wspaths.ErrNotFound):
+			path = ""
+		case err != nil:
+			return fmt.Errorf("resolve worktree path: %w", err)
+		}
+		if path != "" {
+			if err := os.RemoveAll(path); err != nil {
+				return fmt.Errorf("rm worktree %q: %w", path, err)
+			}
+		}
+		if err := pathsStore.Delete(ctx, wsID); err != nil {
+			return fmt.Errorf("delete id-path row: %w", err)
+		}
+		if err := ax.Forget(ctx, wsID); err != nil && !errors.Is(err, asynxModels.ErrValidation) {
+			return fmt.Errorf("forget aggregate: %w", err)
+		}
+		return nil
+	}
 }
 
 // startRestoreTerminalSessions reloads persisted terminal sessions as PTY-less
