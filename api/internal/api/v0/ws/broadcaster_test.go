@@ -364,7 +364,12 @@ func TestBroadcaster_Snapshot_DoesNotBlockConcurrentPush(t *testing.T) {
 
 	select {
 	case <-pushed:
-	case <-time.After(2 * time.Second):
+	// Generous deadline: a genuinely lock-blocked Push deadlocks until `release`
+	// (closed only after this select), so it fails regardless of the duration —
+	// the timeout only exists to bound the test, and must be long enough that a
+	// merely scheduler-starved Push goroutine under a saturated -race run is not
+	// mistaken for a blocked one.
+	case <-time.After(30 * time.Second):
 		t.Fatal("Push blocked while another client computed its snapshot under lock")
 	}
 
