@@ -84,6 +84,13 @@ func TestCrash_CommittedStateSurvivesAbruptKill(t *testing.T) {
 	worktree := friendlyWorktree(env1, imported.ProjectID, imported.RepoPath, branch)
 	require.True(t, kit.DirExists(t, worktree), "worktree must be provisioned before the crash")
 
+	// Drain the async store projection so the COMMITTED workspace is durably in the
+	// read model (WAL) before the kill — CreateWorkspace returns on the hub/WS frame,
+	// which is an independent projection from the store/list read model. Quiesce only
+	// drains projections; it is NOT a graceful shutdown, so the kill below is still
+	// abrupt (no server drain, no app.Shutdown).
+	env1.Quiesce()
+
 	// Crash: no server drain, no app.Shutdown — abandon in-flight work mid-flight.
 	env1.CloseCrashing(t)
 
