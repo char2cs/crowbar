@@ -31,15 +31,6 @@ func countSavedForSession(store *fakeMetaStore, sid string) int {
 	return n
 }
 
-// bufModTime returns the modification time of <dir>/<sid>.buf, or zero if absent.
-func bufModTime(dir, sid string) time.Time {
-	fi, err := os.Stat(filepath.Join(dir, sid+".buf"))
-	if err != nil {
-		return time.Time{}
-	}
-	return fi.ModTime()
-}
-
 // waitIdle polls IsIdleForTest until it returns true or deadline.
 func waitIdle(t *testing.T, eng terminal.Engine, id string, d time.Duration) {
 	t.Helper()
@@ -67,7 +58,7 @@ func waitNotIdle(t *testing.T, eng terminal.Engine, id string, d time.Duration) 
 	const required = 3
 	confirmed := 0
 	for {
-		if !terminal.IsIdleForTest(eng, id) {
+		if !terminal.IsIdleForTest(eng, id) { //nolint:nestif // require N consecutive non-idle readings; the confirm/reset counter is the debounce this test needs
 			confirmed++
 			if confirmed >= required {
 				return
@@ -116,7 +107,7 @@ func waitForSettled(t *testing.T, eng terminal.Engine, id string, d time.Duratio
 	stableCount := 0
 	for {
 		curLen := terminal.SnapshotLenForTest(eng, id)
-		if curLen == lastLen {
+		if curLen == lastLen { //nolint:nestif // settle detector: N consecutive equal-length samples; the count/reset branch is the debounce
 			stableCount++
 			if stableCount >= stableNeeded {
 				return
@@ -130,6 +121,37 @@ func waitForSettled(t *testing.T, eng terminal.Engine, id string, d time.Duratio
 			t.Fatalf("session %s serialized model did not settle within %s", id, d)
 		case <-time.After(50 * time.Millisecond):
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestPtyEnv_DefaultLocale
+// ---------------------------------------------------------------------------
+
+// TestPtyEnv_DefaultLocale verifies ptyEnv's UTF-8-locale defaulting (via the
+// pure defaultLocale decision it delegates to): a GUI/launchd-launched daemon
+// that inherited NO locale gets a platform-appropriate UTF-8 LANG (en_US.UTF-8
+// on darwin, C.UTF-8 elsewhere), while ANY explicitly-set locale var — LANG,
+// LC_ALL or LC_CTYPE — is left untouched. This is the unit guard for the
+// no-LANG glyph-corruption fix; the integration suite proves it end-to-end.
+func TestPtyEnv_DefaultLocale(t *testing.T) {
+	cases := []struct {
+		name string
+		base []string
+		goos string
+		want string
+	}{
+		{"unset-darwin-defaults-en_US", []string{"TERM=xterm-256color", "PATH=/usr/bin"}, "darwin", "en_US.UTF-8"},
+		{"unset-linux-defaults-C_UTF8", []string{"TERM=xterm-256color", "PATH=/usr/bin"}, "linux", "C.UTF-8"},
+		{"lang-set-untouched-darwin", []string{"LANG=en_GB.ISO-8859-1"}, "darwin", ""},
+		{"lang-set-untouched-linux", []string{"LANG=en_GB.ISO-8859-1"}, "linux", ""},
+		{"lc-all-set-untouched", []string{"LC_ALL=fr_FR.UTF-8"}, "darwin", ""},
+		{"lc-ctype-set-untouched", []string{"LC_CTYPE=de_DE.UTF-8"}, "linux", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, terminal.DefaultLocaleForTest(tc.base, tc.goos))
+		})
 	}
 }
 
