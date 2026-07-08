@@ -115,6 +115,44 @@ func New(
 	}, nil
 }
 
+// Shutdown gracefully quiesces the application layer's asynchronous machinery
+// within the ctx deadline, BEFORE the adapter closes the DBs (spec §3.8 steps
+// 2-3, decision 11). It runs ahead of Close in the ordered teardown:
+//
+//  1. close the shared reactor drain gate (Cancel) so no post-commit reactor
+//     wireCallbacks registered starts new work;
+//  2. wait out the in-flight reactors, BOUNDED by ctx — a hung reactor cannot
+//     wedge shutdown past the deadline (quiver's drainWg.Wait() is unbounded; we
+//     bound it, decision 11);
+//  3. Shutdown each per-type asynx singleton, draining its command/projection
+//     pool (itself ctx-bounded) so no event is half-processed when the adapter
+//     WAL-checkpoints and closes the event/read/view DBs.
+//
+// Realtime resources (file watchers, LSP hosts) are released separately by Close.
+// Every wait honors ctx, so the whole drain is bounded by the caller's deadline.
+func (c *Container) Shutdown(
+	ctx context.Context,
+) error {
+	drain := c.Repositories.Drain()
+	drain.Cancel() // close the gate: reactors observing drainCtx stop starting new work.
+
+	done := make(chan struct{})
+	go func() {
+		drain.WG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		// Bounded: a stuck reactor cannot hang shutdown past the deadline.
+	}
+
+	return errors.Join(
+		c.axWorkspace.Shutdown(ctx),
+		c.axReviewThread.Shutdown(ctx),
+	)
+}
+
 // Close tears down the application layer's live realtime resources: it stops
 // every file watcher and LSP host the service still holds. It is idempotent and
 // runs on graceful shutdown so fsnotify file descriptors and LSP subprocesses
