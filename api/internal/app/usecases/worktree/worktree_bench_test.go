@@ -38,7 +38,7 @@ func newWorkspaceRepo(
 	tb.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	pathsStore, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
 	require.NoError(tb, err)
-	repo, err := workspace.New(ax, adapters.WorkspaceView(), pathsStore)
+	repo, err := workspace.New(ax, adapters.WorkspaceES(), adapters.WorkspaceView(), pathsStore)
 	require.NoError(tb, err)
 	return repo
 }

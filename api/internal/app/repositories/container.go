@@ -54,7 +54,7 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("repositories: workspace paths: %w", err)
 	}
-	ws, err := workspace.New(axWorkspace, adapters.WorkspaceView(), pathsStore)
+	ws, err := workspace.New(axWorkspace, adapters.WorkspaceES(), adapters.WorkspaceView(), pathsStore)
 	if err != nil {
 		return nil, err
 	}

@@ -224,11 +224,14 @@ func WithReconciler(
 
 // New builds the singleton-backed Workspace repository over axWorkspace, the
 // workspace read-model DB (state/store/workspace.db), and the view.db id↔path
-// index. It registers the save-only store projection on axWorkspace via
-// store.New; the hub projection is registered separately by repositories.Container
-// (which owns the enrichment callback).
+// index. es is the per-type event log axWorkspace wraps (state/events/workspace.db),
+// retained so the read model can heal itself via whole-model lazy Replay on first
+// access after a loss (§3.7). It registers the save-only store projection on
+// axWorkspace via store.New; the hub projection is registered separately by
+// repositories.Container (which owns the enrichment callback).
 func New(
 	ax asynx.Asynx[domain.Workspace],
+	es asynxModels.Store,
 	storeDB *gormdb.DB,
 	pathsStore wspaths.WorkspacePaths,
 	opts ...Option,
@@ -236,13 +239,16 @@ func New(
 	if ax == nil {
 		return nil, fmt.Errorf("workspace: nil asynx")
 	}
+	if es == nil {
+		return nil, fmt.Errorf("workspace: nil event store")
+	}
 	if storeDB == nil {
 		return nil, fmt.Errorf("workspace: nil store db")
 	}
 	if pathsStore == nil {
 		return nil, fmt.Errorf("workspace: nil paths store")
 	}
-	readModel, err := store.New(storeDB, ax)
+	readModel, err := store.New(storeDB, es, ax)
 	if err != nil {
 		return nil, fmt.Errorf("workspace: store: %w", err)
 	}
@@ -562,12 +568,16 @@ func (w *workspace) Delete(
 }
 
 // List returns every workspace row from the durable read model
-// (state/store/workspace.db), which doubles as the location index (§3.7). It
-// reads the projection directly and MUST NOT trigger any per-workspace reconcile.
+// (state/store/workspace.db), which doubles as the location index (§3.7). It reads
+// the projection directly and MUST NOT trigger any per-workspace reconcile
+// (git/provider re-derivation, §3.8) — but it DOES heal a lost read model via
+// whole-model lazy Replay when the model is empty while the event log is non-empty
+// (§3.7, decision 7), hence ListOrRebuild rather than the raw List (which is
+// reserved for the boot orphan-sweep, so startup pays no replay).
 func (w *workspace) List(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
-	rows, err := w.readModel.List(ctx)
+	rows, err := w.readModel.ListOrRebuild(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("workspace: list: %w", err)
 	}

@@ -53,7 +53,7 @@ func buildRepo(
 	t.Helper()
 	pathsStore, err := wspaths.NewWorkspacePaths(ad.GlobalView())
 	require.NoError(t, err)
-	repo, err := workspace.New(wsAx(t, ad), ad.WorkspaceView(), pathsStore)
+	repo, err := workspace.New(wsAx(t, ad), ad.WorkspaceES(), ad.WorkspaceView(), pathsStore)
 	require.NoError(t, err)
 	return repo, pathsStore
 }
@@ -217,7 +217,7 @@ func TestPersistence_AcrossReopen(t *testing.T) {
 	require.NoError(t, err)
 	paths1, err := wspaths.NewWorkspacePaths(first.GlobalView())
 	require.NoError(t, err)
-	repo1, err := workspace.New(ax1, first.WorkspaceView(), paths1)
+	repo1, err := workspace.New(ax1, first.WorkspaceES(), first.WorkspaceView(), paths1)
 	require.NoError(t, err)
 
 	_, err = repo1.Create(ctx, workspace.CreateInput{
@@ -444,13 +444,16 @@ func TestWorkspace_New_NilGuards(t *testing.T) {
 	pathsStore, err := wspaths.NewWorkspacePaths(ad.GlobalView())
 	require.NoError(t, err)
 
-	_, err = workspace.New(nil, ad.WorkspaceView(), pathsStore)
+	_, err = workspace.New(nil, ad.WorkspaceES(), ad.WorkspaceView(), pathsStore)
 	assert.Error(t, err, "nil asynx must error")
 
-	_, err = workspace.New(wsAx(t, ad), nil, pathsStore)
+	_, err = workspace.New(wsAx(t, ad), nil, ad.WorkspaceView(), pathsStore)
+	assert.Error(t, err, "nil event store must error")
+
+	_, err = workspace.New(wsAx(t, ad), ad.WorkspaceES(), nil, pathsStore)
 	assert.Error(t, err, "nil store db must error")
 
-	_, err = workspace.New(wsAx(t, ad), ad.WorkspaceView(), nil)
+	_, err = workspace.New(wsAx(t, ad), ad.WorkspaceES(), ad.WorkspaceView(), nil)
 	assert.Error(t, err, "nil paths store must error")
 }
 
@@ -534,7 +537,7 @@ func buildRepoWithReconciler(
 	t.Helper()
 	pathsStore, err := wspaths.NewWorkspacePaths(ad.GlobalView())
 	require.NoError(t, err)
-	repo, err := workspace.New(wsAx(t, ad), ad.WorkspaceView(), pathsStore, workspace.WithReconciler(r))
+	repo, err := workspace.New(wsAx(t, ad), ad.WorkspaceES(), ad.WorkspaceView(), pathsStore, workspace.WithReconciler(r))
 	require.NoError(t, err)
 	return repo
 }

@@ -35,7 +35,7 @@ func TestNew_RegistersStoreProjection(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	st, err := store.New(db, ax)
+	st, err := store.New(db, es, ax)
 	require.NoError(t, err)
 
 	// Empty before any event — no reconcile ran.

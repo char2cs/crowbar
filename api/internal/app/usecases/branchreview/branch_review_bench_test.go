@@ -69,7 +69,7 @@ func newBenchReviewHarness(
 	b.Cleanup(func() { _ = wsAx.Shutdown(ctx) })
 	wsPaths, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
 	require.NoError(b, err)
-	workspaces, err := workspace.New(wsAx, adapters.WorkspaceView(), wsPaths)
+	workspaces, err := workspace.New(wsAx, adapters.WorkspaceES(), adapters.WorkspaceView(), wsPaths)
 	require.NoError(b, err)
 
 	threads, err := reviewthread.New(ctx, axRT, rtES, db, func(domain.ReviewThread) {})

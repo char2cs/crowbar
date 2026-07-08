@@ -92,6 +92,18 @@ func (s *Store) Get(
 	return unmarshalWorkspace(row.Data)
 }
 
+// Fold persists ws into the durable read model — the write half of this
+// save-only projection, exported so the lazy Replay repair (store.ListOrRebuild,
+// spec §3.7) can fold each replayed aggregate back into state/store/workspace.db.
+// Live events reach the model through the registered onEvent subscription instead;
+// this seam exists only for the on-demand whole-model rebuild.
+func (s *Store) Fold(
+	ctx context.Context,
+	ws domain.Workspace,
+) error {
+	return s.save(ctx, ws)
+}
+
 func (s *Store) save(
 	ctx context.Context,
 	ws domain.Workspace,
