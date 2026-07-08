@@ -27,9 +27,6 @@ import (
 // WebSocket handler (endpoints/terminal/handlers/ws.go), whose ring-buffer
 // replay is its snapshot-on-subscribe (03 §1a). It is wired separately in
 // router.go.
-//
-// The chat WebSocket surface (chats + chatStream) has been removed per D11; the
-// chat domain, repo CRUD, and usecase remain dormant TODO.
 type Container struct {
 	projects   *ws.Broadcaster[dto.ProjectDTO]
 	repos      *ws.Broadcaster[dto.RepoDTO]

@@ -47,10 +47,6 @@ func New(
 	engines *engine.Container,
 	adapters *adapter.Container,
 ) (*Container, error) {
-	axChat, err := newAsynx[domain.Chat](adapters.ChatES())
-	if err != nil {
-		return nil, fmt.Errorf("app: asynx chat: %w", err)
-	}
 	axReviewThread, err := newAsynx[domain.ReviewThread](adapters.ReviewThreadES())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx review thread: %w", err)
@@ -73,7 +69,6 @@ func New(
 		ctx,
 		adapters,
 		h,
-		axChat,
 		axReviewThread,
 		axWorkspace,
 		engines.Git,

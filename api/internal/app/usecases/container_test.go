@@ -54,7 +54,6 @@ func newContainerDeps(
 		context.Background(),
 		adapters,
 		hub.NewHub(),
-		newTestAsynx[domain.Chat](t, adapters.ChatES()),
 		newTestAsynx[domain.ReviewThread](t, adapters.ReviewThreadES()),
 		newTestAsynx[domain.Workspace](t, adapters.WorkspaceES()),
 		nil, // git conflict-checker not exercised by this test
@@ -89,7 +88,6 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	assert.NotNil(t, c.Project)
 	assert.NotNil(t, c.ProjectImport)
 	assert.NotNil(t, c.Workspace)
-	assert.NotNil(t, c.Chat)
 	assert.NotNil(t, c.File)
 	assert.NotNil(t, c.Git)
 	assert.NotNil(t, c.Terminal)

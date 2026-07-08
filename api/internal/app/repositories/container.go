@@ -11,7 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
@@ -21,7 +20,6 @@ import (
 // Container holds the aggregate repositories (each owning its read model).
 type Container struct {
 	Workspace    workspace.Workspace
-	Chat         chat.Chat
 	ReviewThread reviewthread.ReviewThread
 	hub          hub.WebSocketHub
 	git          wsusecase.MergeConflictChecker
@@ -38,13 +36,12 @@ type Container struct {
 // the hub. The workspace aggregate is backed by the singleton axWorkspace (one
 // instance per type, routing every id by shard hash) built by the app layer; its
 // read model lives in state/store/workspace.db and its id↔path index in view.db.
-// The chat and reviewthread aggregates keep their global event stores and read
-// models in the global view DB (converted in Tasks 12/13).
+// The reviewthread aggregate owns its central per-type read model at
+// state/store/review_thread.db.
 func New(
 	ctx context.Context,
 	adapters *adapter.Container,
 	h hub.WebSocketHub,
-	axChat asynx.Asynx[domain.Chat],
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	axWorkspace asynx.Asynx[domain.Workspace],
 	git wsusecase.MergeConflictChecker,
@@ -69,12 +66,7 @@ func New(
 	if err := workspace.RegisterHubProjection(axWorkspace, c.enrichFrame, c.hub.BroadcastWorkspace); err != nil {
 		return nil, fmt.Errorf("repositories: workspace hub projection: %w", err)
 	}
-	db := adapters.GlobalView()
-	ch, err := chat.New(ctx, axChat, adapters.ChatES(), db, func(domain.Chat) {})
-	if err != nil {
-		return nil, err
-	}
-	// reviewthread now owns its own central per-type read model at
+	// reviewthread owns its own central per-type read model at
 	// state/store/review_thread.db (Task 12), no longer the shared view.db: pass
 	// ReviewThreadView() as the read-model DB while keeping ReviewThreadES() for the
 	// lazy AggregateLister Replay (§3.7).
@@ -82,7 +74,6 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	c.Chat = ch
 	c.ReviewThread = rt
 	return c, nil
 }

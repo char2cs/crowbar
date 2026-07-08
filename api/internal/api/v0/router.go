@@ -112,10 +112,6 @@ func (c *Container) Register(
 		c.workspaces.Handle,
 		ws.DualServe,
 	)
-	// TODO: chat WebSocket surface removed per D11; the chat domain, repo CRUD,
-	// and usecase remain dormant. Re-mount chat routes when multi-agent
-	// conversations land:
-	// /v0/projects/:p/repos/:r/workspaces/:w/chats
 	files.Register(
 		repoScoped,
 		c.app.Usecases.File,

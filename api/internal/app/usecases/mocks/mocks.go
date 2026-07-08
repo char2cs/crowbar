@@ -4,7 +4,6 @@ package mocks
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -12,8 +11,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 	provider "github.com/char2cs/crowbar/api/internal/engine/provider"
+	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // ProjectStore is a fake store.Store[domain.Project, string].
@@ -183,15 +182,15 @@ type GitEngine struct {
 	WorktreeListFn func(repoPath string) ([]gitengine.WorktreeEntry, error)
 
 	// Protected-branch managed-worktree provisioning fakes (project import).
-	Detached        []string          // worktree paths detached to HEAD
-	CheckedOut      []WorktreeAddCall // (path, branch) re-attach calls
-	WorktreeAdds    []WorktreeAddCall // (path, branch) worktrees materialised
-	WorktreeRemoves []string          // worktree paths force-removed
-	FetchedRefs          []string // branches fetched from origin (FetchRef)
-	FastForwardedBranches []string // branches fast-forwarded from origin (FastForwardBranch)
-	RemoteBranches  map[string]bool   // branch -> exists on origin (default false)
-	RevParseShas    map[string]string // rev -> sha (default "")
-	DetachErr       error             // forces DetachWorktree to fail
+	Detached              []string          // worktree paths detached to HEAD
+	CheckedOut            []WorktreeAddCall // (path, branch) re-attach calls
+	WorktreeAdds          []WorktreeAddCall // (path, branch) worktrees materialised
+	WorktreeRemoves       []string          // worktree paths force-removed
+	FetchedRefs           []string          // branches fetched from origin (FetchRef)
+	FastForwardedBranches []string          // branches fast-forwarded from origin (FastForwardBranch)
+	RemoteBranches        map[string]bool   // branch -> exists on origin (default false)
+	RevParseShas          map[string]string // rev -> sha (default "")
+	DetachErr             error             // forces DetachWorktree to fail
 	// WorktreeAddErrByBranch forces WorktreeAdd to fail for specific branches.
 	WorktreeAddErrByBranch map[string]error
 	// Pruned records repo paths WorktreePrune was called on.
@@ -554,136 +553,6 @@ func (r *ProjectRollup) TouchProjectActivity(
 ) {
 	r.TouchedRepoID = repoID
 	r.Touched = true
-}
-
-// ChatForkArgs records the arguments passed to a Fork call.
-type ChatForkArgs struct {
-	ID       string
-	WsID     string
-	ParentID string
-	Title    string
-}
-
-// ChatRepo is a fake of the chat repo surface used by the chat usecase.
-type ChatRepo struct {
-	Created []domain.Chat
-	Forked  []ChatForkArgs
-	Deleted []string
-
-	CreateErr error
-	ForkErr   error
-	RenameErr error
-	DeleteErr error
-
-	// RenameWsID is the WsID carried by the aggregate returned from Rename,
-	// mirroring the real repo which returns the full chat (with its workspace).
-	RenameWsID string
-
-	GetFn func(ctx context.Context, id string) (domain.Chat, error)
-
-	ListByWorkspaceFn func(ctx context.Context, wsID string) ([]domain.Chat, error)
-}
-
-// NewChatRepo returns an empty ChatRepo.
-func NewChatRepo() *ChatRepo {
-	return &ChatRepo{}
-}
-
-func (r *ChatRepo) Create(
-	ctx context.Context,
-	id string,
-	wsID string,
-	title string,
-	now time.Time,
-) (domain.Chat, error) {
-	if r.CreateErr != nil {
-		return domain.Chat{}, r.CreateErr
-	}
-	c := domain.Chat{ID: id, WsID: wsID, Title: title, CreatedAt: now}
-	r.Created = append(r.Created, c)
-	return c, nil
-}
-
-func (r *ChatRepo) Fork(
-	ctx context.Context,
-	id string,
-	wsID string,
-	parentID string,
-	title string,
-	now time.Time,
-) (domain.Chat, error) {
-	if r.ForkErr != nil {
-		return domain.Chat{}, r.ForkErr
-	}
-	r.Forked = append(r.Forked, ChatForkArgs{ID: id, WsID: wsID, ParentID: parentID, Title: title})
-	return domain.Chat{ID: id, WsID: wsID, ParentID: parentID, Title: title, CreatedAt: now}, nil
-}
-
-func (r *ChatRepo) Rename(
-	ctx context.Context,
-	id string,
-	title string,
-) (domain.Chat, error) {
-	if r.RenameErr != nil {
-		return domain.Chat{}, r.RenameErr
-	}
-	return domain.Chat{ID: id, WsID: r.RenameWsID, Title: title}, nil
-}
-
-func (r *ChatRepo) Delete(
-	ctx context.Context,
-	id string,
-	now time.Time,
-) (domain.Chat, error) {
-	if r.DeleteErr != nil {
-		return domain.Chat{}, r.DeleteErr
-	}
-	r.Deleted = append(r.Deleted, id)
-	return domain.Chat{ID: id}, nil
-}
-
-func (r *ChatRepo) Get(
-	ctx context.Context,
-	id string,
-) (domain.Chat, error) {
-	return r.GetFn(ctx, id)
-}
-
-func (r *ChatRepo) ListByWorkspace(
-	ctx context.Context,
-	wsID string,
-) ([]domain.Chat, error) {
-	return r.ListByWorkspaceFn(ctx, wsID)
-}
-
-// ChatWorkspaceRepo is a fake of the workspace surface used by the chat usecase.
-type ChatWorkspaceRepo struct {
-	TouchedID string
-	GetFn     func(ctx context.Context, id string) (domain.Workspace, error)
-}
-
-// NewChatWorkspaceRepo returns an empty ChatWorkspaceRepo.
-func NewChatWorkspaceRepo() *ChatWorkspaceRepo {
-	return &ChatWorkspaceRepo{}
-}
-
-func (r *ChatWorkspaceRepo) Get(
-	ctx context.Context,
-	id string,
-) (domain.Workspace, error) {
-	if r.GetFn == nil {
-		return domain.Workspace{}, errors.New("mocks: ChatWorkspaceRepo.GetFn not set")
-	}
-	return r.GetFn(ctx, id)
-}
-
-func (r *ChatWorkspaceRepo) TouchActivity(
-	ctx context.Context,
-	id string,
-	now time.Time,
-) (domain.Workspace, error) {
-	r.TouchedID = id
-	return domain.Workspace{ID: id}, nil
 }
 
 // WorkspaceSyncer is a fake of the workspace syncer surface used by the file and

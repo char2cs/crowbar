@@ -13,7 +13,6 @@ import (
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
@@ -49,15 +48,6 @@ func newBenchReviewHarness(
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = axRT.Shutdown(ctx) })
 
-	chatES, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(b, err)
-	axChat, err := asynx.New[domain.Chat]().
-		WithEventStore(chatES).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(b, err)
-	b.Cleanup(func() { _ = axChat.Shutdown(ctx) })
-
 	// ── GORM DB (the adapter's global view) ───────────────────────────────────
 	db := adapters.GlobalView()
 
@@ -73,9 +63,6 @@ func newBenchReviewHarness(
 	require.NoError(b, err)
 
 	threads, err := reviewthread.New(axRT, rtES, adapters.ReviewThreadView(), func(domain.ReviewThread) {})
-	require.NoError(b, err)
-
-	chats, err := chat.New(ctx, axChat, chatES, db, func(domain.Chat) {})
 	require.NoError(b, err)
 
 	repoStore, err := storesqlite.NewFromDB[domain.Repository, string](db)
@@ -127,14 +114,9 @@ func newBenchReviewHarness(
 	}, fixedNow)
 	require.NoError(b, err)
 
-	// seed one chat
-	_, err = chats.Create(ctx, "chat-bench-1", wsID, "bench chat", fixedNow)
-	require.NoError(b, err)
-
 	uc := branchreview.New(
 		workspaces,
 		threads,
-		chats,
 		repoStore,
 		enginegit.New(),
 		func() time.Time { return fixedNow },
@@ -148,7 +130,7 @@ func newBenchReviewHarness(
 }
 
 // BenchmarkBranchReview_Get measures the composite assembly hot path:
-// git RangeDiff + ReviewThread.ListByWorkspace + Chat.ListByWorkspace.
+// git RangeDiff + ReviewThread.ListByWorkspace.
 func BenchmarkBranchReview_Get(
 	b *testing.B,
 ) {

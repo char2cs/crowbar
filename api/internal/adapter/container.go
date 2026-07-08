@@ -16,11 +16,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/paths"
 )
 
-// Global-plane DB file names under <home>/state: the chat event log
-// (chat_event_stream.db, deleted in Task 13) and the non-aggregate view.db.
+// Global-plane DB file name under <home>/state: the non-aggregate view.db.
 const (
-	eventStreamDBName = "event_stream.db"
-	viewDBName        = "view.db"
+	viewDBName = "view.db"
 )
 
 // per-type DB file names under state/events and state/store. One event log +
@@ -37,13 +35,11 @@ const (
 // state/store/<type>.db (durable read-model projection, opened as a read pool).
 // One asynx instance per type routes many aggregate ids by shard hash.
 //
-// Chat keeps its global event store under <home>/state until Task 13. Projects,
-// repositories, terminal profiles, and settings live in the global view.db under
-// <home>/state.
+// Projects, repositories, terminal profiles, and settings live in the global
+// view.db under <home>/state.
 type Container struct {
 	crowbarHome string
 
-	chatES         asynxModels.Store
 	reviewThreadES asynxModels.Store
 
 	// Per-type handles (quiver-faithful): one event log + one read-model DB per
@@ -133,12 +129,6 @@ func newLocked(
 		}
 	}()
 
-	chatES, err := eventsqlite.NewEventStore(filepath.Join(stateDir, "chat_"+eventStreamDBName))
-	if err != nil {
-		return nil, fmt.Errorf("adapter: chat event store: %w", err)
-	}
-	rollback = append(rollback, func() error { return closeEventStore(chatES) })
-
 	// Per-type planes derive from the resolved home via the home-parameterized
 	// path accessors (never paths.Events()/Store(), which are blind to cfg.homeDir
 	// and would leak state into the prod ~/.crowbar — decision 14).
@@ -183,7 +173,6 @@ func newLocked(
 
 	c = &Container{
 		crowbarHome:         home,
-		chatES:              chatES,
 		reviewThreadES:      reviewThreadES,
 		workspaceEventStore: workspaceEventStore,
 		workspaceStoreDB:    workspaceStoreDB,
@@ -191,13 +180,8 @@ func newLocked(
 		globalView:          globalView,
 		lock:                lock,
 	}
-	c.globalClosers = collectClosers(chatES, reviewThreadES)
+	c.globalClosers = collectClosers(reviewThreadES)
 	return c, nil
-}
-
-// ChatES returns the global chat event store.
-func (c *Container) ChatES() asynxModels.Store {
-	return c.chatES
 }
 
 // ReviewThreadES returns the reviewthread event log at state/events/review_thread.db.

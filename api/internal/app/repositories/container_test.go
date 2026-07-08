@@ -117,7 +117,6 @@ func newContainer(
 		context.Background(),
 		ad,
 		h,
-		ax[domain.Chat](t),
 		ax[domain.ReviewThread](t),
 		wsAx(t, ad),
 		nil,
@@ -129,7 +128,6 @@ func newContainer(
 func TestContainer_New_BuildsRepos(t *testing.T) {
 	c := newContainer(t, hub.NewHub())
 	assert.NotNil(t, c.Workspace)
-	assert.NotNil(t, c.Chat)
 	assert.NotNil(t, c.ReviewThread)
 }
 
@@ -138,7 +136,6 @@ func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 		context.Background(),
 		newAdapter(t),
 		hub.NewHub(),
-		ax[domain.Chat](t),
 		ax[domain.ReviewThread](t),
 		nil, // nil axWorkspace → workspace.New rejects
 		nil,

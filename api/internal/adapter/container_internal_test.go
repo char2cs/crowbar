@@ -26,18 +26,6 @@ func blockPath(t *testing.T, path string) {
 	require.NoError(t, os.MkdirAll(path, 0o750))
 }
 
-func TestNewLocked_ChatEventStoreOpenError(t *testing.T) {
-	home := t.TempDir()
-	stateDir := metadata.GetStateDirPathAt(home)
-	require.NoError(t, os.MkdirAll(stateDir, 0o750))
-	blockPath(t, filepath.Join(stateDir, "chat_"+eventStreamDBName))
-
-	c, err := newLocked(home, stateDir, nil)
-	assert.Error(t, err)
-	assert.Nil(t, c)
-	assert.Contains(t, err.Error(), "chat event store")
-}
-
 func TestNewLocked_ReviewThreadEventStoreOpenError(t *testing.T) {
 	home := t.TempDir()
 	stateDir := metadata.GetStateDirPathAt(home)
@@ -77,10 +65,9 @@ func TestNewLocked_Success(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	assert.Equal(t, home, c.crowbarHome)
-	assert.NotNil(t, c.chatES)
 	assert.NotNil(t, c.reviewThreadES)
 	assert.NotNil(t, c.globalView)
-	assert.Len(t, c.globalClosers, 2)
+	assert.Len(t, c.globalClosers, 1)
 }
 
 // fakeCloser records whether Close was called and what it returned.

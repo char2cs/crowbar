@@ -54,13 +54,12 @@ func TestGlobalView_UsesReadPool(t *testing.T) {
 		"global view.db must be multi-conn, not the single-conn wedge DB")
 }
 
-func TestChatAndReviewThreadES_Global(t *testing.T) {
+func TestReviewThreadES_Global(t *testing.T) {
 	home := t.TempDir()
 	c, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 
-	assert.NotNil(t, c.ChatES())
 	assert.NotNil(t, c.ReviewThreadES())
 }
 

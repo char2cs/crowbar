@@ -1,6 +1,7 @@
 package dto_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -124,17 +125,12 @@ func TestBranchReviewDTOFromMapsFields(
 		Threads: []domain.ReviewThread{
 			{ID: "thread-1"},
 		},
-		Conversations: []domain.BranchChat{
-			{ID: "chat-1", Title: "first"},
-		},
 	})
 
 	assert.Equal(t, "a review", got.Description)
 	assert.Equal(t, "squash", got.MergeStrategy)
 	require.Len(t, got.Threads, 1)
 	assert.Equal(t, "thread-1", got.Threads[0].ID)
-	require.Len(t, got.Conversations, 1)
-	assert.Equal(t, "chat-1", got.Conversations[0].ID)
 }
 
 func TestBranchReviewDTOFromEmptySlicesAreNonNil(
@@ -144,7 +140,23 @@ func TestBranchReviewDTOFromEmptySlicesAreNonNil(
 
 	require.NotNil(t, got.Threads)
 	assert.Empty(t, got.Threads)
-	require.NotNil(t, got.Conversations)
-	assert.Empty(t, got.Conversations)
 	require.NotNil(t, got.Diff.Files)
+}
+
+// TestBranchReviewDTOFromHasNoConversationsKey guards the Chat-aggregate removal
+// (decision 2): the branch-review wire model must no longer carry a
+// `conversations` key. The frontend degrades to `raw.conversations ?? []`, so
+// its absence is FE-safe (review-api.ts).
+func TestBranchReviewDTOFromHasNoConversationsKey(
+	t *testing.T,
+) {
+	raw, err := json.Marshal(dto.BranchReviewDTOFrom(domain.BranchReview{}))
+	require.NoError(t, err)
+
+	var decoded map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+
+	_, hasConversations := decoded["conversations"]
+	assert.False(t, hasConversations,
+		"branch-review DTO must not carry a conversations key after Chat removal")
 }
