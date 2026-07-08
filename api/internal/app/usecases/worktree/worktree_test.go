@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -180,26 +183,26 @@ type gitCall struct {
 
 type fakeGit struct {
 	enginegit.Engine
-	calls             []gitCall
-	addStartSha       string
-	addErr            error
-	revParseSha       string
-	revParseErr       error
-	mergeErr          error
-	squashErr         error
-	rebaseErr         error
-	ffErr             error
-	rebaseFFErr       error
-	rebaseOnto        error
-	operationAbortErr error
-	removeErr         error
-	deleteErr         error
+	calls                []gitCall
+	addStartSha          string
+	addErr               error
+	revParseSha          string
+	revParseErr          error
+	mergeErr             error
+	squashErr            error
+	rebaseErr            error
+	ffErr                error
+	rebaseFFErr          error
+	rebaseOnto           error
+	operationAbortErr    error
+	removeErr            error
+	deleteErr            error
 	remoteExists         bool
 	remoteExistsByBranch map[string]bool // overrides remoteExists per branch when non-nil
 	remoteExistsErr      error
-	fetchRefErr            error
-	fastForwardBranchErr   error
-	worktreeAddErr         error
+	fetchRefErr          error
+	fastForwardBranchErr error
+	worktreeAddErr       error
 
 	summaryAdded        int
 	summaryDeleted      int
@@ -459,6 +462,8 @@ type fakeRepoStore struct {
 	store.Store[domain.Repository, string]
 	path          string
 	defaultBranch string
+	remoteURL     string
+	name          string
 	err           error
 	missing       bool
 }
@@ -473,7 +478,19 @@ func (f *fakeRepoStore) FindByKey(
 	if f.missing {
 		return nil, nil
 	}
-	return &domain.Repository{Path: f.path, DefaultBranch: f.defaultBranch}, nil
+	// Give the fallback slug a stable identity when neither remote nor name is set,
+	// so worktree-path derivation (spec §3.9) has a non-empty leaf in tests that
+	// don't exercise slug specifics.
+	name := f.name
+	if name == "" && f.remoteURL == "" {
+		name = "repo"
+	}
+	return &domain.Repository{
+		Path:          f.path,
+		DefaultBranch: f.defaultBranch,
+		RemoteURL:     f.remoteURL,
+		Name:          name,
+	}, nil
 }
 
 // perPathSummaryGit is a fakeGit that varies WorkingTreeSummary's hasConflicts
@@ -559,6 +576,69 @@ func TestCreateChild_RecordsForkPointAndLocked(t *testing.T) {
 	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[2].args)
 }
 
+// TestCreateChild_DerivesHumanReadableWorktreePath proves the managed child
+// worktree lands at the human-readable <home>/projects/<project>/<slug>/<branch>
+// path (spec §3.9), with the slug resolved from the repo remote URL.
+func TestCreateChild_DerivesHumanReadableWorktreePath(t *testing.T) {
+	g := &fakeGit{addStartSha: "sha"}
+	var created workspace.CreateInput
+	ws := &fakeWorkspace{
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			created = in
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}
+	home := t.TempDir()
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(),
+		func() (string, error) { return home, nil })
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		RepoPath:     "/repo",
+		RemoteURL:    "https://github.com/test/repo.git",
+		Branch:       "feature/x",
+		ParentID:     "w-parent",
+		ParentBranch: "develop",
+	})
+	require.NoError(t, err)
+	assert.Equal(t,
+		filepath.Join(home, "projects", "p1", "github.com", "test", "repo", "feature", "x"),
+		created.WorktreePath)
+}
+
+// TestCreateChild_RejectsCaseOnlyClash proves a create whose derived worktree
+// path collides case-insensitively with an existing sibling is rejected at
+// creation (spec §3.9, decision 13) rather than disambiguated.
+func TestCreateChild_RejectsCaseOnlyClash(t *testing.T) {
+	home := t.TempDir()
+	// Pre-create a sibling branch leaf that differs only by case from the
+	// candidate the create below derives (main vs Main) under the same slug dir.
+	slugDir := filepath.Join(home, "projects", "p1", "github.com", "test", "repo")
+	require.NoError(t, os.MkdirAll(filepath.Join(slugDir, "Main"), 0o755))
+
+	g := &fakeGit{addStartSha: "sha"}
+	ws := &fakeWorkspace{
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(),
+		func() (string, error) { return home, nil })
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		RepoPath:     "/repo",
+		RemoteURL:    "https://github.com/test/repo.git",
+		Branch:       "main",
+		ParentBranch: "develop",
+	})
+	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	assert.NotContains(t, g.ops(), "WorktreeAdd", "a rejected clash must not touch the worktree")
+	assert.NotContains(t, g.ops(), "WorktreeAddBranch")
+}
+
 // TestCreateChild_CleansUpWorktreeOnCreateFailure proves H17: if the workspace
 // row fails to persist after the worktree + branch were created on disk, both are
 // cleaned up best-effort so a fresh-wsID retry is not blocked by the orphaned
@@ -603,7 +683,7 @@ func TestCreateChild_LocksProtectedBranch(t *testing.T) {
 	uc := worktree.New(ws, g, &fakeProvider{protected: []string{"feature/x"}}, &fakeRepoStore{}, newNow(), fakeHome())
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
-		RepoPath: "/repo", RemoteURL: "https://github.com/test/repo.git", Branch: "feature/x", ParentBranch: "develop",
+		RepoPath: "/repo", ProjectID: "p1", RemoteURL: "https://github.com/test/repo.git", Branch: "feature/x", ParentBranch: "develop",
 	})
 	require.NoError(t, err)
 	assert.True(t, created.Protected)
@@ -677,10 +757,10 @@ func TestCreateChild_RemoteBranchExists_ChecksOut(t *testing.T) {
 	// Op sequence: parent fast-forward check + fast-forward, then child exists
 	// check + fast-forward + rev-parse + worktree-add.
 	assert.Equal(t, []string{
-		"RemoteBranchExists",  // parent exists?
-		"FastForwardBranch",   // fast-forward parent
-		"RemoteBranchExists",  // child exists?
-		"FastForwardBranch",   // fast-forward child
+		"RemoteBranchExists", // parent exists?
+		"FastForwardBranch",  // fast-forward parent
+		"RemoteBranchExists", // child exists?
+		"FastForwardBranch",  // fast-forward child
 		"RevParse",
 		"WorktreeAdd",
 	}, g.ops())
@@ -734,7 +814,7 @@ func TestCreateChild_RemoteBranchExistsError(t *testing.T) {
 	g := &fakeGit{remoteExistsErr: errBoom}
 	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
-		RepoPath: "/r", Branch: "b", ParentBranch: "develop",
+		RepoPath: "/r", ProjectID: "p1", Branch: "b", ParentBranch: "develop",
 	})
 	require.ErrorIs(t, err, errBoom)
 }
@@ -746,7 +826,7 @@ func TestCreateChild_FastForwardBranchError(t *testing.T) {
 	g := &fakeGit{remoteExists: true, fastForwardBranchErr: errBoom}
 	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
-		RepoPath: "/r", Branch: "b", ParentBranch: "develop",
+		RepoPath: "/r", ProjectID: "p1", Branch: "b", ParentBranch: "develop",
 	})
 	require.ErrorIs(t, err, errBoom)
 }
@@ -755,7 +835,7 @@ func TestCreateChild_CheckoutWorktreeAddError(t *testing.T) {
 	g := &fakeGit{remoteExists: true, revParseSha: "s", worktreeAddErr: errBoom}
 	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
-		RepoPath: "/r", Branch: "b", ParentBranch: "develop",
+		RepoPath: "/r", ProjectID: "p1", Branch: "b", ParentBranch: "develop",
 	})
 	require.ErrorIs(t, err, errBoom)
 }
@@ -764,7 +844,7 @@ func TestCreateChild_CheckoutRevParseError(t *testing.T) {
 	g := &fakeGit{remoteExists: true, revParseErr: errBoom}
 	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
-		RepoPath: "/r", Branch: "b", ParentBranch: "develop",
+		RepoPath: "/r", ProjectID: "p1", Branch: "b", ParentBranch: "develop",
 	})
 	require.ErrorIs(t, err, errBoom)
 }
@@ -1034,7 +1114,7 @@ func TestCreateChild_WorktreeAddError(t *testing.T) {
 	g := &fakeGit{addErr: errBoom}
 	ws := &fakeWorkspace{}
 	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
-	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{RepoPath: "/r", RemoteURL: "https://github.com/test/repo.git", Branch: "b"})
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{RepoPath: "/r", ProjectID: "p1", RemoteURL: "https://github.com/test/repo.git", Branch: "b"})
 	require.ErrorIs(t, err, errBoom)
 }
 
@@ -1042,7 +1122,7 @@ func TestCreateChild_ProviderError(t *testing.T) {
 	g := &fakeGit{addStartSha: "s"}
 	ws := &fakeWorkspace{}
 	uc := worktree.New(ws, g, &fakeProvider{err: errBoom}, &fakeRepoStore{}, newNow(), fakeHome())
-	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{RepoPath: "/r", RemoteURL: "https://github.com/test/repo.git", Branch: "b"})
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{RepoPath: "/r", ProjectID: "p1", RemoteURL: "https://github.com/test/repo.git", Branch: "b"})
 	require.ErrorIs(t, err, errBoom)
 }
 

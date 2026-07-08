@@ -1,10 +1,10 @@
 // Package worktreepath derives deterministic filesystem paths for git
 // worktrees and per-entity directories, all rooted under ~/.crowbar.
 //
-// It exposes two path families. The legacy per-entity helpers (For, StorageDir,
-// ThreadsStorageDir, RepoDir, ...) key directories by opaque UUIDs
-// (projectID/repoID/workspaceID). The human-readable family (Derive, HomeLeaf)
-// keys the git worktree by its natural identity —
+// It exposes two path families. The per-entity helpers (StorageDir,
+// ThreadsStorageDir, RepoDir, ...) key metadata directories by opaque UUIDs
+// (projectID/repoID/workspaceID). The human-readable family (Derive, HomeLeaf,
+// RemoteSlug) keys the git worktree by its natural identity —
 // <home>/projects/<project>/<host>/<owner>/<repo>/<branch>/ — so navigable
 // paths carry no UUIDs (spec §3.9). DetectClash rejects case-only collisions on
 // case-insensitive filesystems and Move relocates a worktree while keeping the
@@ -103,21 +103,6 @@ func Move(
 		return fmt.Errorf("worktreepath: update path map: %w", err)
 	}
 	return nil
-}
-
-// For returns the git worktree directory for a workspace.
-//
-// Path: <crowbarHome>/projects/<projectID>/<repoID>/workspaces/<workspaceID>/worktree
-func For(
-	crowbarHome string,
-	projectID string,
-	repoID string,
-	workspaceID string,
-) string {
-	return filepath.Join(
-		workspaceDir(crowbarHome, projectID, repoID, workspaceID),
-		"worktree",
-	)
 }
 
 // StorageDir returns the per-workspace storage directory.

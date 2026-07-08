@@ -11,15 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 )
 
-func TestFor_UUIDPath(t *testing.T) {
-	path := For("/crow", "proj-1", "repo-1", "ws-abc")
-	assert.Equal(
-		t,
-		"/crow/projects/proj-1/repo-1/workspaces/ws-abc/worktree",
-		path,
-	)
-}
-
 func TestStorageDir(t *testing.T) {
 	dir := StorageDir("/crow", "proj-1", "repo-1", "ws-abc")
 	assert.Equal(
@@ -66,18 +57,6 @@ func TestProjectStorageDir(t *testing.T) {
 func TestGlobalStateDir(t *testing.T) {
 	dir := GlobalStateDir("/crow")
 	assert.Equal(t, "/crow/state", dir)
-}
-
-func TestFor_Deterministic(t *testing.T) {
-	a := For("/crow", "proj-1", "repo-1", "ws-1")
-	b := For("/crow", "proj-1", "repo-1", "ws-1")
-	assert.Equal(t, a, b)
-}
-
-func TestFor_DivergesByWorkspace(t *testing.T) {
-	a := For("/crow", "proj-1", "repo-1", "ws-1")
-	b := For("/crow", "proj-1", "repo-1", "ws-2")
-	assert.NotEqual(t, a, b)
 }
 
 func TestDefaultCrowbarHome(t *testing.T) {

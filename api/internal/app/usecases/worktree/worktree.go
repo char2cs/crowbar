@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -189,7 +191,10 @@ func (u *worktreeUsecase) CreateChild(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("create child: locked: %w", err)
 	}
-	path := worktreepath.For(home, in.ProjectID, in.RepoID, wsID)
+	path, err := u.deriveWorktreePath(ctx, home, in.ProjectID, in.RepoID, in.RemoteURL, in.Branch)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
 	detached := false
 	startSha, err := u.addWorktree(ctx, in, path)
 	if err != nil {
@@ -238,6 +243,81 @@ func (u *worktreeUsecase) CreateChild(
 		return domain.Workspace{}, err
 	}
 	return ws, nil
+}
+
+// deriveWorktreePath returns the human-readable git worktree directory for a
+// branch — <home>/projects/<project>/<slug>/<branch> (spec §3.9) — with the repo
+// slug resolved from its remote identity. It rejects a candidate that collides
+// case-insensitively with an existing sibling worktree (spec §3.9, decision 13),
+// surfacing the clash as apperr.ErrInvalidArgument.
+func (u *worktreeUsecase) deriveWorktreePath(
+	ctx context.Context,
+	home string,
+	projectID string,
+	repoID string,
+	remoteURL string,
+	branch string,
+) (string, error) {
+	slug, err := u.resolveSlug(ctx, repoID, remoteURL)
+	if err != nil {
+		return "", fmt.Errorf("resolve worktree slug: %w", err)
+	}
+	path, err := worktreepath.Derive(home, projectID, slug, branch)
+	if err != nil {
+		return "", err
+	}
+	siblings, err := siblingWorktreePaths(home, projectID, slug)
+	if err != nil {
+		return "", fmt.Errorf("scan sibling worktrees: %w", err)
+	}
+	if clashErr := worktreepath.DetectClash(siblings, path); clashErr != nil {
+		return "", fmt.Errorf("%w: %v", apperr.ErrInvalidArgument, clashErr)
+	}
+	return path, nil
+}
+
+// resolveSlug resolves the repo's on-disk identity slug (spec §3.9). A caller
+// that already carries the remote URL (Create) resolves it directly; otherwise
+// the repo row is loaded so the no-remote fallback can reach its name.
+func (u *worktreeUsecase) resolveSlug(
+	ctx context.Context,
+	repoID string,
+	remoteURL string,
+) (string, error) {
+	if remoteURL != "" {
+		return worktreepath.RemoteSlug(domain.Repository{RemoteURL: remoteURL}), nil
+	}
+	repo, err := u.repos.FindByKey(ctx, repoID)
+	if err != nil {
+		return "", err
+	}
+	if repo == nil {
+		return "", apperr.ErrNotFound
+	}
+	return worktreepath.RemoteSlug(*repo), nil
+}
+
+// siblingWorktreePaths lists the existing branch-leaf worktrees under a repo's
+// derived slug directory, so a create can reject a case-insensitive path clash.
+// A not-yet-created slug directory yields no siblings.
+func siblingWorktreePaths(
+	home string,
+	projectID string,
+	slug string,
+) ([]string, error) {
+	parent := filepath.Join(home, "projects", projectID, slug)
+	entries, err := os.ReadDir(parent)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		paths = append(paths, filepath.Join(parent, entry.Name()))
+	}
+	return paths, nil
 }
 
 // addWorktree applies the spec-§3 checkout-vs-create decision and returns the
@@ -762,7 +842,10 @@ func (u *worktreeUsecase) RetryProvision(
 	if outcome.Kind == holder.HeldByHome || outcome.Kind == holder.HeldByExternal {
 		return domain.Workspace{}, fmt.Errorf("%w (%s at %s)", ErrBranchStillHeld, ws.Branch, outcome.HeldByPath)
 	}
-	path := worktreepath.For(home, ws.ProjectID, ws.RepoID, ws.ID)
+	path, err := u.deriveWorktreePath(ctx, home, ws.ProjectID, ws.RepoID, "", ws.Branch)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
 	startSha, err := u.materializeProtectedWorktree(ctx, repoPath, ws.Branch, path)
 	if err != nil {
 		return domain.Workspace{}, err

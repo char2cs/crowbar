@@ -570,9 +570,21 @@ func (u *projectImport) provisionProtectedBranchWorktree(
 	case holder.HeldByHome, holder.HeldByExternal:
 		return u.createPlaceholderWorkspace(ctx, repo, branch, outcome.HeldByPath)
 	}
-	// Free: provision the managed worktree.
+	// Free: provision the managed worktree at its human-readable derived path
+	// <home>/projects/<project>/<slug>/<branch> (spec §3.9).
 	wsID := uuid.NewString()
-	path := worktreepath.For(crowbarHome, repo.ProjectID, repo.ID, wsID)
+	slug := worktreepath.RemoteSlug(repo)
+	path, err := worktreepath.Derive(crowbarHome, repo.ProjectID, slug, branch)
+	if err != nil {
+		return fmt.Errorf("derive worktree path for %q: %w", branch, err)
+	}
+	siblings, err := siblingWorktreePaths(crowbarHome, repo.ProjectID, slug)
+	if err != nil {
+		return fmt.Errorf("scan sibling worktrees for %q: %w", branch, err)
+	}
+	if clashErr := worktreepath.DetectClash(siblings, path); clashErr != nil {
+		return fmt.Errorf("worktree path clash for %q: %w", branch, clashErr)
+	}
 	startSha, err := u.addProtectedWorktree(ctx, repo, branch, path)
 	if err != nil {
 		return err
@@ -708,4 +720,27 @@ func gitRemoteURL(repoPath string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// siblingWorktreePaths lists the existing branch-leaf worktrees under a repo's
+// derived slug directory, so a managed-worktree create can reject a
+// case-insensitive path clash (spec §3.9). A missing slug directory yields none.
+func siblingWorktreePaths(
+	crowbarHome string,
+	projectID string,
+	slug string,
+) ([]string, error) {
+	parent := filepath.Join(crowbarHome, "projects", projectID, slug)
+	entries, err := os.ReadDir(parent)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		paths = append(paths, filepath.Join(parent, entry.Name()))
+	}
+	return paths, nil
 }
