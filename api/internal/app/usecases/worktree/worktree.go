@@ -137,6 +137,7 @@ func New(
 	return u
 }
 
+//nolint:gocyclo // orchestrates create with intricate worktree/branch rollback paths; splitting risks the rollback invariants
 func (u *worktreeUsecase) CreateChild(
 	ctx context.Context,
 	in CreateChildInput,
@@ -168,7 +169,7 @@ func (u *worktreeUsecase) CreateChild(
 	// the default branch via the branch panel after the folder is already
 	// adopted) must NOT create a second default — fall through to the managed
 	// worktree path, where git rejects checking the branch out a second time.
-	if in.ParentID == "" && in.Branch == in.ParentBranch {
+	if in.ParentID == "" && in.Branch == in.ParentBranch { //nolint:nestif // adopt-vs-managed create branching; flattening risks the adoption invariant
 		adopted, err := u.mainWorktreeAdopted(ctx, in.RepoID)
 		if err != nil {
 			return domain.Workspace{}, err
@@ -194,7 +195,7 @@ func (u *worktreeUsecase) CreateChild(
 	}
 	detached := false
 	startSha, err := u.addWorktree(ctx, in, path)
-	if err != nil {
+	if err != nil { //nolint:nestif // main-folder detach-and-retry rollback; flattening risks the detach/reattach invariant
 		// git refuses a worktree on a branch that's already checked out. If the
 		// holder is the repo's MAIN folder (the unmanaged default workspace),
 		// detach it — its branch is incidental — to free the branch, and retry
@@ -221,7 +222,7 @@ func (u *worktreeUsecase) CreateChild(
 		ParentID:     in.ParentID,
 		Protected:    locked || in.ForceLocked,
 	}, u.now())
-	if err != nil {
+	if err != nil { //nolint:nestif // orphan worktree+branch cleanup after a failed row create; flattening risks the rollback ordering
 		// The worktree + branch are on disk but the workspace row never landed.
 		// Clean them up best-effort so a fresh-wsID retry isn't blocked by the
 		// orphaned branch and the worktree dir doesn't dangle forever.
@@ -344,7 +345,7 @@ func (u *worktreeUsecase) addWorktree(
 	// and the new branch immediately diverges from what the remote already has.
 	// Best-effort: a network outage or diverged parent must not block branch
 	// creation — the user can pull the parent manually afterward.
-	if in.ParentBranch != "" {
+	if in.ParentBranch != "" { //nolint:nestif // best-effort parent fast-forward before branching; guards are load-bearing
 		if parentOnRemote, err := u.git.RemoteBranchExists(ctx, in.RepoPath, in.ParentBranch); err == nil && parentOnRemote {
 			if err := u.git.FastForwardBranch(ctx, in.RepoPath, in.ParentBranch); err != nil {
 				slog.WarnContext(ctx, "create child: could not fast-forward parent; branching from local tip",
@@ -612,7 +613,7 @@ func (u *worktreeUsecase) handleMergeError(
 		abortPath = child.WorktreePath
 		abortWS = child.ID
 	}
-	if abortErr := u.git.OperationAbort(ctx, abortPath); abortErr != nil {
+	if abortErr := u.git.OperationAbort(ctx, abortPath); abortErr != nil { //nolint:nestif // stuck-worktree recovery after a failed conflict abort; flattening risks the recovery path
 		slog.WarnContext(ctx, "merge: abort after conflict failed; worktree may be stuck",
 			"workspace_id", child.ID, "abort_path", abortPath, "err", abortErr)
 		// The abort failed, so the worktree that holds the op is NOT clean — its
@@ -915,7 +916,7 @@ func (u *worktreeUsecase) DetachHolder(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("detach holder: resolve holder: %w", err)
 	}
-	if outcome.Kind == holder.HeldByHome || outcome.Kind == holder.HeldByExternal {
+	if outcome.Kind == holder.HeldByHome || outcome.Kind == holder.HeldByExternal { //nolint:nestif // consent-gated holder detach + home-branch clear; flattening risks the detach/clear ordering
 		if dErr := u.git.DetachWorktree(ctx, outcome.HeldByPath); dErr != nil {
 			return domain.Workspace{}, fmt.Errorf("detach holder: detach %s: %w", outcome.HeldByPath, dErr)
 		}
@@ -1036,7 +1037,7 @@ func (u *worktreeUsecase) removeOne(
 		slog.WarnContext(ctx, "cascade: worktree remove failed (continuing)",
 			"ws", ws.ID, "worktree", ws.WorktreePath, "err", removeErr)
 	}
-	if ws.Branch != "" && ws.Branch == repo.DefaultBranch {
+	if ws.Branch != "" && ws.Branch == repo.DefaultBranch { //nolint:nestif // default-branch reattach vs force-delete teardown; the branch guard is load-bearing
 		// The default branch is the unmanaged main folder's branch and the shared
 		// integration branch — NEVER delete it on workspace removal. If the main
 		// folder was detached to free it for this managed worktree, re-attach it

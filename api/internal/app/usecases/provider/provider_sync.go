@@ -23,7 +23,7 @@ type WorkspaceRepo interface {
 		now time.Time,
 	) (domain.Workspace, error)
 	List(ctx context.Context) ([]domain.Workspace, error)
-	SetParentFromPR(ctx context.Context, id string, parentID string) (domain.Workspace, error)
+	SetParentFromPR(ctx context.Context, id, parentID string) (domain.Workspace, error)
 }
 
 // Engine is the provider-engine surface Usecase needs.

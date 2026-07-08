@@ -156,11 +156,11 @@ func (f *fakeWorkspace) TouchActivity(
 	return domain.Workspace{}, nil
 }
 
-func (f *fakeWorkspace) SetParentFromPR(_ context.Context, _ string, _ string) (domain.Workspace, error) {
+func (f *fakeWorkspace) SetParentFromPR(_ context.Context, _, _ string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
 
-func (f *fakeWorkspace) SetLastError(_ context.Context, _ string, _ string) (domain.Workspace, error) {
+func (f *fakeWorkspace) SetLastError(_ context.Context, _, _ string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
 
@@ -1904,8 +1904,10 @@ func TestRetryProvision_FreeBranch_ProvisionsInPlace(t *testing.T) {
 	var gotID, gotPath, gotSha string
 	ws := &fakeWorkspace{
 		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
-			return domain.Workspace{ID: id, RepoID: "r1", ProjectID: "p1", Branch: "develop",
-				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo"}, nil
+			return domain.Workspace{
+				ID: id, RepoID: "r1", ProjectID: "p1", Branch: "develop",
+				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo",
+			}, nil
 		},
 		ProvisionInPlaceFn: func(id, path, sha string) (domain.Workspace, error) {
 			gotID, gotPath, gotSha = id, path, sha
@@ -1930,8 +1932,10 @@ func TestRetryProvision_StillHeld_ReturnsError(t *testing.T) {
 	provisionCalled := false
 	ws := &fakeWorkspace{
 		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
-			return domain.Workspace{ID: id, RepoID: "r1", Branch: "develop",
-				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo"}, nil
+			return domain.Workspace{
+				ID: id, RepoID: "r1", Branch: "develop",
+				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo",
+			}, nil
 		},
 		ProvisionInPlaceFn: func(_, _, _ string) (domain.Workspace, error) {
 			provisionCalled = true
@@ -1961,8 +1965,10 @@ func TestDetachHolder_Home_ClearsBranchThenProvisions(t *testing.T) {
 	provisioned := false
 	ws := &fakeWorkspace{
 		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
-			return domain.Workspace{ID: id, RepoID: "r1", ProjectID: "p1", Branch: "develop",
-				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo"}, nil
+			return domain.Workspace{
+				ID: id, RepoID: "r1", ProjectID: "p1", Branch: "develop",
+				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo",
+			}, nil
 		},
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
 			return []domain.Workspace{
@@ -1998,8 +2004,10 @@ func TestDetachHolder_DetachFails_NoPartialState(t *testing.T) {
 	provisioned := false
 	ws := &fakeWorkspace{
 		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
-			return domain.Workspace{ID: id, RepoID: "r1", Branch: "develop",
-				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo"}, nil
+			return domain.Workspace{
+				ID: id, RepoID: "r1", Branch: "develop",
+				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo",
+			}, nil
 		},
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
 			return []domain.Workspace{{ID: "home", RepoID: "r1", IsDefault: true}}, nil
