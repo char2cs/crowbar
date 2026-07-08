@@ -459,7 +459,28 @@ func (h *Handlers) Icon(c *gin.Context) {
 	// URL (uploads overwrite the same file); the ?v= param on the DTO URL is
 	// the primary cache-buster, this header is the belt-and-braces layer.
 	c.Header("Cache-Control", "no-cache")
-	c.Data(http.StatusOK, http.DetectContentType(data), data)
+	c.Data(http.StatusOK, iconContentType(data), data)
+}
+
+// iconContentType picks the Content-Type for a stored icon. http.DetectContentType
+// has no SVG signature — it sniffs SVG as text/* — and browsers refuse to render
+// an <img> whose SVG is served as text/*. Some GitHub owner avatars are SVG (e.g.
+// org avatars), so detect SVG explicitly and serve image/svg+xml; otherwise the
+// fetched icon silently degrades to the generated label placeholder. Real raster
+// images keep their sniffed image/* type.
+func iconContentType(data []byte) string {
+	ct := http.DetectContentType(data)
+	if strings.HasPrefix(ct, "image/") {
+		return ct
+	}
+	head := data
+	if len(head) > 512 {
+		head = head[:512]
+	}
+	if strings.Contains(string(head), "<svg") {
+		return "image/svg+xml"
+	}
+	return ct
 }
 
 // iconPath resolves the entity-scoped icon file path from the request's
