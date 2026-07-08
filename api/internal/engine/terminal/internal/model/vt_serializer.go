@@ -126,7 +126,7 @@ func writeModes(
 		b.WriteString(ansi.ResetMode(ansi.DECMode(7)))
 	}
 	writeCharset(b, sh)
-	if sh.scrollRegionSet && !(sh.scrollTop == 1 && sh.scrollBottom == rows) {
+	if sh.scrollRegionSet && (sh.scrollTop != 1 || sh.scrollBottom != rows) {
 		b.WriteString(ansi.SetTopBottomMargins(sh.scrollTop, sh.scrollBottom))
 	}
 }
@@ -306,7 +306,7 @@ func decscusr(
 	blink bool,
 ) int {
 	base := 1
-	switch shape {
+	switch shape { //nolint:exhaustive // CursorBlock is the base=1 initializer default; only underline/bar override it.
 	case vt.CursorUnderline:
 		base = 3
 	case vt.CursorBar:

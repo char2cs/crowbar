@@ -88,7 +88,7 @@ func (v *vtEmu) drainResponses() {
 	defer close(v.drainDone)
 	buf := make([]byte, 512)
 	for {
-		n, err := v.Emulator.Read(buf)
+		n, err := v.Emulator.Read(buf) //nolint:staticcheck // QF1008: explicit Emulator qualifier mirrors the mandatory v.Emulator.Write above and documents that Read is promoted from the embedded emulator.
 		if n > 0 {
 			if sink := v.sink.Load(); sink != nil {
 				(*sink)(append([]byte(nil), buf[:n]...))
@@ -121,7 +121,7 @@ func (v *vtEmu) SetResponseSink(f func(p []byte)) {
 // (model.Close / recreateEmu), and Close is serialised with Write by the session lock, so no
 // further Write races this teardown.
 func (v *vtEmu) Close() {
-	if pw, ok := v.Emulator.InputPipe().(io.Closer); ok {
+	if pw, ok := v.Emulator.InputPipe().(io.Closer); ok { //nolint:staticcheck // QF1008: explicit Emulator qualifier mirrors the mandatory v.Emulator.Write above and documents that InputPipe is promoted from the embedded emulator.
 		_ = pw.Close()
 	}
 	<-v.drainDone

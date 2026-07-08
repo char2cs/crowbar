@@ -26,12 +26,12 @@ type shadowState struct {
 	// DECSET ?66h would NOT re-establish application-keypad on the live client.
 	keypadApplication bool
 	modes             map[int]bool
-	fg              color.Color
-	bg              color.Color
-	cursorColor     color.Color
-	fgSet           bool
-	bgSet           bool
-	cursorColorSet  bool
+	fg                color.Color
+	bg                color.Color
+	cursorColor       color.Color
+	fgSet             bool
+	bgSet             bool
+	cursorColorSet    bool
 }
 
 // trackedModes is the set of DEC private modes the serializer re-asserts. Modes outside

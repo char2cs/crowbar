@@ -102,7 +102,7 @@ type TerminalModel interface {
 
 	// HeaderState returns, in one call, the four fields the persistence header needs:
 	// grid cols and rows, the alt-screen flag, and the configured scrollback depth.
-	HeaderState() (cols int, rows int, alt bool, scrollbackLines int)
+	HeaderState() (cols, rows int, alt bool, scrollbackLines int)
 
 	// ModelBytes returns the model's estimated resident size in bytes: the live cell
 	// grid plus any retained scrollback cells. The session adds its own cached-blob

@@ -23,7 +23,7 @@ func settle(
 	stable := 0
 	for {
 		cur := s.SerializedLen()
-		if cur == last {
+		if cur == last { //nolint:nestif // stability-counter poll loop; the nested threshold check reads clearer inline than extracted.
 			stable++
 			if stable >= 5 {
 				return
