@@ -139,6 +139,12 @@ func (s *LifecycleSuite) TestLifecycle_WorkspaceList() {
 		ids[i] = s.Env.CreateWorkspace(t, imported.ProjectID, imported.RepoID, branch)
 	}
 
+	// CreateWorkspace returns once the create is observed on the hub broadcast (WS),
+	// but the list route reads the store projection — an independent async read
+	// model that can trail the WS frame. Drain asynx so both projections are
+	// settled, then assert the snapshot deterministically (no polling, no timeout).
+	s.Env.Quiesce()
+
 	listResp := s.Env.GET(t,
 		"/v0/projects/"+imported.ProjectID+"/repos/"+imported.RepoID+"/workspaces")
 	kit.RequireStatus(t, listResp, http.StatusOK)

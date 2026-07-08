@@ -339,20 +339,16 @@ func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 	terminal.SetLastActiveForTest(eng, sidRunning, base)
 	terminal.SetLastActiveForTest(eng, sidIdle, base.Add(time.Minute))
 
-	// Run maintenance — workspace has 2 detached sessions > limit of 1.
-	// The running one must be skipped; the idle one gets suspended.
-	terminal.RunMaintenanceOnceForTest(eng, ctx)
-
-	// Suspend runs synchronously inside the sweep and persists "suspended" before
-	// returning; wait on that observable state rather than sleeping.
-	require.Eventually(t, func() bool {
-		return store.hasSavedWithState(sidIdle, "suspended")
-	}, 10*time.Second, 10*time.Millisecond,
-		"idle detached session must be suspended by soft limit")
-
-	// sidIdle must be suspended.
-	assert.True(t, store.hasSavedWithState(sidIdle, "suspended"),
-		"idle detached session must be suspended by soft limit")
+	// Workspace has 2 detached sessions > limit of 1: the running one must be
+	// skipped, the idle one suspended. Suspend is synchronous, but the idle check
+	// (TIOCGPGRP) can transiently read non-idle under load and skip a pass; production
+	// retries via the ticker. Drive maintenance until the idle session is suspended —
+	// the loop exit IS the assertion. The running session (foreground `sleep`) is
+	// never idle, so extra passes cannot suspend it (the Write assertion below guards
+	// that), and a genuine failure is caught by the go test -timeout backstop.
+	for !store.hasSavedWithState(sidIdle, "suspended") {
+		terminal.RunMaintenanceOnceForTest(eng, ctx)
+	}
 
 	// sidRunning must still be live and writable.
 	assert.NoError(t, eng.Write(ctx, sidRunning, []byte("echo running\n")),

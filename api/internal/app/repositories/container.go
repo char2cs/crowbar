@@ -26,6 +26,11 @@ type Container struct {
 	ReviewThread reviewthread.ReviewThread
 	hub          hub.WebSocketHub
 	git          wsusecase.MergeConflictChecker
+	// axWorkspace/axReviewThread are the per-type asynx instances, retained so
+	// WaitQuiescent can drain their dispatch queues + projection handlers — the
+	// deterministic read-your-writes barrier for tests (no polling, no timeouts).
+	axWorkspace    asynx.Asynx[domain.Workspace]
+	axReviewThread asynx.Asynx[domain.ReviewThread]
 	// inflight counts the background mutations currently running per workspace
 	// id (00 §4 fail-fast/good-path-async). It backs the derived Working overlay:
 	// the API layer brackets each async op with BeginWork/EndWork, and every
@@ -70,7 +75,7 @@ func New(
 	axWorkspace asynx.Asynx[domain.Workspace],
 	git wsusecase.MergeConflictChecker,
 ) (*Container, error) {
-	c := &Container{hub: h, git: git, inflight: map[string]int{}}
+	c := &Container{hub: h, git: git, inflight: map[string]int{}, axWorkspace: axWorkspace, axReviewThread: axReviewThread}
 	pathsStore, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
 	if err != nil {
 		return nil, fmt.Errorf("repositories: workspace paths: %w", err)
@@ -108,6 +113,18 @@ func New(
 		return nil, fmt.Errorf("repositories: wire callbacks: %w", err)
 	}
 	return c, nil
+}
+
+// WaitQuiescent blocks until every per-type asynx instance has drained its
+// dispatch queue and run all projection handlers (WaitPublish = dispatcher
+// WaitIdle + bus WaitForHandlers). It is the deterministic read-your-writes
+// barrier: production uses the async Send path, so the store/list read model and
+// the hub broadcast are INDEPENDENT projections that settle out of band; a test
+// calls WaitQuiescent after a mutation so a subsequent read of ANY projection is
+// guaranteed consistent — with no polling and no timeouts.
+func (c *Container) WaitQuiescent() {
+	c.axWorkspace.WaitPublish()
+	c.axReviewThread.WaitPublish()
 }
 
 // wireCallbacks registers the app-level cross-aggregate reactions on the singleton

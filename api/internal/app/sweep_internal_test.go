@@ -49,12 +49,9 @@ func TestSweepTargets_FiltersOpenPROnly(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create/SyncProviderState commit via async Send, so the store projection that
-	// List reads is eventually consistent (see rebuild_test.go: "SendWait makes the
-	// store projection deterministic"). Poll until it converges — matching the
-	// production sweep, which is itself a periodic poll.
-	require.Eventually(t, func() bool {
-		return len(sweepTargets(repo)()) == 1
-	}, 5*time.Second, 20*time.Millisecond, "sweep must converge to exactly the open-PR workspace")
+	// List reads settles out of band. Drain asynx so the read model is consistent,
+	// then assert deterministically (no polling, no timeout).
+	c.Repositories.WaitQuiescent()
 	targets := sweepTargets(repo)()
 	require.Len(t, targets, 1)
 	assert.Equal(t, "open", targets[0].WSID)
@@ -97,24 +94,17 @@ func TestSweeper_FiltersByPRUrlAndTerminalState(t *testing.T) {
 		"nopr":      false,
 	}
 
-	// Eventually-consistent read model (async Send projection): poll until the
-	// sweep target set matches the expected inclusion map.
-	require.Eventually(t, func() bool {
-		got := make(map[string]bool)
-		for _, tgt := range sweepTargets(repo)() {
-			got[tgt.WSID] = true
-		}
-		for id, included := range want {
-			if got[id] != included {
-				return false
-			}
-		}
-		return true
-	}, 5*time.Second, 20*time.Millisecond, "sweep targets must converge to the expected set")
+	// Drain asynx so the store projection reflects every Create/SyncProviderState,
+	// then assert the sweep set deterministically (no polling, no timeout).
+	c.Repositories.WaitQuiescent()
 
-	// Every surfaced target must carry HasOpenPR.
+	got := make(map[string]bool)
 	for _, tgt := range sweepTargets(repo)() {
+		got[tgt.WSID] = true
 		assert.Truef(t, tgt.HasOpenPR, "sweep target %s must carry HasOpenPR", tgt.WSID)
+	}
+	for id, included := range want {
+		assert.Equalf(t, included, got[id], "workspace %s included=%v", id, included)
 	}
 }
 

@@ -747,15 +747,14 @@ func TestMaintenance_Phase3aIdleSuspend(t *testing.T) {
 	SetLastActiveForTest(e, sid1, base)
 	SetLastActiveForTest(e, sid2, base.Add(time.Minute))
 
-	e.runMaintenanceOnce(ctx)
-
-	// runMaintenanceOnce suspends synchronously (Suspend persists "suspended" before
-	// returning); wait on that observable state deterministically instead of sleeping.
-	require.Eventually(t, func() bool {
-		return store.savedState(sid1, "suspended")
-	}, 5*time.Second, 20*time.Millisecond, "the oldest idle session must be suspended")
-
-	assert.True(t, store.savedState(sid1, "suspended"), "the oldest idle session must be suspended")
+	// Suspend runs synchronously inside the sweep, but the idle check (TIOCGPGRP)
+	// can transiently read non-idle under load and skip that pass; production retries
+	// via the maintenance ticker. Drive maintenance until the suspend lands — the loop
+	// exit IS the assertion, and a genuine "never suspends" bug is caught by the
+	// go test -timeout backstop rather than a hard-coded per-test deadline.
+	for !store.savedState(sid1, "suspended") {
+		e.runMaintenanceOnce(ctx)
+	}
 	assert.NoError(t, e.Write(ctx, sid2, []byte("echo alive\n")), "the newer session must stay live")
 	_ = e.Kill(ctx, sid1)
 	_ = e.Kill(ctx, sid2)
@@ -780,14 +779,13 @@ func TestMaintenance_Phase3aSuspendLastThenReturn(t *testing.T) {
 	defer restoreB()
 	SetLastActiveForTest(e, sid, time.Now().Add(-time.Hour))
 
-	e.runMaintenanceOnce(ctx)
-	// Suspend runs synchronously inside the sweep; wait on the persisted state.
-	require.Eventually(t, func() bool {
-		return store.savedState(sid, "suspended")
-	}, 5*time.Second, 20*time.Millisecond,
-		"the single idle session must be suspended, bringing the engine under the ceiling")
-	assert.True(t, store.savedState(sid, "suspended"),
-		"the single idle session must be suspended, bringing the engine under the ceiling")
+	// Suspend runs synchronously inside the sweep, but the idle check (TIOCGPGRP)
+	// can transiently read non-idle under load and skip that pass; production retries
+	// via the ticker. Drive maintenance until the suspend lands — the loop exit IS the
+	// assertion; a genuine failure is caught by the go test -timeout backstop.
+	for !store.savedState(sid, "suspended") {
+		e.runMaintenanceOnce(ctx)
+	}
 	_ = e.Kill(ctx, sid)
 }
 

@@ -1046,6 +1046,16 @@ type ImportedRepo struct {
 	RepoPath    string
 }
 
+// Quiesce blocks until every per-type asynx projection has drained (dispatch
+// queue idle + all projection handlers run) — the deterministic read-your-writes
+// barrier. The create/mutation helpers observe completion on the hub broadcast
+// (WS), but the store/list read model is an INDEPENDENT async projection that can
+// trail the WS frame; call Quiesce after a mutation so a subsequent read of the
+// list/store is guaranteed consistent, with no polling and no timeouts.
+func (e *Env) Quiesce() {
+	e.app.Repositories.WaitQuiescent()
+}
+
 // ImportRepo creates a real git repo at the supplied path (or inits a fresh one
 // when path is empty), imports it as a project, and runs the full per-repo
 // import (RegisterRepo) which adopts the default-branch worktree as a workspace.
