@@ -70,5 +70,9 @@ func TestTerminalsDef_SnapshotFromEngine(t *testing.T) {
 	assert.Equal(t, "p1", got[0].ProjectID)
 	assert.Equal(t, "r1", got[0].RepoID)
 	assert.Equal(t, "w1", got[0].WorkspaceID)
-	assert.Equal(t, "active", got[0].Status)
+	// The session was created but no WS client has attached, so its real engine
+	// state is "detached" (Session.State(): "active" requires len(clients) > 0;
+	// a live PTY with no clients is "detached"). The snapshot must report that
+	// actual state, not assume a freshly-created session is "active".
+	assert.Equal(t, "detached", got[0].Status)
 }
