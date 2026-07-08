@@ -14,6 +14,7 @@ import (
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
+	"github.com/char2cs/crowbar/api/internal/core/paths"
 )
 
 // per-entity DB file names (siblings inside a storages/ directory).
@@ -22,17 +23,39 @@ const (
 	viewDBName        = "view.db"
 )
 
-// Container is the persistence layer. The workspace aggregate is event-sourced
-// per entity: each workspace owns its own event_stream.db + view.db under
-// <home>/projects/<P>/<R>/workspaces/<W>/storages, opened lazily and cached in a
-// ref-counted LRU registry. The chat and reviewthread aggregates keep their
-// global event stores under <home>/state. Projects, repositories, terminal
-// profiles, and settings live in the global view.db (also under <home>/state).
+// per-type DB file names under state/events and state/store. One event log +
+// one read-model DB per aggregate type, routed by shard hash across many ids.
+const (
+	workspaceDBName    = "workspace.db"
+	reviewThreadDBName = "review_thread.db"
+)
+
+// Container is the persistence layer.
+//
+// The quiver-faithful per-type plane opens ONE event log + ONE read-model DB
+// per aggregate type at boot: state/events/<type>.db (append-only truth) and
+// state/store/<type>.db (durable read-model projection, opened as a read pool).
+// One asynx instance per type routes many aggregate ids by shard hash.
+//
+// The per-entity workspace plane (per-workspace event_stream.db + view.db under
+// <home>/projects/<P>/<R>/workspaces/<W>/storages, LRU-cached) is retained ONLY
+// until its callers are converted in Task 7; it is deleted then. Chat keeps its
+// global event store under <home>/state until Task 13. Projects, repositories,
+// terminal profiles, and settings live in the global view.db under <home>/state.
 type Container struct {
 	crowbarHome string
 
 	chatES         asynxModels.Store
 	reviewThreadES asynxModels.Store
+
+	// Per-type handles (quiver-faithful). The workspace ones are exposed under
+	// temporary names (WorkspaceEventStore/WorkspaceStoreDB) because Go has no
+	// method overloading and the 3-arg per-entity WorkspaceES/WorkspaceView still
+	// live; Task 7 deletes the per-entity pair and promotes these to WorkspaceES()
+	// / WorkspaceView().
+	workspaceEventStore asynxModels.Store
+	workspaceStoreDB    *gormdb.DB
+	reviewThreadView    *gormdb.DB
 
 	workspaceES   *Registry[asynxModels.Store]
 	workspaceView *Registry[*gormdb.DB]
@@ -114,30 +137,75 @@ func newLocked(
 	home string,
 	stateDir string,
 	lock *instanceLock,
-) (*Container, error) {
+) (c *Container, err error) {
+	// Roll back every DB opened so far if any later open fails; on success err is
+	// nil and the container owns them (closed in Close).
+	var rollback []func() error
+	defer func() {
+		if err != nil {
+			for i := len(rollback) - 1; i >= 0; i-- {
+				_ = rollback[i]()
+			}
+		}
+	}()
+
 	chatES, err := eventsqlite.NewEventStore(filepath.Join(stateDir, "chat_"+eventStreamDBName))
 	if err != nil {
 		return nil, fmt.Errorf("adapter: chat event store: %w", err)
 	}
-	reviewThreadES, err := eventsqlite.NewEventStore(filepath.Join(stateDir, "review_thread_"+eventStreamDBName))
+	rollback = append(rollback, func() error { return closeEventStore(chatES) })
+
+	// Per-type planes derive from the resolved home via the home-parameterized
+	// path accessors (never paths.Events()/Store(), which are blind to cfg.homeDir
+	// and would leak state into the prod ~/.crowbar — decision 14).
+	eventsDir, err := paths.EventsAt(home)
 	if err != nil {
-		closeIfCloser(chatES)
+		return nil, fmt.Errorf("adapter: events dir: %w", err)
+	}
+	storeDir, err := paths.StoreAt(home)
+	if err != nil {
+		return nil, fmt.Errorf("adapter: store dir: %w", err)
+	}
+
+	reviewThreadES, err := eventsqlite.NewEventStore(filepath.Join(eventsDir, reviewThreadDBName))
+	if err != nil {
 		return nil, fmt.Errorf("adapter: review thread event store: %w", err)
 	}
+	rollback = append(rollback, func() error { return closeEventStore(reviewThreadES) })
 
-	globalView, err := storesqlite.OpenDB(filepath.Join(stateDir, viewDBName))
+	workspaceEventStore, err := eventsqlite.NewEventStore(filepath.Join(eventsDir, workspaceDBName))
 	if err != nil {
-		closeIfCloser(chatES)
-		closeIfCloser(reviewThreadES)
+		return nil, fmt.Errorf("adapter: workspace event store: %w", err)
+	}
+	rollback = append(rollback, func() error { return closeEventStore(workspaceEventStore) })
+
+	workspaceStoreDB, err := storesqlite.OpenReadPoolDB(filepath.Join(storeDir, workspaceDBName))
+	if err != nil {
+		return nil, fmt.Errorf("adapter: workspace store db: %w", err)
+	}
+	rollback = append(rollback, func() error { return closeViewDB(workspaceStoreDB) })
+
+	reviewThreadView, err := storesqlite.OpenReadPoolDB(filepath.Join(storeDir, reviewThreadDBName))
+	if err != nil {
+		return nil, fmt.Errorf("adapter: review thread view: %w", err)
+	}
+	rollback = append(rollback, func() error { return closeViewDB(reviewThreadView) })
+
+	globalView, err := storesqlite.OpenReadPoolDB(filepath.Join(stateDir, viewDBName))
+	if err != nil {
 		return nil, fmt.Errorf("adapter: global view: %w", err)
 	}
+	rollback = append(rollback, func() error { return closeViewDB(globalView) })
 
-	c := &Container{
-		crowbarHome:    home,
-		chatES:         chatES,
-		reviewThreadES: reviewThreadES,
-		globalView:     globalView,
-		lock:           lock,
+	c = &Container{
+		crowbarHome:         home,
+		chatES:              chatES,
+		reviewThreadES:      reviewThreadES,
+		workspaceEventStore: workspaceEventStore,
+		workspaceStoreDB:    workspaceStoreDB,
+		reviewThreadView:    reviewThreadView,
+		globalView:          globalView,
+		lock:                lock,
 	}
 	c.globalClosers = collectClosers(chatES, reviewThreadES)
 	c.workspaceES = NewRegistry[asynxModels.Store](maxOpenEntityDBs, closeEventStore)
@@ -150,13 +218,37 @@ func (c *Container) ChatES() asynxModels.Store {
 	return c.chatES
 }
 
-// ReviewThreadES returns the global reviewthread event store.
+// ReviewThreadES returns the reviewthread event log at state/events/review_thread.db.
 func (c *Container) ReviewThreadES() asynxModels.Store {
 	return c.reviewThreadES
 }
 
-// GlobalView returns the global view DB holding projects, repositories,
-// terminal profiles, and settings read models.
+// ReviewThreadView returns the reviewthread read-model DB at
+// state/store/review_thread.db, opened as a read pool. Task 12 wires the
+// reviewthread store/hub projections onto it (its read model moves out of the
+// shared view.db).
+func (c *Container) ReviewThreadView() *gormdb.DB {
+	return c.reviewThreadView
+}
+
+// WorkspaceEventStore returns the workspace event log at
+// state/events/workspace.db. This is the singleton per-type handle; Task 7
+// promotes it to WorkspaceES() once the 3-arg per-entity WorkspaceES is deleted.
+func (c *Container) WorkspaceEventStore() asynxModels.Store {
+	return c.workspaceEventStore
+}
+
+// WorkspaceStoreDB returns the workspace read-model DB at
+// state/store/workspace.db, opened as a read pool. Task 7 promotes it to
+// WorkspaceView() once the 3-arg per-entity WorkspaceView is deleted.
+func (c *Container) WorkspaceStoreDB() *gormdb.DB {
+	return c.workspaceStoreDB
+}
+
+// GlobalView returns the global view DB at state/view.db holding projects,
+// repositories, terminal profiles, and settings read models. It is a view DB, so
+// it is opened as a read pool (decision 12) — never the single-conn OpenDB that
+// would head-of-line-block reads.
 func (c *Container) GlobalView() *gormdb.DB {
 	return c.globalView
 }
@@ -239,8 +331,11 @@ func (c *Container) WorkspaceView(
 	return view, release, nil
 }
 
-// Close drains and closes every cached per-entity handle, the global view DB,
-// the global event stores, and finally releases the single-instance lock.
+// Close drains and closes every persistence plane — the per-type event/read
+// handles, the cached per-entity handles, the global view DB, and the global
+// event stores — then releases the single-instance lock. Closing a WAL DB's last
+// connection checkpoints its WAL, so errors.Join spans all planes with the WAL
+// checkpointed.
 func (c *Container) Close() error {
 	var errs []error
 
@@ -259,11 +354,31 @@ func (c *Container) Close() error {
 		}
 	}
 
+	if c.workspaceStoreDB != nil {
+		if err := closeViewDB(c.workspaceStoreDB); err != nil {
+			errs = append(errs, fmt.Errorf("adapter: close workspace store db: %w", err))
+		}
+		c.workspaceStoreDB = nil
+	}
+	if c.reviewThreadView != nil {
+		if err := closeViewDB(c.reviewThreadView); err != nil {
+			errs = append(errs, fmt.Errorf("adapter: close review thread view: %w", err))
+		}
+		c.reviewThreadView = nil
+	}
+
 	if c.globalView != nil {
 		if err := closeViewDB(c.globalView); err != nil {
 			errs = append(errs, fmt.Errorf("adapter: close global view: %w", err))
 		}
 		c.globalView = nil
+	}
+
+	if c.workspaceEventStore != nil {
+		if err := closeEventStore(c.workspaceEventStore); err != nil {
+			errs = append(errs, fmt.Errorf("adapter: close workspace event store: %w", err))
+		}
+		c.workspaceEventStore = nil
 	}
 
 	for _, cl := range c.globalClosers {

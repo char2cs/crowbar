@@ -42,7 +42,11 @@ func TestNewLocked_ReviewThreadEventStoreOpenError(t *testing.T) {
 	home := t.TempDir()
 	stateDir := metadata.GetStateDirPathAt(home)
 	require.NoError(t, os.MkdirAll(stateDir, 0o750))
-	blockPath(t, filepath.Join(stateDir, "review_thread_"+eventStreamDBName))
+	// The reviewthread event log now lives at state/events/review_thread.db;
+	// plant a directory there so its sqlite open fails.
+	eventsDir := metadata.GetEventsPathAt(home)
+	require.NoError(t, os.MkdirAll(eventsDir, 0o750))
+	blockPath(t, filepath.Join(eventsDir, reviewThreadDBName))
 
 	c, err := newLocked(home, stateDir, nil)
 	assert.Error(t, err)
