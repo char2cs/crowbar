@@ -107,11 +107,19 @@ func run(
 
 	runErr := cmd.Run()
 
-	return Result{
+	r := Result{
 		Stdout:   stdout.String(),
 		Stderr:   stderr.String(),
 		ExitCode: exitCode(cmd, runErr),
 	}
+	// A subprocess killed by a signal (ctx cancel, OOM) or a fork/exec failure
+	// exits with no git-produced stderr, leaving an opaque "exit -1: " error.
+	// Surface the run error so the actual cause (e.g. "signal: killed",
+	// "context canceled") reaches logs and the error envelope.
+	if r.ExitCode != 0 && r.Stderr == "" && runErr != nil {
+		r.Stderr = runErr.Error()
+	}
+	return r
 }
 
 // RequireSuccess returns an error if the result has a non-zero exit code.
