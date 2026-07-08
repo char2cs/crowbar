@@ -79,7 +79,7 @@ func Resolve(
 // samePath reports whether two paths refer to the same location, resolving
 // symlinks first (git worktree list emits fully-resolved paths, e.g. macOS
 // /var -> /private/var), matching the codebase's other holder checks.
-func samePath(a string, b string) bool {
+func samePath(a, b string) bool {
 	return resolvePath(a) == resolvePath(b)
 }
 
@@ -91,7 +91,7 @@ func resolvePath(p string) string {
 }
 
 // isUnder reports whether path is at or below root (symlink-resolved).
-func isUnder(path string, root string) bool {
+func isUnder(path, root string) bool {
 	if root == "" {
 		return false
 	}

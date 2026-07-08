@@ -124,11 +124,11 @@ func (m *mockWorkspace) List(ctx context.Context) ([]domain.Workspace, error) {
 	return nil, nil
 }
 
-func (m *mockWorkspace) SetParentFromPR(ctx context.Context, id string, parentID string) (domain.Workspace, error) {
+func (m *mockWorkspace) SetParentFromPR(ctx context.Context, id, parentID string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
 
-func (m *mockWorkspace) SetLastError(ctx context.Context, id string, message string) (domain.Workspace, error) {
+func (m *mockWorkspace) SetLastError(ctx context.Context, id, message string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
 
@@ -324,6 +324,7 @@ func (g *mockGitEngine) OperationAbort(ctx context.Context, repoPath string) err
 func (g *mockGitEngine) OperationInProgress(ctx context.Context, repoPath string) (string, error) {
 	return "", nil
 }
+
 func (g *mockGitEngine) WorktreeAdd(ctx context.Context, repoPath, worktreePath, branch string) error {
 	return nil
 }

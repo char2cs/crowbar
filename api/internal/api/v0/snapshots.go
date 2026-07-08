@@ -270,7 +270,7 @@ func terminalsSnapshot(
 		for _, id := range ids {
 			state, ok := engContainer.Terminal.StateOf(id)
 			if !ok {
-				state = "active" // session vanished between List and StateOf; skip
+				// session vanished between List and StateOf; skip
 				continue
 			}
 			out = append(out, dto.TerminalSessionDTOFrom(id, wsID, projectID, repoID, "", state, now))

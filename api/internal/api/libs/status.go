@@ -63,20 +63,11 @@ func StatusAndMessage(
 		return http.StatusInternalServerError, "internal error"
 	}
 
-	if errors.Is(err, apperr.ErrNotFound) ||
-		errors.Is(err, engineterminal.ErrSessionNotFound) ||
-		errors.Is(err, asynxmodels.ErrNotFound) ||
-		errors.Is(err, fs.ErrNotExist) ||
-		errors.Is(err, project.ErrFolderNotFound) ||
-		errors.Is(err, enginegit.ErrBranchNotFound) {
+	if isNotFound(err) {
 		return http.StatusNotFound, err.Error()
 	}
 
-	if errors.Is(err, enginesearch.ErrBadPattern) ||
-		errors.Is(err, enginesearch.ErrPathOutsideWorkspace) ||
-		errors.Is(err, safepath.ErrPathEscapesWorkspace) ||
-		errors.Is(err, apperr.ErrInvalidArgument) ||
-		errors.Is(err, enginegit.ErrNoRemote) {
+	if isBadRequest(err) {
 		return http.StatusBadRequest, err.Error()
 	}
 
@@ -108,6 +99,29 @@ func StatusAndMessage(
 	}
 
 	return http.StatusInternalServerError, err.Error()
+}
+
+// isNotFound reports whether err is one of the sentinels that map to HTTP 404.
+func isNotFound(
+	err error,
+) bool {
+	return errors.Is(err, apperr.ErrNotFound) ||
+		errors.Is(err, engineterminal.ErrSessionNotFound) ||
+		errors.Is(err, asynxmodels.ErrNotFound) ||
+		errors.Is(err, fs.ErrNotExist) ||
+		errors.Is(err, project.ErrFolderNotFound) ||
+		errors.Is(err, enginegit.ErrBranchNotFound)
+}
+
+// isBadRequest reports whether err is one of the sentinels that map to HTTP 400.
+func isBadRequest(
+	err error,
+) bool {
+	return errors.Is(err, enginesearch.ErrBadPattern) ||
+		errors.Is(err, enginesearch.ErrPathOutsideWorkspace) ||
+		errors.Is(err, safepath.ErrPathEscapesWorkspace) ||
+		errors.Is(err, apperr.ErrInvalidArgument) ||
+		errors.Is(err, enginegit.ErrNoRemote)
 }
 
 // isConflict reports whether err is one of the lock or non-leaf conflict

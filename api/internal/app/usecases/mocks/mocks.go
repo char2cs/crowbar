@@ -369,7 +369,7 @@ type ProviderSyncWorkspaceRepo struct {
 	GetFn             func(ctx context.Context, id string) (domain.Workspace, error)
 	SyncProviderFn    func(ctx context.Context, in workspace.ProviderInput, now time.Time) (domain.Workspace, error)
 	ListFn            func(ctx context.Context) ([]domain.Workspace, error)
-	SetParentFromPRFn func(ctx context.Context, id string, parentID string) (domain.Workspace, error)
+	SetParentFromPRFn func(ctx context.Context, id, parentID string) (domain.Workspace, error)
 }
 
 // NewProviderSyncWorkspaceRepo returns an empty ProviderSyncWorkspaceRepo.
@@ -399,7 +399,7 @@ func (r *ProviderSyncWorkspaceRepo) List(ctx context.Context) ([]domain.Workspac
 	return nil, nil
 }
 
-func (r *ProviderSyncWorkspaceRepo) SetParentFromPR(ctx context.Context, id string, parentID string) (domain.Workspace, error) {
+func (r *ProviderSyncWorkspaceRepo) SetParentFromPR(ctx context.Context, id, parentID string) (domain.Workspace, error) {
 	if r.SetParentFromPRFn != nil {
 		return r.SetParentFromPRFn(ctx, id, parentID)
 	}

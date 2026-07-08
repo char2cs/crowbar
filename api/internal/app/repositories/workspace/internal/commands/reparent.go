@@ -56,10 +56,9 @@ func (c Reparent) EmitEvent(
 	// the exact PR state. pr-conflicts is otherwise sticky (nextProviderStatus
 	// never overwrites it), so this is the only place a reparent can clear it.
 	if ws.Status == domain.WorkspaceStatusPRConflicts {
+		ws.Status = domain.WorkspaceStatusNew
 		if ws.PRUrl != "" {
 			ws.Status = domain.WorkspaceStatusPROpen
-		} else {
-			ws.Status = domain.WorkspaceStatusNew
 		}
 	}
 	return ws

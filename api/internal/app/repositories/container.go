@@ -125,6 +125,7 @@ func (c *Container) wireCallbacks(
 	crowbarHome string,
 ) error {
 	c.drainWG = &sync.WaitGroup{}
+	//nolint:gosec // G118: drainCancel is deliberately retained on the container and invoked later by the app layer's graceful shutdown via Drain().Cancel, not leaked.
 	c.drainCtx, c.drainCancel = context.WithCancel(ctx)
 
 	// The reactor lives under workspace/internal (unimportable from this out-of-tree

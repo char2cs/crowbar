@@ -125,6 +125,7 @@ func ownerAvatarURL(
 	ctx context.Context,
 	repoPath string,
 ) string {
+	//nolint:gosec // G204: fixed git subcommand; repoPath is an internal repo root, not user-controlled shell input.
 	raw, err := exec.CommandContext(ctx, "git", "-C", repoPath, "remote", "get-url", "origin").Output()
 	if err != nil {
 		return ""
@@ -135,6 +136,7 @@ func ownerAvatarURL(
 	}
 	// binpath.Resolve: the packaged .app daemon inherits launchd's minimal PATH,
 	// which misses Homebrew's /opt/homebrew/bin where gh usually lives.
+	//nolint:gosec // G204: fixed gh subcommand; "gh" is resolved to a trusted install path and slug is the parsed owner/repo, not shell input.
 	out, err := exec.CommandContext(ctx, binpath.Resolve("gh"), "api", "repos/"+slug, "--jq", ".owner.avatar_url").Output()
 	if err != nil {
 		return ""

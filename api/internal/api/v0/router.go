@@ -36,6 +36,8 @@ import (
 // name: :projectId, :repoId, and :wsId are each defined exactly once by their
 // group, so endpoints below them mount "/workspaces/:wsId/..."-relative paths
 // without redefining the param.
+//
+//nolint:funlen // Flat route-wiring table: one Register call per endpoint group. Splitting it would scatter the mount order across helpers and obscure the nesting the doc comment describes.
 func (c *Container) Register(
 	rg *gin.RouterGroup,
 ) {
