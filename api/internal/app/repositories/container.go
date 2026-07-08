@@ -74,7 +74,11 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	rt, err := reviewthread.New(ctx, axReviewThread, adapters.ReviewThreadES(), db, func(domain.ReviewThread) {})
+	// reviewthread now owns its own central per-type read model at
+	// state/store/review_thread.db (Task 12), no longer the shared view.db: pass
+	// ReviewThreadView() as the read-model DB while keeping ReviewThreadES() for the
+	// lazy AggregateLister Replay (§3.7).
+	rt, err := reviewthread.New(axReviewThread, adapters.ReviewThreadES(), adapters.ReviewThreadView(), func(domain.ReviewThread) {})
 	if err != nil {
 		return nil, err
 	}

@@ -72,7 +72,7 @@ func newBenchReviewHarness(
 	workspaces, err := workspace.New(wsAx, adapters.WorkspaceES(), adapters.WorkspaceView(), wsPaths)
 	require.NoError(b, err)
 
-	threads, err := reviewthread.New(ctx, axRT, rtES, db, func(domain.ReviewThread) {})
+	threads, err := reviewthread.New(axRT, rtES, adapters.ReviewThreadView(), func(domain.ReviewThread) {})
 	require.NoError(b, err)
 
 	chats, err := chat.New(ctx, axChat, chatES, db, func(domain.Chat) {})
