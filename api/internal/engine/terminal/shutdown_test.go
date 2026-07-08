@@ -45,7 +45,7 @@ func TestShutdown_FlushPersistNoBufDelete(t *testing.T) {
 	// Wait for each session to produce output — confirms the PTY is live and
 	// the screen model has content that Shutdown can flush.
 	for _, sid := range sids {
-		waitForOutput(t, eng, sid, 10*time.Second)
+		waitForModelOutput(t, eng, sid, 10*time.Second)
 	}
 
 	// Shutdown must return promptly (maintenance goroutine closes the stop channel).

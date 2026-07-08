@@ -74,12 +74,12 @@ func waitNotIdle(t *testing.T, eng terminal.Engine, id string, d time.Duration) 
 	}
 }
 
-// waitForOutput polls until the session's serialized model is non-empty (i.e. the
-// shell has emitted at least one byte — typically the prompt). This is needed
+// waitForModelOutput polls until the session's serialized model is non-empty (i.e.
+// the shell has emitted at least one byte — typically the prompt). This is needed
 // because IsIdle() returns true as soon as the shell is the foreground process
 // group, which is BEFORE it writes the prompt bytes to the PTY. Without this
 // extra wait the cadence-flush check (dirty=true) races with pumpStep.
-func waitForOutput(t *testing.T, eng terminal.Engine, id string, d time.Duration) {
+func waitForModelOutput(t *testing.T, eng terminal.Engine, id string, d time.Duration) {
 	t.Helper()
 	deadline := time.After(d)
 	for {
@@ -96,7 +96,7 @@ func waitForOutput(t *testing.T, eng terminal.Engine, id string, d time.Duration
 
 // waitForSettled polls until the session's serialized model has not grown for at
 // least 5 consecutive 50 ms samples (250 ms of silence). Shell prompts arrive
-// in multiple PTY chunks; waitForOutput returns on the first chunk, but dirty
+// in multiple PTY chunks; waitForModelOutput returns on the first chunk, but dirty
 // will still be set by later chunks. waitForSettled ensures the pump has fully
 // drained the shell's initial output before the test triggers a maintenance run.
 func waitForSettled(t *testing.T, eng terminal.Engine, id string, d time.Duration) {
