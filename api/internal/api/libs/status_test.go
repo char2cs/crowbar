@@ -82,11 +82,6 @@ func TestStatusAndMessageMapping(t *testing.T) {
 			status: http.StatusConflict,
 		},
 		{
-			name:   "new parent locked",
-			err:    worktree.ErrNewParentLocked,
-			status: http.StatusConflict,
-		},
-		{
 			name:   "rebase non leaf",
 			err:    worktree.ErrRebaseNonLeaf,
 			status: http.StatusConflict,

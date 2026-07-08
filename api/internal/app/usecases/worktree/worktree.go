@@ -963,9 +963,10 @@ func (u *worktreeUsecase) guardReparent(
 	if newParent.WorktreePath == "" {
 		return ErrParentUnprovisioned
 	}
-	if newParent.Status == domain.WorkspaceStatusLocked {
-		return ErrNewParentLocked
-	}
+	// A locked (protected) branch is a valid re-parent target: it already adopts
+	// children via create (create.go seeds a protected branch locked), so
+	// refusing it as a re-parent target was incoherent — a protected branch can
+	// host a child either way.
 	hasKids, err := u.childHasChildren(ctx, child.ID)
 	if err != nil {
 		return fmt.Errorf("reparent: leaf check: %w", err)

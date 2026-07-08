@@ -1458,15 +1458,21 @@ func TestReparent_SelfLoopedChildIsStillALeaf(t *testing.T) {
 	require.NoError(t, err) // not blocked by a phantom self-child
 }
 
-func TestReparent_RejectsLockedNewParent(t *testing.T) {
-	child := domain.Workspace{ID: "c"}
+func TestReparent_AllowsLockedNewParent(t *testing.T) {
+	// A locked (protected) branch is a valid re-parent target: it already adopts
+	// children via create, so reparent must be consistent — the old "07 §4
+	// new-parent-locked" block was incoherent and has been removed.
+	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork"}
 	newParent := domain.Workspace{ID: "np", Status: domain.WorkspaceStatusLocked, WorktreePath: "/np"}
 	ws := reparentWS(child, newParent, nil)
-	g := &fakeGit{}
+	ws.ReparentFn = func(_ context.Context, id, _, _ string, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{ID: id}, nil
+	}
+	g := &fakeGit{revParseSha: "ntip"}
 	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.Reparent(context.Background(), "c", "np")
-	require.ErrorIs(t, err, worktree.ErrNewParentLocked)
-	assert.Empty(t, g.calls)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"RevParse", "RebaseOnto", "WorkingTreeSummary"}, g.ops())
 }
 
 func TestReparent_RebasesOntoNewTipAndUpdatesAggregate(t *testing.T) {

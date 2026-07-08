@@ -46,7 +46,7 @@ import (
 //   - 409 Conflict        — apperr.ErrLocked (a write against a locked,
 //     provider-protected workspace; 04 §5, 05 §3/§4), enginesearch.ErrLocked,
 //     the worktree lock / non-leaf sentinels (ErrParentLocked,
-//     ErrNewParentLocked, ErrWorkspaceLocked, ErrRebaseNonLeaf,
+//     ErrWorkspaceLocked, ErrRebaseNonLeaf,
 //     ErrChildHasChildren), and the git
 //     engine's classified conflict sentinels (ErrConflict, ErrDirtyTree,
 //     ErrRejectedNonFastForward, ErrNothingToCommit, ErrStaleHunk,
@@ -139,7 +139,6 @@ func isConflict(
 	if errors.Is(err, apperr.ErrLocked) ||
 		errors.Is(err, enginesearch.ErrLocked) ||
 		errors.Is(err, worktree.ErrParentLocked) ||
-		errors.Is(err, worktree.ErrNewParentLocked) ||
 		errors.Is(err, worktree.ErrWorkspaceLocked) ||
 		errors.Is(err, worktree.ErrParentUnprovisioned) {
 		return true
