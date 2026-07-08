@@ -85,6 +85,7 @@ func TestService_FactoryErrorReleaseIsNoop(t *testing.T) {
 		NoopLSPLifecycle(),
 		newFakePoller(),
 		testPollInterval,
+		OriginSyncInterval,
 		time.Now,
 	)
 
@@ -155,6 +156,7 @@ func newTestServiceWithPoller(
 		lc,
 		poller,
 		testPollInterval,
+		OriginSyncInterval,
 		time.Now,
 	)
 }

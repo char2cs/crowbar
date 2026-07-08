@@ -25,23 +25,42 @@ func TestMain(
 }
 
 type fakeReader struct {
-	list     []domain.Workspace
-	listErr  error
-	get      domain.Workspace
-	getErr   error
-	gotID    string
-	synced   domain.Workspace
-	syncErr  error
-	gotSync  string
-	syncDone chan struct{}
-	elig     map[string]workspace.MergeEligibility
-	gotElig  [][]domain.Workspace
+	list                 []domain.Workspace
+	listErr              error
+	listInRepo           []domain.Workspace
+	listInRepoErr        error
+	gotListInRepoProject string
+	gotListInRepoRepo    string
+	get                  domain.Workspace
+	getErr               error
+	gotID                string
+	synced               domain.Workspace
+	syncErr              error
+	gotSync              string
+	syncDone             chan struct{}
+	elig                 map[string]workspace.MergeEligibility
+	gotElig              [][]domain.Workspace
 }
 
 func (f *fakeReader) List(
 	_ context.Context,
 ) ([]domain.Workspace, error) {
 	return f.list, f.listErr
+}
+
+// ListInRepo records the project/repo it was asked to scope to and returns the
+// configured listInRepo/listInRepoErr — the fake performs no filtering itself
+// (that responsibility now lives in the real ListInRepo implementation, tested
+// at the repo/usecase layer); it exists here purely to let handler tests assert
+// List/Detail forward the right :projectId/:repoId to the reader.
+func (f *fakeReader) ListInRepo(
+	_ context.Context,
+	projectID string,
+	repoID string,
+) ([]domain.Workspace, error) {
+	f.gotListInRepoProject = projectID
+	f.gotListInRepoRepo = repoID
+	return f.listInRepo, f.listInRepoErr
 }
 
 func (f *fakeReader) Get(

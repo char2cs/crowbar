@@ -375,3 +375,11 @@ func TestStashes_PushAndList(
 	require.Len(t, stashes, 1)
 	assert.Contains(t, stashes[0].Message, "my stash")
 }
+
+func osWriteFile(
+	dir string,
+	name string,
+	content string,
+) error {
+	return os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600)
+}

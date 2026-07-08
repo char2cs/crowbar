@@ -20,17 +20,12 @@ import (
 func (h *Handlers) List(
 	c *gin.Context,
 ) {
-	rows, err := h.reader.List(c.Request.Context())
+	filtered, err := h.reader.ListInRepo(c.Request.Context(), c.Param("projectId"), c.Param("repoId"))
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	filtered := filterWorkspaces(
-		rows,
-		c.Param("projectId"),
-		c.Param("repoId"),
-	)
 	h.applyWorking(filtered)
 	libs.WriteQueryOK(c, dto.WorkspaceDTOList(filtered, h.eligibilityIn(c.Request.Context(), filtered)))
 }
@@ -86,30 +81,5 @@ func (h *Handlers) siblingsOf(
 	c *gin.Context,
 	ws domain.Workspace,
 ) ([]domain.Workspace, error) {
-	rows, err := h.reader.List(c.Request.Context())
-	if err != nil {
-		return nil, err
-	}
-	return filterWorkspaces(rows, ws.ProjectID, ws.RepoID), nil
-}
-
-func filterWorkspaces(
-	rows []domain.Workspace,
-	projectID string,
-	repoID string,
-) []domain.Workspace {
-	if projectID == "" && repoID == "" {
-		return rows
-	}
-	out := make([]domain.Workspace, 0, len(rows))
-	for _, ws := range rows {
-		if projectID != "" && ws.ProjectID != projectID {
-			continue
-		}
-		if repoID != "" && ws.RepoID != repoID {
-			continue
-		}
-		out = append(out, ws)
-	}
-	return out
+	return h.reader.ListInRepo(c.Request.Context(), ws.ProjectID, ws.RepoID)
 }

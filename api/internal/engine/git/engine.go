@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/blame"
@@ -27,7 +28,7 @@ type (
 type engine struct {
 	exec      execFn
 	execStdin execStdinFn
-	mu        sync.Map
+	mu        sync.Map // key: common dir (string) -> *sync.RWMutex
 	commonDir sync.Map
 }
 
@@ -36,10 +37,10 @@ type engine struct {
 // one lock and their git operations serialize (07 §3.1). Resolution runs once
 // per input path before the lock is taken (no reentrancy), and falls back to the
 // raw path when repoPath is not inside a git repo.
-func (e *engine) repoMutex(ctx context.Context, repoPath string) *sync.Mutex {
+func (e *engine) repoMutex(ctx context.Context, repoPath string) *sync.RWMutex {
 	key := e.resolveCommonDir(ctx, repoPath)
-	actual, _ := e.mu.LoadOrStore(key, &sync.Mutex{})
-	return actual.(*sync.Mutex)
+	actual, _ := e.mu.LoadOrStore(key, &sync.RWMutex{})
+	return actual.(*sync.RWMutex)
 }
 
 func (e *engine) resolveCommonDir(ctx context.Context, repoPath string) string {
@@ -70,10 +71,24 @@ func (e *engine) computeCommonDir(ctx context.Context, repoPath string) string {
 	return filepath.Clean(abs)
 }
 
+// lockRepo takes the exclusive write lock for repoPath's clone, for any
+// operation that mutates the working tree, index, refs, or touches the
+// network (07 §3.1).
 func (e *engine) lockRepo(ctx context.Context, repoPath string) func() {
 	mu := e.repoMutex(ctx, repoPath)
 	mu.Lock()
 	return mu.Unlock
+}
+
+// lockRepoRead takes the shared read lock for repoPath's clone, for any
+// read-only inspection (status/diff/log/…). Concurrent reads never block each
+// other; a read blocks only while a write (including a background origin-sync
+// fetch) holds the exclusive lock, and is guaranteed to observe either the
+// fully-pre- or fully-post-mutation state, never a torn one.
+func (e *engine) lockRepoRead(ctx context.Context, repoPath string) func() {
+	mu := e.repoMutex(ctx, repoPath)
+	mu.RLock()
+	return mu.RUnlock
 }
 
 // New returns a new Engine that shells out to the system git binary.
@@ -85,6 +100,41 @@ func New() Engine {
 }
 
 var _ Engine = (*engine)(nil)
+
+// netTransferTimeout bounds git subprocesses that move data to or from a
+// remote (fetch/pull/push); netQueryTimeout bounds pure remote queries
+// (ls-remote). Without a bound, a remote whose TCP connection has gone dead
+// stalls the subprocess for the OS retransmission timeout (~15 min observed
+// in production) while the per-repo mutex is held, wedging every git
+// operation on that clone until the kernel gives up.
+var (
+	netTransferTimeout = 3 * time.Minute
+	netQueryTimeout    = 30 * time.Second
+)
+
+// execNet runs a network git command under timeout and reports a
+// deadline-driven kill as an explicit timeout error instead of the opaque
+// exit -1 the subprocess exits with after CommandContext kills it. A parent
+// context that was itself cancelled keeps the ordinary classification path.
+func (e *engine) execNet(
+	ctx context.Context,
+	op string,
+	timeout time.Duration,
+	repoPath string,
+	args ...string,
+) error {
+	nctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	r := e.exec(nctx, repoPath, args...)
+	if errors.Is(nctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+		return &gitexec.GitError{
+			Op:       op,
+			ExitCode: r.ExitCode,
+			Message:  fmt.Sprintf("network operation timed out after %s", timeout),
+		}
+	}
+	return classifyGitError(op, r)
+}
 
 // errorRule maps a git exit code + output substrings to a sentinel error.
 // All patterns in contains must be present in the output (AND semantics).
@@ -178,6 +228,7 @@ func (e *engine) Status(
 	ctx context.Context,
 	repoPath string,
 ) (gitdomain.GitStatus, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return status.Parse(ctx, repoPath)
 }
 
@@ -186,6 +237,7 @@ func (e *engine) Diff(
 	repoPath string,
 	staged bool,
 ) ([]gitdomain.FileDiff, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return diff.WorkingTree(ctx, repoPath, staged)
 }
 
@@ -194,6 +246,7 @@ func (e *engine) CommitDiff(
 	repoPath string,
 	sha string,
 ) (gitdomain.MultiFileDiff, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return diff.Commit(ctx, repoPath, sha)
 }
 
@@ -203,6 +256,7 @@ func (e *engine) Log(
 	limit int,
 	skip int,
 ) ([]gitdomain.Commit, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return gitlog.List(ctx, repoPath, limit, skip)
 }
 
@@ -211,6 +265,7 @@ func (e *engine) Blame(
 	repoPath string,
 	filePath string,
 ) ([]gitdomain.BlameEntry, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return blame.File(ctx, repoPath, filePath)
 }
 
@@ -218,6 +273,7 @@ func (e *engine) Branches(
 	ctx context.Context,
 	repoPath string,
 ) ([]gitdomain.Branch, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return branches.List(ctx, repoPath)
 }
 
@@ -225,6 +281,7 @@ func (e *engine) Stashes(
 	ctx context.Context,
 	repoPath string,
 ) ([]gitdomain.Stash, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return stash.List(ctx, repoPath)
 }
 
@@ -274,7 +331,10 @@ func (e *engine) Discard(
 	filePath string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
-	st, err := e.Status(ctx, repoPath)
+	// Call status.Parse directly, NOT e.Status: e.Status now takes RLock, and
+	// this method already holds the exclusive Lock — Go's sync.RWMutex is not
+	// reentrant, so going through e.Status here would deadlock.
+	st, err := status.Parse(ctx, repoPath)
 	if err != nil {
 		return fmt.Errorf("git: discard: status: %w", err)
 	}
@@ -328,8 +388,7 @@ func (e *engine) Push(
 	repoPath string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
-	r := e.exec(ctx, repoPath, "push")
-	return classifyGitError("push", r)
+	return e.execNet(ctx, "push", netTransferTimeout, repoPath, "push")
 }
 
 func (e *engine) Fetch(
@@ -337,8 +396,7 @@ func (e *engine) Fetch(
 	repoPath string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
-	r := e.exec(ctx, repoPath, "fetch")
-	return classifyGitError("fetch", r)
+	return e.execNet(ctx, "fetch", netTransferTimeout, repoPath, "fetch")
 }
 
 func (e *engine) FetchRef(
@@ -347,8 +405,7 @@ func (e *engine) FetchRef(
 	branch string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
-	r := e.exec(ctx, repoPath, "fetch", "origin", branch)
-	return classifyGitError("fetch ref", r)
+	return e.execNet(ctx, "fetch ref", netTransferTimeout, repoPath, "fetch", "origin", branch)
 }
 
 // FastForwardBranch fetches origin/<branch> and fast-forwards the local branch
@@ -361,8 +418,7 @@ func (e *engine) FastForwardBranch(
 	branch string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
-	r := e.exec(ctx, repoPath, "fetch", "origin", branch+":"+branch)
-	return classifyGitError("fast-forward branch", r)
+	return e.execNet(ctx, "fast-forward branch", netTransferTimeout, repoPath, "fetch", "origin", branch+":"+branch)
 }
 
 func (e *engine) Pull(
@@ -375,8 +431,7 @@ func (e *engine) Pull(
 	if mode == "rebase" {
 		flag = "--rebase"
 	}
-	r := e.exec(ctx, repoPath, "pull", flag)
-	return classifyGitError("pull", r)
+	return e.execNet(ctx, "pull", netTransferTimeout, repoPath, "pull", flag)
 }
 
 func (e *engine) CreateBranch(
@@ -505,6 +560,7 @@ func (e *engine) ConflictedFiles(
 	ctx context.Context,
 	repoPath string,
 ) ([]string, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return conflicts.ConflictedFiles(ctx, repoPath)
 }
 
@@ -513,6 +569,7 @@ func (e *engine) ConflictHunks(
 	repoPath string,
 	filePath string,
 ) ([]gitdomain.ConflictHunk, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return conflicts.ParseFile(ctx, repoPath, filePath)
 }
 
@@ -559,6 +616,7 @@ func (e *engine) WorkingTreeSummary(
 	repoPath string,
 	forkPointSha string,
 ) (int, int, bool, bool, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return e.computeWorkingTreeSummary(ctx, repoPath, forkPointSha)
 }
 
@@ -567,7 +625,8 @@ func (e *engine) ComputeStatus(
 	ctx context.Context,
 	repoPath string,
 ) (gitdomain.GitStatus, error) {
-	return e.Status(ctx, repoPath)
+	defer e.lockRepoRead(ctx, repoPath)()
+	return status.Parse(ctx, repoPath)
 }
 
 // ComputeWorkingTreeSummary implements watch.GitStatusProvider.
@@ -576,7 +635,8 @@ func (e *engine) ComputeWorkingTreeSummary(
 	repoPath string,
 	forkPointSha string,
 ) (int, int, bool, bool, error) {
-	return e.WorkingTreeSummary(ctx, repoPath, forkPointSha)
+	defer e.lockRepoRead(ctx, repoPath)()
+	return e.computeWorkingTreeSummary(ctx, repoPath, forkPointSha)
 }
 
 func (e *engine) applyHunk(

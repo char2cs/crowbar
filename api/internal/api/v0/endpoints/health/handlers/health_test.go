@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -41,6 +42,7 @@ func TestCheckReturnsEnvelopeOK(
 		Data    struct {
 			Status  string `json:"status"`
 			Version string `json:"version"`
+			PID     int    `json:"pid"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
@@ -49,4 +51,8 @@ func TestCheckReturnsEnvelopeOK(
 	assert.Empty(t, body.Error)
 	assert.Equal(t, "ok", body.Data.Status)
 	assert.NotEmpty(t, body.Data.Version)
+	// The desktop supervisor reads the daemon's pid from here — asking the
+	// tauri-shell child handle for it deadlocks against the plugin's blocking
+	// wait thread, so the daemon self-reports instead.
+	assert.Equal(t, os.Getpid(), body.Data.PID)
 }

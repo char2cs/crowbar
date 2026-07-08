@@ -172,6 +172,10 @@ func (f *fakeWorkspace) CreateHome(_ context.Context, _, _ string, _ time.Time) 
 	return domain.Workspace{}, nil
 }
 
+func (f *fakeWorkspace) ListInRepo(_ context.Context, _, _ string) ([]domain.Workspace, error) {
+	return nil, nil
+}
+
 var _ workspace.Workspace = (*fakeWorkspace)(nil)
 
 // --- fakes ---

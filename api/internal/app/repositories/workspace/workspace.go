@@ -155,6 +155,17 @@ type Workspace interface {
 	List(
 		ctx context.Context,
 	) ([]domain.Workspace, error)
+	// ListInRepo returns every workspace row scoped to one project+repo. It reads
+	// the same central durable read model as List (state/store/workspace.db) and
+	// filters by projectID+repoID, so it has identical read-after-write
+	// consistency to List — the merge-eligibility broadcast overlay uses it so a
+	// broadcast of a parented workspace resolves its siblings without materializing
+	// the whole install.
+	ListInRepo(
+		ctx context.Context,
+		projectID string,
+		repoID string,
+	) ([]domain.Workspace, error)
 	// GetHomeForProject returns the home workspace for the given project.
 	// Returns apperr.ErrNotFound if no home workspace exists yet.
 	GetHomeForProject(
@@ -602,6 +613,30 @@ func (w *workspace) List(
 	rows, err := w.readModel.ListOrRebuild(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("workspace: list: %w", err)
+	}
+	return rows, nil
+}
+
+// ListInRepo returns every workspace row scoped to projectID+repoID. It reads
+// the durable central read model via List (state/store/workspace.db) and filters
+// in memory — a single central-store read, not a per-install scan — mirroring
+// GetHomeForProject. Each read-model row carries project_id/repo_id off the
+// folded aggregate (spec §3.7), so the central store natively serves the
+// repo-scoped query with no separate location/directory table.
+func (w *workspace) ListInRepo(
+	ctx context.Context,
+	projectID string,
+	repoID string,
+) ([]domain.Workspace, error) {
+	all, err := w.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("workspace: list in repo: %w", err)
+	}
+	rows := make([]domain.Workspace, 0, len(all))
+	for _, ws := range all {
+		if ws.ProjectID == projectID && ws.RepoID == repoID {
+			rows = append(rows, ws)
+		}
 	}
 	return rows, nil
 }

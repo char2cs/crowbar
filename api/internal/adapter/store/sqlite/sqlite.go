@@ -38,7 +38,9 @@ const readPoolConns = 4
 
 // OpenDB opens (or creates) a single-connection SQLite database at path.
 // WAL journal mode and a 5-second busy timeout are enabled so that a second
-// opener (e.g. in crash-recovery tests) does not get SQLITE_BUSY on DDL.
+// opener (e.g. in crash-recovery tests) does not get SQLITE_BUSY on DDL. Used
+// for the per-entity workspace databases, which are effectively single-tenant
+// (one workspace, one or two open tabs at most).
 func OpenDB(
 	path string,
 ) (*gorm.DB, error) {
@@ -55,6 +57,18 @@ func OpenReadPoolDB(
 	path string,
 ) (*gorm.DB, error) {
 	return openWithMaxConns(path, readPoolConns)
+}
+
+// OpenDBWithPool opens (or creates) a SQLite database at path with up to
+// maxOpenConns open connections, delegating to openWithMaxConns. It exists so
+// callers that request an explicit pool size (rather than the single-writer
+// OpenDB or the fixed-size OpenReadPoolDB) compile against the per-type data
+// layer.
+func OpenDBWithPool(
+	path string,
+	maxOpenConns int,
+) (*gorm.DB, error) {
+	return openWithMaxConns(path, maxOpenConns)
 }
 
 func openWithMaxConns(

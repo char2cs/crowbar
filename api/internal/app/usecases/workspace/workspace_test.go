@@ -57,6 +57,41 @@ func TestWorkspaceUsecase_List_Error(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestWorkspaceUsecase_ListInRepo proves ListInRepo forwards the requested
+// project/repo ids to the repo's ListInRepo (the real project+repo scoping is
+// proven at the repo layer in TestListInRepo_ScopesToRepo — this test proves
+// only that the usecase delegates to it rather than falling back to the
+// unscoped List).
+func TestWorkspaceUsecase_ListInRepo(t *testing.T) {
+	repo, _, _, uc := newWorkspaceUsecase(t)
+	ctx := context.Background()
+
+	var gotProjectID, gotRepoID string
+	repo.ListInRepoFn = func(_ context.Context, projectID, repoID string) ([]domain.Workspace, error) {
+		gotProjectID = projectID
+		gotRepoID = repoID
+		return []domain.Workspace{{ID: "w1"}}, nil
+	}
+
+	list, err := uc.ListInRepo(ctx, "p1", "r1")
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
+	assert.Equal(t, "p1", gotProjectID)
+	assert.Equal(t, "r1", gotRepoID)
+}
+
+func TestWorkspaceUsecase_ListInRepo_Error(t *testing.T) {
+	repo, _, _, uc := newWorkspaceUsecase(t)
+	ctx := context.Background()
+
+	repo.ListInRepoFn = func(_ context.Context, _, _ string) ([]domain.Workspace, error) {
+		return nil, errors.New("boom")
+	}
+
+	_, err := uc.ListInRepo(ctx, "p1", "r1")
+	assert.Error(t, err)
+}
+
 func TestWorkspaceUsecase_Get(t *testing.T) {
 	repo, _, _, uc := newWorkspaceUsecase(t)
 	ctx := context.Background()

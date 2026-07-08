@@ -429,8 +429,9 @@ func (e *ProviderSyncEngine) PollOnView(
 // WorkspaceLifecycleRepo is a fake of the workspace repo surface used by the
 // workspace, file, and git usecases.
 type WorkspaceLifecycleRepo struct {
-	ListFn func(ctx context.Context) ([]domain.Workspace, error)
-	GetFn  func(ctx context.Context, id string) (domain.Workspace, error)
+	ListFn       func(ctx context.Context) ([]domain.Workspace, error)
+	ListInRepoFn func(ctx context.Context, projectID, repoID string) ([]domain.Workspace, error)
+	GetFn        func(ctx context.Context, id string) (domain.Workspace, error)
 
 	SetMergeStrategyFn func(
 		ctx context.Context,
@@ -458,6 +459,14 @@ func (r *WorkspaceLifecycleRepo) List(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
 	return r.ListFn(ctx)
+}
+
+func (r *WorkspaceLifecycleRepo) ListInRepo(
+	ctx context.Context,
+	projectID string,
+	repoID string,
+) ([]domain.Workspace, error) {
+	return r.ListInRepoFn(ctx, projectID, repoID)
 }
 
 func (r *WorkspaceLifecycleRepo) Get(

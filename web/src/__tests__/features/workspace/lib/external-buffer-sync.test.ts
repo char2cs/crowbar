@@ -75,21 +75,53 @@ describe('syncBufferWithDisk', () => {
   })
 
   it('keeps a dirty buffer intact, flags the conflict and toasts once', async () => {
-    const store = makeWorkspaceStore([makeBuffer({ content: 'user edits', isDirty: true })])
+    const store = makeWorkspaceStore([
+      makeBuffer({ content: 'user edits', savedContent: 'old content', isDirty: true }),
+    ])
+    // A genuine external edit: disk diverges from the baseline we last wrote.
+    readWorkspaceFileMock.mockResolvedValue('someone else wrote this')
 
     await syncBufferWithDisk(store, 'README.md')
 
     const buf = store.getState().buffers[0] as EditorContent
-    expect(readWorkspaceFileMock).not.toHaveBeenCalled()
+    expect(readWorkspaceFileMock).toHaveBeenCalledWith('ws-1', 'README.md')
     expect(buf.content).toBe('user edits')
     expect(buf.isDirty).toBe(true)
     expect(buf.hasExternalChange).toBe(true)
     expect(toastWarning).toHaveBeenCalledTimes(1)
     expect(toastWarning.mock.calls[0][0]).toContain('README.md')
 
-    // A second external change while already flagged must not re-toast.
+    // A second external change while already flagged must not re-toast (and must
+    // not even hit the disk — the hasExternalChange guard returns first).
+    readWorkspaceFileMock.mockClear()
     await syncBufferWithDisk(store, 'README.md')
     expect(toastWarning).toHaveBeenCalledTimes(1)
+    expect(readWorkspaceFileMock).not.toHaveBeenCalled()
+  })
+
+  it('does not toast when a dirty buffer matches disk (own-write echo)', async () => {
+    // Regression: an editor save can surface as several FS "modified" events;
+    // the single-shot pendingSaves marker only cancels the first. A straggler
+    // event on a still-dirty buffer must NOT produce a phantom "changed on disk"
+    // toast when the on-disk bytes are exactly what we last wrote.
+    const store = makeWorkspaceStore([
+      makeBuffer({
+        content: 'newer unsaved keystrokes',
+        savedContent: 'autosaved value',
+        isDirty: true,
+      }),
+    ])
+    readWorkspaceFileMock.mockResolvedValue('autosaved value') // disk === savedContent
+
+    await syncBufferWithDisk(store, 'README.md')
+
+    const buf = store.getState().buffers[0] as EditorContent
+    expect(readWorkspaceFileMock).toHaveBeenCalledWith('ws-1', 'README.md')
+    expect(toastWarning).not.toHaveBeenCalled()
+    expect(buf.hasExternalChange).toBeFalsy()
+    // The in-flight unsaved edits are left untouched.
+    expect(buf.content).toBe('newer unsaved keystrokes')
+    expect(buf.isDirty).toBe(true)
   })
 
   it('ignores own-save echoes and consumes the pending-save marker', async () => {

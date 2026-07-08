@@ -274,11 +274,11 @@ func (c *Container) eligibilityFor(
 	if ws.ParentID == "" {
 		return wsusecase.MergeEligibility{}
 	}
-	rows, err := c.Workspace.List(ctx)
+	siblings, err := c.ListWorkspacesInRepo(ctx, ws.ProjectID, ws.RepoID)
 	if err != nil {
 		return wsusecase.MergeEligibility{}
 	}
-	return wsusecase.ResolveMergeEligibility(ctx, ws, rows, c.git)
+	return wsusecase.ResolveMergeEligibility(ctx, ws, siblings, c.git)
 }
 
 // ListWorkspaces returns every workspace row with the derived Working overlay
@@ -338,4 +338,26 @@ func managedWorktreePath(
 		return false
 	}
 	return strings.HasPrefix(path, strings.TrimRight(crowbarHome, "/")+"/")
+}
+
+// ListWorkspacesInRepo returns every workspace row scoped to one project+repo,
+// with the derived Working overlay applied, read from MY central store read
+// model (state/store/workspace.db) filtered by project_id/repo_id via the
+// workspace repo's ListInRepo — a single central-store read, not the
+// whole-install per-entity scan the retired workspace_directory projection was
+// built to avoid. It backs the repo-scoped snapshot-on-subscribe builders and
+// the merge-eligibility overlay.
+func (c *Container) ListWorkspacesInRepo(
+	ctx context.Context,
+	projectID string,
+	repoID string,
+) ([]domain.Workspace, error) {
+	rows, err := c.Workspace.ListInRepo(ctx, projectID, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repositories: list workspaces in repo: %w", err)
+	}
+	for i := range rows {
+		rows[i].Working = c.IsWorking(rows[i].ID)
+	}
+	return rows, nil
 }

@@ -479,6 +479,41 @@ func TestWorkspace_Create_RollsBackPathRowOnFailure(t *testing.T) {
 		"a failed Create must roll back its id→path row, not orphan it")
 }
 
+func TestListInRepo_ScopesToRepo(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.Create(ctx, workspace.CreateInput{
+		ID: "w1", ProjectID: "p1", RepoID: "r1", Branch: "main",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	_, err = repo.Create(ctx, workspace.CreateInput{
+		ID: "w2", ProjectID: "p1", RepoID: "r2", Branch: "main",
+	}, time.Unix(2, 0).UTC())
+	require.NoError(t, err)
+	_, err = repo.Create(ctx, workspace.CreateInput{
+		ID: "w3", ProjectID: "p2", RepoID: "r1", Branch: "main",
+	}, time.Unix(3, 0).UTC())
+	require.NoError(t, err)
+
+	rows, err := repo.ListInRepo(ctx, "p1", "r1")
+
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "w1", rows[0].ID)
+}
+
+func TestListInRepo_NoMatchesReturnsEmpty(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.Create(ctx, workspace.CreateInput{
+		ID: "w1", ProjectID: "p1", RepoID: "r1", Branch: "main",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+
+	rows, err := repo.ListInRepo(ctx, "p1", "does-not-exist")
+
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+}
+
 func TestGetHomeForProject_Found(t *testing.T) {
 	ctx, repo := newRepo(t)
 
