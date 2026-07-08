@@ -45,7 +45,7 @@ type LSPDiagnostic struct {
 // spec §5), backed by real SQLite stores under a WithHomeDir-isolated home, plus
 // the app and engine containers for direct usecase calls.
 //
-// All WS helpers use deadline-based reads (no time.Sleep).
+// All WS helpers use deadline-based reads (no fixed-delay waits).
 type Env struct {
 	// URL is the fixed pseudo base URL of the test server ("http://crowbar"). The
 	// host is a placeholder: every request is routed to the Unix socket by the

@@ -257,8 +257,15 @@ func TestMaintenance_SoftLimit(t *testing.T) {
 	// Run maintenance — should suspend sids[0] and sids[1] (2 oldest).
 	terminal.RunMaintenanceOnceForTest(eng, ctx)
 
-	// Give Kill goroutines a brief moment to propagate the placeholder swap.
-	time.Sleep(200 * time.Millisecond)
+	// runMaintenanceOnce calls Suspend synchronously, and Suspend persists the
+	// "suspended" meta (and the placeholder swap) before returning, so the state
+	// is already durable here. Wait on that real observable deterministically
+	// rather than sleeping for the Kill goroutines.
+	require.Eventually(t, func() bool {
+		return store.hasSavedWithState(sids[0], "suspended") &&
+			store.hasSavedWithState(sids[1], "suspended")
+	}, 10*time.Second, 10*time.Millisecond,
+		"two oldest sessions must be suspended by soft limit")
 
 	// sids[0] and sids[1] must be suspended (placeholders).
 	assert.True(t, store.hasSavedWithState(sids[0], "suspended"),
@@ -335,7 +342,13 @@ func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 	// Run maintenance — workspace has 2 detached sessions > limit of 1.
 	// The running one must be skipped; the idle one gets suspended.
 	terminal.RunMaintenanceOnceForTest(eng, ctx)
-	time.Sleep(200 * time.Millisecond)
+
+	// Suspend runs synchronously inside the sweep and persists "suspended" before
+	// returning; wait on that observable state rather than sleeping.
+	require.Eventually(t, func() bool {
+		return store.hasSavedWithState(sidIdle, "suspended")
+	}, 10*time.Second, 10*time.Millisecond,
+		"idle detached session must be suspended by soft limit")
 
 	// sidIdle must be suspended.
 	assert.True(t, store.hasSavedWithState(sidIdle, "suspended"),
@@ -413,7 +426,14 @@ func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 	// Run maintenance: 2 live models (512 KB) > 384 KB ceiling → global ceiling fires.
 	// No idle candidates → last-resort force-suspend of sid1 (oldest).
 	terminal.RunMaintenanceOnceForTest(eng, ctx)
-	time.Sleep(300 * time.Millisecond)
+
+	// The force-suspend runs synchronously inside the sweep (WriteBuf then saveMeta
+	// "suspended" before it returns), so once "suspended" is recorded the .buf is
+	// already on disk. Wait on that durable state deterministically.
+	require.Eventually(t, func() bool {
+		return store.hasSavedWithState(sid1, "suspended")
+	}, 10*time.Second, 10*time.Millisecond,
+		"oldest session must be force-suspended by global ceiling last resort")
 
 	// sid1 must be suspended (placeholder) and sid2 must still be live.
 	assert.True(t, store.hasSavedWithState(sid1, "suspended"),

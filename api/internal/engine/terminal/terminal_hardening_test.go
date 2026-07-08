@@ -748,7 +748,12 @@ func TestMaintenance_Phase3aIdleSuspend(t *testing.T) {
 	SetLastActiveForTest(e, sid2, base.Add(time.Minute))
 
 	e.runMaintenanceOnce(ctx)
-	time.Sleep(200 * time.Millisecond)
+
+	// runMaintenanceOnce suspends synchronously (Suspend persists "suspended" before
+	// returning); wait on that observable state deterministically instead of sleeping.
+	require.Eventually(t, func() bool {
+		return store.savedState(sid1, "suspended")
+	}, 5*time.Second, 20*time.Millisecond, "the oldest idle session must be suspended")
 
 	assert.True(t, store.savedState(sid1, "suspended"), "the oldest idle session must be suspended")
 	assert.NoError(t, e.Write(ctx, sid2, []byte("echo alive\n")), "the newer session must stay live")
@@ -776,7 +781,11 @@ func TestMaintenance_Phase3aSuspendLastThenReturn(t *testing.T) {
 	SetLastActiveForTest(e, sid, time.Now().Add(-time.Hour))
 
 	e.runMaintenanceOnce(ctx)
-	time.Sleep(200 * time.Millisecond)
+	// Suspend runs synchronously inside the sweep; wait on the persisted state.
+	require.Eventually(t, func() bool {
+		return store.savedState(sid, "suspended")
+	}, 5*time.Second, 20*time.Millisecond,
+		"the single idle session must be suspended, bringing the engine under the ceiling")
 	assert.True(t, store.savedState(sid, "suspended"),
 		"the single idle session must be suspended, bringing the engine under the ceiling")
 	_ = e.Kill(ctx, sid)
@@ -865,8 +874,21 @@ func waitEngineIdle(t *testing.T, e *terminalEngine, sid string) {
 		s, ok := e.reg.Get(sid)
 		return ok && s.IsLive() && s.IsIdle()
 	}, 15*time.Second, 50*time.Millisecond, "session %s did not become idle", sid)
-	// Extra settle so the prompt output has been fully consumed by the pump.
-	time.Sleep(150 * time.Millisecond)
+	// Extra settle so the prompt output has been fully consumed by the pump: wait
+	// until the serialized model stops growing (N consecutive equal-length samples)
+	// instead of a blind sleep.
+	s, ok := e.reg.Get(sid)
+	require.True(t, ok, "session %s vanished before settle", sid)
+	lastLen, stable := -1, 0
+	require.Eventually(t, func() bool {
+		cur := s.SerializedLen()
+		if cur == lastLen {
+			stable++
+		} else {
+			stable, lastLen = 0, cur
+		}
+		return stable >= 3
+	}, 10*time.Second, 30*time.Millisecond, "session %s output did not settle", sid)
 }
 
 func waitEngineOutput(t *testing.T, e *terminalEngine, sid string) {

@@ -244,7 +244,7 @@ func newRouter(
 
 // waitClosed blocks until done is closed, failing the test on a deadline so a
 // background goroutine that never runs surfaces as a clear failure instead of a
-// silent hang (no time.Sleep polling).
+// silent hang (no fixed-delay polling).
 func waitClosed(
 	t *testing.T,
 	done chan struct{},

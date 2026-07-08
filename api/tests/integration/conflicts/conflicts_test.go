@@ -148,20 +148,15 @@ func (s *ConflictsSuite) mergeConflict(childID string) {
 // porcelain on an attached branch reliably means clean+not-stuck.
 func (s *ConflictsSuite) requireEventuallyClean(worktreePath, label string, timeout time.Duration) {
 	s.T().Helper()
-	deadline := time.Now().Add(timeout)
-	for {
+	// Poll the real git state until the worktree is clean and off a detached HEAD.
+	// Eventuallyf polls the condition internally (no fixed-delay sleep); a hang
+	// fails at `timeout`.
+	s.Require().Eventuallyf(func() bool {
 		porcelain := kit.TrimNewline(kit.GitRun(s.T(), worktreePath, "status", "--porcelain"))
 		head := kit.TrimNewline(kit.GitRun(s.T(), worktreePath, "rev-parse", "--abbrev-ref", "HEAD"))
-		if porcelain == "" && head != "HEAD" {
-			return
-		}
-		if time.Now().After(deadline) {
-			s.FailNowf("worktree not clean",
-				"%s worktree must be clean (no conflict markers, not mid-rebase): porcelain=%q head=%q",
-				label, porcelain, head)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+		return porcelain == "" && head != "HEAD"
+	}, timeout, 50*time.Millisecond,
+		"%s worktree must be clean (no conflict markers, not mid-rebase)", label)
 }
 
 // keptRebaseConflictOnChild produces a REAL conflicted state in the CHILD's own

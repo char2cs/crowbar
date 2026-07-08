@@ -851,8 +851,15 @@ func TestEngine_Suspend_MakesPlaceholder(t *testing.T) {
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
 
-	endedFired := false
-	eng.OnSessionEnded(func(_ context.Context, _, _ string, _ int) { endedFired = true })
+	// A channel (not a plain bool) so the negative assertion below can observe the
+	// callback without a data race under -race.
+	endedCh := make(chan struct{}, 1)
+	eng.OnSessionEnded(func(_ context.Context, _, _ string, _ int) {
+		select {
+		case endedCh <- struct{}{}:
+		default:
+		}
+	})
 
 	sid, err := eng.Create(ctx, "ws-susp", dir, nil)
 	require.NoError(t, err)
@@ -874,9 +881,15 @@ func TestEngine_Suspend_MakesPlaceholder(t *testing.T) {
 	assert.True(t, eng.SessionExists(ctx, sid), "suspended session must still be in registry")
 	assert.True(t, bufExists(store.dir, sid), ".buf must exist after suspend")
 
-	// Give a brief window for any spurious async reap to fire — should not happen.
-	time.Sleep(300 * time.Millisecond)
-	assert.False(t, endedFired, "onEnded must NOT fire for a suspended session")
+	// Negative assertion: a suspended session must NOT fire onEnded. Wait a bounded
+	// window and fail if the callback ever fires (deterministic replacement for a
+	// blind sleep-then-check; time.After here is the negative-window deadline, not a
+	// sleep to paper over a race).
+	select {
+	case <-endedCh:
+		t.Fatal("onEnded must NOT fire for a suspended session")
+	case <-time.After(300 * time.Millisecond):
+	}
 }
 
 // TestEngine_Suspend_ThenAttach_Restores verifies that attaching to a suspended
@@ -899,8 +912,13 @@ func TestEngine_Suspend_ThenAttach_Restores(t *testing.T) {
 	require.NoError(t, eng.Write(ctx, sid, []byte("echo pre-suspend\n")))
 	waitForMsg(t, conn1, func(d string) bool { return containsStr(d, "pre-suspend") }, 5*time.Second)
 	conn1.Close()
-	// Brief wait for detach bookkeeping to finish.
-	time.Sleep(150 * time.Millisecond)
+	// Wait for detach bookkeeping to finish: the session returns to "detached" once
+	// the last client leaves. This is the real precondition Suspend needs (no
+	// attached clients), so gate on it deterministically instead of sleeping.
+	require.Eventually(t, func() bool {
+		st, ok := eng.StateOf(sid)
+		return ok && st == "detached"
+	}, 5*time.Second, 20*time.Millisecond, "session must return to detached after client close")
 
 	// Suspend: poll until it takes effect.
 	deadline := time.After(15 * time.Second)

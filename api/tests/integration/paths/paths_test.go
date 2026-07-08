@@ -154,11 +154,10 @@ func TestPaths_CaseOnlyClashRejected(t *testing.T) {
 	resp.Body.Close()
 
 	// The clashing workspace must never appear in the read model, and no second
-	// worktree is provisioned. Give the async provisioner a bounded window.
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		require.False(t, wsBranchInList(t, env, imported.ProjectID, imported.RepoID, "feature-case"),
-			"case-only-clashing workspace must be rejected, never persisted")
-		time.Sleep(100 * time.Millisecond)
-	}
+	// worktree is provisioned — assert its absence over a bounded window.
+	// require.Never polls the condition internally (no fixed-delay sleep).
+	require.Never(t, func() bool {
+		return wsBranchInList(t, env, imported.ProjectID, imported.RepoID, "feature-case")
+	}, 3*time.Second, 100*time.Millisecond,
+		"case-only-clashing workspace must be rejected, never persisted")
 }

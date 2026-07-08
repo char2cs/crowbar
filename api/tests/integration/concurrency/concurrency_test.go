@@ -71,7 +71,7 @@ func (s *ConcurrencySuite) TestConcurrency_ParallelWorkspaceCreatesAreConsistent
 	}
 
 	// Drain WS frames until all n distinct created branches have been observed in
-	// a status:"new" frame (projection-complete, no time.Sleep).
+	// a status:"new" frame (projection-complete, no fixed-delay wait).
 	seen := map[string]bool{}
 	watcher.ReadUntil(t, 15*time.Second, func(m map[string]any) bool {
 		if m["status"] != "new" {

@@ -14,7 +14,7 @@ import (
 )
 
 // WSWatcher dials a WebSocket topic and provides event-driven WaitFor methods.
-// It never uses time.Sleep; all waiting is done via WS read with a deadline.
+// It never uses fixed delays; all waiting is done via WS read with a deadline.
 type WSWatcher struct {
 	conn *websocket.Conn
 }

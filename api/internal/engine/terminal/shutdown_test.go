@@ -60,10 +60,11 @@ func TestShutdown_FlushPersistNoBufDelete(t *testing.T) {
 		t.Fatal("Shutdown did not return within 15 s")
 	}
 
-	// Brief window for any reapOnDone goroutines to complete their early-return
-	// path (suspending=true prevents them from deleting anything).
-	time.Sleep(300 * time.Millisecond)
-
+	// Shutdown persists every live session synchronously — WriteBuf + saveMeta
+	// (state="suspended"), both under the per-session lock — BEFORE it returns, and
+	// marks each suspending so reapOnDone early-returns without deleting. Because
+	// Shutdown has already returned (joined above), the positive state is durable,
+	// so assert it directly.
 	for _, sid := range sids {
 		// 1. Scrollback buf must exist on disk (written by Shutdown before Kill).
 		assert.True(t, bufExists(store.dir, sid),
@@ -72,11 +73,21 @@ func TestShutdown_FlushPersistNoBufDelete(t *testing.T) {
 		// 2. Meta must have been saved with state="suspended".
 		assert.True(t, store.hasSavedWithState(sid, "suspended"),
 			"meta must be saved with state=suspended after Shutdown for sid=%s", sid)
-
-		// 3. Delete must NOT have been called — scrollback is preserved for restart.
-		assert.False(t, store.hasDeleted(sid),
-			"meta Delete must NOT be called during Shutdown for sid=%s", sid)
 	}
+
+	// 3. Delete must NEVER be called — scrollback is preserved for restart. This is
+	// a genuine negative assertion: a reapOnDone goroutine racing s.Kill must
+	// early-return on the suspending flag. Prove the absence over a bounded window
+	// deterministically (require.Never) instead of sleeping-then-checking once.
+	require.Never(t, func() bool {
+		for _, sid := range sids {
+			if store.hasDeleted(sid) {
+				return true
+			}
+		}
+		return false
+	}, 300*time.Millisecond, 20*time.Millisecond,
+		"meta Delete must NOT be called during Shutdown")
 
 	// 4. A fresh engine can reload sessions via LoadPlaceholder (simulating
 	//    RestorePersistedSessions at daemon start).
