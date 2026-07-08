@@ -66,21 +66,20 @@ func newRepo(
 	return context.Background(), repo
 }
 
-// listEventually polls List until it holds want rows (the store projection is
-// async: Send returns before the read model is updated — decision 4).
-func listEventually(
+// listQuiescent drains the async store projection (Send returns before the read
+// model is updated — decision 4), then reads List and asserts it holds want rows —
+// deterministically, with no polling and no timeout.
+func listQuiescent(
 	t *testing.T,
 	ctx context.Context,
 	repo workspace.Workspace,
 	want int,
 ) []domain.Workspace {
 	t.Helper()
-	var rows []domain.Workspace
-	require.Eventually(t, func() bool {
-		var err error
-		rows, err = repo.List(ctx)
-		return err == nil && len(rows) == want
-	}, 2*time.Second, 5*time.Millisecond)
+	workspace.WaitQuiescentForTest(repo)
+	rows, err := repo.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, want)
 	return rows
 }
 
@@ -177,7 +176,7 @@ func TestList_AcrossAggregates(t *testing.T) {
 	_, err = repo.Create(ctx, workspace.CreateInput{ID: "w3", RepoID: "r1", ProjectID: "p2"}, now)
 	require.NoError(t, err)
 
-	listEventually(t, ctx, repo, 3)
+	listQuiescent(t, ctx, repo, 3)
 }
 
 // TestDelete_PersistsDeletedTombstone proves the Task 7 delete lifecycle: Delete
@@ -199,7 +198,7 @@ func TestDelete_PersistsDeletedTombstone(t *testing.T) {
 	assert.Equal(t, domain.WorkspaceStatusDeleted, got.Status)
 
 	// The read model persists the deleted row (no reactor forgets it in Task 7).
-	rows := listEventually(t, ctx, repo, 1)
+	rows := listQuiescent(t, ctx, repo, 1)
 	assert.Equal(t, domain.WorkspaceStatusDeleted, rows[0].Status)
 }
 
@@ -228,7 +227,7 @@ func TestPersistence_AcrossReopen(t *testing.T) {
 	}, now)
 	require.NoError(t, err)
 	// Ensure the projection persisted the row before we tear the first env down.
-	listEventually(t, ctx, repo1, 1)
+	listQuiescent(t, ctx, repo1, 1)
 
 	require.NoError(t, ax1.Shutdown(ctx)) // drain projections, release ES handle
 	require.NoError(t, first.Close())     // WAL checkpoint + close all DBs
@@ -418,7 +417,7 @@ func TestWorkspace_List(t *testing.T) {
 	require.NoError(t, err)
 	_, err = repo.Create(ctx, workspace.CreateInput{ID: "w2", RepoID: "r1", ProjectID: "p1"}, now)
 	require.NoError(t, err)
-	listEventually(t, ctx, repo, 2)
+	listQuiescent(t, ctx, repo, 2)
 }
 
 func TestCreate_PersistsIsDefault(t *testing.T) {
@@ -494,6 +493,7 @@ func TestListInRepo_ScopesToRepo(t *testing.T) {
 	}, time.Unix(3, 0).UTC())
 	require.NoError(t, err)
 
+	workspace.WaitQuiescentForTest(repo)
 	rows, err := repo.ListInRepo(ctx, "p1", "r1")
 
 	require.NoError(t, err)
@@ -526,13 +526,10 @@ func TestGetHomeForProject_Found(t *testing.T) {
 	}, time.Now())
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		got, getErr := repo.GetHomeForProject(ctx, projectID)
-		return getErr == nil && got.ID == "ws-home-1"
-	}, 2*time.Second, 5*time.Millisecond)
-
+	workspace.WaitQuiescentForTest(repo)
 	got, err := repo.GetHomeForProject(ctx, projectID)
 	require.NoError(t, err)
+	require.Equal(t, "ws-home-1", got.ID)
 	require.Equal(t, domain.WorkspaceKindHome, got.Kind)
 }
 
@@ -603,7 +600,7 @@ func TestList_DoesNotTriggerReconcile(t *testing.T) {
 	ctx := context.Background()
 	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
-	listEventually(t, ctx, repo, 1)
+	listQuiescent(t, ctx, repo, 1)
 
 	assert.Empty(t, spy.calls(), "List must never trigger per-workspace reconcile")
 }
