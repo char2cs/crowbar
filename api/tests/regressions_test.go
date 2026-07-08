@@ -248,8 +248,12 @@ func TestRegression_GitMutationsSurviveLockContention(t *testing.T) {
 		}
 	}()
 
+	// Enough concurrent mutators to genuinely contend on the shared index.lock (the
+	// point of the test) without spawning so many real git subprocesses that a
+	// -race run's 10x slowdown starves the machine and the OS kills one mid-op (the
+	// failure this exercises is lock contention, not fork/exec resource exhaustion).
 	const (
-		workers    = 10
+		workers    = 4
 		iterations = 5
 	)
 	var (
