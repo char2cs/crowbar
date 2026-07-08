@@ -148,10 +148,7 @@ func TestKill_vs_Suspend_Serialized(t *testing.T) {
 
 		// Wait for the shell to become idle so Suspend is eligible.
 		deadline := time.After(15 * time.Second)
-		for {
-			if terminal.IsIdleForTest(eng, sid) {
-				break
-			}
+		for !terminal.IsIdleForTest(eng, sid) {
 			select {
 			case <-deadline:
 				t.Fatalf("round %d: session never became idle", round)

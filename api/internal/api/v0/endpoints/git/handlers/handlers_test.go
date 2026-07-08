@@ -34,11 +34,11 @@ func (stubGit) Diff(_ context.Context, _ string, _ bool) ([]gitdomain.FileDiff, 
 	return nil, nil
 }
 
-func (stubGit) Log(_ context.Context, _ string, _ int, _ int) ([]gitdomain.Commit, error) {
+func (stubGit) Log(_ context.Context, _ string, _, _ int) ([]gitdomain.Commit, error) {
 	return nil, nil
 }
 
-func (stubGit) Blame(_ context.Context, _ string, _ string) ([]gitdomain.BlameEntry, error) {
+func (stubGit) Blame(_ context.Context, _, _ string) ([]gitdomain.BlameEntry, error) {
 	return nil, nil
 }
 
@@ -54,58 +54,58 @@ func (stubGit) ConflictedFiles(_ context.Context, _ string) ([]string, error) {
 	return nil, nil
 }
 
-func (stubGit) ConflictHunks(_ context.Context, _ string, _ string) ([]gitdomain.ConflictHunk, error) {
+func (stubGit) ConflictHunks(_ context.Context, _, _ string) ([]gitdomain.ConflictHunk, error) {
 	return nil, nil
 }
 
-func (stubGit) CommitDiff(_ context.Context, _ string, _ string) (gitdomain.MultiFileDiff, error) {
+func (stubGit) CommitDiff(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
 	return gitdomain.MultiFileDiff{}, nil
 }
 
-func (stubGit) StageFile(_ context.Context, _ string, _ string, _ time.Time) error {
+func (stubGit) StageFile(_ context.Context, _, _ string, _ time.Time) error {
 	return nil
 }
 
-func (stubGit) StageHunk(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+func (stubGit) StageHunk(_ context.Context, _, _, _ string, _ time.Time) error {
 	return nil
 }
 
-func (stubGit) UnstageFile(_ context.Context, _ string, _ string, _ time.Time) error {
+func (stubGit) UnstageFile(_ context.Context, _, _ string, _ time.Time) error {
 	return nil
 }
 
-func (stubGit) UnstageHunk(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+func (stubGit) UnstageHunk(_ context.Context, _, _, _ string, _ time.Time) error {
 	return nil
 }
 
-func (stubGit) Discard(_ context.Context, _ string, _ string, _ time.Time) error {
+func (stubGit) Discard(_ context.Context, _, _ string, _ time.Time) error {
 	return nil
 }
 
-func (stubGit) Commit(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+func (stubGit) Commit(_ context.Context, _, _, _ string, _ time.Time) error {
 	return nil
 }
-func (stubGit) Push(_ context.Context, _ string, _ time.Time) error           { return nil }
-func (stubGit) Fetch(_ context.Context, _ string, _ time.Time) error          { return nil }
-func (stubGit) Pull(_ context.Context, _ string, _ string, _ time.Time) error { return nil }
-func (stubGit) CreateBranch(_ context.Context, _ string, _ string, _ string, _ bool, _ time.Time) error {
+func (stubGit) Push(_ context.Context, _ string, _ time.Time) error    { return nil }
+func (stubGit) Fetch(_ context.Context, _ string, _ time.Time) error   { return nil }
+func (stubGit) Pull(_ context.Context, _, _ string, _ time.Time) error { return nil }
+func (stubGit) CreateBranch(_ context.Context, _, _, _ string, _ bool, _ time.Time) error {
 	return nil
 }
 
-func (stubGit) RenameBranch(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+func (stubGit) RenameBranch(_ context.Context, _, _, _ string, _ time.Time) error {
 	return nil
 }
-func (stubGit) DeleteBranch(_ context.Context, _ string, _ string, _ time.Time) error { return nil }
-func (stubGit) SwitchBranch(_ context.Context, _ string, _ string, _ time.Time) error { return nil }
-func (stubGit) StashPush(_ context.Context, _ string, _ string, _ time.Time) error    { return nil }
-func (stubGit) StashApply(_ context.Context, _ string, _ string, _ time.Time) error   { return nil }
-func (stubGit) StashPop(_ context.Context, _ string, _ string, _ time.Time) error     { return nil }
-func (stubGit) StashDrop(_ context.Context, _ string, _ string, _ time.Time) error    { return nil }
-func (stubGit) Reset(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+func (stubGit) DeleteBranch(_ context.Context, _, _ string, _ time.Time) error { return nil }
+func (stubGit) SwitchBranch(_ context.Context, _, _ string, _ time.Time) error { return nil }
+func (stubGit) StashPush(_ context.Context, _, _ string, _ time.Time) error    { return nil }
+func (stubGit) StashApply(_ context.Context, _, _ string, _ time.Time) error   { return nil }
+func (stubGit) StashPop(_ context.Context, _, _ string, _ time.Time) error     { return nil }
+func (stubGit) StashDrop(_ context.Context, _, _ string, _ time.Time) error    { return nil }
+func (stubGit) Reset(_ context.Context, _, _, _ string, _ time.Time) error {
 	return nil
 }
-func (stubGit) Merge(_ context.Context, _ string, _ string, _ time.Time) error  { return nil }
-func (stubGit) Rebase(_ context.Context, _ string, _ string, _ time.Time) error { return nil }
+func (stubGit) Merge(_ context.Context, _, _ string, _ time.Time) error  { return nil }
+func (stubGit) Rebase(_ context.Context, _, _ string, _ time.Time) error { return nil }
 func (stubGit) ResolveHunk(
 	_ context.Context,
 	_ string,
