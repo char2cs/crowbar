@@ -132,20 +132,20 @@ func seedWorkspace(
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)
-	// The workspace store projection is async (Send, not SendWait): wait until the
-	// new row is visible in the read model before the snapshot reads it.
-	require.Eventually(t, func() bool {
-		rows, listErr := a.Repositories.Workspace.List(context.Background())
-		if listErr != nil {
-			return false
+	// The workspace store projection is async (Send, not SendWait): drain every
+	// per-type asynx instance so the new row is visible in the read model, then
+	// assert its presence synchronously before the snapshot reads it.
+	a.Repositories.WaitQuiescent()
+	rows, err := a.Repositories.Workspace.List(context.Background())
+	require.NoError(t, err)
+	found := false
+	for _, r := range rows {
+		if r.ID == id {
+			found = true
+			break
 		}
-		for _, r := range rows {
-			if r.ID == id {
-				return true
-			}
-		}
-		return false
-	}, 2*time.Second, 5*time.Millisecond)
+	}
+	require.True(t, found, "seeded workspace %q must be visible in the read model after drain", id)
 }
 
 // TestProjectSnapshot proves the Projects snapshot-on-subscribe (03 §1a)

@@ -53,10 +53,12 @@ func TestApp_New_UsecasesWorkspaceListEndToEnd(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// The store projection is async (Send, not SendWait): the read model catches
-	// up shortly after Create returns.
-	require.Eventually(t, func() bool {
-		rows, listErr := c.Usecases.Workspace.List(ctx)
-		return listErr == nil && len(rows) == 1 && rows[0].ID == "w1"
-	}, 2*time.Second, 5*time.Millisecond)
+	// The store projection is async (Send, not SendWait): drain every asynx
+	// instance so the read model has settled, then read it synchronously — the
+	// deterministic read-your-writes barrier, with no polling and no timeout.
+	c.Repositories.WaitQuiescent()
+	rows, err := c.Usecases.Workspace.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "w1", rows[0].ID)
 }

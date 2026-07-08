@@ -47,10 +47,13 @@ func newStore(
 }
 
 // fakeStoreReader lets a test control exactly when the persisted deleted row
-// becomes visible to the reactor's ordering gate.
+// becomes visible to the reactor's ordering gate. When polled is non-nil, each
+// Get non-blockingly signals it, giving a test a deterministic "the gate has
+// actually re-read the read model" barrier in place of a wall-clock wait.
 type fakeStoreReader struct {
-	mu sync.Mutex
-	ws *domain.Workspace
+	mu     sync.Mutex
+	ws     *domain.Workspace
+	polled chan struct{}
 }
 
 func (f *fakeStoreReader) set(
@@ -67,6 +70,12 @@ func (f *fakeStoreReader) Get(
 ) (*domain.Workspace, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.polled != nil {
+		select {
+		case f.polled <- struct{}{}:
+		default:
+		}
+	}
 	if f.ws == nil {
 		return nil, nil
 	}
@@ -190,12 +199,10 @@ func TestRegisterDeleteReactor_GatedPurge_RemovesWorktreeAndForgets(t *testing.T
 	require.NotNil(t, got)
 	require.Equal(t, domain.WorkspaceStatusDeleted, got.Status)
 
-	select {
-	case path := <-rmCh:
-		assert.Equal(t, "/wt/w1", path)
-	case <-time.After(2 * time.Second):
-		t.Fatal("worktree was never removed")
-	}
+	// rmWorktree pushes the removed path onto rmCh: it is a genuine completion
+	// signal, so block on it directly (a hang would surface via go test -timeout).
+	path := <-rmCh
+	assert.Equal(t, "/wt/w1", path)
 	wg.Wait()
 
 	exists, err := ax.Exists(ctx, "w1")
@@ -217,7 +224,7 @@ func TestRegisterDeleteReactor_GatedPurge_RemovesWorktreeAndForgets(t *testing.T
 func TestDeleteReactor_Gate_DoesNotPurgeUntilTombstoneObserved(t *testing.T) {
 	ctx, ax := newAx(t)
 
-	reader := &fakeStoreReader{}
+	reader := &fakeStoreReader{polled: make(chan struct{}, 1)}
 	paths := newFakePaths()
 	require.NoError(t, paths.Put(ctx, "w1", "/wt/w1"))
 
@@ -240,20 +247,23 @@ func TestDeleteReactor_Gate_DoesNotPurgeUntilTombstoneObserved(t *testing.T) {
 	_, err := ax.SendWait(ctx, wscmds.Delete{ID: "w1"})
 	require.NoError(t, err)
 
+	// Block until the ordering gate has actually re-read the (still empty) read
+	// model at least once: this proves the reactor is live and parked on the gate.
+	// It cannot have purged yet — rm follows only an observed tombstone, which is
+	// not set — so the emptiness of rmCh is a deterministic non-blocking check.
+	<-reader.polled
 	select {
 	case <-rmCh:
 		t.Fatal("worktree removed before the deleted row was observed")
-	case <-time.After(60 * time.Millisecond):
+	default:
 	}
 
 	reader.set(&domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusDeleted, WorktreePath: "/wt/w1"})
 
-	select {
-	case path := <-rmCh:
-		assert.Equal(t, "/wt/w1", path)
-	case <-time.After(2 * time.Second):
-		t.Fatal("worktree was never removed after the tombstone became visible")
-	}
+	// The tombstone is now observable; rmWorktree's push onto rmCh is a genuine
+	// completion signal, so block on it directly.
+	path := <-rmCh
+	assert.Equal(t, "/wt/w1", path)
 	wg.Wait()
 
 	exists, err := ax.Exists(ctx, "w1")

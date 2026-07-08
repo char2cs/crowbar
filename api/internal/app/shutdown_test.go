@@ -43,15 +43,13 @@ func TestApp_Shutdown_BoundedByCtx_DoesNotHangOnStuckReactor(t *testing.T) {
 	start := time.Now()
 	go func() { done <- c.Shutdown(shutdownCtx) }()
 
-	select {
-	case <-done:
-		// It returned; assert it did NOT wait out the stuck reactor — the drain
-		// wait is bounded by ctx, not unbounded like quiver's drainWg.Wait().
-		require.Less(t, time.Since(start), 2*time.Second,
-			"Shutdown must return once the ctx deadline lapses, not block on the stuck reactor")
-	case <-time.After(3 * time.Second):
-		t.Fatal("Shutdown hung on a stuck reactor instead of honoring the ctx deadline")
-	}
+	// Block on the real shutdown completion: Shutdown's reactor drain is bounded by
+	// shutdownCtx (150ms), so it returns on its own — no watchdog timeout needed.
+	<-done
+	// It returned; assert it did NOT wait out the stuck reactor — the drain wait is
+	// bounded by ctx, not unbounded like quiver's drainWg.Wait().
+	require.Less(t, time.Since(start), 2*time.Second,
+		"Shutdown must return once the ctx deadline lapses, not block on the stuck reactor")
 }
 
 // TestApp_Shutdown_HappyPath_DrainsCleanly asserts that with no in-flight reactor

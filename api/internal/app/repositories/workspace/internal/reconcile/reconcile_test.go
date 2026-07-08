@@ -47,12 +47,14 @@ func (b *broadcastSpy) all() []domain.Workspace {
 // broadcast may run.
 func TestReconciler_OnOpen_DedupsRepeatOpens(t *testing.T) {
 	release := make(chan struct{})
+	entered := make(chan struct{}, 1)
 	var deriveCalls int32
 	derive := func(
 		_ context.Context,
 		wsID string,
 	) (asynxModels.Command[domain.Workspace], error) {
 		atomic.AddInt32(&deriveCalls, 1)
+		entered <- struct{}{}
 		<-release
 		return wscmds.SyncWorkingTreeState{ID: wsID, Added: 3, Now: time.Unix(2, 0).UTC()}, nil
 	}
@@ -74,9 +76,9 @@ func TestReconciler_OnOpen_DedupsRepeatOpens(t *testing.T) {
 	for range 5 {
 		r.OnOpen(ctx, "w1")
 	}
-	require.Eventually(t, func() bool {
-		return atomic.LoadInt32(&deriveCalls) == 1
-	}, time.Second, 2*time.Millisecond, "the first open must enter derive")
+	// Block until the single in-flight task has actually entered derive — dedup
+	// guarantees exactly one does — then release it. No polling, no timeout.
+	<-entered
 	close(release)
 	wg.Wait()
 

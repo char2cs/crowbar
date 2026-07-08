@@ -259,15 +259,12 @@ func TestReviewThread_StoreProjectionPersists(t *testing.T) {
 	}, time.Unix(1, 0))
 	require.NoError(t, err)
 
-	// The store projection runs async after the event is durable; assert it
-	// eventually persists the row to the read-model DB.
-	require.Eventually(t, func() bool {
-		var n int64
-		if err := db.WithContext(ctx).Table("read_review_threads").Count(&n).Error; err != nil {
-			return false
-		}
-		return n == 1
-	}, time.Second, 5*time.Millisecond, "store projection must persist the row to state/store/review_thread.db")
+	// The store projection runs async after the event is durable; drain it, then
+	// assert synchronously that it persisted the row to the read-model DB.
+	reviewthread.WaitQuiescentForTest(repo)
+	var n int64
+	require.NoError(t, db.WithContext(ctx).Table("read_review_threads").Count(&n).Error)
+	require.Equal(t, int64(1), n, "store projection must persist the row to state/store/review_thread.db")
 }
 
 // TestReviewThread_ListLazyRebuild proves the lazy Replay repair (spec §3.7): when
@@ -282,12 +279,12 @@ func TestReviewThread_ListLazyRebuild(t *testing.T) {
 	_, err = repo.Open(ctx, reviewthread.OpenInput{ID: "t2", WsID: "w2", MessageID: "m2"}, now)
 	require.NoError(t, err)
 
-	// The store projection runs async; wait until both rows are durable before
-	// simulating a loss, so the assertion is deterministic.
-	require.Eventually(t, func() bool {
-		list, listErr := repo.List(ctx)
-		return listErr == nil && len(list) == 2
-	}, time.Second, 5*time.Millisecond)
+	// The store projection runs async; drain it so both rows are durable before
+	// simulating a loss, then read synchronously so the assertion is deterministic.
+	reviewthread.WaitQuiescentForTest(repo)
+	list, err := repo.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, list, 2)
 
 	// Simulate read-model loss with the event log intact.
 	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM read_review_threads").Error)
@@ -310,8 +307,10 @@ func TestReviewThread_HubBroadcastsBareAggregate(t *testing.T) {
 	}, time.Unix(1, 0))
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool { return cap.count() >= 1 }, time.Second, 5*time.Millisecond,
-		"hub projection must broadcast the review-thread frame")
+	// The hub projection runs async; drain it, then assert the broadcast count
+	// synchronously — no polling, no timeout.
+	reviewthread.WaitQuiescentForTest(repo)
+	require.GreaterOrEqual(t, cap.count(), 1, "hub projection must broadcast the review-thread frame")
 	frame := cap.last()
 	assert.Equal(t, "t1", frame.ID)
 	assert.Equal(t, "w1", frame.WsID)
