@@ -20,8 +20,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// assertErr is a sentinel error used to drive the store-failure branches.
-var assertErr = errors.New("store failure")
+// errStore is a sentinel error used to drive the store-failure branches.
+var errStore = errors.New("store failure")
 
 // recordingRepoBroadcaster captures each broadcast RepoDTO and signals a channel
 // so async completion can be awaited without a sleep.
@@ -207,7 +207,7 @@ func TestCreateRepo_ImportError_NoBroadcast(
 ) {
 	bc := newRecordingRepoBroadcaster()
 	imp := newFakeRepoImporter(domain.Repository{ID: "r1"})
-	imp.err = assertErr
+	imp.err = errStore
 	r := gin.New()
 	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push).
 		WithStat(statRepoOK).
@@ -309,7 +309,7 @@ func TestCreateRepo_SaveError_NoBroadcast(
 ) {
 	store := &fakeStore{}
 	store.SaveFn = func(_ context.Context, _ domain.Repository) error {
-		return assertErr
+		return errStore
 	}
 	bc := newRecordingRepoBroadcaster()
 	rec := doPost(newCreateRouter(store, bc), "/v0/projects/p1/repos",
@@ -329,7 +329,7 @@ func TestDeleteRepo_FindError_5xx(
 	t *testing.T,
 ) {
 	bc := newRecordingRepoBroadcaster()
-	store := &fakeStore{byKeErr: assertErr}
+	store := &fakeStore{byKeErr: errStore}
 	h := repohandlers.NewWithDeps(store, nil, nil, bc.push)
 	r := gin.New()
 	r.Group("/v0/projects/:projectId/repos/:repoId").DELETE("", h.DeleteRepo)
@@ -348,7 +348,7 @@ func TestDeleteRepo_DeleteError_NoBroadcast(
 	home := t.TempDir()
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
 	store.DeleteFn = func(_ context.Context, _ string) error {
-		return assertErr
+		return errStore
 	}
 	bc := newRecordingRepoBroadcaster()
 	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithIconStorage(

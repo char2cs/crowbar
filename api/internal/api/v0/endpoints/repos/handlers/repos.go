@@ -32,7 +32,7 @@ var avatarColors = []string{
 }
 
 // repoAvatar derives a 1-2 char label and deterministic Tailwind color from a repo name.
-func repoAvatar(name string) (label string, color string) {
+func repoAvatar(name string) (label, color string) {
 	words := strings.Fields(strings.Map(func(r rune) rune {
 		if unicode.IsLetter(r) || unicode.IsSpace(r) {
 			return r
@@ -55,11 +55,12 @@ func repoAvatar(name string) (label string, color string) {
 		hash = (hash*31 + int(c)) & 0xFFFFFF
 	}
 	color = avatarColors[hash%len(avatarColors)]
-	return
+	return label, color
 }
 
 // gitRemoteURL returns the origin remote URL for the repo at path, or "".
 func gitRemoteURL(path string) string {
+	//nolint:gosec // G204: fixed git subcommand; path is a daemon-managed repo path, not shell-interpreted or attacker-controlled.
 	out, err := exec.Command("git", "-C", path, "remote", "get-url", "origin").Output()
 	if err != nil {
 		return ""
@@ -409,6 +410,7 @@ func repoDir(
 func gitDefaultBranch(
 	path string,
 ) string {
+	//nolint:gosec // G204: fixed git subcommand; path is a daemon-managed repo path, not shell-interpreted or attacker-controlled.
 	out, err := exec.Command("git", "-C", path, "symbolic-ref", "HEAD", "--short").Output()
 	if err != nil {
 		return ""
@@ -441,6 +443,7 @@ func (h *Handlers) Icon(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
+	//nolint:gosec // G304: iconPath comes from the daemon's entity-scoped icon store (h.iconPath), already stat-checked and size-capped above, not user-supplied.
 	f, err := os.Open(iconPath)
 	if err != nil {
 		c.Status(http.StatusNotFound)
@@ -517,7 +520,7 @@ func fetchGithubAvatarBytes(
 	if err != nil {
 		return nil, "", nil
 	}
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // owner-controlled GitHub avatar URL
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, "", nil
 	}
@@ -545,6 +548,7 @@ func githubAvatarURL(
 	ctx context.Context,
 	repoPath string,
 ) string {
+	//nolint:gosec // G204: fixed git subcommand; repoPath is a daemon-managed repo path, not shell-interpreted or attacker-controlled.
 	raw, err := exec.CommandContext(ctx, "git", "-C", repoPath, "remote", "get-url", "origin").Output()
 	if err != nil {
 		return ""
@@ -555,6 +559,7 @@ func githubAvatarURL(
 	}
 	// binpath.Resolve: the packaged .app daemon inherits launchd's minimal PATH,
 	// which misses Homebrew's /opt/homebrew/bin where gh usually lives.
+	//nolint:gosec // G204: gh invoked with fixed args; slug is parsed from the repo's own git remote URL and passed as a discrete argv entry, not shell-interpreted.
 	out, err := exec.CommandContext(ctx, binpath.Resolve("gh"), "api", "repos/"+slug, "--jq", ".owner.avatar_url").Output()
 	if err != nil {
 		return ""
@@ -592,6 +597,7 @@ func (h *Handlers) Branches(c *gin.Context) {
 	}
 
 	// List remote branches via git branch -r
+	//nolint:gosec // G204: fixed git subcommand; repo.Path is a daemon-managed repo path, not shell-interpreted or attacker-controlled.
 	cmd := exec.CommandContext(c.Request.Context(), "git", "-C", repo.Path, "branch", "-r", "--format=%(refname:short)")
 	out, err := cmd.Output()
 	if err != nil {
@@ -863,7 +869,7 @@ func readIconFromMultipart(c *gin.Context) ([]byte, string, bool) {
 		libs.WriteErr(c, http.StatusBadRequest, "icon field required")
 		return nil, "", false
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(file, maxIconBytes+1))
 	if err != nil {
@@ -887,9 +893,11 @@ func (h *Handlers) storeIconBytes(
 	if !ok {
 		return fmt.Errorf("could not resolve icon path")
 	}
+	//nolint:gosec // G301: 0o755 is the intended perm for the daemon's own icon directory; kept as-is to preserve existing behavior.
 	if err := os.MkdirAll(filepath.Dir(iconPath), 0o755); err != nil {
 		return fmt.Errorf("could not create icon directory: %w", err)
 	}
+	//nolint:gosec // G306: icon bytes are non-secret assets served over HTTP; 0o644 is the intended readable perm, kept as-is to preserve behavior.
 	if err := os.WriteFile(iconPath, data, 0o644); err != nil {
 		return fmt.Errorf("write error: %w", err)
 	}
