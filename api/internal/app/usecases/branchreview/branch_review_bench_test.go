@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -61,16 +61,15 @@ func newBenchReviewHarness(
 	// ── GORM DB (the adapter's global view) ───────────────────────────────────
 	db := adapters.GlobalView()
 
-	workspaces, err := workspace.New(
-		adapters,
-		func(context.Context, domain.Workspace) {},
-		func(es asynxModels.Store) (asynx.Asynx[domain.Workspace], error) {
-			return asynx.New[domain.Workspace]().
-				WithEventStore(es).
-				WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-				Build()
-		},
-	)
+	wsAx, err := asynx.New[domain.Workspace]().
+		WithEventStore(adapters.WorkspaceES()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+	require.NoError(b, err)
+	b.Cleanup(func() { _ = wsAx.Shutdown(ctx) })
+	wsPaths, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
+	require.NoError(b, err)
+	workspaces, err := workspace.New(wsAx, adapters.WorkspaceView(), wsPaths)
 	require.NoError(b, err)
 
 	threads, err := reviewthread.New(ctx, axRT, rtES, db, func(domain.ReviewThread) {})

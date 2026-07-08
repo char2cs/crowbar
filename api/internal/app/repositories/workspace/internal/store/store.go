@@ -1,98 +1,48 @@
+// Package store owns the workspace read model: the durable, queryable projection
+// of the aggregate at state/store/workspace.db. New builds the read model over
+// the read-pool DB and registers the SAVE-ONLY store projection on the singleton
+// axWorkspace (spec §3.5/§3.7, decision 5). Unlike the retired per-entity store
+// it does NO eager reconcile on open — a normal boot re-opens the durable read
+// model with zero replay; read-model repair is lazy (Tasks 9/11). The hub
+// projection is registered separately by repositories.Container, which owns the
+// enrichment callback, so the durable read model and the WS frame derive
+// independently from evt.Aggregate and cannot drift.
 package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store/projections"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Store is the workspace read model: a projected, queryable view of the aggregate.
+// Store is the workspace read model. List reads the durable projection at
+// state/store/workspace.db directly (it doubles as the location index, §3.7);
+// per-id reads fold the aggregate from the event log via axWorkspace.Get, so Get
+// is not part of this surface.
 type Store interface {
 	List(
 		ctx context.Context,
 	) ([]domain.Workspace, error)
-	Get(
-		ctx context.Context,
-		id string,
-	) (*domain.Workspace, error)
 }
 
-type storeService struct {
-	storage storage
-}
-
-// New builds the read-model store, registering the projection that keeps it in
-// sync with the aggregate and fans every row out through broadcast, then
-// reconciles the read model from the authoritative event store for aggregateID.
-//
-// The event log and the read model are separate SQLite DBs written without a
-// shared transaction, and the projection runs asynchronously after the event is
-// durable; a crash (or a dropped projection) in that window leaves the event
-// durable but the read-model row stale or missing. Because List reads the read
-// model, without reconcile-on-open a workspace would be missing or stale forever
-// after a mid-projection crash, while Get (which reads the event store) stays
-// correct — a permanent divergence. The reconcile is best-effort: Get reads the
-// event store directly, so a failed reconcile never blocks opening the entity,
-// and the next write self-corrects the row.
+// New builds the durable read model over db (state/store/workspace.db) and
+// registers the save-only store projection on ax, once, for the singleton
+// axWorkspace. It performs no reconcile: read-model repair is lazy (Tasks 9/11).
 func New(
-	ctx context.Context,
 	db *gormdb.DB,
 	ax asynx.Asynx[domain.Workspace],
-	broadcast BroadcastFunc,
-	aggregateID string,
 ) (Store, error) {
-	st, err := newStorageStore(db)
+	st, err := projections.NewStore(db)
 	if err != nil {
 		return nil, fmt.Errorf("workspace store: %w", err)
 	}
-	if err := registerProjections(st, ax, broadcast); err != nil {
-		return nil, fmt.Errorf("workspace store: projections: %w", err)
+	if err := projections.RegisterStore(st, ax); err != nil {
+		return nil, fmt.Errorf("workspace store: %w", err)
 	}
-	svc := &storeService{storage: st}
-	if rErr := svc.reconcile(ctx, ax, aggregateID); rErr != nil {
-		slog.WarnContext(ctx, "workspace store: read-model reconcile failed; self-corrects on next write",
-			"aggregate", aggregateID, "err", rErr)
-	}
-	return svc, nil
-}
-
-// reconcile overwrites the read-model row for aggregateID with the current state
-// replayed from the event store. A not-yet-created aggregate (no events) is a
-// no-op, so this is safe to run on the open of a brand-new workspace.
-func (s *storeService) reconcile(
-	ctx context.Context,
-	ax asynx.Asynx[domain.Workspace],
-	aggregateID string,
-) error {
-	ws, err := ax.Get(ctx, aggregateID)
-	if err != nil {
-		if errors.Is(err, asynxModels.ErrNotFound) {
-			return nil
-		}
-		return err
-	}
-	if ws.ID == "" {
-		return nil
-	}
-	return s.storage.Save(ctx, ws)
-}
-
-func (s *storeService) List(
-	ctx context.Context,
-) ([]domain.Workspace, error) {
-	return s.storage.FindAll(ctx)
-}
-
-func (s *storeService) Get(
-	ctx context.Context,
-	id string,
-) (*domain.Workspace, error) {
-	return s.storage.FindByKey(ctx, id)
+	return st, nil
 }

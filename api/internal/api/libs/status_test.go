@@ -141,6 +141,21 @@ func TestStatusAndMessageMapping(t *testing.T) {
 			err:    safepath.ErrFileTooLarge,
 			status: http.StatusRequestEntityTooLarge,
 		},
+		{
+			name:   "asynx validation is unprocessable",
+			err:    asynxmodels.ErrValidation,
+			status: http.StatusUnprocessableEntity,
+		},
+		{
+			name:   "asynx pipeline failed is conflict",
+			err:    asynxmodels.ErrPipelineFailed,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "service unavailable",
+			err:    apperr.ErrUnavailable,
+			status: http.StatusServiceUnavailable,
+		},
 	}
 
 	for _, tc := range cases {

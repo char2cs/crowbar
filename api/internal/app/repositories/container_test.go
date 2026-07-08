@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -46,13 +45,20 @@ func newAdapter(
 	return c
 }
 
-func wsFactory(
-	es asynxModels.Store,
-) (asynx.Asynx[domain.Workspace], error) {
-	return asynx.New[domain.Workspace]().
-		WithEventStore(es).
+// wsAx builds the singleton workspace asynx over the adapter's per-type event
+// store — the same handle workspace.New/store.New project onto.
+func wsAx(
+	t *testing.T,
+	ad *adapter.Container,
+) asynx.Asynx[domain.Workspace] {
+	t.Helper()
+	a, err := asynx.New[domain.Workspace]().
+		WithEventStore(ad.WorkspaceES()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
+	return a
 }
 
 type captureHub struct {
@@ -106,13 +112,14 @@ func newContainer(
 	h hub.WebSocketHub,
 ) *repositories.Container {
 	t.Helper()
+	ad := newAdapter(t)
 	c, err := repositories.New(
 		context.Background(),
-		newAdapter(t),
+		ad,
 		h,
 		ax[domain.Chat](t),
 		ax[domain.ReviewThread](t),
-		wsFactory,
+		wsAx(t, ad),
 		nil,
 	)
 	require.NoError(t, err)
@@ -126,14 +133,14 @@ func TestContainer_New_BuildsRepos(t *testing.T) {
 	assert.NotNil(t, c.ReviewThread)
 }
 
-func TestContainer_New_NilFactoryReturnsError(t *testing.T) {
+func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 	_, err := repositories.New(
 		context.Background(),
 		newAdapter(t),
 		hub.NewHub(),
 		ax[domain.Chat](t),
 		ax[domain.ReviewThread](t),
-		nil,
+		nil, // nil axWorkspace → workspace.New rejects
 		nil,
 	)
 	assert.Error(t, err)

@@ -1,15 +1,24 @@
 package workspace
 
-// CachedEntityCount reports the number of entities currently held in the
-// per-entity LRU registry. Test-only: it lets external tests assert the cache is
-// bounded by the configured maxOpen instead of growing without bound. It type
-// asserts to the concrete *workspace so it stays out of the public interface.
-func CachedEntityCount(
-	repo Workspace,
-) int {
-	w, ok := repo.(*workspace)
-	if !ok {
-		return -1
-	}
-	return w.entities.Len()
+import (
+	"context"
+
+	asynxModels "github.com/char2cs/asynx/models"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
+)
+
+// MaxOCCAttempts exposes the OCC retry bound so external tests can assert the
+// ErrPipelineFailed disposition contract (retry ≤5×; spec §3.5, decision 10).
+const MaxOCCAttempts = maxOCCAttempts
+
+// OccSend exposes the OCC retry + terminal error-disposition helper so external
+// tests can drive it against a fake send closure (forcing ErrPipelineFailed /
+// ErrValidation / ErrQueueFull) without standing up a real asynx.
+func OccSend(
+	ctx context.Context,
+	send func(context.Context, asynxModels.Command[domain.Workspace]) (asynxModels.Event[domain.Workspace], error),
+	cmd asynxModels.Command[domain.Workspace],
+) (asynxModels.Event[domain.Workspace], error) {
+	return occSend(ctx, send, cmd)
 }

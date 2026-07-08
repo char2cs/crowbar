@@ -88,6 +88,21 @@ func StatusAndMessage(
 		return http.StatusForbidden, err.Error()
 	}
 
+	// asynxmodels.ErrValidation is an aggregate state-machine guard rejection (a
+	// command Validate said no): the request was well-formed but not applicable to
+	// the aggregate's current state, so it is 422 Unprocessable Entity — distinct
+	// from the earlier decode/shape 400 (asynx-alignment refactor, spec §3.5).
+	if errors.Is(err, asynxmodels.ErrValidation) {
+		return http.StatusUnprocessableEntity, err.Error()
+	}
+
+	// apperr.ErrUnavailable is a full asynx shard queue (ErrQueueFull) surfaced by
+	// the workspace repo under load: the mutation was not accepted and the client
+	// should retry, so it is 503 Service Unavailable.
+	if errors.Is(err, apperr.ErrUnavailable) {
+		return http.StatusServiceUnavailable, err.Error()
+	}
+
 	if isConflict(err) {
 		return http.StatusConflict, err.Error()
 	}
@@ -100,6 +115,13 @@ func StatusAndMessage(
 func isConflict(
 	err error,
 ) bool {
+	// asynxmodels.ErrPipelineFailed surfaced after the workspace repo's OCC retries
+	// are exhausted is an unrecoverable optimistic-concurrency/version collision →
+	// 409 Conflict (asynx-alignment refactor, spec §3.5 ErrPipelineFailed→409).
+	if errors.Is(err, asynxmodels.ErrPipelineFailed) {
+		return true
+	}
+
 	if errors.Is(err, apperr.ErrLocked) ||
 		errors.Is(err, enginesearch.ErrLocked) ||
 		errors.Is(err, worktree.ErrParentLocked) ||

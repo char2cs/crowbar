@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sync"
 
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
@@ -17,7 +16,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/paths"
 )
 
-// per-entity DB file names (siblings inside a storages/ directory).
+// Global-plane DB file names under <home>/state: the chat event log
+// (chat_event_stream.db, deleted in Task 13) and the non-aggregate view.db.
 const (
 	eventStreamDBName = "event_stream.db"
 	viewDBName        = "view.db"
@@ -37,43 +37,27 @@ const (
 // state/store/<type>.db (durable read-model projection, opened as a read pool).
 // One asynx instance per type routes many aggregate ids by shard hash.
 //
-// The per-entity workspace plane (per-workspace event_stream.db + view.db under
-// <home>/projects/<P>/<R>/workspaces/<W>/storages, LRU-cached) is retained ONLY
-// until its callers are converted in Task 7; it is deleted then. Chat keeps its
-// global event store under <home>/state until Task 13. Projects, repositories,
-// terminal profiles, and settings live in the global view.db under <home>/state.
+// Chat keeps its global event store under <home>/state until Task 13. Projects,
+// repositories, terminal profiles, and settings live in the global view.db under
+// <home>/state.
 type Container struct {
 	crowbarHome string
 
 	chatES         asynxModels.Store
 	reviewThreadES asynxModels.Store
 
-	// Per-type handles (quiver-faithful). The workspace ones are exposed under
-	// temporary names (WorkspaceEventStore/WorkspaceStoreDB) because Go has no
-	// method overloading and the 3-arg per-entity WorkspaceES/WorkspaceView still
-	// live; Task 7 deletes the per-entity pair and promotes these to WorkspaceES()
-	// / WorkspaceView().
+	// Per-type handles (quiver-faithful): one event log + one read-model DB per
+	// aggregate type, routed to many aggregate ids by shard hash.
 	workspaceEventStore asynxModels.Store
 	workspaceStoreDB    *gormdb.DB
 	reviewThreadView    *gormdb.DB
-
-	workspaceES   *Registry[asynxModels.Store]
-	workspaceView *Registry[*gormdb.DB]
 
 	globalView *gormdb.DB
 
 	lock *instanceLock
 
-	releaseMu sync.Mutex
-	closed    bool
-
 	globalClosers []io.Closer
 }
-
-// ErrClosed is returned by the per-entity accessors once Close has run, so a
-// detached good-path-async goroutine cannot lazily re-open (and re-create the
-// storages dir of) an entity DB after shutdown has begun.
-var ErrClosed = errors.New("adapter: container closed")
 
 type adapterOpts struct {
 	homeDir string
@@ -208,8 +192,6 @@ func newLocked(
 		lock:                lock,
 	}
 	c.globalClosers = collectClosers(chatES, reviewThreadES)
-	c.workspaceES = NewRegistry[asynxModels.Store](maxOpenEntityDBs, closeEventStore)
-	c.workspaceView = NewRegistry[*gormdb.DB](maxOpenEntityDBs, closeViewDB)
 	return c, nil
 }
 
@@ -231,17 +213,17 @@ func (c *Container) ReviewThreadView() *gormdb.DB {
 	return c.reviewThreadView
 }
 
-// WorkspaceEventStore returns the workspace event log at
-// state/events/workspace.db. This is the singleton per-type handle; Task 7
-// promotes it to WorkspaceES() once the 3-arg per-entity WorkspaceES is deleted.
-func (c *Container) WorkspaceEventStore() asynxModels.Store {
+// WorkspaceES returns the workspace event log at state/events/workspace.db. This
+// is the singleton per-type handle: the app layer builds ONE axWorkspace over it
+// and routes every workspace id to a shard by hash (spec §3.3/§3.4).
+func (c *Container) WorkspaceES() asynxModels.Store {
 	return c.workspaceEventStore
 }
 
-// WorkspaceStoreDB returns the workspace read-model DB at
-// state/store/workspace.db, opened as a read pool. Task 7 promotes it to
-// WorkspaceView() once the 3-arg per-entity WorkspaceView is deleted.
-func (c *Container) WorkspaceStoreDB() *gormdb.DB {
+// WorkspaceView returns the workspace read-model DB at state/store/workspace.db,
+// opened as a read pool (decision 12). The workspace store projection folds
+// evt.Aggregate into it, and it doubles as the location index (spec §3.7).
+func (c *Container) WorkspaceView() *gormdb.DB {
 	return c.workspaceStoreDB
 }
 
@@ -261,98 +243,12 @@ func (c *Container) CrowbarHome() string {
 	return c.crowbarHome
 }
 
-// isClosed reports whether Close has run. The per-entity accessors check it so a
-// detached good-path-async goroutine cannot re-open an entity DB after shutdown.
-func (c *Container) isClosed() bool {
-	c.releaseMu.Lock()
-	defer c.releaseMu.Unlock()
-	return c.closed
-}
-
-// WorkspaceES returns the per-entity workspace event store, lazily creating the
-// storages directory and opening event_stream.db on first access. The handle is
-// pinned in the registry until the returned release func is called; the caller
-// (the owning workspace entity) must call it when that entity is evicted, so the
-// LRU can reclaim the handle. release is nil on the error paths.
-func (c *Container) WorkspaceES(
-	projectID string,
-	repoID string,
-	wsID string,
-) (asynxModels.Store, func(), error) {
-	if c.isClosed() {
-		return nil, nil, ErrClosed
-	}
-	dir := workspaceStorageDir(c.crowbarHome, projectID, repoID, wsID)
-	key := entityKey(projectID, repoID, wsID)
-	es, release, err := c.workspaceES.Acquire(key, func() (asynxModels.Store, error) {
-		if mkErr := os.MkdirAll(dir, 0o750); mkErr != nil {
-			return nil, fmt.Errorf("adapter: workspace storages dir: %w", mkErr)
-		}
-		store, openErr := eventsqlite.NewEventStore(filepath.Join(dir, eventStreamDBName))
-		if openErr != nil {
-			return nil, fmt.Errorf("adapter: workspace event store: %w", openErr)
-		}
-		return store, nil
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return es, release, nil
-}
-
-// WorkspaceView returns the per-entity workspace view DB, lazily creating the
-// storages directory and opening view.db on first access. The handle is pinned
-// in the registry until the returned release func is called; the caller (the
-// owning workspace entity) must call it when that entity is evicted, so the LRU
-// can reclaim the handle. release is nil on the error paths.
-func (c *Container) WorkspaceView(
-	projectID string,
-	repoID string,
-	wsID string,
-) (*gormdb.DB, func(), error) {
-	if c.isClosed() {
-		return nil, nil, ErrClosed
-	}
-	dir := workspaceStorageDir(c.crowbarHome, projectID, repoID, wsID)
-	key := entityKey(projectID, repoID, wsID)
-	view, release, err := c.workspaceView.Acquire(key, func() (*gormdb.DB, error) {
-		if mkErr := os.MkdirAll(dir, 0o750); mkErr != nil {
-			return nil, fmt.Errorf("adapter: workspace storages dir: %w", mkErr)
-		}
-		db, openErr := storesqlite.OpenDB(filepath.Join(dir, viewDBName))
-		if openErr != nil {
-			return nil, fmt.Errorf("adapter: workspace view: %w", openErr)
-		}
-		return db, nil
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return view, release, nil
-}
-
 // Close drains and closes every persistence plane — the per-type event/read
-// handles, the cached per-entity handles, the global view DB, and the global
-// event stores — then releases the single-instance lock. Closing a WAL DB's last
-// connection checkpoints its WAL, so errors.Join spans all planes with the WAL
-// checkpointed.
+// handles, the global view DB, and the global event stores — then releases the
+// single-instance lock. Closing a WAL DB's last connection checkpoints its WAL,
+// so errors.Join spans all planes with the WAL checkpointed.
 func (c *Container) Close() error {
 	var errs []error
-
-	c.releaseMu.Lock()
-	c.closed = true
-	c.releaseMu.Unlock()
-
-	if c.workspaceES != nil {
-		if err := c.workspaceES.CloseAll(); err != nil {
-			errs = append(errs, fmt.Errorf("adapter: close workspace event stores: %w", err))
-		}
-	}
-	if c.workspaceView != nil {
-		if err := c.workspaceView.CloseAll(); err != nil {
-			errs = append(errs, fmt.Errorf("adapter: close workspace views: %w", err))
-		}
-	}
 
 	if c.workspaceStoreDB != nil {
 		if err := closeViewDB(c.workspaceStoreDB); err != nil {
@@ -395,29 +291,6 @@ func (c *Container) Close() error {
 		c.lock = nil
 	}
 	return errors.Join(errs...)
-}
-
-func entityKey(
-	parts ...string,
-) string {
-	return filepath.ToSlash(filepath.Join(parts...))
-}
-
-func workspaceStorageDir(
-	home string,
-	projectID string,
-	repoID string,
-	wsID string,
-) string {
-	return filepath.Join(
-		home,
-		"projects",
-		projectID,
-		repoID,
-		"workspaces",
-		wsID,
-		"storages",
-	)
 }
 
 func closeEventStore(

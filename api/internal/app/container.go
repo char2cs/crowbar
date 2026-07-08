@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/char2cs/asynx"
+
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/realtime"
@@ -27,6 +29,12 @@ type Container struct {
 	GORM         *GORMStores
 	Usecases     *usecases.Container
 	Realtime     *realtime.Service
+
+	// axWorkspace and axReviewThread are the per-type asynx singletons (one per
+	// aggregate type, routing every id by shard hash). They are retained here so
+	// Task 15's ordered graceful shutdown can drain each via ax.Shutdown.
+	axWorkspace    asynx.Asynx[domain.Workspace]
+	axReviewThread asynx.Asynx[domain.ReviewThread]
 }
 
 // New constructs the application layer from the engine and adapter containers
@@ -44,6 +52,13 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx review thread: %w", err)
 	}
+	// One eager axWorkspace singleton over the per-type event log, routing every
+	// workspace id to a shard by hash (decision 1) — replaces the per-entity
+	// AsynxFactory the repository used to resolve per workspace.
+	axWorkspace, err := newAsynx[domain.Workspace](adapters.WorkspaceES())
+	if err != nil {
+		return nil, fmt.Errorf("app: asynx workspace: %w", err)
+	}
 
 	gormStores, err := newGORMStores(adapters.GlobalView())
 	if err != nil {
@@ -57,7 +72,7 @@ func New(
 		h,
 		axChat,
 		axReviewThread,
-		newAsynx[domain.Workspace],
+		axWorkspace,
 		engines.Git,
 	)
 	if err != nil {
@@ -90,11 +105,13 @@ func New(
 	)
 
 	return &Container{
-		Hub:          h,
-		Repositories: repos,
-		GORM:         gormStores,
-		Usecases:     ucs,
-		Realtime:     rt,
+		Hub:            h,
+		Repositories:   repos,
+		GORM:           gormStores,
+		Usecases:       ucs,
+		Realtime:       rt,
+		axWorkspace:    axWorkspace,
+		axReviewThread: axReviewThread,
 	}, nil
 }
 

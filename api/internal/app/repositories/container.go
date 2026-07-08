@@ -8,6 +8,7 @@ import (
 	"github.com/char2cs/asynx"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -34,26 +35,39 @@ type Container struct {
 }
 
 // New builds all aggregate repositories, wiring each projection's broadcast into
-// the hub. The workspace aggregate is per-entity event-sourced: its Asynx
-// instances and view DBs are resolved lazily from the adapter container by ID,
-// using the injected asynxFactory (passed by the app layer to avoid an import
-// cycle on newAsynx). The chat and reviewthread aggregates keep their global
-// event stores and read models in the global view DB.
+// the hub. The workspace aggregate is backed by the singleton axWorkspace (one
+// instance per type, routing every id by shard hash) built by the app layer; its
+// read model lives in state/store/workspace.db and its id↔path index in view.db.
+// The chat and reviewthread aggregates keep their global event stores and read
+// models in the global view DB (converted in Tasks 12/13).
 func New(
 	ctx context.Context,
 	adapters *adapter.Container,
 	h hub.WebSocketHub,
 	axChat asynx.Asynx[domain.Chat],
 	axReviewThread asynx.Asynx[domain.ReviewThread],
-	asynxFactory workspace.AsynxFactory,
+	axWorkspace asynx.Asynx[domain.Workspace],
 	git wsusecase.MergeConflictChecker,
 ) (*Container, error) {
 	c := &Container{hub: h, git: git, inflight: map[string]int{}}
-	ws, err := workspace.New(adapters, func(ctx context.Context, w domain.Workspace) {
-		c.broadcastWorkspace(ctx, w)
-	}, asynxFactory)
+	pathsStore, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
+	if err != nil {
+		return nil, fmt.Errorf("repositories: workspace paths: %w", err)
+	}
+	ws, err := workspace.New(axWorkspace, adapters.WorkspaceView(), pathsStore)
 	if err != nil {
 		return nil, err
+	}
+	c.Workspace = ws
+	// Register the hub (WS fan-out) projection on the singleton axWorkspace,
+	// injecting the container-owned enrichment: every event-driven frame goes
+	// through the SAME enrichFrame + hub.BroadcastWorkspace as the BeginWork/EndWork
+	// rebroadcasts, so the FE spinner + merge badges survive the store/hub split
+	// with zero regression (spec §3.5 hub-frame enrichment). The save-only store
+	// projection is registered inside workspace.New; the two derive independently
+	// from evt.Aggregate and cannot drift (decision 5).
+	if err := workspace.RegisterHubProjection(axWorkspace, c.enrichFrame, c.hub.BroadcastWorkspace); err != nil {
+		return nil, fmt.Errorf("repositories: workspace hub projection: %w", err)
 	}
 	db := adapters.GlobalView()
 	ch, err := chat.New(ctx, axChat, adapters.ChatES(), db, func(domain.Chat) {})
@@ -64,26 +78,36 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	c.Workspace = ws
 	c.Chat = ch
 	c.ReviewThread = rt
 	return c, nil
 }
 
-// broadcastWorkspace converts a workspace row to its wire DTO and pushes it to
-// the hub. The derived Working overlay reflects the in-flight background
-// mutations bracketed by BeginWork/EndWork (00 §4), so every frame emitted
-// while an async op runs carries Working=true and the EndWork frame resolves
-// it. The merge-eligibility overlay (CanMergeLocally/ParentBranch) is
-// resolved here — off the broadcaster hot path (spec §10) — from the row's
-// repo-scoped siblings, so the WorkspaceDTO carries it the moment it lands.
+// enrichFrame builds the WS frame for ws: it attaches the two derived overlays
+// that are NOT part of the event-sourced aggregate — the Working/inflight spinner
+// (bracketed by BeginWork/EndWork, 00 §4) and the merge-eligibility overlay
+// (CanMergeLocally/ParentBranch, resolved off the hot path from the row's
+// repo-scoped siblings, spec §10) — and returns the wire DTO. It is the SINGLE
+// enrichment both the hub projection (RegisterHubProjection) and the
+// BeginWork/EndWork rebroadcasts converge on, so the emitted frame is identical
+// regardless of trigger (spec §3.5 hub-frame enrichment).
+func (c *Container) enrichFrame(
+	ctx context.Context,
+	ws domain.Workspace,
+) dto.WorkspaceDTO {
+	ws.Working = c.IsWorking(ws.ID)
+	elig := c.eligibilityFor(ctx, ws)
+	return dto.WorkspaceDTOFrom(ws, elig)
+}
+
+// broadcastWorkspace enriches ws and pushes it to the hub. It backs the
+// BeginWork/EndWork rebroadcasts (which fire on the 202 ack, not on an event) and
+// routes through the SAME enrichFrame as the hub projection so both agree.
 func (c *Container) broadcastWorkspace(
 	ctx context.Context,
 	ws domain.Workspace,
 ) {
-	ws.Working = c.IsWorking(ws.ID)
-	elig := c.eligibilityFor(ctx, ws)
-	c.hub.BroadcastWorkspace(dto.WorkspaceDTOFrom(ws, elig))
+	c.hub.BroadcastWorkspace(c.enrichFrame(ctx, ws))
 }
 
 // BeginWork marks the start of a background mutation on the workspace and

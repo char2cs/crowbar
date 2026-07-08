@@ -396,17 +396,34 @@ func TestRegression_DeleteLockedWorkspaceRejected(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
-// §13: deleting a workspace removes its entire per-workspace storage tree on
-// disk (worktree + storages), not just the read-model row (spec §1/§8).
-func TestRegression_DeleteWorkspaceRemovesStoragesDir(t *testing.T) {
+// §13 / spec §3.6+§3.8: deleting a workspace tombstones it under the
+// asynx-alignment delete lifecycle. Delete is now a PURE Send that folds
+// Status=deleted (persist-then-purge): the DELETE is accepted (202) and a
+// status:"deleted" frame is broadcast off the store/hub projections. The physical
+// worktree purge moved off the synchronous write path into the async, gated delete
+// reactor (Task 8; end-to-end lifecycle validated by the crash/lifecycle
+// integration suite). The old entity-scoped storages tree
+// (<home>/projects/<P>/<R>/workspaces/<W>/storages) no longer exists — central
+// per-type event/read stores replace it — so there is no per-workspace dir to
+// rm -rf here.
+func TestRegression_DeleteWorkspaceTombstones(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	worktree := workspaceWorktreePath(t, h, imported)
-	// The per-workspace dir is the parent of the .../worktree leaf.
-	workspaceDir := filepath.Dir(worktree)
-	require.DirExists(t, workspaceDir, "the workspace storage tree must exist before delete")
+	// The read model is now eventually consistent (Send, not SendWait): wait until
+	// the imported workspace is listable before deleting, so the background delete
+	// cascade (which lists to build the tree) sees it.
+	require.Eventually(t, func() bool {
+		var rows []map[string]any
+		h.get(repoBase+"/workspaces", &rows)
+		for _, r := range rows {
+			if r["id"] == imported.workspaceID {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 25*time.Millisecond)
 
 	conn := h.dial(repoBase + "/workspaces")
 	resp := h.raw(http.MethodDelete, repoBase+"/workspaces/"+imported.workspaceID, nil,
@@ -415,9 +432,6 @@ func TestRegression_DeleteWorkspaceRemovesStoragesDir(t *testing.T) {
 	readUntil(t, conn, func(m map[string]any) bool {
 		return m["id"] == imported.workspaceID && m["status"] == "deleted"
 	})
-
-	require.NoDirExists(t, workspaceDir,
-		"delete must rm -rf the whole per-workspace tree")
 }
 
 // §13: the repo icon is served from on-disk bytes, never proxied live from

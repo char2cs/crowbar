@@ -56,12 +56,7 @@ func newContainerDeps(
 		hub.NewHub(),
 		newTestAsynx[domain.Chat](t, adapters.ChatES()),
 		newTestAsynx[domain.ReviewThread](t, adapters.ReviewThreadES()),
-		func(es asynxModels.Store) (asynx.Asynx[domain.Workspace], error) {
-			return asynx.New[domain.Workspace]().
-				WithEventStore(es).
-				WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-				Build()
-		},
+		newTestAsynx[domain.Workspace](t, adapters.WorkspaceES()),
 		nil, // git conflict-checker not exercised by this test
 	)
 	require.NoError(t, err)

@@ -53,8 +53,10 @@ func TestApp_New_UsecasesWorkspaceListEndToEnd(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	rows, err := c.Usecases.Workspace.List(ctx)
-	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	assert.Equal(t, "w1", rows[0].ID)
+	// The store projection is async (Send, not SendWait): the read model catches
+	// up shortly after Create returns.
+	require.Eventually(t, func() bool {
+		rows, listErr := c.Usecases.Workspace.List(ctx)
+		return listErr == nil && len(rows) == 1 && rows[0].ID == "w1"
+	}, 2*time.Second, 5*time.Millisecond)
 }
