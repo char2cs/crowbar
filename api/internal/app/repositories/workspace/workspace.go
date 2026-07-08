@@ -168,6 +168,18 @@ type Workspace interface {
 	) (domain.Workspace, error)
 }
 
+// ReconcileOnOpener triggers a lazy, deduplicated, one-shot background reconcile
+// for a single workspace id off the per-id read path (spec §3.8). Get/detail
+// calls OnOpen; List never does. It is injected via WithReconciler so the
+// git+provider re-derivation stays owned by a higher layer and this repository
+// keeps no git/provider dependency.
+type ReconcileOnOpener interface {
+	OnOpen(
+		ctx context.Context,
+		wsID string,
+	)
+}
+
 // workspace is the singleton-backed workspace aggregate repository. One
 // axWorkspace routes every workspace id to a shard by hash; there is no per-entity
 // Registry, no writeMu (per-aggregate safety is shard routing + (id,version)
@@ -177,6 +189,21 @@ type workspace struct {
 	ax         asynx.Asynx[domain.Workspace]
 	readModel  store.Store
 	pathsStore wspaths.WorkspacePaths
+	reconciler ReconcileOnOpener
+}
+
+// Option configures the workspace repository at construction.
+type Option func(*workspace)
+
+// WithReconciler wires the reconcile-on-open trigger consulted by Get (spec
+// §3.8): the first per-id open dispatches a deduped background reconcile. Absent
+// it, Get is a pure read-model fold with no reconcile.
+func WithReconciler(
+	r ReconcileOnOpener,
+) Option {
+	return func(w *workspace) {
+		w.reconciler = r
+	}
 }
 
 // New builds the singleton-backed Workspace repository over axWorkspace, the
@@ -188,6 +215,7 @@ func New(
 	ax asynx.Asynx[domain.Workspace],
 	storeDB *gormdb.DB,
 	pathsStore wspaths.WorkspacePaths,
+	opts ...Option,
 ) (Workspace, error) {
 	if ax == nil {
 		return nil, fmt.Errorf("workspace: nil asynx")
@@ -202,7 +230,11 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("workspace: store: %w", err)
 	}
-	return &workspace{ax: ax, readModel: readModel, pathsStore: pathsStore}, nil
+	w := &workspace{ax: ax, readModel: readModel, pathsStore: pathsStore}
+	for _, opt := range opts {
+		opt(w)
+	}
+	return w, nil
 }
 
 // RegisterHubProjection registers the hub (WS fan-out) projection on the singleton
@@ -343,6 +375,13 @@ func (w *workspace) Get(
 	got, err := w.ax.Get(ctx, id)
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: get: %w", err)
+	}
+	// A per-id open triggers a lazy, deduplicated, background reconcile off this
+	// read path (spec §3.8): Get returns immediately from the folded aggregate
+	// while the reconcile task re-derives git+provider reality and SendWaits a
+	// pure sync command. List never triggers this.
+	if w.reconciler != nil {
+		w.reconciler.OnOpen(ctx, id)
 	}
 	return got, nil
 }

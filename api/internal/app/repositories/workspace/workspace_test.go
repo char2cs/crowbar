@@ -2,6 +2,7 @@ package workspace_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -501,4 +502,70 @@ func TestGetHomeForProject_NotFound(t *testing.T) {
 	_, repo := newRepo(t)
 	_, err := repo.GetHomeForProject(context.Background(), "nonexistent-project")
 	require.ErrorIs(t, err, apperr.ErrNotFound)
+}
+
+// spyReconciler records the ids passed to OnOpen so a test can assert which read
+// paths trigger reconcile-on-open.
+type spyReconciler struct {
+	mu     sync.Mutex
+	opened []string
+}
+
+func (s *spyReconciler) OnOpen(
+	_ context.Context,
+	wsID string,
+) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.opened = append(s.opened, wsID)
+}
+
+func (s *spyReconciler) calls() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.opened...)
+}
+
+func buildRepoWithReconciler(
+	t *testing.T,
+	ad *adapter.Container,
+	r workspace.ReconcileOnOpener,
+) workspace.Workspace {
+	t.Helper()
+	pathsStore, err := wspaths.NewWorkspacePaths(ad.GlobalView())
+	require.NoError(t, err)
+	repo, err := workspace.New(wsAx(t, ad), ad.WorkspaceView(), pathsStore, workspace.WithReconciler(r))
+	require.NoError(t, err)
+	return repo
+}
+
+// TestGet_TriggersReconcileOnOpen proves the §3.8 per-id read path: a Get
+// dispatches reconcile-on-open for that id (off the caller's read path).
+func TestGet_TriggersReconcileOnOpen(t *testing.T) {
+	ad := newAdapter(t, t.TempDir())
+	spy := &spyReconciler{}
+	repo := buildRepoWithReconciler(t, ad, spy)
+	ctx := context.Background()
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	require.Empty(t, spy.calls(), "Create must not trigger reconcile")
+
+	_, err = repo.Get(ctx, "w1")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"w1"}, spy.calls(), "Get must trigger reconcile-on-open")
+}
+
+// TestList_DoesNotTriggerReconcile proves the §3.8 rule that List reads the
+// durable read model directly and MUST NOT fan out a per-workspace reconcile
+// (which would reintroduce the wake-storm wedge this refactor kills).
+func TestList_DoesNotTriggerReconcile(t *testing.T) {
+	ad := newAdapter(t, t.TempDir())
+	spy := &spyReconciler{}
+	repo := buildRepoWithReconciler(t, ad, spy)
+	ctx := context.Background()
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	listEventually(t, ctx, repo, 1)
+
+	assert.Empty(t, spy.calls(), "List must never trigger per-workspace reconcile")
 }
