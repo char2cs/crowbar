@@ -391,53 +391,6 @@ func TestHasMarkers_FalseViaParseFile(
 	assert.Empty(t, hunks) // no conflict markers → empty result
 }
 
-// newMultiConflictRepo creates a repo with two conflicting hunks in one file.
-func newMultiConflictRepo(
-	t *testing.T,
-) (repoPath, conflictFile string) {
-	t.Helper()
-
-	dir := t.TempDir()
-
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		out, err := cmd.CombinedOutput()
-		require.NoError(t, err, "git %v: %s", args, out)
-	}
-
-	git("init", "-b", "main")
-	git("config", "user.email", "test@example.com")
-	git("config", "user.name", "Test")
-	git("config", "merge.conflictstyle", "merge")
-
-	// Create a file with two separate sections that will conflict.
-	absPath := filepath.Join(dir, "multi.txt")
-	initial := "section1-shared\n---\nsection2-shared\n"
-	require.NoError(t, os.WriteFile(absPath, []byte(initial), 0o644))
-	git("add", "multi.txt")
-	git("commit", "-m", "initial")
-
-	git("checkout", "-b", "branch-a")
-	ours := "section1-ours\n---\nsection2-ours\n"
-	require.NoError(t, os.WriteFile(absPath, []byte(ours), 0o644))
-	git("add", "multi.txt")
-	git("commit", "-m", "branch-a change")
-
-	git("checkout", "main")
-	theirs := "section1-theirs\n---\nsection2-theirs\n"
-	require.NoError(t, os.WriteFile(absPath, []byte(theirs), 0o644))
-	git("add", "multi.txt")
-	git("commit", "-m", "main change")
-
-	mergeCmd := exec.Command("git", "merge", "branch-a")
-	mergeCmd.Dir = dir
-	_ = mergeCmd.Run()
-
-	return dir, "multi.txt"
-}
-
 // TestResolveHunk_HasMarkersReturnsTrue exercises the hasMarkers(updated) == true
 // branch: resolve only the first hunk of a file that has multiple conflict hunks
 // so that remaining markers prevent auto-staging.

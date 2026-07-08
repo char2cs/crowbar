@@ -47,6 +47,7 @@ func identityFromGH(
 ) (gitdomain.Identity, bool) {
 	// binpath.Resolve: the packaged .app daemon inherits launchd's minimal
 	// PATH, which misses Homebrew's /opt/homebrew/bin where gh usually lives.
+	//nolint:gosec // G204: fixed gh subcommand; binpath.Resolve locates the trusted gh binary.
 	cmd := exec.CommandContext(ctx, binpath.Resolve("gh"), "api", "user")
 	cmd.Dir = worktreePath
 

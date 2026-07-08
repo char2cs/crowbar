@@ -85,6 +85,7 @@ func socketPath(
 		return path, nil
 	}
 	if override := os.Getenv(metadata.HomeEnvVar); override != "" {
+		//nolint:gosec // G703: CROWBAR_HOME is operator-controlled config, not untrusted input.
 		if err := os.MkdirAll(override, 0o700); err != nil {
 			return "", err
 		}

@@ -7,11 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func initRepo(
@@ -338,6 +339,8 @@ func TestWorkingTree_LineNumbers(t *testing.T) {
 		case gitdomain.DiffLineContext:
 			require.NotNil(t, line.OldLineNumber)
 			require.NotNil(t, line.NewLineNumber)
+		case gitdomain.DiffLineHeader:
+			// Header lines carry no per-line numbers.
 		}
 	}
 }

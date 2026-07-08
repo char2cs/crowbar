@@ -6,8 +6,9 @@ import (
 	"context"
 	"testing"
 
-	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/stretchr/testify/assert"
+
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // --- parseDiffGitPath: fewer than 4 fields ---

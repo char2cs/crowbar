@@ -84,6 +84,7 @@ func run(
 	hasStdin bool,
 	args ...string,
 ) Result {
+	//nolint:gosec // G204: running git with caller-supplied args is the purpose of this package.
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), optionalLocksOffEnv)

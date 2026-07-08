@@ -5,9 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
 )
 
 func TestHunkPatch_Basic(t *testing.T) {
