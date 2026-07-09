@@ -149,8 +149,14 @@ func (u *gitUsecase) mutate(
 	if err != nil {
 		return err
 	}
-	if err := op(repoPath); err != nil {
-		return fmt.Errorf("git: mutate: %w", err)
+	if opErr := op(repoPath); opErr != nil {
+		// A conflicting op (explicit Merge/Rebase) leaves the worktree in a
+		// conflicted state; resync so the workspace flips to pr-conflicts and the
+		// warning icon lights up. This is best-effort surfacing — the op error is
+		// what the caller must act on, so a resync failure here is deliberately
+		// dropped rather than allowed to mask the original failure.
+		_, _ = u.syncer.SyncWorkingTreeState(ctx, wsID, now)
+		return fmt.Errorf("git: mutate: %w", opErr)
 	}
 	if _, err := u.syncer.SyncWorkingTreeState(ctx, wsID, now); err != nil {
 		return fmt.Errorf("git: resync: %w", err)

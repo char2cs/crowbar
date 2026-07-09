@@ -1,6 +1,9 @@
-import { render, screen } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { BranchSection } from '@/features/git/components/branch-section'
+import { pullChanges } from '@/features/git/api/git-remotes-api'
+import { usePullConflictModalStore } from '@/features/git/stores/use-pull-conflict-modal-store'
 import type { GitFile } from '@/features/git/types/git-types'
 
 // Stub the heavy children so this test isolates BranchSection's own rendering.
@@ -25,6 +28,12 @@ const base = {
   behind: 0,
   files: [] as GitFile[],
 }
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  vi.mocked(pullChanges).mockResolvedValue({ success: true })
+  usePullConflictModalStore.setState({ target: null })
+})
 
 describe('BranchSection', () => {
   // The branch → parent header lives in the pill ABOVE BranchSection (rendered by
@@ -70,5 +79,27 @@ describe('BranchSection', () => {
     expect(screen.getByText(/1 ahead, 1 behind/)).toBeDefined()
     // Pull-before-push: you can't push while behind, so Pull is the action.
     expect(screen.getByRole('button', { name: /Pull/ })).toBeDefined()
+  })
+
+  it('a refused (not_fast_forwardable) pull opens the modal, not an inline error', async () => {
+    vi.mocked(pullChanges).mockResolvedValueOnce({ success: false, code: 'not_fast_forwardable' })
+    render(<BranchSection {...base} branch="feature/x" ahead={1} behind={1} />)
+    await userEvent.click(screen.getByRole('button', { name: /Pull/ }))
+    await waitFor(() =>
+      expect(usePullConflictModalStore.getState().target).toEqual({
+        wsId: 'w1',
+        branch: 'feature/x',
+      }),
+    )
+    // The inline error/retry affordance must NOT appear for the refusal.
+    expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull()
+  })
+
+  it('a generic pull failure still shows the inline error, not the modal', async () => {
+    vi.mocked(pullChanges).mockResolvedValueOnce({ success: false, error: 'network down' })
+    render(<BranchSection {...base} ahead={1} behind={1} />)
+    await userEvent.click(screen.getByRole('button', { name: /Pull/ }))
+    await waitFor(() => expect(screen.getByText(/network down/)).toBeInTheDocument())
+    expect(usePullConflictModalStore.getState().target).toBeNull()
   })
 })

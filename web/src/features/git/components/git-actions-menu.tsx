@@ -23,6 +23,7 @@ import {
 } from '../api/git-remotes-api'
 import { discardAllChanges } from '../api/git-status-api'
 import { useGitStore } from '../stores/git-store'
+import { usePullConflictModalStore } from '../stores/use-pull-conflict-modal-store'
 import { type GitActionsMenuAnchorRect } from '../utils/git-actions-menu-position'
 
 interface GitActionsMenuProps {
@@ -77,6 +78,21 @@ const GitActionsMenu = ({
       const result = await action()
       const remoteResult =
         typeof result === 'boolean' ? { success: result, error: undefined } : result
+
+      // Only Pull can be refused as non-fast-forwardable; surface the inform-only
+      // modal (repoPath here is the workspace id) instead of a generic error.
+      if (
+        !remoteResult.success &&
+        'code' in remoteResult &&
+        remoteResult.code === 'not_fast_forwardable'
+      ) {
+        usePullConflictModalStore.getState().open({
+          wsId: repoPath,
+          branch: useGitStore.getState().gitStatus?.branch ?? '',
+        })
+        onClose()
+        return
+      }
 
       if (remoteResult.success) {
         onRefresh?.()

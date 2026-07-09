@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -427,11 +428,32 @@ func (e *engine) Pull(
 	mode string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
-	flag := "--no-rebase"
+	flag := "--ff-only"
 	if mode == "rebase" {
 		flag = "--rebase"
 	}
 	return e.execNet(ctx, "pull", netTransferTimeout, repoPath, "pull", flag)
+}
+
+// PullIsFastForward reports whether the local branch can fast-forward to its
+// upstream origin/<branch>: it is fast-forwardable iff HEAD holds no commit the
+// upstream lacks (`git rev-list --count origin/<branch>..HEAD` == 0). The check
+// is purely local — it inspects already-fetched refs and never touches the
+// network. A missing or unknown origin/<branch> makes git exit non-zero, which
+// is reported as (false, nil): "cannot fast-forward", the safe default that has
+// the caller refuse the pull rather than blindly merge divergent histories.
+func (e *engine) PullIsFastForward(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) (bool, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
+	r := e.exec(ctx, repoPath, "rev-list", "--count", "origin/"+branch+"..HEAD")
+	if r.ExitCode != 0 {
+		return false, nil
+	}
+	count, _ := strconv.Atoi(strings.TrimSpace(r.Stdout))
+	return count == 0, nil
 }
 
 func (e *engine) CreateBranch(

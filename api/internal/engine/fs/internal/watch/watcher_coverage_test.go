@@ -163,29 +163,12 @@ func TestWatcher_FanOutGit_SyncCalledWhenSummaryChanges(t *testing.T) {
 	assert.Equal(t, "ws-cap", inp.WsID)
 }
 
-// ---------------------------------------------------------------------------
-// fanOutGit — MERGE_HEAD suppresses OnSyncWorkingTreeState
-// ---------------------------------------------------------------------------
-
-func TestWatcher_FanOutGit_MergeHeadSuppressesSync(t *testing.T) {
-	dir := t.TempDir()
-	git := &changingGit{}
-
-	gitDir := filepath.Join(dir, ".git")
-	require.NoError(t, os.MkdirAll(gitDir, 0o700))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(gitDir, "MERGE_HEAD"),
-		[]byte("deadbeef\n"),
-		0o600,
-	))
-
-	_, d := newCapturingWatcher(t, dir, git)
-
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "x.txt"), []byte("x"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "y.txt"), []byte("y"), 0o600))
-
-	d.noSyncCallWithin(t, 400*time.Millisecond)
-}
+// The rewrite-in-progress suppression of the working-tree summary was removed
+// (Bug B, passive path): a conflict created mid-rewrite must still surface. The
+// new behavior — summary broadcasts during a rewrite while the per-file status
+// storm stays guarded — is proven deterministically by
+// TestFanOutGit_DuringRewrite_BroadcastsConflictButGuardsStatusStorm in
+// watcher_internal_test.go, which drives fanOutGit directly (no timing).
 
 // ---------------------------------------------------------------------------
 // relPath — normal path returns relative value
@@ -511,38 +494,8 @@ func TestWatcher_FanOutGit_StatusErrorNoGitCall(t *testing.T) {
 	assert.Equal(t, 0, d.gitCalls, "OnGitStatus should not be called when ComputeStatus fails")
 }
 
-// ---------------------------------------------------------------------------
-// isRewriteInProgress — rebase-merge and rebase-apply also suppress sync
-// ---------------------------------------------------------------------------
-
-func TestWatcher_FanOutGit_RebaseMergeSuppressesSync(t *testing.T) {
-	dir := t.TempDir()
-	git := &changingGit{}
-
-	gitDir := filepath.Join(dir, ".git")
-	require.NoError(t, os.MkdirAll(gitDir, 0o700))
-	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "rebase-merge"), 0o700))
-
-	_, d := newCapturingWatcher(t, dir, git)
-
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "rb.txt"), []byte("r"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "rb2.txt"), []byte("r2"), 0o600))
-
-	d.noSyncCallWithin(t, 400*time.Millisecond)
-}
-
-func TestWatcher_FanOutGit_RebaseApplySuppressesSync(t *testing.T) {
-	dir := t.TempDir()
-	git := &changingGit{}
-
-	gitDir := filepath.Join(dir, ".git")
-	require.NoError(t, os.MkdirAll(gitDir, 0o700))
-	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "rebase-apply"), 0o700))
-
-	_, d := newCapturingWatcher(t, dir, git)
-
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ra.txt"), []byte("r"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ra2.txt"), []byte("r2"), 0o600))
-
-	d.noSyncCallWithin(t, 400*time.Millisecond)
-}
+// The rebase-merge / rebase-apply summary-suppression tests were removed for the
+// same reason as the MERGE_HEAD one above: the working-tree summary now always
+// broadcasts so conflicts surface. isRewriteInProgress's handling of all three
+// markers is unit-tested in watcher_internal_test.go (TestIsRewriteInProgress_*),
+// and the mid-rewrite fanOutGit behavior is proven there deterministically.

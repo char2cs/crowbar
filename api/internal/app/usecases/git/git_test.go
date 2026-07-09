@@ -194,14 +194,14 @@ func TestGitUsecase_Commit_TriggersSync(t *testing.T) {
 	assert.Equal(t, "w1", syncer.SyncedID)
 }
 
-func TestGitUsecase_Commit_EngineError_NoSync(t *testing.T) {
+func TestGitUsecase_Commit_EngineError_SurfacesViaSync(t *testing.T) {
 	git, syncer, uc := newGitUsecase(t)
 	ctx := context.Background()
 	git.CommitFn = func(_ context.Context, _, _, _ string) error { return errors.New("boom") }
 
 	err := uc.Commit(ctx, "w1", "m", "b", time.Now())
 	assert.Error(t, err)
-	assert.False(t, syncer.Synced)
+	assert.True(t, syncer.Synced, "op error must resync so any conflict state surfaces")
 }
 
 func TestGitUsecase_Commit_WorkspaceError(t *testing.T) {
@@ -319,7 +319,7 @@ func TestGitUsecase_WriteOp_EngineError(t *testing.T) {
 
 	err := uc.StageFile(ctx, "w1", "f", time.Now())
 	assert.Error(t, err)
-	assert.False(t, syncer.Synced)
+	assert.True(t, syncer.Synced, "op error must resync so any conflict state surfaces")
 }
 
 func TestGitUsecase_WriteOp_ResyncError(t *testing.T) {
@@ -332,6 +332,32 @@ func TestGitUsecase_WriteOp_ResyncError(t *testing.T) {
 
 	err := uc.Commit(ctx, "w1", "m", "b", time.Now())
 	assert.Error(t, err)
+}
+
+func TestGitUsecase_WriteOp_EngineError_SurfacesViaSync(t *testing.T) {
+	git, syncer, uc := newGitUsecase(t)
+	ctx := context.Background()
+	opErr := errors.New("merge conflict")
+	git.MergeFn = func(_ context.Context, _, _ string) error { return opErr }
+
+	err := uc.Merge(ctx, "w1", "b", time.Now())
+	require.ErrorIs(t, err, opErr)
+	assert.True(t, syncer.Synced, "a conflicting op must still resync so pr-conflicts surfaces")
+	assert.Equal(t, "w1", syncer.SyncedID)
+}
+
+func TestGitUsecase_WriteOp_EngineError_SyncFailureDoesNotMaskOpError(t *testing.T) {
+	git, syncer, uc := newGitUsecase(t)
+	ctx := context.Background()
+	opErr := errors.New("merge conflict")
+	git.MergeFn = func(_ context.Context, _, _ string) error { return opErr }
+	syncer.SyncFn = func(_ context.Context, _ string, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{}, errors.New("resync boom")
+	}
+
+	err := uc.Merge(ctx, "w1", "b", time.Now())
+	require.ErrorIs(t, err, opErr, "the op error, not the best-effort resync error, must be returned")
+	assert.True(t, syncer.Synced)
 }
 
 func TestGitUsecase_ReadOps_WorkspaceError(t *testing.T) {

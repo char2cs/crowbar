@@ -143,6 +143,16 @@ type Engine interface {
 		mode string,
 	) error
 
+	// PullIsFastForward reports whether the local branch can fast-forward to its
+	// upstream origin/<branch> — true iff HEAD holds no commit the upstream lacks.
+	// It is local-only (no network) and returns (false, nil) when origin/<branch>
+	// is unknown, so a pull that cannot fast-forward is refused rather than merged.
+	PullIsFastForward(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) (bool, error)
+
 	// CreateBranch creates a branch. If switchTo is true, also checks it out.
 	// source is optional (empty = HEAD) (04 §5).
 	CreateBranch(

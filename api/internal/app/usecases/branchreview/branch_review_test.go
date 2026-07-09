@@ -280,6 +280,10 @@ func (g *mockGitEngine) FastForwardBranch(ctx context.Context, repoPath, branch 
 
 func (g *mockGitEngine) Pull(ctx context.Context, repoPath, mode string) error { return nil }
 
+func (g *mockGitEngine) PullIsFastForward(ctx context.Context, repoPath, branch string) (bool, error) {
+	return false, nil
+}
+
 func (g *mockGitEngine) CreateBranch(ctx context.Context, repoPath, name, source string, switchTo bool) error {
 	return nil
 }

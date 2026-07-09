@@ -6,11 +6,13 @@ import { CommitPopover } from './commit-popover'
 import { MergePopover } from './merge-popover'
 import { resolveBranchAction } from '../lib/branch-action'
 import { pushChanges, pullChanges } from '../api/git-remotes-api'
+import { usePullConflictModalStore } from '../stores/use-pull-conflict-modal-store'
 import { rebaseOntoParent } from '@/lib/api/workspace'
 import type { GitFile } from '../types/git-types'
 
 interface BranchSectionProps {
   wsId: string
+  branch: string
   parentBranch?: string
   canMergeLocally: boolean
   status: string
@@ -21,6 +23,7 @@ interface BranchSectionProps {
 
 export function BranchSection({
   wsId,
+  branch,
   parentBranch,
   canMergeLocally,
   status,
@@ -67,6 +70,10 @@ export function BranchSection({
       const res = kind === 'push' ? await pushChanges(wsId) : await pullChanges(wsId)
       if (res.success) {
         refresh()
+      } else if (res.code === 'not_fast_forwardable') {
+        // Diverged from origin — Crowbar refuses rather than blind-merge. Surface
+        // the inform-only modal instead of the inline error/retry affordance.
+        usePullConflictModalStore.getState().open({ wsId, branch })
       } else {
         setRemoteError(res.error || `Failed to ${kind}`)
       }

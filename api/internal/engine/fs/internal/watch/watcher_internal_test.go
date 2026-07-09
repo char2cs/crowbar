@@ -304,6 +304,70 @@ func TestIsRewriteInProgress_LinkedWorktree(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// fanOutGit — conflict summary still broadcasts during a rewrite, while the
+// per-file OnGitStatus storm stays guarded (Bug B, passive path).
+// ---------------------------------------------------------------------------
+
+// conflictSummaryGit reports an in-progress conflict via the working-tree
+// summary so fanOutGit's summary path has a HasConflicts=true frame to emit.
+type conflictSummaryGit struct{}
+
+func (g *conflictSummaryGit) ComputeStatus(
+	_ context.Context,
+	_ string,
+) (gitdomain.GitStatus, error) {
+	return gitdomain.GitStatus{}, nil
+}
+
+func (g *conflictSummaryGit) ComputeWorkingTreeSummary(
+	_ context.Context,
+	_ string,
+	_ string,
+) (int, int, bool, bool, error) {
+	return 0, 0, true, false, nil
+}
+
+// syncRecordingDispatcher records both OnGitStatus calls (the per-file storm)
+// and every OnSyncWorkingTreeState input (the working-tree summary broadcast).
+type syncRecordingDispatcher struct {
+	mu        sync.Mutex
+	gitCount  int
+	syncCalls []SyncInput
+}
+
+func (r *syncRecordingDispatcher) OnFileChange(_ context.Context, _ domain.FileChangeEvent) {}
+
+func (r *syncRecordingDispatcher) OnGitStatus(_ context.Context, _ string, _ gitdomain.GitStatus) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.gitCount++
+}
+
+func (r *syncRecordingDispatcher) OnSyncWorkingTreeState(_ context.Context, input SyncInput) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.syncCalls = append(r.syncCalls, input)
+}
+
+func TestFanOutGit_DuringRewrite_BroadcastsConflictButGuardsStatusStorm(t *testing.T) {
+	dir := t.TempDir()
+	gitDir := filepath.Join(dir, ".git")
+	require.NoError(t, os.MkdirAll(gitDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "MERGE_HEAD"), []byte("abc\n"), 0o600))
+
+	d := &syncRecordingDispatcher{}
+	w := NewWatcher("ws-rewrite", dir, "", &conflictSummaryGit{}, d)
+
+	w.fanOutGit(context.Background())
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	require.Len(t, d.syncCalls, 1, "conflict summary must broadcast even while a rewrite is in progress")
+	assert.True(t, d.syncCalls[0].HasConflicts, "the broadcast must carry HasConflicts=true")
+	assert.Equal(t, 0, d.gitCount, "the per-file OnGitStatus storm must stay guarded during a rewrite")
+}
+
+// ---------------------------------------------------------------------------
 // classifyChange — all branches
 // ---------------------------------------------------------------------------
 

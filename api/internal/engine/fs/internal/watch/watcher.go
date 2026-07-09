@@ -355,30 +355,51 @@ func (w *Watcher) runGitRecompute(
 	w.fanOutGit(ctx)
 }
 
+// fanOutGit recomputes and broadcasts the workspace's git state. The per-file
+// status frame (OnGitStatus) is skipped while a rewrite (merge/rebase) is in
+// progress — that is the ~6Hz identical-frame storm guard for linked worktrees
+// sharing one .git. The working-tree summary (OnSyncWorkingTreeState), however,
+// always runs: a conflict created mid-rewrite — including one from a terminal
+// `git merge` — must still flip the workspace to pr-conflicts and light the
+// warning icon.
 func (w *Watcher) fanOutGit(
 	ctx context.Context,
 ) {
-	if w.isRewriteInProgress() {
-		return
+	if !w.isRewriteInProgress() {
+		w.fanOutStatus(ctx)
 	}
+	w.fanOutSummary(ctx)
+}
 
+// fanOutStatus broadcasts the per-file git status, deduped against the last
+// frame. Workspaces sharing a .git (linked worktrees) all see each other's ref
+// events; without this dedupe every such event re-broadcasts an unchanged status
+// to every subscriber (observed as a ~6Hz identical-frame storm). prevStatus
+// starts unset, so the FIRST recompute always broadcasts; since the watcher does
+// no initial recompute on subscribe (the snapshot already delivers fresh
+// status), that first broadcast is the first real file-change, and subsequent
+// identical frames are deduped here.
+func (w *Watcher) fanOutStatus(
+	ctx context.Context,
+) {
 	status, err := w.git.ComputeStatus(ctx, w.repoPath)
 	if err != nil {
 		return
 	}
-	// Workspaces sharing a .git (linked worktrees) all see each other's ref
-	// events; without this guard every such event re-broadcasts an unchanged
-	// status to every subscriber (observed as a ~6Hz identical-frame storm).
-	// prevStatus starts unset, so the FIRST recompute always broadcasts; since the
-	// watcher does no initial recompute on subscribe (see loop — the snapshot
-	// already delivers fresh status), that first broadcast is the first real
-	// file-change, and subsequent identical frames are deduped here.
-	if !w.prevStatusSet || !gitStatusEqual(w.prevStatus, status) {
-		w.prevStatus = status
-		w.prevStatusSet = true
-		w.dispatcher.OnGitStatus(ctx, w.wsID, status)
+	if w.prevStatusSet && gitStatusEqual(w.prevStatus, status) {
+		return
 	}
+	w.prevStatus = status
+	w.prevStatusSet = true
+	w.dispatcher.OnGitStatus(ctx, w.wsID, status)
+}
 
+// fanOutSummary broadcasts the working-tree summary (added/deleted counts,
+// conflict and commit flags), deduped against the last frame. It runs on every
+// recompute, including during a rewrite, so conflict states always surface.
+func (w *Watcher) fanOutSummary(
+	ctx context.Context,
+) {
 	added, deleted, hasConflicts, hasCommits, err := w.git.ComputeWorkingTreeSummary(
 		ctx,
 		w.repoPath,
@@ -387,17 +408,14 @@ func (w *Watcher) fanOutGit(
 	if err != nil {
 		return
 	}
-
 	if added == w.prevAdded && deleted == w.prevDeleted &&
 		hasConflicts == w.prevConflict && hasCommits == w.prevCommits {
 		return
 	}
-
 	w.prevAdded = added
 	w.prevDeleted = deleted
 	w.prevConflict = hasConflicts
 	w.prevCommits = hasCommits
-
 	w.dispatcher.OnSyncWorkingTreeState(ctx, SyncInput{
 		WsID:         w.wsID,
 		Added:        added,

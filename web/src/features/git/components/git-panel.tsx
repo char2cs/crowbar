@@ -72,6 +72,7 @@ export function GitPanel() {
           </div>
           <BranchSection
             wsId={wsId}
+            branch={branch}
             parentBranch={parentBranch}
             canMergeLocally={activeWs?.canMergeLocally ?? false}
             status={activeWs?.status ?? 'new'}

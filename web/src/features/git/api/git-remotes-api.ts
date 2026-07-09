@@ -1,6 +1,12 @@
-import { apiFetch } from '@/lib/api'
+import { apiFetch, ApiError } from '@/lib/api'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import type { GitRemote } from '../types/git-types'
+
+// Frozen contract with the daemon: a pull that can't fast-forward is refused
+// synchronously with HTTP 409 and this exact envelope error string (no merge is
+// started, the tree stays clean). Callers surface an inform-only modal on this
+// code rather than the generic error path.
+const NOT_FAST_FORWARDABLE = 'not_fast_forwardable'
 
 // Remote-management (list/add/remove) has no daemon endpoint yet — still a stub.
 // FUTURE: migrate to Go API calls alongside the dedicated remote-manager UI.
@@ -11,6 +17,10 @@ const tauriInvoke = async <T>(_cmd: string, _args?: unknown): Promise<T> => {
 export interface GitRemoteActionResult {
   success: boolean
   error?: string
+  /** Machine-readable refusal code from the daemon. `not_fast_forwardable` means
+   *  the branch has diverged from its upstream and a pull can't fast-forward;
+   *  callers open the inform-only pull-conflict modal instead of a toast. */
+  code?: typeof NOT_FAST_FORWARDABLE
 }
 
 export const getRemotes = async (repoPath: string): Promise<GitRemote[]> => {
@@ -58,6 +68,17 @@ const gitRemoteOp = async (
     return { success: true }
   } catch (error) {
     console.error(`Failed to ${action}:`, error)
+    // The daemon refuses a non-fast-forwardable pull with 409 + the exact error
+    // string `not_fast_forwardable` (apiFetch carries the status on ApiError and
+    // the envelope error as its message). Surface it as a code so the caller can
+    // show the inform-only modal instead of a generic error.
+    if (
+      error instanceof ApiError &&
+      error.status === 409 &&
+      error.message === NOT_FAST_FORWARDABLE
+    ) {
+      return { success: false, code: NOT_FAST_FORWARDABLE }
+    }
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 }

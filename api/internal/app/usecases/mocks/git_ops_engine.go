@@ -10,15 +10,16 @@ import (
 // usecase. Each method delegates to its Fn field; AnyWriteOK installs no-op
 // success closures for every mutating method.
 type GitOpsEngine struct {
-	StatusFn          func(ctx context.Context, repoPath string) (gitdomain.GitStatus, error)
-	DiffFn            func(ctx context.Context, repoPath string, staged bool) ([]gitdomain.FileDiff, error)
-	CommitDiffFn      func(ctx context.Context, repoPath, sha string) (gitdomain.MultiFileDiff, error)
-	LogFn             func(ctx context.Context, repoPath string, limit, skip int) ([]gitdomain.Commit, error)
-	BlameFn           func(ctx context.Context, repoPath, filePath string) ([]gitdomain.BlameEntry, error)
-	BranchesFn        func(ctx context.Context, repoPath string) ([]gitdomain.Branch, error)
-	StashesFn         func(ctx context.Context, repoPath string) ([]gitdomain.Stash, error)
-	ConflictedFilesFn func(ctx context.Context, repoPath string) ([]string, error)
-	ConflictHunksFn   func(ctx context.Context, repoPath, filePath string) ([]gitdomain.ConflictHunk, error)
+	StatusFn            func(ctx context.Context, repoPath string) (gitdomain.GitStatus, error)
+	PullIsFastForwardFn func(ctx context.Context, repoPath, branch string) (bool, error)
+	DiffFn              func(ctx context.Context, repoPath string, staged bool) ([]gitdomain.FileDiff, error)
+	CommitDiffFn        func(ctx context.Context, repoPath, sha string) (gitdomain.MultiFileDiff, error)
+	LogFn               func(ctx context.Context, repoPath string, limit, skip int) ([]gitdomain.Commit, error)
+	BlameFn             func(ctx context.Context, repoPath, filePath string) ([]gitdomain.BlameEntry, error)
+	BranchesFn          func(ctx context.Context, repoPath string) ([]gitdomain.Branch, error)
+	StashesFn           func(ctx context.Context, repoPath string) ([]gitdomain.Stash, error)
+	ConflictedFilesFn   func(ctx context.Context, repoPath string) ([]string, error)
+	ConflictHunksFn     func(ctx context.Context, repoPath, filePath string) ([]gitdomain.ConflictHunk, error)
 
 	StageFileFn         func(ctx context.Context, repoPath, filePath string) error
 	StageHunkFn         func(ctx context.Context, repoPath, filePath, hunkID string) error
@@ -84,6 +85,14 @@ func (g *GitOpsEngine) Status(
 	repoPath string,
 ) (gitdomain.GitStatus, error) {
 	return g.StatusFn(ctx, repoPath)
+}
+
+func (g *GitOpsEngine) PullIsFastForward(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) (bool, error) {
+	return g.PullIsFastForwardFn(ctx, repoPath, branch)
 }
 
 func (g *GitOpsEngine) Diff(

@@ -20,6 +20,10 @@ func (errGit) Status(_ context.Context, _ string) (gitdomain.GitStatus, error) {
 	return gitdomain.GitStatus{}, errBoom
 }
 
+func (errGit) PullIsFastForward(_ context.Context, _ string) (bool, error) {
+	return false, errBoom
+}
+
 func (errGit) Diff(_ context.Context, _ string, _ bool) ([]gitdomain.FileDiff, error) {
 	return nil, errBoom
 }

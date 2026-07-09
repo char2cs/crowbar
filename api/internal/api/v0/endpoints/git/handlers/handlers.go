@@ -13,6 +13,7 @@ import (
 type Git interface {
 	// Reads
 	Status(ctx context.Context, wsID string) (gitdomain.GitStatus, error)
+	PullIsFastForward(ctx context.Context, wsID string) (bool, error)
 	Diff(ctx context.Context, wsID string, staged bool) ([]gitdomain.FileDiff, error)
 	Log(ctx context.Context, wsID string, limit, skip int) ([]gitdomain.Commit, error)
 	Blame(ctx context.Context, wsID, filePath string) ([]gitdomain.BlameEntry, error)

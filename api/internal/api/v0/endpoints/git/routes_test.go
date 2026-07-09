@@ -28,6 +28,10 @@ func (stubGit) Status(_ context.Context, _ string) (gitdomain.GitStatus, error) 
 	return gitdomain.GitStatus{}, nil
 }
 
+func (stubGit) PullIsFastForward(_ context.Context, _ string) (bool, error) {
+	return true, nil
+}
+
 func (stubGit) Diff(_ context.Context, _ string, _ bool) ([]gitdomain.FileDiff, error) {
 	return nil, nil
 }

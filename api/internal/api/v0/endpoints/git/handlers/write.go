@@ -245,15 +245,31 @@ func (h *Handlers) Fetch(
 	)
 }
 
-// Pull POST /workspaces/:wsId/git/pull is a slow git op (202 + async).
+// Pull POST /workspaces/:wsId/git/pull is a slow git op (202 + async), but it is
+// gated by a synchronous safe-only check first: Crowbar pulls only when the
+// branch can fast-forward. A branch that has diverged from its upstream is
+// refused with 409 `not_fast_forwardable` (frozen contract) and nothing runs, so
+// a pull can never wedge the worktree with a conflicted blind merge.
 func (h *Handlers) Pull(
 	ctx *gin.Context,
 ) {
+	reqCtx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
+
+	ff, err := h.git.PullIsFastForward(reqCtx, wsID)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+	if !ff {
+		libs.WriteErr(ctx, http.StatusConflict, "not_fast_forwardable")
+		return
+	}
 
 	libs.WriteAccepted(ctx)
 	h.runAsync(
-		ctx.Request.Context(),
+		reqCtx,
 		wsID,
 		func(c context.Context) error {
 			return h.git.Pull(c, wsID, "", time.Now())

@@ -21,6 +21,7 @@ import { FontStyleInjector } from '@/features/settings/components/font-style-inj
 import { ConnectionIndicator } from './connection-indicator'
 import { FpsOverlay } from './fps-overlay'
 import { DetachHolderModal } from './detach-holder-modal'
+import { PullConflictModal } from './pull-conflict-modal'
 import { PlaceholderToastWatcher } from './placeholder-toast-watcher'
 import { SidebarToastOverlay } from './sidebar-toast-overlay'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
@@ -247,6 +248,7 @@ export function IDEShell() {
       <ConnectionIndicator />
       <FpsOverlay />
       <DetachHolderModal />
+      <PullConflictModal />
       <PlaceholderToastWatcher />
     </SidebarProvider>
   )

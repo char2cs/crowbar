@@ -37,6 +37,11 @@ type ReadEngine interface {
 		ctx context.Context,
 		repoPath string,
 	) (gitdomain.GitStatus, error)
+	PullIsFastForward(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) (bool, error)
 	Diff(
 		ctx context.Context,
 		repoPath string,
@@ -85,6 +90,10 @@ type Usecase interface {
 		ctx context.Context,
 		wsID string,
 	) (gitdomain.GitStatus, error)
+	PullIsFastForward(
+		ctx context.Context,
+		wsID string,
+	) (bool, error)
 	Diff(
 		ctx context.Context,
 		wsID string,
@@ -330,6 +339,32 @@ func (u *gitUsecase) Status(
 		return gitdomain.GitStatus{}, fmt.Errorf("git: status: %w", err)
 	}
 	return st, nil
+}
+
+// PullIsFastForward reports whether a pull on the workspace's branch would fast
+// forward — true iff the local branch holds no commit its upstream lacks. It is
+// the synchronous safety gate the pull handler consults before accepting the
+// pull: a false result means the branch has diverged and the pull is refused
+// instead of blindly merging. The check resolves the workspace's write path
+// (rejecting a locked workspace, as the pull itself would) and its current
+// branch, then defers to the local, no-network engine check.
+func (u *gitUsecase) PullIsFastForward(
+	ctx context.Context,
+	wsID string,
+) (bool, error) {
+	repoPath, err := u.writePath(ctx, wsID)
+	if err != nil {
+		return false, err
+	}
+	st, err := u.git.Status(ctx, repoPath)
+	if err != nil {
+		return false, fmt.Errorf("git: pull ff-check: status: %w", err)
+	}
+	ff, err := u.git.PullIsFastForward(ctx, repoPath, st.Branch)
+	if err != nil {
+		return false, fmt.Errorf("git: pull ff-check: %w", err)
+	}
+	return ff, nil
 }
 
 // Diff returns the working-tree (or staged) diff of a workspace.
