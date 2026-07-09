@@ -122,22 +122,34 @@ func New(
 	return &service{storage: st, es: es, ax: ax}, nil
 }
 
-// GetChat returns the chat for id (tombstoned or not), healing the read model
-// first when it is empty.
+// GetChat returns the chat for id (tombstoned or not) via an O(1) keyed
+// lookup — T10 puts this on the per-hook hot path, so it must not scan and
+// unmarshal every row. A miss triggers one whole-model Replay rebuild and a
+// re-lookup, preserving the lazy self-heal after a read-DB loss; only a miss
+// that survives the rebuild is a genuine ErrNotFound. Unlike the list queries
+// this returns deleted (tombstoned) chats — deletion removes a chat from list
+// views, not from direct-by-id lookup.
 func (s *service) GetChat(
 	ctx context.Context,
 	id string,
 ) (domain.AgentChat, error) {
-	all, err := s.allHealed(ctx)
+	chat, err := s.storage.FindByKey(ctx, id)
 	if err != nil {
 		return domain.AgentChat{}, err
 	}
-	for _, chat := range all {
-		if chat.ID == id {
-			return chat, nil
+	if chat == nil {
+		if err := s.rebuild(ctx); err != nil {
+			return domain.AgentChat{}, err
+		}
+		chat, err = s.storage.FindByKey(ctx, id)
+		if err != nil {
+			return domain.AgentChat{}, err
 		}
 	}
-	return domain.AgentChat{}, fmt.Errorf("agentchat store: get %q: %w", id, ErrNotFound)
+	if chat == nil {
+		return domain.AgentChat{}, fmt.Errorf("agentchat store: get %q: %w", id, ErrNotFound)
+	}
+	return *chat, nil
 }
 
 // ListChats returns every live chat, healing the read model first when empty.

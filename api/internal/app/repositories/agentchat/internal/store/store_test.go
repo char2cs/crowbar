@@ -110,6 +110,25 @@ func TestStore_GetByProviderSession_FindsBoundChat(t *testing.T) {
 	assert.Equal(t, "c1", got.ID)
 }
 
+// TestStore_GetByProviderSession_DisambiguatesAcrossChats proves the scan
+// returns the CORRECT chat per session id when multiple chats each hold a bound
+// session — not just "some chat". openTwoSegmentChat binds "sess-<chatID>" to
+// each chat's active segment, so c1↔sess-c1 and c2↔sess-c2 must resolve
+// independently.
+func TestStore_GetByProviderSession_DisambiguatesAcrossChats(t *testing.T) {
+	ctx, st, ax := newStore(t)
+	openTwoSegmentChat(t, ctx, ax, "c1")
+	openTwoSegmentChat(t, ctx, ax, "c2")
+
+	got1, err := st.GetByProviderSession(ctx, "sess-c1")
+	require.NoError(t, err)
+	assert.Equal(t, "c1", got1.ID)
+
+	got2, err := st.GetByProviderSession(ctx, "sess-c2")
+	require.NoError(t, err)
+	assert.Equal(t, "c2", got2.ID)
+}
+
 func TestStore_GetByProviderSession_MissingReturnsErrNotFound(t *testing.T) {
 	ctx, st, ax := newStore(t)
 	openTwoSegmentChat(t, ctx, ax, "c1")
@@ -183,6 +202,25 @@ func TestStore_ReadRebuildsWhenModelEmptyButLogNonEmpty(t *testing.T) {
 	byCleanSession, err := st.GetByProviderSession(ctx, "sess-c1")
 	require.NoError(t, err)
 	assert.Equal(t, "c1", byCleanSession.ID)
+}
+
+// TestStore_GetChat_SelfHealsOnPerIDMiss proves the keyed GetChat's
+// rebuild-on-miss fallback works even when the read model is NOT empty: only
+// c2's row is dropped while c1's survives, so allHealed's empty-model rebuild
+// would never fire — GetChat("c2") must still Replay c2 back from the event log
+// on the per-id miss.
+func TestStore_GetChat_SelfHealsOnPerIDMiss(t *testing.T) {
+	ctx, st, ax, db := newStoreWithDeps(t)
+	openTwoSegmentChat(t, ctx, ax, "c1")
+	openTwoSegmentChat(t, ctx, ax, "c2")
+
+	// Drop only c2's row; the model stays non-empty (c1 remains).
+	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM agent_chats_read WHERE id = ?", "c2").Error)
+
+	got, err := st.GetChat(ctx, "c2")
+	require.NoError(t, err)
+	assert.Equal(t, "c2", got.ID)
+	require.Len(t, got.Segments, 2, "GetChat must Replay c2 back on the per-id miss")
 }
 
 func TestStore_ListChats_EmptyLogReturnsEmpty(t *testing.T) {
