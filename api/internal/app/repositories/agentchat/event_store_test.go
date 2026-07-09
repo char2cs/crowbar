@@ -255,27 +255,17 @@ func TestAgentChat_HubBroadcastsChatIDAndKind(t *testing.T) {
 }
 
 // concurrentOpenSegmentTrials is the number of independent fresh-chat trials
-// TestAgentChat_ConcurrentOpenSegment_OneWins runs. asynx v0.6.2 has a
-// verified upstream OCC gap: internal/processor/exec.Execute's nextVersion
-// parameter is documented "reserved for future optimistic-locking
-// enforcement" and is never actually used; eventstore.Writer.Write computes
-// the append version fresh via its OWN nextVersion() read, independent of the
-// aggregate state a command's Validate ran against. The public asynx.Builder
-// also has no way to pin workersPerShard to 1 (processor.New always defaults
-// it to 8), so two Sends to the SAME aggregate can run on different shard
-// workers. Net effect: two concurrent OpenSegment commands can both read "no
-// active segment", both pass Validate, and both commit at DIFFERENT
-// newly-computed versions with no (id,version) collision to catch it —
-// exactly-one-winner is NOT reliably guaranteed by the library today (an
-// isolated repro against raw asynx.Send with no crowbar code involved showed
-// a double-commit rate that got markedly WORSE under -race, up to ~50%, since
-// the race detector's instrumentation widens the window). See task-6 report
-// for the full root-cause trace. This is NOT a defect in sendWithOCC/occSend
-// or in OpenSegment.Validate — both are correct given the errors asynx
-// actually returns. Given that, this test hard-asserts only what asynx
-// deterministically guarantees on every trial, and separately logs (without
-// gating pass/fail) how often the race additionally resolved to the fully
-// correct outcome, across several independent trials for visibility.
+// TestAgentChat_ConcurrentOpenSegment_OneWins runs. asynx v0.7.0 enforces real
+// write-path optimistic concurrency: eventstore.Write loads the aggregate state
+// and its version together and appends at expectedVersion+1, so two Sends to the
+// same aggregate collide on (id,version) uniqueness — the loser gets
+// ErrPipelineFailed and retries (re-loading the now-committed state), where
+// OpenSegment.Validate rejects it. So exactly one of two concurrent OpenSegments
+// commits, deterministically, at the default 8 workers/shard — no writeMu and no
+// WorkersPerShard tuning needed. Several trials give the race repeated chances to
+// surface any nondeterminism. (v0.6.2 had an upstream OCC gap here — the append
+// version was recomputed independent of the validated load, letting both commit;
+// fixed in v0.7.0, commit 75ffc45.)
 const concurrentOpenSegmentTrials = 10
 
 // TestAgentChat_ConcurrentOpenSegment_OneWins exercises the OCC retry
@@ -286,22 +276,17 @@ const concurrentOpenSegmentTrials = 10
 // joined by errgroup.Wait, and each trial's read is preceded by
 // WaitQuiescentForTest (asynx WaitPublish), never a timing guess.
 //
-// Every trial hard-asserts what asynx v0.6.2 ALWAYS guarantees
-// deterministically: neither send hangs or returns an unexpected error type
-// (nil, or wrapping asynxModels.ErrValidation — never an unresolved
-// ErrPipelineFailed or anything else), at least one send always commits, and
-// the read model always ends up with 1 or 2 active segments (never zero: two
-// concurrent opens of an already-ended chat cannot both be rejected). Whether
-// the race additionally resolved to the FULLY correct outcome — exactly one
-// winner, exactly one ErrValidation loser, exactly one active segment — is
-// logged per trial but deliberately NOT hard-asserted, per the
-// concurrentOpenSegmentTrials doc comment above (known asynx v0.6.2 OCC gap,
-// not a Task 6 defect).
+// asynx v0.7.0 enforces real write-path OCC (Write loads state+version together
+// and appends at expectedVersion+1), so every trial hard-asserts the fully
+// correct outcome deterministically: exactly one send commits, the loser is
+// rejected by OpenSegment.Validate (wrapping asynxModels.ErrValidation, never an
+// unresolved ErrPipelineFailed), and the read model ends with exactly one active
+// segment. No sleeps; convergence is guaranteed by (id,version) uniqueness, not
+// timing.
 func TestAgentChat_ConcurrentOpenSegment_OneWins(t *testing.T) {
 	ctx, repo, _, _ := newRepoWithDeps(t)
 	now := time.Unix(1000, 0).UTC()
 
-	clean := 0
 	for trial := range concurrentOpenSegmentTrials {
 		chatID := fmt.Sprintf("race-chat-%d", trial)
 		createChat(t, ctx, repo, chatID, "w1", now)
@@ -335,7 +320,7 @@ func TestAgentChat_ConcurrentOpenSegment_OneWins(t *testing.T) {
 			require.ErrorIsf(t, e, asynxModels.ErrValidation,
 				"trial %d: a losing OpenSegment must be rejected by the active-segment guard, not left as an unresolved pipeline failure", trial)
 		}
-		require.GreaterOrEqualf(t, succeeded, 1, "trial %d: at least one racing OpenSegment must commit", trial)
+		require.Equalf(t, 1, succeeded, "trial %d: exactly one racing OpenSegment must commit; the other must be rejected", trial)
 
 		agentchat.WaitQuiescentForTest(repo)
 		got, err := repo.GetChat(ctx, chatID)
@@ -346,16 +331,8 @@ func TestAgentChat_ConcurrentOpenSegment_OneWins(t *testing.T) {
 				active++
 			}
 		}
-		require.GreaterOrEqualf(t, active, 1, "trial %d: the read model must show at least one active segment", trial)
-		require.LessOrEqualf(t, active, 2, "trial %d: the read model must never show more than 2 active segments (only 2 racers)", trial)
-
-		if succeeded == 1 && active == 1 {
-			clean++
-			continue
-		}
-		t.Logf("trial %d: OCC did not resolve the race to the ideal outcome this time (succeeded=%d active=%d) — known asynx v0.6.2 OCC gap, see task-6 report", trial, succeeded, active)
+		require.Equalf(t, 1, active, "trial %d: the read model must show exactly one active segment (≤1-active invariant holds under the race)", trial)
 	}
-	t.Logf("%d/%d trials resolved via OCC to exactly one winner + one active segment (informational only, not gated — see task-6 report)", clean, concurrentOpenSegmentTrials)
 }
 
 // TestAgentChat_OccSendErrorDisposition pins the terminal error-disposition
