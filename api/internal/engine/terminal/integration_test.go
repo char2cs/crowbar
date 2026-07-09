@@ -15,7 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
-// pipeConn is a pipe-based WSConn for testing without network I/O or time.Sleep.
+// pipeConn is a pipe-based WSConn for testing without network I/O or timing sleeps.
 type pipeConn struct {
 	mu        sync.Mutex
 	inbox     chan []byte // messages sent by the server to this "client"
@@ -99,6 +99,7 @@ func waitForOutput(
 
 func TestIntegration_TwoClientsReceiveOutput(t *testing.T) {
 	eng := terminal.New()
+	defer eng.Shutdown() // stop the maintenance goroutine so it can't race a later test's limit-var writes
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -147,6 +148,7 @@ func TestIntegration_TwoClientsReceiveOutput(t *testing.T) {
 
 func TestIntegration_ReattachSerializedRedraw(t *testing.T) {
 	eng := terminal.New()
+	defer eng.Shutdown() // stop the maintenance goroutine so it can't race a later test's limit-var writes
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -187,6 +189,7 @@ func TestIntegration_ReattachSerializedRedraw(t *testing.T) {
 
 func TestIntegration_KillClosesClients(t *testing.T) {
 	eng := terminal.New()
+	defer eng.Shutdown() // stop the maintenance goroutine so it can't race a later test's limit-var writes
 	ctx := context.Background()
 	dir := t.TempDir()
 

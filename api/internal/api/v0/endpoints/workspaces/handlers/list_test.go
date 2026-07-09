@@ -18,7 +18,7 @@ func TestListSuccess(
 	t *testing.T,
 ) {
 	reader := &fakeReader{
-		list: []domain.Workspace{
+		listInRepo: []domain.Workspace{
 			{ID: "w1", RepoID: "r1", ProjectID: "p1"},
 		},
 	}
@@ -46,13 +46,15 @@ func TestListEmptyNonNil(
 	assert.Contains(t, rec.Body.String(), `"data":[]`)
 }
 
-// TestListFilterByProject confirms the path :projectId scopes the result.
+// TestListFilterByProject confirms the handler forwards the path :projectId
+// straight through to reader.ListInRepo (the real project/repo scoping is
+// proven at the repo/usecase layer — see TestListInRepo_ScopesToRepo and
+// TestWorkspaceUsecase_ListInRepo — not reimplemented here in the fake).
 func TestListFilterByProject(
 	t *testing.T,
 ) {
 	reader := &fakeReader{
-		list: []domain.Workspace{
-			{ID: "w1", ProjectID: "p1", RepoID: "r2"},
+		listInRepo: []domain.Workspace{
 			{ID: "w2", ProjectID: "p2", RepoID: "r2"},
 		},
 	}
@@ -66,16 +68,18 @@ func TestListFilterByProject(
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Len(t, body.Data, 1)
 	assert.Equal(t, "w2", body.Data[0].ID)
+	assert.Equal(t, "p2", reader.gotListInRepoProject)
+	assert.Equal(t, "r2", reader.gotListInRepoRepo)
 }
 
-// TestListFilterByRepo confirms the path :repoId scopes the result.
+// TestListFilterByRepo confirms the handler forwards the path :repoId straight
+// through to reader.ListInRepo (see TestListFilterByProject's doc comment).
 func TestListFilterByRepo(
 	t *testing.T,
 ) {
 	reader := &fakeReader{
-		list: []domain.Workspace{
+		listInRepo: []domain.Workspace{
 			{ID: "w1", ProjectID: "p1", RepoID: "r1"},
-			{ID: "w2", ProjectID: "p1", RepoID: "r2"},
 		},
 	}
 	rec := do(newRouter(reader, &fakeHierarchy{}, &fakeRepos{}), http.MethodGet, "/v0/projects/p1/repos/r1/workspaces", "")
@@ -88,12 +92,14 @@ func TestListFilterByRepo(
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Len(t, body.Data, 1)
 	assert.Equal(t, "w1", body.Data[0].ID)
+	assert.Equal(t, "p1", reader.gotListInRepoProject)
+	assert.Equal(t, "r1", reader.gotListInRepoRepo)
 }
 
 func TestListError(
 	t *testing.T,
 ) {
-	reader := &fakeReader{listErr: errors.New("db down")}
+	reader := &fakeReader{listInRepoErr: errors.New("db down")}
 	rec := do(newRouter(reader, &fakeHierarchy{}, &fakeRepos{}), http.MethodGet, "/v0/projects/p1/repos/r1/workspaces", "")
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
@@ -132,7 +138,7 @@ func TestList_PopulatesMergeEligibility(
 	t *testing.T,
 ) {
 	reader := &fakeReader{
-		list: []domain.Workspace{
+		listInRepo: []domain.Workspace{
 			{ID: "parent", ProjectID: "p1", RepoID: "r1", Branch: "main"},
 			{ID: "child-ok", ProjectID: "p1", RepoID: "r1", ParentID: "parent"},
 			{ID: "child-locked", ProjectID: "p1", RepoID: "r1", ParentID: "locked"},
@@ -179,7 +185,7 @@ func TestDetail_PopulatesMergeEligibility(
 ) {
 	reader := &fakeReader{
 		get: domain.Workspace{ID: "child-ok", ProjectID: "p1", RepoID: "r1", ParentID: "parent"},
-		list: []domain.Workspace{
+		listInRepo: []domain.Workspace{
 			{ID: "parent", ProjectID: "p1", RepoID: "r1", Branch: "main"},
 			{ID: "child-ok", ProjectID: "p1", RepoID: "r1", ParentID: "parent"},
 		},

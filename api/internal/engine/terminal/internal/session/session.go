@@ -248,7 +248,7 @@ func (s *Session) spawn(
 ) error {
 	cols, rows, sbLines, redraw := s.resolveBirth(p)
 
-	cmd := exec.Command(s.shell)
+	cmd := exec.Command(s.shell) //nolint:gosec // G204: s.shell is the operator-configured login shell path, not attacker-controlled; spawning it is the whole point of a terminal session.
 	cmd.Dir = s.cwd
 	cmd.Env = env
 
@@ -259,7 +259,7 @@ func (s *Session) spawn(
 
 	// Size the PTY to the persisted/requested dimensions before any Read so the shell's
 	// first output is generated at the correct width.
-	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)}) //nolint:gosec // G115: cols/rows are terminal dimensions (resolveCols/Rows floor them at 1); pty.Winsize fields are uint16 by definition.
 
 	m, ser := newModel(cols, rows, sbLines)
 	if len(redraw) > 0 {
@@ -385,7 +385,7 @@ func (s *Session) startResponseSink(
 // the CRWB1 header.
 func (s *Session) resolveBirth(
 	p spawnParams,
-) (cols int, rows int, sbLines int, redraw []byte) {
+) (cols, rows, sbLines int, redraw []byte) {
 	if p.Blob != nil {
 		hc, hr, hsb, body := parseBlob(p.Blob)
 		return resolveCols(hc), resolveRows(hr), resolveScrollback(hsb), body
@@ -425,7 +425,7 @@ func resolveScrollback(
 // which resolveBirth treats as an empty session at the default size (§12, no migration).
 func parseBlob(
 	blob []byte,
-) (cols int, rows int, scrollbackLines int, body []byte) {
+) (cols, rows, scrollbackLines int, body []byte) {
 	nl := bytes.IndexByte(blob, '\n')
 	if nl < 0 {
 		return 0, 0, 0, nil
@@ -535,7 +535,7 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 
 	cl := &client{send: make(chan OutputFrame, clientSendBuf)}
 
-	if s.model != nil {
+	if s.model != nil { //nolint:nestif // ordered attach protocol (flush-then-snapshot vs raw-continuation) documented inline; flattening would break the required sequence.
 		// Sample the foreground-reset detector before serializing (§11.1 site #2) so a
 		// re-attach inside the pumpStep debounce window of a SIGKILLed app never bakes its
 		// stale alt/mouse modes into the new client.
@@ -857,7 +857,7 @@ func (s *Session) pumpStep(chunk []byte) {
 	if ok {
 		s.cwd = path
 	}
-	if s.modelEmitHealthyLocked() {
+	if s.modelEmitHealthyLocked() { //nolint:nestif // healthy vs degraded emit paths with the documented per-chunk panic-fallback asymmetry; keeping it inline preserves the branch invariants.
 		// Model-driven (spec §3.1): the model is written FIRST and clients
 		// receive model-derived frames. Raw fan-out is skipped entirely —
 		// UNLESS the emit path itself degrades on THIS chunk (see below).
@@ -1199,7 +1199,7 @@ func (s *Session) fanOutFrameLocked(
 func (s *Session) shutdown() {
 	s.once.Do(func() {
 		code := -1
-		if s.cmd != nil {
+		if s.cmd != nil { //nolint:nestif // the single reap: Wait then classify exit vs ExitError to derive the code; shallow and self-contained.
 			err := s.cmd.Wait()
 			if err == nil {
 				code = 0
@@ -1397,7 +1397,7 @@ func (s *Session) Health() (degraded bool, parsePanics int) {
 		}
 		parsePanics += h.ParsePanics()
 	}
-	return
+	return degraded, parsePanics
 }
 
 // ModelBytes returns the session's estimated resident size for the engine's memory ceiling:

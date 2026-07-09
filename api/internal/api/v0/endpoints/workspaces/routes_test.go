@@ -32,6 +32,14 @@ func (stubReader) List(
 	return nil, nil
 }
 
+func (stubReader) ListInRepo(
+	_ context.Context,
+	_ string,
+	_ string,
+) ([]domain.Workspace, error) {
+	return nil, nil
+}
+
 func (stubReader) Get(
 	_ context.Context,
 	_ string,

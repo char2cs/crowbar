@@ -126,9 +126,16 @@ func (c *Container) Run(
 	go func() { serveErr <- c.server.Serve(c.listener) }()
 	select {
 	case <-ctx.Done():
+		// Ordered, bounded graceful shutdown (spec §3.8): under one ~5s deadline,
+		// (1) stop accepting new requests + drain in-flight HTTP, then (2-3) drain
+		// every post-commit reactor and Shutdown each asynx singleton — all BEFORE
+		// the deferred Close() WAL-checkpoints and closes the DBs (adapter.Close),
+		// so no reactor is mid-write when the DBs shut. Both waits honor shutdownCtx.
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return c.server.Shutdown(shutdownCtx)
+		httpErr := c.server.Shutdown(shutdownCtx)
+		drainErr := c.app.Shutdown(shutdownCtx)
+		return errors.Join(httpErr, drainErr)
 	case err := <-serveErr:
 		// ErrServerClosed only occurs after Shutdown (handled above), so any error
 		// arriving here is a genuine listen/accept failure.

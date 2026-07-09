@@ -12,7 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/git"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/discover"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
@@ -134,7 +133,6 @@ func New(
 	branchReview := branchreview.New(
 		repos.Workspace,
 		repos.ReviewThread,
-		repos.Chat,
 		gormStores.Repositories,
 		engines.Git,
 		nowFunc,
@@ -170,9 +168,8 @@ type workspaceGetter interface {
 
 // agentWorkspaceReader adapts the workspace repository into the agent
 // usecase's WorkspaceReader seam (internal/app/usecases/agent.WorkspaceReader):
-// given a workspace id, it resolves the owning project/repo from the
-// workspace-location index and derives the git worktree directory via the same
-// worktreepath helper the worktree usecase uses.
+// given a workspace id, it resolves the owning project/repo and the git
+// worktree directory from the workspace read model's stored WorktreePath.
 //
 // It shares the container's injected crowbarHome resolver (the same one every
 // other path-deriving usecase here is built with) rather than reading
@@ -199,5 +196,5 @@ func (r *agentWorkspaceReader) WorktreeDir(
 	if err != nil {
 		return "", "", "", "", fmt.Errorf("usecases: agent workspace reader: get workspace: %w", err)
 	}
-	return home, w.ProjectID, w.RepoID, worktreepath.For(home, w.ProjectID, w.RepoID, workspaceID), nil
+	return home, w.ProjectID, w.RepoID, w.WorktreePath, nil
 }

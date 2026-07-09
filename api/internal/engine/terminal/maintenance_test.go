@@ -31,15 +31,6 @@ func countSavedForSession(store *fakeMetaStore, sid string) int {
 	return n
 }
 
-// bufModTime returns the modification time of <dir>/<sid>.buf, or zero if absent.
-func bufModTime(dir, sid string) time.Time {
-	fi, err := os.Stat(filepath.Join(dir, sid+".buf"))
-	if err != nil {
-		return time.Time{}
-	}
-	return fi.ModTime()
-}
-
 // waitIdle polls IsIdleForTest until it returns true or deadline.
 func waitIdle(t *testing.T, eng terminal.Engine, id string, d time.Duration) {
 	t.Helper()
@@ -67,7 +58,7 @@ func waitNotIdle(t *testing.T, eng terminal.Engine, id string, d time.Duration) 
 	const required = 3
 	confirmed := 0
 	for {
-		if !terminal.IsIdleForTest(eng, id) {
+		if !terminal.IsIdleForTest(eng, id) { //nolint:nestif // require N consecutive non-idle readings; the confirm/reset counter is the debounce this test needs
 			confirmed++
 			if confirmed >= required {
 				return
@@ -83,12 +74,12 @@ func waitNotIdle(t *testing.T, eng terminal.Engine, id string, d time.Duration) 
 	}
 }
 
-// waitForOutput polls until the session's serialized model is non-empty (i.e. the
-// shell has emitted at least one byte — typically the prompt). This is needed
+// waitForModelOutput polls until the session's serialized model is non-empty (i.e.
+// the shell has emitted at least one byte — typically the prompt). This is needed
 // because IsIdle() returns true as soon as the shell is the foreground process
 // group, which is BEFORE it writes the prompt bytes to the PTY. Without this
 // extra wait the cadence-flush check (dirty=true) races with pumpStep.
-func waitForOutput(t *testing.T, eng terminal.Engine, id string, d time.Duration) {
+func waitForModelOutput(t *testing.T, eng terminal.Engine, id string, d time.Duration) {
 	t.Helper()
 	deadline := time.After(d)
 	for {
@@ -105,7 +96,7 @@ func waitForOutput(t *testing.T, eng terminal.Engine, id string, d time.Duration
 
 // waitForSettled polls until the session's serialized model has not grown for at
 // least 5 consecutive 50 ms samples (250 ms of silence). Shell prompts arrive
-// in multiple PTY chunks; waitForOutput returns on the first chunk, but dirty
+// in multiple PTY chunks; waitForModelOutput returns on the first chunk, but dirty
 // will still be set by later chunks. waitForSettled ensures the pump has fully
 // drained the shell's initial output before the test triggers a maintenance run.
 func waitForSettled(t *testing.T, eng terminal.Engine, id string, d time.Duration) {
@@ -116,7 +107,7 @@ func waitForSettled(t *testing.T, eng terminal.Engine, id string, d time.Duratio
 	stableCount := 0
 	for {
 		curLen := terminal.SnapshotLenForTest(eng, id)
-		if curLen == lastLen {
+		if curLen == lastLen { //nolint:nestif // settle detector: N consecutive equal-length samples; the count/reset branch is the debounce
 			stableCount++
 			if stableCount >= stableNeeded {
 				return
@@ -130,6 +121,37 @@ func waitForSettled(t *testing.T, eng terminal.Engine, id string, d time.Duratio
 			t.Fatalf("session %s serialized model did not settle within %s", id, d)
 		case <-time.After(50 * time.Millisecond):
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestPtyEnv_DefaultLocale
+// ---------------------------------------------------------------------------
+
+// TestPtyEnv_DefaultLocale verifies ptyEnv's UTF-8-locale defaulting (via the
+// pure defaultLocale decision it delegates to): a GUI/launchd-launched daemon
+// that inherited NO locale gets a platform-appropriate UTF-8 LANG (en_US.UTF-8
+// on darwin, C.UTF-8 elsewhere), while ANY explicitly-set locale var — LANG,
+// LC_ALL or LC_CTYPE — is left untouched. This is the unit guard for the
+// no-LANG glyph-corruption fix; the integration suite proves it end-to-end.
+func TestPtyEnv_DefaultLocale(t *testing.T) {
+	cases := []struct {
+		name string
+		base []string
+		goos string
+		want string
+	}{
+		{"unset-darwin-defaults-en_US", []string{"TERM=xterm-256color", "PATH=/usr/bin"}, "darwin", "en_US.UTF-8"},
+		{"unset-linux-defaults-C_UTF8", []string{"TERM=xterm-256color", "PATH=/usr/bin"}, "linux", "C.UTF-8"},
+		{"lang-set-untouched-darwin", []string{"LANG=en_GB.ISO-8859-1"}, "darwin", ""},
+		{"lang-set-untouched-linux", []string{"LANG=en_GB.ISO-8859-1"}, "linux", ""},
+		{"lc-all-set-untouched", []string{"LC_ALL=fr_FR.UTF-8"}, "darwin", ""},
+		{"lc-ctype-set-untouched", []string{"LC_CTYPE=de_DE.UTF-8"}, "linux", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, terminal.DefaultLocaleForTest(tc.base, tc.goos))
+		})
 	}
 }
 
@@ -235,8 +257,15 @@ func TestMaintenance_SoftLimit(t *testing.T) {
 	// Run maintenance — should suspend sids[0] and sids[1] (2 oldest).
 	terminal.RunMaintenanceOnceForTest(eng, ctx)
 
-	// Give Kill goroutines a brief moment to propagate the placeholder swap.
-	time.Sleep(200 * time.Millisecond)
+	// runMaintenanceOnce calls Suspend synchronously, and Suspend persists the
+	// "suspended" meta (and the placeholder swap) before returning, so the state
+	// is already durable here. Wait on that real observable deterministically
+	// rather than sleeping for the Kill goroutines.
+	require.Eventually(t, func() bool {
+		return store.hasSavedWithState(sids[0], "suspended") &&
+			store.hasSavedWithState(sids[1], "suspended")
+	}, 10*time.Second, 10*time.Millisecond,
+		"two oldest sessions must be suspended by soft limit")
 
 	// sids[0] and sids[1] must be suspended (placeholders).
 	assert.True(t, store.hasSavedWithState(sids[0], "suspended"),
@@ -279,24 +308,30 @@ func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 	eng.SetMetaStore(store)
 	defer eng.Shutdown()
 
+	// These waits drive real shell subprocesses (spawn, prompt emission, fork/exec
+	// of `sleep`). Under a saturated full-suite `-race` run the subprocess can be
+	// starved well past a tight deadline (observed: waitNotIdle timing out at 10 s),
+	// so the deadline is generous — a passing wait returns as soon as its condition
+	// holds, so headroom never slows the common case. This engine's maintenance
+	// ticker is stopped (StopMaintenanceForTest above), so a longer wait cannot race
+	// a ticker firing. waitForSettled before the write ensures the shell is fully
+	// initialised (250 ms of output silence) so it runs the sleep command promptly
+	// once scheduled.
+	const wait = 30 * time.Second
+
 	// Create an idle session (will be over limit).
 	sidIdle, err := eng.Create(ctx, "ws-running", dir, nil)
 	require.NoError(t, err)
-	waitIdle(t, eng, sidIdle, 10*time.Second)
-	waitForSettled(t, eng, sidIdle, 10*time.Second)
+	waitIdle(t, eng, sidIdle, wait)
+	waitForSettled(t, eng, sidIdle, wait)
 
 	// Create a running session (foreground sleep).
-	// waitForSettled before writing ensures the shell is fully initialised (250 ms
-	// of output silence). This makes the shell respond to the sleep command
-	// immediately, so waitNotIdle completes in < 1 s rather than possibly close to
-	// its 10 s deadline — which would allow the engine's 10-second maintenance ticker
-	// to fire and race with the next test's global-variable writes.
 	sidRunning, err := eng.Create(ctx, "ws-running", dir, nil)
 	require.NoError(t, err)
-	waitIdle(t, eng, sidRunning, 10*time.Second)
-	waitForSettled(t, eng, sidRunning, 10*time.Second)
+	waitIdle(t, eng, sidRunning, wait)
+	waitForSettled(t, eng, sidRunning, wait)
 	require.NoError(t, eng.Write(ctx, sidRunning, []byte("sleep 9999\n")))
-	waitNotIdle(t, eng, sidRunning, 10*time.Second)
+	waitNotIdle(t, eng, sidRunning, wait)
 
 	// Assign lastActive: running session is "older" so it would be first candidate
 	// if idle — but it's not idle, so it must be skipped.
@@ -304,14 +339,16 @@ func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 	terminal.SetLastActiveForTest(eng, sidRunning, base)
 	terminal.SetLastActiveForTest(eng, sidIdle, base.Add(time.Minute))
 
-	// Run maintenance — workspace has 2 detached sessions > limit of 1.
-	// The running one must be skipped; the idle one gets suspended.
-	terminal.RunMaintenanceOnceForTest(eng, ctx)
-	time.Sleep(200 * time.Millisecond)
-
-	// sidIdle must be suspended.
-	assert.True(t, store.hasSavedWithState(sidIdle, "suspended"),
-		"idle detached session must be suspended by soft limit")
+	// Workspace has 2 detached sessions > limit of 1: the running one must be
+	// skipped, the idle one suspended. Suspend is synchronous, but the idle check
+	// (TIOCGPGRP) can transiently read non-idle under load and skip a pass; production
+	// retries via the ticker. Drive maintenance until the idle session is suspended —
+	// the loop exit IS the assertion. The running session (foreground `sleep`) is
+	// never idle, so extra passes cannot suspend it (the Write assertion below guards
+	// that), and a genuine failure is caught by the go test -timeout backstop.
+	for !store.hasSavedWithState(sidIdle, "suspended") {
+		terminal.RunMaintenanceOnceForTest(eng, ctx)
+	}
 
 	// sidRunning must still be live and writable.
 	assert.NoError(t, eng.Write(ctx, sidRunning, []byte("echo running\n")),
@@ -385,7 +422,14 @@ func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 	// Run maintenance: 2 live models (512 KB) > 384 KB ceiling → global ceiling fires.
 	// No idle candidates → last-resort force-suspend of sid1 (oldest).
 	terminal.RunMaintenanceOnceForTest(eng, ctx)
-	time.Sleep(300 * time.Millisecond)
+
+	// The force-suspend runs synchronously inside the sweep (WriteBuf then saveMeta
+	// "suspended" before it returns), so once "suspended" is recorded the .buf is
+	// already on disk. Wait on that durable state deterministically.
+	require.Eventually(t, func() bool {
+		return store.hasSavedWithState(sid1, "suspended")
+	}, 10*time.Second, 10*time.Millisecond,
+		"oldest session must be force-suspended by global ceiling last resort")
 
 	// sid1 must be suspended (placeholder) and sid2 must still be live.
 	assert.True(t, store.hasSavedWithState(sid1, "suspended"),

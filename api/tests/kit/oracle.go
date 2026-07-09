@@ -26,20 +26,24 @@ func projectDirOf(
 	return filepath.Join(home, "projects", projectID)
 }
 
-// worktreePathOf mirrors worktreepath.For: the crowbar-created worktree dir for
-// a workspace, <home>/projects/<P>/<R>/workspaces/<W>/worktree.
+// worktreePathOf mirrors worktreepath.Derive for a no-remote repo (spec §3.9,
+// decision 13): the crowbar-created worktree dir for a workspace,
+// <home>/projects/<project>/<slug>/<branch>, where the slug degrades to the
+// repo's on-disk name (filepath.Base(repoPath)) and a nested branch maps to
+// nested directories. The worktreepath package is doubly-internal (under
+// app/usecases/internal) and not importable from tests/kit, so the friendly
+// layout is reconstructed here from the same contract — the exact layout Task
+// 17's paths_test.go computes.
 func worktreePathOf(
 	home string,
 	projectID string,
-	repoID string,
-	wsID string,
+	repoPath string,
+	branch string,
 ) string {
 	return filepath.Join(
 		projectDirOf(home, projectID),
-		repoID,
-		"workspaces",
-		wsID,
-		"worktree",
+		filepath.Base(repoPath),
+		branch,
 	)
 }
 
@@ -54,6 +58,7 @@ func worktreePathOf(
 func AssertWorkspaceConsistency(
 	t *testing.T,
 	env *Env,
+	repoPath string,
 	wsID string,
 ) {
 	t.Helper()
@@ -94,8 +99,8 @@ func AssertWorkspaceConsistency(
 
 	if ws.WorktreePath != "" {
 		// A crowbar-created child worktree (one living under the crowbar home's
-		// projects tree) must follow the UUID layout (spec §1/§8):
-		// <home>/projects/<P>/<R>/workspaces/<W>/worktree. An adopted main
+		// projects tree) must follow the human-readable layout (spec §3.9,
+		// decision 13): <home>/projects/<project>/<slug>/<branch>. An adopted main
 		// worktree points at the user's real on-disk repo path and is exempt.
 		if strings.HasPrefix(ws.WorktreePath, projectDirOf(env.homeDir, ws.ProjectID)) {
 			assert.Equal(
@@ -103,11 +108,11 @@ func AssertWorkspaceConsistency(
 				worktreePathOf(
 					env.homeDir,
 					ws.ProjectID,
-					ws.RepoID,
-					ws.ID,
+					repoPath,
+					ws.Branch,
 				),
 				ws.WorktreePath,
-				"oracle: crowbar-created worktree path must equal the UUID layout",
+				"oracle: crowbar-created worktree path must equal the friendly host/owner/repo/branch layout",
 			)
 		}
 

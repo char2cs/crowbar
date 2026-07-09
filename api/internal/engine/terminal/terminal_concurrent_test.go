@@ -90,8 +90,19 @@ func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
 	// session will receive it — goroutines frozen on the placeholder will not.
 	require.NoError(t, eng.Write(ctx, sid, []byte("echo "+liveProbe+"\n")))
 
-	// Allow output to propagate before closing connections.
-	time.Sleep(2 * time.Second)
+	// Wait until EVERY goroutine's connection has received the live probe, then
+	// close. This is exactly the observable the final assertion checks (a goroutine
+	// frozen on the placeholder never receives it), so gate on it deterministically
+	// rather than sleeping for propagation.
+	require.Eventually(t, func() bool {
+		for _, c := range conns {
+			if !connReceived(c, liveProbe) {
+				return false
+			}
+		}
+		return true
+	}, 15*time.Second, 20*time.Millisecond,
+		"all goroutines must receive the live PTY probe")
 	for _, c := range conns {
 		c.Close()
 	}
@@ -148,10 +159,7 @@ func TestKill_vs_Suspend_Serialized(t *testing.T) {
 
 		// Wait for the shell to become idle so Suspend is eligible.
 		deadline := time.After(15 * time.Second)
-		for {
-			if terminal.IsIdleForTest(eng, sid) {
-				break
-			}
+		for !terminal.IsIdleForTest(eng, sid) {
 			select {
 			case <-deadline:
 				t.Fatalf("round %d: session never became idle", round)
@@ -191,8 +199,13 @@ func TestKill_vs_Suspend_Serialized(t *testing.T) {
 		assert.False(t, eng.SessionExists(ctx, sid),
 			"round %d: session must not exist after final cleanup", round)
 
-		// Allow reapOnDone to fire OnSessionEnded for the Kill-wins case.
-		time.Sleep(500 * time.Millisecond)
+		// reapOnDone fires OnSessionEnded asynchronously (fireEnded is guarded to
+		// fire exactly once per session id). Wait for that single fire
+		// deterministically instead of sleeping.
+		require.Eventually(t, func() bool {
+			return atomic.LoadInt64(&endedCount) == 1
+		}, 5*time.Second, 10*time.Millisecond,
+			"round %d: OnSessionEnded must fire exactly once", round)
 
 		got := atomic.LoadInt64(&endedCount)
 		assert.Equal(t, int64(1), got,
@@ -338,9 +351,16 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 				return ok && state == "active"
 			}, "client never attached")
 
-			// Drive output so the model is dirty (so the cadence flush persists).
+			// Drive output so the model is dirty (so the cadence flush persists), then
+			// wait until the shell has echoed it and returned to its idle prompt — a
+			// deterministic signal that the model is dirty and the shell is ready,
+			// replacing a blind sleep.
 			require.NoError(t, eng.Write(ctx, sid, []byte("echo reap-probe-line\n")))
-			time.Sleep(80 * time.Millisecond)
+			require.True(t, waitForMsg(t, conn, func(d string) bool {
+				return containsStr(d, "reap-probe-line")
+			}, 10*time.Second), "shell must echo the probe (model dirty) before parking the writer")
+			waitUntil(t, 10*time.Second, func() bool { return terminal.IsIdleForTest(eng, sid) },
+				"shell did not return to idle after echoing the probe")
 
 			// Install the late writer; it parks at StorageDir holding the
 			// per-session lock (under the fix), having passed all liveness checks.
@@ -358,9 +378,13 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 			// e.lockSession held by the parked writer.
 			_ = eng.Write(ctx, sid, []byte("exit\n"))
 
-			// Give the shell time to exit and reapOnDone its chance to run (or to
-			// block on the lock). 400ms >> shell-exit + reap latency.
-			time.Sleep(400 * time.Millisecond)
+			// Wait until the shell has actually exited: once the PTY dies the session
+			// is no longer idle (TIOCGPGRP errors). This is the deterministic point at
+			// which reapOnDone has unblocked from <-s.Done() and is now racing to clean
+			// up (unfixed) or blocked on the per-session lock held by the parked writer
+			// (the fix) — replacing the previous fixed 400ms sleep.
+			waitUntil(t, 10*time.Second, func() bool { return !terminal.IsIdleForTest(eng, sid) },
+				"shell did not exit after `exit`")
 
 			// Release the parked write. On unfixed code this WriteBuf+saveMeta
 			// lands after reap already deleted everything → resurrection.
@@ -373,8 +397,15 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 			<-attachDone
 			conn.Close()
 
-			// Settle, then assert the explicitly-closed terminal left NO trace.
-			time.Sleep(150 * time.Millisecond)
+			// reapOnDone removes the registry entry slightly BEFORE it finishes
+			// DeleteBuf + deleteMeta, so wait deterministically until the buf and meta
+			// row are actually gone (and stay gone — a resurrecting write would keep
+			// them present, failing this) instead of a settle sleep.
+			require.Eventually(t, func() bool {
+				b, _ := persistence.ReadBuf(store.dir, sid)
+				return b == nil && !store.hasLiveRow(sid)
+			}, 10*time.Second, 20*time.Millisecond,
+				".buf and meta row must be deleted by reapOnDone (no resurrection)")
 
 			assert.False(t, eng.SessionExists(ctx, sid),
 				"registry must not contain the reaped session")
@@ -402,6 +433,23 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 			eng.Shutdown()
 		})
 	}
+}
+
+// connReceived reports whether the mock connection has received a frame whose
+// decoded data payload contains sub.
+func connReceived(c *mockConn, sub string) bool {
+	for _, raw := range c.allReceived() {
+		var msg struct {
+			Data string `json:"data"`
+		}
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			continue
+		}
+		if containsStr(msg.Data, sub) {
+			return true
+		}
+	}
+	return false
 }
 
 // waitUntil polls cond every 10ms until it is true or the timeout elapses.
@@ -438,7 +486,9 @@ func TestFlush_Serialized_NewestWins(t *testing.T) {
 	// Drive output so the model is dirty: the next Snapshot() returns
 	// (blob, changed=true), which gates the cadence flush so it persists.
 	require.NoError(t, eng.Write(ctx, sid, []byte("echo flush-test-output\n")))
-	time.Sleep(200 * time.Millisecond) // let shell produce output
+	// Wait until the shell has emitted output so the model is dirty: the next
+	// Snapshot() returns changed=true, which gates the cadence flush so it persists.
+	waitForModelOutput(t, eng, sid, 10*time.Second)
 
 	// Two concurrent maintenance sweeps race the cadence-flush path.
 	// Under -race the detector will flag any data race if flushMu is absent.

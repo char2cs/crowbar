@@ -15,6 +15,11 @@ type WorkspaceLifecycleRepo interface {
 	List(
 		ctx context.Context,
 	) ([]domain.Workspace, error)
+	ListInRepo(
+		ctx context.Context,
+		projectID string,
+		repoID string,
+	) ([]domain.Workspace, error)
 	Get(
 		ctx context.Context,
 		id string,
@@ -68,6 +73,16 @@ type Usecase interface {
 	// List returns every workspace row from the read model.
 	List(
 		ctx context.Context,
+	) ([]domain.Workspace, error)
+
+	// ListInRepo returns every workspace row scoped to one project+repo, reading
+	// from the same per-entity stores as List (see workspace.Workspace.ListInRepo)
+	// — cheaper because it skips entities outside the requested repo, not because
+	// it uses a different data source.
+	ListInRepo(
+		ctx context.Context,
+		projectID string,
+		repoID string,
 	) ([]domain.Workspace, error)
 
 	// Get returns the workspace with the given id.
@@ -137,6 +152,22 @@ func (u *workspaceUsecase) List(
 	list, err := u.repo.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("workspace: list: %w", err)
+	}
+	return list, nil
+}
+
+// ListInRepo returns every workspace row scoped to one project+repo, reading
+// from the same per-entity stores as List (see workspace.Workspace.ListInRepo)
+// — cheaper because it skips entities outside the requested repo, not because
+// it uses a different data source.
+func (u *workspaceUsecase) ListInRepo(
+	ctx context.Context,
+	projectID string,
+	repoID string,
+) ([]domain.Workspace, error) {
+	list, err := u.repo.ListInRepo(ctx, projectID, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("workspace: list in repo: %w", err)
 	}
 	return list, nil
 }

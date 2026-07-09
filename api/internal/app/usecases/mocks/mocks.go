@@ -11,8 +11,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 	provider "github.com/char2cs/crowbar/api/internal/engine/provider"
+	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // ProjectStore is a fake store.Store[domain.Project, string].
@@ -182,15 +182,15 @@ type GitEngine struct {
 	WorktreeListFn func(repoPath string) ([]gitengine.WorktreeEntry, error)
 
 	// Protected-branch managed-worktree provisioning fakes (project import).
-	Detached        []string          // worktree paths detached to HEAD
-	CheckedOut      []WorktreeAddCall // (path, branch) re-attach calls
-	WorktreeAdds    []WorktreeAddCall // (path, branch) worktrees materialised
-	WorktreeRemoves []string          // worktree paths force-removed
-	FetchedRefs          []string // branches fetched from origin (FetchRef)
-	FastForwardedBranches []string // branches fast-forwarded from origin (FastForwardBranch)
-	RemoteBranches  map[string]bool   // branch -> exists on origin (default false)
-	RevParseShas    map[string]string // rev -> sha (default "")
-	DetachErr       error             // forces DetachWorktree to fail
+	Detached              []string          // worktree paths detached to HEAD
+	CheckedOut            []WorktreeAddCall // (path, branch) re-attach calls
+	WorktreeAdds          []WorktreeAddCall // (path, branch) worktrees materialised
+	WorktreeRemoves       []string          // worktree paths force-removed
+	FetchedRefs           []string          // branches fetched from origin (FetchRef)
+	FastForwardedBranches []string          // branches fast-forwarded from origin (FastForwardBranch)
+	RemoteBranches        map[string]bool   // branch -> exists on origin (default false)
+	RevParseShas          map[string]string // rev -> sha (default "")
+	DetachErr             error             // forces DetachWorktree to fail
 	// WorktreeAddErrByBranch forces WorktreeAdd to fail for specific branches.
 	WorktreeAddErrByBranch map[string]error
 	// Pruned records repo paths WorktreePrune was called on.
@@ -369,7 +369,7 @@ type ProviderSyncWorkspaceRepo struct {
 	GetFn             func(ctx context.Context, id string) (domain.Workspace, error)
 	SyncProviderFn    func(ctx context.Context, in workspace.ProviderInput, now time.Time) (domain.Workspace, error)
 	ListFn            func(ctx context.Context) ([]domain.Workspace, error)
-	SetParentFromPRFn func(ctx context.Context, id string, parentID string) (domain.Workspace, error)
+	SetParentFromPRFn func(ctx context.Context, id, parentID string) (domain.Workspace, error)
 }
 
 // NewProviderSyncWorkspaceRepo returns an empty ProviderSyncWorkspaceRepo.
@@ -399,7 +399,7 @@ func (r *ProviderSyncWorkspaceRepo) List(ctx context.Context) ([]domain.Workspac
 	return nil, nil
 }
 
-func (r *ProviderSyncWorkspaceRepo) SetParentFromPR(ctx context.Context, id string, parentID string) (domain.Workspace, error) {
+func (r *ProviderSyncWorkspaceRepo) SetParentFromPR(ctx context.Context, id, parentID string) (domain.Workspace, error) {
 	if r.SetParentFromPRFn != nil {
 		return r.SetParentFromPRFn(ctx, id, parentID)
 	}
@@ -429,8 +429,9 @@ func (e *ProviderSyncEngine) PollOnView(
 // WorkspaceLifecycleRepo is a fake of the workspace repo surface used by the
 // workspace, file, and git usecases.
 type WorkspaceLifecycleRepo struct {
-	ListFn func(ctx context.Context) ([]domain.Workspace, error)
-	GetFn  func(ctx context.Context, id string) (domain.Workspace, error)
+	ListFn       func(ctx context.Context) ([]domain.Workspace, error)
+	ListInRepoFn func(ctx context.Context, projectID, repoID string) ([]domain.Workspace, error)
+	GetFn        func(ctx context.Context, id string) (domain.Workspace, error)
 
 	SetMergeStrategyFn func(
 		ctx context.Context,
@@ -458,6 +459,14 @@ func (r *WorkspaceLifecycleRepo) List(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
 	return r.ListFn(ctx)
+}
+
+func (r *WorkspaceLifecycleRepo) ListInRepo(
+	ctx context.Context,
+	projectID string,
+	repoID string,
+) ([]domain.Workspace, error) {
+	return r.ListInRepoFn(ctx, projectID, repoID)
 }
 
 func (r *WorkspaceLifecycleRepo) Get(

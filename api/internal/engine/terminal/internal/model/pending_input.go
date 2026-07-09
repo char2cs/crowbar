@@ -130,12 +130,12 @@ func framingFromOSC(
 ) int {
 	// BEL (7-bit) and ESC \ terminate; the 8-bit ST 0x9C is NOT honoured because a UTF-8
 	// byte inside the OSC string (e.g. a title glyph) can equal 0x9C and must not close it.
-	switch {
-	case c == 0x07:
+	switch c {
+	case 0x07:
 		return framingGround
-	case c == 0x1b:
+	case 0x1b:
 		return framingOSCEsc
-	case c == 0x18 || c == 0x1a:
+	case 0x18, 0x1a:
 		return framingGround
 	default:
 		return framingOSC
@@ -147,10 +147,10 @@ func framingFromString(
 ) int {
 	// Only ESC \ (7-bit ST) and CAN/SUB terminate; the 8-bit ST 0x9C is NOT honoured, for
 	// the same UTF-8-transparency reason as framingFromOSC.
-	switch {
-	case c == 0x1b:
+	switch c {
+	case 0x1b:
 		return framingStringEsc
-	case c == 0x18 || c == 0x1a:
+	case 0x18, 0x1a:
 		return framingGround
 	default:
 		return framingString

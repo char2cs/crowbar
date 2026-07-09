@@ -43,7 +43,7 @@ var createTemp = func(dir, pattern string) (tempFile, error) {
 // On any error the temp file is removed; a pre-existing .buf is never
 // corrupted by an interrupted call.
 func WriteBuf(dir, sessionID string, data []byte) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // G301: the terminal-buffer dir lives under the user's own ~/.crowbar home; 0755 intentional and matches the rest of the tree.
 		return fmt.Errorf("persistence: mkdir %s: %w", dir, err)
 	}
 

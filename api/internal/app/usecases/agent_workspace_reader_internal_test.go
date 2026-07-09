@@ -27,13 +27,18 @@ func (f fakeWorkspaceGetter) Get(
 }
 
 // TestAgentWorkspaceReader_WorktreeDir_Success proves WorktreeDir resolves the
-// owning project/repo from the workspace repo and derives the git worktree
-// directory via worktreepath.For, rooted at the injected crowbarHome (not
-// metadata.GetHomePath, so it never diverges from a hermetic test's overridden
-// home).
+// owning project/repo from the workspace repo and returns the git worktree
+// directory stored on the workspace read model's WorktreePath, rooted at the
+// injected crowbarHome (not metadata.GetHomePath, so it never diverges from a
+// hermetic test's overridden home).
 func TestAgentWorkspaceReader_WorktreeDir_Success(t *testing.T) {
 	r := &agentWorkspaceReader{
-		workspaces:  fakeWorkspaceGetter{ws: domain.Workspace{ID: "w1", ProjectID: "p1", RepoID: "r1"}},
+		workspaces: fakeWorkspaceGetter{ws: domain.Workspace{
+			ID:           "w1",
+			ProjectID:    "p1",
+			RepoID:       "r1",
+			WorktreePath: "/home/crowbar/projects/p1/r1/workspaces/w1/worktree",
+		}},
 		crowbarHome: func() (string, error) { return "/home/crowbar", nil },
 	}
 

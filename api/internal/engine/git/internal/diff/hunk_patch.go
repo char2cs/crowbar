@@ -84,15 +84,16 @@ func buildPatch(
 	}
 
 	fmt.Fprintf(&sb, "diff --git a/%s b/%s\n", oldPath, newPath)
-	if f.IsNew {
+	switch {
+	case f.IsNew:
 		sb.WriteString("new file mode 100644\n")
 		fmt.Fprintf(&sb, "--- /dev/null\n")
 		fmt.Fprintf(&sb, "+++ b/%s\n", newPath)
-	} else if f.IsDeleted {
+	case f.IsDeleted:
 		sb.WriteString("deleted file mode 100644\n")
 		fmt.Fprintf(&sb, "--- a/%s\n", oldPath)
 		sb.WriteString("+++ /dev/null\n")
-	} else {
+	default:
 		fmt.Fprintf(&sb, "--- a/%s\n", oldPath)
 		fmt.Fprintf(&sb, "+++ b/%s\n", newPath)
 	}
@@ -105,7 +106,7 @@ func buildPatch(
 		if line.LineType == gitdomain.DiffLineHeader {
 			continue
 		}
-		switch line.LineType {
+		switch line.LineType { //nolint:exhaustive // default renders context lines; header lines are skipped above.
 		case gitdomain.DiffLineAdded:
 			fmt.Fprintf(&sb, "+%s\n", line.Content)
 		case gitdomain.DiffLineRemoved:

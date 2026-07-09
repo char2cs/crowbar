@@ -339,6 +339,8 @@ func TestWorkingTree_LineNumbers(t *testing.T) {
 		case gitdomain.DiffLineContext:
 			require.NotNil(t, line.OldLineNumber)
 			require.NotNil(t, line.NewLineNumber)
+		case gitdomain.DiffLineHeader:
+			// Header lines carry no per-line numbers.
 		}
 	}
 }

@@ -88,11 +88,6 @@ func TestStatusAndMessageMapping(t *testing.T) {
 			status: http.StatusConflict,
 		},
 		{
-			name:   "new parent locked",
-			err:    worktree.ErrNewParentLocked,
-			status: http.StatusConflict,
-		},
-		{
 			name:   "rebase non leaf",
 			err:    worktree.ErrRebaseNonLeaf,
 			status: http.StatusConflict,
@@ -146,6 +141,21 @@ func TestStatusAndMessageMapping(t *testing.T) {
 			name:   "file too large",
 			err:    safepath.ErrFileTooLarge,
 			status: http.StatusRequestEntityTooLarge,
+		},
+		{
+			name:   "asynx validation is unprocessable",
+			err:    asynxmodels.ErrValidation,
+			status: http.StatusUnprocessableEntity,
+		},
+		{
+			name:   "asynx pipeline failed is conflict",
+			err:    asynxmodels.ErrPipelineFailed,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "service unavailable",
+			err:    apperr.ErrUnavailable,
+			status: http.StatusServiceUnavailable,
 		},
 	}
 

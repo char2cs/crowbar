@@ -4,7 +4,6 @@ package tests
 
 import (
 	"net/http"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -118,23 +117,14 @@ func TestRegression_HomeWorkspaceProvisionedOnCreate(t *testing.T) {
 		"project must be persisted: home-workspace provisioning must not have failed the import")
 }
 
-// worktreePathOf resolves a child workspace's on-disk worktree path.
-// WorktreePath is no longer carried on the wire WorkspaceDTO (D13), so it is
-// reconstructed from the deterministic UUID layout the daemon uses:
-// <home>/projects/<P>/<R>/workspaces/<W>/worktree.
+// worktreePathOf resolves a child workspace's on-disk worktree path (the daemon's
+// human-readable <home>/projects/<P>/<slug>/<branch> layout, spec §3.9). It is a
+// readability alias for workspaceWorktreePath.
 func worktreePathOf(
 	t *testing.T,
 	h *harness,
 	imported importedRepo,
 ) string {
 	t.Helper()
-	return filepath.Join(
-		h.home,
-		"projects",
-		imported.projectID,
-		imported.repoID,
-		"workspaces",
-		imported.workspaceID,
-		"worktree",
-	)
+	return workspaceWorktreePath(t, h, imported)
 }

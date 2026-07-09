@@ -20,6 +20,11 @@ type Reader interface {
 	List(
 		ctx context.Context,
 	) ([]domain.Workspace, error)
+	ListInRepo(
+		ctx context.Context,
+		projectID string,
+		repoID string,
+	) ([]domain.Workspace, error)
 	Get(
 		ctx context.Context,
 		id string,

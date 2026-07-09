@@ -162,20 +162,16 @@ func TestGate1_WatcherFiresFanOut(
 	w := watch.NewWatcher("ws-gate1", dir, fork, gitProv, d)
 	require.NoError(t, w.Start(ctx))
 	t.Cleanup(w.Stop)
-	time.Sleep(50 * time.Millisecond)
+	// No settle sleep: Start arms the fsnotify watch synchronously before it
+	// returns, so the write below is delivered; we wait on the real dispatched event.
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "newfile.txt"), []byte("new content\n"), 0o600))
 
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
+	require.Eventually(t, func() bool {
 		mu.Lock()
-		n := len(fileEvents)
-		mu.Unlock()
-		if n > 0 {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+		defer mu.Unlock()
+		return len(fileEvents) > 0
+	}, 3*time.Second, 5*time.Millisecond, "watcher must dispatch a file-change event")
 
 	mu.Lock()
 	defer mu.Unlock()

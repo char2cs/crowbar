@@ -30,13 +30,35 @@ export async function syncBufferWithDisk(wsStore: WorkspaceStore, path: string):
 
   if (buffer.isDirty) {
     if (buffer.hasExternalChange) return // already flagged, don't re-toast
+
+    // The pendingSaves marker above is a single-shot flag: it cancels only the
+    // FIRST FS event after a write. A single editor save can surface as several
+    // "modified" events (macOS FSEvents coalescing/splitting), and the backend
+    // rebroadcasts each one with no echo suppression — so a straggler slips past
+    // the consumed marker. Before warning, confirm the on-disk bytes actually
+    // diverged from the baseline we last wrote; if they match, this is our own
+    // write echoing back, not an external edit. Mirrors the restore-path guard
+    // in hydrate.ts (diskContent === savedContent).
+    const disk = await readWorkspaceFile(wsStore.getState().workspaceId, path).catch(() => null)
+    if (disk === null) return
+
+    // Re-read at apply time: the user may have edited/closed the buffer, or a
+    // concurrent echo may have already flagged it, while the read was in flight.
+    const current = wsStore
+      .getState()
+      .buffers.find((b) => isEditorContent(b) && !b.isVirtual && b.path === path)
+    if (!current || !isEditorContent(current) || !current.isDirty || current.hasExternalChange) {
+      return
+    }
+    if (disk === current.savedContent) return // own-write echo — nothing diverged
+
     wsStore.setState((state) => ({
       buffers: state.buffers.map((b) =>
         isEditorContent(b) && b.path === path && b.isDirty ? { ...b, hasExternalChange: true } : b,
       ),
     }))
     toast.warning(
-      `${buffer.name} changed on disk`,
+      `${current.name} changed on disk`,
       'Your unsaved changes are kept. Saving will overwrite the on-disk version.',
     )
     return

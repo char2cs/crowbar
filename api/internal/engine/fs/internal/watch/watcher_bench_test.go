@@ -47,7 +47,7 @@ func BenchmarkFanOut(b *testing.B) {
 		{"config", "user.name", "Bench"},
 	} {
 		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Run() //nolint:errcheck
+		cmd.Run()
 	}
 
 	provider := &benchGitProvider{}

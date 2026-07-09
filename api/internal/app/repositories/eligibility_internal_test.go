@@ -25,6 +25,17 @@ func (s stubWorkspaceRepo) List(
 	return s.rows, s.err
 }
 
+// ListInRepo mirrors List: ResolveMergeEligibility filters siblings by ID and
+// repo itself (see merge_eligibility.go), so returning the unfiltered rows
+// here preserves every existing test's behavior unchanged.
+func (s stubWorkspaceRepo) ListInRepo(
+	_ context.Context,
+	_ string,
+	_ string,
+) ([]domain.Workspace, error) {
+	return s.rows, s.err
+}
+
 type discardHub struct {
 	last dto.WorkspaceDTO
 }

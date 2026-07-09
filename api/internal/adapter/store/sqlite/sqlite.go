@@ -30,11 +30,50 @@ func New[T any, K comparable](
 	return NewFromDB[T, K](db)
 }
 
+// readPoolConns is the max open-connection count for read-model/view DBs. A
+// multi-connection pool lets concurrent reads proceed under WAL so a single
+// long-running read cannot head-of-line-block the others (the original wedge);
+// event logs keep the single-writer OpenDB instead.
+const readPoolConns = 4
+
 // OpenDB opens (or creates) a single-connection SQLite database at path.
 // WAL journal mode and a 5-second busy timeout are enabled so that a second
-// opener (e.g. in crash-recovery tests) does not get SQLITE_BUSY on DDL.
+// opener (e.g. in crash-recovery tests) does not get SQLITE_BUSY on DDL. Used
+// for the per-entity workspace databases, which are effectively single-tenant
+// (one workspace, one or two open tabs at most).
 func OpenDB(
 	path string,
+) (*gorm.DB, error) {
+	return openWithMaxConns(path, 1)
+}
+
+// OpenReadPoolDB opens (or creates) a SQLite database at path as a multi-conn
+// read pool for read-model / view DBs, so a single connection can't
+// head-of-line-block reads (decision 12). WAL is persisted in the DB header and
+// the driver applies busy_timeout on every pooled connection, so all pool
+// connections inherit the durability settings. Event logs stay single-writer
+// via OpenDB.
+func OpenReadPoolDB(
+	path string,
+) (*gorm.DB, error) {
+	return openWithMaxConns(path, readPoolConns)
+}
+
+// OpenDBWithPool opens (or creates) a SQLite database at path with up to
+// maxOpenConns open connections, delegating to openWithMaxConns. It exists so
+// callers that request an explicit pool size (rather than the single-writer
+// OpenDB or the fixed-size OpenReadPoolDB) compile against the per-type data
+// layer.
+func OpenDBWithPool(
+	path string,
+	maxOpenConns int,
+) (*gorm.DB, error) {
+	return openWithMaxConns(path, maxOpenConns)
+}
+
+func openWithMaxConns(
+	path string,
+	maxConns int,
 ) (*gorm.DB, error) {
 	db, err := gorm.Open(glebarez.Open(path), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
@@ -46,7 +85,7 @@ func OpenDB(
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: db: %w", err)
 	}
-	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxOpenConns(maxConns)
 	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
 		return nil, fmt.Errorf("sqlite: journal_mode: %w", err)
 	}

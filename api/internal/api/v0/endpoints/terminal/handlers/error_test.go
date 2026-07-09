@@ -16,16 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-type nilEngine struct{}
-
-func (nilEngine) Create(_ context.Context, _ string, _ string, _ *domain.TerminalProfile) (string, error) {
-	return "", nil
-}
-func (nilEngine) Kill(_ context.Context, _ string) error                      { return nil }
-func (nilEngine) SessionExists(_ context.Context, _ string) bool              { return false }
-func (nilEngine) Attach(_ context.Context, _ string, _ handlers.WSConn) error { return nil }
-func (nilEngine) ListSessionsForWorkspace(_ string) []string                  { return nil }
-
 type errProfiles struct{}
 
 func (errProfiles) FindAll(_ context.Context) ([]domain.TerminalProfile, error) {

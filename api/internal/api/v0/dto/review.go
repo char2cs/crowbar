@@ -33,15 +33,14 @@ type ReviewThreadDTO struct {
 
 // BranchReviewDTO is the wire shape of the composite branch-review read model
 // returned by GET /v0/workspaces/:wsId/review (09 §2): the description, the
-// merge strategy, the range diff, the comment threads, and the read-only chat
-// conversations. The diff is normalised so its nested slices are non-nil, and
-// the threads and conversations slices are always non-nil.
+// merge strategy, the range diff, and the comment threads. The diff is
+// normalised so its nested slices are non-nil, and the threads slice is always
+// non-nil.
 type BranchReviewDTO struct {
-	Description   string              `json:"description"`
-	MergeStrategy string              `json:"mergeStrategy"`
-	Diff          MultiFileDiffDTO    `json:"diff"`
-	Threads       []ReviewThreadDTO   `json:"threads"`
-	Conversations []domain.BranchChat `json:"conversations"`
+	Description   string            `json:"description"`
+	MergeStrategy string            `json:"mergeStrategy"`
+	Diff          MultiFileDiffDTO  `json:"diff"`
+	Threads       []ReviewThreadDTO `json:"threads"`
 }
 
 // ReviewMessageDTOFrom converts a domain ReviewMessage into its wire DTO,
@@ -95,20 +94,15 @@ func ReviewThreadDTOList(
 }
 
 // BranchReviewDTOFrom converts the composite domain BranchReview into its wire
-// DTO, normalising the diff's nested slices and guaranteeing non-nil threads and
-// conversations slices.
+// DTO, normalising the diff's nested slices and guaranteeing a non-nil threads
+// slice.
 func BranchReviewDTOFrom(
 	review domain.BranchReview,
 ) BranchReviewDTO {
-	conversations := review.Conversations
-	if conversations == nil {
-		conversations = []domain.BranchChat{}
-	}
 	return BranchReviewDTO{
 		Description:   review.Description,
 		MergeStrategy: string(review.MergeStrategy),
 		Diff:          MultiFileDiffDTOFrom(review.Diff),
 		Threads:       ReviewThreadDTOList(review.Threads),
-		Conversations: conversations,
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -79,9 +81,6 @@ type Usecase interface {
 		ctx context.Context,
 		rootID string,
 	) error
-	ReconcileAll(
-		ctx context.Context,
-	) error
 }
 
 // TerminalReaper is the narrow terminal-engine surface the cascade delete uses to
@@ -138,6 +137,7 @@ func New(
 	return u
 }
 
+//nolint:gocyclo // orchestrates create with intricate worktree/branch rollback paths; splitting risks the rollback invariants
 func (u *worktreeUsecase) CreateChild(
 	ctx context.Context,
 	in CreateChildInput,
@@ -169,7 +169,7 @@ func (u *worktreeUsecase) CreateChild(
 	// the default branch via the branch panel after the folder is already
 	// adopted) must NOT create a second default — fall through to the managed
 	// worktree path, where git rejects checking the branch out a second time.
-	if in.ParentID == "" && in.Branch == in.ParentBranch {
+	if in.ParentID == "" && in.Branch == in.ParentBranch { //nolint:nestif // adopt-vs-managed create branching; flattening risks the adoption invariant
 		adopted, err := u.mainWorktreeAdopted(ctx, in.RepoID)
 		if err != nil {
 			return domain.Workspace{}, err
@@ -189,10 +189,13 @@ func (u *worktreeUsecase) CreateChild(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("create child: locked: %w", err)
 	}
-	path := worktreepath.For(home, in.ProjectID, in.RepoID, wsID)
+	path, err := u.deriveWorktreePath(ctx, home, in.ProjectID, in.RepoID, in.RemoteURL, in.Branch)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
 	detached := false
 	startSha, err := u.addWorktree(ctx, in, path)
-	if err != nil {
+	if err != nil { //nolint:nestif // main-folder detach-and-retry rollback; flattening risks the detach/reattach invariant
 		// git refuses a worktree on a branch that's already checked out. If the
 		// holder is the repo's MAIN folder (the unmanaged default workspace),
 		// detach it — its branch is incidental — to free the branch, and retry
@@ -219,7 +222,7 @@ func (u *worktreeUsecase) CreateChild(
 		ParentID:     in.ParentID,
 		Protected:    locked || in.ForceLocked,
 	}, u.now())
-	if err != nil {
+	if err != nil { //nolint:nestif // orphan worktree+branch cleanup after a failed row create; flattening risks the rollback ordering
 		// The worktree + branch are on disk but the workspace row never landed.
 		// Clean them up best-effort so a fresh-wsID retry isn't blocked by the
 		// orphaned branch and the worktree dir doesn't dangle forever.
@@ -238,6 +241,87 @@ func (u *worktreeUsecase) CreateChild(
 		return domain.Workspace{}, err
 	}
 	return ws, nil
+}
+
+// deriveWorktreePath returns the human-readable git worktree directory for a
+// branch — <home>/projects/<project>/<slug>/<branch> (spec §3.9) — with the repo
+// slug resolved from its remote identity. It rejects a candidate that collides
+// case-insensitively with an existing sibling worktree (spec §3.9, decision 13),
+// surfacing the clash as apperr.ErrInvalidArgument.
+func (u *worktreeUsecase) deriveWorktreePath(
+	ctx context.Context,
+	home string,
+	projectID string,
+	repoID string,
+	remoteURL string,
+	branch string,
+) (string, error) {
+	slug, err := u.resolveSlug(ctx, repoID, remoteURL)
+	if err != nil {
+		return "", fmt.Errorf("resolve worktree slug: %w", err)
+	}
+	path, err := worktreepath.Derive(home, projectID, slug, branch)
+	if err != nil {
+		return "", err
+	}
+	siblings, err := siblingWorktreePaths(home, projectID, slug)
+	if err != nil {
+		return "", fmt.Errorf("scan sibling worktrees: %w", err)
+	}
+	if clashErr := worktreepath.DetectClash(siblings, path); clashErr != nil {
+		return "", fmt.Errorf("%w: %v", apperr.ErrInvalidArgument, clashErr)
+	}
+	return path, nil
+}
+
+// resolveSlug resolves the repo's on-disk identity slug (spec §3.9). It always
+// loads the repo row so the no-remote / unparseable-URL fallback can reach the
+// repo NAME: RemoteSlug degrades a remote that does not encode a host/owner/repo
+// identity (a local bare path, a nameless remote) to Repository.Name, and a
+// caller-supplied remoteURL carries no name — so resolving from the URL alone
+// would fold such a remote to an EMPTY slug and fail Derive. A caller that
+// carries the remote URL (Create) has it applied over the loaded row so the
+// parse still prefers the caller's value while the name stays available as the
+// fallback.
+func (u *worktreeUsecase) resolveSlug(
+	ctx context.Context,
+	repoID string,
+	remoteURL string,
+) (string, error) {
+	repo, err := u.repos.FindByKey(ctx, repoID)
+	if err != nil {
+		return "", err
+	}
+	if repo == nil {
+		return "", apperr.ErrNotFound
+	}
+	if remoteURL != "" {
+		repo.RemoteURL = remoteURL
+	}
+	return worktreepath.RemoteSlug(*repo), nil
+}
+
+// siblingWorktreePaths lists the existing branch-leaf worktrees under a repo's
+// derived slug directory, so a create can reject a case-insensitive path clash.
+// A not-yet-created slug directory yields no siblings.
+func siblingWorktreePaths(
+	home string,
+	projectID string,
+	slug string,
+) ([]string, error) {
+	parent := filepath.Join(home, "projects", projectID, slug)
+	entries, err := os.ReadDir(parent)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		paths = append(paths, filepath.Join(parent, entry.Name()))
+	}
+	return paths, nil
 }
 
 // addWorktree applies the spec-§3 checkout-vs-create decision and returns the
@@ -261,7 +345,7 @@ func (u *worktreeUsecase) addWorktree(
 	// and the new branch immediately diverges from what the remote already has.
 	// Best-effort: a network outage or diverged parent must not block branch
 	// creation — the user can pull the parent manually afterward.
-	if in.ParentBranch != "" {
+	if in.ParentBranch != "" { //nolint:nestif // best-effort parent fast-forward before branching; guards are load-bearing
 		if parentOnRemote, err := u.git.RemoteBranchExists(ctx, in.RepoPath, in.ParentBranch); err == nil && parentOnRemote {
 			if err := u.git.FastForwardBranch(ctx, in.RepoPath, in.ParentBranch); err != nil {
 				slog.WarnContext(ctx, "create child: could not fast-forward parent; branching from local tip",
@@ -529,7 +613,7 @@ func (u *worktreeUsecase) handleMergeError(
 		abortPath = child.WorktreePath
 		abortWS = child.ID
 	}
-	if abortErr := u.git.OperationAbort(ctx, abortPath); abortErr != nil {
+	if abortErr := u.git.OperationAbort(ctx, abortPath); abortErr != nil { //nolint:nestif // stuck-worktree recovery after a failed conflict abort; flattening risks the recovery path
 		slog.WarnContext(ctx, "merge: abort after conflict failed; worktree may be stuck",
 			"workspace_id", child.ID, "abort_path", abortPath, "err", abortErr)
 		// The abort failed, so the worktree that holds the op is NOT clean — its
@@ -583,8 +667,8 @@ func (u *worktreeUsecase) finalizeMerge(
 // resyncSummary recomputes a workspace's working-tree summary from git and
 // pushes it into the read model so Added/Deleted/HasCommits/HasConflicts reflect
 // the post-merge state of both the parent and the kept child. It returns the
-// hasConflicts it computed so callers (e.g. ReconcileAll) can act on it without a
-// second WorkingTreeSummary call.
+// hasConflicts it computed so callers can act on it without a second
+// WorkingTreeSummary call.
 func (u *worktreeUsecase) resyncSummary(
 	ctx context.Context,
 	id string,
@@ -762,7 +846,10 @@ func (u *worktreeUsecase) RetryProvision(
 	if outcome.Kind == holder.HeldByHome || outcome.Kind == holder.HeldByExternal {
 		return domain.Workspace{}, fmt.Errorf("%w (%s at %s)", ErrBranchStillHeld, ws.Branch, outcome.HeldByPath)
 	}
-	path := worktreepath.For(home, ws.ProjectID, ws.RepoID, ws.ID)
+	path, err := u.deriveWorktreePath(ctx, home, ws.ProjectID, ws.RepoID, "", ws.Branch)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
 	startSha, err := u.materializeProtectedWorktree(ctx, repoPath, ws.Branch, path)
 	if err != nil {
 		return domain.Workspace{}, err
@@ -829,7 +916,7 @@ func (u *worktreeUsecase) DetachHolder(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("detach holder: resolve holder: %w", err)
 	}
-	if outcome.Kind == holder.HeldByHome || outcome.Kind == holder.HeldByExternal {
+	if outcome.Kind == holder.HeldByHome || outcome.Kind == holder.HeldByExternal { //nolint:nestif // consent-gated holder detach + home-branch clear; flattening risks the detach/clear ordering
 		if dErr := u.git.DetachWorktree(ctx, outcome.HeldByPath); dErr != nil {
 			return domain.Workspace{}, fmt.Errorf("detach holder: detach %s: %w", outcome.HeldByPath, dErr)
 		}
@@ -876,9 +963,10 @@ func (u *worktreeUsecase) guardReparent(
 	if newParent.WorktreePath == "" {
 		return ErrParentUnprovisioned
 	}
-	if newParent.Status == domain.WorkspaceStatusLocked {
-		return ErrNewParentLocked
-	}
+	// A locked (protected) branch is a valid re-parent target: it already adopts
+	// children via create (create.go seeds a protected branch locked), so
+	// refusing it as a re-parent target was incoherent — a protected branch can
+	// host a child either way.
 	hasKids, err := u.childHasChildren(ctx, child.ID)
 	if err != nil {
 		return fmt.Errorf("reparent: leaf check: %w", err)
@@ -950,7 +1038,7 @@ func (u *worktreeUsecase) removeOne(
 		slog.WarnContext(ctx, "cascade: worktree remove failed (continuing)",
 			"ws", ws.ID, "worktree", ws.WorktreePath, "err", removeErr)
 	}
-	if ws.Branch != "" && ws.Branch == repo.DefaultBranch {
+	if ws.Branch != "" && ws.Branch == repo.DefaultBranch { //nolint:nestif // default-branch reattach vs force-delete teardown; the branch guard is load-bearing
 		// The default branch is the unmanaged main folder's branch and the shared
 		// integration branch — NEVER delete it on workspace removal. If the main
 		// folder was detached to free it for this managed worktree, re-attach it
@@ -995,107 +1083,6 @@ func (u *worktreeUsecase) repoPathFor(
 		return "", fmt.Errorf("worktree: repo %s not found", ws.RepoID)
 	}
 	return repo.Path, nil
-}
-
-// ReconcileAll is the one-shot startup recovery sweep (H19). After a crash or
-// restart the persisted per-workspace badge (Added/Deleted, pr-conflicts) is
-// whatever was last written and otherwise only self-corrects on the next
-// fsnotify event in that workspace — so a conflict resolved out-of-band stays
-// pr-conflicts, stale diff counts linger, and worktrees orphaned mid-teardown
-// are never reaped. This re-syncs each workspace's working-tree summary from
-// real git, clears a now-stale pr-conflicts, and prunes orphaned worktrees per
-// repo. It is best-effort throughout: a failure on one workspace or repo is
-// logged and skipped, never aborting the sweep, and ReconcileAll returns nil so
-// boot is never failed by recovery work.
-func (u *worktreeUsecase) ReconcileAll(
-	ctx context.Context,
-) error {
-	all, err := u.workspaces.List(ctx)
-	if err != nil {
-		// Listing is the only catastrophic failure: without the rows there is
-		// nothing to reconcile. Log and return nil — never fail boot.
-		slog.WarnContext(ctx, "recovery sweep: list workspaces failed; skipping", "err", err)
-		return nil
-	}
-	for _, ws := range all {
-		u.reconcileOne(ctx, ws)
-	}
-	u.pruneRepos(ctx, all)
-	return nil
-}
-
-// reconcileOne re-syncs a single workspace's working-tree summary from real git
-// and clears a stale pr-conflicts. Workspaces with no on-disk worktree (virtual
-// / no-path rows) are skipped — there is nothing to read from disk.
-func (u *worktreeUsecase) reconcileOne(
-	ctx context.Context,
-	ws domain.Workspace,
-) {
-	if ws.WorktreePath == "" {
-		return
-	}
-	// resyncSummary refreshes Added/Deleted/HasCommits and sets pr-conflicts when
-	// there are real conflict markers; it returns the hasConflicts it computed so
-	// we can clear a now-stale pr-conflicts without a second WorkingTreeSummary.
-	hasConflicts, err := u.resyncSummary(ctx, ws.ID, ws.WorktreePath, ws.ForkPointSha)
-	if err != nil {
-		slog.WarnContext(ctx, "recovery sweep: summary resync failed; skipping workspace",
-			"workspace_id", ws.ID, "worktree", ws.WorktreePath, "err", err)
-		return
-	}
-	if hasConflicts {
-		return
-	}
-	// hasConflicts==false only means there are no unresolved conflict markers in
-	// the working tree. A workspace can be MID conflict-resolution: the user (or a
-	// merge) staged the resolved files but never ran continue/abort, so the
-	// rebase-merge/MERGE_HEAD/AUTO_MERGE markers are still present even though no
-	// file shows `<<<<<<<`. Clearing pr-conflicts here would lose the signal that
-	// the operation is unfinished. Treat an in-progress op as still-conflicting
-	// and leave the status untouched. A marker-check failure is non-fatal — fall
-	// through and clear, matching the surrounding best-effort posture.
-	if op, opErr := u.git.OperationInProgress(ctx, ws.WorktreePath); opErr != nil {
-		slog.WarnContext(ctx, "recovery sweep: in-progress-op check failed; treating as resolved",
-			"workspace_id", ws.ID, "worktree", ws.WorktreePath, "err", opErr)
-	} else if op != "" {
-		slog.InfoContext(ctx, "recovery sweep: workspace mid conflict-resolution; keeping pr-conflicts",
-			"workspace_id", ws.ID, "operation", op)
-		return
-	}
-	// No real conflict on disk and no in-progress op: clear a sticky pr-conflicts
-	// (a no-op when the status isn't pr-conflicts) so a workspace whose conflict
-	// was resolved while the daemon was down drops its stale warning.
-	if _, err := u.workspaces.ResolveConflicts(ctx, ws.ID, u.now()); err != nil {
-		slog.WarnContext(ctx, "recovery sweep: resolve stale conflicts failed",
-			"workspace_id", ws.ID, "err", err)
-	}
-}
-
-// pruneRepos reaps orphaned worktree registrations for each DISTINCT repo among
-// the workspaces, so a worktree whose directory vanished mid-teardown (crash) no
-// longer blocks future ops. Best-effort: a repo-path resolution or prune failure
-// is logged and skipped.
-func (u *worktreeUsecase) pruneRepos(
-	ctx context.Context,
-	all []domain.Workspace,
-) {
-	pruned := make(map[string]struct{})
-	for _, ws := range all {
-		repoPath, err := u.repoPathFor(ctx, ws)
-		if err != nil {
-			slog.WarnContext(ctx, "recovery sweep: repo path unresolved; skipping prune",
-				"workspace_id", ws.ID, "repo_id", ws.RepoID, "err", err)
-			continue
-		}
-		if _, done := pruned[repoPath]; done {
-			continue
-		}
-		pruned[repoPath] = struct{}{}
-		if err := u.git.WorktreePrune(ctx, repoPath); err != nil {
-			slog.WarnContext(ctx, "recovery sweep: worktree prune failed",
-				"repo_path", repoPath, "err", err)
-		}
-	}
 }
 
 func (u *worktreeUsecase) childHasChildren(

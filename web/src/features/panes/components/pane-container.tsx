@@ -42,6 +42,20 @@ const BranchReviewPane = lazy(() =>
     default: m.BranchReviewPane,
   })),
 )
+// Rendered-preview buffers (opened by the breadcrumb eye icon). Each reads its
+// source content from the active buffer's `sourceFilePath` via the store, so no
+// props are threaded here. Lazy so the markdown parser stays out of the main chunk.
+const MarkdownPreview = lazy(() =>
+  import('@/features/editor/markdown/markdown-preview').then((m) => ({
+    default: m.MarkdownPreview,
+  })),
+)
+const HtmlPreview = lazy(() =>
+  import('@/features/editor/components/html/html-preview').then((m) => ({
+    default: m.HtmlPreview,
+  })),
+)
+const CsvPreview = lazy(() => import('@/extensions/viewers/csv/csv-preview'))
 import { EditorPane } from './editor-pane'
 import { TerminalPane } from './terminal-pane'
 import { DiffPane } from './diff-pane'
@@ -472,6 +486,15 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
               isActivePane={isActivePane}
             />
           )
+
+        case 'markdownPreview':
+          return <MarkdownPreview />
+
+        case 'htmlPreview':
+          return <HtmlPreview />
+
+        case 'csvPreview':
+          return <CsvPreview />
 
         default:
           return (

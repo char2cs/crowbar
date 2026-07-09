@@ -14,19 +14,22 @@ import (
 )
 
 // WSWatcher dials a WebSocket topic and provides event-driven WaitFor methods.
-// It never uses time.Sleep; all waiting is done via WS read with a deadline.
+// It never uses fixed delays; all waiting is done via WS read with a deadline.
 type WSWatcher struct {
 	conn *websocket.Conn
 }
 
-// Dial opens a WebSocket connection to rawURL and returns a watcher.
-// The connection is closed automatically via t.Cleanup.
+// Dial opens a WebSocket connection to rawURL using the supplied dialer and
+// returns a watcher. The dialer is the env's Unix-socket dialer (host-agnostic:
+// it routes to the socket regardless of rawURL's host). The connection is closed
+// automatically via t.Cleanup.
 func Dial(
 	t *testing.T,
+	dialer *websocket.Dialer,
 	rawURL string,
 ) *WSWatcher {
 	t.Helper()
-	conn, resp, err := websocket.DefaultDialer.Dial(
+	conn, resp, err := dialer.Dial(
 		rawURL,
 		nil,
 	)

@@ -166,6 +166,7 @@ func splitFileSections(
 	return sections
 }
 
+//nolint:gocyclo // Sequential prefix dispatch over git diff header lines; splitting would obscure the parse order.
 func parseFileSection(
 	ctx context.Context,
 	repoPath string,
@@ -307,6 +308,8 @@ func finalizeFileDiff(
 			f.Additions++
 		case gitdomain.DiffLineRemoved:
 			f.Deletions++
+		case gitdomain.DiffLineContext, gitdomain.DiffLineHeader:
+			// Context and header lines do not affect add/delete counts.
 		}
 	}
 	return f

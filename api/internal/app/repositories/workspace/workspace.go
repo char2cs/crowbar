@@ -4,30 +4,36 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
+	"math/rand/v2"
 	"sync"
 	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/google/uuid"
+	gormdb "gorm.io/gorm"
 
-	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/locations"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/reactors"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/reconcile"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store/projections"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// AsynxFactory builds a workspace Asynx instance over a per-entity event store.
-// It is injected by the app layer to avoid an import cycle on newAsynx.
-type AsynxFactory func(
-	es asynxModels.Store,
-) (asynx.Asynx[domain.Workspace], error)
+// maxOCCAttempts bounds optimistic-concurrency retries on ErrPipelineFailed
+// (decision 10): with writeMu deleted, concurrent Sends to one aggregate id can
+// version-collide, so the losers retry — Send re-reads the current version each
+// attempt (the shard's pre-assigned version is ignored by the event store), so a
+// retry converges. The budget is sized for a burst of concurrent same-aggregate
+// commands: each needs its own version slot, so the tail committer may lose to
+// several winners before landing. occBackoff spreads the retries (full jitter) so
+// they converge without exhausting the budget on lockstep re-collisions.
+// ErrValidation is NEVER retried; ErrQueueFull is surfaced.
+const maxOCCAttempts = 16
 
 // CreateInput carries the fields needed to create a workspace.
 type CreateInput struct {
@@ -143,12 +149,27 @@ type Workspace interface {
 		id string,
 		message string,
 	) (domain.Workspace, error)
+	// Delete tombstones the workspace: it fires the pure Delete command (folds
+	// Status=deleted) via Send. The physical teardown (cascade Forgets + rm -rf +
+	// axWorkspace.Forget) runs off the write path in the async delete reactor
+	// (spec §3.6/§3.8, Task 8).
 	Delete(
 		ctx context.Context,
 		id string,
 	) error
 	List(
 		ctx context.Context,
+	) ([]domain.Workspace, error)
+	// ListInRepo returns every workspace row scoped to one project+repo. It reads
+	// the same central durable read model as List (state/store/workspace.db) and
+	// filters by projectID+repoID, so it has identical read-after-write
+	// consistency to List — the merge-eligibility broadcast overlay uses it so a
+	// broadcast of a parented workspace resolves its siblings without materializing
+	// the whole install.
+	ListInRepo(
+		ctx context.Context,
+		projectID string,
+		repoID string,
 	) ([]domain.Workspace, error)
 	// GetHomeForProject returns the home workspace for the given project.
 	// Returns apperr.ErrNotFound if no home workspace exists yet.
@@ -166,193 +187,223 @@ type Workspace interface {
 	) (domain.Workspace, error)
 }
 
-// wsEntity is the per-workspace resolved Asynx instance plus its read-model
-// store, cached in the entity registry.
-type wsEntity struct {
-	ax    asynx.Asynx[domain.Workspace]
-	store store.Store
-	// esRelease and viewRelease release the adapter's per-entity event-store and
-	// view DB handles. The asynx (ax) is built over the ES handle, so they MUST be
-	// released only after ax.Shutdown — see the registry closeFn in New. The entity
-	// owns them so the wsEntity and its underlying ES/View handles are evicted
-	// together.
-	esRelease   func()
-	viewRelease func()
-	// writeMu serializes commands to this aggregate: single-writer-per-aggregate.
-	writeMu sync.Mutex
+// ReconcileOnOpener triggers a lazy, deduplicated, one-shot background reconcile
+// for a single workspace id off the per-id read path (spec §3.8). Get/detail
+// calls OnOpen; List never does. It is injected via WithReconciler so the
+// git+provider re-derivation stays owned by a higher layer and this repository
+// keeps no git/provider dependency.
+type ReconcileOnOpener interface {
+	OnOpen(
+		ctx context.Context,
+		wsID string,
+	)
 }
 
-// send dispatches a command to this entity's aggregate, serialized so only one
-// command per workspace is in flight at a time.
-//
-// The optimistic event store reads nextVersion then Appends; asynx's default
-// shard runs 8 workers, and that worker count is not settable through its public
-// builder. So concurrent same-aggregate commands (the fs-watcher sync, the
-// provider sweep, chat activity, and a user git op all firing on one workspace)
-// each read the same nextVersion and Append at it — the losers fail with a
-// version/PK conflict and the read model silently goes stale. Serializing here
-// is the single-writer-per-aggregate model the event store assumes, without
-// forking asynx. Cross-aggregate writes still run fully in parallel (one mutex
-// per entity).
-func (e *wsEntity) send(
-	ctx context.Context,
-	cmd asynxModels.Command[domain.Workspace],
-) (asynxModels.Event[domain.Workspace], error) {
-	e.writeMu.Lock()
-	defer e.writeMu.Unlock()
-	return e.ax.SendWait(ctx, cmd)
+// BootSweeper is the boot orphan-sweep seam (spec §3.8). The app-layer
+// composition root reaches this repository's RAW read model — the direct
+// state/store/workspace.db read that never triggers the lazy Replay of the
+// per-request List (§3.7) — through this narrow interface, injecting the
+// idempotent purge it owns (the app layer holds the git/fs/asynx concretes; this
+// repository must not). It is kept OFF the main Workspace interface so a
+// boot-recovery concern does not leak into the per-request repository surface and
+// existing Workspace fakes stay untouched; the concrete *workspace satisfies it.
+type BootSweeper interface {
+	Sweep(
+		ctx context.Context,
+		purge func(ctx context.Context, wsID string) error,
+	)
 }
 
-// forget tombstones and erases the aggregate, serialized under the same
-// per-aggregate write mutex as send so it never races a concurrent send (the
-// provider sweep / fs-watcher firing SyncProviderState/SyncWorkingTreeState on
-// the same workspace) — that race version-conflicts, the exact failure writeMu
-// exists to eliminate.
-func (e *wsEntity) forget(
-	ctx context.Context,
-	id string,
-) error {
-	e.writeMu.Lock()
-	defer e.writeMu.Unlock()
-	return e.ax.Forget(ctx, id)
+// DeleteReactorRegistrar wires this aggregate's async delete reactor (Task 8) onto
+// its singleton axWorkspace. It is the app-level seam (Task 14 wireCallbacks) for
+// the post-commit cross-aggregate purge: the app-level composition root injects the
+// review-thread forget cascade, the bounded fs delete, and the shared drain
+// WaitGroup, while this repository keeps its ax / read model / id↔path handles
+// private — the reactor gates on the read model's persisted "deleted" tombstone,
+// resolves the worktree path via the id↔path map, cascades the forget, rm -rf's the
+// worktree, and Forgets the aggregate (spec §3.6/§3.8). The reactor lives under
+// workspace/internal, so an out-of-tree caller (repositories.Container) cannot reach
+// it directly; this method is the seam. Kept OFF the main Workspace interface (like
+// BootSweeper) so cross-aggregate wiring never leaks into the per-request surface
+// and existing Workspace fakes stay untouched; the concrete *workspace satisfies it.
+type DeleteReactorRegistrar interface {
+	RegisterDeleteReactor(
+		reviewThreadForget func(ctx context.Context, wsID string) error,
+		rmWorktree func(path string) error,
+		drainWG *sync.WaitGroup,
+	) error
 }
 
+// workspace is the singleton-backed workspace aggregate repository. One
+// axWorkspace routes every workspace id to a shard by hash; there is no per-entity
+// Registry, no writeMu (per-aggregate safety is shard routing + (id,version)
+// uniqueness + OCC retry), and no location index (the store read model carries
+// project_id/repo_id and doubles as the location index — §3.7).
 type workspace struct {
-	adapters     *adapter.Container
-	broadcast    store.BroadcastFunc
-	asynxFactory AsynxFactory
-	locations    locations.Store
-	entities     *adapter.Registry[*wsEntity]
+	ax         asynx.Asynx[domain.Workspace]
+	readModel  store.Store
+	pathsStore wspaths.WorkspacePaths
+	reconciler ReconcileOnOpener
 }
 
-// Option configures the Workspace repository.
-type Option func(*repoOpts)
+// Option configures the workspace repository at construction.
+type Option func(*workspace)
 
-type repoOpts struct {
-	maxOpenEntities int
-}
-
-// WithMaxOpenEntities bounds the per-entity LRU cache to n open entities. A
-// non-positive n falls back to the registry default. Used by tests to exercise
-// eviction without opening 64+ entities.
-func WithMaxOpenEntities(
-	n int,
+// WithReconciler wires the reconcile-on-open trigger consulted by Get (spec
+// §3.8): the first per-id open dispatches a deduped background reconcile. Absent
+// it, Get is a pure read-model fold with no reconcile.
+func WithReconciler(
+	r ReconcileOnOpener,
 ) Option {
-	return func(o *repoOpts) {
-		o.maxOpenEntities = n
+	return func(w *workspace) {
+		w.reconciler = r
 	}
 }
 
-// New builds a per-entity Workspace repository. Each workspace's Asynx instance
-// and read-model view are resolved lazily from the adapter container by ID via
-// the location index (held in the global view DB), and cached in a ref-counted
-// LRU registry. The broadcast func is the hub fan-out for projected rows.
-// asynxFactory is injected by the app layer to avoid an import cycle on newAsynx.
+// New builds the singleton-backed Workspace repository over axWorkspace, the
+// workspace read-model DB (state/store/workspace.db), and the view.db id↔path
+// index. es is the per-type event log axWorkspace wraps (state/events/workspace.db),
+// retained so the read model can heal itself via whole-model lazy Replay on first
+// access after a loss (§3.7). It registers the save-only store projection on
+// axWorkspace via store.New; the hub projection is registered separately by
+// repositories.Container (which owns the enrichment callback).
 func New(
-	adapters *adapter.Container,
-	broadcast store.BroadcastFunc,
-	asynxFactory AsynxFactory,
+	ax asynx.Asynx[domain.Workspace],
+	es asynxModels.Store,
+	storeDB *gormdb.DB,
+	pathsStore wspaths.WorkspacePaths,
 	opts ...Option,
 ) (Workspace, error) {
-	if adapters == nil {
-		return nil, fmt.Errorf("workspace: nil adapters")
+	if ax == nil {
+		return nil, fmt.Errorf("workspace: nil asynx")
 	}
-	if asynxFactory == nil {
-		return nil, fmt.Errorf("workspace: nil asynx factory")
+	if es == nil {
+		return nil, fmt.Errorf("workspace: nil event store")
 	}
-	cfg := repoOpts{}
-	for _, o := range opts {
-		o(&cfg)
+	if storeDB == nil {
+		return nil, fmt.Errorf("workspace: nil store db")
 	}
-	locationIndex, err := locations.New(adapters.GlobalView())
+	if pathsStore == nil {
+		return nil, fmt.Errorf("workspace: nil paths store")
+	}
+	readModel, err := store.New(storeDB, es, ax)
 	if err != nil {
-		return nil, fmt.Errorf("workspace: location index: %w", err)
+		return nil, fmt.Errorf("workspace: store: %w", err)
 	}
-	w := &workspace{
-		adapters:     adapters,
-		broadcast:    broadcast,
-		asynxFactory: asynxFactory,
-		locations:    locationIndex,
+	w := &workspace{ax: ax, readModel: readModel, pathsStore: pathsStore}
+	for _, opt := range opts {
+		opt(w)
 	}
-	// closeFn shuts down asynx FIRST (it references the ES handle), then releases
-	// the adapter's ES/View handles, so the underlying SQLite DB is never closed
-	// out from under a live asynx — that ordering is the use-after-free guard.
-	w.entities = adapter.NewRegistry[*wsEntity](cfg.maxOpenEntities, func(e *wsEntity) error {
-		err := e.ax.Shutdown(context.Background())
-		if e.esRelease != nil {
-			e.esRelease()
-		}
-		if e.viewRelease != nil {
-			e.viewRelease()
-		}
-		return err
-	})
 	return w, nil
 }
 
-// entityFor resolves the per-workspace Asynx + store for id, building it on a
-// cache miss from the location index and the adapter's per-entity DB handles.
-// The returned release func decrements the registry refcount; the caller MUST
-// call it (typically via defer) when done so the LRU can evict the entity.
-func (w *workspace) entityFor(
-	ctx context.Context,
-	id string,
-) (*wsEntity, func(), error) {
-	loc, err := w.locations.Get(ctx, id)
-	if err != nil {
-		// Translate the package-local not-found sentinel to the app-wide
-		// apperr.ErrNotFound so HTTP handlers map a bogus workspace id to 404
-		// (not 500): the location index is the authority for "does this
-		// workspace exist?" across all per-entity reads.
-		if errors.Is(err, locations.ErrNotFound) {
-			return nil, nil, fmt.Errorf("workspace: locate %q: %w", id, apperr.ErrNotFound)
-		}
-		return nil, nil, fmt.Errorf("workspace: locate %q: %w", id, err)
-	}
-	return w.entityForLocation(ctx, loc)
+// RegisterHubProjection registers the hub (WS fan-out) projection on the singleton
+// axWorkspace: for every workspace event it builds the base frame from
+// evt.Aggregate, runs enrich to attach the derived overlays the container owns
+// (Working + merge eligibility), then broadcasts. It is generic over the frame
+// type F so this package stays decoupled from the api-layer wire DTO the container
+// supplies. Registered ONCE, by repositories.Container (which owns enrich +
+// broadcast, and routes BeginWork/EndWork through the SAME pair); the save-only
+// store projection is registered inside New. The projections subpackage lives
+// under workspace/internal, so this forwarder is the seam the container reaches it
+// through (spec §3.5 hub-frame enrichment, decision 5).
+func RegisterHubProjection[F any](
+	ax asynx.Asynx[domain.Workspace],
+	enrich func(ctx context.Context, ws domain.Workspace) F,
+	broadcast func(frame F),
+) error {
+	return projections.RegisterHub(ax, enrich, broadcast)
 }
 
-func (w *workspace) entityForLocation(
+// sendFunc issues one command attempt against the aggregate.
+type sendFunc func(
 	ctx context.Context,
-	loc locations.Location,
-) (*wsEntity, func(), error) {
-	entity, release, err := w.entities.Acquire(loc.ID, func() (*wsEntity, error) {
-		es, esRelease, esErr := w.adapters.WorkspaceES(loc.ProjectID, loc.RepoID, loc.ID)
-		if esErr != nil {
-			return nil, fmt.Errorf("workspace: event store: %w", esErr)
+	cmd asynxModels.Command[domain.Workspace],
+) (asynxModels.Event[domain.Workspace], error)
+
+// occSend runs send with OCC retry and the terminal error disposition contract
+// (spec §3.5, decision 10):
+//
+//   - success                → returned immediately.
+//   - ErrValidation          → surfaced immediately, NEVER retried (→ 422).
+//   - ErrQueueFull           → translated to apperr.ErrUnavailable (→ 503),
+//     NEVER retried: a full shard queue is backpressure, not a version race.
+//   - ErrPipelineFailed      → retried up to maxOCCAttempts; still failing after
+//     the retries is an unrecoverable optimistic-concurrency collision, surfaced
+//     as ErrPipelineFailed (→ 409).
+//   - any other error        → surfaced as-is.
+//
+// All classification is via errors.Is, never string compare.
+func occSend(
+	ctx context.Context,
+	send sendFunc,
+	cmd asynxModels.Command[domain.Workspace],
+) (asynxModels.Event[domain.Workspace], error) {
+	var lastErr error
+	for attempt := range maxOCCAttempts {
+		evt, err := send(ctx, cmd)
+		if err == nil {
+			return evt, nil
 		}
-		view, viewRelease, viewErr := w.adapters.WorkspaceView(loc.ProjectID, loc.RepoID, loc.ID)
-		if viewErr != nil {
-			// Release the ES handle acquired above before bailing, or it leaks
-			// pinned in the registry forever (the wsEntity that would own it is
-			// never built).
-			esRelease()
-			return nil, fmt.Errorf("workspace: view: %w", viewErr)
+		switch {
+		case errors.Is(err, asynxModels.ErrValidation):
+			return asynxModels.Event[domain.Workspace]{}, err
+		case errors.Is(err, asynxModels.ErrQueueFull):
+			return asynxModels.Event[domain.Workspace]{}, fmt.Errorf("workspace: send: %w", apperr.ErrUnavailable)
+		case errors.Is(err, asynxModels.ErrPipelineFailed):
+			lastErr = err
+			// Back off before retrying so version losers do not re-read and re-collide
+			// in lockstep: without a jittered pause, heavy same-aggregate contention can
+			// exhaust maxOCCAttempts even though a serialised commit order exists (OCC
+			// livelock). Full-jitter exponential backoff desynchronises contenders so
+			// they converge within the budget. No wait after the final attempt, and a
+			// cancelled context aborts the wait. The happy path never reaches here (the
+			// first send commits), so this adds zero latency without contention.
+			if attempt < maxOCCAttempts-1 {
+				if werr := occBackoff(ctx, attempt); werr != nil {
+					return asynxModels.Event[domain.Workspace]{}, werr
+				}
+			}
+		default:
+			return asynxModels.Event[domain.Workspace]{}, err
 		}
-		ax, axErr := w.asynxFactory(es)
-		if axErr != nil {
-			esRelease()
-			viewRelease()
-			return nil, fmt.Errorf("workspace: asynx: %w", axErr)
-		}
-		// store.New reconciles the read model from the event store on open, so the
-		// first List after a crash mid-projection self-corrects (see store.New).
-		st, stErr := store.New(ctx, view, ax, w.broadcast, loc.ID)
-		if stErr != nil {
-			// ax was built but never registered with the entity, so shut it down
-			// before releasing the ES handle it sits on — same ordering as the
-			// registry closeFn to avoid a use-after-free.
-			_ = ax.Shutdown(context.Background())
-			esRelease()
-			viewRelease()
-			return nil, fmt.Errorf("workspace: store: %w", stErr)
-		}
-		return &wsEntity{ax: ax, store: st, esRelease: esRelease, viewRelease: viewRelease}, nil
-	})
-	if err != nil {
-		return nil, nil, err
 	}
-	return entity, release, nil
+	return asynxModels.Event[domain.Workspace]{}, lastErr
+}
+
+// OCC retry backoff is capped full-jitter exponential: retry attempt k (0-based)
+// waits a random duration in [0, min(occBackoffBase·2^k, occBackoffCap)). The base
+// is sub-millisecond so early retries stay fast; the cap keeps the deepest retries
+// from ballooning latency while still spreading contenders across a wide window.
+const (
+	occBackoffBase = 200 * time.Microsecond
+	occBackoffCap  = 2 * time.Millisecond
+)
+
+// occBackoff sleeps a capped full-jitter exponential backoff for the 0-based retry
+// attempt, returning ctx.Err() early if the context is cancelled first. math/rand/v2
+// is goroutine-safe, so concurrent contenders draw independent jitter.
+func occBackoff(ctx context.Context, attempt int) error {
+	window := occBackoffBase << attempt // occBackoffBase · 2^attempt
+	if window > occBackoffCap || window <= 0 {
+		window = occBackoffCap
+	}
+	timer := time.NewTimer(time.Duration(rand.Int64N(int64(window))))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// sendWithOCC dispatches cmd to the singleton axWorkspace with OCC retry.
+func (w *workspace) sendWithOCC(
+	ctx context.Context,
+	cmd asynxModels.Command[domain.Workspace],
+) (asynxModels.Event[domain.Workspace], error) {
+	return occSend(ctx, w.ax.Send, cmd)
 }
 
 func (w *workspace) Create(
@@ -360,35 +411,19 @@ func (w *workspace) Create(
 	in CreateInput,
 	now time.Time,
 ) (domain.Workspace, error) {
-	if err := w.locations.Save(ctx, locations.Location{
-		ID:        in.ID,
-		ProjectID: in.ProjectID,
-		RepoID:    in.RepoID,
-	}); err != nil {
-		return domain.Workspace{}, fmt.Errorf("workspace: create: %w", err)
+	// Record the id→path row before the aggregate exists (§3.9 write-point (a)):
+	// it is the rename-resilience map, keyed by the workspace UUID. Roll it back
+	// unless the create commits, so a failed create leaves no orphan path row.
+	if err := w.pathsStore.Put(ctx, in.ID, in.WorktreePath); err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: create: paths: %w", err)
 	}
-	// Roll back the location index row unless the create fully succeeds. The
-	// location is a forward-reference index written before the entity exists; if
-	// building the entity or sending CreateWorkspace fails, an un-rolled-back row
-	// orphans forever — List enumerates it, finds no read-model row, and silently
-	// drops it (the row is invisible but accumulates on every retry). committed is
-	// set only on the success path.
 	committed := false
 	defer func() {
 		if !committed {
-			_ = w.locations.Delete(ctx, in.ID)
+			_ = w.pathsStore.Delete(ctx, in.ID)
 		}
 	}()
-	entity, release, err := w.entityForLocation(ctx, locations.Location{
-		ID:        in.ID,
-		ProjectID: in.ProjectID,
-		RepoID:    in.RepoID,
-	})
-	if err != nil {
-		return domain.Workspace{}, fmt.Errorf("workspace: create: %w", err)
-	}
-	defer release()
-	evt, err := entity.send(ctx, commands.CreateWorkspace{
+	evt, err := w.sendWithOCC(ctx, commands.CreateWorkspace{
 		ID:            in.ID,
 		RepoID:        in.RepoID,
 		ProjectID:     in.ProjectID,
@@ -415,12 +450,7 @@ func (w *workspace) SyncWorkingTreeState(
 	in SyncInput,
 	now time.Time,
 ) (domain.Workspace, error) {
-	entity, release, err := w.entityFor(ctx, in.ID)
-	if err != nil {
-		return domain.Workspace{}, err
-	}
-	defer release()
-	evt, err := entity.send(ctx, commands.SyncWorkingTreeState{
+	evt, err := w.sendWithOCC(ctx, commands.SyncWorkingTreeState{
 		ID:           in.ID,
 		Added:        in.Added,
 		Deleted:      in.Deleted,
@@ -438,14 +468,19 @@ func (w *workspace) Get(
 	ctx context.Context,
 	id string,
 ) (domain.Workspace, error) {
-	entity, release, err := w.entityFor(ctx, id)
-	if err != nil {
-		return domain.Workspace{}, err
-	}
-	defer release()
-	got, err := entity.ax.Get(ctx, id)
+	// Per-id reads fold the aggregate directly from the event log (§3.7), so Get
+	// is always current and needs no read-model rebuild. asynx returns ErrNotFound
+	// for an unknown id, which handlers map to 404.
+	got, err := w.ax.Get(ctx, id)
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: get: %w", err)
+	}
+	// A per-id open triggers a lazy, deduplicated, background reconcile off this
+	// read path (spec §3.8): Get returns immediately from the folded aggregate
+	// while the reconcile task re-derives git+provider reality and SendWaits a
+	// pure sync command. List never triggers this.
+	if w.reconciler != nil {
+		w.reconciler.OnOpen(ctx, id)
 	}
 	return got, nil
 }
@@ -455,12 +490,7 @@ func (w *workspace) SyncProviderState(
 	in ProviderInput,
 	now time.Time,
 ) (domain.Workspace, error) {
-	entity, release, err := w.entityFor(ctx, in.ID)
-	if err != nil {
-		return domain.Workspace{}, err
-	}
-	defer release()
-	evt, err := entity.send(ctx, commands.SyncProviderState{
+	evt, err := w.sendWithOCC(ctx, commands.SyncProviderState{
 		ID:             in.ID,
 		Protected:      in.Protected,
 		HasPR:          in.HasPR,
@@ -481,12 +511,7 @@ func (w *workspace) SetMergeStrategy(
 	id string,
 	strategy gitdomain.MergeStrategy,
 ) (domain.Workspace, error) {
-	entity, release, err := w.entityFor(ctx, id)
-	if err != nil {
-		return domain.Workspace{}, err
-	}
-	defer release()
-	evt, err := entity.send(ctx, commands.SetMergeStrategy{ID: id, Strategy: strategy})
+	evt, err := w.sendWithOCC(ctx, commands.SetMergeStrategy{ID: id, Strategy: strategy})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set merge strategy: %w", err)
 	}
@@ -498,12 +523,7 @@ func (w *workspace) TouchActivity(
 	id string,
 	now time.Time,
 ) (domain.Workspace, error) {
-	entity, release, err := w.entityFor(ctx, id)
-	if err != nil {
-		return domain.Workspace{}, err
-	}
-	defer release()
-	evt, err := entity.send(ctx, commands.TouchActivity{ID: id, Now: now})
+	evt, err := w.sendWithOCC(ctx, commands.TouchActivity{ID: id, Now: now})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: touch activity: %w", err)
 	}
@@ -517,12 +537,7 @@ func (w *workspace) Reparent(
 	forkPointSha string,
 	now time.Time,
 ) (domain.Workspace, error) {
-	entity, release, err := w.entityFor(ctx, id)
-	if err != nil {
-		return domain.Workspace{}, err
-	}
-	defer release()
-	evt, err := entity.send(ctx, commands.Reparent{
+	evt, err := w.sendWithOCC(ctx, commands.Reparent{
 		ID:           id,
 		ParentID:     parentID,
 		ForkPointSha: forkPointSha,
@@ -539,12 +554,7 @@ func (w *workspace) ResolveConflicts(
 	id string,
 	now time.Time,
 ) (domain.Workspace, error) {
-	entity, release, err := w.entityFor(ctx, id)
-	if err != nil {
-		return domain.Workspace{}, err
-	}
-	defer release()
-	evt, err := entity.send(ctx, commands.ResolveConflicts{
+	evt, err := w.sendWithOCC(ctx, commands.ResolveConflicts{
 		ID:  id,
 		Now: now,
 	})
@@ -559,12 +569,7 @@ func (w *workspace) UpdateForkPoint(
 	id string,
 	forkPointSha string,
 ) (domain.Workspace, error) {
-	entity, release, err := w.entityFor(ctx, id)
-	if err != nil {
-		return domain.Workspace{}, err
-	}
-	defer release()
-	evt, err := entity.send(ctx, commands.UpdateForkPoint{ID: id, ForkPointSha: forkPointSha})
+	evt, err := w.sendWithOCC(ctx, commands.UpdateForkPoint{ID: id, ForkPointSha: forkPointSha})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: update fork point: %w", err)
 	}
@@ -577,12 +582,7 @@ func (w *workspace) ProvisionInPlace(
 	worktreePath string,
 	forkPointSha string,
 ) (domain.Workspace, error) {
-	entity, release, err := w.entityFor(ctx, id)
-	if err != nil {
-		return domain.Workspace{}, err
-	}
-	defer release()
-	evt, err := entity.send(ctx, commands.ProvisionInPlace{
+	evt, err := w.sendWithOCC(ctx, commands.ProvisionInPlace{
 		ID:           id,
 		WorktreePath: worktreePath,
 		ForkPointSha: forkPointSha,
@@ -597,12 +597,7 @@ func (w *workspace) ClearBranch(
 	ctx context.Context,
 	id string,
 ) (domain.Workspace, error) {
-	entity, release, err := w.entityFor(ctx, id)
-	if err != nil {
-		return domain.Workspace{}, err
-	}
-	defer release()
-	evt, err := entity.send(ctx, commands.ClearBranch{ID: id})
+	evt, err := w.sendWithOCC(ctx, commands.ClearBranch{ID: id})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: clear branch: %w", err)
 	}
@@ -614,12 +609,7 @@ func (w *workspace) SetParentFromPR(
 	id string,
 	parentID string,
 ) (domain.Workspace, error) {
-	entity, release, err := w.entityFor(ctx, id)
-	if err != nil {
-		return domain.Workspace{}, err
-	}
-	defer release()
-	evt, err := entity.send(ctx, commands.SetParentFromPR{ID: id, ParentID: parentID})
+	evt, err := w.sendWithOCC(ctx, commands.SetParentFromPR{ID: id, ParentID: parentID})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set parent from pr: %w", err)
 	}
@@ -631,105 +621,105 @@ func (w *workspace) SetLastError(
 	id string,
 	message string,
 ) (domain.Workspace, error) {
-	entity, release, err := w.entityFor(ctx, id)
-	if err != nil {
-		return domain.Workspace{}, err
-	}
-	defer release()
-	evt, err := entity.send(ctx, commands.SetLastError{ID: id, Message: message})
+	evt, err := w.sendWithOCC(ctx, commands.SetLastError{ID: id, Message: message})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set last error: %w", err)
 	}
 	return evt.Aggregate, nil
 }
 
+// Delete tombstones the workspace via the pure Delete command (Send + OCC): it
+// folds Status=deleted and does NO io. The store projection persists the deleted
+// row (so the boot orphan-sweep still finds it) and the async delete reactor
+// (topic "workspace.deleted.*", Task 8) performs the physical teardown off the
+// write path — closing the old synchronous forget→rm crash gap (spec §3.6/§3.8).
 func (w *workspace) Delete(
 	ctx context.Context,
 	id string,
 ) error {
-	loc, err := w.locations.Get(ctx, id)
+	_, err := w.sendWithOCC(ctx, commands.Delete{ID: id})
 	if err != nil {
-		return fmt.Errorf("workspace: delete: locate %q: %w", id, err)
-	}
-	entity, release, err := w.entityForLocation(ctx, loc)
-	if err != nil {
-		return err
-	}
-	// Safe to release even after the Evict below: Evict detaches the entry, so the
-	// deferred release just decrements a detached refcount (a no-op for eviction).
-	defer release()
-	// Tear the read model down first (Forget needs the per-entity view.db), then
-	// close the handles, drop the location index, and rm -rf the on-disk tree.
-	// forget serializes under writeMu so it never version-conflicts with a
-	// concurrent sweep/watcher sync on the same aggregate.
-	if err := entity.forget(ctx, id); err != nil {
 		return fmt.Errorf("workspace: delete: %w", err)
 	}
-	if err := w.entities.Evict(id); err != nil {
-		return fmt.Errorf("workspace: evict entity: %w", err)
-	}
-	if err := w.locations.Delete(ctx, id); err != nil {
-		return fmt.Errorf("workspace: delete location: %w", err)
-	}
-	w.removeWorkspaceDir(loc.ProjectID, loc.RepoID, id)
-	// Broadcast the deleted tombstone LAST — after the read model and the on-disk
-	// storage tree are gone — so a client that receives status:"deleted" knows the
-	// workspace is fully removed (00 §4/§6: lifecycle lives on the entity).
-	w.broadcast(ctx, domain.Workspace{
-		ID:        id,
-		ProjectID: loc.ProjectID,
-		RepoID:    loc.RepoID,
-		Status:    domain.WorkspaceStatusDeleted,
-	})
 	return nil
 }
 
-// removeWorkspaceDir rm -rf's the whole per-workspace directory
-// (<home>/projects/<P>/<R>/workspaces/<W>: worktree + storages + threads +
-// terminals). It is guarded to ONLY remove paths under <home>/projects so an
-// adopted/external worktree (the user's real repository, which lives outside the
-// crowbar home) is never touched.
-func (w *workspace) removeWorkspaceDir(
-	projectID string,
-	repoID string,
-	wsID string,
-) {
-	home := w.adapters.CrowbarHome()
-	if home == "" {
-		return
-	}
-	dir := filepath.Join(home, "projects", projectID, repoID, "workspaces", wsID)
-	root := filepath.Join(home, "projects") + string(os.PathSeparator)
-	if !strings.HasPrefix(dir, root) {
-		return
-	}
-	_ = os.RemoveAll(dir)
-}
-
-// List returns every workspace row across all entities. It enumerates the
-// location index and reads each workspace's read-model row.
+// List returns every workspace row from the durable read model
+// (state/store/workspace.db), which doubles as the location index (§3.7). It reads
+// the projection directly and MUST NOT trigger any per-workspace reconcile
+// (git/provider re-derivation, §3.8) — but it DOES heal a lost read model via
+// whole-model lazy Replay when the model is empty while the event log is non-empty
+// (§3.7, decision 7), hence ListOrRebuild rather than the raw List (which is
+// reserved for the boot orphan-sweep, so startup pays no replay).
 func (w *workspace) List(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
-	locs, err := w.locations.List(ctx)
+	rows, err := w.readModel.ListOrRebuild(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("workspace: list locations: %w", err)
-	}
-	rows := make([]domain.Workspace, 0, len(locs))
-	for _, loc := range locs {
-		// readRow acquires the entity, reads its row, and releases the registry
-		// refcount via defer — so a per-iteration acquire/release lets the LRU evict
-		// between reads instead of pinning every entity for the whole List.
-		ws, err := w.readRow(ctx, loc)
-		if err != nil {
-			return nil, fmt.Errorf("workspace: list: %w", err)
-		}
-		if ws == nil {
-			continue
-		}
-		rows = append(rows, *ws)
+		return nil, fmt.Errorf("workspace: list: %w", err)
 	}
 	return rows, nil
+}
+
+// ListInRepo returns every workspace row scoped to projectID+repoID. It reads
+// the durable central read model via List (state/store/workspace.db) and filters
+// in memory — a single central-store read, not a per-install scan — mirroring
+// GetHomeForProject. Each read-model row carries project_id/repo_id off the
+// folded aggregate (spec §3.7), so the central store natively serves the
+// repo-scoped query with no separate location/directory table.
+func (w *workspace) ListInRepo(
+	ctx context.Context,
+	projectID string,
+	repoID string,
+) ([]domain.Workspace, error) {
+	all, err := w.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("workspace: list in repo: %w", err)
+	}
+	rows := make([]domain.Workspace, 0, len(all))
+	for _, ws := range all {
+		if ws.ProjectID == projectID && ws.RepoID == repoID {
+			rows = append(rows, ws)
+		}
+	}
+	return rows, nil
+}
+
+// Sweep runs the boot orphan-sweep over this repository's RAW read model (spec
+// §3.8). It reads state/store/workspace.db DIRECTLY via w.readModel.List — NOT
+// the Replay-wrapped per-request List path — so boot pays no replay and an empty
+// model reaps nothing (§3.7/§3.8). For every residual Status="deleted" row it
+// re-drives the caller-supplied idempotent purge (cascade Forget + rm -rf worktree
+// + axWorkspace.Forget). Best-effort throughout: recovery work never fails boot.
+func (w *workspace) Sweep(
+	ctx context.Context,
+	purge func(ctx context.Context, wsID string) error,
+) {
+	reconcile.NewSweeper(reconcile.SweepListFunc(w.readModel.List), purge).Sweep(ctx)
+}
+
+// RegisterDeleteReactor subscribes the async delete reactor to this repo's
+// singleton axWorkspace, handing it this repo's own private handles — axWorkspace,
+// the durable read model (the ordering-gate StoreReader; w.readModel satisfies
+// reactors.StoreReader via its Get), and the id↔path map — and the app-injected
+// cross-aggregate deps: the review-thread forget cascade, the bounded fs delete,
+// and the shared drain WaitGroup every reactor goroutine joins (spec §3.6/§3.8,
+// Task 8/14). It is the seam repositories.Container reaches the internal reactor
+// through (the reactors package is under workspace/internal, unimportable from the
+// out-of-tree container).
+func (w *workspace) RegisterDeleteReactor(
+	reviewThreadForget func(ctx context.Context, wsID string) error,
+	rmWorktree func(path string) error,
+	drainWG *sync.WaitGroup,
+) error {
+	return reactors.RegisterDeleteReactor(
+		w.ax,
+		w.readModel,
+		w.pathsStore,
+		reviewThreadForget,
+		rmWorktree,
+		drainWG,
+	)
 }
 
 // GetHomeForProject scans all workspaces for the project and returns the one
@@ -760,19 +750,4 @@ func (w *workspace) CreateHome(ctx context.Context, projectID, worktreePath stri
 		return domain.Workspace{}, fmt.Errorf("create home workspace: %w", err)
 	}
 	return ws, nil
-}
-
-// readRow resolves the entity for loc, reads its read-model row, and releases the
-// registry refcount before returning (including on error), so List does not pin
-// every entity at once.
-func (w *workspace) readRow(
-	ctx context.Context,
-	loc locations.Location,
-) (*domain.Workspace, error) {
-	entity, release, err := w.entityForLocation(ctx, loc)
-	if err != nil {
-		return nil, err
-	}
-	defer release()
-	return entity.store.Get(ctx, loc.ID)
 }

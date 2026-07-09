@@ -15,10 +15,6 @@ var ErrRebaseNonLeaf = errors.New("usecases: rebase forbidden for non-leaf child
 // is not a leaf; only leaf workspaces may be re-parented (07 §4).
 var ErrChildHasChildren = errors.New("usecases: child has children")
 
-// ErrNewParentLocked is returned when a re-parent targets a locked new parent
-// workspace (07 §4).
-var ErrNewParentLocked = errors.New("usecases: new parent is locked")
-
 // ErrSelfParent is returned when a re-parent targets the child itself. A
 // workspace cannot be its own parent: the self-loop both detaches the node in
 // the tree and makes it permanently unreparentable (it would count as its own

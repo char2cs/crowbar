@@ -24,6 +24,7 @@ func (e *engine) WouldMergeConflict(
 	ours string,
 	theirs string,
 ) (bool, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "merge-tree", "--write-tree", ours, theirs)
 	if r.ExitCode == 0 {
 		return false, nil

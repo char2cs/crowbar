@@ -71,6 +71,11 @@ const TabBarItem = memo(function TabBarItem({
     [handleTabClose, buffer.id],
   )
 
+  // An editor tab with unsaved edits. When it's also the active tab we render
+  // the whole pill in the primary-button style (the fill is the signal, so the
+  // dot is dropped); inactive unsaved tabs keep the pill and show a bright dot.
+  const isDirtyEditor = buffer.type === 'editor' && buffer.isDirty
+
   return (
     /*
      * The outer div carries `group/tab` so that the close button's
@@ -94,7 +99,13 @@ const TabBarItem = memo(function TabBarItem({
         tabIndex={isActive ? 0 : -1}
         isActive={isActive}
         isDragged={isDraggedTab}
-        className={cn('h-8', 'gap-1.5 pl-2.5 pr-8')}
+        className={cn(
+          'h-8',
+          'gap-1.5 pl-2.5 pr-8',
+          isActive &&
+            isDirtyEditor &&
+            'border-primary bg-primary text-primary-foreground shadow-primary/24',
+        )}
         onClick={onClick}
         onMouseDown={onMouseDown}
         onDoubleClick={onDoubleClick}
@@ -115,7 +126,10 @@ const TabBarItem = memo(function TabBarItem({
             <FileExplorerIcon
               fileName={getDiffIconName() ?? buffer.name}
               isDir={false}
-              className="text-muted-foreground"
+              className={cn(
+                'text-muted-foreground',
+                isActive && isDirtyEditor && 'text-primary-foreground',
+              )}
               size={14}
             />
           )}
@@ -130,9 +144,9 @@ const TabBarItem = memo(function TabBarItem({
         >
           {displayName}
         </span>
-        {buffer.type === 'editor' && buffer.isDirty && (
+        {isDirtyEditor && !isActive && (
           <div
-            className="size-2 shrink-0 rounded-full bg-accent"
+            className="size-2 shrink-0 rounded-full bg-primary"
             title="Unsaved changes"
             role="img"
             aria-label="Unsaved changes"
@@ -157,6 +171,7 @@ const TabBarItem = memo(function TabBarItem({
           className={cn(
             'absolute inset-y-0 my-auto right-1.5 !size-5 !min-h-0 !min-w-0 grid place-items-center cursor-pointer select-none !rounded-md !p-0 text-muted-foreground transition-opacity',
             buffer.isPinned || isActive ? 'opacity-60' : 'opacity-0 group-hover/tab:opacity-60',
+            isActive && isDirtyEditor && 'text-primary-foreground',
           )}
           tooltip={buffer.isPinned ? 'Unpin tab' : 'Close'}
           tooltipSide="bottom"

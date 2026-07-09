@@ -105,7 +105,7 @@ func (s *ProviderSuite) TestProvider_disabledStateReflectsInWorkspace() {
 // TestRegression_ProviderPoll_PROpenToMerged drives a pr-open → pr-merged
 // transition through the mock-provider seam (PushProviderState) and asserts the
 // resulting WorkspaceDTO arrives on the workspace WS with status pr-merged. No
-// real network and no time.Sleep — the seam applies projection-synchronously and
+// real network and no fixed delay — the seam applies projection-synchronously and
 // the projection broadcasts the row (spec §11/§13).
 func (s *ProviderSuite) TestRegression_ProviderPoll_PROpenToMerged() {
 	t := s.T()

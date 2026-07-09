@@ -78,18 +78,10 @@ func TestResync_IdleShell_NoOp(t *testing.T) {
 	case <-ch:
 	case <-time.After(3 * time.Second):
 	}
-	time.Sleep(150 * time.Millisecond)
-	idle := false
-	for i := 0; i < 20; i++ {
-		if s.IsIdle() {
-			idle = true
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if !idle {
-		t.Skip("shell never settled idle in this environment")
-	}
+	// Idle is a PRECONDITION for the no-op assertion, not the assertion
+	// itself: wait for it deterministically (the shared helper polls with a
+	// ticker, no fixed sleep) and skip if the shell never settles here.
+	waitIdleOrSkip(t, s)
 
 	drainFrames(ch)
 	assert.False(t, s.Resync(), "Resync at an idle shell must be a no-op")
@@ -110,15 +102,9 @@ func TestResync_ForegroundApp_EmitsSnapshot(t *testing.T) {
 
 	require.NoError(t, s.Write([]byte("sleep 9999\n")))
 
-	busy := false
-	for i := 0; i < 60; i++ {
-		if !s.IsIdle() {
-			busy = true
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	require.True(t, busy, "sleep child never took the foreground")
+	// Wait until the sleep child takes over the foreground process group.
+	require.Eventually(t, func() bool { return !s.IsIdle() }, 3*time.Second, 50*time.Millisecond,
+		"sleep child never took the foreground")
 
 	// The attach redraw is also Snapshot-marked; drain everything queued so the
 	// snapshot observed below is unambiguously the Resync one.

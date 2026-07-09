@@ -2,19 +2,26 @@ package reviewthread
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/internal/serialize"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread/internal/store"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
+
+// maxOCCAttempts bounds optimistic-concurrency retries on ErrPipelineFailed
+// (decision 10): with writeMu deleted, concurrent Sends to one thread aggregate
+// can version-collide, so the losers retry — Send re-reads the current version
+// each attempt, so a retry converges. ErrValidation is NEVER retried; ErrQueueFull
+// is surfaced as apperr.ErrUnavailable.
+const maxOCCAttempts = 5
 
 // BroadcastFunc is an alias for the store-layer broadcast type, exposed so the
 // repositories container can wire it without importing the internal store package.
@@ -87,54 +94,84 @@ type ReviewThread interface {
 	) ([]domain.ReviewThread, error)
 }
 
+// reviewThread is the singleton-backed review-thread aggregate repository. One
+// axReviewThread routes every thread id to a shard by hash; there is no writeMu
+// (per-aggregate safety is shard routing + (id,version) uniqueness + OCC retry).
 type reviewThread struct {
-	ax      asynx.Asynx[domain.ReviewThread]
-	store   store.Store
-	writeMu serialize.KeyedMutex
+	ax    asynx.Asynx[domain.ReviewThread]
+	store store.Store
 }
 
-// New builds a ReviewThread repository over the given asynx instance and a GORM DB.
-// The broadcast func is the hub fan-out for projected rows (03 §2).
-//
-// The reviewthread aggregate is global: one asynx and one event store hold every
-// thread. es is that shared event store; when it exposes serialize.AggregateLister,
-// New enumerates its ids so store.New can reconcile each read-model row from the
-// event log on open (heals rows a dropped projection left missing). Enumeration is
-// best-effort — a failure logs and falls back to no reconcile, exactly as if no
-// row needed healing.
+// New builds the singleton-backed ReviewThread repository over axReviewThread, the
+// reviewthread read-model DB (state/store/review_thread.db), and the hub broadcast
+// fan-out. es is the per-type event log axReviewThread wraps
+// (state/events/review_thread.db), retained so the read model can heal itself via
+// whole-model lazy Replay on first access after a loss (§3.7). It registers the
+// save-only store projection AND the hub projection on axReviewThread via
+// store.New.
 func New(
-	ctx context.Context,
 	ax asynx.Asynx[domain.ReviewThread],
 	es asynxModels.Store,
-	db *gormdb.DB,
-	broadcast store.BroadcastFunc,
+	storeDB *gormdb.DB,
+	broadcast BroadcastFunc,
 ) (ReviewThread, error) {
-	ids := aggregateIDs(ctx, es)
-	st, err := store.New(ctx, db, ax, broadcast, ids)
+	st, err := store.New(storeDB, es, ax, broadcast)
 	if err != nil {
 		return nil, fmt.Errorf("reviewthread: store: %w", err)
 	}
 	return &reviewThread{ax: ax, store: st}, nil
 }
 
-// aggregateIDs enumerates the event store's aggregate ids when it supports the
-// optional AggregateLister capability, so the read model can reconcile every
-// thread on open. A store without the capability, or an enumeration error, yields
-// no ids (reconcile is then a no-op).
-func aggregateIDs(
+// sendFunc issues one command attempt against the aggregate.
+type sendFunc func(
 	ctx context.Context,
-	es asynxModels.Store,
-) []string {
-	lister, ok := es.(serialize.AggregateLister)
-	if !ok {
-		return nil
+	cmd asynxModels.Command[domain.ReviewThread],
+) (asynxModels.Event[domain.ReviewThread], error)
+
+// occSend runs send with OCC retry and the terminal error disposition contract
+// (spec §3.5, decision 10):
+//
+//   - success                → returned immediately.
+//   - ErrValidation          → surfaced immediately, NEVER retried (→ 422).
+//   - ErrQueueFull           → translated to apperr.ErrUnavailable (→ 503),
+//     NEVER retried: a full shard queue is backpressure, not a version race.
+//   - ErrPipelineFailed      → retried up to maxOCCAttempts; still failing after
+//     the retries is an unrecoverable optimistic-concurrency collision, surfaced
+//     as ErrPipelineFailed (→ 409).
+//   - any other error        → surfaced as-is.
+//
+// All classification is via errors.Is, never string compare.
+func occSend(
+	ctx context.Context,
+	send sendFunc,
+	cmd asynxModels.Command[domain.ReviewThread],
+) (asynxModels.Event[domain.ReviewThread], error) {
+	var lastErr error
+	for range maxOCCAttempts {
+		evt, err := send(ctx, cmd)
+		if err == nil {
+			return evt, nil
+		}
+		switch {
+		case errors.Is(err, asynxModels.ErrValidation):
+			return asynxModels.Event[domain.ReviewThread]{}, err
+		case errors.Is(err, asynxModels.ErrQueueFull):
+			return asynxModels.Event[domain.ReviewThread]{}, fmt.Errorf("reviewthread: send: %w", apperr.ErrUnavailable)
+		case errors.Is(err, asynxModels.ErrPipelineFailed):
+			lastErr = err
+		default:
+			return asynxModels.Event[domain.ReviewThread]{}, err
+		}
 	}
-	ids, err := lister.AggregateIDs(ctx)
-	if err != nil {
-		slog.WarnContext(ctx, "reviewthread: enumerate aggregate ids for reconcile failed; skipping reconcile", "err", err)
-		return nil
-	}
-	return ids
+	return asynxModels.Event[domain.ReviewThread]{}, lastErr
+}
+
+// sendWithOCC dispatches cmd to the singleton axReviewThread with OCC retry.
+func (r *reviewThread) sendWithOCC(
+	ctx context.Context,
+	cmd asynxModels.Command[domain.ReviewThread],
+) (asynxModels.Event[domain.ReviewThread], error) {
+	return occSend(ctx, r.ax.Send, cmd)
 }
 
 func (r *reviewThread) Open(
@@ -142,9 +179,7 @@ func (r *reviewThread) Open(
 	in OpenInput,
 	now time.Time,
 ) (domain.ReviewThread, error) {
-	r.writeMu.Lock(in.ID)
-	defer r.writeMu.Unlock(in.ID)
-	evt, err := r.ax.SendWait(ctx, commands.OpenReviewThread{
+	evt, err := r.sendWithOCC(ctx, commands.OpenReviewThread{
 		ID:         in.ID,
 		WsID:       in.WsID,
 		FilePath:   in.FilePath,
@@ -173,9 +208,7 @@ func (r *reviewThread) Reply(
 	body string,
 	now time.Time,
 ) (domain.ReviewThread, error) {
-	r.writeMu.Lock(id)
-	defer r.writeMu.Unlock(id)
-	evt, err := r.ax.SendWait(ctx, commands.ReplyReviewThread{
+	evt, err := r.sendWithOCC(ctx, commands.ReplyReviewThread{
 		ID:        id,
 		MessageID: messageID,
 		Author:    author,
@@ -195,9 +228,7 @@ func (r *reviewThread) EditMessage(
 	messageID string,
 	body string,
 ) (domain.ReviewThread, error) {
-	r.writeMu.Lock(id)
-	defer r.writeMu.Unlock(id)
-	evt, err := r.ax.SendWait(ctx, commands.EditReviewMessage{
+	evt, err := r.sendWithOCC(ctx, commands.EditReviewMessage{
 		ID:        id,
 		MessageID: messageID,
 		Body:      body,
@@ -213,9 +244,7 @@ func (r *reviewThread) DeleteMessage(
 	id string,
 	messageID string,
 ) (domain.ReviewThread, error) {
-	r.writeMu.Lock(id)
-	defer r.writeMu.Unlock(id)
-	evt, err := r.ax.SendWait(ctx, commands.DeleteReviewMessage{
+	evt, err := r.sendWithOCC(ctx, commands.DeleteReviewMessage{
 		ID:        id,
 		MessageID: messageID,
 	})
@@ -225,12 +254,14 @@ func (r *reviewThread) DeleteMessage(
 	return evt.Aggregate, nil
 }
 
+// DeleteThread purges the thread aggregate via Forget: its synchronous OnForget
+// deletes the read-model row (a cheap, bounded row-delete — spec §3.6). A review
+// thread has no worktree/cascade, so unlike Workspace it needs no tombstone
+// command or async delete reactor.
 func (r *reviewThread) DeleteThread(
 	ctx context.Context,
 	id string,
 ) error {
-	r.writeMu.Lock(id)
-	defer r.writeMu.Unlock(id)
 	if err := r.ax.Forget(ctx, id); err != nil {
 		return fmt.Errorf("reviewthread: delete thread: %w", err)
 	}
@@ -241,9 +272,7 @@ func (r *reviewThread) Resolve(
 	ctx context.Context,
 	id string,
 ) (domain.ReviewThread, error) {
-	r.writeMu.Lock(id)
-	defer r.writeMu.Unlock(id)
-	evt, err := r.ax.SendWait(ctx, commands.ResolveReviewThread{ID: id})
+	evt, err := r.sendWithOCC(ctx, commands.ResolveReviewThread{ID: id})
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("reviewthread: resolve: %w", err)
 	}
@@ -254,9 +283,7 @@ func (r *reviewThread) Reopen(
 	ctx context.Context,
 	id string,
 ) (domain.ReviewThread, error) {
-	r.writeMu.Lock(id)
-	defer r.writeMu.Unlock(id)
-	evt, err := r.ax.SendWait(ctx, commands.ReopenReviewThread{ID: id})
+	evt, err := r.sendWithOCC(ctx, commands.ReopenReviewThread{ID: id})
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("reviewthread: reopen: %w", err)
 	}
@@ -267,6 +294,8 @@ func (r *reviewThread) Get(
 	ctx context.Context,
 	id string,
 ) (domain.ReviewThread, error) {
+	// Per-id reads fold the aggregate directly from the event log (§3.7), so Get is
+	// always current and needs no read-model rebuild.
 	got, err := r.ax.Get(ctx, id)
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("reviewthread: get: %w", err)

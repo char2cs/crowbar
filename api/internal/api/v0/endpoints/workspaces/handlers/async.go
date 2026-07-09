@@ -25,7 +25,7 @@ import (
 func runAsync(
 	parent context.Context,
 	work WorkSignal,
-	broadcastOnErr func(ctx context.Context, wsID string, message string),
+	broadcastOnErr func(ctx context.Context, wsID, message string),
 	wsID string,
 	fn func(ctx context.Context) error,
 ) {

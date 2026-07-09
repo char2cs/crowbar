@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -129,17 +127,7 @@ func newRealUsecase(
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	workspaces, err := workspace.New(
-		adapters,
-		func(context.Context, domain.Workspace) {},
-		func(es asynxModels.Store) (asynx.Asynx[domain.Workspace], error) {
-			return asynx.New[domain.Workspace]().
-				WithEventStore(es).
-				WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-				Build()
-		},
-	)
-	require.NoError(t, err)
+	workspaces := newWorkspaceRepo(t, adapters)
 
 	repos, err := storesqlite.NewFromDB[domain.Repository, string](adapters.GlobalView())
 	require.NoError(t, err)
@@ -252,6 +240,21 @@ func (h *realHarness) createChild(
 	}
 	child, err := h.uc.CreateChild(context.Background(), in)
 	require.NoError(t, err)
+	// The store projection is async (Send, not SendWait): wait until the new child
+	// is visible in the read model, so a later DeleteCascade (which lists to build
+	// the tree) sees the full tree.
+	require.Eventually(t, func() bool {
+		rows, listErr := h.workspaces.List(context.Background())
+		if listErr != nil {
+			return false
+		}
+		for _, r := range rows {
+			if r.ID == child.ID {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second, 5*time.Millisecond)
 	return child
 }
 
@@ -447,15 +450,27 @@ func TestIntegration_DeleteCascadeSkipsLockedChild(t *testing.T) {
 	assert.False(t, dirExists(t, descendant.WorktreePath), "unlocked descendant worktree gone")
 	assert.False(t, branchExists(t, h.repoPath, descendant.Branch), "unlocked descendant branch gone")
 
-	all, err := h.workspaces.List(ctx)
-	require.NoError(t, err)
-	ids := map[string]bool{}
-	for _, ws := range all {
-		ids[ws.ID] = true
-	}
-	assert.True(t, ids[locked.ID], "locked row remains")
-	assert.False(t, ids[root.ID], "root row removed")
-	assert.False(t, ids[descendant.ID], "descendant row removed")
+	// Task 7: workspace Delete is a pure Send that tombstones the row (Status =
+	// deleted); the async purge reactor that Forgets the row is Task 8. So the
+	// deleted nodes linger in the read model as deleted-status tombstones (their
+	// worktrees/branches are already gone above), while the locked child stays
+	// active. The store projection is async, so poll until it converges.
+	require.Eventually(t, func() bool {
+		all, err := h.workspaces.List(ctx)
+		if err != nil {
+			return false
+		}
+		status := map[string]domain.WorkspaceStatus{}
+		present := map[string]bool{}
+		for _, ws := range all {
+			present[ws.ID] = true
+			status[ws.ID] = ws.Status
+		}
+		return present[locked.ID] &&
+			status[locked.ID] != domain.WorkspaceStatusDeleted &&
+			status[root.ID] == domain.WorkspaceStatusDeleted &&
+			status[descendant.ID] == domain.WorkspaceStatusDeleted
+	}, 2*time.Second, 5*time.Millisecond)
 }
 
 // TestIntegration_MergeConflictSetsPRConflicts proves the try-then-warn model

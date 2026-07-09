@@ -18,6 +18,7 @@ type errFiles struct{ err error }
 func (e errFiles) Tree(_ context.Context, _, _ string, _ file.FileStatusProvider) ([]domain.FileNode, error) {
 	return nil, e.err
 }
+
 func (e errFiles) ReadContent(_ context.Context, _, _ string) (domain.FileContent, error) {
 	return domain.FileContent{}, e.err
 }

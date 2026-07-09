@@ -8,9 +8,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/persistence"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/persistence"
 )
 
 func TestWriteReadBuf_RoundTrip(t *testing.T) {

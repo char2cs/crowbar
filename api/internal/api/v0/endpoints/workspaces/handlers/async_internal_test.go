@@ -53,7 +53,7 @@ func TestRunAsync_ErrorBroadcastsOnEntity(t *testing.T) {
 		msg string
 	}
 	got := make(chan call, 1)
-	broadcast := func(_ context.Context, wsID string, message string) {
+	broadcast := func(_ context.Context, wsID, message string) {
 		got <- call{id: wsID, msg: message}
 	}
 
@@ -187,7 +187,7 @@ func TestRunAsync_EndsWorkOnPanic(t *testing.T) {
 	runAsync(
 		context.Background(),
 		work,
-		func(_ context.Context, _ string, msg string) { got <- msg },
+		func(_ context.Context, _, msg string) { got <- msg },
 		"w1",
 		func(context.Context) error { panic("kaboom") },
 	)

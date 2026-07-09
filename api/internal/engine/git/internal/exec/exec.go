@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 const optionalLocksOffEnv = "GIT_OPTIONAL_LOCKS=0"
@@ -84,10 +85,18 @@ func run(
 	hasStdin bool,
 	args ...string,
 ) Result {
+	//nolint:gosec // G204: running git with caller-supplied args is the purpose of this package.
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), optionalLocksOffEnv)
 	cmd.Env = append(cmd.Env, extraEnv...)
+	// After a context-driven kill, Wait normally still blocks until every
+	// process holding the stdout/stderr pipes exits — and git's own children
+	// (ssh, git-remote-https, credential helpers) can outlive the killed git
+	// and hold them open indefinitely. WaitDelay forcibly closes the pipes
+	// shortly after cancellation so a timed-out network command actually
+	// returns instead of trading one unbounded hang for another.
+	cmd.WaitDelay = 3 * time.Second
 	if hasStdin {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
@@ -98,11 +107,19 @@ func run(
 
 	runErr := cmd.Run()
 
-	return Result{
+	r := Result{
 		Stdout:   stdout.String(),
 		Stderr:   stderr.String(),
 		ExitCode: exitCode(cmd, runErr),
 	}
+	// A subprocess killed by a signal (ctx cancel, OOM) or a fork/exec failure
+	// exits with no git-produced stderr, leaving an opaque "exit -1: " error.
+	// Surface the run error so the actual cause (e.g. "signal: killed",
+	// "context canceled") reaches logs and the error envelope.
+	if r.ExitCode != 0 && r.Stderr == "" && runErr != nil {
+		r.Stderr = runErr.Error()
+	}
+	return r
 }
 
 // RequireSuccess returns an error if the result has a non-zero exit code.

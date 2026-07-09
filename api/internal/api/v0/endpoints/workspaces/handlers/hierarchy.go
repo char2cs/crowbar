@@ -65,20 +65,33 @@ func (h *Handlers) MergeIntoParent(
 			// it is a leaf: a conflict keeps it for the user to resolve, and a
 			// non-leaf child is kept because cascade-deleting it would destroy
 			// its descendants' unmerged work (no silent data loss either way).
-			if body.DeleteSource && !result.ConflictsPending {
-				leaf, leafErr := h.workspaceIsLeaf(ctx, id)
-				if leafErr != nil {
-					return fmt.Errorf("merge succeeded but post-merge cleanup failed: %w", leafErr)
-				}
-				if leaf {
-					if delErr := h.hierarchy.DeleteCascade(ctx, id); delErr != nil {
-						return fmt.Errorf("merge succeeded but removing the workspace failed: %w", delErr)
-					}
-				}
+			if !body.DeleteSource || result.ConflictsPending {
+				return nil
 			}
-			return nil
+			return h.foldMergedChildIfLeaf(ctx, id)
 		},
 	)
+}
+
+// foldMergedChildIfLeaf removes the just-merged workspace when it is a leaf,
+// leaving a non-leaf child in place because cascade-deleting it would destroy
+// its descendants' unmerged work. It returns nil (a no-op) when the child still
+// has children.
+func (h *Handlers) foldMergedChildIfLeaf(
+	ctx context.Context,
+	id string,
+) error {
+	leaf, err := h.workspaceIsLeaf(ctx, id)
+	if err != nil {
+		return fmt.Errorf("merge succeeded but post-merge cleanup failed: %w", err)
+	}
+	if !leaf {
+		return nil
+	}
+	if err := h.hierarchy.DeleteCascade(ctx, id); err != nil {
+		return fmt.Errorf("merge succeeded but removing the workspace failed: %w", err)
+	}
+	return nil
 }
 
 // workspaceIsLeaf reports whether the workspace has no child workspaces, so it

@@ -449,6 +449,28 @@ func (h *Handlers) StashPop(
 	ctx.Status(http.StatusOK)
 }
 
+// resolveStashIndex resolves the stash index from the already-bound body,
+// falling back to the ?index= query param when the body omits it. It returns
+// the resolved index, or a non-empty human-readable reason when the index is
+// missing (empty string) or not an integer.
+func resolveStashIndex(
+	ctx *gin.Context,
+	bodyIndex *int,
+) (int, string) {
+	if bodyIndex != nil {
+		return *bodyIndex, ""
+	}
+	raw := ctx.Query("index")
+	if raw == "" {
+		return 0, "index is required"
+	}
+	idx, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, "index must be an integer"
+	}
+	return idx, ""
+}
+
 // StashDrop DELETE /workspaces/:wsId/git/stash
 func (h *Handlers) StashDrop(
 	ctx *gin.Context,
@@ -459,22 +481,14 @@ func (h *Handlers) StashDrop(
 	var body struct {
 		Index *int `json:"index"`
 	}
-	if err := ctx.ShouldBindJSON(&body); err != nil || body.Index == nil {
-		if raw := ctx.Query("index"); raw != "" {
-			idx, err := strconv.Atoi(raw)
-			if err != nil {
-				libs.WriteErr(ctx, http.StatusBadRequest, "index must be an integer")
-				return
-			}
-			body.Index = &idx
-		}
-	}
-	if body.Index == nil {
-		libs.WriteErr(ctx, http.StatusBadRequest, "index is required")
+	_ = ctx.ShouldBindJSON(&body)
+	index, reason := resolveStashIndex(ctx, body.Index)
+	if reason != "" {
+		libs.WriteErr(ctx, http.StatusBadRequest, reason)
 		return
 	}
 
-	stashID := strconv.Itoa(*body.Index)
+	stashID := strconv.Itoa(index)
 	if err := h.git.StashDrop(reqCtx, wsID, stashID, time.Now()); err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)

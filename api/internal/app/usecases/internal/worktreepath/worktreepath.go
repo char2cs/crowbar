@@ -1,29 +1,108 @@
 // Package worktreepath derives deterministic filesystem paths for git
-// worktrees and per-entity directories, all rooted under ~/.crowbar. Paths are
-// keyed by opaque UUIDs (projectID/repoID/workspaceID), never by remote URL.
+// worktrees and per-entity directories, all rooted under ~/.crowbar.
+//
+// It exposes two path families. The per-entity helpers (StorageDir,
+// ThreadsStorageDir, RepoDir, ...) key metadata directories by opaque UUIDs
+// (projectID/repoID/workspaceID). The human-readable family (Derive, HomeLeaf,
+// RemoteSlug) keys the git worktree by its natural identity —
+// <home>/projects/<project>/<host>/<owner>/<repo>/<branch>/ — so navigable
+// paths carry no UUIDs (spec §3.9). DetectClash rejects case-only collisions on
+// case-insensitive filesystems and Move relocates a worktree while keeping the
+// id↔path map consistent.
 package worktreepath
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 )
 
-// For returns the git worktree directory for a workspace.
+// ErrPathClash reports that a candidate worktree path collides
+// case-insensitively with an already-existing sibling worktree, which is
+// unrepresentable on a case-insensitive filesystem (macOS APFS, Windows).
+var ErrPathClash = errors.New("worktreepath: case-insensitive path clash")
+
+// Derive returns the human-readable git worktree directory for a workspace.
 //
-// Path: <crowbarHome>/projects/<projectID>/<repoID>/workspaces/<workspaceID>/worktree
-func For(
-	crowbarHome string,
-	projectID string,
-	repoID string,
-	workspaceID string,
+// Path: <home>/projects/<project>/<slug>/<branch>, where slug is the repo's
+// full remote identity host/owner/repo (or a single leaf name for a repo with
+// no remote). Slug and branch separators map to nested directories; branch
+// names are not sanitized because git check-ref-format already forbids unsafe
+// components (spec §3.9).
+func Derive(
+	home string,
+	project string,
+	slug string,
+	branch string,
+) (string, error) {
+	if home == "" || project == "" || slug == "" || branch == "" {
+		return "", fmt.Errorf(
+			"worktreepath: derive requires non-empty home, project, slug, and branch",
+		)
+	}
+	return filepath.Join(home, "projects", project, slug, branch), nil
+}
+
+// HomeLeaf returns the .home sibling leaf for a net-new Crowbar-managed
+// repo-home worktree.
+//
+// Path: <home>/projects/<project>/<slug>/.home. The leading-dot leaf can never
+// collide with a branch leaf because git check-ref-format rejects refnames with
+// a leading-dot component (spec §3.9).
+func HomeLeaf(
+	home string,
+	project string,
+	slug string,
 ) string {
-	return filepath.Join(
-		workspaceDir(crowbarHome, projectID, repoID, workspaceID),
-		"worktree",
-	)
+	return filepath.Join(home, "projects", project, slug, ".home")
+}
+
+// DetectClash returns ErrPathClash when candidate is case-insensitively equal
+// to any path in existingPaths.
+//
+// On a case-insensitive filesystem two git-distinct case-only identities would
+// resolve to the same directory, so creation is rejected rather than
+// disambiguated (spec §3.9, decision 13).
+func DetectClash(
+	existingPaths []string,
+	candidate string,
+) error {
+	for _, existing := range existingPaths {
+		if strings.EqualFold(existing, candidate) {
+			return fmt.Errorf(
+				"%w: %q collides with existing %q",
+				ErrPathClash,
+				candidate,
+				existing,
+			)
+		}
+	}
+	return nil
+}
+
+// Move relocates a worktree from oldPath to newPath via the injected gitMove
+// (a git worktree move) and then commits the id↔path map update via updateMap.
+//
+// If gitMove fails the map is left untouched, so the old map entry still
+// resolves the worktree (spec §3.9). IO is injected so this helper stays pure
+// and testable.
+func Move(
+	oldPath string,
+	newPath string,
+	gitMove func(from, to string) error,
+	updateMap func() error,
+) error {
+	if err := gitMove(oldPath, newPath); err != nil {
+		return fmt.Errorf("worktreepath: git worktree move: %w", err)
+	}
+	if err := updateMap(); err != nil {
+		return fmt.Errorf("worktreepath: update path map: %w", err)
+	}
+	return nil
 }
 
 // StorageDir returns the per-workspace storage directory.

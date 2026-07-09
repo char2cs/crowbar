@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { useSettingsStore, getDefaultSetting } from '@/features/settings/store'
 import { downloadSettingsFile } from '@/features/settings/lib/settings-download'
+import { exportDiagnostics } from '@/features/settings/lib/diagnostics-export'
+import { isTauri } from '@/lib/crowbar-bridge'
 import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 import { toast } from '@/features/window/stores/toast-store'
 import { Slider } from '@/components/ui/slider'
@@ -66,6 +68,20 @@ export function DeveloperSettings() {
     toast.success('Settings exported', 'Saved crowbar-settings.json to your downloads.')
   }
 
+  const [exportingDiagnostics, setExportingDiagnostics] = useState(false)
+
+  async function handleExportDiagnostics() {
+    setExportingDiagnostics(true)
+    try {
+      const path = await exportDiagnostics()
+      toast.success('Diagnostics exported', path)
+    } catch (e) {
+      toast.error('Diagnostics export failed', e instanceof Error ? e.message : String(e))
+    } finally {
+      setExportingDiagnostics(false)
+    }
+  }
+
   async function handleImportFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     // Allow re-selecting the same file later.
@@ -119,6 +135,28 @@ export function DeveloperSettings() {
           />
         </SettingRow>
       </Section>
+
+      {isTauri() && (
+        <Section
+          title="Diagnostics"
+          description="For bug reports: collect the backend and app logs plus a live backend snapshot into a single zip."
+        >
+          <SettingRow
+            label="Export diagnostics"
+            description="Bundles the daemon log (crashes, watchdog dumps), the app log, fresh goroutine/heap dumps, and version info into your Downloads folder."
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={exportingDiagnostics}
+              onClick={handleExportDiagnostics}
+            >
+              {exportingDiagnostics ? 'Exporting…' : 'Export diagnostics'}
+            </Button>
+          </SettingRow>
+        </Section>
+      )}
 
       <Section
         title="Backup & Restore"

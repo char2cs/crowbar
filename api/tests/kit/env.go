@@ -8,22 +8,26 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 	wsrepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/core/gateway"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -36,12 +40,16 @@ type LSPDiagnostic struct {
 	Message string
 }
 
-// Env is the full integration test environment: a real HTTP+WS server backed by
-// real SQLite stores, plus the app and engine containers for direct usecase calls.
+// Env is the full integration test environment: the real adapter+app+api stack
+// served over a Unix domain socket (faithful to the production daemon transport,
+// spec §5), backed by real SQLite stores under a WithHomeDir-isolated home, plus
+// the app and engine containers for direct usecase calls.
 //
-// All WS helpers use deadline-based reads (no time.Sleep).
+// All WS helpers use deadline-based reads (no fixed-delay waits).
 type Env struct {
-	// URL is the HTTP base URL of the test server (e.g. "http://127.0.0.1:PORT").
+	// URL is the fixed pseudo base URL of the test server ("http://crowbar"). The
+	// host is a placeholder: every request is routed to the Unix socket by the
+	// env's client/dialer, never by DNS/TCP.
 	URL string
 	// app exposes the application layer for direct usecase and repository calls.
 	app *app.Container
@@ -51,11 +59,23 @@ type Env struct {
 	v0c      *v0.Container
 	homeDir  string
 	adapters *adapter.Container
+
+	// server + listener serve the real router over socketPath; client + dialer
+	// reach it (host-agnostic, unix-socket dial). closeOnce guards the three
+	// teardown variants (Close / CloseCrashing / CloseWithoutKilling) so exactly
+	// one teardown body ever runs, whichever variant (or the BuildEnvAt cleanup)
+	// fires first.
+	server     *http.Server
+	listener   net.Listener
+	socketPath string
+	client     *http.Client
+	dialer     *websocket.Dialer
+	closeOnce  sync.Once
 }
 
 // BuildEnv spins up the full server stack (engine → adapter → app → api),
-// wires an httptest.Server on an ephemeral port, and registers cleanup.
-// Each call returns a fully isolated environment backed by its own temp dir.
+// serves it over a Unix domain socket, and registers graceful cleanup.
+// Each call returns a fully isolated environment backed by its own temp home.
 func BuildEnv(
 	t *testing.T,
 ) *Env {
@@ -104,87 +124,193 @@ func tempHome(
 // using a caller-supplied homeDir instead of a fresh temp directory. This
 // allows two successive calls to share the same SQLite database, which is
 // required for crash-recovery tests where a second "server" must read rows
-// written by the first.
+// written by the first. It registers a graceful-Close cleanup; the teardown is
+// idempotent, so calling a Close variant explicitly and letting cleanup run
+// again is safe.
 func BuildEnvAt(
 	t *testing.T,
 	homeDir string,
 ) *Env {
 	t.Helper()
-	ctx := context.Background()
-
-	eng, err := engine.New(
-		ctx,
-		engine.WithHomeDir(homeDir),
-	)
-	require.NoError(
-		t,
-		err,
-	)
-
-	adapters, err := adapter.New(adapter.WithHomeDir(homeDir))
-	require.NoError(
-		t,
-		err,
-	)
-	t.Cleanup(func() { _ = adapters.Close() })
-
-	appContainer, err := app.New(
-		ctx,
-		eng,
-		adapters,
-	)
-	require.NoError(
-		t,
-		err,
-	)
-
-	router := gin.New()
-	apiContainer := v0.New(
-		appContainer,
-		eng,
-	)
-	apiContainer.Register(router.Group("/v0"))
-
-	srv := httptest.NewServer(router)
-
-	// Registered LAST so it runs FIRST in teardown (cleanups are LIFO). Teardown
-	// order matters: close the HTTP server (stops every WS handler goroutine and
-	// its onUnsubscribe DB reads) and the realtime service (file watchers, LSP
-	// hosts, per-connection provider polls) BEFORE the adapter's per-entity SQLite
-	// handles (registered earlier, so it runs after) and t.TempDir's RemoveAll.
-	// Leaving a live WS handler or realtime goroutine running while RemoveAll
-	// walks the per-workspace storages dir lets a late DB reopen re-create files
-	// mid-walk, flaking the cleanup with "directory not empty".
-	t.Cleanup(func() {
-		srv.Close()
-		appContainer.Close()
-	})
-
-	return &Env{
-		URL:      srv.URL,
-		app:      appContainer,
-		engine:   eng,
-		v0c:      apiContainer,
-		homeDir:  homeDir,
-		adapters: adapters,
-	}
+	env, err := NewEnvWithHome(homeDir)
+	require.NoError(t, err, "kit: build env")
+	// A single graceful teardown, registered so it runs BEFORE tempHome's
+	// RemoveAll (cleanups are LIFO; tempHome registered its RemoveAll earlier and
+	// therefore runs after). Guarded by closeOnce, so an explicit Close variant
+	// wins and this cleanup is a no-op.
+	t.Cleanup(func() { env.Close(t) })
+	return env
 }
 
-// Close eagerly flushes and releases the adapter's SQLite connections.
-// This is required when two Envs share the same homeDir (crash-recovery tests):
-// env1 must release its file handles before env2 opens the same database files,
-// even though WAL mode permits concurrent readers.
-// The deferred t.Cleanup registered by BuildEnvAt will call Close a second time,
-// which is safe — subsequent calls are no-ops because the underlying sql.DB is
-// already closed.
+// sockCounter uniquifies per-Env socket paths within a process so a restart
+// (a second Env over the same home) binds its OWN short socket rather than
+// contending on the first env's path.
+var sockCounter atomic.Uint64
+
+// kitSocketPath returns a short, unique Unix socket path in the OS temp dir.
+// macOS caps sun_path at 104 bytes, so it MUST NOT live under the (long) temp
+// home; a pid+counter name in $TMPDIR stays well under the limit and is unique
+// across restarts and parallel test binaries.
+func kitSocketPath() string {
+	return filepath.Join(
+		os.TempDir(),
+		fmt.Sprintf("cbk-%d-%d.sock", os.Getpid(), sockCounter.Add(1)),
+	)
+}
+
+// NewEnvWithHome is the restart primitive: it wires and serves the real
+// adapter+app+api stack over a fresh Unix socket, rooting all on-disk state at
+// homeDir (WithHomeDir isolation), and returns the Env. It takes no *testing.T
+// and registers no cleanup — the caller owns teardown via a Close variant. A
+// second call with the same homeDir is a "restart": it reopens the same durable
+// SQLite read models the first env left behind.
+func NewEnvWithHome(
+	homeDir string,
+) (*Env, error) {
+	ctx := context.Background()
+
+	eng, err := engine.New(ctx, engine.WithHomeDir(homeDir))
+	if err != nil {
+		return nil, fmt.Errorf("kit: engine: %w", err)
+	}
+
+	adapters, err := adapter.New(adapter.WithHomeDir(homeDir))
+	if err != nil {
+		eng.Close()
+		return nil, fmt.Errorf("kit: adapter: %w", err)
+	}
+
+	appContainer, err := app.New(ctx, eng, adapters)
+	if err != nil {
+		eng.Close()
+		_ = adapters.Close()
+		return nil, fmt.Errorf("kit: app: %w", err)
+	}
+
+	router := gin.New()
+	apiContainer := v0.New(appContainer, eng)
+	apiContainer.Register(router.Group("/v0"))
+
+	socketPath := kitSocketPath()
+	listener, err := gateway.New("unix://" + socketPath)
+	if err != nil {
+		appContainer.Close()
+		eng.Close()
+		_ = adapters.Close()
+		return nil, fmt.Errorf("kit: gateway: %w", err)
+	}
+
+	server := &http.Server{Handler: router, ReadHeaderTimeout: 30 * time.Second}
+	go func() { _ = server.Serve(listener) }()
+
+	// Both the HTTP client and the WS dialer are host-agnostic: NetDial/DialContext
+	// send every connection to the Unix socket regardless of the URL host, so the
+	// existing GET/POST/DialX helpers work unchanged over the socket transport.
+	dialUnix := func(_ context.Context, _, _ string) (net.Conn, error) {
+		return net.Dial("unix", socketPath)
+	}
+	client := &http.Client{Transport: &http.Transport{DialContext: dialUnix}}
+	dialer := &websocket.Dialer{
+		NetDial:          func(_, _ string) (net.Conn, error) { return net.Dial("unix", socketPath) },
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	return &Env{
+		URL:        "http://crowbar",
+		app:        appContainer,
+		engine:     eng,
+		v0c:        apiContainer,
+		homeDir:    homeDir,
+		adapters:   adapters,
+		server:     server,
+		listener:   listener,
+		socketPath: socketPath,
+		client:     client,
+		dialer:     dialer,
+	}, nil
+}
+
+// Close performs a GRACEFUL shutdown, faithful to the production daemon's
+// ordered drain (spec §3.8): stop accepting + drain in-flight HTTP, drain every
+// post-commit reactor and each asynx singleton (app.Shutdown), release realtime
+// resources (file watchers / LSP hosts) and engine OS children, then
+// WAL-checkpoint + close the SQLite DBs and remove the socket. Releasing the DB
+// handles is what lets a second Env reopen the same home (restart tests). The
+// teardown body runs at most once (closeOnce), so an explicit Close plus the
+// BuildEnvAt cleanup is safe.
 func (e *Env) Close(
 	t *testing.T,
 ) {
 	t.Helper()
-	if err := e.adapters.Close(); err != nil {
-		t.Logf("kit.Env.Close: %v", err)
-	}
+	e.closeOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := e.server.Shutdown(ctx); err != nil {
+			t.Logf("kit.Env.Close: server shutdown: %v", err)
+		}
+		if err := e.app.Shutdown(ctx); err != nil {
+			t.Logf("kit.Env.Close: app drain: %v", err)
+		}
+		e.app.Close()
+		e.engine.Close()
+		if err := e.adapters.Close(); err != nil {
+			t.Logf("kit.Env.Close: adapter: %v", err)
+		}
+		_ = e.listener.Close()
+	})
 }
+
+// CloseCrashing simulates a CRASH (SIGKILL): it releases resources WITHOUT the
+// graceful drain — no server.Shutdown, no app.Shutdown — so post-commit reactors
+// and in-flight asynx work are abandoned mid-flight (e.g. a delete cascade killed
+// before it purges, a half-provisioned worktree). It still closes the SQLite DBs
+// and OS handles so a second Env can reopen the same home and drive recovery.
+// Shares closeOnce with the other variants (call exactly one).
+func (e *Env) CloseCrashing(
+	t *testing.T,
+) {
+	t.Helper()
+	e.closeOnce.Do(func() {
+		_ = e.server.Close() // abrupt: drop the listener + active conns, no drain.
+		e.app.Close()        // release realtime FDs (watchers/LSP) — not a data drain.
+		e.engine.Close()
+		if err := e.adapters.Close(); err != nil {
+			t.Logf("kit.Env.CloseCrashing: adapter: %v", err)
+		}
+		_ = e.listener.Close()
+	})
+}
+
+// CloseWithoutKilling tears the env down gracefully (drain + close server, app,
+// and DBs) but LEAVES the engine's OS child processes running — the PTY shells
+// and LSP servers are not killed (no engine.Close). Use it for tests that assert
+// on processes surviving a daemon teardown. Shares closeOnce with the other
+// variants (call exactly one). The OS reaps the leaked children when the test
+// binary exits.
+func (e *Env) CloseWithoutKilling(
+	t *testing.T,
+) {
+	t.Helper()
+	e.closeOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := e.server.Shutdown(ctx); err != nil {
+			t.Logf("kit.Env.CloseWithoutKilling: server shutdown: %v", err)
+		}
+		if err := e.app.Shutdown(ctx); err != nil {
+			t.Logf("kit.Env.CloseWithoutKilling: app drain: %v", err)
+		}
+		e.app.Close()
+		// Deliberately NOT e.engine.Close(): leave PTY/LSP children running.
+		if err := e.adapters.Close(); err != nil {
+			t.Logf("kit.Env.CloseWithoutKilling: adapter: %v", err)
+		}
+		_ = e.listener.Close()
+	})
+}
+
+// SocketPath returns the Unix domain socket path this Env serves on.
+func (e *Env) SocketPath() string { return e.socketPath }
 
 // HomeDir returns the home directory path used by this Env.
 func (e *Env) HomeDir() string { return e.homeDir }
@@ -200,25 +326,29 @@ func (e *Env) ShutdownTerminal() {
 	}
 }
 
-// WorktreePath mirrors worktreepath.For (the usecase-internal path builder,
-// which the kit cannot import): the on-disk worktree for a workspace at
-// <home>/projects/<P>/<R>/workspaces/<W>/worktree. Use it in tests that must
-// operate on a child workspace's worktree, since worktreePath is server-side
-// only and never surfaced in the WorkspaceDTO (spec §8/§5).
+// WorktreePath returns the on-disk git worktree directory for a workspace by
+// reading the server's own persisted path from the durable read model
+// (domain.Workspace.WorktreePath). Task 3b retired the UUID worktree layout in
+// favour of the human-readable <home>/projects/<project>/<slug>/<branch> (spec
+// §3.9); rather than re-derive the slug — which the kit cannot reach, since
+// worktreepath is doubly-internal — it returns the ground-truth path the
+// provisioner used for `git worktree add`, so a managed child, an adopted main
+// (repo.Path), or a .home leaf all resolve correctly. worktreePath is
+// server-side only and never surfaced in the WorkspaceDTO (spec §8/§5). The
+// projectID/repoID params are retained for call-site stability; the path is
+// keyed solely by wsID.
 func (e *Env) WorktreePath(
 	projectID string,
 	repoID string,
 	wsID string,
 ) string {
-	return filepath.Join(
-		e.homeDir,
-		"projects",
-		projectID,
-		repoID,
-		"workspaces",
-		wsID,
-		"worktree",
-	)
+	_ = projectID
+	_ = repoID
+	ws, err := e.app.Repositories.Workspace.Get(context.Background(), wsID)
+	if err != nil {
+		panic(fmt.Sprintf("kit: WorktreePath: get workspace %q: %v", wsID, err))
+	}
+	return ws.WorktreePath
 }
 
 // WorkspaceStorageDir mirrors worktreepath.StorageDir:
@@ -336,7 +466,7 @@ func (e *Env) DialProjects(
 	t *testing.T,
 ) *WSWatcher {
 	t.Helper()
-	w := Dial(t, wsURL(e.URL, "/v0/projects"))
+	w := Dial(t, e.dialer, wsURL(e.URL, "/v0/projects"))
 	e.v0c.WaitNProjectsRegistered(1)
 	return w
 }
@@ -349,7 +479,7 @@ func (e *Env) DialRepos(
 	projectID string,
 ) *WSWatcher {
 	t.Helper()
-	w := Dial(t, wsURL(e.URL, "/v0/projects/"+projectID+"/repos"))
+	w := Dial(t, e.dialer, wsURL(e.URL, "/v0/projects/"+projectID+"/repos"))
 	e.v0c.WaitNReposRegistered(1)
 	return w
 }
@@ -364,7 +494,7 @@ func (e *Env) DialWorkspaces(
 	repoID string,
 ) *WSWatcher {
 	t.Helper()
-	w := Dial(t, wsURL(e.URL, "/v0/projects/"+projectID+"/repos/"+repoID+"/workspaces"))
+	w := Dial(t, e.dialer, wsURL(e.URL, "/v0/projects/"+projectID+"/repos/"+repoID+"/workspaces"))
 	e.v0c.WaitNWorkspacesRegistered(1)
 	return w
 }
@@ -379,7 +509,7 @@ func (e *Env) DialWorkspace(
 	wsID string,
 ) *WSWatcher {
 	t.Helper()
-	w := Dial(t, wsURL(e.URL, "/v0/projects/"+projectID+"/repos/"+repoID+"/workspaces/"+wsID))
+	w := Dial(t, e.dialer, wsURL(e.URL, "/v0/projects/"+projectID+"/repos/"+repoID+"/workspaces/"+wsID))
 	e.v0c.WaitNWorkspacesRegistered(1)
 	return w
 }
@@ -394,7 +524,7 @@ func (e *Env) DialThreads(
 	wsID string,
 ) *WSWatcher {
 	t.Helper()
-	w := Dial(t, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/threads"))
+	w := Dial(t, e.dialer, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/threads"))
 	e.v0c.WaitNThreadsRegistered(1)
 	return w
 }
@@ -410,7 +540,7 @@ func (e *Env) DialTerminals(
 	wsID string,
 ) *WSWatcher {
 	t.Helper()
-	w := Dial(t, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/terminals"))
+	w := Dial(t, e.dialer, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/terminals"))
 	e.v0c.WaitNTerminalsRegistered(1)
 	return w
 }
@@ -427,7 +557,7 @@ func (e *Env) DialTerminalPTY(
 	sessionID string,
 ) *WSWatcher {
 	t.Helper()
-	return Dial(t, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/terminals/"+sessionID+"/ws"))
+	return Dial(t, e.dialer, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/terminals/"+sessionID+"/ws"))
 }
 
 // DialGit opens a WS watcher on the workspace-scoped, co-located Git status
@@ -441,7 +571,7 @@ func (e *Env) DialGit(
 	wsID string,
 ) *WSWatcher {
 	t.Helper()
-	w := Dial(t, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/git/status"))
+	w := Dial(t, e.dialer, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/git/status"))
 	e.v0c.WaitNGitRegistered(1)
 	return w
 }
@@ -456,7 +586,7 @@ func (e *Env) DialFiles(
 	wsID string,
 ) *WSWatcher {
 	t.Helper()
-	w := Dial(t, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/files/ws"))
+	w := Dial(t, e.dialer, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/files/ws"))
 	e.v0c.WaitNFilesRegistered(1)
 	return w
 }
@@ -470,7 +600,7 @@ func (e *Env) DialLSP(
 	wsID string,
 ) *WSWatcher {
 	t.Helper()
-	w := Dial(t, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/lsp/ws"))
+	w := Dial(t, e.dialer, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/lsp/ws"))
 	e.v0c.WaitNLSPRegistered(1)
 	return w
 }
@@ -507,13 +637,15 @@ func WaitForWorkspace(
 	)
 }
 
-// WaitForWorkspaceState reads WS events from w until a WorkspaceDTO with the
-// given id reaches the given status. Returns the decoded DTO map. A blank status
-// matches the omitempty "" state (commits, no PR).
-func WaitForWorkspaceState(
+// WaitForState reads WS DTOs from w until one with the given id reaches the
+// given status, returning the decoded DTO. It is the aggregate-agnostic state
+// watcher (spec §5): the same shape works for Workspace and ReviewThread DTOs,
+// which both carry "id" and "status". A blank status matches the omitempty ""
+// state.
+func WaitForState(
 	t *testing.T,
 	w *WSWatcher,
-	wsID string,
+	id string,
 	status string,
 	timeout time.Duration,
 ) map[string]any {
@@ -522,13 +654,66 @@ func WaitForWorkspaceState(
 		t,
 		timeout,
 		func(msg map[string]any) bool {
-			if msg["id"] != wsID {
+			if msg["id"] != id {
 				return false
 			}
 			got, _ := msg["status"].(string)
 			return got == status
 		},
 	)
+}
+
+// WaitForListLen reads DTOs from a list-scoped stream w until it has observed n
+// DISTINCT entity ids (snapshot + live merged), returning the latest DTO seen
+// for each id in first-arrival order. Use it to await "the list now has n items"
+// without polling; a repeated/updated DTO for an already-seen id does not
+// advance the count.
+func WaitForListLen(
+	t *testing.T,
+	w *WSWatcher,
+	n int,
+	timeout time.Duration,
+) []map[string]any {
+	t.Helper()
+	if n <= 0 {
+		return nil
+	}
+	seen := make(map[string]map[string]any, n)
+	order := make([]string, 0, n)
+	w.ReadUntil(
+		t,
+		timeout,
+		func(msg map[string]any) bool {
+			id, _ := msg["id"].(string)
+			if id == "" {
+				return false
+			}
+			if _, ok := seen[id]; !ok {
+				order = append(order, id)
+			}
+			seen[id] = msg
+			return len(seen) >= n
+		},
+	)
+	out := make([]map[string]any, 0, len(order))
+	for _, id := range order {
+		out = append(out, seen[id])
+	}
+	return out
+}
+
+// WaitForWorkspaceState reads WS events from w until a WorkspaceDTO with the
+// given id reaches the given status. Returns the decoded DTO map. A blank status
+// matches the omitempty "" state (commits, no PR). It delegates to WaitForState.
+func WaitForWorkspaceState(
+	t *testing.T,
+	w *WSWatcher,
+	wsID string,
+	status string,
+	timeout time.Duration,
+) map[string]any {
+	t.Helper()
+	return WaitForState(t, w, wsID, status, timeout)
 }
 
 // WaitForWorkspaceLastError reads WS events from w until a WorkspaceDTO with the
@@ -561,7 +746,7 @@ func (e *Env) GET(
 	path string,
 ) *http.Response {
 	t.Helper()
-	resp, err := http.Get(e.URL + path)
+	resp, err := e.client.Get(e.URL + path)
 	require.NoError(
 		t,
 		err,
@@ -581,7 +766,7 @@ func (e *Env) POST(
 		t,
 		err,
 	)
-	resp, err := http.Post(
+	resp, err := e.client.Post(
 		e.URL+path,
 		"application/json",
 		bytes.NewReader(raw),
@@ -615,7 +800,7 @@ func (e *Env) PUT(
 		err,
 	)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := e.client.Do(req)
 	require.NoError(
 		t,
 		err,
@@ -645,7 +830,7 @@ func (e *Env) PATCH(
 		err,
 	)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := e.client.Do(req)
 	require.NoError(
 		t,
 		err,
@@ -668,7 +853,7 @@ func (e *Env) DELETE(
 		t,
 		err,
 	)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := e.client.Do(req)
 	require.NoError(
 		t,
 		err,
@@ -698,7 +883,7 @@ func (e *Env) DELETEJ(
 		err,
 	)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := e.client.Do(req)
 	require.NoError(
 		t,
 		err,
@@ -859,6 +1044,16 @@ type ImportedRepo struct {
 	RepoID      string
 	WorkspaceID string
 	RepoPath    string
+}
+
+// Quiesce blocks until every per-type asynx projection has drained (dispatch
+// queue idle + all projection handlers run) — the deterministic read-your-writes
+// barrier. The create/mutation helpers observe completion on the hub broadcast
+// (WS), but the store/list read model is an INDEPENDENT async projection that can
+// trail the WS frame; call Quiesce after a mutation so a subsequent read of the
+// list/store is guaranteed consistent, with no polling and no timeouts.
+func (e *Env) Quiesce() {
+	e.app.Repositories.WaitQuiescent()
 }
 
 // ImportRepo creates a real git repo at the supplied path (or inits a fresh one

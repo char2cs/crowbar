@@ -29,7 +29,7 @@ func TestBranchReview_Get_MissingWorkspace_IsNotFound(t *testing.T) {
 			return domain.Workspace{}, asynxModels.ErrNotFound
 		},
 	}
-	uc := newTestUsecase(wsMock, &mockReviewThread{}, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
+	uc := newTestUsecase(wsMock, &mockReviewThread{}, mocks.NewRepositoryStore(), &mockGitEngine{})
 
 	_, err := uc.Get(ctx, "nope")
 	require.ErrorIs(t, err, apperr.ErrNotFound)
@@ -49,7 +49,7 @@ func TestBranchReview_Get_InternalGitError_IsNotNotFound(t *testing.T) {
 			return gitdomain.MultiFileDiff{}, errors.New("git: not a repository")
 		},
 	}
-	uc := newTestUsecase(wsMock, &mockReviewThread{}, &mockChat{}, repoStore, gitEng)
+	uc := newTestUsecase(wsMock, &mockReviewThread{}, repoStore, gitEng)
 
 	_, err := uc.Get(ctx, "ws1")
 	require.Error(t, err)
@@ -124,11 +124,11 @@ func (m *mockWorkspace) List(ctx context.Context) ([]domain.Workspace, error) {
 	return nil, nil
 }
 
-func (m *mockWorkspace) SetParentFromPR(ctx context.Context, id string, parentID string) (domain.Workspace, error) {
+func (m *mockWorkspace) SetParentFromPR(ctx context.Context, id, parentID string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
 
-func (m *mockWorkspace) SetLastError(ctx context.Context, id string, message string) (domain.Workspace, error) {
+func (m *mockWorkspace) SetLastError(ctx context.Context, id, message string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
 
@@ -138,6 +138,10 @@ func (m *mockWorkspace) GetHomeForProject(_ context.Context, _ string) (domain.W
 
 func (m *mockWorkspace) CreateHome(_ context.Context, _, _ string, _ time.Time) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
+}
+
+func (m *mockWorkspace) ListInRepo(_ context.Context, _, _ string) ([]domain.Workspace, error) {
+	return nil, nil
 }
 
 var _ workspace.Workspace = (*mockWorkspace)(nil)
@@ -193,36 +197,6 @@ func (m *mockReviewThread) ListByWorkspace(ctx context.Context, wsID string) ([]
 }
 
 var _ reviewthread.ReviewThread = (*mockReviewThread)(nil)
-
-// --- local chat mock ---
-
-type mockChat struct {
-	ListByWorkspaceFn func(ctx context.Context, wsID string) ([]domain.Chat, error)
-}
-
-func (m *mockChat) Create(ctx context.Context, id, wsID, title string, now time.Time) (domain.Chat, error) {
-	return domain.Chat{}, nil
-}
-
-func (m *mockChat) Fork(ctx context.Context, id, wsID, parentID, title string, now time.Time) (domain.Chat, error) {
-	return domain.Chat{}, nil
-}
-
-func (m *mockChat) Rename(ctx context.Context, id, title string) (domain.Chat, error) {
-	return domain.Chat{}, nil
-}
-
-func (m *mockChat) Delete(ctx context.Context, id string, now time.Time) (domain.Chat, error) {
-	return domain.Chat{}, nil
-}
-
-func (m *mockChat) Get(ctx context.Context, id string) (domain.Chat, error) {
-	return domain.Chat{}, nil
-}
-func (m *mockChat) List(ctx context.Context) ([]domain.Chat, error) { return nil, nil }
-func (m *mockChat) ListByWorkspace(ctx context.Context, wsID string) ([]domain.Chat, error) {
-	return m.ListByWorkspaceFn(ctx, wsID)
-}
 
 // --- local git engine mock ---
 
@@ -354,6 +328,7 @@ func (g *mockGitEngine) OperationAbort(ctx context.Context, repoPath string) err
 func (g *mockGitEngine) OperationInProgress(ctx context.Context, repoPath string) (string, error) {
 	return "", nil
 }
+
 func (g *mockGitEngine) WorktreeAdd(ctx context.Context, repoPath, worktreePath, branch string) error {
 	return nil
 }
@@ -431,14 +406,12 @@ func fixedNow() time.Time {
 func newTestUsecase(
 	ws *mockWorkspace,
 	threads *mockReviewThread,
-	chats *mockChat,
 	repoStore store.Store[domain.Repository, string],
 	gitEng *mockGitEngine,
 ) branchreview.Usecase {
 	return branchreview.New(
 		ws,
 		threads,
-		chats,
 		repoStore,
 		gitEng,
 		fixedNow,
@@ -448,14 +421,6 @@ func newTestUsecase(
 func noopThreads() *mockReviewThread {
 	return &mockReviewThread{
 		ListByWorkspaceFn: func(_ context.Context, _ string) ([]domain.ReviewThread, error) {
-			return nil, nil
-		},
-	}
-}
-
-func noopChats() *mockChat {
-	return &mockChat{
-		ListByWorkspaceFn: func(_ context.Context, _ string) ([]domain.Chat, error) {
 			return nil, nil
 		},
 	}
@@ -493,11 +458,6 @@ func TestBranchReview_Get_RootUsesDefaultBranch(t *testing.T) {
 			return expectedThreads, nil
 		},
 	}
-	chats := &mockChat{
-		ListByWorkspaceFn: func(_ context.Context, _ string) ([]domain.Chat, error) {
-			return nil, nil
-		},
-	}
 	var gotMergeBase string
 	var gotDiffRef string
 	gitEng := &mockGitEngine{
@@ -511,7 +471,7 @@ func TestBranchReview_Get_RootUsesDefaultBranch(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(wsMock, threads, chats, repoStore, gitEng)
+	uc := newTestUsecase(wsMock, threads, repoStore, gitEng)
 
 	review, err := uc.Get(ctx, "ws1")
 
@@ -564,7 +524,7 @@ func TestBranchReview_Get_ChildUsesParentBranch(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(wsMock, noopThreads(), noopChats(), repoStore, gitEng)
+	uc := newTestUsecase(wsMock, noopThreads(), repoStore, gitEng)
 
 	_, err := uc.Get(ctx, "child")
 
@@ -582,7 +542,7 @@ func TestBranchReview_Get_WorkspaceNotFound(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(wsMock, &mockReviewThread{}, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
+	uc := newTestUsecase(wsMock, &mockReviewThread{}, mocks.NewRepositoryStore(), &mockGitEngine{})
 
 	_, err := uc.Get(ctx, "missing")
 
@@ -599,7 +559,7 @@ func TestBranchReview_Get_RepoNil(t *testing.T) {
 	}
 	repoStore := mocks.NewRepositoryStore() // empty — FindByKey returns nil, nil
 
-	uc := newTestUsecase(wsMock, &mockReviewThread{}, &mockChat{}, repoStore, &mockGitEngine{})
+	uc := newTestUsecase(wsMock, &mockReviewThread{}, repoStore, &mockGitEngine{})
 
 	_, err := uc.Get(ctx, "ws1")
 
@@ -617,7 +577,7 @@ func TestBranchReview_Get_RepoStoreError(t *testing.T) {
 	// Use a store that errors on FindByKey
 	repoStore := &errRepoStore{err: errors.New("db: connection lost")}
 
-	uc := newTestUsecase(wsMock, &mockReviewThread{}, &mockChat{}, repoStore, &mockGitEngine{})
+	uc := newTestUsecase(wsMock, &mockReviewThread{}, repoStore, &mockGitEngine{})
 
 	_, err := uc.Get(ctx, "ws1")
 
@@ -643,7 +603,7 @@ func TestBranchReview_Get_DiffError(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(wsMock, &mockReviewThread{}, &mockChat{}, repoStore, gitEng)
+	uc := newTestUsecase(wsMock, &mockReviewThread{}, repoStore, gitEng)
 
 	_, err := uc.Get(ctx, "ws1")
 
@@ -674,48 +634,12 @@ func TestBranchReview_Get_ThreadsError(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(wsMock, threads, &mockChat{}, repoStore, gitEng)
+	uc := newTestUsecase(wsMock, threads, repoStore, gitEng)
 
 	_, err := uc.Get(ctx, "ws1")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "branch review: threads")
-}
-
-func TestBranchReview_Get_ChatsError(t *testing.T) {
-	ctx := context.Background()
-
-	ws := domain.Workspace{ID: "ws1", RepoID: "r1", Branch: "feat", WorktreePath: "/wt"}
-	repo := domain.Repository{ID: "r1", DefaultBranch: "main"}
-
-	wsMock := &mockWorkspace{
-		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
-	}
-	repoStore := mocks.NewRepositoryStore()
-	_ = repoStore.Save(ctx, repo)
-
-	threads := &mockReviewThread{
-		ListByWorkspaceFn: func(_ context.Context, _ string) ([]domain.ReviewThread, error) {
-			return nil, nil
-		},
-	}
-	chats := &mockChat{
-		ListByWorkspaceFn: func(_ context.Context, _ string) ([]domain.Chat, error) {
-			return nil, errors.New("chats: db error")
-		},
-	}
-	gitEng := &mockGitEngine{
-		RangeDiffFn: func(_ context.Context, _, _, _ string) (gitdomain.MultiFileDiff, error) {
-			return gitdomain.MultiFileDiff{}, nil
-		},
-	}
-
-	uc := newTestUsecase(wsMock, threads, chats, repoStore, gitEng)
-
-	_, err := uc.Get(ctx, "ws1")
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "branch review: chats")
 }
 
 // --- Task 5: mutation tests ---
@@ -733,7 +657,7 @@ func TestBranchReview_SetMergeStrategy_Delegates(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(wsMock, &mockReviewThread{}, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
+	uc := newTestUsecase(wsMock, &mockReviewThread{}, mocks.NewRepositoryStore(), &mockGitEngine{})
 
 	err := uc.SetMergeStrategy(ctx, "ws1", gitdomain.MergeStrategySquash)
 
@@ -751,7 +675,7 @@ func TestBranchReview_SetMergeStrategy_Error(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(wsMock, &mockReviewThread{}, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
+	uc := newTestUsecase(wsMock, &mockReviewThread{}, mocks.NewRepositoryStore(), &mockGitEngine{})
 
 	err := uc.SetMergeStrategy(ctx, "ws1", gitdomain.MergeStrategyMerge)
 
@@ -770,7 +694,7 @@ func TestBranchReview_OpenThread_MintsIDsAndOpens(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(&mockWorkspace{}, threads, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
+	uc := newTestUsecase(&mockWorkspace{}, threads, mocks.NewRepositoryStore(), &mockGitEngine{})
 
 	in := branchreview.OpenThreadInput{
 		WsID:       "ws1",
@@ -801,7 +725,7 @@ func TestBranchReview_OpenThread_Error(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(&mockWorkspace{}, threads, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
+	uc := newTestUsecase(&mockWorkspace{}, threads, mocks.NewRepositoryStore(), &mockGitEngine{})
 
 	_, err := uc.OpenThread(ctx, branchreview.OpenThreadInput{WsID: "ws1", Body: "x"})
 
@@ -820,7 +744,7 @@ func TestBranchReview_Reply_MintsMessageID(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(&mockWorkspace{}, threads, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
+	uc := newTestUsecase(&mockWorkspace{}, threads, mocks.NewRepositoryStore(), &mockGitEngine{})
 
 	_, err := uc.Reply(ctx, "t1", "looks good")
 
@@ -837,7 +761,7 @@ func TestBranchReview_Reply_Error(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(&mockWorkspace{}, threads, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
+	uc := newTestUsecase(&mockWorkspace{}, threads, mocks.NewRepositoryStore(), &mockGitEngine{})
 
 	_, err := uc.Reply(ctx, "t1", "body")
 
@@ -856,7 +780,7 @@ func TestBranchReview_SetThreadResolved_TrueResolves(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(&mockWorkspace{}, threads, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
+	uc := newTestUsecase(&mockWorkspace{}, threads, mocks.NewRepositoryStore(), &mockGitEngine{})
 
 	got, err := uc.SetThreadResolved(ctx, "t1", true)
 
@@ -876,7 +800,7 @@ func TestBranchReview_SetThreadResolved_FalseReopens(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(&mockWorkspace{}, threads, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
+	uc := newTestUsecase(&mockWorkspace{}, threads, mocks.NewRepositoryStore(), &mockGitEngine{})
 
 	got, err := uc.SetThreadResolved(ctx, "t2", false)
 
@@ -894,7 +818,7 @@ func TestBranchReview_SetThreadResolved_ResolveError(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(&mockWorkspace{}, threads, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
+	uc := newTestUsecase(&mockWorkspace{}, threads, mocks.NewRepositoryStore(), &mockGitEngine{})
 
 	_, err := uc.SetThreadResolved(ctx, "t1", true)
 
@@ -911,7 +835,7 @@ func TestBranchReview_SetThreadResolved_ReopenError(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(&mockWorkspace{}, threads, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
+	uc := newTestUsecase(&mockWorkspace{}, threads, mocks.NewRepositoryStore(), &mockGitEngine{})
 
 	_, err := uc.SetThreadResolved(ctx, "t1", false)
 
@@ -938,7 +862,7 @@ func TestBranchReview_Get_ParentGetError(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(wsMock, &mockReviewThread{}, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
+	uc := newTestUsecase(wsMock, &mockReviewThread{}, mocks.NewRepositoryStore(), &mockGitEngine{})
 
 	_, err := uc.Get(ctx, "child")
 
@@ -978,7 +902,7 @@ func TestBranchReview_Get_UsesForkPointSha(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(wsMock, noopThreads(), noopChats(), repoStore, gitEng)
+	uc := newTestUsecase(wsMock, noopThreads(), repoStore, gitEng)
 
 	_, err := uc.Get(ctx, "ws1")
 
@@ -1022,7 +946,7 @@ func TestBranchReview_Get_AnnotatesUncommitted(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(wsMock, noopThreads(), noopChats(), repoStore, gitEng)
+	uc := newTestUsecase(wsMock, noopThreads(), repoStore, gitEng)
 
 	review, err := uc.Get(ctx, "ws1")
 
@@ -1063,7 +987,7 @@ func TestBranchReview_Get_StatusError_DiffStillReturned(t *testing.T) {
 		},
 	}
 
-	uc := newTestUsecase(wsMock, noopThreads(), noopChats(), repoStore, gitEng)
+	uc := newTestUsecase(wsMock, noopThreads(), repoStore, gitEng)
 
 	review, err := uc.Get(ctx, "ws1")
 

@@ -115,11 +115,12 @@ func BuildPredicate[T any](
 	scope := clientScope(c)
 	nsPattern := c.Param("ns")
 	return func(event T) bool {
-		if scope != "" {
+		switch {
+		case scope != "":
 			if !PrefixMatch(scope, def.Namespace(event)) {
 				return false
 			}
-		} else if nsPattern != "" && !GlobMatch(nsPattern, def.Namespace(event)) {
+		case nsPattern != "" && !GlobMatch(nsPattern, def.Namespace(event)):
 			return false
 		}
 		return matchesAll(active, event)

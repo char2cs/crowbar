@@ -27,9 +27,6 @@ import (
 // WebSocket handler (endpoints/terminal/handlers/ws.go), whose ring-buffer
 // replay is its snapshot-on-subscribe (03 §1a). It is wired separately in
 // router.go.
-//
-// The chat WebSocket surface (chats + chatStream) has been removed per D11; the
-// chat domain, repo CRUD, and usecase remain dormant TODO.
 type Container struct {
 	projects   *ws.Broadcaster[dto.ProjectDTO]
 	repos      *ws.Broadcaster[dto.RepoDTO]
@@ -68,7 +65,7 @@ func New(
 		workspaces: ws.NewBroadcaster(withProviderPollLifecycle(workspacesDef(appContainer), appContainer)),
 		threads:    ws.NewBroadcaster(threadsDef(appContainer)),
 		terminals:  ws.NewBroadcaster(terminalsDef(appContainer, engContainer)),
-		git:        ws.NewBroadcaster(withWatcherLifecycle(gitDef(appContainer), appContainer)),
+		git:        ws.NewBroadcaster(withOriginSyncLifecycle(withWatcherLifecycle(gitDef(appContainer), appContainer), appContainer)),
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
 		agentChats: ws.NewBroadcaster(agentChatDef()),
@@ -180,6 +177,34 @@ func withLSPLifecycle[T any](
 	def.ScopeKey = scopeWsID
 	def.OnSubscribe = appContainer.Realtime.AcquireLSP
 	def.OnUnsubscribe = appContainer.Realtime.ReleaseLSP
+	return def
+}
+
+// withOriginSyncLifecycle attaches the protected-branch origin-sync trigger
+// to a StreamDef, scoping by wsId resolved from the path or query and
+// delegating to the app-layer realtime service. It CHAINS onto whatever
+// OnSubscribe/OnUnsubscribe the StreamDef already carries (e.g.
+// withWatcherLifecycle's watcher acquire) rather than replacing them, so both
+// fire on every subscribe/unsubscribe.
+func withOriginSyncLifecycle[T any](
+	def ws.StreamDef[T],
+	appContainer *app.Container,
+) ws.StreamDef[T] {
+	prevSubscribe := def.OnSubscribe
+	prevUnsubscribe := def.OnUnsubscribe
+	def.ScopeKey = scopeWsID
+	def.OnSubscribe = func(scope string) {
+		if prevSubscribe != nil {
+			prevSubscribe(scope)
+		}
+		appContainer.Realtime.AcquireOriginSync(scope)
+	}
+	def.OnUnsubscribe = func(scope string) {
+		if prevUnsubscribe != nil {
+			prevUnsubscribe(scope)
+		}
+		appContainer.Realtime.ReleaseOriginSync(scope)
+	}
 	return def
 }
 
