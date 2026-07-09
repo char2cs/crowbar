@@ -321,22 +321,29 @@ func TestImport_ProtectedBranchesError_ImportsRepoHomeOnly(
 func TestImport_HomeOnNonProtectedBranch_NotDetached(
 	t *testing.T,
 ) {
-	// When the repo home is checked out on a NON-protected branch, Crowbar leaves
-	// the directory alone: the home keeps that branch, is not detached, and no
-	// protected worktrees are created. The home carries no fork point (it is the base).
+	// When the repo home is checked out on a NON-default branch, Crowbar leaves the
+	// directory alone: the home keeps that branch and is never detached. The repo
+	// reports no protected branches, so the resolved default branch ("main") is the
+	// one that gets locked — and because it is unheld here (the home sits on
+	// "feature"), it becomes its own managed worktree rather than a placeholder.
 	_, _, ws, git, prov, uc := newImport(t)
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "feature", Head: "h2"}}
 	prov.Protected = nil
 
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
-	require.Len(t, ws.Created, 2, "project home + repo home only")
+	require.Len(t, ws.Created, 3, "project home + repo home + default-branch managed worktree")
 	assert.Equal(t, domain.WorkspaceKindHome, ws.Created[0].Kind)
 	home := ws.Created[1]
 	assert.True(t, home.IsDefault)
-	assert.Equal(t, "feature", home.Branch, "a non-protected home keeps its branch")
+	assert.Equal(t, "feature", home.Branch, "a non-default home keeps its branch")
 	assert.Empty(t, home.ForkPointSha)
-	assert.Empty(t, git.Detached, "no detach for a non-protected home branch")
+	assert.Empty(t, git.Detached, "no detach for a non-default home branch")
+
+	main := ws.Created[2]
+	assert.Equal(t, "main", main.Branch, "the resolved default branch is provisioned even with no protected branches")
+	assert.Equal(t, domain.WorkspaceStatusLocked, main.Status, "the default branch is locked")
+	assert.NotEqual(t, "/repoA", main.WorktreePath, "the unheld default branch gets a managed worktree")
 }
 
 func TestImport_DetachedWorktreeSkipped(
@@ -375,9 +382,15 @@ func TestImport_PrunableWorktreeSkipped(
 
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
-	require.Len(t, ws.Created, 2)
+	// project home + repo home (main) + the "main" placeholder (main is the
+	// resolved default, held by the home). The prunable "dead" worktree is skipped.
+	require.Len(t, ws.Created, 3)
 	assert.Equal(t, domain.WorkspaceKindHome, ws.Created[0].Kind)
 	assert.Equal(t, "main", ws.Created[1].Branch)
+	for _, w := range ws.Created {
+		assert.NotEqual(t, "dead", w.Branch, "the prunable worktree's branch is never adopted")
+		assert.NotEqual(t, "/gone/wt", w.WorktreePath, "the prunable worktree is never adopted")
+	}
 }
 
 func TestImport_WorkspaceCreateError_IsTolerated(
@@ -622,6 +635,34 @@ func TestImport_DefaultProtectedBranch_HomeInPlaceAndPlaceholder(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, count, "develop appears exactly once as a placeholder (never duplicated)")
+}
+
+// TestImport_NoProtectedBranches_DefaultBranchLockedManagedWorktree proves that a
+// repo the provider reports as having NO protected branches at all still gets its
+// default branch materialised as a locked, Crowbar-managed worktree. This is the
+// base-branch-locked UX contract: a repo with no GitHub protection rules (or where
+// gh is authed but returns an empty set) must not import with only its home and
+// nothing lockable. The default branch (origin/main per the newImport RefRunner)
+// is unheld here, so it becomes its own managed worktree, not a placeholder.
+func TestImport_NoProtectedBranches_DefaultBranchLockedManagedWorktree(t *testing.T) {
+	_, _, ws, git, prov, uc := newImport(t)
+
+	// Home sits on a feature branch; the default branch "main" is unheld and free.
+	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "feature", Head: "h1"}}
+	prov.Protected = []string{} // provider reports zero protected branches
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+
+	var mainWs *domain.Workspace
+	for i := range ws.Created {
+		if ws.Created[i].Branch == "main" && !ws.Created[i].IsDefault {
+			mainWs = &ws.Created[i]
+		}
+	}
+	require.NotNil(t, mainWs, "the default branch must be provisioned even when the provider reports no protected branches")
+	assert.Equal(t, domain.WorkspaceStatusLocked, mainWs.Status, "the default branch is locked/protected")
+	assert.NotEqual(t, "/repoA", mainWs.WorktreePath, "the default branch gets a managed worktree, not the repo folder")
 }
 
 func TestImport_RemoteProtectedBranch_FetchedAndForkPointRecorded(t *testing.T) {
@@ -1108,8 +1149,10 @@ func TestImport_PartialRepoFailure(
 	require.Len(t, repos.Saved, 1, "the failed repo must be rolled back; only repoB persists")
 	assert.Equal(t, "repoB", repos.Saved[0].Name)
 
-	// The home workspace is provisioned first, then repoB's workspace (branch "main").
-	require.Len(t, ws.Created, 2, "home workspace + repoB workspace must be adopted")
+	// The project home is provisioned first, then repoB's home (branch "main"), then
+	// repoB's default-branch "main" placeholder (main is the resolved default, held
+	// by repoB's home). repoA failed before creating any workspace.
+	require.Len(t, ws.Created, 3, "project home + repoB home + repoB default-branch placeholder")
 	assert.Equal(t, domain.WorkspaceKindHome, ws.Created[0].Kind)
 	assert.Equal(t, "main", ws.Created[1].Branch)
 }

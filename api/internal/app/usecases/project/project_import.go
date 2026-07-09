@@ -388,6 +388,14 @@ func (u *projectImport) importOneRepo(
 		slog.WarnContext(ctx, "project import: protected branches unavailable; importing repo home only",
 			"repo", repo.Name, "error", err)
 		protected = nil
+	} else if len(protected) == 0 && repo.DefaultBranch != "" {
+		// A repo with no protected branches whatsoever — no GitHub protection
+		// rules, or a provider that succeeded with an empty set — still needs its
+		// base branch locked (the "Base branch (locked)" UX contract). Seed the
+		// resolved default branch so it is materialised as a locked, Crowbar-managed
+		// worktree like any protected branch. A provider ERROR stays home-only
+		// above: when detection failed we cannot assert which branch is the base.
+		protected = []string{repo.DefaultBranch}
 	}
 	// Adopt the repo home as the special default workspace (Crowbar never runs git
 	// on it). If it sits on a protected branch, it is detached to HEAD first so
