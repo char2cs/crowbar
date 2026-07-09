@@ -24,11 +24,11 @@ func (errGit) Diff(_ context.Context, _ string, _ bool) ([]gitdomain.FileDiff, e
 	return nil, errBoom
 }
 
-func (errGit) Log(_ context.Context, _ string, _ int, _ int) ([]gitdomain.Commit, error) {
+func (errGit) Log(_ context.Context, _ string, _, _ int) ([]gitdomain.Commit, error) {
 	return nil, errBoom
 }
 
-func (errGit) Blame(_ context.Context, _ string, _ string) ([]gitdomain.BlameEntry, error) {
+func (errGit) Blame(_ context.Context, _, _ string) ([]gitdomain.BlameEntry, error) {
 	return nil, errBoom
 }
 
@@ -44,35 +44,35 @@ func (errGit) ConflictedFiles(_ context.Context, _ string) ([]string, error) {
 	return nil, errBoom
 }
 
-func (errGit) ConflictHunks(_ context.Context, _ string, _ string) ([]gitdomain.ConflictHunk, error) {
+func (errGit) ConflictHunks(_ context.Context, _, _ string) ([]gitdomain.ConflictHunk, error) {
 	return nil, errBoom
 }
 
-func (errGit) CommitDiff(_ context.Context, _ string, _ string) (gitdomain.MultiFileDiff, error) {
+func (errGit) CommitDiff(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
 	return gitdomain.MultiFileDiff{}, errBoom
 }
 
-func (errGit) StageFile(_ context.Context, _ string, _ string, _ time.Time) error {
+func (errGit) StageFile(_ context.Context, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) StageHunk(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+func (errGit) StageHunk(_ context.Context, _, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) UnstageFile(_ context.Context, _ string, _ string, _ time.Time) error {
+func (errGit) UnstageFile(_ context.Context, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) UnstageHunk(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+func (errGit) UnstageHunk(_ context.Context, _, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) Discard(_ context.Context, _ string, _ string, _ time.Time) error {
+func (errGit) Discard(_ context.Context, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) Commit(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+func (errGit) Commit(_ context.Context, _, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
@@ -84,51 +84,51 @@ func (errGit) Fetch(_ context.Context, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) Pull(_ context.Context, _ string, _ string, _ time.Time) error {
+func (errGit) Pull(_ context.Context, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) CreateBranch(_ context.Context, _ string, _ string, _ string, _ bool, _ time.Time) error {
+func (errGit) CreateBranch(_ context.Context, _, _, _ string, _ bool, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) RenameBranch(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+func (errGit) RenameBranch(_ context.Context, _, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) DeleteBranch(_ context.Context, _ string, _ string, _ time.Time) error {
+func (errGit) DeleteBranch(_ context.Context, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) SwitchBranch(_ context.Context, _ string, _ string, _ time.Time) error {
+func (errGit) SwitchBranch(_ context.Context, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) StashPush(_ context.Context, _ string, _ string, _ time.Time) error {
+func (errGit) StashPush(_ context.Context, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) StashApply(_ context.Context, _ string, _ string, _ time.Time) error {
+func (errGit) StashApply(_ context.Context, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) StashPop(_ context.Context, _ string, _ string, _ time.Time) error {
+func (errGit) StashPop(_ context.Context, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) StashDrop(_ context.Context, _ string, _ string, _ time.Time) error {
+func (errGit) StashDrop(_ context.Context, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) Reset(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+func (errGit) Reset(_ context.Context, _, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) Merge(_ context.Context, _ string, _ string, _ time.Time) error {
+func (errGit) Merge(_ context.Context, _, _ string, _ time.Time) error {
 	return errBoom
 }
 
-func (errGit) Rebase(_ context.Context, _ string, _ string, _ time.Time) error {
+func (errGit) Rebase(_ context.Context, _, _ string, _ time.Time) error {
 	return errBoom
 }
 

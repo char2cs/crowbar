@@ -46,7 +46,7 @@ import (
 //   - 409 Conflict        — apperr.ErrLocked (a write against a locked,
 //     provider-protected workspace; 04 §5, 05 §3/§4), enginesearch.ErrLocked,
 //     the worktree lock / non-leaf sentinels (ErrParentLocked,
-//     ErrNewParentLocked, ErrWorkspaceLocked, ErrRebaseNonLeaf,
+//     ErrWorkspaceLocked, ErrRebaseNonLeaf,
 //     ErrChildHasChildren), and the git
 //     engine's classified conflict sentinels (ErrConflict, ErrDirtyTree,
 //     ErrRejectedNonFastForward, ErrNothingToCommit, ErrStaleHunk,
@@ -63,20 +63,11 @@ func StatusAndMessage(
 		return http.StatusInternalServerError, "internal error"
 	}
 
-	if errors.Is(err, apperr.ErrNotFound) ||
-		errors.Is(err, engineterminal.ErrSessionNotFound) ||
-		errors.Is(err, asynxmodels.ErrNotFound) ||
-		errors.Is(err, fs.ErrNotExist) ||
-		errors.Is(err, project.ErrFolderNotFound) ||
-		errors.Is(err, enginegit.ErrBranchNotFound) {
+	if isNotFound(err) {
 		return http.StatusNotFound, err.Error()
 	}
 
-	if errors.Is(err, enginesearch.ErrBadPattern) ||
-		errors.Is(err, enginesearch.ErrPathOutsideWorkspace) ||
-		errors.Is(err, safepath.ErrPathEscapesWorkspace) ||
-		errors.Is(err, apperr.ErrInvalidArgument) ||
-		errors.Is(err, enginegit.ErrNoRemote) {
+	if isBadRequest(err) {
 		return http.StatusBadRequest, err.Error()
 	}
 
@@ -88,6 +79,21 @@ func StatusAndMessage(
 		return http.StatusForbidden, err.Error()
 	}
 
+	// asynxmodels.ErrValidation is an aggregate state-machine guard rejection (a
+	// command Validate said no): the request was well-formed but not applicable to
+	// the aggregate's current state, so it is 422 Unprocessable Entity — distinct
+	// from the earlier decode/shape 400 (asynx-alignment refactor, spec §3.5).
+	if errors.Is(err, asynxmodels.ErrValidation) {
+		return http.StatusUnprocessableEntity, err.Error()
+	}
+
+	// apperr.ErrUnavailable is a full asynx shard queue (ErrQueueFull) surfaced by
+	// the workspace repo under load: the mutation was not accepted and the client
+	// should retry, so it is 503 Service Unavailable.
+	if errors.Is(err, apperr.ErrUnavailable) {
+		return http.StatusServiceUnavailable, err.Error()
+	}
+
 	if isConflict(err) {
 		return http.StatusConflict, err.Error()
 	}
@@ -95,15 +101,44 @@ func StatusAndMessage(
 	return http.StatusInternalServerError, err.Error()
 }
 
+// isNotFound reports whether err is one of the sentinels that map to HTTP 404.
+func isNotFound(
+	err error,
+) bool {
+	return errors.Is(err, apperr.ErrNotFound) ||
+		errors.Is(err, engineterminal.ErrSessionNotFound) ||
+		errors.Is(err, asynxmodels.ErrNotFound) ||
+		errors.Is(err, fs.ErrNotExist) ||
+		errors.Is(err, project.ErrFolderNotFound) ||
+		errors.Is(err, enginegit.ErrBranchNotFound)
+}
+
+// isBadRequest reports whether err is one of the sentinels that map to HTTP 400.
+func isBadRequest(
+	err error,
+) bool {
+	return errors.Is(err, enginesearch.ErrBadPattern) ||
+		errors.Is(err, enginesearch.ErrPathOutsideWorkspace) ||
+		errors.Is(err, safepath.ErrPathEscapesWorkspace) ||
+		errors.Is(err, apperr.ErrInvalidArgument) ||
+		errors.Is(err, enginegit.ErrNoRemote)
+}
+
 // isConflict reports whether err is one of the lock or non-leaf conflict
 // sentinels that map to HTTP 409.
 func isConflict(
 	err error,
 ) bool {
+	// asynxmodels.ErrPipelineFailed surfaced after the workspace repo's OCC retries
+	// are exhausted is an unrecoverable optimistic-concurrency/version collision →
+	// 409 Conflict (asynx-alignment refactor, spec §3.5 ErrPipelineFailed→409).
+	if errors.Is(err, asynxmodels.ErrPipelineFailed) {
+		return true
+	}
+
 	if errors.Is(err, apperr.ErrLocked) ||
 		errors.Is(err, enginesearch.ErrLocked) ||
 		errors.Is(err, worktree.ErrParentLocked) ||
-		errors.Is(err, worktree.ErrNewParentLocked) ||
 		errors.Is(err, worktree.ErrWorkspaceLocked) ||
 		errors.Is(err, worktree.ErrParentUnprovisioned) {
 		return true

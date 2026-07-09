@@ -29,6 +29,7 @@ type stubFiles struct{}
 func (stubFiles) Tree(_ context.Context, _, _ string, _ file.FileStatusProvider) ([]domain.FileNode, error) {
 	return []domain.FileNode{{Path: "a.go"}}, nil
 }
+
 func (stubFiles) ReadContent(_ context.Context, _, _ string) (domain.FileContent, error) {
 	return domain.FileContent{Content: "hello"}, nil
 }

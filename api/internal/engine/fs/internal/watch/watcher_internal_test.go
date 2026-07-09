@@ -560,18 +560,23 @@ func TestLoop_ClosedEventsChannelExits(t *testing.T) {
 	rd := &recordingDispatcher{}
 	w := NewWatcher("ws-loop", dir, "", &minimalGit{}, rd)
 	ctx := context.Background()
+	before := runtime.NumGoroutine()
 	require.NoError(t, w.Start(ctx))
 
 	// Close only the underlying fsnotify watcher; this closes its Events channel.
-	// loop should detect ok=false and exit. Then call Stop to avoid goroutine leak.
+	// loop must detect ok=false and return, so its goroutine exits.
 	w.mu.Lock()
 	w.fsw.Close()
 	w.mu.Unlock()
 
-	// Give the loop goroutine time to exit via the !ok path.
+	// Deterministically wait for the loop goroutine to exit via the !ok path by
+	// watching the goroutine count fall back, yielding instead of sleeping.
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
+	for runtime.NumGoroutine() > before {
+		if time.Now().After(deadline) {
+			t.Fatal("loop goroutine did not exit after the Events channel closed")
+		}
+		runtime.Gosched()
 	}
 	// Call Stop to clean up (idempotent even if loop already exited).
 	w.Stop()
@@ -587,7 +592,8 @@ func TestAddRecursive_WalkErrCallbackReturnsNil(t *testing.T) {
 	subdir := filepath.Join(dir, "sub")
 	require.NoError(t, os.MkdirAll(subdir, 0o700))
 
-	w := NewWatcher("ws-walk", dir, "", &minimalGit{}, &recordingDispatcher{})
+	rd := &recordingDispatcher{}
+	w := NewWatcher("ws-walk", dir, "", &minimalGit{}, rd)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	t.Cleanup(w.Stop)
@@ -601,8 +607,13 @@ func TestAddRecursive_WalkErrCallbackReturnsNil(t *testing.T) {
 	newSub := filepath.Join(dir, "newsub")
 	require.NoError(t, os.MkdirAll(newSub, 0o700))
 
-	// Give the watcher time to process. No assertion needed — just verify no panic.
-	time.Sleep(300 * time.Millisecond)
+	// Deterministically wait for the watcher to process the burst instead of
+	// sleeping: every burst schedules a git recompute, and the first recompute
+	// always broadcasts via OnGitStatus (recordingDispatcher counts it). Observing
+	// the count confirms handleOne ran addRecursive for newsub — no panic.
+	require.Eventually(t, func() bool {
+		return rd.count() >= 1
+	}, 5*time.Second, 5*time.Millisecond, "watcher must process the subdir-creation burst")
 }
 
 // ---------------------------------------------------------------------------
@@ -665,11 +676,10 @@ func TestLoop_ErrorsChannelSwallowed(t *testing.T) {
 	t.Cleanup(w.Stop)
 	require.NoError(t, w.Start(ctx))
 
-	// Directly send an error to the errors channel to exercise the swallow path.
-	// fsnotify's Watcher.Errors is a <-chan error. We can't send to it from outside.
-	// Coverage of this case requires an OS-level watch error; it's an infrastructure
-	// concern. We document the limitation and ensure the watcher starts cleanly.
-	time.Sleep(50 * time.Millisecond)
+	// Directly sending an error to the errors channel is impossible from outside
+	// (fsnotify's Watcher.Errors is receive-only), and OS-level watch errors are an
+	// infrastructure concern. The assertion here is simply that Start succeeds and
+	// the loop runs cleanly; the deferred Stop tears it down. No sleep is needed.
 }
 
 // ---------------------------------------------------------------------------

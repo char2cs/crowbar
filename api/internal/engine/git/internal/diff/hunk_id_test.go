@@ -3,9 +3,10 @@ package diff_test
 import (
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
 )
 
 func TestHunkID_Length(t *testing.T) {

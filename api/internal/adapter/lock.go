@@ -28,6 +28,7 @@ func acquireStateLock(
 	stateDir string,
 ) (*instanceLock, error) {
 	lockPath := filepath.Join(stateDir, lockFileName)
+	//nolint:gosec // G304: lockPath is <stateDir>/.lock built from the daemon's own state directory and a fixed constant filename, never user input.
 	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("adapter: open lockfile %q: %w", lockPath, err)

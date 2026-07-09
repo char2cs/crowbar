@@ -51,14 +51,9 @@ func startDrainer(r *os.File) *pipeDrainer {
 // waitContains polls the drained bytes until they contain want, or fails on timeout.
 func waitContains(t *testing.T, d *pipeDrainer, want string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if bytes.Contains(d.snapshot(), []byte(want)) {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %q; got %q", want, d.snapshot())
+	require.Eventually(t, func() bool {
+		return bytes.Contains(d.snapshot(), []byte(want))
+	}, 2*time.Second, 5*time.Millisecond, "timed out waiting for %q", want)
 }
 
 // newThemeTestSession wires a model-driven session onto a fake ptmx (os.Pipe write end)
@@ -104,10 +99,12 @@ func TestSession_SetTheme_NoNotifyWhenMode2031Disabled(t *testing.T) {
 
 	s.SetTheme(color.White, color.Black, true) // no ?2031h beforehand
 
-	time.Sleep(250 * time.Millisecond)
-	if bytes.Contains(d.snapshot(), []byte("\x1b[?997")) {
-		t.Fatalf("emitted a theme-notify report without a 2031 subscription: %q", d.snapshot())
-	}
+	// Without a 2031 subscription no theme-notify report may EVER be written:
+	// assert the condition never becomes true over the observation window.
+	require.Never(t, func() bool {
+		return bytes.Contains(d.snapshot(), []byte("\x1b[?997"))
+	}, 250*time.Millisecond, 5*time.Millisecond,
+		"emitted a theme-notify report without a 2031 subscription")
 }
 
 // TestSession_SetTheme_DedupesSamePolarityAndNotifiesOnFlip: only the FIRST push of a given
@@ -122,10 +119,12 @@ func TestSession_SetTheme_DedupesSamePolarityAndNotifiesOnFlip(t *testing.T) {
 	waitContains(t, d, "\x1b[?997;1n")
 
 	s.SetTheme(color.White, color.Black, true) // dark again -> deduped
-	time.Sleep(200 * time.Millisecond)
-	if n := bytes.Count(d.snapshot(), []byte("\x1b[?997")); n != 1 {
-		t.Fatalf("same-polarity push not deduped: %d reports, want 1 (%q)", n, d.snapshot())
-	}
+	// A same-polarity push must NOT emit a second report: assert the report
+	// count never grows past the one already observed above.
+	require.Never(t, func() bool {
+		return bytes.Count(d.snapshot(), []byte("\x1b[?997")) >= 2
+	}, 200*time.Millisecond, 5*time.Millisecond,
+		"same-polarity push not deduped: a second report appeared")
 
 	s.SetTheme(color.Black, color.White, false) // light -> notify
 	waitContains(t, d, "\x1b[?997;2n")

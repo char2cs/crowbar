@@ -41,37 +41,20 @@ func TestIsIdle_unix(t *testing.T) {
 	case <-ch:
 	case <-time.After(3 * time.Second):
 		// No output yet; that is also fine — the shell may not print a prompt.
-		// Fall through to the timed settle below.
+		// Fall through to the idle poll below.
 	}
-
-	// Extra settle: give the shell time to return to its read loop after
-	// any rc-file sourcing completes. 150 ms is generous for /bin/sh.
-	time.Sleep(150 * time.Millisecond)
 
 	// --- Idle assertion -------------------------------------------------
-	// Poll with retries so that a brief startup race doesn't flake.
-	idleTrue := false
-	for i := 0; i < 20; i++ {
-		if s.IsIdle() {
-			idleTrue = true
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	assert.True(t, idleTrue, "shell at prompt must report IsIdle=true")
+	// Poll until the shell settles at its prompt (it IS the foreground
+	// process group there). Eventually subsumes both the startup settle and
+	// the per-iteration retry the fixed sleeps used to provide.
+	assert.Eventually(t, s.IsIdle, 3*time.Second, 50*time.Millisecond,
+		"shell at prompt must report IsIdle=true")
 
 	// --- Active assertion -----------------------------------------------
-	// Spawn a long-running foreground sleep command.
+	// Spawn a long-running foreground sleep command, then poll until the
+	// sleep child takes the foreground process group and IsIdle flips false.
 	require.NoError(t, s.Write([]byte("sleep 9999\n")))
-
-	// Poll until IsIdle flips to false (or time out).
-	idleFalse := false
-	for i := 0; i < 40; i++ {
-		time.Sleep(50 * time.Millisecond)
-		if !s.IsIdle() {
-			idleFalse = true
-			break
-		}
-	}
-	assert.True(t, idleFalse, "shell with foreground sleep child must report IsIdle=false")
+	assert.Eventually(t, func() bool { return !s.IsIdle() }, 3*time.Second, 50*time.Millisecond,
+		"shell with foreground sleep child must report IsIdle=false")
 }

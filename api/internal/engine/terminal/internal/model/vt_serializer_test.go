@@ -187,7 +187,7 @@ func TestSerializeOriginModeByteOrderAndDecode(t *testing.T) {
 			t.Fatalf("payload missing %s: %q", name, out)
 		}
 	}
-	if !(marker < decstbm && decstbm < originSet && originSet < cup) {
+	if marker >= decstbm || decstbm >= originSet || originSet >= cup {
 		t.Fatalf("byte order violated: MARKER@%d DECSTBM@%d ?6h@%d CUP@%d\npayload=%q",
 			marker, decstbm, originSet, cup, out)
 	}
@@ -425,7 +425,7 @@ func TestSanitizeOSCText(t *testing.T) {
 		{"drop esc", "ab\x1bc", "abc"},
 		{"drop bel", "a\x07b", "ab"},
 		{"drop del", "a\x7fb", "ab"},
-		{"drop c1", "ab", "ab"},
+		{"drop c1", "a\u009cb", "ab"},
 		{"keep utf8", "héllo", "héllo"},
 		{"invalid utf8 byte dropped", string([]byte{0xff, 'a'}), "a"},
 		{"truncated multibyte lead dropped", string([]byte{0xe2, 'a'}), "a"},

@@ -73,6 +73,7 @@ func ParseFile(
 	filePath string,
 ) ([]gitdomain.ConflictHunk, error) {
 	absPath := filepath.Join(repoPath, filePath)
+	//nolint:gosec // G304: reads a working-tree file under the repo path by design.
 	data, err := os.ReadFile(absPath)
 	if err != nil {
 		return nil, fmt.Errorf("conflicts: parse file: read: %w", err)
@@ -133,6 +134,7 @@ func ResolveHunk(
 	}
 	mode := info.Mode()
 
+	//nolint:gosec // G304: reads a working-tree file under the repo path by design.
 	data, err := os.ReadFile(absPath)
 	if err != nil {
 		return fmt.Errorf("conflicts: resolve hunk: read: %w", err)
@@ -154,6 +156,7 @@ func ResolveHunk(
 	}
 	updated := replaceBlock(string(data), target, replacement)
 
+	//nolint:gosec // G703: writes back to the working-tree file under the repo path by design.
 	if err := os.WriteFile(absPath, []byte(updated), mode); err != nil {
 		return fmt.Errorf("conflicts: resolve hunk: write: %w", err)
 	}
@@ -318,7 +321,7 @@ func resolvedText(
 	resolution gitdomain.ConflictResolution,
 	custom string,
 ) (string, error) {
-	switch resolution {
+	switch resolution { //nolint:exhaustive // default rejects Unresolved and any unknown resolution.
 	case gitdomain.ConflictResolutionOurs:
 		return b.oursRaw, nil
 	case gitdomain.ConflictResolutionTheirs:

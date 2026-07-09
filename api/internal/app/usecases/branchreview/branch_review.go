@@ -11,10 +11,8 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/branchchat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
@@ -68,7 +66,6 @@ type Usecase interface {
 type branchReviewUsecase struct {
 	workspaces workspace.Workspace
 	threads    reviewthread.ReviewThread
-	chats      chat.Chat
 	repos      store.Store[domain.Repository, string]
 	git        enginegit.Engine
 	now        func() time.Time
@@ -78,7 +75,6 @@ type branchReviewUsecase struct {
 func New(
 	workspaces workspace.Workspace,
 	threads reviewthread.ReviewThread,
-	chats chat.Chat,
 	repos store.Store[domain.Repository, string],
 	git enginegit.Engine,
 	now func() time.Time,
@@ -86,7 +82,6 @@ func New(
 	return &branchReviewUsecase{
 		workspaces: workspaces,
 		threads:    threads,
-		chats:      chats,
 		repos:      repos,
 		git:        git,
 		now:        now,
@@ -185,16 +180,11 @@ func (u *branchReviewUsecase) assemble(
 	for i := range threads {
 		threads[i] = threads[i].NormalizedMessages()
 	}
-	chats, err := u.chats.ListByWorkspace(ctx, ws.ID)
-	if err != nil {
-		return domain.BranchReview{}, fmt.Errorf("branch review: chats: %w", err)
-	}
 	return domain.BranchReview{
 		Description:   "",
 		MergeStrategy: ws.MergeStrategy,
 		Diff:          diff,
 		Threads:       threads,
-		Conversations: branchchat.From(chats, u.now()),
 	}, nil
 }
 

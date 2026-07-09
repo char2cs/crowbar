@@ -152,6 +152,7 @@ func specRoutes() []string {
 func extraRoutes() []string {
 	const repo = "/v0/projects/:projectId/repos/:repoId"
 	const ws = repo + "/workspaces/:wsId"
+	const home = "/v0/projects/:projectId/home"
 	return []string{
 		"DELETE /v0/projects/:projectId",
 		"DELETE " + repo,
@@ -166,13 +167,42 @@ func extraRoutes() []string {
 		"POST " + ws + "/lsp/didClose",
 		// Registered hierarchy/feature routes the §2 spec list did not yet
 		// enumerate: the rebase-onto-parent hierarchy op (sibling of
-		// merge-into-parent/reparent), the git-identity read, and the
-		// review-thread message CRUD.
+		// merge-into-parent/reparent), the detach-holder/retry-provision
+		// placeholder ops (spec §3.3/§3.5 — free a held protected branch and
+		// re-provision it in place), the git-identity read, and the review-thread
+		// message CRUD.
 		"POST " + ws + "/rebase-onto-parent",
+		"POST " + ws + "/detach-holder",
+		"POST " + ws + "/retry-provision",
 		"GET " + ws + "/identity",
 		"DELETE " + ws + "/threads/:threadId",
 		"PATCH " + ws + "/threads/:threadId/messages/:messageId",
 		"DELETE " + ws + "/threads/:threadId/messages/:messageId",
+		// Repo-home-as-workspace surface: the special non-git default workspace is
+		// navigable like a workspace but git-less, exposing its own files,
+		// terminals, and review-thread subtrees under /projects/:projectId/home
+		// (Crowbar workspace model — the repo home hosts chats/threads + a file
+		// tree + terminals, but no git operations).
+		"GET " + home,
+		"GET " + home + "/files/tree",
+		"GET " + home + "/files/content",
+		"PUT " + home + "/files/content",
+		"POST " + home + "/files",
+		"PATCH " + home + "/files",
+		"DELETE " + home + "/files",
+		"GET " + home + "/files/ws",
+		"GET " + home + "/terminals",
+		"POST " + home + "/terminals",
+		"DELETE " + home + "/terminals/:sessionId",
+		"GET " + home + "/terminals/:sessionId/ws",
+		"GET " + home + "/threads",
+		"POST " + home + "/threads",
+		"GET " + home + "/threads/:threadId",
+		"PATCH " + home + "/threads/:threadId",
+		"DELETE " + home + "/threads/:threadId",
+		"POST " + home + "/threads/:threadId/replies",
+		"PATCH " + home + "/threads/:threadId/messages/:messageId",
+		"DELETE " + home + "/threads/:threadId/messages/:messageId",
 	}
 }
 

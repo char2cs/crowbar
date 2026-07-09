@@ -4,7 +4,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/git"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/discover"
@@ -35,7 +34,6 @@ type Container struct {
 	ProjectImport project.ImportUsecase
 	ProjectDelete project.DeleteUsecase
 	Workspace     workspace.Usecase
-	Chat          chat.Usecase
 	File          file.Usecase
 	Git           git.Usecase
 	Terminal      terminal.Usecase
@@ -65,12 +63,6 @@ func New(
 		repos.Workspace,
 		engines.Git,
 		projectUsecase,
-	)
-	chatUsecase := chat.New(
-		repos.Chat,
-		repos.Workspace,
-		projectUsecase,
-		nowFunc,
 	)
 	fileUsecase := file.New(
 		newFsEngineAdapter(engines.FS),
@@ -125,7 +117,6 @@ func New(
 	branchReview := branchreview.New(
 		repos.Workspace,
 		repos.ReviewThread,
-		repos.Chat,
 		gormStores.Repositories,
 		engines.Git,
 		nowFunc,
@@ -135,7 +126,6 @@ func New(
 		ProjectImport: projectImport,
 		ProjectDelete: projectDelete,
 		Workspace:     workspaceUsecase,
-		Chat:          chatUsecase,
 		File:          fileUsecase,
 		Git:           gitUsecase,
 		Terminal:      terminalUsecase,

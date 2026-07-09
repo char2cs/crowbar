@@ -199,6 +199,8 @@ func (e *DiffEmitter) Prime(m TerminalModel) {
 //     +LF scroll trick cannot deposit them into history under an active region
 //
 // On success the emitter re-bases itself.
+//
+//nolint:gocyclo // Emit is a linear sequence of independent bail-to-keyframe guards (§ ordering); decomposing them would obscure the documented step order without lowering real complexity.
 func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 	vm := m.(*vtModel)
 	cols, rows := vm.emu.Width(), vm.emu.Height()
@@ -517,11 +519,13 @@ func (e *DiffEmitter) writeModeDelta(
 // cursor shape) just as it emits the set form on a value change. Dropping the
 // unset direction would leave a live client stuck on a stale colour/shape
 // until an unrelated keyframe happens to resync it.
+//
+//nolint:gocyclo // Four independent, symmetric set/unset emission blocks (visibility, shape, fg/bg/cursor colour); the count is width, not depth, and splitting the mirrored pairs apart would hide the symmetry the doc comment relies on.
 func (e *DiffEmitter) writeCursorChromeDelta(
 	b *bytes.Buffer,
 	sh *shadowState,
 ) {
-	if sh.cursorVisible != e.chrome.cursorVisible {
+	if sh.cursorVisible != e.chrome.cursorVisible { //nolint:nestif // one shallow visibility set/unset branch; flattening it buys nothing.
 		if sh.cursorVisible {
 			b.WriteString(ansi.SetMode(ansi.DECMode(25)))
 		} else {

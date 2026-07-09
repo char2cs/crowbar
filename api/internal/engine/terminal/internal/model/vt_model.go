@@ -393,7 +393,7 @@ func (m *vtModel) Rows() int {
 	return m.emu.Height()
 }
 
-func (m *vtModel) HeaderState() (cols int, rows int, alt bool, scrollbackLines int) {
+func (m *vtModel) HeaderState() (cols, rows int, alt bool, scrollbackLines int) {
 	return m.emu.Width(), m.emu.Height(), m.emu.IsAltScreen(), m.scrollbackLines
 }
 

@@ -110,9 +110,14 @@ func TestImport_CreatesProjectReposAndAdoptsWorktrees(
 	// + a main PLACEHOLDER (held by the home) + a develop MANAGED worktree.
 	require.Len(t, ws.Created, 4)
 	assert.Equal(t, domain.WorkspaceKindHome, ws.Created[0].Kind)
+	// The project-home workspace keeps the user's checkout (project.Path), never a
+	// Crowbar-managed .home leaf (spec §3.9 adopted-home law, Task 3b decision).
+	assert.Equal(t, "/root", ws.Created[0].WorktreePath)
 
 	home := ws.Created[1]
 	assert.True(t, home.IsDefault, "the repo home is the default workspace")
+	// The adopted repo home stays the user's real checkout (repo.Path), never a
+	// Crowbar-managed .home leaf (spec §3.9 adopted-home law, Task 3b decision).
 	assert.Equal(t, "/repoA", home.WorktreePath, "the repo home stays the repo folder")
 	assert.Equal(t, "main", home.Branch, "the repo home stays on its branch (NOT detached)")
 	assert.NotEqual(t, domain.WorkspaceStatusLocked, home.Status)
@@ -133,8 +138,12 @@ func TestImport_CreatesProjectReposAndAdoptsWorktrees(
 
 	assert.Equal(t, domain.WorkspaceStatusLocked, managed.Status)
 	assert.NotEqual(t, "/repoA", managed.WorktreePath)
-	assert.Contains(t, managed.WorktreePath, "/crowbar-home/projects/")
-	assert.Contains(t, managed.WorktreePath, "/worktree")
+	// The managed worktree lands at the human-readable derived path
+	// <home>/projects/<project>/<slug>/<branch> (spec §3.9); with no reachable
+	// remote in tests the slug falls back to the repo name "repoA".
+	assert.Equal(t,
+		filepath.Join("/crowbar-home", "projects", project.ID, "repoA", "develop"),
+		managed.WorktreePath)
 }
 
 // TestImport_SkipsNonProtectedLocalWorktrees pins the user-requested rule: on
@@ -570,7 +579,10 @@ func TestImport_ProvisionsManagedWorktreesForProtectedBranches(t *testing.T) {
 	// develop is unheld → its own managed worktree (never a stub at the repo folder).
 	assert.Equal(t, domain.WorkspaceStatusLocked, byBranch["develop"].Status, "develop is locked")
 	assert.NotEqual(t, "/repoA", byBranch["develop"].WorktreePath, "develop gets a managed worktree, not the repo folder")
-	assert.Contains(t, byBranch["develop"].WorktreePath, "/worktree")
+	// Human-readable derived path: <slug>/<branch> with slug = repo name "repoA"
+	// (no reachable remote in tests), never the old UUID .../worktree leaf.
+	assert.Contains(t, byBranch["develop"].WorktreePath, "/repoA/develop")
+	assert.NotContains(t, byBranch["develop"].WorktreePath, "/worktree")
 	assert.Empty(t, byBranch["develop"].HeldByPath, "a managed worktree has no holder")
 }
 

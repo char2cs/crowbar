@@ -5,8 +5,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/google/uuid"
+
+	"github.com/char2cs/crowbar/api/internal/api/libs"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 )

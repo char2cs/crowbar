@@ -248,8 +248,12 @@ func TestRegression_GitMutationsSurviveLockContention(t *testing.T) {
 		}
 	}()
 
+	// Enough concurrent mutators to genuinely contend on the shared index.lock (the
+	// point of the test) without spawning so many real git subprocesses that a
+	// -race run's 10x slowdown starves the machine and the OS kills one mid-op (the
+	// failure this exercises is lock contention, not fork/exec resource exhaustion).
 	const (
-		workers    = 10
+		workers    = 4
 		iterations = 5
 	)
 	var (
@@ -396,17 +400,34 @@ func TestRegression_DeleteLockedWorkspaceRejected(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
-// §13: deleting a workspace removes its entire per-workspace storage tree on
-// disk (worktree + storages), not just the read-model row (spec §1/§8).
-func TestRegression_DeleteWorkspaceRemovesStoragesDir(t *testing.T) {
+// §13 / spec §3.6+§3.8: deleting a workspace tombstones it under the
+// asynx-alignment delete lifecycle. Delete is now a PURE Send that folds
+// Status=deleted (persist-then-purge): the DELETE is accepted (202) and a
+// status:"deleted" frame is broadcast off the store/hub projections. The physical
+// worktree purge moved off the synchronous write path into the async, gated delete
+// reactor (Task 8; end-to-end lifecycle validated by the crash/lifecycle
+// integration suite). The old entity-scoped storages tree
+// (<home>/projects/<P>/<R>/workspaces/<W>/storages) no longer exists — central
+// per-type event/read stores replace it — so there is no per-workspace dir to
+// rm -rf here.
+func TestRegression_DeleteWorkspaceTombstones(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	worktree := workspaceWorktreePath(t, h, imported)
-	// The per-workspace dir is the parent of the .../worktree leaf.
-	workspaceDir := filepath.Dir(worktree)
-	require.DirExists(t, workspaceDir, "the workspace storage tree must exist before delete")
+	// The read model is now eventually consistent (Send, not SendWait): wait until
+	// the imported workspace is listable before deleting, so the background delete
+	// cascade (which lists to build the tree) sees it.
+	require.Eventually(t, func() bool {
+		var rows []map[string]any
+		h.get(repoBase+"/workspaces", &rows)
+		for _, r := range rows {
+			if r["id"] == imported.workspaceID {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 25*time.Millisecond)
 
 	conn := h.dial(repoBase + "/workspaces")
 	resp := h.raw(http.MethodDelete, repoBase+"/workspaces/"+imported.workspaceID, nil,
@@ -415,9 +436,6 @@ func TestRegression_DeleteWorkspaceRemovesStoragesDir(t *testing.T) {
 	readUntil(t, conn, func(m map[string]any) bool {
 		return m["id"] == imported.workspaceID && m["status"] == "deleted"
 	})
-
-	require.NoDirExists(t, workspaceDir,
-		"delete must rm -rf the whole per-workspace tree")
 }
 
 // §13: the repo icon is served from on-disk bytes, never proxied live from
@@ -437,10 +455,13 @@ func TestRegression_IconServedFromDiskNotGitHub(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
-// workspaceWorktreePath resolves the on-disk worktree of a workspace.
-// WorktreePath is no longer carried on the wire WorkspaceDTO (D13), so it is
-// reconstructed from the deterministic UUID layout the daemon uses:
-// <home>/projects/<P>/<R>/workspaces/<W>/worktree.
+// workspaceWorktreePath resolves the on-disk worktree of a managed workspace.
+// WorktreePath is no longer carried on the wire WorkspaceDTO (D13) and the daemon
+// moved worktrees off the retired UUID layout to the human-readable path (spec
+// §3.9), so it is reconstructed as <home>/projects/<P>/<slug>/<branch>, where the
+// slug degrades to the repo's on-disk name (filepath.Base(repoPath)) for a
+// no-remote fixture repo and the branch — a nested branch maps to nested
+// directories — is read back from the workspace DTO.
 func workspaceWorktreePath(
 	t *testing.T,
 	h *harness,
@@ -451,11 +472,24 @@ func workspaceWorktreePath(
 		h.home,
 		"projects",
 		imported.projectID,
-		imported.repoID,
-		"workspaces",
-		imported.workspaceID,
-		"worktree",
+		filepath.Base(imported.repoPath),
+		workspaceBranch(t, h, imported),
 	)
+}
+
+// workspaceBranch reads a managed workspace's branch back from its DTO. The wire
+// no longer carries worktreePath, but branch is authoritative for the friendly
+// worktree path (spec §3.9).
+func workspaceBranch(
+	t *testing.T,
+	h *harness,
+	imported importedRepo,
+) string {
+	t.Helper()
+	var ws workspaceDTO
+	h.get("/v0/projects/"+imported.projectID+"/repos/"+imported.repoID+
+		"/workspaces/"+imported.workspaceID, &ws)
+	return ws.Branch
 }
 
 // worktreeGitDir resolves the private git dir of a (possibly linked) worktree,
@@ -784,6 +818,93 @@ func TestRegression_ImportDefaultBranchStaysHomeWithPlaceholder(t *testing.T) {
 	}
 	require.True(t, found,
 		"the held default branch must be surfaced as a non-default placeholder row")
+}
+
+// TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree proves the
+// Detach-holder flow end-to-end through the real HTTP + git stack (spec
+// §3.5/§3.7): a protected default branch the repo home still holds is surfaced as
+// a placeholder; POST .../detach-holder moves the home to a detached HEAD
+// (releasing the branch — the working tree is untouched) and re-provisions that
+// branch into its OWN managed worktree in place. The placeholder becomes a real,
+// on-disk locked worktree — heldByPath cleared, localPath set, .git present —
+// with no LastError. The op is async (202 Accepted), so the outcome is observed
+// by polling the read model. This is the deterministic contract that "Detach
+// works" (it once failed silently when the derived path was already occupied).
+func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T) {
+	h := newHarness(t)
+	imported := importProjectHomeHoldsDefault(t, h)
+	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
+
+	// Precondition: the home sits on main (Crowbar never force-detaches).
+	require.Equal(t, "main", currentBranch(t, imported.repoPath),
+		"precondition: repo home holds the protected default branch")
+
+	type wsRow struct {
+		ID         string `json:"id"`
+		Branch     string `json:"branch"`
+		IsDefault  bool   `json:"isDefault"`
+		Status     string `json:"status"`
+		LocalPath  string `json:"localPath"`
+		HeldByPath string `json:"heldByPath"`
+		LastError  string `json:"lastError"`
+	}
+	// Goroutine-safe raw fetch (no test assertions), callable from Eventually.
+	listURL := h.url + repoBase + "/workspaces"
+	fetchRows := func() []wsRow {
+		r, err := h.server.Client().Get(listURL)
+		if err != nil {
+			return nil
+		}
+		defer func() { _ = r.Body.Close() }()
+		var env struct {
+			Data []wsRow `json:"data"`
+		}
+		if json.NewDecoder(r.Body).Decode(&env) != nil {
+			return nil
+		}
+		return env.Data
+	}
+
+	var placeholderID string
+	for _, w := range fetchRows() {
+		if w.Branch == "main" && !w.IsDefault {
+			placeholderID = w.ID
+			require.Empty(t, w.LocalPath, "precondition: placeholder has no managed worktree yet")
+			require.NotEmpty(t, w.HeldByPath, "precondition: placeholder records the repo home as the holder")
+		}
+	}
+	require.NotEmpty(t, placeholderID, "the held main branch must surface as a placeholder")
+
+	// Act: detach the holder (async → 202 Accepted).
+	resp := h.raw(http.MethodPost, repoBase+"/workspaces/"+placeholderID+"/detach-holder", nil, http.StatusAccepted)
+	_ = resp.Body.Close()
+
+	// Assert: the placeholder becomes a real, on-disk managed worktree — the branch
+	// was freed and re-provisioned in place, with no error.
+	var final wsRow
+	require.Eventually(t, func() bool {
+		for _, w := range fetchRows() {
+			if w.ID != placeholderID {
+				continue
+			}
+			if w.HeldByPath == "" && w.LocalPath != "" && dirExists(w.LocalPath) && w.LastError == "" {
+				final = w
+				return true
+			}
+		}
+		return false
+	}, 10*time.Second, 100*time.Millisecond,
+		"detach-holder must free the branch and materialise the placeholder into a managed worktree (no LastError)")
+
+	require.FileExists(t, filepath.Join(final.LocalPath, ".git"),
+		"the materialised placeholder must be a real linked git worktree (.git pointer present)")
+	require.Equal(t, "locked", final.Status,
+		"a protected-branch worktree stays locked after materialisation")
+
+	// And: the repo home was moved to a detached HEAD — the branch is genuinely
+	// released, not merely reported as freed.
+	require.Equal(t, "HEAD", currentBranch(t, imported.repoPath),
+		"detach-holder leaves the repo home on a detached HEAD, releasing the branch")
 }
 
 // currentBranch returns dir's checked-out branch, or "HEAD" when detached.

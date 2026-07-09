@@ -56,9 +56,19 @@ func TestModelDriven_ResponseSinkNeverWedgesTeardown(t *testing.T) {
 		close(pumped)
 	}()
 
-	// Give the pump goroutine time to drive the queries through the emulator and
-	// (pre-fix) wedge on the blocked sink write while holding s.mu.
-	time.Sleep(200 * time.Millisecond)
+	// Wait for the pump to finish driving the burst before killing — but only
+	// as far as a real signal allows. On the FIXED code the bounded-queue sink
+	// never blocks the model write, so pumpStep returns and `pumped` closes
+	// promptly and we proceed at once. On the REGRESSED (direct-write) sink
+	// pumpStep wedges holding s.mu while its ptmx.Write blocks on the full
+	// pipe, so `pumped` never closes; the failsafe then lets us launch Kill
+	// anyway, and Kill's own s.mu.Lock deadlocks against the still-held pump —
+	// caught by the 5 s deadline below. The failsafe is a hang guard, not a
+	// timing assumption: the fixed code exits via `pumped`.
+	select {
+	case <-pumped:
+	case <-time.After(2 * time.Second):
+	}
 
 	killed := make(chan struct{})
 	go func() {

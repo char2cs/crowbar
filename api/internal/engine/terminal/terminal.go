@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"image/color"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,6 +37,16 @@ func ptyEnv() []string {
 		"COLORTERM": "truecolor",
 	}
 
+	// A GUI/launchd-launched daemon inherits launchd's minimal environment, which
+	// carries NO locale — so the PTY shell falls back to the POSIX "C" locale and
+	// mangles every non-ASCII byte (a typed argument or program output alike) into
+	// U+FFFD. Default a UTF-8 locale when the inherited environment specifies none,
+	// so "works in a real terminal, broken in the packaged app" glyph corruption
+	// cannot happen. Never overrides a user's own explicit locale.
+	if lang := defaultLocale(base, runtime.GOOS); lang != "" {
+		overrides["LANG"] = lang
+	}
+
 	// Replace any existing TERM/COLORTERM entries, then append the rest.
 	result := make([]string, 0, len(base)+len(overrides))
 	for _, entry := range base {
@@ -53,6 +65,41 @@ func ptyEnv() []string {
 		result = append(result, k+"="+v)
 	}
 	return result
+}
+
+// defaultLocale returns the UTF-8 LANG value ptyEnv should inject when the
+// inherited environment carries NO locale at all, or "" when a locale is already
+// present. It defaults ONLY when all three of LANG, LC_ALL and LC_CTYPE are
+// unset, so a user's explicit locale is never overridden. macOS ships no
+// C.UTF-8 locale, so darwin falls back to en_US.UTF-8; Linux (and CI) use the
+// locale-independent C.UTF-8 — keyed off goos so the choice is portable.
+func defaultLocale(
+	base []string,
+	goos string,
+) string {
+	for _, entry := range base {
+		if strings.HasPrefix(entry, "LANG=") ||
+			strings.HasPrefix(entry, "LC_ALL=") ||
+			strings.HasPrefix(entry, "LC_CTYPE=") {
+			return ""
+		}
+	}
+	if goos == "darwin" {
+		return "en_US.UTF-8"
+	}
+	return "C.UTF-8"
+}
+
+// DefaultLocaleForTest exposes the internal defaultLocale decision to the
+// package's external unit tests so they can assert ptyEnv's per-GOOS UTF-8
+// fallback for a synthetic environment without mutating the real process
+// environment. It returns the LANG value ptyEnv would inject for the given base
+// environment and GOOS, or "" when a locale is already set.
+func DefaultLocaleForTest(
+	base []string,
+	goos string,
+) string {
+	return defaultLocale(base, goos)
 }
 
 // parseHexColor converts the frontend's resolved CSS colour ("#rgb", "#rrggbb", or
@@ -75,6 +122,7 @@ func parseHexColor(s string) color.Color {
 	if err != nil {
 		return nil
 	}
+	//nolint:gosec // v is a parsed 24-bit hex colour; these shifts/masks extract the R/G/B bytes and cannot overflow uint8.
 	return color.RGBA{R: uint8(v >> 16), G: uint8(v >> 8), B: uint8(v), A: 0xff}
 }
 
@@ -158,14 +206,14 @@ type Engine interface {
 	// the process exit code captured by shutdown(); -1 if unknown (killed by
 	// signal, placeholder, or daemon restart).
 	OnSessionEnded(
-		fn func(ctx context.Context, workspaceID string, sessionID string, exitCode int),
+		fn func(ctx context.Context, workspaceID, sessionID string, exitCode int),
 	)
 
 	// OnSessionState registers the callback invoked when a session transitions
 	// to "detached" (last client disconnects or post-restore) or "suspended"
 	// (placeholder swap complete). The most recent registration wins.
 	OnSessionState(
-		fn func(ctx context.Context, workspaceID string, sessionID string, state string),
+		fn func(ctx context.Context, workspaceID, sessionID, state string),
 	)
 
 	// StateOf returns the current state string ("active", "detached", or
@@ -215,7 +263,7 @@ type Engine interface {
 // session whose WorkspaceID has concurrently vanished). Production always uses
 // *registry.Registry.
 type sessionRegistry interface {
-	Add(id string, workspaceID string, s *session.Session)
+	Add(id, workspaceID string, s *session.Session)
 	Get(id string) (*session.Session, bool)
 	Remove(id string)
 	List() []string
@@ -227,8 +275,8 @@ type terminalEngine struct {
 	reg sessionRegistry
 
 	mu         sync.RWMutex
-	onEnded    func(ctx context.Context, workspaceID string, sessionID string, exitCode int)
-	onState    func(ctx context.Context, workspaceID string, sessionID string, state string)
+	onEnded    func(ctx context.Context, workspaceID, sessionID string, exitCode int)
+	onState    func(ctx context.Context, workspaceID, sessionID, state string)
 	endedOnce  map[string]struct{}
 	metaStore  SessionMetaStore
 	lastActive map[string]time.Time // guarded by mu; set on last-client detach
@@ -503,7 +551,7 @@ func (e *terminalEngine) fireState(
 // OnSessionEnded registers the termination callback. The most recent
 // registration wins, mirroring the LSP engine's OnDiagnostics hook.
 func (e *terminalEngine) OnSessionEnded(
-	fn func(ctx context.Context, workspaceID string, sessionID string, exitCode int),
+	fn func(ctx context.Context, workspaceID, sessionID string, exitCode int),
 ) {
 	e.mu.Lock()
 	e.onEnded = fn
@@ -515,7 +563,7 @@ func (e *terminalEngine) OnSessionEnded(
 // and "suspended" (placeholder swap). Does not fire for "ended" — use
 // OnSessionEnded for that.
 func (e *terminalEngine) OnSessionState(
-	fn func(ctx context.Context, workspaceID string, sessionID string, state string),
+	fn func(ctx context.Context, workspaceID, sessionID, state string),
 ) {
 	e.mu.Lock()
 	e.onState = fn
@@ -840,7 +888,7 @@ func (e *terminalEngine) Attach(
 	}
 
 	// Restore-aware: if the registry holds a placeholder, restore it first.
-	if !s.IsLive() {
+	if !s.IsLive() { //nolint:nestif // restore-then-refetch-then-reattach ladder; the post-restore re-fetch guards are load-bearing
 		if err := e.restore(ctx, sessionID); err != nil {
 			return fmt.Errorf("terminal: attach: restore: %w", err)
 		}
@@ -986,6 +1034,8 @@ func trailingIncompleteUTF8(b []byte) int {
 // A trailing incomplete UTF-8 rune is held back (via pending) and prepended to
 // the next message so json.Marshal never corrupts a split multi-byte glyph to
 // U+FFFD — see trailingIncompleteUTF8.
+//
+//nolint:gocyclo // cohesive coalescing/UTF-8-holdback state machine; splitting it would obscure the single-drain-loop invariant.
 func (e *terminalEngine) writePump(
 	conn WSConn,
 	sessionID string,
@@ -1171,7 +1221,7 @@ func (e *terminalEngine) Kill(
 
 	// For placeholder sessions (suspended state), no reapOnDone goroutine is listening
 	// on s.Done(). Perform the cleanup and fire the ended callback inline.
-	if isPlaceholder && wsOK {
+	if isPlaceholder && wsOK { //nolint:nestif // inline teardown for a PTY-less placeholder (no reapOnDone runs); the buf/meta/map cleanup ordering is load-bearing
 		exitCode := s.ExitCode() // -1 for placeholders (no process)
 		dir, _ := e.storageDir(ctx, ws)
 		if dir != "" {
@@ -1250,7 +1300,7 @@ func (e *terminalEngine) Stats() (active, detached, suspended int, modelBytes in
 			suspended++
 		}
 	}
-	return
+	return active, detached, suspended, modelBytes, degraded, parsePanics
 }
 
 // getLastActive returns the stored last-active time for a session, or the zero
@@ -1368,6 +1418,8 @@ func (e *terminalEngine) flushSessionOnce(ctx context.Context, id string) {
 //
 // This method is called on the ticker and exposed to tests via
 // RunMaintenanceOnceForTest so tests can drive it directly without waiting 10 s.
+//
+//nolint:gocyclo,funlen // deliberately linear three-phase sweep (flush → soft limit → global ceiling); the phases share the registry snapshot and read top-to-bottom, so splitting them would only scatter the ordering contract.
 func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 	// -------------------------------------------------------------------------
 	// Phase 1: cadence flush — acquire/release the per-session lock per id so
@@ -1626,7 +1678,7 @@ func (e *terminalEngine) Shutdown() {
 		// lock, and the session's Done channel is closed only by s.Kill() which
 		// Shutdown calls AFTER releasing this lock.
 		unlock := e.lockSession(id)
-		if s.IsLive() {
+		if s.IsLive() { //nolint:nestif // graceful-shutdown flush+meta+mark sequence per live session; the ordering (persist before Kill) is the restart-restore contract
 			ws, wsOK := e.reg.WorkspaceID(id)
 			if wsOK {
 				// a) Flush scrollback to disk (best-effort; continue on error).

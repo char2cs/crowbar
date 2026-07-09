@@ -19,7 +19,7 @@ import (
 )
 
 // readUntil loop-reads from conn (under a deadline) until match returns true for
-// a decoded message, then returns that message. It avoids time.Sleep races: the
+// a decoded message, then returns that message. It avoids fixed-delay races: the
 // broadcast may be preceded by other projected rows on the same topic.
 func readUntil(
 	t *testing.T,

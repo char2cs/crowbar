@@ -23,7 +23,7 @@ type logGit struct {
 	err     error
 }
 
-func (g logGit) Log(_ context.Context, _ string, _ int, _ int) ([]gitdomain.Commit, error) {
+func (g logGit) Log(_ context.Context, _ string, _, _ int) ([]gitdomain.Commit, error) {
 	return g.commits, g.err
 }
 

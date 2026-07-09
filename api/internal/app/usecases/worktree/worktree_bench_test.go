@@ -9,17 +9,39 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
+
+// newWorkspaceRepo builds the singleton-backed workspace repository over the
+// adapter's per-type event store + read-model DB + view.db id↔path index, shutting
+// the asynx down before the adapter closes (it sits on the ES handle). Shared by
+// the worktree bench + integration harnesses.
+func newWorkspaceRepo(
+	tb testing.TB,
+	adapters *adapter.Container,
+) workspace.Workspace {
+	tb.Helper()
+	ax, err := asynx.New[domain.Workspace]().
+		WithEventStore(adapters.WorkspaceES()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+	require.NoError(tb, err)
+	tb.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	pathsStore, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
+	require.NoError(tb, err)
+	repo, err := workspace.New(ax, adapters.WorkspaceES(), adapters.WorkspaceView(), pathsStore)
+	require.NoError(tb, err)
+	return repo
+}
 
 // benchHarness holds the wired-up usecase and handles needed per benchmark run.
 type benchHarness struct {
@@ -40,17 +62,7 @@ func newBenchHarness(
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = adapters.Close() })
 
-	workspaces, err := workspace.New(
-		adapters,
-		func(context.Context, domain.Workspace) {},
-		func(es asynxModels.Store) (asynx.Asynx[domain.Workspace], error) {
-			return asynx.New[domain.Workspace]().
-				WithEventStore(es).
-				WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-				Build()
-		},
-	)
-	require.NoError(b, err)
+	workspaces := newWorkspaceRepo(b, adapters)
 
 	repos, err := storesqlite.NewFromDB[domain.Repository, string](adapters.GlobalView())
 	require.NoError(b, err)

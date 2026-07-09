@@ -423,11 +423,11 @@ func (u *projectImport) writeRepoIcon(
 		return false
 	}
 	iconPath := worktreepath.RepoIconPath(home, projectID, repoID)
-	if err := os.MkdirAll(filepath.Dir(iconPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(iconPath), 0o755); err != nil { //nolint:gosec // G301: repo icon dir lives under the user's own ~/.crowbar home; 0755 intentional
 		slog.WarnContext(ctx, "project import: create repo icon dir failed", "error", err)
 		return false
 	}
-	if err := os.WriteFile(iconPath, data, 0o644); err != nil {
+	if err := os.WriteFile(iconPath, data, 0o644); err != nil { //nolint:gosec // G306: repo icon is a non-sensitive display asset; 0644 intentional
 		slog.WarnContext(ctx, "project import: write repo icon failed", "error", err)
 		return false
 	}
@@ -442,7 +442,7 @@ func (u *projectImport) resolveIconBytes(
 	repoPath string,
 ) []byte {
 	if src := avatar.ScanRepoIcon(repoPath); src != "" {
-		if data, err := os.ReadFile(src); err == nil {
+		if data, err := os.ReadFile(src); err == nil { //nolint:gosec // G304: src is a repo-icon path discovered under the user's own imported repo, not external input
 			return data
 		}
 	}
@@ -563,16 +563,28 @@ func (u *projectImport) provisionProtectedBranchWorktree(
 	if err != nil {
 		return fmt.Errorf("resolve holder for %q: %w", branch, err)
 	}
-	switch outcome.Kind {
+	switch outcome.Kind { //nolint:exhaustive // holder.Free is intentionally handled by the code after the switch (free branch → provision a managed worktree)
 	case holder.HeldByManaged:
 		// Already represented by a managed workspace — never double-provision.
 		return nil
 	case holder.HeldByHome, holder.HeldByExternal:
 		return u.createPlaceholderWorkspace(ctx, repo, branch, outcome.HeldByPath)
 	}
-	// Free: provision the managed worktree.
+	// Free: provision the managed worktree at its human-readable derived path
+	// <home>/projects/<project>/<slug>/<branch> (spec §3.9).
 	wsID := uuid.NewString()
-	path := worktreepath.For(crowbarHome, repo.ProjectID, repo.ID, wsID)
+	slug := worktreepath.RemoteSlug(repo)
+	path, err := worktreepath.Derive(crowbarHome, repo.ProjectID, slug, branch)
+	if err != nil {
+		return fmt.Errorf("derive worktree path for %q: %w", branch, err)
+	}
+	siblings, err := siblingWorktreePaths(crowbarHome, repo.ProjectID, slug)
+	if err != nil {
+		return fmt.Errorf("scan sibling worktrees for %q: %w", branch, err)
+	}
+	if clashErr := worktreepath.DetectClash(siblings, path); clashErr != nil {
+		return fmt.Errorf("worktree path clash for %q: %w", branch, clashErr)
+	}
 	startSha, err := u.addProtectedWorktree(ctx, repo, branch, path)
 	if err != nil {
 		return err
@@ -661,7 +673,7 @@ func (u *projectImport) addProtectedWorktree(
 // a naive string compare would then never flag the main worktree as default.
 // Falls back to a lexical clean when a path cannot be resolved (e.g. it no
 // longer exists on disk).
-func samePath(a string, b string) bool {
+func samePath(a, b string) bool {
 	return resolvePath(a) == resolvePath(b)
 }
 
@@ -703,9 +715,32 @@ func (u *projectImport) validateImportPath(
 // gitRemoteURL returns the origin remote URL for the repo at path, or ""
 // on any failure so callers can fall back gracefully.
 func gitRemoteURL(repoPath string) string {
-	out, err := exec.Command("git", "-C", repoPath, "remote", "get-url", "origin").Output()
+	out, err := exec.Command("git", "-C", repoPath, "remote", "get-url", "origin").Output() //nolint:gosec // G204: fixed git subcommand; only the repo dir is variable, passed as -C <path> (no shell)
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// siblingWorktreePaths lists the existing branch-leaf worktrees under a repo's
+// derived slug directory, so a managed-worktree create can reject a
+// case-insensitive path clash (spec §3.9). A missing slug directory yields none.
+func siblingWorktreePaths(
+	crowbarHome string,
+	projectID string,
+	slug string,
+) ([]string, error) {
+	parent := filepath.Join(crowbarHome, "projects", projectID, slug)
+	entries, err := os.ReadDir(parent)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		paths = append(paths, filepath.Join(parent, entry.Name()))
+	}
+	return paths, nil
 }

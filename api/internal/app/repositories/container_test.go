@@ -3,12 +3,13 @@ package repositories_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -46,13 +48,20 @@ func newAdapter(
 	return c
 }
 
-func wsFactory(
-	es asynxModels.Store,
-) (asynx.Asynx[domain.Workspace], error) {
-	return asynx.New[domain.Workspace]().
-		WithEventStore(es).
+// wsAx builds the singleton workspace asynx over the adapter's per-type event
+// store — the same handle workspace.New/store.New project onto.
+func wsAx(
+	t *testing.T,
+	ad *adapter.Container,
+) asynx.Asynx[domain.Workspace] {
+	t.Helper()
+	a, err := asynx.New[domain.Workspace]().
+		WithEventStore(ad.WorkspaceES()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
+	return a
 }
 
 type captureHub struct {
@@ -106,13 +115,13 @@ func newContainer(
 	h hub.WebSocketHub,
 ) *repositories.Container {
 	t.Helper()
+	ad := newAdapter(t)
 	c, err := repositories.New(
 		context.Background(),
-		newAdapter(t),
+		ad,
 		h,
-		ax[domain.Chat](t),
 		ax[domain.ReviewThread](t),
-		wsFactory,
+		wsAx(t, ad),
 		nil,
 	)
 	require.NoError(t, err)
@@ -122,18 +131,16 @@ func newContainer(
 func TestContainer_New_BuildsRepos(t *testing.T) {
 	c := newContainer(t, hub.NewHub())
 	assert.NotNil(t, c.Workspace)
-	assert.NotNil(t, c.Chat)
 	assert.NotNil(t, c.ReviewThread)
 }
 
-func TestContainer_New_NilFactoryReturnsError(t *testing.T) {
+func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 	_, err := repositories.New(
 		context.Background(),
 		newAdapter(t),
 		hub.NewHub(),
-		ax[domain.Chat](t),
 		ax[domain.ReviewThread](t),
-		nil,
+		nil, // nil axWorkspace → workspace.New rejects
 		nil,
 	)
 	assert.Error(t, err)
@@ -152,13 +159,11 @@ func TestContainer_CreateWorkspace_ProjectsAndBroadcasts(t *testing.T) {
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		list, listErr := c.Workspace.List(ctx)
-		return listErr == nil && len(list) == 1
-	}, time.Second, 5*time.Millisecond)
+	c.WaitQuiescent()
 
 	list, err := c.Workspace.List(ctx)
 	require.NoError(t, err)
+	require.Len(t, list, 1)
 	assert.Equal(t, "w1", list[0].ID)
 	assert.GreaterOrEqual(t, h.count(), 1)
 }
@@ -176,10 +181,11 @@ func TestBroadcastWorkspace_WorkingFalse(t *testing.T) {
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		working, ok := h.lastWorking("w1")
-		return ok && !working
-	}, time.Second, 5*time.Millisecond)
+	c.WaitQuiescent()
+
+	working, ok := h.lastWorking("w1")
+	require.True(t, ok)
+	assert.False(t, working)
 }
 
 // TestContainer_ListWorkspaces_NoWorkingOverlay asserts the snapshot source
@@ -193,10 +199,7 @@ func TestContainer_ListWorkspaces_NoWorkingOverlay(t *testing.T) {
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		list, listErr := c.Workspace.List(ctx)
-		return listErr == nil && len(list) == 1
-	}, time.Second, 5*time.Millisecond)
+	c.WaitQuiescent()
 
 	rows, err := c.ListWorkspaces(ctx)
 	require.NoError(t, err)
@@ -218,10 +221,9 @@ func TestContainer_BeginEndWork_BroadcastsWorkingOverlay(t *testing.T) {
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		_, ok := h.last("w1")
-		return ok
-	}, time.Second, 5*time.Millisecond)
+	c.WaitQuiescent()
+	_, seen := h.last("w1")
+	require.True(t, seen, "create must broadcast the workspace row")
 
 	c.BeginWork(ctx, "w1")
 	working, ok := h.lastWorking("w1")
@@ -268,10 +270,7 @@ func TestContainer_ListWorkspaces_WorkingOverlay(t *testing.T) {
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		list, listErr := c.Workspace.List(ctx)
-		return listErr == nil && len(list) == 1
-	}, time.Second, 5*time.Millisecond)
+	c.WaitQuiescent()
 
 	c.BeginWork(ctx, "w1")
 	rows, err := c.ListWorkspaces(ctx)
@@ -298,15 +297,19 @@ func TestBroadcastWorkspace_ResolvesMergeEligibility(t *testing.T) {
 		ID: "parent", RepoID: "r1", ProjectID: "p1", Branch: "main",
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
+	// Drain the parent's store projection before creating the child. The child's
+	// hub frame resolves merge eligibility by reading its repo siblings, so the
+	// parent row must already be in the read model when the child event is
+	// projected. Without this barrier the child's single broadcast races the
+	// parent's projection across the two concurrent per-aggregate workers, and
+	// CanMergeLocally would be non-deterministic. This makes it deterministic.
+	c.WaitQuiescent()
 	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "child", RepoID: "r1", ProjectID: "p1", Branch: "feat", ParentID: "parent",
 	}, time.Unix(2, 0).UTC())
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		d, ok := h.last("child")
-		return ok && d.CanMergeLocally
-	}, time.Second, 5*time.Millisecond)
+	c.WaitQuiescent()
 
 	child, ok := h.last("child")
 	require.True(t, ok)
@@ -338,47 +341,109 @@ func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 	assert.Nil(t, rows)
 }
 
-func TestContainer_ListWorkspacesInRepo_ScopesToRepo(t *testing.T) {
+// TestContainer_WireCallbacks_DeleteCascade pins the cross-aggregate delete
+// cascade wireCallbacks wires (Task 14, spec §3.6): deleting a workspace fires the
+// pure Delete command, and the async delete reactor — gated on the persisted
+// "deleted" tombstone — forgets every review thread anchored to the workspace
+// (their rows vanish), rm -rf's the worktree, and Forgets the workspace aggregate
+// (dropping its read-model row). Before wireCallbacks was wired, Delete only
+// tombstoned the row and nothing purged, so this cascade never converged.
+func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	ctx := context.Background()
-	c := newContainer(t, &captureHub{})
+	ad := newAdapter(t)
+	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), nil)
+	require.NoError(t, err)
 
-	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
-		ID: "w1", ProjectID: "p1", RepoID: "r1", Branch: "b",
+	// A real MANAGED worktree UNDER the crowbar home: the delete reactor's rm is
+	// guarded to the home (an adopted checkout outside the home is never touched, so
+	// a delete can never destroy a user's real repository), so the reaped worktree
+	// must live under <home>/projects/... like a real crowbar-managed one.
+	worktree := filepath.Join(ad.CrowbarHome(), "projects", "p1", "managed", "b")
+	require.NoError(t, os.MkdirAll(worktree, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, "f"), []byte("x"), 0o600))
+
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b", WorktreePath: worktree,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
-	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
-		ID: "w2", ProjectID: "p1", RepoID: "r2", Branch: "b",
+
+	// A review thread anchored to the workspace: the cascade must forget it.
+	_, err = c.ReviewThread.Open(ctx, reviewthread.OpenInput{
+		ID: "t1", WsID: "w1", FilePath: "a.go", MessageID: "m1", Author: "u", Body: "hi",
 	}, time.Unix(2, 0).UTC())
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		rows, listErr := c.ListWorkspacesInRepo(ctx, "p1", "r1")
-		return listErr == nil && len(rows) == 1
-	}, time.Second, 5*time.Millisecond)
-
-	rows, err := c.ListWorkspacesInRepo(ctx, "p1", "r1")
+	// The thread's read-model row must be present before we delete, so the cascade
+	// has a row to forget.
+	c.WaitQuiescent()
+	threads, err := c.ReviewThread.ListByWorkspace(ctx, "w1")
 	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	assert.Equal(t, "w1", rows[0].ID)
-}
-
-func TestContainer_BroadcastWorkspace_DeletedRemovesFromDirectory(t *testing.T) {
-	ctx := context.Background()
-	c := newContainer(t, &captureHub{})
-
-	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
-		ID: "w1", ProjectID: "p1", RepoID: "r1", Branch: "b",
-	}, time.Unix(1, 0).UTC())
-	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		rows, listErr := c.ListWorkspacesInRepo(ctx, "p1", "r1")
-		return listErr == nil && len(rows) == 1
-	}, time.Second, 5*time.Millisecond)
+	require.Len(t, threads, 1)
 
 	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
 
-	require.Eventually(t, func() bool {
-		rows, listErr := c.ListWorkspacesInRepo(ctx, "p1", "r1")
-		return listErr == nil && len(rows) == 0
-	}, time.Second, 5*time.Millisecond)
+	// The async delete reactor cascades: review threads forgotten (rows gone),
+	// worktree removed, workspace aggregate Forgotten (read-model row gone). The
+	// reactor detaches into a drainWG-tracked goroutine (its terminal Forget is a
+	// SendWait that cannot run on the bus goroutine), so draining the projection
+	// queues alone would not cover it. First WaitQuiescent so the delete event is
+	// dispatched — the reactor has joined drainWG (onEvent's Add(1)) and the store
+	// projection has written the tombstone the reactor gates on — then block on the
+	// reactor's own drain WaitGroup for the cascade to finish, then WaitQuiescent
+	// again to settle the follow-on Forget/DeleteThread projections. Deterministic.
+	c.WaitQuiescent()
+	c.Drain().WG.Wait()
+	c.WaitQuiescent()
+
+	threads, err = c.ReviewThread.ListByWorkspace(ctx, "w1")
+	require.NoError(t, err)
+	assert.Empty(t, threads)
+	rows, err := c.Workspace.List(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+	_, statErr := os.Stat(worktree)
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+// TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout pins the delete-cascade
+// DATA-LOSS guard: an adopted home/main workspace's WorktreePath is the user's REAL
+// checkout (repo.Path/project.Path), which lives OUTSIDE the crowbar home. Deleting
+// it must reap the record while the async reactor's rm — guarded to the crowbar home
+// — leaves the on-disk checkout untouched. An unguarded os.RemoveAll here would
+// os.RemoveAll the user's repository (the regression this guard prevents).
+func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
+	ctx := context.Background()
+	ad := newAdapter(t)
+	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), nil)
+	require.NoError(t, err)
+
+	// The user's real checkout, OUTSIDE the crowbar home (an adopted worktree).
+	adopted := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(adopted, "README.md"), []byte("real"), 0o600))
+
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "home1", RepoID: "r1", ProjectID: "p1", Branch: "main",
+		WorktreePath: adopted, Kind: domain.WorkspaceKindHome,
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+
+	require.NoError(t, c.Workspace.Delete(ctx, "home1"))
+
+	// The record is reaped (aggregate Forgotten, read-model row gone) ... The reactor
+	// runs the cascade in a drainWG-tracked goroutine: WaitQuiescent so the delete
+	// event is dispatched (reactor joined drainWG + tombstone written), block on the
+	// reactor drain for the goroutine to finish, then WaitQuiescent to settle the
+	// terminal Forget projection that drops the row. Deterministic, no polling.
+	c.WaitQuiescent()
+	c.Drain().WG.Wait()
+	c.WaitQuiescent()
+
+	rows, err := c.Workspace.List(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, rows, "the deleted workspace record must be reaped")
+
+	// ... but the user's real checkout on disk must survive untouched.
+	_, statErr := os.Stat(filepath.Join(adopted, "README.md"))
+	require.NoError(t, statErr,
+		"an adopted checkout outside the crowbar home must never be rm'd by a workspace delete")
 }

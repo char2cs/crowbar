@@ -36,6 +36,8 @@ import (
 // name: :projectId, :repoId, and :wsId are each defined exactly once by their
 // group, so endpoints below them mount "/workspaces/:wsId/..."-relative paths
 // without redefining the param.
+//
+//nolint:funlen // Flat route-wiring table: one Register call per endpoint group. Splitting it would scatter the mount order across helpers and obscure the nesting the doc comment describes.
 func (c *Container) Register(
 	rg *gin.RouterGroup,
 ) {
@@ -112,10 +114,6 @@ func (c *Container) Register(
 		c.workspaces.Handle,
 		ws.DualServe,
 	)
-	// TODO: chat WebSocket surface removed per D11; the chat domain, repo CRUD,
-	// and usecase remain dormant. Re-mount chat routes when multi-agent
-	// conversations land:
-	// /v0/projects/:p/repos/:r/workspaces/:w/chats
 	files.Register(
 		repoScoped,
 		c.app.Usecases.File,

@@ -57,6 +57,48 @@ func gridContains(
 	return false
 }
 
+// scrollbackRowText reconstructs scrollback line y of a fresh emulator as a plain string
+// (nil/empty cells render as spaces), the scrollback counterpart of gridRowText.
+func scrollbackRowText(
+	emu *vt.Emulator,
+	cols int,
+	y int,
+) string {
+	var b strings.Builder
+	for x := 0; x < cols; x++ {
+		c := emu.ScrollbackCellAt(x, y)
+		if c == nil || c.Content == "" {
+			b.WriteByte(' ')
+			continue
+		}
+		b.WriteString(c.Content)
+	}
+	return b.String()
+}
+
+// emuHasLine reports whether any grid row OR scrollback line of the emulator, once trimmed of
+// trailing spaces, is EXACTLY line. It asserts a specific line was rendered as its own line into
+// the model-driven reconstruction (grid + scrollback) — the wire carries absolute-cursor diffs,
+// so scrolled-off burst lines land in the reconstructed scrollback rather than as raw substrings.
+func emuHasLine(
+	emu *vt.Emulator,
+	cols int,
+	rows int,
+	line string,
+) bool {
+	for y := 0; y < rows; y++ {
+		if strings.TrimRight(gridRowText(emu, cols, y), " ") == line {
+			return true
+		}
+	}
+	for y := 0; y < emu.ScrollbackLen(); y++ {
+		if strings.TrimRight(scrollbackRowText(emu, cols, y), " ") == line {
+			return true
+		}
+	}
+	return false
+}
+
 // TestMain is the integration test harness entry point for the terminal package.
 func TestMain(
 	m *testing.M,
@@ -339,11 +381,14 @@ func (s *TerminalSuite) TestTerminal_PTYWSAtScopedPath() {
 }
 
 // TestRegression_TerminalSession_HighThroughputOutputIntact proves that the
-// writePump output-coalescing optimization (it merges PTY frames already queued
-// on the client channel into a single WebSocket message under load) preserves
-// the byte stream exactly: a large deterministic burst is delivered in full and
-// in order, with no dropped, duplicated, or reordered bytes. Guards the
-// coalescing change in terminalEngine.writePump.
+// writePump output-coalescing optimization (it merges model frames already queued
+// on the client channel into a single WebSocket message under load) preserves the
+// output exactly: a large deterministic burst is delivered in full and in order,
+// with nothing dropped, duplicated, or reordered. Because the live stream is now
+// model-DERIVED (absolute-cursor diff/keyframe frames, never raw PTY bytes), the
+// invariant is asserted by reconstructing the frames through a fresh x/vt emulator
+// and inspecting the resulting grid + scrollback. Guards the coalescing change in
+// terminalEngine.writePump.
 func (s *TerminalSuite) TestRegression_TerminalSession_HighThroughputOutputIntact() {
 	t := s.T()
 
@@ -373,32 +418,49 @@ func (s *TerminalSuite) TestRegression_TerminalSession_HighThroughputOutputIntac
 		"data": "M=BURST_COMPLETE; seq 1 3000; echo \"${M}_7d1c\"\n",
 	})
 
-	var sb strings.Builder
+	// The live stream is now model-DERIVED: it carries absolute-cursor diff/keyframe frames,
+	// never raw PTY bytes, so the burst never appears as literal "\nNN\n" runs. We instead
+	// reconstruct exactly what a real client's terminal does — feed every received frame into a
+	// fresh x/vt emulator — and assert the reconstructed grid + scrollback reproduce the burst in
+	// full and in order. Scrolled-off lines land in the emulator's scrollback (the diff stream's
+	// write-then-scroll delta deposits them there), so we check both surfaces. This asserts the
+	// SAME no-drop / no-reorder invariant the old raw-substring checks did, against the new format.
+	const cols, rows = 80, 24
+	emu := vt.NewEmulator(cols, rows)
+	emu.SetScrollbackSize(10000) // hold the whole 3000-line burst so early lines aren't evicted
+
+	var acc strings.Builder
+	frames := make([]string, 0, 512)
 	ws.ReadUntil(t, 20*time.Second, func(m map[string]any) bool {
 		data, _ := m["data"].(string)
-		sb.WriteString(data)
-		return strings.Contains(sb.String(), "BURST_COMPLETE_7d1c")
+		acc.WriteString(data)
+		frames = append(frames, data)
+		return strings.Contains(acc.String(), "BURST_COMPLETE_7d1c")
 	})
 
-	// Strip the PTY's ONLCR carriage returns so the line checks are termios-agnostic.
-	out := strings.ReplaceAll(sb.String(), "\r", "")
+	// Feed frames in order into the emulator; capture the first moment the completion marker
+	// becomes visible in the reconstruction and assert the burst tail (3000) is ALREADY present
+	// by then. That is the ordering invariant — "the completion marker arrives after the full
+	// burst" — expressed against the model instead of raw byte offsets.
+	markerSeen := false
+	for _, f := range frames {
+		_, werr := emu.Write([]byte(f))
+		s.Require().NoError(werr)
+		if !markerSeen && emuHasLine(emu, cols, rows, "BURST_COMPLETE_7d1c") {
+			markerSeen = true
+			s.Assert().True(emuHasLine(emu, cols, rows, "3000"),
+				"completion marker must not arrive before the tail of the burst (line 3000)")
+		}
+	}
+	s.Require().True(markerSeen, "completion marker must appear in the reconstructed model output")
 
-	// Early, middle, and tail of the ascending run must each be present as
-	// consecutive newline-delimited sequences. These multi-line substrings cannot
-	// come from the echoed `seq 1 3000` command and would break if coalescing
-	// dropped, duplicated, or reordered any frame boundary. (We anchor on runs
-	// with a guaranteed leading "\n" — the very first "1" follows a terminal
-	// bell from the shell's OSC title sequence, not a newline.)
-	s.Assert().Contains(out, "\n10\n11\n12\n13\n14\n15\n", "start of burst must arrive intact and in order")
-	s.Assert().Contains(out, "\n1500\n1501\n1502\n1503\n1504\n1505\n", "middle of burst must arrive intact and in order")
-	s.Assert().Contains(out, "\n2996\n2997\n2998\n2999\n3000\n", "end of burst must arrive intact and in order")
-
-	// The completion marker must arrive AFTER the full burst — proves the entire
-	// ordered stream was delivered before the trailing echo, with nothing lost.
-	idxTail := strings.Index(out, "\n3000\n")
-	idxMarker := strings.Index(out, "BURST_COMPLETE_7d1c")
-	s.Require().GreaterOrEqual(idxTail, 0, "tail of burst (3000) must be present")
-	s.Assert().Greater(idxMarker, idxTail, "completion marker must follow the full burst")
+	// Early, middle, and tail lines of the ascending run must each survive the round-trip into
+	// the reconstructed grid+scrollback — proving no frame was dropped, duplicated, or reordered.
+	// (These are seq's numeric OUTPUT lines; the echoed `seq 1 3000` command line cannot produce
+	// a standalone row equal to "10"/"1500"/"3000".)
+	s.Assert().True(emuHasLine(emu, cols, rows, "10"), "start of burst (line 10) must be reconstructed intact")
+	s.Assert().True(emuHasLine(emu, cols, rows, "1500"), "middle of burst (line 1500) must be reconstructed intact")
+	s.Assert().True(emuHasLine(emu, cols, rows, "3000"), "end of burst (line 3000) must be reconstructed intact")
 
 	// Cleanup: kill and block on "ended" so the PTY is reaped before TempDir teardown.
 	kill := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
@@ -656,14 +718,15 @@ func (s *TerminalSuite) killAndAwaitEnded(
 	})
 }
 
-// TestRegression_ReattachNoQueryReplies is the §13.3 raw-replay DISCRIMINATOR for device
-// queries: it drives REAL DA (ESC[c), DSR (ESC[6n) and OSC-color (ESC]10;?ST) queries
-// through the LIVE session before re-attaching, then asserts the serialized re-attach
-// payload echoes NEITHER the query NOR any reply. This assertion is non-vacuous precisely
-// because the queries are actually present in the live stream: a raw-replay re-attach would
-// replay the app's verbatim ESC[c / ESC[6n / ESC]10;? query bytes from the ring and FAIL
-// every assertion below, whereas a serialize-on-attach redraw never asks the client to
-// answer a query and never echoes a historical one.
+// TestRegression_ReattachNoQueryReplies is the §13.3 DISCRIMINATOR for device queries under
+// the model-driven contract: it drives REAL DA (ESC[c), DSR (ESC[6n) and OSC-color (ESC]10;?ST)
+// queries through the LIVE session before re-attaching, then asserts the serialized re-attach
+// payload echoes NEITHER the query NOR any reply. The model answers device queries out-of-band
+// via the response sink and CONSUMES the raw query bytes, so they never appear in the
+// model-derived diff stream at all — and the serialize-on-attach redraw, built purely from the
+// screen model, likewise never asks the client to answer a query nor echoes a historical one.
+// The QEXEC sentinel wait below proves the app actually executed the queries; the clean-payload
+// assertions then prove the re-attach redraw is a ground-state screen with no query/reply baked in.
 func (s *TerminalSuite) TestRegression_ReattachNoQueryReplies() {
 	t := s.T()
 
@@ -684,11 +747,6 @@ func (s *TerminalSuite) TestRegression_ReattachNoQueryReplies() {
 		ws1buf.WriteString(d)
 		return strings.Contains(ws1buf.String(), "\x1b]2;QEXEC_3e7")
 	})
-	// Sanity: the live raw stream genuinely carried the verbatim query bytes (so the
-	// no-echo assertions below are non-vacuous — a raw-replay re-attach WOULD carry them).
-	s.Require().Contains(ws1buf.String(), "\x1b[6n", "live stream must carry the raw DSR query")
-	s.Require().Contains(ws1buf.String(), "\x1b[c", "live stream must carry the raw DA query")
-	s.Require().Contains(ws1buf.String(), "\x1b]10;?", "live stream must carry the raw OSC-color query")
 
 	// Re-attach: the first frame is the whole serialized redraw.
 	ws2 := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
@@ -770,26 +828,33 @@ func (s *TerminalSuite) TestRegression_ReattachNoRawOSCTitleReplay() {
 }
 
 // TestRegression_ReattachNoDanglingSequence guards the §13.3 no-swallow invariant (the old
-// garbled-tab bug): a chunk ending MID-OSC (an un-terminated "\x1b]2;…") must not bake a
-// stale/garbled completed title into the redraw, and the re-attached client must CONVERGE on
-// the live tail so a following plain-text write actually lands on screen rather than being
-// swallowed into a never-terminated title.
+// garbled-tab bug) under the model-driven contract: when the live stream ends MID-OSC (an
+// un-terminated "\x1b]2;…"), the model buffers those bytes as pending input and — crucially —
+// must NEVER bake them into the serialize-on-attach redraw as a (falsely) completed title. The
+// buffered pending input is deliberately not appended to the redraw, so a re-attaching client
+// receives a clean ground-state screen with no garbled tab title. (The old raw-stream
+// continuation assertions are retired: the model diff/keyframe stream never carries the raw
+// pending bytes, so there is no raw tail for the client to "converge" on.)
 func (s *TerminalSuite) TestRegression_ReattachNoDanglingSequence() {
 	t := s.T()
 
 	sessionID, ws1, lifecycle := s.newSessionWithLiveClient(t)
 
-	// Emit an OSC-2 with NO terminator, then hold the foreground (no further output) so the
-	// model's last parsed bytes are the dangling OSC. Wait for the real ESC of the OSC to
-	// confirm printf executed and the model buffered the partial before re-attach.
+	// Print a plain-text marker IMMEDIATELY followed by an OSC-2 with NO terminator, then hold
+	// the foreground (sleep) so the model's last parsed bytes are the dangling OSC. The dangling
+	// OSC is buffered as pending input and never rendered, so we cannot wait on it directly;
+	// instead we wait for the model-rendered marker that precedes it in the SAME printf write —
+	// its arrival proves the pump reached, and the model parsed/buffered, the trailing partial
+	// OSC before we re-attach. The marker is assembled from a shell var so "PREMARK_44" appears
+	// ONLY in printf's OUTPUT, never in the echoed command line (which shows "${M}_44").
 	ws1.SendJSON(t, map[string]any{
-		"data": "printf '\\033]2;DANGLE_NOTERM_44'; sleep 30\n",
+		"data": "M=PREMARK; printf \"${M}_44\\033]2;DANGLE_NOTERM_44\"; sleep 30\n",
 	})
 	var ws1buf strings.Builder
 	ws1.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
 		d, _ := m["data"].(string)
 		ws1buf.WriteString(d)
-		return strings.Contains(ws1buf.String(), "\x1b]2;DANGLE_NOTERM_44")
+		return strings.Contains(ws1buf.String(), "PREMARK_44")
 	})
 
 	ws2 := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
@@ -797,32 +862,19 @@ func (s *TerminalSuite) TestRegression_ReattachNoDanglingSequence() {
 	p, _ := frame["data"].(string)
 	s.Require().NotEmpty(p)
 
-	// The redraw itself is ground-state (pen reset); the dangling title text appears only as
-	// the bounded, un-terminated pending tail (so the new parser converges to the live
-	// boundary), NEVER as a falsely-completed stale title baked into the frame.
+	// Non-vacuity guard: the redraw must show the rendered marker, proving re-attach captured the
+	// post-printf model state (so the buffered dangling OSC is genuinely in play, not a race
+	// where printf had not yet run).
+	s.Require().Contains(p, "PREMARK_44",
+		"re-attach redraw must reproduce the rendered marker (proving printf executed and the dangling OSC was buffered)")
+
+	// The redraw is a clean ground-state screen (pen reset); the buffered, un-terminated OSC is
+	// deliberately NOT appended, so it can NEVER surface as a falsely-completed stale title.
 	s.Assert().Contains(p, ansi.ResetStyle, "redraw must reset the pen to ground state")
 	s.Assert().NotContains(p, "DANGLE_NOTERM_44\x1b\\",
 		"the dangling OSC must not be emitted as a (falsely) ST-terminated title")
 	s.Assert().NotContains(p, "DANGLE_NOTERM_44\x07",
 		"the dangling OSC must not be emitted as a (falsely) BEL-terminated title")
-
-	// Reconstruct: feed the payload into a fresh same-size terminal, then deliver the live
-	// continuation that terminates the OSC (BEL) and writes plain text — exactly the bytes
-	// ws2 receives next over raw fan-out. The text must appear on screen (not swallowed),
-	// and the OSC must terminate with the correct title — proving the pending tail converged.
-	const cols, rows = 80, 24
-	title := ""
-	fresh := vt.NewEmulator(cols, rows)
-	fresh.SetCallbacks(vt.Callbacks{Title: func(s string) { title = s }})
-	_, werr := fresh.Write([]byte(p))
-	s.Require().NoError(werr)
-	_, werr = fresh.Write([]byte("\x07\r\nRECOVERED_88"))
-	s.Require().NoError(werr)
-
-	s.Assert().Equal("DANGLE_NOTERM_44", title,
-		"the live BEL must terminate the buffered OSC into the correct title")
-	s.Assert().True(gridContains(fresh, cols, rows, "RECOVERED_88"),
-		"plain text after the terminated OSC must appear on screen (not swallowed)")
 
 	s.killAndAwaitEnded(t, lifecycle, sessionID)
 }

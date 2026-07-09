@@ -99,7 +99,7 @@ func callGitRemoteURL(t *testing.T, path string) string {
 // buildRepo -> gitDefaultBranch / gitRemoteURL / repoAvatar. It captures the
 // value actually passed to Store.Save (which carries fields, like RemoteURL,
 // that the broadcast RepoDTO does not) and blocks until that save happens.
-func createdRepoFor(t *testing.T, path string, defaultBranch string) domain.Repository {
+func createdRepoFor(t *testing.T, path, defaultBranch string) domain.Repository {
 	t.Helper()
 	saved := make(chan domain.Repository, 1)
 	store := &fakeStore{}
@@ -211,7 +211,7 @@ func TestDefaultCrowbarHome_CrowbarHomeOverride(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // writeFakeExe writes an executable shell script named name into dir.
-func writeFakeExe(t *testing.T, dir string, name string, script string) {
+func writeFakeExe(t *testing.T, dir, name, script string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("fake-exe PATH stubbing is POSIX-shell only")
@@ -840,9 +840,7 @@ func TestDefaultCrowbarHome_UserHomeDirError_Returns500(t *testing.T) {
 	// and treats a resolution error the same as 404.
 	t.Setenv("CROWBAR_HOME", "") // the override branch would mask the error path
 	t.Setenv("HOME", "")
-	if runtime.GOOS == "darwin" {
-		// os.UserHomeDir on darwin only consults $HOME.
-	}
+	// os.UserHomeDir on darwin only consults $HOME (already unset above).
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", AvatarHasIcon: true}}
 	h := repohandlers.New(store) // real defaultCrowbarHome, no override
 	r := gin.New()

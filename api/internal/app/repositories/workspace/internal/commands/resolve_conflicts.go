@@ -49,10 +49,9 @@ func (c ResolveConflicts) EmitEvent(
 	ws := *current
 	ws.LastActivity = c.Now
 	if ws.Status == domain.WorkspaceStatusPRConflicts {
+		ws.Status = domain.WorkspaceStatusNew
 		if ws.PRUrl != "" {
 			ws.Status = domain.WorkspaceStatusPROpen
-		} else {
-			ws.Status = domain.WorkspaceStatusNew
 		}
 	}
 	return ws

@@ -160,4 +160,4 @@ func TestNewWatcher_ReturnsNonNil(t *testing.T) {
 	require.NotNil(t, w)
 }
 
-var _ tree.StatusProvider = nullProvider{} //nolint:unused
+var _ tree.StatusProvider = nullProvider{}

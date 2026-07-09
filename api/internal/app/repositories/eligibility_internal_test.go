@@ -36,22 +36,6 @@ func (s stubWorkspaceRepo) ListInRepo(
 	return s.rows, s.err
 }
 
-// nopDirectory is a no-op workspacedir.Directory stub for tests that
-// construct a Container directly (bypassing New) and only exercise
-// eligibility resolution, not the workspace_directory projection itself.
-type nopDirectory struct{}
-
-func (nopDirectory) Upsert(context.Context, domain.Workspace) error { return nil }
-func (nopDirectory) Delete(context.Context, string) error           { return nil }
-func (nopDirectory) ListByRepo(
-	context.Context,
-	string,
-	string,
-) ([]domain.Workspace, error) {
-	return nil, nil
-}
-func (nopDirectory) Rebuild(context.Context, []domain.Workspace) error { return nil }
-
 type discardHub struct {
 	last dto.WorkspaceDTO
 }
@@ -69,7 +53,6 @@ func TestBroadcastWorkspace_NoParent_EmptyEligibility(t *testing.T) {
 	c := &Container{
 		hub:       h,
 		Workspace: stubWorkspaceRepo{},
-		directory: nopDirectory{},
 	}
 
 	c.broadcastWorkspace(context.Background(), domain.Workspace{ID: "w1", ProjectID: "p1", RepoID: "r1"})
@@ -83,7 +66,6 @@ func TestBroadcastWorkspace_ListError_DegradesToEmptyEligibility(t *testing.T) {
 	c := &Container{
 		hub:       h,
 		Workspace: stubWorkspaceRepo{err: errors.New("list failed")},
-		directory: nopDirectory{},
 	}
 
 	c.broadcastWorkspace(
@@ -105,7 +87,6 @@ func TestBroadcastWorkspace_SkipsWrongRepoSiblings(t *testing.T) {
 			{ID: "parent", ProjectID: "p1", RepoID: "rX", Branch: "wrong"},
 			{ID: "parent", ProjectID: "p1", RepoID: "r1", Branch: "main"},
 		}},
-		directory: nopDirectory{},
 	}
 
 	c.broadcastWorkspace(
@@ -124,7 +105,6 @@ func TestBroadcastWorkspace_ParentMissing_EmptyEligibility(t *testing.T) {
 		Workspace: stubWorkspaceRepo{rows: []domain.Workspace{
 			{ID: "other", ProjectID: "p1", RepoID: "r1", Branch: "x"},
 		}},
-		directory: nopDirectory{},
 	}
 
 	c.broadcastWorkspace(
@@ -143,7 +123,6 @@ func TestBroadcastWorkspace_ParentLocked_NotEligible(t *testing.T) {
 		Workspace: stubWorkspaceRepo{rows: []domain.Workspace{
 			{ID: "parent", ProjectID: "p1", RepoID: "r1", Branch: "main", Status: domain.WorkspaceStatusLocked},
 		}},
-		directory: nopDirectory{},
 	}
 
 	c.broadcastWorkspace(

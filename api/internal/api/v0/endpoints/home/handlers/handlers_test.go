@@ -54,25 +54,31 @@ func (m *mockProjectReader) FindByKey(ctx context.Context, id string) (*domain.P
 
 type stubFiles struct{}
 
-func (s *stubFiles) Tree(_ context.Context, _ string, _ string, _ fileusecase.FileStatusProvider) ([]domain.FileNode, error) {
+func (s *stubFiles) Tree(_ context.Context, _, _ string, _ fileusecase.FileStatusProvider) ([]domain.FileNode, error) {
 	return []domain.FileNode{}, nil
 }
-func (s *stubFiles) ReadContent(_ context.Context, _ string, _ string) (domain.FileContent, error) {
+
+func (s *stubFiles) ReadContent(_ context.Context, _, _ string) (domain.FileContent, error) {
 	return domain.FileContent{}, nil
 }
-func (s *stubFiles) WriteContent(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+
+func (s *stubFiles) WriteContent(_ context.Context, _, _, _ string, _ time.Time) error {
 	return nil
 }
-func (s *stubFiles) CreateFile(_ context.Context, _ string, _ string, _ time.Time) error {
+
+func (s *stubFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) error {
 	return nil
 }
-func (s *stubFiles) CreateDir(_ context.Context, _ string, _ string, _ time.Time) error {
+
+func (s *stubFiles) CreateDir(_ context.Context, _, _ string, _ time.Time) error {
 	return nil
 }
-func (s *stubFiles) Rename(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+
+func (s *stubFiles) Rename(_ context.Context, _, _, _ string, _ time.Time) error {
 	return nil
 }
-func (s *stubFiles) Delete(_ context.Context, _ string, _ string, _ time.Time) error {
+
+func (s *stubFiles) Delete(_ context.Context, _, _ string, _ time.Time) error {
 	return nil
 }
 

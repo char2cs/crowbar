@@ -747,10 +747,14 @@ func TestMaintenance_Phase3aIdleSuspend(t *testing.T) {
 	SetLastActiveForTest(e, sid1, base)
 	SetLastActiveForTest(e, sid2, base.Add(time.Minute))
 
-	e.runMaintenanceOnce(ctx)
-	time.Sleep(200 * time.Millisecond)
-
-	assert.True(t, store.savedState(sid1, "suspended"), "the oldest idle session must be suspended")
+	// Suspend runs synchronously inside the sweep, but the idle check (TIOCGPGRP)
+	// can transiently read non-idle under load and skip that pass; production retries
+	// via the maintenance ticker. Drive maintenance until the suspend lands — the loop
+	// exit IS the assertion, and a genuine "never suspends" bug is caught by the
+	// go test -timeout backstop rather than a hard-coded per-test deadline.
+	for !store.savedState(sid1, "suspended") {
+		e.runMaintenanceOnce(ctx)
+	}
 	assert.NoError(t, e.Write(ctx, sid2, []byte("echo alive\n")), "the newer session must stay live")
 	_ = e.Kill(ctx, sid1)
 	_ = e.Kill(ctx, sid2)
@@ -775,10 +779,13 @@ func TestMaintenance_Phase3aSuspendLastThenReturn(t *testing.T) {
 	defer restoreB()
 	SetLastActiveForTest(e, sid, time.Now().Add(-time.Hour))
 
-	e.runMaintenanceOnce(ctx)
-	time.Sleep(200 * time.Millisecond)
-	assert.True(t, store.savedState(sid, "suspended"),
-		"the single idle session must be suspended, bringing the engine under the ceiling")
+	// Suspend runs synchronously inside the sweep, but the idle check (TIOCGPGRP)
+	// can transiently read non-idle under load and skip that pass; production retries
+	// via the ticker. Drive maintenance until the suspend lands — the loop exit IS the
+	// assertion; a genuine failure is caught by the go test -timeout backstop.
+	for !store.savedState(sid, "suspended") {
+		e.runMaintenanceOnce(ctx)
+	}
 	_ = e.Kill(ctx, sid)
 }
 
@@ -865,8 +872,21 @@ func waitEngineIdle(t *testing.T, e *terminalEngine, sid string) {
 		s, ok := e.reg.Get(sid)
 		return ok && s.IsLive() && s.IsIdle()
 	}, 15*time.Second, 50*time.Millisecond, "session %s did not become idle", sid)
-	// Extra settle so the prompt output has been fully consumed by the pump.
-	time.Sleep(150 * time.Millisecond)
+	// Extra settle so the prompt output has been fully consumed by the pump: wait
+	// until the serialized model stops growing (N consecutive equal-length samples)
+	// instead of a blind sleep.
+	s, ok := e.reg.Get(sid)
+	require.True(t, ok, "session %s vanished before settle", sid)
+	lastLen, stable := -1, 0
+	require.Eventually(t, func() bool {
+		cur := s.SerializedLen()
+		if cur == lastLen {
+			stable++
+		} else {
+			stable, lastLen = 0, cur
+		}
+		return stable >= 3
+	}, 10*time.Second, 30*time.Millisecond, "session %s output did not settle", sid)
 }
 
 func waitEngineOutput(t *testing.T, e *terminalEngine, sid string) {

@@ -183,7 +183,7 @@ func TestReparentAsyncErrorBroadcastsLastError(
 	t *testing.T,
 ) {
 	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
-	hierarchy := &fakeHierarchy{reparentErr: worktree.ErrNewParentLocked}
+	hierarchy := &fakeHierarchy{reparentErr: worktree.ErrChildHasChildren}
 	r := gin.New()
 	lastErrors := &fakeLastErrors{called: make(chan struct{}, 1)}
 	h := workspacehandlers.New(reader, hierarchy, &fakeRepos{}, lastErrors, fakeWork{})

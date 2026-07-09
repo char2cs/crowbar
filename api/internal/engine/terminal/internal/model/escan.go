@@ -235,7 +235,7 @@ func (m *vtModel) applyDECSTBM(
 
 func (m *vtModel) parseDECSTBM(
 	params string,
-) (top int, bottom int, ok bool) {
+) (top, bottom int, ok bool) {
 	topStr := params
 	botStr := ""
 	if i := strings.IndexByte(params, ';'); i >= 0 {

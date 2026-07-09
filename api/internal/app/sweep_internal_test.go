@@ -48,6 +48,10 @@ func TestSweepTargets_FiltersOpenPROnly(t *testing.T) {
 	_, err = repo.Create(ctx, workspace.CreateInput{ID: "plain", RepoID: "r", ProjectID: "p"}, now)
 	require.NoError(t, err)
 
+	// Create/SyncProviderState commit via async Send, so the store projection that
+	// List reads settles out of band. Drain asynx so the read model is consistent,
+	// then assert deterministically (no polling, no timeout).
+	c.Repositories.WaitQuiescent()
 	targets := sweepTargets(repo)()
 	require.Len(t, targets, 1)
 	assert.Equal(t, "open", targets[0].WSID)
@@ -90,12 +94,15 @@ func TestSweeper_FiltersByPRUrlAndTerminalState(t *testing.T) {
 		"nopr":      false,
 	}
 
+	// Drain asynx so the store projection reflects every Create/SyncProviderState,
+	// then assert the sweep set deterministically (no polling, no timeout).
+	c.Repositories.WaitQuiescent()
+
 	got := make(map[string]bool)
 	for _, tgt := range sweepTargets(repo)() {
 		got[tgt.WSID] = true
 		assert.Truef(t, tgt.HasOpenPR, "sweep target %s must carry HasOpenPR", tgt.WSID)
 	}
-
 	for id, included := range want {
 		assert.Equalf(t, included, got[id], "workspace %s included=%v", id, included)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -64,21 +65,17 @@ func (f *fakeDispatcher) waitForChange(
 	t *testing.T,
 ) domain.FileChangeEvent {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
+	var evt domain.FileChangeEvent
+	require.Eventually(t, func() bool {
 		f.mu.Lock()
-		n := len(f.changes)
-		f.mu.Unlock()
-		if n > 0 {
-			f.mu.Lock()
-			evt := f.changes[len(f.changes)-1]
-			f.mu.Unlock()
-			return evt
+		defer f.mu.Unlock()
+		if len(f.changes) == 0 {
+			return false
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal("timeout waiting for file change event")
-	return domain.FileChangeEvent{}
+		evt = f.changes[len(f.changes)-1]
+		return true
+	}, 3*time.Second, 5*time.Millisecond, "timeout waiting for file change event")
+	return evt
 }
 
 func newWatcher(
@@ -93,7 +90,9 @@ func newWatcher(
 	t.Cleanup(cancel)
 	t.Cleanup(w.Stop)
 	require.NoError(t, w.Start(ctx))
-	time.Sleep(50 * time.Millisecond)
+	// No settle sleep: Start arms the fsnotify watch synchronously (addRecursive
+	// runs before Start returns), so any event emitted after this point is queued
+	// by the kernel and delivered to loop; callers wait on real observables.
 	return w, d
 }
 
@@ -151,13 +150,19 @@ func TestWatcher_IgnoresDotGitContent(
 
 	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "COMMIT_EDITMSG"), []byte("msg"), 0o600))
 
-	time.Sleep(250 * time.Millisecond)
-
-	d.mu.Lock()
-	for _, evt := range d.changes {
-		assert.NotContains(t, evt.Path, "COMMIT_EDITMSG")
-	}
-	d.mu.Unlock()
+	// Must-not-happen: a write inside .git (which addRecursive never watches) must
+	// never surface as a file-change event. Poll the real event slice across the
+	// window instead of sleeping-then-checking.
+	require.Never(t, func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		for _, evt := range d.changes {
+			if strings.Contains(evt.Path, "COMMIT_EDITMSG") {
+				return true
+			}
+		}
+		return false
+	}, 250*time.Millisecond, 20*time.Millisecond, "COMMIT_EDITMSG must never surface as a file-change event")
 }
 
 func TestWatcher_StopIdempotent(
@@ -178,9 +183,11 @@ func TestWatcher_SubdirCreatedAndWatched(
 
 	subdir := filepath.Join(dir, "subdir")
 	require.NoError(t, os.MkdirAll(subdir, 0o700))
-	time.Sleep(150 * time.Millisecond)
 	require.NoError(t, os.WriteFile(filepath.Join(subdir, "file.txt"), []byte("x"), 0o600))
 
+	// Wait for the watcher to dispatch a change (the subdir's own CREATE event on the
+	// watched repo root satisfies this). Replaces the prior settle sleep with a wait
+	// on the real dispatched event.
 	_ = d.waitForChange(t)
 }
 
@@ -231,25 +238,37 @@ func TestWatcher_GitRecomputeDebounced_CoalescesBursts(
 	t.Cleanup(cancel)
 	t.Cleanup(w.Stop)
 	require.NoError(t, w.Start(ctx))
-	time.Sleep(50 * time.Millisecond)
 
-	// Four bursts spaced wider than the fs debounce (100ms) but inside the
-	// git debounce window (250ms), so each burst re-arms the git timer.
+	// Drive four DISTINCT fs-debounce windows by waiting for each write's own
+	// file-change event to be dispatched before issuing the next write. Sequencing
+	// on the real dispatched event (not a sleep) keeps the writes ~one fs-debounce
+	// apart (~100ms) — comfortably inside the 250ms git-debounce window — so every
+	// burst re-arms the git timer and the recomputes coalesce.
 	for i := range 4 {
-		name := filepath.Join(dir, "burst"+string(rune('a'+i))+".txt")
-		require.NoError(t, os.WriteFile(name, []byte("x"), 0o600))
-		time.Sleep(150 * time.Millisecond)
+		rel := "burst" + string(rune('a'+i)) + ".txt"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, rel), []byte("x"), 0o600))
+		require.Eventually(t, func() bool {
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			for _, evt := range d.changes {
+				if evt.Path == rel {
+					return true
+				}
+			}
+			return false
+		}, 5*time.Second, 5*time.Millisecond, "burst "+rel+" must be processed as its own fs-debounce window")
 	}
 
-	// Quiet period: the trailing recompute must run (never dropped).
-	deadline := time.Now().Add(3 * time.Second)
-	for git.calls() == 0 && time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
-	}
-	require.GreaterOrEqual(t, git.calls(), 1, "trailing git recompute must always run after the quiet period")
+	// The trailing recompute must run once the watcher goes quiet (never dropped).
+	require.Eventually(t, func() bool {
+		return git.calls() >= 1
+	}, 5*time.Second, 5*time.Millisecond, "trailing git recompute must always run after the quiet period")
 
-	// Let everything settle, then assert the bursts coalesced. Allow 2 for
-	// scheduler jitter on slow CI, but four uncoalesced runs must not happen.
-	time.Sleep(400 * time.Millisecond)
-	assert.LessOrEqual(t, git.calls(), 2, "git recomputes must coalesce across bursts")
+	// Coalescing (genuine must-not-happen): the four bursts must never produce more
+	// than two recomputes. Allow 2 for scheduler jitter on slow CI, but assert >2
+	// never happens across a window that comfortably exceeds the git debounce —
+	// proving the cross-burst coalescing held rather than four uncoalesced runs.
+	require.Never(t, func() bool {
+		return git.calls() > 2
+	}, 400*time.Millisecond, 20*time.Millisecond, "git recomputes must coalesce across bursts")
 }

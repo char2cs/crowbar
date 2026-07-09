@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -153,11 +156,11 @@ func (f *fakeWorkspace) TouchActivity(
 	return domain.Workspace{}, nil
 }
 
-func (f *fakeWorkspace) SetParentFromPR(_ context.Context, _ string, _ string) (domain.Workspace, error) {
+func (f *fakeWorkspace) SetParentFromPR(_ context.Context, _, _ string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
 
-func (f *fakeWorkspace) SetLastError(_ context.Context, _ string, _ string) (domain.Workspace, error) {
+func (f *fakeWorkspace) SetLastError(_ context.Context, _, _ string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
 
@@ -184,26 +187,26 @@ type gitCall struct {
 
 type fakeGit struct {
 	enginegit.Engine
-	calls             []gitCall
-	addStartSha       string
-	addErr            error
-	revParseSha       string
-	revParseErr       error
-	mergeErr          error
-	squashErr         error
-	rebaseErr         error
-	ffErr             error
-	rebaseFFErr       error
-	rebaseOnto        error
-	operationAbortErr error
-	removeErr         error
-	deleteErr         error
+	calls                []gitCall
+	addStartSha          string
+	addErr               error
+	revParseSha          string
+	revParseErr          error
+	mergeErr             error
+	squashErr            error
+	rebaseErr            error
+	ffErr                error
+	rebaseFFErr          error
+	rebaseOnto           error
+	operationAbortErr    error
+	removeErr            error
+	deleteErr            error
 	remoteExists         bool
 	remoteExistsByBranch map[string]bool // overrides remoteExists per branch when non-nil
 	remoteExistsErr      error
-	fetchRefErr            error
-	fastForwardBranchErr   error
-	worktreeAddErr         error
+	fetchRefErr          error
+	fastForwardBranchErr error
+	worktreeAddErr       error
 
 	summaryAdded        int
 	summaryDeleted      int
@@ -463,6 +466,8 @@ type fakeRepoStore struct {
 	store.Store[domain.Repository, string]
 	path          string
 	defaultBranch string
+	remoteURL     string
+	name          string
 	err           error
 	missing       bool
 }
@@ -477,46 +482,19 @@ func (f *fakeRepoStore) FindByKey(
 	if f.missing {
 		return nil, nil
 	}
-	return &domain.Repository{Path: f.path, DefaultBranch: f.defaultBranch}, nil
-}
-
-// perPathSummaryGit is a fakeGit that varies WorkingTreeSummary's hasConflicts
-// (and optionally its error) by worktree path, so a ReconcileAll test can drive
-// distinct per-workspace conflict/error outcomes in a single sweep.
-type perPathSummaryGit struct {
-	fakeGit
-	conflictsByPath map[string]bool
-	errByPath       map[string]error
-}
-
-func (g *perPathSummaryGit) WorkingTreeSummary(
-	_ context.Context,
-	repoPath string,
-	forkPointSha string,
-) (int, int, bool, bool, error) {
-	g.record("WorkingTreeSummary", repoPath, forkPointSha)
-	if err, ok := g.errByPath[repoPath]; ok && err != nil {
-		return 0, 0, false, false, err
+	// Give the fallback slug a stable identity when neither remote nor name is set,
+	// so worktree-path derivation (spec §3.9) has a non-empty leaf in tests that
+	// don't exercise slug specifics.
+	name := f.name
+	if name == "" && f.remoteURL == "" {
+		name = "repo"
 	}
-	return 0, 0, g.conflictsByPath[repoPath], false, nil
-}
-
-// perRepoStore resolves a repository main path per RepoID, so a ReconcileAll
-// test can map workspaces across distinct repos.
-type perRepoStore struct {
-	store.Store[domain.Repository, string]
-	paths map[string]string
-}
-
-func (s *perRepoStore) FindByKey(
-	_ context.Context,
-	key string,
-) (*domain.Repository, error) {
-	p, ok := s.paths[key]
-	if !ok {
-		return nil, nil
-	}
-	return &domain.Repository{Path: p}, nil
+	return &domain.Repository{
+		Path:          f.path,
+		DefaultBranch: f.defaultBranch,
+		RemoteURL:     f.remoteURL,
+		Name:          name,
+	}, nil
 }
 
 func newNow() func() time.Time {
@@ -563,6 +541,69 @@ func TestCreateChild_RecordsForkPointAndLocked(t *testing.T) {
 	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[2].args)
 }
 
+// TestCreateChild_DerivesHumanReadableWorktreePath proves the managed child
+// worktree lands at the human-readable <home>/projects/<project>/<slug>/<branch>
+// path (spec §3.9), with the slug resolved from the repo remote URL.
+func TestCreateChild_DerivesHumanReadableWorktreePath(t *testing.T) {
+	g := &fakeGit{addStartSha: "sha"}
+	var created workspace.CreateInput
+	ws := &fakeWorkspace{
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			created = in
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}
+	home := t.TempDir()
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(),
+		func() (string, error) { return home, nil })
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		RepoPath:     "/repo",
+		RemoteURL:    "https://github.com/test/repo.git",
+		Branch:       "feature/x",
+		ParentID:     "w-parent",
+		ParentBranch: "develop",
+	})
+	require.NoError(t, err)
+	assert.Equal(t,
+		filepath.Join(home, "projects", "p1", "github.com", "test", "repo", "feature", "x"),
+		created.WorktreePath)
+}
+
+// TestCreateChild_RejectsCaseOnlyClash proves a create whose derived worktree
+// path collides case-insensitively with an existing sibling is rejected at
+// creation (spec §3.9, decision 13) rather than disambiguated.
+func TestCreateChild_RejectsCaseOnlyClash(t *testing.T) {
+	home := t.TempDir()
+	// Pre-create a sibling branch leaf that differs only by case from the
+	// candidate the create below derives (main vs Main) under the same slug dir.
+	slugDir := filepath.Join(home, "projects", "p1", "github.com", "test", "repo")
+	require.NoError(t, os.MkdirAll(filepath.Join(slugDir, "Main"), 0o755))
+
+	g := &fakeGit{addStartSha: "sha"}
+	ws := &fakeWorkspace{
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(),
+		func() (string, error) { return home, nil })
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		RepoPath:     "/repo",
+		RemoteURL:    "https://github.com/test/repo.git",
+		Branch:       "main",
+		ParentBranch: "develop",
+	})
+	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	assert.NotContains(t, g.ops(), "WorktreeAdd", "a rejected clash must not touch the worktree")
+	assert.NotContains(t, g.ops(), "WorktreeAddBranch")
+}
+
 // TestCreateChild_CleansUpWorktreeOnCreateFailure proves H17: if the workspace
 // row fails to persist after the worktree + branch were created on disk, both are
 // cleaned up best-effort so a fresh-wsID retry is not blocked by the orphaned
@@ -607,7 +648,7 @@ func TestCreateChild_LocksProtectedBranch(t *testing.T) {
 	uc := worktree.New(ws, g, &fakeProvider{protected: []string{"feature/x"}}, &fakeRepoStore{}, newNow(), fakeHome())
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
-		RepoPath: "/repo", RemoteURL: "https://github.com/test/repo.git", Branch: "feature/x", ParentBranch: "develop",
+		RepoPath: "/repo", ProjectID: "p1", RemoteURL: "https://github.com/test/repo.git", Branch: "feature/x", ParentBranch: "develop",
 	})
 	require.NoError(t, err)
 	assert.True(t, created.Protected)
@@ -681,10 +722,10 @@ func TestCreateChild_RemoteBranchExists_ChecksOut(t *testing.T) {
 	// Op sequence: parent fast-forward check + fast-forward, then child exists
 	// check + fast-forward + rev-parse + worktree-add.
 	assert.Equal(t, []string{
-		"RemoteBranchExists",  // parent exists?
-		"FastForwardBranch",   // fast-forward parent
-		"RemoteBranchExists",  // child exists?
-		"FastForwardBranch",   // fast-forward child
+		"RemoteBranchExists", // parent exists?
+		"FastForwardBranch",  // fast-forward parent
+		"RemoteBranchExists", // child exists?
+		"FastForwardBranch",  // fast-forward child
 		"RevParse",
 		"WorktreeAdd",
 	}, g.ops())
@@ -738,7 +779,7 @@ func TestCreateChild_RemoteBranchExistsError(t *testing.T) {
 	g := &fakeGit{remoteExistsErr: errBoom}
 	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
-		RepoPath: "/r", Branch: "b", ParentBranch: "develop",
+		RepoPath: "/r", ProjectID: "p1", Branch: "b", ParentBranch: "develop",
 	})
 	require.ErrorIs(t, err, errBoom)
 }
@@ -750,7 +791,7 @@ func TestCreateChild_FastForwardBranchError(t *testing.T) {
 	g := &fakeGit{remoteExists: true, fastForwardBranchErr: errBoom}
 	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
-		RepoPath: "/r", Branch: "b", ParentBranch: "develop",
+		RepoPath: "/r", ProjectID: "p1", Branch: "b", ParentBranch: "develop",
 	})
 	require.ErrorIs(t, err, errBoom)
 }
@@ -759,7 +800,7 @@ func TestCreateChild_CheckoutWorktreeAddError(t *testing.T) {
 	g := &fakeGit{remoteExists: true, revParseSha: "s", worktreeAddErr: errBoom}
 	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
-		RepoPath: "/r", Branch: "b", ParentBranch: "develop",
+		RepoPath: "/r", ProjectID: "p1", Branch: "b", ParentBranch: "develop",
 	})
 	require.ErrorIs(t, err, errBoom)
 }
@@ -768,7 +809,7 @@ func TestCreateChild_CheckoutRevParseError(t *testing.T) {
 	g := &fakeGit{remoteExists: true, revParseErr: errBoom}
 	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
-		RepoPath: "/r", Branch: "b", ParentBranch: "develop",
+		RepoPath: "/r", ProjectID: "p1", Branch: "b", ParentBranch: "develop",
 	})
 	require.ErrorIs(t, err, errBoom)
 }
@@ -1038,7 +1079,7 @@ func TestCreateChild_WorktreeAddError(t *testing.T) {
 	g := &fakeGit{addErr: errBoom}
 	ws := &fakeWorkspace{}
 	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
-	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{RepoPath: "/r", RemoteURL: "https://github.com/test/repo.git", Branch: "b"})
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{RepoPath: "/r", ProjectID: "p1", RemoteURL: "https://github.com/test/repo.git", Branch: "b"})
 	require.ErrorIs(t, err, errBoom)
 }
 
@@ -1046,7 +1087,7 @@ func TestCreateChild_ProviderError(t *testing.T) {
 	g := &fakeGit{addStartSha: "s"}
 	ws := &fakeWorkspace{}
 	uc := worktree.New(ws, g, &fakeProvider{err: errBoom}, &fakeRepoStore{}, newNow(), fakeHome())
-	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{RepoPath: "/r", RemoteURL: "https://github.com/test/repo.git", Branch: "b"})
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{RepoPath: "/r", ProjectID: "p1", RemoteURL: "https://github.com/test/repo.git", Branch: "b"})
 	require.ErrorIs(t, err, errBoom)
 }
 
@@ -1417,15 +1458,21 @@ func TestReparent_SelfLoopedChildIsStillALeaf(t *testing.T) {
 	require.NoError(t, err) // not blocked by a phantom self-child
 }
 
-func TestReparent_RejectsLockedNewParent(t *testing.T) {
-	child := domain.Workspace{ID: "c"}
+func TestReparent_AllowsLockedNewParent(t *testing.T) {
+	// A locked (protected) branch is a valid re-parent target: it already adopts
+	// children via create, so reparent must be consistent — the old "07 §4
+	// new-parent-locked" block was incoherent and has been removed.
+	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork"}
 	newParent := domain.Workspace{ID: "np", Status: domain.WorkspaceStatusLocked, WorktreePath: "/np"}
 	ws := reparentWS(child, newParent, nil)
-	g := &fakeGit{}
+	ws.ReparentFn = func(_ context.Context, id, _, _ string, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{ID: id}, nil
+	}
+	g := &fakeGit{revParseSha: "ntip"}
 	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.Reparent(context.Background(), "c", "np")
-	require.ErrorIs(t, err, worktree.ErrNewParentLocked)
-	assert.Empty(t, g.calls)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"RevParse", "RebaseOnto", "WorkingTreeSummary"}, g.ops())
 }
 
 func TestReparent_RebasesOntoNewTipAndUpdatesAggregate(t *testing.T) {
@@ -1665,163 +1712,6 @@ func TestDeleteCascade_BranchDeleteError_DropsRowBestEffort(t *testing.T) {
 	assert.Equal(t, []string{"root"}, deleted)
 }
 
-// --- ReconcileAll (H19 startup recovery sweep) ---
-
-// TestReconcileAll_ClearsStalePRConflicts proves the core of H19: a workspace
-// persisted as pr-conflicts whose worktree no longer has real conflict markers
-// (fakeGit reports hasConflicts=false) gets ResolveConflicts'd, dropping the
-// stale warning. A workspace whose worktree STILL has conflicts is left alone.
-func TestReconcileAll_ClearsStalePRConflicts(t *testing.T) {
-	stale := domain.Workspace{ID: "stale", RepoID: "r", WorktreePath: "/wt/stale", Status: domain.WorkspaceStatusPRConflicts}
-	real := domain.Workspace{ID: "real", RepoID: "r", WorktreePath: "/wt/real", Status: domain.WorkspaceStatusPRConflicts}
-	all := []domain.Workspace{stale, real}
-
-	// fakeGit reports NO conflicts for every workspace, so only the resync drives
-	// the decision: with hasConflicts=false both stale and real are candidates to
-	// clear. To distinguish, drive per-path conflict state via a custom git double.
-	g := &perPathSummaryGit{conflictsByPath: map[string]bool{
-		"/wt/stale": false,
-		"/wt/real":  true,
-	}}
-	var resolved []string
-	ws := &fakeWorkspace{
-		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
-		ResolveConflictsFn: func(_ context.Context, id string, _ time.Time) (domain.Workspace, error) {
-			resolved = append(resolved, id)
-			return domain.Workspace{ID: id}, nil
-		},
-	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
-
-	require.NoError(t, uc.ReconcileAll(context.Background()))
-	assert.Equal(t, []string{"stale"}, resolved,
-		"only the workspace with no real conflicts must be ResolveConflicts'd")
-}
-
-// TestReconcileAll_KeepsPRConflictsWhenOpInProgress proves R13: a workspace that
-// is MID conflict-resolution — the conflict markers were resolved and staged so
-// WorkingTreeSummary reports hasConflicts=false, but the rebase/merge was never
-// continued so an in-progress op is still on disk — must KEEP its pr-conflicts.
-// Clearing it would drop the signal that the operation is unfinished.
-func TestReconcileAll_KeepsPRConflictsWhenOpInProgress(t *testing.T) {
-	midRes := domain.Workspace{ID: "midres", RepoID: "r", WorktreePath: "/wt/midres", Status: domain.WorkspaceStatusPRConflicts}
-	// No unresolved markers in the tree (hasConflicts=false) but a rebase is still
-	// in progress (the user staged the resolution and stopped).
-	g := &fakeGit{opInProgress: "rebase"}
-	var resolved []string
-	ws := &fakeWorkspace{
-		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
-			return []domain.Workspace{midRes}, nil
-		},
-		ResolveConflictsFn: func(_ context.Context, id string, _ time.Time) (domain.Workspace, error) {
-			resolved = append(resolved, id)
-			return domain.Workspace{ID: id}, nil
-		},
-	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
-
-	require.NoError(t, uc.ReconcileAll(context.Background()))
-	assert.Empty(t, resolved,
-		"a workspace mid conflict-resolution (in-progress rebase) must keep pr-conflicts, not be cleared")
-}
-
-// TestReconcileAll_ResyncsSummaryAndSkipsNoPathRows proves ReconcileAll resyncs
-// each worktree-backed workspace's summary from git and SKIPS rows with no
-// on-disk worktree (virtual/no-path), which have nothing to read from disk.
-func TestReconcileAll_ResyncsSummaryAndSkipsNoPathRows(t *testing.T) {
-	withPath := domain.Workspace{ID: "wp", RepoID: "r", WorktreePath: "/wt/wp", ForkPointSha: "fork"}
-	noPath := domain.Workspace{ID: "np", RepoID: "r", WorktreePath: ""}
-	all := []domain.Workspace{withPath, noPath}
-
-	g := &fakeGit{summaryAdded: 2, summaryDeleted: 1, summaryHasCommits: true}
-	var synced []workspace.SyncInput
-	ws := &fakeWorkspace{
-		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
-		SyncFn: func(_ context.Context, in workspace.SyncInput, _ time.Time) (domain.Workspace, error) {
-			synced = append(synced, in)
-			return domain.Workspace{}, nil
-		},
-	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
-
-	require.NoError(t, uc.ReconcileAll(context.Background()))
-	// Only the worktree-backed row is resynced; the no-path row never reads git.
-	require.Len(t, synced, 1)
-	assert.Equal(t, "wp", synced[0].ID)
-	assert.Equal(t, 2, synced[0].Added)
-	assert.Equal(t, 1, synced[0].Deleted)
-	assert.True(t, synced[0].HasCommits)
-	// WorkingTreeSummary must run only for the worktree-backed row.
-	assert.Equal(t, []string{"/wt/wp", "fork"}, g.calls[0].args)
-}
-
-// TestReconcileAll_PrunesEachDistinctRepoOnce proves orphaned worktrees are
-// reaped: WorktreePrune runs once per DISTINCT repo main path among the
-// workspaces, never per-workspace.
-func TestReconcileAll_PrunesEachDistinctRepoOnce(t *testing.T) {
-	all := []domain.Workspace{
-		{ID: "a", RepoID: "r1", WorktreePath: "/wt/a"},
-		{ID: "b", RepoID: "r1", WorktreePath: "/wt/b"},
-		{ID: "c", RepoID: "r2", WorktreePath: "/wt/c"},
-	}
-	g := &fakeGit{}
-	ws := &fakeWorkspace{
-		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
-	}
-	// repoPathFor resolves per RepoID; map both repos to distinct main paths.
-	repos := &perRepoStore{paths: map[string]string{"r1": "/repo1", "r2": "/repo2"}}
-	uc := worktree.New(ws, g, &fakeProvider{}, repos, newNow(), fakeHome())
-
-	require.NoError(t, uc.ReconcileAll(context.Background()))
-	var pruned []string
-	for _, c := range g.calls {
-		if c.op == "WorktreePrune" {
-			pruned = append(pruned, c.args[0])
-		}
-	}
-	assert.ElementsMatch(t, []string{"/repo1", "/repo2"}, pruned,
-		"prune must run exactly once per distinct repo main path")
-}
-
-// TestReconcileAll_BestEffort proves a per-workspace summary failure does NOT
-// abort the sweep: the second workspace is still reconciled and pruning still
-// runs, and ReconcileAll returns nil (boot is never failed).
-func TestReconcileAll_BestEffort(t *testing.T) {
-	all := []domain.Workspace{
-		{ID: "boom", RepoID: "r", WorktreePath: "/wt/boom", Status: domain.WorkspaceStatusPRConflicts},
-		{ID: "ok", RepoID: "r", WorktreePath: "/wt/ok", Status: domain.WorkspaceStatusPRConflicts},
-	}
-	// First workspace's summary errors; second succeeds with no conflicts.
-	g := &perPathSummaryGit{
-		errByPath: map[string]error{"/wt/boom": errBoom},
-	}
-	var resolved []string
-	ws := &fakeWorkspace{
-		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
-		ResolveConflictsFn: func(_ context.Context, id string, _ time.Time) (domain.Workspace, error) {
-			resolved = append(resolved, id)
-			return domain.Workspace{ID: id}, nil
-		},
-	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
-
-	require.NoError(t, uc.ReconcileAll(context.Background()),
-		"a per-workspace failure must not fail boot")
-	assert.Equal(t, []string{"ok"}, resolved,
-		"the failing workspace is skipped but the rest are still reconciled")
-}
-
-// TestReconcileAll_ListError_ReturnsNil proves a List failure is non-fatal: the
-// sweep logs and returns nil rather than failing boot.
-func TestReconcileAll_ListError_ReturnsNil(t *testing.T) {
-	ws := &fakeWorkspace{
-		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, errBoom },
-	}
-	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
-	require.NoError(t, uc.ReconcileAll(context.Background()),
-		"a list failure must not fail boot")
-}
-
 func TestMergeIntoParent_SetPRConflictsError(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
@@ -2024,8 +1914,10 @@ func TestRetryProvision_FreeBranch_ProvisionsInPlace(t *testing.T) {
 	var gotID, gotPath, gotSha string
 	ws := &fakeWorkspace{
 		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
-			return domain.Workspace{ID: id, RepoID: "r1", ProjectID: "p1", Branch: "develop",
-				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo"}, nil
+			return domain.Workspace{
+				ID: id, RepoID: "r1", ProjectID: "p1", Branch: "develop",
+				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo",
+			}, nil
 		},
 		ProvisionInPlaceFn: func(id, path, sha string) (domain.Workspace, error) {
 			gotID, gotPath, gotSha = id, path, sha
@@ -2050,8 +1942,10 @@ func TestRetryProvision_StillHeld_ReturnsError(t *testing.T) {
 	provisionCalled := false
 	ws := &fakeWorkspace{
 		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
-			return domain.Workspace{ID: id, RepoID: "r1", Branch: "develop",
-				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo"}, nil
+			return domain.Workspace{
+				ID: id, RepoID: "r1", Branch: "develop",
+				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo",
+			}, nil
 		},
 		ProvisionInPlaceFn: func(_, _, _ string) (domain.Workspace, error) {
 			provisionCalled = true
@@ -2081,8 +1975,10 @@ func TestDetachHolder_Home_ClearsBranchThenProvisions(t *testing.T) {
 	provisioned := false
 	ws := &fakeWorkspace{
 		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
-			return domain.Workspace{ID: id, RepoID: "r1", ProjectID: "p1", Branch: "develop",
-				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo"}, nil
+			return domain.Workspace{
+				ID: id, RepoID: "r1", ProjectID: "p1", Branch: "develop",
+				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo",
+			}, nil
 		},
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
 			return []domain.Workspace{
@@ -2118,8 +2014,10 @@ func TestDetachHolder_DetachFails_NoPartialState(t *testing.T) {
 	provisioned := false
 	ws := &fakeWorkspace{
 		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
-			return domain.Workspace{ID: id, RepoID: "r1", Branch: "develop",
-				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo"}, nil
+			return domain.Workspace{
+				ID: id, RepoID: "r1", Branch: "develop",
+				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo",
+			}, nil
 		},
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
 			return []domain.Workspace{{ID: "home", RepoID: "r1", IsDefault: true}}, nil

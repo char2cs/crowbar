@@ -3,8 +3,9 @@ package domain_test
 import (
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 func TestWorkspaceKindConstants(t *testing.T) {

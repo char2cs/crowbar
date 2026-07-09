@@ -72,10 +72,12 @@ func (h *Handler) checkGit(ctx context.Context) GitStatus {
 
 func (h *Handler) checkCLI(ctx context.Context, cli string) CLIStatus {
 	resolved := binpath.Resolve(cli)
+	//nolint:gosec // G204: cli is a fixed literal ("gh"/"glab") resolved to a trusted install path; no user input reaches the command.
 	vCmd := exec.CommandContext(ctx, resolved, "--version")
 	if vCmd.Run() != nil {
 		return CLIStatus{}
 	}
+	//nolint:gosec // G204: cli is a fixed literal ("gh"/"glab") resolved to a trusted install path; no user input reaches the command.
 	aCmd := exec.CommandContext(ctx, resolved, "auth", "status")
 	var buf bytes.Buffer
 	aCmd.Stdout = &buf
