@@ -2,15 +2,29 @@ package domain
 
 import "time"
 
-// AgentChat is a Crowbar-owned agentic conversation tracked across provider
-// segments (00 agentic-engine spec §6). Distinct from the event-sourced Chat.
+// AgentChat is the Crowbar-owned agentic conversation aggregate, tracked across
+// provider segments. Mutated only through asynx commands. Conversation content
+// lives in the ledger, not here — this aggregate holds identity, segments,
+// session ids, title, and live Working state, plus a ledger cursor.
 type AgentChat struct {
-	ID              string    `gorm:"primaryKey" json:"id"`
-	WorkspaceID     string    `gorm:"index"      json:"workspaceId"`
-	Title           string    `json:"title"`
-	TitleLocked     bool      `json:"titleLocked"`
-	ActiveSegmentID string    `json:"activeSegmentId"`
-	CreatedAt       time.Time `json:"createdAt"`
-}
+	ID          string          `json:"id"`
+	WorkspaceID string          `json:"workspaceId"`
+	Title       string          `json:"title"`
+	TitleLocked bool            `json:"titleLocked"`
+	CreatedAt   time.Time       `json:"createdAt"`
+	Status      AgentChatStatus `json:"status,omitempty"`
 
-func (AgentChat) TableName() string { return "agent_chats" }
+	Segments        []AgentSegment `json:"segments"`
+	ActiveSegmentID string         `json:"activeSegmentId,omitempty"`
+
+	// Live turn state — folded from Turn events, reconciled on boot. Not durable
+	// truth: a crash between the ledger append and the turn event can leave these
+	// stale; the boot reactor repairs them.
+	Working            bool       `json:"working"`
+	CurrentTurnStarted *time.Time `json:"currentTurnStarted,omitempty"`
+	LastActivityAt     time.Time  `json:"lastActivityAt"`
+
+	// LedgerCursor is the count of ledger entries the aggregate has observed —
+	// the pointer relating aggregate state to the append-only content log.
+	LedgerCursor int `json:"ledgerCursor"`
+}

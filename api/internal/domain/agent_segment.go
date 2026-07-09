@@ -2,17 +2,17 @@ package domain
 
 import "time"
 
-// AgentSegment is one provider stint within an AgentChat.
+// AgentSegment is one provider stint within an AgentChat, embedded in the
+// aggregate (no longer its own table). Invariant (enforced in command Validate):
+// at most one segment with Status=="active" per AgentChat.
 type AgentSegment struct {
-	ID                string     `gorm:"primaryKey" json:"id"`
-	ChatID            string     `gorm:"index"      json:"chatId"`
+	ID                string     `json:"id"`
+	ChatID            string     `json:"chatId"` // kept until Task 10 rewrites the usecase; redundant in the embedded aggregate but the pre-rewrite usecase still references it
 	ProviderID        string     `json:"providerId"`
-	ProviderSessionID string     `gorm:"index"      json:"providerSessionId"`
-	CrowbarSegmentID  string     `gorm:"index"      json:"crowbarSegmentId"`
+	ProviderSessionID string     `json:"providerSessionId,omitempty"`
+	CrowbarSegmentID  string     `json:"crowbarSegmentId"`
 	TerminalSessionID string     `json:"terminalSessionId"`
 	StartedAt         time.Time  `json:"startedAt"`
 	EndedAt           *time.Time `json:"endedAt,omitempty"`
-	Status            string     `json:"status"`
+	Status            string     `json:"status"` // active | ended
 }
-
-func (AgentSegment) TableName() string { return "agent_segments" }
