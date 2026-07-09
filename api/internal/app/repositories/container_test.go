@@ -64,6 +64,23 @@ func wsAx(
 	return a
 }
 
+// agentChatAx builds the singleton agentchat asynx over the adapter's per-type
+// event store — the same handle agentchat.NewEventSourced/store.New project
+// onto (Task 9, additive).
+func agentChatAx(
+	t *testing.T,
+	ad *adapter.Container,
+) asynx.Asynx[domain.AgentChat] {
+	t.Helper()
+	a, err := asynx.New[domain.AgentChat]().
+		WithEventStore(ad.AgentChatES()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
+	return a
+}
+
 type captureHub struct {
 	hub.WebSocketHub
 	mu         sync.Mutex
@@ -122,6 +139,7 @@ func newContainer(
 		h,
 		ax[domain.ReviewThread](t),
 		wsAx(t, ad),
+		agentChatAx(t, ad),
 		nil,
 	)
 	require.NoError(t, err)
@@ -132,15 +150,18 @@ func TestContainer_New_BuildsRepos(t *testing.T) {
 	c := newContainer(t, hub.NewHub())
 	assert.NotNil(t, c.Workspace)
 	assert.NotNil(t, c.ReviewThread)
+	assert.NotNil(t, c.AgentChat)
 }
 
 func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
+	ad := newAdapter(t)
 	_, err := repositories.New(
 		context.Background(),
-		newAdapter(t),
+		ad,
 		hub.NewHub(),
 		ax[domain.ReviewThread](t),
 		nil, // nil axWorkspace → workspace.New rejects
+		agentChatAx(t, ad),
 		nil,
 	)
 	assert.Error(t, err)
@@ -351,7 +372,7 @@ func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), nil)
+	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil)
 	require.NoError(t, err)
 
 	// A real MANAGED worktree UNDER the crowbar home: the delete reactor's rm is
@@ -414,7 +435,7 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), nil)
+	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil)
 	require.NoError(t, err)
 
 	// The user's real checkout, OUTSIDE the crowbar home (an adopted worktree).

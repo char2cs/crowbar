@@ -36,11 +36,14 @@ type Container struct {
 	Usecases     *usecases.Container
 	Realtime     *realtime.Service
 
-	// axWorkspace and axReviewThread are the per-type asynx singletons (one per
-	// aggregate type, routing every id by shard hash). They are retained here so
-	// Task 15's ordered graceful shutdown can drain each via ax.Shutdown.
+	// axWorkspace, axReviewThread, and axAgentChat are the per-type asynx
+	// singletons (one per aggregate type, routing every id by shard hash). They
+	// are retained here so Task 15's ordered graceful shutdown can drain each via
+	// ax.Shutdown. axAgentChat is additive (Task 9): its store/hub projections
+	// are live, but the usecase does not consume it yet — that's a later cutover.
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
+	axAgentChat    asynx.Asynx[domain.AgentChat]
 }
 
 // New constructs the application layer from the engine and adapter containers
@@ -61,6 +64,15 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx workspace: %w", err)
 	}
+	// axAgentChat is the per-type singleton over state/events/agent_chat.db
+	// (Task 9, additive): it is built and its store/hub projections registered
+	// (via repositories.New -> agentchat.NewEventSourced), but nothing sends
+	// commands through it yet — the usecase still depends on the gorm-backed
+	// agentChats store below until the cutover task.
+	axAgentChat, err := newAsynx[domain.AgentChat](adapters.AgentChatES())
+	if err != nil {
+		return nil, fmt.Errorf("app: asynx agent chat: %w", err)
+	}
 
 	gormStores, err := newGORMStores(adapters.GlobalView())
 	if err != nil {
@@ -78,6 +90,7 @@ func New(
 		h,
 		axReviewThread,
 		axWorkspace,
+		axAgentChat,
 		engines.Git,
 	)
 	if err != nil {
@@ -122,6 +135,7 @@ func New(
 		Realtime:       rt,
 		axWorkspace:    axWorkspace,
 		axReviewThread: axReviewThread,
+		axAgentChat:    axAgentChat,
 	}, nil
 }
 
@@ -160,6 +174,7 @@ func (c *Container) Shutdown(
 	return errors.Join(
 		c.axWorkspace.Shutdown(ctx),
 		c.axReviewThread.Shutdown(ctx),
+		c.axAgentChat.Shutdown(ctx),
 	)
 }
 

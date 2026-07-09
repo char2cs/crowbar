@@ -14,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
@@ -24,13 +25,20 @@ import (
 type Container struct {
 	Workspace    workspace.Workspace
 	ReviewThread reviewthread.ReviewThread
-	hub          hub.WebSocketHub
-	git          wsusecase.MergeConflictChecker
-	// axWorkspace/axReviewThread are the per-type asynx instances, retained so
-	// WaitQuiescent can drain their dispatch queues + projection handlers — the
-	// deterministic read-your-writes barrier for tests (no polling, no timeouts).
+	// AgentChat is the asynx-backed EventStore (Task 9, additive): its
+	// store/hub projections are live on axAgentChat, but no usecase sends
+	// commands through it yet — that's a later cutover task. Retained here so
+	// that cutover has a wired repo to consume.
+	AgentChat agentchat.EventStore
+	hub       hub.WebSocketHub
+	git       wsusecase.MergeConflictChecker
+	// axWorkspace/axReviewThread/axAgentChat are the per-type asynx instances,
+	// retained so WaitQuiescent can drain their dispatch queues + projection
+	// handlers — the deterministic read-your-writes barrier for tests (no
+	// polling, no timeouts).
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
+	axAgentChat    asynx.Asynx[domain.AgentChat]
 	// inflight counts the background mutations currently running per workspace
 	// id (00 §4 fail-fast/good-path-async). It backs the derived Working overlay:
 	// the API layer brackets each async op with BeginWork/EndWork, and every
@@ -66,16 +74,19 @@ type ReactorDrain struct {
 // instance per type, routing every id by shard hash) built by the app layer; its
 // read model lives in state/store/workspace.db and its id↔path index in view.db.
 // The reviewthread aggregate owns its central per-type read model at
-// state/store/review_thread.db.
+// state/store/review_thread.db. The agentchat aggregate (Task 9, additive) owns
+// its central per-type read model at state/store/agent_chat.db; it is wired here
+// so its store/hub projections are live, but no usecase consumes it yet.
 func New(
 	ctx context.Context,
 	adapters *adapter.Container,
 	h hub.WebSocketHub,
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	axWorkspace asynx.Asynx[domain.Workspace],
+	axAgentChat asynx.Asynx[domain.AgentChat],
 	git wsusecase.MergeConflictChecker,
 ) (*Container, error) {
-	c := &Container{hub: h, git: git, inflight: map[string]int{}, axWorkspace: axWorkspace, axReviewThread: axReviewThread}
+	c := &Container{hub: h, git: git, inflight: map[string]int{}, axWorkspace: axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat}
 	pathsStore, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
 	if err != nil {
 		return nil, fmt.Errorf("repositories: workspace paths: %w", err)
@@ -105,6 +116,19 @@ func New(
 	}
 	c.ReviewThread = rt
 
+	// agentchat (Task 9, additive): build the asynx-backed EventStore over the
+	// singleton axAgentChat, registering its store + hub projections (store.New,
+	// invoked by NewEventSourced) exactly once. Wiring the real
+	// h.BroadcastAgentChat here is safe now — no command flows through this
+	// EventStore until a later cutover task, so the hub projection emits nothing
+	// yet and there is no double-broadcast with the agent usecase's existing
+	// manual BroadcastAgentChat calls.
+	agentChat, err := agentchat.NewEventSourced(axAgentChat, adapters.AgentChatES(), adapters.AgentChatReadDB(), h.BroadcastAgentChat)
+	if err != nil {
+		return nil, fmt.Errorf("repositories: agent chat event store: %w", err)
+	}
+	c.AgentChat = agentChat
+
 	// Wire the post-commit cross-aggregate reactions (spec §3.6): the workspace
 	// delete reactor + its review-thread forget cascade, all joined to the shared
 	// drain WaitGroup so graceful shutdown can quiesce them (Task 15). Both repos
@@ -125,6 +149,7 @@ func New(
 func (c *Container) WaitQuiescent() {
 	c.axWorkspace.WaitPublish()
 	c.axReviewThread.WaitPublish()
+	c.axAgentChat.WaitPublish()
 }
 
 // wireCallbacks registers the app-level cross-aggregate reactions on the singleton

@@ -26,6 +26,7 @@ const (
 const (
 	workspaceDBName    = "workspace.db"
 	reviewThreadDBName = "review_thread.db"
+	agentChatDBName    = "agent_chat.db"
 )
 
 // Container is the persistence layer.
@@ -47,6 +48,8 @@ type Container struct {
 	workspaceEventStore asynxModels.Store
 	workspaceStoreDB    *gormdb.DB
 	reviewThreadView    *gormdb.DB
+	agentChatEventStore asynxModels.Store
+	agentChatStoreDB    *gormdb.DB
 
 	globalView *gormdb.DB
 
@@ -165,6 +168,18 @@ func newLocked(
 	}
 	rollback = append(rollback, func() error { return closeViewDB(reviewThreadView) })
 
+	agentChatEventStore, err := eventsqlite.NewEventStore(filepath.Join(eventsDir, agentChatDBName))
+	if err != nil {
+		return nil, fmt.Errorf("adapter: agent chat event store: %w", err)
+	}
+	rollback = append(rollback, func() error { return closeEventStore(agentChatEventStore) })
+
+	agentChatStoreDB, err := storesqlite.OpenReadPoolDB(filepath.Join(storeDir, agentChatDBName))
+	if err != nil {
+		return nil, fmt.Errorf("adapter: agent chat store db: %w", err)
+	}
+	rollback = append(rollback, func() error { return closeViewDB(agentChatStoreDB) })
+
 	globalView, err := storesqlite.OpenReadPoolDB(filepath.Join(stateDir, viewDBName))
 	if err != nil {
 		return nil, fmt.Errorf("adapter: global view: %w", err)
@@ -177,6 +192,8 @@ func newLocked(
 		workspaceEventStore: workspaceEventStore,
 		workspaceStoreDB:    workspaceStoreDB,
 		reviewThreadView:    reviewThreadView,
+		agentChatEventStore: agentChatEventStore,
+		agentChatStoreDB:    agentChatStoreDB,
 		globalView:          globalView,
 		lock:                lock,
 	}
@@ -209,6 +226,22 @@ func (c *Container) WorkspaceES() asynxModels.Store {
 // evt.Aggregate into it, and it doubles as the location index (spec §3.7).
 func (c *Container) WorkspaceView() *gormdb.DB {
 	return c.workspaceStoreDB
+}
+
+// AgentChatES returns the agent-chat event log at state/events/agent_chat.db.
+// This is the singleton per-type handle: the app layer builds ONE axAgentChat
+// over it and routes every chat id to a shard by hash, mirroring
+// WorkspaceES/ReviewThreadES.
+func (c *Container) AgentChatES() asynxModels.Store {
+	return c.agentChatEventStore
+}
+
+// AgentChatReadDB returns the agent-chat read-model DB at
+// state/store/agent_chat.db, opened as a read pool (decision 12). The
+// agentchat store projection folds evt.Aggregate into it, mirroring
+// WorkspaceView/ReviewThreadView.
+func (c *Container) AgentChatReadDB() *gormdb.DB {
+	return c.agentChatStoreDB
 }
 
 // GlobalView returns the global view DB at state/view.db holding projects,
@@ -246,6 +279,12 @@ func (c *Container) Close() error {
 		}
 		c.reviewThreadView = nil
 	}
+	if c.agentChatStoreDB != nil {
+		if err := closeViewDB(c.agentChatStoreDB); err != nil {
+			errs = append(errs, fmt.Errorf("adapter: close agent chat store db: %w", err))
+		}
+		c.agentChatStoreDB = nil
+	}
 
 	if c.globalView != nil {
 		if err := closeViewDB(c.globalView); err != nil {
@@ -259,6 +298,12 @@ func (c *Container) Close() error {
 			errs = append(errs, fmt.Errorf("adapter: close workspace event store: %w", err))
 		}
 		c.workspaceEventStore = nil
+	}
+	if c.agentChatEventStore != nil {
+		if err := closeEventStore(c.agentChatEventStore); err != nil {
+			errs = append(errs, fmt.Errorf("adapter: close agent chat event store: %w", err))
+		}
+		c.agentChatEventStore = nil
 	}
 
 	for _, cl := range c.globalClosers {
