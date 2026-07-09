@@ -1,12 +1,11 @@
 // Package store owns the agentchat read model: the durable, queryable
 // projection of the domain.AgentChat aggregate at state/store/agent_chat.db.
-// New builds the read model over the read-pool DB and registers the SAVE-ONLY
-// store projection here (store.go) on the singleton axAgentChat: it folds
-// evt.Aggregate into the durable read model and, on Forget, deletes the row.
-// Task 8 adds the hub (WS fan-out) projection to New via one more
-// registerHubProjection-style call using the same broadcast — New already
-// accepts it so that addition needs no signature change. The two projections
-// derive independently from evt.Aggregate and cannot drift.
+// New builds the read model over the read-pool DB and registers TWO distinct
+// projections on the singleton axAgentChat (mirrors reviewthread): the
+// SAVE-ONLY store projection here (store.go) folds evt.Aggregate into the
+// durable read model and, on Forget, deletes the row; the hub projection
+// (hub.go) owns WS fan-out, broadcasting a (chatID, kind) frame per event. The
+// two derive independently from the same event stream and cannot drift.
 //
 // Like reviewthread it does NO eager reconcile on open — a normal boot re-opens
 // the durable read model with zero replay. Read-model repair is lazy: every read
@@ -46,14 +45,6 @@ const eventKeyPrefix = "events:"
 // Task 6's agentchat.Store will import this store package — importing back
 // would cycle. Task 6 bridges this sentinel to agentchat.ErrNotFound.
 var ErrNotFound = errors.New("agentchat store: not found")
-
-// BroadcastFunc receives every projected AgentChat frame for hub fan-out
-// (mirrors reviewthread's store.BroadcastFunc). Unused by this task's
-// registration — Task 8 registers the hub projection that calls it — but New
-// already takes it so that Task 8 doesn't reshape the constructor signature.
-type BroadcastFunc func(
-	chat domain.AgentChat,
-)
 
 // Store is the AgentChat read model: a projected, queryable view of the
 // aggregate. Every read heals a lost durable model via whole-model lazy Replay
@@ -99,24 +90,25 @@ type service struct {
 }
 
 // New builds the durable read model over db (state/store/agent_chat.db) and
-// registers the save-only store projection on ax, once, for the singleton
-// axAgentChat. It performs no reconcile — read-model repair is lazy. es is the
-// same per-type event log ax wraps, retained so reads can reach its
-// serialize.AggregateLister capability for the whole-model rebuild. broadcast is
-// accepted but not yet wired to a projection — Task 8 registers the hub
-// projection over it.
+// registers both read-side projections on ax, once, for the singleton
+// axAgentChat: the save-only store projection (this file) and the hub
+// broadcast projection (hub.go). It performs no reconcile — read-model repair
+// is lazy. es is the same per-type event log ax wraps, retained so reads can
+// reach its serialize.AggregateLister capability for the whole-model rebuild.
 func New(
 	db *gormdb.DB,
 	es asynxModels.Store,
 	ax asynx.Asynx[domain.AgentChat],
 	broadcast BroadcastFunc,
 ) (Store, error) {
-	_ = broadcast // wired by Task 8's hub projection
 	st, err := newStorageStore(db)
 	if err != nil {
 		return nil, fmt.Errorf("agentchat store: %w", err)
 	}
 	if err := registerStoreProjection(st, ax); err != nil {
+		return nil, fmt.Errorf("agentchat store: projections: %w", err)
+	}
+	if err := registerHubProjection(ax, broadcast); err != nil {
 		return nil, fmt.Errorf("agentchat store: projections: %w", err)
 	}
 	return &service{storage: st, es: es, ax: ax}, nil
