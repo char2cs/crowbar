@@ -294,7 +294,7 @@ func TestAgent_LiveClearRegistersNewChat(t *testing.T) {
 		for _, c := range chats {
 			// Require the FULLY-FORMED registered chat: a non-original chat that
 			// already carries its ActiveSegmentID. This is race-proof against the
-			// vacated-chat clear in persistRegistered — if /clear yields more than one
+			// vacated-chat clear in moveToNewChat — if /clear yields more than one
 			// registration, an intermediate chat gets its ActiveSegmentID cleared when
 			// the process moves on, so "first non-original chat" could otherwise land on
 			// a now-vacated one and see an empty ActiveSegmentID. Skipping ActiveSegmentID=="",
@@ -330,7 +330,7 @@ func TestAgent_LiveClearRegistersNewChat(t *testing.T) {
 	originalSegs, err := h.app.Usecases.Agent.SegmentsFor(ctx, originalChatID)
 	require.NoError(t, err)
 	require.Len(t, originalSegs, 1, "%+v", originalSegs)
-	require.Equal(t, "moved", originalSegs[0].Status, "the original segment must be marked moved, not left dangling as active")
+	require.Equal(t, "ended", originalSegs[0].Status, "the original segment must be marked ended, not left dangling as active")
 }
 
 // seedClaudeThenSwitchToCodex spawns claude, seeds it with codeword via one
