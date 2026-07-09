@@ -25,10 +25,9 @@ import (
 type Container struct {
 	Workspace    workspace.Workspace
 	ReviewThread reviewthread.ReviewThread
-	// AgentChat is the asynx-backed EventStore (Task 9, additive): its
-	// store/hub projections are live on axAgentChat, but no usecase sends
-	// commands through it yet — that's a later cutover task. Retained here so
-	// that cutover has a wired repo to consume.
+	// AgentChat is the asynx-backed EventStore: its store/hub projections are
+	// live on axAgentChat and the agent usecase sends every AgentChat mutation
+	// through it (the gorm-backed store was retired in the Task 10 cutover).
 	AgentChat agentchat.EventStore
 	hub       hub.WebSocketHub
 	git       wsusecase.MergeConflictChecker

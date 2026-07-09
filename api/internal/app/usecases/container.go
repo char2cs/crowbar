@@ -6,7 +6,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
@@ -59,16 +58,15 @@ type Container struct {
 // New builds the usecases container. It takes the aggregate repositories, the
 // GORM CRUD stores, and the engines rather than the app-layer GORMStores struct
 // to keep the usecases package free of any dependency on its parent package.
-// agentChats is the agentic-chat repository (built by the caller off the
-// global view DB, next to the other GORM stores) and bc is the hub broadcaster
-// the agent usecase pushes lifecycle events through (the app-layer *hub.Hub
-// satisfies agent.Broadcaster).
+// The agentic-chat usecase consumes the asynx-backed EventStore off the
+// repositories container (repos.AgentChat); bc is the hub broadcaster the agent
+// usecase pushes lifecycle events through (the app-layer *hub.Hub satisfies
+// agent.Broadcaster).
 func New(
 	repos *repositories.Container,
 	gormStores GORMStores,
 	engines *engine.Container,
 	crowbarHome func() (string, error),
-	agentChats agentchat.Store,
 	bc agent.Broadcaster,
 ) (*Container, error) {
 	projectUsecase := project.New(
@@ -138,7 +136,7 @@ func New(
 		nowFunc,
 	)
 	agentUsecase := agent.New(
-		agentChats,
+		repos.AgentChat,
 		engineagent.NewRegistry(),
 		engines.Terminal,
 		bc,

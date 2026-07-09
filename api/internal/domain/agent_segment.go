@@ -7,7 +7,6 @@ import "time"
 // at most one segment with Status=="active" per AgentChat.
 type AgentSegment struct {
 	ID                string     `json:"id"`
-	ChatID            string     `json:"chatId"` // kept until Task 10 rewrites the usecase; redundant in the embedded aggregate but the pre-rewrite usecase still references it
 	ProviderID        string     `json:"providerId"`
 	ProviderSessionID string     `json:"providerSessionId,omitempty"`
 	CrowbarSegmentID  string     `json:"crowbarSegmentId"`

@@ -14,11 +14,10 @@ type AgentChat struct {
 	CreatedAt   time.Time       `json:"createdAt"`
 	Status      AgentChatStatus `json:"status,omitempty"`
 
-	// gorm:"-" keeps this embedded slice out of the legacy gorm store's
-	// AutoMigrate (it can't map a slice-of-struct and errors at container boot);
-	// the asynx read model serializes the whole aggregate as JSON and ignores
-	// gorm tags, so this is invisible there. Remove once the legacy store is gone.
-	Segments        []AgentSegment `json:"segments" gorm:"-"`
+	// Segments are embedded in the aggregate and serialized as JSON by the asynx
+	// read model (the legacy gorm store that couldn't map a slice-of-struct is
+	// gone). ActiveSegmentID names the one segment with Status=="active".
+	Segments        []AgentSegment `json:"segments"`
 	ActiveSegmentID string         `json:"activeSegmentId,omitempty"`
 
 	// Live turn state — folded from Turn events, reconciled on boot. Not durable

@@ -1,6 +1,10 @@
-// Package agent hosts the agentic-chat usecase: it owns AgentChat/AgentSegment
-// lifecycle, spawns vendor CLIs in a PTY, and runs the context-move reducer
-// against incoming hooks, persisting outcomes and appending the ledger.
+// Package agent hosts the agentic-chat usecase: it owns AgentChat lifecycle
+// (segments embedded in the aggregate), spawns vendor CLIs in a PTY, runs the
+// context-move reducer against incoming hooks, and appends the ledger. Every
+// persistence mutation is a command against the asynx-backed agentchat
+// EventStore — the usecase reads current state, lets the reducer/engine decide
+// the outcome, performs any IO (spawn/terminate PTY) OUTSIDE the command, then
+// issues the command that emits the event.
 package agent
 
 import (
@@ -62,28 +66,29 @@ type WorkspaceReader interface {
 }
 
 // Usecase is the agentic-chat engine: spawning vendor CLI segments, ingesting
-// their hooks through the context-move reducer, and persisting the result.
+// their hooks through the context-move reducer, and persisting the result via
+// the asynx-backed agentchat EventStore.
 type Usecase struct {
-	repo     agentchat.Store
+	chats    agentchat.EventStore
 	registry *engineagent.Registry
 	term     TerminalCommander
 	bc       Broadcaster
 	ws       WorkspaceReader
-	// segMu serializes IngestHook per crowbarSegID; see keyed_mutex.go for why
-	// this exists (the read/reduce/persist sequence is not atomic on its own).
-	segMu segmentMutex
 }
 
-// New builds a Usecase from its repository, reducer registry, and seams.
+// New builds a Usecase from the agentchat EventStore, reducer registry, and
+// seams. There is no per-segment serialization mutex any more: the asynx
+// write-path (id,version) optimistic concurrency (sendWithOCC in the
+// repository) is the concurrency control, replacing the retired keyed_mutex.
 func New(
-	repo agentchat.Store,
+	chats agentchat.EventStore,
 	registry *engineagent.Registry,
 	term TerminalCommander,
 	bc Broadcaster,
 	ws WorkspaceReader,
 ) *Usecase {
 	return &Usecase{
-		repo:     repo,
+		chats:    chats,
 		registry: registry,
 		term:     term,
 		bc:       bc,
@@ -100,16 +105,7 @@ func (u *Usecase) SpawnChat(
 	providerID string,
 ) (chatID, segID string, err error) {
 	chatID = uuid.NewString()
-	chat := domain.AgentChat{
-		ID:          chatID,
-		WorkspaceID: workspaceID,
-		CreatedAt:   time.Now(),
-	}
-	if err := u.repo.SaveChat(ctx, chat); err != nil {
-		return "", "", fmt.Errorf("agent: spawn chat: save chat: %w", err)
-	}
-
-	segID, err = u.spawnSegment(ctx, chat, providerID, nil, "", true)
+	segID, err = u.spawnSegment(ctx, chatID, workspaceID, providerID, nil, "", true, true)
 	if err != nil {
 		return "", "", err
 	}
@@ -122,7 +118,9 @@ func (u *Usecase) SpawnChat(
 //	source "agent":   set unless the title is user-locked (agent may upgrade a derived title).
 //	source "user"/"": set unconditionally AND lock (a manual rename wins and sticks).
 //
-// An empty title is always a no-op. Broadcasts "titled" on a successful change.
+// The empty-title-is-a-no-op and derived-only-if-empty gates live here (the
+// SetTitle command only enforces the locked-vs-user rule); an empty title is
+// always a no-op. Broadcasts "titled" on a successful change.
 func (u *Usecase) RenameChat(
 	ctx context.Context,
 	chatID, title, source string,
@@ -130,7 +128,7 @@ func (u *Usecase) RenameChat(
 	if title == "" {
 		return nil
 	}
-	chat, err := u.repo.GetChat(ctx, chatID)
+	chat, err := u.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return fmt.Errorf("agent: rename chat: get: %w", err)
 	}
@@ -144,10 +142,9 @@ func (u *Usecase) RenameChat(
 			return nil
 		}
 	default: // "user" / "" — manual rename wins and locks
-		chat.TitleLocked = true
+		source = "user"
 	}
-	chat.Title = title
-	if err := u.repo.SaveChat(ctx, chat); err != nil {
+	if _, err := u.chats.SetTitle(ctx, chatID, title, source); err != nil {
 		return fmt.Errorf("agent: rename chat: save: %w", err)
 	}
 	u.bc.BroadcastAgentChat(chatID, "titled")
@@ -171,37 +168,41 @@ func deriveTitle(prompt string) string {
 	return ""
 }
 
-// spawnSegment is the single owner of AgentChat.ActiveSegmentID: it persists a
-// new active AgentSegment, binds the reducer, builds and launches the
-// provider's spawn plan, and stamps the segment's terminal session id onto
-// both the segment and the chat. Both SpawnChat and SwitchProvider go through
-// it so ActiveSegmentID is never left unset. injectTitle is true only for a
-// genuine fresh-chat spawn (SpawnChat): it injects the configured title
-// instruction as a true system-prompt document via the descriptor's
-// system_prompt_inject steps, instead of the (here empty) handoff.
+// spawnSegment is the single spawn seam and the single owner of a chat's
+// ActiveSegmentID. It does ALL spawn IO first — bind the segment to its chat in
+// the reducer, resolve the descriptor, render the per-spawn tmp dir + hook
+// config, build the spawn plan, and launch the PTY — and only THEN issues the
+// persistence command: Create for a genuine fresh chat (create=true), or
+// OpenSegment for a switch-in / resume on an existing chat (create=false). Both
+// SpawnChat and SwitchProvider go through it so ActiveSegmentID is never left
+// unset. injectTitle is true only for a fresh-chat spawn: it injects the
+// configured title instruction as a true system-prompt document via the
+// descriptor's system_prompt_inject steps, instead of the (here empty) handoff.
+//
+// IO-before-command ordering is load-bearing for the concurrent-switch rule: a
+// pure command cannot spawn a process, so the CLI is already live when
+// OpenSegment runs. If OpenSegment loses a version race (an active segment
+// already exists — asynx ErrValidation) or fails for any other reason, the
+// just-spawned CLI is torn down (TerminateGraceful) so no orphan process leaks.
 func (u *Usecase) spawnSegment(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chatID string,
+	workspaceID string,
 	providerID string,
 	extraSteps []engineagent.InjectStep,
 	handoff string,
 	injectTitle bool,
+	create bool,
 ) (string, error) {
 	segID := uuid.NewString()
-	seg := domain.AgentSegment{
-		ID:               segID,
-		ChatID:           chat.ID,
-		ProviderID:       providerID,
-		CrowbarSegmentID: segID,
-		Status:           "active",
-		StartedAt:        time.Now(),
-	}
-	if err := u.repo.SaveSegment(ctx, seg); err != nil {
-		return "", fmt.Errorf("agent: spawn segment: save segment: %w", err)
-	}
-	u.registry.BindSegment(segID, chat.ID)
+	// Bind the segment to its chat BEFORE the PTY starts, so a hook fired the
+	// instant the CLI comes up already routes to this chat (ChatFor). A stale
+	// binding left by a later spawn/persist failure is harmless: segID is a
+	// fresh uuid never reused, so no hook can match a segment that was never
+	// persisted.
+	u.registry.BindSegment(segID, chatID)
 
-	crowbarHome, _, _, worktree, err := u.ws.WorktreeDir(ctx, chat.WorkspaceID)
+	crowbarHome, _, _, worktree, err := u.ws.WorktreeDir(ctx, workspaceID)
 	if err != nil {
 		return "", fmt.Errorf("agent: spawn segment: worktree dir: %w", err)
 	}
@@ -228,7 +229,7 @@ func (u *Usecase) spawnSegment(
 		CrowbarHook: u.crowbarHookPath(crowbarHome),
 		Segid:       segID,
 		Provider:    providerID,
-		Chatid:      chat.ID,
+		Chatid:      chatID,
 	}
 	steps := extraSteps
 	if injectTitle {
@@ -249,7 +250,7 @@ func (u *Usecase) spawnSegment(
 
 	argv := append([]string{descriptor.Spawn.Cmd}, plan.Argv...)
 
-	termSessID, err := u.term.CreateCommand(ctx, chat.WorkspaceID, worktree, argv, plan.Env,
+	termSessID, err := u.term.CreateCommand(ctx, workspaceID, worktree, argv, plan.Env,
 		func() { _ = os.RemoveAll(tmpDir) })
 	if err != nil {
 		// CreateCommand never got far enough to register onExit — clean up here
@@ -258,14 +259,42 @@ func (u *Usecase) spawnSegment(
 		return "", fmt.Errorf("agent: spawn segment: create command: %w", err)
 	}
 
-	seg.TerminalSessionID = termSessID
-	if err := u.repo.SaveSegment(ctx, seg); err != nil {
-		return "", fmt.Errorf("agent: spawn segment: save terminal session id: %w", err)
+	now := time.Now()
+	if create {
+		_, err = u.chats.Create(ctx, agentchat.CreateInput{
+			ID:               chatID,
+			WorkspaceID:      workspaceID,
+			SegmentID:        segID,
+			CrowbarSegmentID: segID,
+			ProviderID:       providerID,
+			TerminalSession:  termSessID,
+			Now:              now,
+		})
+	} else {
+		_, err = u.chats.OpenSegment(ctx, agentchat.OpenSegmentInput{
+			ChatID:           chatID,
+			SegmentID:        segID,
+			CrowbarSegmentID: segID,
+			ProviderID:       providerID,
+			TerminalSession:  termSessID,
+			Now:              now,
+		})
 	}
-
-	chat.ActiveSegmentID = segID
-	if err := u.repo.SaveChat(ctx, chat); err != nil {
-		return "", fmt.Errorf("agent: spawn segment: save chat active segment: %w", err)
+	if err != nil {
+		// The CLI is already live but its segment could not be persisted — tear
+		// it down so we never leak an orphan process. The headline case is
+		// OpenSegment losing a concurrent-switch version race (asynx
+		// ErrValidation: an active segment already exists); every other error
+		// leaves the same orphan, so the teardown is unconditional. The original
+		// error is returned wrapped, so ErrValidation still classifies as a
+		// conflict upstream. TerminateGraceful's own "session already gone" is
+		// harmless here and ignored.
+		if termErr := u.term.TerminateGraceful(ctx, termSessID); termErr != nil &&
+			!errors.Is(termErr, engineterminal.ErrSessionNotFound) {
+			slog.WarnContext(ctx, "agent: spawn segment: teardown after persist failure",
+				"chat_id", chatID, "segment_id", segID, "terminal_session_id", termSessID, "err", termErr)
+		}
+		return "", fmt.Errorf("agent: spawn segment: persist segment: %w", err)
 	}
 	return segID, nil
 }
@@ -279,9 +308,11 @@ func (u *Usecase) crowbarHookPath(home string) string {
 
 // IngestHook maps an incoming vendor hook to a canonical event, runs the
 // context-move reducer on session_start, and appends a conversation turn to the
-// chat's ledger on user_prompt / turn_stop. An unknown crowbarSegID (no active
-// segment) or a malformed payload is ignored, never an error — a hook must
-// never break the vendor CLI's turn.
+// chat's ledger on user_prompt / turn_stop. Routing is by crowbarSegID via the
+// reducer's segment→chat index (Registry.ChatFor) — the in-memory successor to
+// the retired GetActiveSegmentByCrowbarID lookup. An unknown crowbarSegID (no
+// live segment), a chat with no matching active segment, or a malformed payload
+// is ignored, never an error — a hook must never break the vendor CLI's turn.
 func (u *Usecase) IngestHook(
 	ctx context.Context,
 	crowbarSegID string,
@@ -289,22 +320,22 @@ func (u *Usecase) IngestHook(
 	canonicalEvent string,
 	rawPayload []byte,
 ) error {
-	// Serialize the whole read -> reduce -> persist sequence per crowbarSegID
-	// (see keyed_mutex.go). Unrelated segments proceed fully concurrently.
-	u.segMu.Lock(crowbarSegID)
-	defer u.segMu.Unlock(crowbarSegID)
+	chatID, ok := u.registry.ChatFor(crowbarSegID)
+	if !ok {
+		return nil
+	}
 
-	seg, err := u.repo.GetActiveSegmentByCrowbarID(ctx, crowbarSegID)
+	chat, err := u.chats.GetChat(ctx, chatID)
 	if errors.Is(err, agentchat.ErrNotFound) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("agent: ingest hook: active segment: %w", err)
+		return fmt.Errorf("agent: ingest hook: chat: %w", err)
 	}
 
-	chat, err := u.repo.GetChat(ctx, seg.ChatID)
-	if err != nil {
-		return fmt.Errorf("agent: ingest hook: chat: %w", err)
+	seg, ok := activeSegment(chat, crowbarSegID)
+	if !ok {
+		return nil
 	}
 
 	crowbarHome, projectID, repoID, _, err := u.ws.WorktreeDir(ctx, chat.WorkspaceID)
@@ -335,7 +366,7 @@ func (u *Usecase) IngestHook(
 
 	switch ev.Kind {
 	case "session_start":
-		return u.handleSessionStart(ctx, crowbarSegID, seg, chat, ev)
+		return u.handleSessionStart(ctx, crowbarSegID, chat, seg, ev)
 	case "user_prompt":
 		if err := u.RenameChat(ctx, chat.ID, deriveTitle(ev.Message), "derived"); err != nil {
 			slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
@@ -347,11 +378,28 @@ func (u *Usecase) IngestHook(
 	return nil
 }
 
+// activeSegment returns the single active segment for a live process
+// (its crowbarSegID) within a chat aggregate. The command layer's ≤1-active
+// invariant guarantees at most one match.
+func activeSegment(chat domain.AgentChat, crowbarSegID string) (domain.AgentSegment, bool) {
+	for _, s := range chat.Segments {
+		if s.CrowbarSegmentID == crowbarSegID && s.Status == "active" {
+			return s, true
+		}
+	}
+	return domain.AgentSegment{}, false
+}
+
+// handleSessionStart runs the spec §7 context-move reducer and maps its outcome
+// to commands. oldChat/oldSeg are the chat currently hosting the live process
+// and its active segment (read before the reducer decides). The reducer may
+// keep the process where it is (bound), move it to a brand-new chat
+// (registered), or move it into a known chat it once inhabited (focus).
 func (u *Usecase) handleSessionStart(
 	ctx context.Context,
 	crowbarSegID string,
-	seg domain.AgentSegment,
-	chat domain.AgentChat,
+	oldChat domain.AgentChat,
+	oldSeg domain.AgentSegment,
 	ev engineagent.CanonicalEvent,
 ) error {
 	out := u.registry.OnSessionStart(crowbarSegID, ev.SessionID, uuid.NewString)
@@ -359,11 +407,11 @@ func (u *Usecase) handleSessionStart(
 	var err error
 	switch out.Kind {
 	case "bound":
-		err = u.persistBound(ctx, seg, ev)
+		err = u.bindSession(ctx, out.ChatID, crowbarSegID, oldSeg, ev)
 	case "registered":
-		err = u.persistRegistered(ctx, crowbarSegID, seg, chat, out, ev)
+		err = u.moveToNewChat(ctx, crowbarSegID, oldChat, oldSeg, out, ev)
 	case "focus":
-		err = u.persistFocus(ctx, crowbarSegID, seg, out, ev)
+		err = u.moveToKnownChat(ctx, crowbarSegID, oldChat, oldSeg, out, ev)
 	}
 	if err != nil {
 		return err
@@ -373,141 +421,95 @@ func (u *Usecase) handleSessionStart(
 	return nil
 }
 
-func (u *Usecase) persistBound(
+// bindSession records the provider's native session id on the segment's first
+// session_start. It never overwrites an already-bound id (the reducer only
+// returns "bound" for a segment whose id it has not seen, so a set id here is a
+// pre-existing binding to preserve).
+func (u *Usecase) bindSession(
 	ctx context.Context,
-	seg domain.AgentSegment,
+	chatID string,
+	crowbarSegID string,
+	oldSeg domain.AgentSegment,
 	ev engineagent.CanonicalEvent,
 ) error {
-	if seg.ProviderSessionID == "" {
-		seg.ProviderSessionID = ev.SessionID
+	if oldSeg.ProviderSessionID != "" {
+		return nil
 	}
-	if err := u.repo.SaveSegment(ctx, seg); err != nil {
-		return fmt.Errorf("agent: ingest hook: bound: save segment: %w", err)
+	if _, err := u.chats.BindSession(ctx, chatID, crowbarSegID, ev.SessionID); err != nil {
+		return fmt.Errorf("agent: ingest hook: bound: bind session: %w", err)
 	}
 	return nil
 }
 
-func (u *Usecase) persistRegistered(
+// moveToNewChat handles the reducer's "registered" outcome: the live process
+// reported a brand-new (unknown) session id, so it has moved into a fresh chat.
+// End the old chat's active segment (which also clears its now-stale
+// ActiveSegmentID), create the new chat carrying the SAME crowbarSegID and
+// terminal session, and bind the new native session id onto it.
+func (u *Usecase) moveToNewChat(
 	ctx context.Context,
 	crowbarSegID string,
+	oldChat domain.AgentChat,
 	oldSeg domain.AgentSegment,
-	priorChat domain.AgentChat,
 	out engineagent.Outcome,
 	ev engineagent.CanonicalEvent,
 ) error {
 	now := time.Now()
-	oldSeg.Status = "moved"
-	oldSeg.EndedAt = &now
-	if err := u.repo.SaveSegment(ctx, oldSeg); err != nil {
-		return fmt.Errorf("agent: ingest hook: registered: save old segment: %w", err)
+	if _, err := u.chats.EndSegment(ctx, oldChat.ID, now); err != nil {
+		return fmt.Errorf("agent: ingest hook: registered: end old segment: %w", err)
 	}
-
-	newSeg := domain.AgentSegment{
-		ID:                uuid.NewString(),
-		ChatID:            out.ChatID,
-		ProviderID:        oldSeg.ProviderID,
-		CrowbarSegmentID:  crowbarSegID,
-		ProviderSessionID: ev.SessionID,
-		TerminalSessionID: oldSeg.TerminalSessionID,
-		Status:            "active",
-		StartedAt:         now,
+	if _, err := u.chats.Create(ctx, agentchat.CreateInput{
+		ID:               out.ChatID,
+		WorkspaceID:      oldChat.WorkspaceID,
+		SegmentID:        uuid.NewString(),
+		CrowbarSegmentID: crowbarSegID,
+		ProviderID:       oldSeg.ProviderID,
+		TerminalSession:  oldSeg.TerminalSessionID,
+		Now:              now,
+	}); err != nil {
+		return fmt.Errorf("agent: ingest hook: registered: create new chat: %w", err)
 	}
-	if err := u.repo.SaveSegment(ctx, newSeg); err != nil {
-		return fmt.Errorf("agent: ingest hook: registered: save new segment: %w", err)
-	}
-
-	newChat := domain.AgentChat{
-		ID:              out.ChatID,
-		WorkspaceID:     priorChat.WorkspaceID,
-		CreatedAt:       now,
-		ActiveSegmentID: newSeg.ID,
-	}
-	if err := u.repo.SaveChat(ctx, newChat); err != nil {
-		return fmt.Errorf("agent: ingest hook: registered: save new chat: %w", err)
-	}
-
-	// oldSeg just vacated priorChat (the process moved to a brand-new chat);
-	// left alone, priorChat.ActiveSegmentID would keep pointing at a segment
-	// that is now "moved", not active. Harmless in practice (callers resolve
-	// "the active segment for a process" via GetActiveSegmentByCrowbarID,
-	// never chat.ActiveSegmentID directly) but stale/misleading to inspect.
-	if priorChat.ActiveSegmentID == oldSeg.ID {
-		priorChat.ActiveSegmentID = ""
-		if err := u.repo.SaveChat(ctx, priorChat); err != nil {
-			return fmt.Errorf("agent: ingest hook: registered: clear vacated chat: %w", err)
-		}
+	if _, err := u.chats.BindSession(ctx, out.ChatID, crowbarSegID, ev.SessionID); err != nil {
+		return fmt.Errorf("agent: ingest hook: registered: bind session: %w", err)
 	}
 	return nil
 }
 
-func (u *Usecase) persistFocus(
+// moveToKnownChat handles the reducer's "focus" outcome: the live process
+// reported a session id already known to belong to another (existing) chat, so
+// it has moved back into that chat. End the old chat's active segment (clearing
+// its stale ActiveSegmentID) and open a new active segment on the focused chat
+// carrying the same crowbarSegID and terminal session, then bind the session.
+// EndSegment runs unconditionally: when the process focuses back into the very
+// chat it is already in, ending the current active segment first is exactly
+// what lets OpenSegment (which rejects a chat that still has an active segment)
+// succeed.
+func (u *Usecase) moveToKnownChat(
 	ctx context.Context,
 	crowbarSegID string,
+	oldChat domain.AgentChat,
 	oldSeg domain.AgentSegment,
 	out engineagent.Outcome,
 	ev engineagent.CanonicalEvent,
 ) error {
-	oldSeg.Status = "moved"
-	if err := u.repo.SaveSegment(ctx, oldSeg); err != nil {
-		return fmt.Errorf("agent: ingest hook: focus: save old segment: %w", err)
+	now := time.Now()
+	if _, err := u.chats.EndSegment(ctx, oldChat.ID, now); err != nil {
+		return fmt.Errorf("agent: ingest hook: focus: end old segment: %w", err)
 	}
-
-	newSeg := domain.AgentSegment{
-		ID:                uuid.NewString(),
-		ChatID:            out.ChatID,
-		ProviderID:        oldSeg.ProviderID,
-		CrowbarSegmentID:  crowbarSegID,
-		ProviderSessionID: ev.SessionID,
-		TerminalSessionID: oldSeg.TerminalSessionID,
-		Status:            "active",
-		StartedAt:         time.Now(),
+	if _, err := u.chats.OpenSegment(ctx, agentchat.OpenSegmentInput{
+		ChatID:           out.ChatID,
+		SegmentID:        uuid.NewString(),
+		CrowbarSegmentID: crowbarSegID,
+		ProviderID:       oldSeg.ProviderID,
+		TerminalSession:  oldSeg.TerminalSessionID,
+		Now:              now,
+	}); err != nil {
+		return fmt.Errorf("agent: ingest hook: focus: open segment: %w", err)
 	}
-	if err := u.repo.SaveSegment(ctx, newSeg); err != nil {
-		return fmt.Errorf("agent: ingest hook: focus: save new segment: %w", err)
-	}
-
-	focusedChat, err := u.repo.GetChat(ctx, out.ChatID)
-	if err != nil {
-		return fmt.Errorf("agent: ingest hook: focus: load chat: %w", err)
-	}
-	focusedChat.ActiveSegmentID = newSeg.ID
-	if err := u.repo.SaveChat(ctx, focusedChat); err != nil {
-		return fmt.Errorf("agent: ingest hook: focus: save chat: %w", err)
-	}
-
-	// oldSeg was the active segment of ITS OWN chat, which may differ from the
-	// chat we just focused into (that is the whole point of "focus": moving
-	// into a DIFFERENT known chat). Clear that vacated chat's ActiveSegmentID
-	// so it doesn't keep pointing at a now-"moved" segment. Guarded on
-	// oldSeg.ChatID != out.ChatID so a same-chat edge case never clobbers the
-	// focusedChat update just made above.
-	if oldSeg.ChatID != out.ChatID {
-		if err := u.clearVacatedChatActiveSegment(ctx, oldSeg.ChatID, oldSeg.ID); err != nil {
-			return fmt.Errorf("agent: ingest hook: focus: clear vacated chat: %w", err)
-		}
+	if _, err := u.chats.BindSession(ctx, out.ChatID, crowbarSegID, ev.SessionID); err != nil {
+		return fmt.Errorf("agent: ingest hook: focus: bind session: %w", err)
 	}
 	return nil
-}
-
-// clearVacatedChatActiveSegment nulls chatID's ActiveSegmentID when it still
-// points at vacatedSegID (the segment a session_start move just carried the
-// live process away from), so a chat's ActiveSegmentID never outlives the
-// segment it names. A mismatch is left untouched (defensive: some other
-// change may already have updated it).
-func (u *Usecase) clearVacatedChatActiveSegment(
-	ctx context.Context,
-	chatID string,
-	vacatedSegID string,
-) error {
-	c, err := u.repo.GetChat(ctx, chatID)
-	if err != nil {
-		return err
-	}
-	if c.ActiveSegmentID != vacatedSegID {
-		return nil
-	}
-	c.ActiveSegmentID = ""
-	return u.repo.SaveChat(ctx, c)
 }
 
 // appendTurn records one conversation turn (user or assistant) into the chat's
@@ -546,7 +548,7 @@ func (u *Usecase) AssembleHandoff(
 	ctx context.Context,
 	chatID string,
 ) (string, error) {
-	chat, err := u.repo.GetChat(ctx, chatID)
+	chat, err := u.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return "", fmt.Errorf("agent: assemble handoff: chat: %w", err)
 	}
@@ -573,27 +575,28 @@ func (u *Usecase) AssembleHandoff(
 	return strings.ReplaceAll(config.GetPrompts().HandoffWrapper, "{conversation}", string(blob)), nil
 }
 
-// SwitchProvider is the headline provider-switch: it terminates chatID's
-// active provider CLI, assembles a handoff from the ledger, and spawns
-// targetProviderID as a NEW segment in the SAME chat with the handoff
-// injected. If a prior segment for targetProviderID already carries a native
+// SwitchProvider is the headline provider-switch: it terminates chatID's active
+// provider CLI, assembles a handoff from the ledger, and spawns
+// targetProviderID as a NEW segment in the SAME chat with the handoff injected.
+// If a prior segment for targetProviderID already carries a native
 // ProviderSessionID (a switch-back), the target CLI is also resumed into that
-// session via the descriptor's session.resume; otherwise (a forward switch)
-// it receives only the handoff. Reuses spawnSegment (Task 14), the single
-// owner of ActiveSegmentID, so segment creation is never duplicated here.
+// session via the descriptor's session.resume; otherwise (a forward switch) it
+// receives only the handoff. Reuses spawnSegment (create=false), the single
+// owner of ActiveSegmentID, so segment creation — and the concurrent-switch
+// orphan teardown — is never duplicated here.
 func (u *Usecase) SwitchProvider(
 	ctx context.Context,
 	chatID string,
 	targetProviderID string,
 ) (string, error) {
-	chat, err := u.repo.GetChat(ctx, chatID)
+	chat, err := u.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return "", fmt.Errorf("agent: switch provider: chat: %w", err)
 	}
 
-	oldSeg, err := u.repo.GetSegment(ctx, chat.ActiveSegmentID)
-	if err != nil {
-		return "", fmt.Errorf("agent: switch provider: active segment: %w", err)
+	oldSeg, ok := segmentByID(chat, chat.ActiveSegmentID)
+	if !ok {
+		return "", fmt.Errorf("agent: switch provider: active segment: %w", agentchat.ErrNotFound)
 	}
 
 	// Read-before-terminate: the ledger is built from hooks (appended on each
@@ -615,7 +618,7 @@ func (u *Usecase) SwitchProvider(
 	//
 	// A failed terminate is surfaced, not swallowed: if the outgoing CLI's
 	// terminal session still exists but could not be terminated, proceeding
-	// would spawn a SECOND live CLI into the same worktree while the DB marks
+	// would spawn a SECOND live CLI into the same worktree while the store marks
 	// only the new one active — the exact "two live CLIs" hazard this guards
 	// against. The one error TerminateGraceful can return today
 	// (registry.ErrSessionNotFound, exported as terminal.ErrSessionNotFound)
@@ -629,22 +632,20 @@ func (u *Usecase) SwitchProvider(
 		slog.WarnContext(ctx, "agent: switch provider: outgoing terminal session already gone before terminate; continuing switch",
 			"chat_id", chatID, "segment_id", oldSeg.ID, "terminal_session_id", oldSeg.TerminalSessionID, "err", err)
 	}
-	now := time.Now()
-	oldSeg.Status = "ended"
-	oldSeg.EndedAt = &now
-	if err := u.repo.SaveSegment(ctx, oldSeg); err != nil {
-		return "", fmt.Errorf("agent: switch provider: save old segment: %w", err)
+
+	// End the outgoing segment BEFORE spawning the target: OpenSegment (inside
+	// spawnSegment) rejects a chat that still has an active segment, so the
+	// active segment must be cleared first.
+	if _, err := u.chats.EndSegment(ctx, chatID, time.Now()); err != nil {
+		return "", fmt.Errorf("agent: switch provider: end old segment: %w", err)
 	}
 
-	segs, err := u.repo.ListSegmentsByChat(ctx, chatID)
-	if err != nil {
-		return "", fmt.Errorf("agent: switch provider: list segments: %w", err)
-	}
-	// ListSegmentsByChat is ordered by started_at asc, so the last match
-	// found while scanning forward is the most recent prior segment for the
-	// target provider.
+	// chat.Segments is in append (start) order, so the LAST match while scanning
+	// forward is the most recent prior segment for the target provider. This is
+	// the switch-back detector: a target that already ran in this chat and bound
+	// a native session id is resumed into it; a forward switch finds none.
 	var priorSessionID string
-	for _, s := range segs {
+	for _, s := range chat.Segments {
 		if s.ProviderID == targetProviderID && s.ProviderSessionID != "" {
 			priorSessionID = s.ProviderSessionID
 		}
@@ -676,7 +677,7 @@ func (u *Usecase) SwitchProvider(
 	// positional handoff; order is irrelevant for claude's flag pair.
 	extraSteps := append(resumeSteps, d.HandoffInject...)
 
-	newSegID, err := u.spawnSegment(ctx, chat, targetProviderID, extraSteps, handoff, false)
+	newSegID, err := u.spawnSegment(ctx, chatID, chat.WorkspaceID, targetProviderID, extraSteps, handoff, false, false)
 	if err != nil {
 		return "", err
 	}
@@ -685,11 +686,21 @@ func (u *Usecase) SwitchProvider(
 	return newSegID, nil
 }
 
-// ListChats returns every persisted AgentChat.
+// segmentByID returns the segment with the given id from a chat aggregate.
+func segmentByID(chat domain.AgentChat, id string) (domain.AgentSegment, bool) {
+	for _, s := range chat.Segments {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return domain.AgentSegment{}, false
+}
+
+// ListChats returns every live (non-deleted) AgentChat.
 func (u *Usecase) ListChats(
 	ctx context.Context,
 ) ([]domain.AgentChat, error) {
-	return u.repo.ListChats(ctx)
+	return u.chats.ListChats(ctx)
 }
 
 // GetChat returns a single AgentChat by id.
@@ -697,32 +708,40 @@ func (u *Usecase) GetChat(
 	ctx context.Context,
 	id string,
 ) (domain.AgentChat, error) {
-	return u.repo.GetChat(ctx, id)
+	return u.chats.GetChat(ctx, id)
 }
 
-// SegmentsFor returns every AgentSegment belonging to a chat, oldest first.
+// SegmentsFor returns every AgentSegment belonging to a chat, oldest first
+// (segments are embedded in the aggregate in append/start order).
 func (u *Usecase) SegmentsFor(
 	ctx context.Context,
 	chatID string,
 ) ([]domain.AgentSegment, error) {
-	return u.repo.ListSegmentsByChat(ctx, chatID)
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+	return chat.Segments, nil
 }
 
 // SeedRegistry rehydrates the reducer's known-session index from persisted
-// segments at startup, so a resumed process that /resumes into a
-// pre-restart chat is recognized as "focus" rather than "registered".
+// chats at startup, so a resumed process that /resumes into a pre-restart chat
+// is recognized as "focus" rather than "registered". Segments are embedded, so
+// this scans every live chat's segments rather than a flat segment table.
 func (u *Usecase) SeedRegistry(
 	ctx context.Context,
 ) error {
-	segs, err := u.repo.AllSegments(ctx)
+	chats, err := u.chats.ListChats(ctx)
 	if err != nil {
-		return fmt.Errorf("agent: seed registry: all segments: %w", err)
+		return fmt.Errorf("agent: seed registry: list chats: %w", err)
 	}
-	for _, seg := range segs {
-		if seg.ProviderSessionID == "" {
-			continue
+	for _, chat := range chats {
+		for _, seg := range chat.Segments {
+			if seg.ProviderSessionID == "" {
+				continue
+			}
+			u.registry.Seed(seg.ProviderSessionID, chat.ID)
 		}
-		u.registry.Seed(seg.ProviderSessionID, seg.ChatID)
 	}
 	return nil
 }

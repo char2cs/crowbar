@@ -41,6 +41,21 @@ func (r *Registry) Seed(sessionID, chatID string) {
 	r.sessionToChat[sessionID] = chatID
 }
 
+// ChatFor returns the chat a segment currently belongs to, if the registry
+// knows it. A segment is bound to its chat at spawn (BindSegment) and re-bound
+// by OnSessionStart when the live process moves (focus/registered), so this
+// always reflects the chat currently hosting the segment. The usecase routes an
+// incoming hook — which carries only its crowbarSegID — to its chat through
+// this, replacing the retired GetActiveSegmentByCrowbarID DB lookup. Returns
+// (,false) for a crowbarSegID the registry has never seen (an unknown/dead
+// segment), so the caller ignores such a hook.
+func (r *Registry) ChatFor(segmentID string) (string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	chatID, ok := r.segToChat[segmentID]
+	return chatID, ok
+}
+
 // OnSessionStart is the spec §7 reducer. It branches ONLY on facts: (1) did the
 // session id under this segment change, (2) is the new id known.
 func (r *Registry) OnSessionStart(segmentID, sessionID string, newChatID func() string) Outcome {

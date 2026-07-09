@@ -41,9 +41,9 @@ const eventKeyPrefix = "events:"
 
 // ErrNotFound is returned when no read-model row exists for a requested chat or
 // provider session, even after a whole-model rebuild attempt. Defined locally
-// (rather than importing the sibling agentchat package's sentinel) because
-// Task 6's agentchat.Store will import this store package — importing back
-// would cycle. Task 6 bridges this sentinel to agentchat.ErrNotFound.
+// (rather than importing the parent agentchat package's sentinel) because that
+// package imports this store package — importing back would cycle. The parent's
+// event_store.go bridges this sentinel to agentchat.ErrNotFound (mapNotFound).
 var ErrNotFound = errors.New("agentchat store: not found")
 
 // Store is the AgentChat read model: a projected, queryable view of the

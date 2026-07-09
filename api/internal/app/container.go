@@ -17,7 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/realtime"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -64,11 +63,11 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx workspace: %w", err)
 	}
-	// axAgentChat is the per-type singleton over state/events/agent_chat.db
-	// (Task 9, additive): it is built and its store/hub projections registered
-	// (via repositories.New -> agentchat.NewEventSourced), but nothing sends
-	// commands through it yet — the usecase still depends on the gorm-backed
-	// agentChats store below until the cutover task.
+	// axAgentChat is the per-type singleton over state/events/agent_chat.db: it
+	// is built and its store/hub projections registered (via repositories.New ->
+	// agentchat.NewEventSourced), and the agent usecase now sends every AgentChat
+	// mutation through it (the gorm-backed store was retired in the Task 10
+	// cutover).
 	axAgentChat, err := newAsynx[domain.AgentChat](adapters.AgentChatES())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx agent chat: %w", err)
@@ -77,10 +76,6 @@ func New(
 	gormStores, err := newGORMStores(adapters.GlobalView())
 	if err != nil {
 		return nil, err
-	}
-	agentChats, err := agentchat.New(adapters.GlobalView())
-	if err != nil {
-		return nil, fmt.Errorf("app: agentchat store: %w", err)
 	}
 
 	h := hub.NewHub()
@@ -101,7 +96,7 @@ func New(
 	// worktrees and per-entity storages land under the same root.
 	crowbarHome := adapters.CrowbarHome()
 	homeFunc := func() (string, error) { return crowbarHome, nil }
-	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines, homeFunc, agentChats, h)
+	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines, homeFunc, h)
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
 	}

@@ -7,12 +7,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/char2cs/asynx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
@@ -36,7 +39,12 @@ type commandCall struct {
 	onExit      func()
 }
 
+// fakeCommander is a thread-safe TerminalCommander double: CreateCommand records
+// the spawn and hands back a unique "term-N" session id; TerminateGraceful
+// records the id. The mutex makes it safe under the concurrent-switch tests
+// (run with -race).
 type fakeCommander struct {
+	mu           sync.Mutex
 	calls        []commandCall
 	terminated   []string
 	nextID       int
@@ -52,6 +60,8 @@ func (f *fakeCommander) CreateCommand(
 	env []string,
 	onExit func(),
 ) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.err != nil {
 		return "", f.err
 	}
@@ -70,6 +80,8 @@ func (f *fakeCommander) TerminateGraceful(
 	_ context.Context,
 	sessionID string,
 ) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.terminateErr != nil {
 		return f.terminateErr
 	}
@@ -77,17 +89,45 @@ func (f *fakeCommander) TerminateGraceful(
 	return nil
 }
 
+func (f *fakeCommander) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+func (f *fakeCommander) terminatedIDs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.terminated...)
+}
+
 type broadcastCall struct {
 	chatID string
 	kind   string
 }
 
+// fakeBroadcaster is a thread-safe Broadcaster double.
 type fakeBroadcaster struct {
+	mu    sync.Mutex
 	calls []broadcastCall
 }
 
 func (f *fakeBroadcaster) BroadcastAgentChat(chatID, kind string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, broadcastCall{chatID: chatID, kind: kind})
+}
+
+func (f *fakeBroadcaster) reset() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = nil
+}
+
+func (f *fakeBroadcaster) snapshot() []broadcastCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]broadcastCall{}, f.calls...)
 }
 
 type fakeWorkspace struct {
@@ -108,73 +148,172 @@ func (f *fakeWorkspace) WorktreeDir(
 	return f.home, f.projectID, f.repoID, f.worktree, nil
 }
 
-// erroringStore wraps a real agentchat.Store, letting a test force the Nth
-// call to a given method to fail so the usecase's error-wrap guard clauses
-// are exercised without a fault-injecting database. A zero "at" value never
-// fails; a positive one fails only that 1-indexed call, so a test can target
-// e.g. spawnSegment's second SaveSegment call (persisting TerminalSessionID)
-// without also breaking its first (persisting the fresh segment row).
-type erroringStore struct {
-	agentchat.Store
-	saveChatCalls    int
-	saveSegmentCalls int
-	getChatCalls     int
-	failSaveChatAt   int
-	failSaveSegAt    int
-	failGetChatAt    int
-	failAllSegments  bool
+// fakeStore wraps a real agentchat.EventStore and lets a test force a chosen
+// mutation/read to fail, exercising the usecase's error-wrap guard clauses
+// without a fault-injecting database. A zero (nil) field delegates to the real
+// store, so only the targeted call fails.
+type fakeStore struct {
+	agentchat.EventStore
+	failGetChat   error
+	failCreate    error
+	failOpenSeg   error
+	failEndSeg    error
+	failListChats error
 }
 
-func (s *erroringStore) SaveChat(ctx context.Context, c domain.AgentChat) error {
-	s.saveChatCalls++
-	if s.failSaveChatAt != 0 && s.saveChatCalls == s.failSaveChatAt {
-		return fmt.Errorf("boom: save chat")
+func (s *fakeStore) GetChat(ctx context.Context, id string) (domain.AgentChat, error) {
+	if s.failGetChat != nil {
+		return domain.AgentChat{}, s.failGetChat
 	}
-	return s.Store.SaveChat(ctx, c)
+	return s.EventStore.GetChat(ctx, id)
 }
 
-func (s *erroringStore) SaveSegment(ctx context.Context, seg domain.AgentSegment) error {
-	s.saveSegmentCalls++
-	if s.failSaveSegAt != 0 && s.saveSegmentCalls == s.failSaveSegAt {
-		return fmt.Errorf("boom: save segment")
+func (s *fakeStore) Create(ctx context.Context, in agentchat.CreateInput) (domain.AgentChat, error) {
+	if s.failCreate != nil {
+		return domain.AgentChat{}, s.failCreate
 	}
-	return s.Store.SaveSegment(ctx, seg)
+	return s.EventStore.Create(ctx, in)
 }
 
-func (s *erroringStore) GetChat(ctx context.Context, id string) (domain.AgentChat, error) {
-	s.getChatCalls++
-	if s.failGetChatAt != 0 && s.getChatCalls == s.failGetChatAt {
-		return domain.AgentChat{}, fmt.Errorf("boom: get chat")
+func (s *fakeStore) OpenSegment(ctx context.Context, in agentchat.OpenSegmentInput) (domain.AgentChat, error) {
+	if s.failOpenSeg != nil {
+		return domain.AgentChat{}, s.failOpenSeg
 	}
-	return s.Store.GetChat(ctx, id)
+	return s.EventStore.OpenSegment(ctx, in)
 }
 
-func (s *erroringStore) AllSegments(ctx context.Context) ([]domain.AgentSegment, error) {
-	if s.failAllSegments {
-		return nil, fmt.Errorf("boom: all segments")
+func (s *fakeStore) EndSegment(ctx context.Context, chatID string, now time.Time) (domain.AgentChat, error) {
+	if s.failEndSeg != nil {
+		return domain.AgentChat{}, s.failEndSeg
 	}
-	return s.Store.AllSegments(ctx)
+	return s.EventStore.EndSegment(ctx, chatID, now)
+}
+
+func (s *fakeStore) ListChats(ctx context.Context) ([]domain.AgentChat, error) {
+	if s.failListChats != nil {
+		return nil, s.failListChats
+	}
+	return s.EventStore.ListChats(ctx)
 }
 
 type testFixture struct {
 	usecase *agentusecase.Usecase
-	repo    agentchat.Store
-	term    *fakeCommander
-	bc      *fakeBroadcaster
-	ws      *fakeWorkspace
+	// repo is the REAL concrete EventStore, used for test reads; the usecase may
+	// be built over a fault-injecting wrapper of it (see newFaultFixture) but
+	// writes still land here.
+	repo agentchat.EventStore
+	// waitFn drains the asynx dispatch queue and runs every projection handler
+	// (ax.WaitPublish), so a subsequent read observes all prior mutations with
+	// no polling and no timeouts.
+	waitFn func()
+	term   *fakeCommander
+	bc     *fakeBroadcaster
+	ws     *fakeWorkspace
+}
+
+// wait blocks until every projection has folded.
+func (f testFixture) wait() {
+	f.waitFn()
+}
+
+// chat waits for quiescence then reads chatID from the read model.
+func (f testFixture) chat(t *testing.T, chatID string) domain.AgentChat {
+	t.Helper()
+	f.wait()
+	c, err := f.repo.GetChat(context.Background(), chatID)
+	require.NoError(t, err)
+	return c
+}
+
+// chatBySession waits then resolves the live chat bound to a provider session.
+func (f testFixture) chatBySession(t *testing.T, sessionID string) domain.AgentChat {
+	t.Helper()
+	f.wait()
+	c, err := f.repo.GetByProviderSession(context.Background(), sessionID)
+	require.NoError(t, err)
+	return c
+}
+
+// activeSegOf returns the single active segment for a crowbarSegID in a chat.
+func activeSegOf(t *testing.T, chat domain.AgentChat, crowbarSegID string) domain.AgentSegment {
+	t.Helper()
+	for _, s := range chat.Segments {
+		if s.CrowbarSegmentID == crowbarSegID && s.Status == "active" {
+			return s
+		}
+	}
+	t.Fatalf("no active segment for crowbarSegID %q in chat %+v", crowbarSegID, chat)
+	return domain.AgentSegment{}
+}
+
+// segByID returns the segment with the given id from a chat.
+func segByID(t *testing.T, chat domain.AgentChat, id string) domain.AgentSegment {
+	t.Helper()
+	for _, s := range chat.Segments {
+		if s.ID == id {
+			return s
+		}
+	}
+	t.Fatalf("no segment %q in chat %+v", id, chat)
+	return domain.AgentSegment{}
+}
+
+// newEventStore builds a throwaway in-memory asynx-backed EventStore and
+// returns it alongside a wait closure (ax.WaitPublish) so tests can block on
+// projection quiescence without importing the agentchat package's test-only
+// helper (which is not visible across packages).
+func newEventStore(t *testing.T) (agentchat.EventStore, func()) {
+	t.Helper()
+	es, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[domain.AgentChat]().
+		WithEventStore(es).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	repo, err := agentchat.NewEventSourced(ax, es, db, func(string, string) {})
+	require.NoError(t, err)
+	return repo, ax.WaitPublish
 }
 
 func newFixture(t *testing.T) testFixture {
 	t.Helper()
-	return newFixtureWithRepo(t, newRealStore(t))
+	f, _ := newFixtureUsing(t, nil)
+	return f
 }
 
-// newFixtureWithRepo builds a fixture over a caller-supplied Store, so a test
-// can wrap the real store in an erroringStore to force a specific persistence
-// call to fail.
-func newFixtureWithRepo(t *testing.T, repo agentchat.Store) testFixture {
+// newFaultFixture builds a fixture whose usecase writes/reads through a
+// fault-injecting wrapper the caller can arm; the fixture's repo stays the real
+// underlying store for reads.
+func newFaultFixture(t *testing.T) (testFixture, *fakeStore) {
+	t.Helper()
+	fs := &fakeStore{}
+	f, _ := newFixtureUsing(t, func(real agentchat.EventStore) agentchat.EventStore {
+		fs.EventStore = real
+		return fs
+	})
+	return f, fs
+}
+
+// newFixtureUsing builds a fixture; wrap (if non-nil) adapts the real store into
+// the store the usecase is built over.
+func newFixtureUsing(
+	t *testing.T,
+	wrap func(agentchat.EventStore) agentchat.EventStore,
+) (testFixture, agentchat.EventStore) {
 	t.Helper()
 	t.Setenv("CROWBAR_HOOK_BIN", "/fake/bin/crowbar")
+
+	real, waitFn := newEventStore(t)
+	used := real
+	if wrap != nil {
+		used = wrap(real)
+	}
 
 	term := &fakeCommander{}
 	bc := &fakeBroadcaster{}
@@ -185,18 +324,8 @@ func newFixtureWithRepo(t *testing.T, repo agentchat.Store) testFixture {
 		worktree:  t.TempDir(),
 	}
 
-	u := agentusecase.New(repo, engineagent.NewRegistry(), term, bc, ws)
-	return testFixture{usecase: u, repo: repo, term: term, bc: bc, ws: ws}
-}
-
-func newRealStore(t *testing.T) agentchat.Store {
-	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "v.db")
-	db, err := storesqlite.OpenDB(dbPath)
-	require.NoError(t, err)
-	repo, err := agentchat.New(db)
-	require.NoError(t, err)
-	return repo
+	u := agentusecase.New(used, engineagent.NewRegistry(), term, bc, ws)
+	return testFixture{usecase: u, repo: real, waitFn: waitFn, term: term, bc: bc, ws: ws}, used
 }
 
 func TestSpawnChat_PersistsChatAndSegmentAndSpawns(t *testing.T) {
@@ -208,39 +337,30 @@ func TestSpawnChat_PersistsChatAndSegmentAndSpawns(t *testing.T) {
 	require.NotEmpty(t, chatID)
 	require.NotEmpty(t, segID)
 
-	chat, err := f.repo.GetChat(ctx, chatID)
-	require.NoError(t, err)
+	chat := f.chat(t, chatID)
 	assert.Equal(t, "ws1", chat.WorkspaceID)
 	assert.Equal(t, segID, chat.ActiveSegmentID)
 
-	seg, err := f.repo.GetSegment(ctx, segID)
-	require.NoError(t, err)
-	assert.Equal(t, chatID, seg.ChatID)
+	seg := activeSegOf(t, chat, segID)
 	assert.Equal(t, "claude", seg.ProviderID)
 	assert.Equal(t, segID, seg.CrowbarSegmentID)
 	assert.Equal(t, "active", seg.Status)
 	assert.NotEmpty(t, seg.TerminalSessionID)
 
-	require.Len(t, f.term.calls, 1)
+	require.Equal(t, 1, f.term.callCount())
 	call := f.term.calls[0]
 	assert.Equal(t, "ws1", call.workspaceID)
 	assert.Equal(t, f.ws.worktree, call.cwd)
 	assert.Equal(t, "claude", call.argv[0])
 	// A fresh SpawnChat injects the title instruction via the descriptor's
-	// system_prompt_inject mechanism (see TestSpawnChat_InjectsTitleInstruction
-	// for content assertions); it must be present here too, not the raw ledger
+	// system_prompt_inject mechanism; it must be present, not the raw ledger
 	// handoff (there is none yet for a brand-new chat).
 	assert.Contains(t, call.argv, "--append-system-prompt")
 }
 
 // TestSpawnSegment_TmpDirSurvivesSpawnAndIsRemovedOnlyWhenSessionEnds guards
-// the resource-leak fix: spawnSegment's per-spawn tmp dir (holding the
-// rendered hook config, and for codex a copy of ~/.codex/auth.json) must be
-// home-scoped under <home>/agent-tmp/<segID>, must still exist right after
-// spawn (the running CLI reads it for its whole lifetime), and must be
-// removed only when the terminal engine invokes the onExit callback passed to
-// CreateCommand — i.e. when the CLI's PTY session actually ends, not eagerly
-// after the spawn call returns.
+// the resource-leak fix: spawnSegment's per-spawn tmp dir must still exist right
+// after spawn and be removed only when the terminal engine invokes onExit.
 func TestSpawnSegment_TmpDirSurvivesSpawnAndIsRemovedOnlyWhenSessionEnds(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -253,14 +373,12 @@ func TestSpawnSegment_TmpDirSurvivesSpawnAndIsRemovedOnlyWhenSessionEnds(t *test
 	require.NoError(t, err, "agent-tmp dir must exist immediately after spawn")
 	assert.True(t, info.IsDir())
 
-	require.Len(t, f.term.calls, 1)
+	require.Equal(t, 1, f.term.callCount())
 	require.NotNil(t, f.term.calls[0].onExit, "CreateCommand must receive a non-nil onExit")
 
-	// Session still "running": tmp dir must not have been touched.
 	_, err = os.Stat(tmpDir)
 	require.NoError(t, err, "agent-tmp dir must survive while the CLI is running")
 
-	// Simulate the terminal engine firing onExit once the PTY session ends.
 	f.term.calls[0].onExit()
 
 	_, err = os.Stat(tmpDir)
@@ -277,32 +395,25 @@ func TestSpawnChat_UsesDescriptorCmdAsArgv0(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, segID)
 
-			require.Len(t, f.term.calls, 1)
+			require.Equal(t, 1, f.term.callCount())
 			assert.Equal(t, providerID, f.term.calls[0].argv[0])
 		})
 	}
 }
 
 func TestSpawnSegment_CrowbarHookPathFallsBackToHomeBinCrowbar(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "v.db")
-	db, err := storesqlite.OpenDB(dbPath)
-	require.NoError(t, err)
-	repo, err := agentchat.New(db)
-	require.NoError(t, err)
-
+	f := newFixture(t)
+	// Override the fixture's default CROWBAR_HOOK_BIN so the path falls back to
+	// <home>/bin/crowbar.
 	t.Setenv("CROWBAR_HOOK_BIN", "")
-
-	term := &fakeCommander{}
-	home := t.TempDir()
-	ws := &fakeWorkspace{home: home, projectID: "p1", repoID: "r1", worktree: t.TempDir()}
-	u := agentusecase.New(repo, engineagent.NewRegistry(), term, &fakeBroadcaster{}, ws)
+	home := f.ws.home
 	ctx := context.Background()
 
-	_, _, err = u.SpawnChat(ctx, "ws1", "claude")
+	_, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	require.Len(t, term.calls, 1)
-	settingsPath := argAfter(t, term.calls[0].argv, "--settings")
+	require.Equal(t, 1, f.term.callCount())
+	settingsPath := argAfter(t, f.term.calls[0].argv, "--settings")
 	data, err := os.ReadFile(settingsPath)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), filepath.Join(home, "bin", "crowbar")+" hook")
@@ -320,11 +431,8 @@ func argAfter(t *testing.T, argv []string, flag string) string {
 }
 
 // TestSpawn_HookConfigCarriesSegmentAndProvider guards the arg-based spawn
-// attribution fix: the segment id and provider that identify which chat/CLI a
-// hook came from are now rendered into the hook config command line via the
-// descriptor's {segid}/{provider} template vars, not injected as an
-// environment variable — so a hook can self-identify without trusting an env
-// var the spawned CLI could otherwise see/tamper with.
+// attribution: the segment id and provider are rendered into the hook config
+// command line, not injected as an env var.
 func TestSpawn_HookConfigCarriesSegmentAndProvider(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -332,7 +440,7 @@ func TestSpawn_HookConfigCarriesSegmentAndProvider(t *testing.T) {
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	require.Len(t, f.term.calls, 1)
+	require.Equal(t, 1, f.term.callCount())
 	call := f.term.calls[0]
 	settingsPath := argAfter(t, call.argv, "--settings")
 	data, err := os.ReadFile(settingsPath)
@@ -348,60 +456,65 @@ func TestIngestHook_SessionStart_Bound_RecordsProviderSessionID(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{
 		"session_id": "sid-abc",
 	}))
 	require.NoError(t, err)
 
-	seg, err := f.repo.GetActiveSegmentByCrowbarID(ctx, segID)
-	require.NoError(t, err)
+	seg := activeSegOf(t, f.chat(t, chatID), segID)
 	assert.Equal(t, "sid-abc", seg.ProviderSessionID)
 
-	require.Len(t, f.bc.calls, 1)
-	assert.Equal(t, "bound", f.bc.calls[0].kind)
+	calls := f.bc.snapshot()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "bound", calls[0].kind)
 }
 
+// TestIngestHook_SessionStart_Bound_NeverOverwritesExistingProviderSessionID:
+// the reducer only returns "bound" for a segment whose session it has not seen,
+// so a session id ALREADY on the segment is a pre-existing binding the usecase
+// must preserve (the guard in bindSession).
 func TestIngestHook_SessionStart_Bound_NeverOverwritesExistingProviderSessionID(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	seg, err := f.repo.GetSegment(ctx, segID)
+	_, err = f.repo.BindSession(ctx, chatID, segID, "sid-preexisting")
 	require.NoError(t, err)
-	seg.ProviderSessionID = "sid-preexisting"
-	require.NoError(t, f.repo.SaveSegment(ctx, seg))
+	f.wait()
 
 	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{
 		"session_id": "sid-new",
 	}))
 	require.NoError(t, err)
 
-	got, err := f.repo.GetActiveSegmentByCrowbarID(ctx, segID)
-	require.NoError(t, err)
-	assert.Equal(t, "sid-preexisting", got.ProviderSessionID)
+	seg := activeSegOf(t, f.chat(t, chatID), segID)
+	assert.Equal(t, "sid-preexisting", seg.ProviderSessionID)
 }
 
 func TestIngestHook_SessionStart_SameSessionIsNoop(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	f.wait()
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
 
-	require.Len(t, f.bc.calls, 2)
-	assert.Equal(t, "bound", f.bc.calls[0].kind)
-	assert.Equal(t, "noop", f.bc.calls[1].kind)
+	calls := f.bc.snapshot()
+	require.Len(t, calls, 2)
+	assert.Equal(t, "bound", calls[0].kind)
+	assert.Equal(t, "noop", calls[1].kind)
 
-	seg, err := f.repo.GetActiveSegmentByCrowbarID(ctx, segID)
-	require.NoError(t, err)
+	seg := activeSegOf(t, f.chat(t, chatID), segID)
 	assert.Equal(t, "sid-1", seg.ProviderSessionID)
 }
 
@@ -411,55 +524,53 @@ func TestIngestHook_SessionStart_Registered_MovesOldSegmentAndCreatesNewChat(t *
 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{
-		"session_id": "sid-1",
-	})))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{
-		"session_id": "sid-2",
-	})))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	f.wait()
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
 
-	oldSeg, err := f.repo.GetSegment(ctx, segID)
-	require.NoError(t, err)
-	assert.Equal(t, "moved", oldSeg.Status)
+	// The original segment (id == segID) stays in the original chat, now ended.
+	oldChat := f.chat(t, chatID)
+	oldSeg := segByID(t, oldChat, segID)
+	assert.Equal(t, "ended", oldSeg.Status)
 	assert.Equal(t, "sid-1", oldSeg.ProviderSessionID)
 	require.NotNil(t, oldSeg.EndedAt)
 
-	newActive, err := f.repo.GetActiveSegmentByCrowbarID(ctx, segID)
-	require.NoError(t, err)
+	// The live process moved to a brand-new chat bound to sid-2.
+	newChat := f.chatBySession(t, "sid-2")
+	newActive := activeSegOf(t, newChat, segID)
 	assert.NotEqual(t, segID, newActive.ID)
 	assert.Equal(t, "sid-2", newActive.ProviderSessionID)
-	assert.NotEqual(t, chatID, newActive.ChatID)
+	assert.NotEqual(t, chatID, newChat.ID)
 	assert.Equal(t, oldSeg.TerminalSessionID, newActive.TerminalSessionID)
-
-	newChat, err := f.repo.GetChat(ctx, newActive.ChatID)
-	require.NoError(t, err)
 	assert.Equal(t, "ws1", newChat.WorkspaceID)
 	assert.Equal(t, newActive.ID, newChat.ActiveSegmentID)
 
-	require.Len(t, f.bc.calls, 2)
-	assert.Equal(t, "bound", f.bc.calls[0].kind)
-	assert.Equal(t, "registered", f.bc.calls[1].kind)
-	assert.Equal(t, newActive.ChatID, f.bc.calls[1].chatID)
+	calls := f.bc.snapshot()
+	require.Len(t, calls, 2)
+	assert.Equal(t, "bound", calls[0].kind)
+	assert.Equal(t, "registered", calls[1].kind)
+	assert.Equal(t, newChat.ID, calls[1].chatID)
 }
 
-// TestIngestHook_SessionStart_Registered_ClearsVacatedChatsActiveSegmentID
-// guards the stale-ActiveSegmentID fix: once oldSeg moves away from its
-// original chat into a brand-new one, the vacated chat's ActiveSegmentID must
-// no longer point at the now-"moved" segment.
+// TestIngestHook_SessionStart_Registered_ClearsVacatedChatsActiveSegmentID:
+// once the live process moves away, the vacated chat's ActiveSegmentID must be
+// cleared (EndSegment does this).
 func TestIngestHook_SessionStart_Registered_ClearsVacatedChatsActiveSegmentID(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	f.wait()
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
 
-	vacatedChat, err := f.repo.GetChat(ctx, chatID)
-	require.NoError(t, err)
-	assert.Empty(t, vacatedChat.ActiveSegmentID, "vacated chat's ActiveSegmentID must be cleared, not left pointing at the moved segment")
+	vacated := f.chat(t, chatID)
+	assert.Empty(t, vacated.ActiveSegmentID, "vacated chat's ActiveSegmentID must be cleared")
 }
 
 func TestIngestHook_SessionStart_Focus_ReactivatesKnownChat(t *testing.T) {
@@ -468,61 +579,59 @@ func TestIngestHook_SessionStart_Focus_ReactivatesKnownChat(t *testing.T) {
 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	f.wait()
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
+	f.wait()
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
 
-	active, err := f.repo.GetActiveSegmentByCrowbarID(ctx, segID)
-	require.NoError(t, err)
-	assert.Equal(t, chatID, active.ChatID)
+	// Focused back into the original chat (sid-1): it now hosts the live process
+	// again via a fresh active segment carrying the same crowbarSegID.
+	chat := f.chat(t, chatID)
+	active := activeSegOf(t, chat, segID)
 	assert.Equal(t, "sid-1", active.ProviderSessionID)
-
-	chat, err := f.repo.GetChat(ctx, chatID)
-	require.NoError(t, err)
 	assert.Equal(t, active.ID, chat.ActiveSegmentID)
 
-	require.Len(t, f.bc.calls, 3)
-	assert.Equal(t, "focus", f.bc.calls[2].kind)
-	assert.Equal(t, chatID, f.bc.calls[2].chatID)
+	calls := f.bc.snapshot()
+	require.Len(t, calls, 3)
+	assert.Equal(t, "focus", calls[2].kind)
+	assert.Equal(t, chatID, calls[2].chatID)
 }
 
-// TestIngestHook_SessionStart_Focus_ClearsVacatedChatsActiveSegmentID guards
-// the same stale-ActiveSegmentID fix on the "focus" outcome: sid-2's chat
-// (registered in the middle step) loses its live segment when the process
-// focuses back to sid-1's chat, so its ActiveSegmentID must be cleared too.
+// TestIngestHook_SessionStart_Focus_ClearsVacatedChatsActiveSegmentID: the
+// registered chat (sid-2's) loses its live segment when the process focuses
+// back to sid-1's chat, so its ActiveSegmentID must be cleared too.
 func TestIngestHook_SessionStart_Focus_ClearsVacatedChatsActiveSegmentID(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	f.wait()
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
 
-	registeredActive, err := f.repo.GetActiveSegmentByCrowbarID(ctx, segID)
-	require.NoError(t, err)
-	registeredChatID := registeredActive.ChatID
+	registeredChatID := f.chatBySession(t, "sid-2").ID
 
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
 
-	vacatedChat, err := f.repo.GetChat(ctx, registeredChatID)
-	require.NoError(t, err)
-	assert.Empty(t, vacatedChat.ActiveSegmentID, "vacated chat's ActiveSegmentID must be cleared after focus moves away from it")
+	vacated := f.chat(t, registeredChatID)
+	assert.Empty(t, vacated.ActiveSegmentID, "vacated chat's ActiveSegmentID must be cleared after focus moves away")
 }
 
-// TestIngestHook_TurnStopAppendsAssistantTurn guards the hook-derived-turn
-// fix: turn_stop no longer reads a vendor transcript file off disk — the
-// assistant's turn text comes straight from the hook payload's
-// last_assistant_message field (via the descriptor's canonical "message"
-// mapping) and is appended to the ledger directly.
+// TestIngestHook_TurnStopAppendsAssistantTurn: turn_stop appends the assistant
+// message from the hook payload straight to the ledger.
 func TestIngestHook_TurnStopAppendsAssistantTurn(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	err = f.usecase.IngestHook(ctx, segID, "claude", "turn_stop",
 		mustJSON(t, map[string]any{"session_id": "s1", "last_assistant_message": "done thing"}))
@@ -532,20 +641,21 @@ func TestIngestHook_TurnStopAppendsAssistantTurn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, handoff, "assistant (claude): done thing")
 
-	require.Len(t, f.bc.calls, 1)
-	assert.Equal(t, "turn_stopped", f.bc.calls[0].kind)
-	assert.Equal(t, chatID, f.bc.calls[0].chatID)
+	calls := f.bc.snapshot()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "turn_stopped", calls[0].kind)
+	assert.Equal(t, chatID, calls[0].chatID)
 }
 
-// TestIngestHook_UserPromptAppendsUserTurn guards the new user_prompt
-// canonical event: it appends a "user" turn to the ledger from the hook
-// payload's prompt field.
+// TestIngestHook_UserPromptAppendsUserTurn: user_prompt appends a user turn and
+// (because the title is empty) fires the derived-title fallback first.
 func TestIngestHook_UserPromptAppendsUserTurn(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	err = f.usecase.IngestHook(ctx, segID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "please do the thing"}))
@@ -555,31 +665,28 @@ func TestIngestHook_UserPromptAppendsUserTurn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, handoff, "user: please do the thing")
 
-	// The user_prompt hook also fires the derived-title fallback (an empty
-	// title picks up the prompt's first line), so "titled" broadcasts before
-	// "user_prompt".
-	require.Len(t, f.bc.calls, 2)
-	assert.Equal(t, "titled", f.bc.calls[0].kind)
-	assert.Equal(t, chatID, f.bc.calls[0].chatID)
-	assert.Equal(t, "user_prompt", f.bc.calls[1].kind)
-	assert.Equal(t, chatID, f.bc.calls[1].chatID)
+	calls := f.bc.snapshot()
+	require.Len(t, calls, 2)
+	assert.Equal(t, "titled", calls[0].kind)
+	assert.Equal(t, chatID, calls[0].chatID)
+	assert.Equal(t, "user_prompt", calls[1].kind)
+	assert.Equal(t, chatID, calls[1].chatID)
 }
 
-// TestIngestHook_TurnStop_EmptyMessage_NoOps guards appendTurn's empty-text
-// no-op: a turn_stop hook whose payload carries no last_assistant_message
-// (e.g. a turn that produced no final assistant text) must not write a
-// ledger entry or broadcast a lifecycle event.
+// TestIngestHook_TurnStop_EmptyMessage_NoOps: a turn_stop with no
+// last_assistant_message writes no ledger entry and broadcasts nothing.
 func TestIngestHook_TurnStop_EmptyMessage_NoOps(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	err = f.usecase.IngestHook(ctx, segID, "claude", "turn_stop",
 		mustJSON(t, map[string]any{"session_id": "sid-1"}))
 	require.NoError(t, err)
-	assert.Empty(t, f.bc.calls)
+	assert.Empty(t, f.bc.snapshot())
 }
 
 func TestIngestHook_TurnStop_AfterMove_AttributesToNewChat(t *testing.T) {
@@ -588,19 +695,21 @@ func TestIngestHook_TurnStop_AfterMove_AttributesToNewChat(t *testing.T) {
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	f.wait()
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
+	f.wait()
 
-	newActive, err := f.repo.GetActiveSegmentByCrowbarID(ctx, segID)
-	require.NoError(t, err)
+	newChatID := f.chatBySession(t, "sid-2").ID
 
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "turn_stop", mustJSON(t, map[string]any{
 		"session_id":             "sid-2",
 		"last_assistant_message": "second chat transcript",
 	})))
 
-	handoff, err := f.usecase.AssembleHandoff(ctx, newActive.ChatID)
+	handoff, err := f.usecase.AssembleHandoff(ctx, newChatID)
 	require.NoError(t, err)
 	assert.Contains(t, handoff, "second chat transcript")
 }
@@ -611,7 +720,7 @@ func TestIngestHook_UnknownSegment_IsIgnored(t *testing.T) {
 
 	err := f.usecase.IngestHook(ctx, "does-not-exist", "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
 	require.NoError(t, err)
-	assert.Empty(t, f.bc.calls)
+	assert.Empty(t, f.bc.snapshot())
 }
 
 func TestIngestHook_UnmappedCanonicalEvent_ReturnsNil(t *testing.T) {
@@ -620,46 +729,56 @@ func TestIngestHook_UnmappedCanonicalEvent_ReturnsNil(t *testing.T) {
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	err = f.usecase.IngestHook(ctx, segID, "claude", "not_a_real_hook", mustJSON(t, map[string]any{}))
 	require.NoError(t, err)
-	assert.Empty(t, f.bc.calls)
+	assert.Empty(t, f.bc.snapshot())
 }
 
 func TestSeedRegistry_RehydratesKnownSessions(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	require.NoError(t, f.repo.SaveChat(ctx, domain.AgentChat{ID: "cK", WorkspaceID: "ws1", CreatedAt: time.Now()}))
-	require.NoError(t, f.repo.SaveSegment(ctx, domain.AgentSegment{
-		ID:                "sK",
-		ChatID:            "cK",
-		ProviderID:        "claude",
-		CrowbarSegmentID:  "sK",
-		ProviderSessionID: "sid-known",
-		Status:            "ended",
-		StartedAt:         time.Now(),
-	}))
-	require.NoError(t, f.repo.SaveSegment(ctx, domain.AgentSegment{
-		ID:               "sX",
-		ChatID:           "cK",
-		ProviderID:       "claude",
-		CrowbarSegmentID: "sX",
-		Status:           "ended",
-		StartedAt:        time.Now(),
-	}))
+	// Seed a persisted chat cK with two ended segments: one unbound (no session,
+	// the seed loop skips it) and one bound to "sid-known".
+	_, err := f.repo.Create(ctx, agentchat.CreateInput{
+		ID: "cK", WorkspaceID: "ws1", SegmentID: "sK1", CrowbarSegmentID: "csK1", ProviderID: "claude", TerminalSession: "term-x",
+	})
+	require.NoError(t, err)
+	_, err = f.repo.EndSegment(ctx, "cK", timeUnix(1))
+	require.NoError(t, err)
+	_, err = f.repo.OpenSegment(ctx, agentchat.OpenSegmentInput{
+		ChatID: "cK", SegmentID: "sK2", CrowbarSegmentID: "csK2", ProviderID: "claude", TerminalSession: "term-y", Now: timeUnix(2),
+	})
+	require.NoError(t, err)
+	_, err = f.repo.BindSession(ctx, "cK", "csK2", "sid-known")
+	require.NoError(t, err)
+	_, err = f.repo.EndSegment(ctx, "cK", timeUnix(3))
+	require.NoError(t, err)
+	f.wait()
 
 	require.NoError(t, f.usecase.SeedRegistry(ctx))
 
 	_, segA, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	require.NoError(t, f.usecase.IngestHook(ctx, segA, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "s0"})))
+	f.wait()
 	require.NoError(t, f.usecase.IngestHook(ctx, segA, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-known"})))
 
-	active, err := f.repo.GetActiveSegmentByCrowbarID(ctx, segA)
-	require.NoError(t, err)
-	assert.Equal(t, "cK", active.ChatID)
+	// A known session id (sid-known → cK) makes the move a "focus" into cK, not a
+	// "registered" new chat: cK now hosts the live process (crowbarSegID segA).
+	cK := f.chat(t, "cK")
+	active := activeSegOf(t, cK, segA)
+	assert.Equal(t, "sid-known", active.ProviderSessionID)
+	assert.Equal(t, active.ID, cK.ActiveSegmentID)
+
+	calls := f.bc.snapshot()
+	require.Len(t, calls, 2)
+	assert.Equal(t, "bound", calls[0].kind)
+	assert.Equal(t, "focus", calls[1].kind)
 }
 
 func TestListChatsGetChatSegmentsFor(t *testing.T) {
@@ -668,6 +787,7 @@ func TestListChatsGetChatSegmentsFor(t *testing.T) {
 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	chats, err := f.usecase.ListChats(ctx)
 	require.NoError(t, err)
@@ -684,44 +804,21 @@ func TestListChatsGetChatSegmentsFor(t *testing.T) {
 	assert.Equal(t, segID, segs[0].ID)
 }
 
-func TestSpawnChat_SaveChatFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t), failSaveChatAt: 1}
-	f := newFixtureWithRepo(t, repo)
+// --- error paths ------------------------------------------------------------
+
+func TestSpawnChat_CreatePersistFailure_TearsDownCLIAndWraps(t *testing.T) {
+	f, fs := newFaultFixture(t)
+	fs.failCreate = fmt.Errorf("boom: create")
 	ctx := context.Background()
 
 	_, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "spawn chat: save chat")
-}
+	assert.Contains(t, err.Error(), "persist segment")
 
-func TestSpawnChat_SaveSegmentFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t), failSaveSegAt: 1}
-	f := newFixtureWithRepo(t, repo)
-	ctx := context.Background()
-
-	_, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "spawn segment: save segment")
-}
-
-func TestSpawnChat_SaveTerminalSessionIDFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t), failSaveSegAt: 2}
-	f := newFixtureWithRepo(t, repo)
-	ctx := context.Background()
-
-	_, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "save terminal session id")
-}
-
-func TestSpawnChat_SaveChatActiveSegmentFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t), failSaveChatAt: 2}
-	f := newFixtureWithRepo(t, repo)
-	ctx := context.Background()
-
-	_, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "save chat active segment")
+	// The CLI was already spawned (term-1) and must be torn down so no orphan
+	// process leaks when the persist fails.
+	require.Equal(t, 1, f.term.callCount())
+	assert.Contains(t, f.term.terminatedIDs(), "term-1")
 }
 
 func TestSpawnChat_CreateCommandFailure_ReturnsWrappedError(t *testing.T) {
@@ -754,19 +851,15 @@ func TestSpawnChat_UnknownProvider_ReturnsWrappedDescriptorError(t *testing.T) {
 }
 
 func TestIngestHook_ChatLookupFailure_ReturnsWrappedError(t *testing.T) {
-	f := newFixture(t)
+	f, fs := newFaultFixture(t)
 	ctx := context.Background()
 
-	require.NoError(t, f.repo.SaveSegment(ctx, domain.AgentSegment{
-		ID:               "s1",
-		ChatID:           "missing-chat",
-		ProviderID:       "claude",
-		CrowbarSegmentID: "seg1",
-		Status:           "active",
-		StartedAt:        time.Now(),
-	}))
+	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+	f.wait()
 
-	err := f.usecase.IngestHook(ctx, "seg1", "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
+	fs.failGetChat = fmt.Errorf("boom: get chat")
+	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ingest hook: chat")
 }
@@ -777,6 +870,7 @@ func TestIngestHook_WorktreeDirFailure_ReturnsWrappedError(t *testing.T) {
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	f.ws.err = fmt.Errorf("boom: worktree lookup")
 	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
@@ -784,192 +878,15 @@ func TestIngestHook_WorktreeDirFailure_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "worktree dir")
 }
 
-func TestIngestHook_UnknownProvider_ReturnsWrappedDescriptorError(t *testing.T) {
-	f := newFixture(t)
-	ctx := context.Background()
-
-	require.NoError(t, f.repo.SaveChat(ctx, domain.AgentChat{ID: "c1", WorkspaceID: "ws1", CreatedAt: time.Now()}))
-	require.NoError(t, f.repo.SaveSegment(ctx, domain.AgentSegment{
-		ID:               "s1",
-		ChatID:           "c1",
-		ProviderID:       "not-a-real-provider",
-		CrowbarSegmentID: "seg1",
-		Status:           "active",
-		StartedAt:        time.Now(),
-	}))
-
-	err := f.usecase.IngestHook(ctx, "seg1", "not-a-real-provider", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "resolve descriptor")
-}
-
-// The "registered" and "focus" persistence helpers each make several ordered
-// Save*/Get* calls against the repo; these tests target one call at a time
-// (by 1-indexed position across the whole SpawnChat+IngestHook sequence) to
-// exercise each guard clause's error-wrap branch individually.
-
-func TestIngestHook_Registered_OldSegmentSaveFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t), failSaveSegAt: 4}
-	f := newFixtureWithRepo(t, repo)
-	ctx := context.Background()
-
-	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
-	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
-
-	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"}))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "registered: save old segment")
-}
-
-func TestIngestHook_Registered_NewSegmentSaveFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t), failSaveSegAt: 5}
-	f := newFixtureWithRepo(t, repo)
-	ctx := context.Background()
-
-	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
-	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
-
-	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"}))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "registered: save new segment")
-}
-
-func TestIngestHook_Registered_NewChatSaveFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t), failSaveChatAt: 3}
-	f := newFixtureWithRepo(t, repo)
-	ctx := context.Background()
-
-	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
-	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
-
-	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"}))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "registered: save new chat")
-}
-
-func TestIngestHook_Focus_OldSegmentSaveFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t), failSaveSegAt: 6}
-	f := newFixtureWithRepo(t, repo)
-	ctx := context.Background()
-
-	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
-	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
-
-	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "focus: save old segment")
-}
-
-func TestIngestHook_Focus_NewSegmentSaveFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t), failSaveSegAt: 7}
-	f := newFixtureWithRepo(t, repo)
-	ctx := context.Background()
-
-	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
-	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
-
-	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "focus: save new segment")
-}
-
-func TestIngestHook_Focus_ChatLoadFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t), failGetChatAt: 4}
-	f := newFixtureWithRepo(t, repo)
-	ctx := context.Background()
-
-	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
-	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
-
-	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "focus: load chat")
-}
-
-// TestIngestHook_Registered_ClearVacatedChatFailure_ReturnsWrappedError
-// targets the NEW SaveChat call persistRegistered makes to clear the vacated
-// chat's ActiveSegmentID: SpawnChat makes 2 SaveChat calls (create + set
-// active), the first session_start's "bound" outcome makes none, and
-// "registered" makes one more (the new chat) before this one — so the 4th
-// SaveChat call is the vacated-chat clear.
-func TestIngestHook_Registered_ClearVacatedChatFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t), failSaveChatAt: 4}
-	f := newFixtureWithRepo(t, repo)
-	ctx := context.Background()
-
-	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
-	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
-
-	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"}))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "registered: clear vacated chat")
-}
-
-// TestIngestHook_Focus_ClearVacatedChatGetFailure_ReturnsWrappedError and
-// TestIngestHook_Focus_ClearVacatedChatSaveFailure_ReturnsWrappedError target
-// clearVacatedChatActiveSegment's own Get/Save calls in the focus path (the
-// 5th GetChat call and 6th SaveChat call across the 3-session_start
-// bound->registered->focus sequence, both AFTER the existing focus:load
-// chat/focus:save chat calls already covered by other tests here).
-func TestIngestHook_Focus_ClearVacatedChatGetFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t), failGetChatAt: 5}
-	f := newFixtureWithRepo(t, repo)
-	ctx := context.Background()
-
-	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
-	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
-
-	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "focus: clear vacated chat")
-}
-
-func TestIngestHook_Focus_ClearVacatedChatSaveFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t), failSaveChatAt: 6}
-	f := newFixtureWithRepo(t, repo)
-	ctx := context.Background()
-
-	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
-	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
-
-	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "focus: clear vacated chat")
-}
-
-func TestIngestHook_Bound_SaveSegmentFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t), failSaveSegAt: 3}
-	f := newFixtureWithRepo(t, repo)
-	ctx := context.Background()
-
-	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
-	require.NoError(t, err)
-
-	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "bound: save segment")
-}
-
-func TestSeedRegistry_AllSegmentsFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t), failAllSegments: true}
-	f := newFixtureWithRepo(t, repo)
+func TestSeedRegistry_ListChatsFailure_ReturnsWrappedError(t *testing.T) {
+	f, fs := newFaultFixture(t)
+	fs.failListChats = fmt.Errorf("boom: list chats")
 	ctx := context.Background()
 
 	err := f.usecase.SeedRegistry(ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "seed registry")
 }
+
+// timeUnix is a tiny helper for deterministic timestamps in seed setup.
+func timeUnix(sec int64) time.Time { return time.Unix(sec, 0).UTC() }

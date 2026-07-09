@@ -1,8 +1,6 @@
-// This file holds the asynx-backed AgentChat repository (EventStore). It is
-// additive alongside the gorm-backed Store/gormStore/New defined in
-// agentchat.go: the usecase still depends on those until a later cutover task
-// deletes them, so this type must compile and pass on its own without
-// disturbing the gorm store.
+// This file holds the asynx-backed AgentChat repository (EventStore) — the sole
+// AgentChat repository since the Task 10 cutover retired the bespoke gorm-backed
+// Store/gormStore/New. The agent usecase sends every mutation through it.
 package agentchat
 
 import (
@@ -59,9 +57,9 @@ type OpenSegmentInput struct {
 
 // EventStore is the asynx-backed AgentChat aggregate repository: mutations
 // dispatch the command layer with optimistic-concurrency retry (sendWithOCC),
-// reads delegate to the store package's read-model projection. It is additive
-// alongside the existing gorm-backed Store — nothing in the usecase depends on
-// it yet; a later cutover task retires Store/gormStore/New in its favour.
+// reads delegate to the store package's read-model projection. It is the sole
+// AgentChat repository — the agent usecase sends every mutation through it (the
+// gorm-backed Store was retired in the Task 10 cutover).
 type EventStore interface {
 	Create(
 		ctx context.Context,

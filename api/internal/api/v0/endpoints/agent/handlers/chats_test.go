@@ -206,8 +206,8 @@ func TestGet_Success(
 	uc := &configurableListGetUsecase{
 		chat: domain.AgentChat{ID: "c1", WorkspaceID: "ws1", ActiveSegmentID: "seg-2"},
 		segs: []domain.AgentSegment{
-			{ID: "seg-1", ChatID: "c1", ProviderID: "vendor-a"},
-			{ID: "seg-2", ChatID: "c1", ProviderID: "vendor-a"},
+			{ID: "seg-1", ProviderID: "vendor-a"},
+			{ID: "seg-2", ProviderID: "vendor-a"},
 		},
 	}
 	h := handlers.New(uc)

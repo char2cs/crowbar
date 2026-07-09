@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
@@ -22,33 +22,29 @@ func TestSwitchProvider_TerminatesOutgoingTerminal_AndEndsOldSegment(t *testing.
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	oldSeg, err := f.repo.GetSegment(ctx, segID)
-	require.NoError(t, err)
+	oldSeg := activeSegOf(t, f.chat(t, chatID), segID)
 	require.NotEmpty(t, oldSeg.TerminalSessionID)
 
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 
-	assert.Contains(t, f.term.terminated, oldSeg.TerminalSessionID)
+	assert.Contains(t, f.term.terminatedIDs(), oldSeg.TerminalSessionID)
 
-	ended, err := f.repo.GetSegment(ctx, segID)
-	require.NoError(t, err)
+	ended := segByID(t, f.chat(t, chatID), segID)
 	assert.Equal(t, "ended", ended.Status)
 	require.NotNil(t, ended.EndedAt)
 }
 
-// TestSwitchProvider_TerminateFailure_SessionAlreadyGone_ContinuesSwitch guards
-// the fix that surfaces (rather than swallows) TerminateGraceful's error: when
-// it fails because the terminal session is already gone (the one error the
-// real terminal engine's TerminateGraceful can return today), the switch must
-// still proceed — aborting would trap a chat that could never switch again
-// once its terminal session ends on its own.
+// TestSwitchProvider_TerminateFailure_SessionAlreadyGone_ContinuesSwitch: when
+// TerminateGraceful fails because the terminal session is already gone (the one
+// error the real engine returns today), the switch must still proceed.
 func TestSwitchProvider_TerminateFailure_SessionAlreadyGone_ContinuesSwitch(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	f.term.terminateErr = fmt.Errorf("terminal: terminate: %w: term-1", engineterminal.ErrSessionNotFound)
 
@@ -56,26 +52,21 @@ func TestSwitchProvider_TerminateFailure_SessionAlreadyGone_ContinuesSwitch(t *t
 	require.NoError(t, err)
 	require.NotEmpty(t, newSegID)
 
-	oldSeg, err := f.repo.GetSegment(ctx, segID)
-	require.NoError(t, err)
-	assert.Equal(t, "ended", oldSeg.Status)
-
-	chat, err := f.repo.GetChat(ctx, chatID)
-	require.NoError(t, err)
+	chat := f.chat(t, chatID)
+	assert.Equal(t, "ended", segByID(t, chat, segID).Status)
 	assert.Equal(t, newSegID, chat.ActiveSegmentID)
 }
 
-// TestSwitchProvider_TerminateFailure_OtherError_AbortsSwitch guards the other
-// half of the same fix: a TerminateGraceful failure that is NOT "session
-// already gone" must abort the switch entirely rather than proceed to spawn a
-// second live CLI into the same worktree while the DB marks only the new one
-// active.
+// TestSwitchProvider_TerminateFailure_OtherError_AbortsSwitch: a
+// TerminateGraceful failure that is NOT "session already gone" must abort the
+// switch entirely rather than spawn a second live CLI into the same worktree.
 func TestSwitchProvider_TerminateFailure_OtherError_AbortsSwitch(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	f.term.terminateErr = errors.New("boom: terminate genuinely failed")
 
@@ -83,41 +74,32 @@ func TestSwitchProvider_TerminateFailure_OtherError_AbortsSwitch(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "terminate outgoing terminal")
 
-	oldSeg, err := f.repo.GetSegment(ctx, segID)
-	require.NoError(t, err)
-	assert.Equal(t, "active", oldSeg.Status, "old segment must NOT be marked ended when terminate genuinely failed")
-
-	require.Len(t, f.term.calls, 1, "no new segment/terminal should have been spawned after a real terminate failure")
-
-	chat, err := f.repo.GetChat(ctx, chatID)
-	require.NoError(t, err)
+	chat := f.chat(t, chatID)
+	assert.Equal(t, "active", segByID(t, chat, segID).Status, "old segment must NOT be ended when terminate genuinely failed")
+	require.Equal(t, 1, f.term.callCount(), "no new segment/terminal should have been spawned after a real terminate failure")
 	assert.Equal(t, segID, chat.ActiveSegmentID, "active segment must be unchanged")
 }
 
-// TestSwitchProvider_AssembleHandoffFailure_AbortsBeforeTerminate guards the
-// fix that surfaces (rather than swallows) AssembleHandoff's error: previously
-// the switch proceeded with a silently EMPTY handoff. Since AssembleHandoff
-// runs BEFORE terminate, aborting here must leave the chat completely
-// untouched.
+// TestSwitchProvider_AssembleHandoffFailure_AbortsBeforeTerminate: AssembleHandoff
+// runs BEFORE terminate, so a failure there (here a worktree-dir lookup failure
+// inside AssembleHandoff) must leave the chat completely untouched.
 func TestSwitchProvider_AssembleHandoffFailure_AbortsBeforeTerminate(t *testing.T) {
-	// AssembleHandoff makes its own internal GetChat(chatID) call; SwitchProvider's
-	// own leading GetChat is call #1, so #2 is AssembleHandoff's.
-	repo := &erroringStore{Store: newRealStore(t), failGetChatAt: 2}
-	f := newFixtureWithRepo(t, repo)
+	f := newFixture(t)
 	ctx := context.Background()
 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
+	f.ws.err = errors.New("boom: worktree lookup")
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "assemble handoff")
 
-	assert.Empty(t, f.term.terminated, "the outgoing terminal must never be terminated when handoff assembly fails first")
-	seg, err := f.repo.GetSegment(ctx, segID)
-	require.NoError(t, err)
-	assert.Equal(t, "active", seg.Status, "old segment must be untouched")
-	require.Len(t, f.term.calls, 1, "no new segment/terminal should have been spawned")
+	f.ws.err = nil // let the assertion reads resolve the worktree again
+	assert.Empty(t, f.term.terminatedIDs(), "the outgoing terminal must never be terminated when handoff assembly fails first")
+	assert.Equal(t, "active", segByID(t, f.chat(t, chatID), segID).Status, "old segment must be untouched")
+	require.Equal(t, 1, f.term.callCount(), "no new segment/terminal should have been spawned")
 }
 
 func TestSwitchProvider_Forward_SpawnsTargetProviderWithHandoff(t *testing.T) {
@@ -133,7 +115,7 @@ func TestSwitchProvider_Forward_SpawnsTargetProviderWithHandoff(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, newSegID)
 
-	require.Len(t, f.term.calls, 2)
+	require.Equal(t, 2, f.term.callCount())
 	newCall := f.term.calls[1]
 	assert.Equal(t, "codex", newCall.argv[0])
 	assert.Contains(t, strings.Join(newCall.argv, "\x00"), "prior turn content for handoff")
@@ -145,18 +127,16 @@ func TestSwitchProvider_PersistsNewActiveSegmentForTargetProvider(t *testing.T) 
 
 	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	newSegID, err := f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 
-	newSeg, err := f.repo.GetSegment(ctx, newSegID)
-	require.NoError(t, err)
+	chat := f.chat(t, chatID)
+	newSeg := segByID(t, chat, newSegID)
 	assert.Equal(t, "codex", newSeg.ProviderID)
 	assert.Equal(t, "active", newSeg.Status)
 	assert.NotEmpty(t, newSeg.TerminalSessionID)
-
-	chat, err := f.repo.GetChat(ctx, chatID)
-	require.NoError(t, err)
 	assert.Equal(t, newSegID, chat.ActiveSegmentID)
 }
 
@@ -166,49 +146,50 @@ func TestSwitchProvider_Broadcasts_Switched(t *testing.T) {
 
 	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
-	f.bc.calls = nil
+	f.wait()
+	f.bc.reset()
 
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 
-	require.Len(t, f.bc.calls, 1)
-	assert.Equal(t, chatID, f.bc.calls[0].chatID)
-	assert.Equal(t, "switched", f.bc.calls[0].kind)
+	calls := f.bc.snapshot()
+	require.Len(t, calls, 1)
+	assert.Equal(t, chatID, calls[0].chatID)
+	assert.Equal(t, "switched", calls[0].kind)
 }
 
 // TestSwitchProvider_SwitchBack_ResumesNativeSessionWithSeparateArgvTokens
-// drives a full forward+back sequence: spawn provider "claude", let it bind a
-// native ProviderSessionID via session_start, switch forward to "codex", then
-// switch back to "claude". The switch-back must resume the prior claude
-// session by expanding+tokenizing descriptor.Session.Resume.Arg ("--resume
-// {id}") into two SEPARATE argv elements, not one "--resume <id>" string.
+// drives forward+back: spawn claude, bind its native session, switch to codex,
+// switch back to claude. The switch-back resumes the prior claude session by
+// expanding+tokenizing descriptor.Session.Resume.Arg ("--resume {id}") into two
+// SEPARATE argv tokens.
 func TestSwitchProvider_SwitchBack_ResumesNativeSessionWithSeparateArgvTokens(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{
 		"session_id": "sid-claude-native",
 	})))
 
-	boundSeg, err := f.repo.GetSegment(ctx, segID)
-	require.NoError(t, err)
+	boundSeg := activeSegOf(t, f.chat(t, chatID), segID)
 	require.Equal(t, "sid-claude-native", boundSeg.ProviderSessionID)
 
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
-	require.Len(t, f.term.calls, 2)
+	f.wait()
+	require.Equal(t, 2, f.term.callCount())
 
 	newSegID, err := f.usecase.SwitchProvider(ctx, chatID, "claude")
 	require.NoError(t, err)
 
-	newSeg, err := f.repo.GetSegment(ctx, newSegID)
-	require.NoError(t, err)
+	newSeg := segByID(t, f.chat(t, chatID), newSegID)
 	assert.Equal(t, "claude", newSeg.ProviderID)
 
-	require.Len(t, f.term.calls, 3)
+	require.Equal(t, 3, f.term.callCount())
 	argv := f.term.calls[2].argv
 
 	resumeIdx := indexOf(argv, "--resume")
@@ -216,19 +197,19 @@ func TestSwitchProvider_SwitchBack_ResumesNativeSessionWithSeparateArgvTokens(t 
 	require.Less(t, resumeIdx+1, len(argv))
 	assert.Equal(t, "sid-claude-native", argv[resumeIdx+1])
 
-	// Must be two distinct tokens, not one combined "--resume sid-..." token.
 	assert.NotContains(t, argv, "--resume sid-claude-native")
 }
 
 // TestSwitchProvider_SwitchBack_ResumeStepsPrecedeHandoff exercises the
-// codex-target switch-back path, where the resume arg is the subcommand-style
-// "resume {id}" (no leading dash) and MUST precede the positional handoff arg.
+// codex-target switch-back path, where the resume arg is "resume {id}" (no
+// leading dash) and MUST precede the positional handoff arg.
 func TestSwitchProvider_SwitchBack_ResumeStepsPrecedeHandoff(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "codex")
 	require.NoError(t, err)
+	f.wait()
 
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "codex", "session_start", mustJSON(t, map[string]any{
 		"session_id": "sid-codex-native",
@@ -238,15 +219,15 @@ func TestSwitchProvider_SwitchBack_ResumeStepsPrecedeHandoff(t *testing.T) {
 
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	newSegID, err := f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 
-	newSeg, err := f.repo.GetSegment(ctx, newSegID)
-	require.NoError(t, err)
+	newSeg := segByID(t, f.chat(t, chatID), newSegID)
 	assert.Equal(t, "codex", newSeg.ProviderID)
 
-	require.Len(t, f.term.calls, 3)
+	require.Equal(t, 3, f.term.callCount())
 	argv := f.term.calls[2].argv
 
 	resumeIdx := indexOf(argv, "resume")
@@ -254,8 +235,6 @@ func TestSwitchProvider_SwitchBack_ResumeStepsPrecedeHandoff(t *testing.T) {
 	require.Less(t, resumeIdx+1, len(argv))
 	assert.Equal(t, "sid-codex-native", argv[resumeIdx+1])
 
-	// Codex's handoff_inject is a bare positional; it must come after the
-	// resume subcommand+id pair.
 	handoffIdx := -1
 	for i, a := range argv {
 		if i > resumeIdx+1 && strings.Contains(a, "codex ledger content") {
@@ -279,9 +258,16 @@ func TestSwitchProvider_MissingActiveSegment_ReturnsWrappedError(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	require.NoError(t, f.repo.SaveChat(ctx, domain.AgentChat{ID: "c1", WorkspaceID: "ws1"}))
+	// A chat with its only segment ended has no active segment to switch from.
+	_, err := f.repo.Create(ctx, agentchat.CreateInput{
+		ID: "c1", WorkspaceID: "ws1", SegmentID: "s1", CrowbarSegmentID: "cs1", ProviderID: "claude", TerminalSession: "term-x",
+	})
+	require.NoError(t, err)
+	_, err = f.repo.EndSegment(ctx, "c1", time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	f.wait()
 
-	_, err := f.usecase.SwitchProvider(ctx, "c1", "codex")
+	_, err = f.usecase.SwitchProvider(ctx, "c1", "codex")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "switch provider: active segment")
 }
@@ -292,6 +278,7 @@ func TestSwitchProvider_WorktreeDirFailure_ReturnsWrappedError(t *testing.T) {
 
 	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	f.ws.err = errors.New("boom: worktree lookup")
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
@@ -305,55 +292,25 @@ func TestSwitchProvider_UnknownTargetProvider_ReturnsWrappedDescriptorError(t *t
 
 	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "not-a-real-provider")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "resolve descriptor")
 }
 
-func TestSwitchProvider_ListSegmentsFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &listFailingStore{Store: newRealStore(t)}
-	f := newFixtureWithRepo(t, repo)
+func TestSwitchProvider_EndOldSegmentFailure_ReturnsWrappedError(t *testing.T) {
+	f, fs := newFaultFixture(t)
 	ctx := context.Background()
 
 	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
+	f.wait()
 
-	repo.fail = true
+	fs.failEndSeg = errors.New("boom: end segment")
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "list segments")
-}
-
-func TestSwitchProvider_OldSegmentSaveFailure_ReturnsWrappedError(t *testing.T) {
-	repo := &erroringStore{Store: newRealStore(t)}
-	f := newFixtureWithRepo(t, repo)
-	ctx := context.Background()
-
-	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
-	require.NoError(t, err)
-
-	// SpawnChat makes 2 SaveSegment calls (create + stamp terminal session
-	// id); SwitchProvider's "mark ended" save is the 3rd.
-	repo.failSaveSegAt = 3
-	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "switch provider: save old segment")
-}
-
-// listFailingStore wraps a real Store and lets a test force
-// ListSegmentsByChat to fail once armed, exercising SwitchProvider's guard
-// clause around it.
-type listFailingStore struct {
-	agentchat.Store
-	fail bool
-}
-
-func (s *listFailingStore) ListSegmentsByChat(ctx context.Context, chatID string) ([]domain.AgentSegment, error) {
-	if s.fail {
-		return nil, errors.New("boom: list segments")
-	}
-	return s.Store.ListSegmentsByChat(ctx, chatID)
+	assert.Contains(t, err.Error(), "switch provider: end old segment")
 }
 
 func indexOf(ss []string, target string) int {

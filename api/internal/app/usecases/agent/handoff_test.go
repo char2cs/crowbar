@@ -60,12 +60,14 @@ func TestAssembleHandoff_UnknownChat_ReturnsError(t *testing.T) {
 }
 
 // appendAssistantTurn drives a turn_stop hook through IngestHook so a ledger
-// entry gets appended for the chat behind segID, via the same path
-// production code uses to populate the ledger: the assistant's turn text
-// comes straight from the hook payload's last_assistant_message field, not a
-// vendor transcript file.
+// entry gets appended for the chat behind segID, via the same path production
+// code uses to populate the ledger: the assistant's turn text comes straight
+// from the hook payload's last_assistant_message field. It waits for
+// quiescence first so IngestHook's chat read observes the chat the spawn/prior
+// hooks created (no timing guess — asynx WaitPublish).
 func appendAssistantTurn(t *testing.T, f testFixture, segID, provider, sessionID, content string) {
 	t.Helper()
+	f.wait()
 	require.NoError(t, f.usecase.IngestHook(context.Background(), segID, provider, "turn_stop",
 		mustJSON(t, map[string]any{
 			"session_id":             sessionID,
