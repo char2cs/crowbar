@@ -50,6 +50,7 @@ type fakeCommander struct {
 	mu           sync.Mutex
 	calls        []commandCall
 	terminated   []string
+	terminateReq []string
 	nextID       int
 	err          error
 	terminateErr error
@@ -86,6 +87,11 @@ func (f *fakeCommander) TerminateGraceful(
 ) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	// terminateReq records EVERY attempt (even failed ones), so a best-effort
+	// caller can assert the terminate was attempted regardless of outcome;
+	// terminated stays success-only for callers that only care about the ids
+	// actually torn down.
+	f.terminateReq = append(f.terminateReq, sessionID)
 	if f.terminateErr != nil {
 		return f.terminateErr
 	}
@@ -123,6 +129,15 @@ func (f *fakeCommander) terminatedIDs() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string{}, f.terminated...)
+}
+
+// terminateRequestIDs returns every session id TerminateGraceful was CALLED
+// with, including attempts that returned an error (unlike terminatedIDs, which
+// is success-only). Lets a best-effort test prove terminate was attempted.
+func (f *fakeCommander) terminateRequestIDs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.terminateReq...)
 }
 
 type broadcastCall struct {

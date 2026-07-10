@@ -229,6 +229,33 @@ func TestAgentChat_Delete_ErrorOnMissing(t *testing.T) {
 	assert.ErrorIs(t, err, asynxModels.ErrValidation)
 }
 
+// TestAgentChat_Forget_ErasesAggregate mirrors reviewthread's
+// TestReviewThread_DeleteThread_Forgets: unlike Delete's soft tombstone (still
+// reachable by GetChat), Forget hard-deletes via ax.Forget — the synchronous
+// OnForget drops the read-model row AND the underlying event log is erased, so
+// a subsequent GetChat cannot self-heal it back via lazy Replay and genuinely
+// reports agentchat.ErrNotFound. This is the primitive the workspace-delete
+// cascade (repositories.Container.forgetAgentChats) uses.
+func TestAgentChat_Forget_ErasesAggregate(t *testing.T) {
+	ctx, repo, db, _ := newRepoWithDeps(t)
+	createChat(t, ctx, repo, "c1", "w1", time.Unix(1, 0).UTC())
+	agentchat.WaitQuiescentForTest(repo)
+
+	require.NoError(t, repo.Forget(ctx, "c1"))
+	agentchat.WaitQuiescentForTest(repo)
+
+	// The synchronous OnForget row-delete leaves the read model empty.
+	var n int64
+	require.NoError(t, db.WithContext(ctx).Table("agent_chats_read").Count(&n).Error)
+	assert.Zero(t, n, "Forget's OnForget must drop the read-model row")
+
+	// And the event log is erased, so GetChat's miss-triggered Replay-rebuild
+	// cannot resurrect it: a genuine not-found.
+	_, err := repo.GetChat(ctx, "c1")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, agentchat.ErrNotFound)
+}
+
 func TestAgentChat_ListByWorkspace_FiltersWsID(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1, 0).UTC()

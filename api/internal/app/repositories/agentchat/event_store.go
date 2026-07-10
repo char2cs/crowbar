@@ -124,6 +124,17 @@ type EventStore interface {
 		ctx context.Context,
 		wsID string,
 	) ([]domain.AgentChat, error)
+	// ListByWorkspaceIncludingDeleted returns EVERY chat anchored to wsID,
+	// including soft-deleted (Status==deleted) tombstones that ListByWorkspace
+	// hides. Used by the workspace-delete cascade
+	// (repositories.Container.forgetAgentChats, Task 12) so a chat already
+	// soft-deleted via the usecase's DeleteChat is still hard-Forgotten when
+	// its owning workspace is deleted — otherwise its event log + read row
+	// would outlive the workspace forever.
+	ListByWorkspaceIncludingDeleted(
+		ctx context.Context,
+		wsID string,
+	) ([]domain.AgentChat, error)
 	GetByProviderSession(
 		ctx context.Context,
 		providerSessionID string,
@@ -367,6 +378,17 @@ func (r *eventSourced) ListByWorkspace(
 	rows, err := r.store.ListByWorkspace(ctx, wsID)
 	if err != nil {
 		return nil, fmt.Errorf("agentchat: list by workspace: %w", err)
+	}
+	return rows, nil
+}
+
+func (r *eventSourced) ListByWorkspaceIncludingDeleted(
+	ctx context.Context,
+	wsID string,
+) ([]domain.AgentChat, error) {
+	rows, err := r.store.ListByWorkspaceIncludingDeleted(ctx, wsID)
+	if err != nil {
+		return nil, fmt.Errorf("agentchat: list by workspace including deleted: %w", err)
 	}
 	return rows, nil
 }

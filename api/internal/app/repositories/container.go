@@ -257,22 +257,28 @@ func (c *Container) forgetDependents(
 // purging it outright — unlike the chat's own soft-delete Delete command
 // (which tombstones but keeps the aggregate readable via GetChat), Forget is
 // the right call here because the owning workspace is gone and the chat has
-// nowhere left to live, mirroring forgetReviewThreads/DeleteThread. Before
-// forgetting a chat, terminateActiveSegment kills its active segment's live
-// vendor-CLI PTY (if any), so a workspace delete never leaves an orphaned CLI
-// process running against a worktree that is about to be rm -rf'd.
+// nowhere left to live, mirroring forgetReviewThreads/DeleteThread.
+//
+// It enumerates via ListByWorkspaceIncludingDeleted, NOT ListByWorkspace: a
+// chat already soft-deleted through the usecase's DeleteChat is invisible to
+// the live-filtered list, and skipping it would leave its event log + read row
+// orphaned after the workspace is gone.
+//
+// Before forgetting a chat, terminateActiveSegment kills its active segment's
+// live vendor-CLI PTY (if any) — BEST-EFFORT: a terminate failure is logged
+// and the Forget proceeds anyway. An orphaned PTY is a far smaller harm than
+// wedging the whole workspace delete (worktree never reaped, chats tombstoned
+// forever) on a terminate error the cascade has no way to re-drive.
 func (c *Container) forgetAgentChats(
 	ctx context.Context,
 	wsID string,
 ) error {
-	chats, err := c.AgentChat.ListByWorkspace(ctx, wsID)
+	chats, err := c.AgentChat.ListByWorkspaceIncludingDeleted(ctx, wsID)
 	if err != nil {
 		return fmt.Errorf("repositories: delete cascade: list agent chats for %q: %w", wsID, err)
 	}
 	for _, chat := range chats {
-		if err := c.terminateActiveSegment(ctx, chat); err != nil {
-			return fmt.Errorf("repositories: delete cascade: terminate agent chat %q: %w", chat.ID, err)
-		}
+		c.terminateActiveSegment(ctx, chat)
 		if err := c.AgentChat.Forget(ctx, chat.ID); err != nil {
 			return fmt.Errorf("repositories: delete cascade: forget agent chat %q: %w", chat.ID, err)
 		}
@@ -280,25 +286,31 @@ func (c *Container) forgetAgentChats(
 	return nil
 }
 
-// terminateActiveSegment terminates chat's active segment's live vendor-CLI
-// PTY via the injected terminal-engine seam (c.terminateSession, Task 12). A
-// chat with no active segment (every segment already ended), an active
-// segment with no terminal session recorded, or a nil terminateSession (a
-// test that doesn't exercise PTY teardown) are all no-ops.
+// terminateActiveSegment best-effort terminates chat's active segment's live
+// vendor-CLI PTY via the injected terminal-engine seam (c.terminateSession,
+// Task 12). A chat with no active segment (every segment already ended), an
+// active segment with no terminal session recorded, or a nil terminateSession
+// (a test that doesn't exercise PTY teardown) are all no-ops. A terminate
+// failure is LOGGED, never returned: it must not block the caller's Forget
+// (see forgetAgentChats). ErrSessionNotFound (the CLI already exited) is
+// already swallowed by the injected seam (app.terminateAgentSession).
 func (c *Container) terminateActiveSegment(
 	ctx context.Context,
 	chat domain.AgentChat,
-) error {
+) {
 	if c.terminateSession == nil || chat.ActiveSegmentID == "" {
-		return nil
+		return
 	}
 	for _, seg := range chat.Segments {
 		if seg.ID != chat.ActiveSegmentID || seg.TerminalSessionID == "" {
 			continue
 		}
-		return c.terminateSession(ctx, seg.TerminalSessionID)
+		if err := c.terminateSession(ctx, seg.TerminalSessionID); err != nil {
+			slog.ErrorContext(ctx, "repositories: delete cascade: terminate agent chat PTY (best-effort, continuing)",
+				"chat_id", chat.ID, "terminal_session_id", seg.TerminalSessionID, "err", err)
+		}
+		return
 	}
-	return nil
 }
 
 // enrichFrame builds the WS frame for ws: it attaches the two derived overlays

@@ -176,6 +176,47 @@ func TestStore_ListByWorkspace_FiltersByWorkspaceAndExcludesDeleted(t *testing.T
 	assert.Equal(t, "c1", list[0].ID)
 }
 
+// TestStore_ListByWorkspaceIncludingDeleted_IncludesTombstones proves the
+// unfiltered accessor the workspace-delete cascade relies on: unlike
+// ListByWorkspace it returns soft-deleted (Status==deleted) chats too, and it
+// still scopes to the workspace (a chat in another workspace is excluded).
+func TestStore_ListByWorkspaceIncludingDeleted_IncludesTombstones(t *testing.T) {
+	ctx, st, ax := newStore(t)
+	_, err := ax.SendWait(ctx, acCmds.Create{
+		ID: "c1", WorkspaceID: "w1", SegmentID: "s1", CrowbarSegmentID: "cs1",
+		ProviderID: "claude", TerminalSession: "term-1", Now: time.Unix(1, 0).UTC(),
+	})
+	require.NoError(t, err)
+	_, err = ax.SendWait(ctx, acCmds.Create{
+		ID: "c2", WorkspaceID: "w1", SegmentID: "s2", CrowbarSegmentID: "cs2",
+		ProviderID: "claude", TerminalSession: "term-2", Now: time.Unix(1, 0).UTC(),
+	})
+	require.NoError(t, err)
+	// c3 belongs to a DIFFERENT workspace — must never be returned for w1.
+	_, err = ax.SendWait(ctx, acCmds.Create{
+		ID: "c3", WorkspaceID: "w2", SegmentID: "s3", CrowbarSegmentID: "cs3",
+		ProviderID: "claude", TerminalSession: "term-3", Now: time.Unix(1, 0).UTC(),
+	})
+	require.NoError(t, err)
+
+	_, err = ax.SendWait(ctx, acCmds.Delete{ChatID: "c2"})
+	require.NoError(t, err)
+
+	// ListByWorkspace hides the tombstone; the unfiltered accessor keeps it.
+	live, err := st.ListByWorkspace(ctx, "w1")
+	require.NoError(t, err)
+	require.Len(t, live, 1)
+	assert.Equal(t, "c1", live[0].ID)
+
+	all, err := st.ListByWorkspaceIncludingDeleted(ctx, "w1")
+	require.NoError(t, err)
+	ids := make([]string, 0, len(all))
+	for _, chat := range all {
+		ids = append(ids, chat.ID)
+	}
+	assert.ElementsMatch(t, []string{"c1", "c2"}, ids, "both live and soft-deleted w1 chats must be returned; the w2 chat excluded")
+}
+
 // TestStore_ReadRebuildsWhenModelEmptyButLogNonEmpty proves the lazy Replay
 // repair: after the durable read model is lost but the event log survives, a
 // read enumerates every aggregate id via the event store's AggregateLister and

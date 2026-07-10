@@ -66,26 +66,30 @@ func TestDeleteChat_TerminateFailure_SessionAlreadyGone_ContinuesDelete(t *testi
 	assert.Equal(t, domain.AgentChatStatusDeleted, chat.Status)
 }
 
-// TestDeleteChat_TerminateFailure_OtherError_AbortsDelete: a genuine
-// TerminateGraceful failure (not "session already gone") must abort the
-// delete — surfacing the error rather than soft-deleting a chat whose CLI is
-// still actually running.
-func TestDeleteChat_TerminateFailure_OtherError_AbortsDelete(t *testing.T) {
+// TestDeleteChat_TerminateFailure_OtherError_IsBestEffort_StillDeletes: a
+// genuine TerminateGraceful failure (not "session already gone") must NOT
+// abort the delete. Terminate is best-effort — wedging the delete on a
+// terminate error would trap the chat undeletable forever, a worse outcome
+// than an orphaned PTY (reaped on the next daemon restart). The delete
+// proceeds; the chat is soft-deleted.
+func TestDeleteChat_TerminateFailure_OtherError_IsBestEffort_StillDeletes(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 	f.wait()
 
+	active := activeSegOf(t, f.chat(t, chatID), segID)
 	f.term.terminateErr = errors.New("boom: terminate genuinely failed")
 
-	err = f.usecase.DeleteChat(ctx, chatID)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "terminate active segment")
+	require.NoError(t, f.usecase.DeleteChat(ctx, chatID), "a genuine terminate failure must not abort the delete (best-effort)")
 
-	chat := f.chat(t, chatID)
-	assert.NotEqual(t, domain.AgentChatStatusDeleted, chat.Status, "the chat must NOT be soft-deleted when terminate genuinely failed")
+	// The terminate WAS attempted (best-effort, not skipped) — terminateRequestIDs
+	// records attempts even when they error, unlike terminatedIDs (success-only) ...
+	assert.Contains(t, f.term.terminateRequestIDs(), active.TerminalSessionID)
+	// ... and the delete proceeded despite the terminate error.
+	assert.Equal(t, domain.AgentChatStatusDeleted, f.chat(t, chatID).Status)
 }
 
 // TestDeleteChat_NoActiveSegment_SkipsTerminate_StillDeletes: a chat whose

@@ -171,7 +171,10 @@ func (r *deleteReactor) purge(
 		return
 	}
 	if err := r.reviewThreadForget(ctx, wsID); err != nil {
-		slog.ErrorContext(ctx, "workspace delete reactor: review-thread cascade", "id", wsID, "err", err)
+		// The injected callback is the composed cross-aggregate forget cascade
+		// (review threads + agent chats — see repositories.Container.forgetDependents),
+		// so this label stays generic; the wrapped err names the half that failed.
+		slog.ErrorContext(ctx, "workspace delete reactor: delete cascade", "id", wsID, "err", err)
 		return
 	}
 	if !r.removeWorktree(path, wsID) {

@@ -475,16 +475,22 @@ func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 // fakeTerminateSession is a thread-safe terminateSession double: it records
 // every sessionID it is asked to terminate, standing in for the injected
 // terminal-engine seam repositories.Container.forgetAgentChats uses to kill a
-// chat's live PTY before Forgetting it (Task 12).
+// chat's live PTY before Forgetting it (Task 12). failFor makes terminate
+// return an error for one specific session id, so a test can prove the cascade
+// treats a terminate failure as best-effort (logs + continues).
 type fakeTerminateSession struct {
-	mu    sync.Mutex
-	calls []string
+	mu      sync.Mutex
+	calls   []string
+	failFor string
 }
 
 func (f *fakeTerminateSession) terminate(_ context.Context, sessionID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, sessionID)
+	if sessionID == f.failFor {
+		return errFake
+	}
 	return nil
 }
 
@@ -594,6 +600,82 @@ func TestContainer_WireCallbacks_DeleteCascade_ForgetsAgentChats_NilTerminateSes
 	c.Drain().WG.Wait()
 	c.WaitQuiescent()
 
+	_, err = c.AgentChat.GetChat(ctx, "chat1")
+	assert.ErrorIs(t, err, agentchat.ErrNotFound)
+}
+
+// TestContainer_WireCallbacks_DeleteCascade_TerminateFailure_IsBestEffort pins
+// Task 12 review Important 1 at the cascade layer: a terminate failure for one
+// chat's PTY must NOT abort the cascade — it is logged and the chat is Forgotten
+// anyway, AND the remaining chats in the workspace are still processed. Wedging
+// the whole workspace delete (worktree never reaped) on a terminate error the
+// cascade can't re-drive is a far worse outcome than an orphaned PTY.
+func TestContainer_WireCallbacks_DeleteCascade_TerminateFailure_IsBestEffort(t *testing.T) {
+	ctx := context.Background()
+	ad := newAdapter(t)
+	term := &fakeTerminateSession{failFor: "term-1"} // chat1's PTY terminate fails
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil, term.terminate)
+	require.NoError(t, err)
+
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	createAgentChat(t, ctx, c.AgentChat, "chat1", "w1", "term-1")
+	createAgentChat(t, ctx, c.AgentChat, "chat2", "w1", "term-2")
+	c.WaitQuiescent()
+
+	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
+	c.WaitQuiescent()
+	c.Drain().WG.Wait()
+	c.WaitQuiescent()
+
+	// Both PTYs were attempted (chat1's failed) ...
+	assert.ElementsMatch(t, []string{"term-1", "term-2"}, term.terminated())
+	// ... and BOTH chats are Forgotten despite chat1's terminate failure — the
+	// failure neither aborted chat1's own Forget nor stopped chat2 from being
+	// processed.
+	_, err = c.AgentChat.GetChat(ctx, "chat1")
+	assert.ErrorIs(t, err, agentchat.ErrNotFound)
+	_, err = c.AgentChat.GetChat(ctx, "chat2")
+	assert.ErrorIs(t, err, agentchat.ErrNotFound)
+}
+
+// TestContainer_WireCallbacks_DeleteCascade_ForgetsSoftDeletedChats pins Task 12
+// review Important 2: a chat already SOFT-deleted (Status==deleted, e.g. via the
+// usecase's DeleteChat) is invisible to the live-filtered ListByWorkspace, so
+// the cascade must enumerate via ListByWorkspaceIncludingDeleted — otherwise the
+// tombstoned chat's event log + read row would survive the deleted workspace
+// forever. Here chat1 is soft-deleted before the workspace delete; the cascade
+// must still hard-Forget it.
+func TestContainer_WireCallbacks_DeleteCascade_ForgetsSoftDeletedChats(t *testing.T) {
+	ctx := context.Background()
+	ad := newAdapter(t)
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil, nil)
+	require.NoError(t, err)
+
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	createAgentChat(t, ctx, c.AgentChat, "chat1", "w1", "term-1")
+	c.WaitQuiescent()
+
+	// Soft-delete chat1: it is now a tombstone hidden from ListByWorkspace but
+	// still anchored to w1 and still holding an event log + read row.
+	require.NoError(t, c.AgentChat.Delete(ctx, "chat1"))
+	c.WaitQuiescent()
+	live, err := c.AgentChat.ListByWorkspace(ctx, "w1")
+	require.NoError(t, err)
+	require.Empty(t, live, "the soft-deleted chat must be hidden from the live-filtered list")
+
+	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
+	c.WaitQuiescent()
+	c.Drain().WG.Wait()
+	c.WaitQuiescent()
+
+	// The soft-deleted chat is genuinely gone: the cascade hard-Forgot it even
+	// though the live filter hid it.
 	_, err = c.AgentChat.GetChat(ctx, "chat1")
 	assert.ErrorIs(t, err, agentchat.ErrNotFound)
 }

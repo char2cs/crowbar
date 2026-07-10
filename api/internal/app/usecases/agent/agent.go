@@ -164,14 +164,17 @@ func (u *Usecase) RenameChat(
 // DeleteChat soft-deletes chatID (the chat's own Delete command: Status=deleted,
 // still readable by direct GetChat, hidden from ListChats/ListByWorkspace — see
 // agentchat.EventStore.Delete's doc comment). If the chat's active segment still
-// has a live vendor-CLI PTY, that process is terminated FIRST (same
-// TerminateGraceful seam SwitchProvider uses, and the same ErrSessionNotFound
-// tolerance: a session already gone is not a failure) so a chat delete never
-// orphans a running CLI. This is the standalone counterpart to the
-// workspace-delete cascade's forgetAgentChats (repositories.Container), which
-// hard-Forgets every chat — including its PTY teardown — when the owning
-// workspace itself is deleted; DeleteChat is what runs when only the chat, not
-// its workspace, is being deleted.
+// has a live vendor-CLI PTY, that process is terminated FIRST so a chat delete
+// doesn't orphan a running CLI — but BEST-EFFORT: a terminate failure is logged
+// and the Delete proceeds anyway. Wedging the delete on a terminate error (the
+// user could then never remove the chat) is a worse outcome than an orphaned
+// PTY, which the daemon reaps on the next restart's agent-tmp sweep / boot
+// reconcile regardless. ErrSessionNotFound (the CLI already exited) is not even
+// logged. This is the standalone counterpart to the workspace-delete cascade's
+// forgetAgentChats (repositories.Container), which hard-Forgets every chat —
+// with the same best-effort PTY teardown — when the owning workspace itself is
+// deleted; DeleteChat is what runs when only the chat, not its workspace, is
+// being deleted.
 func (u *Usecase) DeleteChat(
 	ctx context.Context,
 	chatID string,
@@ -183,7 +186,8 @@ func (u *Usecase) DeleteChat(
 	if seg, ok := segmentByID(chat, chat.ActiveSegmentID); ok && seg.TerminalSessionID != "" {
 		if err := u.term.TerminateGraceful(ctx, seg.TerminalSessionID); err != nil &&
 			!errors.Is(err, engineterminal.ErrSessionNotFound) {
-			return fmt.Errorf("agent: delete chat: terminate active segment: %w", err)
+			slog.WarnContext(ctx, "agent: delete chat: terminate active segment (best-effort, continuing)",
+				"chat_id", chatID, "segment_id", seg.ID, "terminal_session_id", seg.TerminalSessionID, "err", err)
 		}
 	}
 	if err := u.chats.Delete(ctx, chatID); err != nil {

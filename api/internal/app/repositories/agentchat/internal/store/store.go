@@ -70,6 +70,18 @@ type Store interface {
 		ctx context.Context,
 		wsID string,
 	) ([]domain.AgentChat, error)
+	// ListByWorkspaceIncludingDeleted returns EVERY chat for wsID, tombstoned
+	// (Status==deleted) ones included, healing the read model the same way
+	// ListChats does but skipping filterLive. It backs the workspace-delete
+	// cascade (repositories.Container.forgetAgentChats): a chat already
+	// soft-deleted via the usecase's DeleteChat is still anchored to the
+	// workspace, so it must be enumerated and hard-Forgotten when the owning
+	// workspace is deleted — otherwise its event log + read-model row would
+	// survive the workspace forever.
+	ListByWorkspaceIncludingDeleted(
+		ctx context.Context,
+		wsID string,
+	) ([]domain.AgentChat, error)
 	// GetByProviderSession resolves the live chat whose segments contain a
 	// segment with ProviderSessionID == providerSessionID, healing the read
 	// model first like the other reads. Returns ErrNotFound when no live chat
@@ -166,6 +178,26 @@ func (s *service) ListByWorkspace(
 	}
 	result := make([]domain.AgentChat, 0, len(live))
 	for _, chat := range live {
+		if chat.WorkspaceID == wsID {
+			result = append(result, chat)
+		}
+	}
+	return result, nil
+}
+
+// ListByWorkspaceIncludingDeleted heals the read model (via allHealed) then
+// filters to wsID WITHOUT dropping tombstoned chats — the workspace-delete
+// cascade must see soft-deleted chats too so it can hard-Forget them.
+func (s *service) ListByWorkspaceIncludingDeleted(
+	ctx context.Context,
+	wsID string,
+) ([]domain.AgentChat, error) {
+	all, err := s.allHealed(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]domain.AgentChat, 0, len(all))
+	for _, chat := range all {
 		if chat.WorkspaceID == wsID {
 			result = append(result, chat)
 		}
