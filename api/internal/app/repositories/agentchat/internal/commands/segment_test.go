@@ -85,7 +85,7 @@ func TestEndSegment_ClearsActive(t *testing.T) {
 		ActiveSegmentID: "s1",
 		Segments:        []domain.AgentSegment{{ID: "s1", Status: "active"}},
 	}
-	out := commands.EndSegment{ChatID: "c1", Now: now}.EmitEvent(chat)
+	out := commands.EndSegment{ChatID: "c1", SegmentID: "s1", Now: now}.EmitEvent(chat)
 	if out.ActiveSegmentID != "" || out.Segments[0].Status != "ended" || out.Segments[0].EndedAt == nil {
 		t.Fatalf("EndSegment must end the active segment and clear ActiveSegmentID: %+v", out)
 	}
@@ -96,6 +96,40 @@ func TestEndSegment_ClearsActive(t *testing.T) {
 	}
 	if chat.Segments[0].EndedAt != nil {
 		t.Fatalf("input Segments[0].EndedAt mutated: expected nil, got %v", chat.Segments[0].EndedAt)
+	}
+}
+
+// TestEndSegment_MismatchedSegment_IsNoOp is the anti-corruption guard: a stale
+// EndSegment naming the OLD segment ("s1") must be a no-op once a concurrent
+// switch has already opened a NEW active segment ("s2"). It must NOT end the
+// brand-new active segment (which would orphan its live CLI) and must NOT clear
+// ActiveSegmentID — the whole aggregate is returned untouched. This is the
+// TOCTOU close: the identity check is evaluated against the fresh event-log
+// state inside EmitEvent, not a stale caller read.
+func TestEndSegment_MismatchedSegment_IsNoOp(t *testing.T) {
+	now := time.Unix(10, 0)
+	endedAt := time.Unix(5, 0)
+	chat := &domain.AgentChat{
+		ID:              "c1",
+		ActiveSegmentID: "s2",
+		Segments: []domain.AgentSegment{
+			{ID: "s1", Status: "ended", EndedAt: &endedAt},
+			{ID: "s2", Status: "active"},
+		},
+	}
+	// The caller meant to end "s1", but "s2" is now the active segment.
+	out := commands.EndSegment{ChatID: "c1", SegmentID: "s1", Now: now}.EmitEvent(chat)
+
+	// The new active segment and ActiveSegmentID are untouched — no orphaning.
+	if out.ActiveSegmentID != "s2" {
+		t.Fatalf("mismatched EndSegment must leave ActiveSegmentID as s2, got %q", out.ActiveSegmentID)
+	}
+	if out.Segments[1].Status != "active" || out.Segments[1].EndedAt != nil {
+		t.Fatalf("mismatched EndSegment must not end the new active segment s2: %+v", out.Segments[1])
+	}
+	// LastActivityAt is not bumped on a no-op.
+	if !out.LastActivityAt.Equal(chat.LastActivityAt) {
+		t.Fatalf("mismatched EndSegment must not bump LastActivityAt: got %v", out.LastActivityAt)
 	}
 }
 

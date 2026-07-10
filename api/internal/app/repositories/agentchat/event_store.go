@@ -72,6 +72,7 @@ type EventStore interface {
 	EndSegment(
 		ctx context.Context,
 		chatID string,
+		segmentID string,
 		now time.Time,
 	) (domain.AgentChat, error)
 	BindSession(
@@ -235,9 +236,10 @@ func (r *eventSourced) OpenSegment(
 func (r *eventSourced) EndSegment(
 	ctx context.Context,
 	chatID string,
+	segmentID string,
 	now time.Time,
 ) (domain.AgentChat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.EndSegment{ChatID: chatID, Now: now})
+	evt, err := r.sendWithOCC(ctx, commands.EndSegment{ChatID: chatID, SegmentID: segmentID, Now: now})
 	if err != nil {
 		return domain.AgentChat{}, fmt.Errorf("agentchat: end segment: %w", err)
 	}

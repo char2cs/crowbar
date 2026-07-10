@@ -351,29 +351,45 @@ func (u *Usecase) reconcileSegmentExit(ctx context.Context, segID string) {
 		}
 		return
 	}
-	if _, ok := activeSegment(chat, segID); !ok {
+	seg, ok := activeSegment(chat, segID)
+	if !ok {
 		// Already ended by an explicit path (provider switch / context-move) —
 		// nothing left to reconcile for this segment.
 		return
 	}
-	if err := u.endSegmentAndMaybeStopTurn(ctx, chatID); err != nil {
+	// Pass seg.ID (the aggregate segment id of the still-active segment for this
+	// live process), not segID (the crowbarSegID bound at spawn): after a
+	// context-move the two diverge, and EndSegment's guard matches on the
+	// aggregate segment id (ActiveSegmentID).
+	if err := u.endSegmentAndMaybeStopTurn(ctx, chatID, seg.ID); err != nil {
 		slog.WarnContext(ctx, "agent: reconcile segment exit: end segment",
 			"chat_id", chatID, "segment_id", segID, "err", err)
 	}
 }
 
-// endSegmentAndMaybeStopTurn ends chatID's active segment and, only if the
-// chat was still Working, stops the turn too — shared by the runtime
-// process-exit reconcile (reconcileSegmentExit) and ReconcileOnBoot so both
-// apply the exact same "end, then stop the turn only if it was actually
-// running" rule. A StopTurn is skipped when the chat was not Working so a
-// dead segment on a chat that already finished its turn doesn't emit a
-// redundant turn_stopped event.
-func (u *Usecase) endSegmentAndMaybeStopTurn(ctx context.Context, chatID string) error {
+// endSegmentAndMaybeStopTurn ends chatID's segmentID (the segment the caller
+// observed as active) and, only if the chat was still Working, stops the turn
+// too — shared by the runtime process-exit reconcile (reconcileSegmentExit) and
+// ReconcileOnBoot so both apply the exact same "end, then stop the turn only if
+// it was actually running" rule. A StopTurn is skipped when the chat was not
+// Working so a dead segment on a chat that already finished its turn doesn't
+// emit a redundant turn_stopped event.
+//
+// EndSegment is segment-scoped: it ends segmentID only while it is still THE
+// active segment, otherwise it is a no-op (a concurrent switch already replaced
+// it). When it no-ops, ActiveSegmentID stays pointing at the NEW segment, so
+// the follow-on StopTurn is suppressed too — a stale reconcile must never stop
+// the brand-new segment's turn.
+func (u *Usecase) endSegmentAndMaybeStopTurn(ctx context.Context, chatID, segmentID string) error {
 	now := time.Now()
-	chat, err := u.chats.EndSegment(ctx, chatID, now)
+	chat, err := u.chats.EndSegment(ctx, chatID, segmentID, now)
 	if err != nil {
 		return fmt.Errorf("end segment: %w", err)
+	}
+	if chat.ActiveSegmentID != "" {
+		// EndSegment was a no-op: segmentID is no longer the active segment (a
+		// concurrent switch replaced it). Leave the new segment's turn alone.
+		return nil
 	}
 	if !chat.Working {
 		return nil
@@ -540,7 +556,7 @@ func (u *Usecase) moveToNewChat(
 	ev engineagent.CanonicalEvent,
 ) error {
 	now := time.Now()
-	if _, err := u.chats.EndSegment(ctx, oldChat.ID, now); err != nil {
+	if _, err := u.chats.EndSegment(ctx, oldChat.ID, oldSeg.ID, now); err != nil {
 		return fmt.Errorf("agent: ingest hook: registered: end old segment: %w", err)
 	}
 	if _, err := u.chats.Create(ctx, agentchat.CreateInput{
@@ -578,7 +594,7 @@ func (u *Usecase) moveToKnownChat(
 	ev engineagent.CanonicalEvent,
 ) error {
 	now := time.Now()
-	if _, err := u.chats.EndSegment(ctx, oldChat.ID, now); err != nil {
+	if _, err := u.chats.EndSegment(ctx, oldChat.ID, oldSeg.ID, now); err != nil {
 		return fmt.Errorf("agent: ingest hook: focus: end old segment: %w", err)
 	}
 	if _, err := u.chats.OpenSegment(ctx, agentchat.OpenSegmentInput{
@@ -720,8 +736,10 @@ func (u *Usecase) SwitchProvider(
 
 	// End the outgoing segment BEFORE spawning the target: OpenSegment (inside
 	// spawnSegment) rejects a chat that still has an active segment, so the
-	// active segment must be cleared first.
-	if _, err := u.chats.EndSegment(ctx, chatID, time.Now()); err != nil {
+	// active segment must be cleared first. Scoped to oldSeg.ID so a concurrent
+	// reconcile/switch racing this same chat can't make us end a segment other
+	// than the one we read as active.
+	if _, err := u.chats.EndSegment(ctx, chatID, oldSeg.ID, time.Now()); err != nil {
 		return "", fmt.Errorf("agent: switch provider: end old segment: %w", err)
 	}
 
@@ -865,7 +883,7 @@ func (u *Usecase) ReconcileOnBoot(
 		if u.term.SessionExists(ctx, seg.TerminalSessionID) {
 			continue
 		}
-		if err := u.endSegmentAndMaybeStopTurn(ctx, chat.ID); err != nil {
+		if err := u.endSegmentAndMaybeStopTurn(ctx, chat.ID, seg.ID); err != nil {
 			slog.WarnContext(ctx, "agent: reconcile on boot: end segment",
 				"chat_id", chat.ID, "segment_id", seg.ID, "terminal_session_id", seg.TerminalSessionID, "err", err)
 		}

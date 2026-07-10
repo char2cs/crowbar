@@ -140,7 +140,7 @@ func TestAgentChat_SegmentLifecycle_EndOpenBind(t *testing.T) {
 	now := time.Unix(1, 0).UTC()
 	createChat(t, ctx, repo, "c1", "w1", now)
 
-	_, err := repo.EndSegment(ctx, "c1", now.Add(time.Second))
+	_, err := repo.EndSegment(ctx, "c1", "c1-s1", now.Add(time.Second))
 	require.NoError(t, err)
 
 	opened, err := repo.OpenSegment(ctx, agentchat.OpenSegmentInput{
@@ -290,7 +290,7 @@ func TestAgentChat_ConcurrentOpenSegment_OneWins(t *testing.T) {
 	for trial := range concurrentOpenSegmentTrials {
 		chatID := fmt.Sprintf("race-chat-%d", trial)
 		createChat(t, ctx, repo, chatID, "w1", now)
-		_, err := repo.EndSegment(ctx, chatID, now.Add(time.Second))
+		_, err := repo.EndSegment(ctx, chatID, chatID+"-s1", now.Add(time.Second))
 		require.NoError(t, err)
 
 		results := make([]error, 2)

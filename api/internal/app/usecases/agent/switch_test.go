@@ -263,7 +263,7 @@ func TestSwitchProvider_MissingActiveSegment_ReturnsWrappedError(t *testing.T) {
 		ID: "c1", WorkspaceID: "ws1", SegmentID: "s1", CrowbarSegmentID: "cs1", ProviderID: "claude", TerminalSession: "term-x",
 	})
 	require.NoError(t, err)
-	_, err = f.repo.EndSegment(ctx, "c1", time.Unix(1, 0).UTC())
+	_, err = f.repo.EndSegment(ctx, "c1", "s1", time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 	f.wait()
 

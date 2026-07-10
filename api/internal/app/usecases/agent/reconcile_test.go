@@ -158,11 +158,11 @@ func TestReconcileOnBoot_NoActiveSegment_IsSkipped(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 	f.wait()
 
-	_, err = f.repo.EndSegment(ctx, chatID, timeUnix(1))
+	_, err = f.repo.EndSegment(ctx, chatID, segID, timeUnix(1))
 	require.NoError(t, err)
 	f.wait()
 

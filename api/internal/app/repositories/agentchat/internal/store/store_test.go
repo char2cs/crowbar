@@ -65,7 +65,7 @@ func openTwoSegmentChat(
 	})
 	require.NoError(t, err)
 
-	_, err = ax.SendWait(ctx, acCmds.EndSegment{ChatID: chatID, Now: time.Unix(2, 0).UTC()})
+	_, err = ax.SendWait(ctx, acCmds.EndSegment{ChatID: chatID, SegmentID: "s1", Now: time.Unix(2, 0).UTC()})
 	require.NoError(t, err)
 
 	_, err = ax.SendWait(ctx, acCmds.OpenSegment{

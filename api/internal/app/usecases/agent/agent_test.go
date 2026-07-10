@@ -206,11 +206,11 @@ func (s *fakeStore) OpenSegment(ctx context.Context, in agentchat.OpenSegmentInp
 	return s.EventStore.OpenSegment(ctx, in)
 }
 
-func (s *fakeStore) EndSegment(ctx context.Context, chatID string, now time.Time) (domain.AgentChat, error) {
+func (s *fakeStore) EndSegment(ctx context.Context, chatID, segmentID string, now time.Time) (domain.AgentChat, error) {
 	if s.failEndSeg != nil {
 		return domain.AgentChat{}, s.failEndSeg
 	}
-	return s.EventStore.EndSegment(ctx, chatID, now)
+	return s.EventStore.EndSegment(ctx, chatID, segmentID, now)
 }
 
 func (s *fakeStore) ListChats(ctx context.Context) ([]domain.AgentChat, error) {
@@ -770,7 +770,7 @@ func TestSeedRegistry_RehydratesKnownSessions(t *testing.T) {
 		ID: "cK", WorkspaceID: "ws1", SegmentID: "sK1", CrowbarSegmentID: "csK1", ProviderID: "claude", TerminalSession: "term-x",
 	})
 	require.NoError(t, err)
-	_, err = f.repo.EndSegment(ctx, "cK", timeUnix(1))
+	_, err = f.repo.EndSegment(ctx, "cK", "sK1", timeUnix(1))
 	require.NoError(t, err)
 	_, err = f.repo.OpenSegment(ctx, agentchat.OpenSegmentInput{
 		ChatID: "cK", SegmentID: "sK2", CrowbarSegmentID: "csK2", ProviderID: "claude", TerminalSession: "term-y", Now: timeUnix(2),
@@ -778,7 +778,7 @@ func TestSeedRegistry_RehydratesKnownSessions(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.repo.BindSession(ctx, "cK", "csK2", "sid-known")
 	require.NoError(t, err)
-	_, err = f.repo.EndSegment(ctx, "cK", timeUnix(3))
+	_, err = f.repo.EndSegment(ctx, "cK", "sK2", timeUnix(3))
 	require.NoError(t, err)
 	f.wait()
 
