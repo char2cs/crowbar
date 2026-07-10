@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,6 +108,7 @@ func New(
 	}
 	startRestoreTerminalSessions(ctx, ucs)
 	seedAgentRegistry(ctx, ucs)
+	reconcileAgentBoot(ctx, ucs)
 	sweepStaleAgentTmp(crowbarHome)
 
 	rt := realtime.New(
@@ -307,6 +309,28 @@ func seedAgentRegistry(
 		return
 	}
 	_ = ucs.Agent.SeedRegistry(context.WithoutCancel(ctx))
+}
+
+// reconcileAgentBoot repairs live turn state a daemon crash can leave stale
+// (see agent.Usecase.ReconcileOnBoot's doc comment): no event records "the
+// CLI process died," so a chat's active segment / Working flag can survive a
+// restart pointing at a terminal session that no longer exists. It runs
+// synchronously at startup, AFTER startRestoreTerminalSessions has
+// repopulated the terminal registry — so a session merely reloaded as a
+// suspended placeholder still reads alive via SessionExists and is never
+// wrongly reconciled — and before the HTTP layer starts serving. Best-effort:
+// a failure here only leaves a chat's live-turn state stale until the next
+// hook/switch touches it, it never blocks startup.
+func reconcileAgentBoot(
+	ctx context.Context,
+	ucs *usecases.Container,
+) {
+	if ucs.Agent == nil {
+		return
+	}
+	if err := ucs.Agent.ReconcileOnBoot(context.WithoutCancel(ctx)); err != nil {
+		slog.WarnContext(ctx, "app: reconcile agent boot", "err", err)
+	}
 }
 
 // sweepStaleAgentTmp best-effort removes <home>/agent-tmp at daemon startup.

@@ -42,7 +42,10 @@ type commandCall struct {
 // fakeCommander is a thread-safe TerminalCommander double: CreateCommand records
 // the spawn and hands back a unique "term-N" session id; TerminateGraceful
 // records the id. The mutex makes it safe under the concurrent-switch tests
-// (run with -race).
+// (run with -race). deadSessions is the injected "is this terminal session
+// still alive" fake: SessionExists defaults to true (alive) for any session id
+// not explicitly marked dead via killSession, so tests that don't care about
+// liveness (the vast majority) are unaffected.
 type fakeCommander struct {
 	mu           sync.Mutex
 	calls        []commandCall
@@ -50,6 +53,7 @@ type fakeCommander struct {
 	nextID       int
 	err          error
 	terminateErr error
+	deadSessions map[string]bool
 }
 
 func (f *fakeCommander) CreateCommand(
@@ -87,6 +91,26 @@ func (f *fakeCommander) TerminateGraceful(
 	}
 	f.terminated = append(f.terminated, sessionID)
 	return nil
+}
+
+// SessionExists implements the agent.TerminalCommander liveness seam:
+// alive unless explicitly killed via killSession.
+func (f *fakeCommander) SessionExists(_ context.Context, sessionID string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return !f.deadSessions[sessionID]
+}
+
+// killSession marks sessionID as no longer live, so a subsequent
+// SessionExists call reports it gone — the boot-reconcile fake for "the CLI
+// process died with the daemon and never came back."
+func (f *fakeCommander) killSession(sessionID string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.deadSessions == nil {
+		f.deadSessions = map[string]bool{}
+	}
+	f.deadSessions[sessionID] = true
 }
 
 func (f *fakeCommander) callCount() int {

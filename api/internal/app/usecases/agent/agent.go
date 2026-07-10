@@ -48,6 +48,16 @@ type TerminalCommander interface {
 		ctx context.Context,
 		sessionID string,
 	) error
+	// SessionExists reports whether a terminal session id is still live in the
+	// terminal engine's registry (true for both an attached PTY and a suspended
+	// placeholder). ReconcileOnBoot uses it as the "is this CLI process still
+	// around" liveness check for a chat's active segment: a false here after a
+	// daemon crash means the segment's process is definitely gone even though no
+	// event ever recorded that.
+	SessionExists(
+		ctx context.Context,
+		sessionID string,
+	) bool
 }
 
 // Broadcaster is the hub seam the usecase pushes agent-chat lifecycle events
@@ -251,7 +261,7 @@ func (u *Usecase) spawnSegment(
 	argv := append([]string{descriptor.Spawn.Cmd}, plan.Argv...)
 
 	termSessID, err := u.term.CreateCommand(ctx, workspaceID, worktree, argv, plan.Env,
-		func() { _ = os.RemoveAll(tmpDir) })
+		u.onSegmentExit(segID, tmpDir))
 	if err != nil {
 		// CreateCommand never got far enough to register onExit — clean up here
 		// so a spawn failure doesn't leak the tmp dir until the next restart sweep.
@@ -297,6 +307,81 @@ func (u *Usecase) spawnSegment(
 		return "", fmt.Errorf("agent: spawn segment: persist segment: %w", err)
 	}
 	return segID, nil
+}
+
+// onSegmentExit builds the CreateCommand onExit callback for segID: it
+// releases the per-spawn tmp dir (unchanged from before this reconcile was
+// added) and then reconciles live turn state for a CLI process death that no
+// event ever recorded — a daemon-observed crash/self-exit, as opposed to a
+// clean provider switch or context-move, both of which already end the
+// segment themselves via an explicit EndSegment before or independently of
+// the process actually dying. It runs on a background context: the terminal
+// engine invokes onExit from its own reap goroutine, well after any request
+// context that spawned this segment could have been cancelled.
+func (u *Usecase) onSegmentExit(segID, tmpDir string) func() {
+	return func() {
+		_ = os.RemoveAll(tmpDir)
+		u.reconcileSegmentExit(context.Background(), segID)
+	}
+}
+
+// reconcileSegmentExit ends segID's chat segment and, if the chat was still
+// Working, stops the turn — but ONLY when segID is still that chat's active
+// segment at the moment this runs. This is what keeps a process-death
+// reconcile from fighting an explicit provider switch: SwitchProvider's own
+// EndSegment call (and the context-move reducer's moveToNewChat/
+// moveToKnownChat) always run first when they are the ones tearing the
+// segment down, so by the time this fires for that same segment it is no
+// longer "active" and activeSegment returns false — a deliberate no-op, never
+// a double-end, and never a reconcile of whatever segment has since taken
+// over as active in that chat. Errors are logged, not returned: onExit runs
+// off the terminal engine's reap goroutine with no caller to hand an error to.
+func (u *Usecase) reconcileSegmentExit(ctx context.Context, segID string) {
+	chatID, ok := u.registry.ChatFor(segID)
+	if !ok {
+		// The registry never learned this segment (should not happen — it is
+		// bound before spawn), so there is no chat to reconcile against.
+		return
+	}
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		if !errors.Is(err, agentchat.ErrNotFound) {
+			slog.WarnContext(ctx, "agent: reconcile segment exit: get chat",
+				"chat_id", chatID, "segment_id", segID, "err", err)
+		}
+		return
+	}
+	if _, ok := activeSegment(chat, segID); !ok {
+		// Already ended by an explicit path (provider switch / context-move) —
+		// nothing left to reconcile for this segment.
+		return
+	}
+	if err := u.endSegmentAndMaybeStopTurn(ctx, chatID); err != nil {
+		slog.WarnContext(ctx, "agent: reconcile segment exit: end segment",
+			"chat_id", chatID, "segment_id", segID, "err", err)
+	}
+}
+
+// endSegmentAndMaybeStopTurn ends chatID's active segment and, only if the
+// chat was still Working, stops the turn too — shared by the runtime
+// process-exit reconcile (reconcileSegmentExit) and ReconcileOnBoot so both
+// apply the exact same "end, then stop the turn only if it was actually
+// running" rule. A StopTurn is skipped when the chat was not Working so a
+// dead segment on a chat that already finished its turn doesn't emit a
+// redundant turn_stopped event.
+func (u *Usecase) endSegmentAndMaybeStopTurn(ctx context.Context, chatID string) error {
+	now := time.Now()
+	chat, err := u.chats.EndSegment(ctx, chatID, now)
+	if err != nil {
+		return fmt.Errorf("end segment: %w", err)
+	}
+	if !chat.Working {
+		return nil
+	}
+	if _, err := u.chats.StopTurn(ctx, chatID, now); err != nil {
+		return fmt.Errorf("stop turn: %w", err)
+	}
+	return nil
 }
 
 func (u *Usecase) crowbarHookPath(home string) string {
@@ -741,6 +826,48 @@ func (u *Usecase) SeedRegistry(
 				continue
 			}
 			u.registry.Seed(seg.ProviderSessionID, chat.ID)
+		}
+	}
+	return nil
+}
+
+// ReconcileOnBoot repairs live turn state a daemon crash can leave stale: no
+// event ever records "the CLI process died," so a chat's ActiveSegmentID /
+// Working can survive a restart pointing at a terminal session that no
+// longer exists (see domain.AgentChat's doc comment on Working). It lists
+// every live chat and, for one whose active segment's TerminalSessionID is
+// NOT a live terminal session (per the injected TerminalCommander.
+// SessionExists), ends that segment and — if the chat was still Working —
+// stops the turn, via the same endSegmentAndMaybeStopTurn rule the runtime
+// onExit reconcile uses. A chat whose active segment's terminal session IS
+// still live (including a restored placeholder) is left untouched.
+//
+// This deliberately does NOT live in a repository reactor: SessionExists is a
+// terminal-engine concern the repository layer cannot reach, so it lives here
+// as a usecase method instead — a sibling to SeedRegistry, not a replacement
+// for it. The caller must run it AFTER the terminal engine has repopulated
+// its registry from persisted sessions (startRestoreTerminalSessions) so a
+// session merely reloaded as a suspended placeholder still reads alive and is
+// never wrongly reconciled. Best-effort per chat: one chat's reconcile
+// failure is logged and does not stop the rest from being reconciled.
+func (u *Usecase) ReconcileOnBoot(
+	ctx context.Context,
+) error {
+	chats, err := u.chats.ListChats(ctx)
+	if err != nil {
+		return fmt.Errorf("agent: reconcile on boot: list chats: %w", err)
+	}
+	for _, chat := range chats {
+		seg, ok := segmentByID(chat, chat.ActiveSegmentID)
+		if !ok || seg.Status != "active" {
+			continue
+		}
+		if u.term.SessionExists(ctx, seg.TerminalSessionID) {
+			continue
+		}
+		if err := u.endSegmentAndMaybeStopTurn(ctx, chat.ID); err != nil {
+			slog.WarnContext(ctx, "agent: reconcile on boot: end segment",
+				"chat_id", chat.ID, "segment_id", seg.ID, "terminal_session_id", seg.TerminalSessionID, "err", err)
 		}
 	}
 	return nil
