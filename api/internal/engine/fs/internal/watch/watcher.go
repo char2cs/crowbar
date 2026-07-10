@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch/ignore"
 )
 
 const debounceDuration = 100 * time.Millisecond
@@ -46,6 +46,7 @@ type Watcher struct {
 	forkPointSha string
 	git          GitStatusProvider
 	dispatcher   Dispatcher
+	ignore       ignore.Matcher
 
 	fsw          *fsnotify.Watcher
 	mu           sync.Mutex
@@ -111,6 +112,7 @@ func NewWatcher(
 		forkPointSha: forkPointSha,
 		git:          git,
 		dispatcher:   dispatcher,
+		ignore:       ignore.NewMatcher(repoPath),
 		stopCh:       make(chan struct{}),
 		gitTimer:     gitTimer,
 	}
@@ -473,9 +475,11 @@ func (w *Watcher) walkFn(
 	if w.shouldIgnoreDir(path) {
 		return filepath.SkipDir
 	}
-	// Fix 3: skip gitignored directories to avoid inotify exhaustion on
-	// large projects with node_modules/, dist/, etc.
-	if w.isIgnored(path) {
+	// Fix 3: skip gitignored directories to avoid inotify exhaustion on large
+	// projects with node_modules/, dist/, etc. Matched in-process (ignore.Matcher)
+	// rather than forking `git check-ignore` once per directory (~458 forks per
+	// Start on a real repo).
+	if w.ignore.Match(path) {
 		return filepath.SkipDir
 	}
 	return w.fsw.Add(path)
@@ -486,20 +490,6 @@ func (w *Watcher) addRecursive(
 	root string,
 ) error {
 	return filepath.Walk(root, w.walkFn)
-}
-
-// isIgnored reports whether path is ignored by git (via git check-ignore).
-// Fix 3: exit 0 = ignored, exit 1 = not ignored, exit 128 = no git repo.
-func (w *Watcher) isIgnored(path string) bool {
-	//nolint:gosec // G204: fixed "git check-ignore" invocation; path is a filesystem path from the watcher, not shell-interpreted
-	cmd := exec.Command(
-		"git",
-		"-C", w.repoPath,
-		"check-ignore",
-		"-q",
-		path,
-	)
-	return cmd.Run() == nil
 }
 
 func (w *Watcher) shouldIgnoreDir(

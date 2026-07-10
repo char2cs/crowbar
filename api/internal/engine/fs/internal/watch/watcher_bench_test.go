@@ -40,7 +40,7 @@ func (d *benchDispatcher) OnSyncWorkingTreeState(_ context.Context, _ watch.Sync
 func BenchmarkFanOut(b *testing.B) {
 	dir := b.TempDir()
 
-	// init a minimal git repo so git check-ignore and ComputeStatus work.
+	// init a minimal git repo so ComputeStatus works.
 	for _, args := range [][]string{
 		{"init", "-b", "main"},
 		{"config", "user.email", "bench@bench.com"},
