@@ -58,6 +58,7 @@ func newContainerDeps(
 		newTestAsynx[domain.Workspace](t, adapters.WorkspaceES()),
 		newTestAsynx[domain.AgentChat](t, adapters.AgentChatES()),
 		nil, // git conflict-checker not exercised by this test
+		nil, // terminateSession not exercised by this test
 	)
 	require.NoError(t, err)
 

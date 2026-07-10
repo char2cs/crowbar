@@ -31,6 +31,15 @@ type Container struct {
 	AgentChat agentchat.EventStore
 	hub       hub.WebSocketHub
 	git       wsusecase.MergeConflictChecker
+	// terminateSession is the terminal-engine seam the workspace-delete cascade
+	// (forgetAgentChats, Task 12) uses to kill a chat's live vendor-CLI PTY
+	// before Forgetting it. It is injected from the app layer (which owns the
+	// terminal engine) as a plain func, exactly like worktreeRemover is
+	// injected as a plain func rather than an fs/git type — this package holds
+	// no terminal-engine dependency of its own. Nil is safe: it just skips PTY
+	// teardown (tests that don't exercise it, or a build with no terminal
+	// engine wired).
+	terminateSession func(ctx context.Context, sessionID string) error
 	// axWorkspace/axReviewThread/axAgentChat are the per-type asynx instances,
 	// retained so WaitQuiescent can drain their dispatch queues + projection
 	// handlers — the deterministic read-your-writes barrier for tests (no
@@ -73,9 +82,12 @@ type ReactorDrain struct {
 // instance per type, routing every id by shard hash) built by the app layer; its
 // read model lives in state/store/workspace.db and its id↔path index in view.db.
 // The reviewthread aggregate owns its central per-type read model at
-// state/store/review_thread.db. The agentchat aggregate (Task 9, additive) owns
-// its central per-type read model at state/store/agent_chat.db; it is wired here
-// so its store/hub projections are live, but no usecase consumes it yet.
+// state/store/review_thread.db. The agentchat aggregate owns its central
+// per-type read model at state/store/agent_chat.db. terminateSession is the
+// terminal-engine seam (owned by the app layer, which constructs it before
+// calling New — the terminal engine has no dependency on the repositories it
+// feeds) the workspace-delete cascade uses to kill a chat's live PTY before
+// Forgetting it (Task 12); nil is safe (PTY teardown is skipped).
 func New(
 	ctx context.Context,
 	adapters *adapter.Container,
@@ -84,8 +96,13 @@ func New(
 	axWorkspace asynx.Asynx[domain.Workspace],
 	axAgentChat asynx.Asynx[domain.AgentChat],
 	git wsusecase.MergeConflictChecker,
+	terminateSession func(ctx context.Context, sessionID string) error,
 ) (*Container, error) {
-	c := &Container{hub: h, git: git, inflight: map[string]int{}, axWorkspace: axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat}
+	c := &Container{
+		hub: h, git: git, inflight: map[string]int{},
+		axWorkspace: axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
+		terminateSession: terminateSession,
+	}
 	pathsStore, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
 	if err != nil {
 		return nil, fmt.Errorf("repositories: workspace paths: %w", err)
@@ -129,9 +146,10 @@ func New(
 	c.AgentChat = agentChat
 
 	// Wire the post-commit cross-aggregate reactions (spec §3.6): the workspace
-	// delete reactor + its review-thread forget cascade, all joined to the shared
-	// drain WaitGroup so graceful shutdown can quiesce them (Task 15). Both repos
-	// must already be built — the cascade calls into c.ReviewThread.
+	// delete reactor + its review-thread AND agent-chat forget cascades, all
+	// joined to the shared drain WaitGroup so graceful shutdown can quiesce them
+	// (Task 15). Every cascaded repo must already be built — forgetDependents
+	// calls into c.ReviewThread and c.AgentChat.
 	if err := c.wireCallbacks(ctx, adapters.CrowbarHome()); err != nil {
 		return nil, fmt.Errorf("repositories: wire callbacks: %w", err)
 	}
@@ -156,11 +174,12 @@ func (c *Container) WaitQuiescent() {
 // creates and stores the shared drain WaitGroup + cancelable drain context every
 // reactor it registers joins (decisions 9 + 11), reachable by the app layer via
 // Drain() for the ordered graceful shutdown (Task 15). Today it registers the
-// workspace delete reactor (Task 8) with the review-thread forget cascade and the
-// bounded fs worktree delete; the two hub projections are already registered at
-// construction (workspace hub in New above via RegisterHubProjection; reviewthread
-// hub inside reviewthread.New), so re-registering them here would double-subscribe
-// and double-broadcast — they are deliberately left where the live wiring puts them.
+// workspace delete reactor (Task 8) with the composed forgetDependents cascade
+// (review threads + agent chats, Task 12) and the bounded fs worktree delete; the
+// two hub projections are already registered at construction (workspace hub in
+// New above via RegisterHubProjection; reviewthread hub inside reviewthread.New),
+// so re-registering them here would double-subscribe and double-broadcast — they
+// are deliberately left where the live wiring puts them.
 func (c *Container) wireCallbacks(
 	ctx context.Context,
 	crowbarHome string,
@@ -172,11 +191,14 @@ func (c *Container) wireCallbacks(
 	// The reactor lives under workspace/internal (unimportable from this out-of-tree
 	// container), so it is registered through the repository's own seam, which hands
 	// it the singleton axWorkspace + read model + id↔path map it holds privately.
+	// The reactor's signature is a single func(ctx, wsID) error, so a new dependent
+	// aggregate's cascade (Task 12's agent chats) is added by composing it into
+	// forgetDependents rather than by widening the reactor itself.
 	registrar, ok := c.Workspace.(workspace.DeleteReactorRegistrar)
 	if !ok {
 		return fmt.Errorf("workspace repository does not support delete-reactor registration")
 	}
-	if err := registrar.RegisterDeleteReactor(c.forgetReviewThreads, worktreeRemover(crowbarHome), c.drainWG); err != nil {
+	if err := registrar.RegisterDeleteReactor(c.forgetDependents, worktreeRemover(crowbarHome), c.drainWG); err != nil {
 		return fmt.Errorf("delete reactor: %w", err)
 	}
 	return nil
@@ -207,6 +229,74 @@ func (c *Container) forgetReviewThreads(
 		if err := c.ReviewThread.DeleteThread(ctx, t.ID); err != nil {
 			return fmt.Errorf("repositories: delete cascade: forget review thread %q: %w", t.ID, err)
 		}
+	}
+	return nil
+}
+
+// forgetDependents runs every workspace-scoped forget cascade for a deleted
+// workspace, in sequence: review threads, then agent chats (and their live
+// PTYs, Task 12). It is the single callback wireCallbacks hands the async
+// delete reactor (spec §3.6) — the reactor's signature is one
+// func(ctx, wsID) error, so a newly added dependent aggregate's cascade is
+// wired in here, at the composition point, without ever touching the reactor
+// itself. Either half failing aborts the whole cascade (leaving the tombstone
+// for a re-drive) rather than silently proceeding to rm -rf the worktree with
+// a dependent aggregate still un-cascaded.
+func (c *Container) forgetDependents(
+	ctx context.Context,
+	wsID string,
+) error {
+	if err := c.forgetReviewThreads(ctx, wsID); err != nil {
+		return err
+	}
+	return c.forgetAgentChats(ctx, wsID)
+}
+
+// forgetAgentChats is the agent-chat half of the workspace delete cascade
+// (Task 12): every AgentChat anchored to the deleted workspace is Forgotten,
+// purging it outright — unlike the chat's own soft-delete Delete command
+// (which tombstones but keeps the aggregate readable via GetChat), Forget is
+// the right call here because the owning workspace is gone and the chat has
+// nowhere left to live, mirroring forgetReviewThreads/DeleteThread. Before
+// forgetting a chat, terminateActiveSegment kills its active segment's live
+// vendor-CLI PTY (if any), so a workspace delete never leaves an orphaned CLI
+// process running against a worktree that is about to be rm -rf'd.
+func (c *Container) forgetAgentChats(
+	ctx context.Context,
+	wsID string,
+) error {
+	chats, err := c.AgentChat.ListByWorkspace(ctx, wsID)
+	if err != nil {
+		return fmt.Errorf("repositories: delete cascade: list agent chats for %q: %w", wsID, err)
+	}
+	for _, chat := range chats {
+		if err := c.terminateActiveSegment(ctx, chat); err != nil {
+			return fmt.Errorf("repositories: delete cascade: terminate agent chat %q: %w", chat.ID, err)
+		}
+		if err := c.AgentChat.Forget(ctx, chat.ID); err != nil {
+			return fmt.Errorf("repositories: delete cascade: forget agent chat %q: %w", chat.ID, err)
+		}
+	}
+	return nil
+}
+
+// terminateActiveSegment terminates chat's active segment's live vendor-CLI
+// PTY via the injected terminal-engine seam (c.terminateSession, Task 12). A
+// chat with no active segment (every segment already ended), an active
+// segment with no terminal session recorded, or a nil terminateSession (a
+// test that doesn't exercise PTY teardown) are all no-ops.
+func (c *Container) terminateActiveSegment(
+	ctx context.Context,
+	chat domain.AgentChat,
+) error {
+	if c.terminateSession == nil || chat.ActiveSegmentID == "" {
+		return nil
+	}
+	for _, seg := range chat.Segments {
+		if seg.ID != chat.ActiveSegmentID || seg.TerminalSessionID == "" {
+			continue
+		}
+		return c.terminateSession(ctx, seg.TerminalSessionID)
 	}
 	return nil
 }

@@ -161,6 +161,37 @@ func (u *Usecase) RenameChat(
 	return nil
 }
 
+// DeleteChat soft-deletes chatID (the chat's own Delete command: Status=deleted,
+// still readable by direct GetChat, hidden from ListChats/ListByWorkspace — see
+// agentchat.EventStore.Delete's doc comment). If the chat's active segment still
+// has a live vendor-CLI PTY, that process is terminated FIRST (same
+// TerminateGraceful seam SwitchProvider uses, and the same ErrSessionNotFound
+// tolerance: a session already gone is not a failure) so a chat delete never
+// orphans a running CLI. This is the standalone counterpart to the
+// workspace-delete cascade's forgetAgentChats (repositories.Container), which
+// hard-Forgets every chat — including its PTY teardown — when the owning
+// workspace itself is deleted; DeleteChat is what runs when only the chat, not
+// its workspace, is being deleted.
+func (u *Usecase) DeleteChat(
+	ctx context.Context,
+	chatID string,
+) error {
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: delete chat: get: %w", err)
+	}
+	if seg, ok := segmentByID(chat, chat.ActiveSegmentID); ok && seg.TerminalSessionID != "" {
+		if err := u.term.TerminateGraceful(ctx, seg.TerminalSessionID); err != nil &&
+			!errors.Is(err, engineterminal.ErrSessionNotFound) {
+			return fmt.Errorf("agent: delete chat: terminate active segment: %w", err)
+		}
+	}
+	if err := u.chats.Delete(ctx, chatID); err != nil {
+		return fmt.Errorf("agent: delete chat: delete: %w", err)
+	}
+	return nil
+}
+
 // deriveTitle turns a user prompt into a short chat title: the first non-empty
 // line, trimmed, capped to 60 runes.
 func deriveTitle(prompt string) string {

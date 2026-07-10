@@ -24,6 +24,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/engine/provider"
 	"github.com/char2cs/crowbar/api/internal/engine/provider/poll"
+	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // Container is the application layer: the hub, the aggregate repositories, the
@@ -88,6 +89,7 @@ func New(
 		axWorkspace,
 		axAgentChat,
 		engines.Git,
+		terminateAgentSession(engines.Terminal),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app: repositories: %w", err)
@@ -181,6 +183,29 @@ func (c *Container) Shutdown(
 // are released promptly.
 func (c *Container) Close() {
 	c.Realtime.Close()
+}
+
+// terminateAgentSession adapts the terminal engine's TerminateGraceful into the
+// plain func(ctx, sessionID) error seam the workspace-delete cascade
+// (repositories.Container.forgetAgentChats) uses to kill a chat's live PTY
+// before Forgetting it (Task 12). Threading the raw engine straight into
+// repositories.New mirrors how engines.Git is already threaded in (as
+// wsusecase.MergeConflictChecker) BEFORE the usecases layer — which also
+// builds the agent usecase's own TerminalCommander — exists: the repositories
+// package itself gains no terminal-engine dependency, only this narrow func.
+// A session already gone (engineterminal.ErrSessionNotFound — e.g. the CLI
+// exited on its own) is not a real failure and is swallowed here, matching
+// how the agent usecase's own SwitchProvider treats the exact same error.
+func terminateAgentSession(
+	term engineterminal.Engine,
+) func(ctx context.Context, sessionID string) error {
+	return func(ctx context.Context, sessionID string) error {
+		if err := term.TerminateGraceful(ctx, sessionID); err != nil &&
+			!errors.Is(err, engineterminal.ErrSessionNotFound) {
+			return err
+		}
+		return nil
+	}
 }
 
 func toUsecaseStores(
