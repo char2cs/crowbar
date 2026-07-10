@@ -386,7 +386,7 @@ func seedClaudeThenSwitchToCodex(
 	newSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 
-	codexTermSessID = segmentTerminalSessionID(t, h, chatID)
+	codexTermSessID = waitForSegmentTerminalSessionID(t, h, chatID, newSegID, 5*time.Second)
 	require.NotEqual(t, claudeTermSessID, codexTermSessID, "switch must spawn a new terminal session for the codex segment")
 
 	start = time.Now()
@@ -530,7 +530,7 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 	newClaudeSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "claude")
 	require.NoError(t, err)
 
-	newClaudeTermSessID := segmentTerminalSessionID(t, h, chatID)
+	newClaudeTermSessID := waitForSegmentTerminalSessionID(t, h, chatID, newClaudeSegID, 5*time.Second)
 	require.NotEqual(t, codexTermSessID, newClaudeTermSessID, "switch-back must spawn a new terminal session")
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), newClaudeTermSessID) })
 
@@ -672,10 +672,10 @@ func TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn(t *testing.T)
 	// Switch away — the exact call under test: SwitchProvider now uses
 	// TerminateGraceful (SIGTERM + grace, falling back to SIGKILL only if
 	// still alive) instead of the old hard Kill for the outgoing claude CLI.
-	_, err = h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
+	codexSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 
-	codexTermSessID := segmentTerminalSessionID(t, h, chatID)
+	codexTermSessID := waitForSegmentTerminalSessionID(t, h, chatID, codexSegID, 5*time.Second)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), codexTermSessID) })
 
 	// Switch back to claude immediately — AssembleHandoff only reads
@@ -687,7 +687,7 @@ func TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn(t *testing.T)
 	newClaudeSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "claude")
 	require.NoError(t, err)
 
-	newClaudeTermSessID := segmentTerminalSessionID(t, h, chatID)
+	newClaudeTermSessID := waitForSegmentTerminalSessionID(t, h, chatID, newClaudeSegID, 5*time.Second)
 	require.NotEqual(t, codexTermSessID, newClaudeTermSessID, "switch-back must spawn a new terminal session")
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), newClaudeTermSessID) })
 

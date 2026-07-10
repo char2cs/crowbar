@@ -263,6 +263,50 @@ func waitForProviderSessionID(
 	return sid, lastSegs
 }
 
+// waitForSegmentTerminalSessionID polls SegmentsFor until the segment whose
+// ID is newSegID appears in the read model, and returns that segment's
+// TerminalSessionID.
+//
+// This exists because the agentchat read model is an async asynx projection:
+// SwitchProvider's EndSegment(old)+OpenSegment(new) commands dispatch via
+// ax.Send (not SendWait), so newSegID is known and correct the instant
+// SwitchProvider returns, but the store-backed projection SegmentsFor reads
+// from can briefly lag behind it — a bare segmentTerminalSessionID call
+// immediately after a switch can still observe only the OLD segment.
+// Polling keyed on the known newSegID (rather than sleeping a fixed amount)
+// is deterministic on the projection catching up, mirroring
+// waitForProviderSessionID's existing poll-on-known-id pattern; unlike that
+// helper, no nudge write is needed, since there is nothing to type into
+// yet — this waits on Crowbar's own internal projection, not on a real CLI.
+func waitForSegmentTerminalSessionID(
+	t *testing.T,
+	h *harness,
+	chatID string,
+	newSegID string,
+	timeout time.Duration,
+) string {
+	t.Helper()
+	ctx := context.Background()
+	deadline := time.Now().Add(timeout)
+	var lastSegs []domain.AgentSegment
+	for {
+		segs, err := h.app.Usecases.Agent.SegmentsFor(ctx, chatID)
+		require.NoError(t, err)
+		lastSegs = segs
+		for _, s := range segs {
+			if s.ID == newSegID {
+				return s.TerminalSessionID
+			}
+		}
+		if time.Now().After(deadline) {
+			require.Fail(t, "timed out waiting for the switched-to segment to appear in the agentchat read-model projection",
+				"segment=%s chat=%s segments observed=%+v", newSegID, chatID, lastSegs)
+			return ""
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // TestAgent_ClaudeSpawnAndDetect is the must-have acceptance test: it proves
 // the daemon's engine/terminal spawns a real `claude` with the descriptor-built
 // argv/env, claude's SessionStart hook runs `crowbar hook session_start`, which
@@ -357,7 +401,10 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, newSegID)
 
-	newTermSessID := segmentTerminalSessionID(t, h, chatID)
+	// SwitchProvider's EndSegment/OpenSegment dispatch async (ax.Send); wait for
+	// the read-model projection to show the new segment (keyed on the known
+	// newSegID, not a blind sleep) before reading its terminal session.
+	newTermSessID := waitForSegmentTerminalSessionID(t, h, chatID, newSegID, 5*time.Second)
 	require.NotEqual(t, termSessID, newTermSessID, "switch must spawn a new terminal session for the codex segment")
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), newTermSessID) })
 
