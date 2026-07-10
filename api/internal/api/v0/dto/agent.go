@@ -76,9 +76,9 @@ type HandoffDTO struct {
 
 // AgentChatEvent is the wire frame pushed on the agent-chat lifecycle
 // WebSocket (GET /v0/agent/ws/chats): the chat that changed and the lifecycle
-// kind (bound/focus/registered/turn_stopped, etc. — 00 agentic-engine spec §7).
-// It carries no snapshot; the stream is a bare event feed, not a full-state
-// resource stream.
+// kind (created/segment_opened/segment_ended/session_bound/turn_started/
+// turn_stopped/title_set/deleted — 00 agentic-engine spec §7). It carries no
+// snapshot; the stream is a bare event feed, not a full-state resource stream.
 type AgentChatEvent struct {
 	ChatID string `json:"chatId"`
 	Kind   string `json:"kind"`

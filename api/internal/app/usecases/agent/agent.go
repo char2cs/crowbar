@@ -60,12 +60,6 @@ type TerminalCommander interface {
 	) bool
 }
 
-// Broadcaster is the hub seam the usecase pushes agent-chat lifecycle events
-// through.
-type Broadcaster interface {
-	BroadcastAgentChat(chatID, kind string)
-}
-
 // WorkspaceReader resolves a workspace's Crowbar-managed identity and git
 // worktree directory.
 type WorkspaceReader interface {
@@ -77,12 +71,15 @@ type WorkspaceReader interface {
 
 // Usecase is the agentic-chat engine: spawning vendor CLI segments, ingesting
 // their hooks through the context-move reducer, and persisting the result via
-// the asynx-backed agentchat EventStore.
+// the asynx-backed agentchat EventStore. It does NOT broadcast lifecycle events
+// itself: every agentchat.* event is fanned out to the WS hub by the repository
+// layer's hub projection (repositories/agentchat/internal/store/hub.go, wired in
+// repositories.Container), so the single source of lifecycle frames is the event
+// stream. The usecase's job ends at issuing the command that emits the event.
 type Usecase struct {
 	chats    agentchat.EventStore
 	registry *engineagent.Registry
 	term     TerminalCommander
-	bc       Broadcaster
 	ws       WorkspaceReader
 }
 
@@ -94,14 +91,12 @@ func New(
 	chats agentchat.EventStore,
 	registry *engineagent.Registry,
 	term TerminalCommander,
-	bc Broadcaster,
 	ws WorkspaceReader,
 ) *Usecase {
 	return &Usecase{
 		chats:    chats,
 		registry: registry,
 		term:     term,
-		bc:       bc,
 		ws:       ws,
 	}
 }
@@ -130,7 +125,8 @@ func (u *Usecase) SpawnChat(
 //
 // The empty-title-is-a-no-op and derived-only-if-empty gates live here (the
 // SetTitle command only enforces the locked-vs-user rule); an empty title is
-// always a no-op. Broadcasts "titled" on a successful change.
+// always a no-op. A successful change emits a title_set event, which the hub
+// projection fans out as the lifecycle frame — the usecase no longer broadcasts.
 func (u *Usecase) RenameChat(
 	ctx context.Context,
 	chatID, title, source string,
@@ -157,7 +153,6 @@ func (u *Usecase) RenameChat(
 	if _, err := u.chats.SetTitle(ctx, chatID, title, source); err != nil {
 		return fmt.Errorf("agent: rename chat: save: %w", err)
 	}
-	u.bc.BroadcastAgentChat(chatID, "titled")
 	return nil
 }
 
@@ -444,11 +439,15 @@ func (u *Usecase) crowbarHookPath(home string) string {
 
 // IngestHook maps an incoming vendor hook to a canonical event, runs the
 // context-move reducer on session_start, and appends a conversation turn to the
-// chat's ledger on user_prompt / turn_stop. Routing is by crowbarSegID via the
-// reducer's segment→chat index (Registry.ChatFor) — the in-memory successor to
-// the retired GetActiveSegmentByCrowbarID lookup. An unknown crowbarSegID (no
-// live segment), a chat with no matching active segment, or a malformed payload
-// is ignored, never an error — a hook must never break the vendor CLI's turn.
+// chat's ledger on user_prompt / turn_stop. It also drives the aggregate's live
+// turn state: a user_prompt opens the turn (StartTurn → Working) and a turn_stop
+// closes it (StopTurn → idle), so domain.AgentChat.Working reflects reality and
+// the boot reconcile's interrupted-turn repair is reachable. Routing is by
+// crowbarSegID via the reducer's segment→chat index (Registry.ChatFor) — the
+// in-memory successor to the retired GetActiveSegmentByCrowbarID lookup. An
+// unknown crowbarSegID (no live segment), a chat with no matching active
+// segment, or a malformed payload is ignored, never an error — a hook must never
+// break the vendor CLI's turn.
 func (u *Usecase) IngestHook(
 	ctx context.Context,
 	crowbarSegID string,
@@ -507,8 +506,19 @@ func (u *Usecase) IngestHook(
 		if err := u.RenameChat(ctx, chat.ID, deriveTitle(ev.Message), "derived"); err != nil {
 			slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
 		}
+		// A user prompt opens the turn: mark the chat Working so the read model
+		// (and the boot reconcile's interrupted-turn branch) see a live turn.
+		if _, err := u.chats.StartTurn(ctx, chat.ID, time.Now()); err != nil {
+			return fmt.Errorf("agent: ingest hook: start turn: %w", err)
+		}
 		return u.appendTurn(ctx, seg, chat, crowbarHome, projectID, repoID, "user", ev.Message)
 	case "turn_stop":
+		// The turn ended: clear Working. Issued before the ledger append so the
+		// live-state event lands even when the assistant message is empty (an
+		// empty message is a ledger no-op, not a turn-state no-op).
+		if _, err := u.chats.StopTurn(ctx, chat.ID, time.Now()); err != nil {
+			return fmt.Errorf("agent: ingest hook: stop turn: %w", err)
+		}
 		return u.appendTurn(ctx, seg, chat, crowbarHome, projectID, repoID, "assistant", ev.Message)
 	}
 	return nil
@@ -540,20 +550,14 @@ func (u *Usecase) handleSessionStart(
 ) error {
 	out := u.registry.OnSessionStart(crowbarSegID, ev.SessionID, uuid.NewString)
 
-	var err error
 	switch out.Kind {
 	case "bound":
-		err = u.bindSession(ctx, out.ChatID, crowbarSegID, oldSeg, ev)
+		return u.bindSession(ctx, out.ChatID, crowbarSegID, oldSeg, ev)
 	case "registered":
-		err = u.moveToNewChat(ctx, crowbarSegID, oldChat, oldSeg, out, ev)
+		return u.moveToNewChat(ctx, crowbarSegID, oldChat, oldSeg, out, ev)
 	case "focus":
-		err = u.moveToKnownChat(ctx, crowbarSegID, oldChat, oldSeg, out, ev)
+		return u.moveToKnownChat(ctx, crowbarSegID, oldChat, oldSeg, out, ev)
 	}
-	if err != nil {
-		return err
-	}
-
-	u.bc.BroadcastAgentChat(out.ChatID, out.Kind)
 	return nil
 }
 
@@ -649,7 +653,9 @@ func (u *Usecase) moveToKnownChat(
 }
 
 // appendTurn records one conversation turn (user or assistant) into the chat's
-// ledger and broadcasts the lifecycle event. Empty text is a no-op.
+// ledger. Empty text is a no-op. The turn's lifecycle frame is emitted by the
+// StartTurn/StopTurn events the caller issues (fanned out by the hub
+// projection), not from here — the ledger is a content log, not an aggregate.
 func (u *Usecase) appendTurn(
 	ctx context.Context,
 	seg domain.AgentSegment,
@@ -668,11 +674,6 @@ func (u *Usecase) appendTurn(
 	if _, err := led.AppendTurn(role, seg.ProviderID, time.Now(), text); err != nil {
 		return fmt.Errorf("agent: ingest hook: ledger append: %w", err)
 	}
-	kind := "turn_stopped"
-	if role == "user" {
-		kind = "user_prompt"
-	}
-	u.bc.BroadcastAgentChat(chat.ID, kind)
 	return nil
 }
 
@@ -819,8 +820,6 @@ func (u *Usecase) SwitchProvider(
 	if err != nil {
 		return "", err
 	}
-
-	u.bc.BroadcastAgentChat(chatID, "switched")
 	return newSegID, nil
 }
 

@@ -109,8 +109,10 @@ func (h *Hub) BroadcastFile(
 	}
 }
 
-// BroadcastAgentChat fans an agent-chat lifecycle event (spawn/bound/focus/
-// registered/switched/turn_stopped) out to every subscriber.
+// BroadcastAgentChat fans an agent-chat lifecycle event (created/segment_opened/
+// segment_ended/session_bound/turn_started/turn_stopped/title_set/deleted) out
+// to every subscriber. Fed solely by the agentchat hub projection, which derives
+// the kind from the emitting command's event name.
 func (h *Hub) BroadcastAgentChat(
 	chatID string,
 	kind string,

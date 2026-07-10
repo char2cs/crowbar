@@ -59,15 +59,14 @@ type Container struct {
 // GORM CRUD stores, and the engines rather than the app-layer GORMStores struct
 // to keep the usecases package free of any dependency on its parent package.
 // The agentic-chat usecase consumes the asynx-backed EventStore off the
-// repositories container (repos.AgentChat); bc is the hub broadcaster the agent
-// usecase pushes lifecycle events through (the app-layer *hub.Hub satisfies
-// agent.Broadcaster).
+// repositories container (repos.AgentChat); it no longer takes a broadcaster —
+// agent-chat lifecycle frames are fanned out by the repository-layer hub
+// projection (wired in repositories.Container), the single source of frames.
 func New(
 	repos *repositories.Container,
 	gormStores GORMStores,
 	engines *engine.Container,
 	crowbarHome func() (string, error),
-	bc agent.Broadcaster,
 ) (*Container, error) {
 	projectUsecase := project.New(
 		gormStores.Projects,
@@ -139,7 +138,6 @@ func New(
 		repos.AgentChat,
 		engineagent.NewRegistry(),
 		engines.Terminal,
-		bc,
 		&agentWorkspaceReader{workspaces: repos.Workspace, crowbarHome: crowbarHome},
 	)
 	return &Container{

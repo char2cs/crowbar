@@ -52,9 +52,11 @@ func TestRenameChat_Precedence(t *testing.T) {
 	assert.Equal(t, "User Title", getTitle(t, f, chatID))
 }
 
-// TestRenameChat_BroadcastsTitledOnSuccessfulChange guards the "titled"
-// broadcast firing only on an actual persisted change, never on a no-op.
-func TestRenameChat_BroadcastsTitledOnSuccessfulChange(t *testing.T) {
+// TestRenameChat_BroadcastsTitleSetOnSuccessfulChange guards the title_set
+// frame firing only on an actual persisted change, never on a no-op — the hub
+// projection emits it off the SetTitle event, so a rename that returns before
+// issuing SetTitle produces no frame.
+func TestRenameChat_BroadcastsTitleSetOnSuccessfulChange(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
@@ -64,20 +66,16 @@ func TestRenameChat_BroadcastsTitledOnSuccessfulChange(t *testing.T) {
 	f.bc.reset()
 
 	require.NoError(t, f.usecase.RenameChat(ctx, chatID, "A Title", "user"))
-	calls := f.bc.snapshot()
-	require.Len(t, calls, 1)
-	assert.Equal(t, "titled", calls[0].kind)
-	assert.Equal(t, chatID, calls[0].chatID)
-	f.wait()
+	assert.Equal(t, []string{"title_set"}, f.bcKinds(t))
 
 	// An empty-title no-op must not broadcast again.
 	require.NoError(t, f.usecase.RenameChat(ctx, chatID, "", "user"))
-	assert.Len(t, f.bc.snapshot(), 1)
+	assert.Equal(t, []string{"title_set"}, f.bcKinds(t))
 
 	// A derived rename against an already-locked (user) title is also a no-op
 	// and must not broadcast.
 	require.NoError(t, f.usecase.RenameChat(ctx, chatID, "Derived Attempt", "derived"))
-	assert.Len(t, f.bc.snapshot(), 1)
+	assert.Equal(t, []string{"title_set"}, f.bcKinds(t))
 }
 
 func TestRenameChat_UnknownChat_ReturnsWrappedError(t *testing.T) {

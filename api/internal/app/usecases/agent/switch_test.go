@@ -140,7 +140,11 @@ func TestSwitchProvider_PersistsNewActiveSegmentForTargetProvider(t *testing.T) 
 	assert.Equal(t, newSegID, chat.ActiveSegmentID)
 }
 
-func TestSwitchProvider_Broadcasts_Switched(t *testing.T) {
+// TestSwitchProvider_Broadcasts_SegmentEndedThenOpened: a provider switch ends
+// the outgoing segment and opens the incoming one, each a distinct aggregate
+// event, so the hub fans out exactly two frames in that order (segment_ended
+// then segment_opened) — no bespoke "switched" kind, no double-broadcast.
+func TestSwitchProvider_Broadcasts_SegmentEndedThenOpened(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
@@ -152,10 +156,7 @@ func TestSwitchProvider_Broadcasts_Switched(t *testing.T) {
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 
-	calls := f.bc.snapshot()
-	require.Len(t, calls, 1)
-	assert.Equal(t, chatID, calls[0].chatID)
-	assert.Equal(t, "switched", calls[0].kind)
+	assert.Equal(t, []string{"segment_ended", "segment_opened"}, f.bcKinds(t))
 }
 
 // TestSwitchProvider_SwitchBack_ResumesNativeSessionWithSeparateArgvTokens

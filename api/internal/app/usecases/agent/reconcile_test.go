@@ -119,6 +119,40 @@ func TestReconcileOnBoot_DeadTerminalSession_EndsSegmentAndStopsTurn(t *testing.
 	assert.NotNil(t, ended.EndedAt)
 }
 
+// TestReconcileOnBoot_WorkingSetByIngestHook_DeadPTY_StopsTurn proves the
+// boot-reconcile interrupted-turn branch is now reachable through the PRODUCTION
+// path: a real user_prompt hook opens the turn (IngestHook → StartTurn →
+// Working), not a direct repo.StartTurn, and a crash then leaves that active
+// segment's PTY dead. On boot the segment is ended and the still-open turn is
+// stopped — the exact "if chat.Working → StopTurn" branch that was dead code
+// while StartTurn/StopTurn had no callers.
+func TestReconcileOnBoot_WorkingSetByIngestHook_DeadPTY_StopsTurn(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+	f.wait()
+
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "do work"})))
+	pre := f.chat(t, chatID)
+	require.True(t, pre.Working, "precondition: the user_prompt hook must have opened the turn")
+
+	seg := activeSegOf(t, pre, segID)
+	f.term.killSession(seg.TerminalSessionID)
+
+	require.NoError(t, f.usecase.ReconcileOnBoot(ctx))
+	f.wait()
+
+	post := f.chat(t, chatID)
+	assert.False(t, post.Working, "boot reconcile must stop the interrupted turn")
+	assert.Empty(t, post.ActiveSegmentID)
+	ended := segByID(t, post, segID)
+	assert.Equal(t, "ended", ended.Status)
+	assert.NotNil(t, ended.EndedAt)
+}
+
 // TestReconcileOnBoot_LiveTerminalSession_LeavesChatUntouched: a chat whose
 // active segment's terminal session IS still live (per the injected liveness
 // predicate — e.g. a session merely reloaded as a suspended placeholder) must

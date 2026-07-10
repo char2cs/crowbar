@@ -17,12 +17,27 @@ import (
 const eventNamePrefix = "agentchat."
 
 // BroadcastFunc receives every projected AgentChat event as a bare
-// (chatID, kind) lifecycle frame for hub fan-out. This is the SAME wire shape
-// the usecase's Broadcaster.BroadcastAgentChat(chatID, kind string) already
-// produces today (api/internal/app/usecases/agent/agent.go) and the FE already
+// (chatID, kind) lifecycle frame for hub fan-out. This is the wire shape the FE
 // consumes as dto.AgentChatEvent (00 agentic-engine spec §7) — a bare id+kind
-// frame, not the full aggregate — so the T10 cutover can wire a
-// Hub.BroadcastAgentChat-shaped func straight through with no adapter.
+// frame, not the full aggregate — so a Hub.BroadcastAgentChat-shaped func wires
+// straight through with no adapter.
+//
+// kind is the <kind> segment of the emitting command's EventName
+// ("agentchat.<kind>.<id>"), so the full lifecycle vocabulary is exactly one
+// term per command:
+//
+//	created         — a fresh chat + its first segment (SpawnChat / a moved-to new chat)
+//	segment_opened  — a new active segment on an existing chat (switch-in / resume / focus)
+//	segment_ended   — the active segment closed (switch-out / process exit / boot reconcile)
+//	session_bound   — a provider's native session id recorded on a segment
+//	turn_started    — a turn opened (user_prompt hook → Working)
+//	turn_stopped    — a turn closed (turn_stop hook / boot reconcile → idle)
+//	title_set       — the chat title changed (derived / agent / user rename)
+//	deleted         — the chat was soft-deleted (tombstoned)
+//
+// This is the SINGLE source of agent-chat frames: the usecase no longer
+// broadcasts, so a lifecycle change is exactly one event → exactly one frame.
+
 type BroadcastFunc func(
 	chatID string,
 	kind string,
@@ -31,9 +46,9 @@ type BroadcastFunc func(
 // registerHubProjection subscribes the hub (WS fan-out) projection to every
 // agentchat event on the singleton axAgentChat: for each event it derives the
 // lifecycle kind from evt.EventName ("agentchat.<kind>.<id>", set by
-// internal/commands/*.go) and hands (evt.AggregateID, kind) to broadcast. It
-// will replace the usecase's manual BroadcastAgentChat calls at the T10
-// cutover; until then this registration is additive — it does NOT touch the
+// internal/commands/*.go) and hands (evt.AggregateID, kind) to broadcast. It is
+// the sole broadcaster of agent-chat lifecycle frames — the usecase's manual
+// BroadcastAgentChat calls were retired at cutover. It does NOT touch the
 // durable read model, so it and the store projection (store.go) derive
 // independently from the same event stream and cannot drift. Designed to
 // register ONCE on the singleton.

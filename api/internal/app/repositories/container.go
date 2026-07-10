@@ -132,13 +132,13 @@ func New(
 	}
 	c.ReviewThread = rt
 
-	// agentchat (Task 9, additive): build the asynx-backed EventStore over the
-	// singleton axAgentChat, registering its store + hub projections (store.New,
-	// invoked by NewEventSourced) exactly once. Wiring the real
-	// h.BroadcastAgentChat here is safe now — no command flows through this
-	// EventStore until a later cutover task, so the hub projection emits nothing
-	// yet and there is no double-broadcast with the agent usecase's existing
-	// manual BroadcastAgentChat calls.
+	// agentchat: build the asynx-backed EventStore over the singleton
+	// axAgentChat, registering its store + hub projections (store.New, invoked by
+	// NewEventSourced) exactly once. h.BroadcastAgentChat is the SOLE source of
+	// agent-chat lifecycle frames: every agentchat.* event the agent usecase's
+	// commands emit is fanned out here by the hub projection. The usecase no
+	// longer broadcasts manually (that double-broadcast was retired at cutover),
+	// so this projection is the one and only WS feed for agent chats.
 	agentChat, err := agentchat.NewEventSourced(axAgentChat, adapters.AgentChatES(), adapters.AgentChatReadDB(), h.BroadcastAgentChat)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent chat event store: %w", err)

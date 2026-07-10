@@ -273,6 +273,20 @@ func (f testFixture) chatBySession(t *testing.T, sessionID string) domain.AgentC
 	return c
 }
 
+// bcKinds waits for projection quiescence then returns the ordered lifecycle
+// kinds of every hub frame captured so far. Blocking on WaitPublish (not a
+// sleep) guarantees the async hub projection has folded every prior command.
+func (f testFixture) bcKinds(t *testing.T) []string {
+	t.Helper()
+	f.wait()
+	snap := f.bc.snapshot()
+	kinds := make([]string, len(snap))
+	for i, c := range snap {
+		kinds[i] = c.kind
+	}
+	return kinds
+}
+
 // activeSegOf returns the single active segment for a crowbarSegID in a chat.
 func activeSegOf(t *testing.T, chat domain.AgentChat, crowbarSegID string) domain.AgentSegment {
 	t.Helper()
@@ -297,11 +311,17 @@ func segByID(t *testing.T, chat domain.AgentChat, id string) domain.AgentSegment
 	return domain.AgentSegment{}
 }
 
-// newEventStore builds a throwaway in-memory asynx-backed EventStore and
-// returns it alongside a wait closure (ax.WaitPublish) so tests can block on
-// projection quiescence without importing the agentchat package's test-only
-// helper (which is not visible across packages).
-func newEventStore(t *testing.T) (agentchat.EventStore, func()) {
+// newEventStore builds a throwaway in-memory asynx-backed EventStore wired to
+// the given hub broadcast func and returns it alongside a wait closure
+// (ax.WaitPublish) so tests can block on projection quiescence without importing
+// the agentchat package's test-only helper (which is not visible across
+// packages). broadcast is the SAME seam the production hub projection uses, so a
+// test capturing frames through it exercises the real post-cutover lifecycle
+// feed — the usecase no longer broadcasts on its own.
+func newEventStore(
+	t *testing.T,
+	broadcast agentchat.BroadcastFunc,
+) (agentchat.EventStore, func()) {
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
@@ -315,7 +335,7 @@ func newEventStore(t *testing.T) (agentchat.EventStore, func()) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	repo, err := agentchat.NewEventSourced(ax, es, db, func(string, string) {})
+	repo, err := agentchat.NewEventSourced(ax, es, db, broadcast)
 	require.NoError(t, err)
 	return repo, ax.WaitPublish
 }
@@ -348,14 +368,17 @@ func newFixtureUsing(
 	t.Helper()
 	t.Setenv("CROWBAR_HOOK_BIN", "/fake/bin/crowbar")
 
-	real, waitFn := newEventStore(t)
+	// bc captures frames through the EventStore's hub projection — the real
+	// production lifecycle feed post-cutover — not through the usecase, which no
+	// longer broadcasts.
+	bc := &fakeBroadcaster{}
+	real, waitFn := newEventStore(t, bc.BroadcastAgentChat)
 	used := real
 	if wrap != nil {
 		used = wrap(real)
 	}
 
 	term := &fakeCommander{}
-	bc := &fakeBroadcaster{}
 	ws := &fakeWorkspace{
 		home:      t.TempDir(),
 		projectID: "p1",
@@ -363,7 +386,7 @@ func newFixtureUsing(
 		worktree:  t.TempDir(),
 	}
 
-	u := agentusecase.New(used, engineagent.NewRegistry(), term, bc, ws)
+	u := agentusecase.New(used, engineagent.NewRegistry(), term, ws)
 	return testFixture{usecase: u, repo: real, waitFn: waitFn, term: term, bc: bc, ws: ws}, used
 }
 
@@ -498,6 +521,7 @@ func TestIngestHook_SessionStart_Bound_RecordsProviderSessionID(t *testing.T) {
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 	f.wait()
+	f.bc.reset() // drop the spawn's "created" frame; assert only the bind below
 
 	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{
 		"session_id": "sid-abc",
@@ -507,9 +531,8 @@ func TestIngestHook_SessionStart_Bound_RecordsProviderSessionID(t *testing.T) {
 	seg := activeSegOf(t, f.chat(t, chatID), segID)
 	assert.Equal(t, "sid-abc", seg.ProviderSessionID)
 
-	calls := f.bc.snapshot()
-	require.Len(t, calls, 1)
-	assert.Equal(t, "bound", calls[0].kind)
+	// The BindSession command emits agentchat.session_bound → one hub frame.
+	assert.Equal(t, []string{"session_bound"}, f.bcKinds(t))
 }
 
 // TestIngestHook_SessionStart_Bound_NeverOverwritesExistingProviderSessionID:
@@ -543,15 +566,15 @@ func TestIngestHook_SessionStart_SameSessionIsNoop(t *testing.T) {
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 	f.wait()
+	f.bc.reset() // drop the spawn's "created" frame
 
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
 	f.wait()
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
 
-	calls := f.bc.snapshot()
-	require.Len(t, calls, 2)
-	assert.Equal(t, "bound", calls[0].kind)
-	assert.Equal(t, "noop", calls[1].kind)
+	// Only the first session_start binds (session_bound); the repeat of the same
+	// session id is a reducer no-op that issues no command and so emits no frame.
+	assert.Equal(t, []string{"session_bound"}, f.bcKinds(t))
 
 	seg := activeSegOf(t, f.chat(t, chatID), segID)
 	assert.Equal(t, "sid-1", seg.ProviderSessionID)
@@ -585,12 +608,6 @@ func TestIngestHook_SessionStart_Registered_MovesOldSegmentAndCreatesNewChat(t *
 	assert.Equal(t, oldSeg.TerminalSessionID, newActive.TerminalSessionID)
 	assert.Equal(t, "ws1", newChat.WorkspaceID)
 	assert.Equal(t, newActive.ID, newChat.ActiveSegmentID)
-
-	calls := f.bc.snapshot()
-	require.Len(t, calls, 2)
-	assert.Equal(t, "bound", calls[0].kind)
-	assert.Equal(t, "registered", calls[1].kind)
-	assert.Equal(t, newChat.ID, calls[1].chatID)
 }
 
 // TestIngestHook_SessionStart_Registered_ClearsVacatedChatsActiveSegmentID:
@@ -632,11 +649,6 @@ func TestIngestHook_SessionStart_Focus_ReactivatesKnownChat(t *testing.T) {
 	active := activeSegOf(t, chat, segID)
 	assert.Equal(t, "sid-1", active.ProviderSessionID)
 	assert.Equal(t, active.ID, chat.ActiveSegmentID)
-
-	calls := f.bc.snapshot()
-	require.Len(t, calls, 3)
-	assert.Equal(t, "focus", calls[2].kind)
-	assert.Equal(t, chatID, calls[2].chatID)
 }
 
 // TestIngestHook_SessionStart_Focus_ClearsVacatedChatsActiveSegmentID: the
@@ -671,6 +683,7 @@ func TestIngestHook_TurnStopAppendsAssistantTurn(t *testing.T) {
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 	f.wait()
+	f.bc.reset() // drop the spawn's "created" frame
 
 	err = f.usecase.IngestHook(ctx, segID, "claude", "turn_stop",
 		mustJSON(t, map[string]any{"session_id": "s1", "last_assistant_message": "done thing"}))
@@ -680,14 +693,13 @@ func TestIngestHook_TurnStopAppendsAssistantTurn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, handoff, "assistant (claude): done thing")
 
-	calls := f.bc.snapshot()
-	require.Len(t, calls, 1)
-	assert.Equal(t, "turn_stopped", calls[0].kind)
-	assert.Equal(t, chatID, calls[0].chatID)
+	// turn_stop closes the turn (StopTurn → agentchat.turn_stopped); the ledger
+	// append itself emits no aggregate event, so exactly one frame lands.
+	assert.Equal(t, []string{"turn_stopped"}, f.bcKinds(t))
 }
 
-// TestIngestHook_UserPromptAppendsUserTurn: user_prompt appends a user turn and
-// (because the title is empty) fires the derived-title fallback first.
+// TestIngestHook_UserPromptAppendsUserTurn: user_prompt appends a user turn,
+// fires the derived-title fallback first (empty title), and opens the turn.
 func TestIngestHook_UserPromptAppendsUserTurn(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -695,6 +707,7 @@ func TestIngestHook_UserPromptAppendsUserTurn(t *testing.T) {
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 	f.wait()
+	f.bc.reset() // drop the spawn's "created" frame
 
 	err = f.usecase.IngestHook(ctx, segID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "please do the thing"}))
@@ -704,28 +717,34 @@ func TestIngestHook_UserPromptAppendsUserTurn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, handoff, "user: please do the thing")
 
-	calls := f.bc.snapshot()
-	require.Len(t, calls, 2)
-	assert.Equal(t, "titled", calls[0].kind)
-	assert.Equal(t, chatID, calls[0].chatID)
-	assert.Equal(t, "user_prompt", calls[1].kind)
-	assert.Equal(t, chatID, calls[1].chatID)
+	// The derived-title SetTitle (title_set) then StartTurn (turn_started) each
+	// emit exactly one frame, in that order; the ledger append emits none.
+	assert.Equal(t, []string{"title_set", "turn_started"}, f.bcKinds(t))
 }
 
-// TestIngestHook_TurnStop_EmptyMessage_NoOps: a turn_stop with no
-// last_assistant_message writes no ledger entry and broadcasts nothing.
-func TestIngestHook_TurnStop_EmptyMessage_NoOps(t *testing.T) {
+// TestIngestHook_TurnStop_EmptyMessage_AppendsNoLedgerTurnButStillClosesTurn: a
+// turn_stop with no last_assistant_message writes no ledger entry (an empty
+// message is a ledger no-op) but still closes the turn — StopTurn is a turn-state
+// transition independent of ledger content, so exactly one turn_stopped frame
+// lands and no ledger content accrues.
+func TestIngestHook_TurnStop_EmptyMessage_AppendsNoLedgerTurnButStillClosesTurn(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 	f.wait()
+	f.bc.reset() // drop the spawn's "created" frame
 
 	err = f.usecase.IngestHook(ctx, segID, "claude", "turn_stop",
 		mustJSON(t, map[string]any{"session_id": "sid-1"}))
 	require.NoError(t, err)
-	assert.Empty(t, f.bc.snapshot())
+
+	assert.Equal(t, []string{"turn_stopped"}, f.bcKinds(t))
+
+	handoff, err := f.usecase.AssembleHandoff(ctx, chatID)
+	require.NoError(t, err)
+	assert.Empty(t, handoff, "an empty assistant message must append no ledger turn")
 }
 
 func TestIngestHook_TurnStop_AfterMove_AttributesToNewChat(t *testing.T) {
@@ -769,10 +788,11 @@ func TestIngestHook_UnmappedCanonicalEvent_ReturnsNil(t *testing.T) {
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 	f.wait()
+	f.bc.reset() // drop the spawn's "created" frame
 
 	err = f.usecase.IngestHook(ctx, segID, "claude", "not_a_real_hook", mustJSON(t, map[string]any{}))
 	require.NoError(t, err)
-	assert.Empty(t, f.bc.snapshot())
+	assert.Empty(t, f.bcKinds(t), "an unmapped hook issues no command and so emits no frame")
 }
 
 func TestSeedRegistry_RehydratesKnownSessions(t *testing.T) {
@@ -813,11 +833,6 @@ func TestSeedRegistry_RehydratesKnownSessions(t *testing.T) {
 	active := activeSegOf(t, cK, segA)
 	assert.Equal(t, "sid-known", active.ProviderSessionID)
 	assert.Equal(t, active.ID, cK.ActiveSegmentID)
-
-	calls := f.bc.snapshot()
-	require.Len(t, calls, 2)
-	assert.Equal(t, "bound", calls[0].kind)
-	assert.Equal(t, "focus", calls[1].kind)
 }
 
 func TestListChatsGetChatSegmentsFor(t *testing.T) {
@@ -841,6 +856,68 @@ func TestListChatsGetChatSegmentsFor(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, segs, 1)
 	assert.Equal(t, segID, segs[0].ID)
+}
+
+// TestIngestHook_UserPromptOpensTurn_TurnStopClosesTurn pins Fix 1: the
+// user_prompt and turn_stop hooks drive the aggregate's live turn state through
+// StartTurn/StopTurn, so domain.AgentChat.Working and CurrentTurnStarted reflect
+// reality (the durable working-state the boot reconcile repairs) instead of
+// being perpetually false as they were when StartTurn/StopTurn had no callers.
+func TestIngestHook_UserPromptOpensTurn_TurnStopClosesTurn(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+	f.wait()
+	require.False(t, f.chat(t, chatID).Working, "a fresh chat is not Working")
+
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "start working"})))
+	working := f.chat(t, chatID)
+	assert.True(t, working.Working, "a user_prompt must open the turn (Working==true)")
+	require.NotNil(t, working.CurrentTurnStarted, "an open turn must record CurrentTurnStarted")
+
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "turn_stop",
+		mustJSON(t, map[string]any{"last_assistant_message": "done"})))
+	idle := f.chat(t, chatID)
+	assert.False(t, idle.Working, "a turn_stop must close the turn (Working==false)")
+	assert.Nil(t, idle.CurrentTurnStarted, "a closed turn must clear CurrentTurnStarted")
+}
+
+// TestBroadcast_OneFramePerLifecycleEvent pins Fix 2's single-broadcaster
+// invariant: a full chat lifecycle produces exactly one hub frame per aggregate
+// event, in order, with the consolidated kind vocabulary — no duplicate or
+// divergent frames from a now-deleted second (usecase) broadcaster. Each f.wait
+// between steps folds that step's events before the next reads the aggregate.
+func TestBroadcast_OneFramePerLifecycleEvent(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+	f.wait()
+
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "hello"})))
+	f.wait()
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "turn_stop",
+		mustJSON(t, map[string]any{"last_assistant_message": "hi"})))
+	f.wait()
+	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+	require.NoError(t, f.usecase.DeleteChat(ctx, chatID))
+
+	assert.Equal(t, []string{
+		"created",        // SpawnChat
+		"title_set",      // user_prompt: derived title
+		"turn_started",   // user_prompt: StartTurn
+		"turn_stopped",   // turn_stop: StopTurn
+		"segment_ended",  // switch: end outgoing segment
+		"segment_opened", // switch: open incoming segment
+		"deleted",        // DeleteChat
+	}, f.bcKinds(t))
 }
 
 // --- error paths ------------------------------------------------------------
