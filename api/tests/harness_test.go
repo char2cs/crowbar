@@ -35,6 +35,7 @@ type harness struct {
 	server *httptest.Server
 	url    string
 	home   string
+	app    *app.Container
 }
 
 // newHarness boots the full backend over an httptest.Server rooted at a
@@ -68,7 +69,22 @@ func newHarness(
 		server: srv,
 		url:    srv.URL,
 		home:   tmp,
+		app:    appContainer,
 	}
+}
+
+// Quiesce blocks until every per-type asynx projection has drained (dispatch
+// queue idle + all projection handlers run) — the deterministic
+// read-your-writes barrier (app/repositories.Container.WaitQuiescent's doc
+// comment). Some mutations are observable immediately on their own HTTP
+// response (e.g. agent Create returns the aggregate's id straight from the
+// write path), but a projection's store/list read model (e.g. agent List/Get)
+// is an INDEPENDENT async projection that can trail it; call Quiesce after a
+// mutation so a subsequent plain-REST read of that projection is guaranteed
+// consistent, with no polling and no timeouts (mirrors kit.Env.Quiesce for
+// the api/tests/integration/... suites).
+func (h *harness) Quiesce() {
+	h.app.Repositories.WaitQuiescent()
 }
 
 // get issues GET path, asserts the success envelope, and decodes data into out.

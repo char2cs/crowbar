@@ -12,6 +12,9 @@ type TemplateCtx struct {
 	Provider     string
 	Chatid       string
 	SystemPrompt string
+	ProjectID    string
+	RepoID       string
+	WorkspaceID  string
 }
 
 func Expand(s string, ctx TemplateCtx) string {
@@ -26,6 +29,9 @@ func Expand(s string, ctx TemplateCtx) string {
 		"{provider}", ctx.Provider,
 		"{chatid}", ctx.Chatid,
 		"{system_prompt}", ctx.SystemPrompt,
+		"{project_id}", ctx.ProjectID,
+		"{repo_id}", ctx.RepoID,
+		"{workspace_id}", ctx.WorkspaceID,
 	)
 	return r.Replace(s)
 }

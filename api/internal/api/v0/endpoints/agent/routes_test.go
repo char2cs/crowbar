@@ -40,17 +40,21 @@ func (stubUsecase) IngestHook(
 	return nil
 }
 
-func (stubUsecase) ListChats(
+func (stubUsecase) ListChatsByWorkspace(
 	_ context.Context,
+	_ string,
 ) ([]domain.AgentChat, error) {
 	return nil, nil
 }
 
+// GetChat always reports WorkspaceID "w1", matching the :wsId path segment
+// TestRegisterMountsRoutes dials against, so the scope check every
+// Get/Switch/Rename/Handoff route now runs (requireChatInWorkspace) passes.
 func (stubUsecase) GetChat(
 	_ context.Context,
 	id string,
 ) (domain.AgentChat, error) {
-	return domain.AgentChat{ID: id}, nil
+	return domain.AgentChat{ID: id, WorkspaceID: "w1"}, nil
 }
 
 func (stubUsecase) SegmentsFor(
@@ -82,30 +86,41 @@ func (stubUsecase) RenameChat(
 	return nil
 }
 
-// TestRegisterMountsRoutes proves Register mounts every /v0/agent route,
+func (stubUsecase) PurgeChat(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
+// TestRegisterMountsRoutes proves Register mounts every agent route nested
+// under the workspace-scoped group (Task 3: .../workspaces/:wsId/agent/...),
 // including the WS upgrade route delegating to the supplied handler.
 func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
+	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
 	wsHit := false
-	agent.Register(r.Group("/v0"), stubUsecase{}, func(c *gin.Context) {
+	agent.Register(wsScoped, stubUsecase{}, func(c *gin.Context) {
 		wsHit = true
 		c.Status(http.StatusOK)
 	})
 
+	const base = "/v0/projects/p1/repos/r1/workspaces/w1"
 	cases := []struct {
 		method string
 		path   string
 	}{
-		{http.MethodPost, "/v0/agent/chats"},
-		{http.MethodGet, "/v0/agent/chats"},
-		{http.MethodGet, "/v0/agent/chats/c1"},
-		{http.MethodPost, "/v0/agent/chats/c1/switch"},
-		{http.MethodPost, "/v0/agent/chats/c1/rename"},
-		{http.MethodGet, "/v0/agent/chats/c1/handoff"},
-		{http.MethodPost, "/v0/agent/hooks"},
-		{http.MethodGet, "/v0/agent/ws/chats"},
+		{http.MethodPost, base + "/agent/chats"},
+		{http.MethodGet, base + "/agent/chats"},
+		{http.MethodGet, base + "/agent/chats/c1"},
+		{http.MethodPost, base + "/agent/chats/c1/switch"},
+		{http.MethodPost, base + "/agent/chats/c1/rename"},
+		{http.MethodGet, base + "/agent/chats/c1/handoff"},
+		{http.MethodDelete, base + "/agent/chats/c1"},
+		{http.MethodPost, base + "/agent/hooks"},
+		{http.MethodGet, base + "/agent/ws/chats"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()
@@ -116,5 +131,5 @@ func TestRegisterMountsRoutes(
 		r.ServeHTTP(rec, req)
 		assert.NotEqual(t, http.StatusNotFound, rec.Code, tc.path)
 	}
-	assert.True(t, wsHit, "GET /v0/agent/ws/chats must delegate to the supplied handler")
+	assert.True(t, wsHit, "GET .../agent/ws/chats must delegate to the supplied handler")
 }

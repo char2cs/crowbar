@@ -61,12 +61,25 @@ type TerminalCommander interface {
 }
 
 // WorkspaceReader resolves a workspace's Crowbar-managed identity and git
-// worktree directory.
+// worktree directory, plus the directory that holds its agentic chat state.
 type WorkspaceReader interface {
 	WorktreeDir(
 		ctx context.Context,
 		workspaceID string,
 	) (crowbarHome, projectID, repoID, worktree string, err error)
+	// AgentChatsDir returns the directory holding the workspace's agentic chat
+	// state — the per-chat handoff ledger and per-segment tmp dirs (rendered hook
+	// config + any codex auth.json copy). It is ALWAYS strictly under crowbar
+	// home, even for a home-kind / adopted-checkout workspace whose worktree (Cwd)
+	// is the user's REAL directory outside home: for a managed worktree it is the
+	// sibling of the worktree, and for an adopted checkout it reroots under home
+	// (spec §3.5, Task 7) so plaintext ledgers never land on the user's
+	// filesystem. The worktree/Cwd is unaffected — WorktreeDir still returns it
+	// unchanged.
+	AgentChatsDir(
+		ctx context.Context,
+		workspaceID string,
+	) (string, error)
 }
 
 // Usecase is the agentic-chat engine: spawning vendor CLI segments, ingesting
@@ -156,39 +169,84 @@ func (u *Usecase) RenameChat(
 	return nil
 }
 
-// DeleteChat soft-deletes chatID (the chat's own Delete command: Status=deleted,
-// still readable by direct GetChat, hidden from ListChats/ListByWorkspace — see
-// agentchat.EventStore.Delete's doc comment). If the chat's active segment still
-// has a live vendor-CLI PTY, that process is terminated FIRST so a chat delete
-// doesn't orphan a running CLI — but BEST-EFFORT: a terminate failure is logged
-// and the Delete proceeds anyway. Wedging the delete on a terminate error (the
-// user could then never remove the chat) is a worse outcome than an orphaned
-// PTY, which the daemon reaps on the next restart's agent-tmp sweep / boot
-// reconcile regardless. ErrSessionNotFound (the CLI already exited) is not even
-// logged. This is the standalone counterpart to the workspace-delete cascade's
-// forgetAgentChats (repositories.Container), which hard-Forgets every chat —
-// with the same best-effort PTY teardown — when the owning workspace itself is
-// deleted; DeleteChat is what runs when only the chat, not its workspace, is
-// being deleted.
-func (u *Usecase) DeleteChat(
+// PurgeChat hard-deletes chatID via asynx Forget (Task 5): it erases the
+// aggregate outright — its event log AND read-model row are both gone, so a
+// subsequent GetChat/ListChats/ListByWorkspace genuinely reports not found.
+// If the chat's active segment still has a live vendor-CLI PTY, that process is
+// terminated FIRST so a chat delete doesn't orphan a running CLI — but
+// BEST-EFFORT: a terminate failure is logged and the purge proceeds anyway.
+// Wedging the purge on a terminate error (the user could then never remove the
+// chat) is a worse outcome than an orphaned PTY, whose live turn state the boot
+// reconcile (ReconcileOnBoot) repairs on the next restart — ending the dead
+// segment and reaping its per-spawn tmp dir — regardless. ErrSessionNotFound
+// (the CLI already exited) is not even logged. This is the standalone
+// (single-chat) counterpart to the workspace-delete cascade's forgetAgentChats
+// (repositories.Container), which Forgets every chat anchored to a workspace,
+// with the same best-effort teardown, when the workspace itself is deleted.
+func (u *Usecase) PurgeChat(
 	ctx context.Context,
 	chatID string,
 ) error {
 	chat, err := u.chats.GetChat(ctx, chatID)
 	if err != nil {
-		return fmt.Errorf("agent: delete chat: get: %w", err)
+		return fmt.Errorf("agent: purge chat: get: %w", err)
 	}
+	// Unbind the chat's segments from the registry BEFORE tearing down the PTY.
+	// The teardown fires reconcileSegmentExit asynchronously (terminal-engine reap
+	// goroutine); its FIRST guard is the in-memory registry (ChatFor). Unbinding
+	// here makes that guard fail closed (ChatFor → !ok → no-op), so the teardown
+	// can never emit a segment_ended event for this deleted chat. Its fallback
+	// GetChat guard is NOT enough on its own: asynx delivers bus events on a
+	// goroutine per handler, so onForget's read-model row-delete races
+	// reconcile's EndSegment Save — a fast-exiting CLI re-Saves the row after
+	// onForget deleted it, RESURRECTING the chat as a zombie with an "ended"
+	// segment (found via live daemon testing; the async race is invisible to a
+	// slow-exiting real CLI but not to an instant stub exit).
+	u.registry.ForgetChat(chatID)
 	if seg, ok := segmentByID(chat, chat.ActiveSegmentID); ok && seg.TerminalSessionID != "" {
 		if err := u.term.TerminateGraceful(ctx, seg.TerminalSessionID); err != nil &&
 			!errors.Is(err, engineterminal.ErrSessionNotFound) {
-			slog.WarnContext(ctx, "agent: delete chat: terminate active segment (best-effort, continuing)",
+			slog.WarnContext(ctx, "agent: purge chat: terminate active segment (best-effort, continuing)",
 				"chat_id", chatID, "segment_id", seg.ID, "terminal_session_id", seg.TerminalSessionID, "err", err)
 		}
 	}
-	if err := u.chats.Delete(ctx, chatID); err != nil {
-		return fmt.Errorf("agent: delete chat: delete: %w", err)
+	if err := u.chats.Forget(ctx, chatID); err != nil {
+		return fmt.Errorf("agent: purge chat: forget: %w", err)
 	}
+	// Reap the chat's on-disk footprint (the handoff ledger + any residual
+	// per-segment tmp dir) now the aggregate is Forgotten. Unlike the
+	// workspace-delete cascade — which rm's the whole workspace root — a
+	// standalone hard delete would otherwise leave this chat's PLAINTEXT ledger
+	// behind (Important-2). The removal is routed through RemoveUnderHome, which
+	// re-asserts the target is strictly under crowbar home, so even a poisoned
+	// chats dir can never reach the user's real repository. Best-effort: a lookup
+	// or rm failure is logged, never returned — the aggregate is already gone and
+	// a leftover dir is a far smaller harm than failing a delete the user asked for.
+	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: purge chat: resolve chats dir for reap (best-effort, continuing)",
+			"chat_id", chatID, "err", err)
+		return nil
+	}
+	home, _, _, _, err := u.ws.WorktreeDir(ctx, chat.WorkspaceID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: purge chat: resolve home for reap guard (best-effort, continuing)",
+			"chat_id", chatID, "err", err)
+		return nil
+	}
+	RemoveUnderHome(ctx, home, filepath.Join(chatsDir, chatID))
 	return nil
+}
+
+// ForgetChatRegistry unbinds chatID's segments from the in-memory context-move
+// registry. The workspace-delete cascade (repositories.Container.forgetAgentChats)
+// calls it — through a settable seam it can't construct directly — before tearing
+// down each chat's PTY, for the SAME reason PurgeChat unbinds inline: so the
+// teardown's async reconcileSegmentExit no-ops at its ChatFor guard instead of
+// racing onForget's read-model row-delete and resurrecting the Forgotten chat as
+// a zombie row (see PurgeChat + Registry.ForgetChat).
+func (u *Usecase) ForgetChatRegistry(chatID string) {
+	u.registry.ForgetChat(chatID)
 }
 
 // deriveTitle turns a user prompt into a short chat title: the first non-empty
@@ -242,9 +300,18 @@ func (u *Usecase) spawnSegment(
 	// persisted.
 	u.registry.BindSegment(segID, chatID)
 
-	crowbarHome, _, _, worktree, err := u.ws.WorktreeDir(ctx, workspaceID)
+	crowbarHome, projectID, repoID, worktree, err := u.ws.WorktreeDir(ctx, workspaceID)
 	if err != nil {
 		return "", fmt.Errorf("agent: spawn segment: worktree dir: %w", err)
+	}
+
+	// The chats dir is resolved separately from the worktree/Cwd: for a home-kind
+	// (adopted checkout) workspace the worktree is the user's REAL dir outside
+	// home, so chat state (this tmp dir, the ledger) reroots under crowbar home
+	// while the CLI still runs with Cwd = worktree (Task 7).
+	chatsDir, err := u.ws.AgentChatsDir(ctx, workspaceID)
+	if err != nil {
+		return "", fmt.Errorf("agent: spawn segment: chats dir: %w", err)
 	}
 
 	descriptor, err := engineagent.ResolveDescriptor(crowbarHome, providerID)
@@ -252,13 +319,13 @@ func (u *Usecase) spawnSegment(
 		return "", fmt.Errorf("agent: spawn segment: resolve descriptor: %w", err)
 	}
 
-	// Home-scoped (not system-tmp) and keyed by segID so it is deterministic and
-	// so sweepStaleAgentTmp can reliably find every leftover on daemon startup.
-	// This dir holds the rendered hook config and, for codex, a COPY of
-	// ~/.codex/auth.json (a credential) — it must survive for the whole life of
-	// the spawned CLI, so it is removed via onExit below (on PTY session end),
-	// never eagerly after spawn.
-	tmpDir := filepath.Join(crowbarHome, "agent-tmp", segID)
+	// Under the workspace's chats dir (always beneath crowbar home), keyed by
+	// chatID+segID+providerID so it is deterministic per spawn. This dir holds
+	// the rendered hook config and, for codex, a COPY of ~/.codex/auth.json (a
+	// credential) — it must survive for the whole life of the spawned CLI, so
+	// it is removed via onExit below (on PTY session end), never eagerly after
+	// spawn.
+	tmpDir := worktreepath.SegmentDir(chatsDir, chatID, segID, providerID)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return "", fmt.Errorf("agent: spawn segment: mkdir tmp: %w", err)
 	}
@@ -270,6 +337,9 @@ func (u *Usecase) spawnSegment(
 		Segid:       segID,
 		Provider:    providerID,
 		Chatid:      chatID,
+		ProjectID:   projectID,
+		RepoID:      repoID,
+		WorkspaceID: workspaceID,
 	}
 	steps := extraSteps
 	if injectTitle {
@@ -291,11 +361,13 @@ func (u *Usecase) spawnSegment(
 	argv := append([]string{descriptor.Spawn.Cmd}, plan.Argv...)
 
 	termSessID, err := u.term.CreateCommand(ctx, workspaceID, worktree, argv, plan.Env,
-		u.onSegmentExit(segID, tmpDir))
+		u.onSegmentExit(crowbarHome, segID, tmpDir))
 	if err != nil {
-		// CreateCommand never got far enough to register onExit — clean up here
-		// so a spawn failure doesn't leak the tmp dir until the next restart sweep.
-		_ = os.RemoveAll(tmpDir)
+		// CreateCommand never got far enough to register onExit (which is what
+		// rm's the tmp dir on a clean exit) — clean up here so a spawn failure
+		// doesn't leak the segment's tmp dir. Guarded by crowbarHome so a poisoned
+		// chats dir can never make this rm escape the user's real filesystem.
+		RemoveUnderHome(ctx, crowbarHome, tmpDir)
 		return "", fmt.Errorf("agent: spawn segment: create command: %w", err)
 	}
 
@@ -339,18 +411,52 @@ func (u *Usecase) spawnSegment(
 	return segID, nil
 }
 
+// RemoveUnderHome is the SINGLE guarded os.RemoveAll every agent-path filesystem
+// removal routes through (Task 7 safety hardening). It removes target ONLY when
+// target is provably strictly under crowbar home — worktreepath.UnderHome, the
+// exact strict-prefix check the worktree removers (worktreeRemover/bootSweepPurge)
+// re-assert on their own root. AgentChatsDir already reroots chat state under
+// home, but filepath.Join CLEANS "..", so a crafted repo remote slug
+// (host/owner/../../..) could in principle collapse a derived path OUTSIDE home;
+// this re-asserts the invariant AT the rm so no agent removal can EVER reach the
+// user's real filesystem, even if a caller is handed a poisoned chats dir. A
+// target not under home (including a blank/unresolvable home) is logged and
+// skipped, never removed — fail-closed. Callers are all best-effort, so a plain
+// rm error is logged, not returned.
+//
+// Exported so the workspace-delete cascade's on-disk reap seam
+// (app.reapAgentChatFiles, wired into repositories.Container.ReapChatFiles) can
+// route through the exact SAME guard PurgeChat uses, rather than a package
+// outside agent reimplementing the check.
+func RemoveUnderHome(
+	ctx context.Context,
+	home string,
+	target string,
+) {
+	if !worktreepath.UnderHome(target, home) {
+		slog.WarnContext(ctx, "agent: refusing to rm agent path outside crowbar home (skipping)",
+			"target", target, "home", home)
+		return
+	}
+	if err := os.RemoveAll(target); err != nil {
+		slog.WarnContext(ctx, "agent: reap agent path", "target", target, "err", err)
+	}
+}
+
 // onSegmentExit builds the CreateCommand onExit callback for segID: it
-// releases the per-spawn tmp dir (unchanged from before this reconcile was
-// added) and then reconciles live turn state for a CLI process death that no
-// event ever recorded — a daemon-observed crash/self-exit, as opposed to a
-// clean provider switch or context-move, both of which already end the
-// segment themselves via an explicit EndSegment before or independently of
-// the process actually dying. It runs on a background context: the terminal
+// releases the per-spawn tmp dir (through RemoveUnderHome, so a poisoned path can
+// never escape crowbar home) and then reconciles live turn state for a CLI
+// process death that no event ever recorded — a daemon-observed crash/self-exit,
+// as opposed to a clean provider switch or context-move, both of which already
+// end the segment themselves via an explicit EndSegment before or independently
+// of the process actually dying. home is captured at spawn time (the same home
+// tmpDir was created under) so the guard needs no post-hoc lookup that a since
+// deleted workspace could fail. It runs on a background context: the terminal
 // engine invokes onExit from its own reap goroutine, well after any request
 // context that spawned this segment could have been cancelled.
-func (u *Usecase) onSegmentExit(segID, tmpDir string) func() {
+func (u *Usecase) onSegmentExit(home, segID, tmpDir string) func() {
 	return func() {
-		_ = os.RemoveAll(tmpDir)
+		RemoveUnderHome(context.Background(), home, tmpDir)
 		u.reconcileSegmentExit(context.Background(), segID)
 	}
 }
@@ -473,7 +579,7 @@ func (u *Usecase) IngestHook(
 		return nil
 	}
 
-	crowbarHome, projectID, repoID, _, err := u.ws.WorktreeDir(ctx, chat.WorkspaceID)
+	crowbarHome, _, _, _, err := u.ws.WorktreeDir(ctx, chat.WorkspaceID)
 	if err != nil {
 		return fmt.Errorf("agent: ingest hook: worktree dir: %w", err)
 	}
@@ -511,7 +617,7 @@ func (u *Usecase) IngestHook(
 		if _, err := u.chats.StartTurn(ctx, chat.ID, time.Now()); err != nil {
 			return fmt.Errorf("agent: ingest hook: start turn: %w", err)
 		}
-		return u.appendTurn(ctx, seg, chat, crowbarHome, projectID, repoID, "user", ev.Message)
+		return u.appendTurn(ctx, seg, chat, "user", ev.Message)
 	case "turn_stop":
 		// The turn ended: clear Working. Issued before the ledger append so the
 		// live-state event lands even when the assistant message is empty (an
@@ -519,7 +625,7 @@ func (u *Usecase) IngestHook(
 		if _, err := u.chats.StopTurn(ctx, chat.ID, time.Now()); err != nil {
 			return fmt.Errorf("agent: ingest hook: stop turn: %w", err)
 		}
-		return u.appendTurn(ctx, seg, chat, crowbarHome, projectID, repoID, "assistant", ev.Message)
+		return u.appendTurn(ctx, seg, chat, "assistant", ev.Message)
 	}
 	return nil
 }
@@ -656,17 +762,25 @@ func (u *Usecase) moveToKnownChat(
 // ledger. Empty text is a no-op. The turn's lifecycle frame is emitted by the
 // StartTurn/StopTurn events the caller issues (fanned out by the hub
 // projection), not from here — the ledger is a content log, not an aggregate.
+//
+// It resolves the chats dir itself (after the empty-text short-circuit) rather
+// than taking a worktree path: the ledger always lives under the workspace's
+// chats dir, which for a home-kind / adopted-checkout workspace is rerooted under
+// crowbar home, NOT beside the user's real worktree (Task 7).
 func (u *Usecase) appendTurn(
 	ctx context.Context,
 	seg domain.AgentSegment,
 	chat domain.AgentChat,
-	crowbarHome, projectID, repoID string,
 	role, text string,
 ) error {
 	if text == "" {
 		return nil
 	}
-	dir := worktreepath.AgentLedgerDir(crowbarHome, projectID, repoID, chat.WorkspaceID, chat.ID)
+	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	if err != nil {
+		return fmt.Errorf("agent: ingest hook: chats dir: %w", err)
+	}
+	dir := worktreepath.AgentLedgerDir(chatsDir, chat.ID)
 	led, err := ledger.Open(dir)
 	if err != nil {
 		return fmt.Errorf("agent: ingest hook: ledger open: %w", err)
@@ -690,12 +804,12 @@ func (u *Usecase) AssembleHandoff(
 		return "", fmt.Errorf("agent: assemble handoff: chat: %w", err)
 	}
 
-	crowbarHome, projectID, repoID, _, err := u.ws.WorktreeDir(ctx, chat.WorkspaceID)
+	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
 	if err != nil {
-		return "", fmt.Errorf("agent: assemble handoff: worktree dir: %w", err)
+		return "", fmt.Errorf("agent: assemble handoff: chats dir: %w", err)
 	}
 
-	dir := worktreepath.AgentLedgerDir(crowbarHome, projectID, repoID, chat.WorkspaceID, chat.ID)
+	dir := worktreepath.AgentLedgerDir(chatsDir, chat.ID)
 	led, err := ledger.Open(dir)
 	if err != nil {
 		return "", fmt.Errorf("agent: assemble handoff: ledger open: %w", err)
@@ -833,11 +947,20 @@ func segmentByID(chat domain.AgentChat, id string) (domain.AgentSegment, bool) {
 	return domain.AgentSegment{}, false
 }
 
-// ListChats returns every live (non-deleted) AgentChat.
+// ListChats returns every AgentChat.
 func (u *Usecase) ListChats(
 	ctx context.Context,
 ) ([]domain.AgentChat, error) {
 	return u.chats.ListChats(ctx)
+}
+
+// ListChatsByWorkspace returns every AgentChat anchored to workspaceID
+// (Task 3: backs the workspace-scoped List REST route).
+func (u *Usecase) ListChatsByWorkspace(
+	ctx context.Context,
+	workspaceID string,
+) ([]domain.AgentChat, error) {
+	return u.chats.ListByWorkspace(ctx, workspaceID)
 }
 
 // GetChat returns a single AgentChat by id.
@@ -921,6 +1044,45 @@ func (u *Usecase) ReconcileOnBoot(
 			slog.WarnContext(ctx, "agent: reconcile on boot: end segment",
 				"chat_id", chat.ID, "segment_id", seg.ID, "terminal_session_id", seg.TerminalSessionID, "err", err)
 		}
+		// This active segment's PTY died with the daemon (SessionExists==false),
+		// so its per-spawn tmp dir (rendered hook config + any codex auth.json
+		// COPY) is a crash orphan: the onExit cleanup that removes it on a clean
+		// exit never fired. It is the ONLY orphan class under the workspace-root
+		// layout — a clean exit is ephemeral (onSegmentExit rm's it) and a
+		// chat/workspace delete rm's the whole workspace root — so reaping it
+		// here is the targeted successor to the retired global agent-tmp sweep
+		// (which blindly wiped <home>/agent-tmp; that dir no longer exists).
+		u.reapCrashOrphanSegmentTmp(ctx, chat, seg)
 	}
 	return nil
+}
+
+// reapCrashOrphanSegmentTmp removes the per-spawn tmp dir of a segment whose PTY
+// died with the daemon, so a codex auth.json copy and the rendered hook config
+// don't linger under the workspace root after a crash. Best-effort: a worktree
+// lookup or rm failure is logged, never fatal — a leftover tmp dir is harmless
+// (it is overwritten by segId+provider on any future spawn and swept with the
+// workspace root on delete). It is keyed by the CURRENT aggregate segment id;
+// for the common (non-context-moved) segment that equals the spawn-time key the
+// dir was created under, so the path resolves exactly. A segment that was
+// context-moved before the crash carries a diverged aggregate id AND a diverged
+// hosting chat, so its original tmp dir (created under the pre-move chat/segid)
+// is not reached here — an accepted, rare corner that leaves at most one small
+// dir, strictly better than the zero cleanup the old layout's removed sweep left.
+func (u *Usecase) reapCrashOrphanSegmentTmp(ctx context.Context, chat domain.AgentChat, seg domain.AgentSegment) {
+	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: reconcile on boot: reap segment tmp: chats dir",
+			"chat_id", chat.ID, "segment_id", seg.ID, "err", err)
+		return
+	}
+	home, _, _, _, err := u.ws.WorktreeDir(ctx, chat.WorkspaceID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: reconcile on boot: reap segment tmp: home",
+			"chat_id", chat.ID, "segment_id", seg.ID, "err", err)
+		return
+	}
+	// RemoveUnderHome re-asserts the target is strictly under crowbar home, so even
+	// a poisoned chats dir can never make this reap escape the user's filesystem.
+	RemoveUnderHome(ctx, home, worktreepath.SegmentDir(chatsDir, chat.ID, seg.ID, seg.ProviderID))
 }

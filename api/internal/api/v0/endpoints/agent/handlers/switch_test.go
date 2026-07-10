@@ -12,6 +12,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // TestSwitch_Success proves Switch decodes {provider}, calls SwitchProvider
@@ -62,6 +63,25 @@ func TestSwitch_BadJSON(
 	assert.Empty(t, uc.switchCalls)
 }
 
+// TestSwitch_WrongWorkspace404s proves the by-id scope check
+// (requireChatInWorkspace): a chat anchored to a DIFFERENT workspace than the
+// :wsId path param 404s before SwitchProvider is ever called (Task 3).
+func TestSwitch_WrongWorkspace404s(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-other"}}
+	h := handlers.New(uc)
+
+	body := []byte(`{"provider":"vendor-b"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/chat-1/switch", body)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "chat-1"}}
+
+	h.Switch(ctx)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Empty(t, uc.switchCalls, "SwitchProvider must never be called once the scope check 404s")
+}
+
 // TestSwitch_UsecaseError proves a SwitchProvider failure surfaces as a mapped
 // error response via StatusAndMessage rather than a bare 200.
 func TestSwitch_UsecaseError(
@@ -102,6 +122,23 @@ func TestHandoff_Success(
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
 	assert.True(t, envelope.Success)
 	assert.Equal(t, "=== HANDED-OFF CONTEXT ===", envelope.Data.Handoff)
+}
+
+// TestHandoff_WrongWorkspace404s proves the by-id scope check
+// (requireChatInWorkspace): a chat anchored to a DIFFERENT workspace than the
+// :wsId path param 404s before AssembleHandoff is ever called (Task 3).
+func TestHandoff_WrongWorkspace404s(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-other"}}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/chat-1/handoff", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "chat-1"}}
+
+	h.Handoff(ctx)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // TestHandoff_UsecaseError proves an AssembleHandoff failure surfaces as a

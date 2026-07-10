@@ -293,14 +293,15 @@ func (c *Container) PushFile(
 
 // PushAgentChat implements hub.Subscriber. It fans an agent-chat lifecycle
 // event out to every subscriber of the agent-chat WebSocket (GET
-// /v0/agent/ws/chats): unlike PushGit/PushFile there is no per-workspace
-// scoping — the route carries no :wsId, so every connected client sees every
-// chat's lifecycle events.
+// .../workspaces/:wsId/agent/ws/chats) whose :wsId matches workspaceID,
+// mirroring PushGit/PushFile's wsId-scoped fan-out (Task 3: agentChatDef's
+// Filter enforces the scoping; this method itself pushes unconditionally).
 func (c *Container) PushAgentChat(
 	chatID string,
+	workspaceID string,
 	kind string,
 ) {
-	c.agentChats.Push(dto.AgentChatEvent{ChatID: chatID, Kind: kind})
+	c.agentChats.Push(dto.AgentChatEvent{ChatID: chatID, WorkspaceID: workspaceID, Kind: kind})
 }
 
 // projectsDef serves the Projects topic. Its hierarchical namespace is the bare
@@ -428,20 +429,24 @@ func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 }
 
 // agentChatDef serves the agent-chat lifecycle event stream (GET
-// /v0/agent/ws/chats). Unlike the full-state resource streams above (projects,
-// repos, workspaces, ...), it is a bare, unscoped event feed: it carries no
-// snapshot (a freshly-connected client simply waits for the next lifecycle
-// event — there is no "current state" to replay) and no hierarchical
-// namespace, since the route is global (no :projectId/:repoId/:wsId path
-// params to scope by). FlatNamespace opts it out of the hierarchical
-// prefix-match so a bare Namespace of "" combined with no Filters lets every
-// event reach every subscriber.
+// .../workspaces/:wsId/agent/ws/chats), scoped to a single workspace by wsId
+// (Task 3), mirroring gitDef/filesDef. It carries no snapshot: unlike the
+// full-state resource streams above (projects, repos, workspaces, ...) a
+// freshly-connected client simply waits for the next lifecycle event — there
+// is no "current state" to replay. FlatNamespace opts it out of the
+// hierarchical projectId/repoId/wsId prefix-match (the bare Namespace of ""
+// would otherwise never match that prefix and drop every event, per
+// BuildPredicate's doc comment); the explicit wsId Filter is the sole scoping
+// mechanism.
 func agentChatDef() ws.StreamDef[dto.AgentChatEvent] {
 	return ws.StreamDef[dto.AgentChatEvent]{
-		Namespace:     func(dto.AgentChatEvent) string { return "" },
+		Namespace:     func(e dto.AgentChatEvent) string { return e.WorkspaceID },
 		Serialize:     func(e dto.AgentChatEvent) ([]byte, error) { return json.Marshal(e) },
 		Snapshot:      func(string) []dto.AgentChatEvent { return nil },
 		FlatNamespace: true,
+		Filters: []ws.FilterDef[dto.AgentChatEvent]{
+			{Param: "wsId", Extract: func(e dto.AgentChatEvent) string { return e.WorkspaceID }, Match: ws.ExactMatch},
+		},
 	}
 }
 

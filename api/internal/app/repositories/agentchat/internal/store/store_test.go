@@ -35,7 +35,7 @@ func newStoreWithDeps(
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	st, err := store.New(db, es, ax, func(string, string) {})
+	st, err := store.New(db, es, ax, func(string, string, string) {})
 	require.NoError(t, err)
 	return context.Background(), st, ax, db
 }
@@ -138,49 +138,10 @@ func TestStore_GetByProviderSession_MissingReturnsErrNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, store.ErrNotFound)
 }
 
-func TestStore_ListChats_ExcludesDeleted(t *testing.T) {
-	ctx, st, ax := newStore(t)
-	openTwoSegmentChat(t, ctx, ax, "c1")
-	openTwoSegmentChat(t, ctx, ax, "c2")
-
-	_, err := ax.SendWait(ctx, acCmds.Delete{ChatID: "c2"})
-	require.NoError(t, err)
-
-	all, err := st.ListChats(ctx)
-	require.NoError(t, err)
-	require.Len(t, all, 1)
-	assert.Equal(t, "c1", all[0].ID)
-
-	// The deleted chat is still reachable by direct GetChat (tombstone, not gone).
-	deleted, err := st.GetChat(ctx, "c2")
-	require.NoError(t, err)
-	assert.Equal(t, domain.AgentChatStatusDeleted, deleted.Status)
-}
-
-func TestStore_ListByWorkspace_FiltersByWorkspaceAndExcludesDeleted(t *testing.T) {
-	ctx, st, ax := newStore(t)
-	_, err := ax.SendWait(ctx, acCmds.Create{
-		ID: "c1", WorkspaceID: "w1", SegmentID: "s1", CrowbarSegmentID: "cs1",
-		ProviderID: "claude", TerminalSession: "term-1", Now: time.Unix(1, 0).UTC(),
-	})
-	require.NoError(t, err)
-	_, err = ax.SendWait(ctx, acCmds.Create{
-		ID: "c2", WorkspaceID: "w2", SegmentID: "s2", CrowbarSegmentID: "cs2",
-		ProviderID: "claude", TerminalSession: "term-2", Now: time.Unix(1, 0).UTC(),
-	})
-	require.NoError(t, err)
-
-	list, err := st.ListByWorkspace(ctx, "w1")
-	require.NoError(t, err)
-	require.Len(t, list, 1)
-	assert.Equal(t, "c1", list[0].ID)
-}
-
-// TestStore_ListByWorkspaceIncludingDeleted_IncludesTombstones proves the
-// unfiltered accessor the workspace-delete cascade relies on: unlike
-// ListByWorkspace it returns soft-deleted (Status==deleted) chats too, and it
-// still scopes to the workspace (a chat in another workspace is excluded).
-func TestStore_ListByWorkspaceIncludingDeleted_IncludesTombstones(t *testing.T) {
+// TestStore_ListByWorkspace_ScopesToWorkspace proves ListByWorkspace returns
+// every chat anchored to the queried workspace and excludes chats in other
+// workspaces: c1+c2 (both w1) are returned, c3 (w2) is not.
+func TestStore_ListByWorkspace_ScopesToWorkspace(t *testing.T) {
 	ctx, st, ax := newStore(t)
 	_, err := ax.SendWait(ctx, acCmds.Create{
 		ID: "c1", WorkspaceID: "w1", SegmentID: "s1", CrowbarSegmentID: "cs1",
@@ -199,22 +160,13 @@ func TestStore_ListByWorkspaceIncludingDeleted_IncludesTombstones(t *testing.T) 
 	})
 	require.NoError(t, err)
 
-	_, err = ax.SendWait(ctx, acCmds.Delete{ChatID: "c2"})
+	list, err := st.ListByWorkspace(ctx, "w1")
 	require.NoError(t, err)
-
-	// ListByWorkspace hides the tombstone; the unfiltered accessor keeps it.
-	live, err := st.ListByWorkspace(ctx, "w1")
-	require.NoError(t, err)
-	require.Len(t, live, 1)
-	assert.Equal(t, "c1", live[0].ID)
-
-	all, err := st.ListByWorkspaceIncludingDeleted(ctx, "w1")
-	require.NoError(t, err)
-	ids := make([]string, 0, len(all))
-	for _, chat := range all {
+	ids := make([]string, 0, len(list))
+	for _, chat := range list {
 		ids = append(ids, chat.ID)
 	}
-	assert.ElementsMatch(t, []string{"c1", "c2"}, ids, "both live and soft-deleted w1 chats must be returned; the w2 chat excluded")
+	assert.ElementsMatch(t, []string{"c1", "c2"}, ids, "both w1 chats must be returned; the w2 chat excluded")
 }
 
 // TestStore_ReadRebuildsWhenModelEmptyButLogNonEmpty proves the lazy Replay
@@ -295,7 +247,7 @@ func TestStore_Read_RebuildEnumerationError(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	st, err := store.New(db, &fakeReplayES{err: errors.New("boom")}, ax, func(string, string) {})
+	st, err := store.New(db, &fakeReplayES{err: errors.New("boom")}, ax, func(string, string, string) {})
 	require.NoError(t, err)
 
 	_, err = st.ListChats(context.Background())
@@ -310,7 +262,7 @@ func TestNew_StorageError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = store.New(db, nil, nil, func(string, string) {})
+	_, err = store.New(db, nil, nil, func(string, string, string) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat store")
 }

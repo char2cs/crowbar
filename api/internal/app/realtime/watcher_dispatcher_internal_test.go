@@ -39,7 +39,7 @@ func (s *capturingSubscriber) PushWorkspace(_ dto.WorkspaceDTO)             {}
 func (s *capturingSubscriber) PushThread(_ dto.ThreadDTO)                   {}
 func (s *capturingSubscriber) PushTerminalSession(_ dto.TerminalSessionDTO) {}
 func (s *capturingSubscriber) PushFile(e domain.FileChangeEvent)            { s.files <- e }
-func (s *capturingSubscriber) PushAgentChat(_ string, _ string)             {}
+func (s *capturingSubscriber) PushAgentChat(_ string, _ string, _ string)   {}
 
 func (s *capturingSubscriber) PushGit(
 	wsID string,

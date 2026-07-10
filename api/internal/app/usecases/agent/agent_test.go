@@ -19,6 +19,7 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
@@ -141,8 +142,9 @@ func (f *fakeCommander) terminateRequestIDs() []string {
 }
 
 type broadcastCall struct {
-	chatID string
-	kind   string
+	chatID      string
+	workspaceID string
+	kind        string
 }
 
 // fakeBroadcaster is a thread-safe Broadcaster double.
@@ -151,10 +153,10 @@ type fakeBroadcaster struct {
 	calls []broadcastCall
 }
 
-func (f *fakeBroadcaster) BroadcastAgentChat(chatID, kind string) {
+func (f *fakeBroadcaster) BroadcastAgentChat(chatID, workspaceID, kind string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, broadcastCall{chatID: chatID, kind: kind})
+	f.calls = append(f.calls, broadcastCall{chatID: chatID, workspaceID: workspaceID, kind: kind})
 }
 
 func (f *fakeBroadcaster) reset() {
@@ -174,6 +176,7 @@ type fakeWorkspace struct {
 	projectID string
 	repoID    string
 	worktree  string
+	chatsDir  string
 	err       error
 }
 
@@ -185,6 +188,16 @@ func (f *fakeWorkspace) WorktreeDir(
 		return "", "", "", "", f.err
 	}
 	return f.home, f.projectID, f.repoID, f.worktree, nil
+}
+
+func (f *fakeWorkspace) AgentChatsDir(
+	_ context.Context,
+	_ string,
+) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.chatsDir, nil
 }
 
 // fakeStore wraps a real agentchat.EventStore and lets a test force a chosen
@@ -245,9 +258,10 @@ type testFixture struct {
 	// (ax.WaitPublish), so a subsequent read observes all prior mutations with
 	// no polling and no timeouts.
 	waitFn func()
-	term   *fakeCommander
-	bc     *fakeBroadcaster
-	ws     *fakeWorkspace
+	term     *fakeCommander
+	bc       *fakeBroadcaster
+	ws       *fakeWorkspace
+	registry *engineagent.Registry
 }
 
 // wait blocks until every projection has folded.
@@ -379,15 +393,25 @@ func newFixtureUsing(
 	}
 
 	term := &fakeCommander{}
+	// The default fixture models a MANAGED worktree ROOTED UNDER crowbar home:
+	// worktree = <home>/projects/p1/slug/branch/worktree, so its sibling chats dir
+	// (worktreepath.ChatsDir) is <home>/projects/p1/slug/branch/chats — strictly
+	// under home. This mirrors production and is load-bearing now that every
+	// agent-path removal is guarded by removeUnderHome (a chats dir NOT under home
+	// is refused), so the spawn/reap tests must use an under-home chats dir.
+	home := t.TempDir()
+	worktree := filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")
 	ws := &fakeWorkspace{
-		home:      t.TempDir(),
+		home:      home,
 		projectID: "p1",
 		repoID:    "r1",
-		worktree:  t.TempDir(),
+		worktree:  worktree,
+		chatsDir:  worktreepath.ChatsDir(worktree),
 	}
 
-	u := agentusecase.New(used, engineagent.NewRegistry(), term, ws)
-	return testFixture{usecase: u, repo: real, waitFn: waitFn, term: term, bc: bc, ws: ws}, used
+	reg := engineagent.NewRegistry()
+	u := agentusecase.New(used, reg, term, ws)
+	return testFixture{usecase: u, repo: real, waitFn: waitFn, term: term, bc: bc, ws: ws, registry: reg}, used
 }
 
 func TestSpawnChat_PersistsChatAndSegmentAndSpawns(t *testing.T) {
@@ -427,24 +451,26 @@ func TestSpawnSegment_TmpDirSurvivesSpawnAndIsRemovedOnlyWhenSessionEnds(t *test
 	f := newFixture(t)
 	ctx := context.Background()
 
-	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	tmpDir := filepath.Join(f.ws.home, "agent-tmp", segID)
+	// The per-spawn tmp dir is under the workspace's chats dir (workspace-root
+	// split, spec §3.5): <chatsDir>/<chatID>/<segID>-<provider>.
+	tmpDir := worktreepath.SegmentDir(f.ws.chatsDir, chatID, segID, "claude")
 	info, err := os.Stat(tmpDir)
-	require.NoError(t, err, "agent-tmp dir must exist immediately after spawn")
+	require.NoError(t, err, "segment tmp dir must exist immediately after spawn")
 	assert.True(t, info.IsDir())
 
 	require.Equal(t, 1, f.term.callCount())
 	require.NotNil(t, f.term.calls[0].onExit, "CreateCommand must receive a non-nil onExit")
 
 	_, err = os.Stat(tmpDir)
-	require.NoError(t, err, "agent-tmp dir must survive while the CLI is running")
+	require.NoError(t, err, "segment tmp dir must survive while the CLI is running")
 
 	f.term.calls[0].onExit()
 
 	_, err = os.Stat(tmpDir)
-	assert.True(t, os.IsNotExist(err), "agent-tmp dir must be removed once the session ends")
+	assert.True(t, os.IsNotExist(err), "segment tmp dir must be removed once the session ends")
 }
 
 func TestSpawnChat_UsesDescriptorCmdAsArgv0(t *testing.T) {
@@ -907,7 +933,7 @@ func TestBroadcast_OneFramePerLifecycleEvent(t *testing.T) {
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 	f.wait()
-	require.NoError(t, f.usecase.DeleteChat(ctx, chatID))
+	require.NoError(t, f.usecase.PurgeChat(ctx, chatID))
 
 	assert.Equal(t, []string{
 		"created",        // SpawnChat
@@ -916,7 +942,7 @@ func TestBroadcast_OneFramePerLifecycleEvent(t *testing.T) {
 		"turn_stopped",   // turn_stop: StopTurn
 		"segment_ended",  // switch: end outgoing segment
 		"segment_opened", // switch: open incoming segment
-		"deleted",        // DeleteChat
+		"deleted",        // PurgeChat (asynx Forget's OnForget)
 	}, f.bcKinds(t))
 }
 

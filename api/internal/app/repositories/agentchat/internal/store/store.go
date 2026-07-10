@@ -51,41 +51,27 @@ var ErrNotFound = errors.New("agentchat store: not found")
 // (see rebuild) before concluding a chat or session genuinely doesn't exist.
 type Store interface {
 	// GetChat returns the chat for id, healing the read model first if it is
-	// empty (spec §3.7). Unlike ListChats/ListByWorkspace, a tombstoned
-	// (Status==deleted) chat is still returned — deletion removes a chat from
-	// list views, not from direct-by-id lookup.
+	// empty (spec §3.7).
 	GetChat(
 		ctx context.Context,
 		id string,
 	) (domain.AgentChat, error)
-	// ListChats returns every LIVE (Status != deleted) chat in the durable read
-	// model, first healing it via whole-model lazy Replay when the model is
-	// empty but the event log still holds aggregates.
+	// ListChats returns every chat in the durable read model, first healing it
+	// via whole-model lazy Replay when the model is empty but the event log
+	// still holds aggregates.
 	ListChats(
 		ctx context.Context,
 	) ([]domain.AgentChat, error)
-	// ListByWorkspace returns the live chats for wsID, healing the read model
-	// the same way ListChats does before filtering.
+	// ListByWorkspace returns the chats for wsID, healing the read model the
+	// same way ListChats does before filtering.
 	ListByWorkspace(
 		ctx context.Context,
 		wsID string,
 	) ([]domain.AgentChat, error)
-	// ListByWorkspaceIncludingDeleted returns EVERY chat for wsID, tombstoned
-	// (Status==deleted) ones included, healing the read model the same way
-	// ListChats does but skipping filterLive. It backs the workspace-delete
-	// cascade (repositories.Container.forgetAgentChats): a chat already
-	// soft-deleted via the usecase's DeleteChat is still anchored to the
-	// workspace, so it must be enumerated and hard-Forgotten when the owning
-	// workspace is deleted — otherwise its event log + read-model row would
-	// survive the workspace forever.
-	ListByWorkspaceIncludingDeleted(
-		ctx context.Context,
-		wsID string,
-	) ([]domain.AgentChat, error)
-	// GetByProviderSession resolves the live chat whose segments contain a
-	// segment with ProviderSessionID == providerSessionID, healing the read
-	// model first like the other reads. Returns ErrNotFound when no live chat
-	// has a segment bound to that session.
+	// GetByProviderSession resolves the chat whose segments contain a segment
+	// with ProviderSessionID == providerSessionID, healing the read model
+	// first like the other reads. Returns ErrNotFound when no chat has a
+	// segment bound to that session.
 	GetByProviderSession(
 		ctx context.Context,
 		providerSessionID string,
@@ -126,13 +112,11 @@ func New(
 	return &service{storage: st, es: es, ax: ax}, nil
 }
 
-// GetChat returns the chat for id (tombstoned or not) via an O(1) keyed
-// lookup — T10 puts this on the per-hook hot path, so it must not scan and
-// unmarshal every row. A miss triggers one whole-model Replay rebuild and a
-// re-lookup, preserving the lazy self-heal after a read-DB loss; only a miss
-// that survives the rebuild is a genuine ErrNotFound. Unlike the list queries
-// this returns deleted (tombstoned) chats — deletion removes a chat from list
-// views, not from direct-by-id lookup.
+// GetChat returns the chat for id via an O(1) keyed lookup — T10 puts this on
+// the per-hook hot path, so it must not scan and unmarshal every row. A miss
+// triggers one whole-model Replay rebuild and a re-lookup, preserving the lazy
+// self-heal after a read-DB loss; only a miss that survives the rebuild is a
+// genuine ErrNotFound.
 func (s *service) GetChat(
 	ctx context.Context,
 	id string,
@@ -156,7 +140,7 @@ func (s *service) GetChat(
 	return *chat, nil
 }
 
-// ListChats returns every live chat, healing the read model first when empty.
+// ListChats returns every chat, healing the read model first when empty.
 func (s *service) ListChats(
 	ctx context.Context,
 ) ([]domain.AgentChat, error) {
@@ -164,7 +148,7 @@ func (s *service) ListChats(
 	if err != nil {
 		return nil, err
 	}
-	return filterLive(all), nil
+	return all, nil
 }
 
 // ListByWorkspace heals the read model (via ListChats) then filters to wsID.
@@ -172,27 +156,7 @@ func (s *service) ListByWorkspace(
 	ctx context.Context,
 	wsID string,
 ) ([]domain.AgentChat, error) {
-	live, err := s.ListChats(ctx)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]domain.AgentChat, 0, len(live))
-	for _, chat := range live {
-		if chat.WorkspaceID == wsID {
-			result = append(result, chat)
-		}
-	}
-	return result, nil
-}
-
-// ListByWorkspaceIncludingDeleted heals the read model (via allHealed) then
-// filters to wsID WITHOUT dropping tombstoned chats — the workspace-delete
-// cascade must see soft-deleted chats too so it can hard-Forget them.
-func (s *service) ListByWorkspaceIncludingDeleted(
-	ctx context.Context,
-	wsID string,
-) ([]domain.AgentChat, error) {
-	all, err := s.allHealed(ctx)
+	all, err := s.ListChats(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -207,18 +171,18 @@ func (s *service) ListByWorkspaceIncludingDeleted(
 
 // GetByProviderSession resolves the chat whose segments contain a segment with
 // ProviderSessionID == providerSessionID. Simplest correct implementation:
-// iterate the live chats (healing the read model first) and scan their
-// Segments in Go — chats-per-workspace are few. This can be promoted to a
-// session→chat index table later if profiling ever shows need.
+// iterate the chats (healing the read model first) and scan their Segments in
+// Go — chats-per-workspace are few. This can be promoted to a session→chat
+// index table later if profiling ever shows need.
 func (s *service) GetByProviderSession(
 	ctx context.Context,
 	providerSessionID string,
 ) (domain.AgentChat, error) {
-	live, err := s.ListChats(ctx)
+	all, err := s.ListChats(ctx)
 	if err != nil {
 		return domain.AgentChat{}, err
 	}
-	for _, chat := range live {
+	for _, chat := range all {
 		for _, seg := range chat.Segments {
 			if seg.ProviderSessionID == providerSessionID {
 				return chat, nil
@@ -293,21 +257,6 @@ func (s *service) foldReplayed(
 	if err := s.storage.Save(ctx, evt.Aggregate); err != nil {
 		slog.ErrorContext(ctx, "agentchat store: replay fold", "id", evt.Aggregate.ID, "err", err)
 	}
-}
-
-// filterLive drops tombstoned (Status==deleted) chats — list views never show
-// them, only a direct GetChat by id can still retrieve one.
-func filterLive(
-	all []domain.AgentChat,
-) []domain.AgentChat {
-	result := make([]domain.AgentChat, 0, len(all))
-	for _, chat := range all {
-		if chat.Status == domain.AgentChatStatusDeleted {
-			continue
-		}
-		result = append(result, chat)
-	}
-	return result
 }
 
 // registerStoreProjection subscribes the SAVE-ONLY read-model projection to

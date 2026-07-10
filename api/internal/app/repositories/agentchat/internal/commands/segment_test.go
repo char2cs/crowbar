@@ -157,7 +157,4 @@ func TestCreate_ValidateAndEmit(t *testing.T) {
 	if len(out.Segments) != 1 || out.Segments[0].ID != "s1" || out.Segments[0].Status != "active" {
 		t.Fatalf("EmitEvent must seed one active segment s1, got %+v", out.Segments)
 	}
-	if out.Status != domain.AgentChatStatusActive {
-		t.Fatalf("EmitEvent must set Status active, got %q", out.Status)
-	}
 }

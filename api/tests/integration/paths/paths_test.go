@@ -28,12 +28,14 @@ func TestMain(m *testing.M) {
 }
 
 // friendlyWorktree mirrors the server-side worktreepath.Derive result for a
-// no-remote local repo: <home>/projects/<project>/<repoName>/<branch>, where the
-// slug degrades to the repo's on-disk name (filepath.Base(repoPath)) and branch
-// separators map to nested directories (spec §3.9). The kit deliberately does not
-// export this (worktreePath is server-internal), so the matrix derives it here.
+// no-remote local repo: <home>/projects/<project>/<repoName>/<branch>/worktree,
+// where the slug degrades to the repo's on-disk name (filepath.Base(repoPath)),
+// branch separators map to nested directories, and the trailing "worktree" leaf
+// makes <repoName>/<branch> a workspace root sibling of "chats" (spec §3.5/§3.9).
+// The kit deliberately does not export this (worktreePath is server-internal),
+// so the matrix derives it here.
 func friendlyWorktree(env *kit.Env, projectID, repoPath, branch string) string {
-	return filepath.Join(env.HomeDir(), "projects", projectID, filepath.Base(repoPath), branch)
+	return filepath.Join(env.HomeDir(), "projects", projectID, filepath.Base(repoPath), branch, "worktree")
 }
 
 // caseInsensitiveFS reports whether dir lives on a case-insensitive filesystem
@@ -113,8 +115,8 @@ func TestPaths_FullSlugOnDisk_DistinctHosts(t *testing.T) {
 	gl := env.ImportRepo(t, "gl", glRepo)
 	glWS := env.CreateWorkspace(t, gl.ProjectID, gl.RepoID, "feature/x")
 
-	ghPath := filepath.Join(env.HomeDir(), "projects", gh.ProjectID, "github.com", "acme", "app", "feature", "x")
-	glPath := filepath.Join(env.HomeDir(), "projects", gl.ProjectID, "gitlab.com", "acme", "app", "feature", "x")
+	ghPath := filepath.Join(env.HomeDir(), "projects", gh.ProjectID, "github.com", "acme", "app", "feature", "x", "worktree")
+	glPath := filepath.Join(env.HomeDir(), "projects", gl.ProjectID, "gitlab.com", "acme", "app", "feature", "x", "worktree")
 
 	require.True(t, kit.DirExists(t, ghPath), "github.com repo worktree must land at %s", ghPath)
 	require.True(t, kit.DirExists(t, glPath), "gitlab.com repo worktree must land at %s", glPath)

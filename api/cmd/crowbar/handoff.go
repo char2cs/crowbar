@@ -22,27 +22,34 @@ func newHandoffCmd() *cobra.Command {
 }
 
 func newHandoffDumpCmd() *cobra.Command {
-	return &cobra.Command{
+	var project, repo, workspace string
+	cmd := &cobra.Command{
 		Use:   "dump <chatId>",
 		Short: "Print a chat's assembled handoff to stdout",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return runHandoffDump(args[0], "unix://", os.Stdout)
+			return runHandoffDump(args[0], project, repo, workspace, "unix://", os.Stdout)
 		},
 	}
+	bindScopeFlags(cmd, &project, &repo, &workspace)
+	return cmd
 }
 
 // runHandoffDump fetches chatID's assembled handoff from the Crowbar daemon
 // over its IPC socket and writes it to out. It is factored out of the cobra
 // RunE so tests can exercise it against a stub daemon without going through
-// cobra or the real socket.
-func runHandoffDump(chatID, host string, out io.Writer) error {
+// cobra or the real socket. The target URL is scoped to project/repo/workspace
+// (Task 3 nested the agent routes under the workspace group; this is a
+// manual/debug command, so a human invoking it passes the scope flags
+// explicitly).
+func runHandoffDump(chatID, project, repo, workspace, host string, out io.Writer) error {
 	client, err := ipc.NewClient(host)
 	if err != nil {
 		return err
 	}
 
-	status, body, err := client.Get(context.Background(), "/v0/agent/chats/"+chatID+"/handoff")
+	status, body, err := client.Get(context.Background(),
+		scopedAgentPath(project, repo, workspace, "/chats/"+chatID+"/handoff"))
 	if err != nil {
 		return err
 	}

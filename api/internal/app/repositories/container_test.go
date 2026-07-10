@@ -577,6 +577,44 @@ func TestContainer_WireCallbacks_DeleteCascade_ForgetsAgentChats(t *testing.T) {
 	assert.NotContains(t, term.terminated(), "term-2")
 }
 
+// TestContainer_WireCallbacks_DeleteCascade_UnbindsChatRegistry pins that the
+// workspace-delete cascade unbinds each forgotten chat's segments from the agent
+// registry (via the ForgetChatRegistry seam) — the same zombie-chat fix PurgeChat
+// applies inline. Without it the PTY teardown's async reconcile races onForget's
+// row-delete and resurrects the deleted chat's read row.
+func TestContainer_WireCallbacks_DeleteCascade_UnbindsChatRegistry(t *testing.T) {
+	ctx := context.Background()
+	ad := newAdapter(t)
+	term := &fakeTerminateSession{}
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil, term.terminate)
+	require.NoError(t, err)
+
+	var mu sync.Mutex
+	var unbound []string
+	c.ForgetChatRegistry = func(chatID string) {
+		mu.Lock()
+		defer mu.Unlock()
+		unbound = append(unbound, chatID)
+	}
+
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b"}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{ID: "w2", RepoID: "r1", ProjectID: "p1", Branch: "b2"}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	createAgentChat(t, ctx, c.AgentChat, "chat1", "w1", "term-1")
+	createAgentChat(t, ctx, c.AgentChat, "chat2", "w2", "term-2")
+	c.WaitQuiescent()
+
+	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
+	c.WaitQuiescent()
+	c.Drain().WG.Wait()
+	c.WaitQuiescent()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"chat1"}, unbound, "only the deleted workspace's chat should be unbound from the registry")
+}
+
 // TestContainer_WireCallbacks_DeleteCascade_ForgetsAgentChats_NilTerminateSession
 // pins that a nil terminateSession (the zero value most tests in this file use)
 // degrades to "forget with no PTY teardown" rather than panicking — production
@@ -601,6 +639,129 @@ func TestContainer_WireCallbacks_DeleteCascade_ForgetsAgentChats_NilTerminateSes
 	c.WaitQuiescent()
 
 	_, err = c.AgentChat.GetChat(ctx, "chat1")
+	assert.ErrorIs(t, err, agentchat.ErrNotFound)
+}
+
+// fakeReapChatFiles is a thread-safe ReapChatFiles double: reap removes
+// chatsDir/chatID from disk — mirroring what the real seam (app.
+// reapAgentChatFiles) does — and records every chat id it was asked to reap,
+// standing in for the injected on-disk reap seam forgetAgentChats uses after
+// Forgetting each chat. failForID makes reap return an error for one specific
+// chat id, so a test can prove the cascade treats a reap failure as
+// best-effort (logs + continues, matching terminateSession's contract).
+type fakeReapChatFiles struct {
+	mu        sync.Mutex
+	chatsDir  string
+	calls     []string
+	failForID string
+}
+
+func (f *fakeReapChatFiles) reap(_ context.Context, _ string, chatID string) error {
+	f.mu.Lock()
+	f.calls = append(f.calls, chatID)
+	fail := chatID == f.failForID
+	f.mu.Unlock()
+	if fail {
+		return errFake
+	}
+	return os.RemoveAll(filepath.Join(f.chatsDir, chatID))
+}
+
+func (f *fakeReapChatFiles) reaped() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.calls...)
+}
+
+// TestContainer_WireCallbacks_DeleteCascade_ReapsAgentChatFiles pins the
+// on-disk half of the agent-chat cascade: deleting a workspace reaps EACH of
+// its forgotten chats' own <chatsDir>/<chatID> directory, but leaves the
+// SHARED chatsDir parent alone, along with a sentinel sibling chat directory
+// belonging to a DIFFERENT, untouched workspace that happens to share the same
+// chats dir (the home-kind sharing scenario the safety rule guards against a
+// single-workspace delete ever touching).
+func TestContainer_WireCallbacks_DeleteCascade_ReapsAgentChatFiles(t *testing.T) {
+	ctx := context.Background()
+	ad := newAdapter(t)
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil, nil)
+	require.NoError(t, err)
+
+	// Stands in for a shared <slug>/default/chats dir: chat1/chat2 belong to
+	// w1 (being deleted); chat-other belongs to w2 and must survive.
+	chatsDir := t.TempDir()
+	reap := &fakeReapChatFiles{chatsDir: chatsDir}
+	c.ReapChatFiles = reap.reap
+	for _, id := range []string{"chat1", "chat2", "chat-other"} {
+		dir := filepath.Join(chatsDir, id)
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "ledger.jsonl"), []byte("{}"), 0o600))
+	}
+
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w2", RepoID: "r1", ProjectID: "p1", Branch: "b2",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+
+	createAgentChat(t, ctx, c.AgentChat, "chat1", "w1", "term-1")
+	createAgentChat(t, ctx, c.AgentChat, "chat2", "w1", "term-2")
+	createAgentChat(t, ctx, c.AgentChat, "chat-other", "w2", "term-3")
+	c.WaitQuiescent()
+
+	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
+	c.WaitQuiescent()
+	c.Drain().WG.Wait()
+	c.WaitQuiescent()
+
+	assert.ElementsMatch(t, []string{"chat1", "chat2"}, reap.reaped())
+
+	_, err = os.Stat(filepath.Join(chatsDir, "chat1"))
+	assert.True(t, os.IsNotExist(err), "chat1's own directory must be reaped")
+	_, err = os.Stat(filepath.Join(chatsDir, "chat2"))
+	assert.True(t, os.IsNotExist(err), "chat2's own directory must be reaped")
+
+	_, err = os.Stat(chatsDir)
+	assert.NoError(t, err, "the SHARED chats dir parent must never be removed")
+	_, err = os.Stat(filepath.Join(chatsDir, "chat-other"))
+	assert.NoError(t, err, "a sibling chat directory belonging to a different workspace must survive")
+}
+
+// TestContainer_WireCallbacks_DeleteCascade_ReapFailure_IsBestEffort pins that
+// a reap failure for one chat's on-disk directory does not abort the cascade:
+// every chat is still Forgotten (the aggregate purge and the fs reap are
+// independent), mirroring the existing terminate-failure best-effort contract.
+func TestContainer_WireCallbacks_DeleteCascade_ReapFailure_IsBestEffort(t *testing.T) {
+	ctx := context.Background()
+	ad := newAdapter(t)
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil, nil)
+	require.NoError(t, err)
+
+	chatsDir := t.TempDir()
+	reap := &fakeReapChatFiles{chatsDir: chatsDir, failForID: "chat1"}
+	c.ReapChatFiles = reap.reap
+
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	createAgentChat(t, ctx, c.AgentChat, "chat1", "w1", "term-1")
+	createAgentChat(t, ctx, c.AgentChat, "chat2", "w1", "term-2")
+	c.WaitQuiescent()
+
+	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
+	c.WaitQuiescent()
+	c.Drain().WG.Wait()
+	c.WaitQuiescent()
+
+	// Both chats' reap was attempted (chat1's failed) ...
+	assert.ElementsMatch(t, []string{"chat1", "chat2"}, reap.reaped())
+	// ... and BOTH chats are still Forgotten despite chat1's reap failure.
+	_, err = c.AgentChat.GetChat(ctx, "chat1")
+	assert.ErrorIs(t, err, agentchat.ErrNotFound)
+	_, err = c.AgentChat.GetChat(ctx, "chat2")
 	assert.ErrorIs(t, err, agentchat.ErrNotFound)
 }
 
@@ -638,44 +799,5 @@ func TestContainer_WireCallbacks_DeleteCascade_TerminateFailure_IsBestEffort(t *
 	_, err = c.AgentChat.GetChat(ctx, "chat1")
 	assert.ErrorIs(t, err, agentchat.ErrNotFound)
 	_, err = c.AgentChat.GetChat(ctx, "chat2")
-	assert.ErrorIs(t, err, agentchat.ErrNotFound)
-}
-
-// TestContainer_WireCallbacks_DeleteCascade_ForgetsSoftDeletedChats pins Task 12
-// review Important 2: a chat already SOFT-deleted (Status==deleted, e.g. via the
-// usecase's DeleteChat) is invisible to the live-filtered ListByWorkspace, so
-// the cascade must enumerate via ListByWorkspaceIncludingDeleted — otherwise the
-// tombstoned chat's event log + read row would survive the deleted workspace
-// forever. Here chat1 is soft-deleted before the workspace delete; the cascade
-// must still hard-Forget it.
-func TestContainer_WireCallbacks_DeleteCascade_ForgetsSoftDeletedChats(t *testing.T) {
-	ctx := context.Background()
-	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil, nil)
-	require.NoError(t, err)
-
-	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
-		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
-	}, time.Unix(1, 0).UTC())
-	require.NoError(t, err)
-	createAgentChat(t, ctx, c.AgentChat, "chat1", "w1", "term-1")
-	c.WaitQuiescent()
-
-	// Soft-delete chat1: it is now a tombstone hidden from ListByWorkspace but
-	// still anchored to w1 and still holding an event log + read row.
-	require.NoError(t, c.AgentChat.Delete(ctx, "chat1"))
-	c.WaitQuiescent()
-	live, err := c.AgentChat.ListByWorkspace(ctx, "w1")
-	require.NoError(t, err)
-	require.Empty(t, live, "the soft-deleted chat must be hidden from the live-filtered list")
-
-	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
-	c.WaitQuiescent()
-	c.Drain().WG.Wait()
-	c.WaitQuiescent()
-
-	// The soft-deleted chat is genuinely gone: the cascade hard-Forgot it even
-	// though the live filter hid it.
-	_, err = c.AgentChat.GetChat(ctx, "chat1")
 	assert.ErrorIs(t, err, agentchat.ErrNotFound)
 }

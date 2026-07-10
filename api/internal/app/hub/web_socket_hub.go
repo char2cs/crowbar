@@ -35,6 +35,7 @@ type WebSocketHub interface {
 	)
 	BroadcastAgentChat(
 		chatID string,
+		workspaceID string,
 		kind string,
 	)
 }

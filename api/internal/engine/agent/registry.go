@@ -56,6 +56,32 @@ func (r *Registry) ChatFor(segmentID string) (string, bool) {
 	return chatID, ok
 }
 
+// ForgetChat removes every mapping that points at chatID — the segment->chat and
+// segment->session entries for all of the chat's segments, plus its session->chat
+// entries. Called synchronously when a chat is hard-deleted (PurgeChat / the
+// workspace-delete cascade) so the async PTY-teardown reconcile
+// (reconcileSegmentExit) sees ChatFor(segID) return !ok and no-ops at its FIRST,
+// in-memory guard — before the racy read-model GetChat. Bus event delivery is
+// async (asynx spawns a goroutine per handler), so onForget's read-model row
+// delete races reconcile's EndSegment Save; this synchronous unbind is the only
+// order-independent way to stop a fast-exiting CLI from resurrecting the deleted
+// chat's read row with an "ended" segment.
+func (r *Registry) ForgetChat(chatID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for seg, c := range r.segToChat {
+		if c == chatID {
+			delete(r.segToChat, seg)
+			delete(r.segToSession, seg)
+		}
+	}
+	for sess, c := range r.sessionToChat {
+		if c == chatID {
+			delete(r.sessionToChat, sess)
+		}
+	}
+}
+
 // OnSessionStart is the spec §7 reducer. It branches ONLY on facts: (1) did the
 // session id under this segment change, (2) is the new id known.
 func (r *Registry) OnSessionStart(segmentID, sessionID string, newChatID func() string) Outcome {

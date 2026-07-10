@@ -9,15 +9,21 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
-// Switch handles POST /v0/agent/chats/:id/switch: terminates the chat's active
-// provider CLI, assembles a handoff from the ledger, and spawns the requested
-// provider as a new segment in the same chat. It responds with the new
-// segment's id under the mutation envelope.
+// Switch handles POST .../workspaces/:wsId/agent/chats/:id/switch: terminates
+// the chat's active provider CLI, assembles a handoff from the ledger, and
+// spawns the requested provider as a new segment in the same chat. It
+// responds with the new segment's id under the mutation envelope. 404s (via
+// requireChatInWorkspace) when id names a chat anchored to a DIFFERENT
+// workspace than :wsId.
 func (h *Handlers) Switch(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
 	id := ctx.Param("id")
+
+	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {
+		return
+	}
 
 	var body struct {
 		Provider string `json:"provider"`
@@ -37,15 +43,20 @@ func (h *Handlers) Switch(
 	libs.WriteMutationOK(ctx, http.StatusOK, newSegID)
 }
 
-// Handoff handles GET /v0/agent/chats/:id/handoff: assembles the chat's
-// ledger into the legible handoff blob a freshly spawned provider CLI can be
-// given as prior context. Used by the `crowbar handoff dump` CLI as well as
-// the switch flow internally.
+// Handoff handles GET .../workspaces/:wsId/agent/chats/:id/handoff: assembles
+// the chat's ledger into the legible handoff blob a freshly spawned provider
+// CLI can be given as prior context. Used by the `crowbar handoff dump` CLI
+// as well as the switch flow internally. 404s (via requireChatInWorkspace)
+// when id names a chat anchored to a DIFFERENT workspace than :wsId.
 func (h *Handlers) Handoff(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
 	id := ctx.Param("id")
+
+	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {
+		return
+	}
 
 	handoff, err := h.usecase.AssembleHandoff(rctx, id)
 	if err != nil {

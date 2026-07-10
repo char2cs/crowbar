@@ -7,12 +7,11 @@ import "time"
 // lives in the ledger, not here — this aggregate holds identity, segments,
 // session ids, title, and live Working state, plus a ledger cursor.
 type AgentChat struct {
-	ID          string          `json:"id"`
-	WorkspaceID string          `json:"workspaceId"`
-	Title       string          `json:"title"`
-	TitleLocked bool            `json:"titleLocked"`
-	CreatedAt   time.Time       `json:"createdAt"`
-	Status      AgentChatStatus `json:"status,omitempty"`
+	ID          string    `json:"id"`
+	WorkspaceID string    `json:"workspaceId"`
+	Title       string    `json:"title"`
+	TitleLocked bool      `json:"titleLocked"`
+	CreatedAt   time.Time `json:"createdAt"`
 
 	// Segments are embedded in the aggregate and serialized as JSON by the asynx
 	// read model (the legacy gorm store that couldn't map a slice-of-struct is

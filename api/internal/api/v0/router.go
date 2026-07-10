@@ -52,7 +52,6 @@ func (c *Container) Register(
 	// Top-level, non-entity-scoped routes stay on rg (outside /projects).
 	health.Register(rg)
 	system.Register(rg)
-	agent.Register(rg, c.app.Usecases.Agent, c.agentChats.Handle)
 
 	projects := rg.Group("/projects")
 	projectScoped := projects.Group("/:projectId")
@@ -139,6 +138,13 @@ func (c *Container) Register(
 		c.terminals.Handle,
 		ws.DualServe,
 	)
+	// The agentic-chat REST + WS surface is workspace-scoped (Task 3): every
+	// AgentChat is anchored to a workspace, so its routes mount on wsScoped
+	// (.../workspaces/:wsId) exactly like terminal.Register above, giving it
+	// scopeWorkspaceToPath's wsId-ownership enforcement for free. The WS route
+	// (.../agent/ws/chats) lands in the SAME group as the REST routes so its
+	// :wsId path param is available to agentChatDef's Filter (container.go).
+	agent.Register(wsScoped, c.app.Usecases.Agent, c.agentChats.Handle)
 	search.Register(
 		repoScoped,
 		c.eng.Search,

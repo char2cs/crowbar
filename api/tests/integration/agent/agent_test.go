@@ -133,15 +133,15 @@ func apiRootDir(t *testing.T) string {
 //
 // The child-workspace requirement is load-bearing, not stylistic:
 // agent.WorkspaceReader (internal/app/usecases/container.go's
-// agentWorkspaceReader) derives SpawnChat's cwd purely from
-// worktreepath.For(home, projectID, repoID, workspaceID) — a function of the
-// IDs alone, NOT the workspace row's stored WorktreePath column. A managed
-// child worktree's real on-disk directory IS that computed path (worktree.
-// CreateChild creates it there), so WorktreeDir resolves correctly. The
-// adopted repo-home workspace's real directory is the external repoPath
-// (wherever the repo actually lives on disk), which that formula would NOT
-// reproduce — using it here would hand SpawnChat a cwd that was never
-// created on disk.
+// agentWorkspaceReader) derives SpawnChat's cwd from the workspace row's stored
+// WorktreePath (WorktreeDir returns it verbatim). A managed child worktree's
+// stored WorktreePath is a real on-disk directory under crowbar home (worktree.
+// CreateChild creates it there), so both the cwd and the sibling chats dir
+// resolve to real, reap-able paths. The adopted repo-home workspace's stored
+// WorktreePath is instead the external repoPath (the user's real checkout,
+// OUTSIDE home) — spawning there is still valid (its chats reroot under home via
+// AgentChatsDir, Task 7), but this harness deliberately uses a managed child so
+// the assertions observe the simple sibling-of-worktree layout.
 func (h *harness) importRepoAndWorkspace(
 	t *testing.T,
 	name string,

@@ -1,4 +1,5 @@
-// Package handlers holds the gin handlers backing the /v0/agent endpoints.
+// Package handlers holds the gin handlers backing the
+// .../workspaces/:wsId/agent endpoints.
 package handlers
 
 import (
@@ -25,8 +26,11 @@ type AgentUsecase interface {
 		rawPayload []byte,
 	) error
 
-	ListChats(
+	// ListChatsByWorkspace returns every AgentChat anchored to workspaceID
+	// (Task 3: List is scoped by the :wsId path param, not global).
+	ListChatsByWorkspace(
 		ctx context.Context,
+		workspaceID string,
 	) ([]domain.AgentChat, error)
 
 	GetChat(
@@ -61,9 +65,18 @@ type AgentUsecase interface {
 		ctx context.Context,
 		chatID, title, source string,
 	) error
+
+	// PurgeChat hard-deletes chatID via asynx Forget after best-effort
+	// terminating its active segment's PTY (Task 5). The chat is fully
+	// erased — gone from every read, including a direct GetChat by id — the
+	// instant this returns.
+	PurgeChat(
+		ctx context.Context,
+		chatID string,
+	) error
 }
 
-// Handlers serves the /v0/agent routes from the agent usecase.
+// Handlers serves the .../workspaces/:wsId/agent routes from the agent usecase.
 type Handlers struct {
 	usecase AgentUsecase
 }

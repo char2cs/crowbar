@@ -47,7 +47,7 @@ func (h *discardHub) BroadcastThread(_ dto.ThreadDTO)                   {}
 func (h *discardHub) BroadcastTerminalSession(_ dto.TerminalSessionDTO) {}
 func (h *discardHub) BroadcastGit(_ string, _ gitdomain.GitStatus)      {}
 func (h *discardHub) BroadcastFile(_ domain.FileChangeEvent)            {}
-func (h *discardHub) BroadcastAgentChat(_ string, _ string)             {}
+func (h *discardHub) BroadcastAgentChat(_ string, _ string, _ string)   {}
 
 func TestBroadcastWorkspace_NoParent_EmptyEligibility(t *testing.T) {
 	h := &discardHub{}

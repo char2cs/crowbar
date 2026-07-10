@@ -38,7 +38,6 @@ func (c Create) EmitEvent(_ *domain.AgentChat) domain.AgentChat {
 	return domain.AgentChat{
 		ID:              c.ID,
 		WorkspaceID:     c.WorkspaceID,
-		Status:          domain.AgentChatStatusActive,
 		ActiveSegmentID: c.SegmentID,
 		Segments: []domain.AgentSegment{{
 			ID:                c.SegmentID,

@@ -97,18 +97,14 @@ type EventStore interface {
 		title string,
 		source string,
 	) (domain.AgentChat, error)
-	Delete(
-		ctx context.Context,
-		id string,
-	) error
 	// Forget purges the chat aggregate outright via ax.Forget: its synchronous
 	// OnForget drops the read-model row AND the underlying event log is
 	// erased, so a subsequent GetChat/ListByWorkspace genuinely reports not
-	// found — unlike Delete's soft tombstone, which keeps the aggregate
-	// readable by direct GetChat. Used ONLY by the workspace-delete cascade
-	// (repositories.Container.forgetAgentChats, Task 12): once the owning
-	// workspace itself is gone, the chat has nowhere left to live. Mirrors
-	// reviewthread's DeleteThread.
+	// found. Two callers: the workspace-delete cascade
+	// (repositories.Container.forgetAgentChats, Task 12), when the owning
+	// workspace itself is gone and the chat has nowhere left to live; and the
+	// standalone hard delete (agent.Usecase.PurgeChat, Task 5), which reaps a
+	// single chat on user request. Mirrors reviewthread's DeleteThread.
 	Forget(
 		ctx context.Context,
 		id string,
@@ -121,17 +117,6 @@ type EventStore interface {
 		ctx context.Context,
 	) ([]domain.AgentChat, error)
 	ListByWorkspace(
-		ctx context.Context,
-		wsID string,
-	) ([]domain.AgentChat, error)
-	// ListByWorkspaceIncludingDeleted returns EVERY chat anchored to wsID,
-	// including soft-deleted (Status==deleted) tombstones that ListByWorkspace
-	// hides. Used by the workspace-delete cascade
-	// (repositories.Container.forgetAgentChats, Task 12) so a chat already
-	// soft-deleted via the usecase's DeleteChat is still hard-Forgotten when
-	// its owning workspace is deleted — otherwise its event log + read row
-	// would outlive the workspace forever.
-	ListByWorkspaceIncludingDeleted(
 		ctx context.Context,
 		wsID string,
 	) ([]domain.AgentChat, error)
@@ -323,23 +308,8 @@ func (r *eventSourced) SetTitle(
 	return evt.Aggregate, nil
 }
 
-// Delete tombstones the chat (Status=deleted) via the command layer, unlike
-// reviewthread's DeleteThread which hard-deletes via ax.Forget — an agentchat
-// tombstone must remain readable by direct GetChat (spec: deletion removes a
-// chat from list views, not from by-id lookup).
-func (r *eventSourced) Delete(
-	ctx context.Context,
-	id string,
-) error {
-	if _, err := r.sendWithOCC(ctx, commands.Delete{ChatID: id}); err != nil {
-		return fmt.Errorf("agentchat: delete: %w", err)
-	}
-	return nil
-}
-
 // Forget purges the chat aggregate via ax.Forget (hard delete), mirroring
-// reviewthread's DeleteThread. See the EventStore interface doc for why this
-// is distinct from Delete's soft tombstone.
+// reviewthread's DeleteThread. See the EventStore interface doc for details.
 func (r *eventSourced) Forget(
 	ctx context.Context,
 	id string,
@@ -378,17 +348,6 @@ func (r *eventSourced) ListByWorkspace(
 	rows, err := r.store.ListByWorkspace(ctx, wsID)
 	if err != nil {
 		return nil, fmt.Errorf("agentchat: list by workspace: %w", err)
-	}
-	return rows, nil
-}
-
-func (r *eventSourced) ListByWorkspaceIncludingDeleted(
-	ctx context.Context,
-	wsID string,
-) ([]domain.AgentChat, error) {
-	rows, err := r.store.ListByWorkspaceIncludingDeleted(ctx, wsID)
-	if err != nil {
-		return nil, fmt.Errorf("agentchat: list by workspace including deleted: %w", err)
 	}
 	return rows, nil
 }

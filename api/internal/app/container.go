@@ -20,6 +20,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/engine/provider"
@@ -103,6 +104,19 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
 	}
+	// Wire the workspace-delete cascade's on-disk reap seam now that the agent
+	// usecase's WorkspaceReader exists (repos.Workspace, which it resolves
+	// against, is only populated once repositories.New above has returned — see
+	// repositories.Container.ReapChatFiles' doc comment for why this can't be a
+	// repositories.New constructor argument).
+	repos.ReapChatFiles = reapAgentChatFiles(ucs.AgentWorkspaceReader)
+	if ucs.Agent != nil {
+		// Same construction-order reason as ReapChatFiles: the cascade unbinds a
+		// deleted chat's segments from the agent registry (which lives on the agent
+		// usecase) before tearing down its PTY, so the async teardown can't
+		// resurrect the chat's read row (see repositories.Container.ForgetChatRegistry).
+		repos.ForgetChatRegistry = ucs.Agent.ForgetChatRegistry
+	}
 
 	startProviderSweep(ctx, engines, repos, ucs)
 	if err := startBootSweep(ctx, adapters, repos, axWorkspace); err != nil {
@@ -111,7 +125,6 @@ func New(
 	startRestoreTerminalSessions(ctx, ucs)
 	seedAgentRegistry(ctx, ucs)
 	reconcileAgentBoot(ctx, ucs)
-	sweepStaleAgentTmp(crowbarHome)
 
 	rt := realtime.New(
 		ctx,
@@ -208,6 +221,35 @@ func terminateAgentSession(
 	}
 }
 
+// reapAgentChatFiles adapts the agent usecase's WorkspaceReader (AgentChatsDir +
+// WorktreeDir) into the plain func(ctx, wsID, chatID) error seam
+// repositories.Container.ReapChatFiles wants: the workspace-delete cascade
+// (repositories.Container.forgetAgentChats) calls it, per forgotten chat, to
+// remove that chat's own <chatsDir>/<chatID> directory. It reuses the EXACT
+// same path resolution and agent.RemoveUnderHome guard the standalone
+// PurgeChat path already routes through (Important-2) — no path logic is
+// reimplemented here — so a workspace delete no longer leaves a chat's
+// plaintext handoff ledger behind under .crowbar. ws is the SAME reader
+// instance the agent usecase itself was built with (see
+// usecases.Container.AgentWorkspaceReader's doc comment for why this is wired
+// in after usecases.New returns rather than threaded into repositories.New).
+func reapAgentChatFiles(
+	ws agent.WorkspaceReader,
+) func(ctx context.Context, wsID, chatID string) error {
+	return func(ctx context.Context, wsID, chatID string) error {
+		chatsDir, err := ws.AgentChatsDir(ctx, wsID)
+		if err != nil {
+			return fmt.Errorf("resolve chats dir: %w", err)
+		}
+		home, _, _, _, err := ws.WorktreeDir(ctx, wsID)
+		if err != nil {
+			return fmt.Errorf("resolve home: %w", err)
+		}
+		agent.RemoveUnderHome(ctx, home, filepath.Join(chatsDir, chatID))
+		return nil
+	}
+}
+
 func toUsecaseStores(
 	gormStores *GORMStores,
 ) usecases.GORMStores {
@@ -263,13 +305,18 @@ func startBootSweep(
 
 // bootSweepPurge builds the idempotent teardown the boot orphan-sweep re-drives
 // for each residual Status="deleted" workspace (spec §3.8): resolve the worktree
-// path from the id↔path map, rm -rf it, delete the id↔path row (§3.9 write-point
-// c), then Forget the aggregate — whose synchronous OnForget drops the read-model
-// row — as the terminal step. Every step is idempotent so a re-drive after a
-// crash is a no-op: a missing path row skips the rm, an absent worktree rm's to
-// nothing, and Forgetting an already-Forgotten aggregate (ErrValidation) is
-// swallowed. It mirrors the delete reactor's purge (§3.6) minus the tombstone
-// gate — the sweep already selected rows the projection persisted as "deleted".
+// path from the id↔path map, rm -rf its workspace root, delete the id↔path row
+// (§3.9 write-point c), then Forget the aggregate — whose synchronous OnForget
+// drops the read-model row — as the terminal step. Every step is idempotent so a
+// re-drive after a crash is a no-op: a missing path row skips the rm, an absent
+// worktree rm's to nothing, and Forgetting an already-Forgotten aggregate
+// (ErrValidation) is swallowed. It mirrors the delete reactor's purge (§3.6)
+// minus the tombstone gate — the sweep already selected rows the projection
+// persisted as "deleted" — including the workspace-root parent-dir rm (see
+// repositories.worktreeRemover's doc comment: path is the "worktree" leaf of a
+// root that also holds the sibling "chats" tree, so the PARENT is what's
+// removed, computed inline via filepath.Dir since the internal worktreepath
+// package cannot be imported from this package either).
 func bootSweepPurge(
 	ax asynx.Asynx[domain.Workspace],
 	pathsStore wspaths.WorkspacePaths,
@@ -287,10 +334,18 @@ func bootSweepPurge(
 		// adopted home/main worktree's mapped path is the user's REAL checkout
 		// (repo.Path/project.Path, outside the home) and must never be destroyed —
 		// so a crash-recovery re-drive of a tombstoned home never deletes a user's
-		// repository (mirrors the delete reactor's worktreeRemover guard).
-		if path != "" && crowbarHome != "" && strings.HasPrefix(path, strings.TrimRight(crowbarHome, "/")+"/") {
-			if err := os.RemoveAll(path); err != nil {
-				return fmt.Errorf("rm worktree %q: %w", path, err)
+		// repository (mirrors the delete reactor's worktreeRemover guard). The rm
+		// target is the PARENT (workspace root holding the sibling chats tree), so
+		// the SAME strict-under-home test is applied to the root too: a degenerate
+		// one-segment leaf (<home>/worktree) has filepath.Dir == home, and rm'ing
+		// that would nuke the entire crowbar home — refused here.
+		if underHome(path, crowbarHome) {
+			root := filepath.Dir(path)
+			if !underHome(root, crowbarHome) {
+				slog.Warn("app: boot sweep: refusing to rm workspace root at or above the crowbar home",
+					"root", root, "path", path, "home", crowbarHome)
+			} else if err := os.RemoveAll(root); err != nil {
+				return fmt.Errorf("rm workspace root %q: %w", root, err)
 			}
 		}
 		if err := pathsStore.Delete(ctx, wsID); err != nil {
@@ -301,6 +356,22 @@ func bootSweepPurge(
 		}
 		return nil
 	}
+}
+
+// underHome reports whether path is strictly nested under crowbarHome (home as a
+// proper directory-boundary prefix). It is the boot-sweep's copy of the delete
+// reactor's managedWorktreePath guard — the internal worktreepath package is not
+// importable from this package, so the identical strict-prefix test is inlined
+// here so both the removed WORKTREE and its removed ROOT parent are proven under
+// home before any rm.
+func underHome(
+	path string,
+	crowbarHome string,
+) bool {
+	if path == "" || crowbarHome == "" {
+		return false
+	}
+	return strings.HasPrefix(path, strings.TrimRight(crowbarHome, "/")+"/")
 }
 
 // startRestoreTerminalSessions reloads persisted terminal sessions as PTY-less
@@ -356,23 +427,6 @@ func reconcileAgentBoot(
 	if err := ucs.Agent.ReconcileOnBoot(context.WithoutCancel(ctx)); err != nil {
 		slog.WarnContext(ctx, "app: reconcile agent boot", "err", err)
 	}
-}
-
-// sweepStaleAgentTmp best-effort removes <home>/agent-tmp at daemon startup.
-// agent.Usecase.spawnSegment renders each spawned segment's hook config (and,
-// for codex, a COPY of ~/.codex/auth.json — a credential) into
-// <home>/agent-tmp/<segID>, kept alive for the whole life of the running
-// vendor CLI and removed via the terminal engine's onExit callback when that
-// CLI's PTY session ends. No agentic PTY survives a daemon restart, so on the
-// next startup every entry under agent-tmp is guaranteed stale — sweeping the
-// whole directory (rather than resolving the home from persisted segments,
-// which SeedRegistry has no clean path to) is both simpler and sufficient. It
-// runs synchronously, before the HTTP layer starts serving, so it can never
-// race a freshly spawned segment's own tmp dir. Best-effort: an error here
-// only leaves a slightly larger stale-dir backlog for the following restart,
-// never blocks startup.
-func sweepStaleAgentTmp(crowbarHome string) {
-	_ = os.RemoveAll(filepath.Join(crowbarHome, "agent-tmp"))
 }
 
 func sweepCallback(

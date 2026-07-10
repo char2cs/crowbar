@@ -2,7 +2,7 @@ config:
   prompts:
     title_instruction: |
       Give this conversation a short title, once, by running exactly this command (replace the placeholder with a concise 2-5 word Title-Case title of the task):
-      {crowbar} chat rename {chatid} "<title>"
+      {crowbar} chat rename --project {project_id} --repo {repo_id} --workspace {workspace_id} {chatid} "<title>"
     handoff_wrapper: |
       === HANDED-OFF CONTEXT (Crowbar) ===
       {conversation}

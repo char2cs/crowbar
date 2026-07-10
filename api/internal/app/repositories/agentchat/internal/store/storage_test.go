@@ -51,7 +51,6 @@ func TestStorage_SaveFindDelete(t *testing.T) {
 	chat := domain.AgentChat{
 		ID:          "c1",
 		WorkspaceID: "w1",
-		Status:      domain.AgentChatStatusActive,
 	}
 	require.NoError(t, st.Save(ctx, chat))
 

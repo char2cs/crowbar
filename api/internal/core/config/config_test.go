@@ -17,7 +17,7 @@ func TestGetPrompts_FromEmbeddedDefaults(t *testing.T) {
 	t.Cleanup(resetForTesting)
 
 	p := GetPrompts()
-	assert.Contains(t, p.TitleInstruction, "chat rename {chatid}")
+	assert.Contains(t, p.TitleInstruction, "chat rename --project {project_id} --repo {repo_id} --workspace {workspace_id} {chatid}")
 	assert.Contains(t, p.HandoffWrapper, "{conversation}")
 }
 
@@ -34,5 +34,5 @@ func TestGetPrompts_UserConfigOverlays(t *testing.T) {
 	p := GetPrompts()
 	assert.Equal(t, "CUSTOM {conversation}", p.HandoffWrapper)
 	// absent field keeps the embedded default
-	assert.Contains(t, p.TitleInstruction, "chat rename {chatid}")
+	assert.Contains(t, p.TitleInstruction, "chat rename --project {project_id} --repo {repo_id} --workspace {workspace_id} {chatid}")
 }

@@ -14,11 +14,11 @@ config_injection:
       content: |
         {"hooks":{
           "SessionStart":[{"hooks":[{"type":"command",
-            "command":"{crowbar_hook} hook session_start --segment {segid} --provider {provider}"}]}],
+            "command":"{crowbar_hook} hook session_start --segment {segid} --provider {provider} --project {project_id} --repo {repo_id} --workspace {workspace_id}"}]}],
           "UserPromptSubmit":[{"hooks":[{"type":"command",
-            "command":"{crowbar_hook} hook user_prompt --segment {segid} --provider {provider}"}]}],
+            "command":"{crowbar_hook} hook user_prompt --segment {segid} --provider {provider} --project {project_id} --repo {repo_id} --workspace {workspace_id}"}]}],
           "Stop":[{"hooks":[{"type":"command",
-            "command":"{crowbar_hook} hook turn_stop --segment {segid} --provider {provider}"}]}]
+            "command":"{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} --project {project_id} --repo {repo_id} --workspace {workspace_id}"}]}]
         }}
   - pass_arg: { arg: "--settings", value: "{tmp}/settings.json" }
 hooks:

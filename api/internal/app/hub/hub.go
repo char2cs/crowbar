@@ -112,15 +112,20 @@ func (h *Hub) BroadcastFile(
 // BroadcastAgentChat fans an agent-chat lifecycle event (created/segment_opened/
 // segment_ended/session_bound/turn_started/turn_stopped/title_set/deleted) out
 // to every subscriber. Fed solely by the agentchat hub projection, which derives
-// the kind from the emitting command's event name.
+// the kind from the emitting command's event name and workspaceID from the
+// reduced aggregate. workspaceID rides on every frame so the agent-chat WS
+// StreamDef scopes the fan-out to the matching :wsId subscription (Task 3): this
+// method pushes to every subscriber, and the per-subscription Filter drops frames
+// whose WorkspaceID does not match the subscribed workspace.
 func (h *Hub) BroadcastAgentChat(
 	chatID string,
+	workspaceID string,
 	kind string,
 ) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
-		s.PushAgentChat(chatID, kind)
+		s.PushAgentChat(chatID, workspaceID, kind)
 	}
 }
 

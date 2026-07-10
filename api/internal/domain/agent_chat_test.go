@@ -15,10 +15,3 @@ func TestAgentChat_ZeroValueIsInactiveNotWorking(t *testing.T) {
 		t.Fatal("zero-value AgentChat must have no segments")
 	}
 }
-
-func TestAgentChatStatus_Values(t *testing.T) {
-	if domain.AgentChatStatusActive != "active" ||
-		domain.AgentChatStatusDeleted != "deleted" {
-		t.Fatal("unexpected status literals")
-	}
-}

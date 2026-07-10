@@ -22,17 +22,17 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// captureBroadcast records every (chatID, kind) frame the hub projection fans
-// out, mirroring reviewthread's test capture.
+// captureBroadcast records every (chatID, workspaceID, kind) frame the hub
+// projection fans out, mirroring reviewthread's test capture.
 type captureBroadcast struct {
 	mu   sync.Mutex
 	rows []string
 }
 
-func (c *captureBroadcast) push(chatID string, kind string) {
+func (c *captureBroadcast) push(chatID string, workspaceID string, kind string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.rows = append(c.rows, chatID+":"+kind)
+	c.rows = append(c.rows, chatID+":"+workspaceID+":"+kind)
 }
 
 func (c *captureBroadcast) count() int {
@@ -102,7 +102,6 @@ func TestAgentChat_CreateAndGetChat(t *testing.T) {
 	got, err := repo.GetChat(ctx, "c1")
 	require.NoError(t, err)
 	assert.Equal(t, "w1", got.WorkspaceID)
-	assert.Equal(t, domain.AgentChatStatusActive, got.Status)
 }
 
 func TestAgentChat_Create_ErrorOnDuplicate(t *testing.T) {
@@ -203,39 +202,12 @@ func TestAgentChat_SetTitle_UserSourceLocksAgainstAgent(t *testing.T) {
 	assert.ErrorIs(t, err, asynxModels.ErrValidation)
 }
 
-func TestAgentChat_Delete_TombstoneReachableByIDExcludedFromList(t *testing.T) {
-	ctx, repo := newRepo(t)
-	now := time.Unix(1, 0).UTC()
-	createChat(t, ctx, repo, "c1", "w1", now)
-	createChat(t, ctx, repo, "c2", "w1", now)
-
-	require.NoError(t, repo.Delete(ctx, "c2"))
-	agentchat.WaitQuiescentForTest(repo)
-
-	list, err := repo.ListChats(ctx)
-	require.NoError(t, err)
-	require.Len(t, list, 1)
-	assert.Equal(t, "c1", list[0].ID)
-
-	deleted, err := repo.GetChat(ctx, "c2")
-	require.NoError(t, err)
-	assert.Equal(t, domain.AgentChatStatusDeleted, deleted.Status)
-}
-
-func TestAgentChat_Delete_ErrorOnMissing(t *testing.T) {
-	ctx, repo := newRepo(t)
-	err := repo.Delete(ctx, "does-not-exist")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, asynxModels.ErrValidation)
-}
-
 // TestAgentChat_Forget_ErasesAggregate mirrors reviewthread's
-// TestReviewThread_DeleteThread_Forgets: unlike Delete's soft tombstone (still
-// reachable by GetChat), Forget hard-deletes via ax.Forget — the synchronous
-// OnForget drops the read-model row AND the underlying event log is erased, so
-// a subsequent GetChat cannot self-heal it back via lazy Replay and genuinely
-// reports agentchat.ErrNotFound. This is the primitive the workspace-delete
-// cascade (repositories.Container.forgetAgentChats) uses.
+// TestReviewThread_DeleteThread_Forgets: Forget hard-deletes via ax.Forget —
+// the synchronous OnForget drops the read-model row AND the underlying event
+// log is erased, so a subsequent GetChat cannot self-heal it back via lazy
+// Replay and genuinely reports agentchat.ErrNotFound. This is the primitive
+// the workspace-delete cascade (repositories.Container.forgetAgentChats) uses.
 func TestAgentChat_Forget_ErasesAggregate(t *testing.T) {
 	ctx, repo, db, _ := newRepoWithDeps(t)
 	createChat(t, ctx, repo, "c1", "w1", time.Unix(1, 0).UTC())
@@ -430,6 +402,6 @@ func TestAgentChat_NewEventSourced_ErrorOnBadDB(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = agentchat.NewEventSourced(ax, es, db, func(string, string) {})
+	_, err = agentchat.NewEventSourced(ax, es, db, func(string, string, string) {})
 	require.Error(t, err)
 }

@@ -198,25 +198,31 @@ func TestContainer_PushFile_ReachesFilteredClient(t *testing.T) {
 	assert.Equal(t, "a.go", got["path"])
 }
 
-// TestContainer_PushAgentChat_ReachesClient proves PushAgentChat reaches every
-// subscriber of the agent-chat WebSocket with no per-workspace scoping (the
-// route carries no :wsId).
-func TestContainer_PushAgentChat_ReachesClient(t *testing.T) {
+// TestContainer_PushAgentChat_ReachesFilteredClient proves PushAgentChat
+// reaches only subscribers of the agent-chat WebSocket whose :wsId matches
+// the frame's workspace (Task 3), mirroring
+// TestContainer_PushGit_ReachesFilteredClient's proof shape for gitDef.
+func TestContainer_PushAgentChat_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
 	c := New(a, nil)
 	r := gin.New()
-	r.GET("/v0/agent/ws/chats", func(ctx *gin.Context) { c.agentChats.Handle(ctx) })
+	r.GET(
+		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/agent/ws/chats",
+		func(ctx *gin.Context) { c.agentChats.Handle(ctx) },
+	)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	conn := dialWSAt(t, srv, "/v0/agent/ws/chats")
+	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/A/agent/ws/chats")
 	c.agentChats.WaitRegistered()
 
-	c.PushAgentChat("chat-1", "bound")
+	c.PushAgentChat("chat-in-b", "B", "bound")
+	c.PushAgentChat("chat-1", "A", "bound")
 
 	got := readJSON(t, conn)
 	assert.Equal(t, "chat-1", got["chatId"])
+	assert.Equal(t, "A", got["workspaceId"])
 	assert.Equal(t, "bound", got["kind"])
 }
 

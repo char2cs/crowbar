@@ -98,6 +98,7 @@ type fakeAgentUsecase struct {
 	spawnChatID string
 	spawnSegID  string
 	spawnErr    error
+	spawnCalls  []spawnCall
 
 	switchCalls    []switchCall
 	switchNewSegID string
@@ -108,6 +109,16 @@ type fakeAgentUsecase struct {
 
 	renameCalls []renameCall
 	renameErr   error
+
+	purgeCalls []string
+	purgeErr   error
+
+	// getChat/getChatErr configure GetChat, the call every
+	// requireChatInWorkspace scope check (Get/Switch/Rename/Handoff) makes
+	// first. The zero value (an empty domain.AgentChat, WorkspaceID "") makes
+	// the scope check pass by default for callers that leave :wsId unset too.
+	getChat    domain.AgentChat
+	getChatErr error
 }
 
 type ingestCall struct {
@@ -115,6 +126,11 @@ type ingestCall struct {
 	provider string
 	event    string
 	raw      []byte
+}
+
+type spawnCall struct {
+	workspaceID string
+	provider    string
 }
 
 type switchCall struct {
@@ -130,9 +146,10 @@ type renameCall struct {
 
 func (f *fakeAgentUsecase) SpawnChat(
 	_ context.Context,
-	_ string,
-	_ string,
+	workspaceID string,
+	provider string,
 ) (string, string, error) {
+	f.spawnCalls = append(f.spawnCalls, spawnCall{workspaceID: workspaceID, provider: provider})
 	if f.spawnErr != nil {
 		return "", "", f.spawnErr
 	}
@@ -150,8 +167,9 @@ func (f *fakeAgentUsecase) IngestHook(
 	return f.ingestErr
 }
 
-func (f *fakeAgentUsecase) ListChats(
+func (f *fakeAgentUsecase) ListChatsByWorkspace(
 	_ context.Context,
+	_ string,
 ) ([]domain.AgentChat, error) {
 	return nil, nil
 }
@@ -160,7 +178,10 @@ func (f *fakeAgentUsecase) GetChat(
 	_ context.Context,
 	_ string,
 ) (domain.AgentChat, error) {
-	return domain.AgentChat{}, nil
+	if f.getChatErr != nil {
+		return domain.AgentChat{}, f.getChatErr
+	}
+	return f.getChat, nil
 }
 
 func (f *fakeAgentUsecase) SegmentsFor(
@@ -198,4 +219,12 @@ func (f *fakeAgentUsecase) RenameChat(
 ) error {
 	f.renameCalls = append(f.renameCalls, renameCall{chatID: chatID, title: title, source: source})
 	return f.renameErr
+}
+
+func (f *fakeAgentUsecase) PurgeChat(
+	_ context.Context,
+	chatID string,
+) error {
+	f.purgeCalls = append(f.purgeCalls, chatID)
+	return f.purgeErr
 }

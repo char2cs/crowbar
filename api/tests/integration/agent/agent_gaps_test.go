@@ -83,7 +83,7 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 	ctx := context.Background()
 
 	repoPath := kit.InitRepo(t)
-	projectID, repoID, wsID := h.importRepoAndWorkspace(t, "codex-turn", repoPath)
+	_, _, wsID := h.importRepoAndWorkspace(t, "codex-turn", repoPath)
 
 	chatID, segID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "codex")
 	require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 	start = time.Now()
 	var turns []ledgerTurn
 	nudgeUntil(h, termSessID, 90*time.Second, func() (bool, bool) {
-		turns = readLedgerTurns(t, h.home, projectID, repoID, wsID, chatID)
+		turns = readLedgerTurns(t, h, wsID, chatID)
 		ok := len(assistantReplies(turns, "codex")) > 0
 		return ok, ok
 	})
@@ -192,14 +192,25 @@ type ledgerTurn struct {
 }
 
 // readLedgerTurns reads chatID's ledger directory — the same
-// <home>/projects/<projectID>/<repoID>/workspaces/<wsID>/agent-ledger/<chatID>
-// path worktreepath.AgentLedgerDir resolves and AssembleHandoff renders from —
-// and returns every recorded turn in chronological order. AppendTurn names its
-// entries with an %08d sequence prefix, so the .turn filenames sort
-// lexically == chronologically. Returns nil when the ledger has no entries yet.
-func readLedgerTurns(t *testing.T, home, projectID, repoID, wsID, chatID string) []ledgerTurn {
+// <workspaceRoot>/chats/<chatID>/ledger path worktreepath.AgentLedgerDir
+// resolves and AssembleHandoff renders from, where workspaceRoot is the parent
+// of the workspace's git worktree (the workspace-root split, spec §3.5) — and
+// returns every recorded turn in chronological order. The worktree path is
+// resolved from the live workspace read model (h.app.Repositories.Workspace)
+// rather than reconstructed from ids, so the ledger dir always tracks wherever
+// the workspace was actually provisioned. AppendTurn names its entries with an
+// %08d sequence prefix, so the .turn filenames sort lexically == chronologically.
+// Returns nil when the ledger has no entries yet. worktreepath is doubly-internal
+// (under app/usecases/internal) and not importable from this test package, so the
+// ledger dir is built inline with the same shape as worktreepath.AgentLedgerDir.
+func readLedgerTurns(t *testing.T, h *harness, wsID, chatID string) []ledgerTurn {
 	t.Helper()
-	dir := filepath.Join(home, "projects", projectID, repoID, "workspaces", wsID, "agent-ledger", chatID)
+	ws, err := h.app.Repositories.Workspace.Get(context.Background(), wsID)
+	require.NoError(t, err, "resolve workspace %s for its worktree path", wsID)
+	require.NotEmpty(t, ws.WorktreePath, "workspace %s has no worktree path", wsID)
+	// filepath.Dir(worktree) == workspaceRoot; ledger lives at
+	// <workspaceRoot>/chats/<chatID>/ledger (== worktreepath.AgentLedgerDir).
+	dir := filepath.Join(filepath.Dir(ws.WorktreePath), "chats", chatID, "ledger")
 	des, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
 		return nil
@@ -426,7 +437,7 @@ func TestAgent_CodexUsesHandoff(t *testing.T) {
 	ctx := context.Background()
 
 	repoPath := kit.InitRepo(t)
-	projectID, repoID, wsID := h.importRepoAndWorkspace(t, "codex-handoff", repoPath)
+	_, _, wsID := h.importRepoAndWorkspace(t, "codex-handoff", repoPath)
 
 	const codeword = "OSPREY-4482"
 	chatID, _, _, codexTermSessID := seedClaudeThenSwitchToCodex(t, h, wsID, codeword)
@@ -450,7 +461,7 @@ func TestAgent_CodexUsesHandoff(t *testing.T) {
 	baselineStart := time.Now()
 	var baselineCount int
 	nudgeUntil(h, codexTermSessID, 30*time.Second, func() (bool, bool) {
-		baselineCount = len(assistantReplies(readLedgerTurns(t, h.home, projectID, repoID, wsID, chatID), "codex"))
+		baselineCount = len(assistantReplies(readLedgerTurns(t, h, wsID, chatID), "codex"))
 		return true, baselineCount >= 1
 	})
 	t.Logf("waited %s for codex's auto-submitted-handoff turn to land in the ledger (%d codex assistant turns)",
@@ -465,7 +476,7 @@ func TestAgent_CodexUsesHandoff(t *testing.T) {
 
 	start := time.Now()
 	reply := nudgeUntil(h, codexTermSessID, 90*time.Second, func() (string, bool) {
-		replies := assistantReplies(readLedgerTurns(t, h.home, projectID, repoID, wsID, chatID), "codex")
+		replies := assistantReplies(readLedgerTurns(t, h, wsID, chatID), "codex")
 		for _, r := range replies[min(baselineCount, len(replies)):] {
 			if strings.Contains(r, codeword) {
 				return r, true
@@ -509,7 +520,7 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 	ctx := context.Background()
 
 	repoPath := kit.InitRepo(t)
-	projectID, repoID, wsID := h.importRepoAndWorkspace(t, "switch-back", repoPath)
+	_, _, wsID := h.importRepoAndWorkspace(t, "switch-back", repoPath)
 
 	const codeword = "TALON-6631"
 	chatID, claudeSegID, _, codexTermSessID := seedClaudeThenSwitchToCodex(t, h, wsID, codeword)
@@ -577,7 +588,7 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 	start = time.Now()
 	var texts []string
 	found := nudgeUntil(h, newClaudeTermSessID, 90*time.Second, func() (bool, bool) {
-		texts = assistantReplies(readLedgerTurns(t, h.home, projectID, repoID, wsID, chatID), "claude")
+		texts = assistantReplies(readLedgerTurns(t, h, wsID, chatID), "claude")
 		for _, tx := range texts {
 			if strings.Contains(tx, codeword) {
 				return true, true
@@ -637,7 +648,7 @@ func TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn(t *testing.T)
 	ctx := context.Background()
 
 	repoPath := kit.InitRepo(t)
-	projectID, repoID, wsID := h.importRepoAndWorkspace(t, "graceful-terminate", repoPath)
+	_, _, wsID := h.importRepoAndWorkspace(t, "graceful-terminate", repoPath)
 
 	chatID, claudeSegID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "claude")
 	require.NoError(t, err)
@@ -713,7 +724,7 @@ func TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn(t *testing.T)
 	start = time.Now()
 	var texts []string
 	found := nudgeUntil(h, newClaudeTermSessID, 90*time.Second, func() (bool, bool) {
-		texts = assistantReplies(readLedgerTurns(t, h.home, projectID, repoID, wsID, chatID), "claude")
+		texts = assistantReplies(readLedgerTurns(t, h, wsID, chatID), "claude")
 		for _, tx := range texts {
 			if strings.Contains(tx, codeword) {
 				return true, true

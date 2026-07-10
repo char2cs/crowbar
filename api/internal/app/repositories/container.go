@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -40,6 +41,33 @@ type Container struct {
 	// teardown (tests that don't exercise it, or a build with no terminal
 	// engine wired).
 	terminateSession func(ctx context.Context, sessionID string) error
+	// ReapChatFiles is the workspace-delete cascade's on-disk reap seam
+	// (forgetAgentChats): given a forgotten chat's (workspaceID, chatID), it
+	// removes that chat's own <chatsDir>/<chatID> directory (the handoff ledger +
+	// any residual per-segment tmp dir) — closing the gap where Forgetting the
+	// event-sourced aggregate left its PLAINTEXT on-disk footprint behind under
+	// .crowbar. Unlike terminateSession (a New(...) constructor parameter), this
+	// is a settable field the app layer assigns AFTER construction: the real
+	// implementation (app.reapAgentChatFiles) reuses the SAME agent.WorkspaceReader
+	// (AgentChatsDir + WorktreeDir) and agent.RemoveUnderHome guard the standalone
+	// PurgeChat path already routes through, and that reader is built from
+	// repos.Workspace — which does not exist until repositories.New returns — so
+	// it cannot be threaded in as a constructor argument without a genuine
+	// construction cycle (usecases.New itself takes *repositories.Container).
+	// Exported (not routed through a setter) so tests can inject a fake exactly
+	// like they already do for c.Workspace. Nil is safe: reaping is skipped.
+	ReapChatFiles func(ctx context.Context, wsID, chatID string) error
+	// ForgetChatRegistry is the workspace-delete cascade's registry-unbind seam
+	// (forgetAgentChats): it removes a chat's segment->chat bindings from the agent
+	// usecase's in-memory context-move registry BEFORE that chat's PTY is torn
+	// down, so the teardown's async reconcile (reconcileSegmentExit) no-ops at its
+	// ChatFor guard instead of racing onForget's row-delete and resurrecting the
+	// chat as a zombie read row (the standalone-delete counterpart is PurgeChat's
+	// own u.registry.ForgetChat call). Same construction-order rationale as
+	// ReapChatFiles — it depends on the agent usecase, built after repositories.New
+	// — so the app layer assigns it after construction. Nil is safe: the unbind is
+	// skipped (a build/test with no agent registry wired).
+	ForgetChatRegistry func(chatID string)
 	// axWorkspace/axReviewThread/axAgentChat are the per-type asynx instances,
 	// retained so WaitQuiescent can drain their dispatch queues + projection
 	// handlers — the deterministic read-your-writes barrier for tests (no
@@ -87,7 +115,11 @@ type ReactorDrain struct {
 // terminal-engine seam (owned by the app layer, which constructs it before
 // calling New — the terminal engine has no dependency on the repositories it
 // feeds) the workspace-delete cascade uses to kill a chat's live PTY before
-// Forgetting it (Task 12); nil is safe (PTY teardown is skipped).
+// Forgetting it (Task 12); nil is safe (PTY teardown is skipped). The sibling
+// on-disk reap seam, Container.ReapChatFiles, is NOT a parameter here — its
+// resolver depends on repos.Workspace, which this very call produces, so the
+// app layer assigns it on the returned *Container once the rest of the app
+// layer (usecases.New) has built it; see the field's doc comment.
 func New(
 	ctx context.Context,
 	adapters *adapter.Container,
@@ -254,36 +286,63 @@ func (c *Container) forgetDependents(
 
 // forgetAgentChats is the agent-chat half of the workspace delete cascade
 // (Task 12): every AgentChat anchored to the deleted workspace is Forgotten,
-// purging it outright — unlike the chat's own soft-delete Delete command
-// (which tombstones but keeps the aggregate readable via GetChat), Forget is
-// the right call here because the owning workspace is gone and the chat has
-// nowhere left to live, mirroring forgetReviewThreads/DeleteThread.
-//
-// It enumerates via ListByWorkspaceIncludingDeleted, NOT ListByWorkspace: a
-// chat already soft-deleted through the usecase's DeleteChat is invisible to
-// the live-filtered list, and skipping it would leave its event log + read row
-// orphaned after the workspace is gone.
+// purging it outright — the owning workspace is gone and the chat has nowhere
+// left to live, mirroring forgetReviewThreads/DeleteThread. It enumerates via
+// ListByWorkspace so a chat's event log + read row can never be left orphaned
+// after the workspace is gone.
 //
 // Before forgetting a chat, terminateActiveSegment kills its active segment's
 // live vendor-CLI PTY (if any) — BEST-EFFORT: a terminate failure is logged
 // and the Forget proceeds anyway. An orphaned PTY is a far smaller harm than
-// wedging the whole workspace delete (worktree never reaped, chats tombstoned
-// forever) on a terminate error the cascade has no way to re-drive.
+// wedging the whole workspace delete (worktree never reaped, chats never
+// Forgotten) on a terminate error the cascade has no way to re-drive.
+//
+// After forgetting a chat, reapAgentChatFiles removes that chat's own on-disk
+// directory via the injected ReapChatFiles seam — also best-effort, for the
+// same reason: an orphaned plaintext ledger under a shared chats dir is far
+// smaller harm than wedging the cascade on a filesystem error.
 func (c *Container) forgetAgentChats(
 	ctx context.Context,
 	wsID string,
 ) error {
-	chats, err := c.AgentChat.ListByWorkspaceIncludingDeleted(ctx, wsID)
+	chats, err := c.AgentChat.ListByWorkspace(ctx, wsID)
 	if err != nil {
 		return fmt.Errorf("repositories: delete cascade: list agent chats for %q: %w", wsID, err)
 	}
 	for _, chat := range chats {
+		// Unbind the chat's segments from the in-memory registry BEFORE the PTY
+		// teardown, so the teardown's async reconcile no-ops at ChatFor rather than
+		// racing onForget's row-delete and resurrecting the chat (same fix as the
+		// standalone PurgeChat path).
+		if c.ForgetChatRegistry != nil {
+			c.ForgetChatRegistry(chat.ID)
+		}
 		c.terminateActiveSegment(ctx, chat)
 		if err := c.AgentChat.Forget(ctx, chat.ID); err != nil {
 			return fmt.Errorf("repositories: delete cascade: forget agent chat %q: %w", chat.ID, err)
 		}
+		c.reapAgentChatFiles(ctx, wsID, chat.ID)
 	}
 	return nil
+}
+
+// reapAgentChatFiles best-effort removes a single forgotten chat's on-disk
+// directory via the injected ReapChatFiles seam. A nil seam (no app layer
+// wired — most of this package's own tests) is a no-op; a reap failure is
+// LOGGED, never returned: it must not abort forgetAgentChats' loop over the
+// remaining chats, matching terminateActiveSegment's best-effort contract.
+func (c *Container) reapAgentChatFiles(
+	ctx context.Context,
+	wsID string,
+	chatID string,
+) {
+	if c.ReapChatFiles == nil {
+		return
+	}
+	if err := c.ReapChatFiles(ctx, wsID, chatID); err != nil {
+		slog.ErrorContext(ctx, "repositories: delete cascade: reap agent chat files (best-effort, continuing)",
+			"workspace_id", wsID, "chat_id", chatID, "err", err)
+	}
 }
 
 // terminateActiveSegment best-effort terminates chat's active segment's live
@@ -441,16 +500,26 @@ func (c *Container) ListWorkspaces(
 }
 
 // worktreeRemover builds the bounded fs delete the async delete reactor uses to
-// rm -rf a deleted workspace's worktree, off the synchronous write path (spec
-// §3.6, decision 9). It is GUARDED by the crowbar home: only a CROWBAR-MANAGED
-// worktree (a path strictly under the home) is ever removed. An adopted home /
-// main worktree's id↔path entry is the user's REAL checkout (repo.Path /
-// project.Path, which live OUTSIDE the home) and must NEVER be deleted — the guard
-// mirrors the synchronous project-delete removeWorktreeIfCrowbarManaged so both the
-// delete reactor and the boot orphan-sweep converge without ever destroying a
-// user's repository. A blank path, a path outside the home, or an already-gone dir
-// is an idempotent no-op (os.RemoveAll returns nil for a missing path), so a crash
-// re-driven cascade rm's to nothing.
+// rm -rf a deleted workspace's ENTIRE on-disk footprint, off the synchronous
+// write path (spec §3.5/§3.6, decision 9). Since the workspace-root split, path
+// (the id↔path map's stored WorktreePath) is the "worktree" leaf of a workspace
+// root that also holds the sibling "chats" tree (worktreepath.WorkspaceRoot /
+// ChatsDir); `git worktree remove` only clears the "worktree" leaf itself, so
+// this removes path's PARENT directory instead — nuking the git checkout and
+// any agentic chat state (ledger + segment tmp dirs) together in one rm -rf.
+// worktreepath.WorkspaceRoot cannot be imported here (this package sits outside
+// the usecases/ tree that internal package is scoped to; Go's internal-package
+// visibility forbids it), so the parent is computed inline via filepath.Dir —
+// byte-for-byte the same computation. It is GUARDED by the crowbar home: only a
+// CROWBAR-MANAGED worktree (a path strictly under the home) is ever removed. An
+// adopted home / main worktree's id↔path entry is the user's REAL checkout
+// (repo.Path / project.Path, which live OUTSIDE the home, with no "worktree"
+// leaf of their own) and must NEVER be deleted — the guard mirrors the
+// synchronous project-delete removeWorktreeIfCrowbarManaged so both the delete
+// reactor and the boot orphan-sweep (bootSweepPurge, api/internal/app/container.go)
+// converge without ever destroying a user's repository. A blank path, a path
+// outside the home, or an already-gone dir is an idempotent no-op (os.RemoveAll
+// returns nil for a missing path), so a crash re-driven cascade rm's to nothing.
 func worktreeRemover(
 	crowbarHome string,
 ) func(path string) error {
@@ -462,17 +531,32 @@ func worktreeRemover(
 			}
 			return nil
 		}
-		if err := os.RemoveAll(path); err != nil {
-			return fmt.Errorf("repositories: remove worktree %q: %w", path, err)
+		// The removed target is the PARENT of the worktree leaf (the workspace
+		// root holding the sibling chats tree). Re-guard the ROOT itself: a
+		// degenerate one-segment leaf (<home>/worktree) has filepath.Dir == home,
+		// and rm'ing that would nuke the ENTIRE crowbar home. Only a root that is
+		// still STRICTLY under home — i.e. path had an intermediate segment below
+		// home — is ever removed.
+		root := filepath.Dir(path)
+		if !managedWorktreePath(root, crowbarHome) {
+			slog.Warn("repositories: refusing to rm workspace root at or above the crowbar home",
+				"root", root, "path", path, "home", crowbarHome)
+			return nil
+		}
+		if err := os.RemoveAll(root); err != nil {
+			return fmt.Errorf("repositories: remove workspace root %q: %w", root, err)
 		}
 		return nil
 	}
 }
 
-// managedWorktreePath reports whether path is a crowbar-managed worktree: a
-// non-empty path strictly under the crowbar home. Adopted checkouts (repo.Path /
-// project.Path) live outside the home and are excluded, so a delete/sweep never
-// rm's the user's real repository (spec §3.9; the locked workspace-model law).
+// managedWorktreePath reports whether path is strictly under the crowbar home: a
+// non-empty path with home as a proper directory-boundary prefix. Adopted
+// checkouts (repo.Path / project.Path) live outside the home and are excluded, so
+// a delete/sweep never rm's the user's real repository; and because the check is
+// strict (home itself is not "under" home), applying it to the removal ROOT also
+// blocks the degenerate case where the root would be the home directory itself
+// (spec §3.9; the locked workspace-model law).
 func managedWorktreePath(
 	path string,
 	crowbarHome string,

@@ -3,10 +3,13 @@ package agent_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 )
 
 // TestOnExit_ActiveSegment_EndsSegmentAndClearsWorking is Task 11 test (a):
@@ -117,6 +120,66 @@ func TestReconcileOnBoot_DeadTerminalSession_EndsSegmentAndStopsTurn(t *testing.
 	ended := segByID(t, post, segID)
 	assert.Equal(t, "ended", ended.Status)
 	assert.NotNil(t, ended.EndedAt)
+}
+
+// TestReconcileOnBoot_DeadTerminalSession_ReapsCrashOrphanSegmentTmp pins the
+// crash-orphan reaper (Finding 1a): a segment that was active when the daemon
+// crashed never fired its onExit cleanup, so its per-spawn tmp dir (hook config
+// + any codex auth.json copy) is orphaned under the workspace root. Under the
+// workspace-root layout there is no global agent-tmp sweep to wipe it, so the
+// boot reconcile must remove exactly this segment's dir when it ends the dead
+// segment. Spawn creates the dir on disk (real spawnSegment MkdirAll), so its
+// presence pre-reconcile is a real precondition, and its absence after is the
+// assertion — no timing, we block on the ReconcileOnBoot call itself.
+func TestReconcileOnBoot_DeadTerminalSession_ReapsCrashOrphanSegmentTmp(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+	f.wait()
+
+	tmpDir := worktreepath.SegmentDir(f.ws.chatsDir, chatID, segID, "claude")
+	_, err = os.Stat(tmpDir)
+	require.NoError(t, err, "precondition: the segment's tmp dir must exist on disk after spawn")
+
+	seg := activeSegOf(t, f.chat(t, chatID), segID)
+	f.term.killSession(seg.TerminalSessionID) // the PTY died with the daemon
+
+	require.NoError(t, f.usecase.ReconcileOnBoot(ctx))
+	f.wait()
+
+	_, err = os.Stat(tmpDir)
+	assert.True(t, os.IsNotExist(err),
+		"boot reconcile must reap the crash-orphaned segment's tmp dir")
+
+	// And the segment is still ended by the same reconcile (the reap is additive,
+	// not a replacement for the turn-state repair).
+	assert.Empty(t, f.chat(t, chatID).ActiveSegmentID)
+}
+
+// TestReconcileOnBoot_LiveTerminalSession_KeepsSegmentTmp is the negative twin:
+// a chat whose active segment's PTY is still live (restored placeholder) is NOT
+// a crash orphan, so its tmp dir must be left in place — reaping it would delete
+// a running CLI's live hook config / credentials out from under it.
+func TestReconcileOnBoot_LiveTerminalSession_KeepsSegmentTmp(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+	f.wait()
+
+	tmpDir := worktreepath.SegmentDir(f.ws.chatsDir, chatID, segID, "claude")
+	_, err = os.Stat(tmpDir)
+	require.NoError(t, err, "precondition: the segment's tmp dir exists after spawn")
+
+	// Session stays alive (no killSession): the segment is not a crash orphan.
+	require.NoError(t, f.usecase.ReconcileOnBoot(ctx))
+	f.wait()
+
+	_, err = os.Stat(tmpDir)
+	assert.NoError(t, err, "a live segment's tmp dir must survive boot reconcile")
 }
 
 // TestReconcileOnBoot_WorkingSetByIngestHook_DeadPTY_StopsTurn proves the

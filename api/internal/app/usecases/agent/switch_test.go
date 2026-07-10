@@ -273,7 +273,7 @@ func TestSwitchProvider_MissingActiveSegment_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "switch provider: active segment")
 }
 
-func TestSwitchProvider_WorktreeDirFailure_ReturnsWrappedError(t *testing.T) {
+func TestSwitchProvider_WorkspaceReaderFailure_ReturnsWrappedError(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
@@ -281,10 +281,14 @@ func TestSwitchProvider_WorktreeDirFailure_ReturnsWrappedError(t *testing.T) {
 	require.NoError(t, err)
 	f.wait()
 
-	f.ws.err = errors.New("boom: worktree lookup")
+	// A workspace-reader failure surfaces wrapped, not swallowed. SwitchProvider's
+	// first ws-reader call is AssembleHandoff resolving the chats dir (the ledger
+	// now lives under the workspace's chats dir, rerooted under home for a home-kind
+	// workspace), so the surfaced wrap is "chats dir", not "worktree dir".
+	f.ws.err = errors.New("boom: workspace lookup")
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "worktree dir")
+	assert.Contains(t, err.Error(), "chats dir")
 }
 
 func TestSwitchProvider_UnknownTargetProvider_ReturnsWrappedDescriptorError(t *testing.T) {

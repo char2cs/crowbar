@@ -11,7 +11,6 @@ import (
 
 // Conformance assertions: verify each command implements asynxModels.Command[domain.AgentChat].
 var _ asynxModels.Command[domain.AgentChat] = commands.SetTitle{}
-var _ asynxModels.Command[domain.AgentChat] = commands.Delete{}
 
 func TestSetTitle_LockedRejectsDerived(t *testing.T) {
 	chat := &domain.AgentChat{ID: "c1", Title: "User Title", TitleLocked: true}
@@ -77,40 +76,8 @@ func TestSetTitle_EmitEventDoesNotMutateInput(t *testing.T) {
 	}
 }
 
-func TestDelete_Tombstones(t *testing.T) {
-	chat := &domain.AgentChat{ID: "c1", Status: domain.AgentChatStatusActive}
-	out := commands.Delete{ChatID: "c1"}.EmitEvent(chat)
-	if out.Status != domain.AgentChatStatusDeleted {
-		t.Fatal("Delete must tombstone Status=deleted")
-	}
-}
-
-func TestDelete_ValidateRejectsNil(t *testing.T) {
-	if err := (commands.Delete{ChatID: "c1"}).Validate(nil); err == nil {
-		t.Fatal("Validate(nil) must reject with ErrValidation")
-	}
-}
-
-func TestDelete_EmitEventDoesNotMutateInput(t *testing.T) {
-	chat := &domain.AgentChat{ID: "c1", Status: domain.AgentChatStatusActive}
-	originalStatus := chat.Status
-
-	commands.Delete{ChatID: "c1"}.EmitEvent(chat)
-
-	if chat.Status != originalStatus {
-		t.Fatalf("input Status mutated: expected %v, got %v", originalStatus, chat.Status)
-	}
-}
-
 func TestSetTitle_ValidateErrorIsWrapped(t *testing.T) {
 	err := (commands.SetTitle{ChatID: "c1", Title: "new", Source: "user"}).Validate(nil)
-	if !errors.Is(err, asynxModels.ErrValidation) {
-		t.Fatalf("Validate error must wrap ErrValidation, got %v", err)
-	}
-}
-
-func TestDelete_ValidateErrorIsWrapped(t *testing.T) {
-	err := (commands.Delete{ChatID: "c1"}).Validate(nil)
 	if !errors.Is(err, asynxModels.ErrValidation) {
 		t.Fatalf("Validate error must wrap ErrValidation, got %v", err)
 	}

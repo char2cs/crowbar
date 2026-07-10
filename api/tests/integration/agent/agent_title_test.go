@@ -30,14 +30,20 @@ import (
 // mustSpawnChat creates a project + repo + managed child workspace and spawns
 // a real <provider> chat in it (via the same importRepoAndWorkspace +
 // SpawnChat sequence every other test in this package repeats), registering
-// the spawned PTY's teardown so callers don't have to. Returns the new
-// chat's id and its initial segment id.
-func mustSpawnChat(t *testing.T, h *harness, provider string) (chatID, segID string) {
+// the spawned PTY's teardown so callers don't have to. Returns the workspace's
+// project/repo/workspace ids (the in-PTY CLI callbacks now need all three to
+// build the workspace-nested agent URL) along with the new chat's id and its
+// initial segment id.
+func mustSpawnChat(
+	t *testing.T,
+	h *harness,
+	provider string,
+) (projectID, repoID, wsID, chatID, segID string) {
 	t.Helper()
 	ctx := context.Background()
 
 	repoPath := kit.InitRepo(t)
-	_, _, wsID := h.importRepoAndWorkspace(t, "title-"+provider, repoPath)
+	projectID, repoID, wsID = h.importRepoAndWorkspace(t, "title-"+provider, repoPath)
 
 	chatID, segID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, provider)
 	require.NoError(t, err)
@@ -49,7 +55,7 @@ func mustSpawnChat(t *testing.T, h *harness, provider string) (chatID, segID str
 	require.NotEmpty(t, termSessID)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })
 
-	return chatID, segID
+	return projectID, repoID, wsID, chatID, segID
 }
 
 // crowbarBinPath returns the real compiled crowbar binary this test's
@@ -115,11 +121,13 @@ func TestAgent_CrowbarChatRename_SetsTitle(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
-	chatID, _ := mustSpawnChat(t, h, "claude")
+	projectID, repoID, wsID, chatID, _ := mustSpawnChat(t, h, "claude")
 
 	crowbar := crowbarBinPath(t)
 	const wantTitle = "Fix The Auth Flow"
-	out, err := exec.Command(crowbar, "chat", "rename", chatID, wantTitle).CombinedOutput()
+	out, err := exec.Command(crowbar, "chat", "rename",
+		"--project", projectID, "--repo", repoID, "--workspace", wsID,
+		chatID, wantTitle).CombinedOutput()
 	require.NoError(t, err, "exec crowbar chat rename: %s", out)
 	t.Logf("crowbar chat rename output: %q", out)
 
@@ -155,12 +163,13 @@ func TestAgent_FirstPrompt_DerivesTitle(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
-	chatID, segID := mustSpawnChat(t, h, "claude")
+	projectID, repoID, wsID, chatID, segID := mustSpawnChat(t, h, "claude")
 
 	crowbar := crowbarBinPath(t)
 	const prompt = "Explain how bloom filters work"
 	out, err := exec.Command(crowbar, "hook", "user_prompt",
 		"--segment", segID, "--provider", "claude",
+		"--project", projectID, "--repo", repoID, "--workspace", wsID,
 		"--payload", `{"prompt":"`+prompt+`"}`,
 	).CombinedOutput()
 	require.NoError(t, err, "exec crowbar hook user_prompt: %s", out)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,10 +140,12 @@ func TestImport_CreatesProjectReposAndAdoptsWorktrees(
 	assert.Equal(t, domain.WorkspaceStatusLocked, managed.Status)
 	assert.NotEqual(t, "/repoA", managed.WorktreePath)
 	// The managed worktree lands at the human-readable derived path
-	// <home>/projects/<project>/<slug>/<branch> (spec §3.9); with no reachable
-	// remote in tests the slug falls back to the repo name "repoA".
+	// <home>/projects/<project>/<slug>/<branch>/worktree (spec §3.9; the
+	// trailing "worktree" leaf makes <slug>/<branch> a workspace root sibling
+	// of "chats", spec §3.5); with no reachable remote in tests the slug falls
+	// back to the repo name "repoA".
 	assert.Equal(t,
-		filepath.Join("/crowbar-home", "projects", project.ID, "repoA", "develop"),
+		filepath.Join("/crowbar-home", "projects", project.ID, "repoA", "develop", "worktree"),
 		managed.WorktreePath)
 }
 
@@ -592,10 +595,12 @@ func TestImport_ProvisionsManagedWorktreesForProtectedBranches(t *testing.T) {
 	// develop is unheld → its own managed worktree (never a stub at the repo folder).
 	assert.Equal(t, domain.WorkspaceStatusLocked, byBranch["develop"].Status, "develop is locked")
 	assert.NotEqual(t, "/repoA", byBranch["develop"].WorktreePath, "develop gets a managed worktree, not the repo folder")
-	// Human-readable derived path: <slug>/<branch> with slug = repo name "repoA"
-	// (no reachable remote in tests), never the old UUID .../worktree leaf.
+	// Human-readable derived path: <slug>/<branch>/worktree with slug = repo name
+	// "repoA" (no reachable remote in tests) and a trailing "worktree" leaf (the
+	// workspace-root split, spec §3.5) — never a UUID-keyed path.
 	assert.Contains(t, byBranch["develop"].WorktreePath, "/repoA/develop")
-	assert.NotContains(t, byBranch["develop"].WorktreePath, "/worktree")
+	assert.True(t, strings.HasSuffix(byBranch["develop"].WorktreePath, "/worktree"),
+		"managed worktree path must end in the workspace-root's worktree leaf")
 	assert.Empty(t, byBranch["develop"].HeldByPath, "a managed worktree has no holder")
 }
 

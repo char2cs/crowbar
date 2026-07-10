@@ -542,8 +542,9 @@ func TestCreateChild_RecordsForkPointAndLocked(t *testing.T) {
 }
 
 // TestCreateChild_DerivesHumanReadableWorktreePath proves the managed child
-// worktree lands at the human-readable <home>/projects/<project>/<slug>/<branch>
-// path (spec §3.9), with the slug resolved from the repo remote URL.
+// worktree lands at the human-readable
+// <home>/projects/<project>/<slug>/<branch>/worktree path (spec §3.5/§3.9),
+// with the slug resolved from the repo remote URL.
 func TestCreateChild_DerivesHumanReadableWorktreePath(t *testing.T) {
 	g := &fakeGit{addStartSha: "sha"}
 	var created workspace.CreateInput
@@ -568,7 +569,7 @@ func TestCreateChild_DerivesHumanReadableWorktreePath(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t,
-		filepath.Join(home, "projects", "p1", "github.com", "test", "repo", "feature", "x"),
+		filepath.Join(home, "projects", "p1", "github.com", "test", "repo", "feature", "x", "worktree"),
 		created.WorktreePath)
 }
 

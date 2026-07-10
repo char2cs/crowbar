@@ -123,7 +123,7 @@ func TestSpawnChat_InjectsTitleInstruction(t *testing.T) {
 	call := f.term.calls[0]
 	doc := argAfter(t, call.argv, "--append-system-prompt")
 	require.NotEmpty(t, doc)
-	assert.Contains(t, doc, "chat rename "+chatID)
+	assert.Contains(t, doc, "chat rename --project p1 --repo r1 --workspace ws1 "+chatID)
 }
 
 // TestSpawnChat_Codex_InjectsTitleInstructionViaAgentsFile is codex's
@@ -154,7 +154,7 @@ func TestSpawnChat_Codex_InjectsTitleInstructionViaAgentsFile(t *testing.T) {
 
 	data, err := os.ReadFile(filepath.Join(codexHome, "AGENTS.md"))
 	require.NoError(t, err)
-	assert.Contains(t, string(data), "chat rename "+chatID)
+	assert.Contains(t, string(data), "chat rename --project p1 --repo r1 --workspace ws1 "+chatID)
 }
 
 // TestSwitchProvider_DoesNotInjectTitleInstruction guards the injectTitle=false

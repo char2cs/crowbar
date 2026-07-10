@@ -35,6 +35,7 @@ type Subscriber interface {
 	)
 	PushAgentChat(
 		chatID string,
+		workspaceID string,
 		kind string,
 	)
 }

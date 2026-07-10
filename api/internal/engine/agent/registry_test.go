@@ -17,6 +17,36 @@ func TestReducer_SpawnBindsFirstSession(t *testing.T) {
 	require.Equal(t, "sid-0", out.SessionID)
 }
 
+// TestForgetChat_UnbindsChatMappings pins the hard-delete zombie fix: ForgetChat
+// must remove every segment->chat mapping for the deleted chat so a subsequent
+// ChatFor (the reconcileSegmentExit guard) returns !ok, while leaving OTHER
+// chats' segments bound.
+func TestForgetChat_UnbindsChatMappings(t *testing.T) {
+	r := agent.NewRegistry()
+	r.BindSegment("segA1", "chatA")
+	r.BindSegment("segA2", "chatA")
+	r.BindSegment("segB1", "chatB")
+	r.OnSessionStart("segA1", "sidA1", newID("unused")) // also populates the session maps
+	r.OnSessionStart("segB1", "sidB1", newID("unused"))
+
+	r.ForgetChat("chatA")
+
+	if _, ok := r.ChatFor("segA1"); ok {
+		t.Fatal("segA1 must be unbound after ForgetChat(chatA)")
+	}
+	if _, ok := r.ChatFor("segA2"); ok {
+		t.Fatal("segA2 must be unbound after ForgetChat(chatA)")
+	}
+	gotB, ok := r.ChatFor("segB1")
+	require.True(t, ok, "chatB's segment must stay bound")
+	require.Equal(t, "chatB", gotB)
+
+	// Forgetting an unrelated chat leaves chatB alone (idempotent, scoped).
+	r.ForgetChat("chatZ-never-existed")
+	_, ok = r.ChatFor("segB1")
+	require.True(t, ok, "ForgetChat of an unknown chat must not disturb other bindings")
+}
+
 func TestReducer_SameSessionIsNoop(t *testing.T) {
 	r := agent.NewRegistry()
 	r.BindSegment("seg1", "chatA")

@@ -17,10 +17,13 @@ import (
 const eventNamePrefix = "agentchat."
 
 // BroadcastFunc receives every projected AgentChat event as a bare
-// (chatID, kind) lifecycle frame for hub fan-out. This is the wire shape the FE
-// consumes as dto.AgentChatEvent (00 agentic-engine spec §7) — a bare id+kind
-// frame, not the full aggregate — so a Hub.BroadcastAgentChat-shaped func wires
-// straight through with no adapter.
+// (chatID, workspaceID, kind) lifecycle frame for hub fan-out. This is the wire
+// shape the FE consumes as dto.AgentChatEvent (00 agentic-engine spec §7) — a
+// bare id+kind frame plus the owning workspace, not the full aggregate — so a
+// Hub.BroadcastAgentChat-shaped func wires straight through with no adapter.
+// workspaceID is carried on every frame and now scopes the WS fan-out per
+// workspace (Task 3): the agent-chat StreamDef filters frames by WorkspaceID
+// against the subscribed :wsId, so a client only sees its own workspace's chats.
 //
 // kind is the <kind> segment of the emitting command's EventName
 // ("agentchat.<kind>.<id>"), so the full lifecycle vocabulary is exactly one
@@ -33,13 +36,15 @@ const eventNamePrefix = "agentchat."
 //	turn_started    — a turn opened (user_prompt hook → Working)
 //	turn_stopped    — a turn closed (turn_stop hook / boot reconcile → idle)
 //	title_set       — the chat title changed (derived / agent / user rename)
-//	deleted         — the chat was soft-deleted (tombstoned)
+//	deleted         — the chat was hard-deleted (asynx Forget, see OnForget below;
+//	                  NOT emitted via a command's EventName like the other kinds)
 //
 // This is the SINGLE source of agent-chat frames: the usecase no longer
 // broadcasts, so a lifecycle change is exactly one event → exactly one frame.
 
 type BroadcastFunc func(
 	chatID string,
+	workspaceID string,
 	kind string,
 )
 
@@ -60,6 +65,18 @@ func registerHubProjection(
 	if _, err := ax.Subscribe(asynx.Topic("agentchat.*"), p.onEvent); err != nil {
 		return fmt.Errorf("agentchat hub projection: subscribe: %w", err)
 	}
+	// ax.Forget (the hard-delete path, Task 5) fires ONLY the
+	// "asynx.aggregate.forget" topic via OnForget — it is not one of the
+	// commands Subscribe's "agentchat.*" pattern matches — so a Forget would
+	// otherwise never reach the hub and no live client would ever learn the
+	// chat is gone. evt.Aggregate carries the aggregate's last-known state
+	// (including WorkspaceID) at the moment it was forgotten, exactly like
+	// every other projected event.
+	if _, err := ax.OnForget(func(_ context.Context, evt asynxModels.Event[domain.AgentChat]) {
+		p.broadcast(evt.Aggregate.ID, evt.Aggregate.WorkspaceID, "deleted")
+	}); err != nil {
+		return fmt.Errorf("agentchat hub projection: onforget: %w", err)
+	}
 	return nil
 }
 
@@ -67,14 +84,16 @@ type hubProjector struct {
 	broadcast BroadcastFunc
 }
 
-// onEvent broadcasts the (chatID, kind) lifecycle frame derived from the
-// event. It never persists — the store projection owns durability.
+// onEvent broadcasts the (chatID, workspaceID, kind) lifecycle frame derived
+// from the event. workspaceID comes off the reduced aggregate
+// (evt.Aggregate.WorkspaceID), not the event name/id, since it is not encoded
+// in EventName. It never persists — the store projection owns durability.
 func (p *hubProjector) onEvent(
 	ctx context.Context,
 	evt asynxModels.Event[domain.AgentChat],
 ) {
 	_ = ctx
-	p.broadcast(evt.AggregateID, eventKind(evt.EventName))
+	p.broadcast(evt.AggregateID, evt.Aggregate.WorkspaceID, eventKind(evt.EventName))
 }
 
 // eventKind extracts the <kind> segment from an agentchat EventName

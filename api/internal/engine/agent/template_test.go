@@ -20,3 +20,10 @@ func TestExpand_ReplacesKnownTokens(t *testing.T) {
 		agent.Expand("{crowbar} chat rename {chatid} \"x\"",
 			agent.TemplateCtx{CrowbarHook: "/bin/crowbar", Chatid: "c-9"}))
 }
+
+func TestExpand_ReplacesScopeTokens(t *testing.T) {
+	ctx := agent.TemplateCtx{ProjectID: "p1", RepoID: "r1", WorkspaceID: "w1"}
+	require.Equal(t,
+		"--project p1 --repo r1 --workspace w1",
+		agent.Expand("--project {project_id} --repo {repo_id} --workspace {workspace_id}", ctx))
+}

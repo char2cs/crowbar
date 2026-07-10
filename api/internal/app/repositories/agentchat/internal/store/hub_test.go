@@ -15,11 +15,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// frame is a captured hub broadcast: the (chatID, kind) lifecycle pair the
-// hub projection hands to a BroadcastFunc.
+// frame is a captured hub broadcast: the (chatID, workspaceID, kind)
+// lifecycle triple the hub projection hands to a BroadcastFunc.
 type frame struct {
-	chatID string
-	kind   string
+	chatID      string
+	workspaceID string
+	kind        string
 }
 
 // captureHub is a BroadcastFunc double that records every frame it receives,
@@ -30,10 +31,10 @@ type captureHub struct {
 	frames []frame
 }
 
-func (h *captureHub) push(chatID, kind string) {
+func (h *captureHub) push(chatID, workspaceID, kind string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.frames = append(h.frames, frame{chatID: chatID, kind: kind})
+	h.frames = append(h.frames, frame{chatID: chatID, workspaceID: workspaceID, kind: kind})
 }
 
 func (h *captureHub) all() []frame {
@@ -61,7 +62,24 @@ func TestHubProjection_Create_BroadcastsCreatedFrame(t *testing.T) {
 
 	frames := h.all()
 	require.Len(t, frames, 1)
-	assert.Equal(t, frame{chatID: "c1", kind: "created"}, frames[0])
+	assert.Equal(t, frame{chatID: "c1", workspaceID: "w1", kind: "created"}, frames[0])
+}
+
+// TestHubProjection_EmitsWorkspaceID proves the hub projection reads the
+// aggregate's WorkspaceID off the reduced event (evt.Aggregate.WorkspaceID) and
+// passes it through to the broadcast frame — the seam Task 3 will filter the WS
+// feed on. Asserted right after SendWait returns, the same deterministic drain
+// every other hub-projection test in this file relies on (no sleep/poll).
+func TestHubProjection_EmitsWorkspaceID(t *testing.T) {
+	ctx, ax, _, h := newProjected(t)
+	cmd := createCmd("c1")
+	cmd.WorkspaceID = "ws-42"
+	_, err := ax.SendWait(ctx, cmd)
+	require.NoError(t, err)
+
+	frames := h.all()
+	require.Len(t, frames, 1)
+	assert.Equal(t, "ws-42", frames[0].workspaceID)
 }
 
 // TestHubProjection_TurnToggle_BroadcastsStartedThenStopped drives a turn
@@ -78,42 +96,64 @@ func TestHubProjection_TurnToggle_BroadcastsStartedThenStopped(t *testing.T) {
 
 	frames := h.all()
 	require.Len(t, frames, 3)
-	assert.Equal(t, frame{chatID: "c1", kind: "created"}, frames[0])
-	assert.Equal(t, frame{chatID: "c1", kind: "turn_started"}, frames[1])
-	assert.Equal(t, frame{chatID: "c1", kind: "turn_stopped"}, frames[2])
+	assert.Equal(t, frame{chatID: "c1", workspaceID: "w1", kind: "created"}, frames[0])
+	assert.Equal(t, frame{chatID: "c1", workspaceID: "w1", kind: "turn_started"}, frames[1])
+	assert.Equal(t, frame{chatID: "c1", workspaceID: "w1", kind: "turn_stopped"}, frames[2])
 }
 
-// TestHubProjection_Delete_BroadcastsDeletedFrame proves a tombstoning
-// Delete still broadcasts a "deleted" frame, even though the store
-// projection's read model drops the chat from list views for the same event.
-func TestHubProjection_Delete_BroadcastsDeletedFrame(t *testing.T) {
+// TestHubProjection_ForgetEmitsScopedDeleted proves the HARD-delete path
+// (Task 5, ax.Forget) broadcasts a scoped "deleted" frame carrying the chat's
+// workspace id, so every workspace client drops the chat live even though
+// Forget hard-erases the aggregate (no read-model row survives to answer a
+// later query). Forget itself is the deterministic drain signal: like
+// SendWait, it does not return until every subscriber handler on the forget
+// event — including this hub projection's OnForget — has run, so asserting on
+// h.all() immediately after is safe with no sleep/poll.
+func TestHubProjection_ForgetEmitsScopedDeleted(t *testing.T) {
 	ctx, ax, _, h := newProjected(t)
-	_, err := ax.SendWait(ctx, createCmd("c1"))
+	cmd := createCmd("c1")
+	cmd.WorkspaceID = "ws-9"
+	_, err := ax.SendWait(ctx, cmd)
 	require.NoError(t, err)
-	_, err = ax.SendWait(ctx, accmds.Delete{ChatID: "c1"})
-	require.NoError(t, err)
+
+	require.NoError(t, ax.Forget(ctx, "c1"))
 
 	frames := h.all()
 	require.Len(t, frames, 2)
-	assert.Equal(t, frame{chatID: "c1", kind: "deleted"}, frames[1])
+	assert.Equal(t, frame{chatID: "c1", workspaceID: "ws-9", kind: "created"}, frames[0])
+	assert.Equal(t, frame{chatID: "c1", workspaceID: "ws-9", kind: "deleted"}, frames[1])
 }
 
 func TestRegisterHubProjection_SubscribeError(t *testing.T) {
-	err := registerHubProjection(&fakeAx{subscribeErr: errors.New("bus down")}, func(string, string) {})
+	err := registerHubProjection(&fakeAx{subscribeErr: errors.New("bus down")}, func(string, string, string) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat hub projection: subscribe")
 }
 
+// TestRegisterHubProjection_OnForgetError proves an OnForget subscribe
+// failure surfaces wrapped, mirroring registerStoreProjection's own
+// OnForget-error test.
+func TestRegisterHubProjection_OnForgetError(t *testing.T) {
+	err := registerHubProjection(&fakeAx{forgetErr: errors.New("bus down")}, func(string, string, string) {})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agentchat hub projection: onforget")
+}
+
 // TestHubProjector_OnEvent_DerivesKindFromEventName unit-tests eventKind's
-// extraction directly against the hub projector, independent of asynx wiring.
+// extraction directly against the hub projector, independent of asynx wiring,
+// and proves the workspace id is read off evt.Aggregate.WorkspaceID (not the
+// event name/id) and passed through untouched.
 func TestHubProjector_OnEvent_DerivesKindFromEventName(t *testing.T) {
 	var got frame
-	p := &hubProjector{broadcast: func(chatID, kind string) { got = frame{chatID: chatID, kind: kind} }}
+	p := &hubProjector{broadcast: func(chatID, workspaceID, kind string) {
+		got = frame{chatID: chatID, workspaceID: workspaceID, kind: kind}
+	}}
 	p.onEvent(context.Background(), asynxModels.Event[domain.AgentChat]{
 		AggregateID: "c9",
 		EventName:   "agentchat.segment_opened.c9",
+		Aggregate:   domain.AgentChat{WorkspaceID: "w9"},
 	})
-	assert.Equal(t, frame{chatID: "c9", kind: "segment_opened"}, got)
+	assert.Equal(t, frame{chatID: "c9", workspaceID: "w9", kind: "segment_opened"}, got)
 }
 
 // TestEventKind_UnrecognizedShape falls back to the name (minus the
