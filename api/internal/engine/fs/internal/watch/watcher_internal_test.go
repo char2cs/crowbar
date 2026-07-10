@@ -304,6 +304,81 @@ func TestIsRewriteInProgress_LinkedWorktree(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// addRecursive — gitignored directories are skipped in-process (no git fork)
+// ---------------------------------------------------------------------------
+
+// watchList returns the directories the watcher currently has registered with
+// fsnotify. It is the deterministic, timing-free signal for "was this directory
+// added to the watch?".
+func watchList(
+	t *testing.T,
+	w *Watcher,
+) []string {
+	t.Helper()
+	w.mu.Lock()
+	fsw := w.fsw
+	w.mu.Unlock()
+	require.NotNil(t, fsw, "Start must have created an fsnotify watcher")
+	return fsw.WatchList()
+}
+
+// A gitignored directory (and its descendants) must be excluded from the
+// recursive watch. This runs in a PLAIN (non-git) directory: the retired
+// per-directory `git check-ignore` fork returned exit 128 there and would have
+// watched node_modules/, so passing here proves the in-process matcher replaced
+// the fork and still honours .gitignore.
+func TestAddRecursive_SkipsGitignoredDir_InProcess(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, ".gitignore"),
+		[]byte("node_modules/\n"),
+		0o600,
+	))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "node_modules", "pkg"), 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "src"), 0o700))
+
+	w := NewWatcher("ws-ign", dir, "", &minimalGit{}, &recordingDispatcher{})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	t.Cleanup(w.Stop)
+	require.NoError(t, w.Start(ctx))
+
+	watched := watchList(t, w)
+	assert.Contains(t, watched, dir, "repo root must be watched")
+	assert.Contains(t, watched, filepath.Join(dir, "src"), "non-ignored dir must be watched")
+	assert.NotContains(t, watched, filepath.Join(dir, "node_modules"),
+		"a gitignored directory must be skipped")
+	assert.NotContains(t, watched, filepath.Join(dir, "node_modules", "pkg"),
+		"descendants of a gitignored directory must be skipped")
+}
+
+// A directory created AFTER Start that is gitignored must also be skipped by the
+// handleOne -> addRecursive path, not just the initial walk.
+func TestAddRecursive_SkipsGitignoredDirCreatedAfterStart(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, ".gitignore"),
+		[]byte("dist/\n"),
+		0o600,
+	))
+
+	w := NewWatcher("ws-ign2", dir, "", &minimalGit{}, &recordingDispatcher{})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	t.Cleanup(w.Stop)
+	require.NoError(t, w.Start(ctx))
+
+	// Drive the CREATE -> addRecursive branch directly (timing-free): handleOne
+	// runs addRecursive synchronously for a Create event.
+	distDir := filepath.Join(dir, "dist")
+	require.NoError(t, os.MkdirAll(distDir, 0o700))
+	w.handleOne(ctx, fsnotify.Event{Name: distDir, Op: fsnotify.Create})
+
+	assert.NotContains(t, watchList(t, w), distDir,
+		"a gitignored directory created after Start must be skipped")
+}
+
+// ---------------------------------------------------------------------------
 // classifyChange — all branches
 // ---------------------------------------------------------------------------
 
