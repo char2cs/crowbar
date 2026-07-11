@@ -23,12 +23,19 @@ import (
 // (agentUsecase/agentWS) resolve the home workspace by id. Git is intentionally
 // absent — the home workspace is the project root, not a per-workspace git
 // worktree.
+//
+// working is the daemon's working-overlay read seam (the same one the workspaces
+// handlers stamp their list/detail from): GET /home is the ONLY read path for the
+// home workspace's DTO, so without it a home read taken while an agent chat is
+// mid-turn would report working=false and contradict the home workspace's own WS
+// frames.
 func Register(
 	projectScoped *gin.RouterGroup,
 	workspaces homehandlers.HomeWorkspaces,
 	projects homehandlers.ProjectReader,
 	files homehandlers.Files,
 	termEng homehandlers.TerminalEngine,
+	working homehandlers.WorkSignal,
 	filesWS gin.HandlerFunc,
 	threadStore threadhandlers.ThreadStore,
 	threadBroadcast threadhandlers.ThreadBroadcaster,
@@ -37,7 +44,7 @@ func Register(
 	agentWS gin.HandlerFunc,
 	dispatch func(rest, wsHandler gin.HandlerFunc) gin.HandlerFunc,
 ) {
-	h := homehandlers.New(workspaces, projects, files, termEng)
+	h := homehandlers.New(workspaces, projects, files, termEng, working)
 	th := threadhandlers.New(threadStore, threadBroadcast)
 	ah := agenthandlers.New(agentUsecase)
 	home := projectScoped.Group("/home")

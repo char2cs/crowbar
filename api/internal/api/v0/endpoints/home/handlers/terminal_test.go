@@ -73,7 +73,7 @@ func TestListTerminals_ReturnsSessions(t *testing.T) {
 	eng := &mockTerminalEngine{}
 	eng.On("ListSessionsForWorkspace", "ws-1").Return([]string{"sess1", "sess2"})
 
-	h := handlers.New(reader, nil, nil, eng)
+	h := handlers.New(reader, nil, nil, eng, stubWork{})
 	r.GET("/projects/:projectId/home/terminals", h.ListTerminals)
 
 	rec := doReq(r, http.MethodGet, "/projects/proj-1/home/terminals", nil)
@@ -95,7 +95,7 @@ func TestListTerminals_NilSessions_ReturnsEmptyArray(t *testing.T) {
 	eng := &mockTerminalEngine{}
 	eng.On("ListSessionsForWorkspace", "ws-1").Return(nil)
 
-	h := handlers.New(reader, nil, nil, eng)
+	h := handlers.New(reader, nil, nil, eng, stubWork{})
 	r.GET("/projects/:projectId/home/terminals", h.ListTerminals)
 
 	rec := doReq(r, http.MethodGet, "/projects/proj-1/home/terminals", nil)
@@ -118,7 +118,7 @@ func TestListTerminals_WorkspaceResolutionFails(t *testing.T) {
 		Return(domain.Workspace{}, errors.New("boom"))
 	eng := &mockTerminalEngine{}
 
-	h := handlers.New(reader, nil, nil, eng)
+	h := handlers.New(reader, nil, nil, eng, stubWork{})
 	r.GET("/projects/:projectId/home/terminals", h.ListTerminals)
 
 	rec := doReq(r, http.MethodGet, "/projects/proj-x/home/terminals", nil)
@@ -137,7 +137,7 @@ func TestCreateTerminal_Returns201WithSessionID(t *testing.T) {
 	eng.On("Create", mock.Anything, "ws-1", "/projects/proj-1", (*domain.TerminalProfile)(nil)).
 		Return("sess-new", nil)
 
-	h := handlers.New(reader, nil, nil, eng)
+	h := handlers.New(reader, nil, nil, eng, stubWork{})
 	r.POST("/projects/:projectId/home/terminals", h.CreateTerminal)
 
 	rec := doReq(r, http.MethodPost, "/projects/proj-1/home/terminals", nil)
@@ -162,7 +162,7 @@ func TestCreateTerminal_EngineError_Returns500(t *testing.T) {
 	eng.On("Create", mock.Anything, "ws-1", "/projects/proj-1", (*domain.TerminalProfile)(nil)).
 		Return("", errors.New("spawn failed"))
 
-	h := handlers.New(reader, nil, nil, eng)
+	h := handlers.New(reader, nil, nil, eng, stubWork{})
 	r.POST("/projects/:projectId/home/terminals", h.CreateTerminal)
 
 	rec := doReq(r, http.MethodPost, "/projects/proj-1/home/terminals", nil)
@@ -178,7 +178,7 @@ func TestCreateTerminal_WorkspaceResolutionFails(t *testing.T) {
 		Return(domain.Workspace{}, errors.New("boom"))
 	eng := &mockTerminalEngine{}
 
-	h := handlers.New(reader, nil, nil, eng)
+	h := handlers.New(reader, nil, nil, eng, stubWork{})
 	r.POST("/projects/:projectId/home/terminals", h.CreateTerminal)
 
 	rec := doReq(r, http.MethodPost, "/projects/proj-x/home/terminals", nil)
@@ -197,7 +197,7 @@ func TestKillTerminal_WorkspaceResolutionFails(t *testing.T) {
 		Return(domain.Workspace{}, errors.New("boom"))
 	eng := &mockTerminalEngine{}
 
-	h := handlers.New(reader, nil, nil, eng)
+	h := handlers.New(reader, nil, nil, eng, stubWork{})
 	r.DELETE("/projects/:projectId/home/terminals/:sessionId", h.KillTerminal)
 
 	rec := doReq(r, http.MethodDelete, "/projects/proj-x/home/terminals/sess1", nil)
@@ -214,7 +214,7 @@ func TestKillTerminal_Returns202(t *testing.T) {
 	eng.On("ListSessionsForWorkspace", "ws-1").Return([]string{"sess1"})
 	eng.On("Kill", mock.Anything, "sess1").Return(nil)
 
-	h := handlers.New(reader, nil, nil, eng)
+	h := handlers.New(reader, nil, nil, eng, stubWork{})
 	r.DELETE("/projects/:projectId/home/terminals/:sessionId", h.KillTerminal)
 
 	rec := doReq(r, http.MethodDelete, "/projects/proj-1/home/terminals/sess1", nil)
@@ -230,7 +230,7 @@ func TestKillTerminal_SessionNotInWorkspace_Returns404(t *testing.T) {
 	eng := &mockTerminalEngine{}
 	eng.On("ListSessionsForWorkspace", "ws-1").Return([]string{"other-sess"})
 
-	h := handlers.New(reader, nil, nil, eng)
+	h := handlers.New(reader, nil, nil, eng, stubWork{})
 	r.DELETE("/projects/:projectId/home/terminals/:sessionId", h.KillTerminal)
 
 	rec := doReq(r, http.MethodDelete, "/projects/proj-1/home/terminals/ghost", nil)
@@ -247,7 +247,7 @@ func TestKillTerminal_KillReturnsErrSessionNotFound_Returns404(t *testing.T) {
 	eng.On("ListSessionsForWorkspace", "ws-1").Return([]string{"sess1"})
 	eng.On("Kill", mock.Anything, "sess1").Return(engineterminal.ErrSessionNotFound)
 
-	h := handlers.New(reader, nil, nil, eng)
+	h := handlers.New(reader, nil, nil, eng, stubWork{})
 	r.DELETE("/projects/:projectId/home/terminals/:sessionId", h.KillTerminal)
 
 	rec := doReq(r, http.MethodDelete, "/projects/proj-1/home/terminals/sess1", nil)
@@ -263,7 +263,7 @@ func TestKillTerminal_KillGenericError_Returns500(t *testing.T) {
 	eng.On("ListSessionsForWorkspace", "ws-1").Return([]string{"sess1"})
 	eng.On("Kill", mock.Anything, "sess1").Return(errors.New("pty gone"))
 
-	h := handlers.New(reader, nil, nil, eng)
+	h := handlers.New(reader, nil, nil, eng, stubWork{})
 	r.DELETE("/projects/:projectId/home/terminals/:sessionId", h.KillTerminal)
 
 	rec := doReq(r, http.MethodDelete, "/projects/proj-1/home/terminals/sess1", nil)
@@ -279,7 +279,7 @@ func TestTerminalWS_UnknownSession_Returns404(t *testing.T) {
 	eng := &mockTerminalEngine{}
 	eng.On("SessionExists", mock.Anything, "ghost").Return(false)
 
-	h := handlers.New(nil, nil, nil, eng)
+	h := handlers.New(nil, nil, nil, eng, stubWork{})
 	r.GET("/projects/:projectId/home/terminals/:sessionId/ws", h.TerminalWS)
 
 	rec := doReq(r, http.MethodGet, "/projects/proj-1/home/terminals/ghost/ws", nil)
@@ -295,7 +295,7 @@ func TestTerminalWS_NonUpgradeRequest_Returns400(t *testing.T) {
 	eng := &mockTerminalEngine{}
 	eng.On("SessionExists", mock.Anything, "sess1").Return(true)
 
-	h := handlers.New(nil, nil, nil, eng)
+	h := handlers.New(nil, nil, nil, eng, stubWork{})
 	r.GET("/projects/:projectId/home/terminals/:sessionId/ws", h.TerminalWS)
 
 	// A plain (non-Upgrade) GET request fails the websocket handshake.
@@ -319,7 +319,7 @@ func TestTerminalWS_SuccessfulUpgrade_AttachesSession(t *testing.T) {
 		Run(func(_ mock.Arguments) { close(attached) }).
 		Return(nil)
 
-	h := handlers.New(nil, nil, nil, eng)
+	h := handlers.New(nil, nil, nil, eng, stubWork{})
 	r.GET("/projects/:projectId/home/terminals/:sessionId/ws", h.TerminalWS)
 
 	srv := httptest.NewServer(r)
