@@ -520,15 +520,18 @@ func (c *Container) registerAgentWorkingProjection() error {
 			if wsID == "" {
 				return
 			}
+			var flipped bool
 			switch agentEventKind(evt.EventName) {
 			case "turn_started":
-				c.setAgentTurn(wsID, evt.AggregateID, true)
+				flipped = c.setAgentTurn(wsID, evt.AggregateID, true)
 			case "turn_stopped":
-				c.setAgentTurn(wsID, evt.AggregateID, false)
+				flipped = c.setAgentTurn(wsID, evt.AggregateID, false)
 			default:
 				return
 			}
-			c.rebroadcast(ctx, wsID)
+			if flipped {
+				c.rebroadcast(ctx, wsID)
+			}
 		}); err != nil {
 		return fmt.Errorf("subscribe: %w", err)
 	}
@@ -538,32 +541,64 @@ func (c *Container) registerAgentWorkingProjection() error {
 			if wsID == "" {
 				return
 			}
-			c.setAgentTurn(wsID, evt.AggregateID, false)
-			c.rebroadcast(ctx, wsID)
+			if c.setAgentTurn(wsID, evt.AggregateID, false) {
+				c.rebroadcast(ctx, wsID)
+			}
 		}); err != nil {
 		return fmt.Errorf("onforget: %w", err)
 	}
 	return nil
 }
 
-// setAgentTurn adds/removes chatID from the workspace's mid-turn set under mu.
-func (c *Container) setAgentTurn(wsID, chatID string, working bool) {
+// setAgentTurn adds/removes chatID from the workspace's mid-turn set under mu and
+// reports whether the set's EMPTINESS flipped (empty↔non-empty) — i.e. whether the
+// workspace's Working overlay actually changed value.
+//
+// Only that transition may trigger a rebroadcast. Working is a single bool derived
+// from `len(set) > 0`, so a second chat starting a turn in a workspace that is
+// already working, or the first of two concurrent chats stopping, changes NOTHING
+// observable — yet rebroadcasting anyway is far from free: broadcastWorkspace →
+// enrichFrame → eligibilityFor runs ListWorkspacesInRepo AND git.WouldMergeConflict,
+// a real `git merge-tree --write-tree` subprocess taken under the per-clone git
+// mutex. Firing that on every turn_started/turn_stopped made N concurrently-working
+// chats in one workspace cost 2N git subprocesses per round on the shared lock —
+// the exact contention shape behind this repo's history of git-mutex hangs.
+//
+// The transition is computed while holding mu; the caller rebroadcasts only AFTER
+// this returns, so the (potentially slow, git-touching) broadcast still never runs
+// under the lock.
+func (c *Container) setAgentTurn(wsID, chatID string, working bool) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	before := len(c.agentWorking[wsID]) > 0
 	if working {
-		set := c.agentWorking[wsID]
-		if set == nil {
-			set = map[string]struct{}{}
-			c.agentWorking[wsID] = set
-		}
-		set[chatID] = struct{}{}
+		c.addAgentTurn(wsID, chatID)
+	} else {
+		c.clearAgentTurn(wsID, chatID)
+	}
+	return before != (len(c.agentWorking[wsID]) > 0)
+}
+
+// addAgentTurn marks chatID mid-turn in wsID's set. Callers hold mu.
+func (c *Container) addAgentTurn(wsID, chatID string) {
+	set := c.agentWorking[wsID]
+	if set == nil {
+		set = map[string]struct{}{}
+		c.agentWorking[wsID] = set
+	}
+	set[chatID] = struct{}{}
+}
+
+// clearAgentTurn drops chatID from wsID's set, pruning the set once it empties so
+// the map cannot grow without bound across a long-lived daemon. Callers hold mu.
+func (c *Container) clearAgentTurn(wsID, chatID string) {
+	set := c.agentWorking[wsID]
+	if set == nil {
 		return
 	}
-	if set := c.agentWorking[wsID]; set != nil {
-		delete(set, chatID)
-		if len(set) == 0 {
-			delete(c.agentWorking, wsID)
-		}
+	delete(set, chatID)
+	if len(set) == 0 {
+		delete(c.agentWorking, wsID)
 	}
 }
 
