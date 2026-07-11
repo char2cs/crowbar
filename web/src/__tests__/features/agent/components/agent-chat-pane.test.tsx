@@ -518,6 +518,73 @@ describe('AgentChatPane', () => {
       expect(screen.getByTestId('xterm').getAttribute('data-session-id')).toBe('term-2')
     })
 
+    // Observed live: typing /exit made claude reappear instantly. The CLI's exit
+    // ends its segment, activeSegmentId goes empty, the attach effect re-runs, and
+    // (before this guard) it read "no active segment" as "dead chat → revive" — so
+    // the agent could not be quit at all while its pane was open. Auto-revive is for
+    // OPENING a dead chat; a CLI dying under the user's eyes gets the button.
+    it('does NOT respawn the agent when its CLI exits under the open pane', async () => {
+      getChatFn.mockResolvedValue(detail())
+      const store = makeStore(chat())
+      await renderPane(store) // attaches term-2
+
+      expect(screen.getByTestId('xterm')).toBeTruthy()
+
+      // The CLI exits: the daemon ends the segment and the WS frame clears it.
+      terminalListLiveFn.mockResolvedValue([])
+      await act(async () => {
+        store.setState((st) => ({
+          agentChats: {
+            ...st.agentChats,
+            chats: st.agentChats.chats.map((c) =>
+              c.id === 'c1' ? { ...c, activeSegmentId: '', activeProviderId: '' } : c,
+            ),
+          },
+        }))
+      })
+
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      expect(screen.getByText(/this agent has exited/i)).toBeTruthy()
+      expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
+    })
+
+    // The same gap exists on EVERY provider switch: between segment_ended and
+    // segment_opened the chat has no active segment. A revive fired there would
+    // spawn a second CLI alongside the one the switch is already starting.
+    it('does not revive in the gap between a switch ending one segment and opening the next', async () => {
+      getChatFn.mockResolvedValue(detail())
+      const store = makeStore(chat())
+      await renderPane(store)
+
+      terminalListLiveFn.mockResolvedValue([])
+      await act(async () => {
+        store.setState((st) => ({
+          agentChats: {
+            ...st.agentChats,
+            chats: st.agentChats.chats.map((c) =>
+              c.id === 'c1' ? { ...c, activeSegmentId: '' } : c,
+            ),
+          },
+        }))
+      })
+      expect(resumeChatFn).not.toHaveBeenCalled()
+
+      // ...and the switch's new segment lands and attaches normally.
+      terminalListLiveFn.mockResolvedValue(['term-2'])
+      await act(async () => {
+        store.setState((st) => ({
+          agentChats: {
+            ...st.agentChats,
+            chats: st.agentChats.chats.map((c) =>
+              c.id === 'c1' ? { ...c, activeSegmentId: 's2' } : c,
+            ),
+          },
+        }))
+      })
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      expect(screen.getByTestId('xterm')).toBeTruthy()
+    })
+
     // A revived CLI that dies on STARTUP (e.g. it was resumed into a session its
     // vendor never wrote) ends its segment at once, and every revive mints a NEW
     // segment id. A guard keyed on the segment would therefore see a fresh key each

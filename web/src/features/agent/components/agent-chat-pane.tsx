@@ -154,34 +154,55 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
     }
   }, [wsId, chatId])
 
-  // (Re-)attach when the chat opens or its active segment changes. Keying the
-  // terminal by the resolved sessionId below remounts it on a switch so the new
-  // PTY is attached in place.
+  // Auto-revive belongs to OPENING a chat, and to nothing else. This effect also
+  // re-runs whenever the active segment changes, and "no active segment" happens in
+  // two situations that must be treated completely differently:
   //
-  // Nothing to attach to means the chat's CLI is gone — it exited, or it died
-  // with the daemon, which always takes agent PTYs with it. That is not an end
-  // state: the ended segment still carries the provider and the native session id
-  // it bound, so the backend can put the user back exactly where they left off.
-  // Opening the chat revives it (no button to hunt for — the chat simply comes
-  // back), and the resulting segment_opened frame re-runs this effect to attach
-  // the new PTY.
+  //   OPEN a chat whose CLI is gone  → revive it. The user asked for this chat back.
+  //   The CLI DIES while you watch   → do NOT respawn it. You may have just typed
+  //                                    /exit; bringing the agent straight back is
+  //                                    the opposite of what you asked for, and it
+  //                                    makes the agent impossible to quit (observed
+  //                                    live: /exit, and claude reappeared instantly).
+  //
+  // The same distinction closes a race on every provider SWITCH: between the
+  // segment_ended and segment_opened frames the chat momentarily has NO active
+  // segment, and a revive fired in that gap would spawn a competing CLI alongside
+  // the one the switch is already starting. Reviving only on the pane's FIRST
+  // resolution can never fire there.
+  const canAutoRevive = useRef(true)
+
+  // Pointing the pane at a different chat is a fresh open, so it gets a fresh
+  // budget: declared BEFORE the attach effect so it runs first on that change.
+  useEffect(() => {
+    canAutoRevive.current = true
+    reviveAttempts.current = 0
+  }, [wsId, chatId])
+
   useEffect(() => {
     let cancelled = false
     setAttachment({ state: 'pending' })
 
     void attachAgentSegment(wsId, chatId).then((sid) => {
       if (cancelled) return
+
+      // Spend the "this is the open" budget on the FIRST resolution, whatever it
+      // is. A chat that attached fine when opened and dies later is NOT an open —
+      // that is the /exit case, and it must not respawn.
+      const isOpen = canAutoRevive.current
+      canAutoRevive.current = false
+
       if (sid !== null) {
         reviveAttempts.current = 0
         setAttachment({ state: 'attached', sessionId: sid })
         return
       }
 
-      // Nothing to attach to: the chat's CLI is gone. Bring it back — but only so
-      // many times, so a CLI that dies the moment it starts settles here instead of
-      // being respawned forever.
-      if (reviveAttempts.current >= MAX_REVIVE_ATTEMPTS) {
-        setAttachment({ state: 'idle', reason: 'failed' })
+      if (!isOpen || reviveAttempts.current >= MAX_REVIVE_ATTEMPTS) {
+        setAttachment({
+          state: 'idle',
+          reason: reviveAttempts.current > 0 ? 'failed' : 'exited',
+        })
         return
       }
       reviveAttempts.current += 1
