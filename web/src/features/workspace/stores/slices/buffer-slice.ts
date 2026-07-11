@@ -33,6 +33,7 @@ const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>(['externalEditor', 
 export interface BufferActions {
   openContent(spec: OpenContentSpec): string
   closeBuffer(id: string): void
+  renameBuffer(id: string, name: string): void
   setPinned(id: string, pinned: boolean): void
   setPreview(id: string, preview: boolean): void
   promotePreview(id: string): void
@@ -333,6 +334,17 @@ export const createBufferSlice: StateCreator<
         useHistoryStore.getState().actions.clearHistory(id)
         set((state) => {
           state.buffers = state.buffers.filter((b) => b.id !== id)
+        })
+      },
+
+      // Rename an open buffer's tab label in place. `openContent` snapshots the
+      // name at open time, so any content whose title can change AFTER the tab
+      // exists (an agent chat auto-titled by the agent, or renamed by the user)
+      // needs this to keep the tab in sync with its source of truth.
+      renameBuffer(id, name) {
+        set((state) => {
+          const buf = state.buffers.find((b) => b.id === id)
+          if (buf) buf.name = name
         })
       },
 

@@ -12,6 +12,7 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
     'navigation.sidebarWorkspaces': 'mod+1',
     'navigation.sidebarFiles': 'mod+2',
     'navigation.sidebarGit': 'mod+3',
+    'navigation.sidebarChats': 'mod+4',
   }),
 }))
 
@@ -51,6 +52,13 @@ describe('useSidebarTabKeyboard', () => {
     renderHook(() => useSidebarTabKeyboard())
     const event = dispatchKeydown({ key: '3', ctrlKey: true })
     expect(setActiveTab).toHaveBeenCalledWith('git')
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('switches to chats on Ctrl+4', () => {
+    renderHook(() => useSidebarTabKeyboard())
+    const event = dispatchKeydown({ key: '4', ctrlKey: true })
+    expect(setActiveTab).toHaveBeenCalledWith('chats')
     expect(event.defaultPrevented).toBe(true)
   })
 

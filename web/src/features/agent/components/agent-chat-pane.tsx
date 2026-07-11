@@ -33,6 +33,8 @@ export async function attachAgentSegment(wsId: string, chatId: string): Promise<
 interface AgentChatPaneProps {
   chatId: string
   wsId: string
+  /** The pane buffer backing this chat — the tab whose label tracks chat.title. */
+  bufferId: string
   isActivePane: boolean
 }
 
@@ -41,7 +43,7 @@ interface AgentChatPaneProps {
 // tab is keyed by the stable chatId; the inner terminal is keyed by the segment's
 // terminalSessionId so a provider switch (new segment) remounts and re-attaches
 // in place without disturbing the tab.
-export function AgentChatPane({ chatId, wsId, isActivePane }: AgentChatPaneProps) {
+export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentChatPaneProps) {
   const store = useWorkspaceStore()
   const activeSegmentId = useStore(
     store,
@@ -51,9 +53,22 @@ export function AgentChatPane({ chatId, wsId, isActivePane }: AgentChatPaneProps
     store,
     (s) => s.agentChats.chats.find((c) => c.id === chatId)?.activeProviderId ?? '',
   )
+  const title = useStore(store, (s) => s.agentChats.chats.find((c) => c.id === chatId)?.title ?? '')
   const providers = useStore(store, (s) => s.agentChats.providers)
 
   const [sessionId, setSessionId] = useState<string | null>(null)
+
+  // The tab label is a snapshot taken by openContent, but a chat's title changes
+  // AFTER the tab opens: the agent auto-titles it (WS `title_set`) and the user
+  // can rename it from the sidebar. Both land on this chat's `title` in the store,
+  // so mirroring title → buffer name here keeps the open tab correct for both
+  // paths, with no store → component dependency.
+  useEffect(() => {
+    if (!title) return
+    const s = store.getState()
+    const buffer = s.bufferActions.getBufferById(bufferId)
+    if (buffer && buffer.name !== title) s.bufferActions.renameBuffer(bufferId, title)
+  }, [store, bufferId, title])
 
   // (Re-)attach when the chat opens or its active segment changes. Keying the
   // terminal by the resolved sessionId below remounts it on a switch so the new
@@ -70,7 +85,7 @@ export function AgentChatPane({ chatId, wsId, isActivePane }: AgentChatPaneProps
 
   return (
     <Frame className="h-full w-full rounded-none bg-transparent p-0">
-      <FramePanel className="min-h-0 flex-1 rounded-none border-0 bg-transparent p-0 before:hidden">
+      <FramePanel className="min-h-0 flex-1 rounded-none border-0 bg-transparent p-0 shadow-none before:hidden">
         {sessionId && (
           <XtermTerminal key={sessionId} sessionId={sessionId} isActive={isActivePane} isVisible />
         )}

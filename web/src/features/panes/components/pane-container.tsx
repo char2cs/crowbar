@@ -494,7 +494,14 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
 
         case 'agentChat': {
           const c = buffer as import('../types/pane-content').AgentChatContent
-          return <AgentChatPane chatId={c.chatId} wsId={c.wsId} isActivePane={isActivePane} />
+          return (
+            <AgentChatPane
+              chatId={c.chatId}
+              wsId={c.wsId}
+              bufferId={c.id}
+              isActivePane={isActivePane}
+            />
+          )
         }
 
         case 'markdownPreview':

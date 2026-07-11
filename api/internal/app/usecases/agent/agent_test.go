@@ -1030,5 +1030,52 @@ func TestSeedRegistry_ListChatsFailure_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "seed registry")
 }
 
+func TestListProviders_ReturnsEveryDescriptorForTheWorkspaceHome(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	descs, err := f.usecase.ListProviders(ctx, "ws1")
+	require.NoError(t, err)
+	require.NotEmpty(t, descs)
+
+	ids := make([]string, len(descs))
+	for i, d := range descs {
+		ids[i] = d.ID
+	}
+	assert.Contains(t, ids, "claude")
+	assert.Contains(t, ids, "codex")
+}
+
+func TestListProviders_WorktreeDirFailure_ReturnsWrappedError(t *testing.T) {
+	f := newFixture(t)
+	f.ws.err = fmt.Errorf("boom: worktree lookup")
+	ctx := context.Background()
+
+	descs, err := f.usecase.ListProviders(ctx, "ws1")
+	require.Error(t, err)
+	assert.Nil(t, descs)
+	assert.Contains(t, err.Error(), "list providers")
+	assert.Contains(t, err.Error(), "worktree dir")
+}
+
+func TestListProviders_DescriptorEnumerationFailure_ReturnsWrappedError(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	// AllDescriptors unions the embedded descriptor ids with the on-disk override
+	// dir under crowbar home, then loads EVERY id through ResolveDescriptor. An
+	// invalid override (here: an id-less descriptor) therefore fails enumeration —
+	// the only way the second branch of ListProviders can error.
+	dir := filepath.Join(f.ws.home, "descriptors")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "broken.yaml"), []byte("id: \"\"\n"), 0o600))
+
+	descs, err := f.usecase.ListProviders(ctx, "ws1")
+	require.Error(t, err)
+	assert.Nil(t, descs)
+	assert.Contains(t, err.Error(), "list providers")
+	assert.Contains(t, err.Error(), "enumerate descriptor")
+}
+
 // timeUnix is a tiny helper for deterministic timestamps in seed setup.
 func timeUnix(sec int64) time.Time { return time.Unix(sec, 0).UTC() }

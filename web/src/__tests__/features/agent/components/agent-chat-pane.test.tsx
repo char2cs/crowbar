@@ -157,7 +157,21 @@ describe('attachAgentSegment', () => {
 })
 
 // ── Component ────────────────────────────────────────────────────────
-type FakeState = { agentChats: { chats: AgentChat[]; providers: AgentProvider[] } }
+// The pane reads the chat from the workspace store and writes its tab label back
+// through bufferActions, so the fake store models both: the agentChats slice and
+// the two buffer actions the pane touches (a faithful, minimal stand-in for the
+// real buffer slice, which is unit-tested separately).
+type FakeBuffer = { id: string; name: string }
+type FakeState = {
+  agentChats: { chats: AgentChat[]; providers: AgentProvider[] }
+  buffers: FakeBuffer[]
+  bufferActions: {
+    getBufferById: (id: string) => FakeBuffer | undefined
+    renameBuffer: (id: string, name: string) => void
+  }
+}
+
+const BUFFER_ID = 'buf-1'
 
 function chat(overrides: Partial<AgentChat> = {}): AgentChat {
   return {
@@ -171,11 +185,22 @@ function chat(overrides: Partial<AgentChat> = {}): AgentChat {
   }
 }
 
-function makeStore(initial: AgentChat) {
-  return createStore<FakeState>(() => ({
+/** The tab starts life labelled with whatever openContent snapshotted — by
+ *  default the chat's title at open time, i.e. already in sync. */
+function makeStore(initial: AgentChat, tabName: string = initial.title) {
+  return createStore<FakeState>((set, get) => ({
     agentChats: { chats: [initial], providers },
+    buffers: [{ id: BUFFER_ID, name: tabName }],
+    bufferActions: {
+      getBufferById: (id) => get().buffers.find((b) => b.id === id),
+      renameBuffer: (id, name) =>
+        set((s) => ({ buffers: s.buffers.map((b) => (b.id === id ? { ...b, name } : b)) })),
+    },
   }))
 }
+
+const tabName = (store: ReturnType<typeof makeStore>) =>
+  store.getState().buffers.find((b) => b.id === BUFFER_ID)?.name
 
 async function renderPane(store: ReturnType<typeof makeStore>, isActivePane = true) {
   let utils!: ReturnType<typeof render>
@@ -184,7 +209,12 @@ async function renderPane(store: ReturnType<typeof makeStore>, isActivePane = tr
       createElement(
         WorkspaceStoreContext.Provider,
         { value: store as unknown as WorkspaceStore },
-        createElement(AgentChatPane, { chatId: 'c1', wsId: 'w1', isActivePane }),
+        createElement(AgentChatPane, {
+          chatId: 'c1',
+          wsId: 'w1',
+          bufferId: BUFFER_ID,
+          isActivePane,
+        }),
       ),
     )
   })
@@ -203,6 +233,20 @@ describe('AgentChatPane', () => {
     expect(footerControl.getAttribute('data-count')).toBe('2')
     // No frame header rendered.
     expect(document.querySelector('[data-slot="frame-panel-header"]')).toBeNull()
+  })
+
+  it('flushes the FramePanel chrome — no border, background, padding or shadow', async () => {
+    getChatFn.mockResolvedValue(detail())
+    await renderPane(makeStore(chat()))
+
+    const panel = document.querySelector('[data-slot="frame-panel"]')
+    expect(panel).not.toBeNull()
+    // FramePanel's base class ships `shadow-xs/5` (a real box-shadow) plus the
+    // `before:` pseudo-shadow; both must be neutralized or a faint ring shows
+    // around the terminal, which the flush-pane spec forbids.
+    for (const cls of ['shadow-none', 'before:hidden', 'border-0', 'bg-transparent', 'p-0']) {
+      expect(panel?.classList.contains(cls)).toBe(true)
+    }
   })
 
   it('pre-seeds the PTY mapping then mounts the terminal for the active segment', async () => {
@@ -272,22 +316,68 @@ describe('AgentChatPane', () => {
   it('falls back to empty provider/segment when the chat is not yet in the store', async () => {
     getChatFn.mockResolvedValue(detail())
     // Store holds a different chat id — selectors take their ?? null / ?? '' path.
-    const store = createStore<FakeState>(() => ({
-      agentChats: { chats: [chat({ id: 'other' })], providers },
-    }))
-    await act(async () => {
-      render(
-        createElement(
-          WorkspaceStoreContext.Provider,
-          { value: store as unknown as WorkspaceStore },
-          createElement(AgentChatPane, { chatId: 'c1', wsId: 'w1', isActivePane: true }),
-        ),
-      )
-    })
-    await act(async () => {})
+    const store = makeStore(chat({ id: 'other' }), 'Codex chat')
+    await renderPane(store)
 
     expect(screen.getByTestId('provider-switch').getAttribute('data-current')).toBe('')
     // The effect still attaches from getChat's detail regardless of store state.
     expect(screen.getByTestId('xterm').getAttribute('data-session-id')).toBe('term-2')
+    // With no chat (hence no title) the tab label is left exactly as opened.
+    expect(tabName(store)).toBe('Codex chat')
+  })
+
+  // ── Tab-title sync ─────────────────────────────────────────────────
+  // openContent snapshots the tab label at open time; the chat's title changes
+  // later (agent auto-title over WS `title_set`, or a user rename) and both land
+  // on the store chat's `title`. The pane mirrors title → buffer name.
+  describe('tab title tracks the chat title', () => {
+    it('relabels the tab when the AGENT auto-titles the chat (WS title_set)', async () => {
+      getChatFn.mockResolvedValue(detail())
+      // Tab opened with the provider placeholder, in sync with the chat's title.
+      const store = makeStore(chat({ title: 'Codex chat' }), 'Codex chat')
+      await renderPane(store)
+      expect(tabName(store)).toBe('Codex chat')
+
+      // The WS title_set frame lands as a refetch+upsert of the chat.
+      await act(async () => {
+        store.setState({
+          agentChats: { chats: [chat({ title: 'Fix the flaky test' })], providers },
+        })
+      })
+
+      expect(tabName(store)).toBe('Fix the flaky test')
+    })
+
+    it('relabels the tab when the USER renames the chat', async () => {
+      getChatFn.mockResolvedValue(detail())
+      const store = makeStore(chat({ title: 'Codex chat' }), 'Codex chat')
+      await renderPane(store)
+
+      // The sidebar rename optimistically upserts the chat with the new title.
+      await act(async () => {
+        store.setState({
+          agentChats: { chats: [chat({ title: 'Renamed by hand' })], providers },
+        })
+      })
+
+      expect(tabName(store)).toBe('Renamed by hand')
+    })
+
+    it('syncs a tab opened with a stale placeholder on mount', async () => {
+      getChatFn.mockResolvedValue(detail())
+      // Tab label lags the chat's title (e.g. reopened from a persisted layout).
+      const store = makeStore(chat({ title: 'Already titled' }), 'Codex chat')
+      await renderPane(store)
+
+      expect(tabName(store)).toBe('Already titled')
+    })
+
+    it('never blanks the tab when the chat title is empty', async () => {
+      getChatFn.mockResolvedValue(detail())
+      const store = makeStore(chat({ title: '' }), 'Codex chat')
+      await renderPane(store)
+
+      expect(tabName(store)).toBe('Codex chat')
+    })
   })
 })

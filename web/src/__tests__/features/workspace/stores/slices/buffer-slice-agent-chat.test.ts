@@ -46,6 +46,35 @@ describe('buffer-slice agentChat', () => {
     expect(s.getState().buffers).toHaveLength(2)
   })
 
+  it('renameBuffer relabels the open tab (agent auto-title / user rename)', () => {
+    const s = createWorkspaceStore('w1')
+    const id = s.getState().bufferActions.openContent({
+      type: 'agentChat',
+      chatId: 'c1',
+      wsId: 'w1',
+      name: 'Codex chat',
+    })
+
+    s.getState().bufferActions.renameBuffer(id, 'Fix the flaky test')
+
+    const buf = s.getState().bufferActions.getBufferById(id) as AgentChatContent
+    expect(buf.name).toBe('Fix the flaky test')
+    // Identity fields are untouched — only the label changes.
+    expect(buf.chatId).toBe('c1')
+    expect(buf.path).toBe('agent-chat://c1')
+  })
+
+  it('renameBuffer is a no-op for an unknown buffer id', () => {
+    const s = createWorkspaceStore('w1')
+    const id = s
+      .getState()
+      .bufferActions.openContent({ type: 'agentChat', chatId: 'c1', wsId: 'w1', name: 'Chat 1' })
+
+    s.getState().bufferActions.renameBuffer('nope', 'Other')
+
+    expect(s.getState().bufferActions.getBufferById(id)?.name).toBe('Chat 1')
+  })
+
   it('reopening an existing agentChat buffer focuses it in the active pane', () => {
     const s = createWorkspaceStore('w1')
     const id1 = s

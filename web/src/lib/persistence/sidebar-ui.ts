@@ -6,7 +6,11 @@ export async function saveSidebarUI(
   collapsedWorkspaces: string[],
 ): Promise<void> {
   const db = await getDB()
-  await db.put('sidebar-ui', { collapsedRepos, collapsedWorkspaces, updatedAt: Date.now() }, 'global')
+  await db.put(
+    'sidebar-ui',
+    { collapsedRepos, collapsedWorkspaces, updatedAt: Date.now() },
+    'global',
+  )
 }
 
 export async function loadSidebarUI(): Promise<SidebarUI | null> {
