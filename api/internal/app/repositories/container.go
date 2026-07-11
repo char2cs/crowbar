@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
@@ -83,6 +84,13 @@ type Container struct {
 	mu       sync.Mutex
 	inflight map[string]int
 
+	// agentWorking maps a workspace id to the set of its agent chats currently
+	// mid-turn (00 agentic-engine spec §7.4). It is the agent-turn counterpart to
+	// inflight: enrichFrame ORs it into the derived Working overlay, and the
+	// registerAgentWorkingProjection folds turn_started/turn_stopped/forget into
+	// it and re-broadcasts the affected workspace. Guarded by mu.
+	agentWorking map[string]map[string]struct{}
+
 	// drainWG tracks every post-commit reactor goroutine wireCallbacks registered
 	// (the async delete reactor, and — once wired — the reconcile-on-open tasks) so
 	// the app layer's ordered graceful shutdown (Task 15) can wait them out before
@@ -132,7 +140,8 @@ func New(
 ) (*Container, error) {
 	c := &Container{
 		hub: h, git: git, inflight: map[string]int{},
-		axWorkspace: axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
+		agentWorking: map[string]map[string]struct{}{},
+		axWorkspace:  axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
 		terminateSession: terminateSession,
 	}
 	pathsStore, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
@@ -176,6 +185,9 @@ func New(
 		return nil, fmt.Errorf("repositories: agent chat event store: %w", err)
 	}
 	c.AgentChat = agentChat
+	if err := c.registerAgentWorkingProjection(); err != nil {
+		return nil, fmt.Errorf("repositories: agent working projection: %w", err)
+	}
 
 	// Wire the post-commit cross-aggregate reactions (spec §3.6): the workspace
 	// delete reactor + its review-thread AND agent-chat forget cascades, all
@@ -384,7 +396,7 @@ func (c *Container) enrichFrame(
 	ctx context.Context,
 	ws domain.Workspace,
 ) dto.WorkspaceDTO {
-	ws.Working = c.IsWorking(ws.ID)
+	ws.Working = c.IsWorking(ws.ID) || c.agentWorkingFor(ws.ID)
 	elig := c.eligibilityFor(ctx, ws)
 	return dto.WorkspaceDTOFrom(ws, elig)
 }
@@ -463,6 +475,98 @@ func (c *Container) rebroadcast(
 	c.broadcastWorkspace(ctx, ws)
 }
 
+// registerAgentWorkingProjection subscribes a THIRD projection on axAgentChat
+// (alongside the store + hub projections built in NewEventSourced): it re-derives
+// the per-workspace Working overlay from agent turn events (00 §7.4). turn_started
+// marks the chat working, turn_stopped clears it, and a Forget of a chat mid-turn
+// clears it too (so a delete never wedges the spinner on); each transition
+// re-broadcasts the affected workspace through the same enrichFrame path the
+// inflight overlay uses, so the FE spinner on the workspace tree + context pill +
+// tiles tracks live agent activity. The in-memory set is authoritative (not a
+// read-model query), so it never races the store projection.
+//
+// Only turn_started/turn_stopped are folded — a mid-turn segment_ended (process
+// exit, switch-out, boot reconcile) is ALWAYS accompanied by a StopTurn
+// (agent.Usecase.endSegmentAndMaybeStopTurn), so a turn_stopped always arrives to
+// clear the set; segment_ended needs no separate handling.
+//
+// Boot note (in-memory overlay, empty on restart): agentWorking starts EMPTY on
+// daemon boot, so a chat that was mid-turn when the daemon stopped shows idle
+// until its next turn_started. That is safe because boot-reconcile
+// (agent.Usecase.ReconcileOnBoot) ends stale segments/turns on restart, so no
+// chat is genuinely mid-turn-but-shown-idle after boot — consistent with the FE
+// chat-row working map's accepted default-idle-on-load.
+func (c *Container) registerAgentWorkingProjection() error {
+	if _, err := c.axAgentChat.Subscribe(asynx.Topic("agentchat.*"),
+		func(ctx context.Context, evt asynxModels.Event[domain.AgentChat]) {
+			wsID := evt.Aggregate.WorkspaceID
+			if wsID == "" {
+				return
+			}
+			switch agentEventKind(evt.EventName) {
+			case "turn_started":
+				c.setAgentTurn(wsID, evt.AggregateID, true)
+			case "turn_stopped":
+				c.setAgentTurn(wsID, evt.AggregateID, false)
+			default:
+				return
+			}
+			c.rebroadcast(ctx, wsID)
+		}); err != nil {
+		return fmt.Errorf("subscribe: %w", err)
+	}
+	if _, err := c.axAgentChat.OnForget(
+		func(ctx context.Context, evt asynxModels.Event[domain.AgentChat]) {
+			wsID := evt.Aggregate.WorkspaceID
+			if wsID == "" {
+				return
+			}
+			c.setAgentTurn(wsID, evt.AggregateID, false)
+			c.rebroadcast(ctx, wsID)
+		}); err != nil {
+		return fmt.Errorf("onforget: %w", err)
+	}
+	return nil
+}
+
+// setAgentTurn adds/removes chatID from the workspace's mid-turn set under mu.
+func (c *Container) setAgentTurn(wsID, chatID string, working bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if working {
+		set := c.agentWorking[wsID]
+		if set == nil {
+			set = map[string]struct{}{}
+			c.agentWorking[wsID] = set
+		}
+		set[chatID] = struct{}{}
+		return
+	}
+	if set := c.agentWorking[wsID]; set != nil {
+		delete(set, chatID)
+		if len(set) == 0 {
+			delete(c.agentWorking, wsID)
+		}
+	}
+}
+
+// agentWorkingFor reports whether the workspace has any agent chat mid-turn.
+func (c *Container) agentWorkingFor(wsID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.agentWorking[wsID]) > 0
+}
+
+// agentEventKind extracts <kind> from an agentchat EventName ("agentchat.<kind>.<id>").
+func agentEventKind(eventName string) string {
+	rest := strings.TrimPrefix(eventName, "agentchat.")
+	kind, _, found := strings.Cut(rest, ".")
+	if !found {
+		return rest
+	}
+	return kind
+}
+
 // eligibilityFor resolves the merge-eligibility overlay (incl. the predicted
 // merge-conflict flag) for ws by reading its siblings and delegating to the
 // shared wsusecase.ResolveMergeEligibility — the SAME resolver the snapshot read
@@ -494,7 +598,7 @@ func (c *Container) ListWorkspaces(
 		return nil, fmt.Errorf("repositories: list workspaces: %w", err)
 	}
 	for i := range rows {
-		rows[i].Working = c.IsWorking(rows[i].ID)
+		rows[i].Working = c.IsWorking(rows[i].ID) || c.agentWorkingFor(rows[i].ID)
 	}
 	return rows, nil
 }
@@ -584,7 +688,7 @@ func (c *Container) ListWorkspacesInRepo(
 		return nil, fmt.Errorf("repositories: list workspaces in repo: %w", err)
 	}
 	for i := range rows {
-		rows[i].Working = c.IsWorking(rows[i].ID)
+		rows[i].Working = c.IsWorking(rows[i].ID) || c.agentWorkingFor(rows[i].ID)
 	}
 	return rows, nil
 }
