@@ -35,5 +35,6 @@ func Register(
 	wsScoped.GET("/agent/chats/:id/handoff", h.Handoff)
 	wsScoped.DELETE("/agent/chats/:id", h.Delete)
 	wsScoped.POST("/agent/hooks", h.Hooks)
+	wsScoped.GET("/agent/providers", h.Providers)
 	wsScoped.GET("/agent/ws/chats", wsHandle)
 }

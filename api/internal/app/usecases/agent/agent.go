@@ -947,6 +947,29 @@ func segmentByID(chat domain.AgentChat, id string) (domain.AgentSegment, bool) {
 	return domain.AgentSegment{}, false
 }
 
+// ListProviders enumerates the registered agent providers for the workspace's
+// crowbar home (embedded defaults + on-disk overrides), backing GET
+// .../agent/providers. workspaceID is only used to resolve crowbar home — the
+// descriptor set is global — so any workspace in the same home yields the same list.
+func (u *Usecase) ListProviders(
+	ctx context.Context,
+	workspaceID string,
+) ([]engineagent.Descriptor, error) {
+	crowbarHome, _, _, _, err := u.ws.WorktreeDir(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("agent: list providers: worktree dir: %w", err)
+	}
+	descs, err := engineagent.AllDescriptors(crowbarHome)
+	if err != nil {
+		return nil, fmt.Errorf("agent: list providers: %w", err)
+	}
+	out := make([]engineagent.Descriptor, 0, len(descs))
+	for _, d := range descs {
+		out = append(out, *d)
+	}
+	return out, nil
+}
+
 // ListChats returns every AgentChat.
 func (u *Usecase) ListChats(
 	ctx context.Context,

@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
 // AgentUsecase is the agentic-chat usecase surface the handlers need:
@@ -74,6 +75,14 @@ type AgentUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) error
+
+	// ListProviders enumerates the registered agent providers for the workspace
+	// (the route ignores which workspace — the descriptor set is global — but the
+	// usecase resolves crowbar home from it to read on-disk overrides).
+	ListProviders(
+		ctx context.Context,
+		workspaceID string,
+	) ([]engineagent.Descriptor, error)
 }
 
 // Handlers serves the .../workspaces/:wsId/agent routes from the agent usecase.

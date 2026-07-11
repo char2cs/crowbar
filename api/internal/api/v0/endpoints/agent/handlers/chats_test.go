@@ -15,6 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
 // TestCreate_Success proves Create reads the workspace id from the :wsId
@@ -174,6 +175,13 @@ func (configurableListGetUsecase) PurgeChat(
 	_ string,
 ) error {
 	return nil
+}
+
+func (configurableListGetUsecase) ListProviders(
+	_ context.Context,
+	_ string,
+) ([]engineagent.Descriptor, error) {
+	return nil, nil
 }
 
 // TestList_Success proves List reads the :wsId path param (Task 3: nested

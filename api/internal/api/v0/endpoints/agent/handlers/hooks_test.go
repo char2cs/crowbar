@@ -14,6 +14,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
 func newTestContext(
@@ -112,6 +113,10 @@ type fakeAgentUsecase struct {
 
 	purgeCalls []string
 	purgeErr   error
+
+	providers              []engineagent.Descriptor
+	providersErr           error
+	listProvidersWorkspace string
 
 	// getChat/getChatErr configure GetChat, the call every
 	// requireChatInWorkspace scope check (Get/Switch/Rename/Handoff) makes
@@ -227,4 +232,12 @@ func (f *fakeAgentUsecase) PurgeChat(
 ) error {
 	f.purgeCalls = append(f.purgeCalls, chatID)
 	return f.purgeErr
+}
+
+func (f *fakeAgentUsecase) ListProviders(
+	_ context.Context,
+	workspaceID string,
+) ([]engineagent.Descriptor, error) {
+	f.listProvidersWorkspace = workspaceID
+	return f.providers, f.providersErr
 }

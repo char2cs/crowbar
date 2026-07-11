@@ -74,6 +74,17 @@ type HandoffDTO struct {
 	Handoff string `json:"handoff"`
 }
 
+// AgentProviderDTO is the wire shape of one registered agent provider (00
+// agentic-engine spec §7.2): the id the FE passes back to create/switch, a
+// human display name, and an inline SVG icon (fill="currentColor"). Backed by the
+// descriptor enumeration; workspace-independent but served on the workspace-scoped
+// route for surface consistency.
+type AgentProviderDTO struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+	Icon        string `json:"icon"`
+}
+
 // AgentChatEvent is the wire frame pushed on the agent-chat lifecycle
 // WebSocket (GET .../workspaces/:wsId/agent/ws/chats): the chat that changed,
 // the workspace it belongs to, and the lifecycle kind (created/segment_opened/

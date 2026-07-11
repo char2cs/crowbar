@@ -11,6 +11,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
 func TestMain(
@@ -93,6 +94,13 @@ func (stubUsecase) PurgeChat(
 	return nil
 }
 
+func (stubUsecase) ListProviders(
+	_ context.Context,
+	_ string,
+) ([]engineagent.Descriptor, error) {
+	return nil, nil
+}
+
 // TestRegisterMountsRoutes proves Register mounts every agent route nested
 // under the workspace-scoped group (Task 3: .../workspaces/:wsId/agent/...),
 // including the WS upgrade route delegating to the supplied handler.
@@ -120,6 +128,7 @@ func TestRegisterMountsRoutes(
 		{http.MethodGet, base + "/agent/chats/c1/handoff"},
 		{http.MethodDelete, base + "/agent/chats/c1"},
 		{http.MethodPost, base + "/agent/hooks"},
+		{http.MethodGet, base + "/agent/providers"},
 		{http.MethodGet, base + "/agent/ws/chats"},
 	}
 	for _, tc := range cases {
