@@ -1,6 +1,5 @@
-import { useState } from 'react'
 import { GitBranch, GitFork, GitMerge, GitPullRequest, Lock, Warning } from '@phosphor-icons/react'
-import { Spinner, spinnerNames } from '@agilek/cli-loaders'
+import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { WorkspaceStatus } from '@/lib/store/sidebar'
 
 interface WorkspaceBranchIconProps {
@@ -63,10 +62,11 @@ export function WorkspaceBranchIcon({ status, working, isPlaceholder }: Workspac
 }
 
 export function WorkspaceAgentSpinner() {
-  const [name] = useState(() => spinnerNames[Math.floor(Math.random() * spinnerNames.length)])
+  // Theme-token colored (text-primary), never a provider/hardcoded color; the
+  // <FlickerSpinner> random-picks a flicker spinner and animates it.
   return (
-    <span className="size-4 shrink-0 text-primary leading-none flex items-center justify-center">
-      <Spinner name={name} color="currentColor" size="0.875rem" shape="square" />
+    <span className="flex size-4 shrink-0 items-center justify-center text-primary">
+      <FlickerSpinner className="size-3.5" />
     </span>
   )
 }
