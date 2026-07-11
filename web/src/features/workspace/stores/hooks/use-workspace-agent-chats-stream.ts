@@ -40,13 +40,31 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
   useEffect(() => {
     let cancelled = false
 
+    // The seed is a full RECONCILE, not a merge: it runs on first load AND on every
+    // reconnect, and on reconnect it is the only thing that can repair frames the
+    // socket dropped while it was down. seedAgentChats therefore drops chats the
+    // server no longer has (a missed `deleted`) and clears the working map (a missed
+    // `turn_stopped` must not strand a spinner; working is unknown here → idle).
     const seedChats = async () => {
       try {
         const chats = await listChats(wsId)
         if (cancelled) return
-        const st = getOrCreateWorkspaceStore(wsId).getState()
-        st.hydrateAgentChatOrder()
-        for (const c of chats) st.upsertAgentChat(c)
+        const store = getOrCreateWorkspaceStore(wsId)
+        const before = store.getState()
+        before.hydrateAgentChatOrder()
+
+        const present = new Set(chats.map((c) => c.id))
+        const vanished = before.agentChats.chats.filter((c) => !present.has(c.id)).map((c) => c.id)
+
+        store.getState().seedAgentChats(chats)
+
+        // A chat deleted during the outage never delivered its `deleted` frame, so
+        // close its pane tab here exactly as that frame's handler would have.
+        const st = store.getState()
+        for (const chatId of vanished) {
+          const buf = st.buffers.find((b) => b.type === 'agentChat' && b.chatId === chatId)
+          if (buf) st.bufferActions.closeBuffer(buf.id)
+        }
       } catch {
         /* seed failure is non-fatal — the WS stream still pushes */
       }

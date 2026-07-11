@@ -44,6 +44,7 @@ export interface AgentChatsState {
 
 export interface AgentChatsSlice {
   agentChats: AgentChatsState
+  seedAgentChats: (chats: AgentChat[]) => void
   upsertAgentChat: (chat: AgentChat) => void
   removeAgentChat: (chatId: string) => void
   setAgentChatWorking: (chatId: string, working: boolean) => void
@@ -68,6 +69,28 @@ export const createAgentChatsSlice: StateCreator<
   AgentChatsSlice
 > = (set, get) => ({
   agentChats: { ...INITIAL_AGENT_CHATS_STATE },
+
+  // Reconcile the chat list against an AUTHORITATIVE GET — the initial load and
+  // every WS-reconnect reseed. Unlike a loop of upserts, this is a full
+  // replacement, because the reseed's whole job is to repair what the socket
+  // missed while it was down:
+  //
+  //  - Chats absent from the response are DROPPED. A `deleted` frame lost during
+  //    the outage would otherwise leave a ghost row that never goes away.
+  //  - The working map is CLEARED. Working state is not carried in the seed, so it
+  //    is UNKNOWN at this point, and spec §2 mandates unknown → idle. Keeping it
+  //    would strand a spinner forever on any row whose `turn_stopped` was dropped
+  //    during the outage (until that chat happens to run another turn).
+  seedAgentChats: (chats) =>
+    set((s) => {
+      const present = new Set(chats.map((c) => c.id))
+      s.agentChats.chats = chats
+      s.agentChats.working = {}
+      s.agentChats.order = s.agentChats.order.filter((id) => present.has(id))
+      if (s.agentChats.activeChatId !== null && !present.has(s.agentChats.activeChatId)) {
+        s.agentChats.activeChatId = null
+      }
+    }),
 
   upsertAgentChat: (chat) =>
     set((s) => {

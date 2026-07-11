@@ -27,6 +27,52 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.chats).toHaveLength(0)
   })
 
+  // ── seedAgentChats: the initial-load / WS-reconnect reconcile ──────────────
+  // The reseed is the ONLY thing that can repair state the socket missed while it
+  // was down, so it must be a full reconcile, not a merge of upserts.
+
+  it('seedAgentChats CLEARS the working map — a turn_stopped dropped during a WS outage must not strand a spinner', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+    s.getState().setAgentChatWorking('c1', true) // mid-turn when the socket dropped
+    expect(s.getState().agentChats.working.c1).toBe(true)
+
+    // Reconnect reseed. Working state is not carried in the seed → it is UNKNOWN,
+    // and spec §2 mandates unknown → idle. Without this the row spins forever.
+    s.getState().seedAgentChats([chat('c1', '2026-01-01T00:00:00Z')])
+
+    expect(s.getState().agentChats.working.c1).toBeUndefined()
+    expect(s.getState().agentChats.chats).toHaveLength(1)
+  })
+
+  it('seedAgentChats DROPS chats absent from the response — a delete missed during an outage leaves no ghost row', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+    s.getState().upsertAgentChat(chat('c2', '2026-01-02T00:00:00Z'))
+    s.getState().setAgentChatOrder(['c2', 'c1'])
+    s.getState().setActiveAgentChatId('c2')
+    s.getState().setAgentChatWorking('c2', true)
+
+    // c2 was deleted while the WS was down: the GET no longer returns it.
+    s.getState().seedAgentChats([chat('c1', '2026-01-01T00:00:00Z')])
+
+    expect(s.getState().agentChats.chats.map((c) => c.id)).toEqual(['c1'])
+    expect(s.getState().agentChats.order).toEqual(['c1']) // stale order entry pruned
+    expect(s.getState().agentChats.activeChatId).toBeNull() // the active chat is gone
+    expect(s.getState().agentChats.working.c2).toBeUndefined()
+  })
+
+  it('seedAgentChats keeps an active id that still exists, and takes the server copy of each chat', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().upsertAgentChat({ ...chat('c1', '2026-01-01T00:00:00Z'), title: 'stale title' })
+    s.getState().setActiveAgentChatId('c1')
+
+    s.getState().seedAgentChats([{ ...chat('c1', '2026-01-01T00:00:00Z'), title: 'server title' }])
+
+    expect(s.getState().agentChats.activeChatId).toBe('c1')
+    expect(s.getState().agentChats.chats[0].title).toBe('server title')
+  })
+
   it('toggles the working map and stores providers/active id', () => {
     const s = createWorkspaceStore('w1')
     s.getState().setAgentChatWorking('c1', true)

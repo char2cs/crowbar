@@ -7,11 +7,14 @@ import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-con
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
 // Hoisted fakes — declared before the vi.mock calls that reference them.
-const { getChatFn, switchProviderFn, saveReconnectFn } = vi.hoisted(() => ({
-  getChatFn: vi.fn(),
-  switchProviderFn: vi.fn(),
-  saveReconnectFn: vi.fn(),
-}))
+const { getChatFn, switchProviderFn, saveReconnectFn, terminalListLiveFn, toastErrorFn } =
+  vi.hoisted(() => ({
+    getChatFn: vi.fn(),
+    switchProviderFn: vi.fn(),
+    saveReconnectFn: vi.fn(),
+    terminalListLiveFn: vi.fn(),
+    toastErrorFn: vi.fn(),
+  }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
   getChat: (...a: unknown[]) => getChatFn(...a),
@@ -20,6 +23,20 @@ vi.mock('@/features/agent/api/agent-api', () => ({
 
 vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
   saveReconnect: (...a: unknown[]) => saveReconnectFn(...a),
+}))
+
+// The daemon's live-session listing: the pane checks it before seeding, so a dead
+// PTY can never be handed to resolveTerminalConnection (which would spawn a shell).
+vi.mock('@/lib/crowbar-bridge', () => ({
+  terminalListLive: (...a: unknown[]) => terminalListLiveFn(...a),
+}))
+
+vi.mock('@/lib/workspace-scope-url', () => ({
+  workspaceBase: (wsId: string) => `/v0/projects/p1/repos/r1/workspaces/${wsId}`,
+}))
+
+vi.mock('@/features/window/stores/toast-store', () => ({
+  toast: { error: (...a: unknown[]) => toastErrorFn(...a) },
 }))
 
 // jsdom can't run xterm/WebGL — stub the terminal renderer to a passive marker
@@ -111,6 +128,12 @@ beforeEach(() => {
   getChatFn.mockReset()
   switchProviderFn.mockReset()
   saveReconnectFn.mockReset()
+  terminalListLiveFn.mockReset()
+  toastErrorFn.mockReset()
+  // Default: the daemon still has both segments' PTYs. Tests that model a dead PTY
+  // override this.
+  terminalListLiveFn.mockResolvedValue(['term-1', 'term-2'])
+  switchProviderFn.mockResolvedValue('seg-new')
   useTerminalStore.setState({ sessions: new Map() })
 })
 
@@ -151,6 +174,43 @@ describe('attachAgentSegment', () => {
         ],
       }),
     )
+    expect(await attachAgentSegment('w1', 'c1')).toBeNull()
+    expect(saveReconnectFn).not.toHaveBeenCalled()
+  })
+
+  // ── Dead-PTY guard ────────────────────────────────────────────────────────
+  // resolveTerminalConnection's fallback for an unknown connection id is
+  // createTerminal(). So seeding an id whose PTY is gone does not merely fail to
+  // attach — it SPAWNS A BARE SHELL inside the agent pane and persists it to the
+  // reconnect map. Both ways a segment can be stale must therefore return null.
+
+  it('does NOT seed a PTY the daemon no longer lists as live (CLI died before EndSegment landed)', async () => {
+    getChatFn.mockResolvedValue(detail()) // active segment s2 → term-2
+    terminalListLiveFn.mockResolvedValue(['term-9']) // ...but term-2 is gone
+
+    expect(await attachAgentSegment('w1', 'c1')).toBeNull()
+
+    expect(saveReconnectFn).not.toHaveBeenCalled()
+    expect(useTerminalStore.getState().getSession('term-2')).toBeUndefined()
+    expect(terminalListLiveFn).toHaveBeenCalledWith(
+      '/v0/projects/p1/repos/r1/workspaces/w1/terminals',
+    )
+  })
+
+  it('does NOT seed when the active segment is already ended', async () => {
+    // The chat still points at s1, but s1's CLI has exited — its status is `ended`.
+    getChatFn.mockResolvedValue(detail({ activeSegmentId: 's1' })) // s1.status === 'ended'
+
+    expect(await attachAgentSegment('w1', 'c1')).toBeNull()
+
+    expect(saveReconnectFn).not.toHaveBeenCalled()
+    expect(useTerminalStore.getState().getSession('term-1')).toBeUndefined()
+  })
+
+  it('does NOT seed when the liveness listing fails (never spawn on an unknown daemon state)', async () => {
+    getChatFn.mockResolvedValue(detail())
+    terminalListLiveFn.mockRejectedValue(new Error('daemon unreachable'))
+
     expect(await attachAgentSegment('w1', 'c1')).toBeNull()
     expect(saveReconnectFn).not.toHaveBeenCalled()
   })
@@ -273,9 +333,34 @@ describe('AgentChatPane', () => {
   })
 
   it('re-seeds and remounts the terminal when the active segment changes (provider switch)', async () => {
-    getChatFn
-      .mockResolvedValueOnce(detail())
-      .mockResolvedValueOnce(detail({ activeSegmentId: 's1', activeProviderId: 'claude' }))
+    // After the switch, the NEW segment is the active one and the old is ended —
+    // model that faithfully (the pane refuses to attach an `ended` segment).
+    getChatFn.mockResolvedValueOnce(detail()).mockResolvedValueOnce(
+      detail({
+        activeSegmentId: 's1',
+        activeProviderId: 'claude',
+        segments: [
+          {
+            id: 's1',
+            terminalSessionId: 'term-1',
+            status: 'active',
+            providerId: 'claude',
+            providerSessionId: '',
+            crowbarSegmentId: 's1',
+            startedAt: '',
+          },
+          {
+            id: 's2',
+            terminalSessionId: 'term-2',
+            status: 'ended',
+            providerId: 'codex',
+            providerSessionId: '',
+            crowbarSegmentId: 's2',
+            startedAt: '',
+          },
+        ],
+      }),
+    )
     const store = makeStore(chat())
     await renderPane(store)
 
@@ -378,6 +463,57 @@ describe('AgentChatPane', () => {
       await renderPane(store)
 
       expect(tabName(store)).toBe('Codex chat')
+    })
+  })
+
+  describe('dead PTY', () => {
+    it('renders an ended-session state instead of mounting a terminal when the PTY is gone', async () => {
+      getChatFn.mockResolvedValue(detail()) // active segment s2 → term-2
+      terminalListLiveFn.mockResolvedValue([]) // the daemon has already reaped it
+
+      await renderPane(makeStore(chat()))
+
+      // The bug this guards: mounting XtermTerminal with a dead id makes
+      // resolveTerminalConnection fall through to createTerminal(), turning the
+      // agent pane into a plain shell.
+      expect(screen.queryByTestId('xterm')).toBeNull()
+      expect(screen.getByText(/agent session has ended/i)).toBeTruthy()
+      // The footer stays, so the user can switch provider to start a fresh segment.
+      expect(screen.getByTestId('provider-switch')).toBeTruthy()
+    })
+  })
+
+  describe('provider switch failure', () => {
+    it('surfaces a toast when the switch rejects (target CLI missing / spawn failed)', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      getChatFn.mockResolvedValue(detail())
+      switchProviderFn.mockRejectedValue(new Error('500: codex not installed'))
+      await renderPane(makeStore(chat()))
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('provider-switch'))
+      })
+
+      // Without a .catch this is an unhandled rejection: the dropdown just closes
+      // and the user is told nothing.
+      expect(toastErrorFn).toHaveBeenCalledTimes(1)
+      const [title, description] = toastErrorFn.mock.calls[0] as [string, string]
+      expect(title).toMatch(/could not switch provider/i)
+      expect(description).toContain('Codex') // the target provider's display name
+      expect(err).toHaveBeenCalled()
+      err.mockRestore()
+    })
+
+    it('shows no toast when the switch succeeds', async () => {
+      getChatFn.mockResolvedValue(detail())
+      await renderPane(makeStore(chat()))
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('provider-switch'))
+      })
+
+      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'codex')
+      expect(toastErrorFn).not.toHaveBeenCalled()
     })
   })
 })

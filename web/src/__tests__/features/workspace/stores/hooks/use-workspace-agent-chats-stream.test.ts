@@ -7,6 +7,7 @@ const {
   listChatsFn,
   getChatFn,
   listProvidersFn,
+  seedAgentChats,
   upsertAgentChat,
   removeAgentChat,
   setAgentChatWorking,
@@ -18,6 +19,7 @@ const {
   listChatsFn: vi.fn(),
   getChatFn: vi.fn(),
   listProvidersFn: vi.fn(),
+  seedAgentChats: vi.fn(),
   upsertAgentChat: vi.fn(),
   removeAgentChat: vi.fn(),
   setAgentChatWorking: vi.fn(),
@@ -26,9 +28,11 @@ const {
   closeBuffer: vi.fn(),
 }))
 
-// Mutable fixture the mocked store's getState() reads `buffers` from — tests
-// set it directly to control the "close the deleted chat's pane tab" branch.
+// Mutable fixtures the mocked store's getState() reads from — tests set them
+// directly to control the "close the deleted chat's pane tab" branch and the
+// reseed's reconcile (which diffs the store's current chats against the GET).
 let buffers: Array<{ id: string; type: string; chatId?: string }> = []
+let storeChats: Array<{ id: string }> = []
 
 vi.mock('@/lib/ws/manager', () => ({
   wsManager: { subscribe, send: vi.fn() },
@@ -47,6 +51,8 @@ vi.mock('@/features/agent/api/agent-api', () => ({
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   getOrCreateWorkspaceStore: () => ({
     getState: () => ({
+      agentChats: { chats: storeChats },
+      seedAgentChats,
       upsertAgentChat,
       removeAgentChat,
       setAgentChatWorking,
@@ -82,6 +88,12 @@ beforeEach(() => {
   vi.clearAllMocks()
   subscribe.mockReturnValue(() => {})
   buffers = []
+  storeChats = []
+  // The real slice replaces the chat list wholesale; model that so the hook's
+  // vanished-chat diff sees a faithful before/after.
+  seedAgentChats.mockImplementation((chats: Array<{ id: string }>) => {
+    storeChats = chats
+  })
   listChatsFn.mockResolvedValue([chat('c1')])
   getChatFn.mockResolvedValue({ ...chat('c1'), segments: [] })
   listProvidersFn.mockResolvedValue([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
@@ -98,7 +110,7 @@ describe('useWorkspaceAgentChatsStream', () => {
     await flush()
     expect(listChatsFn).toHaveBeenCalledWith('w1')
     expect(hydrateAgentChatOrder).toHaveBeenCalled()
-    expect(upsertAgentChat).toHaveBeenCalledWith(chat('c1'))
+    expect(seedAgentChats).toHaveBeenCalledWith([chat('c1')])
     expect(listProvidersFn).toHaveBeenCalledWith('w1')
     expect(setAgentProviders).toHaveBeenCalledWith([
       { id: 'claude', displayName: 'Claude', icon: '<svg/>' },
@@ -110,7 +122,7 @@ describe('useWorkspaceAgentChatsStream', () => {
     listProvidersFn.mockRejectedValueOnce(new Error('boom'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
-    expect(upsertAgentChat).not.toHaveBeenCalled()
+    expect(seedAgentChats).not.toHaveBeenCalled()
     expect(setAgentProviders).not.toHaveBeenCalled()
   })
 
@@ -132,7 +144,9 @@ describe('useWorkspaceAgentChatsStream', () => {
     resolveChats([chat('c1')]) // w1's stale seed resolves after teardown
     await flush()
 
-    expect(upsertAgentChat).not.toHaveBeenCalled()
+    // w2's own seed legitimately reconciles to an empty list; what must NOT happen
+    // is w1's stale response landing in w2's store.
+    expect(seedAgentChats).not.toHaveBeenCalledWith([chat('c1')])
   })
 
   it('turn_started/turn_stopped toggle the working map without a refetch', async () => {
@@ -258,6 +272,56 @@ describe('useWorkspaceAgentChatsStream', () => {
     await flush()
 
     expect(listChatsFn).toHaveBeenCalledWith('w1')
+  })
+
+  // ── Reconnect reconcile ────────────────────────────────────────────────────
+  // The reseed after an outage is the ONLY repair for frames the socket dropped.
+  // It must therefore hand the store an authoritative list (seedAgentChats
+  // replaces + clears working) rather than a merge of upserts, and it must take the
+  // pane tab of a chat deleted during the outage with it — exactly as the `deleted`
+  // frame handler would have, had it arrived.
+
+  it('reconnect reseed reconciles the list through seedAgentChats (drops the chat deleted during the outage)', async () => {
+    listChatsFn.mockResolvedValue([chat('c1'), chat('c2')])
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+    expect(seedAgentChats).toHaveBeenCalledWith([chat('c1'), chat('c2')])
+
+    // c2 is deleted while the socket is down — its `deleted` frame is never seen.
+    listChatsFn.mockResolvedValue([chat('c1')])
+    seedAgentChats.mockClear()
+
+    captureCb()({ reconnected: true })
+    await flush()
+
+    // The store is told the authoritative list; the slice drops c2 (and clears the
+    // working map, so a dropped turn_stopped cannot strand c1's spinner).
+    expect(seedAgentChats).toHaveBeenCalledWith([chat('c1')])
+  })
+
+  it('reconnect reseed closes the pane tab of a chat deleted during the outage', async () => {
+    listChatsFn.mockResolvedValue([chat('c1'), chat('c2')])
+    buffers = [{ id: 'buf-c2', type: 'agentChat', chatId: 'c2' }]
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+
+    listChatsFn.mockResolvedValue([chat('c1')]) // c2 gone
+    captureCb()({ reconnected: true })
+    await flush()
+
+    expect(closeBuffer).toHaveBeenCalledWith('buf-c2')
+  })
+
+  it('reconnect reseed leaves the pane tabs of surviving chats open', async () => {
+    listChatsFn.mockResolvedValue([chat('c1')])
+    buffers = [{ id: 'buf-c1', type: 'agentChat', chatId: 'c1' }]
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+
+    captureCb()({ reconnected: true })
+    await flush()
+
+    expect(closeBuffer).not.toHaveBeenCalled()
   })
 
   it('unsubscribes on unmount', () => {

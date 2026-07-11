@@ -6,6 +6,9 @@ import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 import { XtermTerminal } from '@/features/terminal/components/terminal'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { toast } from '@/features/window/stores/toast-store'
+import { terminalListLive } from '@/lib/crowbar-bridge'
+import { workspaceBase } from '@/lib/workspace-scope-url'
 import { ProviderSwitchDropdown } from './provider-switch-dropdown'
 
 // attachAgentSegment resolves chatId's ACTIVE segment's live terminal session and
@@ -18,17 +21,47 @@ import { ProviderSwitchDropdown } from './provider-switch-dropdown'
 // pre-seeded to the same id — and passes it to resolveTerminalConnection as
 // `storeConnectionId`. On a fresh mount there is no live WS transport yet, so the
 // resolver lists the daemon's live sessions, finds this PTY in them, and calls
-// terminalAttach (the in-memory-store reuse branch). Returns the session id to
-// mount, or null when the active segment carries no live terminal session.
+// terminalAttach (the in-memory-store reuse branch).
+//
+// It returns null — do NOT mount a terminal — whenever the agent's PTY is not
+// provably alive. That guard is load-bearing, because resolveTerminalConnection's
+// fallback for an unknown connection id is createTerminal(): seeding a dead id
+// would make it spawn a fresh BARE SHELL inside the agent pane and persist that
+// shell into the reconnect map. The window is real — a CLI can exit before its
+// EndSegment command lands, leaving the chat's active segment briefly pointing at
+// a PTY the daemon has already reaped — so both facts are checked:
+//
+//  1. the active segment is still `active` (an `ended` segment's CLI has exited), and
+//  2. the daemon still lists its terminal session as live.
+//
+// A failed liveness listing is treated as not-live for the same reason: never
+// spawn. The caller renders an "agent session ended" state instead, and the WS
+// stream's next segment_* frame re-runs this attach.
 export async function attachAgentSegment(wsId: string, chatId: string): Promise<string | null> {
   const chat = await getChat(wsId, chatId)
   const segment = chat.segments.find((s) => s.id === chat.activeSegmentId)
-  const sessionId = segment?.terminalSessionId
+  if (!segment || segment.status !== 'active') return null
+
+  const sessionId = segment.terminalSessionId
   if (!sessionId) return null
+
+  const live = await terminalListLive(`${workspaceBase(wsId)}/terminals`).catch(
+    () => [] as string[],
+  )
+  if (!live.includes(sessionId)) return null
+
   useTerminalStore.getState().updateSession(sessionId, { connectionId: sessionId })
   saveReconnect(wsId, sessionId, sessionId)
   return sessionId
 }
+
+// The pane's attach outcome. `pending` is the pre-resolution state and renders
+// nothing — distinguishing it from `ended` keeps the empty state from flashing on
+// every open while the segment is being resolved.
+type Attachment =
+  | { state: 'pending' }
+  | { state: 'attached'; sessionId: string }
+  | { state: 'ended' }
 
 interface AgentChatPaneProps {
   chatId: string
@@ -56,7 +89,7 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
   const title = useStore(store, (s) => s.agentChats.chats.find((c) => c.id === chatId)?.title ?? '')
   const providers = useStore(store, (s) => s.agentChats.providers)
 
-  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [attachment, setAttachment] = useState<Attachment>({ state: 'pending' })
 
   // The tab label is a snapshot taken by openContent, but a chat's title changes
   // AFTER the tab opens: the agent auto-titles it (WS `title_set`) and the user
@@ -75,26 +108,56 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
   // PTY is attached in place.
   useEffect(() => {
     let cancelled = false
+    setAttachment({ state: 'pending' })
     void attachAgentSegment(wsId, chatId).then((sid) => {
-      if (!cancelled) setSessionId(sid)
+      if (cancelled) return
+      setAttachment(sid === null ? { state: 'ended' } : { state: 'attached', sessionId: sid })
     })
     return () => {
       cancelled = true
     }
   }, [wsId, chatId, activeSegmentId])
 
+  // A provider switch is the headline interaction of this pane, and it can fail
+  // for real, ordinary reasons — the target CLI is not installed, the spawn fails.
+  // Without this catch the rejection is unhandled: the dropdown just closes and
+  // nothing happens. Surface it, matching the write-path error handling in
+  // agent-chats-panel (create/rename/delete).
+  const handleSwitch = (providerId: string) => {
+    switchProvider(wsId, chatId, providerId).catch((err: unknown) => {
+      console.error('Failed to switch agent provider:', err)
+      const name = providers.find((p) => p.id === providerId)?.displayName ?? providerId
+      toast.error(
+        'Could not switch provider',
+        `Crowbar could not start ${name}. Check that its CLI is installed and on your PATH.`,
+      )
+    })
+  }
+
   return (
     <Frame className="h-full w-full rounded-none bg-transparent p-0">
       <FramePanel className="min-h-0 flex-1 rounded-none border-0 bg-transparent p-0 shadow-none before:hidden">
-        {sessionId && (
-          <XtermTerminal key={sessionId} sessionId={sessionId} isActive={isActivePane} isVisible />
+        {attachment.state === 'attached' && (
+          <XtermTerminal
+            key={attachment.sessionId}
+            sessionId={attachment.sessionId}
+            isActive={isActivePane}
+            isVisible
+          />
+        )}
+        {attachment.state === 'ended' && (
+          <div className="flex h-full w-full items-center justify-center p-6">
+            <p className="text-muted-foreground text-center text-sm">
+              This agent session has ended. Switch provider below to start a new one.
+            </p>
+          </div>
         )}
       </FramePanel>
       <FrameFooter className="flex items-center justify-start px-2 py-1.5">
         <ProviderSwitchDropdown
           providers={providers}
           currentProviderId={activeProviderId}
-          onSwitch={(providerId) => void switchProvider(wsId, chatId, providerId)}
+          onSwitch={handleSwitch}
         />
       </FrameFooter>
     </Frame>
