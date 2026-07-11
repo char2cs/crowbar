@@ -178,6 +178,19 @@ func extraRoutes() []string {
 		"DELETE " + ws + "/threads/:threadId",
 		"PATCH " + ws + "/threads/:threadId/messages/:messageId",
 		"DELETE " + ws + "/threads/:threadId/messages/:messageId",
+		// Agentic-chat surface (00 agentic-engine spec §7): the workspace-scoped
+		// REST + lifecycle WS the FE Chats tab drives, nested under the workspace
+		// group (agent.Register).
+		"POST " + ws + "/agent/chats",
+		"GET " + ws + "/agent/chats",
+		"GET " + ws + "/agent/chats/:id",
+		"POST " + ws + "/agent/chats/:id/switch",
+		"POST " + ws + "/agent/chats/:id/rename",
+		"GET " + ws + "/agent/chats/:id/handoff",
+		"DELETE " + ws + "/agent/chats/:id",
+		"POST " + ws + "/agent/hooks",
+		"GET " + ws + "/agent/providers",
+		"GET " + ws + "/agent/ws/chats",
 		// Repo-home-as-workspace surface: the special non-git default workspace is
 		// navigable like a workspace but git-less, exposing its own files,
 		// terminals, and review-thread subtrees under /projects/:projectId/home
@@ -203,6 +216,19 @@ func extraRoutes() []string {
 		"POST " + home + "/threads/:threadId/replies",
 		"PATCH " + home + "/threads/:threadId/messages/:messageId",
 		"DELETE " + home + "/threads/:threadId/messages/:messageId",
+		// Agentic chats re-mounted under the home group so project-home
+		// workspaces get chats too (Task 6). Same handler set as the
+		// workspace-scoped agent surface, each RequireHomeWorkspace-scoped.
+		"POST " + home + "/agent/chats",
+		"GET " + home + "/agent/chats",
+		"GET " + home + "/agent/chats/:id",
+		"POST " + home + "/agent/chats/:id/switch",
+		"POST " + home + "/agent/chats/:id/rename",
+		"GET " + home + "/agent/chats/:id/handoff",
+		"DELETE " + home + "/agent/chats/:id",
+		"POST " + home + "/agent/hooks",
+		"GET " + home + "/agent/providers",
+		"GET " + home + "/agent/ws/chats",
 	}
 }
 

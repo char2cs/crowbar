@@ -103,6 +103,13 @@ func (c *Container) Register(
 		c.app.Repositories.ReviewThread,
 		c.threads,
 		c.threads.Handle,
+		// The agent chat surface (REST + lifecycle WS) is re-mounted under the
+		// home group so project-home workspaces get agentic chats too (the same
+		// usecase + WS broadcaster agent.Register uses on the workspace-scoped
+		// group); home.Register injects the resolved home :wsId so both scope
+		// correctly.
+		c.app.Usecases.Agent,
+		c.agentChats.Handle,
 		ws.DualServe,
 	)
 	workspaces.Register(
