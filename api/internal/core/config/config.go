@@ -22,7 +22,13 @@ var (
 // ({crowbar}, {chatid}, {conversation}) are expanded by Crowbar at injection time.
 type Prompts struct {
 	TitleInstruction string `yaml:"title_instruction"`
-	HandoffWrapper   string `yaml:"handoff_wrapper"`
+	// HandoffWrapper wraps the WHOLE conversation for a provider joining the chat
+	// fresh (it has no session of its own to resume, so it has no history).
+	HandoffWrapper string `yaml:"handoff_wrapper"`
+	// HandoffResumeWrapper wraps only the GAP for a provider resumed into its own
+	// native session — it already holds everything up to the moment it was
+	// switched out, so it is handed just what happened while it was away.
+	HandoffResumeWrapper string `yaml:"handoff_resume_wrapper"`
 }
 
 // ConfigData is the top-level config section.

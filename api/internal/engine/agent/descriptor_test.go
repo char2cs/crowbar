@@ -18,13 +18,18 @@ func TestResolveDescriptor_EmbeddedClaudeValid(t *testing.T) {
 	require.Equal(t, "session_id", d.Hooks.Events["session_start"]["session_id"])
 	require.Equal(t, "last_assistant_message", d.Hooks.Events["turn_stop"]["message"])
 
-	// Task 9: claude's system_prompt_inject delivers the title instruction via
-	// the same real --append-system-prompt flag as handoff_inject, distinct
-	// mechanisms that happen to render to the same flag for this provider.
-	require.Len(t, d.SystemPromptInject, 1)
-	require.Equal(t, "pass_arg", d.SystemPromptInject[0].Verb)
-	require.Equal(t, "--append-system-prompt", d.SystemPromptInject[0].Args["arg"])
-	require.Equal(t, "{system_prompt}", d.SystemPromptInject[0].Args["value"])
+	// claude reads an appended system prompt without being given a turn, and
+	// honours a FRESH one on --resume too, so the same silent channel carries
+	// {context} whether the session is new or resumed.
+	require.Len(t, d.ContextInject, 1)
+	require.Equal(t, "pass_arg", d.ContextInject[0].Verb)
+	require.Equal(t, "--append-system-prompt", d.ContextInject[0].Args["arg"])
+	require.Equal(t, "{context}", d.ContextInject[0].Args["value"])
+
+	require.Len(t, d.ResumeContextInject, 1)
+	require.Equal(t, "pass_arg", d.ResumeContextInject[0].Verb)
+	require.Equal(t, "--append-system-prompt", d.ResumeContextInject[0].Args["arg"])
+	require.Equal(t, "{context}", d.ResumeContextInject[0].Args["value"])
 }
 
 func TestResolveDescriptor_EmbeddedCodexValid(t *testing.T) {
@@ -34,13 +39,22 @@ func TestResolveDescriptor_EmbeddedCodexValid(t *testing.T) {
 	require.Contains(t, d.Spawn.ForbidFlags, "exec")
 	require.Contains(t, d.Spawn.Args, "--dangerously-bypass-hook-trust")
 
-	// Task 9: codex has no system-prompt flag, so system_prompt_inject writes
-	// the title instruction to $CODEX_HOME/AGENTS.md instead of hijacking
-	// codex's positional initial-prompt arg (handoff_inject's mechanism).
-	require.Len(t, d.SystemPromptInject, 1)
-	require.Equal(t, "write_file", d.SystemPromptInject[0].Verb)
-	require.Equal(t, "{tmp}/codex-home/AGENTS.md", d.SystemPromptInject[0].Args["path"])
-	require.Equal(t, "{system_prompt}", d.SystemPromptInject[0].Args["content"])
+	// codex ships no --append-system-prompt, and its positional [PROMPT] IS the
+	// user's first message — putting {context} there is what made codex answer
+	// the handoff on sight. A FRESH codex session takes it silently through the
+	// documented `developer_instructions` config key instead.
+	require.Len(t, d.ContextInject, 1)
+	require.Equal(t, "pass_arg", d.ContextInject[0].Verb)
+	require.Equal(t, "-c", d.ContextInject[0].Args["arg"])
+	require.Equal(t, "developer_instructions={context}", d.ContextInject[0].Args["value"])
+
+	// A RESUMED codex session cannot be told anything through config (verified
+	// against 0.139.0: `codex resume` rebuilds from a rollout that never records
+	// developer instructions, and does not re-read AGENTS.md), so the ONLY channel
+	// left for the gap is a user message.
+	require.Len(t, d.ResumeContextInject, 1)
+	require.Equal(t, "pass_arg", d.ResumeContextInject[0].Verb)
+	require.Equal(t, "{context}", d.ResumeContextInject[0].Args["positional"])
 }
 
 func TestLoadDescriptor_RejectsMissingID(t *testing.T) {

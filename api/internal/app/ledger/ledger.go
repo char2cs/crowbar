@@ -80,6 +80,21 @@ func (l *Ledger) nextSeq() (int, error) {
 // RenderConversation reads every turn in order and renders a legible plain-text
 // conversation for a receiving model.
 func (l *Ledger) RenderConversation() ([]byte, error) {
+	return l.render(time.Time{})
+}
+
+// RenderConversationAfter renders only the turns recorded strictly after cut —
+// the "while you were away" gap handed to a provider being resumed into its OWN
+// native session. That session already holds everything up to the moment it was
+// switched out, so replaying the whole ledger to it would duplicate its history;
+// only what happened under OTHER providers since then is new information. A zero
+// cut renders everything (RenderConversation). Returns empty (not an error) when
+// nothing happened in the gap — the caller then injects nothing at all.
+func (l *Ledger) RenderConversationAfter(cut time.Time) ([]byte, error) {
+	return l.render(cut)
+}
+
+func (l *Ledger) render(cut time.Time) ([]byte, error) {
 	names, err := l.entries()
 	if err != nil {
 		return nil, err
@@ -93,6 +108,9 @@ func (l *Ledger) RenderConversation() ([]byte, error) {
 		var tn Turn
 		if err := json.Unmarshal(data, &tn); err != nil {
 			return nil, fmt.Errorf("ledger: unmarshal %s: %w", n, err)
+		}
+		if !cut.IsZero() && !tn.At.After(cut) {
+			continue
 		}
 		header := tn.Role
 		if tn.Role == "assistant" && tn.Provider != "" {

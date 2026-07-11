@@ -31,6 +31,7 @@ func Register(
 	wsScoped.GET("/agent/chats", h.List)
 	wsScoped.GET("/agent/chats/:id", h.Get)
 	wsScoped.POST("/agent/chats/:id/switch", h.Switch)
+	wsScoped.POST("/agent/chats/:id/resume", h.Resume)
 	wsScoped.POST("/agent/chats/:id/rename", h.Rename)
 	wsScoped.GET("/agent/chats/:id/handoff", h.Handoff)
 	wsScoped.DELETE("/agent/chats/:id", h.Delete)

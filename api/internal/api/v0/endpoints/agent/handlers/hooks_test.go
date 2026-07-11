@@ -105,6 +105,10 @@ type fakeAgentUsecase struct {
 	switchNewSegID string
 	switchErr      error
 
+	resumeCalls []string
+	resumeSegID string
+	resumeErr   error
+
 	handoffStr string
 	handoffErr error
 
@@ -206,6 +210,17 @@ func (f *fakeAgentUsecase) SwitchProvider(
 		return "", f.switchErr
 	}
 	return f.switchNewSegID, nil
+}
+
+func (f *fakeAgentUsecase) ResumeChat(
+	_ context.Context,
+	chatID string,
+) (string, error) {
+	f.resumeCalls = append(f.resumeCalls, chatID)
+	if f.resumeErr != nil {
+		return "", f.resumeErr
+	}
+	return f.resumeSegID, nil
 }
 
 func (f *fakeAgentUsecase) AssembleHandoff(

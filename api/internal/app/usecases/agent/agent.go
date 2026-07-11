@@ -130,7 +130,7 @@ func (u *Usecase) SpawnChat(
 	providerID string,
 ) (chatID, segID string, err error) {
 	chatID = uuid.NewString()
-	segID, err = u.spawnSegment(ctx, chatID, workspaceID, providerID, nil, "", true, true)
+	segID, err = u.spawnSegment(ctx, chatID, workspaceID, providerID, nil, "", true, false, true)
 	if err != nil {
 		return "", "", err
 	}
@@ -289,14 +289,29 @@ func deriveTitle(prompt string) string {
 // OpenSegment runs. If OpenSegment loses a version race (an active segment
 // already exists — asynx ErrValidation) or fails for any other reason, the
 // just-spawned CLI is torn down (TerminateGraceful) so no orphan process leaks.
+// spawnSegment launches providerID's CLI for chatID and persists the resulting
+// segment. conversation is the already-wrapped handoff document (full ledger for
+// a provider new to this chat, gap-only for one resumed into its own session, ""
+// for a brand-new chat); injectTitle asks for the title instruction. Both are
+// composed into the ONE {context} document the descriptor injects, because a
+// provider may only have a single such channel — codex delivers title and
+// handoff through the same developer_instructions key, so injecting them
+// separately would have the second silently overwrite the first.
+//
+// resuming selects WHICH descriptor channel carries that document: ContextInject
+// for a fresh session, ResumeContextInject for one resumed via session.resume.
+// The distinction is real, not cosmetic — a resumed codex ignores every config
+// channel and can only be reached through a user message (see codex.yaml) — and
+// it is the descriptor, never this code, that knows what each provider needs.
 func (u *Usecase) spawnSegment(
 	ctx context.Context,
 	chatID string,
 	workspaceID string,
 	providerID string,
 	extraSteps []engineagent.InjectStep,
-	handoff string,
+	conversation string,
 	injectTitle bool,
+	resuming bool,
 	create bool,
 ) (string, error) {
 	segID := uuid.NewString()
@@ -348,18 +363,29 @@ func (u *Usecase) spawnSegment(
 		RepoID:      repoID,
 		WorkspaceID: workspaceID,
 	}
-	steps := extraSteps
+	// Compose the single {context} document: title instruction (only while the
+	// chat has no title — a chat switched before it was ever titled would
+	// otherwise never get one) followed by the handed-off conversation.
+	var parts []string
 	if injectTitle {
-		// Fresh chat: the injected document is the title instruction (from
-		// config), delivered through the descriptor's system_prompt_inject
-		// mechanism — a true per-invocation system prompt, NOT handoff_inject
-		// (which for codex is a positional arg that would otherwise hijack its
-		// initial user turn; see descriptor.go's SystemPromptInject doc).
-		tctx.SystemPrompt = engineagent.Expand(config.GetPrompts().TitleInstruction, tctx)
-		steps = append(steps, descriptor.SystemPromptInject...)
-	} else {
-		tctx.Handoff = handoff
+		parts = append(parts, engineagent.Expand(config.GetPrompts().TitleInstruction, tctx))
 	}
+	if conversation != "" {
+		parts = append(parts, conversation)
+	}
+	tctx.Context = strings.Join(parts, "\n\n")
+
+	steps := extraSteps
+	if tctx.Context != "" {
+		steps = append(steps, contextInject(descriptor, resuming)...)
+	}
+
+	// Register the injected document BEFORE the CLI can run: a provider whose only
+	// resume channel is a user message (codex) fires its user-prompt hook with
+	// this exact text the moment it starts, and that echo must never be recorded
+	// as a ledger turn — that is what made handoffs nest inside themselves.
+	u.registry.SetInjectedContext(segID, tctx.Context)
+
 	plan, err := engineagent.BuildSpawnPlan(descriptor, tctx, os.Environ(), steps)
 	if err != nil {
 		return "", fmt.Errorf("agent: spawn segment: build spawn plan: %w", err)
@@ -616,6 +642,20 @@ func (u *Usecase) IngestHook(
 	case "session_start":
 		return u.handleSessionStart(ctx, crowbarSegID, chat, seg, ev)
 	case "user_prompt":
+		// Crowbar's own context document coming back at us: a provider whose only
+		// resume channel is a user message (codex) fires user_prompt with the very
+		// handoff we injected. That is not something the user said — recording it
+		// would put the handoff in the ledger as a "user" turn, and the NEXT
+		// handoff would then quote it inside itself (the nesting seen live). Drop
+		// it from the ledger and from title derivation, but still open the turn:
+		// the CLI really is working on it, and the workspace's working overlay must
+		// say so.
+		if u.registry.ConsumeInjectedContext(crowbarSegID, ev.Message) {
+			if _, err := u.chats.StartTurn(ctx, chat.ID, time.Now()); err != nil {
+				return fmt.Errorf("agent: ingest hook: start turn: %w", err)
+			}
+			return nil
+		}
 		if err := u.RenameChat(ctx, chat.ID, deriveTitle(ev.Message), "derived"); err != nil {
 			slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
 		}
@@ -806,31 +846,7 @@ func (u *Usecase) AssembleHandoff(
 	ctx context.Context,
 	chatID string,
 ) (string, error) {
-	chat, err := u.chats.GetChat(ctx, chatID)
-	if err != nil {
-		return "", fmt.Errorf("agent: assemble handoff: chat: %w", err)
-	}
-
-	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
-	if err != nil {
-		return "", fmt.Errorf("agent: assemble handoff: chats dir: %w", err)
-	}
-
-	dir := worktreepath.AgentLedgerDir(chatsDir, chat.ID)
-	led, err := ledger.Open(dir)
-	if err != nil {
-		return "", fmt.Errorf("agent: assemble handoff: ledger open: %w", err)
-	}
-
-	blob, err := led.RenderConversation()
-	if err != nil {
-		return "", fmt.Errorf("agent: assemble handoff: ledger read all: %w", err)
-	}
-	if len(blob) == 0 {
-		return "", nil
-	}
-
-	return strings.ReplaceAll(config.GetPrompts().HandoffWrapper, "{conversation}", string(blob)), nil
+	return u.assembleConversation(ctx, chatID, false, time.Time{})
 }
 
 // SwitchProvider is the headline provider-switch: it terminates chatID's active
@@ -852,62 +868,79 @@ func (u *Usecase) SwitchProvider(
 		return "", fmt.Errorf("agent: switch provider: chat: %w", err)
 	}
 
-	oldSeg, ok := segmentByID(chat, chat.ActiveSegmentID)
-	if !ok {
-		return "", fmt.Errorf("agent: switch provider: active segment: %w", agentchat.ErrNotFound)
+	// chat.Segments is in append (start) order, so the LAST match while scanning
+	// forward is the most recent prior segment for the target provider. This is
+	// the switch-back detector: a target that already ran in this chat and bound
+	// a native session id is resumed into it; a provider new to this chat finds
+	// none. leftAt is when that segment ended — the cut for the "while you were
+	// away" gap.
+	var priorSessionID string
+	var leftAt time.Time
+	for _, s := range chat.Segments {
+		if s.ProviderID == targetProviderID && s.ProviderSessionID != "" {
+			priorSessionID = s.ProviderSessionID
+			if s.EndedAt != nil {
+				leftAt = *s.EndedAt
+			}
+		}
 	}
+	resuming := priorSessionID != ""
 
-	// Read-before-terminate: the ledger is built from hooks (appended on each
-	// turn_stop/user_prompt hook) and is already on disk, so assembling the
-	// handoff does not depend on the outgoing CLI still being alive. A
-	// failure here must abort the switch (return before terminate) rather
-	// than silently proceed with an EMPTY handoff — nothing destructive has
-	// happened yet, so aborting leaves the chat exactly as it was.
-	handoff, err := u.AssembleHandoff(ctx, chatID)
+	// Read-BEFORE-terminate: the ledger is built from hooks and is already on
+	// disk, so assembling the handoff never depends on the outgoing CLI still
+	// being alive — and doing it FIRST means a failure here aborts the switch
+	// with nothing destroyed, rather than leaving the chat with its old CLI
+	// killed and the new one spawned with an EMPTY handoff.
+	//
+	// A provider resumed into its OWN session already holds every turn up to the
+	// moment it was switched out, so it is handed only the GAP: what happened
+	// under other providers while it was away. Replaying the whole ledger to it
+	// would duplicate its own history back at it — noise that dilutes the very
+	// turns it is meant to notice. A provider new to this chat has no history at
+	// all, so it gets the whole conversation.
+	conversation, err := u.assembleConversation(ctx, chatID, resuming, leftAt)
 	if err != nil {
 		return "", fmt.Errorf("agent: switch provider: assemble handoff: %w", err)
 	}
 
-	// The outgoing CLI is quit gracefully (spec §8: clean-exit SIGTERM, never
-	// SIGKILL) so a well-behaved CLI — Claude Code in particular — gets the
-	// chance to flush its native transcript before it dies; a hard kill can
-	// lose the outgoing CLI's last pre-switch turn. Applies uniformly to
-	// every provider (Codex tolerates it too), no per-provider branching.
-	//
-	// A failed terminate is surfaced, not swallowed: if the outgoing CLI's
-	// terminal session still exists but could not be terminated, proceeding
-	// would spawn a SECOND live CLI into the same worktree while the store marks
-	// only the new one active — the exact "two live CLIs" hazard this guards
-	// against. The one error TerminateGraceful can return today
-	// (registry.ErrSessionNotFound, exported as terminal.ErrSessionNotFound)
-	// means the session is already gone (process previously exited/reaped) —
-	// safe, even correct, to continue: the alternative would trap a chat
-	// unable to ever switch again once its terminal session ends on its own.
-	if err := u.term.TerminateGraceful(ctx, oldSeg.TerminalSessionID); err != nil {
-		if !errors.Is(err, engineterminal.ErrSessionNotFound) {
-			return "", fmt.Errorf("agent: switch provider: terminate outgoing terminal: %w", err)
+	// An absent active segment is NOT an error: the chat's CLI is simply dead
+	// (it exited, or it died with the daemon and ReconcileOnBoot ended its
+	// segment). Such a chat used to be a dead end — the pane told the user to
+	// "switch provider to start a new one" and this returned ErrNotFound, so
+	// there was no way back into a chat whose process had gone. Reviving a dead
+	// chat IS a switch (§ ResumeChat), so it runs this exact path; the only
+	// difference is that there is no outgoing CLI to terminate.
+	if oldSeg, ok := segmentByID(chat, chat.ActiveSegmentID); ok {
+		// The outgoing CLI is quit gracefully (spec §8: clean-exit SIGTERM, never
+		// SIGKILL) so a well-behaved CLI — Claude Code in particular — gets the
+		// chance to flush its native transcript before it dies; a hard kill can
+		// lose the outgoing CLI's last pre-switch turn. Applies uniformly to
+		// every provider (Codex tolerates it too), no per-provider branching.
+		//
+		// A failed terminate is surfaced, not swallowed: if the outgoing CLI's
+		// terminal session still exists but could not be terminated, proceeding
+		// would spawn a SECOND live CLI into the same worktree while the store marks
+		// only the new one active — the exact "two live CLIs" hazard this guards
+		// against. The one error TerminateGraceful can return today
+		// (registry.ErrSessionNotFound, exported as terminal.ErrSessionNotFound)
+		// means the session is already gone (process previously exited/reaped) —
+		// safe, even correct, to continue: the alternative would trap a chat
+		// unable to ever switch again once its terminal session ends on its own.
+		if err := u.term.TerminateGraceful(ctx, oldSeg.TerminalSessionID); err != nil {
+			if !errors.Is(err, engineterminal.ErrSessionNotFound) {
+				return "", fmt.Errorf("agent: switch provider: terminate outgoing terminal: %w", err)
+			}
+			slog.WarnContext(ctx, "agent: switch provider: outgoing terminal session already gone before terminate; continuing switch",
+				"chat_id", chatID, "segment_id", oldSeg.ID, "terminal_session_id", oldSeg.TerminalSessionID, "err", err)
 		}
-		slog.WarnContext(ctx, "agent: switch provider: outgoing terminal session already gone before terminate; continuing switch",
-			"chat_id", chatID, "segment_id", oldSeg.ID, "terminal_session_id", oldSeg.TerminalSessionID, "err", err)
-	}
 
-	// End the outgoing segment BEFORE spawning the target: OpenSegment (inside
-	// spawnSegment) rejects a chat that still has an active segment, so the
-	// active segment must be cleared first. Scoped to oldSeg.ID so a concurrent
-	// reconcile/switch racing this same chat can't make us end a segment other
-	// than the one we read as active.
-	if _, err := u.chats.EndSegment(ctx, chatID, oldSeg.ID, time.Now()); err != nil {
-		return "", fmt.Errorf("agent: switch provider: end old segment: %w", err)
-	}
-
-	// chat.Segments is in append (start) order, so the LAST match while scanning
-	// forward is the most recent prior segment for the target provider. This is
-	// the switch-back detector: a target that already ran in this chat and bound
-	// a native session id is resumed into it; a forward switch finds none.
-	var priorSessionID string
-	for _, s := range chat.Segments {
-		if s.ProviderID == targetProviderID && s.ProviderSessionID != "" {
-			priorSessionID = s.ProviderSessionID
+		// End the outgoing segment BEFORE spawning the target: OpenSegment (inside
+		// spawnSegment) rejects a chat that still has an active segment, so the
+		// active segment must be cleared first. Scoped to oldSeg.ID so a concurrent
+		// reconcile/switch racing this same chat can't make us end a segment other
+		// than the one we read as active.
+		if _, err := u.chats.EndSegment(ctx, chatID, oldSeg.ID, time.Now()); err != nil {
+			return "", fmt.Errorf("agent: switch provider: end old segment: %w", err)
 		}
 	}
 
@@ -924,7 +957,7 @@ func (u *Usecase) SwitchProvider(
 	// NOT split a string on whitespace, so a whole "--resume {id}" template
 	// handed to a single pass_arg would become one literal argument.
 	var resumeSteps []engineagent.InjectStep
-	if priorSessionID != "" && d.Session.Resume != nil && d.Session.Resume.Arg != "" {
+	if resuming && d.Session.Resume != nil && d.Session.Resume.Arg != "" {
 		resumeCtx := engineagent.TemplateCtx{ID: priorSessionID}
 		for _, tok := range strings.Fields(engineagent.Expand(d.Session.Resume.Arg, resumeCtx)) {
 			resumeSteps = append(resumeSteps, engineagent.InjectStep{
@@ -933,15 +966,102 @@ func (u *Usecase) SwitchProvider(
 			})
 		}
 	}
-	// Resume goes first so codex's `resume <id>` subcommand precedes the
-	// positional handoff; order is irrelevant for claude's flag pair.
-	extraSteps := append(resumeSteps, d.HandoffInject...)
 
-	newSegID, err := u.spawnSegment(ctx, chatID, chat.WorkspaceID, targetProviderID, extraSteps, handoff, false, false)
+	// Resume args go first so codex's `resume <id>` subcommand precedes any
+	// positional context; order is irrelevant for claude's flag pair.
+	newSegID, err := u.spawnSegment(
+		ctx, chatID, chat.WorkspaceID, targetProviderID,
+		resumeSteps, conversation, chat.Title == "", resuming, false,
+	)
 	if err != nil {
 		return "", err
 	}
 	return newSegID, nil
+}
+
+// ResumeChat revives a chat whose vendor CLI is gone — it exited on its own, or
+// it died with the daemon (agent PTYs are command sessions and are never
+// persisted, so a restart always takes them with it) and ReconcileOnBoot ended
+// its segment. Everything needed to bring it back is already on the ended
+// segment: its provider, and the native ProviderSessionID the CLI bound. So this
+// is nothing more than "switch to the provider that was last here" — the same
+// SwitchProvider path, which finds that session id and resumes into it, leaving
+// the CLI exactly where the user left it.
+//
+// A chat that still has a live active segment is returned as-is (no-op): reviving
+// it would tear down a perfectly good CLI.
+func (u *Usecase) ResumeChat(
+	ctx context.Context,
+	chatID string,
+) (string, error) {
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: resume chat: chat: %w", err)
+	}
+	if chat.ActiveSegmentID != "" {
+		return chat.ActiveSegmentID, nil
+	}
+	if len(chat.Segments) == 0 {
+		return "", fmt.Errorf("agent: resume chat: no segment to resume: %w", agentchat.ErrNotFound)
+	}
+	// Segments are in append (start) order: the last one is the provider the user
+	// was talking to when the CLI died.
+	last := chat.Segments[len(chat.Segments)-1]
+	return u.SwitchProvider(ctx, chatID, last.ProviderID)
+}
+
+// assembleConversation renders the handoff document for a spawning provider:
+// gap-only (turns recorded after leftAt) wrapped in HandoffResumeWrapper when it
+// is being resumed into its own session, the whole ledger wrapped in
+// HandoffWrapper when it is new to the chat. Empty (not an error) when there is
+// nothing to hand over — a brand-new chat, or a revive where nothing happened
+// while the CLI was gone; the caller then injects no context document at all.
+func (u *Usecase) assembleConversation(
+	ctx context.Context,
+	chatID string,
+	resuming bool,
+	leftAt time.Time,
+) (string, error) {
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: assemble conversation: chat: %w", err)
+	}
+	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	if err != nil {
+		return "", fmt.Errorf("agent: assemble conversation: chats dir: %w", err)
+	}
+	led, err := ledger.Open(worktreepath.AgentLedgerDir(chatsDir, chat.ID))
+	if err != nil {
+		return "", fmt.Errorf("agent: assemble conversation: ledger open: %w", err)
+	}
+
+	wrapper := config.GetPrompts().HandoffWrapper
+	render := led.RenderConversation
+	if resuming {
+		wrapper = config.GetPrompts().HandoffResumeWrapper
+		render = func() ([]byte, error) { return led.RenderConversationAfter(leftAt) }
+	}
+
+	blob, err := render()
+	if err != nil {
+		return "", fmt.Errorf("agent: assemble conversation: ledger read: %w", err)
+	}
+	if len(blob) == 0 {
+		return "", nil
+	}
+	return strings.ReplaceAll(wrapper, "{conversation}", string(blob)), nil
+}
+
+// contextInject picks the descriptor channel that carries the {context} document:
+// the resume channel when the CLI is being resumed into its own native session,
+// the fresh-spawn channel otherwise. Which argv/config/file mechanism each of
+// those actually is — and why they differ — is the descriptor's knowledge, never
+// this package's.
+func contextInject(d *engineagent.Descriptor, resuming bool) []engineagent.InjectStep {
+	if resuming {
+		return d.ResumeContextInject
+	}
+	return d.ContextInject
 }
 
 // segmentByID returns the segment with the given id from a chat aggregate.

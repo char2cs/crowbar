@@ -93,6 +93,19 @@ export async function switchProvider(wsId: string, id: string, provider: string)
   return res.id
 }
 
+// resumeChat revives a chat whose agent CLI is gone — it exited, or it died with
+// the daemon (agent PTYs are never persisted, so a restart always takes them).
+// The backend brings the last provider back into its own native session, so the
+// conversation continues exactly where it left off. Returns the (re)active
+// segment id; a chat that is still live is a no-op that returns its current one.
+export async function resumeChat(wsId: string, id: string): Promise<string> {
+  const res = await apiFetch<{ id: string }>(
+    `${agentBase(wsId)}/chats/${encodeURIComponent(id)}/resume`,
+    { method: 'POST' },
+  )
+  return res.id
+}
+
 export async function renameChat(wsId: string, id: string, title: string): Promise<void> {
   await apiFetch<unknown>(`${agentBase(wsId)}/chats/${encodeURIComponent(id)}/rename`, {
     method: 'POST',

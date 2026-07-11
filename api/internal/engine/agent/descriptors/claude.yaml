@@ -29,7 +29,11 @@ hooks:
     session_start: { session_id: session_id }
     user_prompt:   { message: prompt }
     turn_stop:     { session_id: session_id, message: last_assistant_message }
-handoff_inject:
-  - pass_arg: { arg: "--append-system-prompt", value: "{handoff}" }
-system_prompt_inject:
-  - pass_arg: { arg: "--append-system-prompt", value: "{system_prompt}" }
+# claude reads an appended system prompt without being given a turn, and honours
+# a FRESH one on --resume too (verified: `claude --resume <id>
+# --append-system-prompt "<secret>"` answers from the secret), so the same silent
+# channel serves both a fresh session and a resumed one.
+context_inject:
+  - pass_arg: { arg: "--append-system-prompt", value: "{context}" }
+resume_context_inject:
+  - pass_arg: { arg: "--append-system-prompt", value: "{context}" }

@@ -7,18 +7,26 @@ import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-con
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
 // Hoisted fakes — declared before the vi.mock calls that reference them.
-const { getChatFn, switchProviderFn, saveReconnectFn, terminalListLiveFn, toastErrorFn } =
-  vi.hoisted(() => ({
-    getChatFn: vi.fn(),
-    switchProviderFn: vi.fn(),
-    saveReconnectFn: vi.fn(),
-    terminalListLiveFn: vi.fn(),
-    toastErrorFn: vi.fn(),
-  }))
+const {
+  getChatFn,
+  switchProviderFn,
+  resumeChatFn,
+  saveReconnectFn,
+  terminalListLiveFn,
+  toastErrorFn,
+} = vi.hoisted(() => ({
+  getChatFn: vi.fn(),
+  switchProviderFn: vi.fn(),
+  resumeChatFn: vi.fn(),
+  saveReconnectFn: vi.fn(),
+  terminalListLiveFn: vi.fn(),
+  toastErrorFn: vi.fn(),
+}))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
   getChat: (...a: unknown[]) => getChatFn(...a),
   switchProvider: (...a: unknown[]) => switchProviderFn(...a),
+  resumeChat: (...a: unknown[]) => resumeChatFn(...a),
 }))
 
 vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
@@ -137,6 +145,7 @@ function detail(overrides: Partial<AgentChatDetail> = {}): AgentChatDetail {
 beforeEach(() => {
   getChatFn.mockReset()
   switchProviderFn.mockReset()
+  resumeChatFn.mockReset()
   saveReconnectFn.mockReset()
   terminalListLiveFn.mockReset()
   toastErrorFn.mockReset()
@@ -477,19 +486,51 @@ describe('AgentChatPane', () => {
   })
 
   describe('dead PTY', () => {
-    it('renders an ended-session state instead of mounting a terminal when the PTY is gone', async () => {
+    // Opening a chat whose CLI is gone REVIVES it: the ended segment still carries
+    // the provider and the native session id it bound, so the backend can put the
+    // user back exactly where they left off. This used to be a dead end — the pane
+    // said "switch provider to start a new one" while the switch endpoint 404'd on
+    // a chat with no active segment, so the chat could never be re-entered at all.
+    it('revives the chat instead of mounting a terminal when the PTY is gone', async () => {
       getChatFn.mockResolvedValue(detail()) // active segment s2 → term-2
       terminalListLiveFn.mockResolvedValue([]) // the daemon has already reaped it
+      resumeChatFn.mockResolvedValue('s3')
 
       await renderPane(makeStore(chat()))
 
-      // The bug this guards: mounting XtermTerminal with a dead id makes
-      // resolveTerminalConnection fall through to createTerminal(), turning the
-      // agent pane into a plain shell.
+      // The bug the attach guard prevents: mounting XtermTerminal with a dead id
+      // makes resolveTerminalConnection fall through to createTerminal(), turning
+      // the agent pane into a plain shell.
       expect(screen.queryByTestId('xterm')).toBeNull()
-      expect(screen.getByText(/agent session has ended/i)).toBeTruthy()
-      // The footer stays, so the user can switch provider to start a fresh segment.
+      expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
       expect(screen.getByTestId('provider-switch')).toBeTruthy()
+    })
+
+    it('attaches the revived PTY once the agent is back', async () => {
+      // First resolution: PTY gone. After the revive, the daemon lists the new one.
+      terminalListLiveFn.mockResolvedValueOnce([]).mockResolvedValue(['term-2'])
+      getChatFn.mockResolvedValue(detail())
+      resumeChatFn.mockResolvedValue('s3')
+
+      await renderPane(makeStore(chat()))
+
+      expect(resumeChatFn).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId('xterm').getAttribute('data-session-id')).toBe('term-2')
+    })
+
+    it('surfaces a toast and stops retrying when the agent cannot be restarted', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      getChatFn.mockResolvedValue(detail())
+      terminalListLiveFn.mockResolvedValue([])
+      resumeChatFn.mockRejectedValue(new Error('claude: not on PATH'))
+
+      await renderPane(makeStore(chat()))
+
+      expect(toastErrorFn).toHaveBeenCalledWith('Could not resume this chat', expect.any(String))
+      // Exactly once: a CLI that cannot start must settle, never spawn-loop.
+      expect(resumeChatFn).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
+      err.mockRestore()
     })
 
     // The mount guard above only proves the PTY was alive at OPEN. The CLI can
@@ -503,7 +544,11 @@ describe('AgentChatPane', () => {
       expect(screen.getByTestId('xterm').getAttribute('data-attach-only')).toBe('true')
     })
 
-    it('flips to the ended state when the PTY dies under the OPEN pane (terminal reports it gone)', async () => {
+    // A CLI dying under the OPEN pane must NOT auto-revive: the user may have just
+    // quit it themselves (/exit), and respawning it behind their back would be a
+    // surprise. They get a button — and simply reopening the chat later revives it,
+    // because that reopen is an explicit "I want this chat back".
+    it('offers Resume (and does not respawn) when the PTY dies under the OPEN pane', async () => {
       getChatFn.mockResolvedValue(detail())
       await renderPane(makeStore(chat()))
       expect(screen.getByTestId('xterm')).toBeTruthy()
@@ -514,8 +559,18 @@ describe('AgentChatPane', () => {
       })
 
       expect(screen.queryByTestId('xterm')).toBeNull()
-      expect(screen.getByText(/agent session has ended/i)).toBeTruthy()
+      expect(screen.getByText(/this agent has exited/i)).toBeTruthy()
+      expect(resumeChatFn).not.toHaveBeenCalled()
       expect(screen.getByTestId('provider-switch')).toBeTruthy()
+
+      // ...and the button revives it on demand.
+      terminalListLiveFn.mockResolvedValue(['term-2'])
+      resumeChatFn.mockResolvedValue('s3')
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /resume/i }))
+      })
+      expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
+      expect(screen.getByTestId('xterm')).toBeTruthy()
     })
   })
 

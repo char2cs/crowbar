@@ -74,3 +74,97 @@ func appendAssistantTurn(t *testing.T, f testFixture, segID, provider, sessionID
 			"last_assistant_message": content,
 		})))
 }
+
+// resumeCodexWithGap drives the one path where Crowbar's own context document
+// comes back at it as a user prompt: codex switched away and then BACK. A
+// resumed codex cannot be reached through any config channel (verified against
+// 0.139.0), so the gap is delivered as a positional — which IS codex's first user
+// message, and which its user-prompt hook duly reports. Returns the new codex
+// segment and the exact document it was spawned with.
+func resumeCodexWithGap(t *testing.T, f testFixture) (chatID, codexSegID, injected string) {
+	t.Helper()
+	ctx := context.Background()
+
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "codex")
+	require.NoError(t, err)
+	f.wait()
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "codex", "session_start",
+		mustJSON(t, map[string]any{"session_id": "sid-codex"})))
+	appendAssistantTurn(t, f, segID, "codex", "sid-codex", "codex said this before leaving")
+
+	claudeSegID, err := f.usecase.SwitchProvider(ctx, chatID, "claude")
+	require.NoError(t, err)
+	f.wait()
+	appendAssistantTurn(t, f, claudeSegID, "claude", "sid-claude", "claude spoke while codex was away")
+
+	codexSegID, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+
+	argv := f.term.calls[2].argv
+	injected = argv[len(argv)-1]
+	require.Contains(t, injected, "WHILE YOU WERE AWAY", "the resumed codex must be handed the gap as a positional: %v", argv)
+	return chatID, codexSegID, injected
+}
+
+// TestResumeCodex_InjectedGap_IsNotRecordedAsAUserTurn reproduces the nesting
+// seen live. The gap Crowbar hands a resumed codex comes straight back through
+// its user-prompt hook — that is Crowbar's own document echoing, not something
+// the user said. Recording it made the blob a "user" turn in the ledger, so the
+// NEXT handoff quoted the previous one inside itself, compounding every switch.
+func TestResumeCodex_InjectedGap_IsNotRecordedAsAUserTurn(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, codexSegID, injected := resumeCodexWithGap(t, f)
+
+	require.NoError(t, f.usecase.IngestHook(ctx, codexSegID, "codex", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": injected})))
+	f.wait()
+
+	handoff, err := f.usecase.AssembleHandoff(ctx, chatID)
+	require.NoError(t, err)
+
+	assert.NotContains(t, handoff, "WHILE YOU WERE AWAY",
+		"Crowbar's injected gap must never be recorded as a user turn — it nests inside the next handoff:\n%s", handoff)
+	assert.Contains(t, handoff, "claude spoke while codex was away", "the real conversation is still recorded")
+	assert.Contains(t, handoff, "codex said this before leaving")
+}
+
+// TestResumeCodex_InjectedGap_StillOpensTheTurn: suppressing the echo from the
+// LEDGER must not suppress the turn itself — the CLI really is answering it, so
+// the chat must read as Working (the workspace spinner overlay depends on it).
+func TestResumeCodex_InjectedGap_StillOpensTheTurn(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, codexSegID, injected := resumeCodexWithGap(t, f)
+
+	require.NoError(t, f.usecase.IngestHook(ctx, codexSegID, "codex", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": injected})))
+	f.wait()
+
+	assert.True(t, f.chat(t, chatID).Working, "the CLI is answering the gap: the chat must read as working")
+}
+
+// TestResumeCodex_UserRetypesTheGap_IsRecorded: the suppression is one-shot and
+// scoped to the segment the document was injected into, so a user who genuinely
+// sends that same text later is still recorded — the guard must never become a
+// permanent content filter.
+func TestResumeCodex_UserRetypesTheGap_IsRecorded(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, codexSegID, injected := resumeCodexWithGap(t, f)
+
+	for range 2 {
+		require.NoError(t, f.usecase.IngestHook(ctx, codexSegID, "codex", "user_prompt",
+			mustJSON(t, map[string]any{"prompt": injected})))
+		f.wait()
+	}
+
+	handoff, err := f.usecase.AssembleHandoff(ctx, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, strings.Count(handoff, "WHILE YOU WERE AWAY"),
+		"the FIRST echo is dropped; a second, genuinely user-sent copy is recorded:\n%s", handoff)
+}

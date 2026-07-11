@@ -34,12 +34,23 @@ hooks:
     session_start: { session_id: session_id }
     user_prompt:   { message: prompt }
     turn_stop:     { session_id: session_id, message: last_assistant_message }
-handoff_inject:
-  - pass_arg: { positional: "{handoff}" }
-# codex has no per-invocation system-prompt flag, but obeys an additive
-# instruction placed at $CODEX_HOME/AGENTS.md (verified live against codex
-# 0.139.0). Writing here — rather than reusing handoff_inject's positional
-# pass_arg — keeps codex's first turn as the user's real prompt instead of
-# hijacking it with the title instruction.
-system_prompt_inject:
-  - write_file: { path: "{tmp}/codex-home/AGENTS.md", content: "{system_prompt}" }
+# codex ships no --append-system-prompt (the upstream request for it is closed
+# unimplemented) and its positional [PROMPT] IS the user's first message — passing
+# the handoff there is what made codex answer the handoff on sight instead of
+# waiting for the user. `developer_instructions` is the documented additive
+# channel ("Additional developer instructions injected into the session") and is
+# verified against codex 0.139.0: the CLI comes up with an EMPTY composer, starts
+# no turn, and answers from the injected context once the user types.
+# NOT model_instructions_file — that REPLACES codex's built-in system prompt.
+context_inject:
+  - pass_arg: { arg: "-c", value: "developer_instructions={context}" }
+# A RESUMED codex session cannot be told anything through config. Verified
+# against 0.139.0: `codex resume` rebuilds the conversation from its rollout
+# .jsonl, which never records developer instructions — a fresh
+# `-c developer_instructions=` is ignored, a fresh AGENTS.md is not re-read, and
+# `codex fork` behaves identically. The ONLY channel that reaches a resumed codex
+# is a user message, so the gap goes in as a positional; config.yaml's
+# handoff_resume_wrapper is what tells it this is context to acknowledge, not
+# work to do.
+resume_context_inject:
+  - pass_arg: { positional: "{context}" }

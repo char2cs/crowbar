@@ -156,6 +156,13 @@ func (configurableListGetUsecase) SwitchProvider(
 	return "", nil
 }
 
+func (configurableListGetUsecase) ResumeChat(
+	_ context.Context,
+	_ string,
+) (string, error) {
+	return "", nil
+}
+
 func (configurableListGetUsecase) AssembleHandoff(
 	_ context.Context,
 	_ string,

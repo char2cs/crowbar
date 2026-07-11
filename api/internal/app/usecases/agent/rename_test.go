@@ -2,8 +2,6 @@ package agent_test
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -126,11 +124,14 @@ func TestSpawnChat_InjectsTitleInstruction(t *testing.T) {
 	assert.Contains(t, doc, "chat rename --project=p1 --workspace=ws1 --repo=r1 "+chatID)
 }
 
-// TestSpawnChat_Codex_InjectsTitleInstructionViaAgentsFile is codex's
-// counterpart: codex has no per-invocation system-prompt flag, so its
-// system_prompt_inject step writes the expanded title instruction to
-// $CODEX_HOME/AGENTS.md instead — never as a positional initial prompt.
-func TestSpawnChat_Codex_InjectsTitleInstructionViaAgentsFile(t *testing.T) {
+// TestSpawnChat_Codex_InjectsTitleInstructionViaDeveloperInstructions is codex's
+// counterpart: codex ships no --append-system-prompt, so its context_inject step
+// carries the title instruction through the documented `developer_instructions`
+// config key — a channel the model reads WITHOUT being given a turn. It must
+// never arrive as a positional arg, which IS codex's initial user message: that
+// would make the CLI answer Crowbar's instruction instead of waiting for the
+// user.
+func TestSpawnChat_Codex_InjectsTitleInstructionViaDeveloperInstructions(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
@@ -138,23 +139,20 @@ func TestSpawnChat_Codex_InjectsTitleInstructionViaAgentsFile(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, 1, f.term.callCount())
-	call := f.term.calls[0]
+	argv := f.term.calls[0].argv
 
-	for _, a := range call.argv {
+	doc := argAfter(t, argv, "-c")
+	require.True(t, strings.HasPrefix(doc, "developer_instructions="),
+		"codex context must ride developer_instructions, got %q", doc)
+	assert.Contains(t, doc, "chat rename --project=p1 --workspace=ws1 --repo=r1 "+chatID)
+
+	// The instruction must not ALSO be a bare positional (codex's user prompt).
+	for i, a := range argv {
+		if i > 0 && argv[i-1] == "-c" {
+			continue
+		}
 		assert.NotContains(t, a, "chat rename "+chatID, "title must not be injected as a codex positional arg")
 	}
-
-	var codexHome string
-	for _, kv := range call.env {
-		if v, ok := strings.CutPrefix(kv, "CODEX_HOME="); ok {
-			codexHome = v
-		}
-	}
-	require.NotEmpty(t, codexHome, "CODEX_HOME must be set in the spawned env")
-
-	data, err := os.ReadFile(filepath.Join(codexHome, "AGENTS.md"))
-	require.NoError(t, err)
-	assert.Contains(t, string(data), "chat rename --project=p1 --workspace=ws1 --repo=r1 "+chatID)
 }
 
 // TestSwitchProvider_DoesNotInjectTitleInstruction guards the injectTitle=false

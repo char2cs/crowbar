@@ -73,6 +73,13 @@ func (stubUsecase) SwitchProvider(
 	return "seg-2", nil
 }
 
+func (stubUsecase) ResumeChat(
+	_ context.Context,
+	_ string,
+) (string, error) {
+	return "seg-2", nil
+}
+
 func (stubUsecase) AssembleHandoff(
 	_ context.Context,
 	_ string,

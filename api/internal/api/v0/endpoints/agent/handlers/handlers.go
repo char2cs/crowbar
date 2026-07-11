@@ -53,6 +53,14 @@ type AgentUsecase interface {
 		targetProviderID string,
 	) (newSegID string, err error)
 
+	// ResumeChat revives a chat whose vendor CLI is gone (it exited, or died with
+	// the daemon), resuming the last provider into its own native session. A chat
+	// that is still live is a no-op: its active segment id comes straight back.
+	ResumeChat(
+		ctx context.Context,
+		chatID string,
+	) (segID string, err error)
+
 	// AssembleHandoff resolves chatID's ledger into the legible handoff blob a
 	// freshly spawned provider CLI can be given as prior context.
 	AssembleHandoff(

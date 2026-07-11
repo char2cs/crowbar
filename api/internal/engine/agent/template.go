@@ -3,18 +3,22 @@ package agent
 import "strings"
 
 type TemplateCtx struct {
-	Tmp          string
-	ID           string
-	Handoff      string
-	Cwd          string
-	CrowbarHook  string
-	Segid        string
-	Provider     string
-	Chatid       string
-	SystemPrompt string
-	ProjectID    string
-	RepoID       string
-	WorkspaceID  string
+	Tmp string
+	ID  string
+	// Context is the single document Crowbar injects into a spawning CLI: the
+	// chat-title instruction, the handed-off conversation, or both, composed by
+	// the agent usecase. One document (not one per concern) because a provider
+	// may only have ONE such channel — codex delivers both through the same
+	// `developer_instructions` key, so two independent injections would collide.
+	Context     string
+	Cwd         string
+	CrowbarHook string
+	Segid       string
+	Provider    string
+	Chatid      string
+	ProjectID   string
+	RepoID      string
+	WorkspaceID string
 }
 
 // ScopeFlags renders the project/repo/workspace scope as the CLI flag list every
@@ -52,14 +56,13 @@ func Expand(s string, ctx TemplateCtx) string {
 		"{scope_flags}", ctx.ScopeFlags(),
 		"{tmp}", ctx.Tmp,
 		"{id}", ctx.ID,
-		"{handoff}", ctx.Handoff,
+		"{context}", ctx.Context,
 		"{cwd}", ctx.Cwd,
 		"{crowbar_hook}", ctx.CrowbarHook,
 		"{crowbar}", ctx.CrowbarHook, // same binary as {crowbar_hook}; friendlier for non-hook commands
 		"{segid}", ctx.Segid,
 		"{provider}", ctx.Provider,
 		"{chatid}", ctx.Chatid,
-		"{system_prompt}", ctx.SystemPrompt,
 		"{project_id}", ctx.ProjectID,
 		"{repo_id}", ctx.RepoID,
 		"{workspace_id}", ctx.WorkspaceID,

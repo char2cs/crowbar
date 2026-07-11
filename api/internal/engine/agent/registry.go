@@ -16,6 +16,7 @@ type Registry struct {
 	segToSession  map[string]string // segment id -> last session id seen
 	segToChat     map[string]string // segment id -> chat it currently hosts
 	sessionToChat map[string]string // known session id -> chat id
+	segToInjected map[string]string // segment id -> context document injected at spawn
 }
 
 func NewRegistry() *Registry {
@@ -23,7 +24,44 @@ func NewRegistry() *Registry {
 		segToSession:  map[string]string{},
 		segToChat:     map[string]string{},
 		sessionToChat: map[string]string{},
+		segToInjected: map[string]string{},
 	}
+}
+
+// SetInjectedContext records the {context} document a segment was spawned with,
+// so ConsumeInjectedContext can recognise it coming back as a user prompt.
+func (r *Registry) SetInjectedContext(segmentID, doc string) {
+	if doc == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.segToInjected[segmentID] = doc
+}
+
+// ConsumeInjectedContext reports whether text is the very context document
+// Crowbar injected into this segment at spawn — i.e. the CLI is echoing our own
+// handoff back at us through its user-prompt hook, not relaying something the
+// user typed. Provider-agnostic on purpose: a provider whose only resume channel
+// is a user message (codex) fires user_prompt for the injected document, while
+// one with a silent channel (claude) never does, and the registry does not need
+// to know which is which.
+//
+// Recording that echo as a ledger turn is what made handoffs NEST — the blob
+// became a "user" turn, and the next handoff embedded it inside itself. The
+// match is one-shot (the entry is consumed) so that a user who genuinely retypes
+// the same text later is still recorded.
+func (r *Registry) ConsumeInjectedContext(segmentID, text string) bool {
+	if text == "" {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if doc, ok := r.segToInjected[segmentID]; ok && doc == text {
+		delete(r.segToInjected, segmentID)
+		return true
+	}
+	return false
 }
 
 // BindSegment records the chat a freshly-spawned segment belongs to, before its
@@ -73,6 +111,7 @@ func (r *Registry) ForgetChat(chatID string) {
 		if c == chatID {
 			delete(r.segToChat, seg)
 			delete(r.segToSession, seg)
+			delete(r.segToInjected, seg)
 		}
 	}
 	for sess, c := range r.sessionToChat {

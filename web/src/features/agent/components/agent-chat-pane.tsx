@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from 'zustand'
+import { Button } from '@/components/ui/button'
+import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { Frame, FrameFooter, FramePanel } from '@/components/ui/frame'
-import { getChat, switchProvider } from '@/features/agent/api/agent-api'
+import { getChat, resumeChat, switchProvider } from '@/features/agent/api/agent-api'
 import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 import { XtermTerminal } from '@/features/terminal/components/terminal'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
@@ -56,12 +58,27 @@ export async function attachAgentSegment(wsId: string, chatId: string): Promise<
 }
 
 // The pane's attach outcome. `pending` is the pre-resolution state and renders
-// nothing — distinguishing it from `ended` keeps the empty state from flashing on
-// every open while the segment is being resolved.
+// nothing — distinguishing it from the others keeps an empty state from flashing
+// on every open while the segment is being resolved. `reviving` is the dead-chat
+// path: the CLI is gone and we are bringing it back into its own session.
+//
+// `idle` is a chat with no live CLI, which is NOT an end state — the ended segment
+// still carries the provider and the native session id it bound, so the agent can
+// always be brought back exactly where it left off. Its reason decides who does
+// that:
+//
+//   'exited' — the CLI died under the OPEN pane (the user typed /exit, it
+//              crashed, the daemon restarted). Reviving behind the user's back
+//              here would resurrect a CLI they may have just deliberately quit,
+//              so this offers a button instead.
+//   'failed' — reviving was tried and could not start the CLI (not installed,
+//              spawn failed). Retryable, and the footer's provider dropdown can
+//              continue the conversation with a different provider.
 type Attachment =
   | { state: 'pending' }
   | { state: 'attached'; sessionId: string }
-  | { state: 'ended' }
+  | { state: 'reviving' }
+  | { state: 'idle'; reason: 'exited' | 'failed' }
 
 interface AgentChatPaneProps {
   chatId: string
@@ -103,20 +120,70 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
     if (buffer && buffer.name !== title) s.bufferActions.renameBuffer(bufferId, title)
   }, [store, bufferId, title])
 
+  // Auto-revive fires at most once per segment state, so a chat whose provider CLI
+  // cannot start (not installed, spawn fails) settles into idle instead of
+  // spawn-looping. The manual Resume button clears it to allow a retry.
+  const revivedFor = useRef<string | null>(null)
+
+  // revive brings the chat's last provider back into its own native session.
+  // Shared by the auto-revive on open and the explicit Resume button.
+  const revive = useCallback(async () => {
+    setAttachment({ state: 'reviving' })
+    try {
+      await resumeChat(wsId, chatId)
+      // The revive spawned a CLI; its segment_opened frame lands on activeSegmentId
+      // and re-runs the attach effect. Attach right away too, for the case where
+      // the store already holds the new segment by the time this resolves.
+      const sid = await attachAgentSegment(wsId, chatId)
+      if (sid !== null) setAttachment({ state: 'attached', sessionId: sid })
+    } catch (err: unknown) {
+      console.error('Failed to resume agent chat:', err)
+      setAttachment({ state: 'idle', reason: 'failed' })
+      toast.error(
+        'Could not resume this chat',
+        'Crowbar could not restart the agent. Check that its CLI is installed and on your PATH.',
+      )
+    }
+  }, [wsId, chatId])
+
   // (Re-)attach when the chat opens or its active segment changes. Keying the
   // terminal by the resolved sessionId below remounts it on a switch so the new
   // PTY is attached in place.
+  //
+  // Nothing to attach to means the chat's CLI is gone — it exited, or it died
+  // with the daemon, which always takes agent PTYs with it. That is not an end
+  // state: the ended segment still carries the provider and the native session id
+  // it bound, so the backend can put the user back exactly where they left off.
+  // Opening the chat revives it (no button to hunt for — the chat simply comes
+  // back), and the resulting segment_opened frame re-runs this effect to attach
+  // the new PTY.
   useEffect(() => {
     let cancelled = false
     setAttachment({ state: 'pending' })
+
     void attachAgentSegment(wsId, chatId).then((sid) => {
       if (cancelled) return
-      setAttachment(sid === null ? { state: 'ended' } : { state: 'attached', sessionId: sid })
+      if (sid !== null) {
+        revivedFor.current = null
+        setAttachment({ state: 'attached', sessionId: sid })
+        return
+      }
+
+      // Nothing to attach to: the chat's CLI is gone. Bring it back — once per
+      // segment state, so a CLI that cannot start settles instead of looping.
+      const key = `${chatId}:${activeSegmentId ?? ''}`
+      if (revivedFor.current === key) {
+        setAttachment({ state: 'idle', reason: 'failed' })
+        return
+      }
+      revivedFor.current = key
+      void revive()
     })
+
     return () => {
       cancelled = true
     }
-  }, [wsId, chatId, activeSegmentId])
+  }, [wsId, chatId, activeSegmentId, revive])
 
   // The mount guard (attachAgentSegment) only proves the PTY was alive at OPEN.
   // The agent's CLI can die at any moment while the pane sits here — daemon
@@ -127,7 +194,14 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
   // boot reconcile independently ends the segment and the WS `segment_ended` frame
   // re-runs the effect above — but this guard must stand on its own, because the
   // PTY's death and the daemon's knowledge of it are not the same instant.
-  const handleSessionGone = useCallback(() => setAttachment({ state: 'ended' }), [])
+  // Deliberately NOT an auto-revive: the CLI just died in front of the user, who
+  // may have quit it themselves (/exit). Respawning it behind their back would be
+  // a surprise. They get a Resume button instead — and simply reopening the chat
+  // later revives it, because that reopen is an explicit "I want this chat back".
+  const handleSessionGone = useCallback(
+    () => setAttachment({ state: 'idle', reason: 'exited' }),
+    [],
+  )
 
   // A provider switch is the headline interaction of this pane, and it can fail
   // for real, ordinary reasons — the target CLI is not installed, the spawn fails.
@@ -158,11 +232,30 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
             onSessionGone={handleSessionGone}
           />
         )}
-        {attachment.state === 'ended' && (
-          <div className="flex h-full w-full items-center justify-center p-6">
-            <p className="text-muted-foreground text-center text-sm">
-              This agent session has ended. Switch provider below to start a new one.
+        {attachment.state === 'reviving' && (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
+            <FlickerSpinner className="text-muted-foreground size-6" />
+            <p className="text-muted-foreground text-center text-sm">Resuming this chat…</p>
+          </div>
+        )}
+        {attachment.state === 'idle' && (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
+            <p className="text-muted-foreground max-w-sm text-center text-sm">
+              {attachment.reason === 'failed'
+                ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
+                : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
             </p>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                revivedFor.current = null
+                void revive()
+              }}
+            >
+              Resume
+            </Button>
           </div>
         )}
       </FramePanel>
