@@ -410,13 +410,19 @@ func seedAgentRegistry(
 // reconcileAgentBoot repairs live turn state a daemon crash can leave stale
 // (see agent.Usecase.ReconcileOnBoot's doc comment): no event records "the
 // CLI process died," so a chat's active segment / Working flag can survive a
-// restart pointing at a terminal session that no longer exists. It runs
-// synchronously at startup, AFTER startRestoreTerminalSessions has
-// repopulated the terminal registry — so a session merely reloaded as a
-// suspended placeholder still reads alive via SessionExists and is never
-// wrongly reconciled — and before the HTTP layer starts serving. Best-effort:
-// a failure here only leaves a chat's live-turn state stale until the next
-// hook/switch touches it, it never blocks startup.
+// restart pointing at a terminal session whose process is gone. It runs
+// synchronously at startup, AFTER startRestoreTerminalSessions has repopulated
+// the terminal registry (so the reconcile observes the final post-restore
+// registry, never a half-filled one) and before the HTTP layer starts serving.
+//
+// It asks SessionLive, not SessionExists: a restored session is a PTY-LESS
+// PLACEHOLDER whose process is dead, so "the registry knows this id" must never
+// be mistaken for "the vendor CLI survived the restart". (An agent's own PTY is
+// no longer persisted at all — see terminal.persistableSession — so it cannot
+// even come back as a placeholder; SessionLive additionally repairs homes
+// carrying a stale row written by an earlier build.) Best-effort: a failure here
+// only leaves a chat's live-turn state stale until the next hook/switch touches
+// it, it never blocks startup.
 func reconcileAgentBoot(
 	ctx context.Context,
 	ucs *usecases.Container,

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -31,11 +32,13 @@ import (
 // harness owns the booted server and its base URL. It exposes typed helpers for
 // the REST envelope and the WebSocket topics so individual suites stay terse.
 type harness struct {
-	t      *testing.T
-	server *httptest.Server
-	url    string
-	home   string
-	app    *app.Container
+	t        *testing.T
+	server   *httptest.Server
+	url      string
+	home     string
+	app      *app.Container
+	stopOnce sync.Once
+	stop     func()
 }
 
 // newHarness boots the full backend over an httptest.Server rooted at a
@@ -44,15 +47,26 @@ func newHarness(
 	t *testing.T,
 ) *harness {
 	t.Helper()
+	return newHarnessAt(t, t.TempDir())
+}
+
+// newHarnessAt boots the full backend rooted at an EXPLICIT crowbar home. It
+// backs the daemon-restart suites: shut a harness down (harness.shutdown) and
+// boot a second one over the SAME home to exercise every startup path that
+// reads persisted state (terminal restore, agent boot reconcile) exactly as a
+// real daemon restart does.
+func newHarnessAt(
+	t *testing.T,
+	home string,
+) *harness {
+	t.Helper()
 	ctx := context.Background()
-	tmp := t.TempDir()
 
-	engines, err := engine.New(ctx, engine.WithHomeDir(tmp))
+	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
 
-	adapters, err := adapter.New(adapter.WithHomeDir(tmp))
+	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = adapters.Close() })
 
 	appContainer, err := app.New(ctx, engines, adapters)
 	require.NoError(t, err)
@@ -61,16 +75,32 @@ func newHarness(
 	require.NoError(t, err)
 
 	srv := httptest.NewServer(apiContainer.Handler())
-	t.Cleanup(srv.Close)
-	t.Cleanup(appContainer.Close)
 
-	return &harness{
-		t:      t,
-		server: srv,
-		url:    srv.URL,
-		home:   tmp,
-		app:    appContainer,
+	h := &harness{
+		t:    t,
+		home: home,
+		app:  appContainer,
 	}
+	h.server = srv
+	h.url = srv.URL
+	// Shutdown order mirrors the daemon's: HTTP first, then the app (realtime),
+	// then the engines (terminal Shutdown suspends+persists live PTYs — the
+	// restart-restore contract), then the adapters (event/store DBs).
+	h.stop = func() {
+		srv.Close()
+		appContainer.Close()
+		engines.Close()
+		_ = adapters.Close()
+	}
+	t.Cleanup(h.shutdown)
+
+	return h
+}
+
+// shutdown tears the booted backend down exactly once — as a graceful daemon
+// stop would. Safe to call from a test AND from the registered cleanup.
+func (h *harness) shutdown() {
+	h.stopOnce.Do(h.stop)
 }
 
 // Quiesce blocks until every per-type asynx projection has drained (dispatch

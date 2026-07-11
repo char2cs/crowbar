@@ -423,3 +423,128 @@ func TestRegression_TerminalSession_MetaRowSurvivesShutdown_RealStore(t *testing
 	_, statErr := os.Stat(bufPath)
 	assert.NoError(t, statErr, "scrollback .buf must exist after Shutdown")
 }
+
+// ---------------------------------------------------------------------------
+// TestRegression_CommandSession_NotPersistedAcrossRestart
+// ---------------------------------------------------------------------------
+
+// TestRegression_CommandSession_NotPersistedAcrossRestart is the terminal half
+// of the "dead agent PTY reads as alive after a daemon restart" bug.
+//
+// A COMMAND session (engine.CreateCommand — an agentic vendor CLI spawned with
+// an explicit argv) is unrestorable: the restore path only knows how to birth a
+// LOGIN SHELL, so bringing one back would exec the joined argv string as a bogus
+// binary — or, worse, hand the agent's chat pane a BARE SHELL under the dead
+// CLI's session id. Before the fix, graceful Shutdown persisted command sessions
+// like any other, and the next boot's RestorePersistedSessions dutifully reloaded
+// one as a PTY-less placeholder — which the agent boot reconcile then read as
+// "the CLI survived", leaving the chat's segment active forever.
+//
+// This pins BOTH halves of the repair over the real disk-backed store:
+//
+//   - a command session leaves NO durable row and is NOT restored on the next
+//     boot (it is genuinely absent from the fresh engine's registry), while
+//   - an ordinary SHELL session still round-trips exactly as before (no
+//     regression to terminal-tab persistence) — and, restored, it is a
+//     placeholder: SessionExists (registered) is true but SessionLive (backed by
+//     a live PTY) is false, the distinction the agent reconcile now relies on.
+//
+// No timing: every step blocks on a real signal (CreateCommand returns once the
+// PTY is started; Shutdown is synchronous).
+func TestRegression_CommandSession_NotPersistedAcrossRestart(t *testing.T) {
+	ctx := context.Background()
+
+	home := t.TempDir()
+	cwd := t.TempDir()
+
+	const (
+		projectID   = "proj-cmd"
+		repoID      = "repo-cmd"
+		workspaceID = "ws-cmd"
+	)
+
+	wsRepo := &fakeWorkspaceRepo{
+		ws: domain.Workspace{
+			ID:           workspaceID,
+			ProjectID:    projectID,
+			RepoID:       repoID,
+			WorktreePath: cwd,
+		},
+	}
+
+	dbPath := filepath.Join(home, "view.db")
+	db1, err := storesqlite.OpenDB(dbPath)
+	require.NoError(t, err)
+	sessStore1, err := storesqlite.NewFromDB[domain.TerminalSession, string](db1)
+	require.NoError(t, err)
+	ms1 := terminal.NewSessionMetaStore(wsRepo, sessStore1, func() (string, error) { return home, nil })
+
+	eng1 := engineterminal.New()
+	eng1.SetMetaStore(ms1)
+	uc1 := terminal.New(eng1, mocks.NewTerminalProfileStore(), wsRepo, ms1)
+
+	// The control: an ordinary shell terminal tab, which MUST still survive.
+	shellID, err := uc1.CreateSession(ctx, workspaceID, nil)
+	require.NoError(t, err, "engine #1: shell CreateSession must succeed")
+
+	// The subject: an agentic vendor CLI. `cat` stands in for claude/codex — it
+	// stays alive on its PTY, so Shutdown sees it as a LIVE session (the exact
+	// state that used to get it persisted).
+	cmdID, err := eng1.CreateCommand(ctx, workspaceID, cwd, []string{"cat"}, nil, nil)
+	require.NoError(t, err, "engine #1: CreateCommand must succeed")
+	require.True(t, eng1.SessionLive(ctx, cmdID), "precondition: the vendor CLI's PTY is live before shutdown")
+
+	// Graceful daemon stop.
+	eng1.Shutdown()
+
+	// The command session must have left NO durable row behind.
+	cmdRow, err := sessStore1.FindByKey(ctx, cmdID)
+	require.NoError(t, err)
+	assert.Nil(t, cmdRow,
+		"a command session (agentic vendor CLI) must never be persisted: it is unrestorable")
+
+	shellRow, err := sessStore1.FindByKey(ctx, shellID)
+	require.NoError(t, err)
+	require.NotNil(t, shellRow, "the ordinary shell session must still be persisted (no regression)")
+	assert.Equal(t, "suspended", shellRow.State)
+
+	{
+		sqlDB, dbErr := db1.DB()
+		require.NoError(t, dbErr)
+		require.NoError(t, sqlDB.Close())
+	}
+
+	// ---- Engine #2: the next daemon boot over the same on-disk state. ----
+	db2, err := storesqlite.OpenDB(dbPath)
+	require.NoError(t, err)
+	sessStore2, err := storesqlite.NewFromDB[domain.TerminalSession, string](db2)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		sqlDB, _ := db2.DB()
+		if sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+	})
+	ms2 := terminal.NewSessionMetaStore(wsRepo, sessStore2, func() (string, error) { return home, nil })
+
+	eng2 := engineterminal.New()
+	eng2.SetMetaStore(ms2)
+	uc2 := terminal.New(eng2, mocks.NewTerminalProfileStore(), wsRepo, ms2)
+	t.Cleanup(eng2.Shutdown)
+
+	require.NoError(t, uc2.RestorePersistedSessions(ctx))
+
+	// The dead vendor CLI is genuinely gone — the agent boot reconcile can now
+	// see that its process did not survive and end the chat's segment.
+	assert.False(t, eng2.SessionExists(ctx, cmdID),
+		"a command session must NOT be restored as a placeholder after a restart")
+	assert.False(t, eng2.SessionLive(ctx, cmdID),
+		"a command session's PTY is dead after a restart — SessionLive must say so")
+
+	// The shell tab still round-trips — but as a PTY-LESS placeholder: registered
+	// (SessionExists) yet not backed by a live process (SessionLive).
+	assert.True(t, eng2.SessionExists(ctx, shellID),
+		"an ordinary shell session must still be restored (no regression)")
+	assert.False(t, eng2.SessionLive(ctx, shellID),
+		"a restored session is a placeholder: registered, but its process is dead")
+}

@@ -257,6 +257,18 @@ type Engine interface {
 		sessionID string,
 	) bool
 
+	// SessionLive reports whether a session id is backed by a LIVE PTY right now
+	// — the honest process-liveness question, which SessionExists deliberately
+	// does not answer (it is also true for a PTY-less suspended placeholder,
+	// whose process is already dead and whose only remaining substance is
+	// scrollback on disk). Callers that must know "is the process I spawned
+	// still running" — the agent boot reconcile, which decides whether a chat's
+	// vendor CLI survived a daemon restart — must use this, never SessionExists.
+	SessionLive(
+		ctx context.Context,
+		sessionID string,
+	) bool
+
 	// SetMetaStore injects the durable session metadata store. It must be called
 	// after both the engine and the terminal usecase are constructed to avoid an
 	// import cycle (engine → usecase). A nil store is a valid no-op sentinel; all
@@ -1019,6 +1031,31 @@ func (e *terminalEngine) Attach(
 	return nil
 }
 
+// persistableSession reports whether a session may be written to durable
+// storage (.buf + meta row) — i.e. whether restoring it on a later boot is even
+// meaningful.
+//
+// A COMMAND session (session.NewCommand: an agentic vendor CLI spawned with an
+// explicit argv) is NOT persistable, and writing a row for one is actively
+// harmful. Restore only knows how to birth a LOGIN SHELL: it re-spawns
+// s.Shell(), which for a command session is the joined argv string — a bogus
+// binary. So a persisted command session comes back from RestorePersistedSessions
+// as a PTY-less placeholder that either (a) resurrects as a BARE SHELL in the
+// agent's chat pane, or (b) fails its restore-spawn outright — while the agent
+// read model, whose boot reconcile sees a registered id and believes the CLI
+// survived, keeps advertising a live agent that is long dead.
+//
+// The suspend paths already refuse command sessions
+// (session.BeginSuspendIfEligible / BeginForceSuspend) and the maintenance sweep
+// skips them; this is the same invariant for the three remaining durable-write
+// paths (cadence flush, detach bookkeeping, graceful Shutdown). A command
+// session's process dies with the daemon, by design — the agent usecase's boot
+// reconcile is what ends its segment, and it can only do that if the terminal
+// engine does not pretend the session came back.
+func persistableSession(s *session.Session) bool {
+	return !s.IsCommand()
+}
+
 // persistOnDetach writes the last-known scrollback + "detached" meta when the
 // final client leaves. It takes the per-session lifecycle lock and checks
 // s.IsLive() first: if the session died (self-exit/Kill) while we were
@@ -1032,6 +1069,12 @@ func (e *terminalEngine) persistOnDetach(ctx context.Context, sessionID string, 
 	// Lost the race to reap (or to a suspend that swapped in a placeholder):
 	// the reap/suspend path owns the .buf/row — do not write.
 	if !s.IsLive() {
+		return
+	}
+	// A command session (agentic vendor CLI) is UNRESTORABLE — see
+	// persistableSession. Detaching the agent pane must not leave a durable row
+	// behind for the next boot to resurrect.
+	if !persistableSession(s) {
 		return
 	}
 	ws, wsOK := e.reg.WorkspaceID(sessionID)
@@ -1406,6 +1449,17 @@ func (e *terminalEngine) SessionExists(
 	return ok
 }
 
+// SessionLive reports whether the session id is backed by a live PTY (see the
+// Engine interface doc): registered AND holding a process, so a suspended
+// placeholder — registered, but its process long dead — correctly reads false.
+func (e *terminalEngine) SessionLive(
+	_ context.Context,
+	sessionID string,
+) bool {
+	s, ok := e.reg.Get(sessionID)
+	return ok && s.IsLive()
+}
+
 // Stats returns a point-in-time snapshot of session counts, estimated model memory,
 // and the parse-health surface (§9.4) across all registered sessions: degraded is the
 // count of currently-degraded live sessions and parsePanics the aggregate of every
@@ -1500,6 +1554,11 @@ func (e *terminalEngine) flushSessionOnce(ctx context.Context, id string) {
 	s, ok := e.reg.Get(id)
 	if !ok || !s.IsLive() {
 		// Dead or gone: reapOnDone owns cleanup; never re-write its deleted .buf.
+		return
+	}
+	// A command session (agentic vendor CLI) is UNRESTORABLE — see
+	// persistableSession. The cadence flush must not mint a durable row for it.
+	if !persistableSession(s) {
 		return
 	}
 	ws, wsOK := e.reg.WorkspaceID(id)
@@ -1796,6 +1855,12 @@ func (e *terminalEngine) evictPlaceholder(
 //     calls during normal operation, not daemon shutdown.
 //   - Placeholder sessions (already suspended, no live PTY) are killed without
 //     any additional flush because their scrollback is already on disk.
+//   - COMMAND sessions (agentic vendor CLIs) are killed WITHOUT any flush, meta
+//     row, or suspend mark: they are unrestorable (see persistableSession), so
+//     persisting one would hand the next boot a placeholder that resurrects as a
+//     bare shell and fools the agent boot reconcile into believing a dead CLI is
+//     still alive. Their process is meant to die with the daemon; the agent
+//     usecase's ReconcileOnBoot ends the orphaned segment on the next start.
 //   - All persist operations are best-effort: errors are logged but never cause
 //     Shutdown to panic or hang.
 func (e *terminalEngine) Shutdown() {
@@ -1819,7 +1884,7 @@ func (e *terminalEngine) Shutdown() {
 		// lock, and the session's Done channel is closed only by s.Kill() which
 		// Shutdown calls AFTER releasing this lock.
 		unlock := e.lockSession(id)
-		if s.IsLive() { //nolint:nestif // graceful-shutdown flush+meta+mark sequence per live session; the ordering (persist before Kill) is the restart-restore contract
+		if s.IsLive() && persistableSession(s) { //nolint:nestif // graceful-shutdown flush+meta+mark sequence per live session; the ordering (persist before Kill) is the restart-restore contract
 			ws, wsOK := e.reg.WorkspaceID(id)
 			if wsOK {
 				// a) Flush scrollback to disk (best-effort; continue on error).

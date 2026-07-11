@@ -48,13 +48,20 @@ type TerminalCommander interface {
 		ctx context.Context,
 		sessionID string,
 	) error
-	// SessionExists reports whether a terminal session id is still live in the
-	// terminal engine's registry (true for both an attached PTY and a suspended
-	// placeholder). ReconcileOnBoot uses it as the "is this CLI process still
+	// SessionLive reports whether a terminal session id is backed by a LIVE PTY
+	// right now. ReconcileOnBoot uses it as the "is this CLI process still
 	// around" liveness check for a chat's active segment: a false here after a
-	// daemon crash means the segment's process is definitely gone even though no
-	// event ever recorded that.
-	SessionExists(
+	// daemon restart means the segment's process is definitely gone even though
+	// no event ever recorded that.
+	//
+	// It is deliberately NOT the engine's SessionExists, which is also true for a
+	// PTY-less suspended placeholder — a session whose process is already dead
+	// and whose only remaining substance is scrollback on disk. Asking the
+	// registry "do you know this id?" instead of "is this process alive?" is what
+	// let a restart-orphaned chat keep advertising a live agent (the segment
+	// stayed active while its CLI was gone, and the pane re-attached to a
+	// placeholder the engine then resurrected as a bare shell).
+	SessionLive(
 		ctx context.Context,
 		sessionID string,
 	) bool
@@ -1031,23 +1038,27 @@ func (u *Usecase) SeedRegistry(
 
 // ReconcileOnBoot repairs live turn state a daemon crash can leave stale: no
 // event ever records "the CLI process died," so a chat's ActiveSegmentID /
-// Working can survive a restart pointing at a terminal session that no
-// longer exists (see domain.AgentChat's doc comment on Working). It lists
-// every live chat and, for one whose active segment's TerminalSessionID is
-// NOT a live terminal session (per the injected TerminalCommander.
-// SessionExists), ends that segment and — if the chat was still Working —
-// stops the turn, via the same endSegmentAndMaybeStopTurn rule the runtime
-// onExit reconcile uses. A chat whose active segment's terminal session IS
-// still live (including a restored placeholder) is left untouched.
+// Working can survive a restart pointing at a terminal session whose process is
+// gone (see domain.AgentChat's doc comment on Working). It lists every live chat
+// and, for one whose active segment's TerminalSessionID is NOT backed by a live
+// PTY (per the injected TerminalCommander.SessionLive), ends that segment and —
+// if the chat was still Working — stops the turn, via the same
+// endSegmentAndMaybeStopTurn rule the runtime onExit reconcile uses. A chat whose
+// active segment's CLI genuinely survived (only possible when the daemon did not
+// restart) is left untouched.
 //
-// This deliberately does NOT live in a repository reactor: SessionExists is a
+// The liveness question is SessionLive, NOT the engine's SessionExists: the
+// latter is also true for a PTY-less suspended placeholder, and a placeholder's
+// process is already dead. Believing a placeholder was a live agent is exactly
+// the bug this reconcile exists to prevent — a restart-orphaned chat kept
+// advertising a live agent while its pane re-attached to a placeholder that the
+// terminal engine then resurrected as a bare shell.
+//
+// This deliberately does NOT live in a repository reactor: PTY liveness is a
 // terminal-engine concern the repository layer cannot reach, so it lives here
 // as a usecase method instead — a sibling to SeedRegistry, not a replacement
-// for it. The caller must run it AFTER the terminal engine has repopulated
-// its registry from persisted sessions (startRestoreTerminalSessions) so a
-// session merely reloaded as a suspended placeholder still reads alive and is
-// never wrongly reconciled. Best-effort per chat: one chat's reconcile
-// failure is logged and does not stop the rest from being reconciled.
+// for it. Best-effort per chat: one chat's reconcile failure is logged and does
+// not stop the rest from being reconciled.
 func (u *Usecase) ReconcileOnBoot(
 	ctx context.Context,
 ) error {
@@ -1060,14 +1071,14 @@ func (u *Usecase) ReconcileOnBoot(
 		if !ok || seg.Status != "active" {
 			continue
 		}
-		if u.term.SessionExists(ctx, seg.TerminalSessionID) {
+		if u.term.SessionLive(ctx, seg.TerminalSessionID) {
 			continue
 		}
 		if err := u.endSegmentAndMaybeStopTurn(ctx, chat.ID, seg.ID); err != nil {
 			slog.WarnContext(ctx, "agent: reconcile on boot: end segment",
 				"chat_id", chat.ID, "segment_id", seg.ID, "terminal_session_id", seg.TerminalSessionID, "err", err)
 		}
-		// This active segment's PTY died with the daemon (SessionExists==false),
+		// This active segment's PTY died with the daemon (SessionLive==false),
 		// so its per-spawn tmp dir (rendered hook config + any codex auth.json
 		// COPY) is a crash orphan: the onExit cleanup that removes it on a clean
 		// exit never fired. It is the ONLY orphan class under the workspace-root
