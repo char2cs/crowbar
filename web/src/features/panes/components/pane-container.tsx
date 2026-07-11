@@ -56,6 +56,11 @@ const HtmlPreview = lazy(() =>
   })),
 )
 const CsvPreview = lazy(() => import('@/extensions/viewers/csv/csv-preview'))
+const AgentChatPane = lazy(() =>
+  import('@/features/agent/components/agent-chat-pane').then((m) => ({
+    default: m.AgentChatPane,
+  })),
+)
 import { EditorPane } from './editor-pane'
 import { TerminalPane } from './terminal-pane'
 import { DiffPane } from './diff-pane'
@@ -486,6 +491,11 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
               isActivePane={isActivePane}
             />
           )
+
+        case 'agentChat': {
+          const c = buffer as import('../types/pane-content').AgentChatContent
+          return <AgentChatPane chatId={c.chatId} wsId={c.wsId} isActivePane={isActivePane} />
+        }
 
         case 'markdownPreview':
           return <MarkdownPreview />
