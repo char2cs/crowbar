@@ -5,6 +5,37 @@ mod sidecar;
 mod terminal;
 mod ws_bridge;
 
+#[cfg(test)]
+mod test_support {
+    use std::sync::OnceLock;
+    use tokio::sync::{Mutex, MutexGuard};
+
+    /// Serialises every test that opens a file descriptor.
+    ///
+    /// A descriptor leak can only be measured process-wide (`/dev/fd`), and cargo runs the
+    /// suite in parallel — so a descriptor another test opens mid-measurement reads as a
+    /// leak, and one it closes can hide a real one. Every test that opens *anything* — a
+    /// socket, a log file, a zip — takes this, which is what makes the count attributable
+    /// to the test doing the counting. A test that opens nothing does not need it.
+    ///
+    /// tokio's mutex rather than std's: it is held across awaits, and it does not poison,
+    /// so one failing test cannot cascade into the rest.
+    fn lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    pub async fn fd_tests() -> MutexGuard<'static, ()> {
+        lock().lock().await
+    }
+
+    /// For the sync tests. `blocking_lock` panics inside a runtime, and these are not in
+    /// one — that is precisely why they cannot use [`fd_tests`].
+    pub fn fd_tests_blocking() -> MutexGuard<'static, ()> {
+        lock().blocking_lock()
+    }
+}
+
 use tauri::Manager;
 
 // ProMotion / high-refresh-rate: WKWebView defaults to 60fps due to the
@@ -353,6 +384,21 @@ pub fn run() {
         .manage(sidecar::SidecarHandle::new())
         .manage(terminal::TerminalManager::new())
         .manage(ws_bridge::WsBridgeManager::new())
+        // A page load orphans every bridged connection the outgoing page owned: its JS
+        // is gone and will never close ids it no longer remembers, and the new page
+        // opens its own. Nothing else can notice — a `Channel` keeps working across a
+        // reload, because a reloaded page is the same webview — so if we do not retire
+        // them here, their reader tasks park on sockets nobody will ever read again and
+        // hold a descriptor apiece for the life of the app. The daemon keeps each PTY
+        // alive, so a reloaded page simply re-attaches the terminals it still wants.
+        .on_page_load(|webview, payload| {
+            if payload.event() != tauri::webview::PageLoadEvent::Started {
+                return;
+            }
+            let app = webview.app_handle();
+            app.state::<ws_bridge::WsBridgeManager>().close_all();
+            app.state::<terminal::TerminalManager>().close_all();
+        })
         .setup(move |app| {
             let app_handle = app.handle().clone();
 

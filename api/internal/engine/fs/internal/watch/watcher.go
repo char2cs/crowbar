@@ -58,6 +58,9 @@ type Watcher struct {
 	gitDirOnce     sync.Once
 	resolvedGitDir string
 
+	commonDirOnce     sync.Once
+	resolvedCommonDir string
+
 	prevAdded    int
 	prevDeleted  int
 	prevConflict bool
@@ -162,24 +165,40 @@ func (w *Watcher) Start(
 		return fmt.Errorf("watch: start: add recursive %s: %w", w.repoPath, err)
 	}
 
-	// Fix 1: explicitly watch .git/HEAD and .git/refs/* so branch switches
-	// and remote fetches are detected. addRecursive skips .git entirely to
-	// avoid flooding inotify with objects/logs; these four paths are the
-	// only git-internal paths the spec requires (05 §5).
-	gitDir := filepath.Join(w.repoPath, ".git")
-	for _, p := range []string{
-		filepath.Join(gitDir, "HEAD"),
-		filepath.Join(gitDir, "refs"),
-		filepath.Join(gitDir, "refs", "heads"),
-		filepath.Join(gitDir, "refs", "remotes"),
-		filepath.Join(gitDir, "packed-refs"),
-	} {
-		// ignore errors — paths may not exist (shallow clone, no remotes, etc.)
+	// Explicitly watch HEAD and the ref trees so branch switches and remote fetches
+	// are detected: addRecursive skips .git entirely (it would flood inotify with
+	// objects/logs), so these are the only git-internal paths watched (05 §5). They
+	// are resolved, never joined onto repoPath/.git — in a Crowbar-managed workspace
+	// (always a LINKED worktree) that is a gitlink FILE, so every such join lands on
+	// a path that does not exist and every Add fails silently, leaving a ref-only
+	// change (a bare fetch, which touches no working-tree file) with nothing to
+	// trigger the recompute.
+	for _, p := range w.gitRefWatchPaths() {
+		// ignore errors — paths may legitimately be absent (no packed-refs until the
+		// first gc, no refs/remotes without a remote)
 		_ = w.fsw.Add(p)
 	}
 
 	go w.loop(ctx)
 	return nil
+}
+
+// gitRefWatchPaths returns the git-internal paths whose changes mean "the refs
+// moved". The two roots differ for a linked worktree: HEAD (and any worktree-local
+// ref) belongs to that worktree's own gitdir, while the shared ref tree and
+// packed-refs live in the common dir of the parent repo. For a main worktree the two
+// roots coincide and the duplicate Adds collapse (fsnotify.Add is idempotent).
+func (w *Watcher) gitRefWatchPaths() []string {
+	gitDir := w.gitDir()
+	commonDir := w.commonDir()
+	return []string{
+		filepath.Join(gitDir, "HEAD"),
+		filepath.Join(gitDir, "refs"),
+		filepath.Join(commonDir, "refs"),
+		filepath.Join(commonDir, "refs", "heads"),
+		filepath.Join(commonDir, "refs", "remotes"),
+		filepath.Join(commonDir, "packed-refs"),
+	}
 }
 
 // closeFSW closes the fsnotify watcher exactly once. It is safe to call from
@@ -321,17 +340,51 @@ func (w *Watcher) handleOne(
 }
 
 func (w *Watcher) maybeHandleGitRef(
-	ctx context.Context,
+	_ context.Context,
 	evt fsnotify.Event,
 ) {
-	name := evt.Name
-	isHead := strings.HasSuffix(name, filepath.Join(".git", "HEAD"))
-	isRef := strings.Contains(name, filepath.Join(".git", "refs"))
-	isPackedRefs := strings.HasSuffix(name, filepath.Join(".git", "packed-refs"))
-	if !isHead && !isRef && !isPackedRefs {
+	if !w.isGitRefPath(evt.Name) {
 		return
 	}
 	w.scheduleGitRecompute()
+}
+
+// isGitRefPath reports whether path is one of the ref paths Start watches, matched
+// against the RESOLVED roots rather than by ".git/..." substring: a linked
+// worktree's gitdir contains no ".git" path element at all
+// (<repo>/.git/worktrees/<name>/HEAD does, but its common ref tree is
+// <repo>/.git/refs/...), so substring matching answers for the wrong worktree or not
+// at all.
+func (w *Watcher) isGitRefPath(
+	path string,
+) bool {
+	for _, root := range []string{w.gitDir(), w.commonDir()} {
+		if path == filepath.Join(root, "HEAD") || path == filepath.Join(root, "packed-refs") {
+			return true
+		}
+		if isUnder(path, filepath.Join(root, "refs")) {
+			return true
+		}
+	}
+	return false
+}
+
+// isGitInternal reports whether path belongs to the repository's own machinery (the
+// worktree's gitdir or the shared common dir) rather than to the working tree.
+func (w *Watcher) isGitInternal(
+	path string,
+) bool {
+	return isUnder(path, w.gitDir()) || isUnder(path, w.commonDir())
+}
+
+func isUnder(
+	path string,
+	root string,
+) bool {
+	if path == root {
+		return true
+	}
+	return strings.HasPrefix(path, root+string(filepath.Separator))
 }
 
 // scheduleGitRecompute arms (or re-arms) the trailing git-recompute debounce.
@@ -459,6 +512,35 @@ func (w *Watcher) gitDir() string {
 	return w.resolvedGitDir
 }
 
+// commonDir resolves and caches the git COMMON dir: the directory holding the state
+// every worktree of a repository shares — refs/heads, refs/remotes, packed-refs,
+// objects. For a main worktree it IS the git dir; for a linked worktree the git dir
+// holds only that worktree's private state (HEAD, index) plus a "commondir" file
+// naming the shared one. Watching refs under the git dir alone would therefore watch
+// a linked worktree's empty private refs/ and miss every branch and remote-tracking
+// update. Falls back to the git dir when commondir is absent or unreadable, which is
+// exactly the main-worktree layout.
+func (w *Watcher) commonDir() string {
+	w.commonDirOnce.Do(func() {
+		gitDir := w.gitDir()
+		w.resolvedCommonDir = gitDir
+
+		data, err := os.ReadFile(filepath.Join(gitDir, "commondir")) //nolint:gosec // G304: a fixed filename under the resolved git dir of the watched repo
+		if err != nil {
+			return
+		}
+		p := strings.TrimSpace(string(data))
+		if p == "" {
+			return
+		}
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(gitDir, p)
+		}
+		w.resolvedCommonDir = filepath.Clean(p)
+	})
+	return w.resolvedCommonDir
+}
+
 // walkFn is the filepath.Walk callback used by addRecursive.
 // Fix 7: extracted from an anonymous closure to a named method.
 func (w *Watcher) walkFn(
@@ -504,7 +586,12 @@ func (w *Watcher) shouldIgnore(
 ) bool {
 	rel := w.relPath(path)
 	if !strings.HasPrefix(rel, ".git") {
-		return false
+		// A linked worktree's gitdir, and the common dir holding the shared ref tree,
+		// sit OUTSIDE the worktree, so no relative-path test can recognise them. Their
+		// events are git internals: they drive the recompute (maybeHandleGitRef) and are
+		// never file changes — reporting one as a file change would ship a path that
+		// escapes the workspace ("../../../repo/.git/refs/heads/main").
+		return w.isGitInternal(path)
 	}
 	isHead := rel == filepath.Join(".git", "HEAD")
 	isRefs := strings.HasPrefix(rel, filepath.Join(".git", "refs"))

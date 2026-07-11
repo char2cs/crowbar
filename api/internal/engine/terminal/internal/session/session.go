@@ -1101,6 +1101,16 @@ func (s *Session) shutdown() {
 		s.stopEmitTimerLocked()
 
 		s.exitCode = code
+		// The shell exiting on its own reaches teardown HERE, not through Kill: pump
+		// reads EOF from the master and its deferred shutdown runs. Closing is this
+		// path's job too — dropping the *os.File merely hands the descriptor to the
+		// finalizer, and an idle daemon (allocating nothing, so never collecting) holds
+		// it indefinitely; a later Kill cannot help, it takes the ptmx == nil branch.
+		// A Kill racing a natural exit closed and nil'd ptmx under this same lock, so
+		// the nil check is what keeps this from being a double close.
+		if s.ptmx != nil {
+			_ = s.ptmx.Close()
+		}
 		s.ptmx = nil
 		if s.model != nil {
 			s.model.Close()

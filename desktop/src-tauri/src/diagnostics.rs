@@ -172,6 +172,9 @@ mod tests {
 
     #[test]
     fn write_bundle_roundtrips_all_entries() {
+        // Opens files, so it must not run while a descriptor count is being taken.
+        let _serialised = crate::test_support::fd_tests_blocking();
+
         let dir = std::env::temp_dir().join(format!("crowbar-diag-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let zip_path = dir.join("bundle.zip");
