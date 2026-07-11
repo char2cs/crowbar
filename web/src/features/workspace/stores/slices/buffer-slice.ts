@@ -5,6 +5,7 @@ import type {
   OpenContentSpec,
   EditorContent,
   BranchReviewContent,
+  AgentChatContent,
   DiffContent,
   TerminalContent,
   NewTabContent,
@@ -77,6 +78,11 @@ export const createBufferSlice: StateCreator<
           if (spec.type === 'branchReview') {
             return get().buffers.find(
               (b) => b.type === 'branchReview' && (b as BranchReviewContent).wsId === spec.wsId,
+            )
+          }
+          if (spec.type === 'agentChat') {
+            return get().buffers.find(
+              (b) => b.type === 'agentChat' && (b as AgentChatContent).chatId === spec.chatId,
             )
           }
           if (spec.type === 'diff') {
@@ -158,6 +164,18 @@ export const createBufferSlice: StateCreator<
             isPreview: false,
             isActive: false,
           } satisfies BranchReviewContent
+        } else if (spec.type === 'agentChat') {
+          buf = {
+            id,
+            type: 'agentChat',
+            chatId: spec.chatId,
+            wsId: spec.wsId,
+            name: spec.name,
+            path: `agent-chat://${spec.chatId}`,
+            isPinned: false,
+            isPreview: false,
+            isActive: false,
+          } satisfies AgentChatContent
         } else if (spec.type === 'diff') {
           buf = {
             id,

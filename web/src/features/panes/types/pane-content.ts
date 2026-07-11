@@ -22,6 +22,7 @@ export type PaneContentType =
   | 'csvPreview'
   | 'externalEditor'
   | 'branchReview'
+  | 'agentChat'
 
 // ── Base fields shared by every content type ────────────────────────
 
@@ -108,6 +109,13 @@ export interface BranchReviewContent extends PaneContentBase {
   wsId: string
 }
 
+export interface AgentChatContent extends PaneContentBase {
+  type: 'agentChat'
+  /** Stable chat id — the pane tab is keyed by it (survives provider switches). */
+  chatId: string
+  wsId: string
+}
+
 // ── Discriminated union ─────────────────────────────────────────────
 
 export type PaneContent =
@@ -120,6 +128,7 @@ export type PaneContent =
   | CsvPreviewContent
   | ExternalEditorContent
   | BranchReviewContent
+  | AgentChatContent
 
 // ── Type guards ─────────────────────────────────────────────────────
 
@@ -147,6 +156,10 @@ export function isBranchReviewContent(c: PaneContent): c is BranchReviewContent 
   return c.type === 'branchReview'
 }
 
+export function isAgentChatContent(c: PaneContent): c is AgentChatContent {
+  return c.type === 'agentChat'
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /** Content types that represent real files on disk and should be persisted to session. */
@@ -155,7 +168,12 @@ export function isPersistableContent(c: PaneContent): c is EditorContent {
 }
 
 /** Content types that are virtual (not backed by a real file on disk). */
-const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set(['terminal', 'newTab', 'branchReview'])
+const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set([
+  'terminal',
+  'newTab',
+  'branchReview',
+  'agentChat',
+])
 
 export function isVirtualContent(c: PaneContent): boolean {
   if (VIRTUAL_TYPES.has(c.type)) return true
@@ -249,6 +267,12 @@ export type OpenContentSpec =
     }
   | {
       type: 'branchReview'
+      wsId: string
+      name: string
+    }
+  | {
+      type: 'agentChat'
+      chatId: string
       wsId: string
       name: string
     }
