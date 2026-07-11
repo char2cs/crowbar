@@ -1,0 +1,113 @@
+import type { StateCreator } from 'zustand'
+import type { WorkspaceState } from '../workspace-store.types'
+import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
+
+const orderKey = (wsId: string) => `crowbar:agent-chat-order:${wsId}`
+
+function loadOrder(wsId: string): string[] {
+  try {
+    const raw = localStorage.getItem(orderKey(wsId))
+    return raw ? (JSON.parse(raw) as string[]) : []
+  } catch {
+    return []
+  }
+}
+
+function saveOrder(wsId: string, order: string[]): void {
+  try {
+    localStorage.setItem(orderKey(wsId), JSON.stringify(order))
+  } catch {
+    /* quota / private mode — best effort */
+  }
+}
+
+/** Order chats by the client-persisted order first (chats named in `order`, in
+ *  that sequence), then append any chat absent from `order` sorted by createdAt
+ *  ascending (creation order, newest last) — default ordering. Pure/testable. */
+export function orderedChats(chats: AgentChat[], order: string[]): AgentChat[] {
+  const byId = new Map(chats.map((c) => [c.id, c]))
+  const pinned = order.map((id) => byId.get(id)).filter((c): c is AgentChat => c !== undefined)
+  const pinnedIds = new Set(pinned.map((c) => c.id))
+  const rest = chats
+    .filter((c) => !pinnedIds.has(c.id))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  return [...pinned, ...rest]
+}
+
+export interface AgentChatsState {
+  chats: AgentChat[]
+  working: Record<string, boolean>
+  order: string[]
+  activeChatId: string | null
+  providers: AgentProvider[]
+}
+
+export interface AgentChatsSlice {
+  agentChats: AgentChatsState
+  upsertAgentChat: (chat: AgentChat) => void
+  removeAgentChat: (chatId: string) => void
+  setAgentChatWorking: (chatId: string, working: boolean) => void
+  setAgentChatOrder: (order: string[]) => void
+  hydrateAgentChatOrder: () => void
+  setActiveAgentChatId: (chatId: string | null) => void
+  setAgentProviders: (providers: AgentProvider[]) => void
+}
+
+export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
+  chats: [],
+  working: {},
+  order: [],
+  activeChatId: null,
+  providers: [],
+}
+
+export const createAgentChatsSlice: StateCreator<
+  WorkspaceState,
+  [['zustand/immer', never]],
+  [],
+  AgentChatsSlice
+> = (set, get) => ({
+  agentChats: { ...INITIAL_AGENT_CHATS_STATE },
+
+  upsertAgentChat: (chat) =>
+    set((s) => {
+      const idx = s.agentChats.chats.findIndex((c) => c.id === chat.id)
+      if (idx === -1) s.agentChats.chats.push(chat)
+      else s.agentChats.chats[idx] = chat
+    }),
+
+  removeAgentChat: (chatId) =>
+    set((s) => {
+      s.agentChats.chats = s.agentChats.chats.filter((c) => c.id !== chatId)
+      delete s.agentChats.working[chatId]
+      s.agentChats.order = s.agentChats.order.filter((id) => id !== chatId)
+      if (s.agentChats.activeChatId === chatId) s.agentChats.activeChatId = null
+    }),
+
+  setAgentChatWorking: (chatId, working) =>
+    set((s) => {
+      s.agentChats.working[chatId] = working
+    }),
+
+  setAgentChatOrder: (order) => {
+    saveOrder(get().workspaceId, order)
+    set((s) => {
+      s.agentChats.order = order
+    })
+  },
+
+  hydrateAgentChatOrder: () =>
+    set((s) => {
+      s.agentChats.order = loadOrder(get().workspaceId)
+    }),
+
+  setActiveAgentChatId: (chatId) =>
+    set((s) => {
+      s.agentChats.activeChatId = chatId
+    }),
+
+  setAgentProviders: (providers) =>
+    set((s) => {
+      s.agentChats.providers = providers
+    }),
+})
