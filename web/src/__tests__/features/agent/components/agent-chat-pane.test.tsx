@@ -41,22 +41,32 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 
 // jsdom can't run xterm/WebGL — stub the terminal renderer to a passive marker
 // that records the sessionId it was mounted with (that's what the attach seam
-// is proven by) plus the isActive/isVisible props threaded from the pane.
+// is proven by) plus the isActive/isVisible/attachOnly props threaded from the
+// pane. The marker is clickable so a test can fire the terminal's onSessionGone
+// — the pane's half of the "the PTY died under a mounted pane" contract; the
+// terminal's own half (never spawning on that path) lives in
+// __tests__/features/terminal/components/terminal-attach-only.test.tsx.
 vi.mock('@/features/terminal/components/terminal', () => ({
   XtermTerminal: ({
     sessionId,
     isActive,
     isVisible,
+    attachOnly,
+    onSessionGone,
   }: {
     sessionId: string
     isActive: boolean
     isVisible?: boolean
+    attachOnly?: boolean
+    onSessionGone?: () => void
   }) =>
     createElement('div', {
       'data-testid': 'xterm',
       'data-session-id': sessionId,
       'data-active': String(isActive),
       'data-visible': String(isVisible),
+      'data-attach-only': String(Boolean(attachOnly)),
+      onClick: () => onSessionGone?.(),
     }),
 }))
 
@@ -479,6 +489,32 @@ describe('AgentChatPane', () => {
       expect(screen.queryByTestId('xterm')).toBeNull()
       expect(screen.getByText(/agent session has ended/i)).toBeTruthy()
       // The footer stays, so the user can switch provider to start a fresh segment.
+      expect(screen.getByTestId('provider-switch')).toBeTruthy()
+    })
+
+    // The mount guard above only proves the PTY was alive at OPEN. The CLI can
+    // die at ANY moment while the pane sits here — that was the live repro:
+    // daemon restarted under an open pane, its transport dropped, and the
+    // terminal's reconnect happily spawned a BARE SHELL into the agent frame.
+    it('mounts the terminal ATTACH-ONLY, so a reconnect can never spawn a shell into the pane', async () => {
+      getChatFn.mockResolvedValue(detail())
+      await renderPane(makeStore(chat()))
+
+      expect(screen.getByTestId('xterm').getAttribute('data-attach-only')).toBe('true')
+    })
+
+    it('flips to the ended state when the PTY dies under the OPEN pane (terminal reports it gone)', async () => {
+      getChatFn.mockResolvedValue(detail())
+      await renderPane(makeStore(chat()))
+      expect(screen.getByTestId('xterm')).toBeTruthy()
+
+      // The terminal's attach-only reconnect found the session gone and said so.
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('xterm'))
+      })
+
+      expect(screen.queryByTestId('xterm')).toBeNull()
+      expect(screen.getByText(/agent session has ended/i)).toBeTruthy()
       expect(screen.getByTestId('provider-switch')).toBeTruthy()
     })
   })

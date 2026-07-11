@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useStore } from 'zustand'
 import { Frame, FrameFooter, FramePanel } from '@/components/ui/frame'
 import { getChat, switchProvider } from '@/features/agent/api/agent-api'
@@ -118,6 +118,17 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
     }
   }, [wsId, chatId, activeSegmentId])
 
+  // The mount guard (attachAgentSegment) only proves the PTY was alive at OPEN.
+  // The agent's CLI can die at any moment while the pane sits here — daemon
+  // restart, CLI exit, crash — and the terminal's transport-drop reconnect would,
+  // by default, resolve the now-dead session by spawning a fresh BARE SHELL into
+  // this frame. So the terminal runs attach-only and reports the session gone
+  // instead; we render the same ended state the mount guard does. The backend's
+  // boot reconcile independently ends the segment and the WS `segment_ended` frame
+  // re-runs the effect above — but this guard must stand on its own, because the
+  // PTY's death and the daemon's knowledge of it are not the same instant.
+  const handleSessionGone = useCallback(() => setAttachment({ state: 'ended' }), [])
+
   // A provider switch is the headline interaction of this pane, and it can fail
   // for real, ordinary reasons — the target CLI is not installed, the spawn fails.
   // Without this catch the rejection is unhandled: the dropdown just closes and
@@ -143,6 +154,8 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
             sessionId={attachment.sessionId}
             isActive={isActivePane}
             isVisible
+            attachOnly
+            onSessionGone={handleSessionGone}
           />
         )}
         {attachment.state === 'ended' && (
