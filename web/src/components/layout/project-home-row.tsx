@@ -6,7 +6,9 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE } from './workspace-row-base'
 import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
+import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
 import { dataOf } from '@/lib/loadable'
+import { WorkspaceAgentSpinner } from './workspace-branch-icon'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import { ProjectSwitcherPanel } from './project-switcher-panel'
 import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
@@ -17,6 +19,9 @@ export function ProjectHomeRow() {
   const projects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
   const activeProject = projects.find((p) => p.id === projectId)
   const isActive = useMatch({ from: '/_shell/ide/$projectId/home', shouldThrow: false })
+  // The home workspace's agent-working overlay, kept live at project scope (it
+  // rides no repo, so no per-repo workspace stream carries it).
+  const working = useHomeWorkspaceStore((s) => s.workspace?.working ?? false)
   const [addRepoOpen, setAddRepoOpen] = useState(false)
 
   function handleClick() {
@@ -51,9 +56,15 @@ export function ProjectHomeRow() {
       >
         {/* Match the repo-header rows: the House sits in the same 20px (h-5 w-5)
             box the repo avatar uses, so the label lines up with the repo names
-            rather than shifting left off a bare 14px glyph. */}
+            rather than shifting left off a bare 14px glyph. While an agent works
+            in the home workspace the glyph becomes the spinner — the same
+            treatment the worktree rows get from WorkspaceBranchIcon. */}
         <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-          <House size={16} weight={isActive ? 'fill' : 'regular'} />
+          {working ? (
+            <WorkspaceAgentSpinner />
+          ) : (
+            <House size={16} weight={isActive ? 'fill' : 'regular'} />
+          )}
         </span>
         <span className="min-w-0 flex-1 truncate font-mono text-left">
           {activeProject?.name ?? 'home'}

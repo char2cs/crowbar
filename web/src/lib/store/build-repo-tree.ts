@@ -89,7 +89,17 @@ export function toSidebarRepo(repo: RepoDTO, workspaces: WorkspaceDTO[]): Repo {
     avatarColor: repo.avatarColor || repoAvatarColor(repo.name),
     avatarURL: repoAvatarURL(repo),
     workspaces: repoWs.filter((ws) => !ws.isDefault).map(toSidebarWorkspace),
-    ...(defaultWs ? { defaultWorkspaceId: defaultWs.id, defaultBranch: defaultWs.branch } : {}),
+    // The default (repo-home) workspace is filtered out of `workspaces` above —
+    // it is the repo header, not a tree row — so its live `working` overlay would
+    // be dropped with it. Lift it onto the repo as defaultWorking so the header
+    // and the context pill can spin the repo's icon during an agent turn.
+    ...(defaultWs
+      ? {
+          defaultWorkspaceId: defaultWs.id,
+          defaultBranch: defaultWs.branch,
+          defaultWorking: defaultWs.working,
+        }
+      : {}),
     ...(repo.path ? { localPath: repo.path } : {}),
   }
 }

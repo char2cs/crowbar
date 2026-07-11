@@ -122,3 +122,25 @@ describe('flattenWorkspaces', () => {
     expect(r2Items).toHaveLength(1)
   })
 })
+
+// The repo-home (default) entry is a workspace like any other in the switcher:
+// while an agent works in it, its row must spin rather than show the repo avatar.
+describe('flattenWorkspaces repo-home working overlay', () => {
+  it('carries Repo.defaultWorking onto the default workspace entry', () => {
+    const items = flattenWorkspaces(
+      [{ ...repos[0], defaultWorking: true }],
+      undefined,
+      false,
+      'p1',
+      projects,
+    )
+    const def = items.find((i) => i.kind === 'workspace' && i.wsId === 'ws-default')
+    expect(def).toMatchObject({ kind: 'workspace', branch: 'default', working: true })
+  })
+
+  it('leaves the default workspace entry idle when the repo home is not working', () => {
+    const items = flattenWorkspaces([repos[0]], undefined, false, 'p1', projects)
+    const def = items.find((i) => i.kind === 'workspace' && i.wsId === 'ws-default')
+    expect(def).toMatchObject({ kind: 'workspace', working: undefined })
+  })
+})

@@ -59,6 +59,9 @@ export function flattenWorkspaces(
           repoName: repo.name,
           branch: 'default',
           status: 'new',
+          // The repo-home workspace spins like any other while an agent works in
+          // it; its flag lives on the repo (it is not a tree row) — see toSidebarRepo.
+          working: repo.defaultWorking,
           isCurrent: repo.defaultWorkspaceId === activeWorkspaceId,
           repoAvatar: { url: repo.avatarURL, label: repo.avatarLabel, color: repo.avatarColor },
         })

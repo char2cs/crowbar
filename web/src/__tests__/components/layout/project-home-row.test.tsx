@@ -3,6 +3,8 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ProjectHomeRow } from '@/components/layout/project-home-row'
 import { useProjectStore } from '@/lib/store/projects'
+import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
+import type { WorkspaceDTO } from '@/lib/types'
 
 // @phosphor-icons/react ships pure ESM and gets its own React copy in the
 // vitest/jsdom process, causing "Cannot read properties of null (reading 'useContext')".
@@ -23,10 +25,22 @@ vi.mock('@tanstack/react-router', () => ({
   useMatch: () => mockMatch,
 }))
 
+function homeDTO(working: boolean): WorkspaceDTO {
+  return {
+    id: 'home-1',
+    repoId: '',
+    projectId: 'p1',
+    branch: 'home',
+    status: 'new',
+    working,
+  } as WorkspaceDTO
+}
+
 beforeEach(() => {
   navigateMock.mockClear()
   mockMatch = null
   useProjectStore.setState({ activeProjectId: 'p1', projects: [] })
+  useHomeWorkspaceStore.setState({ workspace: null })
 })
 
 describe('ProjectHomeRow', () => {
@@ -84,5 +98,41 @@ describe('ProjectHomeRow', () => {
       to: '/ide/$projectId/home',
       params: { projectId: 'p1' },
     })
+  })
+})
+
+// The home row is the home workspace's tile: an agent working in project home
+// must move its icon into the loading state, exactly as a worktree row's branch
+// glyph becomes the spinner (WorkspaceBranchIcon).
+describe('ProjectHomeRow working overlay', () => {
+  it('renders the flicker spinner while the home workspace is working', () => {
+    useHomeWorkspaceStore.setState({ workspace: homeDTO(true) })
+
+    const { container } = render(<ProjectHomeRow />)
+
+    expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument()
+    // The real flicker spinner (self-animating SVG), theme-token colored.
+    expect(container.querySelector('svg animate')).not.toBeNull()
+    expect(container.querySelector('.text-primary')).not.toBeNull()
+    // The House glyph yields to it for the duration of the turn.
+    expect(container.querySelector('[data-icon="house"]')).toBeNull()
+  })
+
+  it('renders the House glyph (no spinner) when the home workspace is idle', () => {
+    useHomeWorkspaceStore.setState({ workspace: homeDTO(false) })
+
+    const { container } = render(<ProjectHomeRow />)
+
+    expect(screen.queryByRole('status', { name: 'Loading' })).toBeNull()
+    expect(container.querySelector('[data-icon="house"]')).not.toBeNull()
+  })
+
+  it('renders the House glyph before the home workspace has been read', () => {
+    useHomeWorkspaceStore.setState({ workspace: null })
+
+    const { container } = render(<ProjectHomeRow />)
+
+    expect(screen.queryByRole('status', { name: 'Loading' })).toBeNull()
+    expect(container.querySelector('[data-icon="house"]')).not.toBeNull()
   })
 })

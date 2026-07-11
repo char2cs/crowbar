@@ -60,6 +60,10 @@ export interface Repo {
   /** Branch name of the default (main-worktree) workspace, surfaced on the repo
    *  header. Used by create-input validation to reserve the default branch. */
   defaultBranch?: string
+  /** `working` of the default (repo-home) workspace. It is not a tree row, so it
+   *  has no Workspace entry to carry the flag — the repo header and the context
+   *  pill read it from here to spin the repo's icon during an agent turn. */
+  defaultWorking?: boolean
   /** On-disk root of the repo (RepoDTO.path). Used as the localPath fallback for
    *  the default workspace, which is not stored in the workspaces array. */
   localPath?: string

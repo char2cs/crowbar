@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/button'
 import { CommandDialog, CommandDialogTrigger, CommandDialogPopup } from '@/components/ui/command'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
+import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
 import { dataOf } from '@/lib/loadable'
-import { WorkspaceBranchIcon } from './workspace-branch-icon'
+import { WorkspaceBranchIcon, WorkspaceAgentSpinner } from './workspace-branch-icon'
 import { deriveContextPillModel } from './context-pill-model'
 import { WorkspaceSwitcherMenu } from './workspace-switcher'
 import { RepoAvatar } from './repo-avatar'
@@ -23,6 +24,7 @@ export function ContextPill() {
   const repos = useSidebarStore((s) => s.repos)
   const projects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
+  const homeWorking = useHomeWorkspaceStore((s) => s.workspace?.working ?? false)
   const [open, setOpen] = useState(false)
   const openSwitcher = useCallback(() => setOpen(true), [])
   useWorkspaceSwitcherKeyboard(openSwitcher)
@@ -35,6 +37,7 @@ export function ContextPill() {
     repos,
     projects,
     activeProjectId,
+    homeWorking,
   })
 
   if (model.kind === 'empty') return null
@@ -60,7 +63,10 @@ export function ContextPill() {
                 </span>
               </span>
               <span className="flex shrink-0 scale-110">
-                {model.repoAvatar ? (
+                {/* The repo-home pill normally shows the repo avatar, but a working
+                    agent must still spin its icon — so the spinner (rendered by
+                    WorkspaceBranchIcon when `working`) takes precedence over it. */}
+                {model.repoAvatar && !model.working ? (
                   <RepoAvatar avatar={model.repoAvatar} name={model.repoName} size="lg" />
                 ) : (
                   <WorkspaceBranchIcon status={model.status} working={model.working} />
@@ -78,7 +84,7 @@ export function ContextPill() {
                 </span>
               </span>
               <span className="flex shrink-0 scale-110 text-foreground/70">
-                <House size={14} weight="fill" />
+                {model.working ? <WorkspaceAgentSpinner /> : <House size={14} weight="fill" />}
               </span>
             </span>
           ) : (
