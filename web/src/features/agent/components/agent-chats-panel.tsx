@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useRouterState } from '@tanstack/react-router'
 import { useStore } from 'zustand'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ADD_GLYPH_PATH, ROW_BASE, ROW_INACTIVE } from '@/components/layout/workspace-row-base'
-import { parseWorkspaceScopeFromPath } from '@/lib/workspace-scope'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { useActiveWorkspaceState } from '@/features/workspace/stores/hooks/use-active-workspace-state'
 import { useWorkspaceAgentChatsStream } from '@/features/workspace/stores/hooks/use-workspace-agent-chats-stream'
 import { orderedChats } from '@/features/workspace/stores/slices/agent-chats-slice'
 import { createChat, deleteChat, renameChat } from '@/features/agent/api/agent-api'
@@ -48,22 +47,36 @@ function suppressNextClick(): void {
   setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
 }
 
+interface AgentChatsPanelProps {
+  /**
+   * The workspace to list chats for. Optional: when the sidebar host doesn't
+   * already hold a wsId it can render <AgentChatsPanel /> bare and the panel
+   * tracks the ACTIVE workspace itself.
+   */
+  wsId?: string
+}
+
 /**
- * The sidebar "Chats" panel: every agent chat in the routed workspace, then one
+ * The sidebar "Chats" panel: every agent chat in the active workspace, then one
  * "New <provider> chat" row per provider. Rows drag to reorder (persisted per
  * workspace) and drag onto the footer trash to delete — no confirm dialog.
  *
- * Works for every workspace kind (project home, repo home, worktree): it is
- * driven purely by the routed wsId, and every API/WS URL underneath goes through
- * workspaceBase, which already resolves home workspaces.
+ * Works for every workspace kind (project home, repo home, worktree). The wsId
+ * comes from the active WORKSPACE STORE, not the URL: the project-home route is
+ * /ide/:projectId/home, whose wsId is resolved asynchronously and never appears
+ * in the path, so a pathname-derived wsId (parseWorkspaceScopeFromPath, which
+ * only matches /ide/:p/:r/:w) is null there and the panel rendered nothing.
+ * WorkspaceView publishes the active store — and it is what BOTH route shapes
+ * render — so useActiveWorkspaceState is reactive on every workspace kind and
+ * re-renders this panel whenever the user switches workspace. Every API/WS URL
+ * underneath goes through workspaceBase, which already resolves home workspaces.
  */
-export function AgentChatsPanel() {
-  const pathname = useRouterState({
-    select: (s: { location: { pathname: string } }) => s.location.pathname,
-  })
-  const wsId = parseWorkspaceScopeFromPath(pathname)?.wsId ?? null
+export function AgentChatsPanel({ wsId }: AgentChatsPanelProps = {}) {
+  const activeWsId = useActiveWorkspaceState((s) => s.workspaceId, null)
+  const resolved = wsId ?? activeWsId
 
-  return wsId ? <AgentChatsPanelInner wsId={wsId} /> : null
+  // Keyed: a workspace switch must not carry this panel's drag/rename state over.
+  return resolved ? <AgentChatsPanelInner key={resolved} wsId={resolved} /> : null
 }
 
 function AgentChatsPanelInner({ wsId }: { wsId: string }) {
@@ -137,6 +150,7 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
       const st = store.getState()
       const previous = st.agentChats.chats.find((c) => c.id === chatId)
       const previousOrder = st.agentChats.order
+      const wasActive = st.agentChats.activeChatId === chatId
       const buffer = st.buffers.find((b) => b.type === 'agentChat' && b.chatId === chatId)
 
       st.removeAgentChat(chatId)
@@ -148,6 +162,17 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
         const snap = store.getState()
         snap.upsertAgentChat(previous)
         snap.setAgentChatOrder(previousOrder)
+        // The optimistic close took the chat's pane tab with it — put that back
+        // too, or the chat snaps into the list with its open tab silently gone.
+        if (buffer) {
+          snap.bufferActions.openContent({
+            type: 'agentChat',
+            chatId,
+            wsId,
+            name: buffer.name,
+          })
+        }
+        if (wasActive) snap.setActiveAgentChatId(chatId)
       })
     },
     [store, wsId],
@@ -237,6 +262,8 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
               working={working[chat.id] ?? false}
               active={activeChatId === chat.id}
               renaming={renamingId === chat.id}
+              dragging={draggingId === chat.id}
+              dropTarget={draggingId !== null && hoverTarget === chat.id}
               onSelect={() => openChat(chat.id)}
               onStartRename={() => setRenamingId(chat.id)}
               onConfirmRename={(title) => confirmRename(chat, title)}

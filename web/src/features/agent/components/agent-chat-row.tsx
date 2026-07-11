@@ -10,6 +10,10 @@ interface AgentChatRowProps {
   working: boolean
   active: boolean
   renaming: boolean
+  /** This row is the one under the pointer mid-drag (dimmed, as in the tree). */
+  dragging?: boolean
+  /** A drop right now would land here — same ring the workspace tree uses. */
+  dropTarget?: boolean
   onSelect: () => void
   onStartRename: () => void
   onConfirmRename: (title: string) => void
@@ -29,6 +33,8 @@ export function AgentChatRow({
   working,
   active,
   renaming,
+  dragging = false,
+  dropTarget = false,
   onSelect,
   onStartRename,
   onConfirmRename,
@@ -40,7 +46,14 @@ export function AgentChatRow({
       role="button"
       tabIndex={0}
       data-agent-chat-drop={chatId}
-      className={cn(ROW_BASE, active ? ROW_ACTIVE : ROW_INACTIVE)}
+      className={cn(
+        ROW_BASE,
+        active ? ROW_ACTIVE : ROW_INACTIVE,
+        // Drag feedback, identical to WorkspaceTreeItem: the row being dragged
+        // fades, the row it would land in front of takes the focus ring.
+        dragging && 'opacity-40',
+        dropTarget && 'ring-1 ring-ring',
+      )}
       onPointerDown={renaming ? undefined : onPointerDownDrag}
       onClick={renaming ? undefined : onSelect}
       onDoubleClick={renaming ? undefined : onStartRename}

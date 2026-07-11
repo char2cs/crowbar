@@ -36,13 +36,6 @@ vi.mock('@/features/workspace/stores/hooks/use-workspace-agent-chats-stream', ()
   useWorkspaceAgentChatsStream: (wsId: string) => streamHook(wsId),
 }))
 
-// The panel is route-driven; pathname is swapped per test.
-let pathname = '/ide/p1/r1/w1'
-vi.mock('@tanstack/react-router', () => ({
-  useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
-    select({ location: { pathname } }),
-}))
-
 // ScrollArea's internal ResizeObserver state causes act() warnings — passthrough.
 vi.mock('@/components/ui/scroll-area', () => ({
   ScrollArea: ({ children, className }: { children: React.ReactNode; className?: string }) => (
@@ -64,15 +57,23 @@ import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { parseWorkspaceScopeFromPath } from '@/lib/workspace-scope'
 import type { AgentChat } from '@/features/agent/api/agent-api'
 
 // ── Fixtures / helpers ──────────────────────────────────────────────
 
 const ORDER_KEY = 'crowbar:agent-chat-order:w1'
 
-const chat = (id: string, title: string, providerId: string, createdAt: string): AgentChat => ({
+const chat = (
+  id: string,
+  title: string,
+  providerId: string,
+  createdAt: string,
+  workspaceId = 'w1',
+): AgentChat => ({
   id,
-  workspaceId: 'w1',
+  workspaceId,
   title,
   activeSegmentId: `${id}-s`,
   activeProviderId: providerId,
@@ -87,15 +88,27 @@ const PROVIDERS = [
 const CHAT_1 = chat('c1', 'First', 'claude', '2026-01-01T00:00:00Z')
 const CHAT_2 = chat('c2', 'Second', 'codex', '2026-01-02T00:00:00Z')
 
-function state() {
-  return getOrCreateWorkspaceStore('w1').getState()
+function state(wsId = 'w1') {
+  return getOrCreateWorkspaceStore(wsId).getState()
+}
+
+/**
+ * Publish `wsId` as the ACTIVE workspace — exactly what WorkspaceView does (in a
+ * layout effect) on every route that mounts it, which is both the worktree route
+ * (/ide/:p/:r/:w) and the project-home route (/ide/:p/home). This, not the URL,
+ * is where the panel reads its wsId from.
+ */
+function activate(wsId: string) {
+  act(() => setActiveWorkspaceStoreRef(getOrCreateWorkspaceStore(wsId)))
 }
 
 /** Seed providers + two chats (c1 older than c2). */
-function seed(chats: AgentChat[] = [CHAT_1, CHAT_2]) {
-  const st = state()
-  st.setAgentProviders(PROVIDERS)
-  for (const c of chats) st.upsertAgentChat(c)
+function seed(chats: AgentChat[] = [CHAT_1, CHAT_2], wsId = 'w1') {
+  const st = state(wsId)
+  act(() => {
+    st.setAgentProviders(PROVIDERS)
+    for (const c of chats) st.upsertAgentChat(c)
+  })
 }
 
 function rowIds(): string[] {
@@ -154,18 +167,20 @@ function dragOnto(chatId: string, target: Element | null) {
 const agentBuffers = () => state().buffers.filter((b) => b.type === 'agentChat')
 
 beforeEach(() => {
-  pathname = '/ide/p1/r1/w1'
   localStorage.clear()
   createChatFn.mockReset().mockResolvedValue('c-new')
   deleteChatFn.mockReset().mockResolvedValue(undefined)
   renameChatFn.mockReset().mockResolvedValue(undefined)
   streamHook.mockClear()
   document.elementsFromPoint = () => []
+  activate('w1')
 })
 
 afterEach(async () => {
   cleanup()
+  setActiveWorkspaceStoreRef(null)
   destroyWorkspaceStore('w1')
+  destroyWorkspaceStore('hw1')
   // A drop arms a one-shot capture-phase click trap (the post-drop click must
   // not select the dragged row); the panel drops it on the next macrotask, as
   // the browser would. Drain that already-scheduled task so an unconsumed trap
@@ -179,17 +194,52 @@ afterEach(async () => {
 // ── Tests ───────────────────────────────────────────────────────────
 
 describe('AgentChatsPanel', () => {
-  it('renders nothing off a workspace route', () => {
-    pathname = '/'
+  it('renders nothing when no workspace is active', () => {
+    act(() => setActiveWorkspaceStoreRef(null))
     const { container } = render(<AgentChatsPanel />)
     expect(container.firstChild).toBeNull()
     expect(streamHook).not.toHaveBeenCalled()
   })
 
-  it('mounts the agent-chats WS stream for the routed workspace', () => {
+  it('mounts the agent-chats WS stream for the active workspace', () => {
     seed()
     render(<AgentChatsPanel />)
     expect(streamHook).toHaveBeenCalledWith('w1')
+  })
+
+  // The project-home route is /ide/:projectId/home: no wsId in the URL (it is
+  // resolved asynchronously and published by WorkspaceView). Deriving wsId from
+  // the pathname left the Chats tab blank on every home workspace.
+  it('renders chats + New rows on a project-home workspace (no wsId in the URL)', () => {
+    expect(parseWorkspaceScopeFromPath('/ide/p1/home')).toBeNull()
+
+    activate('hw1')
+    seed([chat('h1', 'Home chat', 'claude', '2026-03-01T00:00:00Z', 'hw1')], 'hw1')
+    const { container } = render(<AgentChatsPanel />)
+
+    expect(streamHook).toHaveBeenCalledWith('hw1')
+    expect(rowIds()).toEqual(['h1'])
+    expect(screen.getByText('Home chat')).toBeTruthy()
+    expect(container.querySelectorAll('[data-new-chat]')).toHaveLength(2)
+  })
+
+  it('follows the active workspace when it changes (worktree → project home)', () => {
+    seed()
+    seed([chat('h1', 'Home chat', 'claude', '2026-03-01T00:00:00Z', 'hw1')], 'hw1')
+    render(<AgentChatsPanel />)
+    expect(rowIds()).toEqual(['c1', 'c2'])
+
+    activate('hw1')
+
+    expect(rowIds()).toEqual(['h1'])
+    expect(streamHook).toHaveBeenLastCalledWith('hw1')
+  })
+
+  it('renders for an explicit wsId prop (the sidebar host may pass one)', () => {
+    act(() => setActiveWorkspaceStoreRef(null))
+    seed()
+    render(<AgentChatsPanel wsId="w1" />)
+    expect(rowIds()).toEqual(['c1', 'c2'])
   })
 
   it('renders seeded chats oldest-first (newest last) by createdAt', () => {
@@ -314,7 +364,7 @@ describe('AgentChatsPanel', () => {
     expect(agentBuffers()[0]).toMatchObject({ chatId: 'c-new', name: 'Seeded title' })
   })
 
-  it('a New row is keyboard-operable (Enter / Space), and ignores other keys', () => {
+  it('a New row is keyboard-operable (Enter / Space), and ignores other keys', async () => {
     seed()
     const { container } = render(<AgentChatsPanel />)
     const newRow = container.querySelector<HTMLElement>('[data-new-chat="claude"]')!
@@ -326,6 +376,10 @@ describe('AgentChatsPanel', () => {
     fireEvent.keyDown(newRow, { key: ' ' })
     expect(createChatFn).toHaveBeenCalledTimes(2)
     expect(createChatFn).toHaveBeenLastCalledWith('w1', 'claude')
+
+    // Both creates settle inside act() — the pane opens once (openContent dedupes
+    // on chatId), and no state lands after the test ends.
+    await waitFor(() => expect(agentBuffers()).toHaveLength(1))
   })
 
   it('a failed create opens no pane', async () => {
@@ -401,6 +455,25 @@ describe('AgentChatsPanel', () => {
     expect(rowIds()).toEqual(['c2', 'c1'])
     expect(state().agentChats.order).toEqual(['c2', 'c1'])
     expect(JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]')).toEqual(['c2', 'c1'])
+  })
+
+  it('dims the dragged row and rings the row the drop would land in front of', () => {
+    seed()
+    render(<AgentChatsPanel />)
+
+    pointerOver(null)
+    pointerDown(rowFor('c2'))
+    pointerMove() // crosses the threshold → the drag is live
+    expect(rowFor('c2').className).toContain('opacity-40')
+    expect(rowFor('c1').className).not.toContain('ring-1 ring-ring')
+
+    pointerOver(rowFor('c1'))
+    pointerMove()
+    expect(rowFor('c1').className).toContain('ring-1 ring-ring')
+
+    pointerUp()
+    expect(rowFor('c1').className).not.toContain('ring-1 ring-ring')
+    expect(rowFor('c2').className).not.toContain('opacity-40')
   })
 
   it('a drag that never crosses the threshold does not reorder (and the click still selects)', () => {
@@ -524,18 +597,24 @@ describe('AgentChatsPanel', () => {
     expect(agentBuffers()).toHaveLength(0)
   })
 
-  it('a failed delete snaps the chat back into the list', async () => {
+  it('a failed delete snaps the chat back into the list and reopens its pane tab', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     deleteChatFn.mockRejectedValue(new Error('nope'))
     seed()
     localStorage.setItem(ORDER_KEY, JSON.stringify(['c1', 'c2']))
     render(<AgentChatsPanel />)
+    fireEvent.click(rowFor('c1')) // open its pane tab first
 
     dragOnto('c1', trashZone())
     expect(rowIds()).toEqual(['c2'])
+    expect(agentBuffers()).toHaveLength(0)
 
     await waitFor(() => expect(rowIds()).toEqual(['c1', 'c2']))
     expect(state().agentChats.order).toEqual(['c1', 'c2'])
+    // The optimistically closed tab comes back with the chat — and stays active.
+    expect(agentBuffers()).toHaveLength(1)
+    expect(agentBuffers()[0]).toMatchObject({ type: 'agentChat', chatId: 'c1', name: 'First' })
+    expect(state().agentChats.activeChatId).toBe('c1')
     expect(err).toHaveBeenCalled()
   })
 })
