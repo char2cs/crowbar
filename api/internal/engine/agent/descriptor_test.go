@@ -70,3 +70,39 @@ hooks:
 	_, err = d.ParsePayload([]byte("x=1"))
 	require.Error(t, err)
 }
+
+func TestLoadDescriptor_ParsesDisplayMetadata(t *testing.T) {
+	d, err := agent.LoadDescriptor([]byte(`id: demo
+display_name: Demo Provider
+icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M1 1h1v1H1z"/></svg>'
+spawn:
+  cmd: "true"
+  interactive_required: true
+hooks:
+  format: json
+  events:
+    session_start: { session_id: session_id }
+    turn_stop: { message: message }
+`))
+	require.NoError(t, err)
+	require.Equal(t, "Demo Provider", d.DisplayName)
+	require.Contains(t, d.Icon, "currentColor")
+}
+
+func TestValidate_DisplayFieldsAreOptional(t *testing.T) {
+	// A descriptor with NO icon/display_name still validates: the display-only
+	// carve-out must not break the "every engine field load-bearing" invariant.
+	d, err := agent.LoadDescriptor([]byte(`id: bare
+spawn:
+  cmd: "true"
+  interactive_required: true
+hooks:
+  format: json
+  events:
+    session_start: { session_id: session_id }
+    turn_stop: { message: message }
+`))
+	require.NoError(t, err)
+	require.Empty(t, d.Icon)
+	require.Empty(t, d.DisplayName)
+}

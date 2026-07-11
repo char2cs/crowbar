@@ -11,8 +11,15 @@ import (
 // load-bearing; provider-specific shapes (hook-config layout, native event
 // names) live in the descriptor's literal write-side content, never here.
 type Descriptor struct {
-	ID    string `yaml:"id"`
-	Spawn struct {
+	ID string `yaml:"id"`
+	// DisplayName and Icon are the ONLY display-only fields on the descriptor
+	// (the "every field is load-bearing" invariant's documented carve-out): they
+	// are surfaced to the FE by GET .../agent/providers (dto.AgentProviderDTO) to
+	// label and glyph the provider, and never influence spawn/hook behaviour.
+	// Both are optional — Validate does not require them.
+	DisplayName string `yaml:"display_name"`
+	Icon        string `yaml:"icon"`
+	Spawn       struct {
 		Cmd                 string   `yaml:"cmd"`
 		InteractiveRequired bool     `yaml:"interactive_required"`
 		ForbidFlags         []string `yaml:"forbid_flags"`
