@@ -1,5 +1,6 @@
 mod api_proxy;
 mod diagnostics;
+mod fdlimit;
 mod sidecar;
 mod terminal;
 mod ws_bridge;
@@ -304,6 +305,12 @@ fn set_vibrancy_appearance(window: tauri::WebviewWindow, dark: bool) -> Result<(
 }
 
 pub fn run() {
+    // Before anything opens a descriptor: this process proxies every frontend
+    // request and every WebSocket to the daemon over its own unix sockets, and
+    // macOS starts a GUI app at launchd's soft limit of 256. No logger exists this
+    // early, so the outcome is reported from setup() below.
+    let fd_limit = fdlimit::raise();
+
     // Step 1: NSUserDefaults before WKWebView creation (macOS 13-15 path).
     #[cfg(target_os = "macos")]
     unsafe {
@@ -346,8 +353,15 @@ pub fn run() {
         .manage(sidecar::SidecarHandle::new())
         .manage(terminal::TerminalManager::new())
         .manage(ws_bridge::WsBridgeManager::new())
-        .setup(|app| {
+        .setup(move |app| {
             let app_handle = app.handle().clone();
+
+            // Report the descriptor ceiling now that a logger exists. It is the
+            // first number to reach for when the app cannot dial the daemon.
+            match &fd_limit {
+                fdlimit::Outcome::Failed(_) => log::warn!("{fd_limit}"),
+                outcome => log::info!("{outcome}"),
+            }
 
             // The daemon listens on a unix socket the webview reaches via the
             // `crowbar://` custom protocol (bridged by api_proxy). The endpoint

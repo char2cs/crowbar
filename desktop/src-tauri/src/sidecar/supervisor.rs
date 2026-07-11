@@ -4,6 +4,34 @@
 
 use std::time::{Duration, Instant};
 
+/// What a readiness probe learned.
+///
+/// A probe dials the daemon over a unix socket from *this* process, so it can come
+/// back unhappy for two entirely different reasons, and the watchdog must never
+/// confuse them: the daemon is not serving, or this process has no descriptors left
+/// to dial it with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Probe {
+    /// The daemon answered.
+    Healthy,
+    /// The daemon was dialled and did not serve the request.
+    Unserved,
+    /// This process hit its own open-file limit (`EMFILE`/`ENFILE`) while dialling.
+    /// Says nothing whatsoever about the daemon's health.
+    LocalDescriptorExhaustion,
+}
+
+/// Whether a probe outcome is evidence *about the daemon*.
+///
+/// Running this process out of descriptors is evidence about this process. The
+/// daemon may be serving perfectly and merely be unreachable, so such a failure
+/// must never count toward the kill threshold: restarting the daemon cannot hand a
+/// descriptor back, the next probe fails identically, and the only thing achieved
+/// is destroying a healthy backend — and the user's session with it.
+pub fn probe_indicts_daemon(outcome: Probe) -> bool {
+    matches!(outcome, Probe::Unserved)
+}
+
 /// Trips after N consecutive failed probes. A single healthy probe resets the
 /// streak, so transient blips (one slow request during a heavy git operation)
 /// never trigger the kill path — only a sustained wedge does.
@@ -120,6 +148,20 @@ pub fn rotate_if_needed(path: &std::path::Path, max_len: u64) -> std::io::Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_an_unserved_probe_indicts_the_daemon() {
+        assert!(
+            probe_indicts_daemon(Probe::Unserved),
+            "the daemon was reached and did not serve — that is its failure"
+        );
+        assert!(!probe_indicts_daemon(Probe::Healthy));
+        assert!(
+            !probe_indicts_daemon(Probe::LocalDescriptorExhaustion),
+            "the app ran out of descriptors; the daemon may be perfectly healthy \
+             and killing it cannot hand one back"
+        );
+    }
 
     #[test]
     fn failure_tracker_trips_exactly_once_at_threshold() {

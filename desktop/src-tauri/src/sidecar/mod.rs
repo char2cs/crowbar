@@ -401,15 +401,39 @@ pub(crate) async fn http_get(
 /// through the global view store, the exact resource every observed
 /// production wedge pinned. A daemon that cannot answer this is not serving
 /// users, whatever its liveness endpoint says.
-async fn probe_ready(socket: &PathBuf) -> bool {
+///
+/// Dialling costs a descriptor of *this* process, so the probe reports whether it
+/// could dial at all: an exhausted app cannot reach even a perfectly healthy
+/// daemon, and the watchdog must not read that as the daemon's fault.
+async fn probe_ready(socket: &PathBuf) -> supervisor::Probe {
     match http_get(socket, "/v0/projects").await {
         Ok(resp) => {
             let ok = resp.status().is_success();
             let _ = resp.into_body().collect().await;
-            ok
+            if ok {
+                supervisor::Probe::Healthy
+            } else {
+                supervisor::Probe::Unserved
+            }
         }
-        Err(_) => false,
+        Err(e) if is_descriptor_exhaustion(&*e) => supervisor::Probe::LocalDescriptorExhaustion,
+        Err(_) => supervisor::Probe::Unserved,
     }
+}
+
+/// Whether a dial failed because this process is out of file descriptors. hyper
+/// wraps the `connect(2)` error, so the cause chain has to be walked.
+fn is_descriptor_exhaustion(err: &(dyn std::error::Error + 'static)) -> bool {
+    let mut cause = Some(err);
+    while let Some(e) = cause {
+        if let Some(io) = e.downcast_ref::<std::io::Error>() {
+            if matches!(io.raw_os_error(), Some(libc::EMFILE) | Some(libc::ENFILE)) {
+                return true;
+            }
+        }
+        cause = e.source();
+    }
+    false
 }
 
 /// Fetches a full goroutine dump from the daemon's pprof surface, so a wedge
@@ -472,10 +496,24 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
                 continue;
             }
 
-            let healthy = tokio::time::timeout(PROBE_TIMEOUT, probe_ready(&socket))
+            let outcome = tokio::time::timeout(PROBE_TIMEOUT, probe_ready(&socket))
                 .await
-                .unwrap_or(false);
-            if !tracker.observe(healthy) {
+                .unwrap_or(supervisor::Probe::Unserved);
+
+            // We could not dial the daemon because *we* have no descriptors left.
+            // That is our bug, not the daemon's, and no restart of it can hand one
+            // back — the next probe would fail identically until the app is
+            // restarted. Killing a backend on this evidence is how a healthy daemon
+            // gets destroyed mid-session, so refuse to, and say so loudly.
+            if outcome == supervisor::Probe::LocalDescriptorExhaustion {
+                log::error!(
+                    "the app is out of file descriptors and cannot dial the daemon. \
+                     NOT restarting it — the daemon is not what is broken here."
+                );
+                tracker.reset();
+                continue;
+            }
+            if !tracker.observe(outcome == supervisor::Probe::Healthy) {
                 continue;
             }
 
@@ -491,14 +529,20 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
                 Some(pid) => process_is_suspended(pid).await,
                 None => false,
             };
-            let recovered = if daemon_suspended {
+            // A last, more generous probe. It exonerates the daemon two ways: it
+            // answered after all (it had merely resumed, or was transiently slow),
+            // or we could not even dial it because we are out of descriptors — in
+            // which case the silence was never the daemon's to explain.
+            let exonerated = if daemon_suspended {
                 false
             } else {
-                tokio::time::timeout(SUSPEND_GRACE_PROBE, probe_ready(&socket))
-                    .await
-                    .unwrap_or(false)
+                !supervisor::probe_indicts_daemon(
+                    tokio::time::timeout(SUSPEND_GRACE_PROBE, probe_ready(&socket))
+                        .await
+                        .unwrap_or(supervisor::Probe::Unserved),
+                )
             };
-            if !supervisor::should_kill_wedged(daemon_suspended, recovered) {
+            if !supervisor::should_kill_wedged(daemon_suspended, exonerated) {
                 log::warn!(
                     "crowbar daemon failed {PROBE_FAILURE_THRESHOLD} probes but is {} \
                      — not a wedge; leaving it to recover",
