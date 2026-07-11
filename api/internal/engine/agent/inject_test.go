@@ -57,17 +57,26 @@ func TestBuildSpawnPlan_ClaudeWritesSettingsAndArgs(t *testing.T) {
 func TestBuildSpawnPlan_CodexSetsHomeAndBypassFlag(t *testing.T) {
 	d, err := agent.ResolveDescriptor(t.TempDir(), "codex")
 	require.NoError(t, err)
-	ctx := agent.TemplateCtx{Tmp: t.TempDir(), Cwd: t.TempDir(), CrowbarHook: "/bin/crowbar", Segid: "seg-c", Provider: "codex"}
+	tmp, chatDir := t.TempDir(), t.TempDir()
+	ctx := agent.TemplateCtx{
+		Tmp: tmp, ChatDir: chatDir, Cwd: t.TempDir(),
+		CrowbarHook: "/bin/crowbar", Segid: "seg-c", Provider: "codex",
+	}
 	plan, err := agent.BuildSpawnPlan(d, ctx, os.Environ(), nil)
 	require.NoError(t, err)
 	defer plan.Cleanup()
 
 	require.Contains(t, plan.Argv, "--dangerously-bypass-hook-trust")
-	require.Contains(t, envValue(plan.Env, "CODEX_HOME"), filepath.Base(ctx.Tmp)) // CODEX_HOME under tmp
-	_, err = os.Stat(envValue(plan.Env, "CODEX_HOME") + "/hooks.json")
-	require.NoError(t, err)
 
-	hooksData, err := os.ReadFile(envValue(plan.Env, "CODEX_HOME") + "/hooks.json")
+	// CODEX_HOME must sit under the CHAT dir, never under the per-segment tmp dir.
+	// codex's resumable session rollouts live inside it, and tmp is deleted the
+	// moment the segment's CLI exits — which destroyed codex's own session and made
+	// switching BACK to codex kill it on startup ("no rollout found for thread id").
+	home := envValue(plan.Env, "CODEX_HOME")
+	require.Contains(t, home, filepath.Base(chatDir))
+	require.NotContains(t, home, filepath.Base(tmp))
+
+	hooksData, err := os.ReadFile(home + "/hooks.json")
 	require.NoError(t, err)
 	require.Contains(t, string(hooksData), "--segment seg-c --provider codex")
 }

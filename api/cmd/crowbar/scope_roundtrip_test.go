@@ -110,7 +110,13 @@ func hookCommands(t *testing.T, providerID string, ctx engineagent.TemplateCtx) 
 	d, err := engineagent.ResolveDescriptor("", providerID) // "" home → embedded default
 	require.NoError(t, err)
 
-	ctx.Tmp = t.TempDir()
+	// One root holding both dirs a descriptor may write into: {tmp} (per-spawn) and
+	// {chat_dir} (per-chat — codex's CODEX_HOME lives there so its session rollouts
+	// survive a provider switch). Walking the root finds the hook config wherever
+	// the descriptor chose to put it.
+	root := t.TempDir()
+	ctx.Tmp = filepath.Join(root, "segment")
+	ctx.ChatDir = filepath.Join(root, "chat")
 	ctx.Cwd = t.TempDir()
 	_, err = engineagent.BuildSpawnPlan(d, ctx, nil, nil)
 	require.NoError(t, err)
@@ -118,7 +124,7 @@ func hookCommands(t *testing.T, providerID string, ctx engineagent.TemplateCtx) 
 	// The hook-config file's name is the descriptor's business (claude:
 	// settings.json; codex: codex-home/hooks.json), so discover it by shape.
 	commands := map[string]string{}
-	require.NoError(t, filepath.WalkDir(ctx.Tmp, func(path string, e fs.DirEntry, err error) error {
+	require.NoError(t, filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
 		if err != nil || e.IsDir() {
 			return err
 		}
