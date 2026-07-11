@@ -353,7 +353,11 @@ func (u *Usecase) spawnSegment(
 	}
 
 	tctx := engineagent.TemplateCtx{
-		Tmp:         tmpDir,
+		Tmp: tmpDir,
+		// Per-CHAT, so a provider that keeps state between spawns (codex's
+		// CODEX_HOME, which is where its resumable session rollouts live) does not
+		// lose it when the segment's tmp dir is reaped on exit.
+		ChatDir:     worktreepath.AgentChatDir(chatsDir, chatID),
 		Cwd:         worktree,
 		CrowbarHook: u.crowbarHookPath(crowbarHome),
 		Segid:       segID,

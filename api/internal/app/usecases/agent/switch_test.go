@@ -536,3 +536,69 @@ func TestSwitchProvider_SwitchBackToProviderWithNoTurns_DoesNotResume(t *testing
 	assert.Contains(t, doc, "codex actually said something")
 	assert.Contains(t, doc, "HANDED-OFF CONTEXT")
 }
+
+// codexHomeOf returns the CODEX_HOME a spawn was given.
+func codexHomeOf(t *testing.T, env []string) string {
+	t.Helper()
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "CODEX_HOME="); ok {
+			return v
+		}
+	}
+	t.Fatalf("CODEX_HOME not set in env %v", env)
+	return ""
+}
+
+// TestSwitchProvider_CodexHomeIsChatScopedAndSurvivesTheSegment is the regression
+// for a bug that made switching BACK to codex impossible.
+//
+// codex keeps its session ROLLOUT inside $CODEX_HOME, and that rollout is the only
+// thing `codex resume <id>` can read. CODEX_HOME used to be the per-SEGMENT tmp
+// dir — which the usecase deletes as soon as that segment's CLI exits. So leaving
+// codex destroyed codex's own session, and coming back resumed a thread that no
+// longer existed: the CLI died on startup with "no rollout found for thread id",
+// its segment ended seconds later, and the chat could never return to codex.
+//
+// So CODEX_HOME must be CHAT-scoped: the same directory across every codex segment
+// of the chat, and NOT under the per-segment dir that gets reaped.
+func TestSwitchProvider_CodexHomeIsChatScopedAndSurvivesTheSegment(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, codexSeg, err := f.usecase.SpawnChat(ctx, "ws1", "codex")
+	require.NoError(t, err)
+	f.wait()
+	require.NoError(t, f.usecase.IngestHook(ctx, codexSeg, "codex", "session_start", mustJSON(t, map[string]any{
+		"session_id": "sid-codex",
+	})))
+	appendAssistantTurn(t, f, codexSeg, "codex", "sid-codex", "codex said something")
+
+	firstHome := codexHomeOf(t, f.term.calls[0].env)
+	// The home must exist on disk (config_injection wrote into it) and must NOT be
+	// inside the segment's own tmp dir, which is reaped when the segment exits.
+	require.DirExists(t, firstHome)
+	assert.NotContains(t, firstHome, codexSeg,
+		"CODEX_HOME must not live under the per-segment dir — it is deleted when the segment ends")
+
+	// Leave codex, which ends its segment and reaps that segment's tmp dir.
+	claudeSeg, err := f.usecase.SwitchProvider(ctx, chatID, "claude")
+	require.NoError(t, err)
+	f.wait()
+	appendAssistantTurn(t, f, claudeSeg, "claude", "sid-claude", "claude spoke while codex was away")
+
+	// codex's home — and therefore its rollout — must still be there.
+	require.DirExists(t, firstHome, "codex's session store must survive being switched away from")
+
+	// Come back to codex: same home, and it is resumed into its own session.
+	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
+	require.NoError(t, err)
+
+	require.Equal(t, 3, f.term.callCount())
+	assert.Equal(t, firstHome, codexHomeOf(t, f.term.calls[2].env),
+		"a chat's codex segments must all share ONE CODEX_HOME, or resume cannot find the rollout")
+
+	argv := f.term.calls[2].argv
+	resumeIdx := indexOf(argv, "resume")
+	require.GreaterOrEqual(t, resumeIdx, 0)
+	assert.Equal(t, "sid-codex", argv[resumeIdx+1])
+}

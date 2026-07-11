@@ -10,15 +10,23 @@ spawn:
 session:
   resume: { arg: "resume {id}" }
 config_injection:
-  - set_env:    { name: CODEX_HOME, value: "{tmp}/codex-home" }
-  - write_file: { path: "{tmp}/codex-home/auth.json", from: "~/.codex/auth.json" }
+  # CODEX_HOME is CHAT-scoped ({chat_dir}), not segment-scoped ({tmp}), because
+  # codex stores its session ROLLOUT inside it — and that rollout is the only
+  # thing `codex resume <id>` can read. Under {tmp} it was deleted the moment the
+  # segment ended, so switching away from codex destroyed its own session and
+  # switching BACK resumed a thread that no longer existed: codex died on startup
+  # with "no rollout found for thread id ...". The chat dir lives exactly as long
+  # as the chat, and is erased with it (PurgeChat), so the auth.json copy below is
+  # still removed on delete.
+  - set_env:    { name: CODEX_HOME, value: "{chat_dir}/codex-home" }
+  - write_file: { path: "{chat_dir}/codex-home/auth.json", from: "~/.codex/auth.json" }
   - write_file:
-      path: "{tmp}/codex-home/config.toml"
+      path: "{chat_dir}/codex-home/config.toml"
       content: |
         [projects."{cwd}"]
         trust_level = "trusted"
   - write_file:
-      path: "{tmp}/codex-home/hooks.json"
+      path: "{chat_dir}/codex-home/hooks.json"
       content: |
         {"hooks":{
           "SessionStart":[{"hooks":[{"type":"command",

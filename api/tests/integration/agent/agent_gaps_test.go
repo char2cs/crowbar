@@ -748,3 +748,98 @@ func TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn(t *testing.T)
 				"outgoing process died; turns observed: %q", texts)
 	}
 }
+
+// TestAgent_SwitchBackToCodexResumesItsOwnSession closes the counterpart of gap 4
+// for codex, and exists because the app shipped a bug that only a REAL codex could
+// show: switching back to codex was impossible.
+//
+// codex keeps its session ROLLOUT inside $CODEX_HOME, and that rollout is all
+// `codex resume <id>` has to go on. CODEX_HOME used to be the per-SEGMENT tmp dir,
+// which Crowbar deletes when that segment's CLI exits — so leaving codex destroyed
+// codex's own session. Coming back resumed a thread that no longer existed: the CLI
+// died on startup ("no rollout found for thread id ..."), its segment ended within
+// seconds, and the chat could never return to codex. Every unit test passed: the
+// deletion is real, the resume arg is correct, and only the vendor CLI knows the
+// thread is gone.
+//
+// So this drives it for real: seed codex with a codeword, switch to claude, switch
+// BACK, and require that the returning codex (a) resumes the SAME native session id
+// and (b) is still ALIVE and answering — it recalls the codeword from its own
+// restored session, not from a handoff (the gap it is handed contains only claude's
+// turns).
+func TestAgent_SwitchBackToCodexResumesItsOwnSession(t *testing.T) {
+	requireCLI(t, "claude")
+	requireCLI(t, "codex")
+	h := newHarness(t)
+	ctx := context.Background()
+
+	repoPath := kit.InitRepo(t)
+	_, _, wsID := h.importRepoAndWorkspace(t, "codex-switch-back", repoPath)
+
+	const codeword = "PANGOLIN-9931"
+
+	chatID, codexSegID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "codex")
+	require.NoError(t, err)
+	codexTermSessID := segmentTerminalSessionID(t, h, chatID)
+	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), codexTermSessID) })
+
+	origSessionID, segs := waitForProviderSessionID(t, h, codexTermSessID, chatID, codexSegID, 30*time.Second)
+	require.NotEmpty(t, origSessionID, "codex never bound a session: %+v", segs)
+
+	codexDismissTrustDialog(ctx, h, codexTermSessID, 10*time.Second)
+	prompt := "Remember this exact codeword for the rest of our conversation: " + codeword +
+		". Reply with only the word: acknowledged."
+	require.NoError(t, h.eng.Terminal.Write(ctx, codexTermSessID, []byte(prompt)))
+	time.Sleep(300 * time.Millisecond)
+	require.NoError(t, h.eng.Terminal.Write(ctx, codexTermSessID, []byte("\r")))
+
+	blob := nudgeUntil(h, codexTermSessID, 90*time.Second, func() (string, bool) {
+		b, err := h.app.Usecases.Agent.AssembleHandoff(ctx, chatID)
+		require.NoError(t, err)
+		return b, strings.Contains(b, codeword)
+	})
+	require.Contains(t, blob, codeword, "timed out waiting for codex's turn to reach the ledger")
+
+	// Leave codex. This ends its segment and reaps that segment's tmp dir — the very
+	// thing that used to take codex's session with it.
+	claudeSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "claude")
+	require.NoError(t, err)
+	claudeTermSessID := waitForSegmentTerminalSessionID(t, h, chatID, claudeSegID, 5*time.Second)
+	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), claudeTermSessID) })
+	_, segsC := waitForProviderSessionID(t, h, claudeTermSessID, chatID, claudeSegID, 30*time.Second)
+	require.NotEmpty(t, segsC)
+
+	// ...and come back.
+	backSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
+	require.NoError(t, err)
+	backTermSessID := waitForSegmentTerminalSessionID(t, h, chatID, backSegID, 5*time.Second)
+	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), backTermSessID) })
+
+	resumedSessionID, segsAfter := waitForProviderSessionID(t, h, backTermSessID, chatID, backSegID, 30*time.Second)
+	require.NotEmpty(t, resumedSessionID,
+		"the switched-back codex never bound a session — it almost certainly died on startup, which is "+
+			"what happens when its rollout was deleted with the previous segment: %+v", segsAfter)
+	require.Equal(t, origSessionID, resumedSessionID,
+		"switching back to codex must RESUME its original native session, not mint a new one")
+
+	// It is alive and it still has its own history: only codex's session knows the
+	// codeword (the gap it was handed carries claude's turns, not codex's own).
+	codexDismissTrustDialog(ctx, h, backTermSessID, 10*time.Second)
+	followUp := "What was the codeword I asked you to remember? Reply with only that word."
+	require.NoError(t, h.eng.Terminal.Write(ctx, backTermSessID, []byte(followUp)))
+	time.Sleep(300 * time.Millisecond)
+	require.NoError(t, h.eng.Terminal.Write(ctx, backTermSessID, []byte("\r")))
+
+	var replies []string
+	found := nudgeUntil(h, backTermSessID, 90*time.Second, func() (bool, bool) {
+		replies = assistantReplies(readLedgerTurns(t, h, wsID, chatID), "codex")
+		for _, r := range replies[max(0, len(replies)-3):] {
+			if strings.Contains(r, codeword) {
+				return true, true
+			}
+		}
+		return false, false
+	})
+	require.True(t, found,
+		"the resumed codex must answer from its OWN restored session; replies seen: %q", replies)
+}
