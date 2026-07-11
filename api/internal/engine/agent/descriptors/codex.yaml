@@ -22,11 +22,11 @@ config_injection:
       content: |
         {"hooks":{
           "SessionStart":[{"hooks":[{"type":"command",
-            "command":"{crowbar_hook} hook session_start --segment {segid} --provider {provider} --project {project_id} --repo {repo_id} --workspace {workspace_id}"}]}],
+            "command":"{crowbar_hook} hook session_start --segment {segid} --provider {provider} {scope_flags}"}]}],
           "UserPromptSubmit":[{"hooks":[{"type":"command",
-            "command":"{crowbar_hook} hook user_prompt --segment {segid} --provider {provider} --project {project_id} --repo {repo_id} --workspace {workspace_id}"}]}],
+            "command":"{crowbar_hook} hook user_prompt --segment {segid} --provider {provider} {scope_flags}"}]}],
           "Stop":[{"hooks":[{"type":"command",
-            "command":"{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} --project {project_id} --repo {repo_id} --workspace {workspace_id}"}]}]
+            "command":"{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"}]}]
         }}
 hooks:
   format: json

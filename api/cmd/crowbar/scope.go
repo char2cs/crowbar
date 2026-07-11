@@ -29,6 +29,14 @@ func scopedAgentPath(
 // a workspace-nested agent API path — Task 3 nested those routes under
 // .../workspaces/:wsId/agent, so every callback now needs its scope passed in
 // explicitly rather than assuming a flat /v0/agent/... URL.
+//
+// The caller side of this contract is engine/agent's {scope_flags} template
+// token (TemplateCtx.ScopeFlags), which renders these as `--project=…` /
+// `--workspace=…` and OMITS --repo entirely for a project-home workspace. That
+// omission is what makes an empty --repo actually reach scopedAgentPath's home
+// branch: a bare `--repo ` in the flat shell string of a hook command is dropped
+// by the shell, after which pflag swallows the following token as its value.
+// See scope_roundtrip_test.go, which drives the real shell → real cobra path.
 func bindScopeFlags(
 	cmd *cobra.Command,
 	project, repo, workspace *string,

@@ -27,3 +27,20 @@ func TestExpand_ReplacesScopeTokens(t *testing.T) {
 		"--project p1 --repo r1 --workspace w1",
 		agent.Expand("--project {project_id} --repo {repo_id} --workspace {workspace_id}", ctx))
 }
+
+// {scope_flags} is the token the shipped descriptors and the title instruction
+// use. Its contract is the one that keeps project-home callbacks alive: the `=`
+// form (so an empty value can never swallow the following token when the flat
+// hook command is word-split by the shell) and NO --repo at all when there is no
+// repo id. cmd/crowbar/scope_roundtrip_test.go proves the end of that chain.
+func TestExpand_ScopeFlagsOmitsRepoWhenEmpty(t *testing.T) {
+	require.Equal(t,
+		"--project=p1 --workspace=w1",
+		agent.Expand("{scope_flags}", agent.TemplateCtx{ProjectID: "p1", WorkspaceID: "w1"}),
+		"a project-home workspace has no repo id — the flag must be omitted, not left empty")
+
+	require.Equal(t,
+		"--project=p1 --workspace=w1 --repo=r1",
+		agent.Expand("{scope_flags}", agent.TemplateCtx{ProjectID: "p1", RepoID: "r1", WorkspaceID: "w1"}),
+		"repo-home and worktree workspaces carry a repo id and must keep it")
+}

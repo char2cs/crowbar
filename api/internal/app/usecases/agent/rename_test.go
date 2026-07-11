@@ -123,7 +123,7 @@ func TestSpawnChat_InjectsTitleInstruction(t *testing.T) {
 	call := f.term.calls[0]
 	doc := argAfter(t, call.argv, "--append-system-prompt")
 	require.NotEmpty(t, doc)
-	assert.Contains(t, doc, "chat rename --project p1 --repo r1 --workspace ws1 "+chatID)
+	assert.Contains(t, doc, "chat rename --project=p1 --workspace=ws1 --repo=r1 "+chatID)
 }
 
 // TestSpawnChat_Codex_InjectsTitleInstructionViaAgentsFile is codex's
@@ -154,7 +154,7 @@ func TestSpawnChat_Codex_InjectsTitleInstructionViaAgentsFile(t *testing.T) {
 
 	data, err := os.ReadFile(filepath.Join(codexHome, "AGENTS.md"))
 	require.NoError(t, err)
-	assert.Contains(t, string(data), "chat rename --project p1 --repo r1 --workspace ws1 "+chatID)
+	assert.Contains(t, string(data), "chat rename --project=p1 --workspace=ws1 --repo=r1 "+chatID)
 }
 
 // TestSwitchProvider_DoesNotInjectTitleInstruction guards the injectTitle=false
@@ -175,4 +175,28 @@ func TestSwitchProvider_DoesNotInjectTitleInstruction(t *testing.T) {
 	for _, a := range f.term.calls[1].argv {
 		assert.NotContains(t, a, "chat rename "+chatID)
 	}
+}
+
+// TestSpawnChat_ProjectHome_TitleInstructionOmitsRepoFlag pins the rendering at the
+// layer where the empty repo id is actually born: a PROJECT-HOME workspace has no
+// repo, so WorktreeDir hands SpawnChat an empty RepoID.
+//
+// The injected command line must then carry NO --repo flag at all. The old
+// `--repo {repo_id}` triple rendered `--repo ` here, and because the instruction is
+// a flat line that the agent retypes and the shell word-splits, the empty token
+// vanished and pflag consumed `--workspace` as --repo's value — so the rename (and
+// every other in-PTY callback) died on project-home workspaces. cmd/crowbar's
+// scope_roundtrip_test drives that whole chain; this is the unit-level guard.
+func TestSpawnChat_ProjectHome_TitleInstructionOmitsRepoFlag(t *testing.T) {
+	f := newFixture(t)
+	f.ws.repoID = "" // project-home: no owning repo
+	ctx := context.Background()
+
+	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+
+	doc := argAfter(t, f.term.calls[0].argv, "--append-system-prompt")
+	assert.Contains(t, doc, "chat rename --project=p1 --workspace=ws1 "+chatID)
+	assert.NotContains(t, doc, "--repo",
+		"a project-home workspace has no repo id — the flag must be omitted, never left empty")
 }
