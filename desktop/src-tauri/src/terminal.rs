@@ -25,25 +25,35 @@ use futures_util::{SinkExt, StreamExt};
 use tauri::ipc::Channel;
 use tauri::{Emitter, Manager, State};
 use tokio::net::UnixStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::client_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
 
-/// Maps a PTY session id to the sender feeding its WebSocket writer task. One
-/// writer task per session serialises all outbound frames so command handlers
-/// never touch the socket directly.
+/// Everything a live streaming leg needs in order to die. Dropping it ends both of
+/// the session's tasks, and so releases its socket: the sender going away ends the
+/// writer, and the cancel channel going away ends the reader. See the lifetime notes
+/// on `ws_bridge` — a socket survives while *either* split half does, and the reader
+/// otherwise parks on `read.next()` forever against a daemon that keeps the PTY open.
+struct Streaming {
+    generation: u64,
+    tx: mpsc::UnboundedSender<Message>,
+    /// Held, never used. Its `Drop` is the signal.
+    _cancel: oneshot::Sender<()>,
+}
+
+/// Maps a PTY session id to its live streaming leg. One writer task per session
+/// serialises all outbound frames so command handlers never touch the socket.
 ///
-/// Each open is stamped with a GENERATION: Rust outlives the webview, so after
-/// a page reload the PRE-reload reader task (whose channel points into the dead
-/// webview) eventually exits — and must not emit `terminal:transport-dropped`
-/// for a session the POST-reload webview has already re-opened. Only the reader
-/// whose generation is still current may emit the drop event; a stale reader
-/// exits silently. Re-opening also drops the previous sender, ending the old
-/// writer task and closing the old WS so the daemon detaches the stale client.
+/// Each open is stamped with a GENERATION: Rust outlives the webview, so after a page
+/// reload the PRE-reload reader task must not emit `terminal:transport-dropped` for a
+/// session the POST-reload webview has already re-opened. Only the reader whose
+/// generation is still current may emit it; a stale reader exits silently. Re-opening
+/// also drops the previous entry, which retires it in full — the daemon keeps the PTY
+/// alive, so the reloaded page simply re-attaches.
 #[derive(Default)]
 pub struct TerminalManager {
-    sessions: Mutex<HashMap<String, (u64, mpsc::UnboundedSender<Message>)>>,
+    sessions: Mutex<HashMap<String, Streaming>>,
     next_generation: std::sync::atomic::AtomicU64,
 }
 
@@ -57,34 +67,51 @@ impl TerminalManager {
             .lock()
             .unwrap()
             .get(session_id)
-            .map(|(_, tx)| tx.clone())
+            .map(|s| s.tx.clone())
     }
 
-    fn register(&self, session_id: String, tx: mpsc::UnboundedSender<Message>) -> u64 {
+    fn register(
+        &self,
+        session_id: String,
+        tx: mpsc::UnboundedSender<Message>,
+        cancel: oneshot::Sender<()>,
+    ) -> u64 {
         let generation = self
             .next_generation
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        // Dropping a previous entry's sender ends its writer task → old WS closes.
-        self.sessions
-            .lock()
-            .unwrap()
-            .insert(session_id, (generation, tx));
+        // Dropping a previous entry retires it in full: its writer ends, its reader is
+        // cancelled, and the old WS closes so the daemon detaches the stale client.
+        self.sessions.lock().unwrap().insert(
+            session_id,
+            Streaming {
+                generation,
+                tx,
+                _cancel: cancel,
+            },
+        );
         generation
     }
 
-    /// Retires `session_id`, but only while `generation` is still the current one
-    /// — a stale pre-reload reader must not evict the transport a reloaded webview
-    /// has since opened. Dropping the sender is what ends the session's writer
-    /// task and hands back the socket's write half. Returns whether it retired.
+    /// Retires `session_id`, but only while `generation` is still the current one — a
+    /// stale pre-reload reader must not evict the transport a reloaded webview has
+    /// since opened. Returns whether it retired.
     fn retire_if_current(&self, session_id: &str, generation: u64) -> bool {
         let mut sessions = self.sessions.lock().unwrap();
         match sessions.get(session_id) {
-            Some((g, _)) if *g == generation => {
+            Some(s) if s.generation == generation => {
                 sessions.remove(session_id);
                 true
             }
             _ => false,
         }
+    }
+
+    /// Retires every streaming leg. Called when a page load orphans them all: the JS
+    /// that owned these sessions is gone and will never close them, and a reloaded page
+    /// re-attaches the ones it still wants. The daemon keeps each PTY alive across this
+    /// — only the streaming leg is torn down, never the session.
+    pub fn close_all(&self) {
+        self.sessions.lock().unwrap().clear();
     }
 }
 
@@ -134,7 +161,8 @@ pub async fn terminal_open(
     });
 
     // Register FIRST so the reader task can check its own generation on exit.
-    let generation = manager.register(session_id.clone(), tx);
+    let (cancel, mut cancelled) = oneshot::channel();
+    let generation = manager.register(session_id.clone(), tx, cancel);
 
     // Reader task: forward each text frame WHOLE to the webview channel — the
     // TS bridge parses `{data, snapshot}` for both transports in one place.
@@ -146,30 +174,41 @@ pub async fn terminal_open(
     // The JS guard (`tauriTerminals.has(connectionId)`) additionally
     // distinguishes unexpected drops from clean terminal_close paths.
     tokio::spawn(async move {
-        while let Some(frame) = read.next().await {
-            match frame {
-                Ok(Message::Text(text)) => {
-                    if on_data.send(text.to_string()).is_err() {
-                        break;
+        loop {
+            tokio::select! {
+                // The session was retired: closed, re-opened under a new generation, or
+                // orphaned by a page load. Whoever removed it has already retired it —
+                // just let go of the read half so the socket can close. A daemon that
+                // keeps the PTY open sends nothing, so without this the reader would
+                // park here for the life of the app, holding the socket.
+                _ = &mut cancelled => break,
+                frame = read.next() => match frame {
+                    // An error here means the webview is gone (app shutdown); it does
+                    // NOT mean the page reloaded, so it is not a teardown signal.
+                    Some(Ok(Message::Text(text))) => {
+                        let _ = on_data.send(text.to_string());
                     }
-                }
-                Ok(Message::Close(_)) | Err(_) => break,
-                _ => {}
+                    Some(Ok(_)) => continue,
+                    Some(Err(_)) | None => break,
+                },
             }
         }
         drop(read);
 
-        // Retire the session before announcing the drop. Dropping the sender ends
-        // the writer task, and awaiting it is what guarantees the socket's other
-        // half is gone: until both halves are, the connection's fd stays open, and
-        // the app has only 256 of them (Go raises its own limit; Rust does not).
-        // A stale generation was already evicted by the re-open, so its writer is
-        // ending on its own — await it, but leave the live session alone.
+        // Retire the session before announcing the drop. Dropping its entry ends the
+        // writer task, and awaiting the writer is what guarantees the socket's other
+        // half is gone — until both halves are, the descriptor stays open. A stale
+        // generation was already evicted by whoever superseded it, so its writer is
+        // ending on its own: await it, but leave the live session alone.
         let still_current = app
             .state::<TerminalManager>()
             .retire_if_current(&session_id, generation);
         let _ = writer.await;
 
+        // Only an unexpected daemon disconnect is worth announcing. A retired session
+        // was closed, superseded, or orphaned by a page load — in each case whoever
+        // retired it already knows, and a reloaded page must not be told a session it
+        // is about to re-attach has "dropped".
         if still_current {
             let _ = app.emit("terminal:transport-dropped", session_id);
         }
@@ -235,10 +274,12 @@ pub async fn terminal_close(
     session_id: String,
     manager: State<'_, TerminalManager>,
 ) -> Result<(), String> {
-    let sender = manager.sessions.lock().unwrap().remove(&session_id);
-    if let Some((_, tx)) = sender {
-        // Best-effort close frame; dropping the sender ends the writer task.
-        let _ = tx.send(Message::Close(None));
+    let retired = manager.sessions.lock().unwrap().remove(&session_id);
+    if let Some(streaming) = retired {
+        // Best-effort close frame. Dropping the entry after it is queued is what ends
+        // both tasks and closes the socket, so a daemon that never answers the frame
+        // cannot keep the descriptor.
+        let _ = streaming.tx.send(Message::Close(None));
     }
     Ok(())
 }

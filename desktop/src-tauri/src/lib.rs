@@ -353,6 +353,21 @@ pub fn run() {
         .manage(sidecar::SidecarHandle::new())
         .manage(terminal::TerminalManager::new())
         .manage(ws_bridge::WsBridgeManager::new())
+        // A page load orphans every bridged connection the outgoing page owned: its JS
+        // is gone and will never close ids it no longer remembers, and the new page
+        // opens its own. Nothing else can notice — a `Channel` keeps working across a
+        // reload, because a reloaded page is the same webview — so if we do not retire
+        // them here, their reader tasks park on sockets nobody will ever read again and
+        // hold a descriptor apiece for the life of the app. The daemon keeps each PTY
+        // alive, so a reloaded page simply re-attaches the terminals it still wants.
+        .on_page_load(|webview, payload| {
+            if payload.event() != tauri::webview::PageLoadEvent::Started {
+                return;
+            }
+            let app = webview.app_handle();
+            app.state::<ws_bridge::WsBridgeManager>().close_all();
+            app.state::<terminal::TerminalManager>().close_all();
+        })
         .setup(move |app| {
             let app_handle = app.handle().clone();
 
