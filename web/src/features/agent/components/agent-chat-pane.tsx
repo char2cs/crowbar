@@ -80,6 +80,11 @@ type Attachment =
   | { state: 'reviving' }
   | { state: 'idle'; reason: 'exited' | 'failed' }
 
+// A revived CLI that dies on startup ends its segment at once, so an unbounded
+// auto-revive would respawn it forever. Two attempts is enough to cover a
+// transient failure while still settling fast on a permanent one.
+const MAX_REVIVE_ATTEMPTS = 2
+
 interface AgentChatPaneProps {
   chatId: string
   wsId: string
@@ -120,10 +125,13 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
     if (buffer && buffer.name !== title) s.bufferActions.renameBuffer(bufferId, title)
   }, [store, bufferId, title])
 
-  // Auto-revive fires at most once per segment state, so a chat whose provider CLI
-  // cannot start (not installed, spawn fails) settles into idle instead of
-  // spawn-looping. The manual Resume button clears it to allow a retry.
-  const revivedFor = useRef<string | null>(null)
+  // Auto-revive is BOUNDED, not keyed on the segment. A revived CLI that dies on
+  // startup ends its segment immediately, and each revive mints a NEW segment id —
+  // so a guard keyed on "have I revived this segment?" would see a fresh key every
+  // round and spawn CLIs forever. A counter cannot: after MAX_REVIVE_ATTEMPTS the
+  // pane settles into idle and hands the user the button. Reset on a successful
+  // attach (the chat is healthy again) and on an explicit Resume click.
+  const reviveAttempts = useRef(0)
 
   // revive brings the chat's last provider back into its own native session.
   // Shared by the auto-revive on open and the explicit Resume button.
@@ -164,19 +172,19 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
     void attachAgentSegment(wsId, chatId).then((sid) => {
       if (cancelled) return
       if (sid !== null) {
-        revivedFor.current = null
+        reviveAttempts.current = 0
         setAttachment({ state: 'attached', sessionId: sid })
         return
       }
 
-      // Nothing to attach to: the chat's CLI is gone. Bring it back — once per
-      // segment state, so a CLI that cannot start settles instead of looping.
-      const key = `${chatId}:${activeSegmentId ?? ''}`
-      if (revivedFor.current === key) {
+      // Nothing to attach to: the chat's CLI is gone. Bring it back — but only so
+      // many times, so a CLI that dies the moment it starts settles here instead of
+      // being respawned forever.
+      if (reviveAttempts.current >= MAX_REVIVE_ATTEMPTS) {
         setAttachment({ state: 'idle', reason: 'failed' })
         return
       }
-      revivedFor.current = key
+      reviveAttempts.current += 1
       void revive()
     })
 
@@ -250,7 +258,7 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
               variant="secondary"
               size="sm"
               onClick={() => {
-                revivedFor.current = null
+                reviveAttempts.current = 0
                 void revive()
               }}
             >

@@ -179,6 +179,10 @@ func TestSwitchProvider_SwitchBack_ResumesNativeSessionWithSeparateArgvTokens(t 
 	boundSeg := activeSegOf(t, f.chat(t, chatID), segID)
 	require.Equal(t, "sid-claude-native", boundSeg.ProviderSessionID)
 
+	// A session id is not a conversation: the CLI only WRITES one once it has said
+	// something, so a session is only resumable after a real turn.
+	appendAssistantTurn(t, f, segID, "claude", "sid-claude-native", "claude said something")
+
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 	f.wait()
@@ -346,6 +350,7 @@ func TestResumeChat_RevivesLastProviderIntoItsOwnSession(t *testing.T) {
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{
 		"session_id": "sid-claude-native",
 	})))
+	appendAssistantTurn(t, f, segID, "claude", "sid-claude-native", "claude said something")
 	f.wait()
 
 	// The CLI dies (daemon restart / process exit): the segment ends.
@@ -446,4 +451,88 @@ func indexOf(ss []string, target string) int {
 		}
 	}
 	return -1
+}
+
+// TestResumeChat_SessionWithNoTurns_SpawnsFreshInsteadOfResumingAPhantom is the
+// regression for a bug that reached the running app: opening a chat the user had
+// never sent a message in killed it outright, with claude printing
+//
+//	No conversation found with session ID: dc4b2ff8-…
+//
+// A session id is NOT a conversation. Every CLI reports its id the instant it
+// starts (that is when our SessionStart hook records it), but only WRITES the
+// conversation once there is at least one message — so a chat that was opened and
+// never used has an id pointing at nothing, and resuming it fails on startup.
+// Crowbar records a turn from the very same hooks, so an empty ledger for that
+// session is the proof that there is nothing to resume: spawn fresh instead.
+func TestResumeChat_SessionWithNoTurns_SpawnsFreshInsteadOfResumingAPhantom(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+	f.wait()
+
+	// The CLI came up and reported its session id — but the user never typed, so no
+	// turn was ever recorded and claude never wrote this conversation to disk.
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{
+		"session_id": "sid-never-persisted",
+	})))
+	f.wait()
+
+	chat := f.chat(t, chatID)
+	require.Equal(t, "sid-never-persisted", segByID(t, chat, chat.ActiveSegmentID).ProviderSessionID)
+
+	_, err = f.repo.EndSegment(ctx, chatID, chat.ActiveSegmentID, time.Now())
+	require.NoError(t, err)
+	f.wait()
+
+	newSegID, err := f.usecase.ResumeChat(ctx, chatID)
+	require.NoError(t, err)
+
+	assert.Equal(t, "claude", segByID(t, f.chat(t, chatID), newSegID).ProviderID)
+	require.Equal(t, 2, f.term.callCount())
+	argv := f.term.calls[1].argv
+
+	assert.Equal(t, -1, indexOf(argv, "--resume"),
+		"a session the CLI never wrote must NOT be resumed — claude dies with "+
+			"\"No conversation found with session ID\"; argv was %v", argv)
+	for _, a := range argv {
+		assert.NotContains(t, a, "sid-never-persisted")
+	}
+}
+
+// TestSwitchProvider_SwitchBackToProviderWithNoTurns_DoesNotResume: same rule on
+// the switch-back path. A provider that ran in this chat but never said anything
+// has no session to return to, so it is spawned fresh — and, having no history of
+// its own, it gets the WHOLE conversation rather than a gap.
+func TestSwitchProvider_SwitchBackToProviderWithNoTurns_DoesNotResume(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, claudeSeg, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+	f.wait()
+	// claude binds a session but never takes a turn.
+	require.NoError(t, f.usecase.IngestHook(ctx, claudeSeg, "claude", "session_start", mustJSON(t, map[string]any{
+		"session_id": "sid-claude-empty",
+	})))
+	f.wait()
+
+	codexSeg, err := f.usecase.SwitchProvider(ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+	appendAssistantTurn(t, f, codexSeg, "codex", "sid-codex", "codex actually said something")
+
+	_, err = f.usecase.SwitchProvider(ctx, chatID, "claude")
+	require.NoError(t, err)
+
+	require.Equal(t, 3, f.term.callCount())
+	argv := f.term.calls[2].argv
+
+	assert.Equal(t, -1, indexOf(argv, "--resume"), "argv %v must not resume a session with no conversation", argv)
+	// No session of its own → it is new to the conversation → it gets all of it.
+	doc := argAfter(t, argv, "--append-system-prompt")
+	assert.Contains(t, doc, "codex actually said something")
+	assert.Contains(t, doc, "HANDED-OFF CONTEXT")
 }

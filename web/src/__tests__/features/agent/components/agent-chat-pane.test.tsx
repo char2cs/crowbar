@@ -518,6 +518,37 @@ describe('AgentChatPane', () => {
       expect(screen.getByTestId('xterm').getAttribute('data-session-id')).toBe('term-2')
     })
 
+    // A revived CLI that dies on STARTUP (e.g. it was resumed into a session its
+    // vendor never wrote) ends its segment at once, and every revive mints a NEW
+    // segment id. A guard keyed on the segment would therefore see a fresh key each
+    // round and respawn forever — so the cap must be a COUNT, not a key.
+    it('stops respawning when every revived CLI dies immediately (new segment id each time)', async () => {
+      getChatFn.mockResolvedValue(detail())
+      terminalListLiveFn.mockResolvedValue([]) // every revived PTY is already gone
+      let seg = 0
+      resumeChatFn.mockImplementation(() => Promise.resolve(`s-revived-${++seg}`))
+
+      const store = makeStore(chat())
+      await renderPane(store)
+
+      // Each revive lands a new active segment on the store, re-running the effect.
+      for (const id of ['s-revived-1', 's-revived-2', 's-revived-3']) {
+        await act(async () => {
+          store.setState((st) => ({
+            agentChats: {
+              ...st.agentChats,
+              chats: st.agentChats.chats.map((c) =>
+                c.id === 'c1' ? { ...c, activeSegmentId: id } : c,
+              ),
+            },
+          }))
+        })
+      }
+
+      expect(resumeChatFn.mock.calls.length).toBeLessThanOrEqual(2)
+      expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
+    })
+
     it('surfaces a toast and stops retrying when the agent cannot be restarted', async () => {
       const err = vi.spyOn(console, 'error').mockImplementation(() => {})
       getChatFn.mockResolvedValue(detail())

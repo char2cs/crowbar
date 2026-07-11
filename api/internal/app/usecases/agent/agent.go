@@ -868,21 +868,9 @@ func (u *Usecase) SwitchProvider(
 		return "", fmt.Errorf("agent: switch provider: chat: %w", err)
 	}
 
-	// chat.Segments is in append (start) order, so the LAST match while scanning
-	// forward is the most recent prior segment for the target provider. This is
-	// the switch-back detector: a target that already ran in this chat and bound
-	// a native session id is resumed into it; a provider new to this chat finds
-	// none. leftAt is when that segment ended — the cut for the "while you were
-	// away" gap.
-	var priorSessionID string
-	var leftAt time.Time
-	for _, s := range chat.Segments {
-		if s.ProviderID == targetProviderID && s.ProviderSessionID != "" {
-			priorSessionID = s.ProviderSessionID
-			if s.EndedAt != nil {
-				leftAt = *s.EndedAt
-			}
-		}
+	priorSessionID, leftAt, err := u.resumableSession(ctx, chat, targetProviderID)
+	if err != nil {
+		return "", fmt.Errorf("agent: switch provider: resumable session: %w", err)
 	}
 	resuming := priorSessionID != ""
 
@@ -1008,6 +996,79 @@ func (u *Usecase) ResumeChat(
 	// was talking to when the CLI died.
 	last := chat.Segments[len(chat.Segments)-1]
 	return u.SwitchProvider(ctx, chatID, last.ProviderID)
+}
+
+// resumableSession picks the native session targetProviderID should be resumed
+// into, and the moment it left (the cut for the "while you were away" gap).
+// Returns "" when there is nothing resumable — the provider is new to this chat,
+// or its session was never actually written by the CLI — and the caller then
+// spawns it fresh with the whole conversation instead.
+//
+// The second case is the subtle one, and it shipped as a bug: a session id is NOT
+// a conversation. A vendor CLI reports its session id the instant it starts (our
+// SessionStart hook records it), but only WRITES that conversation once there is
+// at least one message. Resuming such an id fails outright — claude dies on
+// startup with "No conversation found with session ID: <id>", which is exactly
+// what a user saw after opening a chat they had never sent a message in. So the
+// session id alone is not enough: the ledger must show the CLI actually said
+// something under it.
+//
+// The check is per-SESSION, not per-segment: a session can span several segments
+// (each switch-back resumes the same id), and the turns may have been recorded in
+// an earlier one — so any segment sharing the session id counts. The gap cut stays
+// the LAST time that session was live, whether or not that final stretch produced
+// a turn.
+func (u *Usecase) resumableSession(
+	ctx context.Context,
+	chat domain.AgentChat,
+	targetProviderID string,
+) (sessionID string, leftAt time.Time, err error) {
+	// chat.Segments is in append (start) order, so the LAST match while scanning
+	// forward is the most recent prior segment for the target provider.
+	for _, s := range chat.Segments {
+		if s.ProviderID == targetProviderID && s.ProviderSessionID != "" {
+			sessionID = s.ProviderSessionID
+			leftAt = time.Time{}
+			if s.EndedAt != nil {
+				leftAt = *s.EndedAt
+			}
+		}
+	}
+	if sessionID == "" {
+		return "", time.Time{}, nil
+	}
+
+	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("chats dir: %w", err)
+	}
+	led, err := ledger.Open(worktreepath.AgentLedgerDir(chatsDir, chat.ID))
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("ledger open: %w", err)
+	}
+
+	for _, s := range chat.Segments {
+		if s.ProviderSessionID != sessionID {
+			continue
+		}
+		var until time.Time
+		if s.EndedAt != nil {
+			until = *s.EndedAt
+		}
+		has, err := led.HasTurns(targetProviderID, s.StartedAt, until)
+		if err != nil {
+			return "", time.Time{}, fmt.Errorf("ledger has turns: %w", err)
+		}
+		if has {
+			return sessionID, leftAt, nil
+		}
+	}
+
+	// The CLI reported this session id but never recorded a turn under it, so it
+	// has no conversation on disk to resume. Spawn fresh.
+	slog.InfoContext(ctx, "agent: prior session has no recorded turns; spawning fresh instead of resuming",
+		"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID)
+	return "", time.Time{}, nil
 }
 
 // assembleConversation renders the handoff document for a spawning provider:
