@@ -65,7 +65,7 @@ export interface Repo {
   localPath?: string
 }
 
-export type SidebarTab = 'workspaces' | 'files' | 'git'
+export type SidebarTab = 'workspaces' | 'chats' | 'files' | 'git'
 
 interface SidebarState {
   repos: Repo[]
