@@ -10,11 +10,16 @@ import (
 // agentic-engine spec §6): the workspace it belongs to, the id of its currently
 // active provider segment, and its creation timestamp.
 type AgentChatDTO struct {
-	ID              string    `json:"id"`
-	WorkspaceID     string    `json:"workspaceId"`
-	Title           string    `json:"title"`
-	ActiveSegmentID string    `json:"activeSegmentId"`
-	CreatedAt       time.Time `json:"createdAt"`
+	ID              string `json:"id"`
+	WorkspaceID     string `json:"workspaceId"`
+	Title           string `json:"title"`
+	ActiveSegmentID string `json:"activeSegmentId"`
+	// ActiveProviderID is the providerId of the currently active segment (00
+	// agentic-engine spec §7.3), derived from the embedded segments so the chat
+	// list can map a row to its provider glyph without N detail fetches. Empty
+	// when the chat has no active segment.
+	ActiveProviderID string    `json:"activeProviderId"`
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 // AgentChatDTOFrom converts a persisted AgentChat into its wire shape.
@@ -22,12 +27,26 @@ func AgentChatDTOFrom(
 	c domain.AgentChat,
 ) AgentChatDTO {
 	return AgentChatDTO{
-		ID:              c.ID,
-		WorkspaceID:     c.WorkspaceID,
-		Title:           c.Title,
-		ActiveSegmentID: c.ActiveSegmentID,
-		CreatedAt:       c.CreatedAt,
+		ID:               c.ID,
+		WorkspaceID:      c.WorkspaceID,
+		Title:            c.Title,
+		ActiveSegmentID:  c.ActiveSegmentID,
+		ActiveProviderID: activeProviderID(c),
+		CreatedAt:        c.CreatedAt,
 	}
+}
+
+// activeProviderID returns the providerId of c's active segment (the one whose
+// id is c.ActiveSegmentID), or "" when there is none.
+func activeProviderID(
+	c domain.AgentChat,
+) string {
+	for _, s := range c.Segments {
+		if s.ID == c.ActiveSegmentID {
+			return s.ProviderID
+		}
+	}
+	return ""
 }
 
 // AgentChatDTOList converts a slice of AgentChats into wire DTOs, returning a
