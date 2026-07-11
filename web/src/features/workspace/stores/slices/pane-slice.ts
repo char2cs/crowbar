@@ -221,8 +221,20 @@ export const createPaneSlice: StateCreator<
             // (VS Code-style): the buffer that shifted into the closed slot (the
             // right neighbor), else the new last tab (the left neighbor when the
             // closed tab was last), else null when the pane is now empty.
-            pane.activeBufferId =
-              pane.bufferIds[closedIndex] ?? pane.bufferIds[pane.bufferIds.length - 1] ?? null
+            //
+            // Only a tab that still HAS a buffer may be activated. A bufferId whose
+            // buffer is gone renders nothing — the pane falls back to its empty
+            // "New Terminal" state, which reads as "the app lost my tabs". That is
+            // not hypothetical: any caller that drops a buffer without going through
+            // this action leaves its id stranded here, and activating one of those
+            // ghosts blanked the pane in the running app.
+            // (When the slice is exercised without a buffer list — pane-slice's own
+            // unit tests — every id counts as alive: there is nothing to check against.)
+            const known = state.buffers
+            const isAlive = (id: string) => !Array.isArray(known) || known.some((b) => b.id === id)
+            const alive = pane.bufferIds.filter(isAlive)
+            const rightNeighbor = pane.bufferIds.slice(closedIndex).find(isAlive)
+            pane.activeBufferId = rightNeighbor ?? alive[alive.length - 1] ?? null
           }
           if (pane.previewBufferId === bufferId) pane.previewBufferId = null
           if (

@@ -33,6 +33,13 @@ const {
 // reseed's reconcile (which diffs the store's current chats against the GET).
 let buffers: Array<{ id: string; type: string; chatId?: string }> = []
 let storeChats: Array<{ id: string }> = []
+// The pane holding those buffers. Closing a chat tab must go through the pane
+// (removeBufferFromPane) before the buffer is dropped, or the pane is left with a
+// dangling activeBufferId and renders its EMPTY state — a live bug: deleting the
+// chat you were looking at blanked the pane even though another tab was open.
+let panes: Record<string, { id: string; bufferIds: string[] }> = {}
+
+const removeBufferFromPane = vi.fn()
 
 vi.mock('@/lib/ws/manager', () => ({
   wsManager: { subscribe, send: vi.fn() },
@@ -59,7 +66,9 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
       setAgentProviders,
       hydrateAgentChatOrder,
       buffers,
+      panes,
       bufferActions: { closeBuffer },
+      paneActions: { removeBufferFromPane },
     }),
   }),
 }))
@@ -88,6 +97,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   subscribe.mockReturnValue(() => {})
   buffers = []
+  panes = {}
+  removeBufferFromPane.mockClear()
   storeChats = []
   // The real slice replaces the chat list wholesale; model that so the hook's
   // vanished-chat diff sees a faithful before/after.
@@ -229,8 +240,9 @@ describe('useWorkspaceAgentChatsStream', () => {
     expect(upsertAgentChat).not.toHaveBeenCalled()
   })
 
-  it('deleted removes the chat and closes its open pane tab', async () => {
+  it('deleted removes the chat and closes its open pane tab THROUGH the pane', async () => {
     buffers = [{ id: 'buf1', type: 'agentChat', chatId: 'c1' }]
+    panes = { p1: { id: 'p1', bufferIds: ['buf1', 'buf-other'] } }
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
     const onFrame = captureCb()
@@ -238,7 +250,13 @@ describe('useWorkspaceAgentChatsStream', () => {
     onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'deleted' })
 
     expect(removeAgentChat).toHaveBeenCalledWith('c1')
+    // Removing it from the pane is what activates the adjacent tab. Dropping the
+    // buffer alone leaves the pane's activeBufferId dangling and blanks it.
+    expect(removeBufferFromPane).toHaveBeenCalledWith('p1', 'buf1')
     expect(closeBuffer).toHaveBeenCalledWith('buf1')
+    expect(removeBufferFromPane.mock.invocationCallOrder[0]).toBeLessThan(
+      closeBuffer.mock.invocationCallOrder[0],
+    )
   })
 
   it('deleted with no open pane tab does not call closeBuffer', async () => {

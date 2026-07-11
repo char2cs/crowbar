@@ -3,6 +3,25 @@ import { wsManager } from '@/lib/ws/manager'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import { listChats, getChat, listProviders } from '@/features/agent/api/agent-api'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
+
+// closeChatTab closes a deleted chat's pane tab the way the tab's own × button
+// does: remove it from every pane holding it FIRST, then drop the buffer.
+//
+// Raw closeBuffer is NOT enough, and the shortcut cost a live bug: it only filters
+// the buffer out of the buffers array, leaving the pane's activeBufferId pointing
+// at a buffer that no longer exists. Deleting the chat you were looking at then
+// blanked the whole pane — the remaining tab was still in the tab bar, but the
+// pane rendered its empty "New Terminal" state until you clicked that tab.
+// pane-slice's removeBufferFromPane is what activates an adjacent tab instead.
+function closeChatTab(st: ReturnType<WorkspaceStore['getState']>, chatId: string): void {
+  const buf = st.buffers.find((b) => b.type === 'agentChat' && b.chatId === chatId)
+  if (!buf) return
+  for (const pane of Object.values(st.panes ?? {})) {
+    if (pane.bufferIds.includes(buf.id)) st.paneActions.removeBufferFromPane(pane.id, buf.id)
+  }
+  st.bufferActions.closeBuffer(buf.id)
+}
 
 // Bare lifecycle frame (00 agentic-engine spec §7): no snapshot, so most kinds
 // react-then-refetch; only turn_started/turn_stopped carry enough in the kind
@@ -60,11 +79,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
 
         // A chat deleted during the outage never delivered its `deleted` frame, so
         // close its pane tab here exactly as that frame's handler would have.
-        const st = store.getState()
-        for (const chatId of vanished) {
-          const buf = st.buffers.find((b) => b.type === 'agentChat' && b.chatId === chatId)
-          if (buf) st.bufferActions.closeBuffer(buf.id)
-        }
+        for (const chatId of vanished) closeChatTab(store.getState(), chatId)
       } catch {
         /* seed failure is non-fatal — the WS stream still pushes */
       }
@@ -113,9 +128,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           return
         case 'deleted': {
           st.removeAgentChat(ev.chatId)
-          // Close the deleted chat's pane tab if open.
-          const buf = st.buffers.find((b) => b.type === 'agentChat' && b.chatId === ev.chatId)
-          if (buf) st.bufferActions.closeBuffer(buf.id)
+          closeChatTab(st, ev.chatId)
           return
         }
         case 'created':
