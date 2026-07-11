@@ -281,7 +281,9 @@ mod tests {
     use super::*;
     use tokio::net::UnixListener;
 
-    /// File descriptors this process holds open. macOS exposes them as /dev/fd.
+    /// File descriptors this process holds open (`/dev/fd` on macOS, a symlink to
+    /// `/proc/self/fd` on Linux). Process-wide, and therefore only meaningful while
+    /// `test_support::socket_tests()` is held — see the note there.
     fn open_fds() -> usize {
         std::fs::read_dir("/dev/fd").map(|d| d.count()).unwrap_or(0)
     }
@@ -353,6 +355,8 @@ mod tests {
 
     #[tokio::test]
     async fn daemon_initiated_close_retires_the_connection() {
+        let _serialised = crate::test_support::socket_tests().await;
+
         let sock = test_socket("retire");
         let listener = UnixListener::bind(&sock).unwrap();
         let manager = WsBridgeManager::new();
@@ -372,16 +376,24 @@ mod tests {
 
         assert!(
             manager.connections.lock().unwrap().is_empty(),
-            "the daemon closed the stream, so the connection must be retired; a \
-             connection left in the map strands its writer task on the socket's write \
-             half and burns one of the app's descriptors for good"
+            "the daemon closed the stream, so the connection must be retired; a connection \
+             left in the map strands its writer task on the socket's write half and burns \
+             one of the app's descriptors for good"
         );
 
         let _ = std::fs::remove_file(&sock);
     }
 
+    /// The production bug, as a regression test: 215 of these closes in one window is what
+    /// a pre-crash daemon log shows, against an app whose descriptor limit was 256.
+    ///
+    /// This is the one test that has to count descriptors. A stranded writer still lets its
+    /// reader finish, so nothing local to the connection reveals it — only the process's
+    /// descriptor table does.
     #[tokio::test]
     async fn daemon_initiated_closes_do_not_leak_file_descriptors() {
+        let _serialised = crate::test_support::socket_tests().await;
+
         const CYCLES: usize = 20;
 
         let sock = test_socket("fds");
@@ -389,8 +401,7 @@ mod tests {
         let manager = WsBridgeManager::new();
         let mut steady_state = 0;
 
-        // Every cycle is one reconnect: the shim opens a fresh conn_id, the daemon
-        // closes it. This is the loop a pre-crash daemon log shows hundreds of.
+        // Every cycle is one reconnect: the shim opens a fresh conn_id, the daemon closes it.
         for i in 0..CYCLES {
             let (tx, rx) = oneshot::channel();
             let opened = open_bridge(
@@ -404,30 +415,37 @@ mod tests {
             opened.unwrap();
             rx.await.unwrap();
 
-            // After the first cycle the runtime's own descriptors are all allocated, so
-            // this is the level a leak-free bridge must return to every time.
+            // After the first cycle the runtime's own descriptors are all allocated, so this
+            // is the level a leak-free bridge must return to every time.
             if i == 0 {
                 steady_state = open_fds();
             }
         }
 
+        let after = open_fds();
         assert!(
-            open_fds() <= steady_state,
-            "{CYCLES} daemon-initiated closes leaked file descriptors: {steady_state} -> {}. \
-             Once the app's limit is reached the daemon socket cannot be dialled at all — \
-             which the health watchdog reads as a dead backend and kills a daemon that was \
-             never unhealthy.",
-            open_fds()
+            after <= steady_state,
+            "{CYCLES} daemon-initiated closes leaked file descriptors: {steady_state} -> {after}. \
+             Once the app's limit is reached the daemon socket cannot be dialled at all — which \
+             the health watchdog reads as a dead backend and kills a daemon that was never \
+             unhealthy."
         );
 
         let _ = std::fs::remove_file(&sock);
     }
 
     /// The reader parks on `read.next()`. Against a daemon that has stopped reading, the
-    /// half-close that retiring performs is never noticed and never answered, so nothing
-    /// but explicit cancellation can end the reader and give the descriptor back.
+    /// half-close that retiring performs is never noticed and never answered, so nothing but
+    /// explicit cancellation can end the reader — and this test hangs.
+    ///
+    /// The reader finishing IS the assertion: it awaits the writer, so by the time it returns
+    /// both split halves are dropped and the socket is closed by ownership. Counting
+    /// descriptors here would add nothing and would only make the test race every other test
+    /// that opens one.
     #[tokio::test]
     async fn explicit_close_releases_the_socket_against_a_daemon_that_never_reacts() {
+        let _serialised = crate::test_support::socket_tests().await;
+
         let sock = test_socket("close");
         spawn_wedged_daemon(UnixListener::bind(&sock).unwrap());
         let manager = WsBridgeManager::new();
@@ -442,31 +460,23 @@ mod tests {
         .await
         .unwrap();
 
-        let before = open_fds();
         manager.connections.lock().unwrap().remove("c1");
 
-        // The reader task finishing IS the teardown: it awaits the writer, so both split
-        // halves are gone by the time it returns. No peer is involved — this daemon never
-        // reacts — and no clock is involved either.
         reader
             .await
             .expect("retiring a connection must end its reader, whatever the daemon does");
 
-        assert!(
-            open_fds() < before,
-            "the descriptor must come back on an explicit close even against a daemon that \
-             never reads, answers, or closes"
-        );
-
         let _ = std::fs::remove_file(&sock);
     }
 
-    /// A page load orphans every connection the old page owned: its JS is gone and will
-    /// never call `ws_close` for ids it no longer remembers. Nothing else can notice — a
-    /// `Channel` keeps working across a reload — so `close_all` is all that stands between
-    /// a reload and a permanently stranded socket.
+    /// A page load orphans every connection the old page owned: its JS is gone and will never
+    /// call `ws_close` for ids it no longer remembers. Nothing else can notice — a `Channel`
+    /// keeps working across a reload — so `close_all` is all that stands between a reload and
+    /// a permanently stranded socket.
     #[tokio::test]
     async fn close_all_retires_connections_a_reloaded_page_abandoned() {
+        let _serialised = crate::test_support::socket_tests().await;
+
         let sock = test_socket("reload");
         spawn_wedged_daemon(UnixListener::bind(&sock).unwrap());
         let manager = WsBridgeManager::new();
@@ -481,16 +491,11 @@ mod tests {
         .await
         .unwrap();
 
-        let before = open_fds();
         manager.close_all();
 
         reader.await.expect("a page load must end its readers");
 
         assert!(manager.connections.lock().unwrap().is_empty());
-        assert!(
-            open_fds() < before,
-            "every connection the reloaded page abandoned must give its descriptor back"
-        );
 
         let _ = std::fs::remove_file(&sock);
     }

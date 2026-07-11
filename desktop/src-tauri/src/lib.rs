@@ -5,6 +5,26 @@ mod sidecar;
 mod terminal;
 mod ws_bridge;
 
+#[cfg(test)]
+mod test_support {
+    use std::sync::OnceLock;
+    use tokio::sync::{Mutex, MutexGuard};
+
+    /// Serialises every test that opens a socket to a fake daemon.
+    ///
+    /// A descriptor leak can only be measured process-wide (`/dev/fd`), and cargo runs
+    /// tests in parallel — so a socket another test opens mid-measurement reads as a leak,
+    /// and one it closes can hide a real one. Holding this for the whole of any test that
+    /// opens sockets is what makes the count attributable to the test doing the counting.
+    ///
+    /// It is tokio's mutex, not std's, because it is held across awaits — and unlike std's
+    /// it does not poison, so one failing test does not cascade into the rest.
+    pub async fn socket_tests() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().await
+    }
+}
+
 use tauri::Manager;
 
 // ProMotion / high-refresh-rate: WKWebView defaults to 60fps due to the

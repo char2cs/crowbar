@@ -336,11 +336,6 @@ mod tests {
     use super::*;
     use tokio::net::UnixListener;
 
-    /// File descriptors this process holds open. macOS exposes them as /dev/fd.
-    fn open_fds() -> usize {
-        std::fs::read_dir("/dev/fd").map(|d| d.count()).unwrap_or(0)
-    }
-
     /// Short path: a unix socket's sun_path is capped at 104 bytes.
     fn test_socket(tag: &str) -> std::path::PathBuf {
         let p = std::path::PathBuf::from(format!("/tmp/cbterm-{}-{tag}.sock", std::process::id()));
@@ -391,6 +386,8 @@ mod tests {
     /// PTY — and its stream — alive, which is the normal case, not an edge case.
     #[tokio::test]
     async fn closing_a_session_releases_the_socket_while_the_daemon_keeps_the_pty() {
+        let _serialised = crate::test_support::socket_tests().await;
+
         let sock = test_socket("close");
         spawn_idle_pty_daemon(UnixListener::bind(&sock).unwrap());
         let manager = TerminalManager::new();
@@ -406,18 +403,14 @@ mod tests {
         .await
         .unwrap();
 
-        let before = open_fds();
         manager.sessions.lock().unwrap().remove("s1");
 
+        // The reader finishing IS the assertion: it awaits the writer, so by the time it
+        // returns both split halves are dropped and the socket is closed by ownership.
+        // Without the cancellation path this hangs, because this daemon never reacts.
         reader
             .await
             .expect("closing a session must end its reader, whatever the daemon does");
-
-        assert!(
-            open_fds() < before,
-            "the descriptor must come back on close even though the daemon never closes \
-             its end of a live PTY's stream"
-        );
 
         let _ = std::fs::remove_file(&sock);
     }
@@ -427,6 +420,8 @@ mod tests {
     /// and must not keep their sockets.
     #[tokio::test]
     async fn close_all_releases_terminals_a_reloaded_page_abandoned() {
+        let _serialised = crate::test_support::socket_tests().await;
+
         let sock = test_socket("reload");
         spawn_idle_pty_daemon(UnixListener::bind(&sock).unwrap());
         let manager = TerminalManager::new();
@@ -442,16 +437,11 @@ mod tests {
         .await
         .unwrap();
 
-        let before = open_fds();
         manager.close_all();
 
         reader.await.expect("a page load must end its readers");
 
         assert!(manager.sessions.lock().unwrap().is_empty());
-        assert!(
-            open_fds() < before,
-            "the abandoned terminal must give its descriptor back"
-        );
 
         let _ = std::fs::remove_file(&sock);
     }
@@ -460,6 +450,8 @@ mod tests {
     /// stream under a session that is still current.
     #[tokio::test]
     async fn a_daemon_disconnect_retires_the_session_and_is_announced() {
+        let _serialised = crate::test_support::socket_tests().await;
+
         let sock = test_socket("drop");
         let listener = UnixListener::bind(&sock).unwrap();
         let manager = TerminalManager::new();
