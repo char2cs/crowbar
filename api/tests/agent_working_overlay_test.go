@@ -33,10 +33,40 @@ func writeLiveStubProviderDescriptor(t *testing.T, h *harness) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "livestub.yaml"), []byte(liveStubProviderDescriptorYAML), 0o644))
 }
 
+// requireRESTWorking asserts that BOTH REST read paths — the repo-scoped List
+// (GET .../workspaces) and the single-workspace Detail (GET .../workspaces/:wsId)
+// — stamp the workspace's `working` overlay as want. It is the REST counterpart
+// to the WS readUntil: the agent-turn overlay is folded synchronously in the SAME
+// axAgentChat projection callback that re-broadcasts the workspace, so once the
+// caller has observed the WS frame the in-memory overlay is already settled and
+// these plain GETs need no polling (block on the WS signal, never on time).
+func requireRESTWorking(
+	t *testing.T,
+	h *harness,
+	imported importedRepo,
+	want bool,
+) {
+	t.Helper()
+	var found bool
+	for _, w := range listWorkspaces(t, h, imported.projectID, imported.repoID) {
+		if w.ID == imported.workspaceID {
+			found = true
+			require.Equalf(t, want, w.Working, "REST List working for %s", imported.workspaceID)
+		}
+	}
+	require.Truef(t, found, "workspace %s absent from REST List", imported.workspaceID)
+
+	var detail workspaceDTO
+	h.get(wsBase(imported), &detail)
+	require.Equalf(t, want, detail.Working, "REST Detail working for %s", imported.workspaceID)
+}
+
 // TestRegression_WorkspaceWorkingReflectsAgentTurn proves the workspace `working`
 // overlay (domain.Workspace.Working) is re-lit from live agent turns: a
 // user_prompt hook (→ turn_started) re-broadcasts the workspace with working=true,
-// and a turn_stop hook (→ turn_stopped) re-broadcasts it with working=false.
+// and a turn_stop hook (→ turn_stopped) re-broadcasts it with working=false. It
+// then re-reads BOTH REST paths (List + Detail) and requires they agree with the
+// live frame — so a REST refetch mid-turn can never flicker the spinner off.
 func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -68,6 +98,8 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	readUntil(t, conn, func(m map[string]any) bool {
 		return m["id"] == imported.workspaceID && m["working"] == true
 	})
+	// REST reads (List + Detail) must now reflect the same live overlay.
+	requireRESTWorking(t, h, imported, true)
 
 	// turn_stop closes it.
 	_ = h.raw(http.MethodPost, wsBase(imported)+"/agent/hooks", map[string]string{
@@ -77,4 +109,6 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	readUntil(t, conn, func(m map[string]any) bool {
 		return m["id"] == imported.workspaceID && m["working"] == false
 	})
+	// REST reads must have flipped back too.
+	requireRESTWorking(t, h, imported, false)
 }

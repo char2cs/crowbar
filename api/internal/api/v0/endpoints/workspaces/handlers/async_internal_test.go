@@ -39,7 +39,8 @@ func (s *spyWork) EndWork(_ context.Context, wsID string) {
 	s.endCh <- wsID
 }
 
-func (s *spyWork) IsWorking(string) bool { return false }
+func (s *spyWork) IsWorking(string) bool  { return false }
+func (s *spyWork) WorkingFor(string) bool { return false }
 
 func (s *spyWork) begunCount() int {
 	s.mu.Lock()

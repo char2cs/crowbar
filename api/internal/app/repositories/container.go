@@ -396,7 +396,7 @@ func (c *Container) enrichFrame(
 	ctx context.Context,
 	ws domain.Workspace,
 ) dto.WorkspaceDTO {
-	ws.Working = c.IsWorking(ws.ID) || c.agentWorkingFor(ws.ID)
+	ws.Working = c.WorkingFor(ws.ID)
 	elig := c.eligibilityFor(ctx, ws)
 	return dto.WorkspaceDTOFrom(ws, elig)
 }
@@ -459,6 +459,23 @@ func (c *Container) IsWorking(
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.inflight[wsID] > 0
+}
+
+// WorkingFor reports whether the workspace is working via EITHER derived overlay:
+// a background mutation in flight (inflight, via IsWorking) OR an agent chat
+// mid-turn (agentWorking, via agentWorkingFor). It is the single combined read the
+// REST list/detail handlers stamp Working from, so a REST read agrees with both
+// the live broadcast frames (enrichFrame) and the snapshot-on-subscribe readers
+// (ListWorkspaces/ListWorkspacesInRepo) — all four converge on this method. Each
+// overlay is read under its OWN lock acquisition (never one lock held across
+// both), mirroring the existing enrichFrame combination: the two are independent
+// booleans with no cross-overlay invariant, so a transient interleaving can only
+// observe a value that was truthful at some instant during the call — the same
+// guarantee every other reader already provides.
+func (c *Container) WorkingFor(
+	wsID string,
+) bool {
+	return c.IsWorking(wsID) || c.agentWorkingFor(wsID)
 }
 
 // rebroadcast pushes the workspace's current row to the hub so an overlay
@@ -598,7 +615,7 @@ func (c *Container) ListWorkspaces(
 		return nil, fmt.Errorf("repositories: list workspaces: %w", err)
 	}
 	for i := range rows {
-		rows[i].Working = c.IsWorking(rows[i].ID) || c.agentWorkingFor(rows[i].ID)
+		rows[i].Working = c.WorkingFor(rows[i].ID)
 	}
 	return rows, nil
 }
@@ -688,7 +705,7 @@ func (c *Container) ListWorkspacesInRepo(
 		return nil, fmt.Errorf("repositories: list workspaces in repo: %w", err)
 	}
 	for i := range rows {
-		rows[i].Working = c.IsWorking(rows[i].ID) || c.agentWorkingFor(rows[i].ID)
+		rows[i].Working = c.WorkingFor(rows[i].ID)
 	}
 	return rows, nil
 }

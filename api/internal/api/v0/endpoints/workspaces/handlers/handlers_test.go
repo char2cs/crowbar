@@ -219,6 +219,7 @@ type fakeWork struct{}
 func (fakeWork) BeginWork(_ context.Context, _ string) {}
 func (fakeWork) EndWork(_ context.Context, _ string)   {}
 func (fakeWork) IsWorking(_ string) bool               { return false }
+func (fakeWork) WorkingFor(_ string) bool              { return false }
 
 func newRouter(
 	reader workspacehandlers.Reader,

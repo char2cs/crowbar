@@ -103,9 +103,12 @@ type LastErrorSetter interface {
 // WorkSignal brackets a workspace's background mutation window so the daemon
 // serves a real Working overlay: BeginWork re-broadcasts the row with
 // Working=true the moment an async op is accepted, EndWork resolves it, and
-// IsWorking overlays the REST reads so a list/detail fetched mid-mutation
-// agrees with the live stream. Blank ids (a create with no entity yet) are
-// no-ops.
+// WorkingFor overlays the REST reads so a list/detail fetched mid-work agrees
+// with the live stream. WorkingFor combines BOTH derived overlays — the
+// inflight background-mutation signal (IsWorking) AND the agent-turn signal —
+// so a REST read reflects an in-progress agent turn exactly like the WS frames
+// and snapshot readers do; IsWorking is retained for callers that need only the
+// inflight half. Blank ids (a create with no entity yet) are no-ops.
 type WorkSignal interface {
 	BeginWork(
 		ctx context.Context,
@@ -116,6 +119,12 @@ type WorkSignal interface {
 		wsID string,
 	)
 	IsWorking(
+		wsID string,
+	) bool
+	// WorkingFor reports whether the workspace is working via EITHER overlay
+	// (inflight mutation OR agent chat mid-turn); it is what the REST handlers
+	// stamp domain.Workspace.Working from.
+	WorkingFor(
 		wsID string,
 	) bool
 }

@@ -50,17 +50,19 @@ func (h *Handlers) Detail(
 		return
 	}
 	elig := h.reader.MergeEligibilityFor(c.Request.Context(), ws, siblings)
-	ws.Working = h.working.IsWorking(ws.ID)
+	ws.Working = h.working.WorkingFor(ws.ID)
 	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(ws, elig))
 }
 
 // applyWorking stamps the derived working overlay onto the rows so REST reads
-// agree with the live broadcast frames during a background mutation.
+// agree with the live broadcast frames — WorkingFor combines BOTH overlays
+// (inflight background mutation AND agent chat mid-turn) so a list fetched during
+// either kind of activity matches the WS stream and snapshot readers.
 func (h *Handlers) applyWorking(
 	rows []domain.Workspace,
 ) {
 	for i := range rows {
-		rows[i].Working = h.working.IsWorking(rows[i].ID)
+		rows[i].Working = h.working.WorkingFor(rows[i].ID)
 	}
 }
 
