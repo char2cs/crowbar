@@ -2,6 +2,8 @@ package realtime
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -131,8 +133,43 @@ func (m *WatcherManager) Acquire(
 
 	go func() {
 		defer safego.Recover("realtime.watcher.start")
-		_ = proc.Start(ctx)
+		err := proc.Start(ctx)
+		if err == nil || errors.Is(err, context.Canceled) {
+			// Cancellation is not a failure: the only cancellers are expire and
+			// StopAll, both of which have already removed the handle themselves.
+			return
+		}
+		slog.WarnContext(ctx, "realtime: watcher start failed", "workspace_id", wsID, "err", err)
+		m.retire(wsID, proc)
 	}()
+}
+
+// retire removes a handle whose watcher died in Start. That watcher emits no file
+// change and no git status for as long as it stays registered, and Acquire would
+// keep refcounting the corpse rather than rebuilding — so the handle is dropped here
+// and the next Acquire builds a fresh one. It is a no-op unless the registered
+// handle still holds the very proc that failed: an expire+re-Acquire may already
+// have replaced it, and a late failure from the superseded proc must not tear down
+// its live successor. StopAll needs no special case — it empties the map, so a
+// post-shutdown failure finds no handle.
+func (m *WatcherManager) retire(
+	wsID string,
+	proc watcherProc,
+) {
+	m.mu.Lock()
+	h, ok := m.handles[wsID]
+	if !ok || h.proc != proc {
+		m.mu.Unlock()
+		return
+	}
+	delete(m.handles, wsID)
+	if h.timer != nil {
+		h.timer.Stop()
+	}
+	m.mu.Unlock()
+
+	h.cancel()
+	h.proc.Stop()
 }
 
 // Release drops one subscriber for wsID. On the 1→0 transition it does NOT tear

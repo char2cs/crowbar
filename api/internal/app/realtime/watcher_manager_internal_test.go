@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +16,9 @@ type fakeWatcherProc struct {
 	started chan struct{}
 	stopped chan struct{}
 	once    sync.Once
+	// startErr, when set, makes Start fail immediately instead of blocking on ctx —
+	// the real watcher's EMFILE-while-adding-watches failure.
+	startErr error
 }
 
 func newFakeWatcherProc() *fakeWatcherProc {
@@ -28,6 +32,9 @@ func (f *fakeWatcherProc) Start(
 	ctx context.Context,
 ) error {
 	f.started <- struct{}{}
+	if f.startErr != nil {
+		return f.startErr
+	}
 	<-ctx.Done()
 	return ctx.Err()
 }
@@ -109,6 +116,26 @@ func countingFactory(
 		calls++
 		mu.Unlock()
 		p := newFakeWatcherProc()
+		procs <- p
+		return p, nil
+	}
+	return factory, &calls
+}
+
+// failingFactory builds procs whose Start fails immediately — the shape of a real
+// watcher that dies inside Start (EMFILE while registering watches).
+func failingFactory(
+	procs chan<- *fakeWatcherProc,
+	startErr error,
+) (watcherFactory, *int32) {
+	var calls int32
+	factory := func(
+		_ context.Context,
+		_ string,
+	) (watcherProc, error) {
+		atomic.AddInt32(&calls, 1)
+		p := newFakeWatcherProc()
+		p.startErr = startErr
 		procs <- p
 		return p, nil
 	}
@@ -302,6 +329,64 @@ func TestWatcherManager_FactoryErrorDoesNotRegister(t *testing.T) {
 
 	m.Acquire("w1")
 	require.NotPanics(t, func() { m.Release("w1") })
+}
+
+// A watcher whose Start fails (EMFILE while adding watches) is dead: it emits no
+// file-change and no git-status event, ever. Leaving its handle in the map would
+// make every later Acquire bump the refcount of that corpse, silently blinding the
+// workspace for the life of the subscription. The failed start must retire the
+// handle so the next subscriber builds a fresh watcher.
+func TestWatcherManager_FailedStartRetiresHandleAndRebuilds(t *testing.T) {
+	procs := make(chan *fakeWatcherProc, 4)
+	timers := make(chan *fakeLingerTimer, 4)
+	factory, calls := failingFactory(procs, errors.New("too many open files"))
+	m := newWatcherManager(context.Background(), factory, time.Second, recordingTimerFactory(timers))
+
+	m.Acquire("w1")
+	p1 := <-procs
+	<-p1.started
+	<-p1.stopped // retirement stops the dead watcher: the signal that it left the map
+
+	m.mu.Lock()
+	_, present := m.handles["w1"]
+	m.mu.Unlock()
+	assert.False(t, present, "a watcher whose Start failed must not stay registered")
+
+	m.Acquire("w1")
+	p2 := <-procs
+	<-p2.started
+	assert.NotSame(t, p1, p2, "the retried Acquire must build a fresh watcher")
+	assert.EqualValues(t, 2, atomic.LoadInt32(calls), "a failed start must be retried by the next Acquire")
+}
+
+// The retirement path must not clobber a handle it does not own: a proc whose Start
+// fails LATE, after its handle already expired and a fresh Acquire rebuilt the
+// watcher, would otherwise tear down the live replacement.
+func TestWatcherManager_RetireIgnoresSupersededProc(t *testing.T) {
+	m, procs, timers, calls := newTestManager(t)
+
+	m.Acquire("w1")
+	stale := <-procs
+	<-stale.started
+
+	m.Release("w1")
+	ft := <-timers
+	ft.fire() // linger elapses: the handle is torn down
+	<-stale.stopped
+
+	m.Acquire("w1") // a fresh watcher takes the slot
+	live := <-procs
+	<-live.started
+
+	m.retire("w1", stale) // the superseded proc reports its failure late
+
+	m.mu.Lock()
+	h, present := m.handles["w1"]
+	m.mu.Unlock()
+	require.True(t, present, "a superseded proc's failure must not retire the current handle")
+	assert.Same(t, live, h.proc)
+	assertNotStopped(t, live, "a superseded proc's failure stopped the live watcher")
+	assert.EqualValues(t, 2, *calls)
 }
 
 func TestWatcherManager_StopAllStopsLiveWatchers(t *testing.T) {
