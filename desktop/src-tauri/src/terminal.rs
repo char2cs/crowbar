@@ -72,13 +72,19 @@ impl TerminalManager {
         generation
     }
 
-    fn is_current(&self, session_id: &str, generation: u64) -> bool {
-        self.sessions
-            .lock()
-            .unwrap()
-            .get(session_id)
-            .map(|(g, _)| *g == generation)
-            .unwrap_or(false)
+    /// Retires `session_id`, but only while `generation` is still the current one
+    /// — a stale pre-reload reader must not evict the transport a reloaded webview
+    /// has since opened. Dropping the sender is what ends the session's writer
+    /// task and hands back the socket's write half. Returns whether it retired.
+    fn retire_if_current(&self, session_id: &str, generation: u64) -> bool {
+        let mut sessions = self.sessions.lock().unwrap();
+        match sessions.get(session_id) {
+            Some((g, _)) if *g == generation => {
+                sessions.remove(session_id);
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -115,8 +121,10 @@ pub async fn terminal_open(
     let (mut write, mut read) = ws.split();
 
     // Writer task: drain the mpsc and push frames at the socket one at a time.
+    // It ends when every sender is dropped — which is what retiring the session
+    // does, and the only way the socket's write half is ever handed back.
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
-    tokio::spawn(async move {
+    let writer = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
             if write.send(msg).await.is_err() {
                 break;
@@ -149,9 +157,19 @@ pub async fn terminal_open(
                 _ => {}
             }
         }
+        drop(read);
+
+        // Retire the session before announcing the drop. Dropping the sender ends
+        // the writer task, and awaiting it is what guarantees the socket's other
+        // half is gone: until both halves are, the connection's fd stays open, and
+        // the app has only 256 of them (Go raises its own limit; Rust does not).
+        // A stale generation was already evicted by the re-open, so its writer is
+        // ending on its own — await it, but leave the live session alone.
         let still_current = app
             .state::<TerminalManager>()
-            .is_current(&session_id, generation);
+            .retire_if_current(&session_id, generation);
+        let _ = writer.await;
+
         if still_current {
             let _ = app.emit("terminal:transport-dropped", session_id);
         }
