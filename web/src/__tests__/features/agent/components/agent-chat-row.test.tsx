@@ -72,6 +72,41 @@ describe('AgentChatRow', () => {
     expect(onStartRename).not.toHaveBeenCalled()
   })
 
+  it('while renaming, pointer-down on the row does not start a drag', () => {
+    const onPointerDownDrag = vi.fn()
+    render(<AgentChatRow {...base} renaming onPointerDownDrag={onPointerDownDrag} />)
+    const row = screen.getByRole('button')
+    fireEvent.pointerDown(row)
+    expect(onPointerDownDrag).not.toHaveBeenCalled()
+  })
+
+  it('while renaming, Enter/Space on the row do not select', () => {
+    const onSelect = vi.fn()
+    render(<AgentChatRow {...base} renaming onSelect={onSelect} />)
+    const row = screen.getByRole('button')
+    fireEvent.keyDown(row, { key: 'Enter' })
+    fireEvent.keyDown(row, { key: ' ' })
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('Enter and Space on the focused row call onSelect', () => {
+    const onSelect = vi.fn()
+    render(<AgentChatRow {...base} onSelect={onSelect} />)
+    const row = screen.getByRole('button')
+    fireEvent.keyDown(row, { key: 'Enter' })
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(row, { key: ' ' })
+    expect(onSelect).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores other keys on the row', () => {
+    const onSelect = vi.fn()
+    render(<AgentChatRow {...base} onSelect={onSelect} />)
+    const row = screen.getByRole('button')
+    fireEvent.keyDown(row, { key: 'Tab' })
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
   it('applies the active row class when active, inactive class otherwise', () => {
     const { rerender } = render(<AgentChatRow {...base} active={false} />)
     let row = screen.getByRole('button')

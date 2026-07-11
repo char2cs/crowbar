@@ -41,9 +41,19 @@ export function AgentChatRow({
       tabIndex={0}
       data-agent-chat-drop={chatId}
       className={cn(ROW_BASE, active ? ROW_ACTIVE : ROW_INACTIVE)}
-      onPointerDown={onPointerDownDrag}
+      onPointerDown={renaming ? undefined : onPointerDownDrag}
       onClick={renaming ? undefined : onSelect}
       onDoubleClick={renaming ? undefined : onStartRename}
+      onKeyDown={
+        renaming
+          ? undefined
+          : (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onSelect()
+              }
+            }
+      }
     >
       {/* Leading glyph: provider icon → flip-dot spinner while working. The
           spinner is colored via a theme token (text-primary) since
