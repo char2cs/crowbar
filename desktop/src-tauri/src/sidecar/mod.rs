@@ -22,6 +22,10 @@ const DAEMON_LOG_MAX_LEN: u64 = 4 * 1024 * 1024;
 const WATCHDOG_INTERVAL: Duration = Duration::from_secs(10);
 /// Per-probe budget; the deep path answers in microseconds when healthy.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Per-attempt budget for the startup health probe. A booting daemon answers
+/// /v0/health immediately or not at all, so this only has to outlast a loaded
+/// machine — never a slow request.
+const HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 /// A final, more generous probe budget after the failure threshold trips,
 /// giving a daemon that just resumed from an OS suspension time to answer
 /// before the watchdog commits to a restart.
@@ -346,12 +350,19 @@ async fn wait_for_health(
     for i in 0..attempts {
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        if let Ok(pid) = check_health(socket).await {
+        // Budget every attempt. A daemon that accepts the connection but never
+        // serves /v0/health would otherwise park this loop forever — and with it
+        // `spawn`, which is what records `daemon_pid`. The watchdog would then trip,
+        // find no pid, and fall back to `CommandChild::kill()`: the one call that
+        // deadlocks on a live daemon (see `SidecarHandle`). The supervisor would
+        // never run again, so the leak is not the descriptor, it is the recovery.
+        if let Ok(Ok(pid)) = tokio::time::timeout(HEALTH_PROBE_TIMEOUT, check_health(socket)).await
+        {
             return Ok(pid);
         }
 
         if i == attempts - 1 {
-            return Err("daemon did not become healthy within 6s".into());
+            return Err(format!("daemon did not become healthy in {attempts} attempts").into());
         }
     }
     Ok(None)
