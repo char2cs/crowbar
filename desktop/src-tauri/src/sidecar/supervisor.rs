@@ -272,6 +272,9 @@ mod tests {
 
     #[test]
     fn rotate_if_needed_moves_full_log_aside() {
+        // Opens files, so it must not run while a descriptor count is being taken.
+        let _serialised = crate::test_support::fd_tests_blocking();
+
         let dir = std::env::temp_dir().join(format!("crowbar-rotate-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let log = dir.join("daemon.log");

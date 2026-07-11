@@ -10,18 +10,29 @@ mod test_support {
     use std::sync::OnceLock;
     use tokio::sync::{Mutex, MutexGuard};
 
-    /// Serialises every test that opens a socket to a fake daemon.
+    /// Serialises every test that opens a file descriptor.
     ///
-    /// A descriptor leak can only be measured process-wide (`/dev/fd`), and cargo runs
-    /// tests in parallel — so a socket another test opens mid-measurement reads as a leak,
-    /// and one it closes can hide a real one. Holding this for the whole of any test that
-    /// opens sockets is what makes the count attributable to the test doing the counting.
+    /// A descriptor leak can only be measured process-wide (`/dev/fd`), and cargo runs the
+    /// suite in parallel — so a descriptor another test opens mid-measurement reads as a
+    /// leak, and one it closes can hide a real one. Every test that opens *anything* — a
+    /// socket, a log file, a zip — takes this, which is what makes the count attributable
+    /// to the test doing the counting. A test that opens nothing does not need it.
     ///
-    /// It is tokio's mutex, not std's, because it is held across awaits — and unlike std's
-    /// it does not poison, so one failing test does not cascade into the rest.
-    pub async fn socket_tests() -> MutexGuard<'static, ()> {
+    /// tokio's mutex rather than std's: it is held across awaits, and it does not poison,
+    /// so one failing test cannot cascade into the rest.
+    fn lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().await
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    pub async fn fd_tests() -> MutexGuard<'static, ()> {
+        lock().lock().await
+    }
+
+    /// For the sync tests. `blocking_lock` panics inside a runtime, and these are not in
+    /// one — that is precisely why they cannot use [`fd_tests`].
+    pub fn fd_tests_blocking() -> MutexGuard<'static, ()> {
+        lock().blocking_lock()
     }
 }
 

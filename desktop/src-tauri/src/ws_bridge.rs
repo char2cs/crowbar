@@ -355,7 +355,7 @@ mod tests {
 
     #[tokio::test]
     async fn daemon_initiated_close_retires_the_connection() {
-        let _serialised = crate::test_support::socket_tests().await;
+        let _serialised = crate::test_support::fd_tests().await;
 
         let sock = test_socket("retire");
         let listener = UnixListener::bind(&sock).unwrap();
@@ -392,7 +392,7 @@ mod tests {
     /// descriptor table does.
     #[tokio::test]
     async fn daemon_initiated_closes_do_not_leak_file_descriptors() {
-        let _serialised = crate::test_support::socket_tests().await;
+        let _serialised = crate::test_support::fd_tests().await;
 
         const CYCLES: usize = 20;
 
@@ -444,7 +444,7 @@ mod tests {
     /// that opens one.
     #[tokio::test]
     async fn explicit_close_releases_the_socket_against_a_daemon_that_never_reacts() {
-        let _serialised = crate::test_support::socket_tests().await;
+        let _serialised = crate::test_support::fd_tests().await;
 
         let sock = test_socket("close");
         spawn_wedged_daemon(UnixListener::bind(&sock).unwrap());
@@ -475,7 +475,7 @@ mod tests {
     /// a permanently stranded socket.
     #[tokio::test]
     async fn close_all_retires_connections_a_reloaded_page_abandoned() {
-        let _serialised = crate::test_support::socket_tests().await;
+        let _serialised = crate::test_support::fd_tests().await;
 
         let sock = test_socket("reload");
         spawn_wedged_daemon(UnixListener::bind(&sock).unwrap());

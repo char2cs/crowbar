@@ -386,7 +386,7 @@ mod tests {
     /// PTY — and its stream — alive, which is the normal case, not an edge case.
     #[tokio::test]
     async fn closing_a_session_releases_the_socket_while_the_daemon_keeps_the_pty() {
-        let _serialised = crate::test_support::socket_tests().await;
+        let _serialised = crate::test_support::fd_tests().await;
 
         let sock = test_socket("close");
         spawn_idle_pty_daemon(UnixListener::bind(&sock).unwrap());
@@ -420,7 +420,7 @@ mod tests {
     /// and must not keep their sockets.
     #[tokio::test]
     async fn close_all_releases_terminals_a_reloaded_page_abandoned() {
-        let _serialised = crate::test_support::socket_tests().await;
+        let _serialised = crate::test_support::fd_tests().await;
 
         let sock = test_socket("reload");
         spawn_idle_pty_daemon(UnixListener::bind(&sock).unwrap());
@@ -450,7 +450,7 @@ mod tests {
     /// stream under a session that is still current.
     #[tokio::test]
     async fn a_daemon_disconnect_retires_the_session_and_is_announced() {
-        let _serialised = crate::test_support::socket_tests().await;
+        let _serialised = crate::test_support::fd_tests().await;
 
         let sock = test_socket("drop");
         let listener = UnixListener::bind(&sock).unwrap();
