@@ -138,6 +138,41 @@ func (h *Handlers) Rename(
 	libs.WriteAccepted(ctx)
 }
 
+// RenameByRunner handles POST .../workspaces/:wsId/agent/runners/:segid/rename:
+// sets the title of the chat the RUNNER named by :segid is placed on RIGHT NOW,
+// resolved at call time (never a chat id baked into the agent's spawn-time
+// instruction — see (*agent.Usecase).RenameByRunner). This is the route the
+// `crowbar chat rename --segment <segid>` CLI posts to; `?source=agent` applies
+// the same agent precedence rule Rename does (skip if user-locked).
+//
+// Unlike Rename it has no by-id workspace scope check to make: :segid names a
+// RUNNER, not a chat, and every other runner-keyed callback (Hooks) resolves the
+// same way, straight off the runner aggregate. A runner Crowbar has never heard
+// of, or one whose CLI has already exited, maps to 404 via
+// agentrunner.ErrNotFound.
+func (h *Handlers) RenameByRunner(
+	ctx *gin.Context,
+) {
+	rctx := ctx.Request.Context()
+	segID := ctx.Param("segid")
+	source := ctx.Query("source")
+
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := h.usecase.RenameByRunner(rctx, segID, body.Title, source); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+	libs.WriteAccepted(ctx)
+}
+
 // Delete handles DELETE .../workspaces/:wsId/agent/chats/:id: hard-deletes
 // the chat via usecase.PurgeChat (best-effort active-segment PTY teardown,
 // then asynx Forget): the chat's event log itself is erased, not merely

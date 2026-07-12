@@ -115,6 +115,9 @@ type fakeAgentUsecase struct {
 	renameCalls []renameCall
 	renameErr   error
 
+	renameByRunnerCalls []renameByRunnerCall
+	renameByRunnerErr   error
+
 	purgeCalls []string
 	purgeErr   error
 
@@ -151,6 +154,12 @@ type renameCall struct {
 	chatID string
 	title  string
 	source string
+}
+
+type renameByRunnerCall struct {
+	runnerID string
+	title    string
+	source   string
 }
 
 func (f *fakeAgentUsecase) SpawnChat(
@@ -232,6 +241,14 @@ func (f *fakeAgentUsecase) RenameChat(
 ) error {
 	f.renameCalls = append(f.renameCalls, renameCall{chatID: chatID, title: title, source: source})
 	return f.renameErr
+}
+
+func (f *fakeAgentUsecase) RenameByRunner(
+	_ context.Context,
+	runnerID, title, source string,
+) error {
+	f.renameByRunnerCalls = append(f.renameByRunnerCalls, renameByRunnerCall{runnerID: runnerID, title: title, source: source})
+	return f.renameByRunnerErr
 }
 
 func (f *fakeAgentUsecase) PurgeChat(

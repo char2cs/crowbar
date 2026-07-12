@@ -19,7 +19,7 @@ var (
 )
 
 // Prompts holds Crowbar's agent-facing prompt templates. Placeholders
-// ({crowbar}, {chatid}, {conversation}) are expanded by Crowbar at injection time.
+// ({crowbar}, {segid}, {conversation}) are expanded by Crowbar at injection time.
 type Prompts struct {
 	TitleInstruction string `yaml:"title_instruction"`
 	// HandoffWrapper wraps the WHOLE conversation for a provider joining the chat

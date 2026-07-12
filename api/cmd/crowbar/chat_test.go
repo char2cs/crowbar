@@ -34,11 +34,11 @@ func TestRunChatRename_PostsTitleWithAgentSource(t *testing.T) {
 	go srv.Serve(ln)
 	defer srv.Close()
 
-	err = runChatRename("c-42", "Fix Auth Flow", "p1", "r1", "w1", "unix://"+sock)
+	err = runChatRename("seg-42", "Fix Auth Flow", "p1", "r1", "w1", "unix://"+sock)
 	require.NoError(t, err)
 
 	mu.Lock()
 	defer mu.Unlock()
-	require.Equal(t, "/v0/projects/p1/repos/r1/workspaces/w1/agent/chats/c-42/rename?source=agent", gotPath)
+	require.Equal(t, "/v0/projects/p1/repos/r1/workspaces/w1/agent/runners/seg-42/rename?source=agent", gotPath)
 	require.Equal(t, "Fix Auth Flow", gotBody["title"])
 }

@@ -213,6 +213,33 @@ func (u *Usecase) RenameChat(
 	return nil
 }
 
+// RenameByRunner resolves runnerID to the chat it is placed on RIGHT NOW and
+// applies RenameChat to it — the same runnerID → runner → CurrentChatID
+// resolution IngestHook uses for every hook (see its doc comment). It is what
+// the `crowbar chat rename --segment <segid>` CLI calls: the chat id is never
+// baked into the agent's spawn-time instruction, so a CLI that has since moved
+// to a different chat (a /clear or /resume issued inside it) can never rename
+// the chat it used to be on.
+//
+// A displaced runner (CurrentChatID == "" — Crowbar has taken it off its chat
+// and is killing it, but the process has not yet died) has nowhere to write
+// the title and is a silent no-op, mirroring handleTurn's identical guard on
+// the hook path: there is nothing actionable a dying CLI could do with an
+// error here.
+func (u *Usecase) RenameByRunner(
+	ctx context.Context,
+	runnerID, title, source string,
+) error {
+	runner, err := u.runners.Get(ctx, runnerID)
+	if err != nil {
+		return fmt.Errorf("agent: rename by runner: runner: %w", err)
+	}
+	if runner.CurrentChatID == "" {
+		return nil
+	}
+	return u.RenameChat(ctx, runner.CurrentChatID, title, source)
+}
+
 // PurgeChat hard-deletes chatID via asynx Forget: the aggregate's event log AND
 // its read-model row are erased, so a subsequent GetChat/ListChats genuinely
 // reports not found. It then kills the CLI that was pointed at the chat, drops the
@@ -650,7 +677,6 @@ func (u *Usecase) spawnRunner(
 		CrowbarHook: u.crowbarHookPath(crowbarHome),
 		Segid:       runnerID,
 		Provider:    providerID,
-		Chatid:      chatID,
 		ProjectID:   projectID,
 		RepoID:      repoID,
 		WorkspaceID: workspaceID,

@@ -100,6 +100,7 @@ func Register(
 	home.POST("/agent/chats/:id/rename", h.RequireHomeWorkspace, ah.Rename)
 	home.GET("/agent/chats/:id/handoff", h.RequireHomeWorkspace, ah.Handoff)
 	home.DELETE("/agent/chats/:id", h.RequireHomeWorkspace, ah.Delete)
+	home.POST("/agent/runners/:segid/rename", h.RequireHomeWorkspace, ah.RenameByRunner)
 	home.POST("/agent/hooks", h.RequireHomeWorkspace, ah.Hooks)
 	home.GET("/agent/providers", h.RequireHomeWorkspace, ah.Providers)
 	home.GET("/agent/ws/chats", h.RequireHomeWorkspace, agentWS)

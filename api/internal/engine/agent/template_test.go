@@ -16,9 +16,9 @@ func TestExpand_ReplacesKnownTokens(t *testing.T) {
 		"/bin/crowbar hook turn_stop --segment seg1 --provider claude",
 		agent.Expand("{crowbar_hook} hook turn_stop --segment {segid} --provider {provider}", ctx))
 	require.Equal(t,
-		"/bin/crowbar chat rename c-9 \"x\"",
-		agent.Expand("{crowbar} chat rename {chatid} \"x\"",
-			agent.TemplateCtx{CrowbarHook: "/bin/crowbar", Chatid: "c-9"}))
+		"/bin/crowbar chat rename --segment seg1 \"x\"",
+		agent.Expand("{crowbar} chat rename --segment {segid} \"x\"",
+			agent.TemplateCtx{CrowbarHook: "/bin/crowbar", Segid: "seg1"}))
 }
 
 func TestExpand_ReplacesScopeTokens(t *testing.T) {

@@ -72,8 +72,8 @@ func argvDumper(t *testing.T) string {
 // ── The cobra half ───────────────────────────────────────────────────────────
 
 type parsedCallback struct {
-	project, repo, workspace string
-	args                     []string
+	project, repo, workspace, segment string
+	args                              []string
 }
 
 // parseThroughCobra feeds the shell-produced argv to the REAL root command —
@@ -95,7 +95,16 @@ func parseThroughCobra(t *testing.T, argv []string) parsedCallback {
 		require.NoError(t, err)
 		return v
 	}
-	return parsedCallback{project: get("project"), repo: get("repo"), workspace: get("workspace"), args: args}
+	// segment is only bound on commands that carry a runner id (hook, chat
+	// rename); handoff dump has no such flag, so it is read optionally.
+	segment := ""
+	if target.Flags().Lookup("segment") != nil {
+		segment = get("segment")
+	}
+	return parsedCallback{
+		project: get("project"), repo: get("repo"), workspace: get("workspace"),
+		segment: segment, args: args,
+	}
 }
 
 // ── Descriptor hook commands (the production template source) ────────────────
@@ -232,12 +241,13 @@ func TestHookCallbackRoundTrip_WorkspaceScopedControl(t *testing.T) {
 // TestChatRenameRoundTrip_ProjectHomeHasNoRepo covers the agent auto-title
 // callback. Its command line lives in core/config's title_instruction (the LLM
 // retypes it verbatim), so it goes through the same shell + pflag chain — and,
-// unlike the hooks, it carries positionals AFTER the flags (chatid + title),
-// which is exactly what a swallowed --repo value shifts out of alignment.
+// unlike the plain scopedAgentPath unit tests, it carries a --segment flag
+// followed by a positional (the title), which is exactly what a swallowed
+// --repo value shifts out of alignment.
 func TestChatRenameRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 	ctx := engineagent.TemplateCtx{
 		CrowbarHook: argvDumper(t),
-		Chatid:      "chat-1",
+		Segid:       "SEG-1",
 		ProjectID:   "PROJ",
 		RepoID:      "",
 		WorkspaceID: "WS",
@@ -248,23 +258,25 @@ func TestChatRenameRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 	got := parseThroughCobra(t, argvThroughShell(t, command))
 
 	require.Equal(t, "", got.repo)
-	require.Equal(t, []string{"chat-1", "<title>"}, got.args, "chat rename takes exactly chatid + title")
-	require.Equal(t, "/v0/projects/PROJ/home/agent/chats/chat-1/rename?source=agent",
-		scopedAgentPath(got.project, got.repo, got.workspace, "/chats/"+got.args[0]+"/rename?source=agent"))
+	require.Equal(t, "SEG-1", got.segment, "the chat id is never baked in — the runner is resolved at call time")
+	require.Equal(t, []string{"<title>"}, got.args, "chat rename takes exactly the title; the chat id comes from --segment")
+	require.Equal(t, "/v0/projects/PROJ/home/agent/runners/SEG-1/rename?source=agent",
+		scopedAgentPath(got.project, got.repo, got.workspace, "/runners/"+got.segment+"/rename?source=agent"))
 }
 
 // TestHandoffDumpRoundTrip_ProjectHomeHasNoRepo covers the third callback. It has
 // no descriptor template (it is invoked by hand / by the agent), so it is driven
 // through the same shell + cobra chain from the same {scope_flags} rendering.
+// handoff dump takes a REAL chat id typed at debug time — never a template
+// token baked in at spawn — so it is written directly into the command line.
 func TestHandoffDumpRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 	ctx := engineagent.TemplateCtx{
 		CrowbarHook: argvDumper(t),
-		Chatid:      "chat-1",
 		ProjectID:   "PROJ",
 		RepoID:      "",
 		WorkspaceID: "WS",
 	}
-	command := engineagent.Expand("{crowbar} handoff dump {scope_flags} {chatid}", ctx)
+	command := engineagent.Expand("{crowbar} handoff dump {scope_flags} chat-1", ctx)
 
 	got := parseThroughCobra(t, argvThroughShell(t, command))
 

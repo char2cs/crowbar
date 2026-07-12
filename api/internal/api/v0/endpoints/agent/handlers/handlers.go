@@ -74,6 +74,18 @@ type AgentUsecase interface {
 		chatID, title, source string,
 	) error
 
+	// RenameByRunner resolves runnerID to the chat it is placed on RIGHT NOW and
+	// applies the same user>agent>derived precedence RenameChat does (see
+	// (*agent.Usecase).RenameByRunner). It is what the `crowbar chat rename
+	// --segment <segid>` CLI calls: the chat id is never baked into the agent's
+	// spawn-time instruction, so a CLI that has since moved to a different chat
+	// (a /clear or /resume issued inside it) can never rename the chat it used
+	// to be on.
+	RenameByRunner(
+		ctx context.Context,
+		runnerID, title, source string,
+	) error
+
 	// PurgeChat hard-deletes chatID via asynx Forget, then best-effort kills the
 	// vendor CLI that was pointed at it. The chat is fully erased — gone from every
 	// read, including a direct GetChat by id — the instant this returns.

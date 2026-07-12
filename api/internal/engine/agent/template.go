@@ -31,7 +31,6 @@ type TemplateCtx struct {
 	CrowbarHook    string
 	Segid          string
 	Provider       string
-	Chatid         string
 	ProjectID      string
 	RepoID         string
 	WorkspaceID    string
@@ -81,7 +80,6 @@ func Expand(s string, ctx TemplateCtx) string {
 		"{crowbar}", ctx.CrowbarHook, // same binary as {crowbar_hook}; friendlier for non-hook commands
 		"{segid}", ctx.Segid,
 		"{provider}", ctx.Provider,
-		"{chatid}", ctx.Chatid,
 		"{project_id}", ctx.ProjectID,
 		"{repo_id}", ctx.RepoID,
 		"{workspace_id}", ctx.WorkspaceID,
