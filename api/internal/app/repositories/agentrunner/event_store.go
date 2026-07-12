@@ -134,6 +134,16 @@ type EventStore interface {
 		ctx context.Context,
 		chatID string,
 	) ([]domain.AgentRunner, error)
+	// LiveRunnersForSession returns EVERY live runner holding a conversation, newest arrival
+	// first — the I3 twin of LiveRunnersForChat, and the read a placement onto a conversation
+	// (a bind, a move) must use. The single-row read cannot serve that: once the write has
+	// committed the caller IS the newest holder, so it would get its own row back and evict
+	// nobody.
+	LiveRunnersForSession(
+		ctx context.Context,
+		wsID string,
+		sessionID string,
+	) ([]domain.AgentRunner, error)
 	// LiveRunnerForSession returns the runner currently HOLDING a conversation —
 	// the incumbent an eviction must displace. ErrNotFound means nobody is running
 	// that conversation right now, which is NOT "it never existed" (that question
@@ -390,6 +400,18 @@ func (r *eventSourced) LiveRunnersForChat(
 	runners, err := r.store.LiveRunnersForChat(ctx, chatID)
 	if err != nil {
 		return nil, fmt.Errorf("agentrunner: live runners for chat: %w", err)
+	}
+	return runners, nil
+}
+
+func (r *eventSourced) LiveRunnersForSession(
+	ctx context.Context,
+	wsID string,
+	sessionID string,
+) ([]domain.AgentRunner, error) {
+	runners, err := r.store.LiveRunnersForSession(ctx, wsID, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("agentrunner: live runners for session: %w", err)
 	}
 	return runners, nil
 }

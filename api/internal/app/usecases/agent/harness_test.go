@@ -303,6 +303,11 @@ type fakeRunnerStore struct {
 	failStart      error
 	failMove       error
 	failForgetChat error
+	// afterMove / afterStart run once each COMMAND HAS COMMITTED, so a test can pin an
+	// exact interleaving of two placements onto one chat by blocking on channels inside
+	// them. Real signals, never a sleep: the goroutines hand off to each other.
+	afterMove  func()
+	afterStart func()
 }
 
 func (s *fakeRunnerStore) ForgetChat(ctx context.Context, chatID string) error {
@@ -316,7 +321,11 @@ func (s *fakeRunnerStore) Start(ctx context.Context, in agentrunner.StartInput) 
 	if s.failStart != nil {
 		return domain.AgentRunner{}, s.failStart
 	}
-	return s.EventStore.Start(ctx, in)
+	r, err := s.EventStore.Start(ctx, in)
+	if s.afterStart != nil {
+		s.afterStart()
+	}
+	return r, err
 }
 
 func (s *fakeRunnerStore) Move(
@@ -327,7 +336,11 @@ func (s *fakeRunnerStore) Move(
 	if s.failMove != nil {
 		return domain.AgentRunner{}, s.failMove
 	}
-	return s.EventStore.Move(ctx, runnerID, toChatID, sessionID, now)
+	r, err := s.EventStore.Move(ctx, runnerID, toChatID, sessionID, now)
+	if s.afterMove != nil {
+		s.afterMove()
+	}
+	return r, err
 }
 
 // testFixture is the usecase harness: the real asynx-backed chat AND runner

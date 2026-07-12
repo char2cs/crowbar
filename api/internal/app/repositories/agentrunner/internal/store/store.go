@@ -193,6 +193,39 @@ func (s *Store) LiveRunnersForChat(
 	return out, nil
 }
 
+// LiveRunnersForSession returns EVERY live runner holding conversation sessionID, newest
+// arrival first — the I3 twin of LiveRunnersForChat, and it exists for the same reason.
+//
+// A placement onto a conversation (a bind, a move) must leave exactly ONE runner holding it,
+// because two CLIs on one provider session id both write the same session file and corrupt
+// it. And the single-row read cannot serve that: by the time the write has committed, the
+// caller IS the newest holder, so LiveRunnerForSession would hand it back its own row and it
+// would evict nobody at all.
+//
+// An empty sessionID is NOWHERE, and nowhere is held by nobody.
+func (s *Store) LiveRunnersForSession(
+	ctx context.Context,
+	wsID string,
+	sessionID string,
+) ([]domain.AgentRunner, error) {
+	if sessionID == "" {
+		return nil, nil
+	}
+	var rows []runnerRow
+	err := s.db.WithContext(ctx).
+		Where("workspace_id = ? AND current_session = ?", wsID, sessionID).
+		Order(newestArrivalFirst).
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("agentrunner store: live runners for session %q: %w", sessionID, err)
+	}
+	out := make([]domain.AgentRunner, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.toRunner())
+	}
+	return out, nil
+}
+
 // LiveRunnerForSession returns the runner currently holding conversation sessionID in
 // wsID — the incumbent the eviction path must displace (invariant I3: at most one live
 // runner per conversation, because two CLIs on one provider session id both write the

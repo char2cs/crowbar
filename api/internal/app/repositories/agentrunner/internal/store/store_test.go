@@ -561,6 +561,42 @@ func TestLiveRunnersForChat_ReturnsEveryoneOnTheChatNewestFirst(t *testing.T) {
 	assert.Empty(t, got)
 }
 
+// LiveRunnersForSession is the I3 twin, and it exists for the same reason: once a placement
+// has committed, the caller IS the newest holder, so the single-row read would hand it back
+// its own row and it would evict nobody at all.
+func TestLiveRunnersForSession_ReturnsEveryHolderNewestFirst(t *testing.T) {
+	h := newHarness(t)
+	h.start(arCmds.Start{
+		RunnerID: "holder", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "pty1", ChatID: "c1", Now: clock(10),
+	})
+	h.bindSession("holder", "s1", clock(11))
+
+	// A second CLI announces the SAME conversation (a --continue-style descriptor override is
+	// all it takes): two runners on one provider session id, which is the I3 violation.
+	h.start(arCmds.Start{
+		RunnerID: "newcomer", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "pty2", ChatID: "c2", Now: clock(20),
+	})
+	h.bindSession("newcomer", "s1", clock(21))
+	h.drain()
+
+	got, err := h.st.LiveRunnersForSession(h.ctx, "w1", "s1")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "newcomer", got[0].ID, "newest arrival first — the one that must survive")
+	assert.Equal(t, "holder", got[1].ID)
+
+	// Scoped to its workspace, and nowhere is held by nobody.
+	got, err = h.st.LiveRunnersForSession(h.ctx, "other-ws", "s1")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+
+	got, err = h.st.LiveRunnersForSession(h.ctx, "w1", "")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
 // "" is NOWHERE, not a key. A displaced runner's row carries an empty chat id and an empty
 // session, so an unguarded lookup would MATCH those rows — handing a caller a runner that is
 // on nothing, which is the read model volunteering a lie.

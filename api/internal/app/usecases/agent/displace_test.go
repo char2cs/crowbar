@@ -478,3 +478,107 @@ func TestRegression_EvictionHealsAnAlreadyBrokenInvariant(t *testing.T) {
 		"an eviction must retire EVERY other runner placed on the chat, not just one")
 	assert.Equal(t, mover, mustLive(t, f, chatB).ID)
 }
+
+// TestRegression_FirstAnnouncementOfAHeldConversation_EvictsTheHolder
+//
+// MoveBind evicts nobody, and its I3 safety used to be an ARGUMENT: a CLI's first
+// conversation is one Crowbar itself chose (a fresh spawn, or a resume taken under the
+// chat's gate), so it cannot already be held.
+//
+// That argument is breakable FROM A CONFIG FILE. ResolveDescriptor merges on-disk overrides
+// from crowbar home, and spawn.args is user-configurable: drop in an override adding
+// `--continue`, or adopt any provider that auto-restores its last session, and a freshly
+// spawned CLI announces an id CROWBAR NEVER CHOSE — possibly one another live runner is
+// holding. Decide returns MoveBind (a first announcement wins over "known"), nobody is
+// evicted, and two CLIs write one provider session file: I3 violated, the PROVIDER'S OWN
+// DATA corrupted, with no Go error, no failing test and no log line.
+//
+// Go must never depend on what the YAML says for its invariants. So the bind evicts the
+// holder too — a no-op on every legitimate path, and a guard on this one.
+func TestRegression_FirstAnnouncementOfAHeldConversation_EvictsTheHolder(t *testing.T) {
+	f := newFixture(t)
+
+	chatA, holder := f.spawn(t, "claude")
+	f.announce(t, holder, "sHeld")
+	holderTerm := f.runner(t, holder).TerminalSession
+
+	// A second CLI comes up and announces — as its FIRST conversation — the id the first one
+	// is live on. (A `--continue`-style descriptor override is all it takes.)
+	_, newcomer := f.spawn(t, "claude")
+	f.announce(t, newcomer, "sHeld")
+
+	live, err := f.runners.LiveRunnerForSession(f.ctx, "ws1", "sHeld")
+	require.NoError(t, err)
+	assert.Equal(t, newcomer, live.ID, "the conversation is held by the CLI that announced it last")
+
+	assert.Contains(t, f.term.terminateRequestIDs(), holderTerm,
+		"I3: two CLIs must never hold one provider session id — the incumbent is evicted")
+
+	assert.Empty(t, f.placedRunnersFor(t, chatA),
+		"the evicted holder is taken off its chat like any other evictee")
+}
+
+// TestRegression_TwoPlacementsRacingOneChat_LeaveExactlyOneSurvivor
+//
+// retireOthersOn told each placement to retire everyone else on the chat. If a hook's Move
+// and a spawn's Start commit such that BOTH plural reads happen after BOTH writes, they
+// retire each other: the spawn kills the mover, the mover kills the spawn, and the chat is
+// left with NOBODY — while SwitchProvider cheerfully returns the id of a runner it has just
+// SIGTERM'd, so the pane attaches to a dying PTY.
+//
+// The list is ordered newest-arrival-first, so the rule is made total by making it
+// ASYMMETRIC: retire only the arrivals strictly OLDER than you, and nobody at all if you are
+// not on the list (someone else's placement already took you off). Exactly one runner — the
+// newest — retires anybody, and it is the same one the serving read hands out. The retire
+// rule and the read model agree by construction.
+//
+// The interleaving is forced through channels inside the committed commands, never timed.
+func TestRegression_TwoPlacementsRacingOneChat_LeaveExactlyOneSurvivor(t *testing.T) {
+	f, _, rs := newFaultFixture(t)
+
+	chatB, claudeB := f.spawn(t, "claude")
+	f.announce(t, claudeB, "sB")
+	turn(t, f, claudeB, "claude", "what claude said in B")
+
+	_, r1 := f.spawn(t, "codex")
+	f.announce(t, r1, "sA")
+
+	moved := make(chan struct{})
+	started := make(chan struct{})
+	var hook sync.WaitGroup
+
+	// The hook's Move commits, then it WAITS for the spawn's Start to commit before it runs
+	// its own "retire everyone else" read — so both reads see both runners.
+	rs.afterMove = func() {
+		close(moved)
+		<-started
+	}
+	rs.afterStart = func() { close(started) }
+
+	// The hook fires while the switch is forking its process — after the outgoing CLI has
+	// been displaced (the chat is momentarily empty) and before the incoming one is Started.
+	f.term.duringFork = func() {
+		hook.Add(1)
+		go func() {
+			defer hook.Done()
+			require.NoError(t, f.usecase.IngestHook(f.ctx, r1, "codex", "session_start",
+				mustJSON(t, map[string]any{"session_id": "sB"})))
+		}()
+		<-moved // the Move has committed; let the spawn proceed to Start
+	}
+
+	incoming, err := f.usecase.SwitchProvider(f.ctx, chatB, "codex")
+	require.NoError(t, err)
+	hook.Wait()
+	f.wait()
+
+	placed := f.placedRunnersFor(t, chatB)
+	require.Len(t, placed, 1, "two placements racing one chat must not retire EACH OTHER")
+	assert.Equal(t, incoming, placed[0].ID,
+		"the survivor is the newest arrival — the same runner the serving read hands out")
+
+	live := mustLive(t, f, chatB)
+	assert.Equal(t, incoming, live.ID)
+	assert.NotContains(t, f.term.terminatedIDs(), live.TerminalSession,
+		"SwitchProvider must never return a runner it has itself killed")
+}

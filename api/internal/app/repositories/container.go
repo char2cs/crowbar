@@ -343,7 +343,7 @@ func (c *Container) forgetAgentChats(
 		if err := c.AgentChat.Forget(ctx, chat.ID); err != nil {
 			return fmt.Errorf("repositories: delete cascade: forget agent chat %q: %w", chat.ID, err)
 		}
-		c.retireChatRunner(ctx, chat.ID)
+		c.retireChatRunners(ctx, chat.ID)
 		if err := c.AgentRunner.ForgetChat(ctx, chat.ID); err != nil {
 			slog.ErrorContext(ctx, "repositories: delete cascade: forget chat conversations (best-effort, continuing)",
 				"workspace_id", wsID, "chat_id", chat.ID, "err", err)
@@ -372,53 +372,58 @@ func (c *Container) reapAgentChatFiles(
 	}
 }
 
-// retireChatRunner best-effort takes the vendor CLI pointed at chatID OFF that chat and
-// kills it — the cascade twin of agent.Usecase.retire, in the same order and for the
-// same reasons.
+// retireChatRunners best-effort takes EVERY vendor CLI on chatID off that chat and kills it
+// — the cascade twin of agent.Usecase.retireChatRunners, in the same order and for the same
+// reasons.
+//
+// The PLURAL read, not the single-row one: this is a delete, and a delete is precisely where
+// you want everyone gone. If the invariant were transiently broken (two placements racing
+// this chat), killing "the" runner would leave the other alive and running against a chat
+// that is about to be Forgotten.
 //
 // Displace FIRST: the chat is being erased, and a SIGTERM does not kill a process
-// synchronously, so until the CLI falls over it would otherwise still be pointed at a
-// chat that no longer exists — where its hooks would try to write, and where a read could
-// still hand it out. Displacement is a PLACEMENT fact (ours alone) and says nothing about
+// synchronously, so until the CLI falls over it would otherwise still be pointed at a chat
+// that no longer exists — where its hooks would try to write, and where a read could still
+// hand it out. Displacement is a PLACEMENT fact (ours alone) and says nothing about
 // liveness, so it is safe to record even though the process is still running.
 //
 // Kill SECOND, and never hand-delete the runner's row: the PTY is the sole authority on
-// liveness, so the row goes when the process does (onExit → Exit → the projection drops
-// it). Reaching into the read model to delete it would make this package a second
-// authority on liveness — the exact drift this model deletes.
+// liveness, so the row goes when the process does (onExit → Exit → the projection drops it).
+// Reaching into the read model to delete it would make this package a second authority on
+// liveness — the exact drift this model deletes.
 //
-// A dormant chat (no live runner — ErrNotFound) and a nil terminateSession (a test that
-// doesn't exercise PTY teardown) are both no-ops. Failures are LOGGED, never returned:
-// they must not block the cascade (see forgetAgentChats). ErrSessionNotFound (the CLI
-// already exited) is already swallowed by the injected seam (app.terminateAgentSession).
-func (c *Container) retireChatRunner(
+// A dormant chat and a nil terminateSession (a test that doesn't exercise PTY teardown) are
+// both no-ops. Failures are LOGGED, never returned: they must not block the cascade (see
+// forgetAgentChats). ErrSessionNotFound (the CLI already exited) is already swallowed by the
+// injected seam (app.terminateAgentSession).
+func (c *Container) retireChatRunners(
 	ctx context.Context,
 	chatID string,
 ) {
 	if c.terminateSession == nil {
 		return
 	}
-	live, err := c.AgentRunner.LiveRunnerForChat(ctx, chatID)
+	placed, err := c.AgentRunner.LiveRunnersForChat(ctx, chatID)
 	if err != nil {
-		if !errors.Is(err, agentrunner.ErrNotFound) {
-			slog.ErrorContext(ctx, "repositories: delete cascade: look up chat's live runner (best-effort, continuing)",
-				"chat_id", chatID, "err", err)
-		}
+		slog.ErrorContext(ctx, "repositories: delete cascade: look up chat's runners (best-effort, continuing)",
+			"chat_id", chatID, "err", err)
 		return
 	}
-	// An already-EXITED runner is not an error, and must not be logged as one: a CLI quitting
-	// on its own moments before the cascade reached it is the ORDINARY case, and its exit has
-	// already cleared every placement this would have. Displace says so with ErrValidation
-	// (see agentrunner/internal/commands/displace.go), and the agent usecase's own displace()
-	// treats it exactly the same way.
-	if _, err := c.AgentRunner.Displace(ctx, live.ID); err != nil &&
-		!errors.Is(err, asynxModels.ErrValidation) && !errors.Is(err, agentrunner.ErrNotFound) {
-		slog.ErrorContext(ctx, "repositories: delete cascade: displace agent chat runner (best-effort, continuing)",
-			"chat_id", chatID, "runner_id", live.ID, "err", err)
-	}
-	if err := c.terminateSession(ctx, live.TerminalSession); err != nil {
-		slog.ErrorContext(ctx, "repositories: delete cascade: terminate agent chat PTY (best-effort, continuing)",
-			"chat_id", chatID, "runner_id", live.ID, "terminal_session_id", live.TerminalSession, "err", err)
+	for _, live := range placed {
+		// An already-EXITED runner is not an error, and must not be logged as one: a CLI
+		// quitting on its own moments before the cascade reached it is the ORDINARY case, and
+		// its exit has already cleared every placement this would have. Displace says so with
+		// ErrValidation (see agentrunner/internal/commands/displace.go), and the agent
+		// usecase's own displace() treats it exactly the same way.
+		if _, err := c.AgentRunner.Displace(ctx, live.ID); err != nil &&
+			!errors.Is(err, asynxModels.ErrValidation) && !errors.Is(err, agentrunner.ErrNotFound) {
+			slog.ErrorContext(ctx, "repositories: delete cascade: displace agent chat runner (best-effort, continuing)",
+				"chat_id", chatID, "runner_id", live.ID, "err", err)
+		}
+		if err := c.terminateSession(ctx, live.TerminalSession); err != nil {
+			slog.ErrorContext(ctx, "repositories: delete cascade: terminate agent chat PTY (best-effort, continuing)",
+				"chat_id", chatID, "runner_id", live.ID, "terminal_session_id", live.TerminalSession, "err", err)
+		}
 	}
 }
 
