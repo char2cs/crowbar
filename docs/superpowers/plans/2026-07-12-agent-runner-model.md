@@ -915,6 +915,31 @@ This is the heavy task. Split the commit, not the task: the tree must build at t
 - Consumes: Task 3's `agentrunner.EventStore`; Task 4's `agent.Decide`.
 - `Usecase` gains a `runners agentrunner.EventStore` field; `New(...)` takes it.
 
+**Carried forward from Task 2's review — you must handle this here:**
+`agentrunner`'s `ForgetChat` deletes a chat's conversation history but **leaves a live `runnerRow` pointing at the hard-deleted chat**. That is deliberate: it is the *chat delete cascade's* job, and the cascade lives in this task (`PurgeChat`).
+
+The fix follows from the design rule — the PTY is the sole authority on liveness, so you do not "delete the runner row", you **kill the process and let the row follow**:
+
+```go
+// PurgeChat hard-deletes a chat. A runner may still be pointed at it, and a
+// runner whose chat no longer exists is a runner with nowhere to write — its
+// hooks would resolve to a chat that is gone.
+//
+// So terminate it FIRST and let the PTY's death carry the runner away
+// (TerminateGraceful → the engine's onExit → Exit → the projection drops the live
+// row). We never reach into the read model to delete a runner row by hand: that
+// would be Crowbar asserting a liveness fact it does not own, which is the exact
+// dual-authority mistake this refactor deletes.
+if live, err := u.runners.LiveRunnerForChat(ctx, chatID); err == nil {
+    if err := u.term.TerminateGraceful(ctx, live.TerminalSession); err != nil {
+        slog.ErrorContext(ctx, "agent: purge chat: terminate runner", "runner", live.ID, "err", err)
+    }
+}
+// ...then the existing hard-delete + u.runners.ForgetChat(ctx, chatID) for history.
+```
+
+Cover it: `TestRegression_DeleteChat_KillsItsRunner` — delete a chat that has a live runner, assert the PTY was terminated and no live runner points at the dead chat.
+
 **Key rewrites, in full:**
 
 ```go
