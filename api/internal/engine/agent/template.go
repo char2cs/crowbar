@@ -3,17 +3,12 @@ package agent
 import "strings"
 
 type TemplateCtx struct {
-	// Tmp is the PER-SEGMENT directory: it is deleted when that segment's CLI
-	// exits, so nothing that must survive a provider switch may live here.
+	// Tmp is the PER-SEGMENT directory for a provider's per-spawn config: it is
+	// deleted when that segment's CLI exits. Nothing a provider must keep may live
+	// here — a provider owns its own state (see codex.yaml: Crowbar does not own
+	// codex's home, precisely so it can never delete codex's sessions).
 	Tmp string
-	// ChatDir is the per-CHAT directory, alive for as long as the chat is. It is
-	// where a provider keeps state it needs across segments — codex's CODEX_HOME,
-	// whose rollouts `codex resume` reads back. Pointing that at Tmp meant codex's
-	// own session was deleted the instant it was switched away from, so switching
-	// BACK to codex resumed a thread that no longer existed and the CLI died on
-	// startup ("no rollout found for thread id ...").
-	ChatDir string
-	ID      string
+	ID  string
 	// Context is the single document Crowbar injects into a spawning CLI: the
 	// chat-title instruction, the handed-off conversation, or both, composed by
 	// the agent usecase. One document (not one per concern) because a provider
@@ -64,7 +59,6 @@ func Expand(s string, ctx TemplateCtx) string {
 	r := strings.NewReplacer(
 		"{scope_flags}", ctx.ScopeFlags(),
 		"{tmp}", ctx.Tmp,
-		"{chat_dir}", ctx.ChatDir,
 		"{id}", ctx.ID,
 		"{context}", ctx.Context,
 		"{cwd}", ctx.Cwd,

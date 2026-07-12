@@ -2,7 +2,6 @@ package agent_test
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -141,9 +140,7 @@ func TestSpawnChat_Codex_InjectsTitleInstructionViaDeveloperInstructions(t *test
 	require.Equal(t, 1, f.term.callCount())
 	argv := f.term.calls[0].argv
 
-	doc := argAfter(t, argv, "-c")
-	require.True(t, strings.HasPrefix(doc, "developer_instructions="),
-		"codex context must ride developer_instructions, got %q", doc)
+	doc := configValue(t, argv, "developer_instructions=")
 	assert.Contains(t, doc, "chat rename --project=p1 --workspace=ws1 --repo=r1 "+chatID)
 
 	// The instruction must not ALSO be a bare positional (codex's user prompt).

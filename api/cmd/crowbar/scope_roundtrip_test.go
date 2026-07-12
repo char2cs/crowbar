@@ -110,20 +110,32 @@ func hookCommands(t *testing.T, providerID string, ctx engineagent.TemplateCtx) 
 	d, err := engineagent.ResolveDescriptor("", providerID) // "" home → embedded default
 	require.NoError(t, err)
 
-	// One root holding both dirs a descriptor may write into: {tmp} (per-spawn) and
-	// {chat_dir} (per-chat — codex's CODEX_HOME lives there so its session rollouts
-	// survive a provider switch). Walking the root finds the hook config wherever
-	// the descriptor chose to put it.
 	root := t.TempDir()
-	ctx.Tmp = filepath.Join(root, "segment")
-	ctx.ChatDir = filepath.Join(root, "chat")
+	ctx.Tmp = root
 	ctx.Cwd = t.TempDir()
-	_, err = engineagent.BuildSpawnPlan(d, ctx, nil, nil)
+	plan, err := engineagent.BuildSpawnPlan(d, ctx, nil, nil)
 	require.NoError(t, err)
 
-	// The hook-config file's name is the descriptor's business (claude:
-	// settings.json; codex: codex-home/hooks.json), so discover it by shape.
+	// A descriptor may deliver its hook commands EITHER as a written config file
+	// (claude: --settings settings.json) or as config overrides on the argv (codex:
+	// -c hooks.SessionStart=..., so that Crowbar never has to own codex's home).
+	// Collect from both, keyed by the vendor's event name.
 	commands := map[string]string{}
+	for _, a := range plan.Argv {
+		for _, ev := range []string{"SessionStart", "UserPromptSubmit", "Stop"} {
+			if !strings.HasPrefix(a, "hooks."+ev+"=") {
+				continue
+			}
+			if i := strings.Index(a, `command="`); i >= 0 {
+				rest := a[i+len(`command="`):]
+				if j := strings.Index(rest, `"`); j >= 0 {
+					commands[ev] = rest[:j]
+				}
+			}
+		}
+	}
+
+	// ...plus any hook-config FILE the descriptor wrote (claude's settings.json).
 	require.NoError(t, filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
 		if err != nil || e.IsDir() {
 			return err
@@ -135,20 +147,25 @@ func hookCommands(t *testing.T, providerID string, ctx engineagent.TemplateCtx) 
 				} `json:"hooks"`
 			} `json:"hooks"`
 		}
-		raw, err := os.ReadFile(path)
-		if err != nil || json.Unmarshal(raw, &file) != nil {
-			return nil //nolint:nilerr // non-JSON siblings (codex auth.json/config.toml) are not hook configs
+		data, readErr := os.ReadFile(path) //nolint:gosec // test-local path under t.TempDir()
+		if readErr != nil {
+			return readErr
 		}
-		for event, matchers := range file.Hooks {
-			for _, m := range matchers {
-				for _, h := range m.Hooks {
-					commands[event] = h.Command
+		if json.Unmarshal(data, &file) != nil {
+			return nil // not a hook config
+		}
+		for event, groups := range file.Hooks {
+			for _, g := range groups {
+				for _, h := range g.Hooks {
+					if h.Command != "" {
+						commands[event] = h.Command
+					}
 				}
 			}
 		}
 		return nil
 	}))
-	require.NotEmpty(t, commands, "descriptor %q wrote no hook config", providerID)
+
 	return commands
 }
 

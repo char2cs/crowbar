@@ -9,33 +9,39 @@ spawn:
   args: ["--dangerously-bypass-hook-trust"]
 session:
   resume: { arg: "resume {id}" }
+# Crowbar does NOT own codex's home. It runs codex against the user's real
+# ~/.codex and injects everything it needs as session-layer config overrides
+# (-c), which codex honours for hooks — verified against 0.139.0: SessionStart,
+# UserPromptSubmit and Stop all fire with no CODEX_HOME override and no file
+# written anywhere.
+#
+# The alternative — pointing CODEX_HOME at a Crowbar-owned directory to drop a
+# hooks.json into it — is what the descriptor used to do, and it was wrong twice
+# over. It made Crowbar the custodian of codex's SESSIONS (they live in
+# $CODEX_HOME), so Crowbar deleted codex's own session whenever it cleaned up the
+# directory: switching away from codex destroyed the thread, and switching back
+# killed the CLI on startup with "no rollout found for thread id ...". And it hid
+# the user's real codex from itself — no skills, no MCP servers, no memories, no
+# model prefs, none of their own hooks.
+#
+# A provider owns its sessions. Crowbar only observes.
 config_injection:
-  # CODEX_HOME is CHAT-scoped ({chat_dir}), not segment-scoped ({tmp}), because
-  # codex stores its session ROLLOUT inside it — and that rollout is the only
-  # thing `codex resume <id>` can read. Under {tmp} it was deleted the moment the
-  # segment ended, so switching away from codex destroyed its own session and
-  # switching BACK resumed a thread that no longer existed: codex died on startup
-  # with "no rollout found for thread id ...". The chat dir lives exactly as long
-  # as the chat, and is erased with it (PurgeChat), so the auth.json copy below is
-  # still removed on delete.
-  - set_env:    { name: CODEX_HOME, value: "{chat_dir}/codex-home" }
-  - write_file: { path: "{chat_dir}/codex-home/auth.json", from: "~/.codex/auth.json" }
-  - write_file:
-      path: "{chat_dir}/codex-home/config.toml"
-      content: |
-        [projects."{cwd}"]
-        trust_level = "trusted"
-  - write_file:
-      path: "{chat_dir}/codex-home/hooks.json"
-      content: |
-        {"hooks":{
-          "SessionStart":[{"hooks":[{"type":"command",
-            "command":"{crowbar_hook} hook session_start --segment {segid} --provider {provider} {scope_flags}"}]}],
-          "UserPromptSubmit":[{"hooks":[{"type":"command",
-            "command":"{crowbar_hook} hook user_prompt --segment {segid} --provider {provider} {scope_flags}"}]}],
-          "Stop":[{"hooks":[{"type":"command",
-            "command":"{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"}]}]
-        }}
+  # codex prompts to self-update on startup, which would eat the first keystrokes
+  # in the chat pane.
+  - pass_arg: { arg: "-c", value: 'check_for_update_on_startup=false' }
+  # The hooks Crowbar listens on. They are the ONLY thing it injects: the segment
+  # id travels in the command itself, so nothing is written to disk and nothing of
+  # the user's is overridden — their own ~/.codex/hooks.json still fires alongside
+  # these.
+  - pass_arg:
+      arg: "-c"
+      value: 'hooks.SessionStart=[{hooks=[{type="command",command="{crowbar_hook} hook session_start --segment {segid} --provider {provider} {scope_flags}"}]}]'
+  - pass_arg:
+      arg: "-c"
+      value: 'hooks.UserPromptSubmit=[{hooks=[{type="command",command="{crowbar_hook} hook user_prompt --segment {segid} --provider {provider} {scope_flags}"}]}]'
+  - pass_arg:
+      arg: "-c"
+      value: 'hooks.Stop=[{hooks=[{type="command",command="{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"}]}]'
 hooks:
   format: json
   events:

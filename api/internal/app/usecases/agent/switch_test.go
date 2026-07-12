@@ -290,8 +290,7 @@ func TestSwitchProvider_ForwardSwitch_CarriesWholeConversation(t *testing.T) {
 	// developer_instructions channel — never the positional user prompt.
 	assert.Equal(t, -1, indexOf(argv, "resume"), "a provider new to the chat has no session to resume")
 
-	doc := argAfter(t, argv, "-c")
-	require.True(t, strings.HasPrefix(doc, "developer_instructions="))
+	doc := configValue(t, argv, "developer_instructions=")
 	assert.Contains(t, doc, "claude said this first")
 }
 
@@ -537,31 +536,16 @@ func TestSwitchProvider_SwitchBackToProviderWithNoTurns_DoesNotResume(t *testing
 	assert.Contains(t, doc, "HANDED-OFF CONTEXT")
 }
 
-// codexHomeOf returns the CODEX_HOME a spawn was given.
-func codexHomeOf(t *testing.T, env []string) string {
-	t.Helper()
-	for _, kv := range env {
-		if v, ok := strings.CutPrefix(kv, "CODEX_HOME="); ok {
-			return v
-		}
-	}
-	t.Fatalf("CODEX_HOME not set in env %v", env)
-	return ""
-}
-
-// TestSwitchProvider_CodexHomeIsChatScopedAndSurvivesTheSegment is the regression
-// for a bug that made switching BACK to codex impossible.
+// TestSwitchProvider_CodexKeepsItsOwnHome is the regression for the worst bug in
+// this feature: Crowbar used to point CODEX_HOME at a directory it owned and
+// deleted, which made it the custodian of codex's SESSIONS. It duly destroyed
+// them — leaving codex ended its segment, the directory went with it, and coming
+// back resumed a thread that no longer existed, so the CLI died on startup ("no
+// rollout found for thread id ...") and the chat could never return to codex.
 //
-// codex keeps its session ROLLOUT inside $CODEX_HOME, and that rollout is the only
-// thing `codex resume <id>` can read. CODEX_HOME used to be the per-SEGMENT tmp
-// dir — which the usecase deletes as soon as that segment's CLI exits. So leaving
-// codex destroyed codex's own session, and coming back resumed a thread that no
-// longer existed: the CLI died on startup with "no rollout found for thread id",
-// its segment ended seconds later, and the chat could never return to codex.
-//
-// So CODEX_HOME must be CHAT-scoped: the same directory across every codex segment
-// of the chat, and NOT under the per-segment dir that gets reaped.
-func TestSwitchProvider_CodexHomeIsChatScopedAndSurvivesTheSegment(t *testing.T) {
+// A provider owns its own sessions. Crowbar injects its hooks as config overrides
+// and never touches codex's home, so there is nothing left for it to delete.
+func TestSwitchProvider_CodexKeepsItsOwnHome(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
@@ -573,32 +557,26 @@ func TestSwitchProvider_CodexHomeIsChatScopedAndSurvivesTheSegment(t *testing.T)
 	})))
 	appendAssistantTurn(t, f, codexSeg, "codex", "sid-codex", "codex said something")
 
-	firstHome := codexHomeOf(t, f.term.calls[0].env)
-	// The home must exist on disk (config_injection wrote into it) and must NOT be
-	// inside the segment's own tmp dir, which is reaped when the segment exits.
-	require.DirExists(t, firstHome)
-	assert.NotContains(t, firstHome, codexSeg,
-		"CODEX_HOME must not live under the per-segment dir — it is deleted when the segment ends")
+	for _, call := range f.term.calls {
+		for _, kv := range call.env {
+			assert.False(t, strings.HasPrefix(kv, "CODEX_HOME="),
+				"Crowbar must never own codex's home — its sessions live there")
+		}
+	}
 
-	// Leave codex, which ends its segment and reaps that segment's tmp dir.
+	// Leave codex and come back: it resumes its own session, and Crowbar had no
+	// session store to lose in between.
 	claudeSeg, err := f.usecase.SwitchProvider(ctx, chatID, "claude")
 	require.NoError(t, err)
 	f.wait()
 	appendAssistantTurn(t, f, claudeSeg, "claude", "sid-claude", "claude spoke while codex was away")
 
-	// codex's home — and therefore its rollout — must still be there.
-	require.DirExists(t, firstHome, "codex's session store must survive being switched away from")
-
-	// Come back to codex: same home, and it is resumed into its own session.
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 
 	require.Equal(t, 3, f.term.callCount())
-	assert.Equal(t, firstHome, codexHomeOf(t, f.term.calls[2].env),
-		"a chat's codex segments must all share ONE CODEX_HOME, or resume cannot find the rollout")
-
 	argv := f.term.calls[2].argv
 	resumeIdx := indexOf(argv, "resume")
-	require.GreaterOrEqual(t, resumeIdx, 0)
+	require.GreaterOrEqual(t, resumeIdx, 0, "argv %v must resume codex's own session", argv)
 	assert.Equal(t, "sid-codex", argv[resumeIdx+1])
 }

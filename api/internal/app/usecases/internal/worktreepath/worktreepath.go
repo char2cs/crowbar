@@ -84,17 +84,6 @@ func HomeDefaultChatsDir(
 	return filepath.Join(home, "projects", project, slug, "default", "chats")
 }
 
-// AgentChatDir returns a chat's own directory ({chat_dir}) under an already
-// resolved chats directory. It holds everything that must outlive a single
-// segment: the handoff ledger, and any per-provider state a CLI keeps between
-// spawns (codex's CODEX_HOME, whose rollouts are what `codex resume` reads —
-// putting that under the per-segment SegmentDir destroyed codex's own session
-// the moment it was switched away from). Removed only when the chat is deleted
-// (PurgeChat / the workspace-delete cascade).
-func AgentChatDir(chatsDir, chatID string) string {
-	return filepath.Join(chatsDir, chatID)
-}
-
 // AgentLedgerDir returns the per-chat handoff-ledger directory under an already
 // resolved chats directory.
 func AgentLedgerDir(chatsDir, chatID string) string {

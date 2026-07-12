@@ -257,7 +257,7 @@ type testFixture struct {
 	// waitFn drains the asynx dispatch queue and runs every projection handler
 	// (ax.WaitPublish), so a subsequent read observes all prior mutations with
 	// no polling and no timeouts.
-	waitFn func()
+	waitFn   func()
 	term     *fakeCommander
 	bc       *fakeBroadcaster
 	ws       *fakeWorkspace
@@ -505,6 +505,20 @@ func TestSpawnSegment_CrowbarHookPathFallsBackToHomeBinCrowbar(t *testing.T) {
 	data, err := os.ReadFile(settingsPath)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), filepath.Join(home, "bin", "crowbar")+" hook")
+}
+
+// configValue returns the value of the `-c <prefix>...` override a codex spawn was
+// given. codex takes several -c flags (hooks, update check, the injected context),
+// so "the token after the first -c" is not good enough.
+func configValue(t *testing.T, argv []string, prefix string) string {
+	t.Helper()
+	for i, a := range argv {
+		if a == "-c" && i+1 < len(argv) && strings.HasPrefix(argv[i+1], prefix) {
+			return argv[i+1]
+		}
+	}
+	t.Fatalf("no -c %s... override in argv %v", prefix, argv)
+	return ""
 }
 
 func argAfter(t *testing.T, argv []string, flag string) string {

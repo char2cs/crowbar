@@ -353,11 +353,7 @@ func (u *Usecase) spawnSegment(
 	}
 
 	tctx := engineagent.TemplateCtx{
-		Tmp: tmpDir,
-		// Per-CHAT, so a provider that keeps state between spawns (codex's
-		// CODEX_HOME, which is where its resumable session rollouts live) does not
-		// lose it when the segment's tmp dir is reaped on exit.
-		ChatDir:     worktreepath.AgentChatDir(chatsDir, chatID),
+		Tmp:         tmpDir,
 		Cwd:         worktree,
 		CrowbarHook: u.crowbarHookPath(crowbarHome),
 		Segid:       segID,
@@ -1046,6 +1042,7 @@ func (u *Usecase) resumableSession(
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("chats dir: %w", err)
 	}
+
 	led, err := ledger.Open(worktreepath.AgentLedgerDir(chatsDir, chat.ID))
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("ledger open: %w", err)

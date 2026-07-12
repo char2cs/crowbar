@@ -753,20 +753,21 @@ func TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn(t *testing.T)
 // for codex, and exists because the app shipped a bug that only a REAL codex could
 // show: switching back to codex was impossible.
 //
-// codex keeps its session ROLLOUT inside $CODEX_HOME, and that rollout is all
-// `codex resume <id>` has to go on. CODEX_HOME used to be the per-SEGMENT tmp dir,
-// which Crowbar deletes when that segment's CLI exits — so leaving codex destroyed
-// codex's own session. Coming back resumed a thread that no longer existed: the CLI
-// died on startup ("no rollout found for thread id ..."), its segment ended within
-// seconds, and the chat could never return to codex. Every unit test passed: the
-// deletion is real, the resume arg is correct, and only the vendor CLI knows the
-// thread is gone.
+// Crowbar used to point CODEX_HOME at a directory it owned and deleted, which made
+// it the custodian of codex's SESSIONS — codex keeps its rollouts inside its home,
+// and `codex resume <id>` has nothing else to go on. Leaving codex therefore
+// DESTROYED codex's own session: coming back resumed a thread that no longer
+// existed, the CLI died on startup ("no rollout found for thread id ..."), its
+// segment ended seconds later, and the chat could never return to codex. Every unit
+// test passed — the deletion is real and the resume arg is correct; only the vendor
+// CLI knows the thread is gone.
 //
-// So this drives it for real: seed codex with a codeword, switch to claude, switch
-// BACK, and require that the returning codex (a) resumes the SAME native session id
-// and (b) is still ALIVE and answering — it recalls the codeword from its own
-// restored session, not from a handoff (the gap it is handed contains only claude's
-// turns).
+// Crowbar no longer owns codex's home: a provider owns its own sessions, and Crowbar
+// injects its hooks as config overrides instead. This drives that for real — seed
+// codex with a codeword, switch to claude, switch BACK — and requires the returning
+// codex to (a) resume the SAME native session id and (b) still be ALIVE and
+// answering from its own restored session (the gap it is handed carries claude's
+// turns, not codex's own).
 func TestAgent_SwitchBackToCodexResumesItsOwnSession(t *testing.T) {
 	requireCLI(t, "claude")
 	requireCLI(t, "codex")
