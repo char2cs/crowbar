@@ -10,30 +10,45 @@ function agentBase(wsId: string): string {
 }
 
 // ── Wire shapes (identical to the backend DTOs; camelCase) ──────────
-export type AgentSegmentStatus = 'active' | 'ended'
 
-export interface AgentSegment {
-  id: string
+/** One conversation a chat has hosted — append-only history, oldest first. It is
+ *  what a "segment" really was, minus everything that described a process (no
+ *  status, no PTY, no runner id), so it cannot drift from reality. */
+export interface ChatConversation {
+  chatId: string
   providerId: string
-  providerSessionId?: string
-  crowbarSegmentId: string
-  terminalSessionId: string
-  startedAt: string
-  endedAt?: string
-  status: AgentSegmentStatus
+  sessionId: string
+  firstSeenAt: string
 }
 
+// AgentChat carries three DERIVED runner facts the backend joins on at read time;
+// none of them is stored on the chat.
+//
+// liveRunnerId is the WHOLE liveness contract. It names the runner (the vendor-CLI
+// process) currently placed on this chat, and it is '' exactly when the chat is
+// dormant — nobody is talking to it, because its CLI exited or died with the
+// daemon. There is deliberately no status/isLive flag anywhere on this shape: a
+// second authority on liveness could only drift from the process, and that drift
+// is the production bug this model exists to delete. A live-runner row exists
+// exactly while its PTY does, so the PRESENCE of liveRunnerId IS the answer — a
+// client needs no second call to confirm it.
 export interface AgentChat {
   id: string
   workspaceId: string
   title: string
-  activeSegmentId: string
+  /** The runner placed on this chat, or '' when the chat is dormant. */
+  liveRunnerId: string
+  /** That runner's PTY — what a chat pane attaches to. '' exactly when liveRunnerId is. */
+  terminalSessionId: string
+  /** The live runner's provider, else the provider of the chat's LAST conversation
+   *  (so a dormant chat still shows the right glyph, and Resume knows who to bring
+   *  back). '' only on a chat no runner has ever been placed on. */
   activeProviderId: string
   createdAt: string
 }
 
 export interface AgentChatDetail extends AgentChat {
-  segments: AgentSegment[]
+  conversations: ChatConversation[]
 }
 
 export interface AgentProvider {
@@ -49,7 +64,8 @@ function mapChat(c: AgentChat): AgentChat {
     id: c.id,
     workspaceId: c.workspaceId,
     title: c.title,
-    activeSegmentId: c.activeSegmentId,
+    liveRunnerId: c.liveRunnerId,
+    terminalSessionId: c.terminalSessionId,
     activeProviderId: c.activeProviderId,
     createdAt: c.createdAt,
   }
@@ -63,7 +79,7 @@ export async function listChats(wsId: string): Promise<AgentChat[]> {
 
 export async function getChat(wsId: string, id: string): Promise<AgentChatDetail> {
   const raw = await apiFetch<AgentChatDetail>(`${agentBase(wsId)}/chats/${encodeURIComponent(id)}`)
-  return { ...mapChat(raw), segments: raw.segments ?? [] }
+  return { ...mapChat(raw), conversations: raw.conversations ?? [] }
 }
 
 export async function listProviders(wsId: string): Promise<AgentProvider[]> {
@@ -81,6 +97,9 @@ export async function createChat(wsId: string, provider: string): Promise<string
   return res.id
 }
 
+// switchProvider quits the chat's current vendor CLI, hands off the accumulated
+// context, and starts `provider` as a NEW RUNNER on the same chat. Returns that
+// runner's id — the chat is unchanged, the process is not.
 export async function switchProvider(wsId: string, id: string, provider: string): Promise<string> {
   const res = await apiFetch<{ id: string }>(
     `${agentBase(wsId)}/chats/${encodeURIComponent(id)}/switch`,
@@ -93,11 +112,14 @@ export async function switchProvider(wsId: string, id: string, provider: string)
   return res.id
 }
 
-// resumeChat revives a chat whose agent CLI is gone — it exited, or it died with
-// the daemon (agent PTYs are never persisted, so a restart always takes them).
-// The backend brings the last provider back into its own native session, so the
-// conversation continues exactly where it left off. Returns the (re)active
-// segment id; a chat that is still live is a no-op that returns its current one.
+// resumeChat revives a DORMANT chat — one no runner points at, because its CLI
+// exited or died with the daemon (agent PTYs are never persisted, so a restart
+// always takes them). The backend brings the chat's last provider back into its
+// own native session, so the conversation continues exactly where it left off.
+//
+// Returns the id of the RUNNER now on the chat. A chat that is still live is a
+// no-op that hands back the runner already there, so this can never end up with
+// two CLIs on one conversation.
 export async function resumeChat(wsId: string, id: string): Promise<string> {
   const res = await apiFetch<{ id: string }>(
     `${agentBase(wsId)}/chats/${encodeURIComponent(id)}/resume`,

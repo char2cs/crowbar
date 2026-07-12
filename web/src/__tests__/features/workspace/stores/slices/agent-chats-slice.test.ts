@@ -7,9 +7,18 @@ const chat = (id: string, createdAt: string): AgentChat => ({
   id,
   workspaceId: 'w1',
   title: id,
-  activeSegmentId: `${id}-s`,
+  liveRunnerId: '',
+  terminalSessionId: '',
   activeProviderId: 'claude',
   createdAt,
+})
+
+/** A chat with a runner placed on it: liveRunnerId names the process, and carries
+ *  the PTY a pane attaches to. */
+const liveChat = (id: string, runnerId: string, pty: string): AgentChat => ({
+  ...chat(id, '2026-01-01T00:00:00Z'),
+  liveRunnerId: runnerId,
+  terminalSessionId: pty,
 })
 
 describe('agent-chats-slice', () => {
@@ -25,6 +34,47 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.chats[0].createdAt).toBe('2026-01-02T00:00:00Z')
     s.getState().removeAgentChat('c1')
     expect(s.getState().agentChats.chats).toHaveLength(0)
+  })
+
+  // ── One runner, one chat ──────────────────────────────────────────────────
+  // A runner is placed on exactly ONE chat; the backend enforces it. This projection
+  // is updated ONE CHAT AT A TIME off WS frames, so it has to hold the invariant
+  // itself — otherwise a move leaves a chat claiming a runner that has left it.
+
+  it('upsert evicts the runner from the chat it LEFT (a /clear moves it, and only the new chat is refetched)', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().seedAgentChats([liveChat('c1', 'r1', 'pty1')])
+
+    // The runner /clears into a brand-new chat, carrying the same PTY. The `moved`
+    // frame names c2, so ONLY c2 is refetched — nothing refetches c1.
+    s.getState().upsertAgentChat(liveChat('c2', 'r1', 'pty1'))
+
+    const chats = s.getState().agentChats.chats
+    // Exactly one chat may claim r1, and it is the one the fresh read named.
+    expect(chats.filter((c) => c.liveRunnerId === 'r1').map((c) => c.id)).toEqual(['c2'])
+    // c1 is dormant now — and carries no PTY, so no pane can attach a dead session.
+    const c1 = chats.find((c) => c.id === 'c1')
+    expect(c1).toMatchObject({ liveRunnerId: '', terminalSessionId: '' })
+  })
+
+  it('upsert of a DORMANT chat evicts nobody (an empty runner id is not a claim)', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().seedAgentChats([liveChat('c1', 'r1', 'pty1'), liveChat('c2', 'r2', 'pty2')])
+
+    s.getState().upsertAgentChat(chat('c3', '2026-01-03T00:00:00Z')) // dormant
+
+    const chats = s.getState().agentChats.chats
+    expect(chats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('r1')
+    expect(chats.find((c) => c.id === 'c2')?.liveRunnerId).toBe('r2')
+  })
+
+  it('upsert leaves OTHER runners alone', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().seedAgentChats([liveChat('c1', 'r1', 'pty1'), liveChat('c2', 'r2', 'pty2')])
+
+    s.getState().upsertAgentChat(liveChat('c1', 'r1', 'pty1')) // no-op re-read of c1
+
+    expect(s.getState().agentChats.chats.find((c) => c.id === 'c2')?.liveRunnerId).toBe('r2')
   })
 
   // ── seedAgentChats: the initial-load / WS-reconnect reconcile ──────────────

@@ -92,11 +92,35 @@ export const createAgentChatsSlice: StateCreator<
       }
     }),
 
+  // Upsert ONE chat, refetched because a WS frame said it changed.
+  //
+  // A runner is placed on exactly ONE chat — the backend enforces it ("of everyone
+  // here, the newest arrival stays and the rest go"), and this projection has to hold
+  // the same invariant, because it is updated one chat at a time.
+  //
+  // The case that forces it: a runner MOVES (the user typed /clear inside the CLI).
+  // The `moved` frame names the chat it moved INTO, so only that chat is refetched —
+  // and the chat it LEFT keeps a liveRunnerId that is now a lie. Two chats would claim
+  // one runner, and a pane following that runner would resolve to whichever came first
+  // in the array (the stale one) and never follow. So an arriving chat evicts its
+  // runner from wherever else it was: the fresh, server-sourced fact wins.
+  //
+  // This can only ever CLEAR a claim that a newer backend read contradicts — it never
+  // invents liveness. terminalSessionId goes with it: a chat with no runner has no PTY
+  // to attach, and leaving one behind would let a pane attach a dead session.
   upsertAgentChat: (chat) =>
     set((s) => {
       const idx = s.agentChats.chats.findIndex((c) => c.id === chat.id)
       if (idx === -1) s.agentChats.chats.push(chat)
       else s.agentChats.chats[idx] = chat
+
+      if (!chat.liveRunnerId) return
+      for (const c of s.agentChats.chats) {
+        if (c.id !== chat.id && c.liveRunnerId === chat.liveRunnerId) {
+          c.liveRunnerId = ''
+          c.terminalSessionId = ''
+        }
+      }
     }),
 
   removeAgentChat: (chatId) =>

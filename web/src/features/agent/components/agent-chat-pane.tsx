@@ -1,127 +1,167 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useStore } from 'zustand'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
-import { Frame, FrameFooter, FramePanel } from '@/components/ui/frame'
 import { getChat, resumeChat, switchProvider } from '@/features/agent/api/agent-api'
 import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 import { XtermTerminal } from '@/features/terminal/components/terminal'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { toast } from '@/features/window/stores/toast-store'
-import { terminalListLive } from '@/lib/crowbar-bridge'
-import { workspaceBase } from '@/lib/workspace-scope-url'
 import { ProviderSwitchDropdown } from './provider-switch-dropdown'
 
-// attachAgentSegment resolves chatId's ACTIVE segment's live terminal session and
-// pre-seeds the terminal-store mapping (connectionId = terminalSessionId) plus the
-// localStorage reconnect backstop, so XtermTerminal's resolveTerminalConnection
-// ATTACHES the agent's already-running PTY instead of spawning a fresh shell.
+// seedAttach pre-seeds the terminal-store mapping (connectionId = terminalSessionId)
+// plus the localStorage reconnect backstop, so XtermTerminal's
+// resolveTerminalConnection ATTACHES the agent's already-running PTY instead of
+// spawning a fresh shell.
 //
 // Why this attaches (and does not spawn): XtermTerminal mounts with
 // `sessionId = terminalSessionId`, reads getSession(sessionId).connectionId — now
 // pre-seeded to the same id — and passes it to resolveTerminalConnection as
 // `storeConnectionId`. On a fresh mount there is no live WS transport yet, so the
-// resolver lists the daemon's live sessions, finds this PTY in them, and calls
+// resolver lists the daemon's live sessions, finds this PTY among them, and calls
 // terminalAttach (the in-memory-store reuse branch).
 //
-// It returns null — do NOT mount a terminal — whenever the agent's PTY is not
-// provably alive. That guard is load-bearing, because resolveTerminalConnection's
-// fallback for an unknown connection id is createTerminal(): seeding a dead id
-// would make it spawn a fresh BARE SHELL inside the agent pane and persist that
-// shell into the reconnect map. The window is real — a CLI can exit before its
-// EndSegment command lands, leaving the chat's active segment briefly pointing at
-// a PTY the daemon has already reaped — so both facts are checked:
+// It must therefore NEVER be handed a dead PTY: resolveTerminalConnection's fallback
+// for an unknown connection id is createTerminal(), so seeding a dead id would spawn a
+// BARE SHELL inside the agent pane and persist that shell into the reconnect map.
 //
-//  1. the active segment is still `active` (an `ended` segment's CLI has exited), and
-//  2. the daemon still lists its terminal session as live.
-//
-// A failed liveness listing is treated as not-live for the same reason: never
-// spawn. The caller renders an "agent session ended" state instead, and the WS
-// stream's next segment_* frame re-runs this attach.
-export async function attachAgentSegment(wsId: string, chatId: string): Promise<string | null> {
-  const chat = await getChat(wsId, chatId)
-  const segment = chat.segments.find((s) => s.id === chat.activeSegmentId)
-  if (!segment || segment.status !== 'active') return null
-
-  const sessionId = segment.terminalSessionId
-  if (!sessionId) return null
-
-  const live = await terminalListLive(`${workspaceBase(wsId)}/terminals`).catch(
-    () => [] as string[],
-  )
-  if (!live.includes(sessionId)) return null
-
-  useTerminalStore.getState().updateSession(sessionId, { connectionId: sessionId })
-  saveReconnect(wsId, sessionId, sessionId)
-  return sessionId
+// The caller's guard used to be TWO questions — is the segment still `active`, AND does
+// the daemon still list its PTY as live — because those two could disagree. They cannot
+// any more. A chat's terminalSessionId comes from its LIVE RUNNER, and a live-runner row
+// exists exactly while its PTY does, so `liveRunnerId` being present IS the liveness
+// answer. One authority, no second round trip, nothing left to drift.
+function seedAttach(wsId: string, terminalSessionId: string): void {
+  useTerminalStore.getState().updateSession(terminalSessionId, { connectionId: terminalSessionId })
+  saveReconnect(wsId, terminalSessionId, terminalSessionId)
 }
 
-// The pane's attach outcome. `pending` is the pre-resolution state and renders
-// nothing — distinguishing it from the others keeps an empty state from flashing
-// on every open while the segment is being resolved. `reviving` is the dead-chat
-// path: the CLI is gone and we are bringing it back into its own session.
+// The pane's attach outcome.
 //
-// `idle` is a chat with no live CLI, which is NOT an end state — the ended segment
-// still carries the provider and the native session id it bound, so the agent can
-// always be brought back exactly where it left off. Its reason decides who does
-// that:
+// `pending` is the pre-resolution state and renders nothing. It is NOT `idle`: it means
+// the chat list has not reached the store yet, so we do not know whether this chat is
+// live. Flashing the Resume button here would offer to spawn a second CLI onto a chat
+// that may well already have one.
 //
-//   'exited' — the CLI died under the OPEN pane (the user typed /exit, it
-//              crashed, the daemon restarted). Reviving behind the user's back
-//              here would resurrect a CLI they may have just deliberately quit,
-//              so this offers a button instead.
-//   'failed' — reviving was tried and could not start the CLI (not installed,
-//              spawn failed). Retryable, and the footer's provider dropdown can
-//              continue the conversation with a different provider.
+// `idle` is a chat with NO RUNNER on it — dormant. Not an end state: the chat's last
+// conversation still carries the provider and the native session id it bound, so the
+// agent can always be brought back exactly where it left off. Its reason decides what
+// we say:
+//
+//   'exited' — no CLI is on this chat. It quit (/exit), crashed, or died with the
+//              daemon. The user gets a button; nothing is respawned behind their back,
+//              because they may have just deliberately quit it.
+//   'failed' — a Resume was tried and could not start the CLI (not installed, spawn
+//              failed). Retryable, and the footer's dropdown can continue the
+//              conversation with a different provider instead.
 type Attachment =
   | { state: 'pending' }
   | { state: 'attached'; sessionId: string }
   | { state: 'reviving' }
   | { state: 'idle'; reason: 'exited' | 'failed' }
 
-// A revived CLI that dies on startup ends its segment at once, so an unbounded
-// auto-revive would respawn it forever. Two attempts is enough to cover a
-// transient failure while still settling fast on a permanent one.
-const MAX_REVIVE_ATTEMPTS = 2
-
 interface AgentChatPaneProps {
+  /** The chat this tab is pointed at. NOT stable for its life: the pane re-points it. */
   chatId: string
+  /** The runner this tab follows, or '' when it has none (a dormant chat). */
+  runnerId: string
   wsId: string
-  /** The pane buffer backing this chat — the tab whose label tracks chat.title. */
+  /** The pane buffer backing this tab — the thing the pane re-points and relabels. */
   bufferId: string
   isActivePane: boolean
 }
 
-// Headerless CossUI Frame, used with its own styling intact: the muted shell
-// insets a bordered FramePanel that holds the live agent terminal, and a
-// FrameFooter carries the provider-switch dropdown. The only classes passed here
-// are the ones that make it fill the pane and clip the terminal to the panel's
-// radius — nothing that overrides how a Frame looks.
+// A flat, opaque pane: one centred column holding the live agent terminal, with the
+// provider-switch dropdown beneath it on the same column. See the render for why this
+// is NOT a card.
 //
-// The pane tab is keyed by the stable chatId; the inner terminal is keyed by the
-// segment's terminalSessionId so a provider switch (new segment) remounts and
-// re-attaches in place without disturbing the tab.
-export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentChatPaneProps) {
+// THE TAB IS A VIEWPORT ON A MOVING TARGET. What a chat pane shows is not a chat, it is
+// a RUNNER — the vendor-CLI process — and that process moves:
+//
+//   the runner MOVES to another chat (the user types /clear or /resume INSIDE the CLI,
+//     and it switches conversation). The pane follows it: chatId is re-pointed, the tab
+//     relabels — and because the terminal is keyed by the runner's PTY, which a move
+//     does not change, XTERM NEVER REMOUNTS. The conversation changes without the
+//     terminal changing. Pinning the pane to a chatId is what produced the bug this
+//     replaces: the tab said "this agent has exited" and offered a Resume button that
+//     spawned a SECOND CLI, while the first was alive and well in a chat the user then
+//     had to go and find.
+//
+//   the runner is REPLACED on the same chat (a provider switch, or a Resume of a dormant
+//     chat). The pane adopts the runner now on its chat: runnerId is re-pointed, and
+//     since that runner has a PTY of its own, the terminal re-attaches.
+//
+// Both are one rule, applied in order: FOLLOW MY RUNNER IF IT STILL EXISTS ANYWHERE;
+// OTHERWISE ADOPT WHOEVER IS ON MY CHAT. Attaching, relabelling and the exited state all
+// fall out of it rather than being engineered separately.
+export function AgentChatPane({
+  chatId,
+  runnerId,
+  wsId,
+  bufferId,
+  isActivePane,
+}: AgentChatPaneProps) {
   const store = useWorkspaceStore()
-  const activeSegmentId = useStore(
+
+  // Where is MY runner? '' when it is nowhere — it exited, or a switch replaced it. A
+  // chat is live exactly while a runner is placed on it, so this lookup is also what
+  // makes a MOVE visible: the runner turns up under a different chat id.
+  const runnerChatId = useStore(store, (s) =>
+    runnerId ? (s.agentChats.chats.find((c) => c.liveRunnerId === runnerId)?.id ?? '') : '',
+  )
+
+  // The chat this pane is SHOWING: my runner's chat if it still has one (it moved, and
+  // the tab follows), else the chat the tab was pointed at (which may be dormant).
+  const shownChatId = runnerChatId || chatId
+
+  // Does the store KNOW this chat at all? "Not in the store yet" (the seed is in flight)
+  // is not "dormant", and must not render the Resume button — see `pending` above.
+  const known = useStore(store, (s) => s.agentChats.chats.some((c) => c.id === shownChatId))
+  // The runner on the shown chat — mine, or whoever replaced it. '' = dormant.
+  const liveRunnerId = useStore(
     store,
-    (s) => s.agentChats.chats.find((c) => c.id === chatId)?.activeSegmentId ?? null,
+    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.liveRunnerId ?? '',
+  )
+  // That runner's PTY. Empty exactly when liveRunnerId is: no runner, nothing to attach.
+  const sessionId = useStore(
+    store,
+    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.terminalSessionId ?? '',
   )
   const activeProviderId = useStore(
     store,
-    (s) => s.agentChats.chats.find((c) => c.id === chatId)?.activeProviderId ?? '',
+    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.activeProviderId ?? '',
   )
-  const title = useStore(store, (s) => s.agentChats.chats.find((c) => c.id === chatId)?.title ?? '')
+  const title = useStore(
+    store,
+    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.title ?? '',
+  )
   const providers = useStore(store, (s) => s.agentChats.providers)
 
   const [attachment, setAttachment] = useState<Attachment>({ state: 'pending' })
 
-  // The tab label is a snapshot taken by openContent, but a chat's title changes
-  // AFTER the tab opens: the agent auto-titles it (WS `title_set`) and the user
-  // can rename it from the sidebar. Both land on this chat's `title` in the store,
-  // so mirroring title → buffer name here keeps the open tab correct for both
-  // paths, with no store → component dependency.
+  // Re-point the buffer at what this pane is actually showing. This is the write that
+  // makes the tab follow: pane-container feeds the buffer's chatId/runnerId straight
+  // back in as our props, so the next render is already looking at the new chat.
+  //
+  // It converges in one step and cannot loop — once the buffer holds the pair computed
+  // here, the effect's deps are unchanged and it does not re-run. Writing '' as the
+  // runnerId of a dormant chat is deliberate: a tab must not go on claiming a runner
+  // that no longer exists.
+  useEffect(() => {
+    if (!known) return // nothing authoritative to re-point at yet
+    if (shownChatId === chatId && liveRunnerId === runnerId) return
+    store.getState().bufferActions.repointAgentChatBuffer(bufferId, {
+      chatId: shownChatId,
+      runnerId: liveRunnerId,
+    })
+  }, [store, bufferId, known, chatId, runnerId, shownChatId, liveRunnerId])
+
+  // The tab label is a snapshot taken by openContent, but the title changes AFTER the
+  // tab opens: the agent auto-titles the chat (WS `title_set`), the user renames it from
+  // the sidebar — and the tab may now be showing a DIFFERENT chat than it opened on,
+  // which has a title of its own. All three land on the shown chat's `title`, so
+  // mirroring title → buffer name here keeps the tab honest for all of them, with no
+  // store → component dependency.
   useEffect(() => {
     if (!title) return
     const s = store.getState()
@@ -129,25 +169,55 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
     if (buffer && buffer.name !== title) s.bufferActions.renameBuffer(bufferId, title)
   }, [store, bufferId, title])
 
-  // Auto-revive is BOUNDED, not keyed on the segment. A revived CLI that dies on
-  // startup ends its segment immediately, and each revive mints a NEW segment id —
-  // so a guard keyed on "have I revived this segment?" would see a fresh key every
-  // round and spawn CLIs forever. A counter cannot: after MAX_REVIVE_ATTEMPTS the
-  // pane settles into idle and hands the user the button. Reset on a successful
-  // attach (the chat is healthy again) and on an explicit Resume click.
-  const reviveAttempts = useRef(0)
+  // Attach to the runner's PTY, or settle into the dormant state. The seeding must
+  // happen BEFORE XtermTerminal mounts (React runs child effects first, so a terminal
+  // rendered in the same commit would resolve its connection against an unseeded store)
+  // — hence the state machine: this effect seeds, flips to `attached`, and the terminal
+  // mounts on the next render.
+  //
+  // There is no auto-revive, and no retry budget. A pane that could not tell "my CLI
+  // died" from "my CLI moved" needed both — it had to guess, and a bounded counter was
+  // the only thing stopping it spawn-looping. This one can tell, so reviving is
+  // something the USER does, explicitly, with the button. Nothing implicit.
+  useEffect(() => {
+    if (!known) {
+      setAttachment({ state: 'pending' })
+      return
+    }
+    if (!sessionId) {
+      // Don't stomp the spinner of a Resume still in flight; it sets its own terminal
+      // state when it lands.
+      setAttachment((a) => (a.state === 'reviving' ? a : { state: 'idle', reason: 'exited' }))
+      return
+    }
+    seedAttach(wsId, sessionId)
+    setAttachment({ state: 'attached', sessionId })
+  }, [wsId, known, sessionId])
 
-  // revive brings the chat's last provider back into its own native session.
-  // Shared by the auto-revive on open and the explicit Resume button.
+  // revive brings the chat's last provider back into its own native session. Only ever
+  // called from the Resume button.
+  //
+  // The refetch is not belt-and-braces: resume's WS frames would update the store
+  // eventually, but reading the chat back here means the pane attaches on the CLICK
+  // rather than whenever a frame happens to arrive — and it settles honestly if the
+  // revived CLI died on startup (resumed, but nothing on the chat).
   const revive = useCallback(async () => {
     setAttachment({ state: 'reviving' })
     try {
-      await resumeChat(wsId, chatId)
-      // The revive spawned a CLI; its segment_opened frame lands on activeSegmentId
-      // and re-runs the attach effect. Attach right away too, for the case where
-      // the store already holds the new segment by the time this resolves.
-      const sid = await attachAgentSegment(wsId, chatId)
-      if (sid !== null) setAttachment({ state: 'attached', sessionId: sid })
+      await resumeChat(wsId, shownChatId)
+      const chat = await getChat(wsId, shownChatId)
+      const s = store.getState()
+      s.upsertAgentChat(chat)
+      if (!chat.liveRunnerId || !chat.terminalSessionId) {
+        setAttachment({ state: 'idle', reason: 'failed' })
+        return
+      }
+      s.bufferActions.repointAgentChatBuffer(bufferId, {
+        chatId: chat.id,
+        runnerId: chat.liveRunnerId,
+      })
+      seedAttach(wsId, chat.terminalSessionId)
+      setAttachment({ state: 'attached', sessionId: chat.terminalSessionId })
     } catch (err: unknown) {
       console.error('Failed to resume agent chat:', err)
       setAttachment({ state: 'idle', reason: 'failed' })
@@ -156,93 +226,35 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
         'Crowbar could not restart the agent. Check that its CLI is installed and on your PATH.',
       )
     }
-  }, [wsId, chatId])
+  }, [store, wsId, bufferId, shownChatId])
 
-  // Auto-revive belongs to OPENING a chat, and to nothing else. This effect also
-  // re-runs whenever the active segment changes, and "no active segment" happens in
-  // two situations that must be treated completely differently:
+  // The attach above proves the PTY was alive when the store last spoke. The CLI can die
+  // at any moment while the pane sits here — daemon restart, /exit, crash — and the
+  // terminal's transport-drop reconnect would, by default, resolve the now-dead session
+  // by spawning a fresh BARE SHELL into this frame. So the terminal runs attach-only and
+  // reports the session gone instead, and we render the dormant state at once rather
+  // than waiting for the backend to notice: the PTY's death and the daemon's knowledge
+  // of it are not the same instant.
   //
-  //   OPEN a chat whose CLI is gone  → revive it. The user asked for this chat back.
-  //   The CLI DIES while you watch   → do NOT respawn it. You may have just typed
-  //                                    /exit; bringing the agent straight back is
-  //                                    the opposite of what you asked for, and it
-  //                                    makes the agent impossible to quit (observed
-  //                                    live: /exit, and claude reappeared instantly).
-  //
-  // The same distinction closes a race on every provider SWITCH: between the
-  // segment_ended and segment_opened frames the chat momentarily has NO active
-  // segment, and a revive fired in that gap would spawn a competing CLI alongside
-  // the one the switch is already starting. Reviving only on the pane's FIRST
-  // resolution can never fire there.
-  const canAutoRevive = useRef(true)
-
-  // Pointing the pane at a different chat is a fresh open, so it gets a fresh
-  // budget: declared BEFORE the attach effect so it runs first on that change.
-  useEffect(() => {
-    canAutoRevive.current = true
-    reviveAttempts.current = 0
-  }, [wsId, chatId])
-
-  useEffect(() => {
-    let cancelled = false
-    setAttachment({ state: 'pending' })
-
-    void attachAgentSegment(wsId, chatId).then((sid) => {
-      if (cancelled) return
-
-      // Spend the "this is the open" budget on the FIRST resolution, whatever it
-      // is. A chat that attached fine when opened and dies later is NOT an open —
-      // that is the /exit case, and it must not respawn.
-      const isOpen = canAutoRevive.current
-      canAutoRevive.current = false
-
-      if (sid !== null) {
-        reviveAttempts.current = 0
-        setAttachment({ state: 'attached', sessionId: sid })
-        return
-      }
-
-      if (!isOpen || reviveAttempts.current >= MAX_REVIVE_ATTEMPTS) {
-        setAttachment({
-          state: 'idle',
-          reason: reviveAttempts.current > 0 ? 'failed' : 'exited',
-        })
-        return
-      }
-      reviveAttempts.current += 1
-      void revive()
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [wsId, chatId, activeSegmentId, revive])
-
-  // The mount guard (attachAgentSegment) only proves the PTY was alive at OPEN.
-  // The agent's CLI can die at any moment while the pane sits here — daemon
-  // restart, CLI exit, crash — and the terminal's transport-drop reconnect would,
-  // by default, resolve the now-dead session by spawning a fresh BARE SHELL into
-  // this frame. So the terminal runs attach-only and reports the session gone
-  // instead; we render the same ended state the mount guard does. The backend's
-  // boot reconcile independently ends the segment and the WS `segment_ended` frame
-  // re-runs the effect above — but this guard must stand on its own, because the
-  // PTY's death and the daemon's knowledge of it are not the same instant.
-  // Deliberately NOT an auto-revive: the CLI just died in front of the user, who
-  // may have quit it themselves (/exit). Respawning it behind their back would be
-  // a surprise. They get a Resume button instead — and simply reopening the chat
-  // later revives it, because that reopen is an explicit "I want this chat back".
+  // A MOVE never lands here — a runner keeps its PTY when it changes conversation, so the
+  // terminal sees nothing at all. That is exactly why this can now be read as "the CLI
+  // died" with no ambiguity, and why the pane no longer needs to guess.
   const handleSessionGone = useCallback(
     () => setAttachment({ state: 'idle', reason: 'exited' }),
     [],
   )
 
-  // A provider switch is the headline interaction of this pane, and it can fail
-  // for real, ordinary reasons — the target CLI is not installed, the spawn fails.
-  // Without this catch the rejection is unhandled: the dropdown just closes and
-  // nothing happens. Surface it, matching the write-path error handling in
+  // Switch the provider ON THE CHAT THE RUNNER IS IN NOW (shownChatId — not the chatId
+  // the tab was opened on): after a /clear the pane is showing a different conversation,
+  // and switching the one the user has left would spawn a CLI onto abandoned context
+  // while the live one kept running unattended.
+  //
+  // A switch can fail for real, ordinary reasons — the target CLI is not installed, the
+  // spawn fails. Without this catch the rejection is unhandled: the dropdown just closes
+  // and nothing happens. Surface it, matching the write-path error handling in
   // agent-chats-panel (create/rename/delete).
   const handleSwitch = (providerId: string) => {
-    switchProvider(wsId, chatId, providerId).catch((err: unknown) => {
+    switchProvider(wsId, shownChatId, providerId).catch((err: unknown) => {
       console.error('Failed to switch agent provider:', err)
       const name = providers.find((p) => p.id === providerId)?.displayName ?? providerId
       toast.error(
@@ -253,52 +265,71 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
   }
 
   return (
-    <Frame className="h-full w-full">
-      <FramePanel className="min-h-0 flex-1 overflow-hidden">
-        {attachment.state === 'attached' && (
-          <XtermTerminal
-            key={attachment.sessionId}
-            sessionId={attachment.sessionId}
-            isActive={isActivePane}
-            isVisible
-            attachOnly
-            onSessionGone={handleSessionGone}
+    // One flat, opaque surface — no card, no border, no raised panel.
+    //
+    // We built this on CossUI's Frame first, faithfully, and seeing it live is what
+    // settled it: a Frame's whole job is to lift a panel OFF its background, and a
+    // chat pane does not want to be lifted off anything. The bordered card framed
+    // the agent's empty middle instead of hiding it, its squared top had nothing to
+    // meet once the column was centred, and the switcher — outside the card — read
+    // as a stray button on the desktop. Frame itself is untouched and still there
+    // for surfaces that DO want to be raised.
+    <div className="flex h-full w-full flex-col bg-background">
+      {/* THE COLUMN. Both the terminal and the switcher live inside it, and the
+          padding is on the column rather than on either of them. That is the whole
+          trick: the switcher cannot drift out of line with the agent's first
+          character, because they are inset by the SAME box. Alignment is structural
+          here, not a hand-tuned pixel — which is exactly what it was before, and it
+          broke every time anything moved.
+
+          The cap is what makes the padding appear only when there is room to spare:
+          wide pane → real gutters; narrow pane → the column just fills it. And it
+          resizes the PTY, so the agent genuinely re-wraps to ~106 columns instead of
+          running lines to 164. Because the whole pane is one bg-background, the
+          padding and the gutters are invisible — you see breathing room, not a box. */}
+      <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-4 pt-4">
+        <div className="min-h-0 flex-1">
+          {attachment.state === 'attached' && (
+            <XtermTerminal
+              key={attachment.sessionId}
+              sessionId={attachment.sessionId}
+              isActive={isActivePane}
+              isVisible
+              attachOnly
+              // The column already supplies the inset; the terminal's own pl-[16px]
+              // would double it and push the agent out of line with the switcher.
+              flush
+              onSessionGone={handleSessionGone}
+            />
+          )}
+          {attachment.state === 'reviving' && (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
+              <FlickerSpinner className="text-muted-foreground size-6" />
+              <p className="text-muted-foreground text-center text-sm">Resuming this chat…</p>
+            </div>
+          )}
+          {attachment.state === 'idle' && (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
+              <p className="text-muted-foreground max-w-sm text-center text-sm">
+                {attachment.reason === 'failed'
+                  ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
+                  : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
+              </p>
+              <Button type="button" variant="secondary" size="sm" onClick={() => void revive()}>
+                Resume
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center py-2">
+          <ProviderSwitchDropdown
+            providers={providers}
+            currentProviderId={activeProviderId}
+            onSwitch={handleSwitch}
           />
-        )}
-        {attachment.state === 'reviving' && (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-            <FlickerSpinner className="text-muted-foreground size-6" />
-            <p className="text-muted-foreground text-center text-sm">Resuming this chat…</p>
-          </div>
-        )}
-        {attachment.state === 'idle' && (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-            <p className="text-muted-foreground max-w-sm text-center text-sm">
-              {attachment.reason === 'failed'
-                ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
-                : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
-            </p>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                reviveAttempts.current = 0
-                void revive()
-              }}
-            >
-              Resume
-            </Button>
-          </div>
-        )}
-      </FramePanel>
-      <FrameFooter className="flex items-center">
-        <ProviderSwitchDropdown
-          providers={providers}
-          currentProviderId={activeProviderId}
-          onSwitch={handleSwitch}
-        />
-      </FrameFooter>
-    </Frame>
+        </div>
+      </div>
+    </div>
   )
 }

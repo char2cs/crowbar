@@ -109,10 +109,26 @@ export interface BranchReviewContent extends PaneContentBase {
   wsId: string
 }
 
+// An agent-chat tab is a VIEWPORT on a moving target, so BOTH of its identity
+// fields are mutable — see repointAgentChatBuffer (buffer-slice).
+//
+//  - the RUNNER (the vendor-CLI process) moves to another chat when the user types
+//    /clear or /resume inside the CLI: chatId is re-pointed and the tab relabels,
+//    while the terminal — keyed by the runner's unchanged PTY — never remounts.
+//    That is the whole feature: the conversation changes without the terminal
+//    changing.
+//  - a DORMANT chat that is Resumed gets a brand-new runner: runnerId is
+//    re-pointed and the tab re-attaches to that runner's PTY.
+//
+// Neither id is stable for the life of the tab, and pinning either one is exactly
+// the bug this shape replaces (a pane pinned to a chatId showed "this agent has
+// exited" while its CLI was alive and well in another chat).
 export interface AgentChatContent extends PaneContentBase {
   type: 'agentChat'
-  /** Stable chat id — the pane tab is keyed by it (survives provider switches). */
+  /** The chat this tab is SHOWING right now. Follows the runner when it moves. */
   chatId: string
+  /** The runner this tab is FOLLOWING, or '' when the chat is dormant (no CLI). */
+  runnerId: string
   wsId: string
 }
 
@@ -275,6 +291,11 @@ export type OpenContentSpec =
       chatId: string
       wsId: string
       name: string
+      /** The runner on the chat at open time, when the caller happens to know it.
+       *  Optional because it is never load-bearing: the pane adopts whatever runner
+       *  its chat actually has, so a tab opened with '' (or with an id that has
+       *  since died) converges on the truth by itself. */
+      runnerId?: string
     }
 
 // ── Buffer history / dialog state (used by workspace store) ─────────

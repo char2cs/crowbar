@@ -12,6 +12,7 @@ function makeAgentChatContent(overrides: Partial<AgentChatContent> = {}): AgentC
     id: 'buf-1',
     type: 'agentChat',
     chatId: 'chat-1',
+    runnerId: 'runner-1',
     wsId: 'ws-1',
     path: 'agent-chat://chat-1',
     name: 'Chat 1',

@@ -85,6 +85,14 @@ interface XtermTerminalProps {
   attachOnly?: boolean
   /** Fires when attachOnly resolution finds the session gone (mount or reconnect). */
   onSessionGone?: () => void
+  /**
+   * Render from the container's very edge, dropping the 16px left inset that
+   * shell tabs use for breathing room against a bare pane. The agent chat pane
+   * sets this because its terminal already sits inside a Frame panel that
+   * supplies the surface — there, the inset reads as a stray gap, and it also
+   * knocks the terminal out of line with the provider switcher below it.
+   */
+  flush?: boolean
 }
 
 export const XtermTerminal: React.FC<XtermTerminalProps> = ({
@@ -99,6 +107,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   remoteConnectionId,
   attachOnly = false,
   onSessionGone,
+  flush = false,
 }) => {
   const terminalContainerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<Terminal | null>(null)
@@ -1050,7 +1059,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         currentMatch={searchResults.current}
         totalMatches={searchResults.total}
       />
-      <div className="flex min-h-0 flex-1 flex-col pl-[16px]">
+      <div className={`flex min-h-0 flex-1 flex-col ${flush ? '' : 'pl-[16px]'}`}>
         <div
           ref={terminalContainerRef}
           id={`terminal-${sessionId}`}

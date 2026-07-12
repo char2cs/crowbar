@@ -493,10 +493,14 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           )
 
         case 'agentChat': {
+          // Both ids are fed straight back from the buffer, and the pane writes both
+          // back through it (repointAgentChatBuffer) — that loop is what makes the tab
+          // follow its runner when the CLI changes conversation.
           const c = buffer as import('../types/pane-content').AgentChatContent
           return (
             <AgentChatPane
               chatId={c.chatId}
+              runnerId={c.runnerId}
               wsId={c.wsId}
               bufferId={c.id}
               isActivePane={isActivePane}

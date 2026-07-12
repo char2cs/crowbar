@@ -81,7 +81,8 @@ const chat = (id: string) => ({
   id,
   workspaceId: 'w1',
   title: id,
-  activeSegmentId: `${id}-s`,
+  liveRunnerId: `${id}-r`,
+  terminalSessionId: `${id}-pty`,
   activeProviderId: 'claude',
   createdAt: '2026-01-01T00:00:00Z',
 })

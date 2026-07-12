@@ -75,7 +75,8 @@ const chat = (
   id,
   workspaceId,
   title,
-  activeSegmentId: `${id}-s`,
+  liveRunnerId: `${id}-r`,
+  terminalSessionId: `${id}-pty`,
   activeProviderId: providerId,
   createdAt,
 })
