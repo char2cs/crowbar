@@ -30,3 +30,15 @@ type AgentRunner struct {
 	StartedAt time.Time  `json:"startedAt"`
 	ExitedAt  *time.Time `json:"exitedAt,omitempty"` // audit only — NOT a liveness flag
 }
+
+// ChatConversation is one conversation a chat has hosted. Append-only history,
+// projected from runner events — NOT chat state. It is what AgentSegment really
+// was, minus everything that described a process (no status, no PTY, no runner
+// id). History cannot drift from reality; only live state can. That is why this
+// is safe to persist while the runner's liveness is not.
+type ChatConversation struct {
+	ChatID      string    `json:"chatId"`
+	ProviderID  string    `json:"providerId"`
+	SessionID   string    `json:"sessionId"`
+	FirstSeenAt time.Time `json:"firstSeenAt"`
+}
