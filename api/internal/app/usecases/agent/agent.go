@@ -76,16 +76,15 @@ type TerminalCommander interface {
 		sessionID string,
 	) error
 	// SessionLive reports whether a terminal session id is backed by a LIVE PTY right
-	// now. It has NO caller in this package today, and it is kept deliberately: it is
-	// the single authority BOOT RECONCILIATION asks, and boot reconciliation — which
-	// Exits every runner whose PTY did not survive the restart — is the next task in
-	// this series. A false here means the CLI is definitively gone, even though no
-	// event ever recorded it.
+	// now. Its one caller is ReconcileRunnersOnBoot (below): it is the single authority
+	// boot reconciliation asks, Exiting every runner whose PTY did not survive the
+	// restart. A false here means the CLI is definitively gone, even though no event
+	// ever recorded it.
 	//
 	// It is deliberately NOT the engine's SessionExists, which is also true for a
 	// PTY-less suspended placeholder — a session whose process is already dead and
 	// whose only remaining substance is scrollback on disk. Asking the registry "do
-	// you know this id?" instead of "is this process alive?" is what let a
+	// you know this id?" instead of "is this process alive?" is what previously let a
 	// restart-orphaned chat keep advertising a live agent.
 	SessionLive(
 		ctx context.Context,
@@ -517,6 +516,15 @@ func (u *Usecase) ReconcileRunnersOnBoot(
 		// Read the placement BEFORE the Exit: it is the chat whose turn this CLI abandoned.
 		abandoned := r.CurrentChatID
 
+		// The tmp reap below is intentionally gated on a SUCCESSFUL Exit, even though the
+		// PTY is already known dead at this point and the dir could be reaped regardless.
+		// Coupling them keeps the row and its tmp dir moving together: if Exit fails, the
+		// row is still recorded live, so this same runner reappears in AllLive on the next
+		// boot and both the Exit and the reap are retried then. Reaping now while Exit's
+		// error leaves the row live would desync the two — a "live" row with its config
+		// already gone — for no gain, since the dir holds no credential and an extra boot
+		// of staleness is the same benign wait the surrounding best-effort loop already
+		// accepts everywhere else.
 		if _, err := u.runners.Exit(ctx, r.ID, time.Now()); err != nil {
 			slog.ErrorContext(ctx, "agent: boot reconcile: exit dead runner (best-effort, continuing)",
 				"runner_id", r.ID, "terminal_session_id", r.TerminalSession, "err", err)

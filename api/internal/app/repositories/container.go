@@ -52,12 +52,15 @@ type Container struct {
 	terminateSession func(ctx context.Context, sessionID string) error
 	// ReapChatFiles is the workspace-delete cascade's on-disk reap seam
 	// (forgetAgentChats): given a forgotten chat's (workspaceID, chatID), it
-	// removes that chat's own <chatsDir>/<chatID> directory (the handoff ledger +
-	// any residual per-segment tmp dir) — closing the gap where Forgetting the
-	// event-sourced aggregate left its PLAINTEXT on-disk footprint behind under
-	// .crowbar. Unlike terminateSession (a New(...) constructor parameter), this
-	// is a settable field the app layer assigns AFTER construction: the real
-	// implementation (app.reapAgentChatFiles) reuses the SAME agent.WorkspaceReader
+	// removes that chat's own <chatsDir>/<chatID> directory — its handoff ledger,
+	// and nothing else. No tmp dir lives under a chat any more (runner tmp dirs
+	// now live at <chatsDir>/runners/<runnerID>-<provider>, worktreepath.RunnerDir,
+	// reaped by the runner's own lifecycle, not this cascade), so this closes the
+	// gap where Forgetting the event-sourced aggregate left its PLAINTEXT on-disk
+	// footprint behind under .crowbar. Unlike terminateSession (a New(...)
+	// constructor parameter), this is a settable field the app layer assigns
+	// AFTER construction: the real implementation (app.reapAgentChatFiles) reuses
+	// the SAME agent.WorkspaceReader
 	// (AgentChatsDir + WorktreeDir) and agent.RemoveUnderHome guard the standalone
 	// PurgeChat path already routes through, and that reader is built from
 	// repos.Workspace — which does not exist until repositories.New returns — so
@@ -707,7 +710,9 @@ func (c *Container) ListWorkspaces(
 // root that also holds the sibling "chats" tree (worktreepath.WorkspaceRoot /
 // ChatsDir); `git worktree remove` only clears the "worktree" leaf itself, so
 // this removes path's PARENT directory instead — nuking the git checkout and
-// any agentic chat state (ledger + segment tmp dirs) together in one rm -rf.
+// the chats tree together in one rm -rf. The chats tree is not targeted by
+// name here; it survives only by accident of being the worktree's sibling
+// under the same parent, which the root rm -rf takes whole.
 // worktreepath.WorkspaceRoot cannot be imported here (this package sits outside
 // the usecases/ tree that internal package is scoped to; Go's internal-package
 // visibility forbids it), so the parent is computed inline via filepath.Dir —

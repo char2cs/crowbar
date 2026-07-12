@@ -409,12 +409,15 @@ func startRestoreTerminalSessions(
 // spinner forever. This runs on EVERY boot, so those states last until this call, not
 // until the user gives up.
 //
-// It runs SYNCHRONOUSLY and AFTER startRestoreTerminalSessions, and both matter.
-// Synchronously, because the first client read must not race it: an HTTP read that beats
-// the reconcile is served a corpse. After the restore, because the restore repopulates the
-// terminal registry — the reconcile asks it (SessionLive) whether each runner's PTY is
-// backed by a live process, and asking a registry that is still filling up would reap
-// runners on no evidence at all.
+// It runs SYNCHRONOUSLY and AFTER startRestoreTerminalSessions. Synchronously matters: the
+// first client read must not race it, or an HTTP read that beats the reconcile is served a
+// corpse. The ordering relative to the restore does NOT: the reconcile asks SessionLive,
+// which questions the PTY directly, not the terminal registry, so a not-yet-restored session
+// and a restored PTY-less placeholder both read false — correctly, since a restored session
+// is never live either way. (The hazard that WOULD make this ordering load-bearing belongs
+// to the engine's SessionExists, not SessionLive: SessionExists answers true for every
+// restored placeholder, which is exactly why ReconcileRunnersOnBoot insists on SessionLive
+// instead — see its call site in agent.go.)
 //
 // Best-effort: a failure is logged and the daemon still boots. The chats it could not
 // reconcile are no worse off than they were a line earlier, and refusing to start the
