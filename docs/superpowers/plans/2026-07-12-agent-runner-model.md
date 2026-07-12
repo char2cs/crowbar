@@ -970,11 +970,17 @@ func (u *Usecase) handleSessionStart(ctx context.Context, runnerID string, ev en
 }
 
 // evict terminates a runner that is holding a conversation another runner has
-// just taken over. Its PTY dies, which is what makes it dead (the PTY is the sole
-// authority) — the Exit event follows from the terminal engine's exit callback.
+// just taken over (invariant I3). Its PTY dies, and THAT is what makes it dead —
+// the PTY is the sole authority, so the Exit event follows from the terminal
+// engine's onExit callback rather than being asserted here.
+//
+// TerminateGraceful, not a hard kill: it is the existing seam (agent.go:46) and
+// it SIGTERMs, so the evicted CLI flushes its own transcript on the way out. An
+// evicted agent must not lose its last turn — the conversation it was holding is
+// about to be read by the runner taking over.
 func (u *Usecase) evict(ctx context.Context, incumbent domain.AgentRunner) {
-	if err := u.term.Kill(ctx, incumbent.WorkspaceID, incumbent.TerminalSession); err != nil {
-		slog.ErrorContext(ctx, "agent: evict incumbent runner: kill pty", "runner", incumbent.ID, "err", err)
+	if err := u.term.TerminateGraceful(ctx, incumbent.TerminalSession); err != nil {
+		slog.ErrorContext(ctx, "agent: evict incumbent runner", "runner", incumbent.ID, "err", err)
 	}
 }
 ```
@@ -1032,7 +1038,7 @@ func TestRegression_ResumeIntoOccupiedChat_DoesNotBrickSource(t *testing.T) {
 
 	// Chat A must still be usable: dormant, but with its history intact and
 	// resumable. It must NOT be a chat with no way back.
-	last, err := h.uc.LastConversationFor(h.ctx, chatA)
+	last, err := h.runners.LastConversation(h.ctx, chatA)
 	require.NoError(t, err, "chat A keeps its conversation history and stays resumable")
 	require.Equal(t, "sA", last.SessionID)
 
@@ -1041,9 +1047,12 @@ func TestRegression_ResumeIntoOccupiedChat_DoesNotBrickSource(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, r1, live.ID, "the mover took the chat over")
 
-	// R2 was evicted — its PTY was killed (invariant I3: one live runner per
-	// conversation, or the provider's session file gets two writers).
-	require.Contains(t, h.term.Killed(), r2PTY(h, r2), "the incumbent's PTY was killed")
+	// R2 was evicted — TerminateGraceful'd (invariant I3: one live runner per
+	// conversation, or the provider's own session file gets two writers).
+	r2runner, err := h.runners.Get(h.ctx, r2)
+	require.NoError(t, err)
+	require.Contains(t, h.term.Terminated(), r2runner.TerminalSession,
+		"the incumbent was terminated")
 }
 ```
 
@@ -1104,20 +1113,17 @@ func TestRegression_DeadPTY_MeansDeadRunner(t *testing.T) {
 // segments, which maintained a SECOND opinion about liveness and could disagree
 // with reality (observed: segment "ended", CLI very much alive).
 func (u *Usecase) ReconcileRunnersOnBoot(ctx context.Context) error {
-	live, err := u.term.LiveSessions(ctx)
-	if err != nil {
-		return fmt.Errorf("agent: boot reconcile: list live terminals: %w", err)
-	}
-	liveSet := make(map[string]struct{}, len(live))
-	for _, id := range live {
-		liveSet[id] = struct{}{}
-	}
 	runners, err := u.runners.AllLive(ctx)
 	if err != nil {
 		return fmt.Errorf("agent: boot reconcile: list runners: %w", err)
 	}
 	for _, r := range runners {
-		if _, ok := liveSet[r.TerminalSession]; ok {
+		// SessionLive is the seam that asks "is this PROCESS alive", not the
+		// engine's SessionExists, which is also true for a PTY-less suspended
+		// placeholder. Asking the wrong one is what previously let a
+		// restart-orphaned chat keep advertising a live agent (see the seam's
+		// doc comment at agent.go:52).
+		if u.term.SessionLive(ctx, r.TerminalSession) {
 			continue
 		}
 		if _, err := u.runners.Exit(ctx, r.ID, time.Now()); err != nil {
@@ -1128,7 +1134,9 @@ func (u *Usecase) ReconcileRunnersOnBoot(ctx context.Context) error {
 }
 ```
 
-Add `AllLive(ctx) ([]domain.AgentRunner, error)` to `agentrunner.EventStore` and its store.
+Add `AllLive(ctx) ([]domain.AgentRunner, error)` to `agentrunner.EventStore` and its store (select all `runnerRow`s — the live read model holds only live runners by construction).
+
+**Do not add new methods to `TerminalCommander`.** It already carries everything this task needs: `TerminateGraceful(ctx, sessionID)` for eviction and `SessionLive(ctx, sessionID) bool` for the liveness authority (`api/internal/app/usecases/agent/agent.go:33-67`).
 
 - [ ] **Step 4: Run tests.** Expected PASS.
 - [ ] **Step 5: Commit.** `git commit -m "feat(agent): reconcile runners against the PTY once at boot"`
