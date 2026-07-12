@@ -50,11 +50,13 @@ func TestResolveDescriptor_EmbeddedCodexValid(t *testing.T) {
 
 	// A RESUMED codex session cannot be told anything through config (verified
 	// against 0.139.0: `codex resume` rebuilds from a rollout that never records
-	// developer instructions, and does not re-read AGENTS.md), so the ONLY channel
-	// left for the gap is a user message.
+	// developer instructions, `codex fork` behaves the same, and AGENTS.md is not
+	// re-read), so the ONLY channel left is a USER MESSAGE — and what it carries is a
+	// POINTER at the ledger already on disk, never the transcript, which would dump a
+	// wall of handed-off text into the chat on every switch.
 	require.Len(t, d.ResumeContextInject, 1)
 	require.Equal(t, "pass_arg", d.ResumeContextInject[0].Verb)
-	require.Equal(t, "{context}", d.ResumeContextInject[0].Args["positional"])
+	require.Equal(t, "{context_pointer}", d.ResumeContextInject[0].Args["positional"])
 }
 
 func TestLoadDescriptor_RejectsMissingID(t *testing.T) {

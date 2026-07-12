@@ -14,15 +14,27 @@ type TemplateCtx struct {
 	// the agent usecase. One document (not one per concern) because a provider
 	// may only have ONE such channel — codex delivers both through the same
 	// `developer_instructions` key, so two independent injections would collide.
-	Context     string
-	Cwd         string
-	CrowbarHook string
-	Segid       string
-	Provider    string
-	Chatid      string
-	ProjectID   string
-	RepoID      string
-	WorkspaceID string
+	Context string
+	// LedgerDir is where the conversation already lives: one file per turn, named
+	// <seq>-<timestamp>-<role>-<provider>.turn.
+	LedgerDir string
+	// LedgerCut names the last turn the provider being resumed has already seen, so
+	// it knows where to START reading.
+	LedgerCut string
+	// ContextPointer is the SHORT message (config.yaml's handoff_pointer) that sends
+	// a provider to LedgerDir. It exists because a resumed codex can only be reached
+	// through a USER MESSAGE — and pasting the whole handed-off transcript into the
+	// chat is noise the user has to scroll past. An agent reads files; point it at
+	// the one that is already there.
+	ContextPointer string
+	Cwd            string
+	CrowbarHook    string
+	Segid          string
+	Provider       string
+	Chatid         string
+	ProjectID      string
+	RepoID         string
+	WorkspaceID    string
 }
 
 // ScopeFlags renders the project/repo/workspace scope as the CLI flag list every
@@ -61,6 +73,9 @@ func Expand(s string, ctx TemplateCtx) string {
 		"{tmp}", ctx.Tmp,
 		"{id}", ctx.ID,
 		"{context}", ctx.Context,
+		"{ledger_dir}", ctx.LedgerDir,
+		"{ledger_cut}", ctx.LedgerCut,
+		"{context_pointer}", ctx.ContextPointer,
 		"{cwd}", ctx.Cwd,
 		"{crowbar_hook}", ctx.CrowbarHook,
 		"{crowbar}", ctx.CrowbarHook, // same binary as {crowbar_hook}; friendlier for non-hook commands

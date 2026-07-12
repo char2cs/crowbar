@@ -29,6 +29,12 @@ type Prompts struct {
 	// native session — it already holds everything up to the moment it was
 	// switched out, so it is handed just what happened while it was away.
 	HandoffResumeWrapper string `yaml:"handoff_resume_wrapper"`
+	// HandoffPointer is the SHORT message handed to a provider that can only be
+	// reached through a USER MESSAGE (a resumed codex ignores every config channel).
+	// It POINTS at the conversation ledger already on disk ({ledger_dir}) and says
+	// where to start reading ({ledger_cut}) — it never carries the transcript
+	// itself, which would dump the whole handed-off exchange into the chat.
+	HandoffPointer string `yaml:"handoff_pointer"`
 }
 
 // ConfigData is the top-level config section.

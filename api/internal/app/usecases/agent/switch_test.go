@@ -205,16 +205,16 @@ func TestSwitchProvider_SwitchBack_ResumesNativeSessionWithSeparateArgvTokens(t 
 	assert.NotContains(t, argv, "--resume sid-claude-native")
 }
 
-// TestSwitchProvider_SwitchBack_ResumesWithGapOnly exercises the codex-target
-// switch-back path end to end. Two things are load-bearing:
+// TestSwitchProvider_SwitchBack_ResumesAndPointsAtTheLedger exercises the
+// codex-target switch-back path. Two things are load-bearing:
 //
-//   - the resume arg ("resume {id}", no leading dash) MUST precede the positional
-//     context, or codex parses the context as its subcommand;
-//   - a provider resumed into its OWN session gets the GAP, not the whole ledger.
-//     Its native session already replays everything it said before it was switched
-//     out, so re-handing it its own turns is pure noise — what it does NOT have is
-//     what happened under the other provider while it was away.
-func TestSwitchProvider_SwitchBack_ResumesWithGapOnly(t *testing.T) {
+//   - the resume arg ("resume {id}", no leading dash) MUST precede the positional,
+//     or codex parses the message as its subcommand;
+//   - a resumed codex can only be reached through a USER MESSAGE, so it is handed a
+//     POINTER — the ledger directory plus the last turn it already saw — and NOT the
+//     transcript. Pasting the handed-off exchange into the chat is a wall of text the
+//     user has to scroll past on every switch, and the agent can just read the file.
+func TestSwitchProvider_SwitchBack_ResumesAndPointsAtTheLedger(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
@@ -231,15 +231,12 @@ func TestSwitchProvider_SwitchBack_ResumesWithGapOnly(t *testing.T) {
 	require.NoError(t, err)
 	f.wait()
 
-	// What codex misses while it is away: claude's turn, recorded after codex's
-	// segment ended.
+	// What codex misses while it is away.
 	appendAssistantTurn(t, f, claudeSegID, "claude", "sid-claude-native", "claude spoke while codex was away")
 
 	newSegID, err := f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
-
-	newSeg := segByID(t, f.chat(t, chatID), newSegID)
-	assert.Equal(t, "codex", newSeg.ProviderID)
+	assert.Equal(t, "codex", segByID(t, f.chat(t, chatID), newSegID).ProviderID)
 
 	require.Equal(t, 3, f.term.callCount())
 	argv := f.term.calls[2].argv
@@ -249,19 +246,15 @@ func TestSwitchProvider_SwitchBack_ResumesWithGapOnly(t *testing.T) {
 	require.Less(t, resumeIdx+1, len(argv))
 	assert.Equal(t, "sid-codex-native", argv[resumeIdx+1])
 
-	gapIdx := -1
-	for i, a := range argv {
-		if i > resumeIdx+1 && strings.Contains(a, "claude spoke while codex was away") {
-			gapIdx = i
-			break
-		}
-	}
-	require.GreaterOrEqual(t, gapIdx, 0, "argv %v must carry the gap after the resume arg", argv)
+	msg := argv[len(argv)-1]
+	assert.Contains(t, msg, "[Crowbar]")
+	assert.Contains(t, msg, "ledger", "the message must point at the ledger directory: %q", msg)
+	assert.Contains(t, msg, ".turn", "the message must name the last turn it already saw: %q", msg)
 
-	// Codex's OWN prior turn is already in the session it resumes — handing it
-	// back would duplicate its history and bury the one thing that IS new.
-	assert.NotContains(t, argv[gapIdx], "codex ledger content",
-		"a resumed provider must not be re-fed its own turns")
+	// The transcript itself must NOT be in the message — neither the gap nor its own
+	// earlier turns. That is the whole point: point at the file, do not paste it.
+	assert.NotContains(t, msg, "claude spoke while codex was away")
+	assert.NotContains(t, msg, "codex ledger content")
 }
 
 // TestSwitchProvider_ForwardSwitch_CarriesWholeConversation is the other half of

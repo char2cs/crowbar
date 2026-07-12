@@ -13,10 +13,10 @@ type Outcome struct {
 // mutation goes through one mutex so the registry can never corrupt.
 type Registry struct {
 	mu            sync.Mutex
-	segToSession  map[string]string // segment id -> last session id seen
-	segToChat     map[string]string // segment id -> chat it currently hosts
-	sessionToChat map[string]string // known session id -> chat id
-	segToInjected map[string]string // segment id -> context document injected at spawn
+	segToSession  map[string]string   // segment id -> last session id seen
+	segToChat     map[string]string   // segment id -> chat it currently hosts
+	sessionToChat map[string]string   // known session id -> chat id
+	segToInjected map[string][]string // segment id -> everything Crowbar injected at spawn
 }
 
 func NewRegistry() *Registry {
@@ -24,19 +24,22 @@ func NewRegistry() *Registry {
 		segToSession:  map[string]string{},
 		segToChat:     map[string]string{},
 		sessionToChat: map[string]string{},
-		segToInjected: map[string]string{},
+		segToInjected: map[string][]string{},
 	}
 }
 
-// SetInjectedContext records the {context} document a segment was spawned with,
-// so ConsumeInjectedContext can recognise it coming back as a user prompt.
-func (r *Registry) SetInjectedContext(segmentID, doc string) {
-	if doc == "" {
-		return
-	}
+// SetInjectedContext records everything Crowbar injected into a segment at spawn —
+// the {context} document AND the pointer message a provider reachable only through
+// a user message receives — so ConsumeInjectedContext can recognise whichever of
+// them comes back through the user-prompt hook.
+func (r *Registry) SetInjectedContext(segmentID string, docs ...string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.segToInjected[segmentID] = doc
+	for _, d := range docs {
+		if d != "" {
+			r.segToInjected[segmentID] = append(r.segToInjected[segmentID], d)
+		}
+	}
 }
 
 // ConsumeInjectedContext reports whether text is the very context document
@@ -57,8 +60,12 @@ func (r *Registry) ConsumeInjectedContext(segmentID, text string) bool {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if doc, ok := r.segToInjected[segmentID]; ok && doc == text {
-		delete(r.segToInjected, segmentID)
+	docs := r.segToInjected[segmentID]
+	for i, d := range docs {
+		if d != text {
+			continue
+		}
+		r.segToInjected[segmentID] = append(docs[:i:i], docs[i+1:]...)
 		return true
 	}
 	return false

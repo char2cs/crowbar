@@ -9,6 +9,8 @@ config:
       context, not work: do not act on it. Wait for the user's next message.
       {conversation}
       === END ===
+    handoff_pointer: |
+      [Crowbar] While you were away the user spoke with another assistant. This conversation is recorded one file per turn in {ledger_dir}; you have already seen everything up to and including {ledger_cut}. Read the turn files after it — that is what you missed. Context only: do not act on it, acknowledge in one short line and wait for the user.
     handoff_resume_wrapper: |
       === WHILE YOU WERE AWAY (Crowbar) ===
       This is your own conversation, resumed. The user spoke with another assistant

@@ -130,7 +130,7 @@ func (u *Usecase) SpawnChat(
 	providerID string,
 ) (chatID, segID string, err error) {
 	chatID = uuid.NewString()
-	segID, err = u.spawnSegment(ctx, chatID, workspaceID, providerID, nil, "", true, false, true)
+	segID, err = u.spawnSegment(ctx, chatID, workspaceID, providerID, nil, "", "", true, false, true)
 	if err != nil {
 		return "", "", err
 	}
@@ -310,6 +310,7 @@ func (u *Usecase) spawnSegment(
 	providerID string,
 	extraSteps []engineagent.InjectStep,
 	conversation string,
+	ledgerCut string,
 	injectTitle bool,
 	resuming bool,
 	create bool,
@@ -362,7 +363,15 @@ func (u *Usecase) spawnSegment(
 		ProjectID:   projectID,
 		RepoID:      repoID,
 		WorkspaceID: workspaceID,
+		LedgerDir:   worktreepath.AgentLedgerDir(chatsDir, chatID),
+		LedgerCut:   ledgerCut,
 	}
+	// The message for a provider that can ONLY be reached through a user message (a
+	// resumed codex ignores every config channel). It POINTS at the ledger already
+	// on disk and says where to start reading — it never carries the transcript,
+	// which would dump the whole handed-off exchange into the chat for the user to
+	// scroll past. An agent reads files.
+	tctx.ContextPointer = engineagent.Expand(config.GetPrompts().HandoffPointer, tctx)
 	// Compose the single {context} document: title instruction (only while the
 	// chat has no title — a chat switched before it was ever titled would
 	// otherwise never get one) followed by the handed-off conversation.
@@ -384,7 +393,7 @@ func (u *Usecase) spawnSegment(
 	// resume channel is a user message (codex) fires its user-prompt hook with
 	// this exact text the moment it starts, and that echo must never be recorded
 	// as a ledger turn — that is what made handoffs nest inside themselves.
-	u.registry.SetInjectedContext(segID, tctx.Context)
+	u.registry.SetInjectedContext(segID, tctx.Context, tctx.ContextPointer)
 
 	plan, err := engineagent.BuildSpawnPlan(descriptor, tctx, os.Environ(), steps)
 	if err != nil {
@@ -891,6 +900,17 @@ func (u *Usecase) SwitchProvider(
 		return "", fmt.Errorf("agent: switch provider: assemble handoff: %w", err)
 	}
 
+	// Where a resumed provider should START reading the ledger: the last turn it
+	// already saw. It is POINTED at the conversation on disk rather than handed a
+	// copy of it (see TemplateCtx.ContextPointer).
+	var ledgerCut string
+	if resuming {
+		ledgerCut, err = u.ledgerCut(ctx, chat, leftAt)
+		if err != nil {
+			return "", fmt.Errorf("agent: switch provider: ledger cut: %w", err)
+		}
+	}
+
 	// An absent active segment is NOT an error: the chat's CLI is simply dead
 	// (it exited, or it died with the daemon and ReconcileOnBoot ended its
 	// segment). Such a chat used to be a dead end — the pane told the user to
@@ -959,7 +979,7 @@ func (u *Usecase) SwitchProvider(
 	// positional context; order is irrelevant for claude's flag pair.
 	newSegID, err := u.spawnSegment(
 		ctx, chatID, chat.WorkspaceID, targetProviderID,
-		resumeSteps, conversation, chat.Title == "", resuming, false,
+		resumeSteps, conversation, ledgerCut, chat.Title == "", resuming, false,
 	)
 	if err != nil {
 		return "", err
@@ -1070,6 +1090,24 @@ func (u *Usecase) resumableSession(
 	slog.InfoContext(ctx, "agent: prior session has no recorded turns; spawning fresh instead of resuming",
 		"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID)
 	return "", time.Time{}, nil
+}
+
+// ledgerCut names the last ledger turn recorded before the provider left — the
+// point a resumed provider should start reading from. Empty when it saw nothing.
+func (u *Usecase) ledgerCut(
+	ctx context.Context,
+	chat domain.AgentChat,
+	leftAt time.Time,
+) (string, error) {
+	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	if err != nil {
+		return "", fmt.Errorf("chats dir: %w", err)
+	}
+	led, err := ledger.Open(worktreepath.AgentLedgerDir(chatsDir, chat.ID))
+	if err != nil {
+		return "", fmt.Errorf("ledger open: %w", err)
+	}
+	return led.LastEntryAt(leftAt)
 }
 
 // assembleConversation renders the handoff document for a spawning provider:

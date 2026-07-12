@@ -94,6 +94,35 @@ func (l *Ledger) RenderConversationAfter(cut time.Time) ([]byte, error) {
 	return l.render(cut)
 }
 
+// LastEntryAt returns the FILE NAME of the last turn recorded at or before cut —
+// the last turn a provider being resumed has already seen, and therefore the point
+// it should start reading from. Empty when the ledger has nothing that old (the
+// provider has seen nothing; it starts at the beginning).
+//
+// A name, not a body: a resumed provider is POINTED at the ledger rather than
+// handed a copy of it, so all it needs is where to start.
+func (l *Ledger) LastEntryAt(cut time.Time) (string, error) {
+	names, err := l.entries()
+	if err != nil {
+		return "", err
+	}
+	last := ""
+	for _, n := range names {
+		data, err := os.ReadFile(filepath.Join(l.dir, n)) //nolint:gosec // n comes from entries() listing l.dir, not external input
+		if err != nil {
+			return "", fmt.Errorf("ledger: read %s: %w", n, err)
+		}
+		var tn Turn
+		if err := json.Unmarshal(data, &tn); err != nil {
+			return "", fmt.Errorf("ledger: unmarshal %s: %w", n, err)
+		}
+		if cut.IsZero() || !tn.At.After(cut) {
+			last = n
+		}
+	}
+	return last, nil
+}
+
 // HasTurns reports whether provider recorded any turn in [from, to] — the window
 // of one segment's life. It answers "did this CLI's native session ever get any
 // CONTENT", which is not the same question as "did it report a session id".
