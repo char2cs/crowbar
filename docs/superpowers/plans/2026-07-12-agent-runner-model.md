@@ -775,8 +775,13 @@ git commit -m "feat(agent): wire axAgentRunner as the fourth per-type asynx aggr
 
 **Files:**
 - Create: `api/internal/engine/agent/reducer.go`
-- Modify: `api/internal/engine/agent/registry.go` — strip to `segToInjected` only; delete `segToChat`, `sessionToChat`, `segToSession`, `OnSessionStart`, `BindSegment`, `Seed`, `ChatFor`, `ForgetChat`'s map sweeps
 - Test: `api/internal/engine/agent/reducer_test.go`
+
+**This task is ADDITIVE. Do NOT touch `registry.go`.**
+
+The Registry's maps (`segToChat`, `sessionToChat`, `segToSession`) and its methods (`OnSessionStart`, `BindSegment`, `Seed`, `ChatFor`) are still called from **six live sites** in `api/internal/app/usecases/agent/agent.go` (`:212`, `:256`, `:324`, `:518`, `:606`, `:713`, `:1253`). Deleting them here would break the build.
+
+**Task 5 owns their deletion**, in the same commit that rewrites every caller onto the runner aggregate. Task 4 just puts the pure replacement in place beside them. (`segToInjected` — the injected-context echo guard — survives the deletion entirely: it is genuinely ephemeral per-spawn state with no durable counterpart to drift from.)
 
 **Interfaces:**
 - Consumes: nothing (pure).
@@ -909,6 +914,7 @@ This is the heavy task. Split the commit, not the task: the tree must build at t
 - Delete: `api/internal/app/repositories/agentchat/internal/commands/{open_segment,end_segment,bind_session}.go` and `segment_test.go`
 - Modify: `api/internal/app/repositories/agentchat/event_store.go` — drop `OpenSegment`, `EndSegment`, `BindSession`, and `CreateInput`'s `SegmentID`/`CrowbarSegmentID`/`ProviderID`/`TerminalSession`
 - Modify: `api/internal/app/repositories/agentchat/internal/store/{store,storage}.go` — drop segment columns
+- Modify: `api/internal/engine/agent/registry.go` — **strip it to `segToInjected` only.** Delete the `segToChat` / `sessionToChat` / `segToSession` maps and the `OnSessionStart` / `BindSegment` / `Seed` / `ChatFor` methods, plus `ForgetChat`'s map sweeps. These are the in-memory shadow of durable state that caused the split brain (bug 2): the reducer mutated them BEFORE the aggregate commands ran, so when the commands failed the registry still believed the runner had moved, and the orphaned CLI's turn hooks were routed into a chat it had left. Task 4 has already added the pure `Decide` replacement beside them; this task deletes them in the SAME commit that rewrites their six callers (`agent.go:212,256,324,518,606,713,1253`). `segToInjected` SURVIVES — it is genuinely ephemeral per-spawn state (the injected-context echo guard) with no durable counterpart to drift from.
 - Test: `api/internal/app/usecases/agent/agent_test.go`
 
 **Interfaces:**
