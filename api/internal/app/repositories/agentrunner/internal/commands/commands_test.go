@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner/internal/commands"
@@ -91,9 +92,38 @@ func TestExit_TombstonesForAudit(t *testing.T) {
 	require.Equal(t, time.Unix(9, 0), *got.ExitedAt)
 }
 
+// Displace states a PLACEMENT fact — "this runner is no longer on any chat" — and says
+// NOTHING about liveness. The row survives; only the pointer is cleared. That distinction
+// is the whole reason the command is allowed to exist: Crowbar owns placement outright,
+// so it may write it the moment it decides it, while liveness stays the PTY's alone.
+func TestDisplace_ClearsPlacementWithoutTouchingLiveness(t *testing.T) {
+	cur := &domain.AgentRunner{
+		ID: "r1", CurrentChatID: "c1", CurrentSession: "s1",
+		CurrentSessionSince: time.Unix(5, 0), TerminalSession: "pty1",
+	}
+	c := commands.Displace{RunnerID: "r1"}
+	require.NoError(t, c.Validate(cur))
+
+	got := c.EmitEvent(cur)
+	require.Empty(t, got.CurrentChatID, "the runner is on no chat")
+	require.Empty(t, got.CurrentSession, "and holds no conversation")
+	require.True(t, got.CurrentSessionSince.IsZero(), "a timestamp must not outlive the fact it stamps")
+	require.Nil(t, got.ExitedAt, "displacement asserts NOTHING about whether the process is alive")
+	require.Equal(t, "pty1", got.TerminalSession, "it still has its PTY — it is still running")
+
+	// The input is untouched (purity), and the command is idempotent.
+	require.Equal(t, "c1", cur.CurrentChatID)
+	require.NoError(t, c.Validate(&got), "displacing an already-displaced runner is a no-op, not an error")
+}
+
+func TestDisplace_RejectsUnknownRunner(t *testing.T) {
+	require.ErrorIs(t, commands.Displace{RunnerID: "nope"}.Validate(nil), asynxModels.ErrValidation)
+}
+
 func TestEventNames_AreAgentRunnerScoped(t *testing.T) {
 	require.Equal(t, "agentrunner.started.r1", commands.Start{RunnerID: "r1"}.EventName())
 	require.Equal(t, "agentrunner.session_bound.r1", commands.BindSession{RunnerID: "r1"}.EventName())
 	require.Equal(t, "agentrunner.moved.r1", commands.Move{RunnerID: "r1"}.EventName())
+	require.Equal(t, "agentrunner.displaced.r1", commands.Displace{RunnerID: "r1"}.EventName())
 	require.Equal(t, "agentrunner.exited.r1", commands.Exit{RunnerID: "r1"}.EventName())
 }

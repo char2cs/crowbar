@@ -194,9 +194,9 @@ func New(
 	// append-only conversation history) and its hub projection exactly once, over
 	// its OWN per-type planes (state/events/agent_runner.db and
 	// state/store/agent_runner.db). h.BroadcastAgentRunner is the sole source of
-	// runner lifecycle frames. Nothing sends runner commands yet — the usecase
-	// cutover off AgentSegment is a later task — so this is purely additive: the
-	// projections are live but no event can reach them.
+	// runner lifecycle frames (started/session_bound/moved/displaced/exited). The agent
+	// usecase sends every runner command through this store, and the workspace-delete
+	// cascade below reads it to find the CLI pointed at a chat it is about to Forget.
 	agentRunner, err := agentrunner.NewEventSourced(
 		axAgentRunner, adapters.AgentRunnerES(), adapters.AgentRunnerReadDB(), h.BroadcastAgentRunner)
 	if err != nil {
@@ -343,7 +343,7 @@ func (c *Container) forgetAgentChats(
 		if err := c.AgentChat.Forget(ctx, chat.ID); err != nil {
 			return fmt.Errorf("repositories: delete cascade: forget agent chat %q: %w", chat.ID, err)
 		}
-		c.terminateChatRunner(ctx, chat.ID)
+		c.retireChatRunner(ctx, chat.ID)
 		if err := c.AgentRunner.ForgetChat(ctx, chat.ID); err != nil {
 			slog.ErrorContext(ctx, "repositories: delete cascade: forget chat conversations (best-effort, continuing)",
 				"workspace_id", wsID, "chat_id", chat.ID, "err", err)
@@ -372,19 +372,26 @@ func (c *Container) reapAgentChatFiles(
 	}
 }
 
-// terminateChatRunner best-effort kills the vendor CLI pointed at chatID via the
-// injected terminal-engine seam (c.terminateSession). The runner's row is NEVER
-// hand-deleted here: the PTY is the sole authority on liveness, so we kill the
-// process and let its death carry the runner away (onExit → Exit → the projection
-// drops the live row). Reaching into the read model to delete it would make this
-// package a second authority on liveness — the exact drift this model deletes.
+// retireChatRunner best-effort takes the vendor CLI pointed at chatID OFF that chat and
+// kills it — the cascade twin of agent.Usecase.retire, in the same order and for the
+// same reasons.
 //
-// A dormant chat (no live runner — ErrNotFound) and a nil terminateSession (a test
-// that doesn't exercise PTY teardown) are both no-ops. A terminate failure is
-// LOGGED, never returned: it must not block the cascade (see forgetAgentChats).
-// ErrSessionNotFound (the CLI already exited) is already swallowed by the injected
-// seam (app.terminateAgentSession).
-func (c *Container) terminateChatRunner(
+// Displace FIRST: the chat is being erased, and a SIGTERM does not kill a process
+// synchronously, so until the CLI falls over it would otherwise still be pointed at a
+// chat that no longer exists — where its hooks would try to write, and where a read could
+// still hand it out. Displacement is a PLACEMENT fact (ours alone) and says nothing about
+// liveness, so it is safe to record even though the process is still running.
+//
+// Kill SECOND, and never hand-delete the runner's row: the PTY is the sole authority on
+// liveness, so the row goes when the process does (onExit → Exit → the projection drops
+// it). Reaching into the read model to delete it would make this package a second
+// authority on liveness — the exact drift this model deletes.
+//
+// A dormant chat (no live runner — ErrNotFound) and a nil terminateSession (a test that
+// doesn't exercise PTY teardown) are both no-ops. Failures are LOGGED, never returned:
+// they must not block the cascade (see forgetAgentChats). ErrSessionNotFound (the CLI
+// already exited) is already swallowed by the injected seam (app.terminateAgentSession).
+func (c *Container) retireChatRunner(
 	ctx context.Context,
 	chatID string,
 ) {
@@ -398,6 +405,10 @@ func (c *Container) terminateChatRunner(
 				"chat_id", chatID, "err", err)
 		}
 		return
+	}
+	if _, err := c.AgentRunner.Displace(ctx, live.ID); err != nil {
+		slog.ErrorContext(ctx, "repositories: delete cascade: displace agent chat runner (best-effort, continuing)",
+			"chat_id", chatID, "runner_id", live.ID, "err", err)
 	}
 	if err := c.terminateSession(ctx, live.TerminalSession); err != nil {
 		slog.ErrorContext(ctx, "repositories: delete cascade: terminate agent chat PTY (best-effort, continuing)",
@@ -523,17 +534,19 @@ func (c *Container) rebroadcast(
 // tiles tracks live agent activity. The in-memory set is authoritative (not a
 // read-model query), so it never races the store projection.
 //
-// Only turn_started/turn_stopped are folded — a mid-turn segment_ended (process
-// exit, switch-out, boot reconcile) is ALWAYS accompanied by a StopTurn
-// (agent.Usecase.endSegmentAndMaybeStopTurn), so a turn_stopped always arrives to
-// clear the set; segment_ended needs no separate handling.
+// Only turn_started/turn_stopped are folded, and nothing else needs to be: a chat's turn
+// is opened and closed by its hooks, and the ONE case where the closing hook never comes
+// — the CLI dying mid-turn — is covered by the runner-exit reconcile
+// (agent.Usecase.reconcileRunnerExit), which issues the StopTurn itself. So a
+// turn_stopped always arrives to clear the set.
 //
-// Boot note (in-memory overlay, empty on restart): agentWorking starts EMPTY on
-// daemon boot, so a chat that was mid-turn when the daemon stopped shows idle
-// until its next turn_started. That is safe because boot-reconcile
-// (agent.Usecase.ReconcileOnBoot) ends stale segments/turns on restart, so no
-// chat is genuinely mid-turn-but-shown-idle after boot — consistent with the FE
-// chat-row working map's accepted default-idle-on-load.
+// Boot note (in-memory overlay, empty on restart): agentWorking starts EMPTY on daemon
+// boot, so a chat that was mid-turn when the daemon stopped shows idle until its next
+// turn_started. Showing idle is the TRUTHFUL answer — every agent PTY dies with the
+// daemon, so nothing is running — but note the chat AGGREGATE can still read Working=true
+// until something closes that turn, so this overlay and a REST read of the chat can
+// disagree until the runner boot reconcile lands (the next task in this series). It is
+// consistent with the FE chat-row working map's accepted default-idle-on-load.
 func (c *Container) registerAgentWorkingProjection() error {
 	if _, err := c.axAgentChat.Subscribe(asynx.Topic("agentchat.*"),
 		func(ctx context.Context, evt asynxModels.Event[domain.AgentChat]) {

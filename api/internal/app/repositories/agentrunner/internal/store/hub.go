@@ -27,6 +27,12 @@ const eventNamePrefix = "agentrunner."
 //	started       — a CLI was spawned into a chat
 //	session_bound — the provider announced its first conversation id
 //	moved         — the CLI repointed at another chat/conversation (/clear, /resume)
+//	displaced     — Crowbar took the CLI OFF its chat (an eviction, the outgoing side of a
+//	                switch, a chat deleted under it). chatID is EMPTY on this frame: the
+//	                runner is on no chat. The process is still alive — this says nothing
+//	                about liveness — but it no longer holds anything, so a client following
+//	                that runner should stop showing it as the chat's agent WITHOUT waiting
+//	                for the exit, which may be a second away or (if the kill failed) never.
 //	exited        — the PTY died; the live row is gone and the chat is now dormant
 type BroadcastFunc func(
 	runnerID string,

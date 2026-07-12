@@ -41,9 +41,8 @@ type Container struct {
 	// axWorkspace, axReviewThread, axAgentChat, and axAgentRunner are the per-type
 	// asynx singletons (one per aggregate type, routing every id by shard hash).
 	// They are retained here so Task 15's ordered graceful shutdown can drain each
-	// via ax.Shutdown. axAgentRunner is the newest and is purely additive: its
-	// store/hub projections are live, but nothing sends runner commands yet — the
-	// usecase cutover off AgentSegment is a later task.
+	// via ax.Shutdown. axAgentRunner carries the RUNNER aggregate — one live vendor CLI
+	// in one PTY, the thing that moves between chats on /clear and /resume.
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
 	axAgentChat    asynx.Asynx[domain.AgentChat]

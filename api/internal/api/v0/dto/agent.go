@@ -68,14 +68,19 @@ type AgentProviderDTO struct {
 	Icon        string `json:"icon"`
 }
 
-// AgentChatEvent is the wire frame pushed on the agent-chat lifecycle
-// WebSocket (GET .../workspaces/:wsId/agent/ws/chats): the chat that changed,
-// the workspace it belongs to, and the lifecycle kind — chat kinds
-// (created/turn_started/turn_stopped/title_set/deleted) and runner kinds
-// (started/session_bound/moved/exited), which ride this same workspace-scoped
-// feed. It carries no snapshot; the stream is a bare event feed, not a
-// full-state resource stream. WorkspaceID both scopes the feed (agentChatDef's
-// wsId Filter) and rides along on the wire frame.
+// AgentChatEvent is the wire frame pushed on the agent-chat lifecycle WebSocket
+// (GET .../workspaces/:wsId/agent/ws/chats): the chat that changed, the workspace it
+// belongs to, and the lifecycle kind — chat kinds (created/turn_started/turn_stopped/
+// title_set/deleted) and runner kinds (started/session_bound/moved/displaced/exited),
+// which ride this same workspace-scoped feed. It carries no snapshot; the stream is a
+// bare event feed, not a full-state resource stream. WorkspaceID both scopes the feed
+// (agentChatDef's wsId Filter) and rides along on the wire frame.
+//
+// ChatID is EMPTY on a `displaced` frame, and that is the frame's whole meaning: Crowbar
+// has taken that runner off its chat (an eviction, a provider switch, a chat deleted under
+// it) and it now holds nothing. The process may still be alive for a moment — displacement
+// asserts nothing about liveness — so a client must not wait for `exited` before letting go
+// of it: if the kill failed, `exited` never comes.
 type AgentChatEvent struct {
 	ChatID      string `json:"chatId"`
 	WorkspaceID string `json:"workspaceId"`

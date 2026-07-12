@@ -74,9 +74,12 @@ type TerminalCommander interface {
 		ctx context.Context,
 		sessionID string,
 	) error
-	// SessionLive reports whether a terminal session id is backed by a LIVE PTY
-	// right now. It is the single authority boot reconciliation asks — a false here
-	// means the CLI is definitively gone, even though no event ever recorded it.
+	// SessionLive reports whether a terminal session id is backed by a LIVE PTY right
+	// now. It has NO caller in this package today, and it is kept deliberately: it is
+	// the single authority BOOT RECONCILIATION asks, and boot reconciliation — which
+	// Exits every runner whose PTY did not survive the restart — is the next task in
+	// this series. A false here means the CLI is definitively gone, even though no
+	// event ever recorded it.
 	//
 	// It is deliberately NOT the engine's SessionExists, which is also true for a
 	// PTY-less suspended placeholder — a session whose process is already dead and
@@ -97,8 +100,9 @@ type WorkspaceReader interface {
 		workspaceID string,
 	) (crowbarHome, projectID, repoID, worktree string, err error)
 	// AgentChatsDir returns the directory holding the workspace's agentic chat
-	// state — the per-chat handoff ledger and per-spawn tmp dirs (rendered hook
-	// config + any codex auth.json copy). It is ALWAYS strictly under crowbar
+	// state — the per-chat handoff ledger and the per-spawn tmp dirs (the rendered
+	// hook config; nothing else — no descriptor copies any credential into them,
+	// and none may). It is ALWAYS strictly under crowbar
 	// home, even for a home-kind / adopted-checkout workspace whose worktree (Cwd)
 	// is the user's REAL directory outside home: for a managed worktree it is the
 	// sibling of the worktree, and for an adopted checkout it reroots under home
@@ -122,6 +126,11 @@ type Usecase struct {
 	registry *engineagent.Registry
 	term     TerminalCommander
 	ws       WorkspaceReader
+	// spawns serialises the USER-INITIATED spawn paths per chat (SpawnChat,
+	// SwitchProvider, ResumeChat). See chatGate: it is the only thing that can stop two
+	// concurrent switches putting two CLIs on one chat, and it is NEVER taken on the
+	// hook path.
+	spawns *chatGate
 }
 
 // New builds a Usecase over the two aggregates and the engine seams. registry is
@@ -141,6 +150,7 @@ func New(
 		registry: registry,
 		term:     term,
 		ws:       ws,
+		spawns:   newChatGate(),
 	}
 }
 
@@ -154,6 +164,8 @@ func (u *Usecase) SpawnChat(
 	providerID string,
 ) (chatID, runnerID string, err error) {
 	chatID = uuid.NewString()
+	defer u.spawns.lock(chatID)()
+
 	runnerID, err = u.spawnRunner(ctx, chatID, workspaceID, providerID, nil, "", "", true, false, true)
 	if err != nil {
 		return "", "", err
@@ -205,12 +217,12 @@ func (u *Usecase) RenameChat(
 // reports not found. It then kills the CLI that was pointed at the chat, drops the
 // chat's conversation history, and reaps its on-disk footprint.
 //
-// A runner may still be pointed at the chat, and a runner whose chat no longer
-// exists is a runner with nowhere to write. We do NOT delete its row from the read
-// model: that would be Crowbar asserting a liveness fact it does not own — the exact
-// dual-authority mistake this refactor deletes. We kill the PROCESS and let the row
-// follow (TerminateGraceful → the engine's onExit → Exit → the projection drops the
-// live row).
+// A runner may still be pointed at the chat, and a runner whose chat no longer exists is
+// a runner with nowhere to write. It is DISPLACED (taken off the chat — a placement fact,
+// which is ours) and then killed (a request, not an assertion). We do NOT delete its row
+// from the read model: that would be Crowbar asserting a LIVENESS fact it does not own —
+// the exact dual-authority mistake this refactor deletes. The row goes when the PTY does
+// (TerminateGraceful → the engine's onExit → Exit → the projection drops it).
 //
 // ORDER: Forget the chat FIRST, kill the CLI SECOND. This is deliberate and it is
 // the opposite of what the old code did.
@@ -226,10 +238,11 @@ func (u *Usecase) RenameChat(
 //	command fails Validate (current == nil) and emits nothing at all. Forgetting first
 //	makes the zombie unrepresentable rather than merely unlikely.
 //
-//	The window it opens instead is harmless: between the Forget and the CLI's death,
-//	hooks from that CLI resolve to a chat that is gone and are dropped (IngestHook's
-//	existence guard) — which is exactly what should happen to a turn typed into a chat
-//	the user has just deleted.
+//	The window it opens instead is closed by IngestHook's chat-existence guards, which
+//	cover BOTH hook kinds: a turn hook whose chat is gone is dropped, and so is a
+//	conversation ANNOUNCEMENT (which would otherwise write a conversation-history row
+//	against a chat that has just been deleted — a dangling /resume target). Either way
+//	the CLI is killed again: it has nowhere left to write.
 //
 // Everything after the Forget is BEST-EFFORT: a terminate failure, a history-drop
 // failure or a filesystem failure is logged and the purge still reports success.
@@ -246,7 +259,7 @@ func (u *Usecase) PurgeChat(
 	if err := u.chats.Forget(ctx, chatID); err != nil {
 		return fmt.Errorf("agent: purge chat: forget: %w", err)
 	}
-	u.terminateChatRunner(ctx, chatID)
+	u.retireChatRunner(ctx, chatID)
 
 	// Drop the chat's conversation history. It is append-only and outlives the
 	// process, so nothing else ever removes it — and a conversation still pointing
@@ -278,12 +291,11 @@ func (u *Usecase) PurgeChat(
 	return nil
 }
 
-// terminateChatRunner kills the vendor CLI currently pointed at chatID, if any.
-// A dormant chat (no live runner) is a no-op — that absence is the answer, not an
-// error. ErrSessionNotFound (the CLI already exited on its own) is not even worth a
-// log line. It is best-effort by contract: every caller is a delete the user asked
-// for, and none of them may be wedged by a terminate failure.
-func (u *Usecase) terminateChatRunner(
+// retireChatRunner takes the vendor CLI currently pointed at chatID off that chat and
+// kills it. A dormant chat (no live runner) is a no-op — that absence is the answer, not
+// an error. Best-effort by contract: every caller is a delete the user asked for, and
+// none of them may be wedged by a failure here.
+func (u *Usecase) retireChatRunner(
 	ctx context.Context,
 	chatID string,
 ) {
@@ -295,10 +307,47 @@ func (u *Usecase) terminateChatRunner(
 		}
 		return
 	}
-	if err := u.term.TerminateGraceful(ctx, live.TerminalSession); err != nil &&
+	u.retire(ctx, live)
+}
+
+// retire takes a runner off the chat it is on and asks its process to quit — in that
+// order, and the order is the point.
+//
+// DISPLACE FIRST. It cannot fail on anyone else's state, and it records the one thing we
+// actually know: this CLI is no longer on that chat. It says NOTHING about whether the
+// process is alive, so it is not a second opinion on liveness — it is a placement fact,
+// and placement is ours alone. Recording it immediately is what makes "one runner per
+// chat" true at every instant: a SIGTERM'd CLI does not die synchronously, and until it
+// falls over it would otherwise still be pointed at a chat somebody else now owns —
+// where it could write turns into that chat's ledger, and where a read could hand it out
+// as the chat's live runner (attaching a pane to a corpse).
+//
+// KILL SECOND, best-effort. TerminateGraceful is a request; the PTY decides. If it fails
+// the CLI stays alive — but it is already unplaced, so its hooks resolve to no chat and
+// are dropped, and its death (whenever it comes) still carries its row away. A failure
+// here therefore leaks a process, never a write.
+func (u *Usecase) retire(
+	ctx context.Context,
+	runner domain.AgentRunner,
+) {
+	u.displace(ctx, runner)
+	if err := u.term.TerminateGraceful(ctx, runner.TerminalSession); err != nil &&
 		!errors.Is(err, engineterminal.ErrSessionNotFound) {
-		slog.WarnContext(ctx, "agent: terminate chat's runner (best-effort, continuing)",
-			"chat_id", chatID, "runner_id", live.ID, "terminal_session_id", live.TerminalSession, "err", err)
+		slog.WarnContext(ctx, "agent: retire runner: terminate (best-effort, continuing)",
+			"runner_id", runner.ID, "terminal_session_id", runner.TerminalSession, "err", err)
+	}
+}
+
+// displace records that a runner is no longer placed on any chat. Best-effort: a failure
+// is logged, never returned — every caller is already tearing something down, and none of
+// them has anything useful to do with the error.
+func (u *Usecase) displace(
+	ctx context.Context,
+	runner domain.AgentRunner,
+) {
+	if _, err := u.runners.Displace(ctx, runner.ID); err != nil {
+		slog.ErrorContext(ctx, "agent: displace runner (best-effort, continuing)",
+			"runner_id", runner.ID, "chat_id", runner.CurrentChatID, "err", err)
 	}
 }
 
@@ -382,10 +431,14 @@ func (u *Usecase) spawnRunner(
 	}
 
 	// Under the workspace's chats dir (always beneath crowbar home), keyed by
-	// chatID+runnerID+providerID so it is deterministic per spawn. This dir holds the
-	// rendered hook config and, for codex, a COPY of ~/.codex/auth.json (a credential)
-	// — it must survive for the whole life of the spawned CLI, so it is removed via
-	// onExit below (on PTY session end), never eagerly after spawn.
+	// chatID+runnerID+providerID so it is deterministic per spawn. It holds the rendered
+	// hook config the CLI is pointed at, and must survive for the whole life of that CLI
+	// — so it is removed via onExit below (on PTY death), never eagerly after spawn.
+	//
+	// It holds no secret: a provider owns its own credentials and Crowbar never copies
+	// them anywhere (that rule is why CODEX_HOME is not ours, and why codex's sessions
+	// survive a switch). Nothing in the descriptors puts a credential here, and nothing
+	// may.
 	tmpDir := worktreepath.SegmentDir(chatsDir, chatID, runnerID, providerID)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return "", fmt.Errorf("agent: spawn runner: mkdir tmp: %w", err)
@@ -750,6 +803,17 @@ func (u *Usecase) handleSessionStart(
 	case engineagent.MoveNoop:
 		return nil
 	case engineagent.MoveBind:
+		// The conversation is recorded AGAINST THE CHAT the runner is on, so that chat
+		// had better still be there. It might not be: PurgeChat kills the CLI but a
+		// SIGTERM is not synchronous, so a chat deleted seconds after it was created
+		// ("wrong provider, undo") can be gone before its CLI has even announced. Binding
+		// anyway would write a conversation-history row against a hard-deleted chat — a
+		// dangling /resume target, the exact live trap PurgeChat drops that history to
+		// prevent.
+		ok, err := u.requirePlacement(ctx, runner, runner.CurrentChatID)
+		if err != nil || !ok {
+			return err
+		}
 		if _, err := u.runners.BindSession(ctx, runner.ID, ev.SessionID, time.Now()); err != nil {
 			return fmt.Errorf("agent: ingest hook: bind session: %w", err)
 		}
@@ -757,9 +821,54 @@ func (u *Usecase) handleSessionStart(
 	case engineagent.MoveToNew:
 		return u.moveToNewChat(ctx, runner, ev.SessionID)
 	case engineagent.MoveToKnown:
+		// The destination is resolved from append-only history, which can outlive the chat
+		// it names: PurgeChat's history drop is best-effort, and deleting a Crowbar chat
+		// deliberately does NOT delete the vendor's session file — so a purged chat's
+		// conversation can still be sitting in the CLI's own /resume picker. Pick it, and
+		// an unguarded move would repoint the runner at a chat that does not exist: an
+		// invisible CLI, writing nowhere, forever.
+		ok, err := u.requirePlacement(ctx, runner, d.ChatID)
+		if err != nil || !ok {
+			return err
+		}
 		return u.moveToKnownChat(ctx, runner, d.ChatID, ev.SessionID)
 	}
 	return nil
+}
+
+// requirePlacement reports whether chatID still exists — i.e. whether it is somewhere a
+// runner can legitimately be placed and written to.
+//
+// When it does not, the runner has nowhere to write and must not be left running: it is
+// retired (taken off whatever it was pointed at, and asked to quit). The hook itself is
+// DROPPED, never failed — a hook must never break the vendor CLI's turn, and there is
+// nothing the CLI could do with an error about a chat the user deleted anyway.
+//
+// This is not the reducer refusing reality (spec §3): the CLI's conversation switch is
+// still a fait accompli. It is Crowbar declining to invent a placement — recording a
+// runner onto a chat that does not exist is not a truth about the world, it is a lie the
+// read model would then have to live with.
+func (u *Usecase) requirePlacement(
+	ctx context.Context,
+	runner domain.AgentRunner,
+	chatID string,
+) (bool, error) {
+	if chatID == "" {
+		// Already displaced (we are killing it, and it has not fallen over yet).
+		u.retire(ctx, runner)
+		return false, nil
+	}
+	_, err := u.chats.GetChat(ctx, chatID)
+	if err == nil {
+		return true, nil
+	}
+	if !errors.Is(err, agentchat.ErrNotFound) {
+		return false, fmt.Errorf("agent: ingest hook: chat: %w", err)
+	}
+	slog.WarnContext(ctx, "agent: ingest hook: the runner's chat no longer exists; dropping the announcement and retiring the CLI",
+		"runner_id", runner.ID, "chat_id", chatID)
+	u.retire(ctx, runner)
+	return false, nil
 }
 
 // moveToNewChat handles /clear and /new: a conversation nobody has ever seen appeared
@@ -827,21 +936,22 @@ func (u *Usecase) moveToKnownChat(
 	return nil
 }
 
-// evict terminates a runner whose conversation another runner has just taken over
-// (invariant I3). Its PTY dies, and THAT is what makes it dead — the PTY is the sole
-// authority, so the Exit event follows from the terminal engine's onExit callback
-// rather than being asserted here.
+// evict retires a runner whose conversation another runner has just taken over
+// (invariant I3): it is taken off that chat and asked to quit. Its PTY's death is still
+// what makes it DEAD — the Exit follows from the engine's onExit callback, never from an
+// assertion here.
 //
-// A failure is logged, never returned: by the time we get here the move is already
-// recorded, and the record is truthful either way. What must not happen is the
-// eviction's failure propagating back as a failed hook, because the CLI has already
-// switched and there is nothing for it to do with an error.
+// The displacement is the part that must not be skipped, and it is why this is `retire`
+// and not a bare kill. If the kill fails the evictee is still alive, and an evictee that
+// is still POINTED at the conversation it lost would go on appending its turns to the
+// ledger of the chat the mover now owns — two CLIs writing one conversation, which is the
+// corruption I3 exists to prevent. Unplaced, its hooks resolve to no chat and are dropped.
+//
+// Nothing here is returned: by the time we get here the move is already recorded, and the
+// record is truthful either way. An eviction failure must never propagate back as a failed
+// hook — the CLI has already switched, and there is nothing for it to do with an error.
 func (u *Usecase) evict(ctx context.Context, incumbent domain.AgentRunner) {
-	if err := u.term.TerminateGraceful(ctx, incumbent.TerminalSession); err != nil &&
-		!errors.Is(err, engineterminal.ErrSessionNotFound) {
-		slog.ErrorContext(ctx, "agent: evict incumbent runner",
-			"runner_id", incumbent.ID, "terminal_session_id", incumbent.TerminalSession, "err", err)
-	}
+	u.retire(ctx, incumbent)
 }
 
 // appendTurn records one conversation turn (user or assistant) into the chat's
@@ -896,6 +1006,18 @@ func (u *Usecase) AssembleHandoff(
 // only the GAP — what happened under other providers while it was away. Otherwise it
 // is spawned fresh with the whole ledger.
 func (u *Usecase) SwitchProvider(
+	ctx context.Context,
+	chatID string,
+	targetProviderID string,
+) (string, error) {
+	defer u.spawns.lock(chatID)()
+	return u.switchProviderLocked(ctx, chatID, targetProviderID)
+}
+
+// switchProviderLocked is SwitchProvider's body, with the chat's spawn gate ALREADY
+// held. ResumeChat holds the same gate and calls straight in here — the gate is not
+// re-entrant, and a revive that took it twice would deadlock on itself.
+func (u *Usecase) switchProviderLocked(
 	ctx context.Context,
 	chatID string,
 	targetProviderID string,
@@ -989,8 +1111,23 @@ func (u *Usecase) SwitchProvider(
 // continue: the alternative would trap a chat unable to ever switch again once its CLI
 // exits on its own.
 //
-// The runner is NOT Exited here. Its PTY's death does that (onExit →
-// reconcileRunnerExit), because the PTY is the only thing that knows.
+// ORDER — and it is the reverse of every other teardown in this file, deliberately.
+// Elsewhere we DISPLACE first (record the placement fact, which cannot fail) and kill
+// second. Here the kill is allowed to ABORT the whole switch, so displacing first would
+// take the CLI off its chat and then leave it there, alive, holding a chat that now
+// believes it has nobody — Crowbar lying about its own placement, which is the one thing
+// placement is not allowed to do. So: kill first, and displace only once the CLI is
+// definitely going away.
+//
+// Displacing at all is what closes the window an ordering heuristic cannot: the outgoing
+// CLI may not have announced its conversation yet (claude takes about a second, and the
+// user can click Switch well inside that). If it announces AFTER the incoming CLI has
+// started, it would stamp a fresher timestamp than the incoming runner's spawn — and any
+// "whoever arrived last holds the chat" rule would hand the chat back to the corpse.
+// Unplaced, it announces into nothing and is dropped.
+//
+// The runner is NOT Exited here. Its PTY's death does that (onExit → reconcileRunnerExit),
+// because the PTY is the only thing that knows.
 func (u *Usecase) quitOutgoingCLI(
 	ctx context.Context,
 	chatID string,
@@ -1004,11 +1141,14 @@ func (u *Usecase) quitOutgoingCLI(
 	}
 	if err := u.term.TerminateGraceful(ctx, live.TerminalSession); err != nil {
 		if !errors.Is(err, engineterminal.ErrSessionNotFound) {
+			// The CLI is still on its chat, and it stays there: the switch is aborted with
+			// nothing changed rather than half-done.
 			return fmt.Errorf("agent: switch provider: terminate outgoing terminal: %w", err)
 		}
 		slog.WarnContext(ctx, "agent: switch provider: outgoing terminal session already gone before terminate; continuing switch",
 			"chat_id", chatID, "runner_id", live.ID, "terminal_session_id", live.TerminalSession, "err", err)
 	}
+	u.displace(ctx, live)
 	return nil
 }
 
@@ -1023,11 +1163,15 @@ func (u *Usecase) quitOutgoingCLI(
 // the CLI exactly where the user left it.
 //
 // A chat that still has a live runner is returned as-is (no-op): reviving it would
-// tear down a perfectly good CLI and spawn a second one on the same conversation.
+// tear down a perfectly good CLI and spawn a second one on the same conversation. That
+// check and the spawn that may follow it are under the chat's spawn gate, so two clicks
+// on Resume cannot both conclude "dormant" and both spawn.
 func (u *Usecase) ResumeChat(
 	ctx context.Context,
 	chatID string,
 ) (string, error) {
+	defer u.spawns.lock(chatID)()
+
 	live, err := u.runners.LiveRunnerForChat(ctx, chatID)
 	if err == nil {
 		return live.ID, nil
@@ -1039,7 +1183,8 @@ func (u *Usecase) ResumeChat(
 	if err != nil {
 		return "", fmt.Errorf("agent: resume chat: no conversation to resume: %w", err)
 	}
-	return u.SwitchProvider(ctx, chatID, last.ProviderID)
+	// The gate is already held: call the inner body, never SwitchProvider itself.
+	return u.switchProviderLocked(ctx, chatID, last.ProviderID)
 }
 
 // resumableConversation picks the conversation targetProviderID should be resumed

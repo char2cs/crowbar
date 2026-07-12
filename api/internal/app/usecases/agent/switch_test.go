@@ -118,8 +118,10 @@ func TestSwitchProvider_Forward_SpawnsTargetProviderWithHandoff(t *testing.T) {
 
 // TestSwitchProvider_Broadcasts_NoChatEvent: a handoff changes which CLI is on the
 // chat. The CHAT is not written to at all, so it emits no lifecycle event; the runner
-// feed carries the whole story (the incoming runner starts; the outgoing one exits
-// when its PTY dies).
+// feed carries the whole story — the outgoing runner is taken OFF the chat (displaced)
+// the moment we quit it, the incoming one starts, and the outgoing one exits later, when
+// its PTY finally dies. The displaced frame is what tells a client the old runner no
+// longer holds the chat, without waiting for a death it does not control.
 func TestSwitchProvider_Broadcasts_NoChatEvent(t *testing.T) {
 	f := newFixture(t)
 
@@ -135,7 +137,7 @@ func TestSwitchProvider_Broadcasts_NoChatEvent(t *testing.T) {
 	f.wait()
 
 	assert.Empty(t, f.bcKinds(t), "a provider switch writes nothing to the chat aggregate")
-	assert.Equal(t, []string{"started", "exited"}, f.runnerKinds(t))
+	assert.Equal(t, []string{"displaced", "started", "exited"}, f.runnerKinds(t))
 }
 
 // TestSwitchProvider_SwitchBack_ResumesTheConversationWithSeparateArgvTokens drives

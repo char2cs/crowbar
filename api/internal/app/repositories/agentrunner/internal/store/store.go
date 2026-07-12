@@ -99,37 +99,35 @@ func New(
 	return &Store{db: db}, nil
 }
 
-// newestArrivalFirst orders live runners by WHEN THEY ARRIVED where they are — the
-// later of "when this process started" and "when it took its current conversation" —
-// newest first, with the id as a final deterministic tiebreak.
+// newestArrivalFirst orders live runners by WHEN THEY ARRIVED where they are — the later
+// of "when this process started" and "when it took its current conversation" — newest
+// first, with the id as a final deterministic tiebreak.
 //
-// It exists because "at most one runner per chat" (I2) and "at most one live runner
-// per conversation" (I3) cannot be true at every INSTANT, and pretending otherwise
-// would put a lie in the read model. Crowbar cannot kill a process synchronously: it
-// SIGTERMs, and the runner does not die until its PTY does (that is the whole point —
-// the PTY is the sole authority on liveness). So there is an unavoidable window, on
-// both the provider-switch path and the eviction path, where two rows point at the
-// same chat:
+// It is a BACKSTOP, not the mechanism. Invariants I2 and I3 (one runner per chat, one per
+// conversation) are upheld by DISPLACEMENT: Crowbar cannot kill a process synchronously,
+// so whenever it takes a CLI off a chat it records that placement fact immediately
+// (agentrunner.Displace) instead of waiting for the corpse to fall over. A displaced
+// runner points at nothing, so it cannot be returned by these queries at all — which is
+// why they should never actually see two candidates.
 //
-//	switch:    the incoming CLI starts while the outgoing one is still dying.
-//	eviction:  the mover takes the conversation; the incumbent is still dying.
+// An ORDERING alone could not do that job, and it is worth writing down why, because the
+// heuristic is seductive: the outgoing CLI of a provider switch may not have announced its
+// conversation yet, and when it finally does — AFTER the incoming CLI has started — it
+// stamps a fresher timestamp than the incoming runner's spawn, so "whoever arrived last"
+// hands the chat straight back to the corpse. Timestamps describe when things happened;
+// only the displacement records what we DECIDED.
 //
-// In BOTH windows the answer to "who holds this chat now" is the same: the one that
-// arrived LAST. The other one is dying, by our own hand. Ordering by id instead would
-// be deterministic and WRONG — it would hand out the dying runner (and its dead PTY)
-// roughly half the time, which is exactly the "attached to a corpse" experience this
-// refactor exists to end.
-//
-// Both timestamps are placement facts Crowbar is the sole writer of, so neither can
-// drift; this is ordering, not a liveness opinion.
+// So this ordering exists for the case the invariant is nevertheless violated (a displace
+// that failed and was logged, a projection lagging): the winner is at least deterministic
+// and biased toward the most recent arrival, so the resulting bug is reproducible rather
+// than a coin flip.
 const newestArrivalFirst = "MAX(current_session_since, started_at) DESC, id ASC"
 
-// LiveRunnerForChat returns the runner currently pointed at chatID, or ErrNotFound
-// when the chat is dormant. There is no status column to consult: the row exists
-// exactly while its CLI runs, so its presence IS liveness.
-//
-// During a switch or an eviction two rows can transiently point at one chat (see
-// newestArrivalFirst); the runner that arrived last is the one that holds it.
+// LiveRunnerForChat returns the runner currently pointed at chatID, or ErrNotFound when
+// the chat is dormant. There is no status column to consult: the row exists exactly while
+// its CLI runs, so its presence IS liveness — and a runner Crowbar has taken OFF this chat
+// (Displace) points at nothing and is not a candidate, even while its process is still
+// dying.
 func (s *Store) LiveRunnerForChat(
 	ctx context.Context,
 	chatID string,

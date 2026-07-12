@@ -130,8 +130,8 @@ func (h *Hub) BroadcastAgentChat(
 }
 
 // BroadcastAgentRunner fans an agent-RUNNER lifecycle event
-// (started/session_bound/moved/exited) out to every subscriber. Fed solely by the
-// agentrunner hub projection, which derives the kind from the emitting command's
+// (started/session_bound/moved/displaced/exited) out to every subscriber. Fed solely by
+// the agentrunner hub projection, which derives the kind from the emitting command's
 // event name.
 //
 // The frame carries PLACEMENT, never liveness: chatID is the chat the runner is

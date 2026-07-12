@@ -22,9 +22,14 @@ type AgentRunner struct {
 	ProviderID      string `json:"providerId"`
 	TerminalSession string `json:"terminalSessionId"` // its PTY: identity AND heartbeat
 
-	// CurrentChatID is always set (invariant I1). CurrentSession is empty only
-	// between spawn and the provider's first session announcement.
-	CurrentChatID  string `json:"currentChatId"`
+	// CurrentChatID is set while the runner is PLACED — which is its whole life, bar
+	// one case: Crowbar has taken it off a chat it is being removed from (an eviction,
+	// the outgoing side of a switch, a chat deleted under it) and it is still dying.
+	// A displaced runner is pointed at nothing, so nothing can be written on its behalf
+	// and no chat can be handed to it — while its process, which we do not command,
+	// finishes falling over. CurrentSession is additionally empty between spawn and the
+	// provider's first conversation announcement.
+	CurrentChatID  string `json:"currentChatId,omitempty"`
 	CurrentSession string `json:"currentSessionId,omitempty"`
 
 	// CurrentSessionSince is when CurrentSession was bound to this runner — the

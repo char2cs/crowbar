@@ -470,6 +470,50 @@ func TestLiveRunnerForChat_DuringSwitch_ReturnsTheIncomingRunner(t *testing.T) {
 	assert.Equal(t, "pty-new", live.TerminalSession)
 }
 
+// Displacement is how I2/I3 hold at every INSTANT rather than eventually. The runner is
+// still RUNNING — its row survives, its PTY is its own — it is simply no longer on any
+// chat, which is a fact Crowbar owns outright and can therefore record the moment it
+// decides it, without waiting for a process it does not command to die.
+func TestDisplace_ClearsPlacementButKeepsTheLiveRow(t *testing.T) {
+	h := newHarness(t)
+	h.start(arCmds.Start{
+		RunnerID: "r1", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "pty1", ChatID: "c1", Now: clock(1),
+	})
+	h.bindSession("r1", "s1", clock(2))
+	h.drain()
+
+	_, err := h.ax.SendWait(h.ctx, arCmds.Displace{RunnerID: "r1"})
+	require.NoError(t, err)
+	h.drain()
+
+	_, err = h.st.LiveRunnerForChat(h.ctx, "c1")
+	assert.ErrorIs(t, err, store.ErrNotFound, "the chat is dormant: nothing is on it")
+	_, err = h.st.LiveRunnerForSession(h.ctx, "w1", "s1")
+	assert.ErrorIs(t, err, store.ErrNotFound, "and nobody is holding the conversation")
+
+	// The runner is still THERE, though: it is a live process, and only its PTY may say
+	// otherwise. Boot reconciliation still finds it, and its exit still carries it away.
+	got, err := h.st.Get(h.ctx, "r1")
+	require.NoError(t, err)
+	assert.Empty(t, got.CurrentChatID)
+	assert.Equal(t, "pty1", got.TerminalSession)
+	assert.Len(t, mustAllLive(t, h), 1, "a displaced runner is still a running CLI")
+
+	// Its history survives: the chat it was on stays resumable.
+	last, err := h.st.LastConversation(h.ctx, "c1")
+	require.NoError(t, err)
+	assert.Equal(t, "s1", last.SessionID)
+}
+
+// mustAllLive reads the live-runner table.
+func mustAllLive(t *testing.T, h *harness) []domain.AgentRunner {
+	t.Helper()
+	rows, err := h.st.AllLive(h.ctx)
+	require.NoError(t, err)
+	return rows
+}
+
 // ConversationsForChat is the append-only history a provider switch reads to find the
 // conversation the INCOMING provider left behind here. LastConversation cannot answer
 // it: after a handoff the chat's newest conversation belongs to the provider being

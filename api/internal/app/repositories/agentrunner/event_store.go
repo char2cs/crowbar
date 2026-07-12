@@ -93,6 +93,17 @@ type EventStore interface {
 		sessionID string,
 		now time.Time,
 	) (domain.AgentRunner, error)
+	// Displace takes a runner OFF its chat and conversation, leaving its row — and
+	// saying NOTHING about whether the process is alive. It is a PLACEMENT fact, the
+	// one kind of fact Crowbar solely owns, and it is what makes "at most one runner
+	// per chat" true at every instant instead of eventually: a SIGTERM'd CLI does not
+	// die synchronously, so the CLI we are taking off a chat has to be taken off it
+	// NOW, not whenever it gets around to falling over. Issued (before the kill) by
+	// every path that removes a CLI from a chat, and issued even when that kill fails.
+	Displace(
+		ctx context.Context,
+		runnerID string,
+	) (domain.AgentRunner, error)
 	// Exit tombstones a runner whose PTY has died. It is emitted ONLY because the
 	// PTY died (the terminal engine's exit callback, or boot reconciliation asking
 	// the PTY) — never from an independent opinion about liveness. The projection
@@ -313,6 +324,17 @@ func (r *eventSourced) Move(
 	})
 	if err != nil {
 		return domain.AgentRunner{}, fmt.Errorf("agentrunner: move: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (r *eventSourced) Displace(
+	ctx context.Context,
+	runnerID string,
+) (domain.AgentRunner, error) {
+	evt, err := r.sendWithOCC(ctx, commands.Displace{RunnerID: runnerID})
+	if err != nil {
+		return domain.AgentRunner{}, fmt.Errorf("agentrunner: displace: %w", err)
 	}
 	return evt.Aggregate, nil
 }

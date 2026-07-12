@@ -226,8 +226,8 @@ func TestSpawnChat_CreatesChatAndRunner_AndSpawnsTheCLI(t *testing.T) {
 }
 
 // TestSpawnRunner_TmpDirSurvivesSpawnAndIsRemovedOnlyWhenThePTYDies guards the
-// resource-leak fix: the per-spawn tmp dir (rendered hook config + any codex auth.json
-// COPY) must still exist while the CLI runs, and be removed when the PTY dies.
+// resource-leak fix: the per-spawn tmp dir (the rendered hook config the CLI is pointed
+// at) must still exist while that CLI runs, and be removed when its PTY dies.
 func TestSpawnRunner_TmpDirSurvivesSpawnAndIsRemovedOnlyWhenThePTYDies(t *testing.T) {
 	f := newFixture(t)
 

@@ -81,8 +81,10 @@ func writeFileStep(path, content, from string) error {
 	if from != "" {
 		src := expandHome(from)
 		if _, err := os.Stat(src); err != nil {
-			// Tolerate a missing optional source (e.g. ~/.codex/auth.json may not
-			// exist yet) — write an empty destination rather than failing the build.
+			// Tolerate a missing optional source — write an empty destination rather than
+			// failing the spawn. (No descriptor ships a `from:` today, and none should
+			// point one at a credential: a provider owns its own secrets and Crowbar
+			// copies none of them.)
 			return os.WriteFile(path, nil, 0o600)
 		}
 		return copyFile(src, path)

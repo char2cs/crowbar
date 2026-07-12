@@ -128,9 +128,16 @@ func (f *fakeCommander) exit(t *testing.T, sessionID string) {
 	}
 	f.deadSessions[sessionID] = true
 	idx, ok := f.byID[sessionID]
+	// Copy the callback out UNDER the lock: calls is appended to by CreateCommand on
+	// another goroutine, so reading it after unlocking is a data race (the backing
+	// array can be reallocated mid-read).
+	var onExit func()
+	if ok {
+		onExit = f.calls[idx].onExit
+	}
 	f.mu.Unlock()
 	require.True(t, ok, "no spawned terminal session %q", sessionID)
-	f.calls[idx].onExit()
+	onExit()
 }
 
 func (f *fakeCommander) callCount() int {
@@ -281,8 +288,16 @@ func (s *fakeChatStore) ListChats(ctx context.Context) ([]domain.AgentChat, erro
 // fakeRunnerStore is the same fault-injecting wrapper for the runner aggregate.
 type fakeRunnerStore struct {
 	agentrunner.EventStore
-	failStart error
-	failMove  error
+	failStart      error
+	failMove       error
+	failForgetChat error
+}
+
+func (s *fakeRunnerStore) ForgetChat(ctx context.Context, chatID string) error {
+	if s.failForgetChat != nil {
+		return s.failForgetChat
+	}
+	return s.EventStore.ForgetChat(ctx, chatID)
 }
 
 func (s *fakeRunnerStore) Start(ctx context.Context, in agentrunner.StartInput) (domain.AgentRunner, error) {
@@ -386,6 +401,25 @@ func (f testFixture) liveRunnerFor(t *testing.T, chatID string) (domain.AgentRun
 	t.Helper()
 	f.wait()
 	return f.runners.LiveRunnerForChat(f.ctx, chatID)
+}
+
+// placedRunnersFor returns every live runner POINTED AT chatID. LiveRunnerForChat only
+// answers "who holds it", so this is the invariant check: I2 says the answer must never
+// be more than one, at any instant. A runner Crowbar has taken off a chat (Displace) is
+// no longer pointed anywhere and so is not counted, even while its process is still
+// dying.
+func (f testFixture) placedRunnersFor(t *testing.T, chatID string) []domain.AgentRunner {
+	t.Helper()
+	f.wait()
+	all, err := f.runners.AllLive(f.ctx)
+	require.NoError(t, err)
+	var out []domain.AgentRunner
+	for _, r := range all {
+		if r.CurrentChatID == chatID {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // chatForSession resolves which chat hosts a conversation, from append-only history.
