@@ -6,7 +6,16 @@ spawn:
   cmd: codex
   interactive_required: true
   forbid_flags: ["exec"]
-  args: ["--dangerously-bypass-hook-trust"]
+  # codex has no single "auto" switch: its equivalent is a workspace-write sandbox
+  # with model-decided approvals — it works inside the workspace without asking and
+  # only escalates to the user when it needs to step OUTSIDE it. NOT
+  # --dangerously-bypass-approvals-and-sandbox, which drops the sandbox entirely.
+  args:
+    - "--dangerously-bypass-hook-trust"
+    - "--sandbox"
+    - "workspace-write"
+    - "--ask-for-approval"
+    - "on-request"
 session:
   resume: { arg: "resume {id}" }
 # Crowbar does NOT own codex's home. It runs codex against the user's real

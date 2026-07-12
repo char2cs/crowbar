@@ -122,3 +122,26 @@ hooks:
 	require.Empty(t, d.Icon)
 	require.Empty(t, d.DisplayName)
 }
+
+// TestResolveDescriptor_ProvidersOpenInAutoMode: a Crowbar chat is a working agent
+// pane, so both CLIs open in their AUTO mode rather than the default
+// ask-before-every-action one — being prompted per edit makes the pane useless.
+// Neither uses the "skip every check" escape hatch (claude's bypassPermissions,
+// codex's --dangerously-bypass-approvals-and-sandbox): codex still runs inside a
+// workspace-write sandbox and escalates when it needs to leave it.
+func TestResolveDescriptor_ProvidersOpenInAutoMode(t *testing.T) {
+	claude, err := agent.ResolveDescriptor(t.TempDir(), "claude")
+	require.NoError(t, err)
+	require.Contains(t, claude.Spawn.Args, "--permission-mode")
+	require.Contains(t, claude.Spawn.Args, "auto")
+	require.NotContains(t, claude.Spawn.Args, "bypassPermissions")
+	require.NotContains(t, claude.Spawn.Args, "--dangerously-skip-permissions")
+
+	codex, err := agent.ResolveDescriptor(t.TempDir(), "codex")
+	require.NoError(t, err)
+	require.Contains(t, codex.Spawn.Args, "--sandbox")
+	require.Contains(t, codex.Spawn.Args, "workspace-write")
+	require.Contains(t, codex.Spawn.Args, "--ask-for-approval")
+	require.Contains(t, codex.Spawn.Args, "on-request")
+	require.NotContains(t, codex.Spawn.Args, "--dangerously-bypass-approvals-and-sandbox")
+}

@@ -6,6 +6,11 @@ spawn:
   cmd: claude
   interactive_required: true
   forbid_flags: ["-p", "--print"]
+  # A Crowbar chat opens in AUTO mode, not the default ask-before-everything one:
+  # the pane is a working agent, and being prompted for each edit makes it useless.
+  # (claude's own mode list: acceptEdits | auto | bypassPermissions | manual |
+  # dontAsk | plan. NOT bypassPermissions/dontAsk — those skip every check.)
+  args: ["--permission-mode", "auto"]
   env:
     clear: ["CLAUDE_CODE_CHILD_SESSION", "CLAUDECODE"]
 session:
