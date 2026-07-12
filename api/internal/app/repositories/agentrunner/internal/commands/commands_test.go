@@ -49,8 +49,23 @@ func TestMove_RepointsRunnerAtomically(t *testing.T) {
 }
 
 func TestMove_RejectsUnknownRunner(t *testing.T) {
-	c := commands.Move{RunnerID: "r1", ToChatID: "c2", SessionID: "s2"}
+	c := commands.Move{RunnerID: "r1", ToChatID: "c2", SessionID: "s2", Now: time.Unix(2, 0)}
 	require.Error(t, c.Validate(nil))
+}
+
+// A zero Now is a conversation with no opening time. It would stamp FirstSeenAt
+// zero and drop conversation ordering back onto insertion order — silently
+// reintroducing the inversion bug with no test failing. Refuse it at the door.
+func TestMove_RejectsZeroNow(t *testing.T) {
+	cur := &domain.AgentRunner{ID: "r1", CurrentChatID: "c1", CurrentSession: "s1"}
+	c := commands.Move{RunnerID: "r1", ToChatID: "c2", SessionID: "s2"}
+	require.Error(t, c.Validate(cur), "a move must say WHEN the conversation was entered")
+}
+
+func TestBindSession_RejectsZeroNow(t *testing.T) {
+	cur := &domain.AgentRunner{ID: "r1", CurrentChatID: "c1"}
+	c := commands.BindSession{RunnerID: "r1", SessionID: "s1"}
+	require.Error(t, c.Validate(cur), "a bind must say WHEN the conversation opened")
 }
 
 func TestBindSession_SetsConversationWithoutMovingChat(t *testing.T) {

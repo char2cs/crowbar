@@ -125,11 +125,23 @@ func newAx(
 	return ax
 }
 
-// restart simulates a daemon restart that lost the read DB: a brand-new store
-// over a brand-new read DB, on top of the SAME event log. Every PTY died with the
-// old process, so nothing is running — which is exactly what the new store must
-// conclude. sink captures anything the fresh store broadcasts while coming up.
+// restart simulates an ORDINARY daemon restart: a new store, a new asynx, the
+// same durable read DB and the same event log. This is the common case, and the
+// read DB is intact — nothing needs healing. Every PTY died with the old process
+// regardless.
 func (h *harness) restart(
+	sink *frameSink,
+) *store.Store {
+	h.t.Helper()
+	st, err := store.New(h.db, h.es, newAx(h.t, h.es), sink.record)
+	require.NoError(h.t, err)
+	return st
+}
+
+// restartLosingReadDB simulates the disaster case: the read DB is gone (deleted,
+// corrupted, never existed) but the event log survives. A brand-new read DB on
+// top of the SAME log — the one situation where history must be rebuilt.
+func (h *harness) restartLosingReadDB(
 	sink *frameSink,
 ) *store.Store {
 	h.t.Helper()
@@ -524,7 +536,7 @@ func TestNew_HealsHistoryAndNeverResurrectsRunners(t *testing.T) {
 
 	// r1 never exited: the log's last word on it is "running in c2".
 	sink := &frameSink{}
-	st := h.restart(sink)
+	st := h.restartLosingReadDB(sink)
 
 	chatID, err := st.ChatForSession(h.ctx, "w1", "s1")
 	require.NoError(t, err)
@@ -545,9 +557,47 @@ func TestNew_HealsHistoryAndNeverResurrectsRunners(t *testing.T) {
 	assert.Empty(t, sink.all(), "a heal folds with a bare projector — it must not re-broadcast historical frames")
 }
 
-// The heal runs at construction ONLY, and only into an empty history. A store
-// coming up over an intact read DB never touches the event log — proven by giving
-// it an event store whose enumeration would fail if it were ever asked.
+// A DELETED chat must STAY deleted across a boot. The runner event log is never
+// Forgotten — it keeps every (chat, session) pair forever — so a heal that
+// triggers on "the conversation table is empty" resurrects the history of every
+// hard-deleted chat the moment the user deletes their last chat. ChatForSession
+// would then resolve a session to a chat id that no longer exists: the dangling
+// chat on /resume that the heal exists to PREVENT, reintroduced by the heal.
+//
+// "Empty" and "emptied on purpose" are different facts. Only the marker can tell
+// them apart.
+func TestForgetChat_IsNotUndoneByTheNextBoot(t *testing.T) {
+	h := newHarness(t)
+	h.start(arCmds.Start{
+		RunnerID: "r1", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "pty1", ChatID: "c1", Now: clock(10),
+	})
+	h.bindSession("r1", "s1", clock(11))
+	h.move("r1", "c2", "s2", clock(12))
+	h.exit("r1", clock(13))
+	h.drain()
+
+	// The user deletes both chats — every chat they had. The conversation table is
+	// now empty, and the event log still remembers all of it.
+	require.NoError(t, h.st.ForgetChat(h.ctx, "c1"))
+	require.NoError(t, h.st.ForgetChat(h.ctx, "c2"))
+
+	st := h.restart(&frameSink{})
+
+	_, err := st.ChatForSession(h.ctx, "w1", "s1")
+	require.ErrorIs(t, err, store.ErrNotFound, "a deleted chat's conversations stay dead")
+	_, err = st.ChatForSession(h.ctx, "w1", "s2")
+	require.ErrorIs(t, err, store.ErrNotFound)
+	_, err = st.LastConversation(h.ctx, "c1")
+	require.ErrorIs(t, err, store.ErrNotFound, "nothing may answer for a chat that no longer exists")
+	_, err = st.LastConversation(h.ctx, "c2")
+	require.ErrorIs(t, err, store.ErrNotFound)
+}
+
+// The heal runs at construction ONLY, and only when this read DB has never been
+// built before. A store coming up over a read DB that HAS been built never
+// touches the event log — proven by giving it an event store whose enumeration
+// would fail if it were ever asked.
 func TestNew_DoesNotHealWhenHistoryIsIntact(t *testing.T) {
 	h := newHarness(t)
 	h.start(arCmds.Start{

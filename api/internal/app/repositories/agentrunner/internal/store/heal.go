@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -21,10 +23,24 @@ import (
 const eventKeyPrefix = "events:"
 
 // healConversations rebuilds the APPEND-ONLY conversation history from the event
-// log when that history has been lost, and does nothing else. It runs ONCE, at
-// construction, and only when the conversation table is empty while the log is
-// not: lose this table and chats become unresumable, and a later /resume of a
-// forgotten conversation would mint a duplicate chat.
+// log when this read DB has never been built before, and does nothing else. It
+// runs ONCE, at construction. Lose that history and chats become unresumable, and
+// a later /resume of a forgotten conversation mints a duplicate chat.
+//
+// It heals on a missing MARKER, never on an empty table. The two are different
+// facts. The only thing that ever empties agent_chat_conversations is ForgetChat,
+// the chat-delete cascade — and runner aggregates are never Forgotten, so the
+// event log keeps every (chat, session) pair forever. Healing an empty table
+// would therefore resurrect the history of every hard-deleted chat the moment a
+// user deleted their last one, and ChatForSession would start resolving sessions
+// to chat ids that no longer exist: the dangling chat on /resume that this heal
+// exists to PREVENT. (Exiting the runner in the cascade does not help — an exited
+// runner's events stay in the log and still carry the deleted chat's
+// conversations. Only the marker can tell "never populated" from "emptied on
+// purpose".)
+//
+// The marker is written AFTER a successful heal, so a heal that fails is retried
+// on the next boot rather than silently skipped forever.
 //
 // It deliberately CANNOT touch agent_runners. The fold is historyProjector, which
 // has no live-row writer at all — so the failure mode of a general replay (write
@@ -36,28 +52,26 @@ const eventKeyPrefix = "events:"
 // Best-effort on capability: an event store that cannot enumerate its aggregates
 // simply yields no heal. A store that CAN enumerate but fails is a hard error —
 // silently booting on half a history is how duplicate chats get minted.
+//
+// It runs on context.Background(): New takes no ctx (the signature the brief
+// mandates), so a first-boot heal over a very large event log is uncancellable.
 func healConversations(
 	db *gormdb.DB,
 	es asynxModels.Store,
 	ax asynx.Asynx[domain.AgentRunner],
 ) error {
 	ctx := context.Background()
-	empty, err := historyIsEmpty(ctx, db)
+	built, err := readModelWasBuilt(ctx, db)
 	if err != nil {
 		return err
 	}
-	if !empty {
+	if built {
 		return nil
 	}
-	lister, ok := es.(serialize.AggregateLister)
-	if !ok {
-		return nil
+	if err := replayHistory(ctx, db, es, ax); err != nil {
+		return err
 	}
-	keys, err := lister.AggregateIDs(ctx)
-	if err != nil {
-		return fmt.Errorf("agentrunner store: enumerate aggregate ids: %w", err)
-	}
-	return replayHistory(ctx, db, ax, keys)
+	return markBuilt(ctx, db)
 }
 
 // replayHistory folds every runner aggregate in the log through the history-only
@@ -67,9 +81,17 @@ func healConversations(
 func replayHistory(
 	ctx context.Context,
 	db *gormdb.DB,
+	es asynxModels.Store,
 	ax asynx.Asynx[domain.AgentRunner],
-	keys []string,
 ) error {
+	lister, ok := es.(serialize.AggregateLister)
+	if !ok {
+		return nil
+	}
+	keys, err := lister.AggregateIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("agentrunner store: enumerate aggregate ids: %w", err)
+	}
 	fold := (&historyProjector{db: db}).onEvent
 	for _, key := range keys {
 		id, found := strings.CutPrefix(key, eventKeyPrefix)
@@ -83,15 +105,30 @@ func replayHistory(
 	return nil
 }
 
-func historyIsEmpty(
+func readModelWasBuilt(
 	ctx context.Context,
 	db *gormdb.DB,
 ) (bool, error) {
-	var count int64
-	if err := db.WithContext(ctx).Model(&conversationRow{}).Count(&count).Error; err != nil {
-		return false, fmt.Errorf("agentrunner store: count conversations: %w", err)
+	var marker healMarkerRow
+	err := db.WithContext(ctx).Where("id = ?", healMarkerID).Take(&marker).Error
+	if errors.Is(err, gormdb.ErrRecordNotFound) {
+		return false, nil
 	}
-	return count == 0, nil
+	if err != nil {
+		return false, fmt.Errorf("agentrunner store: read heal marker: %w", err)
+	}
+	return true, nil
+}
+
+func markBuilt(
+	ctx context.Context,
+	db *gormdb.DB,
+) error {
+	marker := healMarkerRow{ID: healMarkerID, HealedAt: time.Now().UTC()}
+	if err := db.WithContext(ctx).Create(&marker).Error; err != nil {
+		return fmt.Errorf("agentrunner store: write heal marker: %w", err)
+	}
+	return nil
 }
 
 type historyProjector struct {

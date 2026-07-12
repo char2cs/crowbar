@@ -36,7 +36,7 @@ func newProjectorDB(
 	t.Helper()
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&runnerRow{}, &conversationRow{}))
+	require.NoError(t, db.AutoMigrate(&runnerRow{}, &conversationRow{}, &healMarkerRow{}))
 	closeDB := func() {
 		sqlDB, err := db.DB()
 		require.NoError(t, err)
@@ -70,16 +70,28 @@ func TestProjector_WriteFailuresAreLoggedNotFatal(t *testing.T) {
 	assert.NotPanics(t, func() { p.onEvent(context.Background(), evt(exited)) })
 }
 
-// The heal must not mistake a broken read DB for a lost history: it cannot tell
-// "empty" from "unreadable" by guessing, so a failed count is a hard error at
-// construction rather than a silent full replay.
-func TestHealConversations_CountFailureSurfaces(t *testing.T) {
+// The heal must not mistake a broken read DB for a virgin one: an unreadable
+// marker is a hard error at construction, never a silent full replay.
+func TestHealConversations_MarkerReadFailureSurfaces(t *testing.T) {
 	p, closeDB := newProjectorDB(t)
 	closeDB()
 
 	err := healConversations(p.db, nil, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "count conversations")
+	assert.Contains(t, err.Error(), "read heal marker")
+}
+
+// The marker is written after the heal, so a first construction that FAILS is
+// retried on the next boot rather than being recorded as done.
+func TestHealConversations_MarksTheReadModelBuilt(t *testing.T) {
+	p, closeDB := newProjectorDB(t)
+	defer closeDB()
+
+	require.NoError(t, healConversations(p.db, nil, nil))
+
+	built, err := readModelWasBuilt(context.Background(), p.db)
+	require.NoError(t, err)
+	assert.True(t, built, "an empty conversations table now means 'nothing to say', not 'heal me'")
 }
 
 // A runner with no conversation yet (spawned, provider has not announced) gets a

@@ -49,6 +49,31 @@ func (conversationRow) TableName() string {
 	return "agent_chat_conversations"
 }
 
+// healMarkerID is the single row healMarkerRow ever holds: this read model is
+// per-type, so there is exactly one thing to remember about it.
+const healMarkerID = "agentrunner"
+
+// healMarkerRow records that this read DB has been BUILT — written once, after
+// the first successful construction, and never removed. It is what makes the
+// difference between "never populated" and "emptied on purpose" a FACT rather
+// than an inference from row counts.
+//
+// Without it, the heal would trigger on an empty conversation table — and the
+// only thing that ever empties that table is ForgetChat, the chat-delete cascade.
+// Runner aggregates are never Forgotten, so the event log keeps every
+// (chat, session) pair forever: deleting your last chat and rebooting would
+// resurrect the conversations of every chat you ever deleted, and ChatForSession
+// would resolve a session to a chat id that no longer exists. An empty table is
+// not evidence of a lost read model. A missing marker is.
+type healMarkerRow struct {
+	ID       string `gorm:"primaryKey"`
+	HealedAt time.Time
+}
+
+func (healMarkerRow) TableName() string {
+	return "agent_runner_heal_marker"
+}
+
 // toRunner maps a live row back to the aggregate's shape. ExitedAt is always nil
 // by construction: an exited runner has no row (that is the whole point), so a
 // row can only ever describe a runner the model believes is still running.

@@ -42,6 +42,11 @@ func (c Move) Validate(current *domain.AgentRunner) error {
 	if c.SessionID == "" {
 		return fmt.Errorf("move runner: missing session id: %w", asynxModels.ErrValidation)
 	}
+	// A conversation with no opening time would stamp FirstSeenAt zero and drop
+	// history ordering back onto insertion order — the inversion bug, silently.
+	if c.Now.IsZero() {
+		return fmt.Errorf("move runner: missing timestamp: %w", asynxModels.ErrValidation)
+	}
 	return nil
 }
 

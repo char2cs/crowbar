@@ -68,7 +68,10 @@ type Store struct {
 // that construction-time heal, and never again from a read path. No read heals:
 // for the live table an empty model is the normal steady state of an idle
 // machine, so healing on a read would replay a monotonically-growing event log on
-// every dormant lookup — and would resurrect dead runners while doing it.
+// every dormant lookup — and would resurrect dead runners while doing it. The
+// heal itself fires on a MISSING MARKER, not on an empty table, so a user who
+// deletes their last chat does not get its history resurrected on the next boot
+// (heal.go).
 //
 // broadcast must not be nil: the hub projection calls it on every event, so a nil
 // one panics inside a projection goroutine, far from whoever built the Store.
@@ -81,7 +84,7 @@ func New(
 	if broadcast == nil {
 		return nil, fmt.Errorf("agentrunner store: nil broadcast")
 	}
-	if err := db.AutoMigrate(&runnerRow{}, &conversationRow{}); err != nil {
+	if err := db.AutoMigrate(&runnerRow{}, &conversationRow{}, &healMarkerRow{}); err != nil {
 		return nil, fmt.Errorf("agentrunner store: migrate: %w", err)
 	}
 	if err := healConversations(db, es, ax); err != nil {

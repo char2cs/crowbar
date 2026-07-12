@@ -30,6 +30,11 @@ func (c BindSession) Validate(current *domain.AgentRunner) error {
 	if c.SessionID == "" {
 		return fmt.Errorf("bind session: missing session id: %w", asynxModels.ErrValidation)
 	}
+	// A conversation with no opening time would stamp FirstSeenAt zero and drop
+	// history ordering back onto insertion order.
+	if c.Now.IsZero() {
+		return fmt.Errorf("bind session: missing timestamp: %w", asynxModels.ErrValidation)
+	}
 	return nil
 }
 
