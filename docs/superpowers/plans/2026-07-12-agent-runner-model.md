@@ -1308,7 +1308,14 @@ it('shows Resume only when no runner holds the chat', async () => { /* dormant c
 - Test: `web/src/__tests__/features/workspace/stores/hooks/use-workspace-agent-chats-stream.test.ts`
 
 **Behaviour:**
-- New frame kinds from Task 2's hub: `started` | `session_bound` | `moved` | `exited`, carrying `{runnerId, workspaceId, chatId, kind}`.
+- Runner frames arrive on the **existing** workspace-scoped agent-chat WS feed (Task 3 wired `Subscriber.PushAgentRunner` onto it). Kinds: `started` | `session_bound` | `moved` | `exited`, carrying `{runnerId, workspaceId, chatId, kind}`.
+
+- **`runnerId` is the discriminator — do not "simplify" it away.** `session_bound` exists in *both* the agentchat and agentrunner event vocabularies. A frame is a runner frame **iff** `runnerId` is present (it is `omitempty`, and chat frames never set it). Branching on `kind` alone is ambiguous and will misroute. This is a structural guarantee, not a temporal one.
+
+- **⚠️ A `moved` frame names only the chat ENTERED, never the chat LEFT.** (Task 3's review caught this.) `chatId` on `moved` is the runner's *destination* — read off the reduced aggregate post-`Move`. So a handler keyed purely on `ev.chatId` will refetch the destination and **never learn the vacated chat went dormant**, leaving its liveness indicator stale until the next reseed.
+
+  You must invalidate **both** chats. You can, because you hold the mapping: look up the buffer/chat the runner was on *before* this frame (the `runnerId → chatId` map this task maintains anyway), and refetch that chat too.
+
 - On `moved`: find the buffer whose `runnerId` matches and `repointAgentChatBuffer` it to the new `chatId`. If a buffer for the destination chat **already exists** (the eviction collision), close the *evicted* one and activate the taker — decision (a): "one tab per live conversation".
 - On `exited` where the chat has no other runner: the pane renders dormant + Resume.
 - Eviction toast: `toast.info('Conversation moved', '<Provider> was closed — that conversation is now in this terminal.')`. Fire it from a component watching store state, **never from the store** (CLAUDE.md).
