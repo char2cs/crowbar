@@ -36,6 +36,7 @@ import (
 	"strings"
 	"time"
 
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/app/ledger"
@@ -252,6 +253,12 @@ func (u *Usecase) PurgeChat(
 	ctx context.Context,
 	chatID string,
 ) error {
+	// The chat's spawn gate, for the same reason the spawn paths take it: a delete racing a
+	// switch would otherwise Start a CLI onto a chat that has just been Forgotten. That
+	// self-heals (the runner's first hook finds no chat and retires it), but only after
+	// spawning a real process and leaving its tmp dir behind. Serialising is a line.
+	defer u.spawns.lock(chatID)()
+
 	chat, err := u.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return fmt.Errorf("agent: purge chat: get: %w", err)
@@ -330,7 +337,12 @@ func (u *Usecase) retire(
 	ctx context.Context,
 	runner domain.AgentRunner,
 ) {
-	u.displace(ctx, runner)
+	if err := u.displace(ctx, runner); err != nil {
+		// Best-effort: the runner is still on its chat, so its own exit will close any turn
+		// it leaves open. We still kill it.
+		slog.ErrorContext(ctx, "agent: retire runner: displace (best-effort, continuing)",
+			"runner_id", runner.ID, "chat_id", runner.CurrentChatID, "err", err)
+	}
 	if err := u.term.TerminateGraceful(ctx, runner.TerminalSession); err != nil &&
 		!errors.Is(err, engineterminal.ErrSessionNotFound) {
 		slog.WarnContext(ctx, "agent: retire runner: terminate (best-effort, continuing)",
@@ -338,16 +350,74 @@ func (u *Usecase) retire(
 	}
 }
 
-// displace records that a runner is no longer placed on any chat. Best-effort: a failure
-// is logged, never returned — every caller is already tearing something down, and none of
-// them has anything useful to do with the error.
+// displace records that a runner is no longer placed on any chat, and then closes any turn
+// it was leaving open on the chat it just left.
+//
+// Closing that turn HERE is not an opinion about liveness, and it has to be here. Turn
+// state is normally repaired by the dying CLI's own exit (reconcileRunnerExit), which finds
+// the chat through runner.CurrentChatID — the very field this command erases. Without this,
+// a switch that aborts after the outgoing CLI was quit (an unknown target provider, a
+// failed spawn) leaves the chat with no runner and Working=true FOREVER: the chat row
+// spins, and the workspace's whole overlay spins with it, until the user resumes that chat
+// and completes another turn. Once a runner is displaced, no hook of its can ever reach
+// that chat again — so "nobody is working on this chat" is simply the last true thing we
+// can say about it.
+//
+// An already-EXITED runner is not an error: a CLI quitting on its own moments before we
+// went to take it off a chat is an ordinary, benign race, and the command tells us so with
+// ErrValidation. Its exit has already cleared everything this would have.
 func (u *Usecase) displace(
 	ctx context.Context,
 	runner domain.AgentRunner,
-) {
+) error {
+	vacated := runner.CurrentChatID
+
 	if _, err := u.runners.Displace(ctx, runner.ID); err != nil {
-		slog.ErrorContext(ctx, "agent: displace runner (best-effort, continuing)",
-			"runner_id", runner.ID, "chat_id", runner.CurrentChatID, "err", err)
+		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, agentrunner.ErrNotFound) {
+			slog.WarnContext(ctx, "agent: displace runner: it had already exited (benign)",
+				"runner_id", runner.ID, "chat_id", vacated)
+			return nil
+		}
+		return fmt.Errorf("agent: displace runner: %w", err)
+	}
+
+	u.closeAbandonedTurn(ctx, vacated)
+	return nil
+}
+
+// closeAbandonedTurn stops a turn on chatID when NOTHING is running on that chat any more —
+// the turn's CLI is gone (dead, or displaced and dying) and no successor has taken the chat
+// over, so the turn_stop hook that would have closed it is never coming.
+//
+// The guards are all "is there still someone whose turn this is?": a chat somebody else is
+// now on (a provider switch spawns the incoming CLI before the outgoing one has fallen
+// over) keeps ITS turn; a chat that no longer exists is not written to at all; and a chat
+// that is not Working has nothing to close.
+//
+// An empty chatID means NOWHERE — a runner that is already displaced — and nowhere is never
+// looked up.
+func (u *Usecase) closeAbandonedTurn(
+	ctx context.Context,
+	chatID string,
+) {
+	if chatID == "" {
+		return
+	}
+	if _, err := u.runners.LiveRunnerForChat(ctx, chatID); err == nil {
+		return // someone else is on this chat now: its turn is not ours to close
+	}
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		if !errors.Is(err, agentchat.ErrNotFound) {
+			slog.WarnContext(ctx, "agent: close abandoned turn: get chat", "chat_id", chatID, "err", err)
+		}
+		return
+	}
+	if !chat.Working {
+		return
+	}
+	if _, err := u.chats.StopTurn(ctx, chat.ID, time.Now()); err != nil {
+		slog.WarnContext(ctx, "agent: close abandoned turn: stop turn", "chat_id", chatID, "err", err)
 	}
 }
 
@@ -627,29 +697,10 @@ func (u *Usecase) reconcileRunnerExit(ctx context.Context, runnerID string) {
 		return
 	}
 
-	if _, err := u.runners.LiveRunnerForChat(ctx, runner.CurrentChatID); err == nil {
-		// Another CLI is on this chat now (a provider switch, or a runner that took the
-		// chat over). Its turn is not ours to close.
-		return
-	}
-
-	chat, err := u.chats.GetChat(ctx, runner.CurrentChatID)
-	if err != nil {
-		if !errors.Is(err, agentchat.ErrNotFound) {
-			slog.WarnContext(ctx, "agent: reconcile runner exit: get chat",
-				"runner_id", runnerID, "chat_id", runner.CurrentChatID, "err", err)
-		}
-		// The chat was deleted out from under the runner (PurgeChat forgets it BEFORE
-		// killing the CLI, precisely so this path finds nothing to write to).
-		return
-	}
-	if !chat.Working {
-		return
-	}
-	if _, err := u.chats.StopTurn(ctx, chat.ID, time.Now()); err != nil {
-		slog.WarnContext(ctx, "agent: reconcile runner exit: stop turn",
-			"runner_id", runnerID, "chat_id", chat.ID, "err", err)
-	}
+	// Close a turn it left open — unless it had already been DISPLACED, in which case its
+	// chat (if it still had a turn to close) was dealt with at displacement time and
+	// CurrentChatID is now empty, meaning nowhere.
+	u.closeAbandonedTurn(ctx, runner.CurrentChatID)
 }
 
 func (u *Usecase) crowbarHookPath(home string) string {
@@ -729,6 +780,15 @@ func (u *Usecase) handleTurn(
 	runner domain.AgentRunner,
 	ev engineagent.CanonicalEvent,
 ) error {
+	if runner.CurrentChatID == "" {
+		// The runner is placed NOWHERE: Crowbar has taken it off its chat and is killing
+		// it (a switch, an eviction, a chat deleted under it), and a SIGTERM'd CLI keeps
+		// talking for a moment. Its turns belong to nobody, and nowhere is never looked up
+		// — GetChat("") would miss and trigger agentchat's lazy self-heal, replaying the
+		// ENTIRE event log, on every hook of a dying CLI.
+		return nil
+	}
+
 	chat, err := u.chats.GetChat(ctx, runner.CurrentChatID)
 	if err != nil {
 		if errors.Is(err, agentchat.ErrNotFound) {
@@ -917,23 +977,67 @@ func (u *Usecase) moveToKnownChat(
 	toChatID string,
 	sessionID string,
 ) error {
-	incumbent, incErr := u.runners.LiveRunnerForSession(ctx, runner.WorkspaceID, sessionID)
-	if incErr != nil && !errors.Is(incErr, agentrunner.ErrNotFound) {
-		// Not fatal: we still record the move. A lookup failure must never stop us
-		// recording what the CLI has already done — at worst the incumbent survives and
-		// the (already logged) cleanup is owed.
-		slog.ErrorContext(ctx, "agent: ingest hook: look up incumbent runner",
-			"session_id", sessionID, "err", incErr)
-	}
+	incumbents := u.incumbentsOf(ctx, runner, toChatID, sessionID)
 
 	if _, err := u.runners.Move(ctx, runner.ID, toChatID, sessionID, time.Now()); err != nil {
 		return fmt.Errorf("agent: ingest hook: move to known chat: %w", err)
 	}
 
-	if incErr == nil && incumbent.ID != runner.ID {
-		u.evict(ctx, incumbent)
+	for _, inc := range incumbents {
+		u.evict(ctx, inc)
 	}
 	return nil
+}
+
+// incumbentsOf collects every runner the move is about to displace: the one HOLDING THE
+// CONVERSATION (invariant I3) and the one PLACED ON THE CHAT (invariant I2). They are
+// usually the same runner, and often there is none — but they are two different questions,
+// and answering only the first left the reported bug alive with one variable changed:
+//
+//	Chat B is being worked by codex, which has not announced its conversation yet. B's
+//	older claude conversation is still in Crowbar's history AND still in claude's own
+//	/resume picker (Crowbar never deletes a vendor's session file). Resume it from another
+//	chat's CLI: nobody HOLDS that conversation, so nothing was evicted — and chat B ended
+//	up with two live CLIs on it, indefinitely, both writing its ledger, one invisible.
+//
+// Placement onto a chat must evict whoever else is placed there. That is what makes I2 an
+// invariant rather than a coincidence, and it is also the only thing that covers a
+// concurrent move the spawn gate cannot reach (a hook-path move onto B landing while a
+// gated SwitchProvider(B) is spawning — a hook is never gated, and never may be).
+//
+// A lookup failure is logged, never fatal: we still record what the CLI has already done.
+// At worst an incumbent survives and the (already logged) cleanup is owed.
+func (u *Usecase) incumbentsOf(
+	ctx context.Context,
+	runner domain.AgentRunner,
+	toChatID string,
+	sessionID string,
+) []domain.AgentRunner {
+	var out []domain.AgentRunner
+	seen := map[string]bool{runner.ID: true} // never evict yourself
+
+	add := func(inc domain.AgentRunner, err error, what string) {
+		if err != nil {
+			if !errors.Is(err, agentrunner.ErrNotFound) {
+				slog.ErrorContext(ctx, "agent: ingest hook: look up incumbent runner",
+					"by", what, "chat_id", toChatID, "session_id", sessionID, "err", err)
+			}
+			return
+		}
+		if seen[inc.ID] {
+			return
+		}
+		seen[inc.ID] = true
+		out = append(out, inc)
+	}
+
+	bySession, err := u.runners.LiveRunnerForSession(ctx, runner.WorkspaceID, sessionID)
+	add(bySession, err, "conversation")
+
+	byChat, err := u.runners.LiveRunnerForChat(ctx, toChatID)
+	add(byChat, err, "chat")
+
+	return out
 }
 
 // evict retires a runner whose conversation another runner has just taken over
@@ -1148,7 +1252,15 @@ func (u *Usecase) quitOutgoingCLI(
 		slog.WarnContext(ctx, "agent: switch provider: outgoing terminal session already gone before terminate; continuing switch",
 			"chat_id", chatID, "runner_id", live.ID, "terminal_session_id", live.TerminalSession, "err", err)
 	}
-	u.displace(ctx, live)
+	// A failed displace ABORTS the switch, and this is the one teardown where it must: the
+	// caller's very next act is to spawn the incoming CLI, so continuing would place a
+	// second runner on a chat the first one is still recorded on — the two-live-CLIs state
+	// this whole model exists to make unrepresentable. Aborting is cheap here and costs the
+	// user nothing they cannot get back: the outgoing CLI is already dead or dying, so the
+	// chat simply drops to dormant when its PTY goes, and Resume revives it.
+	if err := u.displace(ctx, live); err != nil {
+		return fmt.Errorf("agent: switch provider: %w", err)
+	}
 	return nil
 }
 

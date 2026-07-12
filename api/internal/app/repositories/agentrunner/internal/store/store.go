@@ -103,24 +103,26 @@ func New(
 // of "when this process started" and "when it took its current conversation" — newest
 // first, with the id as a final deterministic tiebreak.
 //
-// It is a BACKSTOP, not the mechanism. Invariants I2 and I3 (one runner per chat, one per
-// conversation) are upheld by DISPLACEMENT: Crowbar cannot kill a process synchronously,
-// so whenever it takes a CLI off a chat it records that placement fact immediately
-// (agentrunner.Displace) instead of waiting for the corpse to fall over. A displaced
-// runner points at nothing, so it cannot be returned by these queries at all — which is
-// why they should never actually see two candidates.
+// It is LOAD-BEARING on the eviction path, and a backstop everywhere else. Both halves of
+// that sentence matter, so read them together with agentrunner.Displace's doc.
 //
-// An ORDERING alone could not do that job, and it is worth writing down why, because the
-// heuristic is seductive: the outgoing CLI of a provider switch may not have announced its
-// conversation yet, and when it finally does — AFTER the incoming CLI has started — it
-// stamps a fresher timestamp than the incoming runner's spawn, so "whoever arrived last"
-// hands the chat straight back to the corpse. Timestamps describe when things happened;
-// only the displacement records what we DECIDED.
+// Invariants I2/I3 are upheld primarily by DISPLACEMENT: Crowbar cannot kill a process
+// synchronously, so whenever it takes a CLI off a chat it records that placement fact at
+// once instead of waiting for the corpse to fall over, and a displaced runner points at
+// nothing and cannot be returned by these queries at all. On the switch and delete paths
+// that displace happens BEFORE any successor is spawned, so no two-candidate window exists.
 //
-// So this ordering exists for the case the invariant is nevertheless violated (a displace
-// that failed and was logged, a projection lagging): the winner is at least deterministic
-// and biased toward the most recent arrival, so the resulting bug is reproducible rather
-// than a coin flip.
+// An EVICTION is different, and this ordering is what makes it come out right: the mover's
+// Move is recorded FIRST (reality is not negotiable — spec §3) and the incumbent is
+// displaced immediately after, so for that instant BOTH are placed on the chat. The one
+// that arrived last is the mover, which is exactly who holds it. Deleting this ordering
+// would hand out the evictee — a corpse — about half the time.
+//
+// What an ordering could NOT do, and why displacement exists at all: the outgoing CLI of a
+// provider switch may not have announced its conversation yet, and when it finally does —
+// AFTER the incoming CLI has started — it stamps a fresher timestamp than the incoming
+// runner's spawn, so "whoever arrived last" would hand the chat straight back to the
+// corpse. Timestamps say when things happened; only a displacement records what we DECIDED.
 const newestArrivalFirst = "MAX(current_session_since, started_at) DESC, id ASC"
 
 // LiveRunnerForChat returns the runner currently pointed at chatID, or ErrNotFound when
@@ -132,6 +134,13 @@ func (s *Store) LiveRunnerForChat(
 	ctx context.Context,
 	chatID string,
 ) (domain.AgentRunner, error) {
+	// "" is NOWHERE, not a chat. A displaced runner's row carries an empty chat id, so
+	// without this an empty key would MATCH those rows and hand a caller back a runner that
+	// is on nothing — the read model volunteering a lie, which is the shape this whole
+	// model exists to delete.
+	if chatID == "" {
+		return domain.AgentRunner{}, fmt.Errorf("agentrunner store: live runner for chat: %w", ErrNotFound)
+	}
 	var row runnerRow
 	err := s.db.WithContext(ctx).
 		Where("current_chat_id = ?", chatID).
@@ -161,6 +170,11 @@ func (s *Store) LiveRunnerForSession(
 	wsID string,
 	sessionID string,
 ) (domain.AgentRunner, error) {
+	// "" is NOWHERE — see LiveRunnerForChat. A runner that has been displaced, or that has
+	// not announced a conversation yet, holds no session, and must never be matched by one.
+	if sessionID == "" {
+		return domain.AgentRunner{}, fmt.Errorf("agentrunner store: live runner for session: %w", ErrNotFound)
+	}
 	var row runnerRow
 	err := s.db.WithContext(ctx).
 		Where("workspace_id = ? AND current_session = ?", wsID, sessionID).

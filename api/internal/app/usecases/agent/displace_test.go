@@ -9,6 +9,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // ---------------------------------------------------------------------------
@@ -216,4 +217,163 @@ func TestRegression_ConcurrentSwitches_LeaveExactlyOneCLIOnTheChat(t *testing.T)
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
 	assert.Equal(t, placed[0].ID, live.ID)
+}
+
+// ---------------------------------------------------------------------------
+// Placement onto a chat evicts whoever else is placed there.
+// ---------------------------------------------------------------------------
+
+// TestRegression_ResumeIntoAChatHeldByAnotherCLI_EvictsTheChatIncumbent
+//
+// The reported bug with ONE variable changed, and it needs no race at all.
+//
+// Eviction used to be keyed only on who holds the CONVERSATION. Nobody looked at who is
+// placed on the destination CHAT. So: chat B is being worked by codex (r3), which has not
+// announced its conversation yet — or has announced a different one. B's older claude
+// conversation sB is still in Crowbar's history AND still in claude's own /resume picker,
+// because Crowbar deliberately never deletes a vendor's session file. The user picks sB
+// from inside chat A's CLI. Nobody "holds" sB, so nothing is evicted — and chat B ends up
+// with TWO live CLIs on it, indefinitely, both appending to its ledger, one of them
+// invisible.
+//
+// Placement onto a chat must evict whoever else is placed there. That is what makes I2 an
+// invariant rather than a coincidence.
+func TestRegression_ResumeIntoAChatHeldByAnotherCLI_EvictsTheChatIncumbent(t *testing.T) {
+	f := newFixture(t)
+
+	// Chat B: claude ran and spoke (so sB is a real, resumable conversation), then the
+	// user switched B to codex. Codex (r3) is now working in B and has announced nothing.
+	chatB, claudeB := f.spawn(t, "claude")
+	f.announce(t, claudeB, "sB")
+	turn(t, f, claudeB, "claude", "what claude said in B")
+	r3, err := f.usecase.SwitchProvider(f.ctx, chatB, "codex")
+	require.NoError(t, err)
+	f.wait()
+	r3term := f.runner(t, r3).TerminalSession
+
+	require.Equal(t, r3, mustLive(t, f, chatB).ID, "precondition: codex holds chat B")
+
+	// Chat A, elsewhere. Inside its CLI the user /resumes B's old claude conversation.
+	_, r1 := f.spawn(t, "claude")
+	f.announce(t, r1, "sA")
+	f.announce(t, r1, "sB")
+
+	assert.Len(t, f.placedRunnersFor(t, chatB), 1,
+		"I2: a chat is held by ONE CLI — the one that just took it, never two")
+
+	live := mustLive(t, f, chatB)
+	assert.Equal(t, r1, live.ID, "the mover holds chat B")
+
+	assert.Contains(t, f.term.terminateRequestIDs(), r3term,
+		"the CLI that WAS on chat B must be evicted, not left running invisibly")
+
+	// And the evictee can no longer write into the chat it lost.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, r3, "codex", "turn_stop",
+		mustJSON(t, map[string]any{"last_assistant_message": "codex is still talking in B"})))
+	f.wait()
+	handoff, err := f.usecase.AssembleHandoff(f.ctx, chatB)
+	require.NoError(t, err)
+	assert.NotContains(t, handoff, "codex is still talking in B")
+}
+
+// ---------------------------------------------------------------------------
+// Displacement must not orphan the turn the displaced CLI left open.
+// ---------------------------------------------------------------------------
+
+// TestRegression_AbortedSwitchMidTurn_DoesNotLeaveTheChatSpinningForever
+//
+// reconcileRunnerExit closes a turn a dying CLI left open by looking at
+// runner.CurrentChatID — which Displace erases. So a switch that ABORTS after the outgoing
+// CLI has been quit (an unknown target provider is the tested, reachable case) used to
+// leave the chat with no runner and Working=true FOREVER: the chat row spins, and the
+// workspace's whole overlay spins with it, until the user resumes that chat and completes
+// another turn.
+//
+// Closing the turn at displacement time asserts nothing about liveness: once displaced, no
+// hook from that runner can ever reach the chat again, so "nobody is working on this chat"
+// is simply the last true thing we can say about it.
+func TestRegression_AbortedSwitchMidTurn_DoesNotLeaveTheChatSpinningForever(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "a long-running task"})))
+	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
+
+	// The switch quits the outgoing CLI and THEN fails (unknown provider).
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "not-a-real-provider")
+	require.Error(t, err)
+	f.wait()
+
+	_, err = f.liveRunnerFor(t, chatID)
+	require.ErrorIs(t, err, agentrunner.ErrNotFound, "precondition: the chat has no CLI left")
+
+	assert.False(t, f.chat(t, chatID).Working,
+		"a chat nothing is running on must not be left spinning forever")
+}
+
+// TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn is the same rule on the SUCCESS path:
+// the outgoing CLI is killed mid-turn, so its turn is over — nobody will ever send its
+// turn_stop. The incoming CLI's own turns are unaffected.
+func TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, outgoing := f.spawn(t, "claude")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, outgoing, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "working"})))
+	require.True(t, f.chat(t, chatID).Working)
+
+	incoming, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+
+	assert.False(t, f.chat(t, chatID).Working,
+		"the killed CLI's turn is over: it will never send a turn_stop")
+
+	// The incoming CLI can still open its own turn, and the outgoing one's belated PTY
+	// death must not close it.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, incoming, "codex", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "the new CLI is working"})))
+	require.True(t, f.chat(t, chatID).Working)
+
+	f.term.exit(t, "term-1")
+	f.wait()
+	assert.True(t, f.chat(t, chatID).Working,
+		"the outgoing runner's exit must not close the incoming runner's turn")
+}
+
+// ---------------------------------------------------------------------------
+// "" means NOWHERE, everywhere.
+// ---------------------------------------------------------------------------
+
+// TestRegression_HookFromADisplacedRunner_NeverTouchesTheChatModel
+//
+// A displaced-but-still-dying CLI is the NORMAL state of every switched-out, evicted and
+// purged runner for as long as SIGTERM takes — and its CurrentChatID is "". An unguarded
+// handleTurn hands that "" straight to GetChat, whose lazy self-heal REPLAYS THE ENTIRE
+// agentchat EVENT LOG on a miss. So every hook from a dying CLI would replay the whole log.
+//
+// The fault-injected GetChat is the probe: if the chat model is touched at all, the hook
+// fails. It must not be touched — "" is nowhere, and nowhere is not looked up.
+func TestRegression_HookFromADisplacedRunner_NeverTouchesTheChatModel(t *testing.T) {
+	f, cs, _ := newFaultFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID)) // displaces + kills; the CLI still dies slowly
+	f.wait()
+	require.Empty(t, f.runner(t, runnerID).CurrentChatID, "precondition: the runner is placed nowhere")
+
+	cs.failGetChat = errors.New("boom: the chat model must not be consulted for nowhere")
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
+		mustJSON(t, map[string]any{"last_assistant_message": "a dying CLI's last words"})),
+		"a hook from a runner that is placed nowhere must resolve to nowhere, without a lookup")
+}
+
+// mustLive reads the chat's live runner, failing the test if the chat is dormant.
+func mustLive(t *testing.T, f testFixture, chatID string) domain.AgentRunner {
+	t.Helper()
+	r, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	return r
 }

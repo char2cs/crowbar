@@ -514,6 +514,27 @@ func mustAllLive(t *testing.T, h *harness) []domain.AgentRunner {
 	return rows
 }
 
+// "" is NOWHERE, not a key. A displaced runner's row carries an empty chat id and an empty
+// session, so an unguarded lookup would MATCH those rows — handing a caller a runner that is
+// on nothing, which is the read model volunteering a lie.
+func TestLiveReads_EmptyKeyIsNowhere(t *testing.T) {
+	h := newHarness(t)
+	h.start(arCmds.Start{
+		RunnerID: "r1", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "pty1", ChatID: "c1", Now: clock(1),
+	})
+	h.bindSession("r1", "s1", clock(2))
+	_, err := h.ax.SendWait(h.ctx, arCmds.Displace{RunnerID: "r1"})
+	require.NoError(t, err)
+	h.drain()
+
+	_, err = h.st.LiveRunnerForChat(h.ctx, "")
+	assert.ErrorIs(t, err, store.ErrNotFound, "an empty chat id must never match a displaced runner")
+
+	_, err = h.st.LiveRunnerForSession(h.ctx, "w1", "")
+	assert.ErrorIs(t, err, store.ErrNotFound, "nor an empty session id")
+}
+
 // ConversationsForChat is the append-only history a provider switch reads to find the
 // conversation the INCOMING provider left behind here. LastConversation cannot answer
 // it: after a handoff the chat's newest conversation belongs to the provider being

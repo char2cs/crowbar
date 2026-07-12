@@ -119,6 +119,13 @@ func (s *service) GetChat(
 	ctx context.Context,
 	id string,
 ) (domain.AgentChat, error) {
+	// An empty id is NOWHERE, never a chat — and it must not reach the miss path below,
+	// which heals the read model by REPLAYING THE ENTIRE EVENT LOG. A runner Crowbar has
+	// taken off its chat carries an empty chat id, so an unguarded lookup would replay the
+	// whole log on every hook of every dying CLI.
+	if id == "" {
+		return domain.AgentChat{}, fmt.Errorf("agentchat store: get %q: %w", id, ErrNotFound)
+	}
 	chat, err := s.storage.FindByKey(ctx, id)
 	if err != nil {
 		return domain.AgentChat{}, err
