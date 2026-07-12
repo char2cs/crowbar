@@ -1127,6 +1127,8 @@ All three are *regressions against pre-refactor behaviour*. This task is what ma
 
 **Task 6 is load-bearing a SECOND way (added after Task 5's review):** Task 5 introduced `Displace`, which clears a runner's placement while its process is still alive. If the subsequent `TerminateGraceful` **fails**, that runner keeps its live row forever — placed nowhere, owned by nobody, never `Exit`ed. **Boot reconcile is the only thing that reaps it.** Without this task, those rows accumulate across restarts.
 
+**⚠️ `Displace` BROKE the tmp-dir path derivation — you cannot just restore the old reap.** The crash-orphan sweep derived a spawn dir from `SegmentDir(chatsDir, runner.CurrentChatID, runner.ID, runner.ProviderID)`. Task 5's `Displace` **clears `CurrentChatID`**, so a displaced runner whose kill failed — and which then died with the daemon — can no longer have its tmp dir located from its row at all. Derive the path from something `Displace` does not erase (the runner id and provider are retained), or record the dir at spawn.
+
 **Also restore what went with it:** Task 5's deletion also removed the **crash-orphan tmp reap** — the sweep that deleted per-spawn dirs left behind by a CLI that died without cleanup. They now accumulate forever. (They hold only the rendered hook config — claude's `settings.json`, 0600 in a 0700 dir. **They do NOT hold credentials**: the engine has only three inject verbs — `set_env`, `write_file`, `pass_arg` — there is no `copy_file`, and no descriptor references `auth.json`. Any comment in the tree still claiming a codex `auth.json` copy is **stale**, left over from the removed `CODEX_HOME` design; delete such comments on sight.)
 
 - [ ] **Step 1: Write the failing test**
