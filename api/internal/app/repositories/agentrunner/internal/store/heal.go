@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/internal/serialize"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -39,8 +40,19 @@ const eventKeyPrefix = "events:"
 // conversations. Only the marker can tell "never populated" from "emptied on
 // purpose".)
 //
-// The marker is written AFTER a successful heal, so a heal that fails is retried
-// on the next boot rather than silently skipped forever.
+// The marker is written AFTER a FULLY successful heal — including every row the
+// fold wrote (historyProjector records a failed append; replayHistory refuses to
+// return nil if any did). A heal that lost rows is a failed heal: without that,
+// one transient sqlite write error would lose those conversations, return nil,
+// and mark the read model built forever. Retrying a partial heal on the next boot
+// is safe because appendConversation is idempotent on the composite key.
+//
+// Accepted limit: "deleted stays deleted" holds across an ORDINARY reboot, not
+// across a genuine read-DB loss. The marker dies with the DB it lives in, and the
+// runner event log has no record of deletions — so a heal after a total read-DB
+// loss will bring back the conversations of chats the user had deleted. That is
+// the degraded case by definition (the read model is gone), and the alternative
+// (never healing) loses resumability for every chat, which is worse.
 //
 // It deliberately CANNOT touch agent_runners. The fold is historyProjector, which
 // has no live-row writer at all — so the failure mode of a general replay (write
@@ -78,6 +90,10 @@ func healConversations(
 // projector. It replays with a BARE projector rather than through the bus, so a
 // heal never re-broadcasts historical WS frames at a frontend that has been
 // watching the live stream all along.
+//
+// asynx's fold signature cannot return an error, so the projector collects the
+// first write failure and replayHistory surfaces it here — the heal is strict
+// where the live projection cannot be.
 func replayHistory(
 	ctx context.Context,
 	db *gormdb.DB,
@@ -92,17 +108,17 @@ func replayHistory(
 	if err != nil {
 		return fmt.Errorf("agentrunner store: enumerate aggregate ids: %w", err)
 	}
-	fold := (&historyProjector{db: db}).onEvent
+	p := &historyProjector{db: db}
 	for _, key := range keys {
 		id, found := strings.CutPrefix(key, eventKeyPrefix)
 		if !found {
 			continue
 		}
-		if err := ax.Replay(ctx, id, 1, 0, fold); err != nil {
+		if err := ax.Replay(ctx, id, 1, 0, p.onEvent); err != nil {
 			return fmt.Errorf("agentrunner store: replay %s: %w", id, err)
 		}
 	}
-	return nil
+	return p.failure
 }
 
 func readModelWasBuilt(
@@ -125,19 +141,27 @@ func markBuilt(
 	db *gormdb.DB,
 ) error {
 	marker := healMarkerRow{ID: healMarkerID, HealedAt: time.Now().UTC()}
-	if err := db.WithContext(ctx).Create(&marker).Error; err != nil {
+	err := db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&marker).Error
+	if err != nil {
 		return fmt.Errorf("agentrunner store: write heal marker: %w", err)
 	}
 	return nil
 }
 
+// historyProjector is the heal's fold: it writes conversation history and nothing
+// else (it has no live-row writer at all — see healConversations), and it REMEMBERS
+// a write failure so the heal can refuse to declare itself done.
 type historyProjector struct {
-	db *gormdb.DB
+	db      *gormdb.DB
+	failure error
 }
 
 func (p *historyProjector) onEvent(
 	ctx context.Context,
 	evt asynxModels.Event[domain.AgentRunner],
 ) {
-	appendConversation(ctx, p.db, evt.Aggregate)
+	err := appendConversation(ctx, p.db, evt.Aggregate)
+	if err != nil && p.failure == nil {
+		p.failure = err
+	}
 }

@@ -288,7 +288,10 @@ func (p *projector) onEvent(
 	}
 
 	p.upsertLive(ctx, r)
-	appendConversation(ctx, p.db, r)
+	if err := appendConversation(ctx, p.db, r); err != nil {
+		slog.ErrorContext(ctx, "agentrunner projection: append conversation",
+			"chat", r.CurrentChatID, "session", r.CurrentSession, "err", err)
+	}
 }
 
 // upsertLive writes the single live row for STARTED / SESSION_BOUND / MOVED.
@@ -326,13 +329,18 @@ func (p *projector) upsertLive(
 // Package-level rather than a projector method because the boot heal folds it
 // WITHOUT the live-row writer (heal.go) — history is the only thing a replay is
 // allowed to touch.
+//
+// It RETURNS its write error rather than logging it, because the two folds must
+// treat a failure differently: the live projection logs and carries on (a
+// projection must never take the daemon down), while the heal must refuse to mark
+// the read model built (heal.go) — a heal that lost rows is a failed heal.
 func appendConversation(
 	ctx context.Context,
 	db *gormdb.DB,
 	r domain.AgentRunner,
-) {
+) error {
 	if r.CurrentSession == "" {
-		return
+		return nil
 	}
 	conv := conversationRow{
 		ChatID:      r.CurrentChatID,
@@ -343,7 +351,8 @@ func appendConversation(
 	}
 	err := db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&conv).Error
 	if err != nil {
-		slog.ErrorContext(ctx, "agentrunner projection: append conversation",
-			"chat", r.CurrentChatID, "session", r.CurrentSession, "err", err)
+		return fmt.Errorf("agentrunner store: append conversation (chat %q, session %q): %w",
+			r.CurrentChatID, r.CurrentSession, err)
 	}
+	return nil
 }

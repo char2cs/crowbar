@@ -594,11 +594,83 @@ func TestForgetChat_IsNotUndoneByTheNextBoot(t *testing.T) {
 	require.ErrorIs(t, err, store.ErrNotFound)
 }
 
+// failConversationWrites makes every conversation-row INSERT fail the way a
+// transient sqlite "disk I/O error" does — the failure agentchat's store already
+// carries a retry for, so not a hypothetical. Registered as a gorm callback so it
+// can be LIFTED again, which is how the next boot gets to succeed.
+func failConversationWrites(
+	t *testing.T,
+	db *gormdb.DB,
+) {
+	t.Helper()
+	err := db.Callback().Create().Before("gorm:create").Register(failCallback, func(tx *gormdb.DB) {
+		if tx.Statement.Table == "agent_chat_conversations" {
+			_ = tx.AddError(errors.New("disk I/O error"))
+		}
+	})
+	require.NoError(t, err)
+}
+
+const failCallback = "test:fail_conversation_writes"
+
+func markerCount(
+	t *testing.T,
+	db *gormdb.DB,
+) int64 {
+	t.Helper()
+	var count int64
+	require.NoError(t, db.Raw("SELECT COUNT(*) FROM agent_runner_heal_marker").Scan(&count).Error)
+	return count
+}
+
+// A heal that could not write every row must NOT be recorded as done. The fold
+// logs its write errors (the LIVE projection must never take the daemon down), so
+// a transient failure would otherwise lose those conversations, return nil, and
+// mark the read model built — permanently, never retried. That is the same
+// half-a-history the enumerate path hard-errors on.
+//
+// The heal fold is a separate type from the live fold precisely so it can be
+// strict where the live projection must not be.
+func TestNew_DoesNotMarkBuiltWhenTheHealCannotWrite(t *testing.T) {
+	h := newHarness(t)
+	h.start(arCmds.Start{
+		RunnerID: "r1", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "pty1", ChatID: "c1", Now: clock(10),
+	})
+	h.bindSession("r1", "s1", clock(11))
+	h.move("r1", "c2", "s2", clock(12))
+	h.drain()
+
+	// Boot onto a lost read DB whose conversation writes are transiently failing.
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	failConversationWrites(t, db)
+
+	_, err = store.New(db, h.es, newAx(t, h.es), noopBroadcast)
+	require.Error(t, err, "a heal that lost rows is a failed heal")
+	assert.Zero(t, markerCount(t, db), "and it must not be recorded as built, or it is never retried")
+
+	// The I/O blip passes. The next boot re-heals — safe, because the append is
+	// idempotent on the composite key — and this time the history comes back whole.
+	require.NoError(t, db.Callback().Create().Remove(failCallback))
+
+	st, err := store.New(db, h.es, newAx(t, h.es), noopBroadcast)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), markerCount(t, db))
+
+	chatID, err := st.ChatForSession(h.ctx, "w1", "s1")
+	require.NoError(t, err)
+	assert.Equal(t, "c1", chatID, "the retried heal completed the history")
+	last, err := st.LastConversation(h.ctx, "c2")
+	require.NoError(t, err)
+	assert.Equal(t, "s2", last.SessionID)
+}
+
 // The heal runs at construction ONLY, and only when this read DB has never been
-// built before. A store coming up over a read DB that HAS been built never
+// built before. A store coming up over a read DB whose MARKER is present never
 // touches the event log — proven by giving it an event store whose enumeration
 // would fail if it were ever asked.
-func TestNew_DoesNotHealWhenHistoryIsIntact(t *testing.T) {
+func TestNew_DoesNotHealWhenTheMarkerIsPresent(t *testing.T) {
 	h := newHarness(t)
 	h.start(arCmds.Start{
 		RunnerID: "r1", WorkspaceID: "w1", ProviderID: "claude",
