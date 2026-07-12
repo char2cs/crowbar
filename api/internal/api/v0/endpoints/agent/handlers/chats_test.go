@@ -96,6 +96,19 @@ type configurableListGetUsecase struct {
 
 	chat   domain.AgentChat
 	getErr error
+
+	// liveRunners maps a chat id to the runner PLACED on it. A chat ABSENT from
+	// the map is DORMANT, and LiveRunnerForChat answers agentrunner.ErrNotFound —
+	// which is the real answer (no live row exists, because no PTY does), not a
+	// failure. liveErr is the genuine-failure branch (a read that blew up).
+	liveRunners map[string]domain.AgentRunner
+	liveErr     error
+
+	// conversations maps a chat id to its append-only history, OLDEST FIRST, so
+	// the last element is the chat's last conversation — the provider fallback a
+	// dormant chat's activeProviderId derives from.
+	conversations map[string][]domain.ChatConversation
+	convErr       error
 }
 
 func (configurableListGetUsecase) SpawnChat(
@@ -135,6 +148,30 @@ func (u *configurableListGetUsecase) GetChat(
 		return domain.AgentChat{}, u.getErr
 	}
 	return u.chat, nil
+}
+
+func (u *configurableListGetUsecase) LiveRunnerForChat(
+	_ context.Context,
+	chatID string,
+) (domain.AgentRunner, error) {
+	if u.liveErr != nil {
+		return domain.AgentRunner{}, u.liveErr
+	}
+	runner, ok := u.liveRunners[chatID]
+	if !ok {
+		return domain.AgentRunner{}, agentrunner.ErrNotFound
+	}
+	return runner, nil
+}
+
+func (u *configurableListGetUsecase) ConversationsForChat(
+	_ context.Context,
+	chatID string,
+) ([]domain.ChatConversation, error) {
+	if u.convErr != nil {
+		return nil, u.convErr
+	}
+	return u.conversations[chatID], nil
 }
 
 func (configurableListGetUsecase) SwitchProvider(
@@ -235,14 +272,178 @@ func TestList_UsecaseError(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestGet_Success proves Get returns the scoped chat. The segment history it used to
-// compose in is gone with AgentSegment — a chat holds no process state — and the DTO
-// task later in this series joins the live runner and the conversation history back on.
+// chatRow mirrors the derived runner facts on the wire shape of dto.AgentChatDTO:
+// the runner PLACED on the chat right now and the PTY the pane attaches to, both
+// joined on at read time from the live-runner projection, plus the provider the
+// switch dropdown shows. There is deliberately no status/isLive field to read: the
+// presence of liveRunnerId IS the liveness answer, because the live row exists
+// exactly while the process does.
+type chatRow struct {
+	ID                string `json:"id"`
+	LiveRunnerID      string `json:"liveRunnerId"`
+	TerminalSessionID string `json:"terminalSessionId"`
+	ActiveProviderID  string `json:"activeProviderId"`
+}
+
+// TestList_DormantChatFallsBackToLastConversationProvider is the subtle one. A chat
+// whose CLI has EXITED has no live runner — so liveRunnerId and terminalSessionId are
+// empty, and the frontend needs no second liveness check to know the pane cannot
+// attach. But it must still show the right provider glyph and dropdown selection, and
+// Resume must know who to bring back, so activeProviderId falls back to the provider
+// of the chat's LAST conversation (history is oldest-first, so the last element wins —
+// a chat switched vendor-a -> vendor-b answers vendor-b, not vendor-a).
+func TestList_DormantChatFallsBackToLastConversationProvider(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chats: []domain.AgentChat{{ID: "c1", WorkspaceID: "ws1"}},
+		// No live runner for c1: the chat is dormant.
+		conversations: map[string][]domain.ChatConversation{
+			"c1": {
+				{ChatID: "c1", ProviderID: "vendor-a", SessionID: "sess-1", FirstSeenAt: time.Unix(1, 0).UTC()},
+				{ChatID: "c1", ProviderID: "vendor-b", SessionID: "sess-2", FirstSeenAt: time.Unix(2, 0).UTC()},
+			},
+		},
+	}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
+
+	h.List(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var envelope struct {
+		Data []chatRow `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	require.Len(t, envelope.Data, 1)
+	assert.Empty(t, envelope.Data[0].LiveRunnerID, "a dormant chat has no runner: absence IS the liveness answer")
+	assert.Empty(t, envelope.Data[0].TerminalSessionID, "no runner, no PTY to attach to")
+	assert.Equal(t, "vendor-b", envelope.Data[0].ActiveProviderID, "dormant falls back to the LAST conversation's provider")
+}
+
+// TestList_LiveChatCarriesRunnerAndPTY proves the live join: a chat a runner is
+// placed on carries that runner's id (the liveness answer) and its terminal session
+// (what the pane attaches to), and activeProviderId is the LIVE runner's provider —
+// which wins over the history even when the last conversation names another vendor
+// (mid-switch, the new runner is already the truth).
+func TestList_LiveChatCarriesRunnerAndPTY(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chats: []domain.AgentChat{{ID: "c1", WorkspaceID: "ws1"}},
+		liveRunners: map[string]domain.AgentRunner{
+			"c1": {
+				ID:              "run-1",
+				WorkspaceID:     "ws1",
+				ProviderID:      "vendor-b",
+				TerminalSession: "term-1",
+				CurrentChatID:   "c1",
+			},
+		},
+		conversations: map[string][]domain.ChatConversation{
+			"c1": {{ChatID: "c1", ProviderID: "vendor-a", SessionID: "sess-1"}},
+		},
+	}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
+
+	h.List(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var envelope struct {
+		Data []chatRow `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	require.Len(t, envelope.Data, 1)
+	assert.Equal(t, "run-1", envelope.Data[0].LiveRunnerID)
+	assert.Equal(t, "term-1", envelope.Data[0].TerminalSessionID)
+	assert.Equal(t, "vendor-b", envelope.Data[0].ActiveProviderID, "the live runner's provider wins over the history")
+}
+
+// TestList_ChatWithNoRunnerEverIsEmpty proves a chat that has NEVER had a runner —
+// no live row, no conversation history — reads empty everywhere and does not error.
+// "Never ran" and "ran and exited" are both dormant; only the provider fallback tells
+// them apart.
+func TestList_ChatWithNoRunnerEverIsEmpty(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chats: []domain.AgentChat{{ID: "c1", WorkspaceID: "ws1"}},
+	}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
+
+	h.List(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var envelope struct {
+		Data []chatRow `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	require.Len(t, envelope.Data, 1)
+	assert.Empty(t, envelope.Data[0].LiveRunnerID)
+	assert.Empty(t, envelope.Data[0].TerminalSessionID)
+	assert.Empty(t, envelope.Data[0].ActiveProviderID)
+}
+
+// TestList_LiveRunnerLookupError proves a GENUINE live-runner read failure (not the
+// ErrNotFound that merely means "dormant") surfaces as a mapped error.
+func TestList_LiveRunnerLookupError(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chats:   []domain.AgentChat{{ID: "c1", WorkspaceID: "ws1"}},
+		liveErr: errors.New("projection down"),
+	}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
+
+	h.List(ctx)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// TestList_ConversationsLookupError proves a conversation-history read failure
+// surfaces as a mapped error rather than a half-derived row.
+func TestList_ConversationsLookupError(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chats:   []domain.AgentChat{{ID: "c1", WorkspaceID: "ws1"}},
+		convErr: errors.New("projection down"),
+	}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
+
+	h.List(ctx)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// TestGet_Success proves Get returns the scoped chat with the same derived runner
+// facts List carries, PLUS the chat's conversations — the append-only history that
+// replaced the deleted segment list.
 func TestGet_Success(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
 		chat: domain.AgentChat{ID: "c1", WorkspaceID: "ws1", Title: "a title"},
+		liveRunners: map[string]domain.AgentRunner{
+			"c1": {ID: "run-1", ProviderID: "vendor-a", TerminalSession: "term-1", CurrentChatID: "c1"},
+		},
+		conversations: map[string][]domain.ChatConversation{
+			"c1": {{ChatID: "c1", ProviderID: "vendor-a", SessionID: "sess-1", FirstSeenAt: time.Unix(1, 0).UTC()}},
+		},
 	}
 	h := handlers.New(uc)
 
@@ -254,15 +455,70 @@ func TestGet_Success(
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var envelope struct {
 		Data struct {
-			ID          string `json:"id"`
-			WorkspaceID string `json:"workspaceId"`
-			Title       string `json:"title"`
+			ID                string `json:"id"`
+			WorkspaceID       string `json:"workspaceId"`
+			Title             string `json:"title"`
+			LiveRunnerID      string `json:"liveRunnerId"`
+			TerminalSessionID string `json:"terminalSessionId"`
+			ActiveProviderID  string `json:"activeProviderId"`
+			Conversations     []struct {
+				ProviderID string `json:"providerId"`
+				SessionID  string `json:"sessionId"`
+			} `json:"conversations"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
 	assert.Equal(t, "c1", envelope.Data.ID)
 	assert.Equal(t, "ws1", envelope.Data.WorkspaceID)
 	assert.Equal(t, "a title", envelope.Data.Title)
+	assert.Equal(t, "run-1", envelope.Data.LiveRunnerID)
+	assert.Equal(t, "term-1", envelope.Data.TerminalSessionID)
+	assert.Equal(t, "vendor-a", envelope.Data.ActiveProviderID)
+
+	require.Len(t, envelope.Data.Conversations, 1)
+	assert.Equal(t, "vendor-a", envelope.Data.Conversations[0].ProviderID)
+	assert.Equal(t, "sess-1", envelope.Data.Conversations[0].SessionID)
+}
+
+// TestGet_ConversationsIsNeverNull proves the detail endpoint carries `conversations`
+// (the successor of the deleted `segments`) as [] rather than null on a chat that has
+// hosted none — the FE maps over it unguarded.
+func TestGet_ConversationsIsNeverNull(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chat: domain.AgentChat{ID: "c1", WorkspaceID: "ws1"},
+	}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c1", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c1"}}
+
+	h.Get(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"conversations":[]`)
+	assert.NotContains(t, rec.Body.String(), `"segments"`, "segments are gone with AgentSegment")
+}
+
+// TestGet_RuntimeLookupError proves a failing runner-projection read on the detail
+// route surfaces as a mapped error rather than a chat with silently empty runner
+// facts — an empty liveRunnerId means DORMANT, and must never mean "the read broke".
+func TestGet_RuntimeLookupError(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chat:    domain.AgentChat{ID: "c1", WorkspaceID: "ws1"},
+		liveErr: errors.New("projection down"),
+	}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c1", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c1"}}
+
+	h.Get(ctx)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 // TestGet_WrongWorkspace404s proves the by-id scope check

@@ -6,47 +6,139 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// AgentChatDTO is the wire shape of a Crowbar-owned agentic chat: the workspace it
-// belongs to, its title, and when it was created.
+// ChatRuntime is the DERIVED process view of one chat: the runner PLACED on it right
+// now, and the conversations it has hosted. Neither is chat state — the chat aggregate
+// stores no process facts at all — so both are joined on at read time, off the runner
+// projections, by the handler that builds the DTO.
 //
-// It carries NO process facts. activeSegmentId and activeProviderId are gone with
-// AgentSegment: a chat does not own the CLI talking to it, so nothing on the chat
-// aggregate can answer "is this live" or "which provider". Those are properties of
-// the RUNNER pointed at the chat (a live row exists exactly while its PTY does) and
-// of the chat's conversation history, and the next task in this series joins them
-// back onto this DTO as liveRunnerId / terminalSessionId / activeProviderId
-// (derived: the live runner's provider, else the last conversation's). Until then
-// this shape is deliberately thin rather than dishonestly full — a field that always
-// reads "" is worse than an absent one.
-type AgentChatDTO struct {
-	ID          string    `json:"id"`
-	WorkspaceID string    `json:"workspaceId"`
-	Title       string    `json:"title"`
-	CreatedAt   time.Time `json:"createdAt"`
+// LiveRunner is nil exactly when the chat is DORMANT, and nil is a complete answer, not
+// a missing one: a live-runner row exists exactly while its PTY does, so its absence IS
+// the liveness verdict. That is why nothing here (and nothing on the wire shapes below)
+// carries a status/isLive flag — a second authority on liveness could only drift from
+// the process, and that drift is the production bug this refactor exists to delete.
+type ChatRuntime struct {
+	// LiveRunner is the runner currently pointed at the chat, or nil when none is —
+	// i.e. when the chat is dormant because its CLI exited or died with the daemon.
+	LiveRunner *domain.AgentRunner
+
+	// Conversations is the chat's append-only history, OLDEST FIRST (so the last
+	// element is its last conversation). Empty on a chat no runner has ever spoken
+	// into.
+	Conversations []domain.ChatConversation
 }
 
-// AgentChatDTOFrom converts a persisted AgentChat into its wire shape.
+// AgentChatDTO is the wire shape of a Crowbar-owned agentic chat: the workspace it
+// belongs to, its title, when it was created — and the three DERIVED runner facts a
+// client needs to render and attach to it, joined on from the runner projections
+// (they are never stored on the chat).
+//
+// LiveRunnerID is the whole liveness contract. It names the runner placed on this chat,
+// and it is "" exactly when the chat is dormant; a client needs no second call and no
+// status field to know whether a pane can attach, because the live row backing it exists
+// exactly while the vendor CLI's PTY does. "" here is a MEANINGFUL value (dormant), not
+// a placeholder, which is why these fields are always present on the wire rather than
+// omitted — the shape is honest either way.
+type AgentChatDTO struct {
+	ID          string `json:"id"`
+	WorkspaceID string `json:"workspaceId"`
+	Title       string `json:"title"`
+
+	// LiveRunnerID is the id of the runner placed on this chat, or "" when the chat
+	// is dormant. This IS the liveness answer — do not look for another.
+	LiveRunnerID string `json:"liveRunnerId"`
+
+	// TerminalSessionID is that runner's PTY: the terminal session a chat pane
+	// attaches to. Empty exactly when LiveRunnerID is — no runner, nothing to attach.
+	TerminalSessionID string `json:"terminalSessionId"`
+
+	// ActiveProviderID is the provider whose CLI is (or last was) talking to this
+	// chat: the LIVE runner's provider while the chat is live, and otherwise the
+	// provider of its LAST conversation. That fallback is what lets a dormant chat
+	// still show the right glyph and dropdown selection, and lets Resume know who to
+	// bring back. Empty only on a chat no runner has ever been placed on.
+	ActiveProviderID string `json:"activeProviderId"`
+
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// AgentChatDTOFrom converts a persisted AgentChat plus its derived runtime into the
+// wire shape. The zero ChatRuntime (no live runner, no history) is the honest shape of
+// a chat that has never had a runner: every derived field reads "".
 func AgentChatDTOFrom(
 	c domain.AgentChat,
+	rt ChatRuntime,
 ) AgentChatDTO {
-	return AgentChatDTO{
-		ID:          c.ID,
-		WorkspaceID: c.WorkspaceID,
-		Title:       c.Title,
-		CreatedAt:   c.CreatedAt,
+	out := AgentChatDTO{
+		ID:               c.ID,
+		WorkspaceID:      c.WorkspaceID,
+		Title:            c.Title,
+		ActiveProviderID: activeProviderID(rt),
+		CreatedAt:        c.CreatedAt,
 	}
+	if rt.LiveRunner != nil {
+		out.LiveRunnerID = rt.LiveRunner.ID
+		out.TerminalSessionID = rt.LiveRunner.TerminalSession
+	}
+	return out
+}
+
+// activeProviderID derives the provider to show for a chat: the live runner's while one
+// is placed on it (mid-switch, the incoming runner is already the truth — it outranks a
+// history whose last entry still names the outgoing vendor), else the provider of the
+// chat's last conversation, else "".
+func activeProviderID(
+	rt ChatRuntime,
+) string {
+	if rt.LiveRunner != nil {
+		return rt.LiveRunner.ProviderID
+	}
+	if n := len(rt.Conversations); n > 0 {
+		return rt.Conversations[n-1].ProviderID
+	}
+	return ""
 }
 
 // AgentChatDTOList converts a slice of AgentChats into wire DTOs, returning a
 // non-nil slice so the envelope carries [] rather than null when there are none.
+// runtimes is keyed by chat id; a chat with no entry is rendered from the zero
+// ChatRuntime — dormant, no history — which is exactly what a chat missing from both
+// runner projections is.
 func AgentChatDTOList(
 	chats []domain.AgentChat,
+	runtimes map[string]ChatRuntime,
 ) []AgentChatDTO {
 	out := make([]AgentChatDTO, 0, len(chats))
 	for _, c := range chats {
-		out = append(out, AgentChatDTOFrom(c))
+		out = append(out, AgentChatDTOFrom(c, runtimes[c.ID]))
 	}
 	return out
+}
+
+// AgentChatDetailDTO is the wire shape of GET .../workspaces/:wsId/agent/chats/:id: the
+// chat (with its derived runner facts) plus the conversations it has hosted, oldest
+// first. Conversations succeeds the deleted `segments` list: it is what a segment really
+// was, minus everything that described a process (no status, no PTY, no runner id), so
+// it is pure append-only history and cannot drift from reality. It is always non-nil so
+// the envelope carries [] rather than null.
+type AgentChatDetailDTO struct {
+	AgentChatDTO
+	Conversations []domain.ChatConversation `json:"conversations"`
+}
+
+// AgentChatDetailDTOFrom composes a chat and its derived runtime into the detail wire
+// shape, normalising nil conversations to [] so the envelope never carries null.
+func AgentChatDetailDTOFrom(
+	c domain.AgentChat,
+	rt ChatRuntime,
+) AgentChatDetailDTO {
+	convs := rt.Conversations
+	if convs == nil {
+		convs = []domain.ChatConversation{}
+	}
+	return AgentChatDetailDTO{
+		AgentChatDTO:  AgentChatDTOFrom(c, rt),
+		Conversations: convs,
+	}
 }
 
 // HandoffDTO is the wire shape of GET .../workspaces/:wsId/agent/chats/:id/handoff: the

@@ -42,6 +42,24 @@ type AgentUsecase interface {
 		id string,
 	) (domain.AgentChat, error)
 
+	// LiveRunnerForChat returns the runner PLACED on chatID right now.
+	// agentrunner.ErrNotFound is not a failure here: it means the chat is DORMANT —
+	// no live row exists, because no PTY does. Row-existence IS the liveness answer,
+	// which is why the handlers ask no second question and no aggregate carries a
+	// status flag that could disagree.
+	LiveRunnerForChat(
+		ctx context.Context,
+		chatID string,
+	) (domain.AgentRunner, error)
+
+	// ConversationsForChat returns every conversation chatID has hosted, oldest
+	// first — the append-only history that replaced the chat's embedded segments,
+	// and the source of the dormant chat's provider fallback.
+	ConversationsForChat(
+		ctx context.Context,
+		chatID string,
+	) ([]domain.ChatConversation, error)
+
 	// SwitchProvider quits the chat's current vendor CLI, hands off the accumulated
 	// context, and starts targetProviderID as a new runner on the SAME chat,
 	// returning the new runner's id.

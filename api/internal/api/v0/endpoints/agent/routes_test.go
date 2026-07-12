@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
@@ -56,6 +57,25 @@ func (stubUsecase) GetChat(
 	id string,
 ) (domain.AgentChat, error) {
 	return domain.AgentChat{ID: id, WorkspaceID: "w1"}, nil
+}
+
+// LiveRunnerForChat answers agentrunner.ErrNotFound — "this chat is DORMANT", the
+// honest answer for a stub that starts no process, and not a failure: a live-runner row
+// exists exactly while a PTY does, so its absence IS the liveness verdict. The read
+// routes therefore still serve 200 with empty liveRunnerId/terminalSessionId, which is
+// what the mount test asserts on.
+func (stubUsecase) LiveRunnerForChat(
+	_ context.Context,
+	_ string,
+) (domain.AgentRunner, error) {
+	return domain.AgentRunner{}, agentrunner.ErrNotFound
+}
+
+func (stubUsecase) ConversationsForChat(
+	_ context.Context,
+	_ string,
+) ([]domain.ChatConversation, error) {
+	return nil, nil
 }
 
 func (stubUsecase) SwitchProvider(

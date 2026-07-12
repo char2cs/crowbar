@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
@@ -200,6 +201,25 @@ func (f *fakeAgentUsecase) GetChat(
 		return domain.AgentChat{}, f.getChatErr
 	}
 	return f.getChat, nil
+}
+
+// LiveRunnerForChat/ConversationsForChat back the derived runner facts on the chat
+// DTOs, which only the List/Get read handlers compose (see
+// configurableListGetUsecase in chats_test.go, the double those tests dial in). This
+// double answers "dormant, no history" — the honest shape of a chat no runner has
+// ever been placed on — so the mutation handlers it does serve never trip over them.
+func (f *fakeAgentUsecase) LiveRunnerForChat(
+	_ context.Context,
+	_ string,
+) (domain.AgentRunner, error) {
+	return domain.AgentRunner{}, agentrunner.ErrNotFound
+}
+
+func (f *fakeAgentUsecase) ConversationsForChat(
+	_ context.Context,
+	_ string,
+) ([]domain.ChatConversation, error) {
+	return nil, nil
 }
 
 func (f *fakeAgentUsecase) SwitchProvider(
