@@ -514,6 +514,53 @@ func mustAllLive(t *testing.T, h *harness) []domain.AgentRunner {
 	return rows
 }
 
+// LiveRunnersForChat is the read the two PLACEMENT paths use: their job is to leave exactly
+// ONE runner on the chat, and a single-row read cannot tell "nobody else" from "somebody
+// else, and maybe more". It returns everyone, newest arrival first, so the caller can retire
+// all but itself.
+func TestLiveRunnersForChat_ReturnsEveryoneOnTheChatNewestFirst(t *testing.T) {
+	h := newHarness(t)
+	h.start(arCmds.Start{
+		RunnerID: "old", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "pty-old", ChatID: "c1", Now: clock(10),
+	})
+	h.start(arCmds.Start{
+		RunnerID: "new", WorkspaceID: "w1", ProviderID: "codex",
+		TerminalSession: "pty-new", ChatID: "c1", Now: clock(20),
+	})
+	// A runner on a DIFFERENT chat must never leak in.
+	h.start(arCmds.Start{
+		RunnerID: "elsewhere", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "pty-x", ChatID: "c2", Now: clock(30),
+	})
+	h.drain()
+
+	got, err := h.st.LiveRunnersForChat(h.ctx, "c1")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "new", got[0].ID, "newest arrival first")
+	assert.Equal(t, "old", got[1].ID)
+
+	// A displaced runner is on NO chat, so it is nobody's problem to evict.
+	_, err = h.ax.SendWait(h.ctx, arCmds.Displace{RunnerID: "old"})
+	require.NoError(t, err)
+	h.drain()
+
+	got, err = h.st.LiveRunnersForChat(h.ctx, "c1")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "new", got[0].ID)
+
+	// Nowhere holds nobody.
+	got, err = h.st.LiveRunnersForChat(h.ctx, "")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+
+	got, err = h.st.LiveRunnersForChat(h.ctx, "never-existed")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
 // "" is NOWHERE, not a key. A displaced runner's row carries an empty chat id and an empty
 // session, so an unguarded lookup would MATCH those rows — handing a caller a runner that is
 // on nothing, which is the read model volunteering a lie.

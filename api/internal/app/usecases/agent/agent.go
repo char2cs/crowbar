@@ -394,6 +394,17 @@ func (u *Usecase) displace(
 // over) keeps ITS turn; a chat that no longer exists is not written to at all; and a chat
 // that is not Working has nothing to close.
 //
+// KNOWN ASYMMETRY, deliberately not fixed. On the SWITCH path this closes the outgoing CLI's
+// turn (the chat is momentarily empty when we run). On the EVICTION path it does not: the
+// mover is already on the chat, so the first guard sends us home — and the evictee's own
+// turn_stop is now dropped, because it is unplaced. So evicting a MID-TURN incumbent leaves
+// the chat spinning until the MOVER finishes a turn of its own.
+//
+// It self-heals, it is pre-existing in shape, and the alternative is worse: closing that turn
+// would mean asserting "the evicted CLI is not working" about a process that is still alive
+// and that we have merely asked to leave — a liveness claim, which is precisely what this
+// model refuses to make. A visible spinner that resolves beats an invented fact.
+//
 // An empty chatID means NOWHERE — a runner that is already displaced — and nowhere is never
 // looked up.
 func (u *Usecase) closeAbandonedTurn(
@@ -574,6 +585,25 @@ func (u *Usecase) spawnRunner(
 		return "", fmt.Errorf("agent: spawn runner: create command: %w", err)
 	}
 
+	if err := u.recordRunner(ctx, chatID, workspaceID, providerID, runnerID, termSessID, create); err != nil {
+		return "", err
+	}
+	return runnerID, nil
+}
+
+// recordRunner persists what the spawn just created: the chat, if this is a fresh one, and
+// the runner now placed on it. The CLI is ALREADY LIVE by the time we get here — a pure
+// command cannot fork a process — so any failure tears it down rather than leaking a CLI
+// nothing in Crowbar points at.
+func (u *Usecase) recordRunner(
+	ctx context.Context,
+	chatID string,
+	workspaceID string,
+	providerID string,
+	runnerID string,
+	termSessID string,
+	create bool,
+) error {
 	now := time.Now()
 	if create {
 		if _, err := u.chats.Create(ctx, agentchat.CreateInput{
@@ -581,7 +611,7 @@ func (u *Usecase) spawnRunner(
 			WorkspaceID: workspaceID,
 			Now:         now,
 		}); err != nil {
-			return "", u.teardownAfterPersistFailure(ctx, chatID, runnerID, termSessID,
+			return u.teardownAfterPersistFailure(ctx, chatID, runnerID, termSessID,
 				fmt.Errorf("agent: spawn runner: create chat: %w", err))
 		}
 	}
@@ -593,10 +623,57 @@ func (u *Usecase) spawnRunner(
 		ChatID:          chatID,
 		Now:             now,
 	}); err != nil {
-		return "", u.teardownAfterPersistFailure(ctx, chatID, runnerID, termSessID,
+		return u.teardownAfterPersistFailure(ctx, chatID, runnerID, termSessID,
 			fmt.Errorf("agent: spawn runner: start runner: %w", err))
 	}
-	return runnerID, nil
+
+	// A Start is a PLACEMENT, so it obeys the same rule a Move does: whoever else is on this
+	// chat is retired. The spawn gate cannot cover this, and it is not a hairline window —
+	// it is as wide as a process fork:
+	//
+	//	a gated SwitchProvider quits and DISPLACES the outgoing CLI, leaving the chat with
+	//	nobody on it; a HOOK (never gated, and never may be) moves another live CLI onto it,
+	//	evicting nobody because nobody is there; and only THEN do we resolve a descriptor,
+	//	render a tmp dir, fork a process and land here.
+	//
+	// Without this the chat ends up holding both, indefinitely — and the loser is INVISIBLE,
+	// because the serving read hands out the newest arrival while the other one goes on
+	// appending to the chat's ledger. Start is SendWait, so this read already sees us.
+	u.retireOthersOn(ctx, chatID, runnerID)
+	return nil
+}
+
+// retireOthersOn enforces I2 at a placement: every runner on chatID other than keepID is
+// taken off it and killed. It is the whole rule in one line of code — "placement onto a
+// chat evicts whoever else is placed there" — and it is called from BOTH placement paths
+// (Start, here; Move, via incumbentsOf).
+//
+// It reads ALL of them, not one: if the invariant is somehow already broken, evicting a
+// single incumbent would heal nothing and leave the next reader guessing. In the ordinary
+// case the read returns exactly one row — the caller itself — and nothing happens.
+//
+// Best-effort throughout: a lookup failure is logged, never returned. The placement it
+// follows is already recorded, and the CLI it is chasing is one Crowbar wants gone, not one
+// the user is waiting on.
+func (u *Usecase) retireOthersOn(
+	ctx context.Context,
+	chatID string,
+	keepID string,
+) {
+	placed, err := u.runners.LiveRunnersForChat(ctx, chatID)
+	if err != nil {
+		slog.ErrorContext(ctx, "agent: look up runners placed on chat (best-effort, continuing)",
+			"chat_id", chatID, "err", err)
+		return
+	}
+	for _, other := range placed {
+		if other.ID == keepID {
+			continue
+		}
+		slog.WarnContext(ctx, "agent: another CLI was placed on this chat; retiring it",
+			"chat_id", chatID, "keeping", keepID, "retiring", other.ID)
+		u.retire(ctx, other)
+	}
 }
 
 // teardownAfterPersistFailure kills a CLI that is already live but whose runner
@@ -863,13 +940,26 @@ func (u *Usecase) handleSessionStart(
 	case engineagent.MoveNoop:
 		return nil
 	case engineagent.MoveBind:
-		// The conversation is recorded AGAINST THE CHAT the runner is on, so that chat
-		// had better still be there. It might not be: PurgeChat kills the CLI but a
-		// SIGTERM is not synchronous, so a chat deleted seconds after it was created
-		// ("wrong provider, undo") can be gone before its CLI has even announced. Binding
-		// anyway would write a conversation-history row against a hard-deleted chat — a
-		// dangling /resume target, the exact live trap PurgeChat drops that history to
-		// prevent.
+		// A bind EVICTS NOBODY, and that is safe only because of a fact outside this file:
+		// a CLI's FIRST conversation is one Crowbar itself chose. We spawn it fresh (a
+		// brand-new id nobody can be holding) or we resume it (and ResumeChat/SwitchProvider
+		// take the chat's spawn gate, and quit whoever was there, before spawning). So the
+		// id announced here cannot already be held by another live runner.
+		//
+		// THAT IS AN ARGUMENT, NOT A GUARD, AND IT HAS A DEPENDENCY WITH A NAME: it holds
+		// only while Crowbar is the sole source of a resume id. A descriptor that made a CLI
+		// resume something on its OWN (claude --continue, a provider that auto-restores its
+		// last session) would have it announce an id we never chose — possibly one another
+		// runner is live on — and this path would bind it with no eviction at all, silently
+		// opening an I3 hole (two CLIs writing one provider session file). If you ever add
+		// such a descriptor, this branch needs the eviction the move branches already do.
+		//
+		// The conversation is recorded AGAINST THE CHAT the runner is on, so that chat had
+		// better still be there. It might not be: PurgeChat kills the CLI but a SIGTERM is
+		// not synchronous, so a chat deleted seconds after it was created ("wrong provider,
+		// undo") can be gone before its CLI has even announced. Binding anyway would write a
+		// conversation-history row against a hard-deleted chat — a dangling /resume target,
+		// the exact live trap PurgeChat drops that history to prevent.
 		ok, err := u.requirePlacement(ctx, runner, runner.CurrentChatID)
 		if err != nil || !ok {
 			return err
@@ -977,67 +1067,41 @@ func (u *Usecase) moveToKnownChat(
 	toChatID string,
 	sessionID string,
 ) error {
-	incumbents := u.incumbentsOf(ctx, runner, toChatID, sessionID)
+	// The runner HOLDING THE CONVERSATION must be evicted (invariant I3, a provider-level
+	// constraint: two CLIs on one session id corrupt the provider's own session file), and
+	// it must be read BEFORE the Move, because the Move takes that conversation away from it.
+	incumbent, incErr := u.runners.LiveRunnerForSession(ctx, runner.WorkspaceID, sessionID)
+	if incErr != nil && !errors.Is(incErr, agentrunner.ErrNotFound) {
+		// Logged, never fatal: we still record what the CLI has already done. At worst the
+		// incumbent survives and the (already logged) cleanup is owed.
+		slog.ErrorContext(ctx, "agent: ingest hook: look up the runner holding this conversation",
+			"session_id", sessionID, "err", incErr)
+	}
 
 	if _, err := u.runners.Move(ctx, runner.ID, toChatID, sessionID, time.Now()); err != nil {
 		return fmt.Errorf("agent: ingest hook: move to known chat: %w", err)
 	}
 
-	for _, inc := range incumbents {
-		u.evict(ctx, inc)
+	if incErr == nil && incumbent.ID != runner.ID {
+		u.evict(ctx, incumbent)
 	}
+
+	// And whoever else is PLACED ON THE CHAT must go too (invariant I2) — a different
+	// question from I3, and answering only I3 left the reported bug alive with one variable
+	// changed:
+	//
+	//	Chat B is being worked by codex, which has not announced its conversation yet. B's
+	//	older claude conversation is still in Crowbar's history AND still in claude's own
+	//	/resume picker (Crowbar never deletes a vendor's session file). Resume it from another
+	//	chat's CLI: nobody HOLDS that conversation, so nothing was evicted — and chat B ended
+	//	up with two live CLIs on it, indefinitely, both writing its ledger, one invisible.
+	//
+	// Read AFTER the Move (which is SendWait, so we see ourselves) and retire everyone but
+	// us: it is the same rule, and the same call, a Start makes. Both placement paths leave
+	// exactly one runner on the chat, which is what makes I2 an invariant rather than a
+	// coincidence.
+	u.retireOthersOn(ctx, toChatID, runner.ID)
 	return nil
-}
-
-// incumbentsOf collects every runner the move is about to displace: the one HOLDING THE
-// CONVERSATION (invariant I3) and the one PLACED ON THE CHAT (invariant I2). They are
-// usually the same runner, and often there is none — but they are two different questions,
-// and answering only the first left the reported bug alive with one variable changed:
-//
-//	Chat B is being worked by codex, which has not announced its conversation yet. B's
-//	older claude conversation is still in Crowbar's history AND still in claude's own
-//	/resume picker (Crowbar never deletes a vendor's session file). Resume it from another
-//	chat's CLI: nobody HOLDS that conversation, so nothing was evicted — and chat B ended
-//	up with two live CLIs on it, indefinitely, both writing its ledger, one invisible.
-//
-// Placement onto a chat must evict whoever else is placed there. That is what makes I2 an
-// invariant rather than a coincidence, and it is also the only thing that covers a
-// concurrent move the spawn gate cannot reach (a hook-path move onto B landing while a
-// gated SwitchProvider(B) is spawning — a hook is never gated, and never may be).
-//
-// A lookup failure is logged, never fatal: we still record what the CLI has already done.
-// At worst an incumbent survives and the (already logged) cleanup is owed.
-func (u *Usecase) incumbentsOf(
-	ctx context.Context,
-	runner domain.AgentRunner,
-	toChatID string,
-	sessionID string,
-) []domain.AgentRunner {
-	var out []domain.AgentRunner
-	seen := map[string]bool{runner.ID: true} // never evict yourself
-
-	add := func(inc domain.AgentRunner, err error, what string) {
-		if err != nil {
-			if !errors.Is(err, agentrunner.ErrNotFound) {
-				slog.ErrorContext(ctx, "agent: ingest hook: look up incumbent runner",
-					"by", what, "chat_id", toChatID, "session_id", sessionID, "err", err)
-			}
-			return
-		}
-		if seen[inc.ID] {
-			return
-		}
-		seen[inc.ID] = true
-		out = append(out, inc)
-	}
-
-	bySession, err := u.runners.LiveRunnerForSession(ctx, runner.WorkspaceID, sessionID)
-	add(bySession, err, "conversation")
-
-	byChat, err := u.runners.LiveRunnerForChat(ctx, toChatID)
-	add(byChat, err, "chat")
-
-	return out
 }
 
 // evict retires a runner whose conversation another runner has just taken over

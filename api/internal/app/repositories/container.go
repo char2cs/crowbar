@@ -406,7 +406,13 @@ func (c *Container) retireChatRunner(
 		}
 		return
 	}
-	if _, err := c.AgentRunner.Displace(ctx, live.ID); err != nil {
+	// An already-EXITED runner is not an error, and must not be logged as one: a CLI quitting
+	// on its own moments before the cascade reached it is the ORDINARY case, and its exit has
+	// already cleared every placement this would have. Displace says so with ErrValidation
+	// (see agentrunner/internal/commands/displace.go), and the agent usecase's own displace()
+	// treats it exactly the same way.
+	if _, err := c.AgentRunner.Displace(ctx, live.ID); err != nil &&
+		!errors.Is(err, asynxModels.ErrValidation) && !errors.Is(err, agentrunner.ErrNotFound) {
 		slog.ErrorContext(ctx, "repositories: delete cascade: displace agent chat runner (best-effort, continuing)",
 			"chat_id", chatID, "runner_id", live.ID, "err", err)
 	}

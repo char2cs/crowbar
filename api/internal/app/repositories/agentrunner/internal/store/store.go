@@ -155,6 +155,44 @@ func (s *Store) LiveRunnerForChat(
 	return row.toRunner(), nil
 }
 
+// LiveRunnersForChat returns EVERY live runner placed on chatID, newest arrival first.
+//
+// It is the read that makes I2 an invariant rather than a coincidence. LiveRunnerForChat
+// answers "who holds this chat" and is what serving paths want; this one answers "who is
+// ON this chat", which is the question the two PLACEMENT paths must ask — because their job
+// is to leave exactly one runner there, and a single-row read cannot tell "nobody else" from
+// "somebody else, and maybe more".
+//
+// Both placement paths call it immediately after their write commits (both are SendWait, so
+// the read sees it) and retire everyone but themselves. In the ordinary case it returns one
+// row — the caller itself — and nothing happens. It earns its keep only in the windows
+// where a CLI arrives on a chat between another one's decision to take it and its arrival:
+// a hook (never gated, never may be) moving a runner onto a chat a gated switch is mid-FORK
+// of, which is a window as wide as a process spawn.
+//
+// An empty chatID is NOWHERE, and nowhere holds nobody.
+func (s *Store) LiveRunnersForChat(
+	ctx context.Context,
+	chatID string,
+) ([]domain.AgentRunner, error) {
+	if chatID == "" {
+		return nil, nil
+	}
+	var rows []runnerRow
+	err := s.db.WithContext(ctx).
+		Where("current_chat_id = ?", chatID).
+		Order(newestArrivalFirst).
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("agentrunner store: live runners for chat %q: %w", chatID, err)
+	}
+	out := make([]domain.AgentRunner, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.toRunner())
+	}
+	return out, nil
+}
+
 // LiveRunnerForSession returns the runner currently holding conversation sessionID in
 // wsID — the incumbent the eviction path must displace (invariant I3: at most one live
 // runner per conversation, because two CLIs on one provider session id both write the

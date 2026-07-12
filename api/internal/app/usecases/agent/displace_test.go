@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -376,4 +377,104 @@ func mustLive(t *testing.T, f testFixture, chatID string) domain.AgentRunner {
 	r, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
 	return r
+}
+
+// ---------------------------------------------------------------------------
+// The rule is general: EVERY placement onto a chat evicts whoever else is there.
+// ---------------------------------------------------------------------------
+
+// TestRegression_HookMovesOntoAChatMidSpawn_TheSpawnEvictsIt
+//
+// The rule "placement onto a chat evicts whoever else is placed there" was applied to
+// Move and NOT to Start — and the window that opens is not a hairline, it spans an entire
+// process fork:
+//
+//  1. SwitchProvider holds chat B's gate and quits + DISPLACES the outgoing CLI. Chat B now
+//     has ZERO placed runners.
+//  2. A hook — never gated, and never may be — moves another live CLI (r1) onto B. Nobody
+//     is placed on B and nobody holds that conversation, so nothing is evicted. The Move
+//     commits.
+//  3. The switch resolves its descriptor, renders its tmp dir, FORKS A PROCESS, and Starts
+//     the incoming runner onto B.
+//
+// Chat B ends up holding r1 AND the incoming CLI, both live, both placed, indefinitely —
+// and r1 is invisible, because LiveRunnerForChat hands out the newest arrival while r1 goes
+// on appending to B's ledger. The invisible-agent state, restored by the fix that was meant
+// to end it.
+//
+// duringFork drives step 2 INSIDE CreateCommand, so the interleaving is exact rather than
+// hoped for: no sleeps, no goroutine racing.
+func TestRegression_HookMovesOntoAChatMidSpawn_TheSpawnEvictsIt(t *testing.T) {
+	f := newFixture(t)
+
+	// Chat B: claude spoke here, so sB is a real conversation — known to Crowbar, and still
+	// in claude's own /resume picker.
+	chatB, claudeB := f.spawn(t, "claude")
+	f.announce(t, claudeB, "sB")
+	turn(t, f, claudeB, "claude", "what claude said in B")
+
+	// Another live CLI, elsewhere.
+	_, r1 := f.spawn(t, "codex")
+	f.announce(t, r1, "sA")
+
+	// While the switch is forking the incoming CLI, r1's user picks sB out of the picker.
+	var once sync.Once
+	f.term.duringFork = func() {
+		once.Do(func() {
+			require.NoError(t, f.usecase.IngestHook(f.ctx, r1, "codex", "session_start",
+				mustJSON(t, map[string]any{"session_id": "sB"})))
+		})
+	}
+
+	incoming, err := f.usecase.SwitchProvider(f.ctx, chatB, "codex")
+	require.NoError(t, err)
+	f.wait()
+
+	assert.Len(t, f.placedRunnersFor(t, chatB), 1,
+		"I2: a chat is held by ONE CLI — a spawn must evict whoever moved in while it forked")
+
+	live := mustLive(t, f, chatB)
+	assert.Equal(t, incoming, live.ID, "the chat belongs to the CLI that was spawned onto it")
+
+	assert.Contains(t, f.term.terminateRequestIDs(), f.runner(t, r1).TerminalSession,
+		"the CLI that moved in mid-spawn must be evicted, not left running invisibly")
+
+	// And it can no longer write into the chat it was evicted from.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, r1, "codex", "turn_stop",
+		mustJSON(t, map[string]any{"last_assistant_message": "the invisible agent speaks"})))
+	f.wait()
+	handoff, err := f.usecase.AssembleHandoff(f.ctx, chatB)
+	require.NoError(t, err)
+	assert.NotContains(t, handoff, "the invisible agent speaks")
+}
+
+// TestRegression_EvictionHealsAnAlreadyBrokenInvariant: incumbentsOf used to read ONE row,
+// so if two runners were somehow already placed on a chat it would evict one and leave the
+// other — healing nothing. "Everyone else placed here is retired" must be literally what
+// the code does, or I2 is a coincidence rather than an invariant.
+func TestRegression_EvictionHealsAnAlreadyBrokenInvariant(t *testing.T) {
+	f := newFixture(t)
+
+	chatB, claudeB := f.spawn(t, "claude")
+	f.announce(t, claudeB, "sB")
+	turn(t, f, claudeB, "claude", "what claude said in B")
+
+	// Two other live CLIs, both moved onto chat B by hooks landing while it was vacant (the
+	// mid-spawn window, twice over — this is the already-broken state).
+	_, r1 := f.spawn(t, "codex")
+	f.announce(t, r1, "s1")
+	_, r2 := f.spawn(t, "codex")
+	f.announce(t, r2, "s2")
+	require.NoError(t, f.runnersMove(t, r1, chatB, "s1"))
+	require.NoError(t, f.runnersMove(t, r2, chatB, "s2"))
+	require.Len(t, f.placedRunnersFor(t, chatB), 3, "precondition: the invariant is already broken")
+
+	// A third CLI resumes B's conversation. Everyone else on B must go.
+	_, mover := f.spawn(t, "claude")
+	f.announce(t, mover, "sMover")
+	f.announce(t, mover, "sB")
+
+	assert.Len(t, f.placedRunnersFor(t, chatB), 1,
+		"an eviction must retire EVERY other runner placed on the chat, not just one")
+	assert.Equal(t, mover, mustLive(t, f, chatB).ID)
 }

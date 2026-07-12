@@ -60,6 +60,14 @@ type fakeCommander struct {
 	err          error
 	terminateErr error
 	deadSessions map[string]bool
+	// duringFork runs INSIDE CreateCommand, before the session id exists — the window a
+	// real spawn holds open while the OS forks a process. It is how a test drives
+	// something that genuinely happens concurrently with a spawn (a hook, which is never
+	// gated) without any timing: the interleaving is exact, not hoped for.
+	//
+	// It is invoked WITHOUT the mutex held, so whatever it drives may call back into this
+	// fake (a hook that retires a runner terminates its PTY).
+	duringFork func()
 }
 
 func (f *fakeCommander) CreateCommand(
@@ -70,6 +78,10 @@ func (f *fakeCommander) CreateCommand(
 	env []string,
 	onExit func(),
 ) (string, error) {
+	if f.duringFork != nil {
+		f.duringFork()
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
@@ -591,4 +603,14 @@ func indexOf(ss []string, target string) int {
 		}
 	}
 	return -1
+}
+
+// runnersMove drives a raw runner Move — used only to CONSTRUCT an already-broken invariant
+// (two runners placed on one chat), which the usecase must then heal. No production path
+// reaches this directly.
+func (f testFixture) runnersMove(t *testing.T, runnerID, chatID, sessionID string) error {
+	t.Helper()
+	_, err := f.runners.Move(f.ctx, runnerID, chatID, sessionID, time.Now())
+	f.wait()
+	return err
 }

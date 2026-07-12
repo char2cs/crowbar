@@ -124,6 +124,16 @@ type EventStore interface {
 		ctx context.Context,
 		chatID string,
 	) (domain.AgentRunner, error)
+	// LiveRunnersForChat returns EVERY live runner placed on chatID, newest arrival first.
+	// It is what the two PLACEMENT paths (a Move onto a chat, a Start onto a chat) ask
+	// immediately after their write commits, so they can retire everyone but themselves:
+	// their job is to leave exactly ONE runner on the chat, and a single-row read cannot
+	// tell "nobody else" from "somebody else, and maybe more". Serving paths want
+	// LiveRunnerForChat instead — "who holds this chat".
+	LiveRunnersForChat(
+		ctx context.Context,
+		chatID string,
+	) ([]domain.AgentRunner, error)
 	// LiveRunnerForSession returns the runner currently HOLDING a conversation —
 	// the incumbent an eviction must displace. ErrNotFound means nobody is running
 	// that conversation right now, which is NOT "it never existed" (that question
@@ -371,6 +381,17 @@ func (r *eventSourced) LiveRunnerForChat(
 		return domain.AgentRunner{}, fmt.Errorf("agentrunner: live runner for chat: %w", mapNotFound(err))
 	}
 	return runner, nil
+}
+
+func (r *eventSourced) LiveRunnersForChat(
+	ctx context.Context,
+	chatID string,
+) ([]domain.AgentRunner, error) {
+	runners, err := r.store.LiveRunnersForChat(ctx, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("agentrunner: live runners for chat: %w", err)
+	}
+	return runners, nil
 }
 
 func (r *eventSourced) LiveRunnerForSession(
