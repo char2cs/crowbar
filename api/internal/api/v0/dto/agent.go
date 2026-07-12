@@ -6,20 +6,23 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// AgentChatDTO is the wire shape of a Crowbar-owned agentic chat (00
-// agentic-engine spec §6): the workspace it belongs to, the id of its currently
-// active provider segment, and its creation timestamp.
+// AgentChatDTO is the wire shape of a Crowbar-owned agentic chat: the workspace it
+// belongs to, its title, and when it was created.
+//
+// It carries NO process facts. activeSegmentId and activeProviderId are gone with
+// AgentSegment: a chat does not own the CLI talking to it, so nothing on the chat
+// aggregate can answer "is this live" or "which provider". Those are properties of
+// the RUNNER pointed at the chat (a live row exists exactly while its PTY does) and
+// of the chat's conversation history, and the next task in this series joins them
+// back onto this DTO as liveRunnerId / terminalSessionId / activeProviderId
+// (derived: the live runner's provider, else the last conversation's). Until then
+// this shape is deliberately thin rather than dishonestly full — a field that always
+// reads "" is worse than an absent one.
 type AgentChatDTO struct {
-	ID              string `json:"id"`
-	WorkspaceID     string `json:"workspaceId"`
-	Title           string `json:"title"`
-	ActiveSegmentID string `json:"activeSegmentId"`
-	// ActiveProviderID is the providerId of the currently active segment (00
-	// agentic-engine spec §7.3), derived from the embedded segments so the chat
-	// list can map a row to its provider glyph without N detail fetches. Empty
-	// when the chat has no active segment.
-	ActiveProviderID string    `json:"activeProviderId"`
-	CreatedAt        time.Time `json:"createdAt"`
+	ID          string    `json:"id"`
+	WorkspaceID string    `json:"workspaceId"`
+	Title       string    `json:"title"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 // AgentChatDTOFrom converts a persisted AgentChat into its wire shape.
@@ -27,26 +30,11 @@ func AgentChatDTOFrom(
 	c domain.AgentChat,
 ) AgentChatDTO {
 	return AgentChatDTO{
-		ID:               c.ID,
-		WorkspaceID:      c.WorkspaceID,
-		Title:            c.Title,
-		ActiveSegmentID:  c.ActiveSegmentID,
-		ActiveProviderID: activeProviderID(c),
-		CreatedAt:        c.CreatedAt,
+		ID:          c.ID,
+		WorkspaceID: c.WorkspaceID,
+		Title:       c.Title,
+		CreatedAt:   c.CreatedAt,
 	}
-}
-
-// activeProviderID returns the providerId of c's active segment (the one whose
-// id is c.ActiveSegmentID), or "" when there is none.
-func activeProviderID(
-	c domain.AgentChat,
-) string {
-	for _, s := range c.Segments {
-		if s.ID == c.ActiveSegmentID {
-			return s.ProviderID
-		}
-	}
-	return ""
 }
 
 // AgentChatDTOList converts a slice of AgentChats into wire DTOs, returning a
@@ -59,30 +47,6 @@ func AgentChatDTOList(
 		out = append(out, AgentChatDTOFrom(c))
 	}
 	return out
-}
-
-// AgentChatDetailDTO is the wire shape of GET .../workspaces/:wsId/agent/chats/:id: the chat plus
-// its ordered segment history (oldest first). Segments is always non-nil so the
-// envelope carries [] rather than null when the chat has no segments yet.
-type AgentChatDetailDTO struct {
-	AgentChatDTO
-	Segments []domain.AgentSegment `json:"segments"`
-}
-
-// AgentChatDetailDTOFrom composes a chat and its segments into the detail wire
-// shape, normalising a nil segment slice to [] so the envelope never carries
-// null.
-func AgentChatDetailDTOFrom(
-	c domain.AgentChat,
-	segs []domain.AgentSegment,
-) AgentChatDetailDTO {
-	if segs == nil {
-		segs = []domain.AgentSegment{}
-	}
-	return AgentChatDetailDTO{
-		AgentChatDTO: AgentChatDTOFrom(c),
-		Segments:     segs,
-	}
 }
 
 // HandoffDTO is the wire shape of GET .../workspaces/:wsId/agent/chats/:id/handoff: the
@@ -106,11 +70,12 @@ type AgentProviderDTO struct {
 
 // AgentChatEvent is the wire frame pushed on the agent-chat lifecycle
 // WebSocket (GET .../workspaces/:wsId/agent/ws/chats): the chat that changed,
-// the workspace it belongs to, and the lifecycle kind (created/segment_opened/
-// segment_ended/session_bound/turn_started/turn_stopped/title_set/deleted —
-// 00 agentic-engine spec §7). It carries no snapshot; the stream is a bare
-// event feed, not a full-state resource stream. WorkspaceID both scopes the
-// feed (agentChatDef's wsId Filter, Task 3) and rides along on the wire frame.
+// the workspace it belongs to, and the lifecycle kind — chat kinds
+// (created/turn_started/turn_stopped/title_set/deleted) and runner kinds
+// (started/session_bound/moved/exited), which ride this same workspace-scoped
+// feed. It carries no snapshot; the stream is a bare event feed, not a
+// full-state resource stream. WorkspaceID both scopes the feed (agentChatDef's
+// wsId Filter) and rides along on the wire frame.
 type AgentChatEvent struct {
 	ChatID      string `json:"chatId"`
 	WorkspaceID string `json:"workspaceId"`

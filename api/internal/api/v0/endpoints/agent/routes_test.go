@@ -58,13 +58,6 @@ func (stubUsecase) GetChat(
 	return domain.AgentChat{ID: id, WorkspaceID: "w1"}, nil
 }
 
-func (stubUsecase) SegmentsFor(
-	_ context.Context,
-	_ string,
-) ([]domain.AgentSegment, error) {
-	return nil, nil
-}
-
 func (stubUsecase) SwitchProvider(
 	_ context.Context,
 	_ string,

@@ -11,9 +11,15 @@
 // the durable read model with zero replay. Read-model repair is lazy: every read
 // heals a lost model on first access via whole-model asynx.Replay, enumerating
 // every id the event log holds. Unlike reviewthread's per-id Get (which bypasses
-// the read model via the repo's direct ax.Get fold), the agentchat repo (Task 6)
-// routes ALL reads — including per-id ones — through this store, so GetChat and
-// GetByProviderSession heal the model exactly like the list reads.
+// the read model via the repo's direct ax.Get fold), the agentchat repo routes
+// ALL reads — including per-id ones — through this store, so GetChat heals the
+// model exactly like the list reads.
+//
+// There is no session→chat lookup here any more (the retired GetByProviderSession
+// scanned the chat's segments). A conversation belongs to a chat as a projection
+// of RUNNER events, so that question is answered by agentrunner's append-only
+// conversation history — which keeps answering long after the process that opened
+// the conversation is gone, something a scan of live chat state never could.
 package store
 
 import (
@@ -68,14 +74,6 @@ type Store interface {
 		ctx context.Context,
 		wsID string,
 	) ([]domain.AgentChat, error)
-	// GetByProviderSession resolves the chat whose segments contain a segment
-	// with ProviderSessionID == providerSessionID, healing the read model
-	// first like the other reads. Returns ErrNotFound when no chat has a
-	// segment bound to that session.
-	GetByProviderSession(
-		ctx context.Context,
-		providerSessionID string,
-	) (domain.AgentChat, error)
 }
 
 // service is the agentchat read model over the durable store projection. It
@@ -167,29 +165,6 @@ func (s *service) ListByWorkspace(
 		}
 	}
 	return result, nil
-}
-
-// GetByProviderSession resolves the chat whose segments contain a segment with
-// ProviderSessionID == providerSessionID. Simplest correct implementation:
-// iterate the chats (healing the read model first) and scan their Segments in
-// Go — chats-per-workspace are few. This can be promoted to a session→chat
-// index table later if profiling ever shows need.
-func (s *service) GetByProviderSession(
-	ctx context.Context,
-	providerSessionID string,
-) (domain.AgentChat, error) {
-	all, err := s.ListChats(ctx)
-	if err != nil {
-		return domain.AgentChat{}, err
-	}
-	for _, chat := range all {
-		for _, seg := range chat.Segments {
-			if seg.ProviderSessionID == providerSessionID {
-				return chat, nil
-			}
-		}
-	}
-	return domain.AgentChat{}, fmt.Errorf("agentchat store: get by provider session %q: %w", providerSessionID, ErrNotFound)
 }
 
 // allHealed returns every row in the durable read model, first healing it via

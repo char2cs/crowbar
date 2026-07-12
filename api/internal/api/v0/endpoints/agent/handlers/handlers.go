@@ -9,19 +9,22 @@ import (
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
-// AgentUsecase is the agentic-chat usecase surface the handlers need:
-// spawning a chat's first provider segment, ingesting vendor-CLI hooks, and
-// reading back chats/segments.
+// AgentUsecase is the agentic-chat usecase surface the handlers need: spawning a
+// chat and the vendor CLI (the RUNNER) that talks to it, ingesting that CLI's
+// hooks, and reading chats back.
 type AgentUsecase interface {
+	// SpawnChat mints a chat and starts a runner on it. runnerID is the
+	// crowbarSegmentID every hook from that CLI carries — stable for the life of the
+	// process, including across every conversation it moves between.
 	SpawnChat(
 		ctx context.Context,
 		workspaceID string,
 		providerID string,
-	) (chatID, segID string, err error)
+	) (chatID, runnerID string, err error)
 
 	IngestHook(
 		ctx context.Context,
-		crowbarSegID string,
+		runnerID string,
 		provider string,
 		event string,
 		rawPayload []byte,
@@ -39,27 +42,23 @@ type AgentUsecase interface {
 		id string,
 	) (domain.AgentChat, error)
 
-	SegmentsFor(
-		ctx context.Context,
-		chatID string,
-	) ([]domain.AgentSegment, error)
-
-	// SwitchProvider terminates chatID's active provider CLI, hands off the
-	// accumulated context, and spawns targetProviderID as a new segment in the
-	// same chat, returning the new segment's id.
+	// SwitchProvider quits the chat's current vendor CLI, hands off the accumulated
+	// context, and starts targetProviderID as a new runner on the SAME chat,
+	// returning the new runner's id.
 	SwitchProvider(
 		ctx context.Context,
 		chatID string,
 		targetProviderID string,
-	) (newSegID string, err error)
+	) (newRunnerID string, err error)
 
-	// ResumeChat revives a chat whose vendor CLI is gone (it exited, or died with
-	// the daemon), resuming the last provider into its own native session. A chat
-	// that is still live is a no-op: its active segment id comes straight back.
+	// ResumeChat revives a dormant chat — one no runner points at, because its CLI
+	// exited or died with the daemon — resuming the provider that was last here into
+	// the conversation it left. A chat that is still live is a no-op: the id of the
+	// runner already on it comes straight back.
 	ResumeChat(
 		ctx context.Context,
 		chatID string,
-	) (segID string, err error)
+	) (runnerID string, err error)
 
 	// AssembleHandoff resolves chatID's ledger into the legible handoff blob a
 	// freshly spawned provider CLI can be given as prior context.
@@ -75,10 +74,9 @@ type AgentUsecase interface {
 		chatID, title, source string,
 	) error
 
-	// PurgeChat hard-deletes chatID via asynx Forget after best-effort
-	// terminating its active segment's PTY (Task 5). The chat is fully
-	// erased — gone from every read, including a direct GetChat by id — the
-	// instant this returns.
+	// PurgeChat hard-deletes chatID via asynx Forget, then best-effort kills the
+	// vendor CLI that was pointed at it. The chat is fully erased — gone from every
+	// read, including a direct GetChat by id — the instant this returns.
 	PurgeChat(
 		ctx context.Context,
 		chatID string,

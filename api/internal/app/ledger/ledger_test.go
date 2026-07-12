@@ -193,3 +193,47 @@ func TestLedger_RenderConversation_ZeroCutRendersEverything(t *testing.T) {
 	assert.Contains(t, string(all), "first")
 	assert.Contains(t, string(all), "second")
 }
+
+// TestLedger_LastTurnAt_IsWhenTheProviderLastSpoke: the resume path asks the ledger,
+// not the runner's conversation history, when a provider "left" — because the ledger is
+// the record of what was actually SAID. It is both the gap cut AND the proof that the
+// provider's conversation exists on disk at all.
+func TestLedger_LastTurnAt_IsWhenTheProviderLastSpoke(t *testing.T) {
+	l, err := ledger.Open(filepath.Join(t.TempDir(), "c1"))
+	require.NoError(t, err)
+
+	at := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	_, err = l.AppendTurn("user", "claude", at, "claude's first")
+	require.NoError(t, err)
+	_, err = l.AppendTurn("assistant", "claude", at.Add(time.Minute), "claude's last")
+	require.NoError(t, err)
+	// codex spoke AFTER claude left — that is the gap, and it must not move claude's cut.
+	_, err = l.AppendTurn("assistant", "codex", at.Add(2*time.Minute), "codex spoke later")
+	require.NoError(t, err)
+
+	got, err := l.LastTurnAt("claude")
+	require.NoError(t, err)
+	assert.Equal(t, at.Add(time.Minute), got)
+
+	// And the gap from that cut is exactly what claude missed.
+	gap, err := l.RenderConversationAfter(got)
+	require.NoError(t, err)
+	assert.Contains(t, string(gap), "codex spoke later")
+	assert.NotContains(t, string(gap), "claude's last", "a resumed provider is never re-fed its own turns")
+}
+
+// TestLedger_LastTurnAt_ZeroWhenTheProviderNeverSpoke is the phantom-session guard: a
+// CLI reports its session id the instant it starts but only WRITES the conversation
+// once there is a message, so a provider with no turn here has nothing to resume —
+// claude dies on startup with "No conversation found with session ID".
+func TestLedger_LastTurnAt_ZeroWhenTheProviderNeverSpoke(t *testing.T) {
+	l, err := ledger.Open(filepath.Join(t.TempDir(), "c1"))
+	require.NoError(t, err)
+
+	_, err = l.AppendTurn("assistant", "codex", time.Now(), "only codex spoke here")
+	require.NoError(t, err)
+
+	got, err := l.LastTurnAt("claude")
+	require.NoError(t, err)
+	assert.True(t, got.IsZero(), "a provider that never spoke has no conversation to resume")
+}

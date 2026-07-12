@@ -4,97 +4,95 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/engine/agent"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
-func TestReducer_SpawnBindsFirstSession(t *testing.T) {
+// The Registry is now ONLY the injected-context echo guard. Its placement maps
+// (segToChat / sessionToChat / segToSession) and the OnSessionStart reducer that
+// mutated them are deleted: they were an in-memory shadow of durable state, mutated
+// BEFORE the aggregate commands ran, so a failed command left the registry believing a
+// move had happened that had not. Placement now lives in the runner aggregate and the
+// reducer is pure (Decide, reducer.go); what remains here has no durable counterpart
+// to drift from.
+
+// TestConsumeInjectedContext_RecognisesCrowbarsOwnDocument: a provider whose only
+// resume channel is a user message (codex) fires its user-prompt hook with the very
+// handoff Crowbar injected. Recording that echo as a ledger turn is what made handoffs
+// NEST — the blob became a "user" turn, and the next handoff embedded it inside itself.
+func TestConsumeInjectedContext_RecognisesCrowbarsOwnDocument(t *testing.T) {
 	r := agent.NewRegistry()
-	r.BindSegment("seg1", "chatA")
-	out := r.OnSessionStart("seg1", "sid-0", newID("chatX"))
-	require.Equal(t, "bound", out.Kind)
-	require.Equal(t, "chatA", out.ChatID)
-	require.Equal(t, "sid-0", out.SessionID)
+	r.SetInjectedContext("runner-1", "the handoff document", "the pointer message")
+
+	assert.True(t, r.ConsumeInjectedContext("runner-1", "the handoff document"))
+	assert.True(t, r.ConsumeInjectedContext("runner-1", "the pointer message"))
+	assert.False(t, r.ConsumeInjectedContext("runner-1", "something the user actually typed"))
 }
 
-// TestForgetChat_UnbindsChatMappings pins the hard-delete zombie fix: ForgetChat
-// must remove every segment->chat mapping for the deleted chat so a subsequent
-// ChatFor (the reconcileSegmentExit guard) returns !ok, while leaving OTHER
-// chats' segments bound.
-func TestForgetChat_UnbindsChatMappings(t *testing.T) {
+// TestConsumeInjectedContext_IsOneShot: the match consumes the entry, so a user who
+// genuinely retypes that same text later is still recorded. The guard must never become
+// a permanent content filter.
+func TestConsumeInjectedContext_IsOneShot(t *testing.T) {
 	r := agent.NewRegistry()
-	r.BindSegment("segA1", "chatA")
-	r.BindSegment("segA2", "chatA")
-	r.BindSegment("segB1", "chatB")
-	r.OnSessionStart("segA1", "sidA1", newID("unused")) // also populates the session maps
-	r.OnSessionStart("segB1", "sidB1", newID("unused"))
+	r.SetInjectedContext("runner-1", "echo me")
 
-	r.ForgetChat("chatA")
-
-	if _, ok := r.ChatFor("segA1"); ok {
-		t.Fatal("segA1 must be unbound after ForgetChat(chatA)")
-	}
-	if _, ok := r.ChatFor("segA2"); ok {
-		t.Fatal("segA2 must be unbound after ForgetChat(chatA)")
-	}
-	gotB, ok := r.ChatFor("segB1")
-	require.True(t, ok, "chatB's segment must stay bound")
-	require.Equal(t, "chatB", gotB)
-
-	// Forgetting an unrelated chat leaves chatB alone (idempotent, scoped).
-	r.ForgetChat("chatZ-never-existed")
-	_, ok = r.ChatFor("segB1")
-	require.True(t, ok, "ForgetChat of an unknown chat must not disturb other bindings")
+	require.True(t, r.ConsumeInjectedContext("runner-1", "echo me"))
+	assert.False(t, r.ConsumeInjectedContext("runner-1", "echo me"),
+		"a second, genuinely user-sent copy must be recorded")
 }
 
-func TestReducer_SameSessionIsNoop(t *testing.T) {
+// TestConsumeInjectedContext_IsScopedToItsRunner: two CLIs can be handed the same
+// document; consuming one runner's echo must not swallow the other's.
+func TestConsumeInjectedContext_IsScopedToItsRunner(t *testing.T) {
 	r := agent.NewRegistry()
-	r.BindSegment("seg1", "chatA")
-	r.OnSessionStart("seg1", "sid-0", newID("x"))
-	out := r.OnSessionStart("seg1", "sid-0", newID("x"))
-	require.Equal(t, "noop", out.Kind)
+	r.SetInjectedContext("runner-1", "same doc")
+	r.SetInjectedContext("runner-2", "same doc")
+
+	require.True(t, r.ConsumeInjectedContext("runner-1", "same doc"))
+	assert.True(t, r.ConsumeInjectedContext("runner-2", "same doc"),
+		"the other runner's guard must be untouched")
 }
 
-func TestReducer_UnknownNewIdRegistersNewChat_Case2(t *testing.T) {
+// TestSetInjectedContext_IgnoresEmptyDocuments: a spawn with no handoff and no title
+// instruction injects nothing, and an empty hook message must never match it.
+func TestSetInjectedContext_IgnoresEmptyDocuments(t *testing.T) {
 	r := agent.NewRegistry()
-	r.BindSegment("seg1", "chatA")
-	r.OnSessionStart("seg1", "sid-0", newID("x"))            // bound to chatA
-	out := r.OnSessionStart("seg1", "sid-1", newID("chatB")) // /clear -> new unknown id
-	require.Equal(t, "registered", out.Kind)
-	require.Equal(t, "chatB", out.ChatID)
+	r.SetInjectedContext("runner-1", "", "")
+
+	assert.False(t, r.ConsumeInjectedContext("runner-1", ""))
 }
 
-func TestReducer_KnownIdMovesFocus_Case1(t *testing.T) {
+// TestForgetRunner_DropsTheGuard: the entry is per-spawn state about a LIVE process.
+// Once the PTY is gone it means nothing, and it holds a whole handoff document — a
+// long-lived daemon spawns a lot of CLIs.
+func TestForgetRunner_DropsTheGuard(t *testing.T) {
 	r := agent.NewRegistry()
-	r.Seed("sid-known", "chatK") // some other chat's session, already known
-	r.BindSegment("seg1", "chatA")
-	r.OnSessionStart("seg1", "sid-0", newID("x"))               // bound to chatA
-	out := r.OnSessionStart("seg1", "sid-known", newID("nope")) // /resume of a known chat
-	require.Equal(t, "focus", out.Kind)
-	require.Equal(t, "chatK", out.ChatID)
+	r.SetInjectedContext("runner-1", "doc")
+	r.SetInjectedContext("runner-2", "doc")
+
+	r.ForgetRunner("runner-1")
+
+	assert.False(t, r.ConsumeInjectedContext("runner-1", "doc"), "the dead runner's guard is gone")
+	assert.True(t, r.ConsumeInjectedContext("runner-2", "doc"), "and no other runner's is disturbed")
+
+	r.ForgetRunner("runner-never-existed") // idempotent
 }
 
-func TestReducer_ClearThenResumeSequence(t *testing.T) {
+func TestRegistry_ConcurrentNoRace(t *testing.T) {
 	r := agent.NewRegistry()
-	r.BindSegment("seg1", "chatA")
-	require.Equal(t, "bound", r.OnSessionStart("seg1", "s0", newID("x")).Kind)
-	reg := r.OnSessionStart("seg1", "s1", newID("chatB")) // clear
-	require.Equal(t, "registered", reg.Kind)
-	// resuming s0 (now known as chatA) => focus chatA
-	back := r.OnSessionStart("seg1", "s0", newID("nope"))
-	require.Equal(t, "focus", back.Kind)
-	require.Equal(t, "chatA", back.ChatID)
-}
-
-func TestReducer_ConcurrentNoRace(t *testing.T) {
-	r := agent.NewRegistry()
-	r.BindSegment("seg", "chatA")
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
-		go func() { defer wg.Done(); r.OnSessionStart("seg", "s0", newID("x")) }()
+		go func() {
+			defer wg.Done()
+			r.SetInjectedContext("runner", "doc")
+			r.ConsumeInjectedContext("runner", "doc")
+			if i%10 == 0 {
+				r.ForgetRunner("runner")
+			}
+		}()
 	}
 	wg.Wait()
 }
-
-func newID(id string) func() string { return func() string { return id } }

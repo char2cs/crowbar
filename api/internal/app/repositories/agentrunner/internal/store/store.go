@@ -99,20 +99,46 @@ func New(
 	return &Store{db: db}, nil
 }
 
-// LiveRunnerForChat returns the runner currently pointed at chatID, or
-// ErrNotFound when the chat is dormant. There is no status column to consult:
-// the row exists exactly while its CLI runs, so its presence IS liveness.
+// newestArrivalFirst orders live runners by WHEN THEY ARRIVED where they are — the
+// later of "when this process started" and "when it took its current conversation" —
+// newest first, with the id as a final deterministic tiebreak.
 //
-// Invariant I1 makes at most one row match. Nothing in the schema enforces that
-// (a hard constraint would turn eviction's transient states into projection write
-// failures), so the query orders by id: if the invariant is ever violated, the
-// winner is at least deterministic and the bug reproducible.
+// It exists because "at most one runner per chat" (I2) and "at most one live runner
+// per conversation" (I3) cannot be true at every INSTANT, and pretending otherwise
+// would put a lie in the read model. Crowbar cannot kill a process synchronously: it
+// SIGTERMs, and the runner does not die until its PTY does (that is the whole point —
+// the PTY is the sole authority on liveness). So there is an unavoidable window, on
+// both the provider-switch path and the eviction path, where two rows point at the
+// same chat:
+//
+//	switch:    the incoming CLI starts while the outgoing one is still dying.
+//	eviction:  the mover takes the conversation; the incumbent is still dying.
+//
+// In BOTH windows the answer to "who holds this chat now" is the same: the one that
+// arrived LAST. The other one is dying, by our own hand. Ordering by id instead would
+// be deterministic and WRONG — it would hand out the dying runner (and its dead PTY)
+// roughly half the time, which is exactly the "attached to a corpse" experience this
+// refactor exists to end.
+//
+// Both timestamps are placement facts Crowbar is the sole writer of, so neither can
+// drift; this is ordering, not a liveness opinion.
+const newestArrivalFirst = "MAX(current_session_since, started_at) DESC, id ASC"
+
+// LiveRunnerForChat returns the runner currently pointed at chatID, or ErrNotFound
+// when the chat is dormant. There is no status column to consult: the row exists
+// exactly while its CLI runs, so its presence IS liveness.
+//
+// During a switch or an eviction two rows can transiently point at one chat (see
+// newestArrivalFirst); the runner that arrived last is the one that holds it.
 func (s *Store) LiveRunnerForChat(
 	ctx context.Context,
 	chatID string,
 ) (domain.AgentRunner, error) {
 	var row runnerRow
-	err := s.db.WithContext(ctx).Where("current_chat_id = ?", chatID).Order("id").Take(&row).Error
+	err := s.db.WithContext(ctx).
+		Where("current_chat_id = ?", chatID).
+		Order(newestArrivalFirst).
+		Take(&row).Error
 	if errors.Is(err, gormdb.ErrRecordNotFound) {
 		return domain.AgentRunner{}, fmt.Errorf("agentrunner store: live runner for chat %q: %w", chatID, ErrNotFound)
 	}
@@ -122,14 +148,16 @@ func (s *Store) LiveRunnerForChat(
 	return row.toRunner(), nil
 }
 
-// LiveRunnerForSession returns the runner currently holding conversation
-// sessionID in wsID — the incumbent the eviction path must displace (invariant
-// I3: at most one live runner per conversation). ErrNotFound means nobody is
-// running that conversation right now, which is not the same as "it never
-// existed" — that question is ChatForSession's, and it is answered from history.
+// LiveRunnerForSession returns the runner currently holding conversation sessionID in
+// wsID — the incumbent the eviction path must displace (invariant I3: at most one live
+// runner per conversation, because two CLIs on one provider session id both write the
+// same session file). ErrNotFound means nobody is running that conversation right now,
+// which is not the same as "it never existed" — that question is ChatForSession's, and
+// it is answered from history.
 //
-// Ordered by id for the same reason as LiveRunnerForChat: a violated invariant
-// must fail the same way twice.
+// Ordered newest-arrival-first for the same reason as LiveRunnerForChat: if a runner is
+// ALREADY being evicted off this conversation, the incumbent a second mover must
+// displace is the one that took it over, not the corpse.
 func (s *Store) LiveRunnerForSession(
 	ctx context.Context,
 	wsID string,
@@ -138,7 +166,7 @@ func (s *Store) LiveRunnerForSession(
 	var row runnerRow
 	err := s.db.WithContext(ctx).
 		Where("workspace_id = ? AND current_session = ?", wsID, sessionID).
-		Order("id").
+		Order(newestArrivalFirst).
 		Take(&row).Error
 	if errors.Is(err, gormdb.ErrRecordNotFound) {
 		return domain.AgentRunner{}, fmt.Errorf("agentrunner store: live runner for session %q: %w", sessionID, ErrNotFound)
@@ -194,6 +222,33 @@ func (s *Store) LastConversation(
 		return domain.ChatConversation{}, fmt.Errorf("agentrunner store: last conversation for chat %q: %w", chatID, err)
 	}
 	return row.toConversation(), nil
+}
+
+// ConversationsForChat returns every conversation the chat has hosted, OLDEST
+// FIRST — the same ordering LastConversation reads backwards, so "the newest
+// conversation for provider X" is the last match when scanning forward.
+//
+// A provider switch needs this and cannot use LastConversation: after a handoff
+// the chat's newest conversation belongs to the provider being switched away
+// FROM, while the one being switched TO must be resumed into the conversation it
+// left behind here — an older row.
+func (s *Store) ConversationsForChat(
+	ctx context.Context,
+	chatID string,
+) ([]domain.ChatConversation, error) {
+	var rows []conversationRow
+	err := s.db.WithContext(ctx).
+		Where("chat_id = ?", chatID).
+		Order("first_seen_at ASC, rowid ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("agentrunner store: conversations for chat %q: %w", chatID, err)
+	}
+	out := make([]domain.ChatConversation, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.toConversation())
+	}
+	return out, nil
 }
 
 // Get returns the live runner with runnerID, or ErrNotFound once it has exited —

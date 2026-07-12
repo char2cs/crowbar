@@ -136,6 +136,16 @@ type EventStore interface {
 		ctx context.Context,
 		chatID string,
 	) (domain.ChatConversation, error)
+	// ConversationsForChat returns every conversation the chat has hosted, OLDEST
+	// FIRST. It is what a provider switch reads to find the conversation the
+	// INCOMING provider left behind here (LastConversation only answers for the
+	// chat as a whole, and after a handoff the newest conversation belongs to the
+	// provider being switched AWAY from). Order is by when each conversation
+	// opened, so "the newest one for provider X" is simply the last match.
+	ConversationsForChat(
+		ctx context.Context,
+		chatID string,
+	) ([]domain.ChatConversation, error)
 	// AllLive returns every runner the read model believes is still running — the
 	// input to boot reconciliation, which asks the PTY (the sole authority) whether
 	// each one really is and Exits the ones that are not. On an idle machine an
@@ -230,11 +240,27 @@ func occSend(
 }
 
 // sendWithOCC dispatches cmd to the singleton axAgentRunner with OCC retry.
+//
+// It uses SendWait, not Send: the command returns only once every projection has
+// folded it, so the runner read model is CAUSALLY CONSISTENT with the write that
+// just happened. That is load-bearing on the hook path, not a nicety. A vendor CLI
+// fires session_start and then, milliseconds later, the user_prompt for the very
+// turn that follows it; the second hook resolves the chat to write into by READING
+// the runner (Get → CurrentChatID). With the async Send, a Move could still be in
+// flight when that read happens, and the turn would be filed into the chat the
+// runner had just LEFT — precisely the "hook lands in the wrong chat" bug this
+// refactor deletes. Making the placement write synchronous with its own read model
+// is what lets the usecase drop the in-memory registry entirely instead of
+// replacing it with another shadow of durable state.
+//
+// The cost is bounded and paid in the right place: runner commands fire on spawn,
+// bind, move and exit — never per turn — and their projections are two local sqlite
+// writes plus a non-blocking hub push.
 func (r *eventSourced) sendWithOCC(
 	ctx context.Context,
 	cmd asynxModels.Command[domain.AgentRunner],
 ) (asynxModels.Event[domain.AgentRunner], error) {
-	return occSend(ctx, r.ax.Send, cmd)
+	return occSend(ctx, r.ax.SendWait, cmd)
 }
 
 func (r *eventSourced) Start(
@@ -358,6 +384,17 @@ func (r *eventSourced) LastConversation(
 		return domain.ChatConversation{}, fmt.Errorf("agentrunner: last conversation: %w", mapNotFound(err))
 	}
 	return conv, nil
+}
+
+func (r *eventSourced) ConversationsForChat(
+	ctx context.Context,
+	chatID string,
+) ([]domain.ChatConversation, error) {
+	convs, err := r.store.ConversationsForChat(ctx, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("agentrunner: conversations for chat: %w", err)
+	}
+	return convs, nil
 }
 
 func (r *eventSourced) AllLive(

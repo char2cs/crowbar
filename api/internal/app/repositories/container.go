@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -34,8 +35,9 @@ type Container struct {
 	AgentChat agentchat.EventStore
 	// AgentRunner is the asynx-backed EventStore for the running vendor CLI — the
 	// thing that MOVES between chats on /clear and /resume. Its store/hub
-	// projections are live on axAgentRunner, but nothing sends runner commands yet:
-	// the usecase cutover off AgentSegment is a later task. Purely additive today.
+	// projections are live on axAgentRunner, and the agent usecase now sends every
+	// runner command through it. The workspace-delete cascade reads it too, to find
+	// the CLI pointed at a chat it is about to Forget.
 	AgentRunner agentrunner.EventStore
 	hub         hub.WebSocketHub
 	git         wsusecase.MergeConflictChecker
@@ -64,17 +66,6 @@ type Container struct {
 	// Exported (not routed through a setter) so tests can inject a fake exactly
 	// like they already do for c.Workspace. Nil is safe: reaping is skipped.
 	ReapChatFiles func(ctx context.Context, wsID, chatID string) error
-	// ForgetChatRegistry is the workspace-delete cascade's registry-unbind seam
-	// (forgetAgentChats): it removes a chat's segment->chat bindings from the agent
-	// usecase's in-memory context-move registry BEFORE that chat's PTY is torn
-	// down, so the teardown's async reconcile (reconcileSegmentExit) no-ops at its
-	// ChatFor guard instead of racing onForget's row-delete and resurrecting the
-	// chat as a zombie read row (the standalone-delete counterpart is PurgeChat's
-	// own u.registry.ForgetChat call). Same construction-order rationale as
-	// ReapChatFiles — it depends on the agent usecase, built after repositories.New
-	// — so the app layer assigns it after construction. Nil is safe: the unbind is
-	// skipped (a build/test with no agent registry wired).
-	ForgetChatRegistry func(chatID string)
 	// axWorkspace/axReviewThread/axAgentChat/axAgentRunner are the per-type asynx
 	// instances, retained so WaitQuiescent can drain their dispatch queues +
 	// projection handlers — the deterministic read-your-writes barrier for tests (no
@@ -321,23 +312,25 @@ func (c *Container) forgetDependents(
 	return c.forgetAgentChats(ctx, wsID)
 }
 
-// forgetAgentChats is the agent-chat half of the workspace delete cascade
-// (Task 12): every AgentChat anchored to the deleted workspace is Forgotten,
-// purging it outright — the owning workspace is gone and the chat has nowhere
-// left to live, mirroring forgetReviewThreads/DeleteThread. It enumerates via
-// ListByWorkspace so a chat's event log + read row can never be left orphaned
-// after the workspace is gone.
+// forgetAgentChats is the agent-chat half of the workspace delete cascade: every
+// AgentChat anchored to the deleted workspace is Forgotten, purging it outright —
+// the owning workspace is gone and the chat has nowhere left to live, mirroring
+// forgetReviewThreads/DeleteThread. It enumerates via ListByWorkspace so a chat's
+// event log + read row can never be left orphaned after the workspace is gone.
 //
-// Before forgetting a chat, terminateActiveSegment kills its active segment's
-// live vendor-CLI PTY (if any) — BEST-EFFORT: a terminate failure is logged
-// and the Forget proceeds anyway. An orphaned PTY is a far smaller harm than
-// wedging the whole workspace delete (worktree never reaped, chats never
-// Forgotten) on a terminate error the cascade has no way to re-drive.
+// It is the cascade twin of agent.Usecase.PurgeChat and follows the same ORDER,
+// for the same reason: Forget the chat FIRST, then kill the CLI pointed at it.
+// The PTY teardown fires the runner-exit reconcile asynchronously, and that path
+// writes to the chat (it closes a turn the dead CLI left open); a chat command
+// that commits BEFORE the Forget can have its read-model Save land AFTER Forget's
+// row-delete and resurrect the chat as a zombie row. Forgetting first erases the
+// event log, so every later chat command fails Validate and emits nothing at all
+// — the zombie becomes unrepresentable rather than merely unlikely.
 //
-// After forgetting a chat, reapAgentChatFiles removes that chat's own on-disk
-// directory via the injected ReapChatFiles seam — also best-effort, for the
-// same reason: an orphaned plaintext ledger under a shared chats dir is far
-// smaller harm than wedging the cascade on a filesystem error.
+// Everything after the Forget is BEST-EFFORT (logged, never returned): an orphaned
+// PTY, a leftover conversation row or a leftover ledger dir are all far smaller
+// harms than wedging the whole workspace delete — worktree never reaped, remaining
+// chats never Forgotten — on an error the cascade has no way to re-drive.
 func (c *Container) forgetAgentChats(
 	ctx context.Context,
 	wsID string,
@@ -347,16 +340,13 @@ func (c *Container) forgetAgentChats(
 		return fmt.Errorf("repositories: delete cascade: list agent chats for %q: %w", wsID, err)
 	}
 	for _, chat := range chats {
-		// Unbind the chat's segments from the in-memory registry BEFORE the PTY
-		// teardown, so the teardown's async reconcile no-ops at ChatFor rather than
-		// racing onForget's row-delete and resurrecting the chat (same fix as the
-		// standalone PurgeChat path).
-		if c.ForgetChatRegistry != nil {
-			c.ForgetChatRegistry(chat.ID)
-		}
-		c.terminateActiveSegment(ctx, chat)
 		if err := c.AgentChat.Forget(ctx, chat.ID); err != nil {
 			return fmt.Errorf("repositories: delete cascade: forget agent chat %q: %w", chat.ID, err)
+		}
+		c.terminateChatRunner(ctx, chat.ID)
+		if err := c.AgentRunner.ForgetChat(ctx, chat.ID); err != nil {
+			slog.ErrorContext(ctx, "repositories: delete cascade: forget chat conversations (best-effort, continuing)",
+				"workspace_id", wsID, "chat_id", chat.ID, "err", err)
 		}
 		c.reapAgentChatFiles(ctx, wsID, chat.ID)
 	}
@@ -382,30 +372,36 @@ func (c *Container) reapAgentChatFiles(
 	}
 }
 
-// terminateActiveSegment best-effort terminates chat's active segment's live
-// vendor-CLI PTY via the injected terminal-engine seam (c.terminateSession,
-// Task 12). A chat with no active segment (every segment already ended), an
-// active segment with no terminal session recorded, or a nil terminateSession
-// (a test that doesn't exercise PTY teardown) are all no-ops. A terminate
-// failure is LOGGED, never returned: it must not block the caller's Forget
-// (see forgetAgentChats). ErrSessionNotFound (the CLI already exited) is
-// already swallowed by the injected seam (app.terminateAgentSession).
-func (c *Container) terminateActiveSegment(
+// terminateChatRunner best-effort kills the vendor CLI pointed at chatID via the
+// injected terminal-engine seam (c.terminateSession). The runner's row is NEVER
+// hand-deleted here: the PTY is the sole authority on liveness, so we kill the
+// process and let its death carry the runner away (onExit → Exit → the projection
+// drops the live row). Reaching into the read model to delete it would make this
+// package a second authority on liveness — the exact drift this model deletes.
+//
+// A dormant chat (no live runner — ErrNotFound) and a nil terminateSession (a test
+// that doesn't exercise PTY teardown) are both no-ops. A terminate failure is
+// LOGGED, never returned: it must not block the cascade (see forgetAgentChats).
+// ErrSessionNotFound (the CLI already exited) is already swallowed by the injected
+// seam (app.terminateAgentSession).
+func (c *Container) terminateChatRunner(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chatID string,
 ) {
-	if c.terminateSession == nil || chat.ActiveSegmentID == "" {
+	if c.terminateSession == nil {
 		return
 	}
-	for _, seg := range chat.Segments {
-		if seg.ID != chat.ActiveSegmentID || seg.TerminalSessionID == "" {
-			continue
-		}
-		if err := c.terminateSession(ctx, seg.TerminalSessionID); err != nil {
-			slog.ErrorContext(ctx, "repositories: delete cascade: terminate agent chat PTY (best-effort, continuing)",
-				"chat_id", chat.ID, "terminal_session_id", seg.TerminalSessionID, "err", err)
+	live, err := c.AgentRunner.LiveRunnerForChat(ctx, chatID)
+	if err != nil {
+		if !errors.Is(err, agentrunner.ErrNotFound) {
+			slog.ErrorContext(ctx, "repositories: delete cascade: look up chat's live runner (best-effort, continuing)",
+				"chat_id", chatID, "err", err)
 		}
 		return
+	}
+	if err := c.terminateSession(ctx, live.TerminalSession); err != nil {
+		slog.ErrorContext(ctx, "repositories: delete cascade: terminate agent chat PTY (best-effort, continuing)",
+			"chat_id", chatID, "runner_id", live.ID, "terminal_session_id", live.TerminalSession, "err", err)
 	}
 }
 

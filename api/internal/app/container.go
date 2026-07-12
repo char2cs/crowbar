@@ -124,21 +124,12 @@ func New(
 	// repositories.Container.ReapChatFiles' doc comment for why this can't be a
 	// repositories.New constructor argument).
 	repos.ReapChatFiles = reapAgentChatFiles(ucs.AgentWorkspaceReader)
-	if ucs.Agent != nil {
-		// Same construction-order reason as ReapChatFiles: the cascade unbinds a
-		// deleted chat's segments from the agent registry (which lives on the agent
-		// usecase) before tearing down its PTY, so the async teardown can't
-		// resurrect the chat's read row (see repositories.Container.ForgetChatRegistry).
-		repos.ForgetChatRegistry = ucs.Agent.ForgetChatRegistry
-	}
 
 	startProviderSweep(ctx, engines, repos, ucs)
 	if err := startBootSweep(ctx, adapters, repos, axWorkspace); err != nil {
 		return nil, err
 	}
 	startRestoreTerminalSessions(ctx, ucs)
-	seedAgentRegistry(ctx, ucs)
-	reconcileAgentBoot(ctx, ucs)
 
 	rt := realtime.New(
 		ctx,
@@ -406,51 +397,19 @@ func startRestoreTerminalSessions(
 	_ = ucs.Terminal.RestorePersistedSessions(context.WithoutCancel(ctx))
 }
 
-// seedAgentRegistry rehydrates the agent usecase's context-move reducer from
-// persisted segments (see agent.Usecase.SeedRegistry's doc comment): it runs
-// synchronously at startup, before the HTTP layer starts serving, so a
-// resumed vendor-CLI process that /resumes into a pre-restart chat is
-// recognized as a "focus" move rather than mistakenly "registered" as new.
-// Best-effort: a failure here only degrades context-move detection for
-// already-running segments, it never blocks startup.
-func seedAgentRegistry(
-	ctx context.Context,
-	ucs *usecases.Container,
-) {
-	if ucs.Agent == nil {
-		return
-	}
-	_ = ucs.Agent.SeedRegistry(context.WithoutCancel(ctx))
-}
-
-// reconcileAgentBoot repairs live turn state a daemon crash can leave stale
-// (see agent.Usecase.ReconcileOnBoot's doc comment): no event records "the
-// CLI process died," so a chat's active segment / Working flag can survive a
-// restart pointing at a terminal session whose process is gone. It runs
-// synchronously at startup, AFTER startRestoreTerminalSessions has repopulated
-// the terminal registry (so the reconcile observes the final post-restore
-// registry, never a half-filled one) and before the HTTP layer starts serving.
+// NOTE (runner model): the two agent boot hooks that used to run here are gone
+// with AgentSegment.
 //
-// It asks SessionLive, not SessionExists: a restored session is a PTY-LESS
-// PLACEHOLDER whose process is dead, so "the registry knows this id" must never
-// be mistaken for "the vendor CLI survived the restart". (An agent's own PTY is
-// no longer persisted at all — see terminal.persistableSession — so it cannot
-// even come back as a placeholder; SessionLive additionally repairs homes
-// carrying a stale row written by an earlier build.) Best-effort: a failure here
-// only leaves a chat's live-turn state stale until the next hook/switch touches
-// it, it never blocks startup.
-func reconcileAgentBoot(
-	ctx context.Context,
-	ucs *usecases.Container,
-) {
-	if ucs.Agent == nil {
-		return
-	}
-	if err := ucs.Agent.ReconcileOnBoot(context.WithoutCancel(ctx)); err != nil {
-		slog.WarnContext(ctx, "app: reconcile agent boot", "err", err)
-	}
-}
-
+//   - seedAgentRegistry rehydrated an in-memory session→chat index from persisted
+//     segments. There is nothing left to rehydrate: the index is now the runner
+//     aggregate's append-only conversation history, which is already durable and
+//     answers ChatForSession straight from the read model.
+//
+//   - reconcileAgentBoot ended segments whose PTY had died with the daemon. Its
+//     successor reconciles RUNNERS against the PTY — the single authority on
+//     liveness — and is wired back in here by the next task in this series. Until
+//     then, a restart leaves the live-runner rows of the previous run in place
+//     until each chat is next opened.
 func sweepCallback(
 	ctx context.Context,
 	ucs *usecases.Container,

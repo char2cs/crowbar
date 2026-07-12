@@ -57,28 +57,23 @@ func (h *Handlers) List(
 	libs.WriteQueryOK(ctx, dto.AgentChatDTOList(chats))
 }
 
-// Get handles GET .../workspaces/:wsId/agent/chats/:id, returning the chat
-// plus its ordered segment history. 404s (via requireChatInWorkspace) when id
-// names a chat anchored to a DIFFERENT workspace than :wsId.
+// Get handles GET .../workspaces/:wsId/agent/chats/:id, returning the chat. 404s
+// (via requireChatInWorkspace) when id names a chat anchored to a DIFFERENT
+// workspace than :wsId.
+//
+// The segment history it used to return is gone with AgentSegment. Its successor —
+// the chat's live runner (and its PTY) plus its conversation history, both read off
+// the runner projections — is joined back on by the DTO task later in this series;
+// the usecase seams it needs (LiveRunnerForChat, ConversationsForChat) are already
+// exported and wired.
 func (h *Handlers) Get(
 	ctx *gin.Context,
 ) {
-	rctx := ctx.Request.Context()
-	id := ctx.Param("id")
-
-	chat, ok := h.requireChatInWorkspace(ctx, id)
+	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
 	if !ok {
 		return
 	}
-
-	segs, err := h.usecase.SegmentsFor(rctx, id)
-	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
-		return
-	}
-
-	libs.WriteQueryOK(ctx, dto.AgentChatDetailDTOFrom(chat, segs))
+	libs.WriteQueryOK(ctx, dto.AgentChatDTOFrom(chat))
 }
 
 // requireChatInWorkspace loads chatID and writes a 404 unless it belongs to the

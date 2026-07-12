@@ -193,13 +193,6 @@ func (f *fakeAgentUsecase) GetChat(
 	return f.getChat, nil
 }
 
-func (f *fakeAgentUsecase) SegmentsFor(
-	_ context.Context,
-	_ string,
-) ([]domain.AgentSegment, error) {
-	return nil, nil
-}
-
 func (f *fakeAgentUsecase) SwitchProvider(
 	_ context.Context,
 	chatID string,

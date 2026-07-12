@@ -404,33 +404,118 @@ func TestLiveRunnerForSession_FindsTheIncumbent(t *testing.T) {
 	require.ErrorIs(t, err, store.ErrNotFound)
 }
 
-// Invariants I1/I3 say one live runner per chat and per conversation, and nothing
-// in the schema enforces that (a unique index would turn eviction's transient
-// states into projection write failures). So if the invariant is ever violated,
-// the read must at least be DETERMINISTIC — lowest id wins, every time — or the
-// resulting bug is unreproducible. rB is written first here; ordering by id, not
-// by insertion, is what makes rA the answer.
-func TestLiveReads_AreDeterministicWhenTheInvariantIsViolated(t *testing.T) {
+// Invariants I1/I3 (one live runner per chat, one per conversation) cannot hold at
+// every INSTANT, and the read model must not pretend otherwise. Crowbar cannot kill a
+// process synchronously — it SIGTERMs, and the runner does not die until its PTY does,
+// because the PTY is the sole authority on liveness. So there is an unavoidable window
+// where two rows point at one chat:
+//
+//	eviction: the mover takes the conversation; the incumbent is still dying.
+//	switch:   the incoming CLI starts while the outgoing one is still dying.
+//
+// In both, the answer to "who holds this chat now" is THE ONE THAT ARRIVED LAST. The
+// other is dying by our own hand. Ordering by id would be deterministic and WRONG — it
+// would hand out the dying runner (and its dead PTY) about half the time.
+//
+// Here the low-id runner is the CORPSE: rA is the incumbent, rB the taker. A lowest-id
+// read returns rA and fails.
+func TestLiveReads_DuringEviction_ReturnTheRunnerThatArrivedLast(t *testing.T) {
 	h := newHarness(t)
 	h.start(arCmds.Start{
-		RunnerID: "rB", WorkspaceID: "w1", ProviderID: "claude",
-		TerminalSession: "ptyB", ChatID: "c1", Now: clock(10),
-	})
-	h.start(arCmds.Start{
 		RunnerID: "rA", WorkspaceID: "w1", ProviderID: "claude",
-		TerminalSession: "ptyA", ChatID: "c1", Now: clock(11),
+		TerminalSession: "ptyA", ChatID: "c1", Now: clock(10),
 	})
-	h.bindSession("rB", "s1", clock(12))
-	h.bindSession("rA", "s1", clock(13))
+	h.bindSession("rA", "s1", clock(11)) // rA holds conversation s1 in chat c1
+
+	// rB is a DIFFERENT live CLI that /resumes into s1: it moves onto c1, and rA is
+	// evicted — but rA's PTY has not died yet, so its row is still there.
+	h.start(arCmds.Start{
+		RunnerID: "rB", WorkspaceID: "w1", ProviderID: "codex",
+		TerminalSession: "ptyB", ChatID: "c2", Now: clock(20),
+	})
+	h.move("rB", "c1", "s1", clock(30))
 	h.drain()
 
 	byChat, err := h.st.LiveRunnerForChat(h.ctx, "c1")
 	require.NoError(t, err)
-	assert.Equal(t, "rA", byChat.ID, "two runners in one chat is a bug — but it must be the SAME bug on every read")
+	assert.Equal(t, "rB", byChat.ID, "the chat belongs to the runner that took it over, not the corpse")
 
 	bySession, err := h.st.LiveRunnerForSession(h.ctx, "w1", "s1")
 	require.NoError(t, err)
-	assert.Equal(t, "rA", bySession.ID)
+	assert.Equal(t, "rB", bySession.ID, "and so does the conversation")
+}
+
+// The same window on the provider-switch path: the incoming runner has only just
+// STARTED (it has no conversation yet — CurrentSessionSince is zero), while the
+// outgoing one still carries the conversation it bound long ago. The incoming one
+// still arrived last, and the chat is its.
+func TestLiveRunnerForChat_DuringSwitch_ReturnsTheIncomingRunner(t *testing.T) {
+	h := newHarness(t)
+	h.start(arCmds.Start{
+		RunnerID: "outgoing", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "pty-old", ChatID: "c1", Now: clock(10),
+	})
+	h.bindSession("outgoing", "s1", clock(11))
+
+	// The switch: the new CLI is spawned while the old one is still dying.
+	h.start(arCmds.Start{
+		RunnerID: "incoming", WorkspaceID: "w1", ProviderID: "codex",
+		TerminalSession: "pty-new", ChatID: "c1", Now: clock(20),
+	})
+	h.drain()
+
+	live, err := h.st.LiveRunnerForChat(h.ctx, "c1")
+	require.NoError(t, err)
+	assert.Equal(t, "incoming", live.ID, "the pane must attach to the incoming CLI's PTY, never the dying one")
+	assert.Equal(t, "pty-new", live.TerminalSession)
+}
+
+// ConversationsForChat is the append-only history a provider switch reads to find the
+// conversation the INCOMING provider left behind here. LastConversation cannot answer
+// it: after a handoff the chat's newest conversation belongs to the provider being
+// switched AWAY from.
+func TestConversationsForChat_ReturnsEveryConversationOldestFirst(t *testing.T) {
+	h := newHarness(t)
+	h.start(arCmds.Start{
+		RunnerID: "r1", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "pty1", ChatID: "c1", Now: clock(1),
+	})
+	h.bindSession("r1", "s-claude", clock(2))
+	h.exit("r1", clock(3))
+
+	// The chat is handed to codex: a second runner, a second conversation, same chat.
+	h.start(arCmds.Start{
+		RunnerID: "r2", WorkspaceID: "w1", ProviderID: "codex",
+		TerminalSession: "pty2", ChatID: "c1", Now: clock(4),
+	})
+	h.bindSession("r2", "s-codex", clock(5))
+
+	// A conversation in ANOTHER chat must never leak in.
+	h.start(arCmds.Start{
+		RunnerID: "r3", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "pty3", ChatID: "c2", Now: clock(6),
+	})
+	h.bindSession("r3", "s-other", clock(7))
+	h.drain()
+
+	convs, err := h.st.ConversationsForChat(h.ctx, "c1")
+	require.NoError(t, err)
+	require.Len(t, convs, 2)
+	assert.Equal(t, "s-claude", convs[0].SessionID, "oldest first")
+	assert.Equal(t, "claude", convs[0].ProviderID)
+	assert.Equal(t, "s-codex", convs[1].SessionID)
+	assert.Equal(t, "codex", convs[1].ProviderID)
+
+	// Its history outlived the runner that opened it (r1 exited) — that is the whole
+	// point of history: a dormant chat stays resumable.
+	assert.Equal(t, "c1", convs[0].ChatID)
+}
+
+func TestConversationsForChat_UnknownChatIsEmptyNotAnError(t *testing.T) {
+	h := newHarness(t)
+	convs, err := h.st.ConversationsForChat(h.ctx, "never-existed")
+	require.NoError(t, err)
+	assert.Empty(t, convs)
 }
 
 // Get resolves a live runner by id and reports ErrNotFound for one that never

@@ -123,38 +123,42 @@ func (l *Ledger) LastEntryAt(cut time.Time) (string, error) {
 	return last, nil
 }
 
-// HasTurns reports whether provider recorded any turn in [from, to] — the window
-// of one segment's life. It answers "did this CLI's native session ever get any
-// CONTENT", which is not the same question as "did it report a session id".
+// LastTurnAt returns when provider last spoke in this chat — the moment it left,
+// and therefore the cut for the "while you were away" gap a resumed provider is
+// handed. Zero when it never spoke.
 //
-// A vendor CLI binds (and reports) a session id the moment it starts, but only
-// WRITES the conversation once there is at least one message: claude refuses
-// `--resume <id>` for such a session with "No conversation found with session ID".
-// Crowbar records a turn from the very same hooks, so an empty window here means
-// the CLI has nothing on disk under that id and must be spawned fresh instead of
-// resumed. A zero `to` means the segment is still open (window ends now).
-func (l *Ledger) HasTurns(provider string, from, to time.Time) (bool, error) {
+// A zero return is also the answer to the OTHER question the resume path asks:
+// "does this provider's conversation actually EXIST on disk?" A vendor CLI reports
+// a session id the instant it starts, but only WRITES that conversation once there
+// is at least one message — claude refuses `--resume <id>` for such a session with
+// "No conversation found with session ID", which is exactly what killed a chat the
+// user had never typed in. Crowbar records a turn from the very same hooks, so a
+// provider with no turn here has nothing to resume and must be spawned fresh.
+//
+// It reads the ledger rather than runner history because the ledger is the record
+// of what was actually SAID. Conversation history only knows when a conversation
+// OPENED, and a provider that opens a conversation, says nothing, and is switched
+// away from must not be resumed into it.
+func (l *Ledger) LastTurnAt(provider string) (time.Time, error) {
 	names, err := l.entries()
 	if err != nil {
-		return false, err
+		return time.Time{}, err
 	}
+	var last time.Time
 	for _, n := range names {
 		data, err := os.ReadFile(filepath.Join(l.dir, n)) //nolint:gosec // n comes from entries() listing l.dir, not external input
 		if err != nil {
-			return false, fmt.Errorf("ledger: read %s: %w", n, err)
+			return time.Time{}, fmt.Errorf("ledger: read %s: %w", n, err)
 		}
 		var tn Turn
 		if err := json.Unmarshal(data, &tn); err != nil {
-			return false, fmt.Errorf("ledger: unmarshal %s: %w", n, err)
+			return time.Time{}, fmt.Errorf("ledger: unmarshal %s: %w", n, err)
 		}
-		if tn.Provider != provider || tn.At.Before(from) {
-			continue
-		}
-		if to.IsZero() || !tn.At.After(to) {
-			return true, nil
+		if tn.Provider == provider && tn.At.After(last) {
+			last = tn.At
 		}
 	}
-	return false, nil
+	return last, nil
 }
 
 func (l *Ledger) render(cut time.Time) ([]byte, error) {

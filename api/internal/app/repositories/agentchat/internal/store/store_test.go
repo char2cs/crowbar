@@ -48,11 +48,11 @@ func newStore(
 	return ctx, st, ax
 }
 
-// openTwoSegmentChat drives a chat through Create -> EndSegment -> OpenSegment ->
-// BindSession so the read model ends up with two segments (one ended, one active
-// and bound to a provider session) — OpenSegment's Validate rejects a second
-// active segment, so the first must be ended before the second opens.
-func openTwoSegmentChat(
+// openChat drives a chat through Create -> StartTurn -> SetTitle so the read model
+// holds a chat with real folded state to assert on. There is no segment lifecycle to
+// drive any more: a chat holds no process state at all (AgentSegment is deleted), so
+// the multi-event history a projection test needs is now turn state and a title.
+func openChat(
 	t *testing.T,
 	ctx context.Context,
 	ax asynx.Asynx[domain.AgentChat],
@@ -60,38 +60,28 @@ func openTwoSegmentChat(
 ) {
 	t.Helper()
 	_, err := ax.SendWait(ctx, acCmds.Create{
-		ID: chatID, WorkspaceID: "w1", SegmentID: "s1", CrowbarSegmentID: "cs1",
-		ProviderID: "claude", TerminalSession: "term-1", Now: time.Unix(1, 0).UTC(),
+		ID: chatID, WorkspaceID: "w1", Now: time.Unix(1, 0).UTC(),
 	})
 	require.NoError(t, err)
 
-	_, err = ax.SendWait(ctx, acCmds.EndSegment{ChatID: chatID, SegmentID: "s1", Now: time.Unix(2, 0).UTC()})
+	_, err = ax.SendWait(ctx, acCmds.StartTurn{ChatID: chatID, Now: time.Unix(2, 0).UTC()})
 	require.NoError(t, err)
 
-	_, err = ax.SendWait(ctx, acCmds.OpenSegment{
-		ChatID: chatID, SegmentID: "s2", CrowbarSegmentID: "cs2",
-		ProviderID: "codex", TerminalSession: "term-2", Now: time.Unix(3, 0).UTC(),
-	})
-	require.NoError(t, err)
-
-	_, err = ax.SendWait(ctx, acCmds.BindSession{
-		ChatID: chatID, CrowbarSegmentID: "cs2", ProviderSessionID: "sess-" + chatID,
-	})
+	_, err = ax.SendWait(ctx, acCmds.SetTitle{ChatID: chatID, Title: "title-" + chatID, Source: "user"})
 	require.NoError(t, err)
 }
 
-func TestStore_GetChatReflectsBothSegments(t *testing.T) {
+func TestStore_GetChatReflectsFoldedState(t *testing.T) {
 	ctx, st, ax := newStore(t)
-	openTwoSegmentChat(t, ctx, ax, "c1")
+	openChat(t, ctx, ax, "c1")
 
 	got, err := st.GetChat(ctx, "c1")
 	require.NoError(t, err)
-	require.Len(t, got.Segments, 2)
-	assert.Equal(t, "s1", got.Segments[0].ID)
-	assert.Equal(t, "ended", got.Segments[0].Status)
-	assert.Equal(t, "s2", got.Segments[1].ID)
-	assert.Equal(t, "active", got.Segments[1].Status)
-	assert.Equal(t, "sess-c1", got.Segments[1].ProviderSessionID)
+	assert.Equal(t, "w1", got.WorkspaceID)
+	assert.Equal(t, "title-c1", got.Title)
+	assert.True(t, got.TitleLocked)
+	assert.True(t, got.Working, "the read model reflects every folded event, not just the last")
+	require.NotNil(t, got.CurrentTurnStarted)
 }
 
 func TestStore_GetChatMissingReturnsErrNotFound(t *testing.T) {
@@ -101,63 +91,17 @@ func TestStore_GetChatMissingReturnsErrNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, store.ErrNotFound)
 }
 
-func TestStore_GetByProviderSession_FindsBoundChat(t *testing.T) {
-	ctx, st, ax := newStore(t)
-	openTwoSegmentChat(t, ctx, ax, "c1")
-
-	got, err := st.GetByProviderSession(ctx, "sess-c1")
-	require.NoError(t, err)
-	assert.Equal(t, "c1", got.ID)
-}
-
-// TestStore_GetByProviderSession_DisambiguatesAcrossChats proves the scan
-// returns the CORRECT chat per session id when multiple chats each hold a bound
-// session — not just "some chat". openTwoSegmentChat binds "sess-<chatID>" to
-// each chat's active segment, so c1↔sess-c1 and c2↔sess-c2 must resolve
-// independently.
-func TestStore_GetByProviderSession_DisambiguatesAcrossChats(t *testing.T) {
-	ctx, st, ax := newStore(t)
-	openTwoSegmentChat(t, ctx, ax, "c1")
-	openTwoSegmentChat(t, ctx, ax, "c2")
-
-	got1, err := st.GetByProviderSession(ctx, "sess-c1")
-	require.NoError(t, err)
-	assert.Equal(t, "c1", got1.ID)
-
-	got2, err := st.GetByProviderSession(ctx, "sess-c2")
-	require.NoError(t, err)
-	assert.Equal(t, "c2", got2.ID)
-}
-
-func TestStore_GetByProviderSession_MissingReturnsErrNotFound(t *testing.T) {
-	ctx, st, ax := newStore(t)
-	openTwoSegmentChat(t, ctx, ax, "c1")
-
-	_, err := st.GetByProviderSession(ctx, "no-such-session")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, store.ErrNotFound)
-}
-
 // TestStore_ListByWorkspace_ScopesToWorkspace proves ListByWorkspace returns
 // every chat anchored to the queried workspace and excludes chats in other
 // workspaces: c1+c2 (both w1) are returned, c3 (w2) is not.
 func TestStore_ListByWorkspace_ScopesToWorkspace(t *testing.T) {
 	ctx, st, ax := newStore(t)
-	_, err := ax.SendWait(ctx, acCmds.Create{
-		ID: "c1", WorkspaceID: "w1", SegmentID: "s1", CrowbarSegmentID: "cs1",
-		ProviderID: "claude", TerminalSession: "term-1", Now: time.Unix(1, 0).UTC(),
-	})
+	_, err := ax.SendWait(ctx, acCmds.Create{ID: "c1", WorkspaceID: "w1", Now: time.Unix(1, 0).UTC()})
 	require.NoError(t, err)
-	_, err = ax.SendWait(ctx, acCmds.Create{
-		ID: "c2", WorkspaceID: "w1", SegmentID: "s2", CrowbarSegmentID: "cs2",
-		ProviderID: "claude", TerminalSession: "term-2", Now: time.Unix(1, 0).UTC(),
-	})
+	_, err = ax.SendWait(ctx, acCmds.Create{ID: "c2", WorkspaceID: "w1", Now: time.Unix(1, 0).UTC()})
 	require.NoError(t, err)
 	// c3 belongs to a DIFFERENT workspace — must never be returned for w1.
-	_, err = ax.SendWait(ctx, acCmds.Create{
-		ID: "c3", WorkspaceID: "w2", SegmentID: "s3", CrowbarSegmentID: "cs3",
-		ProviderID: "claude", TerminalSession: "term-3", Now: time.Unix(1, 0).UTC(),
-	})
+	_, err = ax.SendWait(ctx, acCmds.Create{ID: "c3", WorkspaceID: "w2", Now: time.Unix(1, 0).UTC()})
 	require.NoError(t, err)
 
 	list, err := st.ListByWorkspace(ctx, "w1")
@@ -175,26 +119,21 @@ func TestStore_ListByWorkspace_ScopesToWorkspace(t *testing.T) {
 // Replays each back into state/store/agent_chat.db.
 func TestStore_ReadRebuildsWhenModelEmptyButLogNonEmpty(t *testing.T) {
 	ctx, st, ax, db := newStoreWithDeps(t)
-	openTwoSegmentChat(t, ctx, ax, "c1")
+	openChat(t, ctx, ax, "c1")
 
 	got, err := st.GetChat(ctx, "c1")
 	require.NoError(t, err)
-	require.Len(t, got.Segments, 2, "read model populated by the live store projection")
+	require.Equal(t, "title-c1", got.Title, "read model populated by the live store projection")
 
 	// Simulate read-model loss with the event log intact.
 	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM agent_chats_read").Error)
 
 	// GetChat heals the model via whole-model lazy Replay before concluding "not
-	// found", so it must still resolve the chat correctly (both segments, bound
-	// session).
+	// found", so it must still resolve the chat with its whole folded history.
 	rebuilt, err := st.GetChat(ctx, "c1")
 	require.NoError(t, err)
-	require.Len(t, rebuilt.Segments, 2, "GetChat must Replay the id back from the event log")
-	assert.Equal(t, "sess-c1", rebuilt.Segments[1].ProviderSessionID)
-
-	byCleanSession, err := st.GetByProviderSession(ctx, "sess-c1")
-	require.NoError(t, err)
-	assert.Equal(t, "c1", byCleanSession.ID)
+	assert.Equal(t, "title-c1", rebuilt.Title, "GetChat must Replay the id back from the event log")
+	assert.True(t, rebuilt.Working)
 }
 
 // TestStore_GetChat_SelfHealsOnPerIDMiss proves the keyed GetChat's
@@ -204,8 +143,8 @@ func TestStore_ReadRebuildsWhenModelEmptyButLogNonEmpty(t *testing.T) {
 // on the per-id miss.
 func TestStore_GetChat_SelfHealsOnPerIDMiss(t *testing.T) {
 	ctx, st, ax, db := newStoreWithDeps(t)
-	openTwoSegmentChat(t, ctx, ax, "c1")
-	openTwoSegmentChat(t, ctx, ax, "c2")
+	openChat(t, ctx, ax, "c1")
+	openChat(t, ctx, ax, "c2")
 
 	// Drop only c2's row; the model stays non-empty (c1 remains).
 	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM agent_chats_read WHERE id = ?", "c2").Error)
@@ -213,7 +152,7 @@ func TestStore_GetChat_SelfHealsOnPerIDMiss(t *testing.T) {
 	got, err := st.GetChat(ctx, "c2")
 	require.NoError(t, err)
 	assert.Equal(t, "c2", got.ID)
-	require.Len(t, got.Segments, 2, "GetChat must Replay c2 back on the per-id miss")
+	assert.Equal(t, "title-c2", got.Title, "GetChat must Replay c2 back on the per-id miss")
 }
 
 func TestStore_ListChats_EmptyLogReturnsEmpty(t *testing.T) {

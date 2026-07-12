@@ -50,9 +50,9 @@ type Container struct {
 	// so the API layer can inject it into the terminal engine via SetMetaStore
 	// after both the engine and the usecase are constructed.
 	TerminalMeta engineterminal.SessionMetaStore
-	// Agent is the agentic-chat usecase: spawning vendor CLI segments, ingesting
-	// their hooks through the context-move reducer, and serving the /v0/agent
-	// REST surface.
+	// Agent is the agentic-chat usecase: spawning vendor CLIs as runners, moving
+	// those runners between chats as their hooks report conversation changes, and
+	// serving the /v0/agent REST surface.
 	Agent *agent.Usecase
 	// AgentWorkspaceReader is the SAME agent.WorkspaceReader (AgentChatsDir +
 	// WorktreeDir) instance Agent was built with, exposed so the app layer can
@@ -150,6 +150,7 @@ func New(
 	}
 	agentUsecase := agent.New(
 		repos.AgentChat,
+		repos.AgentRunner,
 		engineagent.NewRegistry(),
 		engines.Terminal,
 		agentWSReader,

@@ -85,18 +85,16 @@ func TestCreate_UsecaseError(
 }
 
 // configurableListGetUsecase is a configurable AgentUsecase double dedicated to
-// the List/Get handlers: each test dials in the chats/segments or errors it
-// needs to exercise a given branch. SpawnChat/IngestHook are not exercised
-// through this double (see fakeAgentUsecase for those).
+// the List/Get handlers: each test dials in the chats or errors it needs to
+// exercise a given branch. SpawnChat/IngestHook are not exercised through this
+// double (see fakeAgentUsecase for those).
 type configurableListGetUsecase struct {
 	chats     []domain.AgentChat
 	listErr   error
 	listWsIDs []string
 
-	chat    domain.AgentChat
-	getErr  error
-	segs    []domain.AgentSegment
-	segsErr error
+	chat   domain.AgentChat
+	getErr error
 }
 
 func (configurableListGetUsecase) SpawnChat(
@@ -136,16 +134,6 @@ func (u *configurableListGetUsecase) GetChat(
 		return domain.AgentChat{}, u.getErr
 	}
 	return u.chat, nil
-}
-
-func (u *configurableListGetUsecase) SegmentsFor(
-	_ context.Context,
-	_ string,
-) ([]domain.AgentSegment, error) {
-	if u.segsErr != nil {
-		return nil, u.segsErr
-	}
-	return u.segs, nil
 }
 
 func (configurableListGetUsecase) SwitchProvider(
@@ -239,17 +227,14 @@ func TestList_UsecaseError(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestGet_Success proves Get composes the chat with its ordered segment
-// history into the detail wire shape.
+// TestGet_Success proves Get returns the scoped chat. The segment history it used to
+// compose in is gone with AgentSegment — a chat holds no process state — and the DTO
+// task later in this series joins the live runner and the conversation history back on.
 func TestGet_Success(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
-		chat: domain.AgentChat{ID: "c1", WorkspaceID: "ws1", ActiveSegmentID: "seg-2"},
-		segs: []domain.AgentSegment{
-			{ID: "seg-1", ProviderID: "vendor-a"},
-			{ID: "seg-2", ProviderID: "vendor-a"},
-		},
+		chat: domain.AgentChat{ID: "c1", WorkspaceID: "ws1", Title: "a title"},
 	}
 	h := handlers.New(uc)
 
@@ -261,16 +246,15 @@ func TestGet_Success(
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var envelope struct {
 		Data struct {
-			ID       string `json:"id"`
-			Segments []struct {
-				ID string `json:"id"`
-			} `json:"segments"`
+			ID          string `json:"id"`
+			WorkspaceID string `json:"workspaceId"`
+			Title       string `json:"title"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
 	assert.Equal(t, "c1", envelope.Data.ID)
-	require.Len(t, envelope.Data.Segments, 2)
-	assert.Equal(t, "seg-1", envelope.Data.Segments[0].ID)
+	assert.Equal(t, "ws1", envelope.Data.WorkspaceID)
+	assert.Equal(t, "a title", envelope.Data.Title)
 }
 
 // TestGet_WrongWorkspace404s proves the by-id scope check
@@ -307,25 +291,6 @@ func TestGet_ChatNotFound(
 	h.Get(ctx)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// TestGet_SegmentsError proves a SegmentsFor failure surfaces as a mapped
-// error even when GetChat succeeds.
-func TestGet_SegmentsError(
-	t *testing.T,
-) {
-	uc := &configurableListGetUsecase{
-		chat:    domain.AgentChat{ID: "c1"},
-		segsErr: errors.New("boom"),
-	}
-	h := handlers.New(uc)
-
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/agent/chats/c1", nil)
-	ctx.Params = gin.Params{{Key: "id", Value: "c1"}}
-
-	h.Get(ctx)
-
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 // TestRename_PostsTitleAndSource proves Rename decodes {title}, forwards the
