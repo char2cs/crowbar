@@ -76,9 +76,43 @@ segment `ended`). Two authorities on liveness always drift. There will be one.
 Consequence: `attachAgentSegment`'s current double-check ("segment is active" **and**
 "daemon lists the PTY as live") collapses into the single question it was really asking.
 
+#### Persist placement. Never persist liveness.
+
+This distinction is the heart of the spec, and it is easy to get backwards.
+
+The disease was never *persistence*. It was persisting **liveness** — `Status: active|ended`
+as durable truth, which reality contradicts the instant a CLI dies (or fails to). Two
+authorities, guaranteed drift.
+
+**Placement** — which chat, which conversation a runner is on — is different in kind:
+Crowbar is its *only* writer. Nothing external can contradict it. It cannot drift.
+
+So the Runner **is** an event-sourced asynx aggregate (`Started` / `Moved` / `Exited`), and
+it carries **no status field**:
+
+* **One atomic write per move.** `Moved` is a single event on a single aggregate. The torn
+  cross-aggregate write (bug 1) has nowhere to happen.
+* **Everything else is a projection of it** — the chat's conversation history (§2 Chat), the
+  session index (§5), the hub's WS frames. One write; the rest derives. This is the pattern
+  the codebase already uses, and it is what makes the second write that could fail simply
+  not exist.
+* **An audit trail.** "R1 moved A→B at 15:04" is recorded. The bug that prompted this spec
+  had to be reconstructed from `ps` output and inference; it would have been one log line.
+
+**Liveness stays the PTY's, and only the PTY's.** At boot, reconcile **once** against the
+terminal engine's live session set: any runner whose PTY is gone is dead, and gets its
+`Exited`. That is one reconciliation, at one moment, against the one authority — not two
+truths coexisting and diverging over time.
+
+*(An in-memory placement registry was considered and rejected. It is the shape of the
+`Registry` that caused bug 2; it would not even have bought atomicity, since appending the
+conversation to the destination chat is a durable write the mutex cannot cover; and it
+discards the projections and the audit trail for nothing.)*
+
 ### Chat
 A Crowbar thread. It owns the **ledger** — one file per turn, on disk — which is the only
-thing in this system Crowbar uniquely owns. It does **not** own the process.
+thing in this system Crowbar uniquely owns. It does **not** own the process, and after this
+refactor it knows nothing whatsoever about processes.
 
 ```
 AgentChat {
@@ -87,10 +121,16 @@ AgentChat {
   CurrentTurnStarted  *time.Time
   LastActivityAt      time.Time
   LedgerCursor        int
-  LastProviderID      string      // for Resume: who was here last
-  LastSessionID       string      // for Resume: which conversation to reopen
 }
 ```
+
+`Segments []AgentSegment` and `ActiveSegmentID` are **removed, and nothing replaces them on
+the aggregate.** The chat aggregate no longer contains a single field describing a process.
+
+Everything the system needs to know about which conversations a chat has hosted — the
+reducer's "is this id known?", and Resume's "where do I pick up?" — is a **projection of
+Runner events** (§5), not chat state. The chat never writes it, so there is no second write
+to fail.
 
 `Segments []AgentSegment` and `ActiveSegmentID` are **removed**. There is no tenancy table
 to replace them: **the ledger *is* the history** (one file per turn, provider in the
@@ -155,10 +195,15 @@ Create the chat, start a runner on it. `SessionStart` binds the conversation
 Create chat B, then `runner.Move(B, newSession)`. **Chat A is never written to.** It simply
 stops being pointed at, and is therefore dormant. Same runner, same PTY, same terminal.
 
-Two writes — but ordered so the only possible failure is a **stray empty chat**, never a
-destroyed one. In practice even that is unreachable: both CLIs announce *lazily* (§7), so
-the new chat is minted at the moment we learn the new conversation id, which is when there
-is already a turn to put in it.
+This is the one flow that is still two writes, and the plan does not pretend otherwise. They
+are ordered so that the failure mode is bounded: the first is a **create** (which cannot
+destroy anything), the second is the atomic `Moved`. If the `Moved` fails, the result is a
+**stray empty chat** in the sidebar and the runner still on A — annoying, self-evident, and
+recoverable by deleting the chat. Nothing is lost.
+
+That bound — *a failure can never destroy a chat* — is the guarantee this design makes.
+"Every operation is a single write" is **not** a guarantee it makes, and claiming so would be
+comfortable and false.
 
 ### 4.3 `/resume` into a **known** conversation — the eviction case
 `runner.Move(B, sessionB)`.
@@ -207,16 +252,36 @@ descriptor's `title_instruction` prompt template uses `{segid}` instead of `{cha
 
 ## 5. Projections
 
-Runner events feed read models; nothing else writes them.
+**Runner events are the only write. Everything below derives from them** — the chat
+aggregate writes none of it, which is why no second write exists to fail (§2).
 
-* **`chat_liveness`** — `chatId → runnerId | none`. Powers "is this chat live", the sidebar
-  indicator, and the pane's attach. Replaces `ActiveSegmentID`.
-* **`session_index`** — `sessionId → chatId`. Replaces `Registry.sessionToChat`. Being
-  **persisted**, the boot-reseed path (`Registry.Seed`) disappears.
+* **`chat_conversations`** — `(chatID, providerID, sessionID, firstSeenAt)`, **append-only**.
+  Built from `Started` / `Moved`. This is what `Segments` really was, minus everything that
+  described a *process*. It answers the system's two durable questions:
+  * *"Is this conversation id one I know?"* — the reducer's second question (§3). Indexed by
+    `sessionID`, so it also **replaces `Registry.sessionToChat`**, and being persisted, the
+    boot-reseed path (`Registry.Seed`) disappears.
+  * *"Where does this chat pick up?"* — Resume reads the chat's newest row for its provider
+    and session.
 
-`Registry`'s in-memory `segToChat` / `sessionToChat` / `segToSession` maps are **deleted**.
-`segToInjected` (the injected-context echo guard) survives — it is genuinely ephemeral,
-per-spawn state and has no durable meaning.
+  Append-only history **cannot drift from reality** — only live state can. That is exactly
+  why this is safe to persist while liveness is not (§2).
+
+* **`chat_liveness`** — `chatID → runnerID | none`. Built from `Started` / `Moved` /
+  `Exited`. Powers "is this chat live", the sidebar indicator, and the pane's attach.
+  Replaces `ActiveSegmentID`. **Derived, never stored on the chat.**
+
+* **hub frames** — the existing `agentchat.*` WS fan-out gains the runner's lifecycle, so the
+  frontend learns of a move from the same stream it already listens to.
+
+`Registry`'s in-memory `segToChat` / `sessionToChat` / `segToSession` maps are **deleted** —
+they are precisely the durable-state shadow that caused bug 2. `segToInjected` (the
+injected-context echo guard) **survives**: it is genuinely ephemeral, per-spawn state with no
+durable meaning and nothing to drift from.
+
+**Boot reconciliation.** Once, at startup, against the terminal engine's live session set:
+any runner whose PTY is gone gets an `Exited`. One reconciliation, at one moment, against
+the single authority on liveness (§2). This replaces today's boot reactor that ends segments.
 
 ---
 
