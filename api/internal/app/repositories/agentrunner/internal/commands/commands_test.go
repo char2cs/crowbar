@@ -21,6 +21,7 @@ func TestStart_EmitsRunnerOnItsChat(t *testing.T) {
 	require.Equal(t, "c1", got.CurrentChatID)
 	require.Equal(t, "pty1", got.TerminalSession)
 	require.Empty(t, got.CurrentSession, "no conversation is bound until the provider announces one")
+	require.Zero(t, got.CurrentSessionSince, "nothing is bound yet, so nothing has a since")
 }
 
 func TestStart_RejectsMissingChat(t *testing.T) {
@@ -43,6 +44,8 @@ func TestMove_RepointsRunnerAtomically(t *testing.T) {
 	require.Equal(t, "s2", got.CurrentSession)
 	require.Equal(t, "pty1", got.TerminalSession, "the PTY travels with the runner — the terminal never changes")
 	require.Equal(t, "claude", got.ProviderID)
+	require.Equal(t, time.Unix(2, 0), got.CurrentSessionSince,
+		"the move carries WHEN the conversation was entered — the runner's spawn time is not it")
 }
 
 func TestMove_RejectsUnknownRunner(t *testing.T) {
@@ -57,6 +60,8 @@ func TestBindSession_SetsConversationWithoutMovingChat(t *testing.T) {
 	got := c.EmitEvent(cur)
 	require.Equal(t, "s1", got.CurrentSession)
 	require.Equal(t, "c1", got.CurrentChatID)
+	require.Equal(t, time.Unix(1, 0), got.CurrentSessionSince,
+		"the bind carries WHEN the conversation opened, so history can order by it")
 }
 
 // The runner has NO status field to consult (spec §2). Exit is a tombstone for

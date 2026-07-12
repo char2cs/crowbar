@@ -70,6 +70,18 @@ func TestProjector_WriteFailuresAreLoggedNotFatal(t *testing.T) {
 	assert.NotPanics(t, func() { p.onEvent(context.Background(), evt(exited)) })
 }
 
+// The heal must not mistake a broken read DB for a lost history: it cannot tell
+// "empty" from "unreadable" by guessing, so a failed count is a hard error at
+// construction rather than a silent full replay.
+func TestHealConversations_CountFailureSurfaces(t *testing.T) {
+	p, closeDB := newProjectorDB(t)
+	closeDB()
+
+	err := healConversations(p.db, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "count conversations")
+}
+
 // A runner with no conversation yet (spawned, provider has not announced) gets a
 // live row but appends NO history — history only records conversations that
 // actually existed.

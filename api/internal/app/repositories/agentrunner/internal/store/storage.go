@@ -13,13 +13,14 @@ import (
 // pointed (which chat, which conversation), and Crowbar is the sole writer of
 // that, so it cannot drift.
 type runnerRow struct {
-	ID              string `gorm:"primaryKey"`
-	WorkspaceID     string `gorm:"index"`
-	ProviderID      string
-	TerminalSession string
-	CurrentChatID   string `gorm:"index"`
-	CurrentSession  string `gorm:"index"`
-	StartedAt       time.Time
+	ID                  string `gorm:"primaryKey"`
+	WorkspaceID         string `gorm:"index"`
+	ProviderID          string
+	TerminalSession     string
+	CurrentChatID       string `gorm:"index"`
+	CurrentSession      string `gorm:"index"`
+	CurrentSessionSince time.Time
+	StartedAt           time.Time
 }
 
 func (runnerRow) TableName() string {
@@ -53,13 +54,14 @@ func (conversationRow) TableName() string {
 // row can only ever describe a runner the model believes is still running.
 func (r runnerRow) toRunner() domain.AgentRunner {
 	return domain.AgentRunner{
-		ID:              r.ID,
-		WorkspaceID:     r.WorkspaceID,
-		ProviderID:      r.ProviderID,
-		TerminalSession: r.TerminalSession,
-		CurrentChatID:   r.CurrentChatID,
-		CurrentSession:  r.CurrentSession,
-		StartedAt:       r.StartedAt,
+		ID:                  r.ID,
+		WorkspaceID:         r.WorkspaceID,
+		ProviderID:          r.ProviderID,
+		TerminalSession:     r.TerminalSession,
+		CurrentChatID:       r.CurrentChatID,
+		CurrentSession:      r.CurrentSession,
+		CurrentSessionSince: r.CurrentSessionSince,
+		StartedAt:           r.StartedAt,
 	}
 }
 

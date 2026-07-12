@@ -33,8 +33,13 @@ func (c BindSession) Validate(current *domain.AgentRunner) error {
 	return nil
 }
 
+// EmitEvent binds the conversation AND stamps when it opened. Now is carried
+// onto the aggregate (never dropped): the conversation projection reads it for
+// FirstSeenAt, and the runner's own StartedAt cannot stand in for it — a runner
+// binds its conversation after it spawns, sometimes hours after.
 func (c BindSession) EmitEvent(current *domain.AgentRunner) domain.AgentRunner {
 	next := *current
 	next.CurrentSession = c.SessionID
+	next.CurrentSessionSince = c.Now
 	return next
 }

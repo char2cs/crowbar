@@ -1,6 +1,6 @@
 // Package store owns the agentrunner read side: TWO projections folded from the
 // AgentRunner event stream, which together replace everything AgentSegment used
-// to be asked.
+// to be asked. They are different in KIND, and the difference is the whole point.
 //
 //  1. agent_runners (runnerRow) — LIVE rows. One row per RUNNING CLI, deleted on
 //     exit. "Does a row exist for this chat" IS the liveness question: there is
@@ -10,12 +10,19 @@
 //     always drift, and that drift is the bug being deleted here (today a segment
 //     can read "ended" while its CLI is demonstrably still running).
 //
+//     This table is therefore NEVER rebuilt from the event log — see heal.go. A
+//     PTY does not survive a daemon restart, so every runner the log remembers is
+//     already dead by the time anything could replay it; resurrecting one would
+//     manufacture exactly the "live row, dead CLI" state this package exists to
+//     make unrepresentable. An empty agent_runners is the truth, not a symptom.
+//
 //  2. agent_chat_conversations (conversationRow) — APPEND-ONLY history. Every
 //     conversation a chat has ever hosted. Never updated, never deleted except by
 //     the chat delete cascade (ForgetChat). It survives the process, so a dormant
 //     chat stays resumable and its old conversations stay recognisable on a later
 //     /resume. Append-only history cannot drift from reality; only live state can
-//     — which is precisely why this one is safe to persist while liveness is not.
+//     — which is precisely why THIS one is durable truth worth healing, and is
+//     rebuilt from the log (once, at construction) when it is lost.
 //
 // Both derive independently from the same event stream, alongside the hub
 // projection (hub.go) that owns WS fan-out — so none of them can drift from each
@@ -27,23 +34,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/internal/serialize"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
-
-// eventKeyPrefix is the namespace asynx prepends to an aggregate id when it
-// stores that aggregate's events (its snapshots use "snapshots:"). The crowbar
-// event store's AggregateLister returns the RAW store keys, so the rebuild must
-// keep only the events keys and strip this prefix to recover the real aggregate
-// id, which asynx.Replay re-prepends itself.
-const eventKeyPrefix = "events:"
 
 // ErrNotFound is returned when the read model holds no row for a query: no live
 // runner for a chat/session/id, or no conversation for a session/chat. Defined
@@ -59,49 +57,59 @@ var ErrNotFound = errors.New("agentrunner store: not found")
 // conversation history, both projected from the runner event stream.
 type Store struct {
 	db *gormdb.DB
-	es asynxModels.Store
-	ax asynx.Asynx[domain.AgentRunner]
 }
 
-// New builds both read models over db, then registers the store projection (this
-// file) and the hub broadcast projection (hub.go) on ax. It does no eager
-// reconcile: a normal boot re-opens the durable read model with zero replay.
-// es is the same per-type event log ax wraps, retained so AllLive can heal a lost
-// read model via whole-model Replay before boot reconciliation concludes that
-// nothing is running.
+// New builds both read models over db, heals the conversation history if it was
+// lost (heal.go — history only, never the live-runner table), then registers the
+// read-model projection (this file) and the hub broadcast projection (hub.go) on
+// ax.
+//
+// es is the same per-type event log ax wraps; the pair is used ONCE here, for
+// that construction-time heal, and never again from a read path. No read heals:
+// for the live table an empty model is the normal steady state of an idle
+// machine, so healing on a read would replay a monotonically-growing event log on
+// every dormant lookup — and would resurrect dead runners while doing it.
+//
+// broadcast must not be nil: the hub projection calls it on every event, so a nil
+// one panics inside a projection goroutine, far from whoever built the Store.
 func New(
 	db *gormdb.DB,
 	es asynxModels.Store,
 	ax asynx.Asynx[domain.AgentRunner],
 	broadcast BroadcastFunc,
 ) (*Store, error) {
+	if broadcast == nil {
+		return nil, fmt.Errorf("agentrunner store: nil broadcast")
+	}
 	if err := db.AutoMigrate(&runnerRow{}, &conversationRow{}); err != nil {
 		return nil, fmt.Errorf("agentrunner store: migrate: %w", err)
 	}
-	s := &Store{db: db, es: es, ax: ax}
+	if err := healConversations(db, es, ax); err != nil {
+		return nil, err
+	}
 	if err := registerStoreProjection(db, ax); err != nil {
 		return nil, fmt.Errorf("agentrunner store: projections: %w", err)
 	}
 	if err := registerHubProjection(ax, broadcast); err != nil {
 		return nil, fmt.Errorf("agentrunner store: projections: %w", err)
 	}
-	return s, nil
+	return &Store{db: db}, nil
 }
 
 // LiveRunnerForChat returns the runner currently pointed at chatID, or
 // ErrNotFound when the chat is dormant. There is no status column to consult:
 // the row exists exactly while its CLI runs, so its presence IS liveness.
 //
-// It deliberately does NOT rebuild the read model on a miss (unlike AllLive):
-// "no row" is the expected, overwhelmingly common answer for a dormant chat, and
-// replaying the whole event log on every dormant read would put the entire
-// history on the hot path.
+// Invariant I1 makes at most one row match. Nothing in the schema enforces that
+// (a hard constraint would turn eviction's transient states into projection write
+// failures), so the query orders by id: if the invariant is ever violated, the
+// winner is at least deterministic and the bug reproducible.
 func (s *Store) LiveRunnerForChat(
 	ctx context.Context,
 	chatID string,
 ) (domain.AgentRunner, error) {
 	var row runnerRow
-	err := s.db.WithContext(ctx).Where("current_chat_id = ?", chatID).Take(&row).Error
+	err := s.db.WithContext(ctx).Where("current_chat_id = ?", chatID).Order("id").Take(&row).Error
 	if errors.Is(err, gormdb.ErrRecordNotFound) {
 		return domain.AgentRunner{}, fmt.Errorf("agentrunner store: live runner for chat %q: %w", chatID, ErrNotFound)
 	}
@@ -116,6 +124,9 @@ func (s *Store) LiveRunnerForChat(
 // I3: at most one live runner per conversation). ErrNotFound means nobody is
 // running that conversation right now, which is not the same as "it never
 // existed" — that question is ChatForSession's, and it is answered from history.
+//
+// Ordered by id for the same reason as LiveRunnerForChat: a violated invariant
+// must fail the same way twice.
 func (s *Store) LiveRunnerForSession(
 	ctx context.Context,
 	wsID string,
@@ -124,6 +135,7 @@ func (s *Store) LiveRunnerForSession(
 	var row runnerRow
 	err := s.db.WithContext(ctx).
 		Where("workspace_id = ? AND current_session = ?", wsID, sessionID).
+		Order("id").
 		Take(&row).Error
 	if errors.Is(err, gormdb.ErrRecordNotFound) {
 		return domain.AgentRunner{}, fmt.Errorf("agentrunner store: live runner for session %q: %w", sessionID, ErrNotFound)
@@ -158,9 +170,11 @@ func (s *Store) ChatForSession(
 }
 
 // LastConversation returns the most recent conversation the chat has hosted —
-// the one a resume picks up from. Ordered by first_seen_at, with SQLite's
-// insertion-order rowid as the tiebreak, since two conversations opened by the
-// same runner share that runner's StartedAt.
+// the one a resume picks up from. Ordered by first_seen_at, which is when the
+// CONVERSATION opened (never when its runner spawned), so a chat that two runners
+// have written into still orders by which conversation is newer. SQLite's
+// insertion-order rowid breaks an exact tie, keeping the answer deterministic
+// when two conversations share a timestamp.
 func (s *Store) LastConversation(
 	ctx context.Context,
 	chatID string,
@@ -201,40 +215,22 @@ func (s *Store) Get(
 // input to boot reconciliation, which asks the PTY — the sole authority — whether
 // each one really is, and Exits the ones that are not.
 //
-// This is the one read that heals a lost read model (via whole-model Replay),
-// because here an empty model is genuinely ambiguous: it means either "nothing is
-// running" or "the read DB was lost". Getting that wrong at boot would strand a
-// live CLI with no row pointing at it.
+// It reads the table and nothing else. An empty result is a real answer ("nothing
+// is running"), which on an idle machine is the normal one: the live table is not
+// durable truth to be recovered, it is a cache of what the PTYs are doing right
+// now, and after a restart the honest answer is always "nothing".
 func (s *Store) AllLive(
 	ctx context.Context,
 ) ([]domain.AgentRunner, error) {
-	rows, err := s.healedRows(ctx)
-	if err != nil {
-		return nil, err
+	var rows []runnerRow
+	if err := s.db.WithContext(ctx).Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("agentrunner store: all live: %w", err)
 	}
 	out := make([]domain.AgentRunner, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, row.toRunner())
 	}
 	return out, nil
-}
-
-// healedRows returns every live row, replaying the whole event log back into the
-// read model first when the model is empty — the ambiguity AllLive documents.
-func (s *Store) healedRows(
-	ctx context.Context,
-) ([]runnerRow, error) {
-	rows, err := s.allRows(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if len(rows) > 0 {
-		return rows, nil
-	}
-	if err := s.rebuild(ctx); err != nil {
-		return nil, err
-	}
-	return s.allRows(ctx)
 }
 
 // ForgetChat drops the chat's conversation history. It is the chat delete cascade
@@ -248,45 +244,6 @@ func (s *Store) ForgetChat(
 ) error {
 	if err := s.db.WithContext(ctx).Delete(&conversationRow{}, "chat_id = ?", chatID).Error; err != nil {
 		return fmt.Errorf("agentrunner store: forget chat %q: %w", chatID, err)
-	}
-	return nil
-}
-
-func (s *Store) allRows(
-	ctx context.Context,
-) ([]runnerRow, error) {
-	var rows []runnerRow
-	if err := s.db.WithContext(ctx).Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("agentrunner store: all live: %w", err)
-	}
-	return rows, nil
-}
-
-// rebuild enumerates every runner aggregate in the event log and Replays each
-// back into the read model. Replaying an exited runner re-folds its exit, which
-// deletes the live row again — so a rebuild reconstructs both projections
-// exactly, including the absences. It is a no-op when the event store cannot
-// enumerate its ids or the log is empty.
-func (s *Store) rebuild(
-	ctx context.Context,
-) error {
-	lister, ok := s.es.(serialize.AggregateLister)
-	if !ok {
-		return nil
-	}
-	keys, err := lister.AggregateIDs(ctx)
-	if err != nil {
-		return fmt.Errorf("agentrunner store: enumerate aggregate ids: %w", err)
-	}
-	fold := (&projector{db: s.db}).onEvent
-	for _, key := range keys {
-		id, found := strings.CutPrefix(key, eventKeyPrefix)
-		if !found {
-			continue
-		}
-		if err := s.ax.Replay(ctx, id, 1, 0, fold); err != nil {
-			return fmt.Errorf("agentrunner store: replay %s: %w", id, err)
-		}
 	}
 	return nil
 }
@@ -328,7 +285,7 @@ func (p *projector) onEvent(
 	}
 
 	p.upsertLive(ctx, r)
-	p.appendConversation(ctx, r)
+	appendConversation(ctx, p.db, r)
 }
 
 // upsertLive writes the single live row for STARTED / SESSION_BOUND / MOVED.
@@ -339,13 +296,14 @@ func (p *projector) upsertLive(
 	r domain.AgentRunner,
 ) {
 	row := runnerRow{
-		ID:              r.ID,
-		WorkspaceID:     r.WorkspaceID,
-		ProviderID:      r.ProviderID,
-		TerminalSession: r.TerminalSession,
-		CurrentChatID:   r.CurrentChatID,
-		CurrentSession:  r.CurrentSession,
-		StartedAt:       r.StartedAt,
+		ID:                  r.ID,
+		WorkspaceID:         r.WorkspaceID,
+		ProviderID:          r.ProviderID,
+		TerminalSession:     r.TerminalSession,
+		CurrentChatID:       r.CurrentChatID,
+		CurrentSession:      r.CurrentSession,
+		CurrentSessionSince: r.CurrentSessionSince,
+		StartedAt:           r.StartedAt,
 	}
 	err := p.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "id"}},
@@ -356,11 +314,18 @@ func (p *projector) upsertLive(
 	}
 }
 
-// appendConversation records the (chat, conversation) pair the runner now holds.
-// Idempotent: DoNothing on conflict keeps the history append-only under replay,
-// so a rebuilt model is byte-identical to the one it replaces.
-func (p *projector) appendConversation(
+// appendConversation records the (chat, conversation) pair the runner now holds,
+// stamped with when that conversation OPENED (CurrentSessionSince — the moment it
+// was bound or moved into), never with the runner's spawn time. Idempotent:
+// DoNothing on conflict keeps the history append-only under replay, so a rebuilt
+// model is identical to the one it replaces.
+//
+// Package-level rather than a projector method because the boot heal folds it
+// WITHOUT the live-row writer (heal.go) — history is the only thing a replay is
+// allowed to touch.
+func appendConversation(
 	ctx context.Context,
+	db *gormdb.DB,
 	r domain.AgentRunner,
 ) {
 	if r.CurrentSession == "" {
@@ -371,9 +336,9 @@ func (p *projector) appendConversation(
 		SessionID:   r.CurrentSession,
 		WorkspaceID: r.WorkspaceID,
 		ProviderID:  r.ProviderID,
-		FirstSeenAt: r.StartedAt,
+		FirstSeenAt: r.CurrentSessionSince,
 	}
-	err := p.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&conv).Error
+	err := db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&conv).Error
 	if err != nil {
 		slog.ErrorContext(ctx, "agentrunner projection: append conversation",
 			"chat", r.CurrentChatID, "session", r.CurrentSession, "err", err)

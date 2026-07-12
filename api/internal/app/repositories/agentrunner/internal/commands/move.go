@@ -45,9 +45,16 @@ func (c Move) Validate(current *domain.AgentRunner) error {
 	return nil
 }
 
+// EmitEvent repoints the runner AND stamps when the conversation it entered
+// opened. Now is carried onto the aggregate (never dropped): without it the
+// conversation projection would stamp this conversation with the runner's spawn
+// time, which for a runner that moves is arbitrarily old — and two runners
+// writing into one chat would then order their conversations by whose PROCESS is
+// older rather than by which CONVERSATION is newer.
 func (c Move) EmitEvent(current *domain.AgentRunner) domain.AgentRunner {
 	next := *current
 	next.CurrentChatID = c.ToChatID
 	next.CurrentSession = c.SessionID
+	next.CurrentSessionSince = c.Now
 	return next
 }

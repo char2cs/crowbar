@@ -27,6 +27,15 @@ type AgentRunner struct {
 	CurrentChatID  string `json:"currentChatId"`
 	CurrentSession string `json:"currentSessionId,omitempty"`
 
+	// CurrentSessionSince is when CurrentSession was bound to this runner — the
+	// moment the CONVERSATION opened, which is NOT the moment the runner spawned:
+	// a long-lived CLI opens conversations hours after StartedAt. It is zero
+	// exactly while CurrentSession is empty (spawned, nothing announced yet). The
+	// conversation projection stamps FirstSeenAt from it, so history orders by
+	// when each conversation actually opened rather than by whose runner started
+	// first — two runners writing into one chat would otherwise invert it.
+	CurrentSessionSince time.Time `json:"currentSessionSince,omitzero"`
+
 	StartedAt time.Time  `json:"startedAt"`
 	ExitedAt  *time.Time `json:"exitedAt,omitempty"` // audit only — NOT a liveness flag
 }
