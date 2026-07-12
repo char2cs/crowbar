@@ -1114,7 +1114,18 @@ and kills the incumbent second — never the reverse."
 
 **Files:**
 - Modify: `api/internal/app/usecases/agent/agent.go` — replace the segment-ending boot reactor
+- Modify: `api/internal/app/container.go` (the boot NOTE site) — call it
 - Test: `api/internal/app/usecases/agent/agent_test.go`
+
+**⚠️ Task 5 DELETED the old boot reconcile along with the segments, and the damage is worse than "stale rows".** Do not under-scope this. `agent_runners` is a durable sqlite table that is never truncated at boot, so after **any daemon restart**:
+
+1. **No chat that ever had a runner can be revived, ever.** `ResumeChat` checks `LiveRunnerForChat` first, finds the **stale row** from before the restart, and returns it as a no-op. The Resume button silently does nothing.
+2. The pane attaches to a **dead terminal session**.
+3. A chat that was mid-turn at shutdown keeps `Working: true` **forever** — a permanent spinner. (The old `ReconcileOnBoot` cleared it.)
+
+All three are *regressions against pre-refactor behaviour*. This task is what makes the refactor a net improvement rather than a net loss, so it is not optional polish.
+
+**Also restore what went with it:** Task 5's deletion also removed the **crash-orphan tmp reap** — the sweep that deleted per-spawn dirs left behind by a CLI that died without cleanup. They now accumulate forever. (They hold only the rendered hook config — claude's `settings.json`, 0600 in a 0700 dir. **They do NOT hold credentials**: the engine has only three inject verbs — `set_env`, `write_file`, `pass_arg` — there is no `copy_file`, and no descriptor references `auth.json`. Any comment in the tree still claiming a codex `auth.json` copy is **stale**, left over from the removed `CODEX_HOME` design; delete such comments on sight.)
 
 - [ ] **Step 1: Write the failing test**
 
