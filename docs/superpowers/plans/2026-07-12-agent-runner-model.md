@@ -1275,6 +1275,18 @@ func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
 - Rewrite: `web/src/features/agent/components/agent-chat-pane.tsx`
 - Test: `web/src/__tests__/features/agent/components/agent-chat-pane.test.tsx`
 
+**⚠️ PRESERVE THE USER'S STYLING — it is committed (`13dcd293`) and it is NOT yours to change.**
+
+This is a **behaviour** rewrite, not a visual one. The user deliberately stopped the pane from stripping CossUI's `Frame` down to nothing and now uses it as designed. Keep these exactly:
+
+```tsx
+<Frame className="h-full w-full">
+  <FramePanel className="min-h-0 flex-1 overflow-hidden">
+  <FrameFooter className="flex items-center">
+```
+
+Do **not** reintroduce `rounded-none border-0 bg-transparent p-0 shadow-none before:hidden` on the panel, and do not hand-roll the footer padding (`px-2 py-1.5`). If your rewrite touches the JSX, carry these classes through verbatim.
+
 **The pane's new contract:**
 - Attach to `chat.terminalSessionId` when `chat.liveRunnerId` is set. The PTY liveness double-check in `attachAgentSegment` **collapses** — `liveRunnerId` being present *is* the liveness answer, because its row only exists while the PTY does.
 - **Delete `canAutoRevive`, `reviveAttempts`, `MAX_REVIVE_ATTEMPTS`.** That machinery existed only because a pane could not tell "my CLI died" from "my CLI moved". It can now: a move arrives as a `moved` frame naming the new chat. Revive becomes explicit: dormant chat + user opens it = spawn a runner.
