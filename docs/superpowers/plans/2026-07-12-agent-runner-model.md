@@ -426,8 +426,9 @@ No status field — the PTY is the sole authority on liveness."
 
 **Interfaces:**
 - Consumes: Task 1's `domain.AgentRunner` and the four command event names.
-- Produces:
+- Produces (all on the **`internal/store`** package — Task 3 wraps these, it does not reimplement them):
   - `store.New(db *gormdb.DB, es asynxModels.Store, ax asynx.Asynx[domain.AgentRunner], broadcast BroadcastFunc) (*Store, error)`
+  - `(*Store) AllLive(ctx) ([]domain.AgentRunner, error)` — every live runner; Task 6's boot reconciliation needs it. The live read model holds only live runners by construction, so this is a plain select.
   - `(*Store) LiveRunnerForChat(ctx, chatID string) (domain.AgentRunner, error)` — `ErrNotFound` when dormant
   - `(*Store) LiveRunnerForSession(ctx, wsID, sessionID string) (domain.AgentRunner, error)`
   - `(*Store) ChatForSession(ctx, wsID, sessionID string) (string, error)` — `ErrNotFound` when unknown
@@ -453,7 +454,13 @@ type ChatConversation struct {
 
 - [ ] **Step 1: Write the failing test**
 
-Model it on `api/internal/app/repositories/agentchat/internal/store/store_test.go` for harness setup (temp gorm DB + in-memory event store + `ax.WaitIdle`). **Block on `ax.WaitIdle(ctx)` — never sleep.**
+**Layer boundary — do not cross it.** This task builds ONLY the `internal/store` package. The top-level `agentrunner` package (`EventStore`, `StartInput`, OCC retry, the exported `ErrNotFound` bridge) is **Task 3's** deliverable; do not create it here.
+
+So the harness drives the projection **directly through asynx**, sending `agentrunner/internal/commands` types via `ax.SendWait` — which is exactly what the real sibling harness does. Model it on `api/internal/app/repositories/agentchat/internal/store/store_test.go`, and use the store package's **local** `ErrNotFound` sentinel (the top-level package bridges it outward via `mapNotFound` later, mirroring `agentchat`).
+
+The test bodies below are written against the eventual repo API for readability; **translate the plumbing** (`h.repo.Start(...)` → send `commands.Start{...}` through asynx) while keeping **every scenario and assertion exactly as written**.
+
+**Block on asynx's own signal — never sleep, never poll.** Projections are asynchronous; a sleeping test will be rejected in review.
 
 ```go
 // api/internal/app/repositories/agentrunner/internal/store/store_test.go
