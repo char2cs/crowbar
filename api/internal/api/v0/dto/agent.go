@@ -115,4 +115,11 @@ type AgentChatEvent struct {
 	ChatID      string `json:"chatId"`
 	WorkspaceID string `json:"workspaceId"`
 	Kind        string `json:"kind"`
+	// RunnerID names the vendor-CLI process the frame is about, and is set ONLY on
+	// the agent-RUNNER kinds (started/session_bound/moved/exited — see
+	// hub.BroadcastAgentRunner), which ride this same workspace-scoped feed rather
+	// than a second socket. It is empty on the chat kinds, which are about the chat
+	// itself and name no process. A `moved` frame's ChatID is the chat the runner
+	// moved INTO, so a client re-points the tab that was following RunnerID.
+	RunnerID string `json:"runnerId,omitempty"`
 }

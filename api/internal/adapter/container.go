@@ -27,6 +27,7 @@ const (
 	workspaceDBName    = "workspace.db"
 	reviewThreadDBName = "review_thread.db"
 	agentChatDBName    = "agent_chat.db"
+	agentRunnerDBName  = "agent_runner.db"
 )
 
 // Container is the persistence layer.
@@ -45,11 +46,13 @@ type Container struct {
 
 	// Per-type handles (quiver-faithful): one event log + one read-model DB per
 	// aggregate type, routed to many aggregate ids by shard hash.
-	workspaceEventStore asynxModels.Store
-	workspaceStoreDB    *gormdb.DB
-	reviewThreadView    *gormdb.DB
-	agentChatEventStore asynxModels.Store
-	agentChatStoreDB    *gormdb.DB
+	workspaceEventStore   asynxModels.Store
+	workspaceStoreDB      *gormdb.DB
+	reviewThreadView      *gormdb.DB
+	agentChatEventStore   asynxModels.Store
+	agentChatStoreDB      *gormdb.DB
+	agentRunnerEventStore asynxModels.Store
+	agentRunnerStoreDB    *gormdb.DB
 
 	globalView *gormdb.DB
 
@@ -180,6 +183,18 @@ func newLocked(
 	}
 	rollback = append(rollback, func() error { return closeViewDB(agentChatStoreDB) })
 
+	agentRunnerEventStore, err := eventsqlite.NewEventStore(filepath.Join(eventsDir, agentRunnerDBName))
+	if err != nil {
+		return nil, fmt.Errorf("adapter: agent runner event store: %w", err)
+	}
+	rollback = append(rollback, func() error { return closeEventStore(agentRunnerEventStore) })
+
+	agentRunnerStoreDB, err := storesqlite.OpenReadPoolDB(filepath.Join(storeDir, agentRunnerDBName))
+	if err != nil {
+		return nil, fmt.Errorf("adapter: agent runner store db: %w", err)
+	}
+	rollback = append(rollback, func() error { return closeViewDB(agentRunnerStoreDB) })
+
 	globalView, err := storesqlite.OpenReadPoolDB(filepath.Join(stateDir, viewDBName))
 	if err != nil {
 		return nil, fmt.Errorf("adapter: global view: %w", err)
@@ -187,15 +202,17 @@ func newLocked(
 	rollback = append(rollback, func() error { return closeViewDB(globalView) })
 
 	c = &Container{
-		crowbarHome:         home,
-		reviewThreadES:      reviewThreadES,
-		workspaceEventStore: workspaceEventStore,
-		workspaceStoreDB:    workspaceStoreDB,
-		reviewThreadView:    reviewThreadView,
-		agentChatEventStore: agentChatEventStore,
-		agentChatStoreDB:    agentChatStoreDB,
-		globalView:          globalView,
-		lock:                lock,
+		crowbarHome:           home,
+		reviewThreadES:        reviewThreadES,
+		workspaceEventStore:   workspaceEventStore,
+		workspaceStoreDB:      workspaceStoreDB,
+		reviewThreadView:      reviewThreadView,
+		agentChatEventStore:   agentChatEventStore,
+		agentChatStoreDB:      agentChatStoreDB,
+		agentRunnerEventStore: agentRunnerEventStore,
+		agentRunnerStoreDB:    agentRunnerStoreDB,
+		globalView:            globalView,
+		lock:                  lock,
 	}
 	c.globalClosers = collectClosers(reviewThreadES)
 	return c, nil
@@ -244,6 +261,23 @@ func (c *Container) AgentChatReadDB() *gormdb.DB {
 	return c.agentChatStoreDB
 }
 
+// AgentRunnerES returns the agent-runner event log at
+// state/events/agent_runner.db. This is the singleton per-type handle: the app
+// layer builds ONE axAgentRunner over it and routes every runner id to a shard by
+// hash, mirroring WorkspaceES/ReviewThreadES/AgentChatES.
+func (c *Container) AgentRunnerES() asynxModels.Store {
+	return c.agentRunnerEventStore
+}
+
+// AgentRunnerReadDB returns the agent-runner read-model DB at
+// state/store/agent_runner.db, opened as a read pool (decision 12). It holds BOTH
+// runner projections: the live-runner model (rows exist exactly while their CLI
+// runs — no status column, so nothing can go stale) and the append-only
+// conversation history, mirroring AgentChatReadDB/WorkspaceView.
+func (c *Container) AgentRunnerReadDB() *gormdb.DB {
+	return c.agentRunnerStoreDB
+}
+
 // GlobalView returns the global view DB at state/view.db holding projects,
 // repositories, terminal profiles, and settings read models. It is a view DB, so
 // it is opened as a read pool (decision 12) — never the single-conn OpenDB that
@@ -285,6 +319,12 @@ func (c *Container) Close() error {
 		}
 		c.agentChatStoreDB = nil
 	}
+	if c.agentRunnerStoreDB != nil {
+		if err := closeViewDB(c.agentRunnerStoreDB); err != nil {
+			errs = append(errs, fmt.Errorf("adapter: close agent runner store db: %w", err))
+		}
+		c.agentRunnerStoreDB = nil
+	}
 
 	if c.globalView != nil {
 		if err := closeViewDB(c.globalView); err != nil {
@@ -304,6 +344,12 @@ func (c *Container) Close() error {
 			errs = append(errs, fmt.Errorf("adapter: close agent chat event store: %w", err))
 		}
 		c.agentChatEventStore = nil
+	}
+	if c.agentRunnerEventStore != nil {
+		if err := closeEventStore(c.agentRunnerEventStore); err != nil {
+			errs = append(errs, fmt.Errorf("adapter: close agent runner event store: %w", err))
+		}
+		c.agentRunnerEventStore = nil
 	}
 
 	for _, cl := range c.globalClosers {

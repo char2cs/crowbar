@@ -304,6 +304,29 @@ func (c *Container) PushAgentChat(
 	c.agentChats.Push(dto.AgentChatEvent{ChatID: chatID, WorkspaceID: workspaceID, Kind: kind})
 }
 
+// PushAgentRunner implements hub.Subscriber. It fans a runner lifecycle event
+// (started/session_bound/moved/exited) out on the SAME workspace-scoped
+// agent-chat WebSocket as PushAgentChat (GET .../workspaces/:wsId/agent/ws/chats)
+// — one feed for "what changed about this workspace's agent chats", whether the
+// change came from the chat aggregate or from the runner pointed at it. A second
+// socket would buy nothing and would have to be kept in order with the first.
+//
+// The frame is the same wire type, with RunnerID set (it is empty on the chat
+// kinds). Its ChatID is the chat the runner is pointed at AS OF this event, so a
+// `moved` frame tells the client which chat the CLI moved INTO and which tab must
+// follow it. agentChatDef's wsId Filter does the scoping, exactly as for
+// PushAgentChat; this method pushes unconditionally.
+func (c *Container) PushAgentRunner(
+	runnerID string,
+	workspaceID string,
+	chatID string,
+	kind string,
+) {
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID: chatID, WorkspaceID: workspaceID, Kind: kind, RunnerID: runnerID,
+	})
+}
+
 // projectsDef serves the Projects topic. Its hierarchical namespace is the bare
 // project id (spec §5). The snapshot returns every project as a wire DTO from
 // the GORM store; the per-client prefix predicate filters it (spec §9).

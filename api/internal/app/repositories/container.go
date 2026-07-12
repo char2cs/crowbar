@@ -17,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
@@ -31,8 +32,13 @@ type Container struct {
 	// live on axAgentChat and the agent usecase sends every AgentChat mutation
 	// through it (the gorm-backed store was retired in the Task 10 cutover).
 	AgentChat agentchat.EventStore
-	hub       hub.WebSocketHub
-	git       wsusecase.MergeConflictChecker
+	// AgentRunner is the asynx-backed EventStore for the running vendor CLI — the
+	// thing that MOVES between chats on /clear and /resume. Its store/hub
+	// projections are live on axAgentRunner, but nothing sends runner commands yet:
+	// the usecase cutover off AgentSegment is a later task. Purely additive today.
+	AgentRunner agentrunner.EventStore
+	hub         hub.WebSocketHub
+	git         wsusecase.MergeConflictChecker
 	// terminateSession is the terminal-engine seam the workspace-delete cascade
 	// (forgetAgentChats, Task 12) uses to kill a chat's live vendor-CLI PTY
 	// before Forgetting it. It is injected from the app layer (which owns the
@@ -69,13 +75,14 @@ type Container struct {
 	// — so the app layer assigns it after construction. Nil is safe: the unbind is
 	// skipped (a build/test with no agent registry wired).
 	ForgetChatRegistry func(chatID string)
-	// axWorkspace/axReviewThread/axAgentChat are the per-type asynx instances,
-	// retained so WaitQuiescent can drain their dispatch queues + projection
-	// handlers — the deterministic read-your-writes barrier for tests (no
+	// axWorkspace/axReviewThread/axAgentChat/axAgentRunner are the per-type asynx
+	// instances, retained so WaitQuiescent can drain their dispatch queues +
+	// projection handlers — the deterministic read-your-writes barrier for tests (no
 	// polling, no timeouts).
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
 	axAgentChat    asynx.Asynx[domain.AgentChat]
+	axAgentRunner  asynx.Asynx[domain.AgentRunner]
 	// inflight counts the background mutations currently running per workspace
 	// id (00 §4 fail-fast/good-path-async). It backs the derived Working overlay:
 	// the API layer brackets each async op with BeginWork/EndWork, and every
@@ -135,6 +142,7 @@ func New(
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	axWorkspace asynx.Asynx[domain.Workspace],
 	axAgentChat asynx.Asynx[domain.AgentChat],
+	axAgentRunner asynx.Asynx[domain.AgentRunner],
 	git wsusecase.MergeConflictChecker,
 	terminateSession func(ctx context.Context, sessionID string) error,
 ) (*Container, error) {
@@ -142,6 +150,7 @@ func New(
 		hub: h, git: git, inflight: map[string]int{},
 		agentWorking: map[string]map[string]struct{}{},
 		axWorkspace:  axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
+		axAgentRunner:    axAgentRunner,
 		terminateSession: terminateSession,
 	}
 	pathsStore, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
@@ -189,6 +198,21 @@ func New(
 		return nil, fmt.Errorf("repositories: agent working projection: %w", err)
 	}
 
+	// agentrunner: build the asynx-backed EventStore over the singleton
+	// axAgentRunner, registering its two read projections (live runners +
+	// append-only conversation history) and its hub projection exactly once, over
+	// its OWN per-type planes (state/events/agent_runner.db and
+	// state/store/agent_runner.db). h.BroadcastAgentRunner is the sole source of
+	// runner lifecycle frames. Nothing sends runner commands yet — the usecase
+	// cutover off AgentSegment is a later task — so this is purely additive: the
+	// projections are live but no event can reach them.
+	agentRunner, err := agentrunner.NewEventSourced(
+		axAgentRunner, adapters.AgentRunnerES(), adapters.AgentRunnerReadDB(), h.BroadcastAgentRunner)
+	if err != nil {
+		return nil, fmt.Errorf("repositories: agent runner event store: %w", err)
+	}
+	c.AgentRunner = agentRunner
+
 	// Wire the post-commit cross-aggregate reactions (spec §3.6): the workspace
 	// delete reactor + its review-thread AND agent-chat forget cascades, all
 	// joined to the shared drain WaitGroup so graceful shutdown can quiesce them
@@ -211,6 +235,7 @@ func (c *Container) WaitQuiescent() {
 	c.axWorkspace.WaitPublish()
 	c.axReviewThread.WaitPublish()
 	c.axAgentChat.WaitPublish()
+	c.axAgentRunner.WaitPublish()
 }
 
 // wireCallbacks registers the app-level cross-aggregate reactions on the singleton

@@ -38,14 +38,16 @@ type Container struct {
 	Usecases     *usecases.Container
 	Realtime     *realtime.Service
 
-	// axWorkspace, axReviewThread, and axAgentChat are the per-type asynx
-	// singletons (one per aggregate type, routing every id by shard hash). They
-	// are retained here so Task 15's ordered graceful shutdown can drain each via
-	// ax.Shutdown. axAgentChat is additive (Task 9): its store/hub projections
-	// are live, but the usecase does not consume it yet — that's a later cutover.
+	// axWorkspace, axReviewThread, axAgentChat, and axAgentRunner are the per-type
+	// asynx singletons (one per aggregate type, routing every id by shard hash).
+	// They are retained here so Task 15's ordered graceful shutdown can drain each
+	// via ax.Shutdown. axAgentRunner is the newest and is purely additive: its
+	// store/hub projections are live, but nothing sends runner commands yet — the
+	// usecase cutover off AgentSegment is a later task.
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
 	axAgentChat    asynx.Asynx[domain.AgentChat]
+	axAgentRunner  asynx.Asynx[domain.AgentRunner]
 }
 
 // New constructs the application layer from the engine and adapter containers
@@ -75,6 +77,17 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx agent chat: %w", err)
 	}
+	// axAgentRunner is the per-type singleton over state/events/agent_runner.db: the
+	// running vendor CLI is now a modelled aggregate of its own, so moving one
+	// between chats (/clear, /resume) is a single write to a single aggregate
+	// instead of a delete-here/insert-there across two chats with no transaction.
+	// Built and its projections registered (via repositories.New ->
+	// agentrunner.NewEventSourced); nothing SENDS runner commands yet — that
+	// cutover is a later task — so it is additive for now.
+	axAgentRunner, err := newAsynx[domain.AgentRunner](adapters.AgentRunnerES())
+	if err != nil {
+		return nil, fmt.Errorf("app: asynx agent runner: %w", err)
+	}
 
 	gormStores, err := newGORMStores(adapters.GlobalView())
 	if err != nil {
@@ -89,6 +102,7 @@ func New(
 		axReviewThread,
 		axWorkspace,
 		axAgentChat,
+		axAgentRunner,
 		engines.Git,
 		terminateAgentSession(engines.Terminal),
 	)
@@ -148,6 +162,7 @@ func New(
 		axWorkspace:    axWorkspace,
 		axReviewThread: axReviewThread,
 		axAgentChat:    axAgentChat,
+		axAgentRunner:  axAgentRunner,
 	}, nil
 }
 
@@ -187,6 +202,7 @@ func (c *Container) Shutdown(
 		c.axWorkspace.Shutdown(ctx),
 		c.axReviewThread.Shutdown(ctx),
 		c.axAgentChat.Shutdown(ctx),
+		c.axAgentRunner.Shutdown(ctx),
 	)
 }
 

@@ -38,4 +38,13 @@ type WebSocketHub interface {
 		workspaceID string,
 		kind string,
 	)
+	// BroadcastAgentRunner carries the CHAT id alongside the runner because the
+	// runner's placement IS the event: a `moved` frame names the chat the CLI moved
+	// into. See Hub.BroadcastAgentRunner.
+	BroadcastAgentRunner(
+		runnerID string,
+		workspaceID string,
+		chatID string,
+		kind string,
+	)
 }

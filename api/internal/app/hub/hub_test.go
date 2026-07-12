@@ -20,11 +20,19 @@ type fakeSubscriber struct {
 	gitStatuses []gitdomain.GitStatus
 	fileEvents  []domain.FileChangeEvent
 	agentChats  []agentChatPush
+	agentRunner []agentRunnerPush
 }
 
 type agentChatPush struct {
 	chatID      string
 	workspaceID string
+	kind        string
+}
+
+type agentRunnerPush struct {
+	runnerID    string
+	workspaceID string
+	chatID      string
 	kind        string
 }
 
@@ -77,6 +85,17 @@ func (f *fakeSubscriber) PushAgentChat(
 	kind string,
 ) {
 	f.agentChats = append(f.agentChats, agentChatPush{chatID: chatID, workspaceID: workspaceID, kind: kind})
+}
+
+func (f *fakeSubscriber) PushAgentRunner(
+	runnerID string,
+	workspaceID string,
+	chatID string,
+	kind string,
+) {
+	f.agentRunner = append(f.agentRunner, agentRunnerPush{
+		runnerID: runnerID, workspaceID: workspaceID, chatID: chatID, kind: kind,
+	})
 }
 
 func TestHub_BroadcastProject_FansOut(t *testing.T) {
@@ -189,6 +208,25 @@ func TestHub_BroadcastAgentChat_FansOut(t *testing.T) {
 	assert.Len(t, a.agentChats, 1)
 	assert.Len(t, b.agentChats, 1)
 	assert.Equal(t, agentChatPush{chatID: "c1", workspaceID: "w1", kind: "bound"}, a.agentChats[0])
+}
+
+// TestHub_BroadcastAgentRunner_FansOut pins the runner frame's shape: it carries
+// the CHAT the runner is pointed at as of the event, so a `moved` frame names the
+// chat the CLI moved INTO and a client can re-point the tab following that runner.
+func TestHub_BroadcastAgentRunner_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	h.BroadcastAgentRunner("r1", "w1", "chat-b", "moved")
+
+	assert.Len(t, a.agentRunner, 1)
+	assert.Len(t, b.agentRunner, 1)
+	assert.Equal(t,
+		agentRunnerPush{runnerID: "r1", workspaceID: "w1", chatID: "chat-b", kind: "moved"},
+		a.agentRunner[0])
 }
 
 func TestHub_NoSubscribers_DoesNotPanic(t *testing.T) {

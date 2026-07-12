@@ -117,6 +117,8 @@ func (fileProbe) PushTerminalSession(_ dto.TerminalSessionDTO) {}
 func (fileProbe) PushGit(_ string, _ gitdomain.GitStatus)      {}
 func (fileProbe) PushAgentChat(_ string, _ string, _ string)   {}
 
+func (fileProbe) PushAgentRunner(_ string, _ string, _ string, _ string) {}
+
 func (p fileProbe) PushFile(
 	e domain.FileChangeEvent,
 ) {

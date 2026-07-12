@@ -41,6 +41,8 @@ func (s *capturingSubscriber) PushTerminalSession(_ dto.TerminalSessionDTO) {}
 func (s *capturingSubscriber) PushFile(e domain.FileChangeEvent)            { s.files <- e }
 func (s *capturingSubscriber) PushAgentChat(_ string, _ string, _ string)   {}
 
+func (s *capturingSubscriber) PushAgentRunner(_ string, _ string, _ string, _ string) {}
+
 func (s *capturingSubscriber) PushGit(
 	wsID string,
 	status gitdomain.GitStatus,
