@@ -93,11 +93,15 @@ interface AgentChatPaneProps {
   isActivePane: boolean
 }
 
-// Headerless CossUI Frame: a flush FramePanel holding the live agent terminal,
-// and a FrameFooter whose only control is the provider-switch dropdown. The pane
-// tab is keyed by the stable chatId; the inner terminal is keyed by the segment's
-// terminalSessionId so a provider switch (new segment) remounts and re-attaches
-// in place without disturbing the tab.
+// Headerless CossUI Frame, used with its own styling intact: the muted shell
+// insets a bordered FramePanel that holds the live agent terminal, and a
+// FrameFooter carries the provider-switch dropdown. The only classes passed here
+// are the ones that make it fill the pane and clip the terminal to the panel's
+// radius — nothing that overrides how a Frame looks.
+//
+// The pane tab is keyed by the stable chatId; the inner terminal is keyed by the
+// segment's terminalSessionId so a provider switch (new segment) remounts and
+// re-attaches in place without disturbing the tab.
 export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentChatPaneProps) {
   const store = useWorkspaceStore()
   const activeSegmentId = useStore(
@@ -249,8 +253,8 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
   }
 
   return (
-    <Frame className="h-full w-full rounded-none bg-transparent p-0">
-      <FramePanel className="min-h-0 flex-1 rounded-none border-0 bg-transparent p-0 shadow-none before:hidden">
+    <Frame className="h-full w-full">
+      <FramePanel className="min-h-0 flex-1 overflow-hidden">
         {attachment.state === 'attached' && (
           <XtermTerminal
             key={attachment.sessionId}
@@ -288,7 +292,7 @@ export function AgentChatPane({ chatId, wsId, bufferId, isActivePane }: AgentCha
           </div>
         )}
       </FramePanel>
-      <FrameFooter className="flex items-center justify-start px-2 py-1.5">
+      <FrameFooter className="flex items-center">
         <ProviderSwitchDropdown
           providers={providers}
           currentProviderId={activeProviderId}

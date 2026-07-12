@@ -314,17 +314,30 @@ describe('AgentChatPane', () => {
     expect(document.querySelector('[data-slot="frame-panel-header"]')).toBeNull()
   })
 
-  it('flushes the FramePanel chrome — no border, background, padding or shadow', async () => {
+  it('keeps the Frame chrome intact — the pane must not strip the component it is built from', async () => {
     getChatFn.mockResolvedValue(detail())
     await renderPane(makeStore(chat()))
 
+    const frame = document.querySelector('[data-slot="frame"]')
     const panel = document.querySelector('[data-slot="frame-panel"]')
+    expect(frame).not.toBeNull()
     expect(panel).not.toBeNull()
-    // FramePanel's base class ships `shadow-xs/5` (a real box-shadow) plus the
-    // `before:` pseudo-shadow; both must be neutralized or a faint ring shows
-    // around the terminal, which the flush-pane spec forbids.
-    for (const cls of ['shadow-none', 'before:hidden', 'border-0', 'bg-transparent', 'p-0']) {
-      expect(panel?.classList.contains(cls)).toBe(true)
+
+    // The chat pane IS a CossUI Frame: the muted shell insets a bordered,
+    // rounded panel that carries the terminal. An earlier revision imported
+    // Frame and then overrode every class that gives it that look, which
+    // rendered the pane as a bare full-bleed div. Passing layout classes is
+    // fine; neutralizing the component's own chrome is what this forbids.
+    for (const cls of [
+      'rounded-none',
+      'bg-transparent',
+      'p-0',
+      'border-0',
+      'shadow-none',
+      'before:hidden',
+    ]) {
+      expect(frame?.classList.contains(cls), `Frame must not override ${cls}`).toBe(false)
+      expect(panel?.classList.contains(cls), `FramePanel must not override ${cls}`).toBe(false)
     }
   })
 
