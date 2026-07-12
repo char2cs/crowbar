@@ -129,6 +129,7 @@ func New(
 		return nil, err
 	}
 	startRestoreTerminalSessions(ctx, ucs)
+	reconcileAgentRunners(ctx, ucs)
 
 	rt := realtime.New(
 		ctx,
@@ -396,19 +397,45 @@ func startRestoreTerminalSessions(
 	_ = ucs.Terminal.RestorePersistedSessions(context.WithoutCancel(ctx))
 }
 
-// NOTE (runner model): the two agent boot hooks that used to run here are gone
-// with AgentSegment.
+// reconcileAgentRunners reaps the live-runner rows of the previous run: agent_runners is
+// durable sqlite and is never truncated at boot, but a PTY never survives a restart, so
+// every row the daemon comes back to describes a CLI that no longer exists. Nothing
+// recorded those deaths — the only thing that ever does is an exit callback that lived in
+// the process that went away.
 //
-//   - seedAgentRegistry rehydrated an in-memory session→chat index from persisted
-//     segments. There is nothing left to rehydrate: the index is now the runner
-//     aggregate's append-only conversation history, which is already durable and
-//     answers ChatForSession straight from the read model.
+// A stale row is not cosmetic: it is indistinguishable from a running CLI to every read in
+// the agent package, so it BRICKS the chat it names (ResumeChat finds it and no-ops, and
+// the pane attaches to a dead terminal session) and, if the chat was mid-turn, spins its
+// spinner forever. This runs on EVERY boot, so those states last until this call, not
+// until the user gives up.
 //
-//   - reconcileAgentBoot ended segments whose PTY had died with the daemon. Its
-//     successor reconciles RUNNERS against the PTY — the single authority on
-//     liveness — and is wired back in here by the next task in this series. Until
-//     then, a restart leaves the live-runner rows of the previous run in place
-//     until each chat is next opened.
+// It runs SYNCHRONOUSLY and AFTER startRestoreTerminalSessions, and both matter.
+// Synchronously, because the first client read must not race it: an HTTP read that beats
+// the reconcile is served a corpse. After the restore, because the restore repopulates the
+// terminal registry — the reconcile asks it (SessionLive) whether each runner's PTY is
+// backed by a live process, and asking a registry that is still filling up would reap
+// runners on no evidence at all.
+//
+// Best-effort: a failure is logged and the daemon still boots. The chats it could not
+// reconcile are no worse off than they were a line earlier, and refusing to start the
+// daemon over them would be strictly worse.
+//
+// (Its sibling, seedAgentRegistry, is NOT coming back: it rehydrated an in-memory
+// session→chat index from persisted segments, and that index is now the runner aggregate's
+// append-only conversation history — already durable, and answering ChatForSession straight
+// from the read model.)
+func reconcileAgentRunners(
+	ctx context.Context,
+	ucs *usecases.Container,
+) {
+	if ucs.Agent == nil {
+		return
+	}
+	if err := ucs.Agent.ReconcileRunnersOnBoot(context.WithoutCancel(ctx)); err != nil {
+		slog.WarnContext(ctx, "app: reconcile agent runners on boot", "err", err)
+	}
+}
+
 func sweepCallback(
 	ctx context.Context,
 	ucs *usecases.Container,

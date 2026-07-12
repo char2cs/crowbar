@@ -231,10 +231,12 @@ func TestSpawnChat_CreatesChatAndRunner_AndSpawnsTheCLI(t *testing.T) {
 func TestSpawnRunner_TmpDirSurvivesSpawnAndIsRemovedOnlyWhenThePTYDies(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, runnerID := f.spawn(t, "claude")
+	_, runnerID := f.spawn(t, "claude")
 
-	// <chatsDir>/<chatID>/<runnerID>-<provider>: the runner id is the spawn key.
-	tmpDir := worktreepath.SegmentDir(f.ws.chatsDir, chatID, runnerID, "claude")
+	// <chatsDir>/runners/<runnerID>-<provider>: keyed by the RUNNER, not the chat, so the
+	// dir stays findable from a bare runner row even after Displace erases its chat pointer
+	// (see worktreepath.RunnerDir).
+	tmpDir := worktreepath.RunnerDir(f.ws.chatsDir, runnerID, "claude")
 	info, err := os.Stat(tmpDir)
 	require.NoError(t, err, "the tmp dir must exist immediately after spawn")
 	assert.True(t, info.IsDir())

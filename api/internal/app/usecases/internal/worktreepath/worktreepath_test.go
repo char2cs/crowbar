@@ -187,7 +187,7 @@ func TestDerive_AppendsWorktreeLeaf(t *testing.T) {
 	}
 }
 
-func TestChatsAndLedgerAndSegmentDirs_SiblingOfWorktree(t *testing.T) {
+func TestChatsAndLedgerAndRunnerDirs_SiblingOfWorktree(t *testing.T) {
 	wt := "/home/.crowbar/projects/proj1/github.com/acme/repo/feat-x/worktree"
 	root := "/home/.crowbar/projects/proj1/github.com/acme/repo/feat-x"
 
@@ -198,15 +198,36 @@ func TestChatsAndLedgerAndSegmentDirs_SiblingOfWorktree(t *testing.T) {
 	if want := root + "/chats"; chats != want {
 		t.Fatalf("ChatsDir = %q, want %q", chats, want)
 	}
-	// AgentLedgerDir/SegmentDir now take the resolved chats dir (Task 7): the
-	// caller decides where chats live (sibling of a managed worktree, or rerooted
-	// under home for an adopted checkout), and these helpers only hang the per-chat
-	// leaves off it.
+	// AgentLedgerDir/RunnerDir take the resolved chats dir (Task 7): the caller
+	// decides where chats live (sibling of a managed worktree, or rerooted under home
+	// for an adopted checkout), and these helpers only hang the leaves off it.
 	if got, want := AgentLedgerDir(chats, "chatA"), root+"/chats/chatA/ledger"; got != want {
 		t.Fatalf("AgentLedgerDir = %q, want %q", got, want)
 	}
-	if got, want := SegmentDir(chats, "chatA", "seg1", "claude"), root+"/chats/chatA/seg1-claude"; got != want {
-		t.Fatalf("SegmentDir = %q, want %q", got, want)
+	// The runner's tmp dir hangs off the CHATS dir, not off a chat: it is keyed by the
+	// runner id + provider, the two things a Displace cannot erase, so boot
+	// reconciliation can still find it for a runner that is placed nowhere.
+	if got, want := RunnerDir(chats, "run1", "claude"), root+"/chats/runners/run1-claude"; got != want {
+		t.Fatalf("RunnerDir = %q, want %q", got, want)
+	}
+}
+
+// TestRunnerDir_DoesNotDependOnTheChat is the whole point of the layout, pinned: two
+// runners of the same chat get distinct dirs, and one runner's dir is the SAME string
+// however its chat pointer changes (or is erased). A path that varied with the chat could
+// not be derived from a displaced runner's row at all — and a displaced runner whose kill
+// failed is exactly the crash orphan boot reconciliation has to reap.
+func TestRunnerDir_DoesNotDependOnTheChat(t *testing.T) {
+	chats := "/home/.crowbar/projects/p/slug/branch/chats"
+
+	if a, b := RunnerDir(chats, "run1", "claude"), RunnerDir(chats, "run2", "claude"); a == b {
+		t.Fatalf("two runners must not share a tmp dir: both = %q", a)
+	}
+	if a, b := RunnerDir(chats, "run1", "claude"), RunnerDir(chats, "run1", "codex"); a == b {
+		t.Fatalf("a re-spawn under another provider must not share a tmp dir: both = %q", a)
+	}
+	if got, want := RunnerDir(chats, "run1", "claude"), chats+"/runners/run1-claude"; got != want {
+		t.Fatalf("RunnerDir = %q, want %q — derivable from the runner alone", got, want)
 	}
 }
 

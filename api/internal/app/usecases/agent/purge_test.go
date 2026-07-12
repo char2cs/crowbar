@@ -176,22 +176,27 @@ func TestPurgeChat_TerminateFailure_OtherError_IsBestEffort_StillPurges(t *testi
 }
 
 // TestPurgeChat_ReapsChatDirOnDisk: a standalone hard delete must remove the chat's
-// PLAINTEXT on-disk footprint (its handoff ledger + any residual per-spawn tmp dir),
-// not only Forget the aggregate.
+// PLAINTEXT on-disk footprint (its handoff ledger), not only Forget the aggregate.
+//
+// It does NOT remove the runner's tmp dir, which is not the chat's to remove: that dir is
+// the config of a PROCESS that is still alive (we have asked it to quit, and a SIGTERM is
+// not synchronous), and it is keyed by the runner rather than the chat precisely so that it
+// can be reaped when the process actually dies — or, if the daemon dies first, at the next
+// boot (worktreepath.RunnerDir).
 func TestPurgeChat_ReapsChatDirOnDisk(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
 
 	chatDir := filepath.Join(f.ws.chatsDir, chatID)
-	segDir := worktreepath.SegmentDir(f.ws.chatsDir, chatID, runnerID, "claude")
-	_, err := os.Stat(segDir)
-	require.NoError(t, err, "precondition: the spawned runner's dir exists under the chat dir")
+	ledgerDir := worktreepath.AgentLedgerDir(f.ws.chatsDir, chatID)
+	turn(t, f, runnerID, "claude", "a turn, so the chat has a plaintext ledger on disk")
+	require.DirExists(t, ledgerDir, "precondition: the chat's plaintext ledger is on disk")
 
 	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
 
-	_, err = os.Stat(chatDir)
-	assert.True(t, os.IsNotExist(err), "purge must reap the chat's on-disk dir (ledger + tmp)")
+	_, err := os.Stat(chatDir)
+	assert.True(t, os.IsNotExist(err), "purge must reap the chat's on-disk dir (its ledger)")
 }
 
 // TestPurgeChat_ReapFailure_StillPurges: the on-disk reap is best-effort — even if the

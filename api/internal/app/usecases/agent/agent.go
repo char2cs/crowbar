@@ -277,11 +277,18 @@ func (u *Usecase) PurgeChat(
 			"chat_id", chatID, "err", err)
 	}
 
-	// Reap the chat's on-disk footprint (the handoff ledger + any residual per-spawn
-	// tmp dir) now the aggregate is gone; a standalone hard delete would otherwise
-	// leave this chat's PLAINTEXT ledger behind. The removal is routed through
-	// RemoveUnderHome, which re-asserts the target is strictly under crowbar home, so
-	// even a poisoned chats dir can never reach the user's real repository.
+	// Reap the chat's on-disk footprint — its handoff ledger — now the aggregate is gone;
+	// a standalone hard delete would otherwise leave this chat's PLAINTEXT ledger behind.
+	//
+	// NOT the runner's tmp dir, which no longer lives under the chat (worktreepath.RunnerDir)
+	// and is no business of the chat's: it belongs to the PROCESS lifecycle, and the process
+	// we have just SIGTERM'd is still alive and still reading it. Removing a live CLI's
+	// config out from under it was only ever an accident of the old layout. It goes when the
+	// PTY does (onExit), or at the next boot if the daemon died first.
+	//
+	// The removal is routed through RemoveUnderHome, which re-asserts the target is strictly
+	// under crowbar home, so even a poisoned chats dir can never reach the user's real
+	// repository.
 	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: purge chat: resolve chats dir for reap (best-effort, continuing)",
@@ -438,6 +445,107 @@ func (u *Usecase) closeAbandonedTurn(
 	}
 }
 
+// ReconcileRunnersOnBoot runs ONCE at startup. A PTY does not survive a daemon restart, so
+// every runner whose terminal session is not backed by a live process is dead — and NOTHING
+// recorded those deaths, because the only thing that ever records one is an exit callback
+// living in the process that just went away. What the daemon comes back to is a durable
+// sqlite table (agent_runners is never truncated) full of live rows describing CLIs that no
+// longer exist.
+//
+// Leaving them there is not a cosmetic staleness. A stale row is indistinguishable from a
+// running CLI to every read in this package, so it BRICKS the chat it names: ResumeChat asks
+// LiveRunnerForChat first, is handed the corpse, and returns it as a no-op — the Resume
+// button silently does nothing, forever, and the pane attaches to a dead terminal session.
+//
+// This is the ONE place liveness is reconciled, and it reconciles against the PTY — the
+// single authority. It replaces the old boot reactor that ended SEGMENTS, which maintained a
+// SECOND opinion about liveness and could therefore disagree with reality (observed: a
+// segment reading "ended" while its CLI was demonstrably still running).
+//
+// It is driven off ALL live runners, not off the chats. A runner Displace has taken off its
+// chat is placed NOWHERE, so no chat can reach it — and if the kill that followed the
+// Displace failed, its row is otherwise immortal. Those rows are precisely the ones nothing
+// else will ever clean up, and a chat-driven sweep would walk straight past them.
+//
+// Best-effort per runner: one runner's failure is logged and the rest are still reconciled.
+// A boot hook that gives up halfway leaves an arbitrary suffix of chats bricked.
+func (u *Usecase) ReconcileRunnersOnBoot(
+	ctx context.Context,
+) error {
+	runners, err := u.runners.AllLive(ctx)
+	if err != nil {
+		return fmt.Errorf("agent: boot reconcile: list runners: %w", err)
+	}
+	for _, r := range runners {
+		// SessionLive is the seam that asks "is this PROCESS alive", NOT the engine's
+		// SessionExists, which is also true for a PTY-less suspended placeholder — a session
+		// whose process is already dead and whose only remaining substance is scrollback on
+		// disk. Restoring those placeholders is the boot step immediately before this one, so
+		// asking the registry "do you know this id?" here would answer yes for every single
+		// dead agent CLI and reconcile NOTHING. That is the exact mistake that let a
+		// restart-orphaned chat go on advertising a live agent.
+		if u.term.SessionLive(ctx, r.TerminalSession) {
+			continue
+		}
+		// Read the placement BEFORE the Exit: it is the chat whose turn this CLI abandoned.
+		abandoned := r.CurrentChatID
+
+		if _, err := u.runners.Exit(ctx, r.ID, time.Now()); err != nil {
+			slog.ErrorContext(ctx, "agent: boot reconcile: exit dead runner (best-effort, continuing)",
+				"runner_id", r.ID, "terminal_session_id", r.TerminalSession, "err", err)
+			continue
+		}
+		u.reapCrashOrphanRunnerTmp(ctx, r)
+
+		// Close the turn it died in the middle of. Turn state has never been durable truth
+		// (domain.AgentChat.Working is documented as reconciled, not authoritative — a CLI
+		// that dies mid-turn never sends the turn_stop hook that would close it), so
+		// repairing it asserts nothing about any process. Without this, a chat that was
+		// working when the daemon died comes back spinning and spins forever, and the
+		// workspace's whole overlay spins with it.
+		//
+		// The Exit above is SendWait, so the "is anyone still on this chat" read inside can
+		// no longer see the runner we have just reaped.
+		u.closeAbandonedTurn(ctx, abandoned)
+	}
+	return nil
+}
+
+// reapCrashOrphanRunnerTmp removes the per-spawn tmp dir of a runner whose PTY died with the
+// daemon. On a clean exit the onExit callback rm's it; a crash is exactly the case where that
+// callback never ran, so these dirs are the one orphan class that accumulates forever.
+//
+// They hold the rendered hook config and nothing else — no descriptor copies a credential
+// into them, and none may (the engine's only inject verbs are set_env, write_file and
+// pass_arg; there is no copy_file). So this is hygiene, not a leak.
+//
+// The path is derived from the RUNNER (id + provider + workspace), never from its chat: the
+// runners this most needs to reap are the DISPLACED ones, and Displace erases CurrentChatID.
+// See worktreepath.RunnerDir — a tmp dir that could only be found through a pointer the
+// system is free to erase is a tmp dir that cannot be reaped.
+//
+// Best-effort: the workspace may be gone, and a leftover directory is a far smaller harm than
+// a boot hook that aborts. RemoveUnderHome re-asserts the target is strictly under crowbar
+// home, so even a poisoned chats dir can never make this reach the user's real filesystem.
+func (u *Usecase) reapCrashOrphanRunnerTmp(
+	ctx context.Context,
+	runner domain.AgentRunner,
+) {
+	chatsDir, err := u.ws.AgentChatsDir(ctx, runner.WorkspaceID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: boot reconcile: reap runner tmp: chats dir (best-effort, continuing)",
+			"runner_id", runner.ID, "workspace_id", runner.WorkspaceID, "err", err)
+		return
+	}
+	home, _, _, _, err := u.ws.WorktreeDir(ctx, runner.WorkspaceID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: boot reconcile: reap runner tmp: home (best-effort, continuing)",
+			"runner_id", runner.ID, "workspace_id", runner.WorkspaceID, "err", err)
+		return
+	}
+	RemoveUnderHome(ctx, home, worktreepath.RunnerDir(chatsDir, runner.ID, runner.ProviderID))
+}
+
 // deriveTitle turns a user prompt into a short chat title: the first non-empty
 // line, trimmed, capped to 60 runes.
 func deriveTitle(prompt string) string {
@@ -517,16 +625,21 @@ func (u *Usecase) spawnRunner(
 		return "", fmt.Errorf("agent: spawn runner: resolve descriptor: %w", err)
 	}
 
-	// Under the workspace's chats dir (always beneath crowbar home), keyed by
-	// chatID+runnerID+providerID so it is deterministic per spawn. It holds the rendered
-	// hook config the CLI is pointed at, and must survive for the whole life of that CLI
-	// — so it is removed via onExit below (on PTY death), never eagerly after spawn.
+	// Under the workspace's chats dir (always beneath crowbar home), keyed by the RUNNER —
+	// id + provider — and NOT by the chat. The chat pointer is erasable (Displace clears it
+	// while the process still runs), and a dir that can only be found through an erasable
+	// pointer can never be reaped; see worktreepath.RunnerDir. This path is derivable from
+	// a bare runner row forever, which is what lets BOTH removers find it: onExit below on a
+	// clean death, and boot reconciliation when the daemon died before onExit could run.
+	//
+	// It holds the rendered hook config the CLI is pointed at, and must survive for the
+	// whole life of that CLI — so it is removed on PTY death, never eagerly after spawn.
 	//
 	// It holds no secret: a provider owns its own credentials and Crowbar never copies
 	// them anywhere (that rule is why CODEX_HOME is not ours, and why codex's sessions
 	// survive a switch). Nothing in the descriptors puts a credential here, and nothing
 	// may.
-	tmpDir := worktreepath.SegmentDir(chatsDir, chatID, runnerID, providerID)
+	tmpDir := worktreepath.RunnerDir(chatsDir, runnerID, providerID)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return "", fmt.Errorf("agent: spawn runner: mkdir tmp: %w", err)
 	}

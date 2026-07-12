@@ -152,6 +152,23 @@ func (f *fakeCommander) exit(t *testing.T, sessionID string) {
 	onExit()
 }
 
+// dieWithDaemon models a DAEMON RESTART: every PTY dies, and NO onExit callback ever
+// fires. That second half is the whole point, and it is what makes a restart different
+// from every other death in these tests — the callback lives in the process that just
+// went away, so nothing records the deaths. What survives is a durable sqlite table full
+// of live-runner rows describing CLIs that no longer exist, which is exactly the state
+// boot reconciliation is handed.
+func (f *fakeCommander) dieWithDaemon() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.deadSessions == nil {
+		f.deadSessions = map[string]bool{}
+	}
+	for id := range f.byID {
+		f.deadSessions[id] = true
+	}
+}
+
 func (f *fakeCommander) callCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
