@@ -38,6 +38,29 @@ config_injection:
   # codex prompts to self-update on startup, which would eat the first keystrokes
   # in the chat pane.
   - pass_arg: { arg: "-c", value: 'check_for_update_on_startup=false' }
+  # workspace-write DENIES NETWORK, and on macOS a unix-socket connect IS network — so a
+  # sandboxed codex cannot reach the daemon at all. That is not theoretical: `crowbar chat
+  # rename` is the one command Crowbar asks the AGENT to run, an agent runs it as a TOOL,
+  # a tool runs inside the sandbox, and so it died every single time on
+  #
+  #   crowbar chat rename --segment <id>: connect: operation not permitted
+  #
+  # which is why codex could never title its own chat. It hid for so long because codex's
+  # HOOKS are unaffected — codex spawns those OUTSIDE the sandbox — so sessions bound and
+  # turns landed and everything looked healthy.
+  #
+  # This grants NETWORK, not the filesystem: codex still cannot write outside the
+  # workspace, so the sandbox keeps doing the job it is there for. What it ends is an
+  # asymmetry nobody chose. claude runs with NO kernel sandbox at all (--permission-mode
+  # auto is a policy inside claude, not a seatbelt) and has had unrestricted network the
+  # whole time; codex had none, so it could not fetch a doc or install a package while its
+  # peer could. Even after this, codex remains the more confined of the two.
+  #
+  # And there is no gentler knob to reach for: `--full-auto` was REMOVED in 0.139 ("use
+  # --sandbox workspace-write instead"), so workspace-write IS codex's auto mode. The
+  # sandbox is not a setting we picked over a laxer one — it is the mode — and network is
+  # the one dimension of it we actually need back.
+  - pass_arg: { arg: "-c", value: 'sandbox_workspace_write.network_access=true' }
   # The hooks Crowbar listens on. They are the ONLY thing it injects: the segment
   # id travels in the command itself, so nothing is written to disk and nothing of
   # the user's is overridden — their own ~/.codex/hooks.json still fires alongside
