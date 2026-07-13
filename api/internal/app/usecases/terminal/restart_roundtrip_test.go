@@ -20,7 +20,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,27 +35,42 @@ import (
 // restartConn — minimal WSConn that captures received frames.
 // ---------------------------------------------------------------------------
 
-// restartConn implements engine/terminal.WSConn. WriteMessage appends frames
-// to an in-memory slice (never errors), ReadMessage blocks until the conn is
-// closed. This lets us capture all PTY output for assertion without blocking
-// the session on a network.
+// restartFrame is the decoded wire frame the engine's writePump emits. Snapshot
+// marks a serialized SCREEN-MODEL redraw (the scrollback replay handed to a
+// freshly attached client); a frame without it is live output the restored PTY
+// produced just now. The distinction is the test's readiness signal — see
+// waitForLiveOutput.
+type restartFrame struct {
+	Data     string `json:"data"`
+	Snapshot bool   `json:"snapshot"`
+}
+
+// restartConn implements engine/terminal.WSConn. WriteMessage decodes each frame
+// into an in-memory slice (never errors) and broadcasts on a sync.Cond so a
+// waiter wakes on the REAL arrival of output; ReadMessage blocks until the conn
+// is closed. This lets us capture all PTY output for assertion without blocking
+// the session on a network — and without a single clock.
 type restartConn struct {
 	mu        sync.Mutex
-	inbox     [][]byte
+	cond      *sync.Cond
+	inbox     []restartFrame
 	closed    chan struct{}
 	closeOnce sync.Once
 }
 
 func newRestartConn() *restartConn {
-	return &restartConn{closed: make(chan struct{})}
+	c := &restartConn{closed: make(chan struct{})}
+	c.cond = sync.NewCond(&c.mu)
+	return c
 }
 
 func (r *restartConn) WriteMessage(_ int, data []byte) error {
-	cp := make([]byte, len(data))
-	copy(cp, data)
+	var f restartFrame
+	_ = json.Unmarshal(data, &f) // a frame we cannot decode simply matches nothing
 	r.mu.Lock()
-	r.inbox = append(r.inbox, cp)
-	r.mu.Unlock()
+	defer r.mu.Unlock()
+	r.inbox = append(r.inbox, f)
+	r.cond.Broadcast()
 	return nil
 }
 
@@ -67,43 +81,55 @@ func (r *restartConn) ReadMessage() (int, []byte, error) {
 
 func (r *restartConn) Close() error {
 	r.closeOnce.Do(func() { close(r.closed) })
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cond.Broadcast() // wake any waiter so it re-evaluates against the final inbox
 	return nil
 }
 
-// hasContent reports whether any received frame satisfies pred.
-func (r *restartConn) hasContent(pred func(string) bool) bool {
+// waitFor blocks until some received frame satisfies pred, woken by this conn's
+// own WriteMessage — a REAL signal, never a poll.
+//
+// There is deliberately NO deadline: a PTY-backed login shell's start-up cost is
+// the user's ~/.zshrc, which under CPU load runs an order of magnitude slower
+// than on an idle machine. Any fixed wait here is a GUESS about someone else's
+// shell, and the previous 5 s guess is exactly what made this test fail in the
+// full suite while passing alone. Blocking on the arrival of output instead makes
+// a slow machine merely slow, never red; `go test -timeout` is the only backstop.
+func (r *restartConn) waitFor(pred func(restartFrame) bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, raw := range r.inbox {
-		var msg struct {
-			Data string `json:"data"`
+	for {
+		for _, f := range r.inbox {
+			if pred(f) {
+				return
+			}
 		}
-		if json.Unmarshal(raw, &msg) == nil && pred(msg.Data) {
-			return true
-		}
+		r.cond.Wait()
 	}
-	return false
+}
+
+// waitForData blocks until any received frame's payload satisfies pred.
+func (r *restartConn) waitForData(pred func(string) bool) {
+	r.waitFor(func(f restartFrame) bool { return pred(f.Data) })
+}
+
+// waitForLiveOutput blocks until the session emits a NON-snapshot frame: output
+// the PTY produced live, as opposed to the replayed screen-model snapshot handed
+// to a client on attach.
+//
+// On a RESTORED session this is the readiness signal that the re-spawned shell
+// really came up: the scrollback replay lands instantly (it is read from disk),
+// so it proves nothing about the new process. Blocking on the shell's own first
+// byte — its prompt/title — is what proves the restore produced a working shell,
+// and it is a real signal rather than "surely a shell boots within N seconds".
+func (r *restartConn) waitForLiveOutput() {
+	r.waitFor(func(f restartFrame) bool { return !f.Snapshot && len(f.Data) > 0 })
 }
 
 type restartConnClosedErr struct{}
 
 func (e *restartConnClosedErr) Error() string { return "restartConn: connection closed" }
-
-// waitForRestartContent polls conn.hasContent until pred returns true or timeout.
-func waitForRestartContent(t *testing.T, conn *restartConn, pred func(string) bool, timeout time.Duration) bool {
-	t.Helper()
-	deadline := time.After(timeout)
-	for {
-		if conn.hasContent(pred) {
-			return true
-		}
-		select {
-		case <-deadline:
-			return false
-		case <-time.After(20 * time.Millisecond):
-		}
-	}
-}
 
 // rrHas reports whether s contains sub (simple substring check).
 func rrHas(s, sub string) bool {
@@ -186,10 +212,13 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 	// ---- Engine #1: create, drive output, graceful Shutdown. ----
 	//
 	// The background 10-second maintenance ticker is not stopped here because
-	// StopMaintenanceForTest is package-internal to the engine. The ticker
-	// cannot interfere: (a) the session has a client attached so it's
-	// ineligible for suspension, (b) the test drives and shuts down well
-	// within 10 s, and (c) all shared state is mutex-protected (race-safe).
+	// StopMaintenanceForTest is package-internal to the engine. It cannot
+	// interfere with the assertions regardless of how long a loaded machine
+	// makes this test take: a session with a client attached is ineligible for
+	// suspension, the sweep's only other effect is a scrollback flush (which is
+	// exactly what this test wants persisted anyway), and all shared state is
+	// mutex-protected (race-safe). Nothing below depends on the test finishing
+	// within a tick.
 	eng1 := engineterminal.New()
 	eng1.SetMetaStore(ms1)
 
@@ -207,19 +236,15 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 		_ = eng1.Attach(ctx, sessionID, conn1)
 	}()
 
-	// Wait for the shell to emit its initial prompt — confirms the PTY is live
-	// and the ring buffer has content that Shutdown can flush to disk.
-	require.True(t,
-		waitForRestartContent(t, conn1, func(data string) bool { return len(data) > 0 }, 10*time.Second),
-		"engine #1: must receive initial PTY output (shell prompt)")
+	// Block until the shell emits its initial prompt — the real signal that the
+	// PTY is live and the model has content Shutdown can flush to disk.
+	conn1.waitForData(func(data string) bool { return len(data) > 0 })
 
-	// Inject a known marker so we can assert scrollback content post-restart.
+	// Inject a known marker so we can assert scrollback content post-restart, and
+	// block until the PTY echoes it back — the real signal that the marker is in
+	// the model (and so will be in the .buf Shutdown writes).
 	require.NoError(t, eng1.Write(ctx, sessionID, []byte("echo restart-crossboundary-marker\n")))
-	require.True(t,
-		waitForRestartContent(t, conn1, func(data string) bool {
-			return rrHas(data, "restart-crossboundary-marker")
-		}, 5*time.Second),
-		"engine #1: must receive 'restart-crossboundary-marker' in PTY output")
+	conn1.waitForData(func(data string) bool { return rrHas(data, "restart-crossboundary-marker") })
 
 	// Capture the CWD the session was created in so we can assert it post-restart.
 	savedCWD := cwd
@@ -299,23 +324,24 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 		_ = eng2.Attach(ctx, sessionID, conn2)
 	}()
 
-	// The replayed scrollback must contain the pre-restart marker.
-	// require.True so a missing marker fails fast instead of letting the test
-	// proceed with Write/pwd assertions that depend on this invariant.
-	require.True(t,
-		waitForRestartContent(t, conn2, func(data string) bool {
-			return rrHas(data, "restart-crossboundary-marker")
-		}, 10*time.Second),
-		"engine #2: scrollback replay must contain the pre-restart marker 'restart-crossboundary-marker'")
+	// The replayed scrollback must contain the pre-restart marker. This lands in
+	// the SNAPSHOT frame the writePump hands a freshly attached client, and it is
+	// read from disk — so it arrives immediately and says nothing about whether
+	// the re-spawned shell came up.
+	conn2.waitForData(func(data string) bool { return rrHas(data, "restart-crossboundary-marker") })
+
+	// So block, separately, on the restored shell's OWN first byte (a live,
+	// non-snapshot frame). That is the real "the restore produced a working
+	// shell" signal — and the one this test used to fake with a 5 s deadline,
+	// which is why it went red under the load of the full suite while passing
+	// alone: a ~/.zshrc that boots in ~400 ms idle can take many seconds on a
+	// saturated machine.
+	conn2.waitForLiveOutput()
 
 	// The restored shell must run in the saved CWD (the working directory from
-	// before the restart). We write `pwd` and verify the output.
+	// before the restart). We write `pwd` and block until the path comes back.
 	require.NoError(t, eng2.Write(ctx, sessionID, []byte("pwd\n")))
-	assert.True(t,
-		waitForRestartContent(t, conn2, func(data string) bool {
-			return rrHas(data, savedCWD)
-		}, 5*time.Second),
-		"engine #2: restored session must run in saved CWD (%s)", savedCWD)
+	conn2.waitForData(func(data string) bool { return rrHas(data, savedCWD) })
 
 	// Also verify the scrollback file still exists and the meta row is readable.
 	storageDir, storErr := ms2.StorageDir(ctx, workspaceID)
@@ -396,9 +422,9 @@ func TestRegression_TerminalSession_MetaRowSurvivesShutdown_RealStore(t *testing
 		_ = eng.Attach(ctx, sessionID, conn)
 	}()
 
-	require.True(t,
-		waitForRestartContent(t, conn, func(data string) bool { return len(data) > 0 }, 10*time.Second),
-		"must receive initial PTY output before Shutdown")
+	// Block on the shell's first byte — the real signal that the model has
+	// content for Shutdown to flush.
+	conn.waitForData(func(data string) bool { return len(data) > 0 })
 
 	// Graceful shutdown persists scrollback + state="suspended".
 	// The conn is still attached; Shutdown handles that path.

@@ -46,8 +46,8 @@ func (f *fakeOriginWorkspaces) Get(
 	return ws, nil
 }
 
-// fakeOriginFetcher records every FetchRef call on a channel so tests can
-// synchronise on the per-connection ticker without sleeping.
+// fakeOriginFetcher records every FetchRef call on a channel so tests block on
+// the REAL "a fetch happened" signal instead of sleeping.
 type fakeOriginFetcher struct {
 	calls chan string
 }
@@ -65,7 +65,40 @@ func (f *fakeOriginFetcher) FetchRef(
 	return nil
 }
 
-const testOriginSyncInterval = time.Millisecond
+// testOriginSyncInterval is deliberately far longer than any test can run: no
+// test waits for the cadence, and no cadence may fire behind a test's back.
+// Cycles are driven explicitly through the injected tick source (originDriver),
+// so the manager syncs exactly when the test says so — never on a clock. This
+// matters more here than anywhere: a real origin sync holds the per-clone git
+// mutex for up to 30 s, so "sleep long enough for a cycle" would be both a lie
+// and unbearably slow.
+const testOriginSyncInterval = time.Hour
+
+// originDriver owns the manager's two deterministic seams.
+//
+//   - ticks is UNBUFFERED: sending on it is a rendezvous with the run goroutine,
+//     so the send itself proves a runner is alive and has taken the tick.
+//   - cycles receives once per COMPLETED cycle (the immediate-on-Acquire sync
+//     included), which is the signal a negative assertion needs: "the cycle ran to
+//     completion, and it fetched nothing".
+type originDriver struct {
+	ticks  chan time.Time
+	cycles chan struct{}
+}
+
+func driveOriginSyncs(
+	m *OriginSyncManager,
+) *originDriver {
+	d := &originDriver{ticks: make(chan time.Time), cycles: make(chan struct{}, 64)}
+	m.driveCyclesForTest(d.ticks, d.cycles)
+	return d
+}
+
+// tick fires exactly one cycle and returns once that cycle has completed.
+func (d *originDriver) tick() {
+	d.ticks <- time.Time{}
+	<-d.cycles
+}
 
 func protectedWorkspace(
 	id string,
@@ -84,16 +117,18 @@ func TestOriginSyncManager_Acquire_SyncsProtectedWorkspace(t *testing.T) {
 	w.set(protectedWorkspace("w1"))
 	f := newFakeOriginFetcher()
 	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, f)
+	d := driveOriginSyncs(m)
 	t.Cleanup(m.StopAll)
 
 	m.Acquire("w1")
 
-	select {
-	case got := <-f.calls:
-		assert.Equal(t, "/repo/w1:develop", got)
-	case <-time.After(time.Second):
-		t.Fatal("FetchRef was not invoked after Acquire for a protected workspace")
-	}
+	assert.Equal(t, "/repo/w1:develop", <-f.calls,
+		"FetchRef was not invoked after Acquire for a protected workspace")
+	<-d.cycles
+
+	// And the cadence keeps syncing: one tick, one more fetch.
+	d.tick()
+	assert.Equal(t, "/repo/w1:develop", <-f.calls, "a cadence tick must sync again")
 }
 
 func TestOriginSyncManager_Acquire_SkipsWorkspaceWithParent(t *testing.T) {
@@ -101,34 +136,33 @@ func TestOriginSyncManager_Acquire_SkipsWorkspaceWithParent(t *testing.T) {
 	w.set(childWorkspace("w2"))
 	f := newFakeOriginFetcher()
 	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, f)
+	d := driveOriginSyncs(m)
 	t.Cleanup(m.StopAll)
 
 	m.Acquire("w2")
 
-	select {
-	case <-f.calls:
-		t.Fatal("FetchRef fired for a workspace with a parent")
-	case <-time.After(20 * time.Millisecond):
-	}
+	// Block on the cycle actually COMPLETING, then assert it fetched nothing. The
+	// old form slept 20 ms and hoped the cycle had both run and skipped by then —
+	// which on a loaded machine proves neither.
+	<-d.cycles
+	assert.Empty(t, f.calls, "FetchRef fired for a workspace with a parent")
 }
 
 func TestOriginSyncManager_Acquire_SyncsImmediately(t *testing.T) {
 	w := newFakeOriginWorkspaces()
 	w.set(protectedWorkspace("w1"))
 	f := newFakeOriginFetcher()
-	// A long interval ensures the ticker cannot fire within the test window, so
-	// observing a fetch proves the immediate-on-Acquire sync, not a ticker tick.
-	m := NewOriginSyncManager(context.Background(), time.Hour, w, f)
+	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, f)
+	// The tick source is never fired below, so the fetch observed here CANNOT have
+	// come from the cadence — it is the immediate-on-Acquire sync.
+	d := driveOriginSyncs(m)
 	t.Cleanup(m.StopAll)
 
 	m.Acquire("w1")
 
-	select {
-	case got := <-f.calls:
-		assert.Equal(t, "/repo/w1:develop", got)
-	case <-time.After(time.Second):
-		t.Fatal("Acquire did not sync immediately (waited for the interval)")
-	}
+	assert.Equal(t, "/repo/w1:develop", <-f.calls,
+		"Acquire did not sync immediately (waited for the interval)")
+	<-d.cycles
 }
 
 func TestOriginSyncManager_Release_StopsSync(t *testing.T) {
@@ -136,19 +170,17 @@ func TestOriginSyncManager_Release_StopsSync(t *testing.T) {
 	w.set(protectedWorkspace("w1"))
 	f := newFakeOriginFetcher()
 	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, f)
+	d := driveOriginSyncs(m)
 	t.Cleanup(m.StopAll)
 
 	m.Acquire("w1")
-	<-f.calls // confirm syncing started
+	<-f.calls  // syncing started
+	<-d.cycles // ... and that cycle finished
+
 	m.Release("w1")
+	m.waitRunnersForTest() // the run goroutine has RETURNED — not "probably has"
 
-	drainOriginCalls(f.calls)
-
-	select {
-	case <-f.calls:
-		t.Fatal("sync fired after Release stopped the workspace")
-	case <-time.After(20 * time.Millisecond):
-	}
+	assert.Empty(t, f.calls, "sync fired after Release stopped the workspace")
 }
 
 func TestOriginSyncManager_Refcount(t *testing.T) {
@@ -156,27 +188,27 @@ func TestOriginSyncManager_Refcount(t *testing.T) {
 	w.set(protectedWorkspace("w1"))
 	f := newFakeOriginFetcher()
 	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, f)
+	d := driveOriginSyncs(m)
 	t.Cleanup(m.StopAll)
 
 	m.Acquire("w1")
 	m.Acquire("w1")
 	<-f.calls
+	<-d.cycles
+
 	m.Release("w1") // refs 2 -> 1, still syncing
 
-	drainOriginCalls(f.calls)
-
-	select {
-	case got := <-f.calls:
-		assert.Equal(t, "/repo/w1:develop", got)
-	case <-time.After(time.Second):
-		t.Fatal("sync stopped despite an outstanding subscriber")
-	}
+	// The tick is a rendezvous: it can only be taken by a LIVE run goroutine, so
+	// completing it proves the sync outlived the release.
+	d.tick()
+	assert.Equal(t, "/repo/w1:develop", <-f.calls, "sync stopped despite an outstanding subscriber")
 }
 
 func TestOriginSyncManager_BlankWsID_NoOp(t *testing.T) {
 	w := newFakeOriginWorkspaces()
 	f := newFakeOriginFetcher()
 	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, f)
+	driveOriginSyncs(m)
 	t.Cleanup(m.StopAll)
 
 	m.Acquire("")
@@ -188,11 +220,9 @@ func TestOriginSyncManager_BlankWsID_NoOp(t *testing.T) {
 	m.mu.Unlock()
 	assert.Equal(t, 0, count)
 
-	select {
-	case <-f.calls:
-		t.Fatal("blank wsID started a sync")
-	case <-time.After(20 * time.Millisecond):
-	}
+	// No runner was ever started, so no sync can ever be issued.
+	m.waitRunnersForTest()
+	assert.Empty(t, f.calls, "blank wsID started a sync")
 }
 
 func TestOriginSyncManager_StopAll_Idempotent(t *testing.T) {
@@ -200,12 +230,15 @@ func TestOriginSyncManager_StopAll_Idempotent(t *testing.T) {
 	w.set(protectedWorkspace("w1"))
 	f := newFakeOriginFetcher()
 	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, f)
+	d := driveOriginSyncs(m)
 
 	m.Acquire("w1")
 	<-f.calls
+	<-d.cycles
 
 	require.NotPanics(t, m.StopAll)
 	require.NotPanics(t, m.StopAll) // second call is safe
+	m.waitRunnersForTest()
 
 	m.mu.Lock()
 	count := len(m.handles)
@@ -218,6 +251,7 @@ func TestOriginSyncManager_AcquireAfterClose_NoOp(t *testing.T) {
 	w.set(protectedWorkspace("w1"))
 	f := newFakeOriginFetcher()
 	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, f)
+	driveOriginSyncs(m)
 
 	m.StopAll()
 	m.Acquire("w1")
@@ -227,26 +261,40 @@ func TestOriginSyncManager_AcquireAfterClose_NoOp(t *testing.T) {
 	m.mu.Unlock()
 	assert.Equal(t, 0, count)
 
-	select {
-	case <-f.calls:
-		t.Fatal("Acquire after StopAll started a sync")
-	case <-time.After(20 * time.Millisecond):
-	}
+	m.waitRunnersForTest()
+	assert.Empty(t, f.calls, "Acquire after StopAll started a sync")
 }
 
 func TestOriginSyncManager_SyncTick_WorkspaceLookupError_Swallowed(t *testing.T) {
 	w := newFakeOriginWorkspaces() // no workspace seeded -> Get errors
 	f := newFakeOriginFetcher()
 	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, f)
+	d := driveOriginSyncs(m)
 	t.Cleanup(m.StopAll)
 
 	require.NotPanics(t, func() { m.Acquire("missing") })
 
-	select {
-	case <-f.calls:
-		t.Fatal("FetchRef called despite a workspace lookup error")
-	case <-time.After(20 * time.Millisecond):
-	}
+	// The cycle ran to completion (it did not panic and did not wedge) and issued
+	// no fetch.
+	<-d.cycles
+	assert.Empty(t, f.calls, "FetchRef called despite a workspace lookup error")
+}
+
+// TestOriginSyncManager_TickSource_DefaultsToIntervalTicker pins the production
+// wiring the seam replaces: with no test source installed, run's cadence channel
+// is a real interval ticker. It asserts the SOURCE, never that it fires — so
+// there is nothing to wait for.
+func TestOriginSyncManager_TickSource_DefaultsToIntervalTicker(t *testing.T) {
+	m := NewOriginSyncManager(
+		context.Background(),
+		testOriginSyncInterval,
+		newFakeOriginWorkspaces(),
+		newFakeOriginFetcher(),
+	)
+
+	tickC, stop := m.tickSource()
+	require.NotNil(t, tickC)
+	stop()
 }
 
 // blockingFetcher blocks each FetchRef on the per-fetch context until that
@@ -271,74 +319,52 @@ func (b *blockingFetcher) FetchRef(
 	return ctx.Err()
 }
 
+// TestOriginSyncManager_SyncTick_CancelsHungFetch is one of the two tests whose
+// SUBJECT is a timeout, so a clock is intrinsic: the injected 10 ms deadline
+// stands in for the production 30 s originSyncTimeout. It is not used as
+// synchronisation — every wait below blocks on a real signal (the fetcher's
+// released channel, the tick's own return).
 func TestOriginSyncManager_SyncTick_CancelsHungFetch(t *testing.T) {
 	w := newFakeOriginWorkspaces()
 	w.set(protectedWorkspace("w1"))
 	b := newBlockingFetcher()
-	m := NewOriginSyncManager(context.Background(), time.Hour, w, b)
+	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, b)
 
-	// Drive a single tick directly with a short injected timeout so the test
-	// does not wait the production 30s. The fetch blocks on ctx.Done(); the
-	// timeout must fire and unblock it, proving a hung remote cannot wedge the
-	// run goroutine.
 	done := make(chan struct{})
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-		defer cancel()
-		m.syncTickWithTimeout(ctx, "w1", 10*time.Millisecond)
-		close(done)
+		defer close(done)
+		m.syncTickWithTimeout(context.Background(), "w1", 10*time.Millisecond)
 	}()
 
-	select {
-	case err := <-b.released:
-		assert.ErrorIs(t, err, context.DeadlineExceeded,
-			"hung fetch must be cancelled by the per-sync timeout")
-	case <-time.After(time.Second):
-		t.Fatal("fetch was never cancelled — the per-sync timeout did not fire")
-	}
-
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("syncTick did not return after the fetch was cancelled")
-	}
+	assert.ErrorIs(t, <-b.released, context.DeadlineExceeded,
+		"hung fetch must be cancelled by the per-sync timeout")
+	<-done // syncTick returned once the fetch was cancelled
 }
 
+// TestOriginSyncManager_SyncTick_DecoupledFromConnCtx also has a timeout as its
+// subject (see above): the injected 10 ms deadline must be the ONLY thing that
+// stops the fetch, even though the per-connection ctx is already cancelled.
 func TestOriginSyncManager_SyncTick_DecoupledFromConnCtx(t *testing.T) {
 	w := newFakeOriginWorkspaces()
 	w.set(protectedWorkspace("w1"))
 	b := newBlockingFetcher()
-	m := NewOriginSyncManager(context.Background(), time.Hour, w, b)
+	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, b)
 
-	// The per-connection ctx is ALREADY cancelled, yet WithoutCancel must let
-	// the fetch start (it only stops via its own timeout). This preserves the
+	// The per-connection ctx is ALREADY cancelled, yet WithoutCancel must let the
+	// fetch start (it only stops via its own timeout). This preserves the
 	// best-effort background-sync guarantee while still bounding the fetch.
 	connCtx, cancelConn := context.WithCancel(context.Background())
 	cancelConn()
 
-	go m.syncTickWithTimeout(connCtx, "w1", 10*time.Millisecond)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		m.syncTickWithTimeout(connCtx, "w1", 10*time.Millisecond)
+	}()
 
-	select {
-	case err := <-b.released:
-		assert.ErrorIs(t, err, context.DeadlineExceeded,
-			"fetch must run under WithoutCancel and stop only on its own timeout")
-	case <-time.After(time.Second):
-		t.Fatal("fetch did not start/cancel despite an already-cancelled conn ctx")
-	}
-}
-
-// drainOriginCalls empties any already-buffered calls so a subsequent receive
-// observes only post-drain activity.
-func drainOriginCalls(
-	c chan string,
-) {
-	for {
-		select {
-		case <-c:
-		default:
-			return
-		}
-	}
+	assert.ErrorIs(t, <-b.released, context.DeadlineExceeded,
+		"fetch must run under WithoutCancel and stop only on its own timeout")
+	<-done
 }
 
 // ensure the fakes satisfy their interfaces at compile time.
