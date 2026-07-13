@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
@@ -49,15 +48,20 @@ func TestTerminal_CreateStreamKill(t *testing.T) {
 	assert.Equal(t, session.SessionID, killed.ID)
 }
 
-// readTerminalUntil loop-reads PTY frames under a deadline until the decoded data
-// field contains want. It skips control and non-JSON frames and never sleeps.
+// readTerminalUntil blocks reading PTY frames until the decoded data field
+// contains want, skipping control and non-JSON frames.
+//
+// It carries no read deadline: the PTY output IS the signal. If the wanted
+// output never arrives the read parks here and `go test -timeout` dumps the
+// goroutines, naming this test and this read — a far better report than the
+// "i/o timeout" a deadline would produce. A read error (the PTY WS closing
+// before the output arrived) still returns false, failing the caller's assert.
 func readTerminalUntil(
 	t *testing.T,
 	conn *websocket.Conn,
 	want string,
 ) bool {
 	t.Helper()
-	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	for {
 		mt, raw, err := conn.ReadMessage()
 		if err != nil {

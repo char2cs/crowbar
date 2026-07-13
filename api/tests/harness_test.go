@@ -18,7 +18,6 @@ import (
 	"sync"
 	"testing"
 	"testing/fstest"
-	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
@@ -331,20 +330,31 @@ func (h *harness) dial(
 	return conn
 }
 
-// readUntil loop-reads JSON frames under a deadline, skipping control frames,
-// until match returns true for a decoded frame. It never sleeps: it advances on
-// real frames and fails the test if the deadline elapses first.
+// readUntil blocks reading JSON frames, skipping control and non-JSON frames,
+// until match returns true for a decoded frame, and returns that frame.
+//
+// It carries NO read deadline, by design. The frame's arrival IS the signal, so
+// the read simply blocks until the daemon produces it. A deadline here would
+// only restate `go test -timeout` — and restate it worse: an expired deadline
+// surfaces as a bare "i/o timeout" on some assertion, telling you nothing about
+// which frame never came, and it is the construct that goes flaky under load.
+//
+// A frame that genuinely never arrives is therefore a HANG, resolved by
+// `go test -timeout` (the suite's only backstop). That is the better failure:
+// the timeout panics with a full goroutine dump in which this read is parked in
+// conn.ReadMessage, and the stack immediately above it names the calling test
+// and the exact readUntil call site — i.e. it points straight at the frame that
+// never came. The only assertion left here is a real one: a read ERROR, meaning
+// the connection broke before the awaited frame arrived.
 func readUntil(
 	t *testing.T,
 	conn *websocket.Conn,
 	match func(map[string]any) bool,
 ) map[string]any {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	_ = conn.SetReadDeadline(deadline)
 	for {
 		mt, raw, err := conn.ReadMessage()
-		require.NoError(t, err)
+		require.NoError(t, err, "ws closed before the awaited frame arrived")
 		if mt != websocket.TextMessage {
 			continue
 		}
@@ -355,8 +365,54 @@ func readUntil(
 		if match(got) {
 			return got
 		}
-		require.True(t, time.Now().Before(deadline), "deadline exceeded before match")
 	}
+}
+
+// sentinelFile is the file a test dirties in a watched worktree to push a frame
+// of its OWN through a Git topic. It is the barrier used to prove NEGATIVES on a
+// WS topic without a clock: no fixture ever creates or touches it, so a status
+// frame listing it is unambiguously the test's own, and its arrival proves that
+// every frame the observed window was ever going to produce has already been
+// delivered on that connection.
+const sentinelFile = "crowbar-sentinel.txt"
+
+// readTextFrame blocks until the next TEXT frame and returns its raw bytes,
+// skipping control frames. Like readUntil it carries no deadline: the frame's
+// arrival is the signal. Use it (rather than readUntil) when the test must
+// COUNT or inspect every frame, including the ones it does not match on.
+func readTextFrame(
+	t *testing.T,
+	conn *websocket.Conn,
+) []byte {
+	t.Helper()
+	for {
+		mt, raw, err := conn.ReadMessage()
+		require.NoError(t, err, "ws closed before the awaited frame arrived")
+		if mt == websocket.TextMessage {
+			return raw
+		}
+	}
+}
+
+// statusHasFile reports whether a decoded GitStatus frame lists name among its
+// dirty files. The Git broadcaster filters on wsId but serialises a BARE
+// GitStatus (no wsId on the wire), so a frame's dirty-file set is the only
+// discriminator a WS test has for which workspace produced it.
+func statusHasFile(
+	frame map[string]any,
+	name string,
+) bool {
+	files, ok := frame["files"].([]any)
+	if !ok {
+		return false
+	}
+	for _, f := range files {
+		entry, ok := f.(map[string]any)
+		if ok && entry["path"] == name {
+			return true
+		}
+	}
+	return false
 }
 
 // waitForWorkComplete blocks until wsID's in-flight async mutation has STARTED and

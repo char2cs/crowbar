@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 )
 
@@ -200,24 +199,40 @@ func TestRegression_GitTopicQuietWhenIdle(t *testing.T) {
 	conn := h.dial(wsBase(imported) + "/git/status")
 
 	// Snapshot-on-subscribe frame arrives first and must carry files: [].
-	deadline := time.Now().Add(5 * time.Second)
-	_ = conn.SetReadDeadline(deadline)
-	mt, raw, err := conn.ReadMessage()
-	require.NoError(t, err, "subscribe snapshot frame must arrive")
-	require.Equal(t, websocket.TextMessage, mt)
-	require.NotContains(t, string(raw), `"files":null`,
+	// Its arrival is the signal — block for it, no deadline.
+	snapshot := readTextFrame(t, conn)
+	require.NotContains(t, string(snapshot), `"files":null`,
 		"snapshot frame must serialise files as [], not null")
 
-	// With zero activity the topic must now stay quiet. Tolerate at most one
-	// straggler from watcher startup; an identical-frame stream is the bug.
-	extra := 0
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	// The topic must now stay quiet while the tree is idle. "Quiet" is a
+	// NEGATIVE, and a read deadline can only ever guess at one: it proves
+	// "nothing showed up within 2s", which under load false-FAILS just as
+	// readily as it false-passes. Close the idle window with a SENTINEL
+	// instead — dirty a file of our own in the watched worktree and block (no
+	// deadline) until the frame carrying it arrives.
+	//
+	// The sentinel travels the SAME topic, out of the same watcher, down the
+	// same per-connection FIFO as any storm frame would. So once it lands, every
+	// frame the idle period was ever going to produce has already been delivered
+	// on this connection, and the frames counted BEFORE it are exactly the
+	// idle-period frames — the negative, proven exactly, with no clock.
+	//
+	// Tolerate at most one straggler: the watcher does no recompute on subscribe
+	// (the snapshot already carried fresh status), so its FIRST fan-out always
+	// broadcasts, and only subsequent IDENTICAL frames are deduped. An
+	// identical-frame stream is the bug.
+	stop := rewriteOnTicker(t, workspaceWorktreePath(t, h, imported), sentinelFile, "quiet probe\n")
+	defer stop()
+
+	idle := 0
 	for {
-		if _, _, err := conn.ReadMessage(); err != nil {
-			break // read deadline: the quiet we expect
+		var frame map[string]any
+		require.NoError(t, json.Unmarshal(readTextFrame(t, conn), &frame))
+		if statusHasFile(frame, sentinelFile) {
+			return // sentinel landed: the idle window is closed, and it was quiet
 		}
-		extra++
-		require.LessOrEqual(t, extra, 1,
+		idle++
+		require.LessOrEqual(t, idle, 1,
 			"idle workspace must not stream repeated git status frames")
 	}
 }

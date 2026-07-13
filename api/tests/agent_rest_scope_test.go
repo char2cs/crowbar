@@ -136,7 +136,13 @@ func createAgentChat(
 	}
 	h.post(wsBase(imported)+"/agent/chats", map[string]string{"provider": "stub"}, http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID, "create must respond with the new chat's id")
-	h.Quiesce()
+	// QuiesceReactors, not Quiesce: creating a chat also PLACES A RUNNER on it,
+	// and that placement detaches into its own goroutine. A plain projection
+	// drain sees the create handler "complete" the moment that goroutine is
+	// spawned — so it can return while the chat still has no runner, which is
+	// exactly when activeProviderId reads "". Joining the reactors is the real
+	// signal that the spawned runner has actually landed.
+	h.QuiesceReactors()
 	return created.ID
 }
 
