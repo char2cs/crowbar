@@ -293,15 +293,24 @@ func TestRegression_ResumeIntoAChatHeldByAnotherCLI_EvictsTheChatIncumbent(t *te
 // Closing the turn at displacement time asserts nothing about liveness: once displaced, no
 // hook from that runner can ever reach the chat again, so "nobody is working on this chat"
 // is simply the last true thing we can say about it.
+//
+// HOW A SWITCH STILL MEETS A MID-TURN CLI, now that it WAITS for an in-flight turn before
+// quitting anything (awaitTurnComplete): the user types again while the switch is killing
+// it. The barrier is crossed, the turn is genuinely over — and then a new prompt lands in
+// the window between the terminate and the displace. That race is exactly what this drives,
+// by delivering the prompt hook from INSIDE TerminateGraceful, so the interleaving is
+// pinned rather than hoped for.
 func TestRegression_AbortedSwitchMidTurn_DoesNotLeaveTheChatSpinningForever(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": "a long-running task"})))
-	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
+	f.term.duringTerminate = func(string) {
+		require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
+			mustJSON(t, map[string]any{"prompt": "a long-running task"})))
+	}
 
-	// The switch quits the outgoing CLI and THEN fails (unknown provider).
+	// The switch quits the outgoing CLI (which goes mid-turn as it dies) and THEN fails
+	// (unknown provider).
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "not-a-real-provider")
 	require.Error(t, err)
 	f.wait()
@@ -314,15 +323,17 @@ func TestRegression_AbortedSwitchMidTurn_DoesNotLeaveTheChatSpinningForever(t *t
 }
 
 // TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn is the same rule on the SUCCESS path:
-// the outgoing CLI is killed mid-turn, so its turn is over — nobody will ever send its
+// the outgoing CLI is displaced with a turn open (the prompt that landed while it was being
+// killed — see the regression above), so that turn is over: nobody will ever send its
 // turn_stop. The incoming CLI's own turns are unaffected.
 func TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, outgoing := f.spawn(t, "claude")
-	require.NoError(t, f.usecase.IngestHook(f.ctx, outgoing, "claude", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": "working"})))
-	require.True(t, f.chat(t, chatID).Working)
+	f.term.duringTerminate = func(string) {
+		require.NoError(t, f.usecase.IngestHook(f.ctx, outgoing, "claude", "user_prompt",
+			mustJSON(t, map[string]any{"prompt": "working"})))
+	}
 
 	incoming, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
@@ -333,6 +344,7 @@ func TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn(t *testing.T) {
 
 	// The incoming CLI can still open its own turn, and the outgoing one's belated PTY
 	// death must not close it.
+	f.term.duringTerminate = nil
 	require.NoError(t, f.usecase.IngestHook(f.ctx, incoming, "codex", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "the new CLI is working"})))
 	require.True(t, f.chat(t, chatID).Working)

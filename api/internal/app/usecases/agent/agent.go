@@ -131,6 +131,9 @@ type Usecase struct {
 	// concurrent switches putting two CLIs on one chat, and it is NEVER taken on the
 	// hook path.
 	spawns *chatGate
+	// turns is the in-flight-turn registry a provider switch BLOCKS on, so it never quits
+	// a CLI mid-answer. See turnWaits.
+	turns *turnWaits
 }
 
 // New builds a Usecase over the two aggregates and the engine seams. registry is
@@ -151,6 +154,7 @@ func New(
 		term:     term,
 		ws:       ws,
 		spawns:   newChatGate(),
+		turns:    newTurnWaits(),
 	}
 }
 
@@ -415,11 +419,17 @@ func (u *Usecase) displace(
 		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, agentrunner.ErrNotFound) {
 			slog.WarnContext(ctx, "agent: displace runner: it had already exited (benign)",
 				"runner_id", runner.ID, "chat_id", vacated)
+			u.turns.complete(runner.ID)
 			return nil
 		}
 		return fmt.Errorf("agent: displace runner: %w", err)
 	}
 
+	// A displaced runner is on NO chat, so handleTurn drops every hook it has left —
+	// including the turn_stop that would have ended a turn it is still mid-way through.
+	// Nothing will ever close that turn where it stood, so anybody waiting on it is
+	// released here or waits for their context to die (turnWaits.complete).
+	u.turns.complete(runner.ID)
 	u.closeAbandonedTurn(ctx, vacated)
 	return nil
 }
@@ -967,6 +977,11 @@ func (u *Usecase) onRunnerExit(home, runnerID, tmpDir string) func() {
 func (u *Usecase) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	// The echo guard is per-spawn and means nothing once the process is gone.
 	u.registry.ForgetRunner(runnerID)
+	// Nor does an in-flight turn: a CLI that died mid-answer will never send the turn_stop
+	// that closes it, so a provider switch parked on that turn is released by the DEATH
+	// instead — the same real signal that ends the runner, and the reason the wait needs no
+	// timeout to be safe against a CLI that falls over.
+	u.turns.complete(runnerID)
 
 	runner, err := u.runners.Get(ctx, runnerID)
 	if err != nil {
@@ -1096,6 +1111,7 @@ func (u *Usecase) handleTurn(
 			if _, err := u.chats.StartTurn(ctx, chat.ID, time.Now()); err != nil {
 				return fmt.Errorf("agent: ingest hook: start turn: %w", err)
 			}
+			u.turns.begin(runner.ID, chat.ID)
 			return nil
 		}
 		if err := u.RenameChat(ctx, chat.ID, deriveTitle(ev.Message), "derived"); err != nil {
@@ -1106,6 +1122,10 @@ func (u *Usecase) handleTurn(
 		if _, err := u.chats.StartTurn(ctx, chat.ID, time.Now()); err != nil {
 			return fmt.Errorf("agent: ingest hook: start turn: %w", err)
 		}
+		// And record it as IN FLIGHT, which is the same fact without the read model's lag
+		// in front of it — a provider switch blocks on this rather than on Working, so that
+		// it never quits a CLI that is still answering (turnWaits).
+		u.turns.begin(runner.ID, chat.ID)
 		return u.appendTurn(ctx, chat, runner.ProviderID, "user", ev.Message)
 
 	case "turn_stop":
@@ -1115,6 +1135,13 @@ func (u *Usecase) handleTurn(
 		if _, err := u.chats.StopTurn(ctx, chat.ID, time.Now()); err != nil {
 			return fmt.Errorf("agent: ingest hook: stop turn: %w", err)
 		}
+		// Released only ONCE THE LEDGER HAS THE ANSWER (hence the defer, which runs after
+		// the append below): a switch waiting on this turn reads the ledger the moment it
+		// wakes, to assemble the handoff. Waking it a line earlier would hand the incoming
+		// CLI a conversation missing the very turn the switch waited for. The defer also
+		// means a FAILED append still releases the waiter — the turn is over either way,
+		// and a switch parked on a turn that has stopped would never wake.
+		defer u.turns.complete(runner.ID)
 		return u.appendTurn(ctx, chat, runner.ProviderID, "assistant", ev.Message)
 	}
 	return nil
@@ -1260,6 +1287,12 @@ func (u *Usecase) moveToNewChat(
 	// reads here would put two queries on the hot /clear path to discover a fact we already
 	// know for certain. (The other two — Start and moveToKnownChat — land on chats and
 	// conversations that CAN be occupied, and both retire whoever is there.)
+	//
+	// A turn the runner had open on the chat it just LEFT ends here, wherever it had got to:
+	// its turn_stop will land on the NEW chat, so nothing will ever close it on the old one.
+	// Releasing it is what stops a switch on the old chat waiting for an answer that is now
+	// being written somewhere else.
+	u.turns.complete(runner.ID)
 	return nil
 }
 
@@ -1285,6 +1318,9 @@ func (u *Usecase) moveToKnownChat(
 	if _, err := u.runners.Move(ctx, runner.ID, toChatID, sessionID, time.Now()); err != nil {
 		return fmt.Errorf("agent: ingest hook: move to known chat: %w", err)
 	}
+	// Whatever it was mid-way through on the chat it just left is over there (see
+	// moveToNewChat).
+	u.turns.complete(runner.ID)
 
 	// Whoever else is live on the CONVERSATION must go (invariant I3).
 	u.evictHolderOf(ctx, runner, sessionID)
@@ -1375,6 +1411,20 @@ func (u *Usecase) switchProviderLocked(
 	chatID string,
 	targetProviderID string,
 ) (string, error) {
+	// FINISH THE TURN FIRST. The user can click Switch while the agent is mid-answer, and
+	// quitting it there costs the answer twice over: the reply in flight is never written,
+	// and — because a CLI killed mid-turn never flushes its native transcript at all — the
+	// conversation the next `--resume` names does not exist. That is not a theory; it is
+	// the "No conversation found with session ID" the user reported (see awaitTurnComplete).
+	//
+	// It runs BEFORE every read below, so a switch that is parked is holding nothing but its
+	// chat's spawn gate: no aggregate read in progress, no db connection, no half-assembled
+	// handoff to go stale while it waits. And it runs before the terminate, so the handoff
+	// assembled below contains the turn we waited for.
+	if err := u.awaitTurnComplete(ctx, chatID); err != nil {
+		return "", err
+	}
+
 	chat, err := u.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return "", fmt.Errorf("agent: switch provider: chat: %w", err)
@@ -1448,9 +1498,61 @@ func (u *Usecase) switchProviderLocked(
 	)
 }
 
+// awaitTurnComplete blocks until nothing is mid-turn on chatID, and is the barrier every
+// provider switch crosses before it quits anything.
+//
+// WHY IT EXISTS. quitOutgoingCLI's SIGTERM is graceful so the outgoing CLI can flush its
+// native transcript on the way out — but a CLI killed MID-TURN never writes a transcript
+// at all. The in-flight answer is lost, and the conversation the incoming CLI is then told
+// to resume is not there: `claude --resume` dies with "No conversation found with session
+// ID", which is exactly the failure the user reported. Gracefully killing a CLI that is
+// still talking is not graceful. So we let it finish, and only then quit it.
+//
+// WHAT IT BLOCKS ON — the turn's REAL completion, and nothing else. The CLI's turn_stop
+// hook lands in IngestHook, which closes the channel this is parked on (turnWaits). There
+// is no poll, no sleep and no timeout anywhere in it: a timeout would be a guess about how
+// long an agent is allowed to think, and the only honest answer is "as long as the user is
+// still waiting for it" — which is precisely what ctx already says. A cancelled request
+// therefore aborts the switch with NOTHING changed, the same contract quitOutgoingCLI has
+// for its own failures.
+//
+// THE OTHER WAYS A TURN ENDS are covered too, or the wait would be a hang waiting to
+// happen: a CLI that dies mid-answer sends no turn_stop (reconcileRunnerExit releases it),
+// and one that leaves the chat mid-answer sends its turn_stop somewhere else (the move and
+// displace paths release it). All four run OFF THE HOOK PATH OR OFF THE PTY'S EXIT, and
+// neither ever takes the chat's spawn gate — which is what makes it safe to hold that gate
+// while parked here (chatGate: "It is never taken on the HOOK path").
+//
+// An idle chat — the common case by far — has no open turn, so this is one map read and a
+// return. The happy path pays nothing.
+func (u *Usecase) awaitTurnComplete(
+	ctx context.Context,
+	chatID string,
+) error {
+	open := u.turns.inflight(chatID)
+	if len(open) == 0 {
+		return nil
+	}
+
+	slog.InfoContext(ctx, waitingForTurnLog, "chat_id", chatID)
+
+	for _, done := range open {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return fmt.Errorf("agent: switch provider: waiting for the in-flight turn: %w", ctx.Err())
+		}
+	}
+	return nil
+}
+
 // quitOutgoingCLI gracefully quits the CLI currently pointed at chatID, so a
 // well-behaved one — Claude Code in particular — gets the chance to flush its native
 // transcript before it dies; a hard kill can lose its last pre-switch turn.
+//
+// It is only ever reached once the chat is NOT mid-turn (awaitTurnComplete, above), which
+// is what makes the graceful kill actually graceful: a CLI still writing its answer has no
+// transcript to flush.
 //
 // A DORMANT chat is not an error: there is simply no outgoing CLI to quit. Such a chat
 // used to be a dead end (the pane told the user to "switch provider to start a new one"

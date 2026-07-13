@@ -68,6 +68,13 @@ type fakeCommander struct {
 	// It is invoked WITHOUT the mutex held, so whatever it drives may call back into this
 	// fake (a hook that retires a runner terminates its PTY).
 	duringFork func()
+	// duringTerminate runs INSIDE TerminateGraceful, before the kill is recorded — the
+	// moment the outgoing CLI is asked to die. It is how the mid-turn tests OBSERVE that
+	// moment as it happens (a switch that kills a CLI mid-answer is the bug), rather than
+	// inspecting the record afterwards and having to reason about when it was written.
+	//
+	// Invoked WITHOUT the mutex held, like duringFork.
+	duringTerminate func(sessionID string)
 }
 
 func (f *fakeCommander) CreateCommand(
@@ -107,6 +114,10 @@ func (f *fakeCommander) TerminateGraceful(
 	_ context.Context,
 	sessionID string,
 ) error {
+	if f.duringTerminate != nil {
+		f.duringTerminate(sessionID)
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	// terminateReq records EVERY attempt (even failed ones), so a best-effort caller
