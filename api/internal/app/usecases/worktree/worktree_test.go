@@ -693,8 +693,8 @@ func TestCreateChild_RemoteBranchAbsent_CreatesLocal(t *testing.T) {
 // when the branch already exists on the remote, CreateChild fast-forwards it
 // and checks out the existing remote branch (WorktreeAdd), and the fork point
 // comes from RevParse of the resolved origin/<branch> ref — NOT WorktreeAddBranch.
-// The parent branch is also fast-forwarded first (best-effort) before the child
-// remote-exists check, so the child inherits a fresh parent tip.
+// The parent branch's origin tip is fetched first (FetchRef, never a local-ref
+// fast-forward) so parentStartPoint runs even on the checkout path.
 func TestCreateChild_RemoteBranchExists_ChecksOut(t *testing.T) {
 	// Both the child branch AND the parent branch exist on the remote.
 	g := &fakeGit{remoteExists: true, revParseSha: "remotefork"}
@@ -720,34 +720,46 @@ func TestCreateChild_RemoteBranchExists_ChecksOut(t *testing.T) {
 		ParentBranch: "develop",
 	})
 	require.NoError(t, err)
-	// Op sequence: parent fast-forward check + fast-forward, then child exists
-	// check + fast-forward + rev-parse + worktree-add.
+	// Op sequence: parent exists check + fetch origin ref + resolve origin tip,
+	// then child exists check + fast-forward child + rev-parse + worktree-add.
+	// The parent path must NEVER call FastForwardBranch (the checked-out-ref
+	// refusal); FetchRef updates origin/<parent> only.
 	assert.Equal(t, []string{
 		"RemoteBranchExists", // parent exists?
-		"FastForwardBranch",  // fast-forward parent
+		"FetchRef",           // fetch origin/develop (no local-ref move)
+		"RevParse",           // resolve origin/develop tip
 		"RemoteBranchExists", // child exists?
-		"FastForwardBranch",  // fast-forward child
+		"FastForwardBranch",  // fast-forward child (checkout path moves the child ref)
 		"RevParse",
 		"WorktreeAdd",
 	}, g.ops())
 	assert.Equal(t, []string{"/repo", "develop"}, g.calls[0].args)
 	assert.Equal(t, []string{"/repo", "develop"}, g.calls[1].args)
-	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[2].args)
+	assert.Equal(t, []string{"/repo", "origin/develop"}, g.calls[2].args)
 	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[3].args)
-	assert.Equal(t, []string{"/repo", "origin/feature/x"}, g.calls[4].args)
-	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x"}, g.calls[5].args)
+	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[4].args)
+	assert.Equal(t, []string{"/repo", "origin/feature/x"}, g.calls[5].args)
+	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x"}, g.calls[6].args)
 	// WorktreeAddBranch must NOT be called on the checkout path.
 	assert.NotContains(t, g.ops(), "WorktreeAddBranch")
+	// The parent path never moves the local parent ref.
+	assert.NotContains(t, g.calls[0:3], gitCall{op: "FastForwardBranch", args: []string{"/repo", "develop"}})
 	assert.Equal(t, "remotefork", created.ForkPointSha)
 }
 
-// TestCreateChild_NewBranch_ParentFastForwarded verifies that when creating a
-// brand-new branch (not on the remote), the parent is fast-forwarded first so
-// the child starts at the latest parent tip, not a stale local ref.
-func TestCreateChild_NewBranch_ParentFastForwarded(t *testing.T) {
-	// Parent exists on remote; child does NOT — use per-branch map.
+// TestCreateChild_NewBranch_ForksFromOriginParentTip is the direct regression for
+// the field bug: a brand-new branch (not on the remote) whose parent IS on the
+// remote must fork from origin's fresh parent tip, resolved via FetchRef +
+// RevParse(origin/<parent>). It must NOT fast-forward the local parent ref
+// (`git fetch origin <parent>:<parent>` is refused when the parent is checked out
+// in a locked managed worktree), and the resolved origin SHA — not the local
+// parent name — must be handed to WorktreeAddBranch as the start point.
+func TestCreateChild_NewBranch_ForksFromOriginParentTip(t *testing.T) {
+	// Parent exists on remote; child does NOT — use per-branch map. RevParse of
+	// origin/develop yields the fresh remote tip the child must fork from.
 	g := &fakeGit{
 		remoteExistsByBranch: map[string]bool{"develop": true},
+		revParseSha:          "origin-develop-tip",
 		addStartSha:          "newsha",
 	}
 	uc := worktree.New(&fakeWorkspace{
@@ -767,13 +779,58 @@ func TestCreateChild_NewBranch_ParentFastForwarded(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"RemoteBranchExists", // parent exists? → true
-		"FastForwardBranch",  // fast-forward parent
+		"FetchRef",           // fetch origin/develop (updates the remote-tracking ref only)
+		"RevParse",           // resolve origin/develop tip
 		"RemoteBranchExists", // child exists? → false
-		"WorktreeAddBranch",  // create new branch from fast-forwarded parent
+		"WorktreeAddBranch",  // create new branch forked from origin's parent tip
 	}, g.ops())
 	assert.Equal(t, []string{"/repo", "develop"}, g.calls[0].args)
 	assert.Equal(t, []string{"/repo", "develop"}, g.calls[1].args)
-	assert.Equal(t, []string{"/repo", "my-feature"}, g.calls[2].args)
+	assert.Equal(t, []string{"/repo", "origin/develop"}, g.calls[2].args)
+	assert.Equal(t, []string{"/repo", "my-feature"}, g.calls[3].args)
+	// The new branch forks from the RESOLVED origin tip, not the stale local ref.
+	assert.Equal(t, []string{"/repo", g.calls[4].args[1], "my-feature", "origin-develop-tip"}, g.calls[4].args)
+	// Never fast-forward the local parent ref — that would hit git's checked-out refusal.
+	assert.NotContains(t, g.ops(), "FastForwardBranch")
+}
+
+// TestCreateChild_ParentFetchFails_FallsBackToLocalTip proves a fetch failure on
+// the parent (offline / dead remote) never blocks branch creation: the child is
+// created from the LOCAL parent ref and the flow succeeds, with no FastForwardBranch.
+func TestCreateChild_ParentFetchFails_FallsBackToLocalTip(t *testing.T) {
+	g := &fakeGit{
+		remoteExistsByBranch: map[string]bool{"develop": true},
+		fetchRefErr:          errBoom,
+		addStartSha:          "localfork",
+	}
+	var created workspace.CreateInput
+	uc := worktree.New(&fakeWorkspace{
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			created = in
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		RepoPath:     "/repo",
+		Branch:       "my-feature",
+		ParentID:     "w-parent",
+		ParentBranch: "develop",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"RemoteBranchExists", // parent exists? → true
+		"FetchRef",           // fetch fails …
+		"RemoteBranchExists", // … child exists? → false
+		"WorktreeAddBranch",  // … create from LOCAL parent ref
+	}, g.ops())
+	// Fork from the local parent ref (name), and never rev-parse an origin ref.
+	assert.Equal(t, []string{"/repo", created.WorktreePath, "my-feature", "develop"}, g.calls[3].args)
+	assert.NotContains(t, g.ops(), "RevParse")
+	assert.NotContains(t, g.ops(), "FastForwardBranch")
+	assert.Equal(t, "localfork", created.ForkPointSha)
 }
 
 func TestCreateChild_RemoteBranchExistsError(t *testing.T) {
