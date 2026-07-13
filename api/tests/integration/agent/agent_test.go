@@ -17,6 +17,7 @@ package agent_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"os/exec"
@@ -31,6 +32,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -185,14 +187,62 @@ func requireCLI(t *testing.T, name string) {
 	t.Skipf("%s not installed", name)
 }
 
-// segmentTerminalSessionID returns the TerminalSessionID of chatID's most
-// recently started segment, failing the test if the chat has no segments yet.
-func segmentTerminalSessionID(t *testing.T, h *harness, chatID string) string {
+// liveRunnerTerminalSession returns the PTY of the runner currently placed on
+// chatID, failing the test if the chat is dormant (no live runner — which, for a
+// chat whose CLI was just spawned, means the CLI died on startup).
+//
+// It replaces the old segmentTerminalSessionID: a chat no longer carries segment
+// rows at all, and the PTY belongs to the RUNNER — the process — which is joined on
+// at read time.
+func liveRunnerTerminalSession(t *testing.T, h *harness, chatID string) string {
 	t.Helper()
-	segs, err := h.app.Usecases.Agent.SegmentsFor(context.Background(), chatID)
+	runner, err := h.app.Usecases.Agent.LiveRunnerForChat(context.Background(), chatID)
+	require.NoError(t, err, "chat %s has no live runner (its CLI never started, or died immediately)", chatID)
+	require.NotEmpty(t, runner.TerminalSession)
+	return runner.TerminalSession
+}
+
+// runnerTerminalSession returns runnerID's PTY.
+//
+// It needs NO polling, and that is a real consequence of the refactor rather than a
+// stylistic choice. The old waitForSegmentTerminalSessionID had to poll the chat's
+// segment list after a switch, because the segment rows were written with an async
+// ax.Send and the read model could trail the id SwitchProvider had already returned.
+// Runner commands are SendWait: when SwitchProvider returns a runner id, that runner
+// is durable and visible. So this is a plain read.
+func runnerTerminalSession(t *testing.T, h *harness, runnerID string) string {
+	t.Helper()
+	runner, err := h.app.Repositories.AgentRunner.Get(context.Background(), runnerID)
+	require.NoError(t, err, "runner %s is not live", runnerID)
+	require.NotEmpty(t, runner.TerminalSession)
+	return runner.TerminalSession
+}
+
+// liveRunnerID returns the id of the runner placed on chatID, or "" if the chat is
+// dormant. It is the runner-era answer to "what is this chat's active segment?" —
+// except that a dormant chat is a real answer here, not a broken one: the live row
+// exists exactly while the vendor CLI's PTY does.
+func liveRunnerID(t *testing.T, h *harness, chatID string) string {
+	t.Helper()
+	runner, err := h.app.Usecases.Agent.LiveRunnerForChat(context.Background(), chatID)
+	if errors.Is(err, agentrunner.ErrNotFound) {
+		return ""
+	}
 	require.NoError(t, err)
-	require.NotEmpty(t, segs, "chat %s has no segments", chatID)
-	return segs[len(segs)-1].TerminalSessionID
+	return runner.ID
+}
+
+// chatSessionIDs lists the conversations chatID has hosted, oldest first — the
+// append-only history that succeeded the chat's embedded segment rows.
+func chatSessionIDs(t *testing.T, h *harness, chatID string) []string {
+	t.Helper()
+	convs, err := h.app.Usecases.Agent.ConversationsForChat(context.Background(), chatID)
+	require.NoError(t, err)
+	out := make([]string, 0, len(convs))
+	for _, c := range convs {
+		out = append(out, c.SessionID)
+	}
+	return out
 }
 
 // nudgeUntil polls check every 250ms for up to timeout, periodically writing a
@@ -231,80 +281,38 @@ func nudgeUntil[T any](
 	}
 }
 
-// waitForProviderSessionID polls the chat's segments until segID's
-// ProviderSessionID becomes non-empty (the reducer's "bound" outcome having
-// landed), nudging past the CLI's trust dialog in the meantime. It matches on
-// segID rather than assuming an index because SegmentsFor returns segments
-// oldest-first: once a chat has switched providers, index 0 is the ORIGINAL
-// (already-bound) segment, not the one under test, so a positional lookup
-// would silently pass by observing a stale bind instead of the new one.
+// waitForProviderSessionID waits until runnerID has announced a native provider
+// conversation — CurrentSession going non-empty, the reducer's "bound" outcome
+// having landed — nudging past the CLI's trust dialog in the meantime. It returns
+// that conversation id and the runner it read.
+//
+// It is keyed on the RUNNER, and that is now the only sane way to ask. A runner id
+// is minted at spawn and is stable for the whole life of the process, INCLUDING
+// across every conversation move it makes — so this one lookup keeps answering after
+// a /clear has carried the CLI to a different chat entirely, where the old
+// chat-scoped segment scan would have been looking in the wrong place.
+//
+// (A dead runner reads as ErrNotFound rather than a stale row, so a CLI that died on
+// startup shows up here as "never bound" instead of silently passing on a corpse.)
 func waitForProviderSessionID(
 	t *testing.T,
 	h *harness,
 	termSessID string,
-	chatID string,
-	segID string,
+	runnerID string,
 	timeout time.Duration,
-) (string, []domain.AgentSegment) {
+) (string, domain.AgentRunner) {
 	t.Helper()
 	ctx := context.Background()
-	var lastSegs []domain.AgentSegment
+	var last domain.AgentRunner
 	sid := nudgeUntil(h, termSessID, timeout, func() (string, bool) {
-		segs, err := h.app.Usecases.Agent.SegmentsFor(ctx, chatID)
-		require.NoError(t, err)
-		lastSegs = segs
-		for _, s := range segs {
-			if s.ID == segID {
-				return s.ProviderSessionID, s.ProviderSessionID != ""
-			}
+		runner, err := h.app.Repositories.AgentRunner.Get(ctx, runnerID)
+		if err != nil {
+			return "", false // not live (yet, or any more)
 		}
-		return "", false
+		last = runner
+		return runner.CurrentSession, runner.CurrentSession != ""
 	})
-	return sid, lastSegs
-}
-
-// waitForSegmentTerminalSessionID polls SegmentsFor until the segment whose
-// ID is newSegID appears in the read model, and returns that segment's
-// TerminalSessionID.
-//
-// This exists because the agentchat read model is an async asynx projection:
-// SwitchProvider's EndSegment(old)+OpenSegment(new) commands dispatch via
-// ax.Send (not SendWait), so newSegID is known and correct the instant
-// SwitchProvider returns, but the store-backed projection SegmentsFor reads
-// from can briefly lag behind it — a bare segmentTerminalSessionID call
-// immediately after a switch can still observe only the OLD segment.
-// Polling keyed on the known newSegID (rather than sleeping a fixed amount)
-// is deterministic on the projection catching up, mirroring
-// waitForProviderSessionID's existing poll-on-known-id pattern; unlike that
-// helper, no nudge write is needed, since there is nothing to type into
-// yet — this waits on Crowbar's own internal projection, not on a real CLI.
-func waitForSegmentTerminalSessionID(
-	t *testing.T,
-	h *harness,
-	chatID string,
-	newSegID string,
-	timeout time.Duration,
-) string {
-	t.Helper()
-	ctx := context.Background()
-	deadline := time.Now().Add(timeout)
-	var lastSegs []domain.AgentSegment
-	for {
-		segs, err := h.app.Usecases.Agent.SegmentsFor(ctx, chatID)
-		require.NoError(t, err)
-		lastSegs = segs
-		for _, s := range segs {
-			if s.ID == newSegID {
-				return s.TerminalSessionID
-			}
-		}
-		if time.Now().After(deadline) {
-			require.Fail(t, "timed out waiting for the switched-to segment to appear in the agentchat read-model projection",
-				"segment=%s chat=%s segments observed=%+v", newSegID, chatID, lastSegs)
-			return ""
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	return sid, last
 }
 
 // TestAgent_ClaudeSpawnAndDetect is the must-have acceptance test: it proves
@@ -321,29 +329,32 @@ func TestAgent_ClaudeSpawnAndDetect(t *testing.T) {
 	repoPath := kit.InitRepo(t)
 	_, _, wsID := h.importRepoAndWorkspace(t, "claude-spawn", repoPath)
 
-	chatID, segID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "claude")
+	chatID, runnerID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "claude")
 	require.NoError(t, err)
 	require.NotEmpty(t, chatID)
-	require.NotEmpty(t, segID)
-	t.Logf("spawned claude: chat=%s segment=%s workspace=%s home=%s", chatID, segID, wsID, h.home)
+	require.NotEmpty(t, runnerID)
+	t.Logf("spawned claude: chat=%s runner=%s workspace=%s home=%s", chatID, runnerID, wsID, h.home)
 
-	termSessID := segmentTerminalSessionID(t, h, chatID)
+	termSessID := liveRunnerTerminalSession(t, h, chatID)
 	require.NotEmpty(t, termSessID)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })
 
 	start := time.Now()
-	providerSessionID, segs := waitForProviderSessionID(t, h, termSessID, chatID, segID, 30*time.Second)
-	t.Logf("waited %s for SessionStart hook round trip; segments=%+v", time.Since(start), segs)
+	providerSessionID, runner := waitForProviderSessionID(t, h, termSessID, runnerID, 30*time.Second)
+	t.Logf("waited %s for SessionStart hook round trip; runner=%+v", time.Since(start), runner)
 
 	require.NotEmpty(t, providerSessionID,
 		"timed out after 30s waiting for claude's SessionStart hook to reach /v0/agent/hooks and bind a "+
-			"ProviderSessionID; this means either claude never started in the PTY, its SessionStart hook never "+
+			"provider conversation; this means either claude never started in the PTY, its SessionStart hook never "+
 			"fired, `crowbar hook` could not reach the unix socket, or IngestHook/the reducer did not persist the "+
-			"outcome — segments observed: %+v", segs)
+			"outcome — runner observed: %+v", runner)
 
-	chat, err := h.app.Usecases.Agent.GetChat(ctx, chatID)
-	require.NoError(t, err)
-	require.Equal(t, segID, chat.ActiveSegmentID, "chat's active segment must still be the one SpawnChat created")
+	// The runner SpawnChat created is still the one placed on the chat: a bind stays
+	// put (it is not a move), and the chat is live because a live-runner row exists.
+	require.Equal(t, runnerID, liveRunnerID(t, h, chatID),
+		"the chat's live runner must still be the one SpawnChat started")
+	require.Equal(t, []string{providerSessionID}, chatSessionIDs(t, h, chatID),
+		"the chat must have hosted exactly the one conversation claude announced")
 }
 
 // TestAgent_SwitchClaudeToCodex drives one real claude turn (a tiny prompt
@@ -365,15 +376,15 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	repoPath := kit.InitRepo(t)
 	_, _, wsID := h.importRepoAndWorkspace(t, "claude-switch", repoPath)
 
-	chatID, claudeSegID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "claude")
+	chatID, claudeRunnerID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "claude")
 	require.NoError(t, err)
 
-	termSessID := segmentTerminalSessionID(t, h, chatID)
+	termSessID := liveRunnerTerminalSession(t, h, chatID)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })
 
 	start := time.Now()
-	providerSessionID, segs := waitForProviderSessionID(t, h, termSessID, chatID, claudeSegID, 30*time.Second)
-	require.NotEmpty(t, providerSessionID, "claude never bound a session before a turn could be driven: %+v", segs)
+	providerSessionID, runner := waitForProviderSessionID(t, h, termSessID, claudeRunnerID, 30*time.Second)
+	require.NotEmpty(t, providerSessionID, "claude never bound a session before a turn could be driven: %+v", runner)
 	t.Logf("claude bound in %s (session=%s)", time.Since(start), providerSessionID)
 
 	const codeword = "FALCON-7719"
@@ -397,49 +408,35 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	require.NotEmpty(t, handoff, "timed out waiting for a turn_stop hook (ledger append) after driving a real claude turn")
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
-	newSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
+	newRunnerID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
-	require.NotEmpty(t, newSegID)
+	require.NotEmpty(t, newRunnerID)
 
-	// SwitchProvider's EndSegment/OpenSegment dispatch async (ax.Send); wait for
-	// the read-model projection to show the new segment (keyed on the known
-	// newSegID, not a blind sleep) before reading its terminal session.
-	newTermSessID := waitForSegmentTerminalSessionID(t, h, chatID, newSegID, 5*time.Second)
-	require.NotEqual(t, termSessID, newTermSessID, "switch must spawn a new terminal session for the codex segment")
+	// No wait: the runner Start is asynx SendWait, so the moment SwitchProvider hands
+	// back a runner id that runner is durable and visible to the read model.
+	newTermSessID := runnerTerminalSession(t, h, newRunnerID)
+	require.NotEqual(t, termSessID, newTermSessID, "a provider switch must spawn a NEW PTY for the incoming CLI")
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), newTermSessID) })
 
 	// This is the novel dual-provider-parity claim: not just that the switch
-	// mechanically spawned a new PTY and persisted a codex segment row, but
-	// that codex's OWN SessionStart hook shells out to `crowbar hook
-	// session_start`, reaches the daemon over the same unix socket, and the
-	// reducer binds a ProviderSessionID on the NEW segment — exactly as Test A
-	// proves for claude.
+	// mechanically spawned a new PTY and recorded a codex runner, but that codex's OWN
+	// SessionStart hook shells out to `crowbar hook session_start`, reaches the daemon
+	// over the same unix socket, and the reducer binds a conversation to the NEW runner
+	// — exactly as Test A proves for claude.
 	codexStart := time.Now()
-	codexProviderSessionID, segsAfterSwitch := waitForProviderSessionID(t, h, newTermSessID, chatID, newSegID, 30*time.Second)
+	codexProviderSessionID, codexRunner := waitForProviderSessionID(t, h, newTermSessID, newRunnerID, 30*time.Second)
 	t.Logf("codex bound in %s (session=%s)", time.Since(codexStart), codexProviderSessionID)
 	require.NotEmpty(t, codexProviderSessionID,
 		"timed out after 30s waiting for codex's SessionStart hook to reach /v0/agent/hooks and bind a "+
-			"ProviderSessionID on the switched-to segment; this means either codex never started in the new PTY, "+
+			"conversation to the switched-to runner; this means either codex never started in the new PTY, "+
 			"its SessionStart hook never fired, `crowbar hook` could not reach the unix socket, or IngestHook/the "+
-			"reducer did not persist the outcome — segments observed: %+v", segsAfterSwitch)
+			"reducer did not persist the outcome — runner observed: %+v", codexRunner)
 
-	segsAfter, err := h.app.Usecases.Agent.SegmentsFor(ctx, chatID)
-	require.NoError(t, err)
-	var newSeg domain.AgentSegment
-	found := false
-	for _, s := range segsAfter {
-		if s.ID == newSegID {
-			newSeg = s
-			found = true
-			break
-		}
-	}
-	require.True(t, found, "new segment %s not found among chat segments: %+v", newSegID, segsAfter)
-	require.Equal(t, "codex", newSeg.ProviderID, "the switched-to segment must be codex")
-
-	chat, err := h.app.Usecases.Agent.GetChat(ctx, chatID)
-	require.NoError(t, err)
-	require.Equal(t, newSegID, chat.ActiveSegmentID, "chat's active segment must now be the codex segment")
+	require.Equal(t, "codex", codexRunner.ProviderID, "the switched-to runner must be codex")
+	require.Equal(t, chatID, codexRunner.CurrentChatID,
+		"a provider switch does not move the CHAT: the new CLI is placed on the SAME chat")
+	require.Equal(t, newRunnerID, liveRunnerID(t, h, chatID),
+		"the chat's live runner must now be the codex one — and the outgoing claude CLI must be gone from it")
 
 	postSwitchHandoff, err := h.app.Usecases.Agent.AssembleHandoff(ctx, chatID)
 	require.NoError(t, err)

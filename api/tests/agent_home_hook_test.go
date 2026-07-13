@@ -40,14 +40,11 @@ func TestRegression_AgentHomeCallbacksReachDaemon(t *testing.T) {
 	waitForChatFrame(t, frames, created.ID, "created")
 
 	h.Quiesce()
-	var detail struct {
-		Segments []struct {
-			CrowbarSegmentID string `json:"crowbarSegmentId"`
-		} `json:"segments"`
-	}
-	h.get(homeBase+"/agent/chats/"+created.ID, &detail)
-	require.NotEmpty(t, detail.Segments)
-	segID := detail.Segments[0].CrowbarSegmentID
+	// The runner placed on the chat: its id IS the crowbarSegmentID the in-PTY
+	// `crowbar hook` callbacks carry, which is what these hooks post as segment_id.
+	detail := getAgentChat(t, h, homeBase, created.ID)
+	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
+	segID := detail.LiveRunnerID
 
 	// session_start hook → the provider session binds (session_bound). Proves the
 	// project-home /agent/hooks callback (repo=="" ⇒ home path) reaches the daemon.

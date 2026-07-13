@@ -19,9 +19,14 @@ import (
 // `true` utility instead of a real vendor CLI (claude/codex). `true` exits
 // almost instantly with no I/O, so these tests never depend on claude/codex
 // being installed and never leak a live PTY: SpawnChat's own onExit cleanup
-// (agent.Usecase.onSegmentExit) reaps the segment's tmp dir shortly after
+// (agent.Usecase.onRunnerExit) reaps the runner's tmp dir shortly after
 // Create returns, independent of the REST assertions below, which only read
-// chat/segment metadata rather than depending on the process staying alive.
+// chat metadata rather than depending on the process staying alive.
+//
+// A chat spawned on it therefore goes DORMANT almost immediately (the PTY dies
+// and the live-runner row goes with it — row-existence IS the liveness answer),
+// so any test that needs a runner to still be PLACED while it fires hooks at it
+// uses the `livestub` descriptor (`cat`, which holds its PTY open) instead.
 const stubProviderDescriptorYAML = `id: stub
 spawn:
   cmd: "true"
@@ -49,11 +54,69 @@ func writeStubProviderDescriptor(
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "stub.yaml"), []byte(stubProviderDescriptorYAML), 0o644))
 }
 
-// agentChatDTO mirrors the wire shape of dto.AgentChatDTO (a strict subset:
-// only the fields these tests assert on).
+// agentChatDTO mirrors the wire shape of dto.AgentChatDTO.
+//
+// The chat carries no process state of its own: LiveRunnerID / TerminalSessionID /
+// ActiveProviderID are DERIVED at read time from the runner projections and joined
+// on by the handler. LiveRunnerID is the whole liveness contract — it names the
+// vendor CLI placed on this chat, and "" is a MEANINGFUL value (the chat is
+// DORMANT), never a missing one. There is deliberately no status field to mirror:
+// a live-runner row exists exactly while its PTY does, so a second stored opinion
+// about liveness could only drift from the process — the production bug the runner
+// refactor deleted. (This mirror superseded the `activeSegmentId` + `segments[]`
+// shape, which is gone from the wire along with AgentSegment itself.)
 type agentChatDTO struct {
 	ID          string `json:"id"`
 	WorkspaceID string `json:"workspaceId"`
+	Title       string `json:"title"`
+	// LiveRunnerID is the runner placed on this chat, or "" when it is dormant.
+	// It is the id every in-PTY hook callback carries (the crowbarSegmentID), so
+	// it is also what these tests post as `segment_id`.
+	LiveRunnerID string `json:"liveRunnerId"`
+	// TerminalSessionID is that runner's PTY — the terminal session a chat pane
+	// attaches to. Empty exactly when LiveRunnerID is.
+	TerminalSessionID string `json:"terminalSessionId"`
+	ActiveProviderID  string `json:"activeProviderId"`
+}
+
+// agentChatConversation mirrors one domain.ChatConversation on the wire: a
+// conversation the chat has HOSTED. Append-only history, projected from runner
+// events — it is what a segment really was, minus everything that described a
+// process (no status, no PTY, no runner id), which is why it cannot drift.
+type agentChatConversation struct {
+	ChatID     string `json:"chatId"`
+	ProviderID string `json:"providerId"`
+	SessionID  string `json:"sessionId"`
+}
+
+// agentChatDetail mirrors dto.AgentChatDetailDTO: the chat plus the conversations
+// it has hosted, oldest first (the append-only history that succeeded `segments`).
+type agentChatDetail struct {
+	agentChatDTO
+	Conversations []agentChatConversation `json:"conversations"`
+}
+
+// getAgentChat reads GET <base>/agent/chats/:id. base is a workspace mount
+// (wsBase) or a project-home mount, both of which serve the same shape.
+func getAgentChat(
+	t *testing.T,
+	h *harness,
+	base string,
+	chatID string,
+) agentChatDetail {
+	t.Helper()
+	var detail agentChatDetail
+	h.get(base+"/agent/chats/"+chatID, &detail)
+	return detail
+}
+
+// sessionIDs lists the conversation ids a chat has hosted, oldest first.
+func (d agentChatDetail) sessionIDs() []string {
+	out := make([]string, 0, len(d.Conversations))
+	for _, c := range d.Conversations {
+		out = append(out, c.SessionID)
+	}
+	return out
 }
 
 // createAgentChat creates a chat in imported's workspace via the nested

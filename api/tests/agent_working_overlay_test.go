@@ -79,14 +79,9 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	h.post(wsBase(imported)+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	h.Quiesce()
 
-	var detail struct {
-		Segments []struct {
-			CrowbarSegmentID string `json:"crowbarSegmentId"`
-		} `json:"segments"`
-	}
-	h.get(wsBase(imported)+"/agent/chats/"+created.ID, &detail)
-	require.NotEmpty(t, detail.Segments)
-	segID := detail.Segments[0].CrowbarSegmentID
+	detail := getAgentChat(t, h, wsBase(imported), created.ID)
+	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
+	segID := detail.LiveRunnerID
 
 	conn := h.dial(repoBase + "/workspaces")
 
@@ -114,28 +109,29 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 }
 
 // createLiveStubChat creates a chat on the livestub provider in ws and returns its
-// chat id plus the crowbar segment id of its spawned segment (the id the in-PTY
-// hook callbacks carry).
+// chat id plus the id of the RUNNER placed on it — the crowbar segment id the
+// in-PTY hook callbacks carry, and the id every `segment_id` hook field below is.
+//
+// It reads that id back as liveRunnerId (there is no segments[] any more: the chat
+// aggregate stores no process facts at all, and the runner placed on it is joined on
+// at read time off the runner projections). Quiesce is the read-your-writes barrier
+// for that projection — asynx WaitPublish, never a sleep.
 func createLiveStubChat(
 	t *testing.T,
 	h *harness,
 	imported importedRepo,
-) (chatID, segID string) {
+) (chatID, runnerID string) {
 	t.Helper()
 	var created struct {
 		ID string `json:"id"`
 	}
 	h.post(wsBase(imported)+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	require.NotEmpty(t, created.ID)
 	h.Quiesce()
 
-	var detail struct {
-		Segments []struct {
-			CrowbarSegmentID string `json:"crowbarSegmentId"`
-		} `json:"segments"`
-	}
-	h.get(wsBase(imported)+"/agent/chats/"+created.ID, &detail)
-	require.NotEmpty(t, detail.Segments)
-	return created.ID, detail.Segments[0].CrowbarSegmentID
+	detail := getAgentChat(t, h, wsBase(imported), created.ID)
+	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
+	return created.ID, detail.LiveRunnerID
 }
 
 // postAgentHook fires one in-PTY hook callback at the workspace's agent mount.

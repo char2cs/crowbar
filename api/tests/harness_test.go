@@ -39,6 +39,7 @@ type harness struct {
 	app      *app.Container
 	stopOnce sync.Once
 	stop     func()
+	crashDie func()
 }
 
 // newHarness boots the full backend over an httptest.Server rooted at a
@@ -92,6 +93,15 @@ func newHarnessAt(
 		engines.Close()
 		_ = adapters.Close()
 	}
+	// crashDie is the POWER-CUT order, and the inversion is the whole point: the
+	// durable store goes FIRST, so nothing that happens afterwards can be recorded.
+	// See harness.crash.
+	h.crashDie = func() {
+		srv.Close()
+		_ = adapters.Close()
+		appContainer.Close()
+		engines.Close()
+	}
 	t.Cleanup(h.shutdown)
 
 	return h
@@ -101,6 +111,32 @@ func newHarnessAt(
 // stop would. Safe to call from a test AND from the registered cleanup.
 func (h *harness) shutdown() {
 	h.stopOnce.Do(h.stop)
+}
+
+// crash tears the booted backend down as a daemon DEATH would — a SIGKILL, a
+// SIGQUIT from the watchdog, a panic — rather than a graceful stop. It is the
+// precondition for every boot-reconciliation test, and a graceful shutdown cannot
+// stand in for it.
+//
+// The difference is which facts survive. A graceful stop lets the terminal engine
+// kill each PTY and lets the resulting exit callbacks RECORD those deaths (agent
+// runner rows are Exited on the way down). A crash records NOTHING: the process is
+// simply gone, and what the next daemon comes back to is a durable sqlite table
+// full of LIVE runner rows describing vendor CLIs that no longer exist. That stale
+// row is the entire subject of ReconcileRunnersOnBoot — and it is the thing that
+// bricks a chat (LiveRunnerForChat hands ResumeChat a corpse, which it returns as a
+// silent no-op), so a test that never produces one tests nothing.
+//
+// It is modelled by closing the DB adapters FIRST. Everything downstream then
+// behaves exactly as it does in a real crash: the engines still tear down (so no
+// `cat` child process leaks out of the test), their exit callbacks still fire, and
+// every write those callbacks attempt fails against a store that is already gone —
+// which is precisely what "nothing recorded the death" means. The warnings they log
+// on the way out are the expected sound of a crash, not a failure.
+//
+// Safe to call from a test; the registered graceful cleanup becomes a no-op.
+func (h *harness) crash() {
+	h.stopOnce.Do(h.crashDie)
 }
 
 // Quiesce blocks until every per-type asynx projection has drained (dispatch

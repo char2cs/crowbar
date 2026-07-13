@@ -64,14 +64,9 @@ func TestRegression_HomeWorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	waitForChatFrame(t, frames, created.ID, "created")
 	h.Quiesce()
 
-	var detail struct {
-		Segments []struct {
-			CrowbarSegmentID string `json:"crowbarSegmentId"`
-		} `json:"segments"`
-	}
-	h.get(homeBase+"/agent/chats/"+created.ID, &detail)
-	require.NotEmpty(t, detail.Segments)
-	segID := detail.Segments[0].CrowbarSegmentID
+	detail := getAgentChat(t, h, homeBase, created.ID)
+	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
+	segID := detail.LiveRunnerID
 
 	// An idle chat leaves the home workspace idle.
 	requireHomeRESTWorking(t, h, projectID, false)

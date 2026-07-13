@@ -32,30 +32,31 @@ import (
 // SpawnChat sequence every other test in this package repeats), registering
 // the spawned PTY's teardown so callers don't have to. Returns the workspace's
 // project/repo/workspace ids (the in-PTY CLI callbacks now need all three to
-// build the workspace-nested agent URL) along with the new chat's id and its
-// initial segment id.
+// build the workspace-nested agent URL) along with the new chat's id and the id of
+// the RUNNER started on it — which is the crowbarSegmentID every hook carries, and
+// so is still what the `--segment` flag below is given.
 func mustSpawnChat(
 	t *testing.T,
 	h *harness,
 	provider string,
-) (projectID, repoID, wsID, chatID, segID string) {
+) (projectID, repoID, wsID, chatID, runnerID string) {
 	t.Helper()
 	ctx := context.Background()
 
 	repoPath := kit.InitRepo(t)
 	projectID, repoID, wsID = h.importRepoAndWorkspace(t, "title-"+provider, repoPath)
 
-	chatID, segID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, provider)
+	chatID, runnerID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, provider)
 	require.NoError(t, err)
 	require.NotEmpty(t, chatID)
-	require.NotEmpty(t, segID)
-	t.Logf("spawned %s: chat=%s segment=%s workspace=%s home=%s", provider, chatID, segID, wsID, h.home)
+	require.NotEmpty(t, runnerID)
+	t.Logf("spawned %s: chat=%s runner=%s workspace=%s home=%s", provider, chatID, runnerID, wsID, h.home)
 
-	termSessID := segmentTerminalSessionID(t, h, chatID)
+	termSessID := liveRunnerTerminalSession(t, h, chatID)
 	require.NotEmpty(t, termSessID)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })
 
-	return projectID, repoID, wsID, chatID, segID
+	return projectID, repoID, wsID, chatID, runnerID
 }
 
 // crowbarBinPath returns the real compiled crowbar binary this test's
