@@ -53,11 +53,19 @@ const WORKING_KINDS = new Set(['turn_started', 'turn_stopped', 'deleted'])
  */
 export function subscribeHomeWorkspace(projectId: string): () => void {
   let disposed = false
+  // A turn fires two frames in quick succession (turn_started, turn_stopped), each
+  // issuing its own GET. Those GETs can resolve OUT OF ORDER, and a re-read "agrees with
+  // the daemon by construction" only for the response's own value — not against a second,
+  // still-in-flight read. If the started-read's response lands last it would settle
+  // working=true after the stopped-read already settled working=false, wedging the home
+  // spinner on until the next turn. Only the most-recently ISSUED read may write.
+  let latestRead = 0
 
   async function read(): Promise<void> {
+    const seq = ++latestRead
     try {
       const workspace = await fetchHomeWorkspace(projectId)
-      if (disposed) return
+      if (disposed || seq !== latestRead) return
       useHomeWorkspaceStore.getState().setHomeWorkspace(workspace)
     } catch {
       // A transient failure leaves the last known value in place; the next

@@ -30,8 +30,16 @@ export function AgentChatGlyph({ providerIcon, working, className }: AgentChatGl
     return <ProviderIcon svg={providerIcon} className={cn('size-4', className)} />
   }
   // No provider yet (list still seeding, or a chat whose provider went away):
-  // a chat glyph still reads as a chat — a generic file icon does not.
+  // a chat glyph still reads as a chat — a generic file icon does not. The
+  // data-chat-glyph marker names this fallback the same way ProviderIcon carries
+  // data-provider-icon, so a surface can assert it renders THIS glyph and not some
+  // other icon (the whole point of the fallback) rather than merely "some svg".
   return (
-    <ChatsCircle aria-hidden="true" className={cn('size-4 shrink-0', className)} weight="regular" />
+    <ChatsCircle
+      data-chat-glyph="true"
+      aria-hidden="true"
+      className={cn('size-4 shrink-0', className)}
+      weight="regular"
+    />
   )
 }

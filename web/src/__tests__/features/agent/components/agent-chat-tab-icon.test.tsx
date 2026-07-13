@@ -85,6 +85,9 @@ describe('AgentChatTabIcon', () => {
     seed([chat('c3', 'gemini')])
     const { container } = render(<AgentChatTabIcon wsId="w1" chatId="c3" />)
     expect(container.querySelector('[data-provider-icon]')).toBeNull()
-    expect(container.querySelector('svg')).not.toBeNull()
+    // Specifically the CHAT glyph, not just "some svg" — a file icon is an svg too, and
+    // asserting only that one rendered would pass if the fallback regressed to the file
+    // icon this feature exists to replace.
+    expect(container.querySelector('[data-chat-glyph]')).not.toBeNull()
   })
 })

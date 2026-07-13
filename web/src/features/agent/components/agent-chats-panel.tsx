@@ -177,7 +177,22 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
       const buffer = st.buffers.find((b) => b.type === 'agentChat' && b.chatId === chatId)
 
       st.removeAgentChat(chatId)
-      if (buffer) st.bufferActions.closeBuffer(buffer.id)
+      if (buffer) {
+        // Raw closeBuffer is NOT enough — it filters the buffer out of the array but
+        // leaves the owning pane's activeBufferId pointing at it, so deleting the chat you
+        // were looking at blanks the whole pane (the remaining tabs stay in the bar, but
+        // the pane renders its empty state until you click one). removeBufferFromPane first
+        // activates an adjacent tab; this is the exact closeTab pattern the WS-stream hook
+        // documents, and the reason the backend's own 'deleted' frame cannot repair this
+        // afterwards is that we have already removed the buffer here, so its lookup by
+        // chatId finds nothing.
+        for (const pane of Object.values(st.panes ?? {})) {
+          if (pane.bufferIds.includes(buffer.id)) {
+            st.paneActions.removeBufferFromPane(pane.id, buffer.id)
+          }
+        }
+        st.bufferActions.closeBuffer(buffer.id)
+      }
 
       deleteChat(wsId, chatId).catch((err: unknown) => {
         console.error('Failed to delete agent chat:', err)

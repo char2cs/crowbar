@@ -191,4 +191,33 @@ describe('subscribeHomeWorkspace', () => {
     })
     expect(useHomeWorkspaceStore.getState().workspace).toBeNull()
   })
+
+  it('drops a stale re-read that resolves out of order, so the spinner never wedges', async () => {
+    // A turn fires turn_started then turn_stopped, each issuing its own GET. If the
+    // started-read's response lands LAST it would settle working=true after the
+    // stopped-read already settled working=false — a spinner stuck on until the next turn.
+    // Only the most-recently issued read may write. Resolution order is controlled by hand.
+    const resolvers: Array<(ws: WorkspaceDTO) => void> = []
+    fetchHomeWorkspaceSpy.mockImplementation(
+      () => new Promise<WorkspaceDTO>((resolve) => resolvers.push(resolve)),
+    )
+
+    const dispose = subscribeHomeWorkspace('p1')
+    await vi.waitFor(() => expect(resolvers).toHaveLength(1)) // seed GET
+    resolvers[0](homeDTO(false))
+    await whenWorking(false)
+
+    emit({ kind: 'turn_started' }) // read #2 — would set working=true
+    emit({ kind: 'turn_stopped' }) // read #3 — sets working=false
+    await vi.waitFor(() => expect(resolvers).toHaveLength(3))
+
+    resolvers[2](homeDTO(false)) // the NEWER read lands first: idle
+    resolvers[1](homeDTO(true)) // the older, stale read lands LAST: would wedge the spinner
+    // Drain microtasks so the stale resolution's continuation actually runs before we
+    // assert it was ignored (a real signal off a settled promise, not a timed wait).
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+
+    expect(useHomeWorkspaceStore.getState().workspace?.working).toBe(false)
+    dispose()
+  })
 })

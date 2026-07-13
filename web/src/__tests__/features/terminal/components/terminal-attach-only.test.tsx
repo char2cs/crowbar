@@ -176,7 +176,12 @@ describe('XtermTerminal attach-only mode', () => {
   })
 
   it('still re-attaches on reconnect when the agent PTY survived', async () => {
-    resolveFn.mockResolvedValue({ connectionId: SESSION, reused: true })
+    // A survived PTY reconnects on a NEW ws connection: same session id, DIFFERENT
+    // connectionId. Resolving to a distinct id from the one renderAttached seeded is what
+    // makes the re-attach write-back observable — asserting the seeded id was unchanged
+    // (as this test used to) passes even if the entire updateSession/saveReconnect path is
+    // deleted, because the seed and the resolve were the same string.
+    resolveFn.mockResolvedValue({ connectionId: 'reattached-conn', reused: true })
     const onSessionGone = vi.fn()
     await renderAttached({ attachOnly: true, onSessionGone })
 
@@ -184,7 +189,8 @@ describe('XtermTerminal attach-only mode', () => {
 
     expect(onSessionGone).not.toHaveBeenCalled()
     expect(terminalCreateFn).not.toHaveBeenCalled()
-    expect(useTerminalStore.getState().getSession(SESSION)?.connectionId).toBe(SESSION)
+    // The write-back RAN: the surviving session now points at the re-attached connection.
+    expect(useTerminalStore.getState().getSession(SESSION)?.connectionId).toBe('reattached-conn')
   })
 
   it('NO REGRESSION: an ordinary terminal pane reconnects WITHOUT attachOnly (still free to spawn)', async () => {

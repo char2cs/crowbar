@@ -12,6 +12,28 @@ describe('FlickerSpinner', () => {
     expect(svg!.querySelector('[fill="currentColor"]')).not.toBeNull()
   })
 
+  // The FlickerSpinner picks its markup at RANDOM per mount, so the assertions above (and
+  // the identical ones in workspace-branch-icon / project-home-row / context-pill /
+  // workspace-tree-repo-home) only sample ONE of the assets. They pass today because every
+  // asset happens to animate and use currentColor — an invariant NOTHING enforces. Drop one
+  // static or hard-coded-colour spinner into the folder and those five files start failing
+  // on ~1 mount in N, with no code change to blame. This guard turns that latent flake into
+  // a deterministic failure that names the offending asset.
+  it('EVERY spinner asset animates and uses currentColor (the sampled tests depend on it)', () => {
+    const assets = import.meta.glob('../../../components/ui/spinners/*.svg', {
+      eager: true,
+      query: '?raw',
+      import: 'default',
+    }) as Record<string, string>
+    const paths = Object.keys(assets)
+    expect(paths.length).toBeGreaterThan(0)
+    for (const path of paths) {
+      const markup = assets[path]
+      expect(markup, `${path} must contain an <animate> element`).toContain('<animate')
+      expect(markup, `${path} must paint with currentColor`).toContain('currentColor')
+    }
+  })
+
   it('exposes a status role and honours className sizing', () => {
     const { getByRole } = render(<FlickerSpinner className="size-3.5" />)
     const el = getByRole('status')

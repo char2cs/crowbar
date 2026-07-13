@@ -269,9 +269,10 @@ describe('AgentChatsPanel', () => {
     seed([chat('c9', 'Orphan', 'gemini', '2026-01-03T00:00:00Z')])
     render(<AgentChatsPanel />)
     // Not the provider's icon (there isn't one) and NOT an empty slot: a chat with
-    // no resolvable provider still has to read as a chat.
+    // no resolvable provider still has to read as a chat — specifically the chat glyph,
+    // not merely some svg (a file icon would satisfy that and defeat the fallback's point).
     expect(rowFor('c9').querySelector('[data-provider-icon]')).toBeNull()
-    expect(rowFor('c9').querySelector('svg')).not.toBeNull()
+    expect(rowFor('c9').querySelector('[data-chat-glyph]')).not.toBeNull()
   })
 
   it('shows the working spinner on the working chat only', () => {
@@ -660,6 +661,30 @@ describe('AgentChatsPanel', () => {
     expect(agentBuffers()).toHaveLength(0)
     expect(state().agentChats.activeChatId).toBeNull()
     await waitFor(() => expect(deleteChatFn).toHaveBeenCalledTimes(1))
+  })
+
+  it('deleting the ACTIVE tab of a multi-tab pane activates the sibling, not a blank pane', async () => {
+    // The blank-pane bug: with two chat tabs in one pane and the FIRST active, deleting it
+    // via raw closeBuffer filtered the buffer out but left the pane's activeBufferId
+    // pointing at the now-gone buffer, so the pane rendered empty until the user clicked the
+    // surviving tab. A single-tab delete (the test above) can't catch this — emptying a pane
+    // is the correct outcome there. removeBufferFromPane is what activates the sibling.
+    seed()
+    render(<AgentChatsPanel />)
+    fireEvent.click(rowFor('c1')) // tab 1
+    fireEvent.click(rowFor('c2')) // tab 2, same pane
+    fireEvent.click(rowFor('c1')) // make c1 the active tab
+    const pane = state().activePaneId
+    const survivor = agentBuffers().find((b) => b.chatId === 'c2')!.id
+    expect(state().panes[pane].bufferIds).toHaveLength(2)
+
+    dragOnto('c1', trashZone())
+
+    // The deleted tab is gone AND the pane fell through to its sibling — not left pointing
+    // at a buffer that no longer exists (which renders the pane's empty state).
+    expect(state().panes[pane].bufferIds).toEqual([survivor])
+    expect(state().panes[pane].activeBufferId).toBe(survivor)
+    await waitFor(() => expect(deleteChatFn).toHaveBeenCalledWith('w1', 'c1'))
   })
 
   it('deleting a chat with no open pane tab is a no-op on the buffers', () => {
