@@ -104,21 +104,51 @@ func TestProtectedBranches_GHError(t *testing.T) {
 	assert.Contains(t, err.Error(), "github: protected-branches")
 }
 
-func TestPullRequestForBranch_NoUpstream(t *testing.T) {
+// TestRegression_PullRequestForBranch_MergedAfterRemoteBranchDeleted pins the
+// production bug: GitHub deletes the head ref when a PR merges, so gating the
+// lookup on `git ls-remote origin refs/heads/<branch>` bailed out before ever
+// running gh — the workspace stayed pr-open forever. gh still reports the merged
+// PR for a deleted head ref, and the lookup must read it.
+func TestRegression_PullRequestForBranch_MergedAfterRemoteBranchDeleted(t *testing.T) {
 	dir := t.TempDir()
-	// ls-remote returns empty output → no upstream
-	g := NewWithExec(fakeCmd("", 0))
+	prJSON := `[{"number":54,"state":"MERGED","url":"https://github.com/o/r/pull/54","title":"Done","baseRefName":"develop","headRefOid":"3d06bd4"}]`
+	g := NewWithExec(sequentialFake([]fakeResponse{
+		{output: prJSON, code: 0}, // gh pr list
+		{output: "", code: 0},     // git merge-base --is-ancestor → branch contains the PR head
+	}))
+	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
+	require.NoError(t, err)
+	require.NotNil(t, pr)
+	assert.Equal(t, 54, pr.Number)
+	assert.Equal(t, "merged", pr.Status)
+	assert.Equal(t, "develop", pr.TargetBranch)
+}
+
+// TestPullRequestForBranch_IgnoresStalePRAfterBranchNameReuse covers the flip
+// side of dropping the ls-remote gate: gh matches PRs by head branch NAME alone,
+// so fresh work on a branch whose name was used by an already-merged PR matches
+// that stale PR. The new branch does not contain the PR's head commit, so the PR
+// is not this branch's and must be ignored.
+func TestPullRequestForBranch_IgnoresStalePRAfterBranchNameReuse(t *testing.T) {
+	dir := t.TempDir()
+	prJSON := `[{"number":54,"state":"MERGED","url":"https://github.com/o/r/pull/54","title":"Old","baseRefName":"develop","headRefOid":"3d06bd4"}]`
+	g := NewWithExec(sequentialFake([]fakeResponse{
+		{output: prJSON, code: 0}, // gh pr list
+		{output: "", code: 1},     // git merge-base --is-ancestor → branch does NOT contain it
+	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
 	require.NoError(t, err)
 	assert.Nil(t, pr)
 }
 
-func TestPullRequestForBranch_OpenPR(t *testing.T) {
+// TestPullRequestForBranch_OpenPRSkipsContainmentCheck: an open PR still owns its
+// head ref, so a name match is authoritative and no git call is needed. The single
+// queued response is the assertion — sequentialFake panics on an extra call.
+func TestPullRequestForBranch_OpenPRSkipsContainmentCheck(t *testing.T) {
 	dir := t.TempDir()
-	prJSON := `[{"number":42,"state":"OPEN","url":"https://github.com/o/r/pull/42","title":"My PR","baseRefName":"main"}]`
+	prJSON := `[{"number":42,"state":"OPEN","url":"https://github.com/o/r/pull/42","title":"My PR","baseRefName":"main","headRefOid":"deadbee"}]`
 	g := NewWithExec(sequentialFake([]fakeResponse{
-		{output: "abc123\trefs/heads/my-branch", code: 0}, // ls-remote → has upstream
-		{output: prJSON, code: 0},                         // gh pr list
+		{output: prJSON, code: 0}, // gh pr list, and nothing else
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
 	require.NoError(t, err)
@@ -128,6 +158,22 @@ func TestPullRequestForBranch_OpenPR(t *testing.T) {
 	assert.Equal(t, "main", pr.TargetBranch)
 }
 
+// TestPullRequestForBranch_MergedWithoutHeadRefOid keeps the containment guard
+// permissive when the provider gives us no head sha to check: reporting the PR is
+// the pre-guard behaviour, and a false negative here would resurrect the very
+// stale-status bug the guard is built alongside.
+func TestPullRequestForBranch_MergedWithoutHeadRefOid(t *testing.T) {
+	dir := t.TempDir()
+	prJSON := `[{"number":5,"state":"MERGED","url":"https://github.com/o/r/pull/5","title":"Done","baseRefName":"main"}]`
+	g := NewWithExec(sequentialFake([]fakeResponse{
+		{output: prJSON, code: 0}, // gh pr list, and nothing else
+	}))
+	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
+	require.NoError(t, err)
+	require.NotNil(t, pr)
+	assert.Equal(t, "merged", pr.Status)
+}
+
 func TestPullRequestForBranch_PreferOpen(t *testing.T) {
 	dir := t.TempDir()
 	prJSON := `[
@@ -135,7 +181,6 @@ func TestPullRequestForBranch_PreferOpen(t *testing.T) {
 		{"number":20,"state":"OPEN","url":"https://github.com/o/r/pull/20","title":"New","baseRefName":"main"}
 	]`
 	g := NewWithExec(sequentialFake([]fakeResponse{
-		{output: "abc123\trefs/heads/my-branch", code: 0},
 		{output: prJSON, code: 0},
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
@@ -145,23 +190,9 @@ func TestPullRequestForBranch_PreferOpen(t *testing.T) {
 	assert.Equal(t, "open", pr.Status)
 }
 
-func TestPullRequestForBranch_MergedState(t *testing.T) {
-	dir := t.TempDir()
-	prJSON := `[{"number":5,"state":"MERGED","url":"https://github.com/o/r/pull/5","title":"Done","baseRefName":"main"}]`
-	g := NewWithExec(sequentialFake([]fakeResponse{
-		{output: "abc123\trefs/heads/my-branch", code: 0},
-		{output: prJSON, code: 0},
-	}))
-	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
-	require.NoError(t, err)
-	require.NotNil(t, pr)
-	assert.Equal(t, "merged", pr.Status)
-}
-
 func TestPullRequestForBranch_NoPRs(t *testing.T) {
 	dir := t.TempDir()
 	g := NewWithExec(sequentialFake([]fakeResponse{
-		{output: "abc123\trefs/heads/my-branch", code: 0},
 		{output: "[]", code: 0},
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
@@ -172,20 +203,11 @@ func TestPullRequestForBranch_NoPRs(t *testing.T) {
 func TestPullRequestForBranch_GHError(t *testing.T) {
 	dir := t.TempDir()
 	g := NewWithExec(sequentialFake([]fakeResponse{
-		{output: "abc123\trefs/heads/my-branch", code: 0},
 		{output: "not authenticated", code: 1},
 	}))
 	_, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "github: list-prs")
-}
-
-func TestPullRequestForBranch_LSRemoteError(t *testing.T) {
-	dir := t.TempDir()
-	g := NewWithExec(fakeCmd("", 1))
-	_, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "github: pr-for-branch")
 }
 
 func TestParsePRList_InvalidJSON(t *testing.T) {

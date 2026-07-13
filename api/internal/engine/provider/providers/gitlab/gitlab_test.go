@@ -89,20 +89,47 @@ func TestProtectedBranches_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "gitlab: protected-branches")
 }
 
-func TestPullRequestForBranch_NoUpstream(t *testing.T) {
+// TestRegression_PullRequestForBranch_MergedAfterRemoteBranchDeleted mirrors the
+// GitHub regression: a merged MR whose source branch was deleted on the remote
+// must still be observed. Gating the lookup on `git ls-remote` hid it, leaving the
+// workspace pr-open forever.
+func TestRegression_PullRequestForBranch_MergedAfterRemoteBranchDeleted(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(fakeCmd("", 0)) // ls-remote returns empty
+	mrJSON := `[{"iid":3,"state":"merged","web_url":"https://gitlab.com/o/r/-/merge_requests/3","title":"Done","target_branch":"main","sha":"3d06bd4"}]`
+	g := NewWithExec(sequentialFake([]fakeResponse{
+		{output: mrJSON, code: 0}, // glab mr list
+		{output: "", code: 0},     // git merge-base --is-ancestor → branch contains the MR head
+	}))
+	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
+	require.NoError(t, err)
+	require.NotNil(t, pr)
+	assert.Equal(t, 3, pr.Number)
+	assert.Equal(t, "merged", pr.Status)
+}
+
+// TestPullRequestForBranch_IgnoresStaleMRAfterBranchNameReuse: glab matches MRs by
+// source branch NAME, so fresh work reusing a merged branch's name matches the old
+// MR. The new branch does not contain that MR's head commit, so it is not ours.
+func TestPullRequestForBranch_IgnoresStaleMRAfterBranchNameReuse(t *testing.T) {
+	dir := t.TempDir()
+	mrJSON := `[{"iid":3,"state":"merged","web_url":"https://gitlab.com/o/r/-/merge_requests/3","title":"Old","target_branch":"main","sha":"3d06bd4"}]`
+	g := NewWithExec(sequentialFake([]fakeResponse{
+		{output: mrJSON, code: 0}, // glab mr list
+		{output: "", code: 1},     // git merge-base --is-ancestor → branch does NOT contain it
+	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
 	require.NoError(t, err)
 	assert.Nil(t, pr)
 }
 
+// TestPullRequestForBranch_OpenMR: an open MR still owns its source ref, so no
+// containment check runs. The single queued response is the assertion —
+// sequentialFake panics on an extra call.
 func TestPullRequestForBranch_OpenMR(t *testing.T) {
 	dir := t.TempDir()
-	mrJSON := `[{"iid":7,"state":"opened","web_url":"https://gitlab.com/o/r/-/merge_requests/7","title":"My MR","target_branch":"main"}]`
+	mrJSON := `[{"iid":7,"state":"opened","web_url":"https://gitlab.com/o/r/-/merge_requests/7","title":"My MR","target_branch":"main","sha":"deadbee"}]`
 	g := NewWithExec(sequentialFake([]fakeResponse{
-		{output: "abc123\trefs/heads/my-branch", code: 0},
-		{output: mrJSON, code: 0},
+		{output: mrJSON, code: 0}, // glab mr list, and nothing else
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
 	require.NoError(t, err)
@@ -112,12 +139,14 @@ func TestPullRequestForBranch_OpenMR(t *testing.T) {
 	assert.Equal(t, "main", pr.TargetBranch)
 }
 
-func TestPullRequestForBranch_MergedState(t *testing.T) {
+// TestPullRequestForBranch_MergedWithoutSHA keeps the containment guard permissive
+// when the provider gives us no head sha to check: a false negative here would
+// resurrect the stale-status bug the guard is built alongside.
+func TestPullRequestForBranch_MergedWithoutSHA(t *testing.T) {
 	dir := t.TempDir()
 	mrJSON := `[{"iid":3,"state":"merged","web_url":"https://gitlab.com/o/r/-/merge_requests/3","title":"Done","target_branch":"main"}]`
 	g := NewWithExec(sequentialFake([]fakeResponse{
-		{output: "abc123\trefs/heads/my-branch", code: 0},
-		{output: mrJSON, code: 0},
+		{output: mrJSON, code: 0}, // glab mr list, and nothing else
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
 	require.NoError(t, err)
@@ -128,7 +157,6 @@ func TestPullRequestForBranch_MergedState(t *testing.T) {
 func TestPullRequestForBranch_NoMRs(t *testing.T) {
 	dir := t.TempDir()
 	g := NewWithExec(sequentialFake([]fakeResponse{
-		{output: "abc123\trefs/heads/my-branch", code: 0},
 		{output: "[]", code: 0},
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
@@ -139,20 +167,11 @@ func TestPullRequestForBranch_NoMRs(t *testing.T) {
 func TestPullRequestForBranch_GlabError(t *testing.T) {
 	dir := t.TempDir()
 	g := NewWithExec(sequentialFake([]fakeResponse{
-		{output: "abc123\trefs/heads/my-branch", code: 0},
 		{output: "not authenticated", code: 1},
 	}))
 	_, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "gitlab: list-mrs")
-}
-
-func TestPullRequestForBranch_LSRemoteError(t *testing.T) {
-	dir := t.TempDir()
-	g := NewWithExec(fakeCmd("", 1))
-	_, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "gitlab: mr-for-branch")
 }
 
 func TestMapState(t *testing.T) {

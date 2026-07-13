@@ -16,20 +16,26 @@
 import React from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '@/lib/api'
 
 // ── Mocks ───────────────────────────────────────────────────────────
 
-const { createChatFn, deleteChatFn, renameChatFn, streamHook } = vi.hoisted(() => ({
+const { createChatFn, deleteChatFn, renameChatFn, streamHook, toastErrorFn } = vi.hoisted(() => ({
   createChatFn: vi.fn(),
   deleteChatFn: vi.fn(),
   renameChatFn: vi.fn(),
   streamHook: vi.fn(),
+  toastErrorFn: vi.fn(),
 }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
   createChat: (...a: unknown[]) => createChatFn(...a),
   deleteChat: (...a: unknown[]) => deleteChatFn(...a),
   renameChat: (...a: unknown[]) => renameChatFn(...a),
+}))
+
+vi.mock('@/features/window/stores/toast-store', () => ({
+  toast: { error: (...a: unknown[]) => toastErrorFn(...a) },
 }))
 
 vi.mock('@/features/workspace/stores/hooks/use-workspace-agent-chats-stream', () => ({
@@ -172,6 +178,7 @@ beforeEach(() => {
   createChatFn.mockReset().mockResolvedValue('c-new')
   deleteChatFn.mockReset().mockResolvedValue(undefined)
   renameChatFn.mockReset().mockResolvedValue(undefined)
+  toastErrorFn.mockReset()
   streamHook.mockClear()
   document.elementsFromPoint = () => []
   activate('w1')
@@ -444,6 +451,25 @@ describe('AgentChatsPanel', () => {
     await waitFor(() => expect(err).toHaveBeenCalled())
     expect(agentBuffers()).toHaveLength(0)
     expect(state().agentChats.activeChatId).toBeNull()
+  })
+
+  // The bug the user actually hit: the daemon could not find the claude binary (launchd's
+  // PATH omits ~/.local/bin), every create 500'd, and this catch dropped it into
+  // console.error — so the chat button did NOTHING, over and over, with no way to learn
+  // why. A failed create must SAY something.
+  it('a failed create tells the user why, naming the CLI that is missing', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    createChatFn.mockRejectedValue(new ApiError('terminal: command not found: claude', 424))
+    seed()
+    render(<AgentChatsPanel />)
+    fireEvent.click(screen.getByText('New Claude chat'))
+
+    await waitFor(() => expect(toastErrorFn).toHaveBeenCalledTimes(1))
+    const [title, description] = toastErrorFn.mock.calls[0] as [string, string]
+    expect(title).toContain('Claude')
+    expect(title).toMatch(/isn.t installed/)
+    expect(description).toMatch(/PATH/)
+    err.mockRestore()
   })
 
   // ── Rename ────────────────────────────────────────────────────────

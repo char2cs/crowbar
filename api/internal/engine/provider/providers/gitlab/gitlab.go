@@ -82,23 +82,20 @@ type mrJSON struct {
 	WebURL       string `json:"web_url"`
 	Title        string `json:"title"`
 	TargetBranch string `json:"target_branch"`
+	SHA          string `json:"sha"`
 }
 
 // PullRequestForBranch returns the most relevant MR for branch, or nil if none.
-// Returns nil without calling the provider if branch has no upstream remote.
+//
+// The lookup deliberately does NOT check whether branch still exists on the
+// remote first: the source ref is commonly deleted when an MR merges, so that
+// check goes false at exactly the moment the answer changes, and the merge would
+// never be observed. glab reports a merged MR for a deleted source ref just fine.
 func (g *glabProvider) PullRequestForBranch(
 	ctx context.Context,
 	repoPath string,
 	branch string,
 ) (*providertypes.PRInfo, error) {
-	hasUpstream, err := g.branchHasUpstream(ctx, repoPath, branch)
-	if err != nil {
-		return nil, fmt.Errorf("gitlab: mr-for-branch: upstream check: %w", err)
-	}
-	if !hasUpstream {
-		return nil, nil
-	}
-
 	out, err := g.runGlab(
 		ctx,
 		repoPath,
@@ -120,6 +117,9 @@ func (g *glabProvider) PullRequestForBranch(
 	if best == nil {
 		return nil, nil
 	}
+	if !g.ownsMR(ctx, repoPath, branch, best) {
+		return nil, nil
+	}
 
 	return &providertypes.PRInfo{
 		Number:       best.IID,
@@ -128,6 +128,49 @@ func (g *glabProvider) PullRequestForBranch(
 		Title:        best.Title,
 		TargetBranch: best.TargetBranch,
 	}, nil
+}
+
+// ownsMR reports whether mr is really this branch's MR.
+//
+// glab matches MRs by source branch NAME alone, and a merged MR outlives the ref
+// it was opened from. So reusing a merged branch's name for fresh work matches
+// that stale MR — the workspace would show pr-merged, linked to someone else's
+// history, and pr-merged is terminal: the sweep drops the workspace and never
+// revisits it.
+//
+// An open MR still owns its source ref, so a name match is authoritative. A
+// merged/closed MR belongs to this branch only if the branch still contains the
+// commit the MR was built from.
+func (g *glabProvider) ownsMR(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+	mr *mrJSON,
+) bool {
+	if strings.EqualFold(mr.State, "opened") {
+		return true
+	}
+	if mr.SHA == "" {
+		return true
+	}
+	return g.branchContains(ctx, repoPath, branch, mr.SHA)
+}
+
+// branchContains reports whether sha is an ancestor of (or equal to) branch.
+//
+// A non-zero exit means "not an ancestor" and an unknown object means git cannot
+// answer; both resolve to false. That direction is deliberate: a false negative
+// leaves the status stale, which is merely the old behaviour, while a false
+// positive brands the workspace with a foreign MR and retires it from the sweep.
+func (g *glabProvider) branchContains(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+	sha string,
+) bool {
+	cmd := g.execFn(ctx, "git", "merge-base", "--is-ancestor", sha, branch)
+	cmd.Dir = repoPath
+	return cmd.Run() == nil
 }
 
 // parseMRList parses the JSON array returned by glab mr list.
@@ -194,26 +237,6 @@ func mapState(
 	default:
 		return "closed"
 	}
-}
-
-// branchHasUpstream checks whether branch exists on the remote.
-func (g *glabProvider) branchHasUpstream(
-	ctx context.Context,
-	repoPath string,
-	branch string,
-) (bool, error) {
-	ref := "refs/heads/" + branch
-	cmd := g.execFn(ctx, "git", "ls-remote", "origin", ref)
-	cmd.Dir = repoPath
-
-	var out, errBuf bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errBuf
-
-	if err := cmd.Run(); err != nil {
-		return false, fmt.Errorf("ls-remote: stderr=%q: %w", strings.TrimSpace(errBuf.String()), err)
-	}
-	return strings.TrimSpace(out.String()) != "", nil
 }
 
 // runGlab executes a glab command in repoPath and returns stdout.

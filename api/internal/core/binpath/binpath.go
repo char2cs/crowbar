@@ -13,12 +13,22 @@ import (
 
 // wellKnownDirs are extra directories probed when the PATH lookup fails, in
 // priority order.
+//
+// ~/.local/bin is first and is NOT reachable by a PATH lookup alone: the daemon
+// repairs launchd's minimal PATH from a LOGIN NON-INTERACTIVE shell (core/shellenv),
+// which sources .zshenv/.zprofile but never .zshrc — and .zshrc is where that dir is
+// conventionally put on PATH. It is also where the agentic CLIs (claude, codex)
+// install by default, so without it the packaged .app cannot spawn one at all.
 func wellKnownDirs() []string {
-	return []string{
+	dirs := make([]string, 0, 4)
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, ".local", "bin")) // claude/codex default install
+	}
+	return append(dirs,
 		"/opt/homebrew/bin", // macOS arm64 Homebrew
 		"/usr/local/bin",    // macOS intel Homebrew / manual installs
 		"/usr/bin",
-	}
+	)
 }
 
 // Resolve returns the executable path for name: the PATH lookup first, then

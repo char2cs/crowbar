@@ -9,6 +9,7 @@ import { useActiveWorkspaceState } from '@/features/workspace/stores/hooks/use-a
 import { useWorkspaceAgentChatsStream } from '@/features/workspace/stores/hooks/use-workspace-agent-chats-stream'
 import { orderedChats } from '@/features/workspace/stores/slices/agent-chats-slice'
 import { createChat, deleteChat, renameChat } from '@/features/agent/api/agent-api'
+import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { AgentChatRow } from './agent-chat-row'
 import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
 
@@ -160,7 +161,7 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
             name: title || `${provider.displayName} chat`,
           })
         })
-        .catch((err: unknown) => console.error('Failed to create agent chat:', err))
+        .catch((err: unknown) => toastSpawnFailure(err, provider.displayName, 'start'))
     },
     [store, wsId],
   )

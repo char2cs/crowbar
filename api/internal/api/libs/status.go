@@ -48,6 +48,9 @@ import (
 //   - 403 Forbidden       — enginegit.ErrAuthFailed (remote rejected the
 //     supplied credentials on push/pull/fetch; a forbidden-style auth failure,
 //     not a transport outage).
+//   - 424 Failed Dependency — engineterminal.ErrCommandNotFound (the vendor CLI
+//     a spawn needs — claude, codex — is not installed on this machine or is not
+//     executable). A missing dependency the USER can fix, not a server fault.
 //   - 409 Conflict        — apperr.ErrLocked (a write against a locked,
 //     provider-protected workspace; 04 §5, 05 §3/§4), enginesearch.ErrLocked,
 //     the worktree lock / non-leaf sentinels (ErrParentLocked,
@@ -82,6 +85,16 @@ func StatusAndMessage(
 
 	if errors.Is(err, enginegit.ErrAuthFailed) {
 		return http.StatusForbidden, err.Error()
+	}
+
+	// engineterminal.ErrCommandNotFound is a MISSING DEPENDENCY on the user's machine:
+	// the vendor CLI a spawn needs (claude, codex) is not installed or not executable.
+	// The request was well-formed and the server is healthy, so it is neither a
+	// client-got-it-wrong 4xx nor a 500 — it is 424 Failed Dependency. It is broken out
+	// of the 500 bucket precisely because it is the ONE spawn failure the user can act
+	// on, and it has to reach them as words rather than as a button that does nothing.
+	if errors.Is(err, engineterminal.ErrCommandNotFound) {
+		return http.StatusFailedDependency, err.Error()
 	}
 
 	// asynxmodels.ErrValidation is an aggregate state-machine guard rejection (a

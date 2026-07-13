@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
 import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
+import { ApiError } from '@/lib/api'
 import type { AgentChatContent } from '@/features/panes/types/pane-content'
 import {
   WorkspaceStoreContext,
@@ -366,7 +367,11 @@ describe('AgentChatPane', () => {
 
       expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
       expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
-      expect(toastErrorFn).toHaveBeenCalledWith('Could not resume this chat', expect.any(String))
+      // The reason is REPORTED, and the PATH is not blamed for a failure that has
+      // nothing to do with it.
+      const [, why] = toastErrorFn.mock.calls[0] as [string, string]
+      expect(why).toContain('no conversation to resume')
+      expect(why).not.toMatch(/PATH/)
       expect(resumeChatFn).toHaveBeenCalledTimes(1)
       expect(screen.queryByText(/resuming this chat/i)).not.toBeInTheDocument()
       err.mockRestore()
@@ -607,10 +612,9 @@ describe('AgentChatPane', () => {
         fireEvent.click(screen.getByRole('button', { name: /resume/i }))
       })
 
-      expect(toastErrorFn).toHaveBeenLastCalledWith(
-        'Could not resume this chat',
-        expect.any(String),
-      )
+      const [title, why] = toastErrorFn.mock.lastCall as [string, string]
+      expect(title).toMatch(/resume/i)
+      expect(why).toContain('not on PATH')
       expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
       expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
       // The auto-revive, then the click. Each attempt is a SETTLED one — nothing here
@@ -795,7 +799,9 @@ describe('AgentChatPane', () => {
     it('surfaces a toast when the switch rejects (target CLI missing / spawn failed)', async () => {
       const err = vi.spyOn(console, 'error').mockImplementation(() => {})
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      switchProviderFn.mockRejectedValue(new Error('500: codex not installed'))
+      // The production failure verbatim: the daemon could not find the codex binary and
+      // answered 424 Failed Dependency.
+      switchProviderFn.mockRejectedValue(new ApiError('terminal: command not found: codex', 424))
       await renderPane(store, openBuffer(store, 'c1', 'r1'))
 
       await act(async () => {
@@ -804,8 +810,9 @@ describe('AgentChatPane', () => {
 
       expect(toastErrorFn).toHaveBeenCalledTimes(1)
       const [title, description] = toastErrorFn.mock.calls[0] as [string, string]
-      expect(title).toMatch(/could not switch provider/i)
-      expect(description).toContain('Codex') // the target provider's display name
+      expect(title).toContain('Codex') // the target provider's display name
+      expect(title).toMatch(/isn.t installed/)
+      expect(description).toMatch(/PATH/)
       expect(err).toHaveBeenCalled()
       err.mockRestore()
     })

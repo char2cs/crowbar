@@ -174,3 +174,25 @@ func TestWithTerminalDefaults_InjectsTERMWhenAbsent(t *testing.T) {
 	require.Contains(t, got, "TERM=screen")
 	require.NotContains(t, got, "TERM=xterm-256color")
 }
+
+// TestEngine_CreateCommand_MissingBinary_IsErrCommandNotFound: a vendor CLI that is
+// not installed must come back as the CLASSIFIED sentinel, not as raw exec text a
+// caller would have to string-match. This is the failure the packaged .app hit on
+// every single chat (claude lives in ~/.local/bin, which launchd's PATH omits), and
+// it reached the user as an unmapped 500 and a button that did nothing.
+func TestEngine_CreateCommand_MissingBinary_IsErrCommandNotFound(t *testing.T) {
+	e := New()
+	defer e.Shutdown()
+
+	_, err := e.CreateCommand(
+		context.Background(),
+		"ws1",
+		t.TempDir(),
+		[]string{"crowbar-definitely-not-a-real-binary-xyz"},
+		[]string{"PATH=/usr/bin"},
+		nil,
+	)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrCommandNotFound)
+}

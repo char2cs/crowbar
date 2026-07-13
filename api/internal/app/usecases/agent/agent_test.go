@@ -14,6 +14,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
+	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // ---------------------------------------------------------------------------
@@ -218,7 +219,7 @@ func TestSpawnChat_CreatesChatAndRunner_AndSpawnsTheCLI(t *testing.T) {
 	call := f.term.calls[0]
 	assert.Equal(t, "ws1", call.workspaceID)
 	assert.Equal(t, f.ws.worktree, call.cwd)
-	assert.Equal(t, "claude", call.argv[0])
+	assert.Equal(t, "claude", filepath.Base(call.argv[0]))
 	// A fresh SpawnChat injects the title instruction via the descriptor's
 	// system_prompt_inject mechanism; it must be present, not the raw ledger handoff
 	// (there is none yet for a brand-new chat).
@@ -262,9 +263,37 @@ func TestSpawnChat_UsesDescriptorCmdAsArgv0(t *testing.T) {
 			require.NotEmpty(t, runnerID)
 
 			require.Equal(t, 1, f.term.callCount())
-			assert.Equal(t, providerID, f.term.calls[0].argv[0])
+			// Basename, not the whole token: argv[0] is run through binpath.Resolve,
+			// so it is the CLI's absolute path wherever the binary is installed and
+			// the bare name only when it is nowhere to be found.
+			assert.Equal(t, providerID, filepath.Base(f.term.calls[0].argv[0]))
 		})
 	}
+}
+
+// TestSpawnChat_ResolvesArgv0ToAbsolutePath pins the fix for the packaged .app
+// failing to open ANY chat. exec.Command resolves a bare argv[0] against the
+// DAEMON's PATH (cmd.Env is ignored for lookup), and a launchd-started daemon
+// has a minimal PATH that misses ~/.local/bin — where claude and codex install.
+// Every spawn therefore died with "executable file not found in $PATH", which
+// surfaced as POST /agent/chats 500 and a chat button that did nothing.
+//
+// argv[0] must come out of binpath.Resolve so the CLI is exec'd by absolute path.
+func TestSpawnChat_ResolvesArgv0ToAbsolutePath(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755))
+	// The CLI is reachable ONLY through this dir, exactly as it is reachable only
+	// through ~/.local/bin in the failing install.
+	t.Setenv("PATH", dir)
+
+	f := newFixture(t)
+
+	_, runnerID := f.spawn(t, "claude")
+	require.NotEmpty(t, runnerID)
+
+	require.Equal(t, 1, f.term.callCount())
+	assert.Equal(t, bin, f.term.calls[0].argv[0])
 }
 
 func TestSpawnRunner_CrowbarHookPathFallsBackToHomeBinCrowbar(t *testing.T) {
@@ -847,4 +876,20 @@ func configValue(t *testing.T, argv []string, prefix string) string {
 	}
 	t.Fatalf("no -c %s... override in argv %v", prefix, argv)
 	return ""
+}
+
+// TestSpawnChat_MissingCLI_PropagatesCommandNotFound: when the vendor CLI is not
+// installed, the sentinel must survive the usecase intact. Burying it in a generic
+// wrap chain is what mapped it to an opaque 500, so the UI had nothing to say and the
+// chat button just did nothing.
+func TestSpawnChat_MissingCLI_PropagatesCommandNotFound(t *testing.T) {
+	f := newFixture(t)
+	f.term.err = fmt.Errorf("%w: claude", engineterminal.ErrCommandNotFound)
+
+	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, engineterminal.ErrCommandNotFound,
+		"the not-installed fact must reach the handler, which maps it to 424")
+	assert.Contains(t, err.Error(), "claude", "and it must name the provider the UI has to report")
 }
