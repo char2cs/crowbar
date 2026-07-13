@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -289,11 +288,9 @@ func TestDeleteAsyncErrorBroadcastsLastError(
 	rec := do(r, http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/w1", "")
 
 	assert.Equal(t, http.StatusAccepted, rec.Code)
-	select {
-	case <-lastErrors.called:
-	case <-time.After(time.Second):
-		t.Fatal("expected SetLastError to be called for the failed cascade")
-	}
+	// The SetLastError call IS the signal that the failed cascade surfaced on the
+	// entity; block on it rather than guessing at a duration.
+	<-lastErrors.called
 	assert.Equal(t, "w1", lastErrors.gotID)
 	assert.Equal(t, "boom", lastErrors.gotMsg)
 }

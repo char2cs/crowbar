@@ -100,7 +100,6 @@ func TestV0_HubBroadcastReachesWSClient(t *testing.T) {
 
 	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -132,7 +131,6 @@ func TestV0_WorkspacesFilter_ProjectId(t *testing.T) {
 	// This workspace has projectId=p1/repoId=r1 so it passes the prefix filter.
 	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -163,7 +161,6 @@ func TestV0_WorkspacesFilter_RepoId(t *testing.T) {
 
 	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -197,7 +194,6 @@ func TestContainer_PushProject_RouteByPrefix(t *testing.T) {
 	tc.app.Hub.BroadcastProject(dto.ProjectDTO{ID: "p2", Name: "skip"})
 	tc.app.Hub.BroadcastProject(dto.ProjectDTO{ID: "p1", Name: "keep"})
 
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -232,7 +228,6 @@ func TestContainer_PushRepo_RouteByPrefix(t *testing.T) {
 	tc.app.Hub.BroadcastRepo(dto.RepoDTO{ID: "r1", ProjectID: "p2", Name: "skip"})
 	tc.app.Hub.BroadcastRepo(dto.RepoDTO{ID: "r1", ProjectID: "p1", Name: "keep"})
 
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -266,7 +261,6 @@ func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "other", Diagnostics: []lspdomain.Diagnostic{{Message: "skip"}}})
 	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "w1", Diagnostics: []lspdomain.Diagnostic{{Message: "boom"}}})
 
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -299,7 +293,6 @@ func TestV0_PushGit_QueryScope_IsolatesWsId(t *testing.T) {
 	tc.app.Hub.BroadcastGit("B", gitdomain.GitStatus{Branch: "branch-B"})
 	tc.app.Hub.BroadcastGit("A", gitdomain.GitStatus{Branch: "branch-A"})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got gitdomain.GitStatus
@@ -330,7 +323,6 @@ func TestV0_GitDualServe_PathScope_IsolatesWsId(t *testing.T) {
 	tc.app.Hub.BroadcastGit("B", gitdomain.GitStatus{Branch: "branch-B"})
 	tc.app.Hub.BroadcastGit("A", gitdomain.GitStatus{Branch: "branch-A"})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got gitdomain.GitStatus
@@ -360,7 +352,6 @@ func TestV0_PushFile_ReachesFilteredClient(t *testing.T) {
 	tc.app.Hub.BroadcastFile(domain.FileChangeEvent{WsID: "other", Path: "skip.go"})
 	tc.app.Hub.BroadcastFile(domain.FileChangeEvent{WsID: "w1", Path: "a.go"})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got domain.FileChangeEvent

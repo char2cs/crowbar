@@ -41,9 +41,12 @@ func dialWSAt(t *testing.T, srv *httptest.Server, path string) *websocket.Conn {
 	return conn
 }
 
+// readJSON blocks until the next frame arrives, then decodes it. No read
+// deadline: the frame's arrival IS the signal, and a frame that never comes
+// hangs until `go test -timeout` fires and names this test — strictly better
+// than a two-second guess that reddens under load.
 func readJSON(t *testing.T, conn *websocket.Conn) map[string]any {
 	t.Helper()
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any

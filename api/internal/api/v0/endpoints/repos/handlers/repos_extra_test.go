@@ -14,7 +14,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -122,13 +121,9 @@ func createdRepoFor(t *testing.T, path, defaultBranch string) domain.Repository 
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
-	select {
-	case got := <-saved:
-		return got
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for background Save")
-		return domain.Repository{}
-	}
+	// The Save call IS the signal that the background create ran; block on it
+	// rather than guessing at a duration.
+	return <-saved
 }
 
 // TestGitRemoteURL_RealRepo pins the happy path (origin configured) and the

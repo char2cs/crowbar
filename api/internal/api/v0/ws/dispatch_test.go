@@ -66,9 +66,7 @@ func TestDispatch_WSUpgrade_RoutesToHandle(t *testing.T) {
 	b.WaitRegistered()
 
 	b.Push(item{Name: "live"})
-	var got item
-	read(t, conn, &got)
-	assert.Equal(t, "live", got.Name)
+	assert.Equal(t, "live", readItem(t, conn).Name)
 }
 
 type assertErr struct{}

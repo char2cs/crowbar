@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -333,10 +332,8 @@ func TestTerminalWS_SuccessfulUpgrade_AttachesSession(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 
-	select {
-	case <-attached:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for Attach to be called")
-	}
+	// The Attach call IS the signal that the upgraded socket reached the engine;
+	// block on it rather than guessing at a duration.
+	<-attached
 	eng.AssertExpectations(t)
 }

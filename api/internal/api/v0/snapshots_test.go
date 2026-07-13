@@ -65,12 +65,17 @@ func dialV0(
 	return conn
 }
 
+// readSnapshot blocks until the snapshot frame arrives, then decodes it.
+//
+// No read deadline: the frame's arrival IS the signal. A snapshot that never
+// lands hangs until `go test -timeout` fires and dumps the goroutines, naming
+// this test — a real failure, rather than a two-second guess that goes red
+// whenever the machine is busy.
 func readSnapshot(
 	t *testing.T,
 	conn *websocket.Conn,
 ) map[string]any {
 	t.Helper()
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any

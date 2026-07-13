@@ -5,6 +5,7 @@ package handlers
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
@@ -139,6 +140,9 @@ type Handlers struct {
 	repos      Repos
 	lastErrors LastErrorSetter
 	working    WorkSignal
+	// async tracks the detached runAsync ops so callers can block on their real
+	// completion instead of guessing with a sleep (see runAsync / WaitAsync).
+	async sync.WaitGroup
 }
 
 // New builds the workspaces Handlers from the workspace read usecase, the

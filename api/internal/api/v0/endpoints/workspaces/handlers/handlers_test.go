@@ -243,19 +243,18 @@ func newRouter(
 	return r
 }
 
-// waitClosed blocks until done is closed, failing the test on a deadline so a
-// background goroutine that never runs surfaces as a clear failure instead of a
-// silent hang (no fixed-delay polling).
+// waitClosed blocks until done is closed. The close IS the "the background work
+// ran" signal, so a plain receive is the whole synchronisation: it returns the
+// instant the goroutine gets there, however loaded the machine. Background work
+// that never runs hangs here until `go test -timeout` fires and dumps the
+// goroutines — a real failure with a real stack, rather than a one-second guess
+// that goes red on a busy CI box.
 func waitClosed(
 	t *testing.T,
 	done chan struct{},
 ) {
 	t.Helper()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for background work to run")
-	}
+	<-done
 }
 
 func do(
