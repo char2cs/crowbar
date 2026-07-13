@@ -32,14 +32,16 @@ import (
 // harness owns the booted server and its base URL. It exposes typed helpers for
 // the REST envelope and the WebSocket topics so individual suites stay terse.
 type harness struct {
-	t        *testing.T
-	server   *httptest.Server
-	url      string
-	home     string
-	app      *app.Container
-	stopOnce sync.Once
-	stop     func()
-	crashDie func()
+	t         *testing.T
+	server    *httptest.Server
+	url       string
+	home      string
+	app       *app.Container
+	stopOnce  sync.Once
+	stop      func()
+	crashDie  func()
+	drainOnce sync.Once
+	drainDown func()
 }
 
 // newHarness boots the full backend over an httptest.Server rooted at a
@@ -84,11 +86,26 @@ func newHarnessAt(
 	}
 	h.server = srv
 	h.url = srv.URL
-	// Shutdown order mirrors the daemon's: HTTP first, then the app (realtime),
-	// then the engines (terminal Shutdown suspends+persists live PTYs — the
-	// restart-restore contract), then the adapters (event/store DBs).
-	h.stop = func() {
+	// drainDown is the daemon's ORDERED GRACEFUL DRAIN — internal.Container.Run's
+	// ctx.Done branch, verbatim: stop serving, then quiesce every asynchronous
+	// writer and drain every aggregate, all while the DBs are still OPEN.
+	//
+	// Splitting it out of stop is what lets a test look at the state the daemon
+	// commits ON ITS WAY DOWN (harness.drain), in the one window where that state is
+	// still readable — the DBs it was written to have not been closed yet. Shutdown
+	// is passed a cancel-free context on purpose: the production 5s deadline is a
+	// BOUND on a wedge, never a synchronisation device, and a test that leaned on it
+	// would be timing-dependent by construction.
+	h.drainDown = func() {
 		srv.Close()
+		_ = appContainer.Shutdown(context.Background())
+	}
+	// Shutdown order mirrors the daemon's (internal.Container.Run then .Close): the
+	// graceful drain above first, then the app (realtime), then the engines (terminal
+	// Shutdown suspends+persists live PTYs — the restart-restore contract), then the
+	// adapters (event/store DBs) LAST, once every writer is quiesced.
+	h.stop = func() {
+		h.drain()
 		appContainer.Close()
 		engines.Close()
 		_ = adapters.Close()
@@ -105,6 +122,17 @@ func newHarnessAt(
 	t.Cleanup(h.shutdown)
 
 	return h
+}
+
+// drain runs the daemon's graceful-shutdown DRAIN and stops there, exactly once:
+// serving stops and every asynchronous writer is quiesced, but the DBs stay open
+// and the harness's app container stays readable. It is the seam for asserting
+// what a graceful stop RECORDS on the way down (see drainDown).
+//
+// A subsequent shutdown() completes the teardown; a crash() bypasses it entirely
+// (a power cut drains nothing).
+func (h *harness) drain() {
+	h.drainOnce.Do(h.drainDown)
 }
 
 // shutdown tears the booted backend down exactly once — as a graceful daemon

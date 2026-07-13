@@ -5,6 +5,7 @@ package terminal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image/color"
 	"os"
@@ -139,6 +140,13 @@ type WSConn interface {
 // ErrSessionNotFound is returned when an operation targets a session ID that
 // does not exist in the registry.
 var ErrSessionNotFound = registry.ErrSessionNotFound
+
+// ErrShuttingDown is returned by the session-birth paths (Create, CreateCommand,
+// and the restore inside Attach) once Shutdown has begun draining. Birthing a
+// session after that point would hand back a PTY nothing is left to reap: the
+// kill loop has already walked the registry, so the process would outlive the
+// daemon and its exit callback would fire into a torn-down app.
+var ErrShuttingDown = errors.New("terminal: engine is shutting down")
 
 // Engine is the full PTY session operation surface.
 type Engine interface {
@@ -294,7 +302,22 @@ type Engine interface {
 	// aggregate recovered-parse-panic count across all sessions.
 	Stats() (active, detached, suspended int, modelBytes int64, degraded, parsePanics int)
 
-	// Shutdown terminates all active sessions and removes them from the registry.
+	// Shutdown terminates all active sessions and removes them from the registry,
+	// and BLOCKS until every session it killed has been fully reaped — i.e. until
+	// every onExit callback registered via CreateCommand has RUN to completion.
+	//
+	// That join is a contract, not an implementation detail. onExit is where a dying
+	// vendor CLI's death gets recorded (the agent usecase Exits its runner and closes
+	// the turn the CLI abandoned), and it runs on the engine's own reap goroutine.
+	// A caller that closed the databases without it would be closing them underneath
+	// their own writers: the runner's Exit would commit while the turn's close would
+	// not, leaving a chat spinning forever with no live runner left for the next
+	// boot's reconcile to find. So the shutdown sequence must Shutdown the terminal
+	// engine BEFORE it drains the aggregates and closes the DBs those callbacks write
+	// to (engine.Container.QuiesceTerminal, called from app.Container.Shutdown).
+	//
+	// Once it begins, the engine births no more sessions: Create/CreateCommand (and
+	// the restore inside Attach) return ErrShuttingDown. Idempotent.
 	Shutdown()
 }
 
@@ -335,12 +358,82 @@ type terminalEngine struct {
 	// outlive the running process, not just an idle-detach.
 	cmdCleanups sync.Map // map[string]func()
 
+	// reaps tracks the reapOnDone goroutines so Shutdown can JOIN them: every exit
+	// callback the engine still owes has RUN by the time Shutdown returns. See
+	// reapTracker — this is what makes "the databases outlive their writers" a
+	// structural fact rather than a race the shutdown sequence happens to win.
+	reaps reapTracker
+
 	stop     chan struct{}
 	stopOnce sync.Once
 	// maintDone is closed by maintenanceLoop when it returns, so Shutdown can JOIN the
 	// maintenance goroutine before tearing down sessions — guaranteeing no background sweep
 	// (which reads the package-level limit vars) outlives Shutdown.
 	maintDone chan struct{}
+}
+
+// reapTracker counts the live reapOnDone goroutines and lets Shutdown wait them
+// out. It exists because a reap goroutine is a WRITER: the onExit callback it
+// fires is how a dying vendor CLI's death is recorded (the agent usecase Exits
+// the runner and closes the turn the CLI abandoned mid-flight). Those writes go
+// to databases the shutdown sequence is on its way to closing, so the reap must
+// be a step OF the shutdown, not a goroutine racing it.
+//
+// It is a counter + a mutex rather than a sync.WaitGroup on purpose. A WaitGroup
+// PANICS ("Add called concurrently with Wait") if a session is born while
+// Shutdown is waiting — the exact race a graceful stop creates, since a hijacked
+// WebSocket can still drive Attach→restore after the HTTP server has stopped
+// accepting. Making "admit a new reap" and "start draining" the same critical
+// section removes the race instead of documenting it: once draining, start()
+// refuses, so the outstanding set can only shrink and the drain always converges.
+type reapTracker struct {
+	mu       sync.Mutex
+	n        int
+	draining bool
+	idle     chan struct{} // non-nil only while a drain is waiting on n > 0
+}
+
+// start admits a new reap goroutine, reporting false once a drain has begun (the
+// caller must then NOT spawn the session — see ErrShuttingDown).
+func (t *reapTracker) start() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.draining {
+		return false
+	}
+	t.n++
+	return true
+}
+
+// done retires a reap goroutine, releasing a waiting drain once the last one is home.
+func (t *reapTracker) done() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.n--
+	if t.n == 0 && t.idle != nil {
+		close(t.idle)
+		t.idle = nil
+	}
+}
+
+// drain closes the door on new reaps and returns a channel closed once every
+// outstanding one has returned. It is idempotent, and it is safe to call BEFORE
+// the sessions are killed: a live session always has its reap goroutine parked on
+// s.Done(), so it is already counted here — the kill is merely what lets it
+// finish.
+func (t *reapTracker) drain() <-chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.draining = true
+	if t.n == 0 {
+		closed := make(chan struct{})
+		close(closed)
+		return closed
+	}
+	if t.idle == nil {
+		t.idle = make(chan struct{})
+	}
+	return t.idle
 }
 
 var _ Engine = (*terminalEngine)(nil)
@@ -457,6 +550,13 @@ func (e *terminalEngine) spawn(
 	if err != nil {
 		return nil, err
 	}
+	// Claim a reap slot BEFORE the session is registered or its reaper launched: a
+	// session born after Shutdown's kill loop has walked the registry would never be
+	// reaped at all, so refuse it and take the PTY we just spawned back down.
+	if !e.reaps.start() {
+		s.Kill()
+		return nil, ErrShuttingDown
+	}
 	if len(b.Notice) > 0 {
 		s.InjectLocal(b.Notice)
 	}
@@ -513,6 +613,13 @@ func (e *terminalEngine) CreateCommand(
 	if err != nil {
 		return "", fmt.Errorf("terminal: create command: %w", err)
 	}
+	// Claim a reap slot first (see spawn): a vendor CLI whose reaper never runs is
+	// strictly worse than one that is never spawned — its onExit is the ONLY thing
+	// that records the runner's death and closes the turn it was mid-way through.
+	if !e.reaps.start() {
+		s.Kill()
+		return "", ErrShuttingDown
+	}
 	// Store BEFORE launching the reap goroutine so it can never observe a
 	// self-exit and look up the cleanup before it is recorded.
 	if onExit != nil {
@@ -554,6 +661,10 @@ func (e *terminalEngine) reapOnDone(
 	workspaceID string,
 	s *session.Session,
 ) {
+	// Registered FIRST so it runs LAST (defers are LIFO): even a panic recovered by
+	// safego below must retire this reap, or Shutdown's drain would wait on a
+	// goroutine that is already gone.
+	defer e.reaps.done()
 	defer safego.Recover("terminal.reapOnDone")
 
 	// Wait for termination BEFORE acquiring the per-session lock so we never
@@ -809,6 +920,19 @@ func (e *terminalEngine) restore(ctx context.Context, sid string) error {
 	cwd, notice := resolveRestoreCWD(cwd)
 
 	if _, err := e.spawn(sid, ws, shell, cwd, profileID, engineBirth{Blob: rawBlob, Notice: notice}); err != nil {
+		// A refusal because the ENGINE IS SHUTTING DOWN says nothing about the
+		// session: it is perfectly restorable, we are simply not birthing anything
+		// any more (the kill loop has already walked the registry, so a session born
+		// now would have no reaper). Dropping it here would delete a healthy user's
+		// scrollback and meta row on the way out of the daemon — destroying the very
+		// state the graceful shutdown just persisted for the next boot to restore.
+		// Leave the placeholder exactly as it is and fail the Attach; the next daemon
+		// start reloads it. (A hijacked WebSocket can still drive Attach after the
+		// HTTP server has stopped accepting, so this is reachable.)
+		if errors.Is(err, ErrShuttingDown) {
+			unlock()
+			return fmt.Errorf("terminal: restore: spawn: %w", err)
+		}
 		// Un-restorable even after the CWD fallback (e.g. the shell binary itself
 		// is gone). Never leave the placeholder in the registry: drop it, delete
 		// its persisted state, and fire ended so the FE removes the dead tab
@@ -1869,6 +1993,14 @@ func (e *terminalEngine) Shutdown() {
 	// (which reads the package-level limit vars and walks the registry) can run concurrently
 	// with Shutdown's own teardown or with a later caller that mutates those vars.
 	<-e.maintDone
+	// Close the door on new sessions BEFORE the kill loop, and take the handle we
+	// will join the reapers on afterwards. Doing it here, not after the loop, is what
+	// makes the drain converge: a session born mid-loop would otherwise be missed by
+	// the walk of the registry and leave a PTY behind with no reaper.
+	//
+	// Every live session already HAS its reaper parked on s.Done(), so they are all
+	// counted by now; the kill below is simply what releases them.
+	reaped := e.reaps.drain()
 	ctx := context.Background()
 	for _, id := range e.reg.List() {
 		s, ok := e.reg.Get(id)
@@ -1920,4 +2052,15 @@ func (e *terminalEngine) Shutdown() {
 		s.Kill()
 		unlock()
 	}
+
+	// JOIN every reaper. This is the whole point of the method's contract: when
+	// Shutdown returns, every onExit callback the engine owed has RUN — the dying
+	// vendor CLIs' deaths are RECORDED (the agent usecase Exits each runner and
+	// closes the turn it abandoned), not merely scheduled on a goroutine that the
+	// caller is about to pull the databases out from under.
+	//
+	// No lock is held here (each iteration released its own), and each reaper's first
+	// act is to wait on a Done channel the kill loop has already closed, so this
+	// converges on the work itself — never on a clock.
+	<-reaped
 }

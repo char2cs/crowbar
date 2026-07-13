@@ -102,3 +102,16 @@ func SetGracefulTerminateGraceForTest(d time.Duration) (restore func()) {
 	gracefulTerminateGrace = d
 	return func() { gracefulTerminateGrace = old }
 }
+
+// BeginDrainForTest closes the engine's session-birth door WITHOUT killing or
+// deregistering anything: it puts the engine in the state Shutdown occupies from the
+// moment it starts draining until its kill loop reaches a given session.
+//
+// That window is where the restore refusal actually has to be right, and it is
+// otherwise only reachable as a race. Once Shutdown has RETURNED, every placeholder
+// has been deregistered, so a late Attach fails with ErrSessionNotFound and never
+// reaches the restore path at all — a test that attached after Shutdown would prove
+// nothing about it. Exposed so the refusal can be driven deterministically instead.
+func BeginDrainForTest(eng Engine) {
+	_ = eng.(*terminalEngine).reaps.drain()
+}

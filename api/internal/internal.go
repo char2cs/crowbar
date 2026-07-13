@@ -127,10 +127,13 @@ func (c *Container) Run(
 	select {
 	case <-ctx.Done():
 		// Ordered, bounded graceful shutdown (spec §3.8): under one ~5s deadline,
-		// (1) stop accepting new requests + drain in-flight HTTP, then (2-3) drain
-		// every post-commit reactor and Shutdown each asynx singleton — all BEFORE
-		// the deferred Close() WAL-checkpoints and closes the DBs (adapter.Close),
-		// so no reactor is mid-write when the DBs shut. Both waits honor shutdownCtx.
+		// stop accepting new requests + drain in-flight HTTP, then hand off to
+		// app.Shutdown, which quiesces every writer in dependency order — the PTY
+		// reap path first (killing a vendor CLI fires the exit callback that Exits
+		// its runner and closes the turn it abandoned), then the post-commit
+		// reactors, then each asynx singleton. All of it happens BEFORE the deferred
+		// Close() WAL-checkpoints and closes the DBs (adapter.Close), so nothing is
+		// mid-write when the DBs shut. Every wait honors shutdownCtx.
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		httpErr := c.server.Shutdown(shutdownCtx)
@@ -155,8 +158,14 @@ func (c *Container) Close() {
 	c.app.Close()
 	// Tear down engine OS resources (live PTY child processes + master FDs) so a
 	// shutdown/restart doesn't orphan every open terminal's shell and the dev
-	// servers it spawned.
+	// servers it spawned. On the graceful path the terminals are ALREADY quiesced
+	// (app.Shutdown step 1, which had to run before the aggregates drained), so this
+	// only finishes the job for the paths that never reached it — a Serve failure, or
+	// a caller that closes without running. It never re-enters that join.
 	c.engines.Close()
+	// The DBs go LAST, once every writer above is quiesced: the exit callbacks fired
+	// by the PTY teardown write runner Exits and turn closes, and closing the store
+	// out from under them is what used to leave a chat spinning forever.
 	_ = c.adapter.Close()
 	_ = c.listener.Close()
 }

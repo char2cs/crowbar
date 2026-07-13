@@ -38,6 +38,12 @@ type Container struct {
 	Usecases     *usecases.Container
 	Realtime     *realtime.Service
 
+	// engines is retained for ONE reason: Shutdown must quiesce the terminal engine
+	// (kill every PTY and JOIN the exit callbacks those deaths fire) BEFORE it drains
+	// the aggregates below, because those callbacks are writers into them. See
+	// Shutdown step 1.
+	engines *engine.Container
+
 	// axWorkspace, axReviewThread, axAgentChat, and axAgentRunner are the per-type
 	// asynx singletons (one per aggregate type, routing every id by shard hash).
 	// They are retained here so Task 15's ordered graceful shutdown can drain each
@@ -150,6 +156,7 @@ func New(
 		GORM:           gormStores,
 		Usecases:       ucs,
 		Realtime:       rt,
+		engines:        engines,
 		axWorkspace:    axWorkspace,
 		axReviewThread: axReviewThread,
 		axAgentChat:    axAgentChat,
@@ -159,22 +166,47 @@ func New(
 
 // Shutdown gracefully quiesces the application layer's asynchronous machinery
 // within the ctx deadline, BEFORE the adapter closes the DBs (spec §3.8 steps
-// 2-3, decision 11). It runs ahead of Close in the ordered teardown:
+// 2-3, decision 11). It runs ahead of Close in the ordered teardown, and its whole
+// job is to leave every WRITER quiesced before the things they write to go away —
+// in dependency order, outermost writer first:
 //
-//  1. close the shared reactor drain gate (Cancel) so no post-commit reactor
+//  1. quiesce the terminal engine: kill every live PTY and JOIN the exit callbacks
+//     those deaths fire. This is FIRST, and it is not a resource release (Close
+//     does that) — it is the outermost writer. A dying vendor CLI's exit callback
+//     is the ONLY thing that records its death: it Exits the runner and closes the
+//     turn the CLI abandoned. It runs on the terminal engine's reap goroutine, so
+//     leaving it to Close — after steps 2-3 and the adapter's DB close — is a
+//     RACE, and one that was lost in production ("close abandoned turn: get chat …
+//     sql: database is closed"). Losing it is worse than a lost warning: the two
+//     writes fall on opposite sides of the teardown, so the runner's Exit commits
+//     while its turn is NOT closed — and with no live runner row left, the next
+//     boot's ReconcileRunnersOnBoot has nothing to reconcile, so NOTHING ever
+//     closes that turn. The chat spins forever, across every restart, and takes
+//     the workspace's working overlay with it;
+//  2. close the shared reactor drain gate (Cancel) so no post-commit reactor
 //     wireCallbacks registered starts new work;
-//  2. wait out the in-flight reactors, BOUNDED by ctx — a hung reactor cannot
+//  3. wait out the in-flight reactors, BOUNDED by ctx — a hung reactor cannot
 //     wedge shutdown past the deadline (quiver's drainWg.Wait() is unbounded; we
 //     bound it, decision 11);
-//  3. Shutdown each per-type asynx singleton, draining its command/projection
+//  4. Shutdown each per-type asynx singleton, draining its command/projection
 //     pool (itself ctx-bounded) so no event is half-processed when the adapter
-//     WAL-checkpoints and closes the event/read/view DBs.
+//     WAL-checkpoints and closes the event/read/view DBs. Step 1's writes are
+//     folded into the read models here, which is the other half of why it must
+//     precede this: an Exit sent AFTER an asynx Shutdown is simply rejected
+//     ("asynx: shutting down") and the death goes unrecorded.
+//
+// Note what step 1 is NOT: it is not a second opinion about liveness. The PTY
+// remains the sole authority — we kill the process and let its death carry the
+// runner away, exactly as every other teardown path does. All we have changed is
+// that the daemon now WAITS to hear the news before it dismantles the ears.
 //
 // Realtime resources (file watchers, LSP hosts) are released separately by Close.
 // Every wait honors ctx, so the whole drain is bounded by the caller's deadline.
 func (c *Container) Shutdown(
 	ctx context.Context,
 ) error {
+	c.quiesceTerminal(ctx)
+
 	drain := c.Repositories.Drain()
 	drain.Cancel() // close the gate: reactors observing drainCtx stop starting new work.
 
@@ -195,6 +227,28 @@ func (c *Container) Shutdown(
 		c.axAgentChat.Shutdown(ctx),
 		c.axAgentRunner.Shutdown(ctx),
 	)
+}
+
+// quiesceTerminal runs Shutdown's step 1 — kill the PTYs, join their exit callbacks
+// — BOUNDED by ctx, mirroring how the reactor drain below it is bounded (decision
+// 11): a reaper wedged on something we do not control must not hold the daemon past
+// its deadline. The quiesce is latched in the engine container, so the later
+// engines.Close() never re-enters (and so never re-wedges) whatever we abandon here.
+func (c *Container) quiesceTerminal(
+	ctx context.Context,
+) {
+	if c.engines == nil {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.engines.QuiesceTerminal()
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
 }
 
 // Close tears down the application layer's live realtime resources: it stops
