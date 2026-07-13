@@ -169,6 +169,33 @@ func (h *harness) firstOfProvider(
 // same job deliberately, in milliseconds, and says why.)
 const resumeNeedle = "Conversation interrupted"
 
+// claudeReadyNeedle is claude's interactive FOOTER, and waiting for it is what stops a
+// resumed claude from silently eating the first thing typed into it.
+//
+// A resumed claude paints no modal, and this harness used to conclude from that that it
+// needed no barrier at all: spawn it, type. That is wrong, and it is wrong in the one way
+// a PTY cannot show you. The prompt is not merely typed EARLY — it is DISCARDED. Ink
+// drains whatever is already sitting in the tty at the moment it takes the keyboard, so
+// anything written into the gap between spawn and mount is swallowed whole. What is left
+// on screen is a fully booted claude with an EMPTY composer, which is indistinguishable
+// from one that is simply thinking; drive() then waits out its whole backstop for an echo
+// that can never come. (Every switch-back test failed exactly this way, at 306 seconds.)
+//
+// BINDING IS NOT THE SIGNAL, and that is the trap. claude's SessionStart hook fires at
+// BOOT — before the composer exists — so the runner is bound, the conversation id is
+// right, every assertion about the model passes, and the CLI still is not listening. The
+// switch-back tests proved this the expensive way: they all bound, and all lost the prompt.
+//
+// The footer is a signal and not a guess because it is part of the interactive UI itself:
+// it cannot be on screen unless that UI has mounted, and the UI does not mount without
+// taking the keyboard. "(shift+tab to cycle)" is the stable part — the mode NAME beside it
+// changes with the user's config ("auto mode on", "accept edits on"), the hint does not.
+//
+// The fresh-claude path needs none of this and does not get it: a claude sitting on its
+// trust dialog has ALREADY mounted (the dialog IS the UI), so its keyboard is live and the
+// Enter that answers the dialog is read, not drained.
+const claudeReadyNeedle = "shift+tab to cycle"
+
 // settleCLI brings a freshly started vendor CLI to a state where a typed prompt will
 // actually be SUBMITTED, blocking on what the CLI itself paints rather than on a clock.
 //
@@ -201,9 +228,22 @@ func settleCLI(
 	case provider == "codex":
 		needle = resumeNeedle
 	default:
-		// A resumed claude paints no modal: it either comes up ready, or it dies (which
-		// drive/awaitSessionBound catch, with its screen). Nothing to wait for here, and
-		// waiting for a needle that never comes would hang until the backstop.
+		// A resumed claude. No modal is coming — but it is NOT ready to be typed into the
+		// instant it is spawned, and the input it drops on the way up is gone for good.
+		// Wait for its composer, and do it HERE rather than folding it into the modal
+		// machinery below: that arm may finish on "the runner is already bound", which is
+		// a sound proof of being past a MODAL and no proof at all of being ready for a
+		// KEYSTROKE (claude binds at boot, before the UI exists). See claudeReadyNeedle.
+		ctx, cancel := context.WithTimeout(context.Background(), backstop)
+		defer cancel()
+		kit.Await(t, ctx, provider+" to paint its composer (ready for input)",
+			func() (bool, bool) {
+				if tap.Contains(claudeReadyNeedle) {
+					return true, true
+				}
+				requireCLIAlive(t, h, tap, termSessID, provider, "while coming back up on --resume")
+				return false, false
+			}, tap.Signal())
 		return
 	}
 	if needle == "" {
