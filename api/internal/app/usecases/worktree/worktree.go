@@ -350,7 +350,6 @@ func (u *worktreeUsecase) addWorktree(
 	in CreateChildInput,
 	path string,
 ) (string, error) {
-	startPoint := u.parentStartPoint(ctx, in)
 	exists, err := u.git.RemoteBranchExists(ctx, in.RepoPath, in.Branch)
 	if err != nil {
 		return "", fmt.Errorf("create child: remote branch exists: %w", err)
@@ -358,6 +357,12 @@ func (u *worktreeUsecase) addWorktree(
 	if exists {
 		return u.checkoutRemoteBranch(ctx, in, path)
 	}
+	// Resolved only on the create path, PAST the checkout early-return above:
+	// the checkout path derives its fork point from origin/<branch> itself and
+	// would discard this — and parentStartPoint's FetchRef is a real network
+	// fetch under the contended per-clone repo lock (OriginSyncManager holds it
+	// periodically), not worth paying for a result nobody reads.
+	startPoint := u.parentStartPoint(ctx, in)
 	startSha, err := u.git.WorktreeAddBranch(ctx, in.RepoPath, path, in.Branch, startPoint)
 	if err != nil {
 		return "", fmt.Errorf("create child: worktree add: %w", err)
@@ -418,14 +423,17 @@ func (u *worktreeUsecase) parentStartPoint(
 // because WorktreeAdd checks out `in.Branch` ITSELF, so that local ref has to sit
 // at origin's tip.
 //
-// This cannot hit FastForwardBranch's "refusing to fetch into branch … checked
-// out at …" refusal: it runs only when `in.Branch` is FREE. A branch already
-// held by another MANAGED worktree is rejected earlier (branchWorkspaceExists →
-// ErrBranchWorkspaceExists) and never reaches here; a branch held by the repo's
-// MAIN unmanaged folder makes the first addWorktree fail, after which CreateChild
-// detaches the main folder (holder.HeldByHome) to free the branch and retries —
-// so on the attempt that reaches this fast-forward the branch is no longer
-// checked out anywhere.
+// This CAN hit FastForwardBranch's "refusing to fetch into branch … checked out
+// at …" refusal, and CreateChild's error handling is what recovers it — do not
+// weaken that path. The reachable sequence: the branch is held by the repo's
+// MAIN unmanaged folder (e.g. the default branch on a fresh import), the FIRST
+// addWorktree attempt lands here, this fast-forward is REFUSED and the error
+// surfaces to CreateChild, which resolves the holder as HeldByHome, detaches the
+// main folder to free the branch, and retries addWorktree — the RETRY's
+// fast-forward then succeeds against a free branch. Correctness rests on that
+// detach-retry recovering from the refusal, not on the branch being free on
+// entry. (A branch held by another MANAGED worktree never reaches here at all:
+// branchWorkspaceExists rejects it up front with ErrBranchWorkspaceExists.)
 func (u *worktreeUsecase) checkoutRemoteBranch(
 	ctx context.Context,
 	in CreateChildInput,
