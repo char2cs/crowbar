@@ -21,6 +21,19 @@ func TestResolve_UnknownNameReturnsNameUnchanged(t *testing.T) {
 	assert.Equal(t, "definitely-not-a-real-binary-xyz", got)
 }
 
+// TestWellKnownDirs_IncludesUserLocalBin pins the dir the agentic CLIs actually
+// install into. claude and codex land in ~/.local/bin, which no login-shell PATH
+// probe is guaranteed to surface: a login NON-interactive shell (what shellenv
+// runs) sources .zprofile/.zshenv but never .zshrc, and .zshrc is where that dir
+// is conventionally added. Without this entry the packaged .app cannot spawn a
+// vendor CLI at all.
+func TestWellKnownDirs_IncludesUserLocalBin(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	assert.Contains(t, wellKnownDirs(), filepath.Join(home, ".local", "bin"))
+}
+
 func TestResolveInternal_FallsBackToWellKnownDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("executable-bit probing is POSIX only")

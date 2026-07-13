@@ -8,7 +8,7 @@ import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 import { XtermTerminal } from '@/features/terminal/components/terminal'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
-import { toast } from '@/features/window/stores/toast-store'
+import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { ProviderSwitchDropdown } from './provider-switch-dropdown'
 
 // seedAttach pre-seeds the terminal-store mapping (connectionId = terminalSessionId)
@@ -143,6 +143,12 @@ export function AgentChatPane({
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.title ?? '',
   )
   const providers = useStore(store, (s) => s.agentChats.providers)
+  // The provider this chat last ran under — what a failed revive has to NAME ("Claude
+  // isn’t installed"), since a dormant chat has no live runner to ask.
+  const chatProviderId = useStore(
+    store,
+    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.activeProviderId ?? '',
+  )
 
   const [attachment, setAttachment] = useState<Attachment>({ state: 'pending' })
 
@@ -330,14 +336,11 @@ export function AgentChatPane({
       await resumeChat(wsId, shownChatId)
       if (!(await adopt())) fail()
     } catch (err: unknown) {
-      console.error('Failed to resume agent chat:', err)
       fail()
-      toast.error(
-        'Could not resume this chat',
-        'Crowbar could not restart the agent. Check that its CLI is installed and on your PATH.',
-      )
+      const name = providers.find((p) => p.id === chatProviderId)?.displayName || 'the agent'
+      toastSpawnFailure(err, name, 'resume')
     }
-  }, [wsId, shownChatId, adopt, fail])
+  }, [wsId, shownChatId, adopt, fail, providers, chatProviderId])
 
   // Attach to the runner's PTY, revive the chat if nobody is on it, or settle. The seeding
   // must happen BEFORE XtermTerminal mounts (React runs child effects first, so a terminal
@@ -437,12 +440,10 @@ export function AgentChatPane({
         await switchProvider(wsId, shownChatId, providerId)
         if (!(await adopt())) fail()
       } catch (err: unknown) {
-        console.error('Failed to switch agent provider:', err)
         fail()
-        toast.error(
-          'Could not switch provider',
-          `Crowbar could not start ${name}. Check that its CLI is installed and on your PATH.`,
-        )
+        // Status-aware: only a 424 actually means "that CLI is not installed". Blaming the
+        // PATH for every failure sends the user hunting for a problem they do not have.
+        toastSpawnFailure(err, name, 'switch to')
       } finally {
         switchingRef.current = false
       }

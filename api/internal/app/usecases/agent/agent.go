@@ -43,6 +43,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/core/config"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
@@ -740,7 +741,13 @@ func (u *Usecase) spawnRunner(
 		return "", fmt.Errorf("agent: spawn runner: build spawn plan: %w", err)
 	}
 
-	argv := append([]string{descriptor.Spawn.Cmd}, plan.Argv...)
+	// binpath.Resolve, never the bare descriptor cmd: the PTY exec's argv[0] through
+	// exec.Command, which resolves a bare name against the DAEMON's PATH — plan.Env is
+	// ignored for the lookup. A launchd-started .app daemon has a minimal PATH that
+	// misses ~/.local/bin, where claude and codex install, so a bare name made every
+	// spawn die with "executable file not found in $PATH". An unresolvable cmd passes
+	// through unchanged, preserving that error for a CLI that genuinely is not installed.
+	argv := append([]string{binpath.Resolve(descriptor.Spawn.Cmd)}, plan.Argv...)
 
 	termSessID, err := u.term.CreateCommand(ctx, workspaceID, worktree, argv, plan.Env,
 		u.onRunnerExit(crowbarHome, runnerID, tmpDir))
@@ -752,6 +759,14 @@ func (u *Usecase) spawnRunner(
 		// injected-context entry is forgotten here: its onExit-driven cleanup never runs.
 		u.registry.ForgetRunner(runnerID)
 		RemoveUnderHome(ctx, crowbarHome, tmpDir)
+
+		// A CLI that is not installed is the ONE spawn failure the user can act on, so it
+		// travels as its own sentinel (→ 424, a named message in the UI) rather than being
+		// buried in a wrap chain that maps to an opaque 500. The provider id, not the
+		// resolved argv[0], is what the UI can name.
+		if errors.Is(err, engineterminal.ErrCommandNotFound) {
+			return "", fmt.Errorf("%w: %s", engineterminal.ErrCommandNotFound, providerID)
+		}
 		return "", fmt.Errorf("agent: spawn runner: create command: %w", err)
 	}
 

@@ -3,6 +3,7 @@ package agent_test
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -112,7 +113,8 @@ func TestSwitchProvider_Forward_SpawnsTargetProviderWithHandoff(t *testing.T) {
 
 	require.Equal(t, 2, f.term.callCount())
 	newCall := f.term.calls[1]
-	assert.Equal(t, "codex", newCall.argv[0])
+	// Basename: argv[0] is binpath.Resolve'd to the CLI's absolute path when installed.
+	assert.Equal(t, "codex", filepath.Base(newCall.argv[0]))
 	assert.Contains(t, strings.Join(newCall.argv, "\x00"), "prior turn content for handoff")
 }
 

@@ -257,3 +257,16 @@ func TestStatusAndMessageWrappedFileTooLarge(t *testing.T) {
 	assert.Equal(t, http.StatusRequestEntityTooLarge, status)
 	assert.Equal(t, wrapped.Error(), msg)
 }
+
+// TestStatusAndMessage_CommandNotFoundIs424: a vendor CLI that is not installed is a
+// missing dependency on the user's machine, not a server fault. It must NOT fall into
+// the 500 bucket — a 500 is what let this surface as a chat button that silently did
+// nothing.
+func TestStatusAndMessage_CommandNotFoundIs424(t *testing.T) {
+	err := fmt.Errorf("%w: claude", engineterminal.ErrCommandNotFound)
+
+	status, msg := libs.StatusAndMessage(err)
+
+	assert.Equal(t, http.StatusFailedDependency, status)
+	assert.Contains(t, msg, "claude")
+}

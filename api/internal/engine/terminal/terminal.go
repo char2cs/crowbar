@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image/color"
 	"os"
+	"os/exec"
 	"runtime"
 	"sort"
 	"strconv"
@@ -147,6 +148,18 @@ var ErrSessionNotFound = registry.ErrSessionNotFound
 // kill loop has already walked the registry, so the process would outlive the
 // daemon and its exit callback would fire into a torn-down app.
 var ErrShuttingDown = errors.New("terminal: engine is shutting down")
+
+// ErrCommandNotFound is returned by CreateCommand when argv[0] names a binary that
+// does not exist or is not executable. It is a MISSING DEPENDENCY on the user's
+// machine, not a server fault, and it is classified here — where the exec actually
+// fails — so callers never have to string-match exec's error text to tell "this CLI
+// is not installed" apart from a genuine spawn failure.
+//
+// It exists because the packaged .app shipped a version where every agent chat died
+// on exactly this and surfaced as an unmapped HTTP 500, which the UI dropped on the
+// floor: the user saw a chat button that did nothing at all. A missing CLI must be
+// SAYABLE.
+var ErrCommandNotFound = errors.New("terminal: command not found")
 
 // Engine is the full PTY session operation surface.
 type Engine interface {
@@ -611,6 +624,12 @@ func (e *terminalEngine) CreateCommand(
 	env = withTerminalDefaults(env)
 	s, err := session.NewCommand(id, argv, cwd, env, 80, 24, 0)
 	if err != nil {
+		// exec.ErrNotFound means argv[0] is not installed / not executable — a fact about
+		// the USER'S MACHINE, not a server fault. Classify it into ErrCommandNotFound so
+		// the caller can say so out loud instead of emitting an opaque 500.
+		if errors.Is(err, exec.ErrNotFound) {
+			return "", fmt.Errorf("%w: %s", ErrCommandNotFound, argv[0])
+		}
 		return "", fmt.Errorf("terminal: create command: %w", err)
 	}
 	// Claim a reap slot first (see spawn): a vendor CLI whose reaper never runs is
