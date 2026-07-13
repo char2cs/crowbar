@@ -9,7 +9,6 @@ import (
 	"net"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -234,15 +233,14 @@ func TestServer_DiagnosticsCallback(t *testing.T) {
 		},
 	})
 
-	select {
-	case ev := <-got:
-		require.Len(t, ev.Diagnostics, 1)
-		assert.Equal(t, "/main.go", ev.Diagnostics[0].FilePath)
-		assert.Equal(t, "error", ev.Diagnostics[0].Severity)
-		assert.Equal(t, "boom", ev.Diagnostics[0].Message)
-	case <-time.After(2 * time.Second):
-		t.Fatal("diagnostics callback not invoked")
-	}
+	// Block on the callback the server actually invokes when it decodes the
+	// notification off the wire — the real signal. `go test -timeout` is the
+	// backstop if it never arrives.
+	ev := <-got
+	require.Len(t, ev.Diagnostics, 1)
+	assert.Equal(t, "/main.go", ev.Diagnostics[0].FilePath)
+	assert.Equal(t, "error", ev.Diagnostics[0].Severity)
+	assert.Equal(t, "boom", ev.Diagnostics[0].Message)
 }
 
 func TestServer_NotifyTracksDidOpen(t *testing.T) {
@@ -394,14 +392,24 @@ func TestServer_CloseThenRequestErrors(t *testing.T) {
 }
 
 func TestServer_RequestRespectsContextCancel(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, fake := newTestServer(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := srv.Request(ctx, "textDocument/hover", nil)
+		done <- err
+	}()
 
-	_, err := srv.Request(ctx, "textDocument/hover", nil)
+	// The fake server receiving the request is the real signal that the in-flight
+	// waiter is registered — cancelling before that would exercise the early-bail
+	// path instead. A 50ms deadline was only ever a guess that we had got here.
+	<-fake.gotReq
+	cancel()
+
+	err := <-done
 	require.Error(t, err)
-	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.ErrorIs(t, err, context.Canceled)
 }
 
 func TestServer_NotifyAfterCloseErrors(t *testing.T) {
@@ -580,12 +588,9 @@ func TestServer_EmptyDiagnosticsDeliversEmptyBatch(t *testing.T) {
 
 	fake.pushDiagnostics("file:///x.go", nil)
 
-	select {
-	case ev := <-got:
-		assert.Empty(t, ev.Diagnostics)
-	case <-time.After(2 * time.Second):
-		t.Fatal("callback not invoked")
-	}
+	// Block on the real callback; an empty batch is still a delivered batch.
+	ev := <-got
+	assert.Empty(t, ev.Diagnostics)
 }
 
 func TestServer_PendingRequestFailsOnClose(t *testing.T) {

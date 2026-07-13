@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -283,33 +283,43 @@ func TestSweepPollFn_WithPR(t *testing.T) {
 	assert.False(t, snap.Protected)
 }
 
+// StartBackgroundSweep must wire the engine's pollFn and the caller's callback
+// into the 5-minute global cron. Inside a synctest bubble the production ticker
+// fires against the bubble's fake clock, so the test asserts the wiring end to
+// end — poll ran, state changed, callback delivered — instead of waiting 50ms to
+// observe that nothing had happened yet (which asserted nothing at all).
 func TestStartBackgroundSweep_Wires(t *testing.T) {
-	notified := make(chan string, 1)
-	e := makeEngine("none", false, nil) // provider disabled → zero state
+	synctest.Test(t, func(t *testing.T) {
+		notified := make(chan string, 1)
+		e := makeEngineWithProvider("github", true, &mockProvider{
+			protectedBranches: []string{"main"},
+			pr:                &PRInfo{Number: 7, Status: "open"},
+		})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	e.StartBackgroundSweep(
-		ctx,
-		func() []poll.SweepTarget {
-			return []poll.SweepTarget{
-				{WSID: "ws1", HasOpenPR: true},
-			}
-		},
-		func(wsID string, _ ProviderState) {
-			notified <- wsID
-		},
-	)
+		e.StartBackgroundSweep(
+			ctx,
+			func() []poll.SweepTarget {
+				return []poll.SweepTarget{
+					{WSID: "ws1", RepoPath: "/repo", Branch: "main", HasOpenPR: true},
+				}
+			},
+			func(wsID string, state ProviderState) {
+				assert.True(t, state.Protected)
+				require.NotNil(t, state.PR)
+				assert.Equal(t, 7, state.PR.Number)
+				notified <- wsID
+			},
+		)
 
-	// The sweep runs every 60s by default so the callback is NOT called immediately.
-	// Just verify the method doesn't panic and returns promptly.
-	select {
-	case <-notified:
-		// If somehow fired (e.g. extremely fast machine + timer jitter), OK.
-	case <-time.After(50 * time.Millisecond):
-		// Expected: sweep hasn't fired yet.
-	}
+		assert.Equal(t, "ws1", <-notified)
+
+		// synctest holds the bubble open until the sweep goroutine has exited, so a
+		// leaked goroutine fails the test rather than outliving it silently.
+		cancel()
+	})
 }
 
 // mockProvider is a test double for GitProvider.

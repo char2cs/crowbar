@@ -8,9 +8,7 @@ import (
 	osexec "os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -147,14 +145,15 @@ func TestGate1_WatcherFiresFanOut(
 	makeCommit(t, dir, "seed.txt", "seed\n", "seed commit")
 	fork := headSHA(t, dir)
 
-	var mu sync.Mutex
-	var fileEvents []domain.FileChangeEvent
+	// Buffered so the watcher's loop goroutine never blocks on a slow reader.
+	fileEvents := make(chan domain.FileChangeEvent, 16)
 
 	d := &captureDispatcher{
 		onFile: func(evt domain.FileChangeEvent) {
-			mu.Lock()
-			defer mu.Unlock()
-			fileEvents = append(fileEvents, evt)
+			select {
+			case fileEvents <- evt:
+			default:
+			}
 		},
 	}
 
@@ -167,16 +166,10 @@ func TestGate1_WatcherFiresFanOut(
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "newfile.txt"), []byte("new content\n"), 0o600))
 
-	require.Eventually(t, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return len(fileEvents) > 0
-	}, 3*time.Second, 5*time.Millisecond, "watcher must dispatch a file-change event")
-
-	mu.Lock()
-	defer mu.Unlock()
-	require.NotEmpty(t, fileEvents)
-	assert.Equal(t, "ws-gate1", fileEvents[0].WsID)
+	// Block on the dispatcher's own callback — the real fan-out — instead of
+	// polling for it. `go test -timeout` is the backstop if the watcher is broken.
+	evt := <-fileEvents
+	assert.Equal(t, "ws-gate1", evt.WsID)
 }
 
 // TestGate1_GitStatusPushOnMutation verifies GitStatus is recomputed after mutations.
