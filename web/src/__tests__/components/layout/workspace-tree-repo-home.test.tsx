@@ -46,7 +46,7 @@ describe('WorkspaceTree repo-home working overlay', () => {
     expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument()
     // The real flicker spinner (self-animating SVG), theme-token colored.
     expect(container.querySelector('svg animate')).not.toBeNull()
-    expect(container.querySelector('.text-primary')).not.toBeNull()
+    expect(container.querySelector('.text-foreground')).not.toBeNull()
     // The avatar initials yield to the spinner for the duration of the turn.
     expect(screen.queryByText('C')).toBeNull()
   })

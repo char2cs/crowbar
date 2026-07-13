@@ -68,11 +68,10 @@ export function AgentChatRow({
             }
       }
     >
-      {/* Leading glyph: provider icon → flip-dot spinner while working. The
-          spinner is colored via a theme token (text-primary) since
-          FlickerSpinner itself bakes in no color — it inherits currentColor. */}
+      {/* Leading glyph: provider icon → flip-dot spinner while working. The spinner
+          bakes in no color — it inherits currentColor from a theme token here. */}
       {working ? (
-        <span className="flex size-4 shrink-0 items-center justify-center text-primary">
+        <span className="flex size-4 shrink-0 items-center justify-center text-foreground">
           <FlickerSpinner className="size-3.5" />
         </span>
       ) : (

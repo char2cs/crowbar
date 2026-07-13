@@ -62,10 +62,10 @@ export function WorkspaceBranchIcon({ status, working, isPlaceholder }: Workspac
 }
 
 export function WorkspaceAgentSpinner() {
-  // Theme-token colored (text-primary), never a provider/hardcoded color; the
-  // <FlickerSpinner> random-picks a flicker spinner and animates it.
+  // Theme-token colored, never a provider/hardcoded color; the <FlickerSpinner>
+  // random-picks a flicker spinner and animates it.
   return (
-    <span className="flex size-4 shrink-0 items-center justify-center text-primary">
+    <span className="flex size-4 shrink-0 items-center justify-center text-foreground">
       <FlickerSpinner className="size-3.5" />
     </span>
   )

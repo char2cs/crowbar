@@ -9,9 +9,9 @@ describe('WorkspaceBranchIcon', () => {
     expect(status).toBeTruthy()
     // Flicker spinner, not the retired @agilek/cli-loaders Spinner.
     expect(container.querySelector('svg animate')).not.toBeNull()
-    // Theme-token colored (text-primary), never hardcoded — the wrapper carries
-    // the color class since FlickerSpinner inherits via currentColor.
-    expect(container.querySelector('.text-primary')).not.toBeNull()
+    // Theme-token colored, never hardcoded — the wrapper carries the color class
+    // since FlickerSpinner inherits via currentColor.
+    expect(container.querySelector('.text-foreground')).not.toBeNull()
   })
 
   it('renders the branch glyph when idle', () => {

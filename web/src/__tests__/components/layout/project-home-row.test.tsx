@@ -113,7 +113,7 @@ describe('ProjectHomeRow working overlay', () => {
     expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument()
     // The real flicker spinner (self-animating SVG), theme-token colored.
     expect(container.querySelector('svg animate')).not.toBeNull()
-    expect(container.querySelector('.text-primary')).not.toBeNull()
+    expect(container.querySelector('.text-foreground')).not.toBeNull()
     // The House glyph yields to it for the duration of the turn.
     expect(container.querySelector('[data-icon="house"]')).toBeNull()
   })
