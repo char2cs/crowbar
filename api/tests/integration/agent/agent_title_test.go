@@ -122,13 +122,20 @@ func TestAgent_CrowbarChatRename_SetsTitle(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
-	projectID, repoID, wsID, chatID, _ := mustSpawnChat(t, h, "claude")
+	projectID, repoID, wsID, chatID, runnerID := mustSpawnChat(t, h, "claude")
 
 	crowbar := crowbarBinPath(t)
 	const wantTitle = "Fix The Auth Flow"
+	// `chat rename --segment <segid> <title>` — the argv the real binary now takes, and
+	// the chat id is deliberately NOT in it. The agent is never told which chat it is on:
+	// a /clear or /resume moves its CLI, and an id baked into its spawn-time instruction
+	// would then name a chat it has walked out of. It names its RUNNER, and the daemon
+	// resolves runner → its CURRENT chat at call time (cmd/crowbar/chat.go's ExactArgs(1);
+	// POST .../agent/runners/:segid/rename).
 	out, err := exec.Command(crowbar, "chat", "rename",
+		"--segment", runnerID,
 		"--project", projectID, "--repo", repoID, "--workspace", wsID,
-		chatID, wantTitle).CombinedOutput()
+		wantTitle).CombinedOutput()
 	require.NoError(t, err, "exec crowbar chat rename: %s", out)
 	t.Logf("crowbar chat rename output: %q", out)
 

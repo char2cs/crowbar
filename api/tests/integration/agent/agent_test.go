@@ -423,8 +423,22 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	// SessionStart hook shells out to `crowbar hook session_start`, reaches the daemon
 	// over the same unix socket, and the reducer binds a conversation to the NEW runner
 	// — exactly as Test A proves for claude.
+	//
+	// It has to DRIVE A TURN to get there, and cannot simply wait. codex creates its
+	// rollout — and so fires SessionStart — lazily, on its first real turn (see
+	// codexDismissTrustDialog in agent_gaps_test.go), and a switched-to codex comes up
+	// IDLE by design: the handoff reaches it through the silent developer_instructions
+	// channel, not as a prompt, so it has nothing to answer and nothing to announce.
+	// Waiting for a session id from a codex that has not spoken waits forever. (This is
+	// also why the test spends one small codex turn it once tried to avoid — that turn is
+	// now the price of codex announcing itself at all, not an extra assertion.)
+	codexDismissTrustDialog(ctx, h, newTermSessID, 30*time.Second)
+	require.NoError(t, h.eng.Terminal.Write(ctx, newTermSessID, []byte("Reply with only the word: ready.")))
+	time.Sleep(300 * time.Millisecond)
+	require.NoError(t, h.eng.Terminal.Write(ctx, newTermSessID, []byte("\r")))
+
 	codexStart := time.Now()
-	codexProviderSessionID, codexRunner := waitForProviderSessionID(t, h, newTermSessID, newRunnerID, 30*time.Second)
+	codexProviderSessionID, codexRunner := waitForProviderSessionID(t, h, newTermSessID, newRunnerID, 60*time.Second)
 	t.Logf("codex bound in %s (session=%s)", time.Since(codexStart), codexProviderSessionID)
 	require.NotEmpty(t, codexProviderSessionID,
 		"timed out after 30s waiting for codex's SessionStart hook to reach /v0/agent/hooks and bind a "+
