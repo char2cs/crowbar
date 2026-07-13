@@ -732,6 +732,11 @@ func (u *Usecase) spawnRunner(
 
 	plan, err := engineagent.BuildSpawnPlan(descriptor, tctx, os.Environ(), steps)
 	if err != nil {
+		// The injected-context entry above was registered before the CLI could exist, and
+		// only reconcileRunnerExit (via the onExit callback) ever forgets it — a callback
+		// that never fires when the CLI never goes live. Forget it here, or every failed
+		// spawn leaks one handoff-sized string until the daemon restarts.
+		u.registry.ForgetRunner(runnerID)
 		return "", fmt.Errorf("agent: spawn runner: build spawn plan: %w", err)
 	}
 
@@ -743,7 +748,9 @@ func (u *Usecase) spawnRunner(
 		// CreateCommand never got far enough to register onExit (which is what rm's
 		// the tmp dir on a clean exit) — clean up here so a spawn failure doesn't leak
 		// the runner's tmp dir. Guarded by crowbarHome so a poisoned chats dir can
-		// never make this rm escape the user's real filesystem.
+		// never make this rm escape the user's real filesystem. Same reason the
+		// injected-context entry is forgotten here: its onExit-driven cleanup never runs.
+		u.registry.ForgetRunner(runnerID)
 		RemoveUnderHome(ctx, crowbarHome, tmpDir)
 		return "", fmt.Errorf("agent: spawn runner: create command: %w", err)
 	}

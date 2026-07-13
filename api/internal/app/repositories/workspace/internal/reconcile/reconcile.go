@@ -118,6 +118,11 @@ func (r *Reconciler) OnOpen(
 		return
 	}
 	if !r.gate.Enter() {
+		// Draining: no run goroutine will spawn, so its deferred release never fires.
+		// Undo the claim by hand or this wsID is wedged "in flight" until the process dies
+		// and can never reconcile again. (Benign today — the gate only refuses during
+		// shutdown — but a leaked claim that outlives a drain would be a silent wedge.)
+		r.release(wsID)
 		return
 	}
 	go r.run(ctx, wsID)

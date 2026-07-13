@@ -298,6 +298,21 @@ func (c *Container) forgetReviewThreads(
 	return nil
 }
 
+// ForgetWorkspaceDependents runs the workspace-scoped forget cascade (review threads,
+// then agent chats and their conversations) for a workspace that is going away. It is the
+// SAME cascade the async delete reactor runs, exposed so the boot orphan-sweep can re-drive
+// it: a delete whose reactor never ran to completion — it crashed mid-cascade, or the
+// drain gate refused it during shutdown — leaves the workspace tombstoned with its chat
+// aggregates still un-forgotten, and the boot sweep is the only thing that re-drives such a
+// tombstone. Without this the sweep rm'd the worktree and Forgot the WORKSPACE only, and
+// GetChat kept resolving a chat pointing at a workspace that no longer exists.
+func (c *Container) ForgetWorkspaceDependents(
+	ctx context.Context,
+	wsID string,
+) error {
+	return c.forgetDependents(ctx, wsID)
+}
+
 // forgetDependents runs every workspace-scoped forget cascade for a deleted
 // workspace, in sequence: review threads, then agent chats (and their live
 // PTYs, Task 12). It is the single callback wireCallbacks hands the async

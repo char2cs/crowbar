@@ -219,11 +219,20 @@ func (c *Container) Shutdown(
 	// it. drain.Gate makes admitting work and beginning to drain one critical section.
 	drain.Gate.Wait(ctx)
 
+	// Order matters on the ABANDON path (the clean path already drained every reaper in
+	// quiesceTerminal above, so all its writes have landed). If a reaper is still in flight
+	// when we get here — quiesceTerminal was cut short by ctx — it writes runners.Exit
+	// FIRST and chats.StopTurn SECOND (reconcileRunnerExit), and it RETURNS EARLY if the
+	// first write is rejected. So shut the RUNNER store down before the CHAT store: a
+	// reaper that loses the race then has its Exit rejected and bails before StopTurn,
+	// leaving the runner row LIVE for the next boot's reconcile to retry both writes. The
+	// reverse order lets Exit commit while StopTurn is rejected — runner gone, turn
+	// stranded, and boot reconcile has no live row left to find. Recoverable vs permanent.
 	return errors.Join(
 		c.axWorkspace.Shutdown(ctx),
 		c.axReviewThread.Shutdown(ctx),
-		c.axAgentChat.Shutdown(ctx),
 		c.axAgentRunner.Shutdown(ctx),
+		c.axAgentChat.Shutdown(ctx),
 	)
 }
 
@@ -358,7 +367,7 @@ func startBootSweep(
 	if err != nil {
 		return fmt.Errorf("app: boot sweep: paths store: %w", err)
 	}
-	sweeper.Sweep(ctx, bootSweepPurge(ax, pathsStore, adapters.CrowbarHome()))
+	sweeper.Sweep(ctx, bootSweepPurge(ax, pathsStore, adapters.CrowbarHome(), repos.ForgetWorkspaceDependents))
 	return nil
 }
 
@@ -380,8 +389,19 @@ func bootSweepPurge(
 	ax asynx.Asynx[domain.Workspace],
 	pathsStore wspaths.WorkspacePaths,
 	crowbarHome string,
+	forgetDependents func(ctx context.Context, wsID string) error,
 ) func(ctx context.Context, wsID string) error {
 	return func(ctx context.Context, wsID string) error {
+		// Re-drive the dependent forget-cascade FIRST, while the chats are still listable
+		// (their read rows survive the workspace rm below). A tombstone reaches this sweep
+		// precisely because its reactor did not finish — crashed mid-cascade, or was refused
+		// by the drain gate at shutdown — so its chat aggregates and conversation rows are
+		// exactly what is still un-forgotten. Abort on error (leave the tombstone for the
+		// next re-drive) rather than rm the worktree with chats still dangling; that is the
+		// same contract forgetDependents holds on the reactor path.
+		if err := forgetDependents(ctx, wsID); err != nil {
+			return fmt.Errorf("forget workspace dependents: %w", err)
+		}
 		path, err := pathsStore.Get(ctx, wsID)
 		switch {
 		case errors.Is(err, wspaths.ErrNotFound):

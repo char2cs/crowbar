@@ -76,21 +76,22 @@ func TestTerminateGraceful_OnExitFiresAfterGracefulSignal(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, id)
 
-	start := time.Now()
 	require.NoError(t, e.TerminateGraceful(ctx, id))
-	elapsed := time.Since(start)
 
 	// Block on onExit; the deregistration precedes it inside reapOnDone, so assert it directly.
 	<-exits
 	require.False(t, e.SessionExists(ctx, id), "session must be reaped after a graceful terminate")
 
-	// TIMING-BY-SUBJECT: the grace window is the BEHAVIOUR UNDER TEST here, not a
-	// synchronisation device. The assertion measures how long TerminateGraceful took and
-	// requires it to be well short of the window — i.e. that a plain `sleep` died on the
-	// SIGTERM rather than being hard-killed at the end of the grace. Nothing waits on this
-	// duration; it is an observation about the code's behaviour.
-	assert.Less(t, elapsed, gracefulTerminateGrace,
-		"a plain `sleep` dies on SIGTERM well before the grace window elapses")
+	// No wall-clock assertion here. This used to do `assert.Less(elapsed, grace)` to argue
+	// the `sleep` died on SIGTERM rather than the fallback SIGKILL — an upper bound that can
+	// only FAIL on correct code (a loaded box that stalls the SIGTERM delivery + reap past
+	// the grace fires it though nothing is wrong) and can only ever CATCH a hang that
+	// `go test -timeout` catches better. That SIGTERM-vs-SIGKILL distinction is already
+	// proven WITHOUT a clock by two neighbours: session_terminate_test's
+	// GracefulExit_UsesSIGTERM checks the recorded exit signal IS SIGTERM, and this file's
+	// FallsBackToKill companion uses a *lower* bound (elapsed >= grace) that cannot flake
+	// because a timer never fires early. This test's own subject is the onExit contract:
+	// fires exactly once, session reaped.
 
 	// Shutdown joins every reaper, so afterwards no further fire is possible.
 	e.Shutdown()

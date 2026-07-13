@@ -33,6 +33,10 @@ func (f *fakeWorkspacePaths) Delete(_ context.Context, _ string) error {
 
 var _ wspaths.WorkspacePaths = (*fakeWorkspacePaths)(nil)
 
+// noopForgetDependents is the cascade callback for the fs-teardown tests that do not
+// exercise it; the dependent-cascade behaviour has its own tests below.
+func noopForgetDependents(_ context.Context, _ string) error { return nil }
+
 // TestBootSweepPurge_RemovesWorkspaceRootIncludingSiblingChats is the parallel
 // twin of repositories.TestWorktreeRemover_RemovesWorkspaceRootIncludingSiblingChatsDir:
 // both the async delete reactor (worktreeRemover) and the crash-recovery boot
@@ -55,13 +59,59 @@ func TestBootSweepPurge_RemovesWorkspaceRootIncludingSiblingChats(t *testing.T) 
 	require.NoError(t, os.WriteFile(filepath.Join(chatsDir, "00000001.turn"), []byte("{}"), 0o644))
 
 	paths := &fakeWorkspacePaths{path: worktreeLeaf}
-	purge := bootSweepPurge(c.axWorkspace, paths, home)
+	purge := bootSweepPurge(c.axWorkspace, paths, home, noopForgetDependents)
 	require.NoError(t, purge(context.Background(), "ws-does-not-exist"))
 
 	_, err := os.Stat(root)
 	assert.True(t, os.IsNotExist(err),
 		"boot sweep must remove the whole workspace root (worktree + sibling chats)")
 	assert.True(t, paths.deleted, "boot sweep must delete the id-path row")
+}
+
+// TestBootSweepPurge_RunsDependentCascade proves the boot sweep re-drives the
+// dependent forget-cascade (review threads + agent chats), not just the worktree/row.
+// A tombstone reaches the sweep precisely because its delete reactor never finished —
+// it crashed, or the drain gate refused it at shutdown — so its chat aggregates are the
+// thing still un-forgotten; the sweep is the only path that re-drives them.
+func TestBootSweepPurge_RunsDependentCascade(t *testing.T) {
+	c := newSweepContainer(t)
+	home := t.TempDir()
+
+	var cascaded string
+	forget := func(_ context.Context, wsID string) error {
+		cascaded = wsID
+		return nil
+	}
+	paths := &fakeWorkspacePaths{path: ""}
+	purge := bootSweepPurge(c.axWorkspace, paths, home, forget)
+	require.NoError(t, purge(context.Background(), "ws-orphaned-chats"))
+
+	assert.Equal(t, "ws-orphaned-chats", cascaded,
+		"the boot sweep must re-drive the chat/thread forget-cascade for the swept workspace")
+}
+
+// TestBootSweepPurge_AbortsWhenCascadeFails proves the cascade's contract survives the
+// boot path: if forgetting a dependent fails, the purge ABORTS — it does not rm the
+// worktree or drop the id-path row — so the tombstone remains for the next boot to
+// re-drive, rather than destroying the worktree with chats still dangling.
+func TestBootSweepPurge_AbortsWhenCascadeFails(t *testing.T) {
+	c := newSweepContainer(t)
+	home := t.TempDir()
+	root := filepath.Join(home, "projects", "p1", "ws")
+	worktreeLeaf := filepath.Join(root, "worktree")
+	require.NoError(t, os.MkdirAll(worktreeLeaf, 0o755))
+
+	forget := func(_ context.Context, _ string) error {
+		return assert.AnError
+	}
+	paths := &fakeWorkspacePaths{path: worktreeLeaf}
+	purge := bootSweepPurge(c.axWorkspace, paths, home, forget)
+
+	require.Error(t, purge(context.Background(), "ws-cascade-fails"),
+		"a failed dependent cascade must abort the purge so the tombstone survives")
+	_, err := os.Stat(worktreeLeaf)
+	assert.NoError(t, err, "the worktree must NOT be removed when the cascade aborted")
+	assert.False(t, paths.deleted, "the id-path row must NOT be dropped when the cascade aborted")
 }
 
 // TestBootSweepPurge_RefusesPathOutsideCrowbarHome guards the safety invariant
@@ -76,7 +126,7 @@ func TestBootSweepPurge_RefusesPathOutsideCrowbarHome(t *testing.T) {
 	require.NoError(t, os.MkdirAll(userRepo, 0o755))
 
 	paths := &fakeWorkspacePaths{path: userRepo}
-	purge := bootSweepPurge(c.axWorkspace, paths, home)
+	purge := bootSweepPurge(c.axWorkspace, paths, home, noopForgetDependents)
 	require.NoError(t, purge(context.Background(), "ws-x"))
 
 	_, err := os.Stat(userRepo)
@@ -97,7 +147,7 @@ func TestBootSweepPurge_HomeKindWorkspace_NeverRemovesRepoPath(t *testing.T) {
 	require.NoError(t, os.MkdirAll(sibling, 0o755))
 
 	paths := &fakeWorkspacePaths{path: repoPath}
-	purge := bootSweepPurge(c.axWorkspace, paths, home)
+	purge := bootSweepPurge(c.axWorkspace, paths, home, noopForgetDependents)
 	require.NoError(t, purge(context.Background(), "ws-home"))
 
 	_, err := os.Stat(repoPath)
@@ -117,7 +167,7 @@ func TestBootSweepPurge_RefusesDegenerateLeafDirectlyUnderHome(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(home, "sentinel"), []byte("x"), 0o644))
 
 	paths := &fakeWorkspacePaths{path: leaf}
-	purge := bootSweepPurge(c.axWorkspace, paths, home)
+	purge := bootSweepPurge(c.axWorkspace, paths, home, noopForgetDependents)
 	require.NoError(t, purge(context.Background(), "ws-leaf"))
 
 	_, err := os.Stat(home)

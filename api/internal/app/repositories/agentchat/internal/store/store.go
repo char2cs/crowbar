@@ -131,8 +131,15 @@ func (s *service) GetChat(
 		return domain.AgentChat{}, err
 	}
 	if chat == nil {
-		if err := s.rebuild(ctx); err != nil {
-			return domain.AgentChat{}, err
+		// Heal ONLY this id, not the whole model. asynx.Replay takes a single aggregate,
+		// and that is all a keyed GetChat needs: it rebuilds THIS row if the read DB lost
+		// it, and folds NOTHING when the id is unknown or already Forgotten — so a miss for
+		// a deleted chat (or a stale FE request) costs one empty replay instead of folding
+		// every OTHER chat's entire history back through the read model on a hook hot path.
+		// A genuine whole-model loss still heals lazily, one row per GetChat, plus ListChats
+		// rebuilds the lot when the model is empty.
+		if err := s.ax.Replay(ctx, id, 1, 0, s.foldReplayed); err != nil {
+			return domain.AgentChat{}, fmt.Errorf("agentchat store: heal %q: %w", id, err)
 		}
 		chat, err = s.storage.FindByKey(ctx, id)
 		if err != nil {
