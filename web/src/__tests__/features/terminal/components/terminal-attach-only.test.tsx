@@ -7,9 +7,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // XtermTerminal re-resolves the connection. Without attach-only that re-resolve
 // spawns a fresh shell into the agent's frame. These tests drive that exact path
 // in the real component by firing the registered onTransportDrop callback.
-const { resolveFn, terminalCreateFn, dropCallbacks } = vi.hoisted(() => ({
+const { resolveFn, terminalCreateFn, terminalDetachFn, dropCallbacks } = vi.hoisted(() => ({
   resolveFn: vi.fn(),
   terminalCreateFn: vi.fn(async (..._a: unknown[]) => 'fresh-shell'),
+  terminalDetachFn: vi.fn(async (..._a: unknown[]) => {}),
   dropCallbacks: [] as Array<() => void>,
 }))
 
@@ -19,6 +20,7 @@ vi.mock('@/features/terminal/components/resolve-terminal-connection', () => ({
 
 vi.mock('@/lib/crowbar-bridge', () => ({
   terminalCreate: (...a: unknown[]) => terminalCreateFn(...a),
+  terminalDetach: (...a: unknown[]) => terminalDetachFn(...a),
   terminalListLive: vi.fn(async () => [] as string[]),
   terminalResize: vi.fn(async () => {}),
   onTransportDrop: (_id: string, cb: () => void) => {
@@ -70,16 +72,18 @@ async function renderAttached(props: { attachOnly?: boolean; onSessionGone?: () 
     sessions: new Map([[SESSION, { id: SESSION, connectionId: SESSION }]]),
   } as never)
 
+  let unmount = () => {}
   await act(async () => {
-    render(
+    unmount = render(
       createElement(XtermTerminal, {
         sessionId: SESSION,
         isActive: true,
         isVisible: true,
         ...props,
       }),
-    )
+    ).unmount
   })
+  return { unmount }
 }
 
 async function fireTransportDrop() {
@@ -92,8 +96,56 @@ async function fireTransportDrop() {
 beforeEach(() => {
   resolveFn.mockReset()
   terminalCreateFn.mockClear()
+  terminalDetachFn.mockClear()
   dropCallbacks.length = 0
   useTerminalStore.setState({ sessions: new Map() } as never)
+})
+
+// THE BLANK-CHAT BUG. An attach-only terminal is a VIEW onto a PTY someone else
+// owns, and unlike a shell tab its xterm is NOT kept mounted (pane-container keeps
+// only `terminal` buffers alive behind visibility:hidden) — it is destroyed and
+// rebuilt whenever the chat tab is switched away from, closed and reopened, or the
+// workspace is left and re-entered.
+//
+// The daemon serializes its screen model to a client at ATTACH and nowhere else
+// (Session.Attach pre-fills the new client's channel with a ground-state redraw;
+// Resync is gated on !isIdle and a command session's foreground process IS the CLI,
+// so it reports idle and no-ops). So a transport that outlives its xterm is not a
+// harmless optimisation — it makes the NEXT mount take the resolver's
+// "reuse a live transport → no attach" branch, and the fresh, empty xterm is then
+// never sent the screen. The agent is alive and typing into a terminal nobody
+// redrew: the pane just sits blank until something unrelated (a pane resize →
+// SIGWINCH → the CLI repaints itself) happens to bring it back. That is exactly the
+// "sometimes the CLI doesn't come back" report — it came back only when the pane
+// happened to change size.
+//
+// Releasing the transport with the xterm restores the invariant: no view, no
+// connection — so every mount is an attach, and every attach is a redraw.
+describe('XtermTerminal attach-only transport lifecycle', () => {
+  it('releases its transport on unmount, so the next mount RE-ATTACHES and is redrawn', async () => {
+    resolveFn.mockResolvedValue({ connectionId: SESSION, reused: true })
+    const { unmount } = await renderAttached({ attachOnly: true })
+
+    await act(async () => {
+      unmount()
+    })
+
+    expect(terminalDetachFn).toHaveBeenCalledWith(SESSION)
+  })
+
+  it('NO REGRESSION: an ordinary terminal KEEPS its transport on unmount', async () => {
+    // A shell tab's xterm is portaled and outlives pane splits and tab moves; its
+    // socket must survive with it. Detaching here would drop a live shell's
+    // transport on every layout change.
+    resolveFn.mockResolvedValue({ connectionId: SESSION, reused: true })
+    const { unmount } = await renderAttached() // no attachOnly — an ordinary shell tab
+
+    await act(async () => {
+      unmount()
+    })
+
+    expect(terminalDetachFn).not.toHaveBeenCalled()
+  })
 })
 
 describe('XtermTerminal attach-only mode', () => {

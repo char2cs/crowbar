@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import { useNavigate, useRouter } from '@tanstack/react-router'
+import { DragGhost, DRAG_GHOST_OFFSET_X, DRAG_GHOST_OFFSET_Y } from './drag-ghost'
 import { getPostDeleteNavigationTarget, useSidebarStore } from '@/lib/store/sidebar'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { postWorkspace, deleteWorkspace as apiDeleteWorkspace } from '@/lib/api'
@@ -314,8 +315,8 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       if (!draggingRef.current) return
       // Move ghost directly — no React state update, no tree re-render.
       if (ghostRef.current) {
-        ghostRef.current.style.left = `${e.clientX + 12}px`
-        ghostRef.current.style.top = `${e.clientY - 10}px`
+        ghostRef.current.style.left = `${e.clientX + DRAG_GHOST_OFFSET_X}px`
+        ghostRef.current.style.top = `${e.clientY + DRAG_GHOST_OFFSET_Y}px`
       }
       // Only trigger a React re-render when the drop target actually changes
       // (mouse crosses a boundary), not on every pixel of movement.
@@ -478,16 +479,12 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
         </WorkspaceTreeDragContext.Provider>
       </WorkspaceTreeActionsContext.Provider>
       {draggingWs && (
-        <div
+        <DragGhost
           ref={ghostRef}
-          className="pointer-events-none fixed z-50 rounded-md border border-border bg-secondary px-2 py-1 font-mono text-[13px] text-secondary-foreground shadow-md opacity-90"
-          style={{
-            left: lastDragPosRef.current ? lastDragPosRef.current.x + 12 : 0,
-            top: lastDragPosRef.current ? lastDragPosRef.current.y - 10 : 0,
-          }}
-        >
-          {draggingWs.label}
-        </div>
+          label={draggingWs.label}
+          origin={lastDragPosRef.current}
+          className="font-mono"
+        />
       )}
     </>
   )

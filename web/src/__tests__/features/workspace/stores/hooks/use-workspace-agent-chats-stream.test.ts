@@ -374,6 +374,79 @@ describe('useWorkspaceAgentChatsStream', () => {
     expect(repointAgentChatBuffer).toHaveBeenCalledWith('buf1', { chatId: 'c2', runnerId: 'c1-r' })
   })
 
+  // THE /resume-INTO-AN-UNSEEN-CONVERSATION BUG.
+  //
+  // The CLI joins a conversation Crowbar has never seen, so the backend MINTS a chat and
+  // MOVES the runner into it — two writes, on two aggregates, and therefore TWO FRAMES:
+  // `created` (the chat) and, a beat later, `moved` (the runner that walked into it).
+  //
+  // `created` reseeds the whole list, so the LIST request goes out FIRST — and the daemon
+  // can serve it in the window before the move is projected. Its payload is then already
+  // stale: it shows the new chat with NO runner. The `moved` frame's single-chat read is
+  // issued second, is fresh, and lands first. The stale list then arrives and REPLACES the
+  // list wholesale (seedAgentChats assigns `chats`), silently overwriting the live chat
+  // with the dormant snapshot of itself.
+  //
+  // Nothing refetches after that. The tab HAS followed the runner, so the pane is pointed
+  // at a chat the store now says has no runner and no PTY — and it renders "This agent has
+  // exited. Resume it…" over a CLI that is alive and typing. Which is the reported bug,
+  // and it is intermittent for exactly the reason races are.
+  //
+  // A snapshot read BEFORE a single-chat read must never be applied AFTER it.
+  it('a STALE list seed must not clobber the chat the runner just moved into', async () => {
+    listChatsFn.mockResolvedValueOnce([chat('old')]) // the mount seed: old holds runner old-r
+    buffers = [openTab('buf1', 'old', 'old-r')]
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+
+    // Fresh single-chat reads: `new` has taken the runner, `old` is now dormant.
+    getChatFn.mockImplementation((_ws: string, id: string) =>
+      Promise.resolve(
+        id === 'new'
+          ? { ...chat('new'), liveRunnerId: 'old-r', terminalSessionId: 'old-pty' }
+          : { ...chat('old'), liveRunnerId: '', terminalSessionId: '' },
+      ),
+    )
+    // The list request `created` triggers: issued FIRST, served by the daemon BEFORE the
+    // move was projected (so `new` still looks runnerless), and resolved LAST.
+    let landStaleList: (chats: unknown[]) => void = () => {}
+    listChatsFn.mockReturnValueOnce(
+      new Promise((resolve) => {
+        landStaleList = resolve as (chats: unknown[]) => void
+      }),
+    )
+    // Any LATER list read is taken after those writes, so the daemon answers with the
+    // truth — which is what makes discarding the overtaken snapshot and asking again a
+    // real repair rather than a way to drop the reconcile.
+    listChatsFn.mockResolvedValue([
+      { ...chat('old'), liveRunnerId: '', terminalSessionId: '' },
+      { ...chat('new'), liveRunnerId: 'old-r', terminalSessionId: 'old-pty' },
+    ])
+
+    const onFrame = captureCb()
+    onFrame({ chatId: 'new', workspaceId: 'w1', kind: 'created' })
+    onFrame({ chatId: 'new', workspaceId: 'w1', kind: 'moved', runnerId: 'old-r' })
+    await flush()
+
+    // The fresh reads have landed and the tab has followed the runner into `new`.
+    expect(repointAgentChatBuffer).toHaveBeenCalledWith('buf1', {
+      chatId: 'new',
+      runnerId: 'old-r',
+    })
+    expect(storeChats.find((c) => c.id === 'new')?.liveRunnerId).toBe('old-r')
+
+    landStaleList([
+      { ...chat('old'), liveRunnerId: 'old-r', terminalSessionId: 'old-pty' }, // stale: still holds it
+      { ...chat('new'), liveRunnerId: '', terminalSessionId: '' }, // stale: not yet moved into
+    ])
+    await flush()
+
+    // The chat the pane is now showing must STILL have its runner and its PTY. Lose these
+    // and the pane offers to Resume an agent that never left.
+    expect(storeChats.find((c) => c.id === 'new')?.liveRunnerId).toBe('old-r')
+    expect(storeChats.find((c) => c.id === 'new')?.terminalSessionId).toBe('old-pty')
+  })
+
   it('moved ALSO invalidates the chat the runner LEFT — the frame names only the one it entered', async () => {
     listChatsFn.mockResolvedValue([chat('c1'), chat('c2')])
     buffers = [openTab('buf1', 'c1', 'c1-r')]

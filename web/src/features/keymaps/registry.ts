@@ -122,6 +122,10 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+k',
     liveEditable: true,
   },
+  // The digit IS the tab's position in the sidebar strip — mod+2 is whatever sits
+  // second. Keep these four in strip order, and renumber them when the strip is
+  // reordered: a number that doesn't match what the user is looking at is a
+  // shortcut they will never find.
   {
     id: SIDEBAR_TAB_WORKSPACES,
     label: 'Sidebar: Workspaces',
@@ -130,26 +134,22 @@ export const COMMANDS: Command[] = [
     liveEditable: true,
   },
   {
-    id: SIDEBAR_TAB_FILES,
-    label: 'Sidebar: Files',
+    id: SIDEBAR_TAB_CHATS,
+    label: 'Sidebar: Chats',
     category: 'Navigation',
     defaultChord: 'mod+2',
     liveEditable: true,
   },
   {
-    id: SIDEBAR_TAB_GIT,
-    label: 'Sidebar: Git',
+    id: SIDEBAR_TAB_FILES,
+    label: 'Sidebar: Files',
     category: 'Navigation',
     defaultChord: 'mod+3',
     liveEditable: true,
   },
-  // Chats sits second in the sidebar strip but takes the next FREE number: the
-  // 1/2/3 bindings above already exist (and may be user-overridden in a persisted
-  // keymap), so re-numbering them to match strip order would silently move
-  // bindings out from under people. mod+4 is unused elsewhere in the registry.
   {
-    id: SIDEBAR_TAB_CHATS,
-    label: 'Sidebar: Chats',
+    id: SIDEBAR_TAB_GIT,
+    label: 'Sidebar: Git',
     category: 'Navigation',
     defaultChord: 'mod+4',
     liveEditable: true,

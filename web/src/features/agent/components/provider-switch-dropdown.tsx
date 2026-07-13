@@ -1,21 +1,8 @@
 import { useRef, useState } from 'react'
 import { CaretUpDown } from '@phosphor-icons/react'
 import { Dropdown, dropdownTriggerClassName } from '@/components/ui/dropdown'
+import { ProviderIcon } from './provider-icon'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
-
-// Inline the backend-trusted SVG markup so its `fill="currentColor"` paths
-// inherit the ambient text-* theme token from whichever button/row hosts it —
-// an <img src="..."> can't inherit currentColor or size to its container the
-// same way. Mirrors FlickerSpinner's approach (components/ui/flicker-spinner.tsx).
-function ProviderIcon({ svg }: { svg: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="inline-flex size-3.5 shrink-0 items-center justify-center [&>svg]:size-full"
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
-  )
-}
 
 // The trigger's width AND its menu's — one number so they cannot drift apart. The shared
 // dropdown's 240px default ballooned the menu far wider than the trigger beneath it;

@@ -109,10 +109,17 @@ function openBrowserSocket(connectionId: string, base: string): void {
     // cleanup is handled in the onclose handler below.
   }
   ws.onclose = () => {
-    // Only treat the close as unexpected if the entry is still in `terminals`.
-    // terminalDetach removes the entry BEFORE calling ws.close(), so a clean
-    // detach never reaches the drop-notification branch.
-    if (!terminals.has(connectionId)) return
+    // Only treat the close as unexpected if THIS connection is still the one
+    // registered. terminalDetach removes the entry BEFORE calling ws.close(), so a
+    // clean detach never reaches the drop-notification branch.
+    //
+    // Identity, not presence: an attach-only terminal detaches on unmount and
+    // re-attaches on the next mount (a chat tab switch — and every mount under
+    // StrictMode), so a NEW connection can be registered under the same
+    // connectionId while the old socket's close is still in flight. A `has()` check
+    // cannot tell the two apart, and would let the dead socket delete the live
+    // entry and fire a spurious transport-drop against it.
+    if (terminals.get(connectionId) !== conn) return
     terminals.delete(connectionId)
     const cbs = dropCallbacks.get(connectionId)
     if (cbs) {
@@ -147,7 +154,10 @@ async function openTauriSocket(connectionId: string, wsPath: string): Promise<vo
   const { listen } = await import('@tauri-apps/api/event')
   const unlisten = await listen<string>('terminal:transport-dropped', (event) => {
     if (event.payload !== connectionId) return
-    if (!tauriTerminals.has(connectionId)) return
+    // Identity, not presence — same reason as openBrowserSocket's onclose: a
+    // detach→re-attach cycle on one connectionId (chat tab switch, StrictMode
+    // remount) can register a fresh entry before the dead one's drop event lands.
+    if (tauriTerminals.get(connectionId) !== conn) return
     tauriTerminals.delete(connectionId)
     const cbs = dropCallbacks.get(connectionId)
     if (cbs) {

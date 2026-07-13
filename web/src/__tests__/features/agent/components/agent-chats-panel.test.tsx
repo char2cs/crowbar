@@ -265,10 +265,13 @@ describe('AgentChatsPanel', () => {
     expect(rowFor('c2').querySelector('[data-p="codex"]')).not.toBeNull()
   })
 
-  it('renders an empty icon slot for a chat whose provider is unknown', () => {
+  it('falls back to the chat glyph for a chat whose provider is unknown', () => {
     seed([chat('c9', 'Orphan', 'gemini', '2026-01-03T00:00:00Z')])
     render(<AgentChatsPanel />)
-    expect(rowFor('c9').querySelector('svg')).toBeNull()
+    // Not the provider's icon (there isn't one) and NOT an empty slot: a chat with
+    // no resolvable provider still has to read as a chat.
+    expect(rowFor('c9').querySelector('[data-provider-icon]')).toBeNull()
+    expect(rowFor('c9').querySelector('svg')).not.toBeNull()
   })
 
   it('shows the working spinner on the working chat only', () => {
@@ -303,6 +306,53 @@ describe('AgentChatsPanel', () => {
     fireEvent.click(rowFor('c2'))
     expect(rowFor('c2').className).toContain('bg-background')
     expect(rowFor('c1').className).toContain('hover:bg-accent')
+  })
+
+  // ── A row is lit by its TAB, not by the last click ────────────────
+
+  it('lights every chat that has a tab open, and darkens one whose tab is closed', () => {
+    seed()
+    render(<AgentChatsPanel />)
+
+    fireEvent.click(rowFor('c1'))
+    fireEvent.click(rowFor('c2'))
+    // Two tabs open ⇒ two lit rows. The row reflects the tab strip, not a single
+    // "selected" chat.
+    expect(rowFor('c1').className).toContain('bg-background')
+    expect(rowFor('c2').className).toContain('bg-background')
+
+    const c1Buffer = agentBuffers().find((b) => b.chatId === 'c1')!
+    act(() => state().bufferActions.closeBuffer(c1Buffer.id))
+
+    // Closing the tab must put the row out — the old highlight followed a stored
+    // activeChatId that nothing cleared, so a closed chat stayed lit forever.
+    expect(rowFor('c1').className).toContain('hover:bg-accent')
+    expect(rowFor('c2').className).toContain('bg-background')
+  })
+
+  it('clicking a chat already open in ANOTHER pane reveals that pane, never moving the tab', () => {
+    seed()
+    render(<AgentChatsPanel />)
+
+    fireEvent.click(rowFor('c1'))
+    const homePane = state().activePaneId
+    const bufferId = agentBuffers()[0].id
+
+    // Split, and stand in the NEW pane — the chat's tab is now off in the other half.
+    let otherPane = ''
+    act(() => {
+      otherPane = state().paneActions.splitPane(homePane, 'horizontal') ?? ''
+    })
+    expect(state().activePaneId).toBe(otherPane)
+
+    fireEvent.click(rowFor('c1'))
+
+    // Go to the tab; don't drag the tab to us. openContent would have added the
+    // buffer to the active pane, tearing the chat out of the pane it lives in.
+    expect(state().activePaneId).toBe(homePane)
+    expect(state().panes[homePane].activeBufferId).toBe(bufferId)
+    expect(state().panes[otherPane].bufferIds).not.toContain(bufferId)
+    expect(agentBuffers()).toHaveLength(1)
   })
 
   // ── New-per-provider rows ─────────────────────────────────────────
@@ -475,6 +525,30 @@ describe('AgentChatsPanel', () => {
     pointerUp()
     expect(rowFor('c1').className).not.toContain('ring-1 ring-ring')
     expect(rowFor('c2').className).not.toContain('opacity-40')
+  })
+
+  it('a drag carries a ghost labelled with the chat, which follows the cursor and leaves on drop', () => {
+    seed()
+    render(<AgentChatsPanel />)
+    const ghost = () => document.querySelector<HTMLElement>('[data-drag-ghost]')
+
+    expect(ghost()).toBeNull()
+
+    pointerOver(null)
+    pointerDown(rowFor('c2'))
+    pointerMove(30, 40) // crosses the 5px threshold → drag starts
+
+    // Without this the drag was invisible: nothing under the cursor said WHAT was
+    // being dragged, only the dimmed row left behind.
+    expect(ghost()).not.toBeNull()
+    expect(ghost()?.textContent).toBe('Second')
+
+    pointerMove(80, 90)
+    expect(ghost()?.style.left).toBe('92px') // 80 + DRAG_GHOST_OFFSET_X
+    expect(ghost()?.style.top).toBe('80px') // 90 + DRAG_GHOST_OFFSET_Y
+
+    pointerUp()
+    expect(ghost()).toBeNull()
   })
 
   it('a drag that never crosses the threshold does not reorder (and the click still selects)', () => {

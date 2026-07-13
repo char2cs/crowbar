@@ -111,29 +111,61 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
 
     const stateOf = () => getOrCreateWorkspaceStore(wsId).getState()
 
+    // Every single-chat read that lands bumps this. A list seed captures it before it
+    // asks, and refuses to apply a snapshot that a fresher read has already overtaken —
+    // see seedChats.
+    let chatWrites = 0
+
     // The seed is a full RECONCILE, not a merge: it runs on first load AND on every
     // reconnect, and on reconnect it is the only thing that can repair frames the
     // socket dropped while it was down. seedAgentChats therefore drops chats the
     // server no longer has (a missed `deleted`) and clears the working map (a missed
     // `turn_stopped` must not strand a spinner; working is unknown here → idle).
+    //
+    // Being a REPLACE is exactly why it must not land out of order. A CLI walking into a
+    // conversation Crowbar has never seen is TWO backend writes on TWO aggregates — mint
+    // the chat, move the runner — and therefore two frames: `created`, then `moved`. This
+    // seed is the one `created` fires, so its request goes out FIRST, and the daemon can
+    // serve it in the window before the move is projected: the snapshot then shows the new
+    // chat with NO RUNNER. The `moved` frame's single-chat read is issued second, reads the
+    // truth, and lands first. If this stale snapshot is then applied on top, it overwrites
+    // the live chat with the dormant snapshot of itself — and since the tab has by now
+    // FOLLOWED the runner into that chat, the pane renders "this agent has exited" over a
+    // CLI that is alive and typing. Nothing refetches afterwards, so it stays that way.
+    //
+    // So: a snapshot overtaken by a fresher read is DISCARDED, and we simply ask again —
+    // the next read is taken after those writes and is consistent with them. The retry is
+    // bounded because it is not a fix for contention, only for order: the losing case needs
+    // a per-chat read to land inside this request's flight, and each attempt is one more
+    // chance for that to have stopped happening. If it somehow never settles we leave the
+    // list alone rather than knowingly writing stale data over fresh — the per-chat reads
+    // have already put the truth in the store; only the reconcile is skipped.
     const seedChats = async () => {
-      try {
-        const chats = await listChats(wsId)
-        if (cancelled) return
-        const store = getOrCreateWorkspaceStore(wsId)
-        const before = store.getState()
-        before.hydrateAgentChatOrder()
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const issuedAt = chatWrites
+          const chats = await listChats(wsId)
+          if (cancelled) return
+          if (chatWrites !== issuedAt) continue // overtaken in flight — this snapshot is old news
 
-        const present = new Set(chats.map((c) => c.id))
-        const vanished = before.agentChats.chats.filter((c) => !present.has(c.id)).map((c) => c.id)
+          const store = getOrCreateWorkspaceStore(wsId)
+          const before = store.getState()
+          before.hydrateAgentChatOrder()
 
-        store.getState().seedAgentChats(chats)
+          const present = new Set(chats.map((c) => c.id))
+          const vanished = before.agentChats.chats
+            .filter((c) => !present.has(c.id))
+            .map((c) => c.id)
 
-        // A chat deleted during the outage never delivered its `deleted` frame, so
-        // close its pane tab here exactly as that frame's handler would have.
-        for (const chatId of vanished) closeChatTab(store.getState(), chatId)
-      } catch {
-        /* seed failure is non-fatal — the WS stream still pushes */
+          store.getState().seedAgentChats(chats)
+
+          // A chat deleted during the outage never delivered its `deleted` frame, so
+          // close its pane tab here exactly as that frame's handler would have.
+          for (const chatId of vanished) closeChatTab(store.getState(), chatId)
+          return
+        } catch {
+          return /* seed failure is non-fatal — the WS stream still pushes */
+        }
       }
     }
 
@@ -150,11 +182,16 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     // Returns whether the chat actually landed in the store, so a caller that is about
     // to re-point a tab at it can decline when it did not: a tab pointed at a chat the
     // store has never heard of renders nothing at all.
+    //
+    // This is a POINT-IN-TIME read of ONE chat, and it outranks any list snapshot taken
+    // before it — hence the chatWrites bump, which is what lets seedChats know it has been
+    // overtaken (see there).
     const refetchOne = async (chatId: string): Promise<boolean> => {
       try {
         const chat = await getChat(wsId, chatId)
         if (cancelled) return false
         getOrCreateWorkspaceStore(wsId).getState().upsertAgentChat(chat)
+        chatWrites++
         return true
       } catch {
         /* a not-found here is handled by the deleted frame path */

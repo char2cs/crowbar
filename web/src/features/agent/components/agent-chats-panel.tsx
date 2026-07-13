@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { DragGhost, DRAG_GHOST_OFFSET_X, DRAG_GHOST_OFFSET_Y } from '@/components/layout/drag-ghost'
 import { ADD_GLYPH_PATH, ROW_BASE, ROW_INACTIVE } from '@/components/layout/workspace-row-base'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { useActiveWorkspaceState } from '@/features/workspace/stores/hooks/use-active-workspace-state'
@@ -88,7 +89,7 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
   const order = useStore(store, (s) => s.agentChats.order)
   const working = useStore(store, (s) => s.agentChats.working)
   const providers = useStore(store, (s) => s.agentChats.providers)
-  const activeChatId = useStore(store, (s) => s.agentChats.activeChatId)
+  const buffers = useStore(store, (s) => s.buffers)
 
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -103,6 +104,15 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
   const ordered = useMemo(() => orderedChats(chats, order), [chats, order])
   const providerIcons = useMemo(() => new Map(providers.map((p) => [p.id, p.icon])), [providers])
 
+  // A row is lit when the chat HAS A TAB, not when it was the last one clicked.
+  // The row is a view of the tab strip: close the tab and the row goes dark, open
+  // three chats and all three read as open. (The old highlight followed a stored
+  // activeChatId that nothing ever cleared, so a closed chat stayed lit forever.)
+  const openChatIds = useMemo(
+    () => new Set(buffers.flatMap((b) => (b.type === 'agentChat' ? [b.chatId] : []))),
+    [buffers],
+  )
+
   // Read by the window-level pointer handlers, which are registered once — a ref
   // keeps them off the render-identity treadmill (no listener churn per keystroke).
   const orderedRef = useRef(ordered)
@@ -113,6 +123,19 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
       const st = store.getState()
       const title = st.agentChats.chats.find((c) => c.id === chatId)?.title
       st.setActiveAgentChatId(chatId)
+
+      // Already open somewhere? REVEAL it — focus the pane holding the tab and
+      // raise it there. openContent would instead add the buffer to whatever pane
+      // happens to be active, so clicking a chat that lives in the other half of a
+      // split yanked its tab across the screen instead of taking the user to it.
+      const existing = st.buffers.find((b) => b.type === 'agentChat' && b.chatId === chatId)
+      const pane = existing ? st.paneActions.getPaneByBufferId(existing.id) : null
+      if (existing && pane) {
+        st.paneActions.setActivePane(pane.id)
+        st.paneActions.activatePaneBuffer(pane.id, existing.id)
+        return
+      }
+
       st.bufferActions.openContent({
         type: 'agentChat',
         chatId,
@@ -196,9 +219,16 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
     null,
   )
 
+  // The cursor-following chip. Its position is written straight to the DOM on
+  // every move — routing that through React would re-render the whole list at
+  // pointer rate. State only says WHETHER it exists; the ref says where.
+  const ghostRef = useRef<HTMLDivElement | null>(null)
+  const ghostOriginRef = useRef<{ x: number; y: number } | null>(null)
+
   useEffect(() => {
     const endDrag = () => {
       dragRef.current = null
+      ghostOriginRef.current = null
       setDraggingId(null)
       setHoverTarget(null)
     }
@@ -210,7 +240,13 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
         if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) <= DRAG_THRESHOLD_PX)
           return
         drag.active = true
+        // Seed the ghost's first paint before the render that mounts it.
+        ghostOriginRef.current = { x: e.clientX, y: e.clientY }
         setDraggingId(drag.id)
+      }
+      if (ghostRef.current) {
+        ghostRef.current.style.left = `${e.clientX + DRAG_GHOST_OFFSET_X}px`
+        ghostRef.current.style.top = `${e.clientY + DRAG_GHOST_OFFSET_Y}px`
       }
       setHoverTarget(findDropTarget(e.clientX, e.clientY, drag.id))
     }
@@ -249,6 +285,8 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
     dragRef.current = { id: chatId, startX: e.clientX, startY: e.clientY, active: false }
   }, [])
 
+  const draggingChat = draggingId ? ordered.find((c) => c.id === draggingId) : undefined
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <ScrollArea className="min-h-0 flex-1">
@@ -260,7 +298,7 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
               title={chat.title || 'Untitled chat'}
               providerIcon={providerIcons.get(chat.activeProviderId) ?? ''}
               working={working[chat.id] ?? false}
-              active={activeChatId === chat.id}
+              active={openChatIds.has(chat.id)}
               renaming={renamingId === chat.id}
               dragging={draggingId === chat.id}
               dropTarget={draggingId !== null && hoverTarget === chat.id}
@@ -283,6 +321,14 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
       </ScrollArea>
 
       <TrashFooter dragging={draggingId !== null} isOver={hoverTarget === TRASH} />
+
+      {draggingChat && (
+        <DragGhost
+          ref={ghostRef}
+          label={draggingChat.title || 'Untitled chat'}
+          origin={ghostOriginRef.current}
+        />
+      )}
     </div>
   )
 }

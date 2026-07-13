@@ -1,5 +1,6 @@
 import {
   terminalCreate,
+  terminalDetach,
   terminalListLive,
   terminalResize,
   onTransportDrop,
@@ -701,6 +702,33 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       pasteGuardAttachedRef.current = false
     }
   }, [])
+
+  // THE TRANSPORT MAY NOT OUTLIVE THE XTERM IT FEEDS — for an attach-only terminal.
+  //
+  // A shell tab's xterm is kept mounted for its whole life (pane-container holds
+  // `terminal` buffers behind visibility:hidden precisely to preserve them), so its
+  // socket is right to survive a pane split or a tab move: the same xterm, still
+  // holding the same screen, goes on receiving into it.
+  //
+  // An attach-only terminal is the opposite. It is a VIEW onto a PTY the agent owns,
+  // and it is destroyed and rebuilt every time its chat tab is switched away from,
+  // closed and reopened, or its workspace is left and re-entered. A socket that
+  // outlives it is not an optimisation but a trap: the daemon serializes its screen
+  // model to a client at ATTACH and nowhere else, so a surviving transport sends the
+  // next mount down the resolver's reuse branch (live transport → no attach), and the
+  // brand-new, empty xterm is never sent the screen. The agent keeps working in a
+  // terminal nobody redrew — the pane sits blank until something unrelated (a resize
+  // → SIGWINCH → the CLI repaints itself) happens to fill it back in.
+  //
+  // Releasing it here keeps the PTY running (detach is not close) and makes the next
+  // mount an attach — which is, by definition, a redraw.
+  useEffect(() => {
+    if (!attachOnly) return
+    return () => {
+      const connectionId = useTerminalStore.getState().getSession(sessionId)?.connectionId
+      if (connectionId) void terminalDetach(connectionId).catch(() => {})
+    }
+  }, [attachOnly, sessionId])
 
   // XtermTerminal stays mounted while slots move between panes. When a new
   // slot owner provides a fresh ref callback, hand the live terminal handle to

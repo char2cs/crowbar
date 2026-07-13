@@ -53,6 +53,11 @@ describe('AgentChatRow', () => {
     expect(onConfirmRename).toHaveBeenCalledWith('Renamed chat')
   })
 
+  it('renames in the row’s own face, not monospace — a chat title is prose, not a branch name', () => {
+    render(<AgentChatRow {...base} renaming />)
+    expect(screen.getByDisplayValue('My chat').className).not.toContain('font-mono')
+  })
+
   it('cancelling the inline input (Escape) calls onCancelRename', () => {
     const onCancelRename = vi.fn()
     render(<AgentChatRow {...base} renaming onCancelRename={onCancelRename} />)

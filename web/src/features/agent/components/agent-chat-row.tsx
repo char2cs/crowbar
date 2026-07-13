@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils'
 import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE } from '@/components/layout/workspace-row-base'
-import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { WorkspaceInlineInput } from '@/components/layout/workspace-inline-input'
+import { AgentChatGlyph } from './agent-chat-glyph'
 
 interface AgentChatRowProps {
   chatId: string
@@ -68,24 +68,17 @@ export function AgentChatRow({
             }
       }
     >
-      {/* Leading glyph: provider icon → flip-dot spinner while working. The spinner
-          bakes in no color — it inherits currentColor from a theme token here. */}
-      {working ? (
-        <span className="flex size-4 shrink-0 items-center justify-center text-foreground">
-          <FlickerSpinner className="size-3.5" />
-        </span>
-      ) : (
-        <span
-          aria-hidden="true"
-          className="flex size-4 shrink-0 items-center justify-center text-foreground [&>svg]:size-full"
-          dangerouslySetInnerHTML={{ __html: providerIcon }}
-        />
-      )}
+      {/* Provider icon → flip-dot spinner while working. Neither bakes in a color;
+          they inherit currentColor from the theme token on this wrapper. */}
+      <span className="flex size-4 shrink-0 items-center justify-center text-foreground">
+        <AgentChatGlyph providerIcon={providerIcon} working={working} />
+      </span>
 
       {renaming ? (
         <WorkspaceInlineInput
           defaultValue={title}
           placeholder="chat title"
+          kind="prose"
           onConfirm={onConfirmRename}
           onCancel={onCancelRename}
         />

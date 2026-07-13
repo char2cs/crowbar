@@ -67,9 +67,9 @@ vi.mock('@phosphor-icons/react', () => ({
       'data-size': size,
       'data-weight': weight,
     }),
-  ChatCircle: ({ size, weight }: { size?: number; weight?: string }) =>
+  ChatsCircle: ({ size, weight }: { size?: number; weight?: string }) =>
     React.createElement('svg', {
-      'data-icon': 'chat-circle',
+      'data-icon': 'chats-circle',
       'data-size': size,
       'data-weight': weight,
     }),
