@@ -267,9 +267,9 @@ func TestUnderHome(t *testing.T) {
 		want bool
 	}{
 		{"/home/.crowbar/projects/p/slug/branch/worktree", true},
-		{"/home/.crowbar", false},         // home itself is not strictly under home
+		{"/home/.crowbar", false},           // home itself is not strictly under home
 		{"/home/.crowbar-sibling/x", false}, // prefix-string match but not nested
-		{"/Users/me/real-repo", false},    // an adopted checkout outside home
+		{"/Users/me/real-repo", false},      // an adopted checkout outside home
 		{"", false},
 	}
 	for _, c := range cases {

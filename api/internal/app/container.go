@@ -210,16 +210,14 @@ func (c *Container) Shutdown(
 	drain := c.Repositories.Drain()
 	drain.Cancel() // close the gate: reactors observing drainCtx stop starting new work.
 
-	done := make(chan struct{})
-	go func() {
-		drain.WG.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-ctx.Done():
-		// Bounded: a stuck reactor cannot hang shutdown past the deadline.
-	}
+	// Bounded by ctx: a stuck reactor delays shutdown by the deadline and no longer.
+	//
+	// The gate — not a bare WaitGroup — is what makes this safe. Step 1 above kills the
+	// PTYs, and those deaths COMMIT EVENTS, which wake reactors: the daemon is at its most
+	// eventful in the very instant it is trying to go quiet. A reactor Adding on asynx's
+	// bus goroutine while this line Waits is textbook WaitGroup misuse, and `-race` caught
+	// it. drain.Gate makes admitting work and beginning to drain one critical section.
+	drain.Gate.Wait(ctx)
 
 	return errors.Join(
 		c.axWorkspace.Shutdown(ctx),

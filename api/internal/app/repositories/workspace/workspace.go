@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"sync"
 	"time"
 
 	"github.com/char2cs/asynx"
@@ -22,6 +21,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store/projections"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+
+	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 )
 
 // maxOCCAttempts bounds optimistic-concurrency retries on ErrPipelineFailed
@@ -230,7 +231,7 @@ type DeleteReactorRegistrar interface {
 	RegisterDeleteReactor(
 		reviewThreadForget func(ctx context.Context, wsID string) error,
 		rmWorktree func(path string) error,
-		drainWG *sync.WaitGroup,
+		gate *drain.Gate,
 	) error
 }
 
@@ -710,7 +711,7 @@ func (w *workspace) Sweep(
 func (w *workspace) RegisterDeleteReactor(
 	reviewThreadForget func(ctx context.Context, wsID string) error,
 	rmWorktree func(path string) error,
-	drainWG *sync.WaitGroup,
+	gate *drain.Gate,
 ) error {
 	return reactors.RegisterDeleteReactor(
 		w.ax,
@@ -718,7 +719,7 @@ func (w *workspace) RegisterDeleteReactor(
 		w.pathsStore,
 		reviewThreadForget,
 		rmWorktree,
-		drainWG,
+		gate,
 	)
 }
 

@@ -23,6 +23,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+
+	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 )
 
 // Container holds the aggregate repositories (each owning its read model).
@@ -98,7 +100,7 @@ type Container struct {
 	// closing the DBs; drainCancel closes the shared drain gate to stop reactors
 	// starting new work, derived from drainCtx (decisions 9 + 11). They are created
 	// and stored by wireCallbacks and reached from app.Container via Drain().
-	drainWG     *sync.WaitGroup
+	drainGate   *drain.Gate
 	drainCtx    context.Context
 	drainCancel context.CancelFunc
 }
@@ -110,7 +112,7 @@ type Container struct {
 // cancelable parent the gate is derived from (decisions 9 + 11).
 type ReactorDrain struct {
 	Ctx    context.Context
-	WG     *sync.WaitGroup
+	Gate   *drain.Gate
 	Cancel context.CancelFunc
 }
 
@@ -247,7 +249,7 @@ func (c *Container) wireCallbacks(
 	ctx context.Context,
 	crowbarHome string,
 ) error {
-	c.drainWG = &sync.WaitGroup{}
+	c.drainGate = drain.New()
 	//nolint:gosec // G118: drainCancel is deliberately retained on the container and invoked later by the app layer's graceful shutdown via Drain().Cancel, not leaked.
 	c.drainCtx, c.drainCancel = context.WithCancel(ctx)
 
@@ -261,7 +263,7 @@ func (c *Container) wireCallbacks(
 	if !ok {
 		return fmt.Errorf("workspace repository does not support delete-reactor registration")
 	}
-	if err := registrar.RegisterDeleteReactor(c.forgetDependents, worktreeRemover(crowbarHome), c.drainWG); err != nil {
+	if err := registrar.RegisterDeleteReactor(c.forgetDependents, worktreeRemover(crowbarHome), c.drainGate); err != nil {
 		return fmt.Errorf("delete reactor: %w", err)
 	}
 	return nil
@@ -272,7 +274,7 @@ func (c *Container) wireCallbacks(
 // closes the gate, then it waits on WG (bounded by the shutdown deadline) before the
 // adapter closes the DBs (decisions 9 + 11).
 func (c *Container) Drain() ReactorDrain {
-	return ReactorDrain{Ctx: c.drainCtx, WG: c.drainWG, Cancel: c.drainCancel}
+	return ReactorDrain{Ctx: c.drainCtx, Gate: c.drainGate, Cancel: c.drainCancel}
 }
 
 // forgetReviewThreads is the review-thread half of the workspace delete cascade

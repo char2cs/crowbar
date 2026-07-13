@@ -190,7 +190,7 @@ func (h *harness) Quiesce() {
 // the purge it spawned has finished.
 func (h *harness) QuiesceReactors() {
 	h.app.Repositories.WaitQuiescent()
-	h.app.Repositories.Drain().WG.Wait()
+	h.app.Repositories.Drain().Gate.WaitIdle(context.Background())
 	h.app.Repositories.WaitQuiescent()
 }
 

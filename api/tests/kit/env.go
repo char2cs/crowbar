@@ -1116,7 +1116,7 @@ func (e *Env) Quiesce() {
 //     (waiting first would find a zero counter and synchronise with nothing); and
 //     it lands the tombstone in the read model, which is precisely what the
 //     reactor's own gate is waiting to see.
-//  2. Drain().WG.Wait() — join the detached purge: rm the worktree, Forget the
+//  2. Drain().Gate.WaitIdle(context.Background()) — join the detached purge: rm the worktree, Forget the
 //     aggregate, cascade to dependents.
 //  3. WaitQuiescent again — the purge's Forget is ITSELF an asynx command, and the
 //     read-model row is dropped by that command's PROJECTION. So the reactor
@@ -1125,7 +1125,7 @@ func (e *Env) Quiesce() {
 //     step 3 is exactly the assertion that failed without it.)
 func (e *Env) QuiesceReactors() {
 	e.app.Repositories.WaitQuiescent()
-	e.app.Repositories.Drain().WG.Wait()
+	e.app.Repositories.Drain().Gate.WaitIdle(context.Background())
 	e.app.Repositories.WaitQuiescent()
 }
 

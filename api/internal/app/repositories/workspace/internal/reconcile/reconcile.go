@@ -21,6 +21,8 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
+
+	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 )
 
 const defaultReconcileTimeout = 2 * time.Minute
@@ -66,7 +68,7 @@ type Reconciler struct {
 	derive    DeriveFunc
 	sendWait  SendWaitFunc
 	broadcast func(ws domain.Workspace)
-	drainWG   *sync.WaitGroup
+	gate      *drain.Gate
 
 	timeout time.Duration
 
@@ -83,14 +85,14 @@ func New(
 	derive DeriveFunc,
 	sendWait SendWaitFunc,
 	broadcast func(ws domain.Workspace),
-	drainWG *sync.WaitGroup,
+	gate *drain.Gate,
 	opts ...Opt,
 ) *Reconciler {
 	r := &Reconciler{
 		derive:    derive,
 		sendWait:  sendWait,
 		broadcast: broadcast,
-		drainWG:   drainWG,
+		gate:      gate,
 		timeout:   defaultReconcileTimeout,
 		inflight:  map[string]struct{}{},
 	}
@@ -115,7 +117,9 @@ func (r *Reconciler) OnOpen(
 	if !r.claim(wsID) {
 		return
 	}
-	r.drainWG.Add(1)
+	if !r.gate.Enter() {
+		return
+	}
 	go r.run(ctx, wsID)
 }
 
@@ -143,7 +147,7 @@ func (r *Reconciler) run(
 	ctx context.Context,
 	wsID string,
 ) {
-	defer r.drainWG.Done()
+	defer r.gate.Leave()
 	defer r.release(wsID)
 	bg := context.WithoutCancel(ctx)
 	bg, cancel := context.WithTimeout(bg, r.timeout)

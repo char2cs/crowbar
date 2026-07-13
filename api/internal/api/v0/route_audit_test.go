@@ -191,6 +191,18 @@ func extraRoutes() []string {
 		"POST " + ws + "/agent/hooks",
 		"GET " + ws + "/agent/providers",
 		"GET " + ws + "/agent/ws/chats",
+		// The runner model added these two and never declared them here, which is
+		// exactly the drift this audit exists to catch — it caught them.
+		//
+		//   resume: a chat whose CLI is gone is not gone. Its ledger and its provider
+		//   conversation both outlive the process, so a dormant chat can be handed a
+		//   NEW runner that picks the conversation back up.
+		//   runners/:segid/rename: the title path the AGENT itself calls (`crowbar chat
+		//   rename`), keyed by RUNNER because the CLI knows which process it is and
+		//   never which chat it currently sits on — the runner is what maps one to the
+		//   other, and it keeps answering across a /clear that moves the CLI mid-turn.
+		"POST " + ws + "/agent/chats/:id/resume",
+		"POST " + ws + "/agent/runners/:segid/rename",
 		// Repo-home-as-workspace surface: the special non-git default workspace is
 		// navigable like a workspace but git-less, exposing its own files,
 		// terminals, and review-thread subtrees under /projects/:projectId/home
@@ -229,6 +241,12 @@ func extraRoutes() []string {
 		"POST " + home + "/agent/hooks",
 		"GET " + home + "/agent/providers",
 		"GET " + home + "/agent/ws/chats",
+		// The repo home hosts chats like any workspace, so it gets the runner model's
+		// two new routes too — same pair, same reasons as the ws block above. A chat in
+		// the home is still a chat: its CLI can die and be resumed, and the agent
+		// running in it still has to be able to name it.
+		"POST " + home + "/agent/chats/:id/resume",
+		"POST " + home + "/agent/runners/:segid/rename",
 	}
 }
 
