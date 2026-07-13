@@ -151,16 +151,6 @@ func (h *harness) firstOfProvider(
 	return true
 }
 
-// records the trust decision in the user's real ~/.claude.json (Crowbar cannot
-// isolate that: CLAUDE_CONFIG_DIR breaks its auth), and codex trusts the
-// repository ROOT, so the SECOND CLI a test spawns into the same repo is
-// frequently already trusted and shows nothing at all. Waiting unconditionally
-// for a dialog would hang exactly there.
-//
-// Claude's dialog BLOCKS SessionStart — it fires no hook at all until the folder
-// is trusted (verified: a fresh claude left alone for 20s never binds) — so
-// clearing it is not politeness, it is the precondition for any hook barrier to
-// fire at all.
 // resumeNeedle is what a RESUMED codex paints, and it is a modal state in all but
 // name: SwitchProvider terminates the outgoing CLI, so the codex that comes back
 // re-opens a conversation that was cut off mid-flight and greets the user with
