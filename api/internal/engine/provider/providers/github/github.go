@@ -89,29 +89,26 @@ type prJSON struct {
 	URL         string `json:"url"`
 	Title       string `json:"title"`
 	BaseRefName string `json:"baseRefName"`
+	HeadRefOid  string `json:"headRefOid"`
 }
 
 // PullRequestForBranch returns the most relevant PR for branch, or nil if none.
-// Returns nil without calling the provider if branch has no upstream remote.
+//
+// The lookup deliberately does NOT check whether branch still exists on the
+// remote first: GitHub deletes the head ref when a PR merges, so that check goes
+// false at exactly the moment the answer changes, and the merge would never be
+// observed. gh reports a merged PR for a deleted head ref just fine.
 func (g *ghProvider) PullRequestForBranch(
 	ctx context.Context,
 	repoPath string,
 	branch string,
 ) (*providertypes.PRInfo, error) {
-	hasUpstream, err := g.branchHasUpstream(ctx, repoPath, branch)
-	if err != nil {
-		return nil, fmt.Errorf("github: pr-for-branch: upstream check: %w", err)
-	}
-	if !hasUpstream {
-		return nil, nil
-	}
-
 	out, err := g.runGH(
 		ctx,
 		repoPath,
 		"pr", "list",
 		"--head", branch,
-		"--json", "number,state,url,title,baseRefName",
+		"--json", "number,state,url,title,baseRefName,headRefOid",
 		"--state", "all",
 	)
 	if err != nil {
@@ -127,6 +124,9 @@ func (g *ghProvider) PullRequestForBranch(
 	if best == nil {
 		return nil, nil
 	}
+	if !g.ownsPR(ctx, repoPath, branch, best) {
+		return nil, nil
+	}
 
 	return &providertypes.PRInfo{
 		Number:       best.Number,
@@ -135,6 +135,48 @@ func (g *ghProvider) PullRequestForBranch(
 		Title:        best.Title,
 		TargetBranch: best.BaseRefName,
 	}, nil
+}
+
+// ownsPR reports whether pr is really this branch's PR.
+//
+// gh matches PRs by head branch NAME alone, and a merged PR outlives the ref it
+// was opened from. So reusing a merged branch's name for fresh work matches that
+// stale PR — the workspace would show pr-merged, linked to someone else's history,
+// and pr-merged is terminal: the sweep drops the workspace and never revisits it.
+//
+// An open PR still owns its head ref, so a name match is authoritative. A
+// merged/closed PR belongs to this branch only if the branch still contains the
+// commit the PR was built from.
+func (g *ghProvider) ownsPR(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+	pr *prJSON,
+) bool {
+	if strings.EqualFold(pr.State, "open") {
+		return true
+	}
+	if pr.HeadRefOid == "" {
+		return true
+	}
+	return g.branchContains(ctx, repoPath, branch, pr.HeadRefOid)
+}
+
+// branchContains reports whether sha is an ancestor of (or equal to) branch.
+//
+// A non-zero exit means "not an ancestor" and an unknown object means git cannot
+// answer; both resolve to false. That direction is deliberate: a false negative
+// leaves the status stale, which is merely the old behaviour, while a false
+// positive brands the workspace with a foreign PR and retires it from the sweep.
+func (g *ghProvider) branchContains(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+	sha string,
+) bool {
+	cmd := g.execFn(ctx, "git", "merge-base", "--is-ancestor", sha, branch)
+	cmd.Dir = repoPath
+	return cmd.Run() == nil
 }
 
 // parsePRList parses the JSON array returned by gh pr list.
@@ -201,26 +243,6 @@ func mapState(
 	default:
 		return "closed"
 	}
-}
-
-// branchHasUpstream checks whether branch exists on the remote.
-func (g *ghProvider) branchHasUpstream(
-	ctx context.Context,
-	repoPath string,
-	branch string,
-) (bool, error) {
-	ref := "refs/heads/" + branch
-	cmd := g.execFn(ctx, "git", "ls-remote", "origin", ref)
-	cmd.Dir = repoPath
-
-	var out, errBuf bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errBuf
-
-	if err := cmd.Run(); err != nil {
-		return false, fmt.Errorf("ls-remote: stderr=%q: %w", strings.TrimSpace(errBuf.String()), err)
-	}
-	return strings.TrimSpace(out.String()) != "", nil
 }
 
 // runGH executes a gh command in repoPath and returns stdout.
