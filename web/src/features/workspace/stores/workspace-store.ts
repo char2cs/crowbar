@@ -9,6 +9,7 @@ import { createTerminalSlice } from './slices/terminal-slice'
 import { createFileWatcherSlice } from './slices/file-watcher-slice'
 import { createRecentFilesSlice } from './slices/recent-files-slice'
 import { createBranchReviewSlice } from './slices/branch-review-slice'
+import { createAgentChatsSlice } from './slices/agent-chats-slice'
 import { saveSessionToStore } from '@/features/editor/stores/buffer-session-persistence'
 import { ModelRegistry } from '@/features/editor/lib/model-registry'
 import { EditorManager, type BufferMeta } from '@/features/editor/lib/editor-manager'
@@ -79,6 +80,7 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
         ...createFileWatcherSlice(set, get, api),
         ...createRecentFilesSlice(set, get, api),
         ...createBranchReviewSlice(set, get, api),
+        ...createAgentChatsSlice(set, get, api),
         ...(snapshot ?? {}),
       }),
     ),

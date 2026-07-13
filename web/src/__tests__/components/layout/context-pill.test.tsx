@@ -4,7 +4,9 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { ContextPill } from '@/components/layout/context-pill'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
+import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
 import { success } from '@/lib/loadable'
+import type { WorkspaceDTO } from '@/lib/types'
 
 // @base-ui/react ships pure ESM (.mjs) and pnpm gives it its own React copy
 // that diverges from react-dom's singleton in the vitest/jsdom process, causing
@@ -79,11 +81,9 @@ vi.mock('@/components/layout/workspace-switcher', () => ({
   WorkspaceSwitcherMenu: () => React.createElement('input', { placeholder: 'Switch workspace…' }),
 }))
 
-// ── WorkspaceBranchIcon ──────────────────────────────────────────────────────
-// Uses @phosphor-icons/react (.es.js, same ESM singleton issue).
-vi.mock('@/components/layout/workspace-branch-icon', () => ({
-  WorkspaceBranchIcon: () => null,
-}))
+// NB: WorkspaceBranchIcon (and the FlickerSpinner it renders while `working`) is
+// deliberately NOT mocked — the spinner IS what these tests assert, so the real
+// component must render. Its own suite proves it works unmocked in jsdom.
 
 // ── Platform + keymap ────────────────────────────────────────────────────────
 // On macOS (where IS_MAC=true), "mod" is metaKey — tests fire ctrlKey, so
@@ -118,10 +118,22 @@ const repos: Repo[] = [
   },
 ]
 
+function homeDTO(working: boolean): WorkspaceDTO {
+  return {
+    id: 'home-1',
+    repoId: '',
+    projectId: 'p1',
+    branch: 'home',
+    status: 'new',
+    working,
+  } as WorkspaceDTO
+}
+
 beforeEach(() => {
   mockPathname = '/'
   useSidebarStore.setState({ repos, activeTab: 'files' })
   useProjectStore.setState({ activeProjectId: 'p1' })
+  useHomeWorkspaceStore.setState({ workspace: null })
   // The pill reads the live project list (useProjectDataStore) for the name.
   useProjectDataStore.setState({
     data: success([{ id: 'p1', name: 'Crowbar', path: '/x', lastActivity: new Date(0) }]),
@@ -164,5 +176,80 @@ describe('ContextPill', () => {
     useProjectDataStore.setState({ data: success([]) })
     const { container } = render(<ContextPill />)
     expect(container).toBeEmptyDOMElement()
+  })
+})
+
+// The pill shows the ACTIVE workspace's icon, and that icon must move into its
+// loading state while an agent works — for every workspace kind.
+describe('ContextPill working overlay', () => {
+  const spinner = () => screen.queryByRole('status', { name: 'Loading' })
+
+  it('spins the icon on a WORKTREE workspace (no regression)', () => {
+    mockPathname = '/ide/p1/r1/ws1'
+    useSidebarStore.setState({
+      repos: [
+        {
+          ...repos[0],
+          workspaces: [
+            { id: 'ws1', branch: 'ide-polish', status: 'pr-open', age: '1d', working: true },
+          ],
+        },
+      ],
+    })
+
+    render(<ContextPill />)
+
+    expect(spinner()).toBeInTheDocument()
+  })
+
+  it('shows the status glyph (no spinner) on an idle worktree workspace', () => {
+    mockPathname = '/ide/p1/r1/ws1'
+    render(<ContextPill />)
+    expect(spinner()).toBeNull()
+  })
+
+  it('spins the icon on PROJECT HOME when the home workspace is working', () => {
+    mockPathname = '/ide/p1/home'
+    useHomeWorkspaceStore.setState({ workspace: homeDTO(true) })
+
+    const { container } = render(<ContextPill />)
+
+    expect(spinner()).toBeInTheDocument()
+    // Real flicker spinner, theme-token colored — never a hardcoded color.
+    expect(container.querySelector('svg animate')).not.toBeNull()
+    expect(container.querySelector('.text-foreground')).not.toBeNull()
+  })
+
+  it('shows the House glyph (no spinner) on an idle project home', () => {
+    mockPathname = '/ide/p1/home'
+    useHomeWorkspaceStore.setState({ workspace: homeDTO(false) })
+
+    render(<ContextPill />)
+
+    expect(screen.getByText('home')).toBeInTheDocument()
+    expect(spinner()).toBeNull()
+  })
+
+  it('spins the icon on REPO HOME (the default workspace), replacing the repo avatar', () => {
+    mockPathname = '/ide/p1/r1/default-ws'
+    useSidebarStore.setState({
+      repos: [{ ...repos[0], defaultWorkspaceId: 'default-ws', defaultWorking: true }],
+    })
+
+    render(<ContextPill />)
+
+    expect(spinner()).toBeInTheDocument()
+  })
+
+  it('shows the repo avatar (no spinner) on an idle repo home', () => {
+    mockPathname = '/ide/p1/r1/default-ws'
+    useSidebarStore.setState({
+      repos: [{ ...repos[0], defaultWorkspaceId: 'default-ws', defaultWorking: false }],
+    })
+
+    render(<ContextPill />)
+
+    expect(spinner()).toBeNull()
+    expect(screen.getByText('default')).toBeInTheDocument()
   })
 })

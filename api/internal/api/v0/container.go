@@ -36,6 +36,7 @@ type Container struct {
 	git        *ws.Broadcaster[gitdomain.GitStatusEvent]
 	files      *ws.Broadcaster[domain.FileChangeEvent]
 	lsp        *ws.Broadcaster[lspdomain.DiagnosticsEvent]
+	agentChats *ws.Broadcaster[dto.AgentChatEvent]
 	app        *app.Container
 	eng        *engine.Container
 }
@@ -67,6 +68,7 @@ func New(
 		git:        ws.NewBroadcaster(withOriginSyncLifecycle(withWatcherLifecycle(gitDef(appContainer), appContainer), appContainer)),
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
+		agentChats: ws.NewBroadcaster(agentChatDef()),
 		app:        appContainer,
 		eng:        engContainer,
 	}
@@ -289,6 +291,42 @@ func (c *Container) PushFile(
 	c.files.Push(evt)
 }
 
+// PushAgentChat implements hub.Subscriber. It fans an agent-chat lifecycle
+// event out to every subscriber of the agent-chat WebSocket (GET
+// .../workspaces/:wsId/agent/ws/chats) whose :wsId matches workspaceID,
+// mirroring PushGit/PushFile's wsId-scoped fan-out (Task 3: agentChatDef's
+// Filter enforces the scoping; this method itself pushes unconditionally).
+func (c *Container) PushAgentChat(
+	chatID string,
+	workspaceID string,
+	kind string,
+) {
+	c.agentChats.Push(dto.AgentChatEvent{ChatID: chatID, WorkspaceID: workspaceID, Kind: kind})
+}
+
+// PushAgentRunner implements hub.Subscriber. It fans a runner lifecycle event
+// (started/session_bound/moved/exited) out on the SAME workspace-scoped
+// agent-chat WebSocket as PushAgentChat (GET .../workspaces/:wsId/agent/ws/chats)
+// — one feed for "what changed about this workspace's agent chats", whether the
+// change came from the chat aggregate or from the runner pointed at it. A second
+// socket would buy nothing and would have to be kept in order with the first.
+//
+// The frame is the same wire type, with RunnerID set (it is empty on the chat
+// kinds). Its ChatID is the chat the runner is pointed at AS OF this event, so a
+// `moved` frame tells the client which chat the CLI moved INTO and which tab must
+// follow it. agentChatDef's wsId Filter does the scoping, exactly as for
+// PushAgentChat; this method pushes unconditionally.
+func (c *Container) PushAgentRunner(
+	runnerID string,
+	workspaceID string,
+	chatID string,
+	kind string,
+) {
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID: chatID, WorkspaceID: workspaceID, Kind: kind, RunnerID: runnerID,
+	})
+}
+
 // projectsDef serves the Projects topic. Its hierarchical namespace is the bare
 // project id (spec §5). The snapshot returns every project as a wire DTO from
 // the GORM store; the per-client prefix predicate filters it (spec §9).
@@ -409,6 +447,28 @@ func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 		FlatNamespace: true,
 		Filters: []ws.FilterDef[domain.FileChangeEvent]{
 			{Param: "wsId", Extract: func(e domain.FileChangeEvent) string { return e.WsID }, Match: ws.ExactMatch},
+		},
+	}
+}
+
+// agentChatDef serves the agent-chat lifecycle event stream (GET
+// .../workspaces/:wsId/agent/ws/chats), scoped to a single workspace by wsId
+// (Task 3), mirroring gitDef/filesDef. It carries no snapshot: unlike the
+// full-state resource streams above (projects, repos, workspaces, ...) a
+// freshly-connected client simply waits for the next lifecycle event — there
+// is no "current state" to replay. FlatNamespace opts it out of the
+// hierarchical projectId/repoId/wsId prefix-match (the bare Namespace of ""
+// would otherwise never match that prefix and drop every event, per
+// BuildPredicate's doc comment); the explicit wsId Filter is the sole scoping
+// mechanism.
+func agentChatDef() ws.StreamDef[dto.AgentChatEvent] {
+	return ws.StreamDef[dto.AgentChatEvent]{
+		Namespace:     func(e dto.AgentChatEvent) string { return e.WorkspaceID },
+		Serialize:     func(e dto.AgentChatEvent) ([]byte, error) { return json.Marshal(e) },
+		Snapshot:      func(string) []dto.AgentChatEvent { return nil },
+		FlatNamespace: true,
+		Filters: []ws.FilterDef[dto.AgentChatEvent]{
+			{Param: "wsId", Extract: func(e dto.AgentChatEvent) string { return e.WorkspaceID }, Match: ws.ExactMatch},
 		},
 	}
 }

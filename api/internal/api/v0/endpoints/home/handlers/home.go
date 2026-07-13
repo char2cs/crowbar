@@ -17,6 +17,12 @@ func (h *Handlers) Get(c *gin.Context) {
 	if !ok {
 		return
 	}
+	// Stamp the derived working overlay from the same seam the workspaces
+	// handlers use, so this REST read agrees with the home workspace's live
+	// broadcast frames (which the container enriches via the same WorkingFor):
+	// a project-home read taken mid-agent-turn reports working=true and the
+	// home workspace's icon keeps its spinner across a refetch.
+	ws.Working = h.working.WorkingFor(ws.ID)
 	// Home workspaces carry no git-merge-eligibility context.
 	libs.WriteQueryWithStatus(c, http.StatusOK, dto.WorkspaceDTOFrom(ws, wsrepo.MergeEligibility{}))
 }

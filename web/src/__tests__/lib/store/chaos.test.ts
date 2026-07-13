@@ -18,8 +18,6 @@ beforeEach(() => {
       'git-commits': 0,
       'git-status': 0,
       'git-branches': 0,
-      'markdown-chat': 0,
-      chats: 0,
     },
   })
 })

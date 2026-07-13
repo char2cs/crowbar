@@ -15,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -28,12 +27,14 @@ func TestMain(m *testing.M) {
 }
 
 // friendlyWorktree mirrors the server-side worktreepath.Derive result for a
-// no-remote local repo: <home>/projects/<project>/<repoName>/<branch>, where the
-// slug degrades to the repo's on-disk name (filepath.Base(repoPath)) and branch
-// separators map to nested directories (spec §3.9). The kit deliberately does not
-// export this (worktreePath is server-internal), so the matrix derives it here.
+// no-remote local repo: <home>/projects/<project>/<repoName>/<branch>/worktree,
+// where the slug degrades to the repo's on-disk name (filepath.Base(repoPath)),
+// branch separators map to nested directories, and the trailing "worktree" leaf
+// makes <repoName>/<branch> a workspace root sibling of "chats" (spec §3.5/§3.9).
+// The kit deliberately does not export this (worktreePath is server-internal),
+// so the matrix derives it here.
 func friendlyWorktree(env *kit.Env, projectID, repoPath, branch string) string {
-	return filepath.Join(env.HomeDir(), "projects", projectID, filepath.Base(repoPath), branch)
+	return filepath.Join(env.HomeDir(), "projects", projectID, filepath.Base(repoPath), branch, "worktree")
 }
 
 // caseInsensitiveFS reports whether dir lives on a case-insensitive filesystem
@@ -113,8 +114,8 @@ func TestPaths_FullSlugOnDisk_DistinctHosts(t *testing.T) {
 	gl := env.ImportRepo(t, "gl", glRepo)
 	glWS := env.CreateWorkspace(t, gl.ProjectID, gl.RepoID, "feature/x")
 
-	ghPath := filepath.Join(env.HomeDir(), "projects", gh.ProjectID, "github.com", "acme", "app", "feature", "x")
-	glPath := filepath.Join(env.HomeDir(), "projects", gl.ProjectID, "gitlab.com", "acme", "app", "feature", "x")
+	ghPath := filepath.Join(env.HomeDir(), "projects", gh.ProjectID, "github.com", "acme", "app", "feature", "x", "worktree")
+	glPath := filepath.Join(env.HomeDir(), "projects", gl.ProjectID, "gitlab.com", "acme", "app", "feature", "x", "worktree")
 
 	require.True(t, kit.DirExists(t, ghPath), "github.com repo worktree must land at %s", ghPath)
 	require.True(t, kit.DirExists(t, glPath), "gitlab.com repo worktree must land at %s", glPath)
@@ -153,11 +154,18 @@ func TestPaths_CaseOnlyClashRejected(t *testing.T) {
 	kit.RequireStatus(t, resp, http.StatusAccepted)
 	resp.Body.Close()
 
-	// The clashing workspace must never appear in the read model, and no second
-	// worktree is provisioned — assert its absence over a bounded window.
-	// require.Never polls the condition internally (no fixed-delay sleep).
-	require.Never(t, func() bool {
-		return wsBranchInList(t, env, imported.ProjectID, imported.RepoID, "feature-case")
-	}, 3*time.Second, 100*time.Millisecond,
+	// The clashing workspace must never appear in the read model. Watching for 3
+	// seconds and concluding "it never showed up" proves nothing — it only says the
+	// row had not appeared YET, and on a loaded machine a slow provisioner would make
+	// the test pass for entirely the wrong reason.
+	//
+	// The deterministic version of a NEVER is a barrier plus a plain assertion: run
+	// the async create to COMPLETION (QuiesceReactors: the command dispatched, every
+	// projection folded, every post-commit reactor joined), at which point the
+	// provisioner has already failed in DetectClash and there is no longer anything
+	// in flight that could produce the row. Its absence then is final, not merely
+	// not-yet.
+	env.QuiesceReactors()
+	require.False(t, wsBranchInList(t, env, imported.ProjectID, imported.RepoID, "feature-case"),
 		"case-only-clashing workspace must be rejected, never persisted")
 }

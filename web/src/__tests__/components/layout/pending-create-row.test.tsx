@@ -1,24 +1,6 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { PendingCreateRow } from '@/components/layout/pending-create-row'
-
-// The in-flight spinner (@agilek/cli-loaders) reads window.matchMedia for the
-// prefers-reduced-motion query, which jsdom does not provide.
-beforeAll(() => {
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  })
-})
 
 describe('PendingCreateRow', () => {
   it('shows the branch name (with the in-flight spinner, no error) while creating', () => {

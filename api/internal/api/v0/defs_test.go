@@ -135,6 +135,30 @@ func TestFilesDef_Lambdas(t *testing.T) {
 	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
 }
 
+func TestAgentChatDef_Lambdas(t *testing.T) {
+	def := agentChatDef()
+	evt := dto.AgentChatEvent{ChatID: "c1", WorkspaceID: "w1", Kind: "bound"}
+
+	// Scoped by workspace (Task 3), mirroring gitDef/filesDef: the namespace is
+	// the bare wsId and FlatNamespace opts out of the hierarchical
+	// projectId/repoId/wsId prefix-match, leaving the explicit Filter below as
+	// the sole scoping mechanism.
+	assert.Equal(t, "w1", def.Namespace(evt))
+	assert.True(t, def.FlatNamespace)
+
+	data, err := def.Serialize(evt)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "c1")
+	assert.Contains(t, string(data), "bound")
+
+	require.Len(t, def.Filters, 1)
+	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
+
+	// No snapshot: a freshly-connected client waits for the next lifecycle
+	// event rather than replaying a "current state".
+	assert.Nil(t, def.Snapshot(""))
+}
+
 func TestLSPDef_Lambdas(t *testing.T) {
 	def := lspDef(nil, nil)
 	evt := lspdomain.DiagnosticsEvent{WsID: "w1"}

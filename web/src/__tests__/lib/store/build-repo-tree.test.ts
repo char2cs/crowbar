@@ -142,6 +142,30 @@ describe('buildRepoTree', () => {
     const tree = buildRepoTree([repo('r1', 'crowbar')], [ws('w1', 'r1')])
     expect(tree[0].defaultWorkspaceId).toBeUndefined()
   })
+
+  // The default (repo-home) workspace is dropped from `workspaces` above, which
+  // would drop its live `working` overlay with it — leaving the repo header (its
+  // only tile) unable to spin while an agent works in it. Lift it onto the repo.
+  it('lifts the isDefault workspace working overlay onto the repo', () => {
+    const tree = buildRepoTree(
+      [repo('r1', 'crowbar')],
+      [ws('w-default', 'r1', { isDefault: true, branch: 'develop', working: true })],
+    )
+    expect(tree[0].defaultWorking).toBe(true)
+  })
+
+  it('reports defaultWorking false for an idle repo home', () => {
+    const tree = buildRepoTree(
+      [repo('r1', 'crowbar')],
+      [ws('w-default', 'r1', { isDefault: true, branch: 'develop', working: false })],
+    )
+    expect(tree[0].defaultWorking).toBe(false)
+  })
+
+  it('leaves defaultWorking undefined when no workspace is the default', () => {
+    const tree = buildRepoTree([repo('r1', 'crowbar')], [ws('w1', 'r1', { working: true })])
+    expect(tree[0].defaultWorking).toBeUndefined()
+  })
 })
 
 function makeWs(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceDTO {

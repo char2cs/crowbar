@@ -5,6 +5,7 @@ package terminal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image/color"
 	"os"
@@ -140,6 +141,13 @@ type WSConn interface {
 // does not exist in the registry.
 var ErrSessionNotFound = registry.ErrSessionNotFound
 
+// ErrShuttingDown is returned by the session-birth paths (Create, CreateCommand,
+// and the restore inside Attach) once Shutdown has begun draining. Birthing a
+// session after that point would hand back a PTY nothing is left to reap: the
+// kill loop has already walked the registry, so the process would outlive the
+// daemon and its exit callback would fire into a torn-down app.
+var ErrShuttingDown = errors.New("terminal: engine is shutting down")
+
 // Engine is the full PTY session operation surface.
 type Engine interface {
 	// Create spawns a new PTY session in the given workspace directory.
@@ -148,6 +156,23 @@ type Engine interface {
 		workspaceID string,
 		workspaceDir string,
 		prof *domain.TerminalProfile,
+	) (sessionID string, err error)
+
+	// CreateCommand spawns an explicit argv+env as a registered session (streamable
+	// over the terminal WS), skipping profile resolution. Used by the agentic
+	// engine to launch vendor CLIs (claude/codex) with descriptor-built argv/env.
+	// onExit, if non-nil, is invoked exactly once — after the session is fully
+	// reaped (natural PTY exit or an explicit Kill) — so a caller can release
+	// resources (e.g. the per-spawn hook-config tmp dir) that must stay alive for
+	// the whole lifetime of the running CLI. It is never called for a session
+	// that is merely suspended/detached.
+	CreateCommand(
+		ctx context.Context,
+		workspaceID string,
+		cwd string,
+		argv []string,
+		env []string,
+		onExit func(),
 	) (sessionID string, err error)
 
 	// Attach connects a WebSocket connection to an existing session, sending the
@@ -178,6 +203,18 @@ type Engine interface {
 
 	// Kill terminates the session and deregisters it.
 	Kill(
+		ctx context.Context,
+		sessionID string,
+	) error
+
+	// TerminateGraceful gracefully quits a running vendor CLI (spec §8): it
+	// sends a clean-exit SIGTERM — a PID-level action, never a PTY write —
+	// and waits up to an internal grace window before falling back to a hard
+	// Kill if the process hasn't exited on its own. Used by provider switches
+	// so a well-behaved CLI (e.g. Claude Code) gets the chance to flush its
+	// native transcript on a clean exit — a hard SIGKILL can lose the
+	// outgoing CLI's last pre-switch turn.
+	TerminateGraceful(
 		ctx context.Context,
 		sessionID string,
 	) error
@@ -228,6 +265,18 @@ type Engine interface {
 		sessionID string,
 	) bool
 
+	// SessionLive reports whether a session id is backed by a LIVE PTY right now
+	// — the honest process-liveness question, which SessionExists deliberately
+	// does not answer (it is also true for a PTY-less suspended placeholder,
+	// whose process is already dead and whose only remaining substance is
+	// scrollback on disk). Callers that must know "is the process I spawned
+	// still running" — the agent boot reconcile, which decides whether a chat's
+	// vendor CLI survived a daemon restart — must use this, never SessionExists.
+	SessionLive(
+		ctx context.Context,
+		sessionID string,
+	) bool
+
 	// SetMetaStore injects the durable session metadata store. It must be called
 	// after both the engine and the terminal usecase are constructed to avoid an
 	// import cycle (engine → usecase). A nil store is a valid no-op sentinel; all
@@ -253,7 +302,22 @@ type Engine interface {
 	// aggregate recovered-parse-panic count across all sessions.
 	Stats() (active, detached, suspended int, modelBytes int64, degraded, parsePanics int)
 
-	// Shutdown terminates all active sessions and removes them from the registry.
+	// Shutdown terminates all active sessions and removes them from the registry,
+	// and BLOCKS until every session it killed has been fully reaped — i.e. until
+	// every onExit callback registered via CreateCommand has RUN to completion.
+	//
+	// That join is a contract, not an implementation detail. onExit is where a dying
+	// vendor CLI's death gets recorded (the agent usecase Exits its runner and closes
+	// the turn the CLI abandoned), and it runs on the engine's own reap goroutine.
+	// A caller that closed the databases without it would be closing them underneath
+	// their own writers: the runner's Exit would commit while the turn's close would
+	// not, leaving a chat spinning forever with no live runner left for the next
+	// boot's reconcile to find. So the shutdown sequence must Shutdown the terminal
+	// engine BEFORE it drains the aggregates and closes the DBs those callbacks write
+	// to (engine.Container.QuiesceTerminal, called from app.Container.Shutdown).
+	//
+	// Once it begins, the engine births no more sessions: Create/CreateCommand (and
+	// the restore inside Attach) return ErrShuttingDown. Idempotent.
 	Shutdown()
 }
 
@@ -287,12 +351,89 @@ type terminalEngine struct {
 	// sessionMu (outer) → s.mu/flushMu (inner). Never reverse.
 	sessionMu sync.Map // map[string]*sync.Mutex
 
+	// cmdCleanups holds the optional onExit callback passed to CreateCommand,
+	// keyed by session id. reapOnDone fires and removes it exactly once when the
+	// session's PTY session ends (natural exit or Kill) — never on suspend, since
+	// the caller's resources (e.g. an agentic CLI's hook-config tmp dir) must
+	// outlive the running process, not just an idle-detach.
+	cmdCleanups sync.Map // map[string]func()
+
+	// reaps tracks the reapOnDone goroutines so Shutdown can JOIN them: every exit
+	// callback the engine still owes has RUN by the time Shutdown returns. See
+	// reapTracker — this is what makes "the databases outlive their writers" a
+	// structural fact rather than a race the shutdown sequence happens to win.
+	reaps reapTracker
+
 	stop     chan struct{}
 	stopOnce sync.Once
 	// maintDone is closed by maintenanceLoop when it returns, so Shutdown can JOIN the
 	// maintenance goroutine before tearing down sessions — guaranteeing no background sweep
 	// (which reads the package-level limit vars) outlives Shutdown.
 	maintDone chan struct{}
+}
+
+// reapTracker counts the live reapOnDone goroutines and lets Shutdown wait them
+// out. It exists because a reap goroutine is a WRITER: the onExit callback it
+// fires is how a dying vendor CLI's death is recorded (the agent usecase Exits
+// the runner and closes the turn the CLI abandoned mid-flight). Those writes go
+// to databases the shutdown sequence is on its way to closing, so the reap must
+// be a step OF the shutdown, not a goroutine racing it.
+//
+// It is a counter + a mutex rather than a sync.WaitGroup on purpose. A WaitGroup
+// PANICS ("Add called concurrently with Wait") if a session is born while
+// Shutdown is waiting — the exact race a graceful stop creates, since a hijacked
+// WebSocket can still drive Attach→restore after the HTTP server has stopped
+// accepting. Making "admit a new reap" and "start draining" the same critical
+// section removes the race instead of documenting it: once draining, start()
+// refuses, so the outstanding set can only shrink and the drain always converges.
+type reapTracker struct {
+	mu       sync.Mutex
+	n        int
+	draining bool
+	idle     chan struct{} // non-nil only while a drain is waiting on n > 0
+}
+
+// start admits a new reap goroutine, reporting false once a drain has begun (the
+// caller must then NOT spawn the session — see ErrShuttingDown).
+func (t *reapTracker) start() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.draining {
+		return false
+	}
+	t.n++
+	return true
+}
+
+// done retires a reap goroutine, releasing a waiting drain once the last one is home.
+func (t *reapTracker) done() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.n--
+	if t.n == 0 && t.idle != nil {
+		close(t.idle)
+		t.idle = nil
+	}
+}
+
+// drain closes the door on new reaps and returns a channel closed once every
+// outstanding one has returned. It is idempotent, and it is safe to call BEFORE
+// the sessions are killed: a live session always has its reap goroutine parked on
+// s.Done(), so it is already counted here — the kill is merely what lets it
+// finish.
+func (t *reapTracker) drain() <-chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.draining = true
+	if t.n == 0 {
+		closed := make(chan struct{})
+		close(closed)
+		return closed
+	}
+	if t.idle == nil {
+		t.idle = make(chan struct{})
+	}
+	return t.idle
 }
 
 var _ Engine = (*terminalEngine)(nil)
@@ -409,6 +550,13 @@ func (e *terminalEngine) spawn(
 	if err != nil {
 		return nil, err
 	}
+	// Claim a reap slot BEFORE the session is registered or its reaper launched: a
+	// session born after Shutdown's kill loop has walked the registry would never be
+	// reaped at all, so refuse it and take the PTY we just spawned back down.
+	if !e.reaps.start() {
+		s.Kill()
+		return nil, ErrShuttingDown
+	}
 	if len(b.Notice) > 0 {
 		s.InjectLocal(b.Notice)
 	}
@@ -444,6 +592,65 @@ func (e *terminalEngine) Create(
 	return id, nil
 }
 
+// CreateCommand spawns an explicit argv+env as a registered session (streamable
+// over the terminal WS). Used by the agentic engine for vendor-CLI segments.
+// onExit, if non-nil, is recorded and fired once by reapOnDone when the session
+// terminates — see the Engine interface doc for the exact contract.
+func (e *terminalEngine) CreateCommand(
+	_ context.Context,
+	workspaceID string,
+	cwd string,
+	argv []string,
+	env []string,
+	onExit func(),
+) (string, error) {
+	id := uuid.NewString()
+	// The real terminal engine seeds ptyEnv() (TERM/COLORTERM); CreateCommand takes
+	// the caller's env verbatim, so under launchd TERM is absent and Ink TUIs
+	// misrender. Backfill the terminal defaults for any keys not already set.
+	env = withTerminalDefaults(env)
+	s, err := session.NewCommand(id, argv, cwd, env, 80, 24, 0)
+	if err != nil {
+		return "", fmt.Errorf("terminal: create command: %w", err)
+	}
+	// Claim a reap slot first (see spawn): a vendor CLI whose reaper never runs is
+	// strictly worse than one that is never spawned — its onExit is the ONLY thing
+	// that records the runner's death and closes the turn it was mid-way through.
+	if !e.reaps.start() {
+		s.Kill()
+		return "", ErrShuttingDown
+	}
+	// Store BEFORE launching the reap goroutine so it can never observe a
+	// self-exit and look up the cleanup before it is recorded.
+	if onExit != nil {
+		e.cmdCleanups.Store(id, onExit)
+	}
+	e.reg.Add(id, workspaceID, s)
+	go e.reapOnDone(id, workspaceID, s)
+	return id, nil
+}
+
+// withTerminalDefaults appends TERM=xterm-256color / COLORTERM=truecolor only for
+// keys the caller did not already provide, matching the real terminal engine's
+// ptyEnv() seeding.
+func withTerminalDefaults(env []string) []string {
+	has := func(key string) bool {
+		for _, kv := range env {
+			if strings.HasPrefix(kv, key+"=") {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("TERM") {
+		env = append(env, "TERM=xterm-256color")
+	}
+	if !has("COLORTERM") {
+		env = append(env, "COLORTERM=truecolor")
+	}
+	return env
+}
+
 // reapOnDone removes the session from the registry once it terminates and fires
 // the OnSessionEnded callback so the lifecycle topic can emit an "ended" frame.
 // It covers every real-termination path: an explicit Kill, a Shutdown, or a PTY
@@ -454,6 +661,10 @@ func (e *terminalEngine) reapOnDone(
 	workspaceID string,
 	s *session.Session,
 ) {
+	// Registered FIRST so it runs LAST (defers are LIFO): even a panic recovered by
+	// safego below must retire this reap, or Shutdown's drain would wait on a
+	// goroutine that is already gone.
+	defer e.reaps.done()
 	defer safego.Recover("terminal.reapOnDone")
 
 	// Wait for termination BEFORE acquiring the per-session lock so we never
@@ -483,6 +694,13 @@ func (e *terminalEngine) reapOnDone(
 	// it here, so the explicitly-closed terminal never resurrects.
 	exitCode := s.ExitCode()
 	e.reg.Remove(id)
+
+	// Fire the CreateCommand caller's onExit exactly once, now that the session
+	// is fully reaped: the running CLI (if any) that read the callback's backing
+	// files for its whole lifetime is guaranteed gone.
+	if v, ok := e.cmdCleanups.LoadAndDelete(id); ok && v != nil {
+		v.(func())()
+	}
 
 	ctx := context.Background()
 	dir, _ := e.storageDir(ctx, workspaceID)
@@ -702,6 +920,19 @@ func (e *terminalEngine) restore(ctx context.Context, sid string) error {
 	cwd, notice := resolveRestoreCWD(cwd)
 
 	if _, err := e.spawn(sid, ws, shell, cwd, profileID, engineBirth{Blob: rawBlob, Notice: notice}); err != nil {
+		// A refusal because the ENGINE IS SHUTTING DOWN says nothing about the
+		// session: it is perfectly restorable, we are simply not birthing anything
+		// any more (the kill loop has already walked the registry, so a session born
+		// now would have no reaper). Dropping it here would delete a healthy user's
+		// scrollback and meta row on the way out of the daemon — destroying the very
+		// state the graceful shutdown just persisted for the next boot to restore.
+		// Leave the placeholder exactly as it is and fail the Attach; the next daemon
+		// start reloads it. (A hijacked WebSocket can still drive Attach after the
+		// HTTP server has stopped accepting, so this is reachable.)
+		if errors.Is(err, ErrShuttingDown) {
+			unlock()
+			return fmt.Errorf("terminal: restore: spawn: %w", err)
+		}
 		// Un-restorable even after the CWD fallback (e.g. the shell binary itself
 		// is gone). Never leave the placeholder in the registry: drop it, delete
 		// its persisted state, and fire ended so the FE removes the dead tab
@@ -924,6 +1155,31 @@ func (e *terminalEngine) Attach(
 	return nil
 }
 
+// persistableSession reports whether a session may be written to durable
+// storage (.buf + meta row) — i.e. whether restoring it on a later boot is even
+// meaningful.
+//
+// A COMMAND session (session.NewCommand: an agentic vendor CLI spawned with an
+// explicit argv) is NOT persistable, and writing a row for one is actively
+// harmful. Restore only knows how to birth a LOGIN SHELL: it re-spawns
+// s.Shell(), which for a command session is the joined argv string — a bogus
+// binary. So a persisted command session comes back from RestorePersistedSessions
+// as a PTY-less placeholder that either (a) resurrects as a BARE SHELL in the
+// agent's chat pane, or (b) fails its restore-spawn outright — while the agent
+// read model, whose boot reconcile sees a registered id and believes the CLI
+// survived, keeps advertising a live agent that is long dead.
+//
+// The suspend paths already refuse command sessions
+// (session.BeginSuspendIfEligible / BeginForceSuspend) and the maintenance sweep
+// skips them; this is the same invariant for the three remaining durable-write
+// paths (cadence flush, detach bookkeeping, graceful Shutdown). A command
+// session's process dies with the daemon, by design — the agent usecase's boot
+// reconcile is what ends its segment, and it can only do that if the terminal
+// engine does not pretend the session came back.
+func persistableSession(s *session.Session) bool {
+	return !s.IsCommand()
+}
+
 // persistOnDetach writes the last-known scrollback + "detached" meta when the
 // final client leaves. It takes the per-session lifecycle lock and checks
 // s.IsLive() first: if the session died (self-exit/Kill) while we were
@@ -937,6 +1193,12 @@ func (e *terminalEngine) persistOnDetach(ctx context.Context, sessionID string, 
 	// Lost the race to reap (or to a suspend that swapped in a placeholder):
 	// the reap/suspend path owns the .buf/row — do not write.
 	if !s.IsLive() {
+		return
+	}
+	// A command session (agentic vendor CLI) is UNRESTORABLE — see
+	// persistableSession. Detaching the agent pane must not leave a durable row
+	// behind for the next boot to resurrect.
+	if !persistableSession(s) {
 		return
 	}
 	ws, wsOK := e.reg.WorkspaceID(sessionID)
@@ -1193,31 +1455,71 @@ func (e *terminalEngine) Resize(
 	return s.Resize(cols, rows)
 }
 
+// gracefulTerminateGrace bounds how long TerminateGraceful waits for a
+// SIGTERM'd child to exit on its own (spec §8) before falling back to a hard
+// SIGKILL. ~3s is enough for a well-behaved CLI to flush and exit without
+// making a provider switch feel stuck on a wedged/signal-ignoring process.
+// It is a package-level var ONLY so a unit test can shorten it (via
+// SetGracefulTerminateGraceForTest) to exercise the fallback-to-hard-kill
+// path without a multi-second sleep. Production never reassigns it.
+var gracefulTerminateGrace = 3 * time.Second
+
 func (e *terminalEngine) Kill(
 	ctx context.Context,
 	sessionID string,
 ) error {
-	// FIX 1: serialise with concurrent suspend / restore so Kill never races a
+	return e.terminateSession(ctx, "kill", sessionID, func(s *session.Session) { s.Kill() })
+}
+
+// TerminateGraceful gracefully quits a running vendor CLI (spec §8): it sends
+// a clean-exit SIGTERM (a PID-level action, never a PTY write) and waits up
+// to gracefulTerminateGrace for the process to exit on its own before falling
+// back to a hard Kill. Used by provider switches so a well-behaved CLI (e.g.
+// Claude Code) gets the chance to flush its native transcript on a clean exit
+// — a hard SIGKILL can lose the outgoing CLI's last pre-switch turn.
+func (e *terminalEngine) TerminateGraceful(
+	ctx context.Context,
+	sessionID string,
+) error {
+	return e.terminateSession(ctx, "terminate", sessionID, func(s *session.Session) {
+		s.Terminate(gracefulTerminateGrace)
+	})
+}
+
+// terminateSession is the shared Kill/TerminateGraceful orchestration: it
+// serialises with concurrent suspend/restore, removes the session from the
+// registry, invokes the given per-session teardown (hard kill or graceful
+// terminate), and — for placeholder sessions only, which have no reapOnDone
+// goroutine listening on s.Done() — performs the reap-equivalent cleanup
+// (deleteMeta/DeleteBuf/fireEnded) inline. op names the caller in wrapped
+// error/log messages ("kill" or "terminate").
+func (e *terminalEngine) terminateSession(
+	ctx context.Context,
+	op string,
+	sessionID string,
+	terminate func(*session.Session),
+) error {
+	// FIX 1: serialise with concurrent suspend / restore so this never races a
 	// suspend that could resurrect the session in the registry after removal.
 	unlock := e.lockSession(sessionID)
 
 	s, ok := e.reg.Get(sessionID)
 	if !ok {
 		unlock()
-		return fmt.Errorf("terminal: kill: %w: %s", registry.ErrSessionNotFound, sessionID)
+		return fmt.Errorf("terminal: %s: %w: %s", op, registry.ErrSessionNotFound, sessionID)
 	}
 
 	// Capture whether this is a placeholder BEFORE modifying state. A placeholder
 	// session has no live PTY (IsLive() == false) so no reapOnDone goroutine is
-	// running to fire ended/cleanup after Kill returns.
+	// running to fire ended/cleanup after this returns.
 	isPlaceholder := !s.IsLive()
 	ws, wsOK := e.reg.WorkspaceID(sessionID)
 
-	// Remove from registry eagerly so callers see it gone immediately after Kill returns.
+	// Remove from registry eagerly so callers see it gone immediately after this returns.
 	// For live sessions, reapOnDone will also call reg.Remove (idempotent no-op) and then
 	// handle the remaining cleanup: deleteMeta, DeleteBuf, fireEnded.
 	e.reg.Remove(sessionID)
-	s.Kill()
+	terminate(s)
 
 	// For placeholder sessions (suspended state), no reapOnDone goroutine is listening
 	// on s.Done(). Perform the cleanup and fire the ended callback inline.
@@ -1226,14 +1528,14 @@ func (e *terminalEngine) Kill(
 		dir, _ := e.storageDir(ctx, ws)
 		if dir != "" {
 			if delErr := persistence.DeleteBuf(dir, sessionID); delErr != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "terminal: kill: delete buf %s: %v\n", sessionID, delErr)
+				_, _ = fmt.Fprintf(os.Stderr, "terminal: %s: delete buf %s: %v\n", op, sessionID, delErr)
 			}
 		}
 		e.deleteMeta(ctx, sessionID)
 		e.fireEnded(ctx, ws, sessionID, exitCode)
 
 		// FIX 4: prune per-session maps. For live sessions, reapOnDone handles
-		// this after the PTY exits. For placeholders, Kill is the terminal path.
+		// this after the PTY exits. For placeholders, this is the terminal path.
 		e.mu.Lock()
 		delete(e.lastActive, sessionID)
 		delete(e.endedOnce, sessionID)
@@ -1269,6 +1571,17 @@ func (e *terminalEngine) SessionExists(
 ) bool {
 	_, ok := e.reg.Get(sessionID)
 	return ok
+}
+
+// SessionLive reports whether the session id is backed by a live PTY (see the
+// Engine interface doc): registered AND holding a process, so a suspended
+// placeholder — registered, but its process long dead — correctly reads false.
+func (e *terminalEngine) SessionLive(
+	_ context.Context,
+	sessionID string,
+) bool {
+	s, ok := e.reg.Get(sessionID)
+	return ok && s.IsLive()
 }
 
 // Stats returns a point-in-time snapshot of session counts, estimated model memory,
@@ -1367,6 +1680,11 @@ func (e *terminalEngine) flushSessionOnce(ctx context.Context, id string) {
 		// Dead or gone: reapOnDone owns cleanup; never re-write its deleted .buf.
 		return
 	}
+	// A command session (agentic vendor CLI) is UNRESTORABLE — see
+	// persistableSession. The cadence flush must not mint a durable row for it.
+	if !persistableSession(s) {
+		return
+	}
 	ws, wsOK := e.reg.WorkspaceID(id)
 	if !wsOK {
 		return
@@ -1442,6 +1760,9 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 			if !ok || !s.IsLive() {
 				continue
 			}
+			if s.IsCommand() {
+				continue // agentic vendor CLI — never suspend/evict, never counted
+			}
 			if s.AttachedCount() > 0 {
 				continue // attached — never touch
 			}
@@ -1479,6 +1800,9 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 		s, ok := e.reg.Get(id)
 		if !ok || !s.IsLive() {
 			continue
+		}
+		if s.IsCommand() {
+			continue // agentic vendor CLI — never suspend/evict, never counted
 		}
 		if s.AttachedCount() > 0 {
 			continue // attached — never touch
@@ -1655,6 +1979,12 @@ func (e *terminalEngine) evictPlaceholder(
 //     calls during normal operation, not daemon shutdown.
 //   - Placeholder sessions (already suspended, no live PTY) are killed without
 //     any additional flush because their scrollback is already on disk.
+//   - COMMAND sessions (agentic vendor CLIs) are killed WITHOUT any flush, meta
+//     row, or suspend mark: they are unrestorable (see persistableSession), so
+//     persisting one would hand the next boot a placeholder that resurrects as a
+//     bare shell and fools the agent boot reconcile into believing a dead CLI is
+//     still alive. Their process is meant to die with the daemon; the agent
+//     usecase's ReconcileOnBoot ends the orphaned segment on the next start.
 //   - All persist operations are best-effort: errors are logged but never cause
 //     Shutdown to panic or hang.
 func (e *terminalEngine) Shutdown() {
@@ -1663,6 +1993,14 @@ func (e *terminalEngine) Shutdown() {
 	// (which reads the package-level limit vars and walks the registry) can run concurrently
 	// with Shutdown's own teardown or with a later caller that mutates those vars.
 	<-e.maintDone
+	// Close the door on new sessions BEFORE the kill loop, and take the handle we
+	// will join the reapers on afterwards. Doing it here, not after the loop, is what
+	// makes the drain converge: a session born mid-loop would otherwise be missed by
+	// the walk of the registry and leave a PTY behind with no reaper.
+	//
+	// Every live session already HAS its reaper parked on s.Done(), so they are all
+	// counted by now; the kill below is simply what releases them.
+	reaped := e.reaps.drain()
 	ctx := context.Background()
 	for _, id := range e.reg.List() {
 		s, ok := e.reg.Get(id)
@@ -1678,7 +2016,7 @@ func (e *terminalEngine) Shutdown() {
 		// lock, and the session's Done channel is closed only by s.Kill() which
 		// Shutdown calls AFTER releasing this lock.
 		unlock := e.lockSession(id)
-		if s.IsLive() { //nolint:nestif // graceful-shutdown flush+meta+mark sequence per live session; the ordering (persist before Kill) is the restart-restore contract
+		if s.IsLive() && persistableSession(s) { //nolint:nestif // graceful-shutdown flush+meta+mark sequence per live session; the ordering (persist before Kill) is the restart-restore contract
 			ws, wsOK := e.reg.WorkspaceID(id)
 			if wsOK {
 				// a) Flush scrollback to disk (best-effort; continue on error).
@@ -1714,4 +2052,15 @@ func (e *terminalEngine) Shutdown() {
 		s.Kill()
 		unlock()
 	}
+
+	// JOIN every reaper. This is the whole point of the method's contract: when
+	// Shutdown returns, every onExit callback the engine owed has RUN — the dying
+	// vendor CLIs' deaths are RECORDED (the agent usecase Exits each runner and
+	// closes the turn it abandoned), not merely scheduled on a goroutine that the
+	// caller is about to pull the databases out from under.
+	//
+	// No lock is held here (each iteration released its own), and each reaper's first
+	// act is to wait on a Done channel the kill loop has already closed, so this
+	// converges on the work itself — never on a clock.
+	<-reaped
 }

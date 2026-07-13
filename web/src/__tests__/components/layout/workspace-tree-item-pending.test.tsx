@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, beforeAll, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
 // Router hooks used deep in the row — stub so the item renders in isolation.
@@ -35,22 +35,6 @@ vi.mock('@/components/layout/workspace-tree-context', () => ({
 
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { WorkspaceTreeItem } from '@/components/layout/workspace-tree-item'
-
-beforeAll(() => {
-  // WorkspaceAgentSpinner (vendored Spinner) reads matchMedia, absent in jsdom.
-  if (!window.matchMedia) {
-    window.matchMedia = ((query: string) => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addEventListener() {},
-      removeEventListener() {},
-      addListener() {},
-      removeListener() {},
-      dispatchEvent: () => false,
-    })) as never
-  }
-})
 
 beforeEach(() => {
   useSidebarStore.setState({

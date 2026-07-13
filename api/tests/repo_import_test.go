@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
@@ -207,8 +206,13 @@ func TestRepoImport_UnbornBranchRepo_DegradesGracefully(t *testing.T) {
 }
 
 // collectWorkspacesUntil reads WorkspaceDTO frames off a workspaces WS,
-// accumulating the latest per branch, until done(seen) is true or the deadline
-// elapses. Frames without an id (e.g. control frames) are skipped.
+// accumulating the latest per branch, until done(seen) is true. Frames without
+// an id (e.g. control frames) are skipped.
+//
+// It blocks on real frames and carries no deadline: each WorkspaceDTO's arrival
+// is the signal that another workspace has materialised. If one never does, the
+// read parks in readUntil and `go test -timeout` names the stuck test — instead
+// of an "i/o timeout" that says nothing about which workspace was missing.
 func collectWorkspacesUntil(
 	t *testing.T,
 	conn *websocket.Conn,
@@ -216,8 +220,6 @@ func collectWorkspacesUntil(
 ) map[string]homeWorkspaceDTO {
 	t.Helper()
 	seen := map[string]homeWorkspaceDTO{}
-	deadline := time.Now().Add(10 * time.Second)
-	_ = conn.SetReadDeadline(deadline)
 	for {
 		readUntil(t, conn, func(m map[string]any) bool {
 			id, _ := m["id"].(string)
@@ -238,7 +240,6 @@ func collectWorkspacesUntil(
 		if done(seen) {
 			return seen
 		}
-		require.True(t, time.Now().Before(deadline), "deadline before all workspaces materialised; saw %v", keys(seen))
 	}
 }
 
@@ -268,12 +269,4 @@ func samePathResolved(t *testing.T, a string, b string) bool {
 	rb, err := filepath.EvalSymlinks(b)
 	require.NoError(t, err)
 	return ra == rb
-}
-
-func keys(m map[string]homeWorkspaceDTO) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
 }

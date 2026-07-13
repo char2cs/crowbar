@@ -5,7 +5,6 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,13 +38,19 @@ func (s *spyWork) EndWork(_ context.Context, wsID string) {
 	s.endCh <- wsID
 }
 
-func (s *spyWork) IsWorking(string) bool { return false }
+func (s *spyWork) IsWorking(string) bool  { return false }
+func (s *spyWork) WorkingFor(string) bool { return false }
 
 func (s *spyWork) begunCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.begun)
 }
+
+// asyncHandlers builds the bare Handlers that runAsync needs. runAsync touches
+// only h.async (the WaitGroup that tracks the detached ops), so the zero value
+// of every other dep is fine here.
+func asyncHandlers() *Handlers { return &Handlers{} }
 
 func TestRunAsync_ErrorBroadcastsOnEntity(t *testing.T) {
 	type call struct {
@@ -57,7 +62,7 @@ func TestRunAsync_ErrorBroadcastsOnEntity(t *testing.T) {
 		got <- call{id: wsID, msg: message}
 	}
 
-	runAsync(
+	asyncHandlers().runAsync(
 		context.Background(),
 		newSpyWork(),
 		broadcast,
@@ -65,36 +70,42 @@ func TestRunAsync_ErrorBroadcastsOnEntity(t *testing.T) {
 		func(context.Context) error { return errors.New("boom") },
 	)
 
-	select {
-	case c := <-got:
-		assert.Equal(t, "w1", c.id)
-		assert.Equal(t, "boom", c.msg)
-	case <-time.After(time.Second):
-		t.Fatal("expected broadcastOnErr to be called")
-	}
+	// Block on the broadcast itself: its arrival IS the signal. A broadcast that
+	// never comes hangs until `go test -timeout`, which names this test.
+	c := <-got
+	assert.Equal(t, "w1", c.id)
+	assert.Equal(t, "boom", c.msg)
 }
 
+// TestRunAsync_SuccessDoesNotBroadcast pins that a successful op surfaces no
+// error on the entity.
+//
+// "Nothing was broadcast" is only a sound claim once the producing goroutine is
+// provably dead — a sleep never establishes that, it just widens the window in
+// which a slow goroutine can hide. WaitAsync blocks until the detached op has
+// fully returned (Done is deferred first, so it releases after the recovery
+// handler and any broadcast it would make). Once it returns, the broadcaster is
+// the only writer and it has exited, so a non-blocking check on the channel is
+// exact.
 func TestRunAsync_SuccessDoesNotBroadcast(t *testing.T) {
 	broadcasted := make(chan struct{}, 1)
 	broadcast := func(context.Context, string, string) { broadcasted <- struct{}{} }
-	done := make(chan struct{})
 
-	runAsync(
+	h := asyncHandlers()
+	h.runAsync(
 		context.Background(),
 		newSpyWork(),
 		broadcast,
 		"w1",
-		func(context.Context) error {
-			close(done)
-			return nil
-		},
+		func(context.Context) error { return nil },
 	)
 
-	<-done
+	h.WaitAsync()
+
 	select {
 	case <-broadcasted:
 		t.Fatal("success path must not broadcast an error")
-	case <-time.After(50 * time.Millisecond):
+	default:
 	}
 }
 
@@ -103,7 +114,7 @@ func TestRunAsync_DetachesFromCancelledParent(t *testing.T) {
 	cancel()
 
 	gotErr := make(chan error, 1)
-	runAsync(
+	asyncHandlers().runAsync(
 		parent,
 		newSpyWork(),
 		func(context.Context, string, string) {},
@@ -114,12 +125,7 @@ func TestRunAsync_DetachesFromCancelledParent(t *testing.T) {
 		},
 	)
 
-	select {
-	case err := <-gotErr:
-		require.NoError(t, err, "detached ctx must not inherit parent cancellation")
-	case <-time.After(time.Second):
-		t.Fatal("fn did not run")
-	}
+	require.NoError(t, <-gotErr, "detached ctx must not inherit parent cancellation")
 }
 
 // TestRunAsync_BeginsWorkSynchronously pins the spinner contract: BeginWork
@@ -129,7 +135,8 @@ func TestRunAsync_BeginsWorkSynchronously(t *testing.T) {
 	work := newSpyWork()
 	block := make(chan struct{})
 
-	runAsync(
+	h := asyncHandlers()
+	h.runAsync(
 		context.Background(),
 		work,
 		func(context.Context, string, string) {},
@@ -140,15 +147,13 @@ func TestRunAsync_BeginsWorkSynchronously(t *testing.T) {
 		},
 	)
 
+	// The op is parked on `block`, so this observation cannot be a lucky race: if
+	// BeginWork ran on the goroutine rather than the request path, the count here
+	// would still be 0.
 	assert.Equal(t, 1, work.begunCount(), "BeginWork must run before runAsync returns")
 	close(block)
 
-	select {
-	case id := <-work.endCh:
-		assert.Equal(t, "w1", id)
-	case <-time.After(time.Second):
-		t.Fatal("EndWork was not called after fn completed")
-	}
+	assert.Equal(t, "w1", <-work.endCh, "EndWork must be called after fn completed")
 }
 
 // TestRunAsync_EndsWorkOnError asserts the overlay is released on the failure
@@ -157,7 +162,7 @@ func TestRunAsync_EndsWorkOnError(t *testing.T) {
 	work := newSpyWork()
 	order := make(chan string, 2)
 
-	runAsync(
+	asyncHandlers().runAsync(
 		context.Background(),
 		work,
 		func(context.Context, string, string) { order <- "err" },
@@ -165,17 +170,8 @@ func TestRunAsync_EndsWorkOnError(t *testing.T) {
 		func(context.Context) error { return errors.New("boom") },
 	)
 
-	select {
-	case id := <-work.endCh:
-		assert.Equal(t, "w1", id)
-	case <-time.After(time.Second):
-		t.Fatal("EndWork was not called on the error path")
-	}
-	select {
-	case <-order:
-	case <-time.After(time.Second):
-		t.Fatal("broadcastOnErr was not called")
-	}
+	assert.Equal(t, "w1", <-work.endCh, "EndWork must be called on the error path")
+	assert.Equal(t, "err", <-order, "broadcastOnErr must be called on the error path")
 }
 
 // TestRunAsync_EndsWorkOnPanic asserts a panicking op still releases the
@@ -184,7 +180,7 @@ func TestRunAsync_EndsWorkOnPanic(t *testing.T) {
 	work := newSpyWork()
 	got := make(chan string, 1)
 
-	runAsync(
+	asyncHandlers().runAsync(
 		context.Background(),
 		work,
 		func(_ context.Context, _, msg string) { got <- msg },
@@ -192,16 +188,6 @@ func TestRunAsync_EndsWorkOnPanic(t *testing.T) {
 		func(context.Context) error { panic("kaboom") },
 	)
 
-	select {
-	case id := <-work.endCh:
-		assert.Equal(t, "w1", id)
-	case <-time.After(time.Second):
-		t.Fatal("EndWork was not called on the panic path")
-	}
-	select {
-	case msg := <-got:
-		assert.Contains(t, msg, "kaboom")
-	case <-time.After(time.Second):
-		t.Fatal("panic was not surfaced on the entity")
-	}
+	assert.Equal(t, "w1", <-work.endCh, "EndWork must be called on the panic path")
+	assert.Contains(t, <-got, "kaboom", "the panic must be surfaced on the entity")
 }

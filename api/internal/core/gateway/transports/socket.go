@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 )
@@ -36,7 +35,7 @@ var ErrDaemonRunning = errors.New("gateway: socket: daemon already running")
 func NewSocket(
 	host string,
 ) (net.Listener, error) {
-	path, err := socketPath(strings.TrimPrefix(host, "unix://"))
+	path, err := SocketPath(host)
 	if err != nil {
 		return nil, err
 	}

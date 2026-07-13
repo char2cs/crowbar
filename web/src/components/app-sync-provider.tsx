@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from 'react'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { subscribeHomeWorkspace } from '@/lib/store/home-workspace'
 import { dataOf } from '@/lib/loadable'
 import { fetchRepos, fetchWorkspaces } from '@/lib/api'
 import { subscribeEntityStream } from '@/lib/ws/entity-stream'
@@ -54,6 +55,12 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
       // GET below resolves. The seed's onChange rebuilds again with fresh data.
       rebuildSidebar()
       if (!projectId) return
+
+      // The project-home workspace rides no repo, so the per-repo workspace
+      // streams below can never carry it (see home-workspace.ts). Track it here,
+      // at project scope, so the context pill AND the sidebar home row show its
+      // agent-working spinner even while the user is off in a worktree.
+      projectUnsubscribes.push(subscribeHomeWorkspace(projectId))
 
       const subscribedRepos = new Set<string>()
       const subscribeReposWorkspaces = async (): Promise<void> => {

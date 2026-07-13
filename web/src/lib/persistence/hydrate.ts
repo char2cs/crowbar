@@ -145,7 +145,6 @@ export async function hydrateSidebar(): Promise<void> {
     useSidebarStore.setState({
       collapsedRepos: new Set(sidebarUI.collapsedRepos),
       collapsedWorkspaces: new Set(sidebarUI.collapsedWorkspaces ?? []),
-      collapsedChats: new Set(sidebarUI.collapsedChats ?? []),
     })
   }
 

@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
+import { cn } from '@/utils/cn'
 
 interface WorkspaceInlineInputProps {
   defaultValue?: string
   placeholder?: string
+  /**
+   * What is being typed. `identifier` (the default) is for values git has to
+   * accept verbatim — branch names — where a monospace face makes hyphens,
+   * slashes and l/1/I legible. `prose` is for free text like a chat title,
+   * which should read in the same face as the row it replaces.
+   */
+  kind?: 'identifier' | 'prose'
   onConfirm: (value: string) => void
   onCancel: () => void
   /** Resolve a branch to the id of the workspace already holding it, or null. */
@@ -14,6 +22,7 @@ interface WorkspaceInlineInputProps {
 export function WorkspaceInlineInput({
   defaultValue = '',
   placeholder = 'branch-name',
+  kind = 'identifier',
   onConfirm,
   onCancel,
   resolveExisting,
@@ -65,7 +74,10 @@ export function WorkspaceInlineInput({
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
         placeholder={placeholder}
-        className="min-w-0 flex-1 bg-transparent font-mono text-[13px] outline-none placeholder:text-muted-foreground/40"
+        className={cn(
+          'min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground/40',
+          kind === 'identifier' && 'font-mono',
+        )}
       />
       {existingWsId && (
         <button

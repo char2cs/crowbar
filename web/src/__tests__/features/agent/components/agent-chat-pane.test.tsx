@@ -1,0 +1,857 @@
+import { createElement } from 'react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useStore } from 'zustand'
+import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentChatContent } from '@/features/panes/types/pane-content'
+import {
+  WorkspaceStoreContext,
+  useWorkspaceStore,
+} from '@/features/workspace/stores/workspace-context'
+import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+
+// Hoisted fakes — declared before the vi.mock calls that reference them.
+const { getChatFn, switchProviderFn, resumeChatFn, saveReconnectFn, toastErrorFn } = vi.hoisted(
+  () => ({
+    getChatFn: vi.fn(),
+    switchProviderFn: vi.fn(),
+    resumeChatFn: vi.fn(),
+    saveReconnectFn: vi.fn(),
+    toastErrorFn: vi.fn(),
+  }),
+)
+
+vi.mock('@/features/agent/api/agent-api', () => ({
+  getChat: (...a: unknown[]) => getChatFn(...a),
+  switchProvider: (...a: unknown[]) => switchProviderFn(...a),
+  resumeChat: (...a: unknown[]) => resumeChatFn(...a),
+}))
+
+vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
+  saveReconnect: (...a: unknown[]) => saveReconnectFn(...a),
+}))
+
+vi.mock('@/features/window/stores/toast-store', () => ({
+  toast: { error: (...a: unknown[]) => toastErrorFn(...a) },
+}))
+
+// jsdom can't run xterm/WebGL — stub the terminal renderer to a passive marker
+// that records the sessionId it was mounted with (that's what the attach seam is
+// proven by) plus the isActive/isVisible/attachOnly props threaded from the pane.
+// The marker is clickable so a test can fire the terminal's onSessionGone — the
+// pane's half of the "the PTY died under a mounted pane" contract.
+vi.mock('@/features/terminal/components/terminal', () => ({
+  XtermTerminal: ({
+    sessionId,
+    isActive,
+    isVisible,
+    attachOnly,
+    flush,
+    onSessionGone,
+  }: {
+    sessionId: string
+    isActive: boolean
+    isVisible?: boolean
+    attachOnly?: boolean
+    flush?: boolean
+    onSessionGone?: () => void
+  }) =>
+    createElement('div', {
+      'data-testid': 'xterm',
+      'data-session-id': sessionId,
+      'data-active': String(isActive),
+      'data-visible': String(isVisible),
+      'data-attach-only': String(Boolean(attachOnly)),
+      'data-flush': String(Boolean(flush)),
+      onClick: () => onSessionGone?.(),
+    }),
+}))
+
+// Stub the dropdown to expose its props and a one-click switch, so the footer
+// wiring is asserted without the shared Dropdown's framer-motion machinery.
+vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
+  ProviderSwitchDropdown: ({
+    providers,
+    currentProviderId,
+    onSwitch,
+  }: {
+    providers: AgentProvider[]
+    currentProviderId: string
+    onSwitch: (id: string) => void
+  }) =>
+    createElement(
+      'button',
+      {
+        'data-testid': 'provider-switch',
+        'data-current': currentProviderId,
+        'data-count': String(providers.length),
+        onClick: () => onSwitch('codex'),
+      },
+      'switch',
+    ),
+}))
+
+import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
+import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+
+const providers: AgentProvider[] = [
+  { id: 'claude', displayName: 'Claude', icon: '<svg/>' },
+  { id: 'codex', displayName: 'Codex', icon: '<svg/>' },
+]
+
+// ── Wire fixtures ────────────────────────────────────────────────────
+// A chat is LIVE exactly while a runner is placed on it. liveRunnerId is the whole
+// liveness contract — no status flag exists that could disagree with it — and it
+// carries that runner's PTY, which is what the pane attaches to.
+
+function liveChat(o: {
+  id: string
+  runnerId: string
+  pty: string
+  title?: string
+  provider?: string
+}): AgentChat {
+  return {
+    id: o.id,
+    workspaceId: 'w1',
+    title: o.title ?? `Chat ${o.id}`,
+    liveRunnerId: o.runnerId,
+    terminalSessionId: o.pty,
+    activeProviderId: o.provider ?? 'codex',
+    createdAt: '',
+  }
+}
+
+/** A dormant chat: no runner points at it, so there is nothing to attach. It keeps
+ *  the provider of its last conversation — who Resume brings back. */
+function dormantChat(o: { id: string; title?: string; provider?: string }): AgentChat {
+  return {
+    id: o.id,
+    workspaceId: 'w1',
+    title: o.title ?? `Chat ${o.id}`,
+    liveRunnerId: '',
+    terminalSessionId: '',
+    activeProviderId: o.provider ?? 'codex',
+    createdAt: '',
+  }
+}
+
+function detail(chat: AgentChat): AgentChatDetail {
+  return { ...chat, conversations: [] }
+}
+
+/** A promise this test resolves by hand. The pane is asserted MID-FLIGHT (the spinner is
+ *  a real state, not a frame of one), and nothing here waits on a clock — the test drives
+ *  the request's completion itself. */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+// ── Harness ──────────────────────────────────────────────────────────
+// The REAL workspace store, so the pane's repoint writes land on a real buffer.
+// PaneHost is exactly what pane-container does: read the buffer, feed its
+// chatId/runnerId back in as props. That closes the loop the feature IS — the
+// buffer is the pane's moving target, and the pane is what moves it.
+
+function seedWorkspace(chats: AgentChat[]) {
+  const store = createWorkspaceStore('w1')
+  store.getState().setAgentProviders(providers)
+  store.getState().seedAgentChats(chats)
+  return store
+}
+
+type Store = ReturnType<typeof seedWorkspace>
+
+function openBuffer(store: Store, chatId: string, runnerId: string, name = 'Chat') {
+  return store.getState().bufferActions.openContent({
+    type: 'agentChat',
+    chatId,
+    wsId: 'w1',
+    name,
+    runnerId,
+  })
+}
+
+function PaneHost({ bufferId }: { bufferId: string }) {
+  const store = useWorkspaceStore()
+  const buf = useStore(store, (s) => s.buffers.find((b) => b.id === bufferId)) as
+    | AgentChatContent
+    | undefined
+  if (!buf) return null
+  return createElement(AgentChatPane, {
+    chatId: buf.chatId,
+    runnerId: buf.runnerId,
+    wsId: buf.wsId,
+    bufferId: buf.id,
+    isActivePane: true,
+  })
+}
+
+async function renderPane(store: Store, bufferId: string) {
+  await act(async () => {
+    render(
+      createElement(
+        WorkspaceStoreContext.Provider,
+        { value: store },
+        createElement(PaneHost, { bufferId }),
+      ),
+    )
+  })
+}
+
+const buffer = (store: Store, id: string) =>
+  store.getState().buffers.find((b) => b.id === id) as AgentChatContent | undefined
+
+// The default backend is a HEALTHY one: a resume brings the chat's CLI back, and reading
+// the chat back afterwards shows the runner now on it. Tests that are about failure say
+// so explicitly by overriding these — nothing else has to opt in to "it worked".
+beforeEach(() => {
+  getChatFn.mockReset()
+  switchProviderFn.mockReset()
+  resumeChatFn.mockReset()
+  saveReconnectFn.mockReset()
+  toastErrorFn.mockReset()
+  switchProviderFn.mockResolvedValue('r-new')
+  resumeChatFn.mockResolvedValue('r-revived')
+  getChatFn.mockImplementation((_wsId: unknown, id: unknown) =>
+    Promise.resolve(
+      detail(liveChat({ id: String(id), runnerId: 'r-revived', pty: 'pty-revived' })),
+    ),
+  )
+  useTerminalStore.setState({ sessions: new Map() })
+  localStorage.clear()
+})
+
+describe('AgentChatPane', () => {
+  // ── THE HEADLINE ───────────────────────────────────────────────────
+  // The user's bug: they type /clear inside the CLI, the CLI switches conversation,
+  // and Crowbar moves the running process to a DIFFERENT chat. The pane used to be
+  // pinned to a chatId for life, so it went "This agent has exited" — with a Resume
+  // button that would spawn a SECOND CLI — while the first was alive and well in a
+  // chat the user had to go find. The tab is a VIEWPORT on a moving target: it
+  // follows the runner, and because the terminal is keyed by the PTY (which a move
+  // does not change), the conversation changes WITHOUT changing the terminal.
+  it('follows its runner to a new chat without remounting the terminal', async () => {
+    const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+    const bufferId = openBuffer(store, 'c1', 'r1')
+    await renderPane(store, bufferId)
+
+    const term = await screen.findByTestId('xterm')
+    expect(term).toHaveAttribute('data-session-id', 'pty1')
+
+    // The runner /clears into a brand-new chat — carrying the SAME pty.
+    await act(async () => {
+      store
+        .getState()
+        .seedAgentChats([
+          dormantChat({ id: 'c1' }),
+          liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1', title: 'Fresh' }),
+        ])
+    })
+
+    // The tab re-points at the chat the runner is in NOW...
+    expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c2', runnerId: 'r1' })
+    // ...and relabels to that chat's title...
+    expect(buffer(store, bufferId)?.name).toBe('Fresh')
+    // ...while the terminal is the SAME DOM NODE. Not a remount: the very same
+    // xterm instance, still attached to the same live PTY.
+    expect(await screen.findByTestId('xterm')).toBe(term)
+    expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
+  })
+
+  // The case above moves the runner into a chat that HAS a title, and that is exactly
+  // why it never caught this: a real /clear lands the runner on a chat nobody has named
+  // yet. The rename effect used to bail on an empty title, so the tab kept wearing the
+  // PREVIOUS chat's name — pointing at a conversation it was no longer showing. Found by
+  // running it: the tab still read "reply with exactly: ORION" after the /clear.
+  it('relabels to the untitled placeholder when the runner /clears into a fresh chat', async () => {
+    const store = seedWorkspace([
+      liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', title: 'Respond With Orion' }),
+    ])
+    const bufferId = openBuffer(store, 'c1', 'r1')
+    await renderPane(store, bufferId)
+    expect(buffer(store, bufferId)?.name).toBe('Respond With Orion')
+
+    // /clear: same runner, same pty, brand-new chat — and it has NO title yet.
+    // (title: '' explicitly — the fixtures default an omitted title to `Chat <id>`,
+    // which is why the sibling test never exercised the untitled destination at all.)
+    await act(async () => {
+      store
+        .getState()
+        .seedAgentChats([
+          dormantChat({ id: 'c1', title: 'Respond With Orion' }),
+          liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1', title: '' }),
+        ])
+    })
+
+    expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c2', runnerId: 'r1' })
+    expect(buffer(store, bufferId)?.name).toBe('Untitled chat')
+    expect(buffer(store, bufferId)?.name).not.toBe('Respond With Orion')
+  })
+
+  // Losing your runner because it MOVED is not your CLI dying. The old pane could
+  // not tell those apart, so it offered a Resume button that spawned a SECOND CLI
+  // on the old conversation while the first kept running.
+  it('does not show the exited state when the runner merely moved', async () => {
+    const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+    const bufferId = openBuffer(store, 'c1', 'r1')
+    await renderPane(store, bufferId)
+
+    await act(async () => {
+      store
+        .getState()
+        .seedAgentChats([
+          dormantChat({ id: 'c1' }),
+          liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' }),
+        ])
+    })
+
+    expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument()
+    expect(resumeChatFn).not.toHaveBeenCalled()
+    expect(screen.getByTestId('xterm')).toBeTruthy()
+  })
+
+  // ── THE SECOND HEADLINE: OPENING A DORMANT CHAT REVIVES IT ─────────
+  // The user's report: "resuming conversations keeps the state like this" — the exited
+  // message and a Resume button — "instead of Crowbar reviving the agent by itself".
+  // Agent PTYs never survive a daemon restart, so dormant is the ordinary state of
+  // yesterday's conversation, and a user clicking a chat is asking for the CHAT, not
+  // for a button asking whether they meant it. The exited copy is now a FAILURE state,
+  // and nothing else.
+  describe('auto-revive', () => {
+    it('revives a dormant chat on open — spinner, then the agent is back', async () => {
+      const resumed = deferred<string>()
+      resumeChatFn.mockReturnValue(resumed.promise)
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      const bufferId = openBuffer(store, 'c1', '')
+      await renderPane(store, bufferId)
+
+      // Mid-flight: the EXISTING spinner, and not a trace of the button the user
+      // complained about.
+      expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
+      expect(screen.getByText(/resuming this chat/i)).toBeTruthy()
+      expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument()
+      expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
+
+      await act(async () => {
+        resumed.resolve('r9')
+      })
+
+      // Landed: the revived runner's PTY is attached and the tab follows it.
+      const xterm = await screen.findByTestId('xterm')
+      expect(xterm).toHaveAttribute('data-session-id', 'pty-revived')
+      expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r-revived' })
+      expect(useTerminalStore.getState().getSession('pty-revived')?.connectionId).toBe(
+        'pty-revived',
+      )
+      expect(toastErrorFn).not.toHaveBeenCalled()
+    })
+
+    it('shows the failure message and the Resume button when the revive throws', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      // The real one the user has two of: a chat whose CLI died before it ever bound a
+      // conversation. The backend refuses to resume it, always — so this must SETTLE.
+      resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openBuffer(store, 'c1', ''))
+
+      expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
+      expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
+      expect(toastErrorFn).toHaveBeenCalledWith('Could not resume this chat', expect.any(String))
+      expect(resumeChatFn).toHaveBeenCalledTimes(1)
+      expect(screen.queryByText(/resuming this chat/i)).not.toBeInTheDocument()
+      err.mockRestore()
+    })
+
+    it('fails honestly when the revived CLI dies on startup (resumed, but nothing on the chat)', async () => {
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      getChatFn.mockResolvedValue(detail(dormantChat({ id: 'c1' }))) // resumed → still nobody there
+      await renderPane(store, openBuffer(store, 'c1', ''))
+
+      expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
+      expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
+      expect(resumeChatFn).toHaveBeenCalledTimes(1)
+    })
+
+    // THE SPAWN-LOOP GUARD. A revive is spent per chat, per mount — whatever the outcome.
+    // A failed revive that re-fired on every store push would hammer the daemon with
+    // spawns for a CLI that cannot start; that budget is the entire safety argument for
+    // reviving without being asked.
+    it('never revives the same chat twice by itself, however often the store pushes', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      resumeChatFn.mockRejectedValue(new Error('claude: not on PATH'))
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openBuffer(store, 'c1', ''))
+      expect(resumeChatFn).toHaveBeenCalledTimes(1)
+
+      // Every WS frame the chat could possibly get, re-seeded — the failure state must
+      // not become a retry loop.
+      for (const _ of [1, 2, 3]) {
+        await act(async () => {
+          store.getState().seedAgentChats([dormantChat({ id: 'c1' })])
+        })
+      }
+
+      expect(resumeChatFn).toHaveBeenCalledTimes(1)
+      expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
+      // The manual retry is still there — that is what the button is FOR now.
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /resume/i }))
+      })
+      expect(resumeChatFn).toHaveBeenCalledTimes(2)
+      err.mockRestore()
+    })
+
+    // A CLI that comes back and dies again is not revived a second time: at that point
+    // the user is deliberately quitting it (/exit), and fighting them is the spawn loop
+    // wearing a different hat. The exited copy is honest HERE — and only here.
+    it('lets an agent stay dead once it has already been brought back this mount', async () => {
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      const bufferId = openBuffer(store, 'c1', '')
+      await renderPane(store, bufferId)
+
+      expect(await screen.findByTestId('xterm')).toBeTruthy() // revived once
+      expect(resumeChatFn).toHaveBeenCalledTimes(1)
+
+      // It exits again — the daemon reaps the runner and the chat goes dormant.
+      await act(async () => {
+        store.getState().seedAgentChats([dormantChat({ id: 'c1' })])
+      })
+
+      expect(resumeChatFn).toHaveBeenCalledTimes(1) // NOT revived again
+      expect(screen.getByText(/this agent has exited/i)).toBeTruthy()
+      expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
+    })
+
+    it('never revives from the pending state (the chat list has not landed)', async () => {
+      const store = seedWorkspace([]) // the seed is still in flight
+      const bufferId = openBuffer(store, 'c1', 'r1')
+      await renderPane(store, bufferId)
+
+      // "Not known" is not "dormant". Reviving here would spawn a SECOND CLI onto a
+      // chat that may well already have one.
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      expect(screen.queryByText(/resuming this chat/i)).not.toBeInTheDocument()
+
+      // ...and the moment the list lands with the chat LIVE, it attaches — no revive.
+      await act(async () => {
+        store.getState().seedAgentChats([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      })
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty1')
+    })
+
+    it('does not revive a chat whose runner merely moved away', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      // c1 is now dormant — but its runner is not dead, it walked into c2, and the pane
+      // walks with it. A dormant chat NOBODY IS LOOKING AT must not be revived.
+      await act(async () => {
+        store
+          .getState()
+          .seedAgentChats([
+            dormantChat({ id: 'c1' }),
+            liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' }),
+          ])
+      })
+
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      expect(screen.getByTestId('xterm')).toHaveAttribute('data-session-id', 'pty1')
+    })
+  })
+
+  // ── Attaching ──────────────────────────────────────────────────────
+  it('attaches the live runner PTY: seeds the mapping, then mounts the terminal', async () => {
+    const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+    const bufferId = openBuffer(store, 'c1', 'r1')
+    await renderPane(store, bufferId)
+
+    const xterm = await screen.findByTestId('xterm')
+    expect(xterm.getAttribute('data-session-id')).toBe('pty1')
+    expect(xterm.getAttribute('data-active')).toBe('true')
+    expect(xterm.getAttribute('data-visible')).toBe('true')
+    // Attach-only: a reconnect can never spawn a bare shell into the agent frame.
+    expect(xterm.getAttribute('data-attach-only')).toBe('true')
+    // The mapping that makes resolveTerminalConnection ATTACH exists at mount.
+    expect(useTerminalStore.getState().getSession('pty1')?.connectionId).toBe('pty1')
+    expect(saveReconnectFn).toHaveBeenCalledWith('w1', 'pty1', 'pty1')
+    // liveRunnerId IS the liveness answer — no second round trip asks the daemon.
+    expect(getChatFn).not.toHaveBeenCalled()
+  })
+
+  it('renders nothing (not the exited state) while the chat list is still loading', async () => {
+    // The seed is in flight: the store does not know this chat yet. "Not known" is
+    // not "dormant" — flashing Resume here would offer a button that spawns a
+    // second CLI onto a chat that may well be live.
+    const store = seedWorkspace([])
+    const bufferId = openBuffer(store, 'c1', 'r1')
+    await renderPane(store, bufferId)
+
+    expect(screen.queryByTestId('xterm')).toBeNull()
+    expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
+  })
+
+  it('threads isActivePane=false through to the terminal', async () => {
+    const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+    const bufferId = openBuffer(store, 'c1', 'r1')
+    await act(async () => {
+      render(
+        createElement(
+          WorkspaceStoreContext.Provider,
+          { value: store },
+          createElement(AgentChatPane, {
+            chatId: 'c1',
+            runnerId: 'r1',
+            wsId: 'w1',
+            bufferId,
+            isActivePane: false,
+          }),
+        ),
+      )
+    })
+
+    expect((await screen.findByTestId('xterm')).getAttribute('data-active')).toBe('false')
+  })
+
+  // ── Adopting a new runner on the same chat ─────────────────────────
+  // A provider switch replaces the runner IN PLACE: same chat, new CLI, new PTY.
+  // The pane's runner is gone from everywhere, so it adopts whoever is on its chat
+  // now — and this one DOES remount the terminal, because the PTY genuinely changed.
+  it('adopts the chat new runner after a provider switch (new PTY, so the terminal remounts)', async () => {
+    const store = seedWorkspace([
+      liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex' }),
+    ])
+    const bufferId = openBuffer(store, 'c1', 'r1')
+    await renderPane(store, bufferId)
+
+    const before = await screen.findByTestId('xterm')
+    expect(before).toHaveAttribute('data-session-id', 'pty1')
+
+    await act(async () => {
+      store
+        .getState()
+        .seedAgentChats([liveChat({ id: 'c1', runnerId: 'r2', pty: 'pty2', provider: 'claude' })])
+    })
+
+    const after = await screen.findByTestId('xterm')
+    expect(after).toHaveAttribute('data-session-id', 'pty2')
+    expect(after).not.toBe(before) // a different PTY IS a different terminal
+    expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r2' })
+    expect(useTerminalStore.getState().getSession('pty2')?.connectionId).toBe('pty2')
+    expect(screen.getByTestId('provider-switch').getAttribute('data-current')).toBe('claude')
+  })
+
+  it('lets go of a dead runner id when its chat goes dormant, and revives the chat', async () => {
+    const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+    const bufferId = openBuffer(store, 'c1', 'r1')
+    await renderPane(store, bufferId)
+
+    await act(async () => {
+      store.getState().seedAgentChats([dormantChat({ id: 'c1' })])
+    })
+
+    // The buffer must never go on pointing at a runner that no longer exists — it lets r1
+    // go, and takes up the one the revive put there.
+    expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
+    expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r-revived' })
+    expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-revived')
+  })
+
+  // ── Resume: the MANUAL RETRY of a revive that failed ───────────────
+  // The button is no longer how a dormant chat comes back — the pane does that itself.
+  // It is what a user presses when the pane could not, which is why the failure state
+  // is now the only state that renders it.
+  describe('Resume', () => {
+    it('retries the revive from the failure state and attaches', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      resumeChatFn.mockRejectedValueOnce(new Error('claude: not on PATH')) // the auto-revive
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      const bufferId = openBuffer(store, 'c1', '')
+      await renderPane(store, bufferId)
+      expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
+
+      // The user installs the CLI and presses the button.
+      resumeChatFn.mockResolvedValue('r9')
+      getChatFn.mockResolvedValue(detail(liveChat({ id: 'c1', runnerId: 'r9', pty: 'pty9' })))
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /resume/i }))
+      })
+
+      expect(resumeChatFn).toHaveBeenNthCalledWith(2, 'w1', 'c1')
+      const xterm = await screen.findByTestId('xterm')
+      expect(xterm).toHaveAttribute('data-session-id', 'pty9')
+      expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r9' })
+      expect(useTerminalStore.getState().getSession('pty9')?.connectionId).toBe('pty9')
+      err.mockRestore()
+    })
+
+    it('surfaces a toast and stays resumable when the retry cannot restart the agent', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      resumeChatFn.mockRejectedValue(new Error('claude: not on PATH'))
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openBuffer(store, 'c1', ''))
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /resume/i }))
+      })
+
+      expect(toastErrorFn).toHaveBeenLastCalledWith(
+        'Could not resume this chat',
+        expect.any(String),
+      )
+      expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
+      expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
+      // The auto-revive, then the click. Each attempt is a SETTLED one — nothing here
+      // ever retries on its own.
+      expect(resumeChatFn).toHaveBeenCalledTimes(2)
+      err.mockRestore()
+    })
+  })
+
+  // ── The PTY dying under an open pane ───────────────────────────────
+  // The terminal runs attach-only and reports the session gone rather than spawning a
+  // shell. The pane says so AT ONCE — but it does not resume from this signal, because
+  // this is the CLIENT noticing and the DAEMON has not necessarily noticed yet: a resume
+  // fired now can be answered with the still-recorded live runner whose PTY is the dead
+  // one we are holding, and seeding that spawns the bare shell attachOnly exists to
+  // prevent. The revive comes off the server's own verdict — the chat going dormant in
+  // the store — one beat later.
+  describe('the PTY dies under the open pane', () => {
+    it('does not resume off the terminal signal alone', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      expect(await screen.findByTestId('xterm')).toBeTruthy()
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('xterm')) // onSessionGone
+      })
+
+      expect(screen.queryByTestId('xterm')).toBeNull()
+      expect(screen.getByText(/this agent has exited/i)).toBeTruthy()
+      expect(resumeChatFn).not.toHaveBeenCalled() // the store still says the chat is live
+      expect(screen.getByTestId('provider-switch')).toBeTruthy()
+    })
+
+    it('revives once the daemon confirms the chat is dormant', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      const bufferId = openBuffer(store, 'c1', 'r1')
+      await renderPane(store, bufferId)
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('xterm')) // onSessionGone
+      })
+
+      // The daemon reaps the runner and pushes the chat: NOW it is authoritatively dormant.
+      await act(async () => {
+        store.getState().seedAgentChats([dormantChat({ id: 'c1' })])
+      })
+
+      expect(resumeChatFn).toHaveBeenCalledTimes(1)
+      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-revived')
+      expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r-revived' })
+    })
+  })
+
+  // ── Footer / provider switch ───────────────────────────────────────
+  describe('provider switch', () => {
+    it('renders the switcher beneath the terminal at the chat provider', async () => {
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex' }),
+      ])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      const footerControl = screen.getByTestId('provider-switch')
+      expect(footerControl.getAttribute('data-current')).toBe('codex')
+      expect(footerControl.getAttribute('data-count')).toBe('2')
+    })
+
+    it('is one flat surface — no card, and the switcher shares the terminal column', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      // This pane was built on CossUI's Frame first, and seeing it live is what killed
+      // the idea: a Frame LIFTS a panel off its background, and a chat pane must not be
+      // lifted off anything. The bordered card framed the agent's empty middle rather
+      // than hiding it, and the switcher — sitting outside the card — read as a stray
+      // button on the desktop. No card is allowed back in.
+      expect(document.querySelector('[data-slot="frame"]')).toBeNull()
+      expect(document.querySelector('[data-slot="frame-panel"]')).toBeNull()
+
+      // The switcher and the terminal MUST be inset by the same box. Every time the
+      // padding lived on one of them instead of on their shared parent, the switcher
+      // drifted out of line with the agent's first character and had to be re-tuned by
+      // hand (16px, then 17px, then 1px...). Their common ancestor carries the inset, so
+      // the alignment cannot rot.
+      const term = screen.getByTestId('xterm')
+      const pill = screen.getByTestId('provider-switch')
+      const column = term.parentElement?.parentElement
+      expect(column).toBe(pill.parentElement?.parentElement)
+      expect(column?.className).toMatch(/px-\d/)
+      expect(column?.className).toMatch(/max-w-/)
+
+      // The terminal's own 16px inset would double the column's and shove the agent out
+      // of line with the switcher again — the pane opts out of it.
+      expect(term.getAttribute('data-flush')).toBe('true')
+    })
+
+    it('switches the provider on the chat the runner is in NOW, not the one the tab opened on', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      const bufferId = openBuffer(store, 'c1', 'r1')
+      await renderPane(store, bufferId)
+
+      // The runner /clears into c2 — the tab follows it.
+      await act(async () => {
+        store
+          .getState()
+          .seedAgentChats([
+            dormantChat({ id: 'c1' }),
+            liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' }),
+          ])
+      })
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('provider-switch'))
+      })
+
+      // The switch must target c2. Targeting c1 would hand a CLI the conversation
+      // the user has already left, and leave the live one running unattended.
+      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c2', 'codex')
+    })
+
+    // A SWITCH IS NOT A CHAT THAT NEEDS REVIVING. The backend kills the outgoing CLI
+    // BEFORE the incoming one exists, so the chat is briefly dormant on the wire (the
+    // `displaced` frame refetches it into exactly that gap) and the dead PTY reports
+    // itself gone. Both are the switch working as designed. A pane that read either as
+    // "dormant → revive it" would fire a resume into the middle of its own switch and
+    // bring the OLD provider back.
+    it('does not revive during the transient dormancy of its own switch', async () => {
+      const switched = deferred<string>()
+      switchProviderFn.mockReturnValue(switched.promise)
+
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
+      ])
+      const bufferId = openBuffer(store, 'c1', 'r1')
+      await renderPane(store, bufferId)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('provider-switch')) // → codex
+      })
+      // The outgoing CLI is being killed, so its terminal goes at once — the spinner is
+      // what the user waits on, not a dead xterm (and there is no PTY left to report
+      // itself gone).
+      expect(screen.getByText(/starting codex/i)).toBeTruthy()
+      expect(screen.queryByTestId('xterm')).toBeNull()
+
+      // Mid-switch, the `displaced` frame refetches the chat into the gap: DORMANT.
+      await act(async () => {
+        store.getState().seedAgentChats([dormantChat({ id: 'c1' })])
+      })
+
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      expect(screen.getByText(/starting codex/i)).toBeTruthy() // the spinner stands
+      expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument()
+
+      // The incoming CLI lands.
+      getChatFn.mockResolvedValue(
+        detail(liveChat({ id: 'c1', runnerId: 'r2', pty: 'pty2', provider: 'codex' })),
+      )
+      await act(async () => {
+        switched.resolve('r2')
+      })
+
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty2')
+      expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r2' })
+    })
+
+    it('settles into the failure state when the incoming CLI never arrives', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      // The switch reports success, but nothing is on the chat — the CLI died on startup.
+      getChatFn.mockResolvedValue(detail(dormantChat({ id: 'c1' })))
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('provider-switch'))
+      })
+
+      // Settled, not spinning — and not silently resumed either.
+      expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
+      expect(screen.queryByText(/starting codex/i)).not.toBeInTheDocument()
+      expect(resumeChatFn).not.toHaveBeenCalled()
+    })
+
+    it('surfaces a toast when the switch rejects (target CLI missing / spawn failed)', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      switchProviderFn.mockRejectedValue(new Error('500: codex not installed'))
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('provider-switch'))
+      })
+
+      expect(toastErrorFn).toHaveBeenCalledTimes(1)
+      const [title, description] = toastErrorFn.mock.calls[0] as [string, string]
+      expect(title).toMatch(/could not switch provider/i)
+      expect(description).toContain('Codex') // the target provider's display name
+      expect(err).toHaveBeenCalled()
+      err.mockRestore()
+    })
+
+    it('shows no toast when the switch succeeds', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('provider-switch'))
+      })
+
+      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'codex')
+      expect(toastErrorFn).not.toHaveBeenCalled()
+    })
+  })
+
+  // ── Tab title ──────────────────────────────────────────────────────
+  // openContent snapshots the label at open time; the chat's title changes later
+  // (the agent auto-titles it over WS `title_set`, or the user renames it) and both
+  // land on the store chat's `title`. The pane mirrors title → buffer name.
+  describe('tab title tracks the chat title', () => {
+    it('relabels the tab when the chat is titled', async () => {
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', title: 'Codex chat' }),
+      ])
+      const bufferId = openBuffer(store, 'c1', 'r1', 'Codex chat')
+      await renderPane(store, bufferId)
+
+      await act(async () => {
+        store
+          .getState()
+          .seedAgentChats([
+            liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', title: 'Fix the flaky test' }),
+          ])
+      })
+
+      expect(buffer(store, bufferId)?.name).toBe('Fix the flaky test')
+    })
+
+    it('never blanks the tab when the chat title is empty', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', title: '' })])
+      const bufferId = openBuffer(store, 'c1', 'r1', 'Codex chat')
+      await renderPane(store, bufferId)
+
+      expect(buffer(store, bufferId)?.name).toBe('Codex chat')
+    })
+  })
+})

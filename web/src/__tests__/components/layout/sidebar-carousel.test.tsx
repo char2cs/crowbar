@@ -1,29 +1,14 @@
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { SidebarCarousel } from '@/components/layout/sidebar-carousel'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 
-vi.mock('@tanstack/react-router', async () => {
-  const actual = await vi.importActual('@tanstack/react-router')
-  return {
-    ...actual,
-    useRouterState: (opts: { select: (state: unknown) => unknown }) => {
-      const select = opts.select
-      // The real IDE route is /ide/:projectId/:repoId/:wsId — NOT the legacy
-      // /workspaces/:wsId shape. The carousel must parse the active workspace
-      // from this route to thread it into the Chats panel.
-      return select({ location: { pathname: '/ide/p1/r1/test-ws' } })
-    },
-  }
-})
-
 vi.mock('@/components/layout/workspace-tree', () => ({
   WorkspaceTree: () => <div data-testid="panel-workspaces" />,
 }))
-vi.mock('@/components/layout/chat-tree', () => ({
-  // Capture the wsId the carousel passes so the test pins the route parsing.
-  ChatTree: ({ wsId }: { wsId: string }) => <div data-testid="panel-chats" data-wsid={wsId} />,
+vi.mock('@/features/agent/components/agent-chats-panel', () => ({
+  AgentChatsPanel: () => <div data-testid="panel-chats" />,
 }))
 vi.mock('@/features/file-explorer/components/file-explorer-tree', () => ({
   FileExplorerTree: () => <div data-testid="panel-files" />,
@@ -64,8 +49,30 @@ describe('SidebarCarousel', () => {
     expect(screen.getByTestId('panel-git')).toBeInTheDocument()
   })
 
-  it('threads the active workspace id (parsed from the /ide route) into the Chats panel', () => {
+  it('renders the panels in Workspaces, Chats, Files, Git order (index math must not be off-by-one)', () => {
     render(<SidebarCarousel activeWorkspaceRepoPath="/repos/default" />)
-    expect(screen.getByTestId('panel-chats')).toHaveAttribute('data-wsid', 'test-ws')
+    const container = screen.getByTestId('panel-workspaces').closest('[data-sidebar-carousel]')
+    const testIds = Array.from(container?.querySelectorAll('[data-testid^="panel-"]') ?? []).map(
+      (el) => el.getAttribute('data-testid'),
+    )
+    expect(testIds).toEqual(['panel-workspaces', 'panel-chats', 'panel-files', 'panel-git'])
+  })
+
+  it('scrolls to the Chats panel index (1) when activeTab is chats', () => {
+    render(<SidebarCarousel activeWorkspaceRepoPath="/repos/default" />)
+    const container = screen
+      .getByTestId('panel-workspaces')
+      .closest('[data-sidebar-carousel]') as HTMLElement
+    Object.defineProperty(container, 'clientWidth', { value: 400, configurable: true })
+    const scrollToSpy = HTMLElement.prototype.scrollTo as ReturnType<typeof vi.fn>
+    scrollToSpy.mockClear()
+
+    act(() => {
+      useSidebarStore.setState({ activeTab: 'chats' })
+    })
+
+    expect(scrollToSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ left: 400, behavior: 'smooth' }),
+    )
   })
 })

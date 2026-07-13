@@ -19,6 +19,8 @@ import (
 	wscmds "github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store/projections"
 	"github.com/char2cs/crowbar/api/internal/domain"
+
+	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 )
 
 type broadcastSpy struct {
@@ -69,8 +71,8 @@ func TestReconciler_OnOpen_DedupsRepeatOpens(t *testing.T) {
 		return asynxModels.Event[domain.Workspace]{Aggregate: domain.Workspace{ID: cmd.AggregateID(), Added: 3}}, nil
 	}
 	spy := &broadcastSpy{}
-	var wg sync.WaitGroup
-	r := New(derive, sendWait, spy.record, &wg)
+	gate := drain.New()
+	r := New(derive, sendWait, spy.record, gate)
 
 	ctx := context.Background()
 	for range 5 {
@@ -80,7 +82,7 @@ func TestReconciler_OnOpen_DedupsRepeatOpens(t *testing.T) {
 	// guarantees exactly one does — then release it. No polling, no timeout.
 	<-entered
 	close(release)
-	wg.Wait()
+	gate.WaitIdle(context.Background())
 
 	assert.Equal(t, int32(1), atomic.LoadInt32(&deriveCalls), "repeat opens must not stack tasks")
 	assert.Equal(t, int32(1), atomic.LoadInt32(&sendCalls))
@@ -108,11 +110,11 @@ func TestReconciler_OnOpen_SkipsOnNotFound(t *testing.T) {
 		return asynxModels.Event[domain.Workspace]{}, nil
 	}
 	spy := &broadcastSpy{}
-	var wg sync.WaitGroup
-	r := New(derive, sendWait, spy.record, &wg)
+	gate := drain.New()
+	r := New(derive, sendWait, spy.record, gate)
 
 	r.OnOpen(context.Background(), "w1")
-	wg.Wait()
+	gate.WaitIdle(context.Background())
 
 	assert.Zero(t, atomic.LoadInt32(&sendCalls), "a vanished workspace must not be re-sent")
 	assert.Empty(t, spy.all(), "a vanished workspace must not broadcast")
@@ -136,11 +138,11 @@ func TestReconciler_OnOpen_SkipsBroadcastOnValidation(t *testing.T) {
 		return asynxModels.Event[domain.Workspace]{}, fmt.Errorf("rejected: %w", asynxModels.ErrValidation)
 	}
 	spy := &broadcastSpy{}
-	var wg sync.WaitGroup
-	r := New(derive, sendWait, spy.record, &wg)
+	gate := drain.New()
+	r := New(derive, sendWait, spy.record, gate)
 
 	r.OnOpen(context.Background(), "w1")
-	wg.Wait()
+	gate.WaitIdle(context.Background())
 
 	assert.Empty(t, spy.all(), "a rejected transition must not broadcast")
 }
@@ -156,11 +158,11 @@ func TestReconciler_OnOpen_IgnoresEmptyID(t *testing.T) {
 		atomic.AddInt32(&deriveCalls, 1)
 		return nil, nil
 	}
-	var wg sync.WaitGroup
-	r := New(derive, nil, nil, &wg)
+	gate := drain.New()
+	r := New(derive, nil, nil, gate)
 
 	r.OnOpen(context.Background(), "")
-	wg.Wait()
+	gate.WaitIdle(context.Background())
 
 	assert.Zero(t, atomic.LoadInt32(&deriveCalls))
 }
@@ -209,11 +211,11 @@ func TestReconciler_OnOpen_UpdatesReadModelAndBroadcasts(t *testing.T) {
 		return wscmds.SyncWorkingTreeState{ID: wsID, Added: 7, Now: time.Unix(2, 0).UTC()}, nil
 	}
 	spy := &broadcastSpy{}
-	var wg sync.WaitGroup
-	r := New(derive, ax.SendWait, spy.record, &wg)
+	gate := drain.New()
+	r := New(derive, ax.SendWait, spy.record, gate)
 
 	r.OnOpen(ctx, "w1")
-	wg.Wait()
+	gate.WaitIdle(context.Background())
 
 	got, err := st.Get(ctx, "w1")
 	require.NoError(t, err)

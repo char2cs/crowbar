@@ -81,9 +81,14 @@ func TestWatcherLifecycle_FilesSubscriberStartsWatcher(t *testing.T) {
 	conn := dialWS(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/files/ws")
 	c.WaitFilesRegistered()
 
-	// The watcher starts asynchronously on the subscribe hook; re-write on a
-	// ticker until the first event lands so the test never races the goroutine
-	// that adds the inotify watch (no fixed sleep).
+	// The ticker paces the STIMULUS, it is not the synchronisation.
+	//
+	// The watcher's inotify registration happens on an app-layer goroutine behind
+	// the subscribe hook, and nothing in the API layer can observe the moment the
+	// watch is armed. A single write could therefore land before the watch exists
+	// and be lost forever. So the write is re-applied until one is picked up. The
+	// ASSERTION still blocks on the real signal below — the delivered
+	// FileChangeEvent — and never on a duration.
 	writer := time.NewTicker(100 * time.Millisecond)
 	t.Cleanup(writer.Stop)
 	go func() {
@@ -95,7 +100,9 @@ func TestWatcherLifecycle_FilesSubscriberStartsWatcher(t *testing.T) {
 		}
 	}()
 
-	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	// Blocking reads, no deadline: the event's arrival IS the signal. A watcher
+	// that never starts hangs here until `go test -timeout` fires and names this
+	// test, instead of a 10-second guess.
 	for {
 		mt, msg, err := conn.ReadMessage()
 		require.NoError(t, err)
@@ -115,6 +122,9 @@ func (fileProbe) PushWorkspace(_ dto.WorkspaceDTO)             {}
 func (fileProbe) PushThread(_ dto.ThreadDTO)                   {}
 func (fileProbe) PushTerminalSession(_ dto.TerminalSessionDTO) {}
 func (fileProbe) PushGit(_ string, _ gitdomain.GitStatus)      {}
+func (fileProbe) PushAgentChat(_ string, _ string, _ string)   {}
+
+func (fileProbe) PushAgentRunner(_ string, _ string, _ string, _ string) {}
 
 func (p fileProbe) PushFile(
 	e domain.FileChangeEvent,
@@ -155,6 +165,22 @@ func TestWatcherLifecycle_LSPOnlySubscriberDoesNotStartWatcher(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(filepath.Join(repoPath, "x.txt"), []byte("a"), 0o644))
 
+	// RETAINED CLOCK — the one in this wave, and deliberate.
+	//
+	// This is a pure negative: it asserts an event is NEVER produced. Unlike the
+	// handler negatives (which block on WaitAsync, a real completion signal, and
+	// then check exactly), there is nothing here to block on — the assertion is
+	// about a watcher that, if the code is correct, does not exist, so it emits no
+	// signal of any kind. Waiting is all that is left.
+	//
+	// The deterministic instrument would be a watcher-refcount probe on
+	// realtime.WatcherManager ("how many watchers are live for w1?"), turning this
+	// into a synchronous state assertion with no clock at all. That type lives in
+	// internal/app/realtime, outside this wave's scope; see the wave report.
+	//
+	// Note this clock is safe in the direction that matters: a slow machine makes
+	// the test MORE conservative, never flaky. It can only ever produce a false
+	// PASS (a wrongly-started watcher that was slow to fire), never a false fail.
 	select {
 	case <-probe.ch:
 		t.Fatal("watcher started for an LSP-only subscriber")

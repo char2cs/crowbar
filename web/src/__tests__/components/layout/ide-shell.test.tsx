@@ -26,11 +26,8 @@ vi.mock('@/features/settings/components/settings-dialog', () => ({
 }))
 vi.mock('@/lib/store/sidebar', () => {
   const state = {
-    chats: [],
     repos: [],
     collapsedRepos: new Set(),
-    addChat: vi.fn(),
-    deleteChat: vi.fn(),
     deleteWorkspace: vi.fn(),
     toggleRepo: vi.fn(),
   }
@@ -86,7 +83,7 @@ describe('IDEShell', () => {
     expect(screen.getByTestId('sidebar-carousel')).toBeInTheDocument()
   })
 
-  it('renders Outlet when no workspace or chat is active', () => {
+  it('renders Outlet when no workspace is active', () => {
     render(<IDEShell />)
     expect(screen.getByTestId('outlet')).toBeInTheDocument()
   })

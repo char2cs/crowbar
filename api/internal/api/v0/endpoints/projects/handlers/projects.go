@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 
@@ -56,6 +57,9 @@ type Handlers struct {
 	deleter   Deleter
 	broadcast func(dto.ProjectDTO)
 	stat      func(string) (os.FileInfo, error)
+	// async tracks the detached runAsync ops so callers can block on their real
+	// completion instead of guessing with a sleep (see runAsync / WaitAsync).
+	async sync.WaitGroup
 }
 
 // New builds the projects Handlers from the project read, import, and delete
@@ -152,7 +156,7 @@ func (h *Handlers) Import(
 	libs.WriteAccepted(c)
 	name := body.Name
 	path := body.Path
-	runAsync(c.Request.Context(), func(ctx context.Context) {
+	h.runAsync(c.Request.Context(), func(ctx context.Context) {
 		project, err := h.importer.Create(ctx, name, path)
 		if err != nil {
 			return
@@ -177,7 +181,7 @@ func (h *Handlers) Delete(
 		return
 	}
 	libs.WriteAccepted(c)
-	runAsync(c.Request.Context(), func(ctx context.Context) {
+	h.runAsync(c.Request.Context(), func(ctx context.Context) {
 		if err := h.deleter.Delete(ctx, id); err != nil {
 			return
 		}

@@ -51,7 +51,7 @@ func (h *Handlers) MergeIntoParent(
 		return
 	}
 	libs.WriteAccepted(c)
-	runAsync(
+	h.runAsync(
 		c.Request.Context(),
 		h.working,
 		h.broadcastLastError,
@@ -133,7 +133,7 @@ func (h *Handlers) RebaseOntoParent(
 		return
 	}
 	libs.WriteAccepted(c)
-	runAsync(
+	h.runAsync(
 		c.Request.Context(),
 		h.working,
 		h.broadcastLastError,
@@ -164,7 +164,7 @@ func (h *Handlers) Reparent(
 		return
 	}
 	libs.WriteAccepted(c)
-	runAsync(
+	h.runAsync(
 		c.Request.Context(),
 		h.working,
 		h.broadcastLastError,
@@ -192,7 +192,7 @@ func (h *Handlers) RetryProvision(
 		return
 	}
 	libs.WriteAccepted(c)
-	runAsync(
+	h.runAsync(
 		c.Request.Context(),
 		h.working,
 		h.broadcastLastError,
@@ -221,7 +221,7 @@ func (h *Handlers) DetachHolder(
 		return
 	}
 	libs.WriteAccepted(c)
-	runAsync(
+	h.runAsync(
 		c.Request.Context(),
 		h.working,
 		h.broadcastLastError,

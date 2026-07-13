@@ -1,5 +1,4 @@
 import {
-  Chat,
   GitBranch,
   GitPullRequest,
   Package,
@@ -10,6 +9,7 @@ import {
 import { memo, useCallback } from 'react'
 import type { RefCallback } from 'react'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
+import { AgentChatTabIcon } from '@/features/agent/components/agent-chat-tab-icon'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { Button } from '@/components/ui/button'
 import { Tab } from '@/components/ui/tabs'
@@ -115,9 +115,7 @@ const TabBarItem = memo(function TabBarItem({
         onAuxClick={handleAuxClick}
       >
         <div className="grid size-3.5 shrink-0 place-content-center">
-          {buffer.type === 'crowbarChat' ? (
-            <Chat className="text-muted-foreground" />
-          ) : buffer.path === 'extensions://marketplace' ? (
+          {buffer.path === 'extensions://marketplace' ? (
             <Package className="text-muted-foreground" />
           ) : buffer.type === 'branchReview' ? (
             <GitPullRequest className="text-muted-foreground" />
@@ -125,6 +123,8 @@ const TabBarItem = memo(function TabBarItem({
             <GitBranch className="text-muted-foreground" />
           ) : buffer.type === 'terminal' ? (
             <Terminal className="text-muted-foreground" />
+          ) : buffer.type === 'agentChat' ? (
+            <AgentChatTabIcon wsId={buffer.wsId} chatId={buffer.chatId} />
           ) : (
             <FileExplorerIcon
               fileName={getDiffIconName() ?? buffer.name}

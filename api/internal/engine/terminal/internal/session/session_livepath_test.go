@@ -89,13 +89,10 @@ func TestRegression_LivePathUnchangedRaw(t *testing.T) {
 	s.PumpChunkForTest(chunk)
 
 	// (1) RAW fan-out, byte-for-byte: the single live client received the chunk verbatim with
-	// no transformation, and NO second frame — the teardown model mutation never reaches the
-	// wire.
-	frame, ok := waitFrame(t, ch, time.Second)
+	// no transformation.
+	frame, ok := waitFrame(t, ch)
 	require.True(t, ok, "live client must receive the pumped chunk")
 	assert.Equal(t, chunk, frame.Data, "fan-out must deliver the RAW chunk byte-for-byte")
-	_, extra := waitFrame(t, ch, 50*time.Millisecond)
-	assert.False(t, extra, "only the raw chunk may be fanned out; the model write must not reach the wire")
 
 	// (2) The model write ran AFTER the fan-out enqueue: at the instant the model's first Write
 	// executed, the raw chunk was already sitting in the client's channel (len ≥ 1).
@@ -106,9 +103,23 @@ func TestRegression_LivePathUnchangedRaw(t *testing.T) {
 		"fanOutLocked must enqueue the raw chunk BEFORE writeModelLocked (NG1: zero added latency)")
 
 	// (3) The foreground sample and its teardown model mutation ran STRICTLY LAST — after both
-	// fanOutLocked and writeModelLocked. The full ordered model log is exactly the chunk write
-	// followed by the teardown reset; the sampler fired.
+	// fanOutLocked and writeModelLocked. The ordered model log for this chunk is exactly the
+	// chunk write followed by the teardown reset; the sampler fired.
 	assert.True(t, fgSampled, "pumpStep must run the debounced foreground sample")
 	assert.Equal(t, []string{"write", "foreground-reset"}, om.events,
 		"ordering must be model.Write(chunk) THEN the foreground sample's teardown reset — sampler strictly last")
+
+	// (4) NOTHING ELSE was fanned out for that chunk: neither the model write nor the teardown
+	// may reach the wire. That negative is proved by a SEQUENCE BARRIER, not by watching an idle
+	// channel for an arbitrary window. Pump a SECOND, distinct chunk: the raw path must fan it
+	// out verbatim in its turn. The client's channel is FIFO, so had the first chunk's model
+	// write or teardown produced a frame, that frame would necessarily sit AHEAD of chunk two
+	// and be the next thing received. Receiving chunk two verbatim therefore proves nothing was
+	// emitted in between — with no clock, and no window to guess at.
+	second := []byte("second\x1b[32m")
+	s.PumpChunkForTest(second)
+	next, ok := waitFrame(t, ch)
+	require.True(t, ok, "live client must receive the second pumped chunk")
+	assert.Equal(t, second, next.Data,
+		"the next frame must be the second RAW chunk: nothing else (model write, teardown) may fan out")
 }

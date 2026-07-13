@@ -6,10 +6,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/assert"
@@ -34,13 +32,37 @@ func (g *minimalGit) ComputeWorkingTreeSummary(
 	return 0, 0, false, false, nil
 }
 
-// recordingDispatcher counts OnGitStatus calls.
+// recordingDispatcher counts OnGitStatus calls and streams dispatched
+// file-change paths, so a test can block on the watcher's real callback instead
+// of polling a counter. The zero value is usable (files is nil: the non-blocking
+// send in OnFileChange then simply drops).
 type recordingDispatcher struct {
 	mu       sync.Mutex
 	gitCount int
+	files    chan string
 }
 
-func (r *recordingDispatcher) OnFileChange(_ context.Context, _ domain.FileChangeEvent) {}
+func newRecordingDispatcher() *recordingDispatcher {
+	return &recordingDispatcher{files: make(chan string, 64)}
+}
+
+func (r *recordingDispatcher) OnFileChange(_ context.Context, evt domain.FileChangeEvent) {
+	select {
+	case r.files <- evt.Path:
+	default:
+	}
+}
+
+// waitForFile blocks until the watcher dispatches a change for rel. There is no
+// deadline: `go test -timeout` is the backstop, and a watcher that never
+// dispatches is a bug rather than a slow machine.
+func (r *recordingDispatcher) waitForFile(rel string) {
+	for path := range r.files {
+		if path == rel {
+			return
+		}
+	}
+}
 
 func (r *recordingDispatcher) OnGitStatus(_ context.Context, _ string, _ gitdomain.GitStatus) {
 	r.mu.Lock()
@@ -563,19 +585,14 @@ func TestStartThenStop_ClosesWatcherAndDrainsGoroutine(t *testing.T) {
 	rd := &recordingDispatcher{}
 	w := NewWatcher("ws-flap", dir, "", &minimalGit{}, rd)
 
-	before := runtime.NumGoroutine()
 	require.NoError(t, w.Start(context.Background()))
 
 	w.Stop()
 	w.Stop() // idempotent: must not panic or double-close
 
-	deadline := time.Now().Add(2 * time.Second)
-	for runtime.NumGoroutine() > before {
-		if time.Now().After(deadline) {
-			t.Fatal("loop goroutine did not exit after Stop")
-		}
-		runtime.Gosched()
-	}
+	// Block on the loop's own exit signal — the real event — instead of watching
+	// the process's goroutine count fall back inside a deadline.
+	<-w.loopDone
 	assert.True(t, fswClosed(t, w), "fsnotify watcher must be closed after Stop")
 }
 
@@ -594,8 +611,6 @@ func TestStart_SecondStartRejected_NoLeak(t *testing.T) {
 	firstFSW := w.fsw
 	w.mu.Unlock()
 
-	goroutinesAfterFirst := runtime.NumGoroutine()
-
 	err := w.Start(ctx)
 	require.ErrorIs(t, err, ErrAlreadyStarted)
 
@@ -605,13 +620,13 @@ func TestStart_SecondStartRejected_NoLeak(t *testing.T) {
 
 	assert.Same(t, firstFSW, secondFSW, "second Start must not overwrite the first fsnotify watcher")
 
-	deadline := time.Now().Add(2 * time.Second)
-	for runtime.NumGoroutine() > goroutinesAfterFirst {
-		if time.Now().After(deadline) {
-			t.Fatal("second Start spawned a goroutine that did not exit")
-		}
-		runtime.Gosched()
-	}
+	// "No second loop goroutine" is enforced structurally, not by watching a
+	// goroutine count decay inside a deadline: every loop closes w.loopDone on the
+	// way out, so a second loop would double-close it and panic the binary. Stop
+	// and block on the single loop's exit — if a second one had been spawned, this
+	// is where it would blow up.
+	w.Stop()
+	<-w.loopDone
 }
 
 // Start after Stop returns ErrAlreadyStarted (started was set during the first
@@ -635,7 +650,6 @@ func TestLoop_ClosedEventsChannelExits(t *testing.T) {
 	rd := &recordingDispatcher{}
 	w := NewWatcher("ws-loop", dir, "", &minimalGit{}, rd)
 	ctx := context.Background()
-	before := runtime.NumGoroutine()
 	require.NoError(t, w.Start(ctx))
 
 	// Close only the underlying fsnotify watcher; this closes its Events channel.
@@ -644,15 +658,9 @@ func TestLoop_ClosedEventsChannelExits(t *testing.T) {
 	w.fsw.Close()
 	w.mu.Unlock()
 
-	// Deterministically wait for the loop goroutine to exit via the !ok path by
-	// watching the goroutine count fall back, yielding instead of sleeping.
-	deadline := time.Now().Add(2 * time.Second)
-	for runtime.NumGoroutine() > before {
-		if time.Now().After(deadline) {
-			t.Fatal("loop goroutine did not exit after the Events channel closed")
-		}
-		runtime.Gosched()
-	}
+	// The loop's exit is the real signal — block on it rather than watching the
+	// process's goroutine count fall back inside a deadline.
+	<-w.loopDone
 	// Call Stop to clean up (idempotent even if loop already exited).
 	w.Stop()
 }
@@ -667,7 +675,7 @@ func TestAddRecursive_WalkErrCallbackReturnsNil(t *testing.T) {
 	subdir := filepath.Join(dir, "sub")
 	require.NoError(t, os.MkdirAll(subdir, 0o700))
 
-	rd := &recordingDispatcher{}
+	rd := newRecordingDispatcher()
 	w := NewWatcher("ws-walk", dir, "", &minimalGit{}, rd)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -682,13 +690,10 @@ func TestAddRecursive_WalkErrCallbackReturnsNil(t *testing.T) {
 	newSub := filepath.Join(dir, "newsub")
 	require.NoError(t, os.MkdirAll(newSub, 0o700))
 
-	// Deterministically wait for the watcher to process the burst instead of
-	// sleeping: every burst schedules a git recompute, and the first recompute
-	// always broadcasts via OnGitStatus (recordingDispatcher counts it). Observing
-	// the count confirms handleOne ran addRecursive for newsub — no panic.
-	require.Eventually(t, func() bool {
-		return rd.count() >= 1
-	}, 5*time.Second, 5*time.Millisecond, "watcher must process the subdir-creation burst")
+	// The dispatched change for newsub IS the signal that handleOne ran (and, with
+	// it, addRecursive over a tree whose Walk hits a vanished directory — no panic,
+	// no error). Block on the callback rather than polling a counter.
+	rd.waitForFile("newsub")
 }
 
 // ---------------------------------------------------------------------------
@@ -764,7 +769,7 @@ func TestLoop_ErrorsChannelSwallowed(t *testing.T) {
 
 func TestLoop_TimerDrainPath(t *testing.T) {
 	dir := t.TempDir()
-	rd := &recordingDispatcher{}
+	rd := newRecordingDispatcher()
 	w := NewWatcher("ws-timer", dir, "", &minimalGit{}, rd)
 
 	// Build a real fsnotify watcher so loop has valid channels.
@@ -776,10 +781,10 @@ func TestLoop_TimerDrainPath(t *testing.T) {
 	t.Cleanup(func() { w.fsw.Close() })
 	require.NoError(t, w.fsw.Add(dir))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Run loop in a goroutine; ctx expiry causes it to return cleanly.
+	// Run loop in a goroutine; cancelling ctx causes it to return cleanly.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -789,5 +794,11 @@ func TestLoop_TimerDrainPath(t *testing.T) {
 	// Write a file to generate an event (exercises the pending/timer.Reset path).
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "loop_test.txt"), []byte("data"), 0o600))
 
-	<-done // wait for loop to exit via ctx.Done()
+	// The dispatched change proves the debounce timer actually fired and the burst
+	// was drained — the path under test. Previously the test just let a 300ms ctx
+	// timeout expire and assumed the timer had fired inside it.
+	rd.waitForFile("loop_test.txt")
+
+	cancel()
+	<-done // loop exits via ctx.Done()
 }

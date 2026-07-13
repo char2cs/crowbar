@@ -4,19 +4,6 @@ import type { WorkspaceDTO } from '@/lib/types'
 import { toSidebarWorkspace } from '@/lib/store/build-repo-tree'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 
-export interface ProjectChat {
-  id: string
-  wsId: string // workspace this chat belongs to
-  title: string
-  age: string
-  parentId?: string // for forks
-  status: ChatStatus
-  type: ChatType
-}
-
-export type ChatStatus = 'idle' | 'agent-running'
-export type ChatType = 'chat' | 'workflow'
-
 // §5 7-value status union (drops the old 'agent-running' overlay — an agent in
 // flight is now the separate `working` flag). locked / pr-conflicts / deleted
 // are first-class statuses.
@@ -73,6 +60,10 @@ export interface Repo {
   /** Branch name of the default (main-worktree) workspace, surfaced on the repo
    *  header. Used by create-input validation to reserve the default branch. */
   defaultBranch?: string
+  /** `working` of the default (repo-home) workspace. It is not a tree row, so it
+   *  has no Workspace entry to carry the flag — the repo header and the context
+   *  pill read it from here to spin the repo's icon during an agent turn. */
+  defaultWorking?: boolean
   /** On-disk root of the repo (RepoDTO.path). Used as the localPath fallback for
    *  the default workspace, which is not stored in the workspaces array. */
   localPath?: string
@@ -81,17 +72,11 @@ export interface Repo {
 export type SidebarTab = 'workspaces' | 'chats' | 'files' | 'git'
 
 interface SidebarState {
-  chats: ProjectChat[]
   repos: Repo[]
   collapsedRepos: Set<string>
   collapsedWorkspaces: Set<string>
   /** Persisted active tab so re-mounts don't reset it. */
   activeTab: SidebarTab
-  addChat: (chat: ProjectChat) => void
-  deleteChat: (id: string) => void
-  renameChat: (id: string, title: string) => void
-  collapsedChats: Set<string>
-  toggleChat: (chatId: string) => void
   addWorkspace: (repoId: string, wsId: string, branch: string, parentId?: string) => void
   deleteWorkspace: (wsId: string) => void
   renameWorkspace: (wsId: string, branch: string) => void
@@ -184,32 +169,15 @@ function recordRepoScopes(repos: Repo[]): void {
 
 export function getInitialState() {
   return {
-    chats: [],
     repos: [],
     collapsedRepos: new Set<string>(),
     collapsedWorkspaces: new Set<string>(),
-    collapsedChats: new Set<string>(),
     activeTab: 'workspaces' as SidebarTab,
   }
 }
 
 export const useSidebarStore = create<SidebarState>()((set) => ({
   ...getInitialState(),
-
-  addChat: (chat) => set((s) => ({ chats: [...s.chats, chat] })),
-
-  deleteChat: (id) => set((s) => ({ chats: s.chats.filter((c) => c.id !== id) })),
-
-  renameChat: (id, title) =>
-    set((s) => ({ chats: s.chats.map((c) => (c.id === id ? { ...c, title } : c)) })),
-
-  toggleChat: (chatId) =>
-    set((s) => {
-      const next = new Set(s.collapsedChats)
-      next.has(chatId) ? next.delete(chatId) : next.add(chatId)
-      void saveSidebarUI([...s.collapsedRepos], [...s.collapsedWorkspaces], [...next])
-      return { collapsedChats: next }
-    }),
 
   addWorkspace: (repoId, wsId, branch, parentId) =>
     set((s) => ({

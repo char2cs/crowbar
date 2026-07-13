@@ -20,15 +20,20 @@ export function isWindowEdge(
   }
 }
 
+/**
+ * @param showActiveBorder Draw the accent ring. NOT the same as "this pane is active":
+ *   with a single pane on screen there is nothing to distinguish it FROM, so the ring is
+ *   pure noise. The caller decides (see useVisiblePaneCount) — this only draws.
+ */
 export function buildPaneContentStyle(
   position: PanePosition,
   sidebarSide: 'left' | 'right',
-  isActive: boolean,
+  showActiveBorder: boolean,
 ): CSSProperties {
   const we = (edge: Edge) => isWindowEdge(edge, position, sidebarSide)
-  // Constant width (transparent when inactive) so toggling the active pane
-  // never shifts layout; 2px matches the tab-drag ring (ring-2 ring-secondary).
-  const BORDER = isActive ? '2px solid var(--secondary)' : '2px solid transparent'
+  // Constant width (transparent when not drawn) so toggling never shifts layout;
+  // 2px matches the tab-drag ring (ring-2 ring-secondary).
+  const BORDER = showActiveBorder ? '2px solid var(--secondary)' : '2px solid transparent'
   const NONE = 'none'
   const R = 'var(--radius-lg)'
   const ZERO = '0'

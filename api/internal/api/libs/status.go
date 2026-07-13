@@ -8,6 +8,8 @@ import (
 	asynxmodels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
@@ -28,8 +30,11 @@ import (
 //     by the aggregate usecases), fs.ErrNotExist (the raw filesystem
 //     not-found error wrapped up from the fs engine),
 //     project.ErrFolderNotFound (a project import targeting a path that does
-//     not exist on disk), and enginegit.ErrBranchNotFound (a branch or
-//     revision operand git could not resolve).
+//     not exist on disk), enginegit.ErrBranchNotFound (a branch or
+//     revision operand git could not resolve), agentchat.ErrNotFound (an
+//     agent chat/segment id the agentic-chat repo has no row for), and
+//     agentrunner.ErrNotFound (a runner id — a `--segment` value — with no
+//     live row, either never spawned or already exited).
 //   - 400 Bad Request    — enginesearch.ErrBadPattern,
 //     enginesearch.ErrPathOutsideWorkspace, safepath.ErrPathEscapesWorkspace
 //     (a workspace-relative fs path that is absolute or traverses outside the
@@ -110,7 +115,9 @@ func isNotFound(
 		errors.Is(err, asynxmodels.ErrNotFound) ||
 		errors.Is(err, fs.ErrNotExist) ||
 		errors.Is(err, project.ErrFolderNotFound) ||
-		errors.Is(err, enginegit.ErrBranchNotFound)
+		errors.Is(err, enginegit.ErrBranchNotFound) ||
+		errors.Is(err, agentchat.ErrNotFound) ||
+		errors.Is(err, agentrunner.ErrNotFound)
 }
 
 // isBadRequest reports whether err is one of the sentinels that map to HTTP 400.

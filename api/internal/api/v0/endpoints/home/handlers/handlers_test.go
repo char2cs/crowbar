@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -82,7 +83,46 @@ func (s *stubFiles) Delete(_ context.Context, _, _ string, _ time.Time) error {
 	return nil
 }
 
+// ── WorkSignal stub — the derived working overlay the home read stamps from ──
+
+type stubWork struct{ working bool }
+
+func (s stubWork) WorkingFor(_ string) bool { return s.working }
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+// TestGetHome_StampsWorkingFromSignal pins that GET /home stamps the workspace's
+// `working` field from the WorkSignal seam rather than from the stored row — the
+// overlay is derived (inflight mutation OR agent chat mid-turn) and lives only in
+// memory, so a home read that skipped it would report working=false while an
+// agent chat anchored to the project home was mid-turn.
+func TestGetHome_StampsWorkingFromSignal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := &mockHomeReader{}
+	reader.On("GetHomeForProject", mock.Anything, "proj-1").
+		Return(domain.Workspace{ID: "ws-home-1", ProjectID: "proj-1", Kind: domain.WorkspaceKindHome}, nil)
+
+	h := handlers.New(reader, nil, nil, nil, stubWork{working: true})
+	r.GET("/projects/:projectId/home", h.Get)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/projects/proj-1/home", nil)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body struct {
+		Data struct {
+			ID      string `json:"id"`
+			Working bool   `json:"working"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, "ws-home-1", body.Data.ID)
+	require.True(t, body.Data.Working, "GET /home must stamp the derived working overlay")
+}
 
 // TestGetHome_Returns200WithWorkspace verifies that a GET /home on an existing
 // project returns HTTP 200 and calls GetHomeForProject exactly once.
@@ -99,7 +139,7 @@ func TestGetHome_Returns200WithWorkspace(t *testing.T) {
 	reader := &mockHomeReader{}
 	reader.On("GetHomeForProject", mock.Anything, "proj-1").Return(homeWS, nil)
 
-	h := handlers.New(reader, nil, nil, nil)
+	h := handlers.New(reader, nil, nil, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -122,7 +162,7 @@ func TestGetHome_Returns404WhenNotFound(t *testing.T) {
 	reader.On("GetHomeForProject", mock.Anything, "proj-missing").
 		Return(domain.Workspace{}, apperr.ErrNotFound)
 
-	h := handlers.New(reader, stubProjectReader{}, nil, nil)
+	h := handlers.New(reader, stubProjectReader{}, nil, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -143,7 +183,7 @@ func TestGetHome_Returns500OnStorageError(t *testing.T) {
 	reader.On("GetHomeForProject", mock.Anything, "proj-err").
 		Return(domain.Workspace{}, errors.New("asynx: read failed"))
 
-	h := handlers.New(reader, nil, nil, nil)
+	h := handlers.New(reader, nil, nil, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -169,7 +209,7 @@ func TestFileTree_Returns200WhenWorkspaceExists(t *testing.T) {
 	reader := &mockHomeReader{}
 	reader.On("GetHomeForProject", mock.Anything, "proj-2").Return(homeWS, nil)
 
-	h := handlers.New(reader, nil, &stubFiles{}, nil)
+	h := handlers.New(reader, nil, &stubFiles{}, nil, stubWork{})
 	r.GET("/projects/:projectId/home/files/tree", h.FileTree)
 
 	w := httptest.NewRecorder()
@@ -206,7 +246,7 @@ func TestGetHome_LazilyProvisions(t *testing.T) {
 	projects.On("FindByKey", mock.Anything, "proj-legacy").
 		Return(&domain.Project{ID: "proj-legacy", Path: "/projects/legacy"}, nil)
 
-	h := handlers.New(reader, projects, nil, nil)
+	h := handlers.New(reader, projects, nil, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -234,7 +274,7 @@ func TestGetHome_LazyProvisionCreateFails(t *testing.T) {
 	projects.On("FindByKey", mock.Anything, "proj-legacy2").
 		Return(&domain.Project{ID: "proj-legacy2", Path: "/projects/legacy2"}, nil)
 
-	h := handlers.New(reader, projects, nil, nil)
+	h := handlers.New(reader, projects, nil, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -260,7 +300,7 @@ func TestGetHome_LazyProvisionProjectLookupErrors(t *testing.T) {
 	projects.On("FindByKey", mock.Anything, "proj-err").
 		Return(nil, errors.New("db unreachable"))
 
-	h := handlers.New(reader, projects, nil, nil)
+	h := handlers.New(reader, projects, nil, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -288,7 +328,7 @@ func TestRequireHomeWorkspace_SetsWsIdAndCallsNext(t *testing.T) {
 		Kind:      domain.WorkspaceKindHome,
 	}, nil)
 
-	h := handlers.New(reader, nil, nil, nil)
+	h := handlers.New(reader, nil, nil, nil, stubWork{})
 	var capturedWsID string
 	r.GET("/projects/:projectId/home/thing", h.RequireHomeWorkspace, func(c *gin.Context) {
 		capturedWsID = c.Param("wsId")
@@ -315,7 +355,7 @@ func TestRequireHomeWorkspace_AbortsChainOnFailure(t *testing.T) {
 	reader.On("GetHomeForProject", mock.Anything, "proj-abort").
 		Return(domain.Workspace{}, errors.New("storage error"))
 
-	h := handlers.New(reader, nil, nil, nil)
+	h := handlers.New(reader, nil, nil, nil, stubWork{})
 	called := false
 	r.GET("/projects/:projectId/home/thing", h.RequireHomeWorkspace, func(c *gin.Context) {
 		called = true

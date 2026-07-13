@@ -98,3 +98,62 @@ describe('deriveContextPillModel', () => {
     expect(model).toEqual({ kind: 'empty' })
   })
 })
+
+// The pill's icon must reflect the agent-working overlay for EVERY workspace
+// kind. Worktrees carry `working` on the Workspace itself; the two "home" kinds
+// do not (project home rides no repo; repo home is not a tree row), so the model
+// takes them from homeWorking / Repo.defaultWorking respectively.
+describe('deriveContextPillModel working overlay', () => {
+  it('carries a worktree workspace working flag', () => {
+    const model = deriveContextPillModel({
+      activeWorkspaceId: 'ws1',
+      isHomeRoute: false,
+      repos: [
+        {
+          ...repos[0],
+          workspaces: [
+            { id: 'ws1', branch: 'ide-polish', status: 'pr-open', age: '1d', working: true },
+          ],
+        },
+      ],
+      projects,
+      activeProjectId: 'p1',
+    })
+    expect(model).toMatchObject({ kind: 'workspace', working: true })
+  })
+
+  it('carries homeWorking onto the project-home model', () => {
+    const model = deriveContextPillModel({
+      activeWorkspaceId: undefined,
+      isHomeRoute: true,
+      repos,
+      projects,
+      activeProjectId: 'p1',
+      homeWorking: true,
+    })
+    expect(model).toEqual({ kind: 'home', projectName: 'Crowbar', working: true })
+  })
+
+  it('leaves the project-home model idle when homeWorking is false', () => {
+    const model = deriveContextPillModel({
+      activeWorkspaceId: undefined,
+      isHomeRoute: true,
+      repos,
+      projects,
+      activeProjectId: 'p1',
+      homeWorking: false,
+    })
+    expect(model).toEqual({ kind: 'home', projectName: 'Crowbar', working: false })
+  })
+
+  it('carries Repo.defaultWorking onto the repo-home (default workspace) model', () => {
+    const model = deriveContextPillModel({
+      activeWorkspaceId: 'ws-default',
+      isHomeRoute: false,
+      repos: [{ ...repos[0], defaultWorkspaceId: 'ws-default', defaultWorking: true }],
+      projects,
+      activeProjectId: 'p1',
+    })
+    expect(model).toMatchObject({ kind: 'workspace', branchName: 'default', working: true })
+  })
+})

@@ -3,6 +3,7 @@ package v0
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git"
@@ -95,6 +96,12 @@ func (c *Container) Register(
 		c.app.GORM.Projects,
 		c.app.Usecases.File,
 		c.eng.Terminal,
+		// The working-overlay read seam, the SAME one workspaces.Register stamps its
+		// list/detail reads from (the repositories Container's WorkingFor, which ORs
+		// the inflight-mutation and agent-turn overlays). GET /home is the home
+		// workspace's only REST read, so it stamps Working from here to agree with the
+		// frames the container broadcasts for that same workspace.
+		c.app.Repositories,
 		// Reused from the workspace-scoped surface: the file-change WS handler and
 		// the review-thread store/broadcaster/WS, dual-served via the same wrapper.
 		// home.Register injects the resolved home :wsId so these scope correctly.
@@ -102,6 +109,13 @@ func (c *Container) Register(
 		c.app.Repositories.ReviewThread,
 		c.threads,
 		c.threads.Handle,
+		// The agent chat surface (REST + lifecycle WS) is re-mounted under the
+		// home group so project-home workspaces get agentic chats too (the same
+		// usecase + WS broadcaster agent.Register uses on the workspace-scoped
+		// group); home.Register injects the resolved home :wsId so both scope
+		// correctly.
+		c.app.Usecases.Agent,
+		c.agentChats.Handle,
 		ws.DualServe,
 	)
 	workspaces.Register(
@@ -137,6 +151,13 @@ func (c *Container) Register(
 		c.terminals.Handle,
 		ws.DualServe,
 	)
+	// The agentic-chat REST + WS surface is workspace-scoped (Task 3): every
+	// AgentChat is anchored to a workspace, so its routes mount on wsScoped
+	// (.../workspaces/:wsId) exactly like terminal.Register above, giving it
+	// scopeWorkspaceToPath's wsId-ownership enforcement for free. The WS route
+	// (.../agent/ws/chats) lands in the SAME group as the REST routes so its
+	// :wsId path param is available to agentChatDef's Filter (container.go).
+	agent.Register(wsScoped, c.app.Usecases.Agent, c.agentChats.Handle)
 	search.Register(
 		repoScoped,
 		c.eng.Search,

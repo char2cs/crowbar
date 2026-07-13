@@ -19,7 +19,7 @@ vi.mock('@/lib/crowbar-bridge', () => ({
 }))
 
 import { resolveTerminalConnection } from '@/features/terminal/components/resolve-terminal-connection'
-import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
+import { saveReconnect, loadReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 
 const createSpy = vi.fn(async () => 'fresh-conn')
 const listSpy = vi.fn(async () => ['conn-1']) // daemon says conn-1 is alive
@@ -27,7 +27,11 @@ const listSpy = vi.fn(async () => ['conn-1']) // daemon says conn-1 is alive
 beforeEach(() => {
   mocks.attachSpy.mockClear()
   createSpy.mockClear()
-  listSpy.mockClear()
+  // mockReset (not mockClear) so an UNCONSUMED mockResolvedValueOnce from a
+  // previous test cannot leak into the next one's first call; then restore the
+  // default "daemon says conn-1 is alive" implementation.
+  listSpy.mockReset()
+  listSpy.mockResolvedValue(['conn-1'])
   localStorage.clear()
   mocks.setHasTransport(true)
   vi.useFakeTimers()
@@ -224,5 +228,133 @@ describe('Fix D — branch-1 store id not in daemon list', () => {
     expect(createSpy).toHaveBeenCalledOnce()
     expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
     expect(mocks.attachSpy).not.toHaveBeenCalled()
+  })
+})
+
+// ── Attach-only (no-spawn) mode ──────────────────────────────────────────────
+// The agent chat pane's terminal is not a shell tab: it is a view onto ONE
+// vendor-CLI process. When that PTY is gone, spawning a replacement does not
+// degrade gracefully — the pane silently becomes a BARE SHELL wearing the
+// agent's frame (and the shell is then persisted into the reconnect map as if it
+// were the agent). Under attachOnly the resolver must report the session GONE
+// instead, on EVERY branch that would otherwise reach createTerminal:
+//
+//   - the storeConnectionId branch — the RECONNECT path, entered when the WS
+//     transport drops out from under a mounted pane (daemon restart, CLI exit);
+//   - the persisted/reconnect-map branch — the INITIAL resolve after a reload.
+//
+// The ordinary (unset) mode must keep spawning: shell tabs are fungible.
+describe('attachOnly — an agent pane must never spawn a shell', () => {
+  it('reports the session GONE instead of creating on the RECONNECT path (store id, transport dropped)', async () => {
+    mocks.setHasTransport(false) // the WS just dropped: daemon restarted / CLI died
+    listSpy.mockResolvedValueOnce(['other-conn']) // the agent's PTY is not among the live ones
+
+    const r = await resolveTerminalConnection({
+      workspaceId: 'ws-1',
+      tabSessionId: 'agent-term',
+      storeConnectionId: 'agent-term',
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
+      attachOnly: true,
+    })
+
+    expect(r).toEqual({ gone: true })
+    expect(createSpy).not.toHaveBeenCalled() // ← the bare shell that used to appear
+    expect(mocks.attachSpy).not.toHaveBeenCalled()
+  })
+
+  it('reports the session GONE instead of creating on the INITIAL resolve (persisted id, daemon reaped it)', async () => {
+    saveReconnect('ws-1', 'agent-term', 'agent-term')
+    listSpy.mockResolvedValueOnce(['other-conn'])
+
+    const r = await resolveTerminalConnection({
+      workspaceId: 'ws-1',
+      tabSessionId: 'agent-term',
+      storeConnectionId: undefined,
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
+      attachOnly: true,
+    })
+
+    expect(r).toEqual({ gone: true })
+    expect(createSpy).not.toHaveBeenCalled()
+    expect(mocks.attachSpy).not.toHaveBeenCalled()
+  })
+
+  it('reports GONE (never creates) when the daemon list is empty even after the retry', async () => {
+    mocks.setHasTransport(false)
+    listSpy.mockResolvedValue([]) // both attempts empty — genuinely gone
+
+    const promise = resolveTerminalConnection({
+      workspaceId: 'ws-1',
+      tabSessionId: 'agent-term',
+      storeConnectionId: 'agent-term',
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
+      attachOnly: true,
+    })
+    await vi.advanceTimersByTimeAsync(400)
+    const r = await promise
+
+    expect(listSpy).toHaveBeenCalledTimes(2) // the restart-window retry still applies
+    expect(r).toEqual({ gone: true })
+    expect(createSpy).not.toHaveBeenCalled()
+  })
+
+  it('drops the stale reconnect mapping when it reports GONE, so no later mount re-attempts the dead id', async () => {
+    saveReconnect('ws-1', 'agent-term', 'agent-term')
+    mocks.setHasTransport(false)
+    listSpy.mockResolvedValueOnce(['other-conn'])
+
+    await resolveTerminalConnection({
+      workspaceId: 'ws-1',
+      tabSessionId: 'agent-term',
+      storeConnectionId: 'agent-term',
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
+      attachOnly: true,
+    })
+
+    expect(loadReconnect('ws-1', 'agent-term')).toBeNull()
+  })
+
+  it('still ATTACHES when the agent PTY is alive — attachOnly forbids spawning, not attaching', async () => {
+    mocks.setHasTransport(false)
+    listSpy.mockResolvedValueOnce(['agent-term']) // the CLI is still running
+
+    const r = await resolveTerminalConnection({
+      workspaceId: 'ws-1',
+      tabSessionId: 'agent-term',
+      storeConnectionId: 'agent-term',
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
+      attachOnly: true,
+    })
+
+    expect(mocks.attachSpy).toHaveBeenCalledWith('agent-term', '/base')
+    expect(r).toEqual({ connectionId: 'agent-term', reused: true })
+    expect(createSpy).not.toHaveBeenCalled()
+  })
+
+  it('NO REGRESSION: an ordinary terminal pane (attachOnly unset) still spawns a fresh shell', async () => {
+    mocks.setHasTransport(false)
+    listSpy.mockResolvedValueOnce(['other-conn']) // same dead-session inputs as above
+
+    const r = await resolveTerminalConnection({
+      workspaceId: 'ws-1',
+      tabSessionId: 'tab-1',
+      storeConnectionId: 'dead-store-conn',
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
+    })
+
+    expect(createSpy).toHaveBeenCalledOnce()
+    expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
   })
 })

@@ -39,13 +39,48 @@ type coverStore struct {
 	dir     string
 	saved   []SessionMeta
 	deleted []string
+	// savedCh is a 1-buffered, coalescing edge published on every Save. Save IS the
+	// production flush path telling us it has persisted (flushSessionOnce does WriteBuf THEN
+	// saveMeta), so a test can block on it instead of polling the filesystem on a timer.
+	savedCh chan struct{}
+}
+
+// newCoverStore builds a coverStore with its Save-notification channel wired. Always use it
+// rather than a struct literal: a nil savedCh would silently disable waitSaved (its receive
+// would block forever).
+func newCoverStore(dir string) *coverStore {
+	return &coverStore{dir: dir, savedCh: make(chan struct{}, 1)}
 }
 
 func (s *coverStore) Save(_ context.Context, m SessionMeta) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.saved = append(s.saved, m)
+	ch := s.savedCh
+	s.mu.Unlock()
+	// Non-blocking: the engine must never be paced by whether a test is listening.
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
 	return nil
+}
+
+// waitSaved blocks until the store has recorded a Save for id. The engine calls Save from
+// the flush path itself, so this is a real signal — and because flushSessionOnce writes the
+// .buf BEFORE it saves the meta, a Save for id also proves the .buf is already on disk.
+func (s *coverStore) waitSaved(id string) {
+	for {
+		s.mu.Lock()
+		for _, m := range s.saved {
+			if m.SessionID == id {
+				s.mu.Unlock()
+				return
+			}
+		}
+		ch := s.savedCh
+		s.mu.Unlock()
+		<-ch
+	}
 }
 
 func (s *coverStore) Delete(_ context.Context, id string) error {
@@ -77,12 +112,28 @@ func (s *coverStore) savedState(id, state string) bool {
 type blockingConn struct {
 	closed chan struct{}
 	once   sync.Once
+	// wrote is a 1-buffered, coalescing edge published on every frame the engine fans out.
+	// Attach's first act is to send the snapshot keyframe, so the first edge here is proof
+	// that the client is registered and streaming — the fact that polling StateOf=="active"
+	// on a 20 ms timer was rediscovering after the fact.
+	wrote chan struct{}
 }
 
-func newBlockingConn() *blockingConn { return &blockingConn{closed: make(chan struct{})} }
+func newBlockingConn() *blockingConn {
+	return &blockingConn{closed: make(chan struct{}), wrote: make(chan struct{}, 1)}
+}
 
-func (c *blockingConn) WriteMessage(_ int, _ []byte) error { return nil }
-func (c *blockingConn) ReadMessage() (int, []byte, error)  { <-c.closed; return 0, nil, io.EOF }
+// waitAttached blocks until the engine has fanned a frame out to this conn.
+func (c *blockingConn) waitAttached() { <-c.wrote }
+
+func (c *blockingConn) WriteMessage(_ int, _ []byte) error {
+	select {
+	case c.wrote <- struct{}{}:
+	default:
+	}
+	return nil
+}
+func (c *blockingConn) ReadMessage() (int, []byte, error) { <-c.closed; return 0, nil, io.EOF }
 func (c *blockingConn) Close() error {
 	c.once.Do(func() { close(c.closed) })
 	return nil
@@ -247,24 +298,42 @@ func TestWritePump_ClosedDuringDrain(t *testing.T) {
 	close(ch) // the drain's <-ch will observe the close (ok==false)
 
 	go e.writePump(conn, "s", ch, done)
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("writePump did not return after the channel closed")
-	}
+	// Block on the real signal. A hand-rolled deadline here would only be a second,
+	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
+	// -timeout` reports it with the blocked stack.
+	<-done
 }
 
 // recordConn records every written message so the holdback split is observable.
 type recordConn struct {
 	mu   sync.Mutex
 	msgs [][]byte
+	// wrote is a 1-buffered, coalescing edge published on every frame writePump emits.
+	// WriteMessage IS the signal that a frame went out; polling count() on a 5 ms timer
+	// merely re-discovered that fact later.
+	wrote chan struct{}
+}
+
+func newRecordConn() *recordConn {
+	return &recordConn{wrote: make(chan struct{}, 1)}
+}
+
+// waitFrames blocks until at least n frames have been written.
+func (c *recordConn) waitFrames(n int) {
+	for c.count() < n {
+		<-c.wrote
+	}
 }
 
 func (c *recordConn) WriteMessage(_ int, data []byte) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	cp := append([]byte(nil), data...)
 	c.msgs = append(c.msgs, cp)
+	c.mu.Unlock()
+	select {
+	case c.wrote <- struct{}{}:
+	default:
+	}
 	return nil
 }
 func (c *recordConn) ReadMessage() (int, []byte, error) { select {} }
@@ -280,7 +349,7 @@ func (c *recordConn) count() int {
 // later message.
 func TestWritePump_HoldbackSplitObservable(t *testing.T) {
 	e, _ := newCoverEngine(t)
-	conn := &recordConn{}
+	conn := newRecordConn()
 	ch := make(chan session.OutputFrame, 1)
 	done := make(chan struct{})
 	go e.writePump(conn, "s", ch, done)
@@ -294,7 +363,8 @@ func TestWritePump_HoldbackSplitObservable(t *testing.T) {
 	}
 
 	ch <- session.OutputFrame{SessionID: "s", Data: []byte{'h', 'i', 0xF0}}
-	require.Eventually(t, func() bool { return conn.count() >= 1 }, time.Second, 5*time.Millisecond)
+	// Block on the conn's own write signal: writePump calling WriteMessage IS the event.
+	conn.waitFrames(1)
 
 	conn.mu.Lock()
 	first := dataOf(conn.msgs[0])
@@ -463,6 +533,8 @@ func TestWorkspaceVanished(t *testing.T) {
 // TestGhostSessionSkipped covers the "List yields an id that Get cannot resolve" guards in
 // Stats, allWorkspaceIDs, placeholderCandidates, and the maintenance underCeiling sweep.
 func TestGhostSessionSkipped(t *testing.T) {
+	PinShellForTest(t)
+
 	ctx := context.Background()
 	e, real := newCoverEngine(t)
 	defer e.Shutdown()
@@ -497,6 +569,8 @@ func TestGhostSessionSkipped(t *testing.T) {
 // TestStats_CountsDegraded covers the degraded-session tally: a session whose model reports a
 // degraded parse-health surface increments the degraded count and contributes its parse panics.
 func TestStats_CountsDegraded(t *testing.T) {
+	PinShellForTest(t)
+
 	restore := session.SetNewModelForTest(func(c, r, _ int) (model.TerminalModel, model.Serializer) {
 		return &degradedModel{cols: c, rows: r}, degradedSerializer{}
 	})
@@ -522,10 +596,12 @@ func TestStats_CountsDegraded(t *testing.T) {
 // TestReapOnDone_DeleteBufError covers the reap-path DeleteBuf error log: the .buf path is an
 // undeletable non-empty directory, yet reap still completes and fires ended.
 func TestReapOnDone_DeleteBufError(t *testing.T) {
+	PinShellForTest(t)
+
 	ctx := context.Background()
 	e, _ := newCoverEngine(t)
 	defer e.Shutdown()
-	store := &coverStore{dir: t.TempDir()}
+	store := newCoverStore(t.TempDir())
 	e.SetMetaStore(store)
 
 	ended := make(chan struct{}, 1)
@@ -536,11 +612,10 @@ func TestReapOnDone_DeleteBufError(t *testing.T) {
 	makeBadBufDir(t, store.dir, sid) // DeleteBuf will fail on reap
 
 	require.NoError(t, e.Kill(ctx, sid))
-	select {
-	case <-ended:
-	case <-time.After(5 * time.Second):
-		t.Fatal("reapOnDone did not complete (ended never fired) past the DeleteBuf error")
-	}
+	// Block on the real signal. A hand-rolled deadline here would only be a second,
+	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
+	// -timeout` reports it with the blocked stack.
+	<-ended
 }
 
 // TestKillPlaceholder_DeleteBufError covers the placeholder Kill DeleteBuf error log.
@@ -548,7 +623,7 @@ func TestKillPlaceholder_DeleteBufError(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newCoverEngine(t)
 	defer e.Shutdown()
-	store := &coverStore{dir: t.TempDir()}
+	store := newCoverStore(t.TempDir())
 	e.SetMetaStore(store)
 
 	require.NoError(t, e.LoadPlaceholder(ctx, SessionMeta{
@@ -566,7 +641,7 @@ func TestDropUnrestorable_DeleteBufError(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newCoverEngine(t)
 	defer e.Shutdown()
-	store := &coverStore{dir: t.TempDir()}
+	store := newCoverStore(t.TempDir())
 	e.SetMetaStore(store)
 
 	require.NoError(t, e.LoadPlaceholder(ctx, SessionMeta{
@@ -585,7 +660,7 @@ func TestEvictPlaceholder_DeleteBufError(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newCoverEngine(t)
 	defer e.Shutdown()
-	store := &coverStore{dir: t.TempDir()}
+	store := newCoverStore(t.TempDir())
 	e.SetMetaStore(store)
 
 	restoreN := SetMaxTotalSessionsForTest(1)
@@ -610,12 +685,14 @@ func TestEvictPlaceholder_DeleteBufError(t *testing.T) {
 // TestWriteBufErrors covers the WriteBuf failure logs in suspend, persistOnDetach,
 // flushSessionOnce, and Shutdown by pointing the storage dir at a regular file.
 func TestWriteBufErrors(t *testing.T) {
+	PinShellForTest(t)
+
 	ctx := context.Background()
 
 	t.Run("suspend", func(t *testing.T) {
 		e, _ := newCoverEngine(t)
 		defer e.Shutdown()
-		store := &coverStore{dir: makeFilePath(t)}
+		store := newCoverStore(makeFilePath(t))
 		e.SetMetaStore(store)
 		sid, err := e.Create(ctx, "ws-1", t.TempDir(), nil)
 		require.NoError(t, err)
@@ -630,7 +707,7 @@ func TestWriteBufErrors(t *testing.T) {
 	t.Run("persistOnDetach", func(t *testing.T) {
 		e, _ := newCoverEngine(t)
 		defer e.Shutdown()
-		store := &coverStore{dir: makeFilePath(t)}
+		store := newCoverStore(makeFilePath(t))
 		e.SetMetaStore(store)
 		s, err := session.New("pd-1", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 0)
 		require.NoError(t, err)
@@ -643,7 +720,7 @@ func TestWriteBufErrors(t *testing.T) {
 	t.Run("flushSessionOnce", func(t *testing.T) {
 		e, _ := newCoverEngine(t)
 		defer e.Shutdown()
-		store := &coverStore{dir: makeFilePath(t)}
+		store := newCoverStore(makeFilePath(t))
 		e.SetMetaStore(store)
 		sid, err := e.Create(ctx, "ws-1", t.TempDir(), nil)
 		require.NoError(t, err)
@@ -654,7 +731,7 @@ func TestWriteBufErrors(t *testing.T) {
 
 	t.Run("shutdown", func(t *testing.T) {
 		e, _ := newCoverEngine(t)
-		store := &coverStore{dir: makeFilePath(t)}
+		store := newCoverStore(makeFilePath(t))
 		e.SetMetaStore(store)
 		sid, err := e.Create(ctx, "ws-1", t.TempDir(), nil)
 		require.NoError(t, err)
@@ -666,6 +743,8 @@ func TestWriteBufErrors(t *testing.T) {
 // TestFlushSessionOnce_NoStore covers the dir=="" early return: with no meta store wired the
 // flush resolves an empty dir and returns without writing.
 func TestFlushSessionOnce_NoStore(t *testing.T) {
+	PinShellForTest(t)
+
 	ctx := context.Background()
 	e, _ := newCoverEngine(t)
 	defer e.Shutdown()
@@ -683,13 +762,15 @@ func TestFlushSessionOnce_NoStore(t *testing.T) {
 // per-workspace and global classification loops: an attached session is never a suspend
 // candidate.
 func TestMaintenance_AttachedSessionSkipped(t *testing.T) {
+	PinShellForTest(t)
+
 	restore := SetSoftLimitPerWorkspaceForTest(0) // force the soft-limit loop body to run
 	defer restore()
 
 	ctx := context.Background()
 	e, _ := newCoverEngine(t)
 	defer e.Shutdown()
-	store := &coverStore{dir: t.TempDir()}
+	store := newCoverStore(t.TempDir())
 	e.SetMetaStore(store)
 
 	sid, err := e.Create(ctx, "ws-att", t.TempDir(), nil)
@@ -701,10 +782,12 @@ func TestMaintenance_AttachedSessionSkipped(t *testing.T) {
 		_ = e.Attach(ctx, sid, conn)
 		close(attachReturned)
 	}()
-	require.Eventually(t, func() bool {
-		s, ok := e.StateOf(sid)
-		return ok && s == "active"
-	}, 5*time.Second, 20*time.Millisecond, "session must become active (attached)")
+	// Block until the engine has actually fanned a frame out to this client (Attach's
+	// snapshot keyframe). That is the real signal that the attach has landed.
+	conn.waitAttached()
+	st0, ok0 := e.StateOf(sid)
+	require.True(t, ok0)
+	require.Equal(t, "active", st0, "a session streaming to a client must be active (attached)")
 
 	// Stats must also classify the attached session as active (the "active" tally branch).
 	active, _, _, _, _, _ := e.Stats()
@@ -723,10 +806,12 @@ func TestMaintenance_AttachedSessionSkipped(t *testing.T) {
 // two idle detached sessions over the byte ceiling, where dropping caches is insufficient but
 // suspending the oldest idle session brings the engine back under.
 func TestMaintenance_Phase3aIdleSuspend(t *testing.T) {
+	PinShellForTest(t)
+
 	ctx := context.Background()
 	e, _ := newCoverEngine(t)
 	defer e.Shutdown()
-	store := &coverStore{dir: t.TempDir()}
+	store := newCoverStore(t.TempDir())
 	e.SetMetaStore(store)
 
 	sid1, err := e.Create(ctx, "ws-3a", t.TempDir(), nil)
@@ -747,14 +832,19 @@ func TestMaintenance_Phase3aIdleSuspend(t *testing.T) {
 	SetLastActiveForTest(e, sid1, base)
 	SetLastActiveForTest(e, sid2, base.Add(time.Minute))
 
-	// Suspend runs synchronously inside the sweep, but the idle check (TIOCGPGRP)
-	// can transiently read non-idle under load and skip that pass; production retries
-	// via the maintenance ticker. Drive maintenance until the suspend lands — the loop
-	// exit IS the assertion, and a genuine "never suspends" bug is caught by the
-	// go test -timeout backstop rather than a hard-coded per-test deadline.
-	for !store.savedState(sid1, "suspended") {
-		e.runMaintenanceOnce(ctx)
-	}
+	// ONE sweep, asserted. Both shells are parked at their prompts, so the idle gate has a
+	// settled answer and the suspend must land on the first pass.
+	//
+	// This was a `for !suspended { runMaintenanceOnce() }` retry loop, on the theory that the
+	// idle check "can transiently read non-idle under load". That theory was true only because
+	// the session was the developer's $SHELL (zsh), whose dotfiles fork async children — and
+	// the loop was actively harmful: an unbounded busy-spin that starved the very child it was
+	// waiting on, livelocking the test outright. (It hung this suite intermittently.) With the
+	// shell pinned there is no transient to absorb, so a missed suspend is a real bug and must
+	// fail rather than be retried until it passes.
+	e.runMaintenanceOnce(ctx)
+	assert.True(t, store.savedState(sid1, "suspended"),
+		"the oldest idle session must be suspended by the global ceiling in a single sweep")
 	assert.NoError(t, e.Write(ctx, sid2, []byte("echo alive\n")), "the newer session must stay live")
 	_ = e.Kill(ctx, sid1)
 	_ = e.Kill(ctx, sid2)
@@ -764,10 +854,12 @@ func TestMaintenance_Phase3aIdleSuspend(t *testing.T) {
 // idle suspend (the guard just before placeholder eviction): a single idle session whose
 // suspension brings the engine back under.
 func TestMaintenance_Phase3aSuspendLastThenReturn(t *testing.T) {
+	PinShellForTest(t)
+
 	ctx := context.Background()
 	e, _ := newCoverEngine(t)
 	defer e.Shutdown()
-	store := &coverStore{dir: t.TempDir()}
+	store := newCoverStore(t.TempDir())
 	e.SetMetaStore(store)
 
 	sid, err := e.Create(ctx, "ws-3a1", t.TempDir(), nil)
@@ -779,13 +871,12 @@ func TestMaintenance_Phase3aSuspendLastThenReturn(t *testing.T) {
 	defer restoreB()
 	SetLastActiveForTest(e, sid, time.Now().Add(-time.Hour))
 
-	// Suspend runs synchronously inside the sweep, but the idle check (TIOCGPGRP)
-	// can transiently read non-idle under load and skip that pass; production retries
-	// via the ticker. Drive maintenance until the suspend lands — the loop exit IS the
-	// assertion; a genuine failure is caught by the go test -timeout backstop.
-	for !store.savedState(sid, "suspended") {
-		e.runMaintenanceOnce(ctx)
-	}
+	// ONE sweep, asserted — see TestMaintenance_Phase3aIdleSuspend for why the retry loop that
+	// used to be here was both unnecessary (with a pinned shell there is no idle transient to
+	// absorb) and dangerous (an unbounded busy-spin that could starve the shell it waited on).
+	e.runMaintenanceOnce(ctx)
+	assert.True(t, store.savedState(sid, "suspended"),
+		"suspending the only idle session must bring the engine under the ceiling in one sweep")
 	_ = e.Kill(ctx, sid)
 }
 
@@ -793,12 +884,14 @@ func TestMaintenance_Phase3aSuspendLastThenReturn(t *testing.T) {
 // reclaimable cached blob(s) alone brings the engine under the byte ceiling, so no session is
 // suspended. Exercised with two sessions (mid-loop return) and one session (post-loop return).
 func TestMaintenance_CacheDropResolves(t *testing.T) {
+	PinShellForTest(t)
+
 	ctx := context.Background()
 
 	run := func(t *testing.T, n int) {
 		e, _ := newCoverEngine(t)
 		defer e.Shutdown()
-		store := &coverStore{dir: t.TempDir()}
+		store := newCoverStore(t.TempDir())
 		e.SetMetaStore(store)
 
 		var sids []string
@@ -840,6 +933,8 @@ func TestMaintenance_CacheDropResolves(t *testing.T) {
 // TestMaintenanceLoop_TickerFires covers the maintenanceLoop ticker case: with a short
 // interval the background sweep runs on its own and flushes a dirty session's .buf to disk.
 func TestMaintenanceLoop_TickerFires(t *testing.T) {
+	PinShellForTest(t)
+
 	origInterval := maintenanceTickInterval
 	maintenanceTickInterval = 5 * time.Millisecond
 	e := New().(*terminalEngine)
@@ -849,16 +944,21 @@ func TestMaintenanceLoop_TickerFires(t *testing.T) {
 	}()
 
 	ctx := context.Background()
-	store := &coverStore{dir: t.TempDir()}
+	store := newCoverStore(t.TempDir())
 	e.SetMetaStore(store)
 	sid, err := e.Create(ctx, "ws-tick", t.TempDir(), nil)
 	require.NoError(t, err)
 
 	// The ticker-driven sweep must flush the dirty session's scrollback to disk on its own.
-	require.Eventually(t, func() bool {
-		_, statErr := os.Stat(filepath.Join(store.dir, sid+".buf"))
-		return statErr == nil
-	}, 5*time.Second, 20*time.Millisecond, "the maintenance ticker must drive a cadence flush")
+	// Block on the store's Save, which the flush path itself calls — rather than stat-polling
+	// the filesystem every 20 ms. This is the one place a clock legitimately remains, but it
+	// is the SUBJECT of the test (maintenanceTickInterval, pinned to 5 ms above) rather than
+	// the test's synchronisation: the ticker keeps sweeping, and the first sweep that finds
+	// the shell's prompt output flushes it and calls Save. Because flushSessionOnce writes the
+	// .buf BEFORE saving the meta, the Save landing proves the .buf is already on disk.
+	store.waitSaved(sid)
+	_, statErr := os.Stat(filepath.Join(store.dir, sid+".buf"))
+	assert.NoError(t, statErr, "the maintenance ticker must drive a cadence flush")
 	_ = e.Kill(ctx, sid)
 }
 
@@ -866,33 +966,32 @@ func TestMaintenanceLoop_TickerFires(t *testing.T) {
 // local wait helpers (internal package)
 // ---------------------------------------------------------------------------
 
+// waitEngineIdle blocks until the shell is parked at its prompt — live, idle, and with no
+// output still in flight.
+//
+// It used to poll IsIdle() and then "settle" by waiting for the serialized model to stop
+// growing for three consecutive samples. Both halves were guesses. IsIdle() goes true as
+// soon as the shell is the foreground process group, which is BEFORE it prints its prompt;
+// the settle then tried to infer "it has stopped talking" from a short run of silence, which
+// a shell is under no obligation to honour.
+//
+// Waiting for the prompt itself answers both questions exactly, and asserting idle
+// afterwards costs nothing and pins the invariant that a prompted shell IS idle.
 func waitEngineIdle(t *testing.T, e *terminalEngine, sid string) {
 	t.Helper()
-	require.Eventually(t, func() bool {
-		s, ok := e.reg.Get(sid)
-		return ok && s.IsLive() && s.IsIdle()
-	}, 15*time.Second, 50*time.Millisecond, "session %s did not become idle", sid)
-	// Extra settle so the prompt output has been fully consumed by the pump: wait
-	// until the serialized model stops growing (N consecutive equal-length samples)
-	// instead of a blind sleep.
+	WaitPromptForTest(t, e, sid)
 	s, ok := e.reg.Get(sid)
-	require.True(t, ok, "session %s vanished before settle", sid)
-	lastLen, stable := -1, 0
-	require.Eventually(t, func() bool {
-		cur := s.SerializedLen()
-		if cur == lastLen {
-			stable++
-		} else {
-			stable, lastLen = 0, cur
-		}
-		return stable >= 3
-	}, 10*time.Second, 30*time.Millisecond, "session %s output did not settle", sid)
+	require.True(t, ok, "session %s vanished before it prompted", sid)
+	require.True(t, s.IsLive() && s.IsIdle(),
+		"a shell that has printed its prompt is by definition live and idle (session %s)", sid)
 }
 
+// waitEngineOutput blocks until the session has produced output. The prompt is the first
+// thing a pinned shell writes, so waiting for it is both sufficient and precise.
 func waitEngineOutput(t *testing.T, e *terminalEngine, sid string) {
 	t.Helper()
-	require.Eventually(t, func() bool {
-		s, ok := e.reg.Get(sid)
-		return ok && s.SerializedLen() > 0
-	}, 10*time.Second, 20*time.Millisecond, "session %s produced no output", sid)
+	WaitPromptForTest(t, e, sid)
+	s, ok := e.reg.Get(sid)
+	require.True(t, ok, "session %s vanished before it produced output", sid)
+	require.Positive(t, s.SerializedLen(), "session %s produced no output", sid)
 }

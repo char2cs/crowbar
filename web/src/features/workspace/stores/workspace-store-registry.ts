@@ -3,7 +3,7 @@ import { loadFromLocalStorage } from './workspace-persistence'
 import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
 import { useHistoryStore } from '@/features/editor/stores/history-store'
 import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
-import type { TerminalContent, CrowbarChatContent } from '@/features/panes/types/pane-content'
+import type { TerminalContent } from '@/features/panes/types/pane-content'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { setActiveScopeWorkspaceId } from '@/lib/workspace-scope'
 
@@ -119,26 +119,11 @@ export function destroyWorkspaceStore(wsId: string): void {
       )
     }
 
-    // Drop conversation stores for this workspace's chat tabs so their streamed
-    // turns[] don't leak after the workspace is torn down. Each chat store is
-    // keyed by the buffer's wsId (the chat id). Dynamic import avoids a
-    // registry → markdown-chat-feature cycle, mirroring the terminal branch.
-    const chatBuffers = buffers.filter((b) => b.type === 'crowbarChat')
-    if (chatBuffers.length > 0) {
-      void import('@/features/markdown-chat/stores/conversation-store').then(
-        ({ destroyConversationStore }) => {
-          for (const buf of chatBuffers) {
-            destroyConversationStore((buf as CrowbarChatContent).wsId)
-          }
-        },
-      )
-    }
-
     // Free cached git-blame for this workspace's open files. The blame store is a
     // global singleton keyed by file path, so clearAllBlame() would wipe blame for
     // OTHER still-active workspaces; we instead clear only this workspace's editor
     // buffer paths. Dynamic import avoids a registry → git-feature cycle, mirroring
-    // the terminal/chat branches above.
+    // the terminal branch above.
     const editorPaths = buffers.filter(isEditorContent).map((b) => b.path)
     if (editorPaths.length > 0) {
       void import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {

@@ -5,7 +5,6 @@ import (
 	"image/color"
 	"strings"
 	"testing"
-	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
@@ -28,11 +27,10 @@ func TestEmulatorDrainsDeviceQueryReplies(t *testing.T) {
 		m.Write([]byte("\x1b[c\x1b[6n\x1b]10;?\x1b\\"))
 		close(done)
 	}()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("model.Write blocked: x/vt device-query replies were not drained")
-	}
+	// Block on the real signal. A hand-rolled deadline here would only be a second,
+	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
+	// -timeout` reports it with the blocked stack.
+	<-done
 	if m.Degraded() {
 		t.Fatal("draining a device query must not degrade the model")
 	}
@@ -473,12 +471,14 @@ func TestResponseSink_ReceivesCPRAnswer(t *testing.T) {
 		got <- cp
 	})
 	m.Write([]byte("\x1b[6n")) // cursor position report query
-	select {
-	case reply := <-got:
-		assert.Regexp(t, `\x1b\[\d+;\d+R`, string(reply), "CPR reply expected")
-	case <-time.After(2 * time.Second):
-		t.Fatal("no device-query reply reached the sink")
-	}
+
+	// Block on the sink itself: the reply arriving IS the thing under test. The emulator
+	// answers device queries on its own drain goroutine, so the receive below is the real
+	// hand-off signal — a deadline would only be a guess at how fast that goroutine is
+	// scheduled, and a reply that never comes is a hang `go test -timeout` reports with the
+	// blocked stack.
+	reply := <-got
+	assert.Regexp(t, `\x1b\[\d+;\d+R`, string(reply), "CPR reply expected")
 }
 
 func TestModeReassertedThroughSerializerRoundTrip(t *testing.T) {

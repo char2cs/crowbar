@@ -16,8 +16,6 @@ export type FaultKey =
   | 'git-commits'
   | 'git-status'
   | 'git-branches'
-  | 'markdown-chat'
-  | 'chats'
 
 export const FAULT_KEYS: FaultKey[] = [
   'workspaces',
@@ -31,8 +29,6 @@ export const FAULT_KEYS: FaultKey[] = [
   'git-commits',
   'git-status',
   'git-branches',
-  'markdown-chat',
-  'chats',
 ]
 
 export const FAULT_LABELS: Record<FaultKey, string> = {
@@ -47,8 +43,6 @@ export const FAULT_LABELS: Record<FaultKey, string> = {
   'git-commits': 'Git commits',
   'git-status': 'Git status',
   'git-branches': 'Git branches',
-  'markdown-chat': 'Chat history',
-  chats: 'Chats',
 }
 
 const DEFAULT_FAULTS: Record<FaultKey, number> = {
@@ -63,8 +57,6 @@ const DEFAULT_FAULTS: Record<FaultKey, number> = {
   'git-commits': 0,
   'git-status': 0,
   'git-branches': 0,
-  'markdown-chat': 0,
-  chats: 0,
 }
 
 interface ChaosState {

@@ -21,8 +21,8 @@ export type PaneContentType =
   | 'htmlPreview'
   | 'csvPreview'
   | 'externalEditor'
-  | 'crowbarChat'
   | 'branchReview'
+  | 'agentChat'
 
 // ── Base fields shared by every content type ────────────────────────
 
@@ -104,13 +104,31 @@ export interface ExternalEditorContent extends PaneContentBase {
   terminalConnectionId: string
 }
 
-export interface CrowbarChatContent extends PaneContentBase {
-  type: 'crowbarChat'
+export interface BranchReviewContent extends PaneContentBase {
+  type: 'branchReview'
   wsId: string
 }
 
-export interface BranchReviewContent extends PaneContentBase {
-  type: 'branchReview'
+// An agent-chat tab is a VIEWPORT on a moving target, so BOTH of its identity
+// fields are mutable — see repointAgentChatBuffer (buffer-slice).
+//
+//  - the RUNNER (the vendor-CLI process) moves to another chat when the user types
+//    /clear or /resume inside the CLI: chatId is re-pointed and the tab relabels,
+//    while the terminal — keyed by the runner's unchanged PTY — never remounts.
+//    That is the whole feature: the conversation changes without the terminal
+//    changing.
+//  - a DORMANT chat that is Resumed gets a brand-new runner: runnerId is
+//    re-pointed and the tab re-attaches to that runner's PTY.
+//
+// Neither id is stable for the life of the tab, and pinning either one is exactly
+// the bug this shape replaces (a pane pinned to a chatId showed "this agent has
+// exited" while its CLI was alive and well in another chat).
+export interface AgentChatContent extends PaneContentBase {
+  type: 'agentChat'
+  /** The chat this tab is SHOWING right now. Follows the runner when it moves. */
+  chatId: string
+  /** The runner this tab is FOLLOWING, or '' when the chat is dormant (no CLI). */
+  runnerId: string
   wsId: string
 }
 
@@ -125,8 +143,8 @@ export type PaneContent =
   | HtmlPreviewContent
   | CsvPreviewContent
   | ExternalEditorContent
-  | CrowbarChatContent
   | BranchReviewContent
+  | AgentChatContent
 
 // ── Type guards ─────────────────────────────────────────────────────
 
@@ -154,6 +172,10 @@ export function isBranchReviewContent(c: PaneContent): c is BranchReviewContent 
   return c.type === 'branchReview'
 }
 
+export function isAgentChatContent(c: PaneContent): c is AgentChatContent {
+  return c.type === 'agentChat'
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /** Content types that represent real files on disk and should be persisted to session. */
@@ -165,8 +187,8 @@ export function isPersistableContent(c: PaneContent): c is EditorContent {
 const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set([
   'terminal',
   'newTab',
-  'crowbarChat',
   'branchReview',
+  'agentChat',
 ])
 
 export function isVirtualContent(c: PaneContent): boolean {
@@ -260,14 +282,20 @@ export type OpenContentSpec =
       terminalConnectionId: string
     }
   | {
-      type: 'crowbarChat'
+      type: 'branchReview'
       wsId: string
       name: string
     }
   | {
-      type: 'branchReview'
+      type: 'agentChat'
+      chatId: string
       wsId: string
       name: string
+      /** The runner on the chat at open time, when the caller happens to know it.
+       *  Optional because it is never load-bearing: the pane adopts whatever runner
+       *  its chat actually has, so a tab opened with '' (or with an id that has
+       *  since died) converges on the truth by itself. */
+      runnerId?: string
     }
 
 // ── Buffer history / dialog state (used by workspace store) ─────────

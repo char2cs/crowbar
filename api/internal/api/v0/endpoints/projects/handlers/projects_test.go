@@ -104,18 +104,34 @@ func (b *recordingBroadcaster) push(
 	b.ch <- d
 }
 
-// await blocks until the next broadcast frame or a short deadline, failing the
-// test on timeout so a missing async broadcast surfaces deterministically.
+// await blocks until the background op broadcasts. The frame's arrival IS the
+// signal, so a plain receive is the whole synchronisation; a broadcast that
+// never comes hangs until `go test -timeout` fires and names this test, instead
+// of a two-second guess that reddens under load.
 func (b *recordingBroadcaster) await(
 	t *testing.T,
 ) dto.ProjectDTO {
 	t.Helper()
+	return <-b.ch
+}
+
+// assertNoBroadcast pins a NEGATIVE: the background op broadcast nothing.
+//
+// That claim is only sound once the producing goroutine is provably dead, which
+// no sleep can establish — it merely widens the window a slow goroutine can hide
+// in. h.WaitAsync() blocks until every detached op has fully returned, after
+// which the broadcaster has no writer left and this non-blocking check is exact.
+func assertNoBroadcast(
+	t *testing.T,
+	h *projecthandlers.Handlers,
+	bc *recordingBroadcaster,
+) {
+	t.Helper()
+	h.WaitAsync()
 	select {
-	case d := <-b.ch:
-		return d
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for ProjectDTO broadcast")
-		return dto.ProjectDTO{}
+	case d := <-bc.ch:
+		t.Fatalf("unexpected broadcast from a failed background op: %+v", d)
+	default:
 	}
 }
 
@@ -139,6 +155,19 @@ func newRouterFull(
 	deleter projecthandlers.Deleter,
 	bc *recordingBroadcaster,
 ) *gin.Engine {
+	r, _ := newRouterWithHandlers(reader, importer, deleter, bc)
+	return r
+}
+
+// newRouterWithHandlers is newRouterFull, also returning the Handlers so a test
+// can block on WaitAsync — the real completion signal for the detached
+// background op.
+func newRouterWithHandlers(
+	reader projecthandlers.ListGetter,
+	importer projecthandlers.Importer,
+	deleter projecthandlers.Deleter,
+	bc *recordingBroadcaster,
+) (*gin.Engine, *projecthandlers.Handlers) {
 	r := gin.New()
 	h := projecthandlers.New(reader, importer, deleter, bc.push).WithStat(statOK)
 	rg := r.Group("/v0")
@@ -146,7 +175,7 @@ func newRouterFull(
 	rg.POST("/projects", h.Import)
 	rg.GET("/projects/:projectId", h.Detail)
 	rg.DELETE("/projects/:projectId", h.Delete)
-	return r
+	return r, h
 }
 
 func do(
@@ -355,19 +384,11 @@ func TestImportProject_UsecaseError_NoBroadcast(
 ) {
 	importer := &fakeImporter{err: errors.New("boom")}
 	bc := newRecordingBroadcaster()
-	rec := do(
-		newRouterFull(&fakeReader{}, importer, &fakeDeleter{}, bc),
-		http.MethodPost,
-		"/v0/projects",
-		`{"name":"gamma","path":"/g"}`,
-	)
+	r, h := newRouterWithHandlers(&fakeReader{}, importer, &fakeDeleter{}, bc)
+	rec := do(r, http.MethodPost, "/v0/projects", `{"name":"gamma","path":"/g"}`)
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
-	select {
-	case d := <-bc.ch:
-		t.Fatalf("unexpected broadcast on failed import: %+v", d)
-	case <-time.After(100 * time.Millisecond):
-	}
+	assertNoBroadcast(t, h, bc)
 }
 
 // TestDeleteProject_Returns202_TombstoneDTO pins that a valid delete returns 202
@@ -421,17 +442,11 @@ func TestDeleteProject_UsecaseError_NoBroadcast(
 ) {
 	deleter := &fakeDeleter{err: errors.New("boom")}
 	bc := newRecordingBroadcaster()
-	rec := do(
-		newRouterFull(&fakeReader{get: domain.Project{ID: "p1"}}, &fakeImporter{}, deleter, bc),
-		http.MethodDelete,
-		"/v0/projects/p1",
-		"",
+	r, h := newRouterWithHandlers(
+		&fakeReader{get: domain.Project{ID: "p1"}}, &fakeImporter{}, deleter, bc,
 	)
+	rec := do(r, http.MethodDelete, "/v0/projects/p1", "")
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
-	select {
-	case d := <-bc.ch:
-		t.Fatalf("unexpected broadcast on failed delete: %+v", d)
-	case <-time.After(100 * time.Millisecond):
-	}
+	assertNoBroadcast(t, h, bc)
 }

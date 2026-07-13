@@ -63,6 +63,25 @@ func TestReviewThreadES_Global(t *testing.T) {
 	assert.NotNil(t, c.ReviewThreadES())
 }
 
+// TestAgentChatES_Global mirrors TestReviewThreadES_Global for the additive
+// agentchat per-type plane (Task 9): opening the container must create the
+// event log at state/events/agent_chat.db and the read-model DB at
+// state/store/agent_chat.db, both non-nil.
+func TestAgentChatES_Global(t *testing.T) {
+	home := t.TempDir()
+	c, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	assert.NotNil(t, c.AgentChatES())
+	assert.NotNil(t, c.AgentChatReadDB())
+
+	_, statErr := os.Stat(filepath.Join(home, "state", "events", "agent_chat.db"))
+	assert.NoError(t, statErr, "agent chat event log must exist under state/events/")
+	_, statErr = os.Stat(filepath.Join(home, "state", "store", "agent_chat.db"))
+	assert.NoError(t, statErr, "agent chat read-model db must exist under state/store/")
+}
+
 func TestClose_ClosesAllAndLock(t *testing.T) {
 	home := t.TempDir()
 	c, err := adapter.New(adapter.WithHomeDir(home))
@@ -73,6 +92,8 @@ func TestClose_ClosesAllAndLock(t *testing.T) {
 	require.NotNil(t, c.WorkspaceView())
 	require.NotNil(t, c.ReviewThreadES())
 	require.NotNil(t, c.ReviewThreadView())
+	require.NotNil(t, c.AgentChatES())
+	require.NotNil(t, c.AgentChatReadDB())
 	require.NotNil(t, c.GlobalView())
 
 	require.NoError(t, c.Close())
@@ -126,8 +147,10 @@ func TestContainer_WithHomeDir_IsolatesAllState(t *testing.T) {
 	for _, p := range []string{
 		filepath.Join(home, "state", "events", "workspace.db"),
 		filepath.Join(home, "state", "events", "review_thread.db"),
+		filepath.Join(home, "state", "events", "agent_chat.db"),
 		filepath.Join(home, "state", "store", "workspace.db"),
 		filepath.Join(home, "state", "store", "review_thread.db"),
+		filepath.Join(home, "state", "store", "agent_chat.db"),
 		filepath.Join(home, "state", "view.db"),
 	} {
 		_, statErr := os.Stat(p)
@@ -138,6 +161,8 @@ func TestContainer_WithHomeDir_IsolatesAllState(t *testing.T) {
 	assert.NotNil(t, c.WorkspaceES())
 	assert.NotNil(t, c.WorkspaceView())
 	assert.NotNil(t, c.ReviewThreadView())
+	assert.NotNil(t, c.AgentChatES())
+	assert.NotNil(t, c.AgentChatReadDB())
 }
 
 // TestContainer_WithHomeDir_DoesNotUseEnvHome guards the decision-14 isolation

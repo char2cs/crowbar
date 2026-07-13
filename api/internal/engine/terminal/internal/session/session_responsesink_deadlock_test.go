@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -56,19 +55,16 @@ func TestModelDriven_ResponseSinkNeverWedgesTeardown(t *testing.T) {
 		close(pumped)
 	}()
 
-	// Wait for the pump to finish driving the burst before killing — but only
-	// as far as a real signal allows. On the FIXED code the bounded-queue sink
-	// never blocks the model write, so pumpStep returns and `pumped` closes
-	// promptly and we proceed at once. On the REGRESSED (direct-write) sink
-	// pumpStep wedges holding s.mu while its ptmx.Write blocks on the full
-	// pipe, so `pumped` never closes; the failsafe then lets us launch Kill
-	// anyway, and Kill's own s.mu.Lock deadlocks against the still-held pump —
-	// caught by the 5 s deadline below. The failsafe is a hang guard, not a
-	// timing assumption: the fixed code exits via `pumped`.
-	select {
-	case <-pumped:
-	case <-time.After(2 * time.Second):
-	}
+	// Wait for the pump to finish driving the burst before killing. This is THE assertion, and
+	// it needs no failsafe: on the FIXED code the bounded-queue sink never blocks the model
+	// write, so pumpStep returns and `pumped` closes. On the REGRESSED (direct-write) sink
+	// pumpStep wedges inside its ptmx.Write on the full pipe while HOLDING s.mu — the wedge the
+	// whole test exists to catch — and `pumped` never closes. That is a hang, and `go test
+	// -timeout` reports it with the goroutine dump pointing straight at the blocked
+	// pumpStep/ptmx.Write frame: a strictly better diagnostic than a bespoke "2s elapsed"
+	// fallthrough, which would have gone on to blame the SUBSEQUENT Kill for a deadlock the
+	// pump had already caused.
+	<-pumped
 
 	killed := make(chan struct{})
 	go func() {
@@ -76,16 +72,14 @@ func TestModelDriven_ResponseSinkNeverWedgesTeardown(t *testing.T) {
 		close(killed)
 	}()
 
-	select {
-	case <-killed:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Kill wedged: response-sink ptmx.Write blocked the session lock (C1 deadlock)")
-	}
+	// Block on the real signal. A hand-rolled deadline here would only be a second,
+	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
+	// -timeout` reports it with the blocked stack.
+	<-killed
 
 	// The pump goroutine must also unblock once Kill closes the PTY.
-	select {
-	case <-pumped:
-	case <-time.After(5 * time.Second):
-		t.Fatal("pumpStep never returned after Kill (response-sink deadlock)")
-	}
+	// Block on the real signal. A hand-rolled deadline here would only be a second,
+	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
+	// -timeout` reports it with the blocked stack.
+	<-pumped
 }

@@ -18,10 +18,18 @@ import (
 
 // maxOCCAttempts bounds optimistic-concurrency retries on ErrPipelineFailed
 // (decision 10): with writeMu deleted, concurrent Sends to one thread aggregate
-// can version-collide, so the losers retry — Send re-reads the current version
-// each attempt, so a retry converges. ErrValidation is NEVER retried; ErrQueueFull
-// is surfaced as apperr.ErrUnavailable.
-const maxOCCAttempts = 5
+// version-collide, so the losers retry — Send re-reads the current version each
+// attempt, so a retry converges. ErrValidation is NEVER retried; ErrQueueFull is
+// surfaced as apperr.ErrUnavailable.
+//
+// The bound must exceed the worst-case number of concurrent writers to a single
+// aggregate: asynx (v0.7.0+) enforces real OCC — each version slot is won by
+// exactly one writer, so N contenders converge in at most N attempts (monotonic
+// progress, not timing-dependent). Before v0.7.0 the collision never fired, so
+// this was effectively untested; the ConcurrentReplies stress test (n=32) now
+// exercises it for real. 64 covers any realistic same-thread reply burst with
+// margin; production contention on one thread is a handful.
+const maxOCCAttempts = 64
 
 // BroadcastFunc is an alias for the store-layer broadcast type, exposed so the
 // repositories container can wire it without importing the internal store package.

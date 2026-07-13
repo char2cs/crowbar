@@ -7,6 +7,8 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
   IS_MAC: false,
 }))
 
+// The digit follows the tab's POSITION in the sidebar strip, so Chats — which
+// renders second — is mod+2. Mirrors the registry defaults on purpose.
 vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => ({
     'navigation.sidebarWorkspaces': 'mod+1',
@@ -41,7 +43,7 @@ describe('useSidebarTabKeyboard', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
-  it('switches to chats on Ctrl+2', () => {
+  it('switches to chats on Ctrl+2 — the 2nd tab in the strip', () => {
     renderHook(() => useSidebarTabKeyboard())
     const event = dispatchKeydown({ key: '2', ctrlKey: true })
     expect(setActiveTab).toHaveBeenCalledWith('chats')

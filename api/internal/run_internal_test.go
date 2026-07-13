@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -25,13 +24,12 @@ func TestRun_ServeError_SurfacesNotHangs(t *testing.T) {
 		listener: ln,
 	}
 
+	// Block on Run's own return — the real signal. A 2-second deadline here would
+	// be a guess about how fast a loaded machine schedules a goroutine; if Run
+	// ever regresses to hanging on <-ctx.Done(), this receive never completes and
+	// `go test -timeout` is the backstop that says so.
 	done := make(chan error, 1)
 	go func() { done <- c.Run(context.Background()) }()
 
-	select {
-	case runErr := <-done:
-		require.Error(t, runErr, "Run must surface the Serve failure instead of swallowing it")
-	case <-time.After(2 * time.Second):
-		t.Fatal("Run hung on a Serve failure instead of returning the error")
-	}
+	require.Error(t, <-done, "Run must surface the Serve failure instead of swallowing it")
 }

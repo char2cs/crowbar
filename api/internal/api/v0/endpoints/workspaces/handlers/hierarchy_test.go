@@ -3,7 +3,6 @@ package handlers_test
 import (
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -100,11 +99,9 @@ func TestMergeIntoParentAsyncErrorBroadcastsLastError(
 	rec := do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/child/merge-into-parent", `{"strategy":"merge"}`)
 
 	assert.Equal(t, http.StatusAccepted, rec.Code)
-	select {
-	case <-lastErrors.called:
-	case <-time.After(time.Second):
-		t.Fatal("expected SetLastError to be called for the failed merge")
-	}
+	// The SetLastError call IS the signal that the failed merge surfaced on the
+	// entity; block on it rather than guessing at a duration.
+	<-lastErrors.called
 	assert.Equal(t, "child", lastErrors.gotID)
 }
 
@@ -192,11 +189,9 @@ func TestReparentAsyncErrorBroadcastsLastError(
 	rec := do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/child/reparent", `{"newParentId":"np"}`)
 
 	assert.Equal(t, http.StatusAccepted, rec.Code)
-	select {
-	case <-lastErrors.called:
-	case <-time.After(time.Second):
-		t.Fatal("expected SetLastError to be called for the failed reparent")
-	}
+	// The SetLastError call IS the signal that the failed reparent surfaced on
+	// the entity; block on it rather than guessing at a duration.
+	<-lastErrors.called
 	assert.Equal(t, "child", lastErrors.gotID)
 }
 

@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakePoller records every PollWorkspace call on a channel so tests can
-// synchronise on the per-connection ticker without sleeping.
+// fakePoller records every PollWorkspace call on a channel so tests block on the
+// REAL "a poll happened" signal instead of sleeping.
 type fakePoller struct {
 	calls chan string
 }
@@ -27,84 +27,110 @@ func (f *fakePoller) PollWorkspace(
 	return nil
 }
 
-const testPollInterval = time.Millisecond
+// testPollInterval is deliberately far longer than any test can run: no test
+// waits for the cadence, and no cadence may fire behind a test's back. Cycles are
+// driven explicitly through the injected tick source (pollDriver), so the manager
+// polls exactly when the test says so — never on a clock.
+const testPollInterval = time.Hour
+
+// pollDriver owns the manager's two deterministic seams.
+//
+//   - ticks is UNBUFFERED: sending on it is a rendezvous with the run goroutine,
+//     so the send itself proves a runner is alive and has taken the tick.
+//   - cycles receives once per COMPLETED cycle (the immediate-on-Acquire poll
+//     included), which is the signal a negative assertion needs: "the cycle ran to
+//     completion, and it polled nothing".
+type pollDriver struct {
+	ticks  chan time.Time
+	cycles chan struct{}
+}
+
+func drivePolls(
+	m *ProviderPollManager,
+) *pollDriver {
+	d := &pollDriver{ticks: make(chan time.Time), cycles: make(chan struct{}, 64)}
+	m.driveCyclesForTest(d.ticks, d.cycles)
+	return d
+}
+
+// tick fires exactly one cycle and returns once that cycle has completed.
+func (d *pollDriver) tick() {
+	d.ticks <- time.Time{}
+	<-d.cycles
+}
 
 func TestProviderPollManager_Acquire_StartsPoll(t *testing.T) {
 	p := newFakePoller()
 	m := NewProviderPollManager(context.Background(), testPollInterval, p)
+	d := drivePolls(m)
 	t.Cleanup(m.StopAll)
 
 	m.Acquire("w1")
 
-	select {
-	case got := <-p.calls:
-		assert.Equal(t, "w1", got)
-	case <-time.After(time.Second):
-		t.Fatal("poll was not invoked after Acquire")
-	}
+	assert.Equal(t, "w1", <-p.calls, "Acquire must poll the workspace")
+	<-d.cycles
+
+	// And the cadence keeps polling: one tick, one more poll.
+	d.tick()
+	assert.Equal(t, "w1", <-p.calls, "a cadence tick must poll again")
 }
 
 func TestProviderPollManager_Acquire_PollsImmediately(t *testing.T) {
 	p := newFakePoller()
-	// A long interval ensures the ticker cannot fire within the test window, so
-	// observing a poll proves the immediate-on-Acquire poll, not a ticker tick.
-	// Without it a freshly viewed workspace waits a full interval before its PR
-	// status (and icon) updates.
-	m := NewProviderPollManager(context.Background(), time.Hour, p)
+	m := NewProviderPollManager(context.Background(), testPollInterval, p)
+	// The tick source is never fired below, so the poll observed here CANNOT have
+	// come from the cadence — it is the immediate-on-Acquire poll. Without it a
+	// freshly viewed workspace waits a full interval before its PR status (and
+	// icon) updates.
+	d := drivePolls(m)
 	t.Cleanup(m.StopAll)
 
 	m.Acquire("w1")
 
-	select {
-	case got := <-p.calls:
-		assert.Equal(t, "w1", got)
-	case <-time.After(time.Second):
-		t.Fatal("Acquire did not poll immediately (waited for the interval)")
-	}
+	assert.Equal(t, "w1", <-p.calls)
+	<-d.cycles
 }
 
 func TestProviderPollManager_Release_StopsPoll(t *testing.T) {
 	p := newFakePoller()
 	m := NewProviderPollManager(context.Background(), testPollInterval, p)
+	d := drivePolls(m)
 	t.Cleanup(m.StopAll)
 
 	m.Acquire("w1")
-	<-p.calls // confirm polling started
+	<-p.calls  // polling started
+	<-d.cycles // ... and that cycle finished
+
 	m.Release("w1")
+	m.waitRunnersForTest() // the run goroutine has RETURNED — not "probably has"
 
-	// Drain any in-flight tick already buffered at release time.
-	drainCalls(p.calls)
-
-	select {
-	case <-p.calls:
-		t.Fatal("poll fired after Release stopped the workspace")
-	case <-time.After(20 * time.Millisecond):
-	}
+	// Nothing can poll any more: the only runner is gone and no tick was fired.
+	assert.Empty(t, p.calls, "poll fired after Release stopped the workspace")
 }
 
 func TestProviderPollManager_Refcount(t *testing.T) {
 	p := newFakePoller()
 	m := NewProviderPollManager(context.Background(), testPollInterval, p)
+	d := drivePolls(m)
 	t.Cleanup(m.StopAll)
 
 	m.Acquire("w1")
 	m.Acquire("w1")
 	<-p.calls
+	<-d.cycles
+
 	m.Release("w1") // refs 2 -> 1, still polling
 
-	drainCalls(p.calls)
-
-	select {
-	case got := <-p.calls:
-		assert.Equal(t, "w1", got)
-	case <-time.After(time.Second):
-		t.Fatal("poll stopped despite an outstanding subscriber")
-	}
+	// The tick is a rendezvous: it can only be taken by a LIVE run goroutine, so
+	// completing it proves the poll outlived the release.
+	d.tick()
+	assert.Equal(t, "w1", <-p.calls, "poll stopped despite an outstanding subscriber")
 }
 
 func TestProviderPollManager_BlankWsID_NoOp(t *testing.T) {
 	p := newFakePoller()
 	m := NewProviderPollManager(context.Background(), testPollInterval, p)
+	drivePolls(m)
 	t.Cleanup(m.StopAll)
 
 	m.Acquire("")
@@ -117,22 +143,24 @@ func TestProviderPollManager_BlankWsID_NoOp(t *testing.T) {
 	m.mu.Unlock()
 	assert.Equal(t, 0, count)
 
-	select {
-	case <-p.calls:
-		t.Fatal("blank wsID started a poll")
-	case <-time.After(20 * time.Millisecond):
-	}
+	// No runner was ever started, so no poll can ever be issued — this needs no
+	// waiting at all, let alone a sleep.
+	m.waitRunnersForTest()
+	assert.Empty(t, p.calls, "blank wsID started a poll")
 }
 
 func TestProviderPollManager_StopAll_Idempotent(t *testing.T) {
 	p := newFakePoller()
 	m := NewProviderPollManager(context.Background(), testPollInterval, p)
+	d := drivePolls(m)
 
 	m.Acquire("w1")
 	<-p.calls
+	<-d.cycles
 
 	require.NotPanics(t, m.StopAll)
 	require.NotPanics(t, m.StopAll) // second call is safe
+	m.waitRunnersForTest()
 
 	m.mu.Lock()
 	count := len(m.handles)
@@ -143,6 +171,7 @@ func TestProviderPollManager_StopAll_Idempotent(t *testing.T) {
 func TestProviderPollManager_AcquireAfterClose_NoOp(t *testing.T) {
 	p := newFakePoller()
 	m := NewProviderPollManager(context.Background(), testPollInterval, p)
+	drivePolls(m)
 
 	m.StopAll()
 	m.Acquire("w1")
@@ -152,11 +181,20 @@ func TestProviderPollManager_AcquireAfterClose_NoOp(t *testing.T) {
 	m.mu.Unlock()
 	assert.Equal(t, 0, count)
 
-	select {
-	case <-p.calls:
-		t.Fatal("Acquire after StopAll started a poll")
-	case <-time.After(20 * time.Millisecond):
-	}
+	m.waitRunnersForTest()
+	assert.Empty(t, p.calls, "Acquire after StopAll started a poll")
+}
+
+// TestProviderPollManager_TickSource_DefaultsToIntervalTicker pins the production
+// wiring the seam replaces: with no test source installed, run's cadence channel
+// is a real interval ticker. It asserts the SOURCE, never that it fires — so
+// there is nothing to wait for.
+func TestProviderPollManager_TickSource_DefaultsToIntervalTicker(t *testing.T) {
+	m := NewProviderPollManager(context.Background(), testPollInterval, newFakePoller())
+
+	tickC, stop := m.tickSource()
+	require.NotNil(t, tickC)
+	stop()
 }
 
 // blockingPoller blocks each PollWorkspace on the per-poll context until that
@@ -180,39 +218,32 @@ func (b *blockingPoller) PollWorkspace(
 	return ctx.Err()
 }
 
+// TestProviderPollManager_PollTick_CancelsHungPoll is one of the two tests whose
+// SUBJECT is a timeout, so a clock is intrinsic: the injected 10 ms deadline
+// stands in for the production 30 s pollTimeout. It is not used as
+// synchronisation — every wait below blocks on a real signal (the poller's
+// released channel, the tick's own return).
 func TestProviderPollManager_PollTick_CancelsHungPoll(t *testing.T) {
 	b := newBlockingPoller()
-	m := NewProviderPollManager(context.Background(), time.Hour, b)
+	m := NewProviderPollManager(context.Background(), testPollInterval, b)
 
-	// Drive a single tick directly with a short injected timeout so the test does
-	// not wait the production 30s. The poll blocks on ctx.Done(); the timeout must
-	// fire and unblock it, proving a hung remote cannot wedge the run goroutine.
 	done := make(chan struct{})
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-		defer cancel()
-		m.pollTickWithTimeout(ctx, "w1", 10*time.Millisecond)
-		close(done)
+		defer close(done)
+		m.pollTickWithTimeout(context.Background(), "w1", 10*time.Millisecond)
 	}()
 
-	select {
-	case err := <-b.released:
-		assert.ErrorIs(t, err, context.DeadlineExceeded,
-			"hung poll must be cancelled by the per-poll timeout")
-	case <-time.After(time.Second):
-		t.Fatal("poll was never cancelled — the per-poll timeout did not fire")
-	}
-
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("pollTick did not return after the poll was cancelled")
-	}
+	assert.ErrorIs(t, <-b.released, context.DeadlineExceeded,
+		"hung poll must be cancelled by the per-poll timeout")
+	<-done // pollTick returned once the poll was cancelled
 }
 
+// TestProviderPollManager_PollTick_DecoupledFromConnCtx also has a timeout as its
+// subject (see above): the injected 10 ms deadline must be the ONLY thing that
+// stops the poll, even though the per-connection ctx is already cancelled.
 func TestProviderPollManager_PollTick_DecoupledFromConnCtx(t *testing.T) {
 	b := newBlockingPoller()
-	m := NewProviderPollManager(context.Background(), time.Hour, b)
+	m := NewProviderPollManager(context.Background(), testPollInterval, b)
 
 	// The per-connection ctx is ALREADY cancelled, yet WithoutCancel must let the
 	// poll start (it only stops via its own timeout). This preserves the in-flight
@@ -220,29 +251,15 @@ func TestProviderPollManager_PollTick_DecoupledFromConnCtx(t *testing.T) {
 	connCtx, cancelConn := context.WithCancel(context.Background())
 	cancelConn()
 
-	go m.pollTickWithTimeout(connCtx, "w1", 10*time.Millisecond)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		m.pollTickWithTimeout(connCtx, "w1", 10*time.Millisecond)
+	}()
 
-	select {
-	case err := <-b.released:
-		assert.ErrorIs(t, err, context.DeadlineExceeded,
-			"poll must run under WithoutCancel and stop only on its own timeout")
-	case <-time.After(time.Second):
-		t.Fatal("poll did not start/cancel despite an already-cancelled conn ctx")
-	}
-}
-
-// drainCalls empties any already-buffered calls so a subsequent receive
-// observes only post-drain activity.
-func drainCalls(
-	c chan string,
-) {
-	for {
-		select {
-		case <-c:
-		default:
-			return
-		}
-	}
+	assert.ErrorIs(t, <-b.released, context.DeadlineExceeded,
+		"poll must run under WithoutCancel and stop only on its own timeout")
+	<-done
 }
 
 // ensure fakePoller satisfies the ProviderPoller interface at compile time.

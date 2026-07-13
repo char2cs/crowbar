@@ -8,7 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,6 +27,8 @@ import (
 //
 // Run with: go test -race -count=10 -run TestRestore_ConcurrentAttach ./...
 func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
+	pinShell(t) // the restored shell must announce its readiness with a known prompt
+
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
@@ -72,37 +73,28 @@ func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
 	}
 	close(ready)
 
-	// Wait until the registry entry transitions from "suspended" to live.
-	deadline := time.After(15 * time.Second)
-	for {
-		state, ok := eng.StateOf(sid)
-		if ok && state != "suspended" {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatal("session did not restore within 15s")
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
+	// Block until the restored shell has printed its prompt. The prompt is proof the
+	// placeholder has become a live PTY with a running shell — the state polling StateOf
+	// every 10 ms was trying to detect, but observed at the source rather than inferred from
+	// a registry field. Waiting on conns[0] specifically is enough: the restore is a single
+	// shared event, and the per-conn assertion below is what proves the rest arrived.
+	waitForMsg(t, conns[0], func(d string) bool { return containsStr(d, shellPrompt) })
+	state, ok := eng.StateOf(sid)
+	require.True(t, ok)
+	require.NotEqual(t, "suspended", state, "the session must be live once its shell has prompted")
 
 	// Write the probe to the live session. Only goroutines attached to the live
 	// session will receive it — goroutines frozen on the placeholder will not.
 	require.NoError(t, eng.Write(ctx, sid, []byte("echo "+liveProbe+"\n")))
 
-	// Wait until EVERY goroutine's connection has received the live probe, then
-	// close. This is exactly the observable the final assertion checks (a goroutine
-	// frozen on the placeholder never receives it), so gate on it deterministically
-	// rather than sleeping for propagation.
-	require.Eventually(t, func() bool {
-		for _, c := range conns {
-			if !connReceived(c, liveProbe) {
-				return false
-			}
-		}
-		return true
-	}, 15*time.Second, 20*time.Millisecond,
-		"all goroutines must receive the live PTY probe")
+	// Block until EVERY goroutine's connection has received the live probe. Each wait ends
+	// on that conn's own fan-out signal, which is precisely the observable the test is about
+	// (a goroutine frozen on the placeholder never receives it), so a conn that never gets
+	// the probe hangs here and is reported by the -timeout backstop — the very failure the
+	// test exists to catch.
+	for _, c := range conns {
+		waitForMsg(t, c, func(d string) bool { return containsStr(d, liveProbe) })
+	}
 	for _, c := range conns {
 		c.Close()
 	}
@@ -141,6 +133,8 @@ func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
 // suspending==true and skips cleanup → session stays in registry and
 // OnSessionEnded never fires.
 func TestKill_vs_Suspend_Serialized(t *testing.T) {
+	pinShell(t)
+
 	const rounds = 10
 	for round := 0; round < rounds; round++ {
 		eng := terminal.New()
@@ -154,18 +148,9 @@ func TestKill_vs_Suspend_Serialized(t *testing.T) {
 			atomic.AddInt64(&endedCount, 1)
 		})
 
-		sid, err := eng.Create(ctx, "ws-ks", store.dir, nil)
-		require.NoError(t, err)
-
-		// Wait for the shell to become idle so Suspend is eligible.
-		deadline := time.After(15 * time.Second)
-		for !terminal.IsIdleForTest(eng, sid) {
-			select {
-			case <-deadline:
-				t.Fatalf("round %d: session never became idle", round)
-			case <-time.After(50 * time.Millisecond):
-			}
-		}
+		// The shell must be at its prompt (hence idle) for Suspend to be eligible — that is
+		// the precondition of the race under test, so it is established by observation.
+		sid := newReadyShell(t, eng, "ws-ks", store.dir)
 
 		// Race Kill vs Suspend on the same idle session.
 		var wg sync.WaitGroup
@@ -199,19 +184,18 @@ func TestKill_vs_Suspend_Serialized(t *testing.T) {
 		assert.False(t, eng.SessionExists(ctx, sid),
 			"round %d: session must not exist after final cleanup", round)
 
-		// reapOnDone fires OnSessionEnded asynchronously (fireEnded is guarded to
-		// fire exactly once per session id). Wait for that single fire
-		// deterministically instead of sleeping.
-		require.Eventually(t, func() bool {
-			return atomic.LoadInt64(&endedCount) == 1
-		}, 5*time.Second, 10*time.Millisecond,
-			"round %d: OnSessionEnded must fire exactly once", round)
-
-		got := atomic.LoadInt64(&endedCount)
-		assert.Equal(t, int64(1), got,
-			"round %d: OnSessionEnded must fire exactly once", round)
-
+		// reapOnDone fires OnSessionEnded from its own goroutine. Rather than poll for that
+		// fire, JOIN the goroutine: Shutdown drains every outstanding reaper before it
+		// returns, so once it has, the ended count is final and cannot change again.
+		//
+		// That makes the assertion exact in BOTH directions, which an Eventually could never
+		// be: it proves the callback fired, and — because no reaper is still running — that
+		// it fired exactly ONCE. The old Eventually returned the instant the count hit 1 and
+		// would have been blind to a second, duplicate fire arriving a moment later.
 		eng.Shutdown()
+
+		assert.Equal(t, int64(1), atomic.LoadInt64(&endedCount),
+			"round %d: OnSessionEnded must fire exactly once", round)
 	}
 }
 
@@ -326,86 +310,82 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			pinShell(t)
+
 			eng := terminal.New()
 			terminal.StopMaintenanceForTest(eng)
 			ctx := context.Background()
 			store := newGatedMetaStore(t)
 			eng.SetMetaStore(store)
 
-			sid, err := eng.Create(ctx, "ws-reap", store.dir, nil)
-			require.NoError(t, err)
+			// reapOnDone fires OnSessionEnded LAST — after reg.Remove, DeleteBuf and
+			// deleteMeta. So this callback is the exact "fully reaped, everything deleted"
+			// signal, and blocking on it below replaces both a registry poll and an
+			// Eventually over the filesystem.
+			reaped := make(chan struct{})
+			eng.OnSessionEnded(func(_ context.Context, _, _ string, _ int) { close(reaped) })
 
-			// Wait for the shell to become idle (prompt drawn, ready for input).
-			waitUntil(t, 15*time.Second, func() bool { return terminal.IsIdleForTest(eng, sid) },
-				"session never became idle")
+			// Block until the shell is at its prompt (drawn, idle, ready for input).
+			sid := newReadyShell(t, eng, "ws-reap", store.dir)
 
-			// Attach a real client and wait until the session is active.
+			// Attach a real client. The first frame the conn receives is Attach's snapshot
+			// keyframe, so receiving anything at all proves the client is attached and
+			// streaming — the observable that polling StateOf=="active" was approximating.
 			conn := newMockConn()
 			attachDone := make(chan struct{})
 			go func() {
 				defer close(attachDone)
 				_ = eng.Attach(ctx, sid, conn)
 			}()
-			waitUntil(t, 10*time.Second, func() bool {
-				state, ok := eng.StateOf(sid)
-				return ok && state == "active"
-			}, "client never attached")
+			waitForMsg(t, conn, func(d string) bool { return len(d) > 0 })
+			state, ok := eng.StateOf(sid)
+			require.True(t, ok)
+			require.Equal(t, "active", state, "a session with a streaming client is active")
 
-			// Drive output so the model is dirty (so the cadence flush persists), then
-			// wait until the shell has echoed it and returned to its idle prompt — a
-			// deterministic signal that the model is dirty and the shell is ready,
-			// replacing a blind sleep.
-			require.NoError(t, eng.Write(ctx, sid, []byte("echo reap-probe-line\n")))
-			require.True(t, waitForMsg(t, conn, func(d string) bool {
-				return containsStr(d, "reap-probe-line")
-			}, 10*time.Second), "shell must echo the probe (model dirty) before parking the writer")
-			waitUntil(t, 10*time.Second, func() bool { return terminal.IsIdleForTest(eng, sid) },
-				"shell did not return to idle after echoing the probe")
+			// Drive output so the model is dirty (so the cadence flush has something to
+			// persist). runShell returns only once the command's output AND the following
+			// prompt are through the pump — i.e. the model is dirty AND the shell is back at
+			// its prompt, both established by observation rather than by two separate polls.
+			runShell(t, eng, sid, "echo reap-probe-line")
+
+			// Capture the death channel BEFORE the exit: it is the session's own signal, and
+			// reapOnDone will shortly remove the session from the registry, after which it
+			// could no longer be looked up.
+			shellDead := terminal.SessionDoneForTest(eng, sid)
+			require.NotNil(t, shellDead)
 
 			// Install the late writer; it parks at StorageDir holding the
 			// per-session lock (under the fix), having passed all liveness checks.
 			writerDone := tc.park(t, eng, store, conn, sid)
 
-			// Wait until the writer is actually parked on the gate.
-			select {
-			case <-store.blockedCh():
-			case <-time.After(10 * time.Second):
-				t.Fatal("late writer never parked on StorageDir gate")
-			}
+			// Block until the writer is actually parked on the gate. blockedCh is a real
+			// signal from the gate itself; it needed no 10-second deadline beside it.
+			<-store.blockedCh()
 
 			// Now self-exit the shell. reapOnDone fires: on unfixed code it runs
 			// to completion (DeleteBuf+deleteMeta); under the fix it blocks on
 			// e.lockSession held by the parked writer.
 			_ = eng.Write(ctx, sid, []byte("exit\n"))
 
-			// Wait until the shell has actually exited: once the PTY dies the session
-			// is no longer idle (TIOCGPGRP errors). This is the deterministic point at
-			// which reapOnDone has unblocked from <-s.Done() and is now racing to clean
-			// up (unfixed) or blocked on the per-session lock held by the parked writer
-			// (the fix) — replacing the previous fixed 400ms sleep.
-			waitUntil(t, 10*time.Second, func() bool { return !terminal.IsIdleForTest(eng, sid) },
-				"shell did not exit after `exit`")
+			// Block until the shell has actually exited. The session's done channel closes
+			// when the PTY dies — that IS the event, so we wait on it directly instead of
+			// polling IsIdle and reading its TIOCGPGRP error as a proxy for death. This is
+			// the point at which reapOnDone has unblocked from <-s.Done() and is either
+			// racing to clean up (unfixed) or blocked on the per-session lock held by the
+			// parked writer (the fix).
+			<-shellDead
 
 			// Release the parked write. On unfixed code this WriteBuf+saveMeta
 			// lands after reap already deleted everything → resurrection.
 			store.releaseGate()
 			<-writerDone
 
-			// Wait until the session is reaped out of the registry.
-			waitUntil(t, 10*time.Second, func() bool { return !eng.SessionExists(ctx, sid) },
-				"session not reaped from registry")
+			// Block until reapOnDone has completed its cleanup. OnSessionEnded is its final
+			// act, so when this returns the registry entry is gone and DeleteBuf/deleteMeta
+			// have already run — the two facts asserted below.
+			<-reaped
 			<-attachDone
 			conn.Close()
-
-			// reapOnDone removes the registry entry slightly BEFORE it finishes
-			// DeleteBuf + deleteMeta, so wait deterministically until the buf and meta
-			// row are actually gone (and stay gone — a resurrecting write would keep
-			// them present, failing this) instead of a settle sleep.
-			require.Eventually(t, func() bool {
-				b, _ := persistence.ReadBuf(store.dir, sid)
-				return b == nil && !store.hasLiveRow(sid)
-			}, 10*time.Second, 20*time.Millisecond,
-				".buf and meta row must be deleted by reapOnDone (no resurrection)")
 
 			assert.False(t, eng.SessionExists(ctx, sid),
 				"registry must not contain the reaped session")
@@ -452,21 +432,12 @@ func connReceived(c *mockConn, sub string) bool {
 	return false
 }
 
-// waitUntil polls cond every 10ms until it is true or the timeout elapses.
-func waitUntil(t *testing.T, timeout time.Duration, cond func() bool, msg string) {
-	t.Helper()
-	deadline := time.After(timeout)
-	for {
-		if cond() {
-			return
-		}
-		select {
-		case <-deadline:
-			t.Fatal(msg)
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
-}
+// waitUntil — a generic "poll cond every 10 ms until a timeout" helper — is deliberately
+// gone. Every one of its callers was waiting for a specific event that the engine already
+// signals: the shell reaching its prompt (waitPrompt), a client receiving a frame
+// (waitForMsg), the PTY dying (SessionDoneForTest), a session being fully reaped
+// (OnSessionEnded), a gate being reached (gatedMetaStore.blockedCh). Each now blocks on
+// that signal, so none of them can wake early on a stale read or expire under load.
 
 // TestFlush_Serialized_NewestWins verifies that two concurrent cadence-flush
 // triggers via RunMaintenanceOnceForTest do not corrupt the scrollback and that
@@ -474,21 +445,21 @@ func waitUntil(t *testing.T, timeout time.Duration, cond func() bool, msg string
 // every flush site holds s.FlushMu() across Snapshot+WriteBuf so concurrent
 // callers are serialized and the newest snapshot always wins.
 func TestFlush_Serialized_NewestWins(t *testing.T) {
+	pinShell(t)
+
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
 
-	sid, err := eng.Create(ctx, "ws-flush", store.dir, nil)
-	require.NoError(t, err)
+	sid := newReadyShell(t, eng, "ws-flush", store.dir)
 
-	// Drive output so the model is dirty: the next Snapshot() returns
-	// (blob, changed=true), which gates the cadence flush so it persists.
-	require.NoError(t, eng.Write(ctx, sid, []byte("echo flush-test-output\n")))
-	// Wait until the shell has emitted output so the model is dirty: the next
-	// Snapshot() returns changed=true, which gates the cadence flush so it persists.
-	waitForModelOutput(t, eng, sid, 10*time.Second)
+	// Drive output so the model is dirty: the next Snapshot() returns (blob, changed=true),
+	// which gates the cadence flush so it persists. runShell blocks until that output has
+	// actually been through the pump, so the racing sweeps below are guaranteed to find a
+	// dirty session — rather than merely being likely to.
+	runShell(t, eng, sid, "echo flush-test-output")
 
 	// Two concurrent maintenance sweeps race the cadence-flush path.
 	// Under -race the detector will flag any data race if flushMu is absent.

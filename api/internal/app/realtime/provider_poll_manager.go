@@ -39,6 +39,16 @@ type ProviderPollManager struct {
 	mu       sync.Mutex
 	handles  map[string]*providerPollHandle
 	closed   bool
+
+	// runners tracks the live run goroutines. Cancelling a context only ASKS a
+	// runner to stop; runners.Wait is the real "it has stopped" signal, which
+	// tests block on (waitRunnersForTest) instead of sleeping.
+	runners sync.WaitGroup
+
+	// ticks and cycleDone are the deterministic test seams installed by
+	// driveCyclesForTest; both are nil in production. See tickSource/notifyCycle.
+	ticks     <-chan time.Time
+	cycleDone chan<- struct{}
 }
 
 // pollTimeout bounds a single PollWorkspace invocation. The chain runs network
@@ -88,6 +98,7 @@ func (m *ProviderPollManager) Acquire(
 	}
 	ctx, cancel := context.WithCancel(m.root)
 	m.handles[wsID] = &providerPollHandle{refs: 1, cancel: cancel}
+	m.runners.Add(1)
 	m.mu.Unlock()
 
 	go m.run(ctx, wsID)
@@ -140,6 +151,7 @@ func (m *ProviderPollManager) run(
 	ctx context.Context,
 	wsID string,
 ) {
+	defer m.runners.Done()
 	defer safego.Recover("realtime.providerPoll.run")
 	// Poll once immediately on the 0->1 subscriber transition so a freshly viewed
 	// workspace's PR status (and sidebar icon) updates within ~1s instead of after
@@ -149,19 +161,83 @@ func (m *ProviderPollManager) run(
 		return
 	default:
 		m.pollTick(ctx, wsID)
+		m.notifyCycle(ctx)
 	}
 
-	ticker := time.NewTicker(m.interval)
-	defer ticker.Stop()
+	tickC, stopTicker := m.tickSource()
+	defer stopTicker()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-tickC:
 			m.pollTick(ctx, wsID)
+			m.notifyCycle(ctx)
 		}
 	}
+}
+
+// tickSource returns the cadence channel run listens on, plus its stop func. In
+// production that is a real interval ticker. A test installs its own source
+// (driveCyclesForTest) so a cycle happens exactly when the test fires one and the
+// background cadence can never race the test — the same discipline as
+// engine/terminal's StopMaintenanceForTest + RunMaintenanceOnceForTest. Sleeping
+// for the production poll interval is not an option, and shrinking the interval
+// to "small enough" would only trade a slow test for a flaky one.
+func (m *ProviderPollManager) tickSource() (<-chan time.Time, func()) {
+	m.mu.Lock()
+	ticks := m.ticks
+	m.mu.Unlock()
+
+	if ticks != nil {
+		return ticks, func() {}
+	}
+	ticker := time.NewTicker(m.interval)
+	return ticker.C, ticker.Stop
+}
+
+// notifyCycle signals the installed test seam that one full poll cycle has
+// finished. It is the REAL end-of-cycle signal a test blocks on to assert that
+// NOTHING happened — an assertion that would otherwise need a sleep, which is a
+// guess. It is a no-op in production, and it gives up on ctx cancellation so a
+// runner can never be wedged by it.
+func (m *ProviderPollManager) notifyCycle(
+	ctx context.Context,
+) {
+	m.mu.Lock()
+	done := m.cycleDone
+	m.mu.Unlock()
+
+	if done == nil {
+		return
+	}
+	select {
+	case done <- struct{}{}:
+	case <-ctx.Done():
+	}
+}
+
+// driveCyclesForTest installs the deterministic test seams; it must be called
+// before Acquire. ticks replaces the interval ticker (so no cycle ever happens
+// unless the test fires one) and cycleDone receives one value after every
+// completed cycle, the immediate-on-Acquire poll included.
+func (m *ProviderPollManager) driveCyclesForTest(
+	ticks <-chan time.Time,
+	cycleDone chan<- struct{},
+) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ticks = ticks
+	m.cycleDone = cycleDone
+}
+
+// waitRunnersForTest blocks until every run goroutine started by Acquire has
+// actually returned. Release/StopAll only cancel a context; this is the real
+// signal that the poll has stopped, so a test can assert "nothing fires after
+// Release" without a sleep.
+func (m *ProviderPollManager) waitRunnersForTest() {
+	m.runners.Wait()
 }
 
 // pollTick issues a single PollWorkspace on a context.WithoutCancel-derived,

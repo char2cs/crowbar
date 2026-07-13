@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -60,16 +59,24 @@ func dial(
 	return conn
 }
 
-func read(
+// readItem blocks until the next frame arrives, then decodes it.
+//
+// There is deliberately NO read deadline. The arrival of the frame IS the
+// signal, so a blocking read is the honest instrument: it returns the instant
+// the broadcaster delivers, however loaded the machine is. A frame that never
+// arrives hangs until `go test -timeout` fires, which fails the run with a full
+// goroutine dump pointing at the stuck reader — strictly better diagnostics than
+// a 2-second guess that turns a slow machine into a red build.
+func readItem(
 	t *testing.T,
 	conn *websocket.Conn,
-	v any,
-) {
+) item {
 	t.Helper()
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(msg, v))
+	var got item
+	require.NoError(t, json.Unmarshal(msg, &got))
+	return got
 }
 
 func TestBroadcaster_Push_DeliversToClient(t *testing.T) {
@@ -79,9 +86,7 @@ func TestBroadcaster_Push_DeliversToClient(t *testing.T) {
 
 	b.Push(item{Name: "alpha", Kind: "fruit"})
 
-	var got item
-	read(t, conn, &got)
-	assert.Equal(t, "alpha", got.Name)
+	assert.Equal(t, "alpha", readItem(t, conn).Name)
 }
 
 func TestBroadcaster_Push_FieldFilter(t *testing.T) {
@@ -92,9 +97,7 @@ func TestBroadcaster_Push_FieldFilter(t *testing.T) {
 	b.Push(item{Name: "carrot", Kind: "veg"})
 	b.Push(item{Name: "apple", Kind: "fruit"})
 
-	var got item
-	read(t, conn, &got)
-	assert.Equal(t, "apple", got.Name)
+	assert.Equal(t, "apple", readItem(t, conn).Name)
 }
 
 func TestBroadcaster_NamespaceGlob(t *testing.T) {
@@ -105,9 +108,7 @@ func TestBroadcaster_NamespaceGlob(t *testing.T) {
 	b.Push(item{Name: "beta", Kind: "fruit"})
 	b.Push(item{Name: "alpha", Kind: "fruit"})
 
-	var got item
-	read(t, conn, &got)
-	assert.Equal(t, "alpha", got.Name)
+	assert.Equal(t, "alpha", readItem(t, conn).Name)
 }
 
 func TestBroadcaster_SnapshotOnSubscribe(t *testing.T) {
@@ -119,9 +120,7 @@ func TestBroadcaster_SnapshotOnSubscribe(t *testing.T) {
 	conn := dial(t, srv, "/items")
 	b.WaitRegistered()
 
-	var got item
-	read(t, conn, &got)
-	assert.Equal(t, "seed", got.Name)
+	assert.Equal(t, "seed", readItem(t, conn).Name)
 }
 
 // TestBroadcaster_ScopedSnapshot asserts the connecting client's hierarchical
@@ -147,9 +146,7 @@ func TestBroadcaster_ScopedSnapshot(t *testing.T) {
 	conn := dial(t, srv, "/p/p1/r/r1/w/w1/items")
 	b.WaitNRegistered(1)
 
-	var got item
-	read(t, conn, &got)
-	assert.Equal(t, "p1/r1/w1", got.Name)
+	assert.Equal(t, "p1/r1/w1", readItem(t, conn).Name)
 	assert.Equal(t, "p1/r1/w1", <-gotScope)
 }
 
@@ -192,36 +189,18 @@ func TestBroadcaster_PrefixNamespace_RepoScopedReceivesChildren(t *testing.T) {
 	b.WaitNRegistered(1)
 
 	// Sibling-repo event must be filtered out; both child-workspace events under
-	// the subscribed repo must arrive, in order.
+	// the subscribed repo must arrive, in order. The filtered event is proven
+	// dropped by ordering, not by a clock: the client's send channel and its
+	// writePump are strictly FIFO, so a wrongly-admitted "p1/r2/w1" could only
+	// arrive BEFORE the first child.
 	b.Push(item{Name: "p1/r2/w1", Kind: "fruit"})
 	b.Push(item{Name: "p1/r1/w1", Kind: "fruit"})
 	b.Push(item{Name: "p1/r1/w2", Kind: "fruit"})
 
-	first, ok := readItem(t, conn)
-	require.True(t, ok)
-	assert.Equal(t, "p1/r1/w1", first.Name, "sibling-repo event must be filtered, first child must arrive")
-
-	second, ok := readItem(t, conn)
-	require.True(t, ok)
-	assert.Equal(t, "p1/r1/w2", second.Name, "second child-workspace event must arrive")
-}
-
-// readItem reads one frame with a deadline and decodes it, returning false on
-// any read error so callers can loop until an expected count is reached without
-// a fixed sleep.
-func readItem(
-	t *testing.T,
-	conn *websocket.Conn,
-) (item, bool) {
-	t.Helper()
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, msg, err := conn.ReadMessage()
-	if err != nil {
-		return item{}, false
-	}
-	var got item
-	require.NoError(t, json.Unmarshal(msg, &got))
-	return got, true
+	assert.Equal(t, "p1/r1/w1", readItem(t, conn).Name,
+		"sibling-repo event must be filtered, first child must arrive")
+	assert.Equal(t, "p1/r1/w2", readItem(t, conn).Name,
+		"second child-workspace event must arrive")
 }
 
 // A snapshot larger than the cl.send buffer (64) must be delivered in full: the
@@ -240,11 +219,12 @@ func TestBroadcaster_Snapshot_LargerThanBuffer_NoTruncation(t *testing.T) {
 	conn := dial(t, srv, "/items?kind=fruit")
 	b.WaitRegistered()
 
+	// Blocking reads: a truncated snapshot stops delivering and the read hangs
+	// until `go test -timeout` fires, naming this test. No deadline is needed to
+	// turn truncation into a failure.
 	seen := make(map[string]struct{}, total)
 	for len(seen) < total {
-		got, ok := readItem(t, conn)
-		require.Truef(t, ok, "stopped after %d/%d snapshot frames (truncation)", len(seen), total)
-		seen[got.Name] = struct{}{}
+		seen[readItem(t, conn).Name] = struct{}{}
 	}
 	assert.Len(t, seen, total)
 }
@@ -263,9 +243,8 @@ func TestBroadcaster_Snapshot_FilteredByPredicate(t *testing.T) {
 	conn := dial(t, srv, "/items?kind=fruit")
 	b.WaitRegistered()
 
-	got, ok := readItem(t, conn)
-	require.True(t, ok)
-	assert.Equal(t, "fruit1", got.Name, "only matching snapshot frames should arrive")
+	assert.Equal(t, "fruit1", readItem(t, conn).Name,
+		"only matching snapshot frames should arrive")
 }
 
 // A snapshot item that fails to serialize is skipped; the remaining items are
@@ -293,9 +272,8 @@ func TestBroadcaster_Snapshot_SerializeErrorSkipped(t *testing.T) {
 	conn := dial(t, srv, "/items?kind=fruit")
 	b.WaitRegistered()
 
-	got, ok := readItem(t, conn)
-	require.True(t, ok)
-	assert.Equal(t, "good", got.Name, "non-failing snapshot frames must still arrive")
+	assert.Equal(t, "good", readItem(t, conn).Name,
+		"non-failing snapshot frames must still arrive")
 }
 
 // The snapshot frames must precede live frames on the wire even when the snapshot
@@ -317,22 +295,32 @@ func TestBroadcaster_Snapshot_PrecedesLive(t *testing.T) {
 	b.Push(item{Name: "live", Kind: "fruit"})
 
 	for i := 0; i < total; i++ {
-		got, ok := readItem(t, conn)
-		require.Truef(t, ok, "missing snapshot frame %d before live", i)
-		require.NotEqual(t, "live", got.Name, "live frame arrived before snapshot completed")
+		require.NotEqualf(t, "live", readItem(t, conn).Name,
+			"live frame arrived before snapshot frame %d", i)
 	}
-	got, ok := readItem(t, conn)
-	require.True(t, ok)
-	assert.Equal(t, "live", got.Name, "live frame must follow all snapshot frames")
+	assert.Equal(t, "live", readItem(t, conn).Name,
+		"live frame must follow all snapshot frames")
 }
 
 // A live Push to a DIFFERENT client must not be blocked while a client with a
 // slow/large snapshot connects: the broadcaster lock is not held during snapshot
-// compute. Timing-free: the snapshot func signals it is running and blocks until
-// released; meanwhile a Push to an already-connected client must complete.
+// compute.
+//
+// The instrument is a handshake, not a clock. The snapshot func parks inside
+// Snapshot() (holding no broadcaster lock) until `release` is closed, and
+// `release` is closed only by the deferred cleanup — i.e. strictly AFTER the
+// assertion below. So a Push that genuinely needed b.mu could never reach
+// close(pushed), and `<-pushed` would block forever. That is the real signal:
+// the test passes the instant the concurrent Push completes, and a regression
+// deadlocks into `go test -timeout`, which dumps both goroutines showing Push
+// parked on b.mu.RLock while snapshotFor holds it — a far better diagnosis than
+// any duration a 30-second guess could have produced.
 func TestBroadcaster_Snapshot_DoesNotBlockConcurrentPush(t *testing.T) {
 	running := make(chan struct{})
 	release := make(chan struct{})
+	// Deferred, so the parked snapshot goroutine is always freed — including when
+	// an assertion below fails and the test returns early.
+	defer close(release)
 	var armed atomic.Bool
 
 	def := itemDef()
@@ -355,29 +343,16 @@ func TestBroadcaster_Snapshot_DoesNotBlockConcurrentPush(t *testing.T) {
 	go func() { _ = dial(t, srv, "/items?kind=fruit") }()
 	<-running // second client is inside Snapshot(), NOT holding b.mu
 
-	// Push to the first client must succeed while the second is mid-snapshot.
+	// Push to the first client must complete while the second is mid-snapshot.
 	pushed := make(chan struct{})
 	go func() {
 		b.Push(item{Name: "concurrent", Kind: "fruit"})
 		close(pushed)
 	}()
 
-	select {
-	case <-pushed:
-	// Generous deadline: a genuinely lock-blocked Push deadlocks until `release`
-	// (closed only after this select), so it fails regardless of the duration —
-	// the timeout only exists to bound the test, and must be long enough that a
-	// merely scheduler-starved Push goroutine under a saturated -race run is not
-	// mistaken for a blocked one.
-	case <-time.After(30 * time.Second):
-		t.Fatal("Push blocked while another client computed its snapshot under lock")
-	}
+	<-pushed // the real signal: Push returned without needing the snapshot's lock
 
-	got, ok := readItem(t, first)
-	require.True(t, ok)
-	assert.Equal(t, "concurrent", got.Name)
-
-	close(release)
+	assert.Equal(t, "concurrent", readItem(t, first).Name)
 }
 
 func TestBroadcaster_UpgradeRejectsNonWS(t *testing.T) {
@@ -397,16 +372,32 @@ func TestBroadcaster_SlowConsumer_DoesNotBlock(t *testing.T) {
 	}
 }
 
+// An event whose Serialize fails is never delivered.
+//
+// "Nothing arrives" cannot be established by waiting — a 100ms read deadline
+// only proves nothing arrived within 100ms. It is established here by ORDERING:
+// a following event that DOES serialize must be the very FIRST frame the client
+// receives. The client's send channel and its writePump are strictly FIFO, so a
+// wrongly-delivered unserializable frame could only ever arrive BEFORE the
+// sentinel. Reading the sentinel first is therefore a positive, deterministic
+// proof that the bad frame was skipped.
 func TestBroadcaster_SerializationError_SkipsDelivery(t *testing.T) {
 	def := ws.StreamDef[item]{
 		Namespace: func(i item) string { return i.Name },
-		Serialize: func(i item) ([]byte, error) { return nil, fmt.Errorf("boom") },
+		Serialize: func(i item) ([]byte, error) {
+			if i.Kind == "unserializable" {
+				return nil, fmt.Errorf("boom")
+			}
+			return json.Marshal(i)
+		},
 	}
 	b, srv := setup(t, def)
 	conn := dial(t, srv, "/items")
 	b.WaitRegistered()
-	b.Push(item{Name: "x"})
-	_ = conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-	_, _, err := conn.ReadMessage()
-	assert.Error(t, err)
+
+	b.Push(item{Name: "dropped", Kind: "unserializable"})
+	b.Push(item{Name: "sentinel", Kind: "ok"})
+
+	assert.Equal(t, "sentinel", readItem(t, conn).Name,
+		"the unserializable event must be skipped, not delivered")
 }

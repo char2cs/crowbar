@@ -22,14 +22,13 @@ import {
 
 import { EmptyEditorState } from './empty-editor-state'
 import { BOTTOM_PANE_ID } from '../constants/pane'
-import { useActivePaneId, usePaneActions } from '@/features/workspace/stores/hooks/use-pane-store'
+import {
+  useActivePaneId,
+  usePaneActions,
+  useVisiblePaneCount,
+} from '@/features/workspace/stores/hooks/use-pane-store'
 import type { PaneGroup } from '../types/pane'
-import type {
-  BranchReviewContent,
-  CrowbarChatContent,
-  EditorContent,
-  NewTabContent,
-} from '../types/pane-content'
+import type { BranchReviewContent, EditorContent, NewTabContent } from '../types/pane-content'
 import {
   ensureBufferInPaneDropTarget,
   moveBufferToPaneDropTarget,
@@ -40,11 +39,6 @@ import { type DropZone, SplitDropOverlay } from './split-drop-overlay'
 const ExternalEditorTerminal = lazy(() =>
   import('@/features/editor/components/external-editor-terminal').then((m) => ({
     default: m.ExternalEditorTerminal,
-  })),
-)
-const MarkdownChatView = lazy(() =>
-  import('@/features/markdown-chat/components/markdown-chat-view').then((m) => ({
-    default: m.MarkdownChatView,
   })),
 )
 const BranchReviewPane = lazy(() =>
@@ -66,6 +60,11 @@ const HtmlPreview = lazy(() =>
   })),
 )
 const CsvPreview = lazy(() => import('@/extensions/viewers/csv/csv-preview'))
+const AgentChatPane = lazy(() =>
+  import('@/features/agent/components/agent-chat-pane').then((m) => ({
+    default: m.AgentChatPane,
+  })),
+)
 import { EditorPane } from './editor-pane'
 import { TerminalPane } from './terminal-pane'
 import { DiffPane } from './diff-pane'
@@ -105,9 +104,14 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
   const isActivePane = pane.id === activePaneId
+
+  // The active-pane ring answers "which of these has focus" — a question that only
+  // exists when there is more than one pane on screen. With a single pane it marks the
+  // only thing you could possibly be looking at, so it is pure decoration.
+  const visiblePaneCount = useVisiblePaneCount()
   const paneContentStyle = useMemo(
-    () => buildPaneContentStyle(position, sidebarPosition, isActivePane),
-    [position, sidebarPosition, isActivePane],
+    () => buildPaneContentStyle(position, sidebarPosition, isActivePane && visiblePaneCount > 1),
+    [position, sidebarPosition, isActivePane, visiblePaneCount],
   )
 
   const [isDragOver, setIsDragOver] = useState(false)
@@ -489,11 +493,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
             />
           )
 
-        case 'crowbarChat':
-          // CrowbarChatContent.wsId historically holds the *chat* id — chat
-          // buffers are opened with the sidebar chat's id (see chat-tree.tsx).
-          return <MarkdownChatView chatId={(buffer as CrowbarChatContent).wsId} />
-
         case 'branchReview':
           return (
             <BranchReviewPane
@@ -501,6 +500,22 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
               isActivePane={isActivePane}
             />
           )
+
+        case 'agentChat': {
+          // Both ids are fed straight back from the buffer, and the pane writes both
+          // back through it (repointAgentChatBuffer) — that loop is what makes the tab
+          // follow its runner when the CLI changes conversation.
+          const c = buffer as import('../types/pane-content').AgentChatContent
+          return (
+            <AgentChatPane
+              chatId={c.chatId}
+              runnerId={c.runnerId}
+              wsId={c.wsId}
+              bufferId={c.id}
+              isActivePane={isActivePane}
+            />
+          )
+        }
 
         case 'markdownPreview':
           return <MarkdownPreview />

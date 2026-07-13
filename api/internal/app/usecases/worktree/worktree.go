@@ -244,10 +244,18 @@ func (u *worktreeUsecase) CreateChild(
 }
 
 // deriveWorktreePath returns the human-readable git worktree directory for a
-// branch — <home>/projects/<project>/<slug>/<branch> (spec §3.9) — with the repo
-// slug resolved from its remote identity. It rejects a candidate that collides
-// case-insensitively with an existing sibling worktree (spec §3.9, decision 13),
-// surfacing the clash as apperr.ErrInvalidArgument.
+// branch — <home>/projects/<project>/<slug>/<branch>/worktree (spec §3.5/§3.9),
+// the "worktree" leaf of a workspace root that also holds the sibling "chats"
+// tree — with the repo slug resolved from its remote identity. It rejects a
+// candidate whose WORKSPACE ROOT (the <slug>/<branch> directory, one level up
+// from the worktree leaf) collides case-insensitively with an existing sibling
+// workspace root (spec §3.9, decision 13), surfacing the clash as
+// apperr.ErrInvalidArgument. siblingWorktreePaths lists sibling workspace roots
+// (branch-leaf directories) directly under the slug dir, so the clash check
+// compares like with like via worktreepath.WorkspaceRoot rather than the full
+// worktree path (which would never case-match a sibling root now that both
+// carry a trailing "/worktree" leaf only on the CANDIDATE side before that
+// dereference).
 func (u *worktreeUsecase) deriveWorktreePath(
 	ctx context.Context,
 	home string,
@@ -268,7 +276,7 @@ func (u *worktreeUsecase) deriveWorktreePath(
 	if err != nil {
 		return "", fmt.Errorf("scan sibling worktrees: %w", err)
 	}
-	if clashErr := worktreepath.DetectClash(siblings, path); clashErr != nil {
+	if clashErr := worktreepath.DetectClash(siblings, worktreepath.WorkspaceRoot(path)); clashErr != nil {
 		return "", fmt.Errorf("%w: %v", apperr.ErrInvalidArgument, clashErr)
 	}
 	return path, nil

@@ -140,6 +140,7 @@ type stubWork struct{}
 func (stubWork) BeginWork(_ context.Context, _ string) {}
 func (stubWork) EndWork(_ context.Context, _ string)   {}
 func (stubWork) IsWorking(_ string) bool               { return false }
+func (stubWork) WorkingFor(_ string) bool              { return false }
 
 func passthrough(
 	rest gin.HandlerFunc,

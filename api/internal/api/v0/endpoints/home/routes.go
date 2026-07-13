@@ -1,11 +1,13 @@
 // Package home mounts the project-level home workspace routes under
 // /v0/projects/:projectId/home. The home workspace has files, a live
-// file-change stream, review threads, and terminals — but no git operations.
+// file-change stream, review threads, terminals, and agentic chats — but no git
+// operations.
 package home
 
 import (
 	"github.com/gin-gonic/gin"
 
+	agenthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers"
 	homehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers"
 	threadhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers"
 )
@@ -17,23 +19,34 @@ import (
 // home group has no :wsId path segment, so RequireHomeWorkspace resolves the
 // project's home workspace and injects :wsId before each reused handler runs.
 // That lets the file-change WS handler (filesWS), the dual-served thread list
-// WS (threadsWS), and the thread REST handlers resolve the home workspace by id.
-// Git is intentionally absent — the home workspace is the project root, not a
-// per-workspace git worktree.
+// WS (threadsWS), the thread REST handlers, and the agent chat REST + WS
+// (agentUsecase/agentWS) resolve the home workspace by id. Git is intentionally
+// absent — the home workspace is the project root, not a per-workspace git
+// worktree.
+//
+// working is the daemon's working-overlay read seam (the same one the workspaces
+// handlers stamp their list/detail from): GET /home is the ONLY read path for the
+// home workspace's DTO, so without it a home read taken while an agent chat is
+// mid-turn would report working=false and contradict the home workspace's own WS
+// frames.
 func Register(
 	projectScoped *gin.RouterGroup,
 	workspaces homehandlers.HomeWorkspaces,
 	projects homehandlers.ProjectReader,
 	files homehandlers.Files,
 	termEng homehandlers.TerminalEngine,
+	working homehandlers.WorkSignal,
 	filesWS gin.HandlerFunc,
 	threadStore threadhandlers.ThreadStore,
 	threadBroadcast threadhandlers.ThreadBroadcaster,
 	threadsWS gin.HandlerFunc,
+	agentUsecase agenthandlers.AgentUsecase,
+	agentWS gin.HandlerFunc,
 	dispatch func(rest, wsHandler gin.HandlerFunc) gin.HandlerFunc,
 ) {
-	h := homehandlers.New(workspaces, projects, files, termEng)
+	h := homehandlers.New(workspaces, projects, files, termEng, working)
 	th := threadhandlers.New(threadStore, threadBroadcast)
+	ah := agenthandlers.New(agentUsecase)
 	home := projectScoped.Group("/home")
 
 	home.GET("", h.Get)
@@ -67,4 +80,28 @@ func Register(
 	home.POST("/terminals", h.CreateTerminal)
 	home.DELETE("/terminals/:sessionId", h.KillTerminal)
 	home.GET("/terminals/:sessionId/ws", h.TerminalWS)
+
+	// Agentic chats are a home capability too (00 agentic-engine spec: chats must
+	// work for EVERY workspace kind, project-home included). The workspace-scoped
+	// surface (agent.Register) mounts the SAME agent handler set under
+	// .../workspaces/:wsId; here it is re-mounted under the home group with no
+	// :wsId path segment, so RequireHomeWorkspace resolves the project's home
+	// workspace and injects :wsId before each handler — and before the lifecycle
+	// WS (agentWS), whose agentChatDef filter keys on that injected :wsId so a
+	// home client sees exactly the home workspace's chats. This also makes the
+	// in-PTY CLI callbacks (crowbar hook/rename/handoff) reachable for a
+	// project-home workspace, whose repo-less scope resolves to this /home/agent
+	// mount (see cmd/crowbar/scope.go's home branch).
+	home.POST("/agent/chats", h.RequireHomeWorkspace, ah.Create)
+	home.GET("/agent/chats", h.RequireHomeWorkspace, ah.List)
+	home.GET("/agent/chats/:id", h.RequireHomeWorkspace, ah.Get)
+	home.POST("/agent/chats/:id/switch", h.RequireHomeWorkspace, ah.Switch)
+	home.POST("/agent/chats/:id/resume", h.RequireHomeWorkspace, ah.Resume)
+	home.POST("/agent/chats/:id/rename", h.RequireHomeWorkspace, ah.Rename)
+	home.GET("/agent/chats/:id/handoff", h.RequireHomeWorkspace, ah.Handoff)
+	home.DELETE("/agent/chats/:id", h.RequireHomeWorkspace, ah.Delete)
+	home.POST("/agent/runners/:segid/rename", h.RequireHomeWorkspace, ah.RenameByRunner)
+	home.POST("/agent/hooks", h.RequireHomeWorkspace, ah.Hooks)
+	home.GET("/agent/providers", h.RequireHomeWorkspace, ah.Providers)
+	home.GET("/agent/ws/chats", h.RequireHomeWorkspace, agentWS)
 }

@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,12 +15,20 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch"
 )
 
-// captureDispatcher records every callback so tests can poll for results.
+// captureDispatcher records every callback. File-change waits block on a pulse
+// (see fakeDispatcher); git/sync results are read after the recompute barrier
+// in capturingWatcher.recomputeNow, which is itself a real signal from the loop
+// goroutine — so nothing here needs a poll interval.
 type captureDispatcher struct {
 	mu        sync.Mutex
 	gitCalls  int
 	syncCalls []watch.SyncInput
 	fileCalls []domain.FileChangeEvent
+	pulse     chan struct{}
+}
+
+func newCaptureDispatcher() *captureDispatcher {
+	return &captureDispatcher{pulse: make(chan struct{}, 1)}
 }
 
 func (c *captureDispatcher) OnFileChange(
@@ -29,8 +36,12 @@ func (c *captureDispatcher) OnFileChange(
 	evt domain.FileChangeEvent,
 ) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.fileCalls = append(c.fileCalls, evt)
+	c.mu.Unlock()
+	select {
+	case c.pulse <- struct{}{}:
+	default:
+	}
 }
 
 func (c *captureDispatcher) OnGitStatus(
@@ -52,47 +63,82 @@ func (c *captureDispatcher) OnSyncWorkingTreeState(
 	c.syncCalls = append(c.syncCalls, input)
 }
 
-func (c *captureDispatcher) waitForSyncCall(t *testing.T) watch.SyncInput {
-	t.Helper()
-	var inp watch.SyncInput
-	require.Eventually(t, func() bool {
+// waitForFileChange blocks until a dispatched event satisfies match.
+func (c *captureDispatcher) waitForFileChange(
+	match func(domain.FileChangeEvent) bool,
+) domain.FileChangeEvent {
+	for {
 		c.mu.Lock()
-		defer c.mu.Unlock()
-		if len(c.syncCalls) == 0 {
-			return false
+		for _, evt := range c.fileCalls {
+			if match(evt) {
+				c.mu.Unlock()
+				return evt
+			}
 		}
-		inp = c.syncCalls[len(c.syncCalls)-1]
-		return true
-	}, 5*time.Second, 5*time.Millisecond, "timeout: OnSyncWorkingTreeState never called")
-	return inp
+		c.mu.Unlock()
+		<-c.pulse
+	}
 }
 
-func (c *captureDispatcher) noSyncCallWithin(t *testing.T, d time.Duration) {
-	t.Helper()
-	// Genuine must-not-happen: assert no sync call appears across the whole window.
-	require.Never(t, func() bool {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		return len(c.syncCalls) > 0
-	}, d, 20*time.Millisecond, "unexpected OnSyncWorkingTreeState call(s)")
+func (c *captureDispatcher) syncs() []watch.SyncInput {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]watch.SyncInput(nil), c.syncCalls...)
 }
 
-// newCapturingWatcher creates a Watcher with captureDispatcher, starts it, and registers cleanup.
+func (c *captureDispatcher) gitStatusCalls() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.gitCalls
+}
+
+// capturingWatcher is a started Watcher whose trailing git-recompute debounce is
+// fired by the test, plus the loop's own "recompute complete" signal. Together
+// they turn every fanOutGit assertion below into a statement about a recompute
+// that provably ran and provably finished — including the ones asserting that
+// *no* sync was dispatched, which previously could only hope that nothing would
+// show up inside a 400ms window.
+type capturingWatcher struct {
+	w          *watch.Watcher
+	d          *captureDispatcher
+	timer      *manualGitTimer
+	recomputed chan struct{}
+}
+
 func newCapturingWatcher(
 	t *testing.T,
 	dir string,
 	git watch.GitStatusProvider,
-) (*watch.Watcher, *captureDispatcher) {
+) *capturingWatcher {
 	t.Helper()
-	d := &captureDispatcher{}
+	d := newCaptureDispatcher()
 	w := watch.NewWatcher("ws-cap", dir, "", git, d)
+
+	timer := newManualGitTimer()
+	recomputed := make(chan struct{}, 16)
+	w.SetGitTimerForTest(timer)
+	w.SetOnGitRecomputeForTest(func() {
+		select {
+		case recomputed <- struct{}{}:
+		default:
+		}
+	})
+
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	t.Cleanup(w.Stop)
 	require.NoError(t, w.Start(ctx))
-	// No settle sleep: Start arms the fsnotify watch synchronously before it
-	// returns; callers wait on real observables (dispatched events / git calls).
-	return w, d
+
+	return &capturingWatcher{w: w, d: d, timer: timer, recomputed: recomputed}
+}
+
+// recomputeNow releases the debounce and blocks until the loop goroutine reports
+// that the git recompute has completed. On return, every effect that recompute
+// was going to have (OnGitStatus, OnSyncWorkingTreeState — or the deliberate
+// absence of them) has already been dispatched.
+func (c *capturingWatcher) recomputeNow() {
+	c.timer.Fire()
+	<-c.recomputed
 }
 
 // ---------------------------------------------------------------------------
@@ -145,22 +191,20 @@ func (g *changingGit) summaryCalls() int {
 func TestWatcher_FanOutGit_SyncCalledWhenSummaryChanges(t *testing.T) {
 	dir := t.TempDir()
 	git := &changingGit{}
-	_, d := newCapturingWatcher(t, dir, git)
+	cw := newCapturingWatcher(t, dir, git)
 
-	// First write drives recompute #1 (returns 0,0,false,false → no sync, matches
-	// the zero-value prev state). Wait for that recompute to actually run before the
-	// second write so the two writes don't coalesce into a single recompute.
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o600))
-	require.Eventually(t, func() bool {
-		return git.summaryCalls() >= 1
-	}, 5*time.Second, 5*time.Millisecond, "first git recompute must run before the second write")
+	// Recompute #1 returns 0,0,false,false — identical to the zero-value prev
+	// state, so no sync is dispatched.
+	cw.recomputeNow()
+	assert.Empty(t, cw.d.syncs(), "an unchanged summary must not dispatch a sync")
 
-	// Second write: changingGit now returns 1,0,false,false → triggers sync
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b"), 0o600))
+	// Recompute #2: changingGit now returns 1,0,false,false → sync.
+	cw.recomputeNow()
 
-	inp := d.waitForSyncCall(t)
-	assert.Equal(t, 1, inp.Added)
-	assert.Equal(t, "ws-cap", inp.WsID)
+	syncs := cw.d.syncs()
+	require.Len(t, syncs, 1)
+	assert.Equal(t, 1, syncs[0].Added)
+	assert.Equal(t, "ws-cap", syncs[0].WsID)
 }
 
 // ---------------------------------------------------------------------------
@@ -179,12 +223,16 @@ func TestWatcher_FanOutGit_MergeHeadSuppressesSync(t *testing.T) {
 		0o600,
 	))
 
-	_, d := newCapturingWatcher(t, dir, git)
+	cw := newCapturingWatcher(t, dir, git)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "x.txt"), []byte("x"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "y.txt"), []byte("y"), 0o600))
+	// Two recomputes that both provably ran and completed: the rewrite guard must
+	// short-circuit each one before it ever reaches git.
+	cw.recomputeNow()
+	cw.recomputeNow()
 
-	d.noSyncCallWithin(t, 400*time.Millisecond)
+	assert.Empty(t, cw.d.syncs(), "a mid-merge recompute must not dispatch a sync")
+	assert.Zero(t, git.summaryCalls(), "a mid-merge recompute must not even shell out to git")
+	assert.Zero(t, cw.d.gitStatusCalls(), "a mid-merge recompute must not broadcast git status")
 }
 
 // ---------------------------------------------------------------------------
@@ -193,21 +241,13 @@ func TestWatcher_FanOutGit_MergeHeadSuppressesSync(t *testing.T) {
 
 func TestWatcher_RelPath_NormalPathIsRelative(t *testing.T) {
 	dir := t.TempDir()
-	_, d := newCapturingWatcher(t, dir, &fakeGit{})
+	cw := newCapturingWatcher(t, dir, &fakeGit{})
 
 	filePath := filepath.Join(dir, "rel_test.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("data"), 0o600))
 
-	require.Eventually(t, func() bool {
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		for _, evt := range d.fileCalls {
-			if evt.Path == "rel_test.txt" {
-				return true
-			}
-		}
-		return false
-	}, 3*time.Second, 5*time.Millisecond, "expected relative path rel_test.txt in event")
+	evt := cw.d.waitForFileChange(pathIs("rel_test.txt"))
+	assert.Equal(t, "rel_test.txt", evt.Path)
 }
 
 // ---------------------------------------------------------------------------
@@ -220,20 +260,14 @@ func TestWatcher_ClassifyChange_Rename(t *testing.T) {
 	dst := filepath.Join(dir, "new.txt")
 	require.NoError(t, os.WriteFile(src, []byte("data"), 0o600))
 
-	_, d := newCapturingWatcher(t, dir, &fakeGit{})
+	cw := newCapturingWatcher(t, dir, &fakeGit{})
 
 	require.NoError(t, os.Rename(src, dst))
 
-	require.Eventually(t, func() bool {
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		for _, evt := range d.fileCalls {
-			if evt.Type == domain.FileChangeRenamed {
-				return true
-			}
-		}
-		return false
-	}, 3*time.Second, 5*time.Millisecond, "expected a FileChangeRenamed event from os.Rename")
+	evt := cw.d.waitForFileChange(func(e domain.FileChangeEvent) bool {
+		return e.Type == domain.FileChangeRenamed
+	})
+	assert.Equal(t, domain.FileChangeRenamed, evt.Type)
 }
 
 // ---------------------------------------------------------------------------
@@ -245,20 +279,14 @@ func TestWatcher_ClassifyChange_Modify(t *testing.T) {
 	path := filepath.Join(dir, "mod.txt")
 	require.NoError(t, os.WriteFile(path, []byte("v1"), 0o600))
 
-	_, d := newCapturingWatcher(t, dir, &fakeGit{})
+	cw := newCapturingWatcher(t, dir, &fakeGit{})
 
 	require.NoError(t, os.WriteFile(path, []byte("v2"), 0o600))
 
-	require.Eventually(t, func() bool {
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		for _, evt := range d.fileCalls {
-			if evt.Path == "mod.txt" && evt.Type == domain.FileChangeModified {
-				return true
-			}
-		}
-		return false
-	}, 3*time.Second, 5*time.Millisecond, "expected FileChangeModified for mod.txt")
+	evt := cw.d.waitForFileChange(func(e domain.FileChangeEvent) bool {
+		return e.Path == "mod.txt" && e.Type == domain.FileChangeModified
+	})
+	assert.Equal(t, domain.FileChangeModified, evt.Type)
 }
 
 // ---------------------------------------------------------------------------
@@ -291,28 +319,16 @@ func (g *commitTogglingGit) ComputeWorkingTreeSummary(
 	return 0, 0, false, false, nil
 }
 
-func (g *commitTogglingGit) summaryCalls() int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.calls
-}
-
 func TestWatcher_FanOutGit_HasCommitsChange(t *testing.T) {
 	dir := t.TempDir()
-	git := &commitTogglingGit{}
-	_, d := newCapturingWatcher(t, dir, git)
+	cw := newCapturingWatcher(t, dir, &commitTogglingGit{})
 
-	// Prime write drives recompute #1 (no toggle yet). Wait for it to run before the
-	// trigger write so the two do not coalesce into a single recompute.
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "prime.txt"), []byte("p"), 0o600))
-	require.Eventually(t, func() bool {
-		return git.summaryCalls() >= 1
-	}, 5*time.Second, 5*time.Millisecond, "prime recompute must run before the trigger write")
+	cw.recomputeNow() // prime: no toggle yet
+	cw.recomputeNow() // hasCommits flips false → true
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "commit_trigger.txt"), []byte("c"), 0o600))
-
-	inp := d.waitForSyncCall(t)
-	assert.True(t, inp.HasCommits)
+	syncs := cw.d.syncs()
+	require.Len(t, syncs, 1)
+	assert.True(t, syncs[0].HasCommits)
 }
 
 // ---------------------------------------------------------------------------
@@ -345,28 +361,16 @@ func (g *conflictTogglingGit) ComputeWorkingTreeSummary(
 	return 0, 0, false, false, nil
 }
 
-func (g *conflictTogglingGit) summaryCalls() int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.calls
-}
-
 func TestWatcher_FanOutGit_HasConflictsChange(t *testing.T) {
 	dir := t.TempDir()
-	git := &conflictTogglingGit{}
-	_, d := newCapturingWatcher(t, dir, git)
+	cw := newCapturingWatcher(t, dir, &conflictTogglingGit{})
 
-	// Prime write drives recompute #1 (no toggle yet). Wait for it to run before the
-	// trigger write so the two do not coalesce into a single recompute.
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "p.txt"), []byte("p"), 0o600))
-	require.Eventually(t, func() bool {
-		return git.summaryCalls() >= 1
-	}, 5*time.Second, 5*time.Millisecond, "prime recompute must run before the trigger write")
+	cw.recomputeNow() // prime: no conflicts yet
+	cw.recomputeNow() // hasConflicts flips false → true
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "q.txt"), []byte("q"), 0o600))
-
-	inp := d.waitForSyncCall(t)
-	assert.True(t, inp.HasConflicts)
+	syncs := cw.d.syncs()
+	require.Len(t, syncs, 1)
+	assert.True(t, syncs[0].HasConflicts)
 }
 
 // ---------------------------------------------------------------------------
@@ -399,28 +403,16 @@ func (g *deletedChangeGit) ComputeWorkingTreeSummary(
 	return 0, 0, false, false, nil
 }
 
-func (g *deletedChangeGit) summaryCalls() int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.calls
-}
-
 func TestWatcher_FanOutGit_DeletedCountChange(t *testing.T) {
 	dir := t.TempDir()
-	git := &deletedChangeGit{}
-	_, d := newCapturingWatcher(t, dir, git)
+	cw := newCapturingWatcher(t, dir, &deletedChangeGit{})
 
-	// Prime write drives recompute #1 (no change yet). Wait for it to run before the
-	// trigger write so the two do not coalesce into a single recompute.
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "prime2.txt"), []byte("p"), 0o600))
-	require.Eventually(t, func() bool {
-		return git.summaryCalls() >= 1
-	}, 5*time.Second, 5*time.Millisecond, "prime recompute must run before the trigger write")
+	cw.recomputeNow() // prime: no change yet
+	cw.recomputeNow() // deleted count 0 → 3
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "del_trigger.txt"), []byte("d"), 0o600))
-
-	inp := d.waitForSyncCall(t)
-	assert.Equal(t, 3, inp.Deleted)
+	syncs := cw.d.syncs()
+	require.Len(t, syncs, 1)
+	assert.Equal(t, 3, syncs[0].Deleted)
 }
 
 // ---------------------------------------------------------------------------
@@ -446,11 +438,12 @@ func (g *summaryErrorGit) ComputeWorkingTreeSummary(
 
 func TestWatcher_FanOutGit_SummaryErrorNoSync(t *testing.T) {
 	dir := t.TempDir()
-	_, d := newCapturingWatcher(t, dir, &summaryErrorGit{})
+	cw := newCapturingWatcher(t, dir, &summaryErrorGit{})
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "err_test.txt"), []byte("e"), 0o600))
+	cw.recomputeNow()
 
-	d.noSyncCallWithin(t, 400*time.Millisecond)
+	assert.Equal(t, 1, cw.d.gitStatusCalls(), "the status half of the recompute still broadcasts")
+	assert.Empty(t, cw.d.syncs(), "a failed summary must not dispatch a sync")
 }
 
 // ---------------------------------------------------------------------------
@@ -489,26 +482,15 @@ func (g *statusErrorGit) statusCalls() int {
 func TestWatcher_FanOutGit_StatusErrorNoGitCall(t *testing.T) {
 	dir := t.TempDir()
 	git := &statusErrorGit{}
-	d := &captureDispatcher{}
-	w := watch.NewWatcher("ws-err", dir, "", git, d)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	t.Cleanup(w.Stop)
-	require.NoError(t, w.Start(ctx))
+	cw := newCapturingWatcher(t, dir, git)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "stat_err.txt"), []byte("s"), 0o600))
+	cw.recomputeNow()
 
-	// Wait until the (error-returning) ComputeStatus has actually been attempted,
-	// so the assertion below is not vacuous: the recompute fired but OnGitStatus was
-	// suppressed. ComputeStatus errors BEFORE OnGitStatus is ever reached, so
-	// gitCalls can never become >0 for this recompute.
-	require.Eventually(t, func() bool {
-		return git.statusCalls() >= 1
-	}, 5*time.Second, 5*time.Millisecond, "ComputeStatus must be attempted after a file change")
-
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	assert.Equal(t, 0, d.gitCalls, "OnGitStatus should not be called when ComputeStatus fails")
+	// The recompute provably ran (ComputeStatus was attempted) and provably
+	// finished, so the absence of a broadcast is an assertion, not a guess.
+	assert.Equal(t, 1, git.statusCalls(), "the recompute must attempt ComputeStatus")
+	assert.Zero(t, cw.d.gitStatusCalls(), "OnGitStatus must not be called when ComputeStatus fails")
+	assert.Empty(t, cw.d.syncs(), "a failed status must not dispatch a sync")
 }
 
 // ---------------------------------------------------------------------------
@@ -523,12 +505,13 @@ func TestWatcher_FanOutGit_RebaseMergeSuppressesSync(t *testing.T) {
 	require.NoError(t, os.MkdirAll(gitDir, 0o700))
 	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "rebase-merge"), 0o700))
 
-	_, d := newCapturingWatcher(t, dir, git)
+	cw := newCapturingWatcher(t, dir, git)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "rb.txt"), []byte("r"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "rb2.txt"), []byte("r2"), 0o600))
+	cw.recomputeNow()
+	cw.recomputeNow()
 
-	d.noSyncCallWithin(t, 400*time.Millisecond)
+	assert.Empty(t, cw.d.syncs(), "a mid-rebase recompute must not dispatch a sync")
+	assert.Zero(t, git.summaryCalls(), "a mid-rebase recompute must not shell out to git")
 }
 
 func TestWatcher_FanOutGit_RebaseApplySuppressesSync(t *testing.T) {
@@ -539,10 +522,11 @@ func TestWatcher_FanOutGit_RebaseApplySuppressesSync(t *testing.T) {
 	require.NoError(t, os.MkdirAll(gitDir, 0o700))
 	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "rebase-apply"), 0o700))
 
-	_, d := newCapturingWatcher(t, dir, git)
+	cw := newCapturingWatcher(t, dir, git)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ra.txt"), []byte("r"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ra2.txt"), []byte("r2"), 0o600))
+	cw.recomputeNow()
+	cw.recomputeNow()
 
-	d.noSyncCallWithin(t, 400*time.Millisecond)
+	assert.Empty(t, cw.d.syncs(), "a mid-rebase recompute must not dispatch a sync")
+	assert.Zero(t, git.summaryCalls(), "a mid-rebase recompute must not shell out to git")
 }

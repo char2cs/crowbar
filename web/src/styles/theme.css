@@ -219,10 +219,11 @@
   --popover-foreground: var(--color-neutral-800);
   --primary: oklch(0.49 0.082 130);
   --primary-foreground: oklch(0.98 0.027 98);
-  /* Crowbar brand accent (hex BC6C25). Secondary is shadcn's second brand
-     colour; primary stays the brand green. Emphasis usages (pins, active
-     states, drop zones, links) pull this via text-/border-/ring-secondary. */
-  --secondary: oklch(0.609 0.13 57.4);
+  /* Crowbar brand accent — LIGHT theme (hex AFB38C). Secondary is shadcn's second
+     brand colour; primary stays the brand green. Emphasis usages (pins, active
+     states, drop zones, links) pull this via text-/border-/ring-secondary.
+     The dark theme carries its own value (hex 283618) — see .dark below. */
+  --secondary: oklch(0.753 0.054 112.4);
   --secondary-foreground: oklch(0.98 0.027 98);
   --muted: oklch(0 0 0 / 4%);
   --muted-foreground: oklch(0.52 0 0);
@@ -352,8 +353,12 @@
   --popover-foreground: var(--color-neutral-100);
   --primary: oklch(0.49 0.082 130);
   --primary-foreground: oklch(0.98 0.027 98);
-  /* Crowbar brand accent (hex BC6C25) — see :root note above. */
-  --secondary: oklch(0.609 0.13 57.4);
+  /* Crowbar brand accent — DARK theme. Deliberately its own value, not the light
+     theme's (see the :root note above): #283618 sat only 0.12 lightness from the
+     background and the emphasis states it drives — the active-pane ring, drop zones —
+     all but vanished. Tracks --primary (#516A36) so the two brand greens cannot drift
+     apart, and so the accent is legible on a dark surface. */
+  --secondary: var(--primary);
   --secondary-foreground: oklch(0.98 0.027 98);
   --muted: oklch(1 0 0 / 4%);
   --muted-foreground: oklch(0.6 0 0);

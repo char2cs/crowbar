@@ -130,33 +130,46 @@ func (s *ConflictsSuite) mergeConflict(childID string) {
 	})
 	kit.RequireStatus(s.T(), resp, http.StatusAccepted)
 	resp.Body.Close()
-	kit.WaitForWorkspaceState(s.T(), watcher, childID, "pr-conflicts", 5*time.Second)
 
-	// H6/H7 regression guard: a conflicting merge must leave NEITHER worktree
-	// stuck. The merge runs in the parent, so the parent's in-progress merge is
-	// aborted clean; the child was never touched. Poll briefly because the WS
-	// pr-conflicts frame can be observed a hair before the abort's filesystem
-	// effects settle.
-	s.requireEventuallyClean(childPath, "child", 2*time.Second)
-	s.requireEventuallyClean(s.parentPath, "parent", 2*time.Second)
+	// Block on the MERGE OP finishing, not on the child reaching pr-conflicts.
+	//
+	// The status is the wrong signal and always was: pr-conflicts is ALSO produced up
+	// front by the merge-tree prediction overlay (a child with diverging edits reads
+	// pr-conflicts before a merge is even attempted), so waiting for it can return
+	// while the real merge is still mid-conflict, with the worktree not yet aborted.
+	// The old code covered that hole by polling the worktrees for cleanliness for two
+	// seconds — a guess that the abort would land inside the window.
+	//
+	// The daemon's working overlay says exactly what is needed: the detached merge op
+	// is bracketed BeginWork → EndWork, and EndWork fires only after the merge
+	// function has returned, abort and all. The falling edge IS "the merge is over".
+	final := kit.WaitForWorkComplete(s.T(), watcher, childID, 30*time.Second)
+	s.Require().Equal("pr-conflicts", final["status"],
+		"a conflicting merge must leave the child in pr-conflicts")
+	s.Env.Quiesce()
+
+	// H6/H7 regression guard: a conflicting merge must leave NEITHER worktree stuck.
+	// The merge runs in the parent, so the parent's in-progress merge is aborted
+	// clean; the child was never touched. Both are now plain assertions on a settled
+	// filesystem.
+	s.requireClean(childPath, "child")
+	s.requireClean(s.parentPath, "parent")
 }
 
-// requireEventuallyClean polls a worktree until `git status --porcelain` is
-// empty AND HEAD is attached to a branch (not a detached mid-rebase HEAD),
-// proving no conflict markers / no in-progress op remain. A conflicting squash
-// shows "UU <file>" in porcelain and a mid-rebase detaches HEAD, so an empty
-// porcelain on an attached branch reliably means clean+not-stuck.
-func (s *ConflictsSuite) requireEventuallyClean(worktreePath, label string, timeout time.Duration) {
+// requireClean asserts a worktree has no `git status --porcelain` output AND that
+// HEAD is attached to a branch (not a detached mid-rebase HEAD), proving no
+// conflict markers and no in-progress operation remain. A conflicting squash shows
+// "UU <file>" in porcelain and a mid-rebase detaches HEAD, so an empty porcelain
+// on an attached branch reliably means clean+not-stuck.
+//
+// It is a plain assertion, not a poll: its caller has already drained the async
+// merge that would otherwise still be writing (see mergeConflict).
+func (s *ConflictsSuite) requireClean(worktreePath, label string) {
 	s.T().Helper()
-	// Poll the real git state until the worktree is clean and off a detached HEAD.
-	// Eventuallyf polls the condition internally (no fixed-delay sleep); a hang
-	// fails at `timeout`.
-	s.Require().Eventuallyf(func() bool {
-		porcelain := kit.TrimNewline(kit.GitRun(s.T(), worktreePath, "status", "--porcelain"))
-		head := kit.TrimNewline(kit.GitRun(s.T(), worktreePath, "rev-parse", "--abbrev-ref", "HEAD"))
-		return porcelain == "" && head != "HEAD"
-	}, timeout, 50*time.Millisecond,
-		"%s worktree must be clean (no conflict markers, not mid-rebase)", label)
+	porcelain := kit.TrimNewline(kit.GitRun(s.T(), worktreePath, "status", "--porcelain"))
+	head := kit.TrimNewline(kit.GitRun(s.T(), worktreePath, "rev-parse", "--abbrev-ref", "HEAD"))
+	s.Require().Empty(porcelain, "%s worktree must be clean (no conflict markers left behind)", label)
+	s.Require().NotEqual("HEAD", head, "%s worktree must not be stuck on a detached mid-rebase HEAD", label)
 }
 
 // keptRebaseConflictOnChild produces a REAL conflicted state in the CHILD's own

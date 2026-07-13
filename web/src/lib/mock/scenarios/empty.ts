@@ -1,7 +1,6 @@
 import { nanoid } from 'nanoid'
 import type { ScenarioDataset } from './index'
 import type { FileNode } from '@/lib/mock/files'
-import type { ProjectChat } from '@/lib/store/sidebar'
 
 export const emptyDataset: ScenarioDataset = {
   repos: () => [],
@@ -24,6 +23,4 @@ export const emptyDataset: ScenarioDataset = {
   gitLog: () => [],
   gitStatus: () => ({ branch: 'main', ahead: 0, behind: 0, files: [] }),
   gitBranches: () => [],
-  markdownTurns: () => [],
-  chats: (_wsId): ProjectChat[] => [],
 }

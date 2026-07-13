@@ -77,6 +77,33 @@ describe('pane-slice', () => {
     expect(activeOf()).toBeNull()
   })
 
+  // A pane can hold bufferIds whose buffer no longer exists — any caller that drops
+  // a buffer without going through removeBufferFromPane strands its id here (and the
+  // layout is persisted, so a stranded id outlives a reload). Activating one of those
+  // ghosts renders NOTHING: the pane falls back to its empty state and the user reads
+  // it as "the app lost my tabs". Observed live after deleting an agent chat.
+  it('never activates a tab whose buffer no longer exists', () => {
+    const actions = store.getState().paneActions
+    actions.addBufferToPane(ROOT_PANE_ID, 'buf-real', true)
+    actions.addBufferToPane(ROOT_PANE_ID, 'buf-ghost', false)
+    actions.addBufferToPane(ROOT_PANE_ID, 'buf-active', false)
+
+    // Only buf-real and buf-active have buffers behind them; buf-ghost is stranded.
+    store.setState((st) => ({
+      ...st,
+      buffers: [
+        { id: 'buf-real', type: 'terminal' },
+        { id: 'buf-active', type: 'terminal' },
+      ],
+    }))
+
+    store.getState().paneActions.activatePaneBuffer(ROOT_PANE_ID, 'buf-active')
+    store.getState().paneActions.removeBufferFromPane(ROOT_PANE_ID, 'buf-active')
+
+    // The right neighbour is gone, so it falls left — but must SKIP the ghost.
+    expect(store.getState().paneActions.getPaneById(ROOT_PANE_ID)?.activeBufferId).toBe('buf-real')
+  })
+
   it('getAllPaneGroups returns all leaf groups from paneRoot and bottomRoot', () => {
     const actions = store.getState().paneActions
     actions.splitPane(ROOT_PANE_ID, 'horizontal')

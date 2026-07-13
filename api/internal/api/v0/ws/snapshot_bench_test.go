@@ -4,7 +4,6 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -62,18 +61,20 @@ func drainSnapshot(
 	}
 	defer func() { _ = conn.Close() }()
 
-	// Read frames until the snapshot drains to a short idle gap. Drop-on-full
-	// backpressure (03 §5) may shed a few frames under load, so the bench measures
-	// the serialize+fan-out work delivered rather than asserting an exact count.
-	read := 0
-	for read < want {
-		_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	// Read exactly `want` frames, blocking.
+	//
+	// The snapshot path is NON-dropping: snapshotFor returns the frames as an
+	// unbounded slice and flushSnapshot writes every one of them with a blocking
+	// write. Drop-on-full backpressure (03 §5) applies only to LIVE pushes, and
+	// this benchmark issues none — so the full snapshot always arrives, and an
+	// idle-gap deadline was never needed to detect the end of it.
+	//
+	// Reading an exact count also makes the measurement sounder: with a deadline
+	// the loop could break early, so each b.N iteration might time a different
+	// amount of delivered work. Every iteration now measures the same fan-out.
+	for read := 0; read < want; read++ {
 		if _, _, readErr := conn.ReadMessage(); readErr != nil {
-			break
+			b.Fatalf("snapshot truncated after %d/%d frames: %v", read, want, readErr)
 		}
-		read++
-	}
-	if read == 0 {
-		b.Fatal("no snapshot frame delivered")
 	}
 }

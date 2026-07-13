@@ -33,4 +33,18 @@ type Subscriber interface {
 	PushFile(
 		evt domain.FileChangeEvent,
 	)
+	PushAgentChat(
+		chatID string,
+		workspaceID string,
+		kind string,
+	)
+	// PushAgentRunner receives a runner lifecycle frame
+	// (started/session_bound/moved/exited). chatID is the chat the runner is
+	// pointed at as of the event — placement, never liveness.
+	PushAgentRunner(
+		runnerID string,
+		workspaceID string,
+		chatID string,
+		kind string,
+	)
 }

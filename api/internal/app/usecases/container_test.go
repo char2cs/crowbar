@@ -56,7 +56,10 @@ func newContainerDeps(
 		hub.NewHub(),
 		newTestAsynx[domain.ReviewThread](t, adapters.ReviewThreadES()),
 		newTestAsynx[domain.Workspace](t, adapters.WorkspaceES()),
+		newTestAsynx[domain.AgentChat](t, adapters.AgentChatES()),
+		newTestAsynx[domain.AgentRunner](t, adapters.AgentRunnerES()),
 		nil, // git conflict-checker not exercised by this test
+		nil, // terminateSession not exercised by this test
 	)
 	require.NoError(t, err)
 
@@ -76,6 +79,7 @@ func newContainerDeps(
 
 	eng, err := engine.New(context.Background())
 	require.NoError(t, err)
+
 	return repos, gormStores, eng
 }
 
@@ -94,6 +98,7 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	assert.NotNil(t, c.ProviderSync)
 	assert.NotNil(t, c.Worktree)
 	assert.NotNil(t, c.BranchReview)
+	assert.NotNil(t, c.Agent)
 }
 
 func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {

@@ -107,6 +107,12 @@ describe('SidebarTabBar', () => {
     expect(screen.getByRole('tab', { name: /git/i })).toBeInTheDocument()
   })
 
+  it('orders tabs as Workspaces, Chats, Files, Git', () => {
+    render(<SidebarTabBar />)
+    const labels = screen.getAllByRole('tab').map((el) => el.textContent)
+    expect(labels).toEqual(['Workspaces', 'Chats', 'Files', 'Git'])
+  })
+
   it('marks the active tab as selected', () => {
     useSidebarStore.setState({ activeTab: 'files' })
     render(<SidebarTabBar />)
@@ -115,11 +121,11 @@ describe('SidebarTabBar', () => {
 
   it('calls setActiveTab when a tab is clicked', () => {
     render(<SidebarTabBar />)
-    fireEvent.click(screen.getByRole('tab', { name: /chats/i }))
-    expect(useSidebarStore.getState().activeTab).toBe('chats')
+    fireEvent.click(screen.getByRole('tab', { name: /files/i }))
+    expect(useSidebarStore.getState().activeTab).toBe('files')
   })
 
-  it('hides the git tab on the home route', () => {
+  it('hides the git tab on the home route but keeps chats', () => {
     mockMatch = { params: { projectId: 'p1' } }
     render(<SidebarTabBar />)
     expect(screen.queryByRole('tab', { name: /git/i })).not.toBeInTheDocument()

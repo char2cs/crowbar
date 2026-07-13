@@ -26,14 +26,15 @@ func projectDirOf(
 	return filepath.Join(home, "projects", projectID)
 }
 
-// worktreePathOf mirrors worktreepath.Derive for a no-remote repo (spec §3.9,
-// decision 13): the crowbar-created worktree dir for a workspace,
-// <home>/projects/<project>/<slug>/<branch>, where the slug degrades to the
-// repo's on-disk name (filepath.Base(repoPath)) and a nested branch maps to
-// nested directories. The worktreepath package is doubly-internal (under
-// app/usecases/internal) and not importable from tests/kit, so the friendly
-// layout is reconstructed here from the same contract — the exact layout Task
-// 17's paths_test.go computes.
+// worktreePathOf mirrors worktreepath.Derive for a no-remote repo (spec
+// §3.5/§3.9, decision 13): the crowbar-created worktree dir for a workspace,
+// <home>/projects/<project>/<slug>/<branch>/worktree, where the slug degrades to
+// the repo's on-disk name (filepath.Base(repoPath)), a nested branch maps to
+// nested directories, and the trailing "worktree" leaf makes <slug>/<branch> a
+// workspace root sibling of "chats" (the workspace-root split). The
+// worktreepath package is doubly-internal (under app/usecases/internal) and not
+// importable from tests/kit, so the friendly layout is reconstructed here from
+// the same contract — the exact layout Task 17's paths_test.go computes.
 func worktreePathOf(
 	home string,
 	projectID string,
@@ -44,6 +45,7 @@ func worktreePathOf(
 		projectDirOf(home, projectID),
 		filepath.Base(repoPath),
 		branch,
+		"worktree",
 	)
 }
 
@@ -196,4 +198,3 @@ func AssertGitStateMatchesReadModel(
 		)
 	}
 }
-

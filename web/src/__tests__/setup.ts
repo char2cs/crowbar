@@ -32,6 +32,36 @@ Object.defineProperty(globalThis, 'localStorage', {
 // jsdom does not implement scrollIntoView
 window.HTMLElement.prototype.scrollIntoView = () => {}
 
+// jsdom does not implement ResizeObserver. Inert stub: jsdom has no layout engine, so
+// it could never report a real size change anyway — components that observe elements
+// just need construction not to throw.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+Object.defineProperty(globalThis, 'ResizeObserver', {
+  value: ResizeObserverStub,
+  writable: true,
+  configurable: true,
+})
+
+// jsdom does not implement the Web Animations API, and this stub is load-bearing
+// BECAUSE of the ResizeObserver one directly above.
+//
+// Base UI's ScrollAreaViewport opens with `if (typeof ResizeObserver === 'undefined')
+// return`. While jsdom had no ResizeObserver, that guard short-circuited the whole
+// effect. Stubbing ResizeObserver satisfied the guard and un-gated the rest of it —
+// which schedules a 0ms timer that calls `viewport.getAnimations({subtree: true})`.
+//
+// That call throws AFTER the test that rendered the ScrollArea has already finished, so
+// it surfaces as an unhandled error with no owning test and fails the ENTIRE run while
+// every assertion still reports green. Stubbing one hole in jsdom exposed the next one.
+//
+// An empty list is the honest answer, not a lie to keep quiet: jsdom runs no animations,
+// so there are none to wait for, and Base UI early-returns on `animations.length === 0`.
+window.Element.prototype.getAnimations = () => []
+
 // jsdom does not implement canvas getContext("2d") — provide a minimal stub so
 // tests that indirectly call canvas text-measurement code don't crash.
 HTMLCanvasElement.prototype.getContext = function () {

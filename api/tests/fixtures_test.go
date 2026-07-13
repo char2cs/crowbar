@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -93,7 +92,10 @@ func importProjectHomeHoldsDefault(
 	workspacesWS := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
 	var homeID string
 	sawPlaceholder := false
-	deadline := time.Now().Add(10 * time.Second)
+	// Each frame's arrival is the signal; loop until BOTH the home and the main
+	// placeholder have been seen. No wall-clock bound: readUntil blocks, so a
+	// workspace that never materialises parks the read and `go test -timeout`
+	// names this fixture in the goroutine dump.
 	for homeID == "" || !sawPlaceholder {
 		readUntil(t, workspacesWS, func(m map[string]any) bool {
 			id, _ := m["id"].(string)
@@ -111,8 +113,6 @@ func importProjectHomeHoldsDefault(
 			}
 			return false
 		})
-		require.True(t, time.Now().Before(deadline),
-			"home + main placeholder must both materialise before import returns")
 	}
 
 	return importedRepo{

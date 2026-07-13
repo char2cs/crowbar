@@ -3,58 +3,44 @@
 package session
 
 import (
-	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestIsIdle_unix verifies IsIdle using a real PTY:
-//   - After the shell settles at its prompt (no foreground child), IsIdle is true.
-//   - While a foreground sleep child is running, IsIdle is false.
+// TestIsIdle_unix verifies IsIdle against a real PTY, at both of its edges:
 //
-// Determinism strategy:
+//   - At its prompt the shell IS the terminal's foreground process group, so IsIdle is true.
+//   - With a foreground child running, the child owns the terminal, so IsIdle is false.
 //
-//  1. Idle: attach to the shell output and drain until we receive at least one
-//     frame (confirming the shell has started). Then assert IsIdle true. The
-//     shell at its prompt IS the foreground process group, so TIOCGPGRP ==
-//     shell pgid.
+// Determinism: neither edge is waited out on a clock, because neither has to be. Both are
+// OBSERVABLE the moment they happen, and both observations are made through the shell's own
+// output:
 //
-//  2. Active: write a long-running `sleep 9999` command, then poll IsIdle
-//     with a short interval until it returns false or we time out. The sleep
-//     process takes over the foreground process group, so TIOCGPGRP ≠ shell
-//     pgid.
+//  1. Idle — waitPrompt blocks until the pinned PS1 is on screen. The prompt is the last thing
+//     the shell writes before blocking on read(2), and it writes it as the foreground group, so
+//     the instant it is visible IsIdle is already true. Asserted directly; the old
+//     assert.Eventually poll would have masked a real "prompt shown while not yet foreground"
+//     bug by simply retrying until it went away.
+//
+//  2. Active — startForeground runs the child as `( announce; exec sleep 9999 )`. Job control
+//     puts that job in its own process group and makes it the terminal's FOREGROUND group
+//     BEFORE the job runs, and exec preserves the pid/pgroup for the sleep. So the child's very
+//     first output byte proves TIOCGPGRP has already flipped away from the shell — IsIdle is
+//     false with zero delay, which startForeground asserts rather than polls for.
 func TestIsIdle_unix(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-idle", "/bin/sh", dir, "", os.Environ(), 80, 24, 0)
+	s, err := New("sid-idle", "/bin/sh", dir, "", testEnv(), 80, 24, 0)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
-	ch, err := s.Attach()
-	require.NoError(t, err)
-	defer s.Detach(ch)
-
-	// Wait for the first output frame so we know the shell has initialised.
-	select {
-	case <-ch:
-	case <-time.After(3 * time.Second):
-		// No output yet; that is also fine — the shell may not print a prompt.
-		// Fall through to the idle poll below.
-	}
-
 	// --- Idle assertion -------------------------------------------------
-	// Poll until the shell settles at its prompt (it IS the foreground
-	// process group there). Eventually subsumes both the startup settle and
-	// the per-iteration retry the fixed sleeps used to provide.
-	assert.Eventually(t, s.IsIdle, 3*time.Second, 50*time.Millisecond,
-		"shell at prompt must report IsIdle=true")
+	waitPrompt(t, s)
+	assert.True(t, s.IsIdle(), "shell at prompt must report IsIdle=true")
 
 	// --- Active assertion -----------------------------------------------
-	// Spawn a long-running foreground sleep command, then poll until the
-	// sleep child takes the foreground process group and IsIdle flips false.
-	require.NoError(t, s.Write([]byte("sleep 9999\n")))
-	assert.Eventually(t, func() bool { return !s.IsIdle() }, 3*time.Second, 50*time.Millisecond,
-		"shell with foreground sleep child must report IsIdle=false")
+	// startForeground blocks on the child's announcement and asserts !IsIdle() there.
+	startForeground(t, s)
+	assert.False(t, s.IsIdle(), "shell with a foreground child must report IsIdle=false")
 }

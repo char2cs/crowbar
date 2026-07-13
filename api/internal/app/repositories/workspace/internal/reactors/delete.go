@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/char2cs/asynx"
@@ -21,6 +20,8 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/domain"
+
+	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 )
 
 const (
@@ -89,10 +90,10 @@ func RegisterDeleteReactor(
 	pathsStore wspaths.WorkspacePaths,
 	reviewThreadForget func(ctx context.Context, wsID string) error,
 	rmWorktree func(path string) error,
-	drainWG *sync.WaitGroup,
+	gate *drain.Gate,
 	opts ...Opt,
 ) error {
-	r := newDeleteReactor(ax, storeReader, pathsStore, reviewThreadForget, rmWorktree, drainWG, opts...)
+	r := newDeleteReactor(ax, storeReader, pathsStore, reviewThreadForget, rmWorktree, gate, opts...)
 	if _, err := ax.Subscribe(asynx.Topic("workspace.deleted.*"), r.onEvent); err != nil {
 		return fmt.Errorf("workspace delete reactor: subscribe: %w", err)
 	}
@@ -105,7 +106,7 @@ type deleteReactor struct {
 	pathsStore         wspaths.WorkspacePaths
 	reviewThreadForget func(ctx context.Context, wsID string) error
 	rmWorktree         func(path string) error
-	drainWG            *sync.WaitGroup
+	gate               *drain.Gate
 	timeout            time.Duration
 	pollInterval       time.Duration
 }
@@ -116,7 +117,7 @@ func newDeleteReactor(
 	pathsStore wspaths.WorkspacePaths,
 	reviewThreadForget func(ctx context.Context, wsID string) error,
 	rmWorktree func(path string) error,
-	drainWG *sync.WaitGroup,
+	gate *drain.Gate,
 	opts ...Opt,
 ) *deleteReactor {
 	r := &deleteReactor{
@@ -125,7 +126,7 @@ func newDeleteReactor(
 		pathsStore:         pathsStore,
 		reviewThreadForget: reviewThreadForget,
 		rmWorktree:         rmWorktree,
-		drainWG:            drainWG,
+		gate:               gate,
 		timeout:            defaultReactorTimeout,
 		pollInterval:       defaultGatePollInterval,
 	}
@@ -143,7 +144,11 @@ func (r *deleteReactor) onEvent(
 	if wsID == "" {
 		wsID = evt.Aggregate.ID
 	}
-	r.drainWG.Add(1)
+	// Refused once the daemon is draining (drain.Gate). Not a dropped event: the DBs
+	// this purge would write to are about to close, and the boot sweep re-purges.
+	if !r.gate.Enter() {
+		return
+	}
 	go r.run(ctx, wsID)
 }
 
@@ -151,7 +156,7 @@ func (r *deleteReactor) run(
 	ctx context.Context,
 	wsID string,
 ) {
-	defer r.drainWG.Done()
+	defer r.gate.Leave()
 	bg := context.WithoutCancel(ctx)
 	bg, cancel := context.WithTimeout(bg, r.timeout)
 	defer cancel()
@@ -171,7 +176,10 @@ func (r *deleteReactor) purge(
 		return
 	}
 	if err := r.reviewThreadForget(ctx, wsID); err != nil {
-		slog.ErrorContext(ctx, "workspace delete reactor: review-thread cascade", "id", wsID, "err", err)
+		// The injected callback is the composed cross-aggregate forget cascade
+		// (review threads + agent chats — see repositories.Container.forgetDependents),
+		// so this label stays generic; the wrapped err names the half that failed.
+		slog.ErrorContext(ctx, "workspace delete reactor: delete cascade", "id", wsID, "err", err)
 		return
 	}
 	if !r.removeWorktree(path, wsID) {

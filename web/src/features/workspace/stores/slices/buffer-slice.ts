@@ -4,8 +4,8 @@ import type {
   PaneContent,
   OpenContentSpec,
   EditorContent,
-  CrowbarChatContent,
   BranchReviewContent,
+  AgentChatContent,
   DiffContent,
   TerminalContent,
   NewTabContent,
@@ -33,6 +33,8 @@ const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>(['externalEditor', 
 export interface BufferActions {
   openContent(spec: OpenContentSpec): string
   closeBuffer(id: string): void
+  renameBuffer(id: string, name: string): void
+  repointAgentChatBuffer(id: string, to: { chatId: string; runnerId: string }): void
   setPinned(id: string, pinned: boolean): void
   setPreview(id: string, preview: boolean): void
   promotePreview(id: string): void
@@ -75,14 +77,14 @@ export const createBufferSlice: StateCreator<
           if (spec.type === 'editor') {
             return get().buffers.find((b) => b.type === 'editor' && b.path === spec.path)
           }
-          if (spec.type === 'crowbarChat') {
-            return get().buffers.find(
-              (b) => b.type === 'crowbarChat' && (b as CrowbarChatContent).wsId === spec.wsId,
-            )
-          }
           if (spec.type === 'branchReview') {
             return get().buffers.find(
               (b) => b.type === 'branchReview' && (b as BranchReviewContent).wsId === spec.wsId,
+            )
+          }
+          if (spec.type === 'agentChat') {
+            return get().buffers.find(
+              (b) => b.type === 'agentChat' && (b as AgentChatContent).chatId === spec.chatId,
             )
           }
           if (spec.type === 'diff') {
@@ -153,17 +155,6 @@ export const createBufferSlice: StateCreator<
             isPreview,
             isActive: false,
           } satisfies EditorContent
-        } else if (spec.type === 'crowbarChat') {
-          buf = {
-            id,
-            type: 'crowbarChat',
-            wsId: spec.wsId,
-            name: spec.name,
-            path: '',
-            isPinned: false,
-            isPreview: false,
-            isActive: false,
-          } satisfies CrowbarChatContent
         } else if (spec.type === 'branchReview') {
           buf = {
             id,
@@ -175,6 +166,21 @@ export const createBufferSlice: StateCreator<
             isPreview: false,
             isActive: false,
           } satisfies BranchReviewContent
+        } else if (spec.type === 'agentChat') {
+          buf = {
+            id,
+            type: 'agentChat',
+            chatId: spec.chatId,
+            // '' is the honest default: the caller may not know (or may not have)
+            // a runner. The pane adopts whatever runner its chat really has.
+            runnerId: spec.runnerId ?? '',
+            wsId: spec.wsId,
+            name: spec.name,
+            path: `agent-chat://${spec.chatId}`,
+            isPinned: false,
+            isPreview: false,
+            isActive: false,
+          } satisfies AgentChatContent
         } else if (spec.type === 'diff') {
           buf = {
             id,
@@ -294,17 +300,6 @@ export const createBufferSlice: StateCreator<
             },
           )
         }
-        // Closing a chat tab is final too — drop its conversation store so the
-        // streamed turns[] (full agent/user message text) don't leak for the
-        // lifetime of the session. The store is keyed by the chat's wsId (the
-        // nanoid minted at open). Dynamic import avoids a workspace-slice →
-        // markdown-chat-feature cycle, mirroring the terminal branch above.
-        if (buf && buf.type === 'crowbarChat') {
-          const { wsId } = buf as CrowbarChatContent
-          void import('@/features/markdown-chat/stores/conversation-store').then(
-            ({ destroyConversationStore }) => destroyConversationStore(wsId),
-          )
-        }
         if (buf && shouldStartLsp(buf)) {
           set((state) => {
             const entry: ClosedBuffer = { path: buf.path, name: buf.name, isPinned: buf.isPinned }
@@ -343,6 +338,48 @@ export const createBufferSlice: StateCreator<
         useHistoryStore.getState().actions.clearHistory(id)
         set((state) => {
           state.buffers = state.buffers.filter((b) => b.id !== id)
+        })
+      },
+
+      // Rename an open buffer's tab label in place. `openContent` snapshots the
+      // name at open time, so any content whose title can change AFTER the tab
+      // exists (an agent chat auto-titled by the agent, or renamed by the user)
+      // needs this to keep the tab in sync with its source of truth.
+      renameBuffer(id, name) {
+        set((state) => {
+          const buf = state.buffers.find((b) => b.id === id)
+          if (buf) buf.name = name
+        })
+      },
+
+      // Re-point an agent-chat tab at the chat/runner it is showing NOW. Both ids
+      // move, and they move for different reasons:
+      //
+      //   the RUNNER moved  → a new chatId, the SAME runnerId. The user typed
+      //                       /clear or /resume inside the CLI and it switched
+      //                       conversation; the tab follows the process. The PTY is
+      //                       unchanged, so the terminal (keyed by it) never
+      //                       remounts — the conversation changes without the
+      //                       terminal changing.
+      //   the chat was RESUMED, or its provider switched
+      //                     → the same chatId, a new runnerId. A different process
+      //                       is on the conversation now, with a different PTY, so
+      //                       the terminal re-attaches.
+      //
+      // `path` tracks chatId so the buffer's identity never contradicts it. The tab
+      // LABEL is not touched here: it follows the chat's title through renameBuffer,
+      // which fires on the same store update.
+      //
+      // A no-op when nothing actually changed — an idempotent write would otherwise
+      // mint a new buffers array on every render pass that re-asserts the same pair.
+      repointAgentChatBuffer(id, to) {
+        set((state) => {
+          const buf = state.buffers.find((b) => b.id === id)
+          if (!buf || buf.type !== 'agentChat') return
+          if (buf.chatId === to.chatId && buf.runnerId === to.runnerId) return
+          buf.chatId = to.chatId
+          buf.runnerId = to.runnerId
+          buf.path = `agent-chat://${to.chatId}`
         })
       },
 

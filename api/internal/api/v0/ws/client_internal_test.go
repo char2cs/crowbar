@@ -39,6 +39,29 @@ func upgradedPair(
 	return server, client, cleanup
 }
 
+// inertTicker is a ticker that can never fire: nothing ever sends on its
+// channel. It pins writeNext's ping arm shut so the select is forced onto the
+// arm under test, without a real clock running in the background. (A
+// time.NewTicker(time.Hour) would also not fire, but a channel with no sender
+// states the intent — "this arm must not be taken" — as a fact rather than a
+// bet on the test finishing within the hour.)
+//
+// Stop() is deliberately never called on these: a hand-built Ticker has no
+// runtime timer behind it, and it needs no cleanup.
+func inertTicker() *time.Ticker {
+	return &time.Ticker{C: make(chan time.Time)}
+}
+
+// firedTicker is a ticker whose tick has ALREADY been delivered into its
+// buffer. writeNext's select is therefore guaranteed to take the ping arm (the
+// send channel is empty and done is open, so no other arm is ready) — the ping
+// path becomes deterministic instead of racing a real 1ms ticker.
+func firedTicker() *time.Ticker {
+	c := make(chan time.Time, 1)
+	c <- time.Time{}
+	return &time.Ticker{C: c}
+}
+
 func TestFlushSnapshot_WriteErrorAborts(t *testing.T) {
 	server, _, cleanup := upgradedPair(t)
 	defer cleanup()
@@ -75,11 +98,9 @@ func TestWriteNext_SendWriteErrorReturnsFalse(t *testing.T) {
 
 	cl := newClient()
 	cl.send <- []byte("frame")
-	ticker := time.NewTicker(time.Hour)
-	defer ticker.Stop()
 	_ = server.Close()
 
-	require.False(t, writeNext(server, cl, ticker))
+	require.False(t, writeNext(server, cl, inertTicker()))
 }
 
 func TestWriteNext_DoneReturnsFalse(t *testing.T) {
@@ -88,10 +109,8 @@ func TestWriteNext_DoneReturnsFalse(t *testing.T) {
 
 	cl := newClient()
 	close(cl.done)
-	ticker := time.NewTicker(time.Hour)
-	defer ticker.Stop()
 
-	require.False(t, writeNext(server, cl, ticker))
+	require.False(t, writeNext(server, cl, inertTicker()))
 }
 
 func TestWriteNext_PingWriteErrorReturnsFalse(t *testing.T) {
@@ -99,12 +118,11 @@ func TestWriteNext_PingWriteErrorReturnsFalse(t *testing.T) {
 	defer cleanup()
 
 	cl := newClient()
-	ticker := time.NewTicker(time.Millisecond)
-	defer ticker.Stop()
 	_ = server.Close()
-	<-ticker.C
 
-	require.False(t, writeNext(server, cl, ticker))
+	// The tick is already buffered, so the ping arm is the only ready arm: the
+	// select cannot go anywhere else, with no dependence on a real clock.
+	require.False(t, writeNext(server, cl, firedTicker()))
 }
 
 func TestWriteNext_SendSuccess(t *testing.T) {
@@ -113,10 +131,8 @@ func TestWriteNext_SendSuccess(t *testing.T) {
 
 	cl := newClient()
 	cl.send <- []byte("frame")
-	ticker := time.NewTicker(time.Hour)
-	defer ticker.Stop()
 
-	require.True(t, writeNext(server, cl, ticker))
+	require.True(t, writeNext(server, cl, inertTicker()))
 
 	_, msg, err := client.ReadMessage()
 	require.NoError(t, err)
@@ -135,11 +151,11 @@ func TestReadPump_ReturnsOnReadError(t *testing.T) {
 
 	_ = client.Close() // peer gone: NextReader errors and readPump returns
 
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("readPump did not return after conn closed")
-	}
+	// Blocking receive: the close of done IS the "readPump returned" signal. A
+	// pump that wedges hangs here until `go test -timeout` fires and dumps the
+	// stuck goroutine — a sharper failure than any 5-second guess, which would
+	// only have restated the test timeout less reliably.
+	<-done
 }
 
 func TestReadPump_PongHandlerResetsDeadline(t *testing.T) {
@@ -154,21 +170,13 @@ func TestReadPump_PongHandlerResetsDeadline(t *testing.T) {
 
 	// On the single ordered TCP stream the pong is delivered (and its handler
 	// run) before the subsequent close is observed, so readPump's pong-handler
-	// closure executes before the loop returns.
-	err := client.WriteControl(
-		websocket.PongMessage,
-		nil,
-		time.Now().Add(time.Second),
-	)
-	require.NoError(t, err)
+	// closure executes before the loop returns. The zero deadline means "no write
+	// timeout": the control frame's delivery is ordered by the stream, not timed.
+	require.NoError(t, client.WriteControl(websocket.PongMessage, nil, time.Time{}))
 	require.NoError(t, client.WriteMessage(websocket.TextMessage, []byte("x")))
 	_ = client.Close()
 
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("readPump did not return")
-	}
+	<-done
 }
 
 func TestWritePump_AbortsWhenSnapshotFlushFails(t *testing.T) {
@@ -184,11 +192,7 @@ func TestWritePump_AbortsWhenSnapshotFlushFails(t *testing.T) {
 		close(done)
 	}()
 
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("writePump did not return after snapshot flush failed")
-	}
+	<-done
 }
 
 func TestWritePump_AbortsWhenWriteNextFails(t *testing.T) {
@@ -205,9 +209,5 @@ func TestWritePump_AbortsWhenWriteNextFails(t *testing.T) {
 		close(done)
 	}()
 
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("writePump did not return after live write failed")
-	}
+	<-done
 }

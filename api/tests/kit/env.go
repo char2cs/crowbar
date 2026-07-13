@@ -716,6 +716,44 @@ func WaitForWorkspaceState(
 	return WaitForState(t, w, wsID, status, timeout)
 }
 
+// WaitForWorkComplete blocks until wsID's in-flight async mutation has STARTED
+// and then FINISHED, and returns the final DTO. It is the completion barrier for
+// the fire-and-forget 202 handlers, whose slow work runs in a detached goroutine
+// that no projection drain can see.
+//
+// It reads the daemon's OWN "am I busy" overlay. Every detached op is bracketed
+// by the handler: BeginWork(wsID) on the request goroutine, then EndWork(wsID) on
+// EVERY exit — success, error or panic — after the work function has returned.
+// Both broadcast a WorkspaceDTO, so the stream carries working:true … working:false,
+// and the falling edge is the daemon stating that the op is over. Waiting for the
+// RISING edge first is what makes the falling one meaningful: a workspace at rest
+// already reads working:false, so matching that alone would return before the op
+// had even begun.
+//
+// This is the barrier a merge needs. A merge's status fold is NOT one: a
+// conflicting child is broadcast as pr-conflicts by the merge-tree PREDICTION
+// overlay before any merge is attempted, so a test keyed on that status can
+// wake up while the merge is still mid-conflict and read a worktree that has not
+// been aborted yet — which is precisely the race the old 2-second cleanliness
+// poll was hiding.
+func WaitForWorkComplete(
+	t *testing.T,
+	w *WSWatcher,
+	wsID string,
+	timeout time.Duration,
+) map[string]any {
+	t.Helper()
+	isWorking := func(m map[string]any, want bool) bool {
+		if m["id"] != wsID {
+			return false
+		}
+		working, ok := m["working"].(bool)
+		return ok && working == want
+	}
+	w.ReadUntil(t, timeout, func(m map[string]any) bool { return isWorking(m, true) })
+	return w.ReadUntil(t, timeout, func(m map[string]any) bool { return isWorking(m, false) })
+}
+
 // WaitForWorkspaceLastError reads WS events from w until a WorkspaceDTO with the
 // given id carries a non-empty lastError. Returns the lastError string.
 func WaitForWorkspaceLastError(
@@ -1053,6 +1091,41 @@ type ImportedRepo struct {
 // trail the WS frame; call Quiesce after a mutation so a subsequent read of the
 // list/store is guaranteed consistent, with no polling and no timeouts.
 func (e *Env) Quiesce() {
+	e.app.Repositories.WaitQuiescent()
+}
+
+// QuiesceReactors is Quiesce PLUS the join of every post-commit REACTOR the
+// mutation set in motion. It is the barrier for the async cascades whose whole
+// effect lands outside the aggregate — above all DELETE, which converges only
+// when the read-model row is gone AND the worktree is physically gone from disk.
+//
+// Quiesce alone is NOT enough for those, and the gap is structural rather than a
+// matter of degree. A reactor is an asynx SUBSCRIBER that immediately detaches:
+// its handler does `drainWG.Add(1); go run(...)` and returns. WaitPublish
+// therefore observes the handler as complete the moment it has spawned the
+// goroutine — while the purge it spawned has not yet Forgotten the aggregate or
+// rm'd the worktree. The detached goroutine is joined by exactly one thing, the
+// container's drain WaitGroup, which is the same one the daemon's graceful
+// shutdown waits on. So this is the production drain, used as a test barrier.
+//
+// The three steps are a CHAIN, and each is needed:
+//
+//  1. WaitQuiescent — dispatch the command and fold its projections. This must be
+//     first for two reasons: it is what gets the deleted event to the reactor, so
+//     the reactor's Add(1) has happened before anything waits on the WaitGroup
+//     (waiting first would find a zero counter and synchronise with nothing); and
+//     it lands the tombstone in the read model, which is precisely what the
+//     reactor's own gate is waiting to see.
+//  2. Drain().Gate.WaitIdle(context.Background()) — join the detached purge: rm the worktree, Forget the
+//     aggregate, cascade to dependents.
+//  3. WaitQuiescent again — the purge's Forget is ITSELF an asynx command, and the
+//     read-model row is dropped by that command's PROJECTION. So the reactor
+//     finishing is not the end of the chain: without this last fold, the row the
+//     delete is supposed to remove is still sitting there. (Found the hard way:
+//     step 3 is exactly the assertion that failed without it.)
+func (e *Env) QuiesceReactors() {
+	e.app.Repositories.WaitQuiescent()
+	e.app.Repositories.Drain().Gate.WaitIdle(context.Background())
 	e.app.Repositories.WaitQuiescent()
 }
 

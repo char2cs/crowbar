@@ -101,7 +101,6 @@ const FIXTURE_REPOS: Repo[] = [
 
 beforeEach(() => {
   useSidebarStore.setState({
-    chats: [],
     repos: FIXTURE_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })),
     collapsedRepos: new Set<string>(),
     collapsedWorkspaces: new Set<string>(),
@@ -125,19 +124,6 @@ test('deleteWorkspace removes from repo', () => {
   useSidebarStore.getState().deleteWorkspace('ws3')
   const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
   expect(repo.workspaces.some((w) => w.id === 'ws3')).toBe(false)
-})
-
-test('addChat appends a new chat entry', () => {
-  useSidebarStore.getState().addChat({
-    id: 'c-test',
-    wsId: 'ws1',
-    title: 'New',
-    age: 'just now',
-    status: 'idle',
-    type: 'chat',
-  })
-  const chats = useSidebarStore.getState().chats
-  expect(chats.some((c) => c.id === 'c-test')).toBe(true)
 })
 
 test('toggleRepo flips collapsed state', () => {
@@ -295,7 +281,6 @@ describe('toggleRepo persistence', () => {
     resetDB()
     globalThis.indexedDB = new IDBFactory()
     useSidebarStore.setState({
-      chats: [],
       repos: [],
       collapsedRepos: new Set<string>(),
       collapsedWorkspaces: new Set<string>(),
