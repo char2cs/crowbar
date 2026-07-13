@@ -3,7 +3,6 @@ package session
 import (
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -138,7 +137,7 @@ func TestRegression_ModelPanicOnResizeAndAttachStillServes(t *testing.T) {
 	ch2, err := s.Attach()
 	require.NoError(t, err)
 	defer s.Detach(ch2)
-	f, ok := waitFrame(t, ch2, time.Second)
+	f, ok := waitFrame(t, ch2)
 	require.True(t, ok, "post-recovery attach must deliver a redraw frame")
 	assert.Equal(t, "REDRAW", string(f.Data))
 	require.NoError(t, s.Write([]byte("echo ok\n")), "post-recovery Write must succeed")

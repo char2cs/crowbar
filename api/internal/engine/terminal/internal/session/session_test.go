@@ -5,40 +5,281 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// waitFrame blocks until ch receives a frame or deadline elapses.
+// ---------------------------------------------------------------------------
+// Deterministic shell synchronisation — no clocks.
+//
+// These tests drive REAL PTYs and REAL shells, so nearly every wait here answers the
+// question "has the shell got there yet?". A duration is not an answer to that question: it
+// is a guess about how fast a fork/exec/prompt is on whichever machine happens to be running
+// the suite, and when the guess is wrong the test fails for reasons that have nothing to do
+// with the code under test.
+//
+// A shell already has a protocol for announcing where it is — it prints its PROMPT once it
+// has finished everything it was asked to do and is blocked reading stdin. The helpers below
+// turn that protocol into a test signal, anchored on the session's pump seam
+// (PumpNotifyForTest) so a waiter is woken by real progress rather than by a timer.
+//
+// None of them takes a timeout. A wait that never completes is a HANG, and `go test -timeout`
+// is the backstop that reports it — with a goroutine dump, which is strictly more diagnostic
+// than a bespoke "did not happen within 5s" message.
+// ---------------------------------------------------------------------------
+
+// shellPrompt is the PS1 handed to every test shell. It is deliberately unlikely to occur in
+// command output, so finding it on screen unambiguously means "the shell printed its prompt".
+const shellPrompt = "<<CRWB-RDY>>"
+
+// testEnv is the environment every test session spawns with: a pinned, prompt-announcing
+// shell with no rc file. Without the pin, a session inherits whatever PS1 the developer's
+// environment carries and may source dotfiles that speak (or fork children) asynchronously —
+// leaving no stable point at which the shell can be said to be ready. Pinning removes that
+// nondeterminism at its source instead of trying to out-wait it. exec dedups the environment
+// keeping the LAST occurrence of a key, so appending overrides any inherited value.
+func testEnv() []string {
+	return append(os.Environ(),
+		"PS1="+shellPrompt, // the readiness protocol
+		"ENV=",             // POSIX sh rc file: none, so no dotfile may speak
+		"BASH_ENV=",        // /bin/sh is bash-in-sh-mode on darwin; silence it too
+	)
+}
+
+// stripANSI removes escape sequences from serializer output, leaving the screen's visible
+// text. The serializer emits a clean, ground-state redraw (CSI cursor/SGR, OSC title, then
+// literal cell text), so dropping the sequences yields the text a user would see — which is
+// what the readiness predicates below match on.
+func stripANSI(b []byte) string {
+	var out strings.Builder
+	for i := 0; i < len(b); {
+		c := b[i]
+		if c != 0x1b {
+			// Keep printable text and newlines; drop other control bytes (notably \r, which
+			// the serializer uses for positioning and which would otherwise glue rows).
+			if c == '\n' || c >= 0x20 {
+				out.WriteByte(c)
+			}
+			i++
+			continue
+		}
+		i++ // consume ESC
+		if i >= len(b) {
+			break
+		}
+		switch b[i] {
+		case '[': // CSI: params, then a final byte in @-~
+			i++
+			for i < len(b) && (b[i] < '@' || b[i] > '~') {
+				i++
+			}
+			i++ // consume the final byte
+		case ']', 'P', 'X', '^', '_': // OSC/DCS/SOS/PM/APC: run to BEL or ST (ESC \)
+			i++
+			for i < len(b) {
+				if b[i] == 0x07 {
+					i++
+					break
+				}
+				if b[i] == 0x1b && i+1 < len(b) && b[i+1] == '\\' {
+					i += 2
+					break
+				}
+				i++
+			}
+		case '(', ')', '*', '+': // charset designation: ESC ( B — two bytes follow
+			i += 2
+		default: // simple two-byte escape: ESC =, ESC >, ESC M …
+			i++
+		}
+	}
+	return out.String()
+}
+
+// screenText returns the session's current visible screen as plain text. SerializedForTest is
+// deliberately non-consuming, so polling it never perturbs the dirty bit a test may later assert on.
+func screenText(s *Session) string { return stripANSI(s.SerializedForTest()) }
+
+// waitScreen blocks until pred is satisfied by the session's screen.
+//
+// It is the core synchronisation primitive of this package and contains no clock. On each
+// iteration it checks the real observable (the screen); if unsatisfied it blocks on the pump
+// seam — a signal published only when pumpStep has FULLY processed another chunk (model
+// written, frame emitted, dirty set). Waking is proof the screen may have changed, so the loop
+// re-reads it.
+//
+// The check-then-block order is what makes it race-free: the pump seam is 1-buffered, so a
+// chunk landing between our check and our receive leaves the edge latched and wakes us
+// immediately rather than being missed.
+//
+// s.Done() is selected on purely so an exited shell fails fast and loudly instead of hanging;
+// it is a real signal (the process is gone; no further output can EVER arrive), not a deadline.
+func waitScreen(
+	t *testing.T,
+	s *Session,
+	pred func(string) bool,
+	what string,
+) {
+	t.Helper()
+	notify := s.PumpNotifyForTest()
+	for {
+		if pred(screenText(s)) {
+			return
+		}
+		select {
+		case <-notify:
+			// The pump processed another chunk; loop and re-read the screen.
+		case <-s.Done():
+			// The shell exited. Re-check once (its final output may have satisfied pred on
+			// the way out), then fail — no further output can ever arrive.
+			if pred(screenText(s)) {
+				return
+			}
+			t.Fatalf("session exited before %s\nscreen:\n%s", what, screenText(s))
+		}
+	}
+}
+
+// waitPrompt blocks until the shell has printed its prompt — i.e. it has finished starting up,
+// has flushed everything it intends to say, and is now blocked reading stdin. It is the honest
+// replacement for "sleep until the shell looks settled": nothing follows the prompt until we type.
+func waitPrompt(t *testing.T, s *Session) {
+	t.Helper()
+	waitScreen(t, s, func(scr string) bool {
+		return strings.Contains(scr, shellPrompt)
+	}, "the shell to print its first prompt")
+}
+
+// markerSeq hands out process-unique marker ids so concurrent sessions can never match on
+// each other's markers.
+var markerSeq atomic.Int64
+
+// runShell writes cmd to the session and blocks until the shell has RUN it and returned to its
+// prompt — leaving the session quiescent, with no output still in flight.
+//
+// The wait is anchored on a unique marker the shell prints after cmd. The marker is emitted
+// from two arguments (`printf '%s%s\n' MK7 END`) so the joined token "MK7END" appears ONLY in
+// the command's OUTPUT and never in the terminal's echo of the typed line — which contains
+// "MK7 END", with a space. Matching the joined form therefore cannot be satisfied by the echo.
+//
+// Requiring the PROMPT after the marker is the other half: PTY output is ordered, so once the
+// prompt that follows the marker is on screen, every byte the command produced has already been
+// through the pump. That is what "quiescent" means, established by observation, not by a timer.
+func runShell(t *testing.T, s *Session, cmd string) {
+	t.Helper()
+	n := markerSeq.Add(1)
+	tok := fmt.Sprintf("MK%dEND", n)
+	line := fmt.Sprintf("%s; printf '%%s%%s\\n' MK%d END\n", cmd, n)
+	require.NoError(t, s.Write([]byte(line)), "write %q to the shell", cmd)
+	waitScreen(t, s, func(scr string) bool {
+		i := strings.LastIndex(scr, tok)
+		return i >= 0 && strings.Contains(scr[i+len(tok):], shellPrompt)
+	}, fmt.Sprintf("command %q to finish and the prompt to return", cmd))
+}
+
+// startForeground starts a long-running foreground child and blocks until the KERNEL agrees
+// that child owns the terminal — i.e. until the session is genuinely non-idle by the same
+// TIOCGPGRP measure IsIdle uses.
+//
+// The child is a subshell that announces itself and then execs the sleep. That shape is what
+// makes the wait exact rather than approximate: job control puts a job in its own process group
+// and makes it the terminal's FOREGROUND group BEFORE the job runs, and exec preserves that
+// pid/pgroup for the sleep. So the marker's arrival PROVES the foreground process group has
+// already flipped away from the shell — no settling, no polling, no "give it 100ms to take
+// effect". The assertion below documents that this holds with zero delay; it is checked, not
+// assumed.
+func startForeground(t *testing.T, s *Session) {
+	t.Helper()
+	n := markerSeq.Add(1)
+	tok := fmt.Sprintf("FG%dON", n)
+	line := fmt.Sprintf("( printf '%%s%%s\\n' FG%d ON; exec sleep 9999 )\n", n)
+	require.NoError(t, s.Write([]byte(line)), "start the foreground child")
+	waitScreen(t, s, func(scr string) bool {
+		return strings.Contains(scr, tok)
+	}, "the foreground child to announce itself")
+	require.False(t, s.IsIdle(),
+		"the child's first output byte must already prove it owns the terminal "+
+			"(job control foregrounds a job's process group before it runs)")
+}
+
+// waitForegroundSampled blocks until the pump has run pumpStep's debounced foreground sample at
+// least once — i.e. the session has latched the terminal's foreground process group and fired
+// whatever OnForegroundReset edge that first sample implies.
+//
+// It exists for the one test whose model is a FAKE (session_forcesuspend_race_test.go), whose
+// screen therefore never shows a shell prompt, so waitPrompt cannot be its readiness signal. The
+// sample runs on the FIRST chunk the pump processes (lastFgSampleAt is the zero time, so the
+// debounce interval has trivially elapsed) and completes — teardown mutation included — before
+// pumpStep publishes its notify edge. Waiting for the stamp is therefore waiting for exactly the
+// state the caller depends on, rather than for a duration in which it is assumed to have happened.
+func waitForegroundSampled(t *testing.T, s *Session) {
+	t.Helper()
+	notify := s.PumpNotifyForTest()
+	for {
+		s.mu.Lock()
+		sampled := !s.lastFgSampleAt.IsZero()
+		s.mu.Unlock()
+		if sampled {
+			return
+		}
+		select {
+		case <-notify:
+		case <-s.Done():
+			t.Fatal("session exited before the pump sampled the foreground process group")
+		}
+	}
+}
+
+// waitFrame blocks until ch delivers a frame. A CLOSED channel is a real signal (the session
+// tore down and dropped its clients) and is reported as ok==false. There is no timeout: a frame
+// that never arrives is a hang, and `go test -timeout` reports it with the blocked stack.
 func waitFrame(
 	t *testing.T,
 	ch <-chan OutputFrame,
-	timeout time.Duration,
 ) (OutputFrame, bool) {
 	t.Helper()
-	select {
-	case f, ok := <-ch:
-		return f, ok
-	case <-time.After(timeout):
-		return OutputFrame{}, false
+	f, ok := <-ch
+	return f, ok
+}
+
+// waitFrameContaining blocks until a frame whose data contains sub arrives, accumulating
+// everything seen along the way. A closed channel fails the test — the data can never arrive.
+func waitFrameContaining(
+	t *testing.T,
+	ch <-chan OutputFrame,
+	sub string,
+) string {
+	t.Helper()
+	var seen []byte
+	for {
+		f, ok := <-ch
+		if !ok {
+			t.Fatalf("channel closed before %q arrived; saw: %q", sub, seen)
+		}
+		seen = append(seen, f.Data...)
+		if containsStr(f.Data, sub) {
+			return string(seen)
+		}
 	}
 }
 
 // newTestSession spawns a live session at the default 80×24 size with no scrollback
-// override, the shape every session unit test that does not care about size uses.
+// override, the shape every session unit test that does not care about size uses. It spawns
+// with the pinned, prompt-announcing environment so waitPrompt/runShell can synchronise on the
+// shell's own protocol instead of on a clock.
 func newTestSession(
 	t *testing.T,
 	id string,
 	dir string,
 ) (*Session, error) {
 	t.Helper()
-	return New(id, "/bin/sh", dir, "", os.Environ(), 80, 24, 0)
+	return New(id, "/bin/sh", dir, "", testEnv(), 80, 24, 0)
 }
 
 func TestSession_NewAndKill(t *testing.T) {
@@ -49,11 +290,9 @@ func TestSession_NewAndKill(t *testing.T) {
 
 	s.Kill()
 
-	select {
-	case <-s.Done():
-	case <-time.After(2 * time.Second):
-		t.Fatal("session did not terminate after Kill")
-	}
+	// Kill's own shutdown closes Done: block on that real signal. A deadline here would
+	// only be a second, weaker definition of "too slow".
+	<-s.Done()
 }
 
 func TestSession_AttachReceivesOutput(t *testing.T) {
@@ -66,21 +305,9 @@ func TestSession_AttachReceivesOutput(t *testing.T) {
 
 	require.NoError(t, s.Write([]byte("echo hello\n")))
 
-	found := false
-	deadline := time.After(3 * time.Second)
-	for !found {
-		select {
-		case f, ok := <-ch:
-			if !ok {
-				t.Fatal("channel closed before output received")
-			}
-			if containsStr(f.Data, "hello") {
-				found = true
-			}
-		case <-deadline:
-			t.Fatal("timeout waiting for 'hello' output")
-		}
-	}
+	// Block on the frames themselves until the echoed output shows up; a closed channel
+	// (the session died) is the only failure a real signal can report here.
+	waitFrameContaining(t, ch, "hello")
 
 	s.Kill()
 }
@@ -97,11 +324,9 @@ func TestSession_NaturalExitReapsChild(t *testing.T) {
 	// Make the shell exit on its own — no Kill().
 	require.NoError(t, s.Write([]byte("exit\n")))
 
-	select {
-	case <-s.Done():
-	case <-time.After(3 * time.Second):
-		t.Fatal("session did not terminate after the shell exited")
-	}
+	// The pump's exit path runs shutdown(), which reaps the child and closes Done. Block on
+	// that signal: it fires exactly when the thing under test has happened.
+	<-s.Done()
 
 	// The child must have been waited on (reaped); otherwise it is a zombie.
 	require.NotNil(t, s.cmd.ProcessState, "natural shell exit must reap the child via cmd.Wait()")
@@ -151,21 +376,7 @@ func TestSession_ReAttachSerializesScreen(t *testing.T) {
 	require.NoError(t, s.Write([]byte("echo ringmarker\n")))
 
 	// Wait until the first client sees the echoed marker so the model has parsed it.
-	deadline := time.After(3 * time.Second)
-	found := false
-	for !found {
-		select {
-		case f, ok := <-ch:
-			if !ok {
-				t.Fatal("channel closed unexpectedly")
-			}
-			if containsStr(f.Data, "ringmarker") {
-				found = true
-			}
-		case <-deadline:
-			t.Fatal("timeout waiting for output on first client")
-		}
-	}
+	waitFrameContaining(t, ch, "ringmarker")
 
 	s.Detach(ch)
 
@@ -173,7 +384,7 @@ func TestSession_ReAttachSerializesScreen(t *testing.T) {
 	ch2, err := s.Attach()
 	require.NoError(t, err)
 
-	f, ok := waitFrame(t, ch2, 2*time.Second)
+	f, ok := waitFrame(t, ch2)
 	assert.True(t, ok, "expected serialized redraw frame")
 	assert.True(t, containsStr(f.Data, "ringmarker"),
 		"serialized redraw must contain the on-screen marker, got: %q", f.Data)
@@ -253,33 +464,11 @@ func TestSession_DropOnOverflow(t *testing.T) {
 		s.FanOutForTest(chunk)
 	}
 
-	// The channel must now be closed because the client was dropped.
-	select {
-	case _, ok := <-ch:
-		// Either we read the overflow batch or the channel is closed.
-		if !ok {
-			return // channel closed: drop happened
-		}
-		// Channel not closed yet; drain and check again.
-		for len(ch) > 0 {
-			if _, ok := <-ch; !ok {
-				return
-			}
-		}
-	default:
-	}
-
-	// If not yet closed, wait a moment for the goroutine to process.
-	deadline := time.After(2 * time.Second)
-	for {
-		select {
-		case _, ok := <-ch:
-			if !ok {
-				return
-			}
-		case <-deadline:
-			t.Fatal("client was not dropped after channel overflow")
-		}
+	// The overflowing client must have been DROPPED, which closes its channel — that close
+	// is the real signal, and fanOutFrameLocked performs it synchronously on the overflowing
+	// send. Drain to the close rather than waiting out a deadline: if the drop never happens
+	// this ranges forever, and `go test -timeout` reports the hang with the blocked stack.
+	for range ch { //nolint:revive // draining to the close IS the assertion
 	}
 }
 
@@ -353,8 +542,13 @@ func TestSession_ReplayLiveHandoff_NoDuplication(t *testing.T) {
 					return // session is dead
 				}
 
+				// Drain everything this attach can see, then detach — with no clock. Attach
+				// enqueues its serialized redraw SYNCHRONOUSLY (under s.mu, into a buffered
+				// channel) and every live fan-out likewise lands synchronously in pumpStep,
+				// so "the channel has run dry" is a complete answer to "what did this client
+				// receive?" — no window needs waiting out. The old 5ms drain timer added
+				// nothing but a chance to truncate a batch and mask a duplicate.
 				var received []byte
-				timer := time.NewTimer(5 * time.Millisecond)
 			drain:
 				for {
 					select {
@@ -363,11 +557,10 @@ func TestSession_ReplayLiveHandoff_NoDuplication(t *testing.T) {
 							break drain
 						}
 						received = append(received, f.Data...)
-					case <-timer.C:
+					default:
 						break drain
 					}
 				}
-				timer.Stop()
 				s.Detach(ch)
 
 				// Any unique chunk appearing more than once means the client
@@ -461,13 +654,9 @@ func TestIsLive_AttachedCount_State_Transitions(t *testing.T) {
 	require.Equal(t, 0, s.AttachedCount())
 	require.Equal(t, "detached", s.State())
 
-	// Kill and wait for shutdown.
+	// Kill and wait for shutdown — Done() closing IS the shutdown, so block on it.
 	s.Kill()
-	select {
-	case <-s.Done():
-	case <-time.After(3 * time.Second):
-		t.Fatal("session did not shut down after Kill")
-	}
+	<-s.Done()
 
 	require.False(t, s.IsLive(), "after Kill, IsLive must return false")
 	require.Equal(t, "suspended", s.State())
@@ -490,23 +679,21 @@ func TestNewPlaceholder(t *testing.T) {
 
 	// A model-less placeholder Attach must not panic and must deliver no redraw frame
 	// (there is no model to serialize).
+	//
+	// This negative needs no observation window: Attach serializes and enqueues its redraw
+	// SYNCHRONOUSLY, under s.mu, into the buffered channel it returns — so if a frame were
+	// ever going to be delivered it is already queued the instant Attach returns. A
+	// placeholder has no pump either, so nothing can arrive later. Assert on the channel's
+	// length instead of waiting out a guess.
 	ch, err := s.Attach()
 	require.NoError(t, err)
 	require.NotNil(t, ch)
-	select {
-	case f := <-ch:
-		t.Fatalf("placeholder Attach must not deliver a frame, got: %q", f.Data)
-	case <-time.After(200 * time.Millisecond):
-	}
+	require.Zero(t, len(ch), "placeholder Attach must not deliver a frame")
 	s.Detach(ch)
 
 	// Kill must not panic and must close Done().
 	s.Kill()
-	select {
-	case <-s.Done():
-	case <-time.After(time.Second):
-		t.Fatal("placeholder Kill did not close Done channel")
-	}
+	<-s.Done()
 }
 
 // TestNewPlaceholder_ModelBytesIsBlobLen verifies a placeholder accounts only its stored
@@ -589,9 +776,7 @@ func TestSession_BeginSuspendIfEligible_AlreadySuspending(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
-	if !waitIdleOrSkip(t, s) {
-		return
-	}
+	waitIdlePrompt(t, s)
 	assert.True(t, s.BeginSuspendIfEligible(), "first call on idle session must succeed")
 	assert.True(t, s.Suspending())
 	assert.False(t, s.BeginSuspendIfEligible(), "second call must return false (already suspending)")
@@ -606,9 +791,7 @@ func TestSession_Suspending(t *testing.T) {
 
 	assert.False(t, s.Suspending(), "must be false before any suspend call")
 
-	if !waitIdleOrSkip(t, s) {
-		return
-	}
+	waitIdlePrompt(t, s)
 	s.BeginSuspendIfEligible()
 	assert.True(t, s.Suspending())
 }
@@ -630,12 +813,9 @@ func TestSession_ExitCode_AfterCleanExit(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, s.Write([]byte("exit 0\n")))
-	select {
-	case <-s.Done():
-	case <-time.After(5 * time.Second):
-		s.Kill()
-		t.Fatal("session did not exit after `exit 0`")
-	}
+	// The shell's own exit closes Done (via the pump's shutdown); ExitCode is recorded in the
+	// same shutdown, so Done closing is exactly the signal that makes the assertion below valid.
+	<-s.Done()
 	assert.Equal(t, 0, s.ExitCode())
 }
 
@@ -647,28 +827,21 @@ func TestSession_ExitCode_AfterCleanExit(t *testing.T) {
 func TestSession_NewRestored_RebuildsModelFromBlob(t *testing.T) {
 	dir := t.TempDir()
 
-	// Produce a real persisted blob: a live session that printed a known marker.
+	// Produce a real persisted blob: a live session that printed a known marker. runShell
+	// returns only once the marker's output is through the pump AND the prompt is back, so the
+	// screen — and therefore the Snapshot serialized from it — provably carries the marker.
+	// No polling for it: the shell's own prompt says when it is there.
 	src, err := newTestSession(t, "sid-src", dir)
 	require.NoError(t, err)
-	require.NoError(t, src.Write([]byte("echo restoremarker\n")))
-	deadline := time.After(3 * time.Second)
-	for {
-		blob, _ := src.Snapshot()
-		if contains(blob, []byte("restoremarker")) {
-			src.Kill()
-			break
-		}
-		select {
-		case <-deadline:
-			src.Kill()
-			t.Fatal("source session never produced the marker on screen")
-		case <-time.After(50 * time.Millisecond):
-		}
-	}
+	waitPrompt(t, src)
+	runShell(t, src, "echo restoremarker")
 	blob, _ := src.Snapshot()
+	src.Kill()
+	require.True(t, contains(blob, []byte("restoremarker")),
+		"the source screen must carry the marker once the shell is back at its prompt")
 	require.True(t, contains(blob, []byte("CRWB1 ")), "blob must carry a CRWB1 header")
 
-	s, err := NewRestored("sid-restored", "/bin/sh", dir, "profX", os.Environ(), blob)
+	s, err := NewRestored("sid-restored", "/bin/sh", dir, "profX", testEnv(), blob)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -676,32 +849,24 @@ func TestSession_NewRestored_RebuildsModelFromBlob(t *testing.T) {
 	require.NoError(t, err)
 	defer s.Detach(ch)
 
-	select {
-	case f, ok := <-ch:
-		require.True(t, ok)
-		require.True(t, contains(f.Data, []byte("restoremarker")),
-			"first attach frame must contain the restored on-screen marker; got %q", f.Data)
-	case <-time.After(2 * time.Second):
-		t.Fatal("no serialized frame received from restored session")
-	}
+	f, ok := waitFrame(t, ch)
+	require.True(t, ok, "restored session must deliver a serialized attach frame")
+	require.True(t, contains(f.Data, []byte("restoremarker")),
+		"first attach frame must contain the restored on-screen marker; got %q", f.Data)
 }
 
-// waitIdleOrSkip polls until the shell is idle. Returns false (and calls t.Skip)
-// if the shell does not become idle within 5 s.
-func waitIdleOrSkip(t *testing.T, s *Session) bool {
+// waitIdlePrompt blocks until the shell is at its prompt and asserts it is idle THERE.
+//
+// It replaces the old poll-until-IsIdle helper (and its "did not settle in 5s, skip the test"
+// escape hatch, which silently voided the assertions on a slow machine). The prompt is the
+// shell's own statement that it has nothing left to run, and at that point it IS the terminal's
+// foreground process group — so IsIdle is already true with zero delay. That is asserted here,
+// not waited for: if it were ever false at the prompt, polling would only have hidden the bug.
+func waitIdlePrompt(t *testing.T, s *Session) {
 	t.Helper()
-	deadline := time.After(5 * time.Second)
-	for {
-		if s.IsIdle() {
-			return true
-		}
-		select {
-		case <-deadline:
-			t.Skip("shell did not become idle within 5s; skipping idle-dependent test")
-			return false
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
+	waitPrompt(t, s)
+	require.True(t, s.IsIdle(),
+		"a shell sitting at its prompt is the foreground process group, so it must report idle")
 }
 
 // countOccurrences counts non-overlapping occurrences of needle in data.

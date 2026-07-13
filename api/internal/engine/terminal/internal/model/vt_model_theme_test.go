@@ -4,7 +4,6 @@ import (
 	"image/color"
 	"strings"
 	"testing"
-	"time"
 )
 
 var (
@@ -15,6 +14,11 @@ var (
 // queryReportedBackground installs a response sink, sends an OSC 11 background-color
 // QUERY, and returns the raw reply the emulator hands back — the exact bytes a TUI
 // (Claude Code's `auto` theme) reads to detect a light vs dark terminal.
+//
+// The receive below is the real hand-off signal from the emulator's reply drain: the reply
+// arriving is precisely what every caller is asserting on. It carries no deadline, because a
+// deadline would only encode a guess about how fast that goroutine gets scheduled — and a reply
+// that never arrives is a hang, which `go test -timeout` reports with the blocked stack.
 func queryReportedBackground(t *testing.T, m *vtModel) string {
 	t.Helper()
 	got := make(chan []byte, 4)
@@ -22,13 +26,7 @@ func queryReportedBackground(t *testing.T, m *vtModel) string {
 		got <- append([]byte(nil), p...)
 	})
 	m.Write([]byte("\x1b]11;?\x07"))
-	select {
-	case reply := <-got:
-		return string(reply)
-	case <-time.After(2 * time.Second):
-		t.Fatal("no OSC 11 reply reached the sink")
-		return ""
-	}
+	return string(<-got)
 }
 
 // TestSetDefaultColors_ReportedViaOSC11Query is the core of Gap A: after the daemon is

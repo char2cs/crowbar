@@ -143,11 +143,18 @@ func TestRegression_ForceSuspendInterleaveRace(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
-	// Let the shell settle so the live pump has already sampled and latched the foreground
-	// process group (firing OnForegroundReset its one startup time); after this the pump never
-	// fires OnForegroundReset again and, sitting idle on ptmx.Read, issues no further model
-	// writes — so the only model mutations during the loop are the ones the test drives.
-	waitIdleOrSkip(t, s)
+	// Let the live pump sample and latch the foreground process group (firing OnForegroundReset
+	// its one startup time); after this the pump never fires OnForegroundReset again and,
+	// sitting idle on ptmx.Read, issues no further model writes — so the only model mutations
+	// during the loop are the ones the test drives.
+	//
+	// This session's model is the FAKE above, so its "screen" never carries a shell prompt and
+	// waitPrompt could not be used. The real signal is the sample itself: pumpStep's debounced
+	// foreground sample necessarily runs on the FIRST chunk (lastFgSampleAt is zero, so the
+	// debounce interval has trivially elapsed), and it — plus any OnForegroundReset edge it
+	// fires — completes before the pump publishes its notify edge. So waiting for lastFgSampleAt
+	// to be stamped is waiting for exactly the thing that must have happened.
+	waitForegroundSampled(t, s)
 
 	notice := []byte("\r\n[crowbar] session suspended\r\n")
 

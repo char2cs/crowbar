@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,7 +28,7 @@ func TestRegression_ReattachMidSplitSequence(t *testing.T) {
 	s, err := newTestSession(t, "sid-midsplit", dir)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
-	settle(t, s)
+	waitPrompt(t, s)
 
 	// Feed a chunk that prints "HELLO" then ENDS mid-sequence with an incomplete CSI "ESC[5".
 	// The completion "DX" is CSI 5 D (cursor back 5) followed by 'X': interpreted it walks the
@@ -50,7 +49,7 @@ func TestRegression_ReattachMidSplitSequence(t *testing.T) {
 	require.NoError(t, err)
 	defer s.Detach(ch)
 
-	f, ok := waitFrame(t, ch, 2*time.Second)
+	f, ok := waitFrame(t, ch)
 	require.True(t, ok, "attach must deliver a redraw frame")
 	payload := f.Data
 
@@ -102,7 +101,7 @@ func TestRegression_ReattachOversizedPartialBoundedEmpty(t *testing.T) {
 	s, err := newTestSession(t, "sid-midsplit-big", dir)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
-	settle(t, s)
+	waitPrompt(t, s)
 
 	// An OSC title-set opener with no ST/BEL terminator and a body far past maxPendingPartial.
 	huge := strings.Repeat("a", 8192)
@@ -115,7 +114,7 @@ func TestRegression_ReattachOversizedPartialBoundedEmpty(t *testing.T) {
 	require.NoError(t, err)
 	defer s.Detach(ch)
 
-	f, ok := waitFrame(t, ch, 2*time.Second)
+	f, ok := waitFrame(t, ch)
 	require.True(t, ok, "attach must deliver a redraw frame")
 	assert.NotContains(t, string(f.Data), huge,
 		"the dropped over-long partial must not be appended to the redraw payload")

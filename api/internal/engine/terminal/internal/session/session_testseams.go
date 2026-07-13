@@ -2,9 +2,28 @@ package session
 
 import (
 	"os"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/model"
 )
+
+// SetNowForTest pins THIS SESSION's frame clock (s.now).
+//
+// It exists because the coalescing decision in scheduleEmitLocked is a comparison against the
+// wall clock, so "these N chunks all landed inside ONE interval" is not something a test can
+// establish by running fast — it is something it can only establish by CONTROLLING the clock.
+// Without it the burst test had to race its own setup against an 8 ms window, and lost under
+// parallel -race load.
+//
+// Deliberately per-session and taken under s.mu, NOT a package-level var: the trailing emit
+// timer reads the clock from its own goroutine, so a global would be an unsynchronised
+// cross-goroutine write — which is exactly the data race the first cut of this seam produced.
+// Production never calls this.
+func (s *Session) SetNowForTest(fn func() time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.now = fn
+}
 
 // PumpNotifyForTest returns the session's pump-progress signal: a 1-buffered, coalescing
 // channel that pumpStep publishes to — last in its critical section — every time it has

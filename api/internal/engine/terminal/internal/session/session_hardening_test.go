@@ -110,7 +110,7 @@ func TestSession_InjectLocal_ExitsAltBeforeNotice(t *testing.T) {
 	s, err := newTestSession(t, "sid-inject-alt", dir)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
-	settle(t, s)
+	waitPrompt(t, s)
 
 	// First inject drives the model INTO the alt buffer (model is primary at this point, so
 	// the alt-exit branch is NOT taken here).
