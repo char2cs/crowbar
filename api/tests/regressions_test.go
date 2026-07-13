@@ -452,41 +452,36 @@ func TestRegression_IconServedFromDiskNotGitHub(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
-// workspaceWorktreePath resolves the on-disk worktree of a managed workspace.
-// WorktreePath is no longer carried on the wire WorkspaceDTO (D13) and the daemon
-// moved worktrees off the retired UUID layout to the human-readable path (spec
-// §3.9), so it is reconstructed as <home>/projects/<P>/<slug>/<branch>, where the
-// slug degrades to the repo's on-disk name (filepath.Base(repoPath)) for a
-// no-remote fixture repo and the branch — a nested branch maps to nested
-// directories — is read back from the workspace DTO.
+// workspaceWorktreePath resolves the on-disk worktree of a managed workspace by
+// reading back the path the PROVISIONER ITSELF persisted
+// (domain.Workspace.WorktreePath) — the same ground truth kit.Env.WorktreePath
+// serves the blackbox suites — rather than re-deriving it test-side.
+//
+// WorktreePath is deliberately server-side only and never carried on the wire
+// WorkspaceDTO (spec §5/§8, D13), so the HTTP surface cannot answer this; but the
+// harness boots the real app in-process, so the aggregate can. Workspace.Get
+// folds the aggregate straight from the event log (§3.7) — always current, no
+// read-model rebuild, no projection lag, so no barrier is needed.
+//
+// Reading it back is also the only way to be RIGHT. The previous version
+// FABRICATED <home>/projects/<P>/<slug>/<branch> by string-joining, which silently
+// dropped the trailing "worktree" leaf that worktreepath.Derive appends (spec
+// §3.9). That shorter path is the workspace ROOT — the directory holding the git
+// worktree and its sibling "chats" tree — not the worktree. The root EXISTS, so
+// the mistake was invisible rather than loud: writes through it landed beside the
+// git worktree instead of inside it (no git status change, no scoped file event),
+// and reads of a tracked file 404'd in a directory that was perfectly real.
 func workspaceWorktreePath(
 	t *testing.T,
 	h *harness,
 	imported importedRepo,
 ) string {
 	t.Helper()
-	return filepath.Join(
-		h.home,
-		"projects",
-		imported.projectID,
-		filepath.Base(imported.repoPath),
-		workspaceBranch(t, h, imported),
-	)
-}
-
-// workspaceBranch reads a managed workspace's branch back from its DTO. The wire
-// no longer carries worktreePath, but branch is authoritative for the friendly
-// worktree path (spec §3.9).
-func workspaceBranch(
-	t *testing.T,
-	h *harness,
-	imported importedRepo,
-) string {
-	t.Helper()
-	var ws workspaceDTO
-	h.get("/v0/projects/"+imported.projectID+"/repos/"+imported.repoID+
-		"/workspaces/"+imported.workspaceID, &ws)
-	return ws.Branch
+	ws, err := h.app.Repositories.Workspace.Get(t.Context(), imported.workspaceID)
+	require.NoError(t, err, "read back the provisioned worktree path")
+	require.NotEmpty(t, ws.WorktreePath,
+		"a managed workspace must carry the worktree path its provisioner used")
+	return ws.WorktreePath
 }
 
 // worktreeGitDir resolves the private git dir of a (possibly linked) worktree,
