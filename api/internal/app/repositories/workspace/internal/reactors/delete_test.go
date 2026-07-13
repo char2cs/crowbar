@@ -18,6 +18,8 @@ import (
 	wscmds "github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store/projections"
 	"github.com/char2cs/crowbar/api/internal/domain"
+
+	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 )
 
 func newAx(
@@ -180,9 +182,9 @@ func TestRegisterDeleteReactor_GatedPurge_RemovesWorktreeAndForgets(t *testing.T
 		rmCh <- path
 		return nil
 	}
-	var wg sync.WaitGroup
+	gate := drain.New()
 
-	require.NoError(t, RegisterDeleteReactor(ax, st, paths, reviewThreadForget, rmWorktree, &wg))
+	require.NoError(t, RegisterDeleteReactor(ax, st, paths, reviewThreadForget, rmWorktree, gate))
 
 	createWorkspace(t, ctx, ax, "w1", "/wt/w1")
 	all, err := st.List(ctx)
@@ -203,7 +205,7 @@ func TestRegisterDeleteReactor_GatedPurge_RemovesWorktreeAndForgets(t *testing.T
 	// signal, so block on it directly (a hang would surface via go test -timeout).
 	path := <-rmCh
 	assert.Equal(t, "/wt/w1", path)
-	wg.Wait()
+	gate.WaitIdle(context.Background())
 
 	exists, err := ax.Exists(ctx, "w1")
 	require.NoError(t, err)
@@ -233,12 +235,12 @@ func TestDeleteReactor_Gate_DoesNotPurgeUntilTombstoneObserved(t *testing.T) {
 		rmCh <- path
 		return nil
 	}
-	var wg sync.WaitGroup
+	gate := drain.New()
 
 	require.NoError(t, RegisterDeleteReactor(
 		ax, reader, paths,
 		func(context.Context, string) error { return nil },
-		rmWorktree, &wg,
+		rmWorktree, gate,
 		WithGatePollInterval(5*time.Millisecond),
 		WithReactorTimeout(5*time.Second),
 	))
@@ -264,7 +266,7 @@ func TestDeleteReactor_Gate_DoesNotPurgeUntilTombstoneObserved(t *testing.T) {
 	// completion signal, so block on it directly.
 	path := <-rmCh
 	assert.Equal(t, "/wt/w1", path)
-	wg.Wait()
+	gate.WaitIdle(context.Background())
 
 	exists, err := ax.Exists(ctx, "w1")
 	require.NoError(t, err)
@@ -291,11 +293,11 @@ func TestDeleteReactor_Purge_Idempotent(t *testing.T) {
 		rmCount++
 		return nil
 	}
-	var wg sync.WaitGroup
+	gate := drain.New()
 	r := newDeleteReactor(
 		ax, reader, paths,
 		func(context.Context, string) error { return nil },
-		rmWorktree, &wg,
+		rmWorktree, gate,
 		WithGatePollInterval(2*time.Millisecond),
 	)
 
@@ -333,11 +335,11 @@ func TestDeleteReactor_Gate_TimesOutWithoutPurge(t *testing.T) {
 		rmCalled = true
 		return nil
 	}
-	var wg sync.WaitGroup
+	gate := drain.New()
 	r := newDeleteReactor(
 		ax, reader, paths,
 		func(context.Context, string) error { return nil },
-		rmWorktree, &wg,
+		rmWorktree, gate,
 		WithGatePollInterval(2*time.Millisecond),
 	)
 
@@ -368,13 +370,13 @@ func (f *fakeAx) Subscribe(
 }
 
 func TestRegisterDeleteReactor_SubscribeError(t *testing.T) {
-	var wg sync.WaitGroup
+	gate := drain.New()
 	err := RegisterDeleteReactor(
 		&fakeAx{subscribeErr: errors.New("bus down")},
 		&fakeStoreReader{}, newFakePaths(),
 		func(context.Context, string) error { return nil },
 		func(string) error { return nil },
-		&wg,
+		gate,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "workspace delete reactor: subscribe")

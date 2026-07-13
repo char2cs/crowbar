@@ -73,6 +73,13 @@ type realHarness struct {
 	parentID   string
 	repoID     string
 	projectID  string
+
+	// quiesce blocks until the workspace repo's asynx has drained its dispatch
+	// queue and run every projection handler (WaitPublish). Workspace mutations are
+	// Sends, so the read model lands asynchronously: this is the read-your-writes
+	// barrier, and the ONLY correct thing to block on before asserting over the
+	// projection. No polling, no deadline.
+	quiesce func()
 }
 
 func gitRun(
@@ -127,7 +134,7 @@ func newRealUsecase(
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	workspaces := newWorkspaceRepo(t, adapters)
+	workspaces, quiesce := newWorkspaceRepo(t, adapters)
 
 	repos, err := storesqlite.NewFromDB[domain.Repository, string](adapters.GlobalView())
 	require.NoError(t, err)
@@ -174,6 +181,7 @@ func newRealUsecase(
 		parentID:   parentID,
 		repoID:     repoID,
 		projectID:  projectID,
+		quiesce:    quiesce,
 	}
 }
 
@@ -240,22 +248,30 @@ func (h *realHarness) createChild(
 	}
 	child, err := h.uc.CreateChild(context.Background(), in)
 	require.NoError(t, err)
-	// The store projection is async (Send, not SendWait): wait until the new child
-	// is visible in the read model, so a later DeleteCascade (which lists to build
-	// the tree) sees the full tree.
-	require.Eventually(t, func() bool {
-		rows, listErr := h.workspaces.List(context.Background())
-		if listErr != nil {
-			return false
-		}
-		for _, r := range rows {
-			if r.ID == child.ID {
-				return true
-			}
-		}
-		return false
-	}, 2*time.Second, 5*time.Millisecond)
+
+	// The store projection is async (Send, not SendWait). Block on the asynx
+	// publish barrier — dispatch queue drained, every projection handler run — so
+	// the new child is guaranteed visible in the read model and a later
+	// DeleteCascade (which lists to build the tree) sees the full tree. Polling on
+	// a 2s deadline used to stand in for this; the barrier is the real signal.
+	h.quiesce()
+
+	rows, listErr := h.workspaces.List(context.Background())
+	require.NoError(t, listErr)
+	require.Contains(t, workspaceIDs(rows), child.ID,
+		"the child must be in the read model once the projection has quiesced")
 	return child
+}
+
+// workspaceIDs projects a workspace slice down to its IDs for set assertions.
+func workspaceIDs(
+	rows []domain.Workspace,
+) []string {
+	ids := make([]string, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.ID)
+	}
+	return ids
 }
 
 func commitInWorktree(
@@ -454,23 +470,26 @@ func TestIntegration_DeleteCascadeSkipsLockedChild(t *testing.T) {
 	// deleted); the async purge reactor that Forgets the row is Task 8. So the
 	// deleted nodes linger in the read model as deleted-status tombstones (their
 	// worktrees/branches are already gone above), while the locked child stays
-	// active. The store projection is async, so poll until it converges.
-	require.Eventually(t, func() bool {
-		all, err := h.workspaces.List(ctx)
-		if err != nil {
-			return false
-		}
-		status := map[string]domain.WorkspaceStatus{}
-		present := map[string]bool{}
-		for _, ws := range all {
-			present[ws.ID] = true
-			status[ws.ID] = ws.Status
-		}
-		return present[locked.ID] &&
-			status[locked.ID] != domain.WorkspaceStatusDeleted &&
-			status[root.ID] == domain.WorkspaceStatusDeleted &&
-			status[descendant.ID] == domain.WorkspaceStatusDeleted
-	}, 2*time.Second, 5*time.Millisecond)
+	// active. The store projection is async — block on the asynx publish barrier
+	// (WaitPublish) and then assert ONCE. The old polling loop could not tell "the
+	// projection has not landed yet" from "the projection landed wrong": whichever
+	// came first within 2s decided the verdict.
+	h.quiesce()
+
+	all, err := h.workspaces.List(ctx)
+	require.NoError(t, err)
+	status := map[string]domain.WorkspaceStatus{}
+	for _, ws := range all {
+		status[ws.ID] = ws.Status
+	}
+
+	require.Contains(t, status, locked.ID, "the locked child must survive in the read model")
+	assert.NotEqual(t, domain.WorkspaceStatusDeleted, status[locked.ID],
+		"the locked child must not be tombstoned")
+	assert.Equal(t, domain.WorkspaceStatusDeleted, status[root.ID],
+		"the unlocked root must be tombstoned")
+	assert.Equal(t, domain.WorkspaceStatusDeleted, status[descendant.ID],
+		"the unlocked descendant must be tombstoned")
 }
 
 // TestIntegration_MergeConflictSetsPRConflicts proves the try-then-warn model

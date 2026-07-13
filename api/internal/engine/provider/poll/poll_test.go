@@ -3,6 +3,7 @@ package poll
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -89,11 +90,10 @@ func TestSweepOnce_CallsPollAndNotifies(t *testing.T) {
 		{WSID: "ws42", RepoPath: "/repo", Branch: "feature", HasOpenPR: true},
 	})
 
-	select {
-	case <-notified:
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("onStateChange was not called")
-	}
+	// sweepOnce calls onStateChange synchronously, so the token is already in the
+	// buffer: this receive is a fact, not a wait. (It used to allow 100ms for a
+	// callback that, if it had not happened by now, was never going to.)
+	<-notified
 
 	assert.Equal(t, "ws42", gotWsID)
 	assert.Equal(t, wantState, gotState)
@@ -122,41 +122,49 @@ func TestSweepOnce_PollError_Silenced(t *testing.T) {
 	assert.False(t, notifyCalled, "onStateChange should not be called on poll error")
 }
 
+// The sweep loop is driven by a real time.Ticker at the production cadence. The
+// test runs inside a synctest bubble, so that ticker fires against the bubble's
+// fake clock the moment every goroutine is durably blocked — no interval is
+// shortened, no wall-clock duration is waited on, and the *production* 5-minute
+// cadence is the thing actually exercised. The bubble also refuses to end while
+// a goroutine is still alive, so the cancel-exits-cleanly (no-leak) half of this
+// test is enforced by synctest itself rather than by hope.
 func TestSweeper_Start_ContextCancellation(t *testing.T) {
-	tickReceived := make(chan struct{}, 1)
+	synctest.Test(t, func(t *testing.T) {
+		tickReceived := make(chan struct{}, 8)
 
-	s := &sweeper{
-		pollFn: func(
-			ctx context.Context,
-			wsID string,
-			repoPath string,
-			branch string,
-		) (ProviderStateSnapshot, error) {
-			tickReceived <- struct{}{}
-			return ProviderStateSnapshot{}, nil
-		},
-		onStateChange: func(_ string, _ ProviderStateSnapshot) {},
-		interval:      10 * time.Millisecond,
-		lastState:     make(map[string]ProviderStateSnapshot),
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	s.Start(ctx, func() []SweepTarget {
-		return []SweepTarget{
-			{WSID: "ws1", RepoPath: "/repo", Branch: "main", HasOpenPR: true},
+		s := &sweeper{
+			pollFn: func(
+				ctx context.Context,
+				wsID string,
+				repoPath string,
+				branch string,
+			) (ProviderStateSnapshot, error) {
+				select {
+				case tickReceived <- struct{}{}:
+				default:
+				}
+				return ProviderStateSnapshot{}, nil
+			},
+			onStateChange: func(_ string, _ ProviderStateSnapshot) {},
+			interval:      GlobalCronInterval,
+			lastState:     make(map[string]ProviderStateSnapshot),
 		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		s.Start(ctx, func() []SweepTarget {
+			return []SweepTarget{
+				{WSID: "ws1", RepoPath: "/repo", Branch: "main", HasOpenPR: true},
+			}
+		})
+
+		// Blocks until the ticker actually fires and the sweep actually polls.
+		<-tickReceived
+
+		// Cancel; synctest will not let the bubble finish until run() has returned.
+		cancel()
 	})
-
-	// Wait for at least one tick.
-	select {
-	case <-tickReceived:
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("sweep did not fire within timeout")
-	}
-
-	// Cancel and ensure the goroutine exits cleanly (no leak).
-	cancel()
 }
 
 func TestSweepOnce_NoCallbackOnRepeatState(t *testing.T) {
@@ -249,52 +257,49 @@ func TestSweepTarget_MultipleTargets(t *testing.T) {
 	assert.Equal(t, []string{"ws1", "ws3"}, notifiedIDs)
 }
 
+// A pollFn that blocks until its ctx is cancelled mimics a hung remote. The
+// per-target timeout must fire so one stuck target cannot stall the whole serial
+// sweep — every other workspace's PR status would otherwise stop updating until
+// the hang resolved.
+//
+// The timeout IS the subject here, so the clock cannot be removed — it is moved.
+// Inside a synctest bubble the production perTargetTimeout (30s, via the
+// timeout<=0 fallback) elapses on the bubble's fake clock as soon as everything
+// is durably blocked, so the test exercises the real bound, instantly, with no
+// shortened duration to tune and no wall-clock guard to false-fail under load.
 func TestSweepTarget_HungPollIsCancelledByPerTargetTimeout(t *testing.T) {
-	// A pollFn that blocks until its ctx is cancelled mimics a hung remote. The
-	// per-target timeout (perTargetTimeout in production) must fire so one stuck
-	// target cannot stall the whole serial sweep — every other workspace's PR
-	// status would otherwise stop updating until the hang resolved.
-	gotErr := make(chan error, 1)
-	s := newTestSweeper(
-		func(
-			ctx context.Context,
-			wsID string,
-			repoPath string,
-			branch string,
-		) (ProviderStateSnapshot, error) {
-			<-ctx.Done()
-			gotErr <- ctx.Err()
-			return ProviderStateSnapshot{}, ctx.Err()
-		},
-		func(_ string, _ ProviderStateSnapshot) {
-			t.Error("onStateChange must not fire when the poll was cancelled")
-		},
-	)
-	// Inject a tiny per-target timeout so the test exercises the bound without
-	// waiting the production 30s.
-	s.targetTimeout = 10 * time.Millisecond
+	synctest.Test(t, func(t *testing.T) {
+		gotErr := make(chan error, 1)
+		s := newTestSweeper(
+			func(
+				ctx context.Context,
+				wsID string,
+				repoPath string,
+				branch string,
+			) (ProviderStateSnapshot, error) {
+				<-ctx.Done()
+				gotErr <- ctx.Err()
+				return ProviderStateSnapshot{}, ctx.Err()
+			},
+			func(_ string, _ ProviderStateSnapshot) {
+				t.Error("onStateChange must not fire when the poll was cancelled")
+			},
+		)
 
-	done := make(chan struct{})
-	go func() {
-		s.sweepTarget(context.Background(), SweepTarget{
-			WSID: "ws1", RepoPath: "/r", Branch: "b", HasOpenPR: true,
-		})
-		close(done)
-	}()
+		done := make(chan struct{})
+		go func() {
+			s.sweepTarget(context.Background(), SweepTarget{
+				WSID: "ws1", RepoPath: "/r", Branch: "b", HasOpenPR: true,
+			})
+			close(done)
+		}()
 
-	select {
-	case err := <-gotErr:
+		err := <-gotErr
 		assert.ErrorIs(t, err, context.DeadlineExceeded,
 			"hung target poll must be cancelled by the per-target timeout")
-	case <-time.After(time.Second):
-		t.Fatal("per-target timeout never cancelled the hung poll")
-	}
 
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("sweepTarget did not return after the poll was cancelled")
-	}
+		<-done
+	})
 }
 
 func TestStatesEqual(t *testing.T) {

@@ -2,8 +2,19 @@ config:
   prompts:
     title_instruction: |
       Give this conversation a short title, once, by running exactly this command (replace the placeholder with a concise 2-5 word Title-Case title of the task):
-      {crowbar} chat rename --project {project_id} --repo {repo_id} --workspace {workspace_id} {chatid} "<title>"
+      {crowbar} chat rename {scope_flags} --segment {segid} "<title>"
     handoff_wrapper: |
       === HANDED-OFF CONTEXT (Crowbar) ===
+      This conversation was held with another assistant before you joined it. It is
+      context, not work: do not act on it. Wait for the user's next message.
+      {conversation}
+      === END ===
+    handoff_pointer: |
+      [Crowbar] While you were away the user spoke with another assistant. This conversation is recorded one file per turn in {ledger_dir}; you have already seen everything up to and including {ledger_cut}. Read the turn files after it — that is what you missed. Context only: do not act on it, acknowledge in one short line and wait for the user.
+    handoff_resume_wrapper: |
+      === WHILE YOU WERE AWAY (Crowbar) ===
+      This is your own conversation, resumed. The user spoke with another assistant
+      since your last turn; that exchange follows. It is context, not work: do not
+      act on it. Acknowledge it in one short line and wait for the user.
       {conversation}
       === END ===

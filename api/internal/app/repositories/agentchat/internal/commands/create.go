@@ -9,15 +9,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Create seeds a new AgentChat with its first (active) segment.
+// Create seeds a new AgentChat: an identity, a workspace and a clock, and
+// nothing else. It carries no segment, no provider and no terminal session
+// because a chat does not own the process talking to it — the runner does, and
+// it is Started as its own aggregate (agentrunner). A chat can therefore be
+// minted by the reducer (a /clear that lands on an unknown conversation) without
+// any process fact being invented for it.
 type Create struct {
-	ID               string
-	WorkspaceID      string
-	SegmentID        string
-	CrowbarSegmentID string
-	ProviderID       string
-	TerminalSession  string
-	Now              time.Time
+	ID          string
+	WorkspaceID string
+	Now         time.Time
 }
 
 func (c Create) AggregateID() string  { return c.ID }
@@ -28,7 +29,7 @@ func (c Create) Validate(current *domain.AgentChat) error {
 	if current != nil {
 		return fmt.Errorf("create agent chat: exists: %w", asynxModels.ErrValidation)
 	}
-	if c.ID == "" || c.WorkspaceID == "" || c.SegmentID == "" {
+	if c.ID == "" || c.WorkspaceID == "" {
 		return fmt.Errorf("create agent chat: missing ids: %w", asynxModels.ErrValidation)
 	}
 	return nil
@@ -36,17 +37,8 @@ func (c Create) Validate(current *domain.AgentChat) error {
 
 func (c Create) EmitEvent(_ *domain.AgentChat) domain.AgentChat {
 	return domain.AgentChat{
-		ID:              c.ID,
-		WorkspaceID:     c.WorkspaceID,
-		ActiveSegmentID: c.SegmentID,
-		Segments: []domain.AgentSegment{{
-			ID:                c.SegmentID,
-			ProviderID:        c.ProviderID,
-			CrowbarSegmentID:  c.CrowbarSegmentID,
-			TerminalSessionID: c.TerminalSession,
-			StartedAt:         c.Now,
-			Status:            "active",
-		}},
+		ID:             c.ID,
+		WorkspaceID:    c.WorkspaceID,
 		CreatedAt:      c.Now,
 		LastActivityAt: c.Now,
 	}

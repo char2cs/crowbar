@@ -12,6 +12,7 @@ import { findWorkspaceForBranch } from '@/lib/workspace/branch-workspace'
 import { WorkspaceTreeFooter } from './workspace-tree-footer'
 import { WorkspaceTreeItem } from './workspace-tree-item'
 import { RepoAvatarImg } from './repo-avatar'
+import { WorkspaceAgentSpinner } from './workspace-branch-icon'
 import { PendingCreateRow } from './pending-create-row'
 import {
   WorkspaceTreeProvider,
@@ -148,7 +149,15 @@ function WorkspaceTreeInner() {
                     }
                   }}
                 >
-                  {repo.avatarURL?.startsWith('emoji:') ? (
+                  {/* The repo header IS the repo-home (default) workspace's row, so an
+                      agent working in it must spin this icon exactly as a worktree row
+                      spins its branch glyph. The spinner replaces the avatar for the
+                      duration of the turn. */}
+                  {repo.defaultWorking ? (
+                    <span className="pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center">
+                      <WorkspaceAgentSpinner />
+                    </span>
+                  ) : repo.avatarURL?.startsWith('emoji:') ? (
                     <span className="pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center text-lg leading-none">
                       {repo.avatarURL.slice(6)}
                     </span>

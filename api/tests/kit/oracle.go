@@ -198,4 +198,3 @@ func AssertGitStateMatchesReadModel(
 		)
 	}
 }
-

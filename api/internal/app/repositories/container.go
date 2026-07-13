@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,16 +11,20 @@ import (
 	"sync"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+
+	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 )
 
 // Container holds the aggregate repositories (each owning its read model).
@@ -30,8 +35,14 @@ type Container struct {
 	// live on axAgentChat and the agent usecase sends every AgentChat mutation
 	// through it (the gorm-backed store was retired in the Task 10 cutover).
 	AgentChat agentchat.EventStore
-	hub       hub.WebSocketHub
-	git       wsusecase.MergeConflictChecker
+	// AgentRunner is the asynx-backed EventStore for the running vendor CLI — the
+	// thing that MOVES between chats on /clear and /resume. Its store/hub
+	// projections are live on axAgentRunner, and the agent usecase now sends every
+	// runner command through it. The workspace-delete cascade reads it too, to find
+	// the CLI pointed at a chat it is about to Forget.
+	AgentRunner agentrunner.EventStore
+	hub         hub.WebSocketHub
+	git         wsusecase.MergeConflictChecker
 	// terminateSession is the terminal-engine seam the workspace-delete cascade
 	// (forgetAgentChats, Task 12) uses to kill a chat's live vendor-CLI PTY
 	// before Forgetting it. It is injected from the app layer (which owns the
@@ -43,12 +54,15 @@ type Container struct {
 	terminateSession func(ctx context.Context, sessionID string) error
 	// ReapChatFiles is the workspace-delete cascade's on-disk reap seam
 	// (forgetAgentChats): given a forgotten chat's (workspaceID, chatID), it
-	// removes that chat's own <chatsDir>/<chatID> directory (the handoff ledger +
-	// any residual per-segment tmp dir) — closing the gap where Forgetting the
-	// event-sourced aggregate left its PLAINTEXT on-disk footprint behind under
-	// .crowbar. Unlike terminateSession (a New(...) constructor parameter), this
-	// is a settable field the app layer assigns AFTER construction: the real
-	// implementation (app.reapAgentChatFiles) reuses the SAME agent.WorkspaceReader
+	// removes that chat's own <chatsDir>/<chatID> directory — its handoff ledger,
+	// and nothing else. No tmp dir lives under a chat any more (runner tmp dirs
+	// now live at <chatsDir>/runners/<runnerID>-<provider>, worktreepath.RunnerDir,
+	// reaped by the runner's own lifecycle, not this cascade), so this closes the
+	// gap where Forgetting the event-sourced aggregate left its PLAINTEXT on-disk
+	// footprint behind under .crowbar. Unlike terminateSession (a New(...)
+	// constructor parameter), this is a settable field the app layer assigns
+	// AFTER construction: the real implementation (app.reapAgentChatFiles) reuses
+	// the SAME agent.WorkspaceReader
 	// (AgentChatsDir + WorktreeDir) and agent.RemoveUnderHome guard the standalone
 	// PurgeChat path already routes through, and that reader is built from
 	// repos.Workspace — which does not exist until repositories.New returns — so
@@ -57,24 +71,14 @@ type Container struct {
 	// Exported (not routed through a setter) so tests can inject a fake exactly
 	// like they already do for c.Workspace. Nil is safe: reaping is skipped.
 	ReapChatFiles func(ctx context.Context, wsID, chatID string) error
-	// ForgetChatRegistry is the workspace-delete cascade's registry-unbind seam
-	// (forgetAgentChats): it removes a chat's segment->chat bindings from the agent
-	// usecase's in-memory context-move registry BEFORE that chat's PTY is torn
-	// down, so the teardown's async reconcile (reconcileSegmentExit) no-ops at its
-	// ChatFor guard instead of racing onForget's row-delete and resurrecting the
-	// chat as a zombie read row (the standalone-delete counterpart is PurgeChat's
-	// own u.registry.ForgetChat call). Same construction-order rationale as
-	// ReapChatFiles — it depends on the agent usecase, built after repositories.New
-	// — so the app layer assigns it after construction. Nil is safe: the unbind is
-	// skipped (a build/test with no agent registry wired).
-	ForgetChatRegistry func(chatID string)
-	// axWorkspace/axReviewThread/axAgentChat are the per-type asynx instances,
-	// retained so WaitQuiescent can drain their dispatch queues + projection
-	// handlers — the deterministic read-your-writes barrier for tests (no
+	// axWorkspace/axReviewThread/axAgentChat/axAgentRunner are the per-type asynx
+	// instances, retained so WaitQuiescent can drain their dispatch queues +
+	// projection handlers — the deterministic read-your-writes barrier for tests (no
 	// polling, no timeouts).
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
 	axAgentChat    asynx.Asynx[domain.AgentChat]
+	axAgentRunner  asynx.Asynx[domain.AgentRunner]
 	// inflight counts the background mutations currently running per workspace
 	// id (00 §4 fail-fast/good-path-async). It backs the derived Working overlay:
 	// the API layer brackets each async op with BeginWork/EndWork, and every
@@ -83,13 +87,20 @@ type Container struct {
 	mu       sync.Mutex
 	inflight map[string]int
 
+	// agentWorking maps a workspace id to the set of its agent chats currently
+	// mid-turn (00 agentic-engine spec §7.4). It is the agent-turn counterpart to
+	// inflight: enrichFrame ORs it into the derived Working overlay, and the
+	// registerAgentWorkingProjection folds turn_started/turn_stopped/forget into
+	// it and re-broadcasts the affected workspace. Guarded by mu.
+	agentWorking map[string]map[string]struct{}
+
 	// drainWG tracks every post-commit reactor goroutine wireCallbacks registered
 	// (the async delete reactor, and — once wired — the reconcile-on-open tasks) so
 	// the app layer's ordered graceful shutdown (Task 15) can wait them out before
 	// closing the DBs; drainCancel closes the shared drain gate to stop reactors
 	// starting new work, derived from drainCtx (decisions 9 + 11). They are created
 	// and stored by wireCallbacks and reached from app.Container via Drain().
-	drainWG     *sync.WaitGroup
+	drainGate   *drain.Gate
 	drainCtx    context.Context
 	drainCancel context.CancelFunc
 }
@@ -101,7 +112,7 @@ type Container struct {
 // cancelable parent the gate is derived from (decisions 9 + 11).
 type ReactorDrain struct {
 	Ctx    context.Context
-	WG     *sync.WaitGroup
+	Gate   *drain.Gate
 	Cancel context.CancelFunc
 }
 
@@ -127,12 +138,15 @@ func New(
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	axWorkspace asynx.Asynx[domain.Workspace],
 	axAgentChat asynx.Asynx[domain.AgentChat],
+	axAgentRunner asynx.Asynx[domain.AgentRunner],
 	git wsusecase.MergeConflictChecker,
 	terminateSession func(ctx context.Context, sessionID string) error,
 ) (*Container, error) {
 	c := &Container{
 		hub: h, git: git, inflight: map[string]int{},
-		axWorkspace: axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
+		agentWorking: map[string]map[string]struct{}{},
+		axWorkspace:  axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
+		axAgentRunner:    axAgentRunner,
 		terminateSession: terminateSession,
 	}
 	pathsStore, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
@@ -176,6 +190,24 @@ func New(
 		return nil, fmt.Errorf("repositories: agent chat event store: %w", err)
 	}
 	c.AgentChat = agentChat
+	if err := c.registerAgentWorkingProjection(); err != nil {
+		return nil, fmt.Errorf("repositories: agent working projection: %w", err)
+	}
+
+	// agentrunner: build the asynx-backed EventStore over the singleton
+	// axAgentRunner, registering its two read projections (live runners +
+	// append-only conversation history) and its hub projection exactly once, over
+	// its OWN per-type planes (state/events/agent_runner.db and
+	// state/store/agent_runner.db). h.BroadcastAgentRunner is the sole source of
+	// runner lifecycle frames (started/session_bound/moved/displaced/exited). The agent
+	// usecase sends every runner command through this store, and the workspace-delete
+	// cascade below reads it to find the CLI pointed at a chat it is about to Forget.
+	agentRunner, err := agentrunner.NewEventSourced(
+		axAgentRunner, adapters.AgentRunnerES(), adapters.AgentRunnerReadDB(), h.BroadcastAgentRunner)
+	if err != nil {
+		return nil, fmt.Errorf("repositories: agent runner event store: %w", err)
+	}
+	c.AgentRunner = agentRunner
 
 	// Wire the post-commit cross-aggregate reactions (spec §3.6): the workspace
 	// delete reactor + its review-thread AND agent-chat forget cascades, all
@@ -199,6 +231,7 @@ func (c *Container) WaitQuiescent() {
 	c.axWorkspace.WaitPublish()
 	c.axReviewThread.WaitPublish()
 	c.axAgentChat.WaitPublish()
+	c.axAgentRunner.WaitPublish()
 }
 
 // wireCallbacks registers the app-level cross-aggregate reactions on the singleton
@@ -216,7 +249,7 @@ func (c *Container) wireCallbacks(
 	ctx context.Context,
 	crowbarHome string,
 ) error {
-	c.drainWG = &sync.WaitGroup{}
+	c.drainGate = drain.New()
 	//nolint:gosec // G118: drainCancel is deliberately retained on the container and invoked later by the app layer's graceful shutdown via Drain().Cancel, not leaked.
 	c.drainCtx, c.drainCancel = context.WithCancel(ctx)
 
@@ -230,7 +263,7 @@ func (c *Container) wireCallbacks(
 	if !ok {
 		return fmt.Errorf("workspace repository does not support delete-reactor registration")
 	}
-	if err := registrar.RegisterDeleteReactor(c.forgetDependents, worktreeRemover(crowbarHome), c.drainWG); err != nil {
+	if err := registrar.RegisterDeleteReactor(c.forgetDependents, worktreeRemover(crowbarHome), c.drainGate); err != nil {
 		return fmt.Errorf("delete reactor: %w", err)
 	}
 	return nil
@@ -241,7 +274,7 @@ func (c *Container) wireCallbacks(
 // closes the gate, then it waits on WG (bounded by the shutdown deadline) before the
 // adapter closes the DBs (decisions 9 + 11).
 func (c *Container) Drain() ReactorDrain {
-	return ReactorDrain{Ctx: c.drainCtx, WG: c.drainWG, Cancel: c.drainCancel}
+	return ReactorDrain{Ctx: c.drainCtx, Gate: c.drainGate, Cancel: c.drainCancel}
 }
 
 // forgetReviewThreads is the review-thread half of the workspace delete cascade
@@ -265,6 +298,21 @@ func (c *Container) forgetReviewThreads(
 	return nil
 }
 
+// ForgetWorkspaceDependents runs the workspace-scoped forget cascade (review threads,
+// then agent chats and their conversations) for a workspace that is going away. It is the
+// SAME cascade the async delete reactor runs, exposed so the boot orphan-sweep can re-drive
+// it: a delete whose reactor never ran to completion — it crashed mid-cascade, or the
+// drain gate refused it during shutdown — leaves the workspace tombstoned with its chat
+// aggregates still un-forgotten, and the boot sweep is the only thing that re-drives such a
+// tombstone. Without this the sweep rm'd the worktree and Forgot the WORKSPACE only, and
+// GetChat kept resolving a chat pointing at a workspace that no longer exists.
+func (c *Container) ForgetWorkspaceDependents(
+	ctx context.Context,
+	wsID string,
+) error {
+	return c.forgetDependents(ctx, wsID)
+}
+
 // forgetDependents runs every workspace-scoped forget cascade for a deleted
 // workspace, in sequence: review threads, then agent chats (and their live
 // PTYs, Task 12). It is the single callback wireCallbacks hands the async
@@ -284,23 +332,25 @@ func (c *Container) forgetDependents(
 	return c.forgetAgentChats(ctx, wsID)
 }
 
-// forgetAgentChats is the agent-chat half of the workspace delete cascade
-// (Task 12): every AgentChat anchored to the deleted workspace is Forgotten,
-// purging it outright — the owning workspace is gone and the chat has nowhere
-// left to live, mirroring forgetReviewThreads/DeleteThread. It enumerates via
-// ListByWorkspace so a chat's event log + read row can never be left orphaned
-// after the workspace is gone.
+// forgetAgentChats is the agent-chat half of the workspace delete cascade: every
+// AgentChat anchored to the deleted workspace is Forgotten, purging it outright —
+// the owning workspace is gone and the chat has nowhere left to live, mirroring
+// forgetReviewThreads/DeleteThread. It enumerates via ListByWorkspace so a chat's
+// event log + read row can never be left orphaned after the workspace is gone.
 //
-// Before forgetting a chat, terminateActiveSegment kills its active segment's
-// live vendor-CLI PTY (if any) — BEST-EFFORT: a terminate failure is logged
-// and the Forget proceeds anyway. An orphaned PTY is a far smaller harm than
-// wedging the whole workspace delete (worktree never reaped, chats never
-// Forgotten) on a terminate error the cascade has no way to re-drive.
+// It is the cascade twin of agent.Usecase.PurgeChat and follows the same ORDER,
+// for the same reason: Forget the chat FIRST, then kill the CLI pointed at it.
+// The PTY teardown fires the runner-exit reconcile asynchronously, and that path
+// writes to the chat (it closes a turn the dead CLI left open); a chat command
+// that commits BEFORE the Forget can have its read-model Save land AFTER Forget's
+// row-delete and resurrect the chat as a zombie row. Forgetting first erases the
+// event log, so every later chat command fails Validate and emits nothing at all
+// — the zombie becomes unrepresentable rather than merely unlikely.
 //
-// After forgetting a chat, reapAgentChatFiles removes that chat's own on-disk
-// directory via the injected ReapChatFiles seam — also best-effort, for the
-// same reason: an orphaned plaintext ledger under a shared chats dir is far
-// smaller harm than wedging the cascade on a filesystem error.
+// Everything after the Forget is BEST-EFFORT (logged, never returned): an orphaned
+// PTY, a leftover conversation row or a leftover ledger dir are all far smaller
+// harms than wedging the whole workspace delete — worktree never reaped, remaining
+// chats never Forgotten — on an error the cascade has no way to re-drive.
 func (c *Container) forgetAgentChats(
 	ctx context.Context,
 	wsID string,
@@ -310,16 +360,13 @@ func (c *Container) forgetAgentChats(
 		return fmt.Errorf("repositories: delete cascade: list agent chats for %q: %w", wsID, err)
 	}
 	for _, chat := range chats {
-		// Unbind the chat's segments from the in-memory registry BEFORE the PTY
-		// teardown, so the teardown's async reconcile no-ops at ChatFor rather than
-		// racing onForget's row-delete and resurrecting the chat (same fix as the
-		// standalone PurgeChat path).
-		if c.ForgetChatRegistry != nil {
-			c.ForgetChatRegistry(chat.ID)
-		}
-		c.terminateActiveSegment(ctx, chat)
 		if err := c.AgentChat.Forget(ctx, chat.ID); err != nil {
 			return fmt.Errorf("repositories: delete cascade: forget agent chat %q: %w", chat.ID, err)
+		}
+		c.retireChatRunners(ctx, chat.ID)
+		if err := c.AgentRunner.ForgetChat(ctx, chat.ID); err != nil {
+			slog.ErrorContext(ctx, "repositories: delete cascade: forget chat conversations (best-effort, continuing)",
+				"workspace_id", wsID, "chat_id", chat.ID, "err", err)
 		}
 		c.reapAgentChatFiles(ctx, wsID, chat.ID)
 	}
@@ -345,30 +392,58 @@ func (c *Container) reapAgentChatFiles(
 	}
 }
 
-// terminateActiveSegment best-effort terminates chat's active segment's live
-// vendor-CLI PTY via the injected terminal-engine seam (c.terminateSession,
-// Task 12). A chat with no active segment (every segment already ended), an
-// active segment with no terminal session recorded, or a nil terminateSession
-// (a test that doesn't exercise PTY teardown) are all no-ops. A terminate
-// failure is LOGGED, never returned: it must not block the caller's Forget
-// (see forgetAgentChats). ErrSessionNotFound (the CLI already exited) is
-// already swallowed by the injected seam (app.terminateAgentSession).
-func (c *Container) terminateActiveSegment(
+// retireChatRunners best-effort takes EVERY vendor CLI on chatID off that chat and kills it
+// — the cascade twin of agent.Usecase.retireChatRunners, in the same order and for the same
+// reasons.
+//
+// The PLURAL read, not the single-row one: this is a delete, and a delete is precisely where
+// you want everyone gone. If the invariant were transiently broken (two placements racing
+// this chat), killing "the" runner would leave the other alive and running against a chat
+// that is about to be Forgotten.
+//
+// Displace FIRST: the chat is being erased, and a SIGTERM does not kill a process
+// synchronously, so until the CLI falls over it would otherwise still be pointed at a chat
+// that no longer exists — where its hooks would try to write, and where a read could still
+// hand it out. Displacement is a PLACEMENT fact (ours alone) and says nothing about
+// liveness, so it is safe to record even though the process is still running.
+//
+// Kill SECOND, and never hand-delete the runner's row: the PTY is the sole authority on
+// liveness, so the row goes when the process does (onExit → Exit → the projection drops it).
+// Reaching into the read model to delete it would make this package a second authority on
+// liveness — the exact drift this model deletes.
+//
+// A dormant chat and a nil terminateSession (a test that doesn't exercise PTY teardown) are
+// both no-ops. Failures are LOGGED, never returned: they must not block the cascade (see
+// forgetAgentChats). ErrSessionNotFound (the CLI already exited) is already swallowed by the
+// injected seam (app.terminateAgentSession).
+func (c *Container) retireChatRunners(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chatID string,
 ) {
-	if c.terminateSession == nil || chat.ActiveSegmentID == "" {
+	if c.terminateSession == nil {
 		return
 	}
-	for _, seg := range chat.Segments {
-		if seg.ID != chat.ActiveSegmentID || seg.TerminalSessionID == "" {
-			continue
-		}
-		if err := c.terminateSession(ctx, seg.TerminalSessionID); err != nil {
-			slog.ErrorContext(ctx, "repositories: delete cascade: terminate agent chat PTY (best-effort, continuing)",
-				"chat_id", chat.ID, "terminal_session_id", seg.TerminalSessionID, "err", err)
-		}
+	placed, err := c.AgentRunner.LiveRunnersForChat(ctx, chatID)
+	if err != nil {
+		slog.ErrorContext(ctx, "repositories: delete cascade: look up chat's runners (best-effort, continuing)",
+			"chat_id", chatID, "err", err)
 		return
+	}
+	for _, live := range placed {
+		// An already-EXITED runner is not an error, and must not be logged as one: a CLI
+		// quitting on its own moments before the cascade reached it is the ORDINARY case, and
+		// its exit has already cleared every placement this would have. Displace says so with
+		// ErrValidation (see agentrunner/internal/commands/displace.go), and the agent
+		// usecase's own displace() treats it exactly the same way.
+		if _, err := c.AgentRunner.Displace(ctx, live.ID); err != nil &&
+			!errors.Is(err, asynxModels.ErrValidation) && !errors.Is(err, agentrunner.ErrNotFound) {
+			slog.ErrorContext(ctx, "repositories: delete cascade: displace agent chat runner (best-effort, continuing)",
+				"chat_id", chatID, "runner_id", live.ID, "err", err)
+		}
+		if err := c.terminateSession(ctx, live.TerminalSession); err != nil {
+			slog.ErrorContext(ctx, "repositories: delete cascade: terminate agent chat PTY (best-effort, continuing)",
+				"chat_id", chatID, "runner_id", live.ID, "terminal_session_id", live.TerminalSession, "err", err)
+		}
 	}
 }
 
@@ -384,7 +459,7 @@ func (c *Container) enrichFrame(
 	ctx context.Context,
 	ws domain.Workspace,
 ) dto.WorkspaceDTO {
-	ws.Working = c.IsWorking(ws.ID)
+	ws.Working = c.WorkingFor(ws.ID)
 	elig := c.eligibilityFor(ctx, ws)
 	return dto.WorkspaceDTOFrom(ws, elig)
 }
@@ -449,6 +524,23 @@ func (c *Container) IsWorking(
 	return c.inflight[wsID] > 0
 }
 
+// WorkingFor reports whether the workspace is working via EITHER derived overlay:
+// a background mutation in flight (inflight, via IsWorking) OR an agent chat
+// mid-turn (agentWorking, via agentWorkingFor). It is the single combined read the
+// REST list/detail handlers stamp Working from, so a REST read agrees with both
+// the live broadcast frames (enrichFrame) and the snapshot-on-subscribe readers
+// (ListWorkspaces/ListWorkspacesInRepo) — all four converge on this method. Each
+// overlay is read under its OWN lock acquisition (never one lock held across
+// both), mirroring the existing enrichFrame combination: the two are independent
+// booleans with no cross-overlay invariant, so a transient interleaving can only
+// observe a value that was truthful at some instant during the call — the same
+// guarantee every other reader already provides.
+func (c *Container) WorkingFor(
+	wsID string,
+) bool {
+	return c.IsWorking(wsID) || c.agentWorkingFor(wsID)
+}
+
 // rebroadcast pushes the workspace's current row to the hub so an overlay
 // transition (Begin/EndWork) is visible without waiting for the op's next
 // event. Best-effort: a missing row (already deleted) skips silently.
@@ -461,6 +553,135 @@ func (c *Container) rebroadcast(
 		return
 	}
 	c.broadcastWorkspace(ctx, ws)
+}
+
+// registerAgentWorkingProjection subscribes a THIRD projection on axAgentChat
+// (alongside the store + hub projections built in NewEventSourced): it re-derives
+// the per-workspace Working overlay from agent turn events (00 §7.4). turn_started
+// marks the chat working, turn_stopped clears it, and a Forget of a chat mid-turn
+// clears it too (so a delete never wedges the spinner on); each transition
+// re-broadcasts the affected workspace through the same enrichFrame path the
+// inflight overlay uses, so the FE spinner on the workspace tree + context pill +
+// tiles tracks live agent activity. The in-memory set is authoritative (not a
+// read-model query), so it never races the store projection.
+//
+// Only turn_started/turn_stopped are folded, and nothing else needs to be: a chat's turn
+// is opened and closed by its hooks, and the ONE case where the closing hook never comes
+// — the CLI dying mid-turn — is covered by the runner-exit reconcile
+// (agent.Usecase.reconcileRunnerExit), which issues the StopTurn itself. So a
+// turn_stopped always arrives to clear the set.
+//
+// Boot note (in-memory overlay, empty on restart): agentWorking starts EMPTY on daemon
+// boot, so a chat that was mid-turn when the daemon stopped shows idle until its next
+// turn_started. Showing idle is the TRUTHFUL answer — every agent PTY dies with the
+// daemon, so nothing is running — but note the chat AGGREGATE can still read Working=true
+// until something closes that turn, so this overlay and a REST read of the chat can
+// disagree until the runner boot reconcile lands (the next task in this series). It is
+// consistent with the FE chat-row working map's accepted default-idle-on-load.
+func (c *Container) registerAgentWorkingProjection() error {
+	if _, err := c.axAgentChat.Subscribe(asynx.Topic("agentchat.*"),
+		func(ctx context.Context, evt asynxModels.Event[domain.AgentChat]) {
+			wsID := evt.Aggregate.WorkspaceID
+			if wsID == "" {
+				return
+			}
+			var flipped bool
+			switch agentEventKind(evt.EventName) {
+			case "turn_started":
+				flipped = c.setAgentTurn(wsID, evt.AggregateID, true)
+			case "turn_stopped":
+				flipped = c.setAgentTurn(wsID, evt.AggregateID, false)
+			default:
+				return
+			}
+			if flipped {
+				c.rebroadcast(ctx, wsID)
+			}
+		}); err != nil {
+		return fmt.Errorf("subscribe: %w", err)
+	}
+	if _, err := c.axAgentChat.OnForget(
+		func(ctx context.Context, evt asynxModels.Event[domain.AgentChat]) {
+			wsID := evt.Aggregate.WorkspaceID
+			if wsID == "" {
+				return
+			}
+			if c.setAgentTurn(wsID, evt.AggregateID, false) {
+				c.rebroadcast(ctx, wsID)
+			}
+		}); err != nil {
+		return fmt.Errorf("onforget: %w", err)
+	}
+	return nil
+}
+
+// setAgentTurn adds/removes chatID from the workspace's mid-turn set under mu and
+// reports whether the set's EMPTINESS flipped (empty↔non-empty) — i.e. whether the
+// workspace's Working overlay actually changed value.
+//
+// Only that transition may trigger a rebroadcast. Working is a single bool derived
+// from `len(set) > 0`, so a second chat starting a turn in a workspace that is
+// already working, or the first of two concurrent chats stopping, changes NOTHING
+// observable — yet rebroadcasting anyway is far from free: broadcastWorkspace →
+// enrichFrame → eligibilityFor runs ListWorkspacesInRepo AND git.WouldMergeConflict,
+// a real `git merge-tree --write-tree` subprocess taken under the per-clone git
+// mutex. Firing that on every turn_started/turn_stopped made N concurrently-working
+// chats in one workspace cost 2N git subprocesses per round on the shared lock —
+// the exact contention shape behind this repo's history of git-mutex hangs.
+//
+// The transition is computed while holding mu; the caller rebroadcasts only AFTER
+// this returns, so the (potentially slow, git-touching) broadcast still never runs
+// under the lock.
+func (c *Container) setAgentTurn(wsID, chatID string, working bool) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	before := len(c.agentWorking[wsID]) > 0
+	if working {
+		c.addAgentTurn(wsID, chatID)
+	} else {
+		c.clearAgentTurn(wsID, chatID)
+	}
+	return before != (len(c.agentWorking[wsID]) > 0)
+}
+
+// addAgentTurn marks chatID mid-turn in wsID's set. Callers hold mu.
+func (c *Container) addAgentTurn(wsID, chatID string) {
+	set := c.agentWorking[wsID]
+	if set == nil {
+		set = map[string]struct{}{}
+		c.agentWorking[wsID] = set
+	}
+	set[chatID] = struct{}{}
+}
+
+// clearAgentTurn drops chatID from wsID's set, pruning the set once it empties so
+// the map cannot grow without bound across a long-lived daemon. Callers hold mu.
+func (c *Container) clearAgentTurn(wsID, chatID string) {
+	set := c.agentWorking[wsID]
+	if set == nil {
+		return
+	}
+	delete(set, chatID)
+	if len(set) == 0 {
+		delete(c.agentWorking, wsID)
+	}
+}
+
+// agentWorkingFor reports whether the workspace has any agent chat mid-turn.
+func (c *Container) agentWorkingFor(wsID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.agentWorking[wsID]) > 0
+}
+
+// agentEventKind extracts <kind> from an agentchat EventName ("agentchat.<kind>.<id>").
+func agentEventKind(eventName string) string {
+	rest := strings.TrimPrefix(eventName, "agentchat.")
+	kind, _, found := strings.Cut(rest, ".")
+	if !found {
+		return rest
+	}
+	return kind
 }
 
 // eligibilityFor resolves the merge-eligibility overlay (incl. the predicted
@@ -494,7 +715,7 @@ func (c *Container) ListWorkspaces(
 		return nil, fmt.Errorf("repositories: list workspaces: %w", err)
 	}
 	for i := range rows {
-		rows[i].Working = c.IsWorking(rows[i].ID)
+		rows[i].Working = c.WorkingFor(rows[i].ID)
 	}
 	return rows, nil
 }
@@ -506,7 +727,9 @@ func (c *Container) ListWorkspaces(
 // root that also holds the sibling "chats" tree (worktreepath.WorkspaceRoot /
 // ChatsDir); `git worktree remove` only clears the "worktree" leaf itself, so
 // this removes path's PARENT directory instead — nuking the git checkout and
-// any agentic chat state (ledger + segment tmp dirs) together in one rm -rf.
+// the chats tree together in one rm -rf. The chats tree is not targeted by
+// name here; it survives only by accident of being the worktree's sibling
+// under the same parent, which the root rm -rf takes whole.
 // worktreepath.WorkspaceRoot cannot be imported here (this package sits outside
 // the usecases/ tree that internal package is scoped to; Go's internal-package
 // visibility forbids it), so the parent is computed inline via filepath.Dir —
@@ -584,7 +807,7 @@ func (c *Container) ListWorkspacesInRepo(
 		return nil, fmt.Errorf("repositories: list workspaces in repo: %w", err)
 	}
 	for i := range rows {
-		rows[i].Working = c.IsWorking(rows[i].ID)
+		rows[i].Working = c.WorkingFor(rows[i].ID)
 	}
 	return rows, nil
 }

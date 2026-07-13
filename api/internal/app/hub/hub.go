@@ -129,4 +129,32 @@ func (h *Hub) BroadcastAgentChat(
 	}
 }
 
+// BroadcastAgentRunner fans an agent-RUNNER lifecycle event
+// (started/session_bound/moved/displaced/exited) out to every subscriber. Fed solely by
+// the agentrunner hub projection, which derives the kind from the emitting command's
+// event name.
+//
+// The frame carries PLACEMENT, never liveness: chatID is the chat the runner is
+// pointed at AS OF this event, so a `moved` frame names the chat the CLI moved
+// INTO — which is precisely what the frontend needs to re-point the tab that was
+// following that runner. An `exited` frame means the live row is gone and that
+// chat is now dormant.
+//
+// runnerID rides along so a client can tell WHICH CLI moved (a chat can be
+// handed between runners); workspaceID scopes the fan-out exactly as it does for
+// BroadcastAgentChat — this method pushes to every subscriber and the
+// per-subscription Filter drops frames for other workspaces.
+func (h *Hub) BroadcastAgentRunner(
+	runnerID string,
+	workspaceID string,
+	chatID string,
+	kind string,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushAgentRunner(runnerID, workspaceID, chatID, kind)
+	}
+}
+
 var _ WebSocketHub = (*Hub)(nil)

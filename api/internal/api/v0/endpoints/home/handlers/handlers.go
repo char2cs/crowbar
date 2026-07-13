@@ -109,17 +109,46 @@ type TerminalEngine interface {
 	Attach(ctx context.Context, sessionID string, conn WSConn) error
 }
 
+// WorkSignal is the read half of the daemon's working overlay, the same seam the
+// workspaces handlers stamp their REST reads from (workspacehandlers.WorkSignal,
+// which the repositories Container satisfies). The home workspace is served by
+// THIS endpoint rather than the workspace-scoped list/detail, so it must stamp
+// the overlay itself or its REST read would report working=false while an agent
+// chat anchored to the project home is mid-turn — diverging from the very WS
+// frames the container enriches for it. Only the read is needed here: the home
+// endpoint runs no async mutations, so it never brackets a work window.
+type WorkSignal interface {
+	// WorkingFor reports whether the workspace is working via EITHER derived
+	// overlay (an inflight background mutation OR an agent chat mid-turn).
+	WorkingFor(
+		wsID string,
+	) bool
+}
+
 // Handlers serves all /home/* routes.
 type Handlers struct {
 	workspaces HomeWorkspaces
 	projects   ProjectReader
 	files      Files
 	termEng    TerminalEngine
+	working    WorkSignal
 }
 
 // New builds Handlers.
-func New(workspaces HomeWorkspaces, projects ProjectReader, files Files, termEng TerminalEngine) *Handlers {
-	return &Handlers{workspaces: workspaces, projects: projects, files: files, termEng: termEng}
+func New(
+	workspaces HomeWorkspaces,
+	projects ProjectReader,
+	files Files,
+	termEng TerminalEngine,
+	working WorkSignal,
+) *Handlers {
+	return &Handlers{
+		workspaces: workspaces,
+		projects:   projects,
+		files:      files,
+		termEng:    termEng,
+		working:    working,
+	}
 }
 
 // resolveHome fetches the home workspace for the project. If not yet

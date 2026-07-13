@@ -156,3 +156,67 @@ func TestHandoff_UsecaseError(
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
+
+// TestResume_Success proves Resume calls ResumeChat for the path id and responds
+// 200 with the (re)active segment id under the mutation envelope.
+func TestResume_Success(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{resumeSegID: "seg-9"}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/chat-1/resume", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
+
+	h.Resume(ctx)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var envelope struct {
+		Success bool `json:"success"`
+		Data    struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	assert.True(t, envelope.Success)
+	assert.Equal(t, "seg-9", envelope.Data.ID)
+
+	require.Len(t, uc.resumeCalls, 1)
+	assert.Equal(t, "chat-1", uc.resumeCalls[0])
+}
+
+// TestResume_UsecaseError_MapsStatus proves a usecase failure is surfaced with
+// its mapped status rather than a blanket 500.
+func TestResume_UsecaseError_MapsStatus(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{resumeErr: agentchat.ErrNotFound}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/chat-1/resume", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
+
+	h.Resume(ctx)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestResume_WrongWorkspace404s proves the by-id scope check
+// (requireChatInWorkspace) runs before ResumeChat: a chat anchored to a DIFFERENT
+// workspace than the :wsId path param can never be revived through this route.
+func TestResume_WrongWorkspace404s(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{
+		getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-other"},
+	}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/chat-1/resume", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
+
+	h.Resume(ctx)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Empty(t, uc.resumeCalls)
+}

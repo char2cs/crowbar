@@ -5,12 +5,15 @@ import {
   SIDEBAR_TAB_WORKSPACES,
   SIDEBAR_TAB_FILES,
   SIDEBAR_TAB_GIT,
+  SIDEBAR_TAB_CHATS,
 } from '@/features/keymaps/registry'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import type { SidebarTab } from '@/lib/store/sidebar'
 
+// Strip order — same order as the registry and the tab bar itself.
 const SIDEBAR_TAB_COMMANDS: Array<[string, SidebarTab]> = [
   [SIDEBAR_TAB_WORKSPACES, 'workspaces'],
+  [SIDEBAR_TAB_CHATS, 'chats'],
   [SIDEBAR_TAB_FILES, 'files'],
   [SIDEBAR_TAB_GIT, 'git'],
 ]

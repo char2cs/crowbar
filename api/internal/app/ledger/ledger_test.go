@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/ledger"
@@ -130,4 +131,109 @@ func TestLedger_AppendSequenceIncrementsAcrossEntries(t *testing.T) {
 	require.True(t, strings.HasPrefix(f1, "00000001-"))
 	require.True(t, strings.HasPrefix(f2, "00000002-"))
 	require.True(t, strings.HasPrefix(f3, "00000003-"))
+}
+
+// TestLedger_RenderConversationAfter_ReturnsOnlyTheGap: a provider resumed into
+// its own native session already replays every turn up to the moment it was
+// switched out, so it is handed only what was said after that cut — the "while
+// you were away" gap. Turns AT the cut are excluded (strictly after), so the
+// segment's own last turn can never leak back into its handoff.
+func TestLedger_RenderConversationAfter_ReturnsOnlyTheGap(t *testing.T) {
+	l, err := ledger.Open(filepath.Join(t.TempDir(), "c1"))
+	require.NoError(t, err)
+
+	base := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	_, err = l.AppendTurn("user", "codex", base, "before the switch")
+	require.NoError(t, err)
+	cut := base.Add(time.Minute)
+	_, err = l.AppendTurn("assistant", "codex", cut, "exactly at the cut")
+	require.NoError(t, err)
+	_, err = l.AppendTurn("assistant", "claude", cut.Add(time.Minute), "while codex was away")
+	require.NoError(t, err)
+
+	gap, err := l.RenderConversationAfter(cut)
+	require.NoError(t, err)
+
+	assert.Contains(t, string(gap), "while codex was away")
+	assert.NotContains(t, string(gap), "before the switch")
+	assert.NotContains(t, string(gap), "exactly at the cut")
+	assert.Contains(t, string(gap), "assistant (claude):")
+}
+
+// TestLedger_RenderConversationAfter_NothingNew_IsEmpty: a revive where nothing
+// happened while the CLI was gone hands over NO conversation at all, rather than
+// an empty wrapper.
+func TestLedger_RenderConversationAfter_NothingNew_IsEmpty(t *testing.T) {
+	l, err := ledger.Open(filepath.Join(t.TempDir(), "c1"))
+	require.NoError(t, err)
+
+	at := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	_, err = l.AppendTurn("assistant", "claude", at, "said before the CLI died")
+	require.NoError(t, err)
+
+	gap, err := l.RenderConversationAfter(at.Add(time.Hour))
+	require.NoError(t, err)
+	assert.Empty(t, gap)
+}
+
+// TestLedger_RenderConversation_ZeroCutRendersEverything guards that the whole
+// -ledger path (a provider joining the chat fresh) is unaffected by the gap cut.
+func TestLedger_RenderConversation_ZeroCutRendersEverything(t *testing.T) {
+	l, err := ledger.Open(filepath.Join(t.TempDir(), "c1"))
+	require.NoError(t, err)
+
+	at := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	_, err = l.AppendTurn("user", "claude", at, "first")
+	require.NoError(t, err)
+	_, err = l.AppendTurn("assistant", "claude", at.Add(time.Minute), "second")
+	require.NoError(t, err)
+
+	all, err := l.RenderConversation()
+	require.NoError(t, err)
+	assert.Contains(t, string(all), "first")
+	assert.Contains(t, string(all), "second")
+}
+
+// TestLedger_LastTurnAt_IsWhenTheProviderLastSpoke: the resume path asks the ledger,
+// not the runner's conversation history, when a provider "left" — because the ledger is
+// the record of what was actually SAID. It is both the gap cut AND the proof that the
+// provider's conversation exists on disk at all.
+func TestLedger_LastTurnAt_IsWhenTheProviderLastSpoke(t *testing.T) {
+	l, err := ledger.Open(filepath.Join(t.TempDir(), "c1"))
+	require.NoError(t, err)
+
+	at := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	_, err = l.AppendTurn("user", "claude", at, "claude's first")
+	require.NoError(t, err)
+	_, err = l.AppendTurn("assistant", "claude", at.Add(time.Minute), "claude's last")
+	require.NoError(t, err)
+	// codex spoke AFTER claude left — that is the gap, and it must not move claude's cut.
+	_, err = l.AppendTurn("assistant", "codex", at.Add(2*time.Minute), "codex spoke later")
+	require.NoError(t, err)
+
+	got, err := l.LastTurnAt("claude")
+	require.NoError(t, err)
+	assert.Equal(t, at.Add(time.Minute), got)
+
+	// And the gap from that cut is exactly what claude missed.
+	gap, err := l.RenderConversationAfter(got)
+	require.NoError(t, err)
+	assert.Contains(t, string(gap), "codex spoke later")
+	assert.NotContains(t, string(gap), "claude's last", "a resumed provider is never re-fed its own turns")
+}
+
+// TestLedger_LastTurnAt_ZeroWhenTheProviderNeverSpoke is the phantom-session guard: a
+// CLI reports its session id the instant it starts but only WRITES the conversation
+// once there is a message, so a provider with no turn here has nothing to resume —
+// claude dies on startup with "No conversation found with session ID".
+func TestLedger_LastTurnAt_ZeroWhenTheProviderNeverSpoke(t *testing.T) {
+	l, err := ledger.Open(filepath.Join(t.TempDir(), "c1"))
+	require.NoError(t, err)
+
+	_, err = l.AppendTurn("assistant", "codex", time.Now(), "only codex spoke here")
+	require.NoError(t, err)
+
+	got, err := l.LastTurnAt("claude")
+	require.NoError(t, err)
+	assert.True(t, got.IsZero(), "a provider that never spoke has no conversation to resume")
 }

@@ -38,14 +38,21 @@ type Container struct {
 	Usecases     *usecases.Container
 	Realtime     *realtime.Service
 
-	// axWorkspace, axReviewThread, and axAgentChat are the per-type asynx
-	// singletons (one per aggregate type, routing every id by shard hash). They
-	// are retained here so Task 15's ordered graceful shutdown can drain each via
-	// ax.Shutdown. axAgentChat is additive (Task 9): its store/hub projections
-	// are live, but the usecase does not consume it yet — that's a later cutover.
+	// engines is retained for ONE reason: Shutdown must quiesce the terminal engine
+	// (kill every PTY and JOIN the exit callbacks those deaths fire) BEFORE it drains
+	// the aggregates below, because those callbacks are writers into them. See
+	// Shutdown step 1.
+	engines *engine.Container
+
+	// axWorkspace, axReviewThread, axAgentChat, and axAgentRunner are the per-type
+	// asynx singletons (one per aggregate type, routing every id by shard hash).
+	// They are retained here so Task 15's ordered graceful shutdown can drain each
+	// via ax.Shutdown. axAgentRunner carries the RUNNER aggregate — one live vendor CLI
+	// in one PTY, the thing that moves between chats on /clear and /resume.
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
 	axAgentChat    asynx.Asynx[domain.AgentChat]
+	axAgentRunner  asynx.Asynx[domain.AgentRunner]
 }
 
 // New constructs the application layer from the engine and adapter containers
@@ -75,6 +82,17 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx agent chat: %w", err)
 	}
+	// axAgentRunner is the per-type singleton over state/events/agent_runner.db: the
+	// running vendor CLI is now a modelled aggregate of its own, so moving one
+	// between chats (/clear, /resume) is a single write to a single aggregate
+	// instead of a delete-here/insert-there across two chats with no transaction.
+	// Built and its projections registered (via repositories.New ->
+	// agentrunner.NewEventSourced); nothing SENDS runner commands yet — that
+	// cutover is a later task — so it is additive for now.
+	axAgentRunner, err := newAsynx[domain.AgentRunner](adapters.AgentRunnerES())
+	if err != nil {
+		return nil, fmt.Errorf("app: asynx agent runner: %w", err)
+	}
 
 	gormStores, err := newGORMStores(adapters.GlobalView())
 	if err != nil {
@@ -89,6 +107,7 @@ func New(
 		axReviewThread,
 		axWorkspace,
 		axAgentChat,
+		axAgentRunner,
 		engines.Git,
 		terminateAgentSession(engines.Terminal),
 	)
@@ -110,21 +129,13 @@ func New(
 	// repositories.Container.ReapChatFiles' doc comment for why this can't be a
 	// repositories.New constructor argument).
 	repos.ReapChatFiles = reapAgentChatFiles(ucs.AgentWorkspaceReader)
-	if ucs.Agent != nil {
-		// Same construction-order reason as ReapChatFiles: the cascade unbinds a
-		// deleted chat's segments from the agent registry (which lives on the agent
-		// usecase) before tearing down its PTY, so the async teardown can't
-		// resurrect the chat's read row (see repositories.Container.ForgetChatRegistry).
-		repos.ForgetChatRegistry = ucs.Agent.ForgetChatRegistry
-	}
 
 	startProviderSweep(ctx, engines, repos, ucs)
 	if err := startBootSweep(ctx, adapters, repos, axWorkspace); err != nil {
 		return nil, err
 	}
 	startRestoreTerminalSessions(ctx, ucs)
-	seedAgentRegistry(ctx, ucs)
-	reconcileAgentBoot(ctx, ucs)
+	reconcileAgentRunners(ctx, ucs)
 
 	rt := realtime.New(
 		ctx,
@@ -145,49 +156,106 @@ func New(
 		GORM:           gormStores,
 		Usecases:       ucs,
 		Realtime:       rt,
+		engines:        engines,
 		axWorkspace:    axWorkspace,
 		axReviewThread: axReviewThread,
 		axAgentChat:    axAgentChat,
+		axAgentRunner:  axAgentRunner,
 	}, nil
 }
 
 // Shutdown gracefully quiesces the application layer's asynchronous machinery
 // within the ctx deadline, BEFORE the adapter closes the DBs (spec §3.8 steps
-// 2-3, decision 11). It runs ahead of Close in the ordered teardown:
+// 2-3, decision 11). It runs ahead of Close in the ordered teardown, and its whole
+// job is to leave every WRITER quiesced before the things they write to go away —
+// in dependency order, outermost writer first:
 //
-//  1. close the shared reactor drain gate (Cancel) so no post-commit reactor
+//  1. quiesce the terminal engine: kill every live PTY and JOIN the exit callbacks
+//     those deaths fire. This is FIRST, and it is not a resource release (Close
+//     does that) — it is the outermost writer. A dying vendor CLI's exit callback
+//     is the ONLY thing that records its death: it Exits the runner and closes the
+//     turn the CLI abandoned. It runs on the terminal engine's reap goroutine, so
+//     leaving it to Close — after steps 2-3 and the adapter's DB close — is a
+//     RACE, and one that was lost in production ("close abandoned turn: get chat …
+//     sql: database is closed"). Losing it is worse than a lost warning: the two
+//     writes fall on opposite sides of the teardown, so the runner's Exit commits
+//     while its turn is NOT closed — and with no live runner row left, the next
+//     boot's ReconcileRunnersOnBoot has nothing to reconcile, so NOTHING ever
+//     closes that turn. The chat spins forever, across every restart, and takes
+//     the workspace's working overlay with it;
+//  2. close the shared reactor drain gate (Cancel) so no post-commit reactor
 //     wireCallbacks registered starts new work;
-//  2. wait out the in-flight reactors, BOUNDED by ctx — a hung reactor cannot
+//  3. wait out the in-flight reactors, BOUNDED by ctx — a hung reactor cannot
 //     wedge shutdown past the deadline (quiver's drainWg.Wait() is unbounded; we
 //     bound it, decision 11);
-//  3. Shutdown each per-type asynx singleton, draining its command/projection
+//  4. Shutdown each per-type asynx singleton, draining its command/projection
 //     pool (itself ctx-bounded) so no event is half-processed when the adapter
-//     WAL-checkpoints and closes the event/read/view DBs.
+//     WAL-checkpoints and closes the event/read/view DBs. Step 1's writes are
+//     folded into the read models here, which is the other half of why it must
+//     precede this: an Exit sent AFTER an asynx Shutdown is simply rejected
+//     ("asynx: shutting down") and the death goes unrecorded.
+//
+// Note what step 1 is NOT: it is not a second opinion about liveness. The PTY
+// remains the sole authority — we kill the process and let its death carry the
+// runner away, exactly as every other teardown path does. All we have changed is
+// that the daemon now WAITS to hear the news before it dismantles the ears.
 //
 // Realtime resources (file watchers, LSP hosts) are released separately by Close.
 // Every wait honors ctx, so the whole drain is bounded by the caller's deadline.
 func (c *Container) Shutdown(
 	ctx context.Context,
 ) error {
+	c.quiesceTerminal(ctx)
+
 	drain := c.Repositories.Drain()
 	drain.Cancel() // close the gate: reactors observing drainCtx stop starting new work.
 
+	// Bounded by ctx: a stuck reactor delays shutdown by the deadline and no longer.
+	//
+	// The gate — not a bare WaitGroup — is what makes this safe. Step 1 above kills the
+	// PTYs, and those deaths COMMIT EVENTS, which wake reactors: the daemon is at its most
+	// eventful in the very instant it is trying to go quiet. A reactor Adding on asynx's
+	// bus goroutine while this line Waits is textbook WaitGroup misuse, and `-race` caught
+	// it. drain.Gate makes admitting work and beginning to drain one critical section.
+	drain.Gate.Wait(ctx)
+
+	// Order matters on the ABANDON path (the clean path already drained every reaper in
+	// quiesceTerminal above, so all its writes have landed). If a reaper is still in flight
+	// when we get here — quiesceTerminal was cut short by ctx — it writes runners.Exit
+	// FIRST and chats.StopTurn SECOND (reconcileRunnerExit), and it RETURNS EARLY if the
+	// first write is rejected. So shut the RUNNER store down before the CHAT store: a
+	// reaper that loses the race then has its Exit rejected and bails before StopTurn,
+	// leaving the runner row LIVE for the next boot's reconcile to retry both writes. The
+	// reverse order lets Exit commit while StopTurn is rejected — runner gone, turn
+	// stranded, and boot reconcile has no live row left to find. Recoverable vs permanent.
+	return errors.Join(
+		c.axWorkspace.Shutdown(ctx),
+		c.axReviewThread.Shutdown(ctx),
+		c.axAgentRunner.Shutdown(ctx),
+		c.axAgentChat.Shutdown(ctx),
+	)
+}
+
+// quiesceTerminal runs Shutdown's step 1 — kill the PTYs, join their exit callbacks
+// — BOUNDED by ctx, mirroring how the reactor drain below it is bounded (decision
+// 11): a reaper wedged on something we do not control must not hold the daemon past
+// its deadline. The quiesce is latched in the engine container, so the later
+// engines.Close() never re-enters (and so never re-wedges) whatever we abandon here.
+func (c *Container) quiesceTerminal(
+	ctx context.Context,
+) {
+	if c.engines == nil {
+		return
+	}
 	done := make(chan struct{})
 	go func() {
-		drain.WG.Wait()
-		close(done)
+		defer close(done)
+		c.engines.QuiesceTerminal()
 	}()
 	select {
 	case <-done:
 	case <-ctx.Done():
-		// Bounded: a stuck reactor cannot hang shutdown past the deadline.
 	}
-
-	return errors.Join(
-		c.axWorkspace.Shutdown(ctx),
-		c.axReviewThread.Shutdown(ctx),
-		c.axAgentChat.Shutdown(ctx),
-	)
 }
 
 // Close tears down the application layer's live realtime resources: it stops
@@ -299,7 +367,7 @@ func startBootSweep(
 	if err != nil {
 		return fmt.Errorf("app: boot sweep: paths store: %w", err)
 	}
-	sweeper.Sweep(ctx, bootSweepPurge(ax, pathsStore, adapters.CrowbarHome()))
+	sweeper.Sweep(ctx, bootSweepPurge(ax, pathsStore, adapters.CrowbarHome(), repos.ForgetWorkspaceDependents))
 	return nil
 }
 
@@ -321,8 +389,19 @@ func bootSweepPurge(
 	ax asynx.Asynx[domain.Workspace],
 	pathsStore wspaths.WorkspacePaths,
 	crowbarHome string,
+	forgetDependents func(ctx context.Context, wsID string) error,
 ) func(ctx context.Context, wsID string) error {
 	return func(ctx context.Context, wsID string) error {
+		// Re-drive the dependent forget-cascade FIRST, while the chats are still listable
+		// (their read rows survive the workspace rm below). A tombstone reaches this sweep
+		// precisely because its reactor did not finish — crashed mid-cascade, or was refused
+		// by the drain gate at shutdown — so its chat aggregates and conversation rows are
+		// exactly what is still un-forgotten. Abort on error (leave the tombstone for the
+		// next re-drive) rather than rm the worktree with chats still dangling; that is the
+		// same contract forgetDependents holds on the reactor path.
+		if err := forgetDependents(ctx, wsID); err != nil {
+			return fmt.Errorf("forget workspace dependents: %w", err)
+		}
 		path, err := pathsStore.Get(ctx, wsID)
 		switch {
 		case errors.Is(err, wspaths.ErrNotFound):
@@ -390,42 +469,45 @@ func startRestoreTerminalSessions(
 	_ = ucs.Terminal.RestorePersistedSessions(context.WithoutCancel(ctx))
 }
 
-// seedAgentRegistry rehydrates the agent usecase's context-move reducer from
-// persisted segments (see agent.Usecase.SeedRegistry's doc comment): it runs
-// synchronously at startup, before the HTTP layer starts serving, so a
-// resumed vendor-CLI process that /resumes into a pre-restart chat is
-// recognized as a "focus" move rather than mistakenly "registered" as new.
-// Best-effort: a failure here only degrades context-move detection for
-// already-running segments, it never blocks startup.
-func seedAgentRegistry(
+// reconcileAgentRunners reaps the live-runner rows of the previous run: agent_runners is
+// durable sqlite and is never truncated at boot, but a PTY never survives a restart, so
+// every row the daemon comes back to describes a CLI that no longer exists. Nothing
+// recorded those deaths — the only thing that ever does is an exit callback that lived in
+// the process that went away.
+//
+// A stale row is not cosmetic: it is indistinguishable from a running CLI to every read in
+// the agent package, so it BRICKS the chat it names (ResumeChat finds it and no-ops, and
+// the pane attaches to a dead terminal session) and, if the chat was mid-turn, spins its
+// spinner forever. This runs on EVERY boot, so those states last until this call, not
+// until the user gives up.
+//
+// It runs SYNCHRONOUSLY and AFTER startRestoreTerminalSessions. Synchronously matters: the
+// first client read must not race it, or an HTTP read that beats the reconcile is served a
+// corpse. The ordering relative to the restore does NOT: the reconcile asks SessionLive,
+// which questions the PTY directly, not the terminal registry, so a not-yet-restored session
+// and a restored PTY-less placeholder both read false — correctly, since a restored session
+// is never live either way. (The hazard that WOULD make this ordering load-bearing belongs
+// to the engine's SessionExists, not SessionLive: SessionExists answers true for every
+// restored placeholder, which is exactly why ReconcileRunnersOnBoot insists on SessionLive
+// instead — see its call site in agent.go.)
+//
+// Best-effort: a failure is logged and the daemon still boots. The chats it could not
+// reconcile are no worse off than they were a line earlier, and refusing to start the
+// daemon over them would be strictly worse.
+//
+// (Its sibling, seedAgentRegistry, is NOT coming back: it rehydrated an in-memory
+// session→chat index from persisted segments, and that index is now the runner aggregate's
+// append-only conversation history — already durable, and answering ChatForSession straight
+// from the read model.)
+func reconcileAgentRunners(
 	ctx context.Context,
 	ucs *usecases.Container,
 ) {
 	if ucs.Agent == nil {
 		return
 	}
-	_ = ucs.Agent.SeedRegistry(context.WithoutCancel(ctx))
-}
-
-// reconcileAgentBoot repairs live turn state a daemon crash can leave stale
-// (see agent.Usecase.ReconcileOnBoot's doc comment): no event records "the
-// CLI process died," so a chat's active segment / Working flag can survive a
-// restart pointing at a terminal session that no longer exists. It runs
-// synchronously at startup, AFTER startRestoreTerminalSessions has
-// repopulated the terminal registry — so a session merely reloaded as a
-// suspended placeholder still reads alive via SessionExists and is never
-// wrongly reconciled — and before the HTTP layer starts serving. Best-effort:
-// a failure here only leaves a chat's live-turn state stale until the next
-// hook/switch touches it, it never blocks startup.
-func reconcileAgentBoot(
-	ctx context.Context,
-	ucs *usecases.Container,
-) {
-	if ucs.Agent == nil {
-		return
-	}
-	if err := ucs.Agent.ReconcileOnBoot(context.WithoutCancel(ctx)); err != nil {
-		slog.WarnContext(ctx, "app: reconcile agent boot", "err", err)
+	if err := ucs.Agent.ReconcileRunnersOnBoot(context.WithoutCancel(ctx)); err != nil {
+		slog.WarnContext(ctx, "app: reconcile agent runners on boot", "err", err)
 	}
 }
 

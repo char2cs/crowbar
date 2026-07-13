@@ -38,6 +38,49 @@ const gitRecomputeDebounce = 250 * time.Millisecond
 // goroutine, so it is rejected instead.
 var ErrAlreadyStarted = errors.New("watch: already started")
 
+// debounceTimer is the timer behind the trailing git-recompute debounce. It is
+// an interface so that a test can substitute a timer it fires by hand: the
+// coalescing guarantee (N bursts collapse into exactly one recompute) is then
+// proven by firing once and counting recomputes, rather than by racing a wall
+// clock and hoping the bursts landed inside the window. Production always uses
+// realTimer.
+type debounceTimer interface {
+	Reset(d time.Duration) bool
+	Stop() bool
+	Chan() <-chan time.Time
+}
+
+// realTimer is the production debounceTimer, backed by a *time.Timer.
+type realTimer struct {
+	t *time.Timer
+}
+
+// newStoppedTimer returns a realTimer that is armed for d but immediately
+// stopped and drained, so it only ever fires after an explicit Reset.
+func newStoppedTimer(
+	d time.Duration,
+) *realTimer {
+	t := time.NewTimer(d)
+	if !t.Stop() {
+		<-t.C
+	}
+	return &realTimer{t: t}
+}
+
+func (r *realTimer) Reset(
+	d time.Duration,
+) bool {
+	return r.t.Reset(d)
+}
+
+func (r *realTimer) Stop() bool {
+	return r.t.Stop()
+}
+
+func (r *realTimer) Chan() <-chan time.Time {
+	return r.t.C
+}
+
 // Watcher watches a workspace's repo root and fans out every debounced event
 // to a Dispatcher. It self-manages recursive watching for subdirectories.
 type Watcher struct {
@@ -67,10 +110,22 @@ type Watcher struct {
 
 	// gitTimer is the trailing-debounce timer for git recomputes. It is
 	// created stopped in NewWatcher, armed by scheduleGitRecompute, and
-	// drained exclusively by loop's <-gitTimer.C case. gitPending tracks
+	// drained exclusively by loop's <-gitTimer.Chan() case. gitPending tracks
 	// whether a recompute is scheduled but not yet run (guarded by mu).
-	gitTimer   *time.Timer
+	gitTimer   debounceTimer
 	gitPending bool
+
+	// loopDone is closed when the loop goroutine returns. It is the real signal
+	// that the watcher has finished tearing down (used by tests to block on the
+	// loop's exit instead of polling the process's goroutine count).
+	loopDone chan struct{}
+
+	// onGitRecompute, when non-nil, is invoked by the loop goroutine after every
+	// completed git recompute (including one that fanOutGit short-circuits, e.g.
+	// mid-rebase). It is nil in production and set only by tests — before Start,
+	// so the `go w.loop` that follows establishes the happens-before edge — so a
+	// test can block on "the debounce flushed" instead of sleeping past it.
+	onGitRecompute func()
 }
 
 // gitStatusEqual reports whether two statuses carry the same broadcastable
@@ -101,10 +156,6 @@ func NewWatcher(
 	git GitStatusProvider,
 	dispatcher Dispatcher,
 ) *Watcher {
-	gitTimer := time.NewTimer(gitRecomputeDebounce)
-	if !gitTimer.Stop() {
-		<-gitTimer.C
-	}
 	return &Watcher{
 		wsID:         wsID,
 		repoPath:     repoPath,
@@ -112,7 +163,8 @@ func NewWatcher(
 		git:          git,
 		dispatcher:   dispatcher,
 		stopCh:       make(chan struct{}),
-		gitTimer:     gitTimer,
+		loopDone:     make(chan struct{}),
+		gitTimer:     newStoppedTimer(gitRecomputeDebounce),
 	}
 }
 
@@ -214,6 +266,10 @@ func (w *Watcher) Stop() {
 func (w *Watcher) loop(
 	ctx context.Context,
 ) {
+	// Registered first so it runs last: loopDone is closed only once every other
+	// teardown defer (including the panic recovery) has run, which makes it a
+	// sound "the loop goroutine is gone" signal.
+	defer close(w.loopDone)
 	defer safego.Recover("fs.watch.loop")
 	defer w.closeFSW()
 
@@ -242,7 +298,7 @@ func (w *Watcher) loop(
 		case <-timer.C:
 			w.handleBurst(ctx, pending)
 			pending = pending[:0]
-		case <-w.gitTimer.C:
+		case <-w.gitTimer.Chan():
 			w.runGitRecompute(ctx)
 		case <-ctx.Done():
 			return
@@ -353,6 +409,9 @@ func (w *Watcher) runGitRecompute(
 	w.gitPending = false
 	w.mu.Unlock()
 	w.fanOutGit(ctx)
+	if w.onGitRecompute != nil {
+		w.onGitRecompute()
+	}
 }
 
 func (w *Watcher) fanOutGit(

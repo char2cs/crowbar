@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -39,16 +38,34 @@ func (b *recordingRepoBroadcaster) push(
 	b.ch <- d
 }
 
+// await blocks until the background op broadcasts. The frame's arrival IS the
+// signal, so a plain receive is the whole synchronisation; a broadcast that
+// never comes hangs until `go test -timeout` fires and names this test, instead
+// of a two-second guess that reddens under load.
 func (b *recordingRepoBroadcaster) await(
 	t *testing.T,
 ) dto.RepoDTO {
 	t.Helper()
+	return <-b.ch
+}
+
+// assertNoBroadcast pins a NEGATIVE: the background op broadcast nothing.
+//
+// That claim is only sound once the producing goroutine is provably dead, which
+// no sleep can establish — it merely widens the window a slow goroutine can hide
+// in. h.WaitAsync() blocks until every detached op has fully returned, after
+// which the broadcaster has no writer left and this non-blocking check is exact.
+func assertNoBroadcast(
+	t *testing.T,
+	h *repohandlers.Handlers,
+	bc *recordingRepoBroadcaster,
+) {
+	t.Helper()
+	h.WaitAsync()
 	select {
-	case d := <-b.ch:
-		return d
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for RepoDTO broadcast")
-		return dto.RepoDTO{}
+	case d := <-bc.ch:
+		t.Fatalf("unexpected broadcast from a failed background op: %+v", d)
+	default:
 	}
 }
 
@@ -64,11 +81,22 @@ func newCreateRouter(
 	store repohandlers.Store,
 	bc *recordingRepoBroadcaster,
 ) *gin.Engine {
+	r, _ := newCreateRouterWithHandlers(store, bc)
+	return r
+}
+
+// newCreateRouterWithHandlers is newCreateRouter, also returning the Handlers so
+// a test can block on WaitAsync — the real completion signal for the detached
+// background op.
+func newCreateRouterWithHandlers(
+	store repohandlers.Store,
+	bc *recordingRepoBroadcaster,
+) (*gin.Engine, *repohandlers.Handlers) {
 	r := gin.New()
 	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithStat(statRepoOK)
 	rg := r.Group("/v0/projects/:projectId")
 	rg.POST("/repos", h.Create)
-	return r
+	return r, h
 }
 
 func doPost(
@@ -193,10 +221,18 @@ func TestCreateRepo_ValidationFailsSync_4xx(
 		map[string]any{"name": "alpha", "path": "/missing"})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
+	// WaitAsync is exact in BOTH directions here. runAsync increments the
+	// WaitGroup on the request goroutine, before spawning, so by the time
+	// ServeHTTP has returned the counter already reflects whether work was
+	// scheduled. Correct code schedules none and WaitAsync returns at once; a
+	// regression that wrongly scheduled the import would make WaitAsync block
+	// until that goroutine finished — and the check below would then SEE the call
+	// and fail. A sleep could only ever have missed it.
+	h.WaitAsync()
 	select {
 	case <-imp.called:
 		t.Fatal("importer must not run when synchronous validation fails")
-	case <-time.After(100 * time.Millisecond):
+	default:
 	}
 }
 
@@ -218,12 +254,8 @@ func TestCreateRepo_ImportError_NoBroadcast(
 		map[string]any{"name": "alpha", "path": "/tmp/repo"})
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
-	<-imp.called
-	select {
-	case d := <-bc.ch:
-		t.Fatalf("unexpected broadcast on failed import: %+v", d)
-	case <-time.After(100 * time.Millisecond):
-	}
+	<-imp.called // the import ran
+	assertNoBroadcast(t, h, bc)
 }
 
 // TestCreateRepo_PathMissing_4xx pins that a non-existent path fails
@@ -312,15 +344,12 @@ func TestCreateRepo_SaveError_NoBroadcast(
 		return errStore
 	}
 	bc := newRecordingRepoBroadcaster()
-	rec := doPost(newCreateRouter(store, bc), "/v0/projects/p1/repos",
+	r, h := newCreateRouterWithHandlers(store, bc)
+	rec := doPost(r, "/v0/projects/p1/repos",
 		map[string]any{"id": "r1", "name": "alpha", "path": "/tmp/repo"})
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
-	select {
-	case d := <-bc.ch:
-		t.Fatalf("unexpected broadcast on failed save: %+v", d)
-	case <-time.After(100 * time.Millisecond):
-	}
+	assertNoBroadcast(t, h, bc)
 }
 
 // TestDeleteRepo_FindError_5xx pins that a store lookup error surfaces
@@ -363,11 +392,7 @@ func TestDeleteRepo_DeleteError_NoBroadcast(
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
-	select {
-	case d := <-bc.ch:
-		t.Fatalf("unexpected broadcast on failed delete: %+v", d)
-	case <-time.After(100 * time.Millisecond):
-	}
+	assertNoBroadcast(t, h, bc)
 }
 
 // TestDeleteRepo_NotFound_4xx pins synchronous existence validation.

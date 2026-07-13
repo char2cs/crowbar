@@ -3,6 +3,7 @@ package terminal
 import (
 	"context"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,25 +33,27 @@ func TestCreateCommand_OnExitFiresOnceSessionEnds(t *testing.T) {
 	ctx := context.Background()
 
 	var fired int32
+	exits := make(chan struct{}, 8) // buffered: a (buggy) duplicate fire must not block the reaper
 	id, err := e.CreateCommand(ctx, "ws1", t.TempDir(),
 		[]string{"/bin/sh", "-c", "true"}, os.Environ(), func() {
 			atomic.AddInt32(&fired, 1)
+			exits <- struct{}{}
 		})
 	require.NoError(t, err)
 	require.NotEmpty(t, id)
 
-	require.Eventually(t, func() bool {
-		return !e.SessionExists(ctx, id)
-	}, 5*time.Second, 10*time.Millisecond, "session must be reaped after the command exits")
+	// onExit IS the signal. Block on it rather than polling for its effects: reapOnDone
+	// removes the session from the registry BEFORE it invokes onExit, so once this returns
+	// the deregistration is already a fact and can be asserted directly.
+	<-exits
+	require.False(t, e.SessionExists(ctx, id), "session must be reaped after the command exits")
 
-	require.Eventually(t, func() bool {
-		return atomic.LoadInt32(&fired) == 1
-	}, time.Second, 5*time.Millisecond, "onExit must fire exactly once after the session ends")
-
-	// Give any (incorrect) duplicate invocation a chance to land, then confirm
-	// the count is still exactly one.
-	time.Sleep(50 * time.Millisecond)
-	require.EqualValues(t, 1, atomic.LoadInt32(&fired), "onExit must not fire more than once")
+	// "Exactly once" needs a moment at which no further fire is POSSIBLE — not a 50 ms window
+	// in which one merely didn't happen to land. Shutdown joins every reaper before it
+	// returns, so afterwards the count is final and closed. (The deferred Shutdown is a no-op
+	// second call; stopOnce makes it idempotent.)
+	e.Shutdown()
+	require.EqualValues(t, 1, atomic.LoadInt32(&fired), "onExit must fire exactly once, never more")
 }
 
 // TestTerminateGraceful_OnExitFiresAfterGracefulSignal proves TerminateGraceful
@@ -64,29 +67,35 @@ func TestTerminateGraceful_OnExitFiresAfterGracefulSignal(t *testing.T) {
 	ctx := context.Background()
 
 	var fired int32
+	exits := make(chan struct{}, 8)
 	id, err := e.CreateCommand(ctx, "ws1", t.TempDir(),
 		[]string{"/bin/sh", "-c", "sleep 30"}, os.Environ(), func() {
 			atomic.AddInt32(&fired, 1)
+			exits <- struct{}{}
 		})
 	require.NoError(t, err)
 	require.NotEmpty(t, id)
 
-	start := time.Now()
 	require.NoError(t, e.TerminateGraceful(ctx, id))
-	elapsed := time.Since(start)
 
-	require.Eventually(t, func() bool {
-		return !e.SessionExists(ctx, id)
-	}, 5*time.Second, 10*time.Millisecond, "session must be reaped after a graceful terminate")
+	// Block on onExit; the deregistration precedes it inside reapOnDone, so assert it directly.
+	<-exits
+	require.False(t, e.SessionExists(ctx, id), "session must be reaped after a graceful terminate")
 
-	require.Eventually(t, func() bool {
-		return atomic.LoadInt32(&fired) == 1
-	}, time.Second, 5*time.Millisecond, "onExit must fire exactly once after a graceful terminate")
+	// No wall-clock assertion here. This used to do `assert.Less(elapsed, grace)` to argue
+	// the `sleep` died on SIGTERM rather than the fallback SIGKILL — an upper bound that can
+	// only FAIL on correct code (a loaded box that stalls the SIGTERM delivery + reap past
+	// the grace fires it though nothing is wrong) and can only ever CATCH a hang that
+	// `go test -timeout` catches better. That SIGTERM-vs-SIGKILL distinction is already
+	// proven WITHOUT a clock by two neighbours: session_terminate_test's
+	// GracefulExit_UsesSIGTERM checks the recorded exit signal IS SIGTERM, and this file's
+	// FallsBackToKill companion uses a *lower* bound (elapsed >= grace) that cannot flake
+	// because a timer never fires early. This test's own subject is the onExit contract:
+	// fires exactly once, session reaped.
 
-	assert.Less(t, elapsed, gracefulTerminateGrace, "a plain `sleep` dies on SIGTERM well before the grace window elapses")
-
-	time.Sleep(50 * time.Millisecond)
-	require.EqualValues(t, 1, atomic.LoadInt32(&fired), "onExit must not fire more than once")
+	// Shutdown joins every reaper, so afterwards no further fire is possible.
+	e.Shutdown()
+	require.EqualValues(t, 1, atomic.LoadInt32(&fired), "onExit must fire exactly once, never more")
 }
 
 // TestTerminateGraceful_FallsBackToKill_OnExitStillFires exercises the
@@ -103,32 +112,46 @@ func TestTerminateGraceful_FallsBackToKill_OnExitStillFires(t *testing.T) {
 	ctx := context.Background()
 
 	var fired int32
+	exits := make(chan struct{}, 8)
+	// The child ANNOUNCES that its trap is installed, and does so from inside the shell,
+	// AFTER the trap builtin has run. Waiting for that announcement is what makes this test
+	// honest: the old `time.Sleep(100 * time.Millisecond)` was a guess about how fast a
+	// fork+exec of /bin/sh is, and if the guess lost, the SIGTERM would race ahead of the
+	// trap, the child would die normally, and the test would silently exercise the GRACEFUL
+	// path while claiming to prove the FALLBACK one.
 	id, err := e.CreateCommand(ctx, "ws1", t.TempDir(),
-		[]string{"/bin/sh", "-c", "trap '' TERM; sleep 30"}, os.Environ(), func() {
+		[]string{"/bin/sh", "-c", "trap '' TERM; printf '%s%s\\n' TRAP PED; sleep 30"},
+		os.Environ(), func() {
 			atomic.AddInt32(&fired, 1)
+			exits <- struct{}{}
 		})
 	require.NoError(t, err)
 	require.NotEmpty(t, id)
 
-	// Give the shell a moment to install the trap before terminating it, same
-	// concern as the session-package unit test: a signal racing ahead of the
-	// trap being installed would exit normally and defeat the point of this
-	// test (proving the FALLBACK kill path still reaps cleanly).
-	time.Sleep(100 * time.Millisecond)
+	// Block until the announcement is on the session's screen. A command session is pumped
+	// and modelled exactly like a shell session, so the same screen seam applies. The token is
+	// printed from two printf arguments so it cannot be matched against the argv itself.
+	WaitScreenForTest(t, e, id, func(s string) bool {
+		return strings.Contains(s, "TRAPPED")
+	}, "the child to install its SIGTERM trap")
 
 	start := time.Now()
 	require.NoError(t, e.TerminateGraceful(ctx, id))
 	elapsed := time.Since(start)
 
-	require.Eventually(t, func() bool {
-		return !e.SessionExists(ctx, id)
-	}, 5*time.Second, 10*time.Millisecond, "session must still be reaped when the child ignores SIGTERM")
+	<-exits
+	require.False(t, e.SessionExists(ctx, id),
+		"session must still be reaped when the child ignores SIGTERM")
 
-	require.Eventually(t, func() bool {
-		return atomic.LoadInt32(&fired) == 1
-	}, time.Second, 5*time.Millisecond, "onExit must fire exactly once after the fallback kill")
+	// TIMING-BY-SUBJECT: the grace window IS the behaviour under test. This asserts the
+	// signal-ignoring child consumed the full (deliberately shortened, via the
+	// SetGracefulTerminateGraceForTest seam) window before the fallback hard-kill — an
+	// observation about elapsed time, not a wait on one.
+	assert.GreaterOrEqual(t, elapsed, 200*time.Millisecond,
+		"a signal-ignoring child must consume the full (shortened) grace window")
 
-	assert.GreaterOrEqual(t, elapsed, 200*time.Millisecond, "a signal-ignoring child must consume the full (shortened) grace window")
+	e.Shutdown()
+	require.EqualValues(t, 1, atomic.LoadInt32(&fired), "onExit must fire exactly once, never more")
 }
 
 // TestEngine_TerminateGraceful_Unknown mirrors TestEngine_Kill_Unknown: an

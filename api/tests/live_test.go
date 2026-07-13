@@ -3,11 +3,11 @@
 package tests
 
 import (
+	"encoding/json"
 	"strconv"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -86,30 +86,53 @@ func TestLive_GitWsIdScopingIsolatesWorkspaces(t *testing.T) {
 
 	conn := h.dial(wsBase(a) + "/git/status")
 
-	// Drain A's snapshot so the subsequent read window is for live events only.
-	readUntil(t, conn, func(m map[string]any) bool {
+	// Drain A's snapshot so the subsequent frames are live events only. A starts
+	// clean, which is what makes the content discriminator below valid: B dirties
+	// README.md and only README.md, A dirties the sentinel and only the sentinel.
+	// Content is the ONLY discriminator available, because the Git broadcaster
+	// filters on wsId but serialises a BARE GitStatus — there is no wsId on the
+	// wire to assert on.
+	snapshot := readUntil(t, conn, func(m map[string]any) bool {
 		_, ok := m["branch"]
 		return ok
 	})
+	require.False(t, statusHasFile(snapshot, "README.md"),
+		"A must start clean, or a README.md frame could not be attributed to B")
 
 	stop := rewriteOnTicker(t, workspaceWorktreePath(t, h, b), "README.md", "edit B\n")
 	defer stop()
 
-	// Subscribing to B's watcher via a second connection makes B's events real;
-	// the A-scoped connection must still never see a dirty (non-snapshot) frame.
+	// Subscribing to B's watcher makes B's events real: this read returns only
+	// once B has ACTUALLY broadcast a dirty status, so B is provably live — and
+	// its ticker keeps it broadcasting for the remainder of the test.
 	bConn := h.dial(wsBase(b) + "/git/status")
 	readUntil(t, bConn, func(m map[string]any) bool {
-		files, ok := m["files"].([]any)
-		return ok && len(files) > 0
+		return statusHasFile(m, "README.md")
 	})
 
-	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+	// The negative — "A never receives B's events" — cannot be proven by a read
+	// deadline. A deadline shows only "nothing arrived within 1s", which is a
+	// guess: it can false-PASS if B is merely slow, and false-FAIL under load.
+	// Prove it with a SENTINEL on A's OWN topic instead: dirty a file in A's
+	// worktree and block (no deadline) until A's frame carrying it arrives.
+	//
+	// Throughout that blocking read B is still broadcasting a dirty frame every
+	// tick. Were the wsId filter leaking, those frames would be landing on THIS
+	// connection the whole time, so we would read one long before A's sentinel
+	// could show up. Reaching the sentinel having seen no foreign file therefore
+	// proves the isolation exactly, with no clock: A's own frame is the signal
+	// that the window we watched was real, and that it is now closed.
+	stopA := rewriteOnTicker(t, workspaceWorktreePath(t, h, a), sentinelFile, "edit A\n")
+	defer stopA()
+
 	for {
-		mt, _, err := conn.ReadMessage()
-		if err != nil {
-			return // deadline elapsed with no leak from B: scoping holds
+		var frame map[string]any
+		require.NoError(t, json.Unmarshal(readTextFrame(t, conn), &frame))
+		if statusHasFile(frame, sentinelFile) {
+			return // A's sentinel landed and B never leaked: scoping holds
 		}
-		require.NotEqual(t, websocket.TextMessage, mt, "A must not receive B's events")
+		require.False(t, statusHasFile(frame, "README.md"),
+			"A must not receive B's events (leaked frame: %v)", frame)
 	}
 }
 

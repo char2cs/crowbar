@@ -2,8 +2,6 @@ package agent_test
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -87,6 +85,76 @@ func TestRenameChat_UnknownChat_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "rename chat: get")
 }
 
+// TestRegression_RenameResolvesChatAtCallTime guards the fix for the stale-title
+// bug: the OLD title instruction baked the chat id into the CLI's spawn-time
+// system prompt, so an agent that titled itself after a /clear or /resume moved
+// the runner to a NEW chat but still carried the OLD chat id — and renamed the
+// chat it used to be in, not the one the user was looking at.
+//
+// RenameByRunner resolves runnerID → runner → CurrentChatID at CALL TIME, the
+// same resolution IngestHook already uses for every hook (see its doc comment):
+// nothing is baked in, so nothing can go stale. This spawns a runner on chat A,
+// drives two conversation announcements — the second an unknown session id,
+// which the context-move reducer (engine/agent.Decide) resolves to MoveToNew —
+// so the runner ends up on a brand-new chat B while chat A still exists
+// untouched, and proves the rename lands on B, never on A.
+func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatA, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sA")
+	f.announce(t, runnerID, "sB") // /clear — the runner moves to a NEW chat
+
+	require.NoError(t, f.usecase.RenameByRunner(ctx, runnerID, "New Title", "agent"))
+
+	moved := f.runner(t, runnerID)
+	require.NotEqual(t, chatA, moved.CurrentChatID, "precondition: the runner really did move off chat A")
+
+	assert.Equal(t, "New Title", getTitle(t, f, moved.CurrentChatID),
+		"the title lands on the chat the runner is on NOW")
+	assert.NotEqual(t, "New Title", getTitle(t, f, chatA),
+		"and NOT on the chat it used to be on")
+}
+
+// TestRenameByRunner_UnknownRunner_ReturnsWrappedError guards the error path: a
+// rename call naming a runner Crowbar has never heard of (or whose CLI has
+// already exited) must fail loudly here — unlike a hook, which silently drops
+// an unknown runner, this is a direct call the handler maps to a 404.
+func TestRenameByRunner_UnknownRunner_ReturnsWrappedError(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	err := f.usecase.RenameByRunner(ctx, "does-not-exist", "Some Title", "agent")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rename by runner")
+}
+
+// TestRenameByRunner_DisplacedRunner_IsANoop guards the one legitimate case
+// where a runner's CurrentChatID is empty: it has been taken off its chat and
+// is being retired (a switch, an eviction, a deleted chat) but its process has
+// not yet died. There is nowhere to write the title, and — mirroring
+// handleTurn's identical guard on the hook path — this must be a silent no-op,
+// never an error that would otherwise reach the dying CLI's stderr for no
+// actionable reason.
+func TestRenameByRunner_DisplacedRunner_IsANoop(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	_, runnerID := f.spawn(t, "claude")
+	require.NoError(t, f.usecase.PurgeChat(ctx, mustChatOf(t, f, runnerID)))
+
+	require.NoError(t, f.usecase.RenameByRunner(ctx, runnerID, "New Title", "agent"))
+}
+
+// mustChatOf reads back the chat id a freshly spawned runner is placed on.
+func mustChatOf(t *testing.T, f testFixture, runnerID string) string {
+	t.Helper()
+	r := f.runner(t, runnerID)
+	require.NotEmpty(t, r.CurrentChatID)
+	return r.CurrentChatID
+}
+
 // TestIngestHook_UserPrompt_SetsDerivedTitle guards the first-prompt fallback
 // wired into IngestHook's user_prompt case: deriveTitle(prompt) is applied via
 // RenameChat(..., "derived"), which only fills an empty title.
@@ -109,58 +177,70 @@ func TestIngestHook_UserPrompt_SetsDerivedTitle(t *testing.T) {
 }
 
 // TestSpawnChat_InjectsTitleInstruction guards that a fresh SpawnChat injects
-// the configured title instruction (expanded with {chatid}) as a true
-// system-prompt document via the descriptor's system_prompt_inject steps —
-// claude's is the --append-system-prompt flag.
+// the configured title instruction (expanded with {segid}, the RUNNER's id —
+// never a chat id, which would go stale the instant the runner moved chats)
+// as a true system-prompt document via the descriptor's system_prompt_inject
+// steps — claude's is the --append-system-prompt flag.
 func TestSpawnChat_InjectsTitleInstruction(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	_, runnerID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
 	require.Equal(t, 1, f.term.callCount())
 	call := f.term.calls[0]
 	doc := argAfter(t, call.argv, "--append-system-prompt")
 	require.NotEmpty(t, doc)
-	assert.Contains(t, doc, "chat rename --project p1 --repo r1 --workspace ws1 "+chatID)
+	assert.Contains(t, doc, "chat rename --project=p1 --workspace=ws1 --repo=r1 --segment "+runnerID)
 }
 
-// TestSpawnChat_Codex_InjectsTitleInstructionViaAgentsFile is codex's
-// counterpart: codex has no per-invocation system-prompt flag, so its
-// system_prompt_inject step writes the expanded title instruction to
-// $CODEX_HOME/AGENTS.md instead — never as a positional initial prompt.
-func TestSpawnChat_Codex_InjectsTitleInstructionViaAgentsFile(t *testing.T) {
+// TestSpawnChat_Codex_InjectsTitleInstructionViaDeveloperInstructions is codex's
+// counterpart: codex ships no --append-system-prompt, so its context_inject step
+// carries the title instruction through the documented `developer_instructions`
+// config key — a channel the model reads WITHOUT being given a turn. It must
+// never arrive as a positional arg, which IS codex's initial user message: that
+// would make the CLI answer Crowbar's instruction instead of waiting for the
+// user.
+func TestSpawnChat_Codex_InjectsTitleInstructionViaDeveloperInstructions(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "codex")
+	_, runnerID, err := f.usecase.SpawnChat(ctx, "ws1", "codex")
 	require.NoError(t, err)
 
 	require.Equal(t, 1, f.term.callCount())
-	call := f.term.calls[0]
+	argv := f.term.calls[0].argv
 
-	for _, a := range call.argv {
-		assert.NotContains(t, a, "chat rename "+chatID, "title must not be injected as a codex positional arg")
-	}
+	doc := configValue(t, argv, "developer_instructions=")
+	assert.Contains(t, doc, "chat rename --project=p1 --workspace=ws1 --repo=r1 --segment "+runnerID)
 
-	var codexHome string
-	for _, kv := range call.env {
-		if v, ok := strings.CutPrefix(kv, "CODEX_HOME="); ok {
-			codexHome = v
+	// The instruction must not ALSO be a bare positional (codex's user prompt).
+	for i, a := range argv {
+		if i > 0 && argv[i-1] == "-c" {
+			continue
 		}
+		assert.NotContains(t, a, "chat rename", "title must not be injected as a codex positional arg")
 	}
-	require.NotEmpty(t, codexHome, "CODEX_HOME must be set in the spawned env")
-
-	data, err := os.ReadFile(filepath.Join(codexHome, "AGENTS.md"))
-	require.NoError(t, err)
-	assert.Contains(t, string(data), "chat rename --project p1 --repo r1 --workspace ws1 "+chatID)
 }
 
-// TestSwitchProvider_DoesNotInjectTitleInstruction guards the injectTitle=false
-// side: SwitchProvider must never inject the title instruction (only the ledger
-// handoff, via the descriptor's handoff_inject mechanism).
-func TestSwitchProvider_DoesNotInjectTitleInstruction(t *testing.T) {
+// The two tests below pin SwitchProvider's REAL title contract: the instruction is
+// injected iff the chat is still untitled. Whoever is running an unnamed chat may
+// name it; nobody re-names a chat that already has one.
+//
+// They replace a single test asserting the opposite ("SwitchProvider must never
+// inject the title instruction") which had never once run its assertion. It looked
+// for the substring "chat rename "+chatID inside each argv element — and the two
+// halves of that string are never adjacent, because the scope flags render between
+// them ("chat rename --project=p1 --workspace=ws1 …"). It passed vacuously from the
+// day it was written, and it kept passing after the rename command stopped carrying
+// a chat id at all. A test that cannot fail advertises coverage that does not exist,
+// which is worse than no test: it stops anyone from writing the real one.
+
+// TestSwitchProvider_UntitledChat_InjectsTitleInstruction: switching providers on a
+// chat nobody has named yet still asks the incoming CLI to name it. Otherwise a chat
+// that is switched before its first turn could never acquire a title at all.
+func TestSwitchProvider_UntitledChat_InjectsTitleInstruction(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
@@ -168,11 +248,64 @@ func TestSwitchProvider_DoesNotInjectTitleInstruction(t *testing.T) {
 	require.NoError(t, err)
 	f.wait()
 
+	runnerID, err := f.usecase.SwitchProvider(ctx, chatID, "codex")
+	require.NoError(t, err)
+	require.Equal(t, 2, f.term.callCount())
+
+	// Scan the whole argv rather than a fixed slot: codex takes several -c flags,
+	// so "the arg after the first -c" is not the injected document.
+	argv := strings.Join(f.term.calls[1].argv, "\x00")
+	assert.Contains(t, argv, "chat rename",
+		"an untitled chat must still be nameable by the provider that takes it over")
+	assert.Contains(t, argv, "--segment "+runnerID,
+		"and the instruction must name the RUNNER, so the title lands on whatever chat it is on when it fires")
+}
+
+// TestSwitchProvider_TitledChat_OmitsTitleInstruction: the flip side, and the one the
+// deleted test was reaching for. A chat that already has a title must not carry the
+// instruction into the next provider — the incoming CLI would otherwise be told to
+// name something that is already named.
+func TestSwitchProvider_TitledChat_OmitsTitleInstruction(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+	f.wait()
+
+	require.NoError(t, f.usecase.RenameChat(ctx, chatID, "Already Named", "user"))
+	f.wait()
+
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
-
 	require.Equal(t, 2, f.term.callCount())
+
 	for _, a := range f.term.calls[1].argv {
-		assert.NotContains(t, a, "chat rename "+chatID)
+		assert.NotContains(t, a, "chat rename",
+			"a chat that already has a title must not be asked to name itself again")
 	}
+}
+
+// TestSpawnChat_ProjectHome_TitleInstructionOmitsRepoFlag pins the rendering at the
+// layer where the empty repo id is actually born: a PROJECT-HOME workspace has no
+// repo, so WorktreeDir hands SpawnChat an empty RepoID.
+//
+// The injected command line must then carry NO --repo flag at all. The old
+// `--repo {repo_id}` triple rendered `--repo ` here, and because the instruction is
+// a flat line that the agent retypes and the shell word-splits, the empty token
+// vanished and pflag consumed `--workspace` as --repo's value — so the rename (and
+// every other in-PTY callback) died on project-home workspaces. cmd/crowbar's
+// scope_roundtrip_test drives that whole chain; this is the unit-level guard.
+func TestSpawnChat_ProjectHome_TitleInstructionOmitsRepoFlag(t *testing.T) {
+	f := newFixture(t)
+	f.ws.repoID = "" // project-home: no owning repo
+	ctx := context.Background()
+
+	_, runnerID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+
+	doc := argAfter(t, f.term.calls[0].argv, "--append-system-prompt")
+	assert.Contains(t, doc, "chat rename --project=p1 --workspace=ws1 --segment "+runnerID)
+	assert.NotContains(t, doc, "--repo",
+		"a project-home workspace has no repo id — the flag must be omitted, never left empty")
 }

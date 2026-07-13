@@ -18,17 +18,20 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 )
 
-// readUntil loop-reads from conn (under a deadline) until match returns true for
-// a decoded message, then returns that message. It avoids fixed-delay races: the
-// broadcast may be preceded by other projected rows on the same topic.
+// readUntil loop-reads from conn until match returns true for a decoded message,
+// then returns that message. The broadcast may be preceded by other projected
+// rows on the same topic, so the loop skips non-matching frames.
+//
+// The reads block: each frame's arrival IS the signal, so the loop advances
+// exactly as fast as the daemon delivers, with no deadline to outrun under load.
+// A matching frame that never arrives hangs until `go test -timeout` fires and
+// dumps the goroutines, naming this test.
 func readUntil(
 	t *testing.T,
 	conn *websocket.Conn,
 	match func(map[string]any) bool,
 ) map[string]any {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	_ = conn.SetReadDeadline(deadline)
 	for {
 		_, msg, err := conn.ReadMessage()
 		require.NoError(t, err)
@@ -37,7 +40,6 @@ func readUntil(
 		if match(got) {
 			return got
 		}
-		require.True(t, time.Now().Before(deadline), "deadline exceeded before match")
 	}
 }
 

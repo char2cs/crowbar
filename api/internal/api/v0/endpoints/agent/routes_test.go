@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
 func TestMain(
@@ -57,16 +59,35 @@ func (stubUsecase) GetChat(
 	return domain.AgentChat{ID: id, WorkspaceID: "w1"}, nil
 }
 
-func (stubUsecase) SegmentsFor(
+// LiveRunnerForChat answers agentrunner.ErrNotFound — "this chat is DORMANT", the
+// honest answer for a stub that starts no process, and not a failure: a live-runner row
+// exists exactly while a PTY does, so its absence IS the liveness verdict. The read
+// routes therefore still serve 200 with empty liveRunnerId/terminalSessionId, which is
+// what the mount test asserts on.
+func (stubUsecase) LiveRunnerForChat(
 	_ context.Context,
 	_ string,
-) ([]domain.AgentSegment, error) {
+) (domain.AgentRunner, error) {
+	return domain.AgentRunner{}, agentrunner.ErrNotFound
+}
+
+func (stubUsecase) ConversationsForChat(
+	_ context.Context,
+	_ string,
+) ([]domain.ChatConversation, error) {
 	return nil, nil
 }
 
 func (stubUsecase) SwitchProvider(
 	_ context.Context,
 	_ string,
+	_ string,
+) (string, error) {
+	return "seg-2", nil
+}
+
+func (stubUsecase) ResumeChat(
+	_ context.Context,
 	_ string,
 ) (string, error) {
 	return "seg-2", nil
@@ -86,11 +107,25 @@ func (stubUsecase) RenameChat(
 	return nil
 }
 
+func (stubUsecase) RenameByRunner(
+	_ context.Context,
+	_, _, _ string,
+) error {
+	return nil
+}
+
 func (stubUsecase) PurgeChat(
 	_ context.Context,
 	_ string,
 ) error {
 	return nil
+}
+
+func (stubUsecase) ListProviders(
+	_ context.Context,
+	_ string,
+) ([]engineagent.Descriptor, error) {
+	return nil, nil
 }
 
 // TestRegisterMountsRoutes proves Register mounts every agent route nested
@@ -119,7 +154,9 @@ func TestRegisterMountsRoutes(
 		{http.MethodPost, base + "/agent/chats/c1/rename"},
 		{http.MethodGet, base + "/agent/chats/c1/handoff"},
 		{http.MethodDelete, base + "/agent/chats/c1"},
+		{http.MethodPost, base + "/agent/runners/seg-1/rename"},
 		{http.MethodPost, base + "/agent/hooks"},
+		{http.MethodGet, base + "/agent/providers"},
 		{http.MethodGet, base + "/agent/ws/chats"},
 	}
 	for _, tc := range cases {

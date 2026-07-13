@@ -1,5 +1,6 @@
 import {
   terminalCreate,
+  terminalDetach,
   terminalListLive,
   terminalResize,
   onTransportDrop,
@@ -74,6 +75,25 @@ interface XtermTerminalProps {
   initialCommand?: string
   workingDirectory?: string
   remoteConnectionId?: string
+  /**
+   * Attach-only: this terminal is a view onto ONE specific pre-existing PTY and
+   * must NEVER spawn a shell. When that PTY is not live on the daemon — on mount
+   * OR on a transport-drop reconnect — nothing is attached and `onSessionGone`
+   * fires instead. Used by the agent chat pane, whose PTY is a vendor CLI: a
+   * spawned replacement there is a bare shell wearing the agent's frame, not a
+   * usable terminal. Ordinary shell tabs leave this unset and keep spawning.
+   */
+  attachOnly?: boolean
+  /** Fires when attachOnly resolution finds the session gone (mount or reconnect). */
+  onSessionGone?: () => void
+  /**
+   * Render from the container's very edge, dropping the 16px left inset that
+   * shell tabs use for breathing room against a bare pane. The agent chat pane
+   * sets this because its terminal already sits inside a Frame panel that
+   * supplies the surface — there, the inset reads as a stray gap, and it also
+   * knocks the terminal out of line with the provider switcher below it.
+   */
+  flush?: boolean
 }
 
 export const XtermTerminal: React.FC<XtermTerminalProps> = ({
@@ -86,6 +106,9 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   initialCommand,
   workingDirectory,
   remoteConnectionId,
+  attachOnly = false,
+  onSessionGone,
+  flush = false,
 }) => {
   const terminalContainerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<Terminal | null>(null)
@@ -95,6 +118,14 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const [searchResults, setSearchResults] = useState({ current: 0, total: 0 })
   const isInitializingRef = useRef(false)
   const pasteGuardAttachedRef = useRef(false)
+
+  // Held in a ref so an inline arrow from the parent (the agent pane's
+  // setAttachment) does not re-identify doReconnect and churn the
+  // transport-drop subscription on every render.
+  const onSessionGoneRef = useRef(onSessionGone)
+  useEffect(() => {
+    onSessionGoneRef.current = onSessionGone
+  }, [onSessionGone])
 
   const updateSession = useTerminalStore((s) => s.updateSession)
   const getSession = useTerminalStore((s) => s.getSession)
@@ -177,6 +208,12 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   // handles the reuse/re-attach/create decision, updates the store, and then
   // bumps reconnectKey so useTerminalConnection re-subscribes its listener on
   // the freshly-attached connection object.
+  //
+  // This is the second door onto createTerminal, and for an attach-only terminal
+  // it is the DANGEROUS one: the agent's PTY can die at any moment while the pane
+  // sits open (daemon restart, CLI exit, crash), and the drop lands here — where,
+  // without the attachOnly flag, the resolver would helpfully spawn a bare shell
+  // into the agent's frame. Both doors are flagged; neither may spawn.
   const doReconnect = useCallback(async () => {
     if (isInitializingRef.current) return
     const wsId = getActiveWorkspaceId()
@@ -192,7 +229,13 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         base,
         listLiveSessions: () => terminalListLive(base),
         createTerminal: () => terminalCreate(wsId, existingSession?.profileId),
+        attachOnly,
       })
+      if ('gone' in result) {
+        // Attach-only and the PTY is gone: the owner renders its ended state.
+        onSessionGoneRef.current?.()
+        return
+      }
       updateSession(sessionId, { connectionId: result.connectionId })
       saveReconnect(wsId, sessionId, result.connectionId)
       // Sync PTY dimensions after re-attach so TUI apps redraw correctly.
@@ -210,7 +253,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     } finally {
       isInitializingRef.current = false
     }
-  }, [getSession, sessionId, updateSession])
+  }, [attachOnly, getSession, sessionId, updateSession])
 
   // Subscribe to unexpected transport drops for the current connection. When
   // the daemon restarts while a pane terminal stays mounted, the WS closes
@@ -447,7 +490,8 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       if (!wsId) throw new Error('no active workspace for terminal')
       const base = `${workspaceBase(wsId)}/terminals`
 
-      // Resolve: reuse live transport → re-attach detached → create fresh.
+      // Resolve: reuse live transport → re-attach detached → create fresh (or,
+      // under attachOnly, report the session gone rather than spawning a shell).
       const result = await resolveTerminalConnection({
         workspaceId: wsId,
         tabSessionId: sessionId,
@@ -455,7 +499,16 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         base,
         listLiveSessions: () => terminalListLive(base),
         createTerminal: () => terminalCreate(wsId, existingSession?.profileId),
+        attachOnly,
       })
+      if ('gone' in result) {
+        // Attach-only and the PTY is gone. Leave the terminal uninitialized (no
+        // connection, nothing to write to) and let the owner render its ended
+        // state; it will unmount us.
+        isInitializingRef.current = false
+        onSessionGoneRef.current?.()
+        return
+      }
       const activeConnectionId = result.connectionId
 
       // Always sync the store so in-memory connectionId is up to date.
@@ -515,6 +568,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       isInitializingRef.current = false
     }
   }, [
+    attachOnly,
     currentConnectionIdRef,
     fitTerminal,
     getSession,
@@ -648,6 +702,33 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       pasteGuardAttachedRef.current = false
     }
   }, [])
+
+  // THE TRANSPORT MAY NOT OUTLIVE THE XTERM IT FEEDS — for an attach-only terminal.
+  //
+  // A shell tab's xterm is kept mounted for its whole life (pane-container holds
+  // `terminal` buffers behind visibility:hidden precisely to preserve them), so its
+  // socket is right to survive a pane split or a tab move: the same xterm, still
+  // holding the same screen, goes on receiving into it.
+  //
+  // An attach-only terminal is the opposite. It is a VIEW onto a PTY the agent owns,
+  // and it is destroyed and rebuilt every time its chat tab is switched away from,
+  // closed and reopened, or its workspace is left and re-entered. A socket that
+  // outlives it is not an optimisation but a trap: the daemon serializes its screen
+  // model to a client at ATTACH and nowhere else, so a surviving transport sends the
+  // next mount down the resolver's reuse branch (live transport → no attach), and the
+  // brand-new, empty xterm is never sent the screen. The agent keeps working in a
+  // terminal nobody redrew — the pane sits blank until something unrelated (a resize
+  // → SIGWINCH → the CLI repaints itself) happens to fill it back in.
+  //
+  // Releasing it here keeps the PTY running (detach is not close) and makes the next
+  // mount an attach — which is, by definition, a redraw.
+  useEffect(() => {
+    if (!attachOnly) return
+    return () => {
+      const connectionId = useTerminalStore.getState().getSession(sessionId)?.connectionId
+      if (connectionId) void terminalDetach(connectionId).catch(() => {})
+    }
+  }, [attachOnly, sessionId])
 
   // XtermTerminal stays mounted while slots move between panes. When a new
   // slot owner provides a fresh ref callback, hand the live terminal handle to
@@ -1006,7 +1087,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         currentMatch={searchResults.current}
         totalMatches={searchResults.total}
       />
-      <div className="flex min-h-0 flex-1 flex-col pl-[16px]">
+      <div className={`flex min-h-0 flex-1 flex-col ${flush ? '' : 'pl-[16px]'}`}>
         <div
           ref={terminalContainerRef}
           id={`terminal-${sessionId}`}

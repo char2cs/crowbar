@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -138,6 +139,9 @@ type Handlers struct {
 	fetchAvatar AvatarBytesFetcher
 	broadcast   func(dto.RepoDTO)
 	stat        func(string) (os.FileInfo, error)
+	// async tracks the detached runAsync ops so callers can block on their real
+	// completion instead of guessing with a sleep (see runAsync / WaitAsync).
+	async sync.WaitGroup
 }
 
 // New builds the repos Handlers from the repository GORM store. The broadcast
@@ -295,7 +299,7 @@ func (h *Handlers) Create(
 		return
 	}
 	libs.WriteAccepted(c)
-	runAsync(c.Request.Context(), func(ctx context.Context) {
+	h.runAsync(c.Request.Context(), func(ctx context.Context) {
 		repo, ok := h.persistRepo(ctx, body)
 		if !ok {
 			return
@@ -383,7 +387,7 @@ func (h *Handlers) DeleteRepo(
 	}
 	home, _ := h.crowbarHome()
 	libs.WriteAccepted(c)
-	runAsync(c.Request.Context(), func(ctx context.Context) {
+	h.runAsync(c.Request.Context(), func(ctx context.Context) {
 		if err := h.store.Delete(ctx, repoID); err != nil {
 			return
 		}

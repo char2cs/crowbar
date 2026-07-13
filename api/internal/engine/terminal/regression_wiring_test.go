@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,6 +37,8 @@ func readBufHeader(t *testing.T, dir, sid string) string {
 // itself: we delete the committed .buf and assert an idle tick does NOT recreate it (no
 // WriteBuf), then assert a post-output tick DOES recreate it.
 func TestRegression_IdleSessionNoCadenceWrite(t *testing.T) {
+	pinShell(t)
+
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng) // drive maintenance manually; no ticker races
 	ctx := context.Background()
@@ -46,23 +47,18 @@ func TestRegression_IdleSessionNoCadenceWrite(t *testing.T) {
 	eng.SetMetaStore(store)
 	defer eng.Shutdown()
 
-	sid, err := eng.Create(ctx, "ws-idle", dir, nil)
-	require.NoError(t, err)
+	// Block until the shell is parked at its prompt — the only point at which "the session
+	// has no output still in flight" is a fact rather than an assumption. The whole test is a
+	// negative assertion about an IDLE session, so establishing genuine idleness is not a
+	// preliminary here: it is the hypothesis.
+	sid := newReadyShell(t, eng, "ws-idle", dir)
 
-	// Let the shell start and emit a stable, settled prompt so the first flush captures a
-	// clean screen and a later tick can reach dirty==false deterministically.
-	waitIdle(t, eng, sid, 10*time.Second)
-	waitForSettled(t, eng, sid, 10*time.Second)
-
-	// First cadence flush: dirty==true → .buf written + meta saved.
+	// First cadence flush: dirty==true → .buf written + meta saved, and the dirty bit is
+	// consumed. Nothing can set it again while the shell sits at its prompt, so one flush is
+	// enough to reach the clean dirty==false state the assertion needs (this used to take a
+	// second speculative flush sandwiched between two settle windows).
 	terminal.RunMaintenanceOnceForTest(eng, ctx)
 	require.True(t, bufExists(store.dir, sid), "first cadence flush must write the .buf")
-
-	// Drain any straggler prompt chunks and flush once more so the session reliably reaches
-	// dirty==false with a populated lastBlob cache BEFORE the idle-tick assertion.
-	waitForSettled(t, eng, sid, 5*time.Second)
-	terminal.RunMaintenanceOnceForTest(eng, ctx)
-	waitForSettled(t, eng, sid, 5*time.Second)
 
 	// Delete the committed .buf and snapshot the meta-save count: a subsequent IDLE tick must
 	// recreate NEITHER (changed==false → flushSessionOnce returns before WriteBuf+saveMeta).
@@ -76,9 +72,10 @@ func TestRegression_IdleSessionNoCadenceWrite(t *testing.T) {
 	assert.Equal(t, savesBefore, countSavedForSession(store, sid),
 		"an idle (unchanged) cadence tick must perform NO saveMeta")
 
-	// Paired: a single byte of new output flips changed back to true; the next tick writes again.
-	require.NoError(t, eng.Write(ctx, sid, []byte("printf x\n")))
-	waitForSettled(t, eng, sid, 5*time.Second)
+	// Paired: new output flips changed back to true; the next tick writes again. runShell
+	// returns only once the command's output AND the following prompt are through the pump,
+	// so the tick below is guaranteed to be looking at a genuinely dirty session.
+	runShell(t, eng, sid, "printf x")
 	terminal.RunMaintenanceOnceForTest(eng, ctx)
 
 	assert.True(t, bufExists(store.dir, sid),
@@ -96,6 +93,8 @@ func TestRegression_IdleSessionNoCadenceWrite(t *testing.T) {
 // corrupt wrap). A session is born at the 80×24 default; after Resize(120×40) the next cadence
 // tick must write a 120×40 CRWB1 header.
 func TestRegression_ResizeOnlyPersistsNewSize(t *testing.T) {
+	pinShell(t)
+
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
@@ -104,18 +103,12 @@ func TestRegression_ResizeOnlyPersistsNewSize(t *testing.T) {
 	eng.SetMetaStore(store)
 	defer eng.Shutdown()
 
-	sid, err := eng.Create(ctx, "ws-resize", dir, nil)
-	require.NoError(t, err)
+	sid := newReadyShell(t, eng, "ws-resize", dir)
 
-	waitIdle(t, eng, sid, 10*time.Second)
-	waitForSettled(t, eng, sid, 10*time.Second)
-
-	// Flush the born-at-80×24 session and settle to a clean dirty==false state with the 80×24
-	// blob cached. The committed header must read 80×24.
+	// Flush the born-at-80×24 session to a clean dirty==false state with the 80×24 blob
+	// cached. One flush suffices: the shell is at its prompt, so no further output can
+	// re-dirty it. The committed header must read 80×24.
 	terminal.RunMaintenanceOnceForTest(eng, ctx)
-	waitForSettled(t, eng, sid, 5*time.Second)
-	terminal.RunMaintenanceOnceForTest(eng, ctx)
-	waitForSettled(t, eng, sid, 5*time.Second)
 	require.Equal(t, "CRWB1 80 24 0 10000", readBufHeader(t, store.dir, sid),
 		"a freshly created session must persist an 80×24 CRWB1 header")
 

@@ -83,10 +83,7 @@ func createChat(
 	now time.Time,
 ) domain.AgentChat {
 	t.Helper()
-	chat, err := repo.Create(ctx, agentchat.CreateInput{
-		ID: id, WorkspaceID: wsID, SegmentID: id + "-s1", CrowbarSegmentID: id + "-cs1",
-		ProviderID: "claude", TerminalSession: "term-1", Now: now,
-	})
+	chat, err := repo.Create(ctx, agentchat.CreateInput{ID: id, WorkspaceID: wsID, Now: now})
 	require.NoError(t, err)
 	return chat
 }
@@ -95,10 +92,12 @@ func TestAgentChat_CreateAndGetChat(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1, 0).UTC()
 	created := createChat(t, ctx, repo, "c1", "w1", now)
-	require.Len(t, created.Segments, 1)
-	assert.Equal(t, "active", created.Segments[0].Status)
+	assert.Equal(t, "c1", created.ID)
+	assert.Equal(t, now, created.CreatedAt)
 
-	agentchat.WaitQuiescentForTest(repo)
+	// Create is the one command on the SendWait path, so the read model already
+	// reflects it: the hook that lands microseconds after a /clear mints a chat must
+	// not see "no such chat" and drop the turn.
 	got, err := repo.GetChat(ctx, "c1")
 	require.NoError(t, err)
 	assert.Equal(t, "w1", got.WorkspaceID)
@@ -109,10 +108,7 @@ func TestAgentChat_Create_ErrorOnDuplicate(t *testing.T) {
 	now := time.Unix(1, 0).UTC()
 	createChat(t, ctx, repo, "c1", "w1", now)
 
-	_, err := repo.Create(ctx, agentchat.CreateInput{
-		ID: "c1", WorkspaceID: "w1", SegmentID: "s2", CrowbarSegmentID: "cs2",
-		ProviderID: "claude", TerminalSession: "term-2", Now: now,
-	})
+	_, err := repo.Create(ctx, agentchat.CreateInput{ID: "c1", WorkspaceID: "w1", Now: now})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, asynxModels.ErrValidation)
 }
@@ -124,47 +120,11 @@ func TestAgentChat_GetChat_MissingBridgesToPackageErrNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, agentchat.ErrNotFound)
 }
 
-func TestAgentChat_GetByProviderSession_MissingBridgesToPackageErrNotFound(t *testing.T) {
-	ctx, repo := newRepo(t)
-	createChat(t, ctx, repo, "c1", "w1", time.Unix(1, 0).UTC())
-	agentchat.WaitQuiescentForTest(repo)
-
-	_, err := repo.GetByProviderSession(ctx, "no-such-session")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, agentchat.ErrNotFound)
-}
-
-func TestAgentChat_SegmentLifecycle_EndOpenBind(t *testing.T) {
-	ctx, repo := newRepo(t)
-	now := time.Unix(1, 0).UTC()
-	createChat(t, ctx, repo, "c1", "w1", now)
-
-	_, err := repo.EndSegment(ctx, "c1", "c1-s1", now.Add(time.Second))
-	require.NoError(t, err)
-
-	opened, err := repo.OpenSegment(ctx, agentchat.OpenSegmentInput{
-		ChatID: "c1", SegmentID: "s2", CrowbarSegmentID: "cs2",
-		ProviderID: "codex", TerminalSession: "term-2", Now: now.Add(2 * time.Second),
-	})
-	require.NoError(t, err)
-	require.Len(t, opened.Segments, 2)
-	assert.Equal(t, "ended", opened.Segments[0].Status)
-	assert.Equal(t, "active", opened.Segments[1].Status)
-
-	bound, err := repo.BindSession(ctx, "c1", "cs2", "provider-sess-1")
-	require.NoError(t, err)
-	require.Len(t, bound.Segments, 2)
-	assert.Equal(t, "provider-sess-1", bound.Segments[1].ProviderSessionID)
-
-	agentchat.WaitQuiescentForTest(repo)
-	byID, err := repo.GetChat(ctx, "c1")
-	require.NoError(t, err)
-	assert.Equal(t, "provider-sess-1", byID.Segments[1].ProviderSessionID)
-
-	bySession, err := repo.GetByProviderSession(ctx, "provider-sess-1")
-	require.NoError(t, err)
-	assert.Equal(t, "c1", bySession.ID)
-}
+// The segment lifecycle (EndSegment / OpenSegment / BindSession) and the
+// GetByProviderSession lookup that scanned segments are GONE, along with AgentSegment
+// itself. A chat holds no process state: which CLI is on it, and which conversations it
+// has hosted, are projections of RUNNER events (agentrunner). Their coverage lives
+// there and in the agent usecase's move/eviction tests.
 
 func TestAgentChat_StartStopTurn(t *testing.T) {
 	ctx, repo := newRepo(t)
@@ -253,61 +213,46 @@ func TestAgentChat_HubBroadcastsChatIDAndKind(t *testing.T) {
 	assert.GreaterOrEqual(t, cap.count(), 1, "hub projection must broadcast a lifecycle frame")
 }
 
-// concurrentOpenSegmentTrials is the number of independent fresh-chat trials
-// TestAgentChat_ConcurrentOpenSegment_OneWins runs. asynx v0.7.0 enforces real
-// write-path optimistic concurrency: eventstore.Write loads the aggregate state
-// and its version together and appends at expectedVersion+1, so two Sends to the
-// same aggregate collide on (id,version) uniqueness — the loser gets
-// ErrPipelineFailed and retries (re-loading the now-committed state), where
-// OpenSegment.Validate rejects it. So exactly one of two concurrent OpenSegments
-// commits, deterministically, at the default 8 workers/shard — no writeMu and no
-// WorkersPerShard tuning needed. Several trials give the race repeated chances to
-// surface any nondeterminism. (v0.6.2 had an upstream OCC gap here — the append
-// version was recomputed independent of the validated load, letting both commit;
-// fixed in v0.7.0, commit 75ffc45.)
-const concurrentOpenSegmentTrials = 10
+// concurrentCreateTrials is the number of independent trials
+// TestAgentChat_ConcurrentCreate_OneWins runs. asynx v0.7.0 enforces real write-path
+// optimistic concurrency: eventstore.Write loads the aggregate state and its version
+// together and appends at expectedVersion+1, so two Sends to the same aggregate collide
+// on (id,version) uniqueness — the loser gets ErrPipelineFailed and retries (re-loading
+// the now-committed state), where Validate rejects it. Several trials give the race
+// repeated chances to surface any nondeterminism.
+const concurrentCreateTrials = 10
 
-// TestAgentChat_ConcurrentOpenSegment_OneWins exercises the OCC retry
-// contract (no per-aggregate writeMu) under a REAL race: with the initial
-// segment ended, two OpenSegment sends targeting the SAME chat fire
-// concurrently via errgroup, repeated across several independent freshly
-// created chats. Run with -race. No sleeps: each trial's goroutines are
-// joined by errgroup.Wait, and each trial's read is preceded by
-// WaitQuiescentForTest (asynx WaitPublish), never a timing guess.
+// TestAgentChat_ConcurrentCreate_OneWins exercises the OCC retry contract (no
+// per-aggregate writeMu) under a REAL race, on the one command that can still collide
+// on a single chat aggregate: two Creates of the SAME id, fired concurrently via
+// errgroup. Exactly one commits; the loser is rejected by Validate ("exists", wrapping
+// asynxModels.ErrValidation) rather than left as an unresolved ErrPipelineFailed.
 //
-// asynx v0.7.0 enforces real write-path OCC (Write loads state+version together
-// and appends at expectedVersion+1), so every trial hard-asserts the fully
-// correct outcome deterministically: exactly one send commits, the loser is
-// rejected by OpenSegment.Validate (wrapping asynxModels.ErrValidation, never an
-// unresolved ErrPipelineFailed), and the read model ends with exactly one active
-// segment. No sleeps; convergence is guaranteed by (id,version) uniqueness, not
-// timing.
-func TestAgentChat_ConcurrentOpenSegment_OneWins(t *testing.T) {
+// (Its predecessor raced two OpenSegments against the chat's ≤1-active-segment
+// invariant. That invariant — and the segment itself — is gone: a chat holds no process
+// state to conflict over, which is exactly why the torn switch that bricked a chat
+// cannot happen. The OCC contract it proved still matters, so the race is retargeted at
+// the command that still has one.)
+//
+// Run with -race. No sleeps: the goroutines are joined by errgroup.Wait, and the read is
+// preceded by WaitQuiescentForTest (asynx WaitPublish), never a timing guess.
+func TestAgentChat_ConcurrentCreate_OneWins(t *testing.T) {
 	ctx, repo, _, _ := newRepoWithDeps(t)
 	now := time.Unix(1000, 0).UTC()
 
-	for trial := range concurrentOpenSegmentTrials {
+	for trial := range concurrentCreateTrials {
 		chatID := fmt.Sprintf("race-chat-%d", trial)
-		createChat(t, ctx, repo, chatID, "w1", now)
-		_, err := repo.EndSegment(ctx, chatID, chatID+"-s1", now.Add(time.Second))
-		require.NoError(t, err)
 
 		results := make([]error, 2)
 		var g errgroup.Group
-		g.Go(func() error {
-			_, results[0] = repo.OpenSegment(ctx, agentchat.OpenSegmentInput{
-				ChatID: chatID, SegmentID: "sA", CrowbarSegmentID: "csA",
-				ProviderID: "claude", TerminalSession: "term-A", Now: now.Add(2 * time.Second),
+		for i := range results {
+			g.Go(func() error {
+				_, results[i] = repo.Create(ctx, agentchat.CreateInput{
+					ID: chatID, WorkspaceID: "w1", Now: now,
+				})
+				return nil
 			})
-			return nil
-		})
-		g.Go(func() error {
-			_, results[1] = repo.OpenSegment(ctx, agentchat.OpenSegmentInput{
-				ChatID: chatID, SegmentID: "sB", CrowbarSegmentID: "csB",
-				ProviderID: "codex", TerminalSession: "term-B", Now: now.Add(2 * time.Second),
-			})
-			return nil
-		})
+		}
 		require.NoError(t, g.Wait())
 
 		succeeded := 0
@@ -317,20 +262,14 @@ func TestAgentChat_ConcurrentOpenSegment_OneWins(t *testing.T) {
 				continue
 			}
 			require.ErrorIsf(t, e, asynxModels.ErrValidation,
-				"trial %d: a losing OpenSegment must be rejected by the active-segment guard, not left as an unresolved pipeline failure", trial)
+				"trial %d: a losing Create must be rejected by Validate, not left as an unresolved pipeline failure", trial)
 		}
-		require.Equalf(t, 1, succeeded, "trial %d: exactly one racing OpenSegment must commit; the other must be rejected", trial)
+		require.Equalf(t, 1, succeeded, "trial %d: exactly one racing Create must commit; the other must be rejected", trial)
 
 		agentchat.WaitQuiescentForTest(repo)
 		got, err := repo.GetChat(ctx, chatID)
 		require.NoError(t, err)
-		active := 0
-		for _, seg := range got.Segments {
-			if seg.Status == "active" {
-				active++
-			}
-		}
-		require.Equalf(t, 1, active, "trial %d: the read model must show exactly one active segment (≤1-active invariant holds under the race)", trial)
+		require.Equalf(t, "w1", got.WorkspaceID, "trial %d: the read model must hold exactly one chat for the id", trial)
 	}
 }
 

@@ -24,7 +24,7 @@ func (h *Handlers) Sync(
 		return
 	}
 	libs.WriteAccepted(c)
-	runAsync(
+	h.runAsync(
 		c.Request.Context(),
 		h.working,
 		h.broadcastLastError,

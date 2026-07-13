@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"sync/atomic"
 
 	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
@@ -24,6 +25,11 @@ type Container struct {
 	// errors (10 §5).
 	LSP      enginelsp.Engine
 	Identity *enginegit.IdentityEngine
+
+	// termDown latches the terminal engine's quiesce so it is entered exactly once.
+	// See QuiesceTerminal: a second entrant must never BLOCK, because the first one
+	// may be a caller that deliberately bounded its wait with a deadline.
+	termDown atomic.Bool
 }
 
 type engineOpts struct {
@@ -73,10 +79,33 @@ func New(
 // pipe FDs; without Shutdown every spawned server survives the daemon, leaking
 // RAM, CPU, and FDs across restarts (R8).
 func (c *Container) Close() {
-	if c.Terminal != nil {
-		c.Terminal.Shutdown()
-	}
+	c.QuiesceTerminal()
 	if c.LSP != nil {
 		c.LSP.Shutdown(context.Background())
 	}
+}
+
+// QuiesceTerminal kills every live PTY and BLOCKS until every exit callback those
+// deaths fire has run to completion (engineterminal.Engine.Shutdown's contract).
+//
+// It is a step of the ORDERED graceful shutdown, not merely a resource release, and
+// that is why it is exported: the app layer runs it FIRST — before it drains the
+// aggregates and long before the adapter closes the databases — because those exit
+// callbacks are WRITERS. A dying vendor CLI's callback is the only thing that records
+// its death: it Exits the runner and closes the turn the CLI was mid-way through. Run
+// it after the drain (which is where the mere resource-release reading of it lands, in
+// Close) and those writes are rejected by a shut-down asynx or a closed DB — leaving a
+// chat that spins forever, on every restart, with no live runner left for the next
+// boot's reconcile to find. See app.Container.Shutdown.
+//
+// Entered exactly once. A second caller — the Close below, on the ordinary path where
+// the app layer already quiesced — returns IMMEDIATELY rather than re-entering the
+// join. That matters: the first caller may have bounded its wait with the shutdown
+// deadline and moved on, and a re-entrant join would silently re-wedge the teardown on
+// the very reaper the deadline was there to escape.
+func (c *Container) QuiesceTerminal() {
+	if c.Terminal == nil || !c.termDown.CompareAndSwap(false, true) {
+		return
+	}
+	c.Terminal.Shutdown()
 }

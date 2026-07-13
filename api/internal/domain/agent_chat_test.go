@@ -11,7 +11,7 @@ func TestAgentChat_ZeroValueIsInactiveNotWorking(t *testing.T) {
 	if c.Working {
 		t.Fatal("zero-value AgentChat must not be Working")
 	}
-	if len(c.Segments) != 0 {
-		t.Fatal("zero-value AgentChat must have no segments")
+	if c.CurrentTurnStarted != nil {
+		t.Fatal("zero-value AgentChat must have no open turn")
 	}
 }

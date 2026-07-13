@@ -32,54 +32,38 @@ const maxOCCAttempts = 8
 // package directly.
 type BroadcastFunc = store.BroadcastFunc
 
-// CreateInput seeds a new AgentChat with its first (active) segment.
+// CreateInput seeds a new AgentChat: identity, workspace, clock. It carries no
+// segment/provider/terminal because the chat does not own the CLI talking to it
+// — that is the runner (agentrunner.Start), a separate aggregate.
 type CreateInput struct {
-	ID               string
-	WorkspaceID      string
-	SegmentID        string
-	CrowbarSegmentID string
-	ProviderID       string
-	TerminalSession  string
-	Now              time.Time
-}
-
-// OpenSegmentInput opens a new active segment on an existing chat (switch-in
-// or resume). Rejected with ErrValidation when an active segment already
-// exists — EndSegment must close the current one first.
-type OpenSegmentInput struct {
-	ChatID           string
-	SegmentID        string
-	CrowbarSegmentID string
-	ProviderID       string
-	TerminalSession  string
-	Now              time.Time
+	ID          string
+	WorkspaceID string
+	Now         time.Time
 }
 
 // EventStore is the asynx-backed AgentChat aggregate repository: mutations
 // dispatch the command layer with optimistic-concurrency retry (sendWithOCC),
 // reads delegate to the store package's read-model projection. It is the sole
-// AgentChat repository — the agent usecase sends every mutation through it (the
-// gorm-backed Store was retired in the Task 10 cutover).
+// AgentChat repository — the agent usecase sends every mutation through it.
+//
+// There is no OpenSegment/EndSegment/BindSession any more, and their absence is
+// the point: a process moving between chats used to be an EndSegment on the chat
+// it left plus an OpenSegment on the chat it entered — two writes across two
+// aggregates with no transaction, which tore in half and bricked a chat. The
+// runner aggregate now owns that move as ONE write, and the chat is never written
+// to when a CLI leaves it.
 type EventStore interface {
+	// Create mints a chat. It is the ONE agentchat command that blocks until its
+	// projections have folded (SendWait, not Send): the very next thing that
+	// happens after a chat is minted is a hook writing into it (a /clear mints a
+	// chat and the CLI's first prompt lands milliseconds later), and that hook path
+	// reads the chat's existence from the read model before it appends. A Send
+	// would let the read model lag behind the mint and the turn would be dropped
+	// as "no such chat". No other command needs this: every other write validates
+	// against the EVENT LOG (which is synchronous), not the read model.
 	Create(
 		ctx context.Context,
 		in CreateInput,
-	) (domain.AgentChat, error)
-	OpenSegment(
-		ctx context.Context,
-		in OpenSegmentInput,
-	) (domain.AgentChat, error)
-	EndSegment(
-		ctx context.Context,
-		chatID string,
-		segmentID string,
-		now time.Time,
-	) (domain.AgentChat, error)
-	BindSession(
-		ctx context.Context,
-		chatID string,
-		crowbarSegmentID string,
-		providerSessionID string,
 	) (domain.AgentChat, error)
 	StartTurn(
 		ctx context.Context,
@@ -120,10 +104,6 @@ type EventStore interface {
 		ctx context.Context,
 		wsID string,
 	) ([]domain.AgentChat, error)
-	GetByProviderSession(
-		ctx context.Context,
-		providerSessionID string,
-	) (domain.AgentChat, error)
 }
 
 // eventSourced is the asynx-backed EventStore implementation. There is no
@@ -204,69 +184,28 @@ func (r *eventSourced) sendWithOCC(
 	return occSend(ctx, r.ax.Send, cmd)
 }
 
+// Create is deliberately the ONLY command on the SendWait path: it returns once
+// the read model reflects the new chat, so the hook that lands microseconds later
+// (a /clear mints a chat and the CLI's next prompt arrives immediately) cannot see
+// "no such chat" and drop the turn. See the EventStore interface doc.
+//
+// The turn commands stay on the async Send path on purpose: StartTurn/StopTurn fire
+// on EVERY hook, and one of their projections (the workspace working overlay) can
+// run a `git merge-tree` subprocess under the per-clone git mutex on a transition —
+// blocking a hook on that is the exact contention shape behind this repo's history
+// of git-mutex hangs. They validate against the event log, which is synchronous, so
+// they need no read-model barrier anyway.
 func (r *eventSourced) Create(
 	ctx context.Context,
 	in CreateInput,
 ) (domain.AgentChat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.Create{
-		ID:               in.ID,
-		WorkspaceID:      in.WorkspaceID,
-		SegmentID:        in.SegmentID,
-		CrowbarSegmentID: in.CrowbarSegmentID,
-		ProviderID:       in.ProviderID,
-		TerminalSession:  in.TerminalSession,
-		Now:              in.Now,
+	evt, err := occSend(ctx, r.ax.SendWait, commands.Create{
+		ID:          in.ID,
+		WorkspaceID: in.WorkspaceID,
+		Now:         in.Now,
 	})
 	if err != nil {
 		return domain.AgentChat{}, fmt.Errorf("agentchat: create: %w", err)
-	}
-	return evt.Aggregate, nil
-}
-
-func (r *eventSourced) OpenSegment(
-	ctx context.Context,
-	in OpenSegmentInput,
-) (domain.AgentChat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.OpenSegment{
-		ChatID:           in.ChatID,
-		SegmentID:        in.SegmentID,
-		CrowbarSegmentID: in.CrowbarSegmentID,
-		ProviderID:       in.ProviderID,
-		TerminalSession:  in.TerminalSession,
-		Now:              in.Now,
-	})
-	if err != nil {
-		return domain.AgentChat{}, fmt.Errorf("agentchat: open segment: %w", err)
-	}
-	return evt.Aggregate, nil
-}
-
-func (r *eventSourced) EndSegment(
-	ctx context.Context,
-	chatID string,
-	segmentID string,
-	now time.Time,
-) (domain.AgentChat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.EndSegment{ChatID: chatID, SegmentID: segmentID, Now: now})
-	if err != nil {
-		return domain.AgentChat{}, fmt.Errorf("agentchat: end segment: %w", err)
-	}
-	return evt.Aggregate, nil
-}
-
-func (r *eventSourced) BindSession(
-	ctx context.Context,
-	chatID string,
-	crowbarSegmentID string,
-	providerSessionID string,
-) (domain.AgentChat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.BindSession{
-		ChatID:            chatID,
-		CrowbarSegmentID:  crowbarSegmentID,
-		ProviderSessionID: providerSessionID,
-	})
-	if err != nil {
-		return domain.AgentChat{}, fmt.Errorf("agentchat: bind session: %w", err)
 	}
 	return evt.Aggregate, nil
 }
@@ -350,17 +289,6 @@ func (r *eventSourced) ListByWorkspace(
 		return nil, fmt.Errorf("agentchat: list by workspace: %w", err)
 	}
 	return rows, nil
-}
-
-func (r *eventSourced) GetByProviderSession(
-	ctx context.Context,
-	providerSessionID string,
-) (domain.AgentChat, error) {
-	chat, err := r.store.GetByProviderSession(ctx, providerSessionID)
-	if err != nil {
-		return domain.AgentChat{}, fmt.Errorf("agentchat: get by provider session: %w", mapNotFound(err))
-	}
-	return chat, nil
 }
 
 // mapNotFound bridges the store package's local ErrNotFound sentinel (kept

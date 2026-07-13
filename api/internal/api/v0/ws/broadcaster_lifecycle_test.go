@@ -72,7 +72,5 @@ func TestBroadcaster_NoHooks_NoRegression(t *testing.T) {
 	b.WaitRegistered()
 	b.Push(item{Name: "alpha", Kind: "fruit"})
 
-	var got item
-	read(t, conn, &got)
-	assert.Equal(t, "alpha", got.Name)
+	assert.Equal(t, "alpha", readItem(t, conn).Name)
 }

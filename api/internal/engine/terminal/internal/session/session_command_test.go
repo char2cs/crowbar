@@ -2,9 +2,7 @@ package session
 
 import (
 	"os"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,27 +10,25 @@ import (
 
 func TestNewCommand_RunsArgv(t *testing.T) {
 	dir := t.TempDir()
-	// `sh -c 'printf MARKER'` — a real argv with args, not a bare shell.
-	s, err := NewCommand("cmd-id", []string{"/bin/sh", "-c", "printf CMDMARKER; sleep 0.2"}, dir, os.Environ(), 80, 24, 0)
+	// `sh -c 'printf MARKER; sleep …'` — a real argv with args, not a bare shell.
+	//
+	// The trailing sleep is a LIVENESS vehicle, not a wait: Attach errors on a session whose
+	// child has already exited, so the child must outlive the Attach below. The old `sleep 0.2`
+	// made that a race — a 200ms bet that this test goroutine gets scheduled in time. Sleeping
+	// effectively forever instead removes the bet entirely; the child is reaped by Kill, and
+	// the marker is observed through the frames, not through the sleep's length.
+	s, err := NewCommand("cmd-id", []string{"/bin/sh", "-c", "printf CMDMARKER; sleep 9999"}, dir, os.Environ(), 80, 24, 0)
 	require.NoError(t, err)
+	t.Cleanup(s.Kill)
 	require.Equal(t, "cmd-id", s.ID())
 
 	ch, err := s.Attach()
 	require.NoError(t, err)
-	deadline := time.After(3 * time.Second)
-	var seen bool
-	for !seen {
-		select {
-		case f := <-ch:
-			if containsBytes(f.Data, "CMDMARKER") {
-				seen = true
-			}
-		case <-deadline:
-			t.Fatal("did not observe command output")
-		}
-	}
-	require.True(t, seen)
-	s.Kill()
+
+	// Block on the frames until the marker shows. It reaches this client either live (the pump
+	// fanned it out after the attach) or inside the attach snapshot serialized from the model —
+	// both are real deliveries of the command's output, and neither needs a deadline.
+	waitFrameContaining(t, ch, "CMDMARKER")
 }
 
 func TestNewCommand_EmptyArgvErrors(t *testing.T) {
@@ -71,14 +67,6 @@ func TestNew_ShellSession_IsNotCommand_StillSuspendEligible(t *testing.T) {
 
 	assert.False(t, s.IsCommand(), "a New() shell session must report IsCommand()==false")
 
-	if !waitIdleOrSkip(t, s) {
-		return
-	}
+	waitIdlePrompt(t, s)
 	assert.True(t, s.BeginSuspendIfEligible(), "an idle, detached shell session must remain suspend-eligible")
-}
-
-func containsBytes(b []byte, sub string) bool { return len(b) > 0 && (string(b) == sub || indexOfBytes(b, sub) >= 0) }
-
-func indexOfBytes(b []byte, sub string) int {
-	return strings.Index(string(b), sub)
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
@@ -60,6 +61,11 @@ func TestStatusAndMessageMapping(t *testing.T) {
 		{
 			name:   "agentchat not found",
 			err:    agentchat.ErrNotFound,
+			status: http.StatusNotFound,
+		},
+		{
+			name:   "agentrunner not found",
+			err:    agentrunner.ErrNotFound,
 			status: http.StatusNotFound,
 		},
 		{

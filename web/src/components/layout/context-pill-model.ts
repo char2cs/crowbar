@@ -13,7 +13,7 @@ export type ContextPillModel =
       repoAvatar?: RepoAvatarData
     }
   | { kind: 'project'; projectName: string }
-  | { kind: 'home'; projectName: string }
+  | { kind: 'home'; projectName: string; working?: boolean }
   | { kind: 'empty' }
 
 interface DeriveArgs {
@@ -22,6 +22,9 @@ interface DeriveArgs {
   repos: Repo[]
   projects: Project[]
   activeProjectId: string
+  /** Live agent-working overlay for the project-home workspace, which rides no
+   *  repo and so is tracked separately (see lib/store/home-workspace.ts). */
+  homeWorking?: boolean
 }
 
 /**
@@ -34,10 +37,11 @@ export function deriveContextPillModel({
   repos,
   projects,
   activeProjectId,
+  homeWorking,
 }: DeriveArgs): ContextPillModel {
   if (isHomeRoute) {
     const project = projects.find((p) => p.id === activeProjectId)
-    if (project) return { kind: 'home', projectName: project.name }
+    if (project) return { kind: 'home', projectName: project.name, working: homeWorking }
   }
 
   if (activeWorkspaceId) {
@@ -63,6 +67,11 @@ export function deriveContextPillModel({
       return {
         kind: 'workspace',
         status: 'new',
+        // The repo-home workspace is a workspace like any other: an agent can be
+        // working in it, and then its icon must spin. Its `working` is dropped
+        // from repo.workspaces (default workspaces are not tree rows), so it is
+        // surfaced on the Repo itself as defaultWorking (see toSidebarRepo).
+        working: defaultRepo.defaultWorking,
         repoName: defaultRepo.name,
         branchName: 'default',
         repoAvatar: {

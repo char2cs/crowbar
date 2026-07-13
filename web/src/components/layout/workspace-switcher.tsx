@@ -158,7 +158,9 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
                   onClick={() => select(item)}
                   value={item}
                 >
-                  {item.repoAvatar ? (
+                  {/* Spinner beats the avatar: a repo-home row with a working agent
+                      must show its loading state, not its repo icon. */}
+                  {item.repoAvatar && !item.working ? (
                     <RepoAvatar avatar={item.repoAvatar} name={item.repoName} />
                   ) : (
                     <WorkspaceBranchIcon status={item.status} working={item.working} />

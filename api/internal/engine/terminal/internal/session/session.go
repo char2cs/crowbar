@@ -42,6 +42,8 @@ const foregroundSampleInterval = 250 * time.Millisecond
 // deltas emit immediately; bursts coalesce to at most one frame per interval.
 const minEmitInterval = 8 * time.Millisecond
 
+// (The frame clock's time source is the per-session s.now field — see Session.now.)
+
 // responseReplyBufDepth bounds the device-query reply queue that decouples the
 // model's response sink from the blocking ptmx.Write (spec §3.8, C1). A hostile
 // or broken foreground app can emit queries faster than it drains its own stdin;
@@ -116,6 +118,26 @@ type Session struct {
 	// solely so a test can substitute a deterministic hooked sampler to pin the
 	// fan-out → model-write → foreground-sample ordering the spec mandates (§11.1 site #1).
 	sampleForegroundLocked func()
+	// now is the frame clock's time source (see scheduleEmitLocked). It is a FIELD, read only
+	// under s.mu, so that a test can pin it without introducing the cross-goroutine write a
+	// package-level var would (the trailing emit timer reads the clock from its own goroutine).
+	//
+	// It exists because the coalescing decision — "emit this chunk now, or fold it into the
+	// pending trailing frame?" — is a comparison against the wall clock. A test asserting
+	// "a burst landing inside ONE interval yields exactly ONE frame" must be able to GUARANTEE
+	// the burst really was inside one interval, and it cannot do that by running fast: under
+	// -race, 50 pumpStep cycles were measured at 9-19ms against an 8ms window. The burst would
+	// cross the boundary, take the immediate-emit branch, and produce an extra frame — a
+	// failure caused by the test's own runtime rather than by the logic under test. Pinning the
+	// clock removes the guess. Production leaves it as time.Now.
+	now func() time.Time
+	// pumpNotify is a test-only observability seam (read via PumpNotifyForTest): pumpStep
+	// signals it, last in its critical section, once a chunk is fully processed. It exists
+	// so a test can BLOCK on real pump progress instead of sleeping and hoping — the PTY is
+	// an asynchronous source, and a duration is a guess about fork/exec speed, not a wait.
+	// Production never receives from it; the send is non-blocking, so an absent listener
+	// costs the pump nothing and changes no behaviour. See notifyPumpLocked.
+	pumpNotify chan struct{}
 	// Model-driven output (spec 2026-07-03): every live session is model-driven —
 	// clients receive model-derived diff/keyframe frames, never raw PTY bytes.
 	// Raw streaming survives ONLY as the degraded fallback. modelPanics counts
@@ -168,6 +190,11 @@ func newBareSession(
 		shell:     shell,
 		profileID: profileID,
 		exitCode:  -1,
+		now:       time.Now,
+		// 1-buffered: notifyPumpLocked's send is non-blocking, so this is a coalescing
+		// edge, not a queue. Always allocated (a nil channel would make the send's
+		// select fall through to default forever, silently disabling the seam).
+		pumpNotify: make(chan struct{}, 1),
 	}
 	s.sampleForegroundLocked = s.checkForegroundResetLocked
 	return s
@@ -626,7 +653,7 @@ func (s *Session) Resync() bool {
 		s.stopEmitTimerLocked()
 		s.emitter.Invalidate()
 		s.emitFrameLocked()
-		s.lastEmitAt = time.Now()
+		s.lastEmitAt = s.now()
 		return true
 	}
 
@@ -898,6 +925,24 @@ func (s *Session) pumpStep(chunk []byte) {
 		s.lastFgSampleAt = now
 		s.sampleForegroundLocked()
 	}
+	s.notifyPumpLocked()
+}
+
+// notifyPumpLocked publishes "the pump has fully processed another chunk" on the
+// pumpNotify seam. It runs LAST in pumpStep's critical section, so a woken waiter is
+// guaranteed to observe every effect of that chunk — the model write, the emit, and
+// s.dirty — as soon as it can re-acquire s.mu.
+//
+// The send is non-blocking onto a 1-buffered channel, making the signal a coalescing
+// edge ("something happened since you last looked") rather than a queue: the pump can
+// never block on, or be paced by, whether anyone is listening, so production behaviour
+// with no listener is byte-for-byte what it was before the seam existed. Caller holds
+// s.mu.
+func (s *Session) notifyPumpLocked() {
+	select {
+	case s.pumpNotify <- struct{}{}:
+	default:
+	}
 }
 
 // modelEmitHealthyLocked reports whether the session can still emit model-derived
@@ -944,15 +989,15 @@ func (s *Session) modelEmitHealthyLocked() bool {
 // interval. Caller holds s.mu. Returns whether it emitted synchronously
 // (false means a trailing timer now owns the pending delta).
 func (s *Session) scheduleEmitLocked() bool {
-	if time.Since(s.lastEmitAt) >= minEmitInterval {
-		s.lastEmitAt = time.Now()
+	if s.now().Sub(s.lastEmitAt) >= minEmitInterval {
+		s.lastEmitAt = s.now()
 		s.emitFrameLocked()
 		return true
 	}
 	if s.emitTimer != nil {
 		return false // trailing emit already armed
 	}
-	delay := minEmitInterval - time.Since(s.lastEmitAt)
+	delay := minEmitInterval - s.now().Sub(s.lastEmitAt)
 	// Capture the timer's own identity so a stale, lock-blocked callback can
 	// only clear ITS OWN handle: if an explicit stop (stopEmitTimerLocked) had
 	// already nil'd s.emitTimer and a NEWER timer t2 was armed before this
@@ -975,7 +1020,7 @@ func (s *Session) scheduleEmitLocked() bool {
 		if !s.modelEmitHealthyLocked() {
 			return
 		}
-		s.lastEmitAt = time.Now()
+		s.lastEmitAt = s.now()
 		// emitFrameLocked → emitLocked → DiffEmitter.Emit is safe to invoke
 		// even if a newer immediate emit already flushed this same delta: Emit
 		// is idempotent against its own primed base (an empty diff yields no
@@ -1016,7 +1061,7 @@ func (s *Session) flushPendingEmitLocked() {
 		return
 	}
 	s.stopEmitTimerLocked()
-	s.lastEmitAt = time.Now()
+	s.lastEmitAt = s.now()
 	s.emitFrameLocked()
 }
 

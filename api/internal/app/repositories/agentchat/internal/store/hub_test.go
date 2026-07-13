@@ -45,8 +45,7 @@ func (h *captureHub) all() []frame {
 
 func createCmd(chatID string) accmds.Create {
 	return accmds.Create{
-		ID: chatID, WorkspaceID: "w1", SegmentID: "s1", CrowbarSegmentID: "cs1",
-		ProviderID: "claude", TerminalSession: "term-1", Now: time.Unix(1, 0).UTC(),
+		ID: chatID, WorkspaceID: "w1", Now: time.Unix(1, 0).UTC(),
 	}
 }
 

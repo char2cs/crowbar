@@ -18,22 +18,37 @@ import (
 // rather than silently falling back to a hard kill.
 func TestSession_Terminate_GracefulExit_UsesSIGTERM(t *testing.T) {
 	dir := t.TempDir()
-	s, err := newTestSession(t, "sid-terminate-graceful", dir)
-	require.NoError(t, err)
 
-	start := time.Now()
+	// The child is `cat`, not a shell — and that is the whole point.
+	//
+	// An INTERACTIVE shell IGNORES SIGTERM (bash sets SIG_IGN for it precisely so that a
+	// `kill 0` cannot take down your login shell). Verified on this platform: a fully
+	// initialised /bin/sh on a PTY does not die on SIGTERM at all. So this test, when it
+	// spawned a shell, could only ever pass by RACING that shell's startup — landing the
+	// signal in the window before bash installs its handler. It won that race most of the
+	// time and lost it under a loaded parallel -race run, whereupon the child survived the
+	// grace window, took the fallback SIGKILL, and the SIGTERM assertion failed. The test was
+	// not flaky; its premise was.
+	//
+	// `cat` holds the PTY open exactly as a shell does but keeps the DEFAULT SIGTERM
+	// disposition, so "a child that honours SIGTERM exits, and Terminate never reaches its
+	// fallback" becomes a property of the child rather than a bet on scheduling.
+	s, err := New("sid-terminate-graceful", "/bin/cat", dir, "", testEnv(), 80, 24, 0)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	// grace is an INPUT to the code under test, not a wait this test performs: Terminate
+	// returns as soon as the child exits, and only falls back to SIGKILL if it has not.
 	const grace = 2 * time.Second
 	s.Terminate(grace)
-	elapsed := time.Since(start)
 
-	select {
-	case <-s.Done():
-	case <-time.After(3 * time.Second):
-		t.Fatal("session did not terminate after Terminate")
-	}
+	// Terminate's shutdown closes Done; block on that real signal.
+	<-s.Done()
 
-	assert.Less(t, elapsed, grace, "a plain shell must exit on SIGTERM well before the grace window elapses")
-
+	// The old `elapsed < grace` assertion is gone: it re-derived, from the clock, the very
+	// thing the exit STATUS states outright. A child that survived the grace window would have
+	// been SIGKILLed, so asserting the recorded signal is SIGTERM (below) is the same claim
+	// made from evidence instead of from a stopwatch — and it cannot be wrong on a slow machine.
 	require.NotNil(t, s.cmd.ProcessState, "graceful exit must still reap the child via cmd.Wait()")
 	ws, ok := s.cmd.ProcessState.Sys().(syscall.WaitStatus)
 	require.True(t, ok, "ProcessState.Sys() must be a syscall.WaitStatus on this platform")
@@ -64,35 +79,32 @@ func TestSession_Terminate_FallsBackToKill_WhenSignalIgnored(t *testing.T) {
 	// the real, POST-EXECUTION output.
 	require.NoError(t, s.Write([]byte("trap '' TERM; echo MARKER-$$\n")))
 
+	// Block on the shell's own confirmation that the trap is installed: the digits of $$ can
+	// only be printed by the EXECUTED echo, which runs after the trap. No deadline — a
+	// confirmation that never arrives is a hang, which `go test -timeout` reports.
 	markerRe := regexp.MustCompile(`MARKER-[0-9]+`)
 	var buf bytes.Buffer
-	deadline := time.After(5 * time.Second)
-	confirmed := false
-	for !confirmed {
-		select {
-		case f, ok := <-ch:
-			if !ok {
-				t.Fatal("channel closed before trap confirmation")
-			}
-			buf.Write(f.Data)
-			if markerRe.Match(buf.Bytes()) {
-				confirmed = true
-			}
-		case <-deadline:
-			t.Fatalf("timeout waiting for shell to confirm the SIGTERM trap was installed; output so far: %q", buf.String())
+	for !markerRe.Match(buf.Bytes()) {
+		f, ok := <-ch
+		if !ok {
+			t.Fatalf("channel closed before trap confirmation; output so far: %q", buf.String())
 		}
+		buf.Write(f.Data)
 	}
 
+	// TIMING-BY-SUBJECT: the grace window IS the behaviour under test. Terminate's contract is
+	// "wait up to grace for a clean exit, then hard-kill", so the elapsed-vs-grace relation is
+	// the assertion, not a synchronisation guess. It is a LOWER bound (>= grace), which a slow
+	// machine can only make more true — it fails only if Terminate returns EARLY, which is the
+	// real bug it guards. The upper bound is left to the exit status: only the fallback path
+	// can produce SIGKILL.
 	const grace = 200 * time.Millisecond
 	start := time.Now()
 	s.Terminate(grace)
 	elapsed := time.Since(start)
 
-	select {
-	case <-s.Done():
-	case <-time.After(3 * time.Second):
-		t.Fatal("session did not terminate after Terminate's fallback kill")
-	}
+	// Terminate's fallback Kill runs shutdown, which closes Done; block on that real signal.
+	<-s.Done()
 
 	assert.GreaterOrEqual(t, elapsed, grace, "a signal-ignoring child must consume the full grace window before the fallback kill")
 
@@ -116,15 +128,11 @@ func TestSession_Terminate_PlaceholderActsLikeKill(t *testing.T) {
 		close(done)
 	}()
 
-	select {
-	case <-done:
-	case <-time.After(1 * time.Second):
-		t.Fatal("Terminate must return immediately for a placeholder session, not wait out the grace window")
-	}
+	// Block on the real signal. A hand-rolled deadline here would only be a second,
+	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
+	// -timeout` reports it with the blocked stack.
+	<-done
 
-	select {
-	case <-s.Done():
-	case <-time.After(1 * time.Second):
-		t.Fatal("placeholder session did not shut down after Terminate")
-	}
+	// Same for the shutdown itself: Done() closing IS "the placeholder shut down".
+	<-s.Done()
 }

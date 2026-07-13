@@ -8,8 +8,9 @@ import { SidebarSkeleton } from './sidebar-skeleton'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
+import { AgentChatsPanel } from '@/features/agent/components/agent-chats-panel'
 
-const TABS: SidebarTab[] = ['workspaces', 'files', 'git']
+const TABS: SidebarTab[] = ['workspaces', 'chats', 'files', 'git']
 
 interface SidebarCarouselProps {
   activeWorkspaceRepoPath: string
@@ -91,6 +92,11 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
         {/* Workspaces panel */}
         <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden h-full">
           <WorkspaceTree />
+        </div>
+
+        {/* Chats panel */}
+        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden h-full">
+          <AgentChatsPanel />
         </div>
 
         {/* Files panel */}

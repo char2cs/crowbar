@@ -13,7 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
 func newTestContext(
@@ -104,14 +106,25 @@ type fakeAgentUsecase struct {
 	switchNewSegID string
 	switchErr      error
 
+	resumeCalls []string
+	resumeSegID string
+	resumeErr   error
+
 	handoffStr string
 	handoffErr error
 
 	renameCalls []renameCall
 	renameErr   error
 
+	renameByRunnerCalls []renameByRunnerCall
+	renameByRunnerErr   error
+
 	purgeCalls []string
 	purgeErr   error
+
+	providers              []engineagent.Descriptor
+	providersErr           error
+	listProvidersWorkspace string
 
 	// getChat/getChatErr configure GetChat, the call every
 	// requireChatInWorkspace scope check (Get/Switch/Rename/Handoff) makes
@@ -142,6 +155,12 @@ type renameCall struct {
 	chatID string
 	title  string
 	source string
+}
+
+type renameByRunnerCall struct {
+	runnerID string
+	title    string
+	source   string
 }
 
 func (f *fakeAgentUsecase) SpawnChat(
@@ -184,10 +203,22 @@ func (f *fakeAgentUsecase) GetChat(
 	return f.getChat, nil
 }
 
-func (f *fakeAgentUsecase) SegmentsFor(
+// LiveRunnerForChat/ConversationsForChat back the derived runner facts on the chat
+// DTOs, which only the List/Get read handlers compose (see
+// configurableListGetUsecase in chats_test.go, the double those tests dial in). This
+// double answers "dormant, no history" — the honest shape of a chat no runner has
+// ever been placed on — so the mutation handlers it does serve never trip over them.
+func (f *fakeAgentUsecase) LiveRunnerForChat(
 	_ context.Context,
 	_ string,
-) ([]domain.AgentSegment, error) {
+) (domain.AgentRunner, error) {
+	return domain.AgentRunner{}, agentrunner.ErrNotFound
+}
+
+func (f *fakeAgentUsecase) ConversationsForChat(
+	_ context.Context,
+	_ string,
+) ([]domain.ChatConversation, error) {
 	return nil, nil
 }
 
@@ -201,6 +232,17 @@ func (f *fakeAgentUsecase) SwitchProvider(
 		return "", f.switchErr
 	}
 	return f.switchNewSegID, nil
+}
+
+func (f *fakeAgentUsecase) ResumeChat(
+	_ context.Context,
+	chatID string,
+) (string, error) {
+	f.resumeCalls = append(f.resumeCalls, chatID)
+	if f.resumeErr != nil {
+		return "", f.resumeErr
+	}
+	return f.resumeSegID, nil
 }
 
 func (f *fakeAgentUsecase) AssembleHandoff(
@@ -221,10 +263,26 @@ func (f *fakeAgentUsecase) RenameChat(
 	return f.renameErr
 }
 
+func (f *fakeAgentUsecase) RenameByRunner(
+	_ context.Context,
+	runnerID, title, source string,
+) error {
+	f.renameByRunnerCalls = append(f.renameByRunnerCalls, renameByRunnerCall{runnerID: runnerID, title: title, source: source})
+	return f.renameByRunnerErr
+}
+
 func (f *fakeAgentUsecase) PurgeChat(
 	_ context.Context,
 	chatID string,
 ) error {
 	f.purgeCalls = append(f.purgeCalls, chatID)
 	return f.purgeErr
+}
+
+func (f *fakeAgentUsecase) ListProviders(
+	_ context.Context,
+	workspaceID string,
+) ([]engineagent.Descriptor, error) {
+	f.listProvidersWorkspace = workspaceID
+	return f.providers, f.providersErr
 }

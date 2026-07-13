@@ -25,10 +25,17 @@ import (
 // adapter's per-type event store + read-model DB + view.db id↔path index, shutting
 // the asynx down before the adapter closes (it sits on the ES handle). Shared by
 // the worktree bench + integration harnesses.
+//
+// It also returns quiesce: asynx WaitPublish (dispatcher WaitIdle + bus
+// WaitForHandlers), the repo's read-your-writes barrier. A workspace mutation is
+// a Send, so the store projection lands asynchronously; quiesce blocks until every
+// queued command has been dispatched and every projection handler has run. That is
+// the REAL convergence signal — a test that polls the read model on a deadline is
+// only guessing how long the projection takes.
 func newWorkspaceRepo(
 	tb testing.TB,
 	adapters *adapter.Container,
-) workspace.Workspace {
+) (workspace.Workspace, func()) {
 	tb.Helper()
 	ax, err := asynx.New[domain.Workspace]().
 		WithEventStore(adapters.WorkspaceES()).
@@ -40,7 +47,7 @@ func newWorkspaceRepo(
 	require.NoError(tb, err)
 	repo, err := workspace.New(ax, adapters.WorkspaceES(), adapters.WorkspaceView(), pathsStore)
 	require.NoError(tb, err)
-	return repo
+	return repo, ax.WaitPublish
 }
 
 // benchHarness holds the wired-up usecase and handles needed per benchmark run.
@@ -62,7 +69,7 @@ func newBenchHarness(
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = adapters.Close() })
 
-	workspaces := newWorkspaceRepo(b, adapters)
+	workspaces, _ := newWorkspaceRepo(b, adapters)
 
 	repos, err := storesqlite.NewFromDB[domain.Repository, string](adapters.GlobalView())
 	require.NoError(b, err)

@@ -6,21 +6,25 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
-// AgentUsecase is the agentic-chat usecase surface the handlers need:
-// spawning a chat's first provider segment, ingesting vendor-CLI hooks, and
-// reading back chats/segments.
+// AgentUsecase is the agentic-chat usecase surface the handlers need: spawning a
+// chat and the vendor CLI (the RUNNER) that talks to it, ingesting that CLI's
+// hooks, and reading chats back.
 type AgentUsecase interface {
+	// SpawnChat mints a chat and starts a runner on it. runnerID is the
+	// crowbarSegmentID every hook from that CLI carries — stable for the life of the
+	// process, including across every conversation it moves between.
 	SpawnChat(
 		ctx context.Context,
 		workspaceID string,
 		providerID string,
-	) (chatID, segID string, err error)
+	) (chatID, runnerID string, err error)
 
 	IngestHook(
 		ctx context.Context,
-		crowbarSegID string,
+		runnerID string,
 		provider string,
 		event string,
 		rawPayload []byte,
@@ -38,19 +42,41 @@ type AgentUsecase interface {
 		id string,
 	) (domain.AgentChat, error)
 
-	SegmentsFor(
+	// LiveRunnerForChat returns the runner PLACED on chatID right now.
+	// agentrunner.ErrNotFound is not a failure here: it means the chat is DORMANT —
+	// no live row exists, because no PTY does. Row-existence IS the liveness answer,
+	// which is why the handlers ask no second question and no aggregate carries a
+	// status flag that could disagree.
+	LiveRunnerForChat(
 		ctx context.Context,
 		chatID string,
-	) ([]domain.AgentSegment, error)
+	) (domain.AgentRunner, error)
 
-	// SwitchProvider terminates chatID's active provider CLI, hands off the
-	// accumulated context, and spawns targetProviderID as a new segment in the
-	// same chat, returning the new segment's id.
+	// ConversationsForChat returns every conversation chatID has hosted, oldest
+	// first — the append-only history that replaced the chat's embedded segments,
+	// and the source of the dormant chat's provider fallback.
+	ConversationsForChat(
+		ctx context.Context,
+		chatID string,
+	) ([]domain.ChatConversation, error)
+
+	// SwitchProvider quits the chat's current vendor CLI, hands off the accumulated
+	// context, and starts targetProviderID as a new runner on the SAME chat,
+	// returning the new runner's id.
 	SwitchProvider(
 		ctx context.Context,
 		chatID string,
 		targetProviderID string,
-	) (newSegID string, err error)
+	) (newRunnerID string, err error)
+
+	// ResumeChat revives a dormant chat — one no runner points at, because its CLI
+	// exited or died with the daemon — resuming the provider that was last here into
+	// the conversation it left. A chat that is still live is a no-op: the id of the
+	// runner already on it comes straight back.
+	ResumeChat(
+		ctx context.Context,
+		chatID string,
+	) (runnerID string, err error)
 
 	// AssembleHandoff resolves chatID's ledger into the legible handoff blob a
 	// freshly spawned provider CLI can be given as prior context.
@@ -66,14 +92,33 @@ type AgentUsecase interface {
 		chatID, title, source string,
 	) error
 
-	// PurgeChat hard-deletes chatID via asynx Forget after best-effort
-	// terminating its active segment's PTY (Task 5). The chat is fully
-	// erased — gone from every read, including a direct GetChat by id — the
-	// instant this returns.
+	// RenameByRunner resolves runnerID to the chat it is placed on RIGHT NOW and
+	// applies the same user>agent>derived precedence RenameChat does (see
+	// (*agent.Usecase).RenameByRunner). It is what the `crowbar chat rename
+	// --segment <segid>` CLI calls: the chat id is never baked into the agent's
+	// spawn-time instruction, so a CLI that has since moved to a different chat
+	// (a /clear or /resume issued inside it) can never rename the chat it used
+	// to be on.
+	RenameByRunner(
+		ctx context.Context,
+		runnerID, title, source string,
+	) error
+
+	// PurgeChat hard-deletes chatID via asynx Forget, then best-effort kills the
+	// vendor CLI that was pointed at it. The chat is fully erased — gone from every
+	// read, including a direct GetChat by id — the instant this returns.
 	PurgeChat(
 		ctx context.Context,
 		chatID string,
 	) error
+
+	// ListProviders enumerates the registered agent providers for the workspace
+	// (the route ignores which workspace — the descriptor set is global — but the
+	// usecase resolves crowbar home from it to read on-disk overrides).
+	ListProviders(
+		ctx context.Context,
+		workspaceID string,
+	) ([]engineagent.Descriptor, error)
 }
 
 // Handlers serves the .../workspaces/:wsId/agent routes from the agent usecase.

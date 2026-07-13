@@ -10,7 +10,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -84,11 +83,10 @@ func TestProcessTransport_NaturalExitReapsAndFiresOnExit(t *testing.T) {
 	require.NoError(t, marshalErr)
 	require.NoError(t, protocol.WriteMessage(tr, out))
 
-	select {
-	case <-exited:
-	case <-time.After(5 * time.Second):
-		t.Fatal("onExit was not fired after the process exited on its own")
-	}
+	// Block on the transport's own onExit callback — the real signal that the
+	// reaper observed the child's exit. No deadline: if the reaper never fires,
+	// `go test -timeout` reports it with the goroutine dump.
+	<-exited
 
 	require.NotNil(t, cmd.ProcessState, "natural exit must reap the child via cmd.Wait()")
 	assert.True(t, cmd.ProcessState.Exited(), "child process must have exited")
@@ -122,10 +120,10 @@ func TestServer_NewSpawnsRealProcess(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = srv.Close() })
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	raw, err := srv.Request(ctx, "textDocument/hover", map[string]any{"x": 1})
+	// The request blocks on the real LSP response framed back over the child's
+	// stdout. No request deadline: a server that never answers is a bug, and
+	// `go test -timeout` is the backstop for it.
+	raw, err := srv.Request(context.Background(), "textDocument/hover", map[string]any{"x": 1})
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"ok":true}`, string(raw))
 }

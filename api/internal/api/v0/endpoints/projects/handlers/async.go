@@ -15,10 +15,34 @@ import (
 // cancelled the moment the 202 response is flushed. fn owns its own
 // success/failure broadcasting; a failed project mutation produces no DTO frame
 // (there is no per-project LastError sink), so the broadcast simply never fires.
-func runAsync(
+//
+// Every op is tracked on h.async so callers can block on its real completion;
+// see WaitAsync.
+func (h *Handlers) runAsync(
 	parent context.Context,
 	fn func(ctx context.Context),
 ) {
 	ctx := context.WithoutCancel(parent)
-	safego.Go("projects.runAsync", func() { fn(ctx) })
+	// Add runs on the request goroutine, BEFORE the spawn, so a WaitAsync that
+	// happens-after the handler returned can never miss this op.
+	h.async.Add(1)
+	go func() {
+		// Registered first, so it unwinds LAST — after the recovery boundary. A
+		// panic in the detached op must not crash the daemon (safego.Recover logs
+		// and contains it) and must still release the counter.
+		defer h.async.Done()
+		defer safego.Recover("projects.runAsync")
+		fn(ctx)
+	}()
 }
+
+// WaitAsync blocks until every detached runAsync op scheduled so far has fully
+// returned — success, error, or panic.
+//
+// It is the real completion signal for the fire-and-forget handlers: a test that
+// must assert a NEGATIVE ("the failed import broadcast no ProjectDTO") can only
+// do so soundly once the producing goroutine is provably dead, which a sleep
+// never establishes. Because Add happens on the request goroutine before the
+// spawn, WaitAsync also returns immediately — and correctly — when a fail-fast
+// validation path scheduled no work at all.
+func (h *Handlers) WaitAsync() { h.async.Wait() }

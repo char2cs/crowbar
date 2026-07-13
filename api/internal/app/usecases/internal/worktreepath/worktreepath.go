@@ -90,10 +90,35 @@ func AgentLedgerDir(chatsDir, chatID string) string {
 	return filepath.Join(chatsDir, chatID, "ledger")
 }
 
-// SegmentDir returns a segment's per-spawn config/transcript directory ({tmp})
-// under an already resolved chats directory.
-func SegmentDir(chatsDir, chatID, segmentID, provider string) string {
-	return filepath.Join(chatsDir, chatID, segmentID+"-"+provider)
+// RunnerDir returns a runner's per-spawn config directory ({tmp}) — the rendered
+// hook config the vendor CLI is pointed at — under an already resolved chats
+// directory.
+//
+// Path: <chatsDir>/runners/<runnerID>-<provider>. It is keyed by the RUNNER, and
+// deliberately NOT by the chat, even though a per-spawn dir intuitively belongs
+// under the chat that spawned it (its predecessor, SegmentDir, was
+// <chatsDir>/<chatID>/<segID>-<provider>).
+//
+// The reason is that a runner's chat pointer is ERASABLE. Displace clears
+// CurrentChatID while the process is still alive — it is issued by every path that
+// pushes a CLI off a chat (an eviction, a provider switch, a chat delete) — so a
+// runner that was displaced, outlived a failed kill, and then died with the daemon
+// has NO chat id left anywhere in its row. Its tmp dir could not be located at all,
+// and those are exactly the runners boot reconciliation exists to reap. A directory
+// findable only through a pointer the system is free to erase is a directory that
+// cannot be cleaned up.
+//
+// Runner ids and providers are never erased, so this path is derivable from a bare
+// runner row for the whole life of the process — by the onExit callback that removes
+// it on a clean exit, and by boot reconciliation when the daemon died before that
+// callback could run. It also fixes, rather than inherits, SegmentDir's admitted
+// corner: a runner that MOVED to another chat left its tmp dir under the old chat's
+// id, where nothing derived from its current row would ever find it.
+//
+// It stays under the chats dir (never inside the git worktree, always strictly under
+// crowbar home), so a workspace-root rm still takes it with everything else.
+func RunnerDir(chatsDir, runnerID, provider string) string {
+	return filepath.Join(chatsDir, "runners", runnerID+"-"+provider)
 }
 
 // UnderHome reports whether path is strictly nested under crowbarHome — i.e. home

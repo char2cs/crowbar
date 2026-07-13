@@ -29,9 +29,17 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05)
 }
 
-/** Pull the dark-block value of a CSS var (last definition wins for .dark). */
+/**
+ * Where the dark theme starts. Match the SELECTOR at the start of a line, not the
+ * bare text ".dark": a comment that merely mentions the dark theme used to split
+ * the file here, silently truncating the light block and making every token below
+ * the comment read as "missing".
+ */
+const DARK_BLOCK_START = css.search(/^\.dark\s*\{/m)
+
+/** Pull the dark-block value of a CSS var (last definition wins for the dark theme). */
 function darkValue(name: string): string | null {
-  const darkBlock = css.slice(css.indexOf('.dark'))
+  const darkBlock = css.slice(DARK_BLOCK_START)
   const matches = [...darkBlock.matchAll(new RegExp(`${name}:\\s*([^;]+);`, 'g'))]
   if (matches.length === 0) {
     // bound aliases live only in :root — resolve one hop for known aliases below
@@ -40,9 +48,9 @@ function darkValue(name: string): string | null {
   return matches[matches.length - 1][1].trim()
 }
 
-/** Pull the :root-block value of a CSS var (last definition wins before .dark). */
+/** Pull the :root-block value of a CSS var (last definition wins before the dark theme). */
 function lightValue(name: string): string | null {
-  const rootBlock = css.slice(0, css.indexOf('.dark'))
+  const rootBlock = css.slice(0, DARK_BLOCK_START)
   const matches = [...rootBlock.matchAll(new RegExp(`${name}:\\s*([^;]+);`, 'g'))]
   if (matches.length === 0) {
     return null

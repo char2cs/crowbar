@@ -1,10 +1,10 @@
-// Package agentchat is the asynx event-sourced repository for the
-// Crowbar-owned agentic chat aggregate (domain.AgentChat, with its
-// AgentSegments embedded). The EventStore (event_store.go) is the sole
-// repository: mutations dispatch the command layer with optimistic-concurrency
-// retry, reads delegate to the store-package read-model projection. The old
-// bespoke gorm-backed Store/gormStore/New were retired in the Task 10 cutover;
-// this aggregate is distinct from the dormant event-sourced domain.Chat.
+// Package agentchat is the asynx event-sourced repository for the Crowbar-owned agentic
+// chat aggregate (domain.AgentChat) — a thread and its title and turn state, and NOTHING
+// about the process talking to it. The CLI is the agentrunner aggregate; it points at a
+// chat, and the chat never points back. The EventStore (event_store.go) is the sole
+// repository: mutations dispatch the command layer with optimistic-concurrency retry,
+// reads delegate to the store-package read-model projection. This aggregate is distinct
+// from the dormant event-sourced domain.Chat.
 package agentchat
 
 import "errors"

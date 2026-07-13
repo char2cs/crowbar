@@ -2,11 +2,11 @@ package agent_test
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agent"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -54,22 +54,38 @@ func TestBuildSpawnPlan_ClaudeWritesSettingsAndArgs(t *testing.T) {
 	}
 }
 
-func TestBuildSpawnPlan_CodexSetsHomeAndBypassFlag(t *testing.T) {
+func TestBuildSpawnPlan_CodexInjectsHooksWithoutOwningItsHome(t *testing.T) {
 	d, err := agent.ResolveDescriptor(t.TempDir(), "codex")
 	require.NoError(t, err)
-	ctx := agent.TemplateCtx{Tmp: t.TempDir(), Cwd: t.TempDir(), CrowbarHook: "/bin/crowbar", Segid: "seg-c", Provider: "codex"}
+	tmp := t.TempDir()
+	ctx := agent.TemplateCtx{
+		Tmp: tmp, Cwd: t.TempDir(),
+		CrowbarHook: "/bin/crowbar", Segid: "seg-c", Provider: "codex",
+	}
 	plan, err := agent.BuildSpawnPlan(d, ctx, os.Environ(), nil)
 	require.NoError(t, err)
 	defer plan.Cleanup()
 
 	require.Contains(t, plan.Argv, "--dangerously-bypass-hook-trust")
-	require.Contains(t, envValue(plan.Env, "CODEX_HOME"), filepath.Base(ctx.Tmp)) // CODEX_HOME under tmp
-	_, err = os.Stat(envValue(plan.Env, "CODEX_HOME") + "/hooks.json")
-	require.NoError(t, err)
 
-	hooksData, err := os.ReadFile(envValue(plan.Env, "CODEX_HOME") + "/hooks.json")
+	// Crowbar must NOT own codex's home. It used to point CODEX_HOME at a directory
+	// it created and deleted, which made it the custodian of codex's SESSIONS — and
+	// it duly destroyed them on every provider switch. A provider owns its own
+	// state; Crowbar injects its hooks as config overrides and writes nothing.
+	assert.Empty(t, envValue(plan.Env, "CODEX_HOME"),
+		"codex must run against the user's real ~/.codex — its sessions, skills and MCP servers live there")
+
+	joined := strings.Join(plan.Argv, "\x00")
+	assert.Contains(t, joined, `hooks.SessionStart=`)
+	assert.Contains(t, joined, `hooks.UserPromptSubmit=`)
+	assert.Contains(t, joined, `hooks.Stop=`)
+	assert.Contains(t, joined, "--segment seg-c --provider codex",
+		"the segment id travels inside the hook command, so nothing has to be written to disk")
+
+	// Nothing at all was written into the per-spawn tmp dir.
+	entries, err := os.ReadDir(tmp)
 	require.NoError(t, err)
-	require.Contains(t, string(hooksData), "--segment seg-c --provider codex")
+	assert.Empty(t, entries, "the codex descriptor must write no files")
 }
 
 func TestBuildSpawnPlan_RejectsForbiddenFlag(t *testing.T) {

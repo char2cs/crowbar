@@ -6,6 +6,7 @@ import type { TerminalSlice } from './slices/terminal-slice'
 import type { FileWatcherSlice } from './slices/file-watcher-slice'
 import type { RecentFilesSlice } from './slices/recent-files-slice'
 import type { BranchReviewSlice } from './slices/branch-review-slice'
+import type { AgentChatsSlice } from './slices/agent-chats-slice'
 
 export interface WorkspaceBaseState {
   workspaceId: string
@@ -18,4 +19,5 @@ export type WorkspaceState = WorkspaceBaseState &
   TerminalSlice &
   FileWatcherSlice &
   RecentFilesSlice &
-  BranchReviewSlice
+  BranchReviewSlice &
+  AgentChatsSlice

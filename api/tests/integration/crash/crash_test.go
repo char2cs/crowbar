@@ -125,10 +125,14 @@ func TestCrash_ProviderDriftWhileDown_ResyncOnRestart(t *testing.T) {
 		PRUrl:    "https://example.test/pr/7",
 		PRTitle:  "feat: drift",
 	})
-	require.Eventuallyf(t, func() bool {
-		s, ok := workspaceStatus(t, env1, imported.ProjectID, imported.RepoID, wsID)
-		return ok && s == "pr-open"
-	}, 5*time.Second, 50*time.Millisecond, "workspace must reach pr-open before the daemon goes down")
+	// PushProviderState applies the sync projection-synchronously (SendWait), so the
+	// aggregate is already durable; Quiesce then drains the INDEPENDENT store/list
+	// projection that feeds the REST read below. Both are real completions — there is
+	// nothing left in flight to poll for.
+	env1.Quiesce()
+	s, ok := workspaceStatus(t, env1, imported.ProjectID, imported.RepoID, wsID)
+	require.True(t, ok, "workspace must be present before the daemon goes down")
+	require.Equal(t, "pr-open", s, "workspace must reach pr-open before the daemon goes down")
 	env1.Close(t)
 
 	// Restart: the read model reopens pr-open (durable). A provider poll then
@@ -172,16 +176,29 @@ func TestCrash_DeleteConvergesToInvariant(t *testing.T) {
 	worktree := friendlyWorktree(env, imported.ProjectID, imported.RepoPath, branch)
 	require.True(t, kit.DirExists(t, worktree), "worktree must exist before delete")
 
+	// Dial BEFORE the DELETE so the tombstone frame can never be missed.
+	watcher := env.DialWorkspace(t, imported.ProjectID, imported.RepoID, wsID)
 	resp := env.DELETE(t, "/v0/projects/"+imported.ProjectID+"/repos/"+imported.RepoID+"/workspaces/"+wsID)
 	kit.RequireStatus(t, resp, http.StatusAccepted)
 	resp.Body.Close()
 
-	// Converge to the delete invariant: no row, no worktree.
-	require.Eventuallyf(t, func() bool {
-		_, present := workspaceStatus(t, env, imported.ProjectID, imported.RepoID, wsID)
-		return !present && !kit.DirExists(t, worktree)
-	}, 10*time.Second, 50*time.Millisecond,
-		"delete must converge to no read-model row AND no worktree")
+	// The 202 says "accepted", NOT "dispatched": the Delete command is sent off the
+	// request goroutine, so quiescing straight off the response can drain an EMPTY
+	// queue and synchronise with nothing at all. The persisted tombstone broadcast on
+	// the workspace stream is the real signal that the command has actually landed
+	// and folded — so block on THAT first, and only then drain.
+	kit.WaitForWorkspaceState(t, watcher, wsID, "deleted", 5*time.Second)
+
+	// Now converge to the delete invariant: no row, no worktree. The purge runs in
+	// the delete REACTOR — a detached goroutine, so folding the projections is not
+	// enough to see its filesystem effect; QuiesceReactors joins the reactor itself
+	// (the same drain the daemon's graceful shutdown performs). Once it returns the
+	// purge is FINISHED, and the invariant is a plain assertion rather than a race
+	// against a 10-second poll.
+	env.QuiesceReactors()
+	_, present := workspaceStatus(t, env, imported.ProjectID, imported.RepoID, wsID)
+	require.False(t, present, "delete must converge to no read-model row")
+	require.False(t, kit.DirExists(t, worktree), "delete must converge to no worktree on disk")
 }
 
 // TestCrash_DeleteMidCascade_BootSweepReaps covers spec §5 row "Deleted +
@@ -204,28 +221,44 @@ func TestCrash_DeleteMidCascade_BootSweepReaps(t *testing.T) {
 	worktree := friendlyWorktree(env1, imported.ProjectID, imported.RepoPath, branch)
 	require.True(t, kit.DirExists(t, worktree), "worktree must exist before delete")
 
-	// Delete, then wait for the persisted "deleted" tombstone (the store projection
-	// folded the terminal state and broadcast it) BEFORE crashing — so the residual
-	// deleted row + lingering worktree are exactly the crash-orphan state the boot
-	// sweep must reap on the next boot.
+	// Delete, then establish the crash-orphan PRECONDITION before pulling the plug:
+	// the "deleted" tombstone must be DURABLE — physically in the read model — because
+	// that persisted row is the only thing the next boot's sweep can find. If the
+	// daemon dies before the row is written, there is no orphan to reap and this test
+	// is asserting on nothing.
+	//
+	// The WS frame alone does NOT establish that. The hub broadcast and the durable
+	// store are INDEPENDENT projections of the same event, so the frame can (and, once
+	// in ten runs, does) arrive before the row is written. Quiesce is what makes the
+	// row durable — every projection folded — and the REST read then proves it, through
+	// the same store projection the boot sweep itself lists from.
 	watcher := env1.DialWorkspace(t, imported.ProjectID, imported.RepoID, wsID)
 	resp := env1.DELETE(t, "/v0/projects/"+imported.ProjectID+"/repos/"+imported.RepoID+"/workspaces/"+wsID)
 	kit.RequireStatus(t, resp, http.StatusAccepted)
 	resp.Body.Close()
 	kit.WaitForWorkspaceState(t, watcher, wsID, "deleted", 5*time.Second)
+	env1.Quiesce()
+
+	status, present := workspaceStatus(t, env1, imported.ProjectID, imported.RepoID, wsID)
+	require.True(t, present, "precondition: the deleted row must be durable before the crash")
+	require.Equal(t, "deleted", status,
+		"precondition: the tombstone must be PERSISTED before the crash — it is the only thing the "+
+			"next boot's sweep can find")
 
 	// SIGKILL mid-cascade: abandon the async purge reactor (no graceful drain), so
 	// on restart the boot sweep — not the reactor — is what must complete the purge.
 	env1.CloseCrashing(t)
 
-	// Restart over the same home: app.New runs the boot orphan-sweep before serving.
+	// Restart over the same home: app.New runs the boot orphan-sweep synchronously,
+	// before it returns. The sweep's purge Forgets the aggregate, and Forget's OnForget
+	// drops the read-model row — so QuiesceReactors here is belt-and-braces for the
+	// projections that Forget publishes, not the thing doing the reaping.
 	env2, err := kit.NewEnvWithHome(home)
 	require.NoError(t, err, "restart over the same home after a crash")
 	defer env2.Close(t)
 
-	require.Eventuallyf(t, func() bool {
-		_, present := workspaceStatus(t, env2, imported.ProjectID, imported.RepoID, wsID)
-		return !present && !kit.DirExists(t, worktree)
-	}, 10*time.Second, 50*time.Millisecond,
-		"boot sweep must reap the crash-orphaned deleted row AND its lingering worktree")
+	env2.QuiesceReactors()
+	_, present = workspaceStatus(t, env2, imported.ProjectID, imported.RepoID, wsID)
+	require.False(t, present, "boot sweep must reap the crash-orphaned deleted row")
+	require.False(t, kit.DirExists(t, worktree), "boot sweep must reap the lingering worktree")
 }

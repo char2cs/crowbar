@@ -12,7 +12,6 @@ import (
 // Conformance assertions: verify each command implements asynxModels.Command[domain.AgentChat].
 var _ asynxModels.Command[domain.AgentChat] = commands.StartTurn{}
 var _ asynxModels.Command[domain.AgentChat] = commands.StopTurn{}
-var _ asynxModels.Command[domain.AgentChat] = commands.BindSession{}
 
 func TestStartStopTurn_TogglesWorking(t *testing.T) {
 	chat := &domain.AgentChat{ID: "c1"}
@@ -70,48 +69,5 @@ func TestStopTurn_EmitEvent_InputUnmutated(t *testing.T) {
 	}
 	if chat.CurrentTurnStarted != beforeTurnStarted {
 		t.Fatalf("input CurrentTurnStarted mutated: expected %v, got %v", beforeTurnStarted, chat.CurrentTurnStarted)
-	}
-}
-
-func TestBindSession_SetsSessionOnSegment(t *testing.T) {
-	chat := &domain.AgentChat{
-		ID:       "c1",
-		Segments: []domain.AgentSegment{{ID: "s1", CrowbarSegmentID: "cs1", Status: "active"}},
-	}
-	out := commands.BindSession{ChatID: "c1", CrowbarSegmentID: "cs1", ProviderSessionID: "claude-sess-1"}.EmitEvent(chat)
-	if out.Segments[0].ProviderSessionID != "claude-sess-1" {
-		t.Fatal("BindSession must set ProviderSessionID on the matching segment")
-	}
-}
-
-// TestBindSession_EmitEvent_InputUnmutated is the purity guard: EmitEvent must return a
-// chat with ProviderSessionID set on the matching segment WITHOUT mutating the input chat
-// or aliasing its backing array.
-func TestBindSession_EmitEvent_InputUnmutated(t *testing.T) {
-	segs := make([]domain.AgentSegment, 1, 2)
-	segs[0] = domain.AgentSegment{ID: "s1", CrowbarSegmentID: "cs1", Status: "active", ProviderSessionID: ""}
-	chat := &domain.AgentChat{ID: "c1", Segments: segs}
-	beforeSeg := chat.Segments[0] // value snapshot
-	alias := chat.Segments[0:2:2] // alias with spare slot
-
-	out := commands.BindSession{
-		ChatID:            "c1",
-		CrowbarSegmentID:  "cs1",
-		ProviderSessionID: "claude-sess-1",
-	}.EmitEvent(chat)
-
-	// Output has ProviderSessionID set on the matching segment.
-	if out.Segments[0].ProviderSessionID != "claude-sess-1" {
-		t.Fatalf("BindSession output must have ProviderSessionID set, got %q", out.Segments[0].ProviderSessionID)
-	}
-
-	// Input is unmutated.
-	if chat.Segments[0].ProviderSessionID != beforeSeg.ProviderSessionID {
-		t.Fatalf("input Segments[0].ProviderSessionID mutated: expected %q, got %q", beforeSeg.ProviderSessionID, chat.Segments[0].ProviderSessionID)
-	}
-
-	// Aliasing guard: the spare slot must remain zero-value.
-	if alias[1].ID != "" || alias[1].Status != "" {
-		t.Fatalf("BindSession aliased the input backing array: spare slot clobbered to %+v", alias[1])
 	}
 }

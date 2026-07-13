@@ -19,6 +19,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -75,6 +76,24 @@ func agentChatAx(
 	t.Helper()
 	a, err := asynx.New[domain.AgentChat]().
 		WithEventStore(ad.AgentChatES()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
+	return a
+}
+
+// agentRunnerAx builds the singleton agentrunner asynx over the adapter's
+// per-type event log, mirroring agentChatAx. It must read the SAME log
+// repositories.New hands agentrunner.NewEventSourced, or the repo's projections
+// would be registered on a different instance than the one under test.
+func agentRunnerAx(
+	t *testing.T,
+	ad *adapter.Container,
+) asynx.Asynx[domain.AgentRunner] {
+	t.Helper()
+	a, err := asynx.New[domain.AgentRunner]().
+		WithEventStore(ad.AgentRunnerES()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)
@@ -141,6 +160,7 @@ func newContainer(
 		ax[domain.ReviewThread](t),
 		wsAx(t, ad),
 		agentChatAx(t, ad),
+		agentRunnerAx(t, ad),
 		nil,
 		nil, // terminateSession not exercised by this helper's callers
 	)
@@ -153,6 +173,7 @@ func TestContainer_New_BuildsRepos(t *testing.T) {
 	assert.NotNil(t, c.Workspace)
 	assert.NotNil(t, c.ReviewThread)
 	assert.NotNil(t, c.AgentChat)
+	assert.NotNil(t, c.AgentRunner)
 }
 
 func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
@@ -164,6 +185,7 @@ func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 		ax[domain.ReviewThread](t),
 		nil, // nil axWorkspace → workspace.New rejects
 		agentChatAx(t, ad),
+		agentRunnerAx(t, ad),
 		nil,
 		nil,
 	)
@@ -375,7 +397,7 @@ func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil, nil)
+	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentRunnerAx(t, ad), nil, nil)
 	require.NoError(t, err)
 
 	// A real MANAGED worktree UNDER the crowbar home: the delete reactor's rm is
@@ -411,12 +433,12 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	// reactor detaches into a drainWG-tracked goroutine (its terminal Forget is a
 	// SendWait that cannot run on the bus goroutine), so draining the projection
 	// queues alone would not cover it. First WaitQuiescent so the delete event is
-	// dispatched — the reactor has joined drainWG (onEvent's Add(1)) and the store
-	// projection has written the tombstone the reactor gates on — then block on the
-	// reactor's own drain WaitGroup for the cascade to finish, then WaitQuiescent
-	// again to settle the follow-on Forget/DeleteThread projections. Deterministic.
+	// dispatched — the reactor has entered the drain gate (onEvent) and the store
+	// projection has written the tombstone the reactor gates on — then block on the gate
+	// going idle for the cascade to finish, then WaitQuiescent again to settle the
+	// follow-on Forget/DeleteThread projections. Every step is a real signal.
 	c.WaitQuiescent()
-	c.Drain().WG.Wait()
+	c.Drain().Gate.WaitIdle(context.Background())
 	c.WaitQuiescent()
 
 	threads, err = c.ReviewThread.ListByWorkspace(ctx, "w1")
@@ -438,7 +460,7 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil, nil)
+	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentRunnerAx(t, ad), nil, nil)
 	require.NoError(t, err)
 
 	// The user's real checkout, OUTSIDE the crowbar home (an adopted worktree).
@@ -459,7 +481,7 @@ func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 	// reactor drain for the goroutine to finish, then WaitQuiescent to settle the
 	// terminal Forget projection that drops the row. Deterministic, no polling.
 	c.WaitQuiescent()
-	c.Drain().WG.Wait()
+	c.Drain().Gate.WaitIdle(context.Background())
 	c.WaitQuiescent()
 
 	rows, err := c.Workspace.List(ctx)
@@ -500,23 +522,35 @@ func (f *fakeTerminateSession) terminated() []string {
 	return append([]string(nil), f.calls...)
 }
 
-// createAgentChat seeds a fresh AgentChat with one active segment bound to
-// wsID, mirroring the usecase's spawnSegment Create call.
+// createAgentChat seeds a fresh AgentChat bound to wsID and starts a RUNNER on it —
+// a vendor CLI in a PTY — mirroring the usecase's spawn. The chat itself carries no
+// process fact; the runner is what holds the terminal session the delete cascade has
+// to kill.
 func createAgentChat(
 	t *testing.T,
 	ctx context.Context,
-	repo agentchat.EventStore,
+	chats agentchat.EventStore,
+	runners agentrunner.EventStore,
 	chatID, wsID, terminalSession string,
 ) {
 	t.Helper()
-	_, err := repo.Create(ctx, agentchat.CreateInput{
-		ID:              chatID,
+	_, err := chats.Create(ctx, agentchat.CreateInput{
+		ID:          chatID,
+		WorkspaceID: wsID,
+		Now:         time.Unix(1, 0).UTC(),
+	})
+	require.NoError(t, err)
+
+	_, err = runners.Start(ctx, agentrunner.StartInput{
+		RunnerID:        chatID + "-runner",
 		WorkspaceID:     wsID,
-		SegmentID:       chatID + "-seg1",
-		TerminalSession: terminalSession,
 		ProviderID:      "claude",
+		TerminalSession: terminalSession,
+		ChatID:          chatID,
 		Now:             time.Unix(1, 0).UTC(),
 	})
+	require.NoError(t, err)
+	_, err = runners.BindSession(ctx, chatID+"-runner", "sess-"+chatID, time.Unix(2, 0).UTC())
 	require.NoError(t, err)
 }
 
@@ -534,7 +568,7 @@ func TestContainer_WireCallbacks_DeleteCascade_ForgetsAgentChats(t *testing.T) {
 	// hub.NewHub() (not &captureHub{}, which only overrides BroadcastWorkspace):
 	// agentchat's hub projection fires on every event, including this test's
 	// AgentChat Create/Forget, so it needs a real BroadcastAgentChat to call.
-	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil, term.terminate)
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentRunnerAx(t, ad), nil, term.terminate)
 	require.NoError(t, err)
 
 	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
@@ -546,8 +580,8 @@ func TestContainer_WireCallbacks_DeleteCascade_ForgetsAgentChats(t *testing.T) {
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 
-	createAgentChat(t, ctx, c.AgentChat, "chat1", "w1", "term-1")
-	createAgentChat(t, ctx, c.AgentChat, "chat2", "w2", "term-2")
+	createAgentChat(t, ctx, c.AgentChat, c.AgentRunner, "chat1", "w1", "term-1")
+	createAgentChat(t, ctx, c.AgentChat, c.AgentRunner, "chat2", "w2", "term-2")
 	c.WaitQuiescent()
 
 	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
@@ -558,7 +592,7 @@ func TestContainer_WireCallbacks_DeleteCascade_ForgetsAgentChats(t *testing.T) {
 	// goroutine to finish, then WaitQuiescent again to settle the follow-on
 	// Forget projections.
 	c.WaitQuiescent()
-	c.Drain().WG.Wait()
+	c.Drain().Gate.WaitIdle(context.Background())
 	c.WaitQuiescent()
 
 	// chat1's PTY was terminated before it was Forgotten.
@@ -577,42 +611,53 @@ func TestContainer_WireCallbacks_DeleteCascade_ForgetsAgentChats(t *testing.T) {
 	assert.NotContains(t, term.terminated(), "term-2")
 }
 
-// TestContainer_WireCallbacks_DeleteCascade_UnbindsChatRegistry pins that the
-// workspace-delete cascade unbinds each forgotten chat's segments from the agent
-// registry (via the ForgetChatRegistry seam) — the same zombie-chat fix PurgeChat
-// applies inline. Without it the PTY teardown's async reconcile races onForget's
-// row-delete and resurrects the deleted chat's read row.
-func TestContainer_WireCallbacks_DeleteCascade_UnbindsChatRegistry(t *testing.T) {
+// TestContainer_WireCallbacks_DeleteCascade_ForgetsChatConversations pins the other
+// half of the agent cascade: a deleted chat's APPEND-ONLY conversation history must go
+// too. It is the one thing nothing else ever removes (it deliberately outlives the
+// process that opened it), and a conversation still pointing at a hard-deleted chat is
+// a live trap — a later /resume of that id would resolve to a chat that no longer
+// exists. The chat of an untouched workspace keeps its history.
+func TestContainer_WireCallbacks_DeleteCascade_ForgetsChatConversations(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
 	term := &fakeTerminateSession{}
-	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil, term.terminate)
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentRunnerAx(t, ad), nil, term.terminate)
 	require.NoError(t, err)
-
-	var mu sync.Mutex
-	var unbound []string
-	c.ForgetChatRegistry = func(chatID string) {
-		mu.Lock()
-		defer mu.Unlock()
-		unbound = append(unbound, chatID)
-	}
 
 	_, err = c.Workspace.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b"}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 	_, err = c.Workspace.Create(ctx, workspace.CreateInput{ID: "w2", RepoID: "r1", ProjectID: "p1", Branch: "b2"}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
-	createAgentChat(t, ctx, c.AgentChat, "chat1", "w1", "term-1")
-	createAgentChat(t, ctx, c.AgentChat, "chat2", "w2", "term-2")
+	createAgentChat(t, ctx, c.AgentChat, c.AgentRunner, "chat1", "w1", "term-1")
+	createAgentChat(t, ctx, c.AgentChat, c.AgentRunner, "chat2", "w2", "term-2")
 	c.WaitQuiescent()
+
+	require.Equal(t, "chat1", mustChatForSession(t, ctx, c, "w1", "sess-chat1"))
 
 	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
 	c.WaitQuiescent()
-	c.Drain().WG.Wait()
+	c.Drain().Gate.WaitIdle(context.Background())
 	c.WaitQuiescent()
 
-	mu.Lock()
-	defer mu.Unlock()
-	assert.Equal(t, []string{"chat1"}, unbound, "only the deleted workspace's chat should be unbound from the registry")
+	_, err = c.AgentRunner.ChatForSession(ctx, "w1", "sess-chat1")
+	assert.ErrorIs(t, err, agentrunner.ErrNotFound,
+		"the deleted chat's conversations must not keep resolving to it")
+
+	assert.Equal(t, "chat2", mustChatForSession(t, ctx, c, "w2", "sess-chat2"),
+		"an untouched workspace's chat keeps its history")
+}
+
+// mustChatForSession resolves a conversation to its chat, failing the test on a miss.
+func mustChatForSession(
+	t *testing.T,
+	ctx context.Context,
+	c *repositories.Container,
+	wsID, sessionID string,
+) string {
+	t.Helper()
+	chatID, err := c.AgentRunner.ChatForSession(ctx, wsID, sessionID)
+	require.NoError(t, err)
+	return chatID
 }
 
 // TestContainer_WireCallbacks_DeleteCascade_ForgetsAgentChats_NilTerminateSession
@@ -623,19 +668,19 @@ func TestContainer_WireCallbacks_DeleteCascade_UnbindsChatRegistry(t *testing.T)
 func TestContainer_WireCallbacks_DeleteCascade_ForgetsAgentChats_NilTerminateSession(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil, nil)
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentRunnerAx(t, ad), nil, nil)
 	require.NoError(t, err)
 
 	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
-	createAgentChat(t, ctx, c.AgentChat, "chat1", "w1", "term-1")
+	createAgentChat(t, ctx, c.AgentChat, c.AgentRunner, "chat1", "w1", "term-1")
 	c.WaitQuiescent()
 
 	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
 	c.WaitQuiescent()
-	c.Drain().WG.Wait()
+	c.Drain().Gate.WaitIdle(context.Background())
 	c.WaitQuiescent()
 
 	_, err = c.AgentChat.GetChat(ctx, "chat1")
@@ -683,7 +728,7 @@ func (f *fakeReapChatFiles) reaped() []string {
 func TestContainer_WireCallbacks_DeleteCascade_ReapsAgentChatFiles(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil, nil)
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentRunnerAx(t, ad), nil, nil)
 	require.NoError(t, err)
 
 	// Stands in for a shared <slug>/default/chats dir: chat1/chat2 belong to
@@ -706,14 +751,14 @@ func TestContainer_WireCallbacks_DeleteCascade_ReapsAgentChatFiles(t *testing.T)
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 
-	createAgentChat(t, ctx, c.AgentChat, "chat1", "w1", "term-1")
-	createAgentChat(t, ctx, c.AgentChat, "chat2", "w1", "term-2")
-	createAgentChat(t, ctx, c.AgentChat, "chat-other", "w2", "term-3")
+	createAgentChat(t, ctx, c.AgentChat, c.AgentRunner, "chat1", "w1", "term-1")
+	createAgentChat(t, ctx, c.AgentChat, c.AgentRunner, "chat2", "w1", "term-2")
+	createAgentChat(t, ctx, c.AgentChat, c.AgentRunner, "chat-other", "w2", "term-3")
 	c.WaitQuiescent()
 
 	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
 	c.WaitQuiescent()
-	c.Drain().WG.Wait()
+	c.Drain().Gate.WaitIdle(context.Background())
 	c.WaitQuiescent()
 
 	assert.ElementsMatch(t, []string{"chat1", "chat2"}, reap.reaped())
@@ -736,7 +781,7 @@ func TestContainer_WireCallbacks_DeleteCascade_ReapsAgentChatFiles(t *testing.T)
 func TestContainer_WireCallbacks_DeleteCascade_ReapFailure_IsBestEffort(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil, nil)
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentRunnerAx(t, ad), nil, nil)
 	require.NoError(t, err)
 
 	chatsDir := t.TempDir()
@@ -747,13 +792,13 @@ func TestContainer_WireCallbacks_DeleteCascade_ReapFailure_IsBestEffort(t *testi
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
-	createAgentChat(t, ctx, c.AgentChat, "chat1", "w1", "term-1")
-	createAgentChat(t, ctx, c.AgentChat, "chat2", "w1", "term-2")
+	createAgentChat(t, ctx, c.AgentChat, c.AgentRunner, "chat1", "w1", "term-1")
+	createAgentChat(t, ctx, c.AgentChat, c.AgentRunner, "chat2", "w1", "term-2")
 	c.WaitQuiescent()
 
 	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
 	c.WaitQuiescent()
-	c.Drain().WG.Wait()
+	c.Drain().Gate.WaitIdle(context.Background())
 	c.WaitQuiescent()
 
 	// Both chats' reap was attempted (chat1's failed) ...
@@ -775,20 +820,20 @@ func TestContainer_WireCallbacks_DeleteCascade_TerminateFailure_IsBestEffort(t *
 	ctx := context.Background()
 	ad := newAdapter(t)
 	term := &fakeTerminateSession{failFor: "term-1"} // chat1's PTY terminate fails
-	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nil, term.terminate)
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentRunnerAx(t, ad), nil, term.terminate)
 	require.NoError(t, err)
 
 	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
-	createAgentChat(t, ctx, c.AgentChat, "chat1", "w1", "term-1")
-	createAgentChat(t, ctx, c.AgentChat, "chat2", "w1", "term-2")
+	createAgentChat(t, ctx, c.AgentChat, c.AgentRunner, "chat1", "w1", "term-1")
+	createAgentChat(t, ctx, c.AgentChat, c.AgentRunner, "chat2", "w1", "term-2")
 	c.WaitQuiescent()
 
 	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
 	c.WaitQuiescent()
-	c.Drain().WG.Wait()
+	c.Drain().Gate.WaitIdle(context.Background())
 	c.WaitQuiescent()
 
 	// Both PTYs were attempted (chat1's failed) ...

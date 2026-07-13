@@ -547,15 +547,15 @@ func (s *WorktreeSuite) TestWorktree_deleteCascadeSkipsLockedChild() {
 
 	// Delete is async (spec §3.6/§3.8): the 202 + "deleted" tombstone precedes the
 	// purge reactor, which then Forgets the aggregate and drops its read-model row.
-	// Await the eventual convergence rather than sampling the transient tombstone
-	// window — the locked child must survive the cascade while the unlocked root is
-	// reaped from the list.
-	s.Require().Eventuallyf(func() bool {
-		ids := map[string]bool{}
-		for _, ws := range s.listWorkspaces() {
-			ids[ws["id"].(string)] = true
-		}
-		return ids[lockedID] && !ids[rootID]
-	}, 5*time.Second, 50*time.Millisecond,
-		"cascade delete must reap the unlocked root and keep the locked child")
+	// The tombstone frame above proves the command landed; QuiesceReactors then joins
+	// the detached purge and folds the Forget it dispatches, so the list below is read
+	// at the CONVERGED state rather than sampled at 50ms intervals hoping to catch it.
+	s.Env.QuiesceReactors()
+
+	ids := map[string]bool{}
+	for _, ws := range s.listWorkspaces() {
+		ids[ws["id"].(string)] = true
+	}
+	s.Require().True(ids[lockedID], "cascade delete must KEEP the locked child")
+	s.Require().False(ids[rootID], "cascade delete must reap the unlocked root")
 }

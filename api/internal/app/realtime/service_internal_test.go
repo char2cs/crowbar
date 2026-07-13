@@ -97,13 +97,11 @@ func TestService_AcquireReleaseProviderPollDrivesManager(t *testing.T) {
 	p := newFakePoller()
 	s := newTestServiceWithPoller(t, &recordingLifecycle{}, p)
 
+	// Block on the poll itself — the real signal that Acquire reached the manager.
+	// (testPollInterval is an hour: this poll can only be the immediate-on-Acquire
+	// one, never a cadence tick.)
 	s.AcquireProviderPoll("w1")
-	select {
-	case got := <-p.calls:
-		assert.Equal(t, "w1", got)
-	case <-time.After(time.Second):
-		t.Fatal("AcquireProviderPoll did not start polling")
-	}
+	assert.Equal(t, "w1", <-p.calls, "AcquireProviderPoll did not start polling")
 
 	s.providerPoll.mu.Lock()
 	_, held := s.providerPoll.handles["w1"]
