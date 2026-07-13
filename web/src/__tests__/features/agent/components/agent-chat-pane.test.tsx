@@ -450,7 +450,7 @@ describe('AgentChatPane', () => {
       expect(footerControl.getAttribute('data-count')).toBe('2')
     })
 
-    it('is one flat opaque surface — no card, and the switcher shares the terminal column', async () => {
+    it('is one flat surface — no card, and the switcher shares the terminal column', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       await renderPane(store, openBuffer(store, 'c1', 'r1'))
 

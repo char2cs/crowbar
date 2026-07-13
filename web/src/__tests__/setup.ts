@@ -32,6 +32,20 @@ Object.defineProperty(globalThis, 'localStorage', {
 // jsdom does not implement scrollIntoView
 window.HTMLElement.prototype.scrollIntoView = () => {}
 
+// jsdom does not implement ResizeObserver. Inert stub: jsdom has no layout engine, so
+// it could never report a real size change anyway — components that observe elements
+// just need construction not to throw.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+Object.defineProperty(globalThis, 'ResizeObserver', {
+  value: ResizeObserverStub,
+  writable: true,
+  configurable: true,
+})
+
 // jsdom does not implement canvas getContext("2d") — provide a minimal stub so
 // tests that indirectly call canvas text-measurement code don't crash.
 HTMLCanvasElement.prototype.getContext = function () {

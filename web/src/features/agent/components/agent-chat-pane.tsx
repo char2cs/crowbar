@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
@@ -139,6 +139,75 @@ export function AgentChatPane({
 
   const [attachment, setAttachment] = useState<Attachment>({ state: 'pending' })
 
+  // The two layout divs whose empty space belongs to the terminal, and the terminal's
+  // own imperative handle — see focusTerminalFromEmptySpace.
+  const rootRef = useRef<HTMLDivElement>(null)
+  const columnRef = useRef<HTMLDivElement>(null)
+  const terminalApiRef = useRef<{ focus: () => void } | null>(null)
+
+  // A TERMINAL DOES NOT RENDER TO THE EDGE OF ITS OWN BOX.
+  //
+  // xterm draws a character grid: it fits `floor(width / cellWidth)` columns and also
+  // holds back room for a scrollbar, so the canvas is NARROWER than the element that
+  // contains it — here by 16px. That strip is never drawn to. Align the status line to
+  // the terminal's ELEMENT and it lands perfectly on empty space, sitting visibly past
+  // where the agent's text actually stops. (Which is exactly what happened: the box was
+  // flush to the pixel while the switcher hung ~25px beyond the last column.)
+  //
+  // So measure the real thing — the canvas — and pad the status line by the difference.
+  // It cannot be a constant: it moves with the font metrics, the pane width, and the
+  // scrollbar reservation.
+  const [gridSlack, setGridSlack] = useState(0)
+
+  useEffect(() => {
+    const column = columnRef.current
+    if (attachment.state !== 'attached' || !column) {
+      setGridSlack(0)
+      return
+    }
+
+    const measure = () => {
+      const element = column.querySelector('.xterm')
+      const canvas = column.querySelector('.xterm canvas')
+      // No canvas yet — the renderer has not drawn. The MutationObserver below will call
+      // us back the moment it appears; do NOT fall back to 0, that is what pinned the
+      // status line to the element's edge instead of the grid's.
+      if (!element || !canvas) return
+      const slack = element.getBoundingClientRect().right - canvas.getBoundingClientRect().right
+      setGridSlack(Math.max(0, Math.round(slack)))
+    }
+
+    // Two different events change the answer, and BOTH are needed.
+    //
+    // MutationObserver — xterm builds its canvas asynchronously, after this effect's
+    // first frame. Measuring only on mount reads a terminal that has not rendered yet
+    // and silently yields 0, and since nothing then resizes, it stays 0 forever. That is
+    // precisely the bug that made this look "already aligned" while it wasn't.
+    //
+    // ResizeObserver — on relayout xterm re-fits to a new column count, so the slack
+    // changes. Measured a frame later, because the observer fires when the CONTAINER
+    // resizes and xterm re-fits after that; same-tick reads the stale canvas.
+    let frame = 0
+    const remeasure = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(measure)
+    }
+
+    const resize = new ResizeObserver(remeasure)
+    resize.observe(column)
+
+    const mutation = new MutationObserver(remeasure)
+    mutation.observe(column, { childList: true, subtree: true })
+
+    remeasure()
+
+    return () => {
+      cancelAnimationFrame(frame)
+      resize.disconnect()
+      mutation.disconnect()
+    }
+  }, [attachment.state])
+
   // Re-point the buffer at what this pane is actually showing. This is the write that
   // makes the tab follow: pane-container feeds the buffer's chatId/runnerId straight
   // back in as our props, so the next render is already looking at the new chat.
@@ -264,8 +333,34 @@ export function AgentChatPane({
     })
   }
 
+  // Clicking the gutters or the column's padding focuses the terminal.
+  //
+  // Those regions LOOK like part of the chat — they are the same bg-background, and the
+  // whole point of the centred column is that its surroundings read as breathing room
+  // rather than as somewhere else. But they are plain divs, so by default a mousedown
+  // there does the opposite of what it looks like: it BLURS the terminal's textarea and
+  // the user's next keystroke goes nowhere. preventDefault is what stops that blur; the
+  // focus() then puts the caret back where the user obviously meant to click.
+  //
+  // The guard is a WHITELIST — the target must BE the root or the column, not merely be
+  // inside them. A blacklist ("not the terminal, not a button") would silently start
+  // hijacking clicks the day anything else is added to this pane: the switcher, its
+  // menu, a future toolbar. Landing directly on a layout div is exactly what "the user
+  // clicked empty space" means, and nothing else can accidentally match it.
+  const focusTerminalFromEmptySpace = (e: React.MouseEvent) => {
+    if (attachment.state !== 'attached') return
+    if (e.target !== rootRef.current && e.target !== columnRef.current) return
+    e.preventDefault()
+    terminalApiRef.current?.focus()
+  }
+
   return (
-    // One flat, opaque surface — no card, no border, no raised panel.
+    // One flat surface — no card, no border, no raised panel, and NO background of its
+    // own. The pane's content region already paints `bg-pane-background`, which is the
+    // surface every pane in Crowbar sits on; an editor pane shows it by staying
+    // transparent, and so do we. Painting an opaque bg-background here did not bleed
+    // onto anything — it COVERED that shared surface, which is exactly why the chat
+    // read as a different material from the Monaco tab next to it.
     //
     // We built this on CossUI's Frame first, faithfully, and seeing it live is what
     // settled it: a Frame's whole job is to lift a panel OFF its background, and a
@@ -274,7 +369,15 @@ export function AgentChatPane({
     // meet once the column was centred, and the switcher — outside the card — read
     // as a stray button on the desktop. Frame itself is untouched and still there
     // for surfaces that DO want to be raised.
-    <div className="flex h-full w-full flex-col bg-background">
+    //
+    // The gutters and the column's padding are DEAD SPACE that looks like part of the
+    // chat, so clicking them focuses the terminal instead of blurring it — see
+    // focusTerminalFromEmptySpace.
+    <div
+      ref={rootRef}
+      onMouseDown={focusTerminalFromEmptySpace}
+      className="flex h-full w-full flex-col"
+    >
       {/* THE COLUMN. Both the terminal and the switcher live inside it, and the
           padding is on the column rather than on either of them. That is the whole
           trick: the switcher cannot drift out of line with the agent's first
@@ -287,7 +390,10 @@ export function AgentChatPane({
           resizes the PTY, so the agent genuinely re-wraps to ~106 columns instead of
           running lines to 164. Because the whole pane is one bg-background, the
           padding and the gutters are invisible — you see breathing room, not a box. */}
-      <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-4 pt-4">
+      <div
+        ref={columnRef}
+        className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-4 pt-4"
+      >
         <div className="min-h-0 flex-1">
           {attachment.state === 'attached' && (
             <XtermTerminal
@@ -299,12 +405,15 @@ export function AgentChatPane({
               // The column already supplies the inset; the terminal's own pl-[16px]
               // would double it and push the agent out of line with the switcher.
               flush
+              onTerminalRef={(api) => {
+                terminalApiRef.current = api
+              }}
               onSessionGone={handleSessionGone}
             />
           )}
           {attachment.state === 'reviving' && (
             <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-              <FlickerSpinner className="text-muted-foreground size-6" />
+              <FlickerSpinner className="size-6 text-foreground" />
               <p className="text-muted-foreground text-center text-sm">Resuming this chat…</p>
             </div>
           )}
@@ -322,7 +431,18 @@ export function AgentChatPane({
           )}
         </div>
 
-        <div className="flex items-center py-2">
+        {/* The chat's own status line, spanning the terminal's width: what this
+            conversation IS on the left, who is running it on the right. Both sit on the
+            column, so the title starts on the agent's first character and the switcher
+            ends on its last one.
+            min-w-0 is what lets a long title truncate instead of shoving the switcher
+            off the column — a flex child defaults to min-width:auto and refuses to
+            shrink below its content. */}
+        <div
+          className="flex items-center justify-between gap-3 py-2"
+          style={{ paddingRight: gridSlack }}
+        >
+          <span className="min-w-0 truncate text-muted-foreground text-sm">{title}</span>
           <ProviderSwitchDropdown
             providers={providers}
             currentProviderId={activeProviderId}
