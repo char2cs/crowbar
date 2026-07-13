@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -223,10 +224,23 @@ func TestSpawnChat_Codex_InjectsTitleInstructionViaDeveloperInstructions(t *test
 	}
 }
 
-// TestSwitchProvider_DoesNotInjectTitleInstruction guards the injectTitle=false
-// side: SwitchProvider must never inject the title instruction (only the ledger
-// handoff, via the descriptor's handoff_inject mechanism).
-func TestSwitchProvider_DoesNotInjectTitleInstruction(t *testing.T) {
+// The two tests below pin SwitchProvider's REAL title contract: the instruction is
+// injected iff the chat is still untitled. Whoever is running an unnamed chat may
+// name it; nobody re-names a chat that already has one.
+//
+// They replace a single test asserting the opposite ("SwitchProvider must never
+// inject the title instruction") which had never once run its assertion. It looked
+// for the substring "chat rename "+chatID inside each argv element — and the two
+// halves of that string are never adjacent, because the scope flags render between
+// them ("chat rename --project=p1 --workspace=ws1 …"). It passed vacuously from the
+// day it was written, and it kept passing after the rename command stopped carrying
+// a chat id at all. A test that cannot fail advertises coverage that does not exist,
+// which is worse than no test: it stops anyone from writing the real one.
+
+// TestSwitchProvider_UntitledChat_InjectsTitleInstruction: switching providers on a
+// chat nobody has named yet still asks the incoming CLI to name it. Otherwise a chat
+// that is switched before its first turn could never acquire a title at all.
+func TestSwitchProvider_UntitledChat_InjectsTitleInstruction(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
@@ -234,12 +248,41 @@ func TestSwitchProvider_DoesNotInjectTitleInstruction(t *testing.T) {
 	require.NoError(t, err)
 	f.wait()
 
+	runnerID, err := f.usecase.SwitchProvider(ctx, chatID, "codex")
+	require.NoError(t, err)
+	require.Equal(t, 2, f.term.callCount())
+
+	// Scan the whole argv rather than a fixed slot: codex takes several -c flags,
+	// so "the arg after the first -c" is not the injected document.
+	argv := strings.Join(f.term.calls[1].argv, "\x00")
+	assert.Contains(t, argv, "chat rename",
+		"an untitled chat must still be nameable by the provider that takes it over")
+	assert.Contains(t, argv, "--segment "+runnerID,
+		"and the instruction must name the RUNNER, so the title lands on whatever chat it is on when it fires")
+}
+
+// TestSwitchProvider_TitledChat_OmitsTitleInstruction: the flip side, and the one the
+// deleted test was reaching for. A chat that already has a title must not carry the
+// instruction into the next provider — the incoming CLI would otherwise be told to
+// name something that is already named.
+func TestSwitchProvider_TitledChat_OmitsTitleInstruction(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+	f.wait()
+
+	require.NoError(t, f.usecase.RenameChat(ctx, chatID, "Already Named", "user"))
+	f.wait()
+
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
-
 	require.Equal(t, 2, f.term.callCount())
+
 	for _, a := range f.term.calls[1].argv {
-		assert.NotContains(t, a, "chat rename "+chatID)
+		assert.NotContains(t, a, "chat rename",
+			"a chat that already has a title must not be asked to name itself again")
 	}
 }
 

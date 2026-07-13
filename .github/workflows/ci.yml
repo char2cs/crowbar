@@ -77,7 +77,13 @@ jobs:
         run: |
           cd api
           COVERPKG=$(go list -tags noEmbed ./... | grep -v '/cmd/' | paste -sd,)
-          go test -tags noEmbed -race -coverpkg="$COVERPKG" -coverprofile=coverage.out ./...
+          # -count=1 is load-bearing, not a habit. Under -coverpkg=<everything>, a
+          # CACHED test binary still emits coverage blocks for every package — so a
+          # cached result compiled against older source carries stale line ranges that
+          # `go tool cover` merges against the current source, misattributing whole
+          # functions and reporting a REPRODUCIBLE FALSE 91.4% against this 92% floor.
+          # A cold run measures 92.4%. Without this flag the gate fails on a green tree.
+          go test -tags noEmbed -race -count=1 -coverpkg="$COVERPKG" -coverprofile=coverage.out ./...
           # Ratchet floor, not a target: set just under measured coverage (92.9% as of
           # 2026-07-01) so the gate is green yet still fails on regressions. The
           # remaining gap to the original 95% goal is real (workspace reparenting
