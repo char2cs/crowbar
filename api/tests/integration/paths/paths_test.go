@@ -15,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -155,11 +154,18 @@ func TestPaths_CaseOnlyClashRejected(t *testing.T) {
 	kit.RequireStatus(t, resp, http.StatusAccepted)
 	resp.Body.Close()
 
-	// The clashing workspace must never appear in the read model, and no second
-	// worktree is provisioned — assert its absence over a bounded window.
-	// require.Never polls the condition internally (no fixed-delay sleep).
-	require.Never(t, func() bool {
-		return wsBranchInList(t, env, imported.ProjectID, imported.RepoID, "feature-case")
-	}, 3*time.Second, 100*time.Millisecond,
+	// The clashing workspace must never appear in the read model. Watching for 3
+	// seconds and concluding "it never showed up" proves nothing — it only says the
+	// row had not appeared YET, and on a loaded machine a slow provisioner would make
+	// the test pass for entirely the wrong reason.
+	//
+	// The deterministic version of a NEVER is a barrier plus a plain assertion: run
+	// the async create to COMPLETION (QuiesceReactors: the command dispatched, every
+	// projection folded, every post-commit reactor joined), at which point the
+	// provisioner has already failed in DetectClash and there is no longer anything
+	// in flight that could produce the row. Its absence then is final, not merely
+	// not-yet.
+	env.QuiesceReactors()
+	require.False(t, wsBranchInList(t, env, imported.ProjectID, imported.RepoID, "feature-case"),
 		"case-only-clashing workspace must be rejected, never persisted")
 }

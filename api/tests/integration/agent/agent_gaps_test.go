@@ -18,7 +18,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,39 +25,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
-
-// codexDismissTrustDialog spends settleFor sending periodic bare Enters into
-// a freshly spawned codex PTY, mirroring nudgeUntil's dialog-dismissal trick
-// but as a bounded settle phase rather than a wait-for-condition loop.
-//
-// This exists because a freshly spawned (no positional prompt) codex has NO
-// other detectable readiness signal: unlike claude, whose SessionStart fires
-// at process boot (proven by TestAgent_ClaudeSpawnAndDetect, which never
-// drives a single keystroke of real content), codex's SessionStart/rollout
-// file is only created lazily on the FIRST actual turn — confirmed live
-// 2026-07-06 via a throwaway fakeWSConn capture of a fresh codex spawn's raw
-// PTY output: even after 90s of bare-Enter nudging with no prompt driven,
-// ProviderSessionID never bound. That same capture showed WHY a bare spawn
-// needs settling before typing: a Crowbar-managed child workspace is a git
-// worktree, which codex's trust check treats as "a subdirectory of a Git
-// project" (its trust root resolves to the worktree's parent checkout, not
-// the exact `config.toml`-trusted cwd), so it shows an interactive "Do you
-// trust the contents of this directory? [1. Yes, continue]" dialog before
-// its update-check + MCP-server boot settle into the ready compose box. One
-// dismissing Enter plus this settle window gets a fresh codex to a state
-// where typed text lands in the real input box instead of a menu or splash
-// screen. (TestAgent_SwitchClaudeToCodex never needed this because a
-// switched-to codex is spawned WITH the handoff as a positional prompt
-// argument, which sits pre-loaded in the input box and gets submitted by
-// whichever nudge Enter lands after the dialog — an accident of timing this
-// helper makes deliberate and visible for the direct-spawn case.)
-func codexDismissTrustDialog(ctx context.Context, h *harness, termSessID string, settleFor time.Duration) {
-	deadline := time.Now().Add(settleFor)
-	for time.Now().Before(deadline) {
-		_ = h.eng.Terminal.Write(ctx, termSessID, []byte("\r"))
-		time.Sleep(2 * time.Second)
-	}
-}
 
 // TestAgent_CodexTurnAppendsLedger is codex's counterpart to
 // TestIngestHook_TurnStop_AppendsLedgerEntry (internal/app/usecases/agent/
@@ -85,67 +51,52 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 	repoPath := kit.InitRepo(t)
 	_, _, wsID := h.importRepoAndWorkspace(t, "codex-turn", repoPath)
 
-	chatID, runnerID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "codex")
-	require.NoError(t, err)
+	// A bare codex spawn paints an interactive trust dialog — a Crowbar-managed
+	// child workspace is a git worktree, which codex's trust check treats as "a
+	// subdirectory of a Git project" — and emits NO hook traffic behind it. So the
+	// dialog is what has to be waited for FIRST, and it is a real, observable thing
+	// to wait for: spawnReady blocks until codex has painted it, then dismisses it
+	// with one Enter.
+	chatID, runnerID, termSessID, tap := spawnReady(t, h, wsID, "codex")
 	require.NotEmpty(t, chatID)
 	require.NotEmpty(t, runnerID)
 	t.Logf("spawned codex: chat=%s runner=%s workspace=%s home=%s", chatID, runnerID, wsID, h.home)
 
-	termSessID := liveRunnerTerminalSession(t, h, chatID)
-	require.NotEmpty(t, termSessID)
-	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })
-
-	// See codexDismissTrustDialog's doc comment: a bare codex spawn shows an
-	// interactive trust dialog + update/MCP-boot banners with NO hook traffic at
-	// all, so there is nothing to poll on yet — settle first, then type.
-	settleStart := time.Now()
-	codexDismissTrustDialog(ctx, h, termSessID, 30*time.Second)
-	t.Logf("settled %s past codex's trust dialog/boot banners", time.Since(settleStart))
-
 	const codeword = "MERIDIAN-2260"
-	prompt := "Remember this exact codeword for the rest of our conversation: " + codeword +
-		". Reply with only the word: acknowledged."
-	// Text and the submitting Enter are separate writes: TestAgent_SwitchClaudeToCodex
-	// found that a trailing \r in the same write as pasted text lands as a literal
-	// newline inside the input box, not a submit — the same TUI-input hazard applies
-	// here since codex's interactive TUI is also an Ink-style app.
-	require.NoError(t, h.eng.Terminal.Write(ctx, termSessID, []byte(prompt)))
-	time.Sleep(300 * time.Millisecond)
-	require.NoError(t, h.eng.Terminal.Write(ctx, termSessID, []byte("\r")))
+	// Text and the submitting Enter are separate writes (a trailing \r in the same
+	// write as pasted text lands as a literal newline inside the input box, not a
+	// submit — codex's TUI is Ink-style too), and drive blocks on codex ECHOING the
+	// text into its composer in between. That echo is also what proves codex has
+	// finished booting its MCP servers and is accepting input at all: if the text
+	// had landed in a splash screen it would never come back.
+	drive(t, h, tap, termSessID, "Remember this exact codeword for the rest of our conversation: "+codeword+
+		". Reply with only the word: acknowledged.")
 
-	start := time.Now()
-	providerSessionID, runner := waitForProviderSessionID(t, h, termSessID, runnerID, 60*time.Second)
-	t.Logf("waited %s for codex's SessionStart hook round trip; runner=%+v", time.Since(start), runner)
+	providerSessionID, runner := awaitSessionBound(t, h, runnerID, termSessID, tap)
 	require.NotEmpty(t, providerSessionID,
-		"timed out after 60s waiting for codex's SessionStart hook to reach /v0/agent/hooks and bind a "+
-			"conversation; this means either codex never started in the PTY, its SessionStart hook "+
-			"never fired, `crowbar hook` could not reach the unix socket, or IngestHook/the reducer did "+
-			"not persist the outcome — runner observed: %+v", runner)
+		"codex's SessionStart hook never reached /v0/agent/hooks to bind a conversation; this means either "+
+			"codex never started in the PTY, its SessionStart hook never fired, `crowbar hook` could not reach "+
+			"the unix socket, or IngestHook/the reducer did not persist the outcome — runner observed: %+v", runner)
 
-	// AssembleHandoff's rendered blob goes non-empty as soon as ANY ledger
-	// turn exists for this chat — including the codex-tagged USER turn its
-	// OWN UserPromptSubmit hook writes for the prompt we just drove — so
-	// waiting on blob != "" alone is not a wait for the turn_stop hook at all:
-	// observed live, it is satisfied in well under a second, long before
-	// codex's real model reply and Stop hook actually run. Poll the ledger
-	// directly for a codex-tagged ASSISTANT turn specifically — the actual
-	// on-disk signal that turn_stop -> ledger.Append ran — and only then treat
-	// the wait as done. An earlier version of this test waited on the blob
-	// alone and read the ledger exactly once right after, which raced the
-	// real Stop hook and would have passed even if turn_stop never appended
-	// an assistant entry.
-	start = time.Now()
-	var turns []ledgerTurn
-	nudgeUntil(h, termSessID, 90*time.Second, func() (bool, bool) {
-		turns = readLedgerTurns(t, h, wsID, chatID)
-		ok := len(assistantReplies(turns, "codex")) > 0
+	// AssembleHandoff's rendered blob goes non-empty as soon as ANY ledger turn
+	// exists for this chat — including the codex-tagged USER turn its OWN
+	// UserPromptSubmit hook writes for the prompt we just drove — so waiting on
+	// blob != "" is not a wait for the turn_stop hook at all: it is satisfied in
+	// well under a second, long before codex's real model reply and Stop hook run.
+	// Wait for a codex-tagged ASSISTANT turn specifically — the actual on-disk
+	// signal that turn_stop -> ledger.Append ran. An earlier version of this test
+	// waited on the blob alone and read the ledger once right after, which raced
+	// the real Stop hook and would have passed even if turn_stop never appended an
+	// assistant entry.
+	awaitHook(t, h, "codex to append an ASSISTANT ledger turn", func() (bool, bool) {
+		ok := len(assistantReplies(readLedgerTurns(t, h, wsID, chatID), "codex")) > 0
 		return ok, ok
 	})
-	t.Logf("waited %s for codex's Stop hook (assistant ledger append); turns observed=%+v", time.Since(start), turns)
+	turns := readLedgerTurns(t, h, wsID, chatID)
 	require.NotEmpty(t, assistantReplies(turns, "codex"),
-		"timed out waiting for codex's turn_stop hook to append an ASSISTANT .turn ledger entry after driving "+
-			"a real codex turn; this proves codex's own Stop hook never reached /v0/agent/hooks, or "+
-			"turn_stop -> ledger.Append never ran; turns observed: %+v", turns)
+		"codex's turn_stop hook never appended an ASSISTANT .turn ledger entry after a real codex turn; this "+
+			"proves codex's own Stop hook never reached /v0/agent/hooks, or turn_stop -> ledger.Append never "+
+			"ran; turns observed: %+v", turns)
 
 	handoff, err := h.app.Usecases.Agent.AssembleHandoff(ctx, chatID)
 	require.NoError(t, err)
@@ -284,23 +235,15 @@ func TestAgent_LiveClearRegistersNewChat(t *testing.T) {
 	repoPath := kit.InitRepo(t)
 	_, _, wsID := h.importRepoAndWorkspace(t, "claude-clear", repoPath)
 
-	originalChatID, runnerID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "claude")
-	require.NoError(t, err)
+	originalChatID, runnerID, termSessID, tap := spawnReady(t, h, wsID, "claude")
 
-	termSessID := liveRunnerTerminalSession(t, h, originalChatID)
-	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })
-
-	start := time.Now()
-	originalProviderSessionID, runner := waitForProviderSessionID(t, h, termSessID, runnerID, 30*time.Second)
+	originalProviderSessionID, runner := awaitSessionBound(t, h, runnerID, termSessID, tap)
 	require.NotEmpty(t, originalProviderSessionID, "claude never bound before /clear could be driven: %+v", runner)
-	t.Logf("claude bound in %s (session=%s)", time.Since(start), originalProviderSessionID)
 
-	// Drive a real /clear. Text and the submitting Enter are separate writes,
-	// mirroring TestAgent_SwitchClaudeToCodex's finding for pasted prompts (a
-	// trailing \r in the same write lands as a literal newline, not a submit).
-	require.NoError(t, h.eng.Terminal.Write(ctx, termSessID, []byte("/clear")))
-	time.Sleep(300 * time.Millisecond)
-	require.NoError(t, h.eng.Terminal.Write(ctx, termSessID, []byte("\r")))
+	// Drive a real /clear, blocking on claude echoing it into the composer before
+	// the submitting Enter (the two writes cannot be merged: a trailing \r in the
+	// same write lands as a literal newline, not a submit).
+	drive(t, h, tap, termSessID, "/clear")
 
 	// Watch the RUNNER, not the chat list. Its id is stable across the move — that is
 	// the whole point of the model — so "has the CLI moved yet?" is a single-row read of
@@ -308,21 +251,22 @@ func TestAgent_LiveClearRegistersNewChat(t *testing.T) {
 	// that already carried an ActiveSegmentID, precisely because a chat could be
 	// observed half-formed (or already vacated again) mid-registration; there is no such
 	// state to trip over when the thing you ask is the process.
-	start = time.Now()
-	moved := nudgeUntil(h, termSessID, 30*time.Second, func() (domain.AgentRunner, bool) {
+	//
+	// The move is announced by /clear re-firing claude's SessionStart with a CHANGED
+	// id, so the arriving hook is exactly the right thing to block on.
+	moved := awaitHook(t, h, "/clear to move the runner into a new chat", func() (domain.AgentRunner, bool) {
 		r, err := h.app.Repositories.AgentRunner.Get(ctx, runnerID)
 		if err != nil {
 			return domain.AgentRunner{}, false // its CLI died
 		}
 		return r, r.CurrentChatID != "" && r.CurrentChatID != originalChatID
 	})
-	t.Logf("waited %s for /clear's SessionStart to move the runner into a new chat", time.Since(start))
 
 	newChatID := moved.CurrentChatID
 	require.NotEqual(t, originalChatID, newChatID,
-		"timed out after 30s waiting for the runner to move to a NEW chat after driving a real /clear; this "+
-			"means either /clear never reached claude's TUI, SessionStart did not re-fire with a changed "+
-			"id, or the reducer did not persist a \"move to a new chat\" outcome — runner: %+v", moved)
+		"the runner never moved to a NEW chat after driving a real /clear; this means either /clear never "+
+			"reached claude's TUI, SessionStart did not re-fire with a changed id, or the reducer did not "+
+			"persist a \"move to a new chat\" outcome — runner: %+v", moved)
 	require.NotEmpty(t, newChatID, "a moved runner is placed on a real chat, never nowhere")
 
 	// The chat really exists, and the SAME process is on it.
@@ -353,86 +297,73 @@ func TestAgent_LiveClearRegistersNewChat(t *testing.T) {
 
 // seedClaudeThenSwitchToCodex spawns claude, seeds it with codeword via one
 // real turn, waits for the resulting ledger entry, switches the chat to
-// codex, and waits for codex's own SessionStart hook to bind — exactly the
+// codex, and brings the incoming codex up to a drivable state — exactly the
 // sequence TestAgent_SwitchClaudeToCodex proves, factored out so the gap 3/4
 // tests below don't each re-derive ~30 lines of setup. Returns the chat id,
-// the claude runner id and the conversation it bound, the new codex runner id, and
-// the codex runner's terminal session id.
+// the claude runner id and the conversation it bound, the new codex runner id,
+// the codex runner's terminal session id, and a tap on its PTY.
 //
-// A codexDismissTrustDialog settle phase IS needed here, exactly as for
-// TestAgent_CodexTurnAppendsLedger's bare spawn. It did not used to be: the
-// handoff was injected as codex's POSITIONAL prompt, so it sat pre-loaded in the
-// input box and the first nudge Enter submitted it as codex's opening turn. That
-// was the bug — codex answered Crowbar's handoff on sight instead of waiting for
-// the user. A switched-to codex now receives the handoff through the silent
-// `developer_instructions` config channel (codex.yaml's context_inject) and comes
-// up idle with an EMPTY composer, so it needs the same settle any idle codex does.
+// The incoming codex needs its trust dialog dismissed exactly as a bare spawn
+// does. It did not used to: the handoff was injected as codex's POSITIONAL
+// prompt, so it sat pre-loaded in the input box and a stray nudge Enter submitted
+// it as codex's opening turn. That was the bug — codex answered Crowbar's handoff
+// on sight instead of waiting for the user. A switched-to codex now receives the
+// handoff through the silent `developer_instructions` config channel (codex.yaml's
+// context_inject) and comes up IDLE with an empty composer.
 func seedClaudeThenSwitchToCodex(
 	t *testing.T,
 	h *harness,
 	wsID string,
 	codeword string,
-) (chatID, claudeRunnerID, claudeSessionID, codexRunnerID, codexTermSessID string) {
+) (chatID, claudeRunnerID, claudeSessionID, codexRunnerID, codexTermSessID string, codexTap *kit.PTYTap) {
 	t.Helper()
 	ctx := context.Background()
 
-	chatID, claudeRunnerID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "claude")
-	require.NoError(t, err)
+	chatID, claudeRunnerID, claudeTermSessID, claudeTap := spawnReady(t, h, wsID, "claude")
 
-	claudeTermSessID := liveRunnerTerminalSession(t, h, chatID)
-
-	start := time.Now()
-	claudeSessionID, runner := waitForProviderSessionID(t, h, claudeTermSessID, claudeRunnerID, 30*time.Second)
+	claudeSessionID, runner := awaitSessionBound(t, h, claudeRunnerID, claudeTermSessID, claudeTap)
 	require.NotEmpty(t, claudeSessionID, "claude never bound a session before a turn could be driven: %+v", runner)
-	t.Logf("claude bound in %s (session=%s)", time.Since(start), claudeSessionID)
 
-	prompt := "Remember this exact codeword for the rest of our conversation: " + codeword +
-		". Reply with only the word: acknowledged."
-	require.NoError(t, h.eng.Terminal.Write(ctx, claudeTermSessID, []byte(prompt)))
-	time.Sleep(300 * time.Millisecond)
-	require.NoError(t, h.eng.Terminal.Write(ctx, claudeTermSessID, []byte("\r")))
+	drive(t, h, claudeTap, claudeTermSessID, "Remember this exact codeword for the rest of our conversation: "+
+		codeword+". Reply with only the word: acknowledged.")
 
-	start = time.Now()
-	handoff := nudgeUntil(h, claudeTermSessID, 90*time.Second, func() (string, bool) {
-		blob, err := h.app.Usecases.Agent.AssembleHandoff(ctx, chatID)
-		require.NoError(t, err)
-		return blob, blob != ""
-	})
-	t.Logf("waited %s for claude's Stop hook (ledger append)", time.Since(start))
-	require.NotEmpty(t, handoff, "timed out waiting for claude's turn_stop hook (ledger append)")
+	// claude must FINISH its turn before it is switched away from: the codeword is in
+	// the ledger the moment the prompt is submitted, so that alone would switch mid-answer.
+	awaitTurnComplete(t, h, wsID, chatID, "claude")
+	handoff := awaitHandoffContains(t, h, chatID, codeword)
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
-	codexRunnerID, err = h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
+	codexRunnerID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 
 	codexTermSessID = runnerTerminalSession(t, h, codexRunnerID)
 	require.NotEqual(t, claudeTermSessID, codexTermSessID, "a switch must spawn a NEW PTY for the incoming codex CLI")
 
-	// Settle codex past its trust dialog / boot banners, and hold there — this window
-	// does DOUBLE duty and deliberately does NOT wait for codex to bind a conversation.
-	//
-	// It cannot wait for one. codex creates its rollout — and therefore fires
-	// SessionStart — LAZILY, on its first real turn (see codexDismissTrustDialog's doc
-	// comment: 90s of bare-Enter nudging on an idle codex never binds). And a switched-to
-	// codex is, by design, IDLE: the handoff reaches it through the silent
-	// developer_instructions config channel, so it comes up with an empty composer and
-	// nothing to answer. Waiting for a session id here would be waiting on codex's own
-	// laziness — it would burn the timeout and fail every time, which is exactly what it
-	// did. Callers that need codex's conversation id must drive a turn FIRST and wait
-	// after (TestAgent_CodexTurnAppendsLedger is the model, and is why it passes).
-	//
-	// The nudging is also what gives the idle assertion below its teeth: 30s of Enters is
-	// the same provocation the old wait applied, so "codex still has not spoken" means it
-	// genuinely declined to answer the handoff, not merely that we looked too early.
-	codexDismissTrustDialog(ctx, h, codexTermSessID, 30*time.Second)
+	// Bring codex past its trust dialog — and deliberately do NOT wait for it to bind
+	// a conversation. It cannot be waited for: codex creates its rollout, and
+	// therefore fires SessionStart, LAZILY on its first real turn, and a switched-to
+	// codex is by design IDLE — the handoff reached it through the silent
+	// developer_instructions channel, so it has an empty composer and nothing to
+	// answer. Waiting for a session id here would be waiting on codex's own laziness
+	// and would never return. Callers that need codex's conversation id must drive a
+	// turn FIRST and await the bind after (TestAgent_CodexTurnAppendsLedger is the
+	// model).
+	codexTap = attachReady(t, h, codexTermSessID, "codex", codexRunnerID)
 
 	// The switched-to codex must be IDLE, not answering the handoff: the document
-	// went in through developer_instructions, which is not a user message, so
-	// codex has nothing to reply to and the ledger has no codex turn.
+	// went in through developer_instructions, which is not a user message, so codex
+	// has nothing to reply to and the ledger has no codex turn.
+	//
+	// This is asserted at the one moment it is meaningful and provable: codex has just
+	// told us, by painting its composer prompt, that it is up and waiting for input —
+	// so "no codex turn in the ledger" is codex genuinely declining to answer the
+	// handoff, not merely us looking too early. (The old code reached for the same
+	// teeth by firing Enters at it for 30 seconds; being able to observe readiness
+	// directly is strictly stronger, and does not type into the user's composer.)
 	require.Empty(t, assistantReplies(readLedgerTurns(t, h, wsID, chatID), "codex"),
 		"a switched-to codex must not answer the handoff on sight — it is context, not a prompt")
 
-	return chatID, claudeRunnerID, claudeSessionID, codexRunnerID, codexTermSessID
+	return chatID, claudeRunnerID, claudeSessionID, codexRunnerID, codexTermSessID, codexTap
 }
 
 // TestAgent_CodexUsesHandoff closes gap 3 of the Priority-1 e2e audit: proving
@@ -461,13 +392,12 @@ func TestAgent_CodexUsesHandoff(t *testing.T) {
 	requireCLI(t, "claude")
 	requireCLI(t, "codex")
 	h := newHarness(t)
-	ctx := context.Background()
 
 	repoPath := kit.InitRepo(t)
 	_, _, wsID := h.importRepoAndWorkspace(t, "codex-handoff", repoPath)
 
 	const codeword = "OSPREY-4482"
-	chatID, _, _, _, codexTermSessID := seedClaudeThenSwitchToCodex(t, h, wsID, codeword)
+	chatID, _, _, _, codexTermSessID, codexTap := seedClaudeThenSwitchToCodex(t, h, wsID, codeword)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), codexTermSessID) })
 
 	// seedClaudeThenSwitchToCodex has already asserted the switched-to codex is
@@ -478,28 +408,15 @@ func TestAgent_CodexUsesHandoff(t *testing.T) {
 	// makes the old baseline-counting dance (needed when codex auto-answered the
 	// handoff, and which once false-passed by matching the auto-turn's own reply)
 	// unnecessary: there is nothing to race against.
-	codexDismissTrustDialog(ctx, h, codexTermSessID, 10*time.Second)
+	drive(t, h, codexTap, codexTermSessID,
+		"What exact codeword appeared in the context you were given? Reply with only that word.")
 
-	followUp := "What exact codeword appeared in the context you were given? Reply with only that word."
-	require.NoError(t, h.eng.Terminal.Write(ctx, codexTermSessID, []byte(followUp)))
-	time.Sleep(300 * time.Millisecond)
-	require.NoError(t, h.eng.Terminal.Write(ctx, codexTermSessID, []byte("\r")))
-
-	start := time.Now()
-	reply := nudgeUntil(h, codexTermSessID, 90*time.Second, func() (string, bool) {
-		for _, r := range assistantReplies(readLedgerTurns(t, h, wsID, chatID), "codex") {
-			if strings.Contains(r, codeword) {
-				return r, true
-			}
-		}
-		return "", false
-	})
-	t.Logf("waited %s for codex's reply to the follow-up turn", time.Since(start))
-	require.NotEmpty(t, reply, "timed out waiting for codex to reply referencing the codeword")
-	require.Contains(t, reply, codeword,
+	replies := awaitAssistantReply(t, h, wsID, chatID, "codex", codeword)
+	require.NotEmpty(t, replies, "codex never replied referencing the codeword")
+	require.Contains(t, strings.Join(replies, "\n"), codeword,
 		"codex's own reply must reference the codeword handed off from claude's session — proves codex "+
 			"actually READ the handoff injected via developer_instructions, not just that the string was "+
-			"passed to it; codex's full reply was: %q", reply)
+			"passed to it; codex's replies were: %q", replies)
 
 	// The injected handoff must never be recorded as something the USER said: that
 	// is what made each handoff nest inside the next one.
@@ -545,7 +462,7 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 	_, _, wsID := h.importRepoAndWorkspace(t, "switch-back", repoPath)
 
 	const codeword = "TALON-6631"
-	chatID, _, origClaudeSessionID, _, codexTermSessID := seedClaudeThenSwitchToCodex(t, h, wsID, codeword)
+	chatID, _, origClaudeSessionID, _, codexTermSessID, _ := seedClaudeThenSwitchToCodex(t, h, wsID, codeword)
 	// seedClaudeThenSwitchToCodex leaves codex live and active; switching back
 	// below kills it, but guard the cleanup in case the switch itself fails.
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), codexTermSessID) })
@@ -563,11 +480,14 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 	require.NotEqual(t, codexTermSessID, newClaudeTermSessID, "switch-back must spawn a new terminal session")
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), newClaudeTermSessID) })
 
-	start := time.Now()
-	resumedProviderSessionID, resumedRunner := waitForProviderSessionID(t, h, newClaudeTermSessID, newClaudeRunnerID, 30*time.Second)
-	t.Logf("claude resumed in %s (session=%s)", time.Since(start), resumedProviderSessionID)
+	// The resumed claude is a FRESH PROCESS in a fresh PTY, so it shows its trust
+	// dialog again and — exactly as at first spawn — fires no SessionStart until it
+	// is dismissed. Blocking on that dialog is what makes the bind below arrive.
+	newClaudeTap := attachReady(t, h, newClaudeTermSessID, "claude", newClaudeRunnerID)
+
+	resumedProviderSessionID, resumedRunner := awaitSessionBound(t, h, newClaudeRunnerID, newClaudeTermSessID, newClaudeTap)
 	require.NotEmpty(t, resumedProviderSessionID,
-		"timed out after 30s waiting for the switched-back claude's SessionStart hook to bind: %+v", resumedRunner)
+		"the switched-back claude's SessionStart hook never bound: %+v", resumedRunner)
 
 	require.Equal(t, origClaudeSessionID, resumedProviderSessionID,
 		"switch-back must --resume the ORIGINAL claude session id, not mint a new one — this is the "+
@@ -593,25 +513,12 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 	// own. Reading claude-tagged assistant turns from Crowbar's ledger replaces
 	// the pre-v2 read of claude's native transcript (which v2 no longer records
 	// a path to).
-	followUp := "What was the codeword I asked you to remember earlier in our conversation? Reply with only that word."
-	require.NoError(t, h.eng.Terminal.Write(ctx, newClaudeTermSessID, []byte(followUp)))
-	time.Sleep(300 * time.Millisecond)
-	require.NoError(t, h.eng.Terminal.Write(ctx, newClaudeTermSessID, []byte("\r")))
+	drive(t, h, newClaudeTap, newClaudeTermSessID,
+		"What was the codeword I asked you to remember earlier in our conversation? Reply with only that word.")
 
-	start = time.Now()
-	var texts []string
-	found := nudgeUntil(h, newClaudeTermSessID, 90*time.Second, func() (bool, bool) {
-		texts = assistantReplies(readLedgerTurns(t, h, wsID, chatID), "claude")
-		for _, tx := range texts {
-			if strings.Contains(tx, codeword) {
-				return true, true
-			}
-		}
-		return false, false
-	})
-	t.Logf("waited %s for a reply referencing the codeword; all claude assistant turns observed: %q", time.Since(start), texts)
-	require.True(t, found,
-		"timed out waiting for any claude assistant turn (including the follow-up's) to reference the codeword; turns observed: %q", texts)
+	texts := awaitAssistantReply(t, h, wsID, chatID, "claude", codeword)
+	require.Contains(t, strings.Join(texts, "\n"), codeword,
+		"no claude assistant turn (including the follow-up's) referenced the codeword; turns observed: %q", texts)
 }
 
 // TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn drives a full
@@ -663,34 +570,20 @@ func TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn(t *testing.T)
 	repoPath := kit.InitRepo(t)
 	_, _, wsID := h.importRepoAndWorkspace(t, "graceful-terminate", repoPath)
 
-	chatID, claudeSegID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "claude")
-	require.NoError(t, err)
+	chatID, claudeSegID, claudeTermSessID, claudeTap := spawnReady(t, h, wsID, "claude")
 
-	claudeTermSessID := liveRunnerTerminalSession(t, h, chatID)
-	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), claudeTermSessID) })
-
-	start := time.Now()
-	providerSessionID, runner := waitForProviderSessionID(t, h, claudeTermSessID, claudeSegID, 30*time.Second)
+	providerSessionID, runner := awaitSessionBound(t, h, claudeSegID, claudeTermSessID, claudeTap)
 	require.NotEmpty(t, providerSessionID, "claude never bound before a turn could be driven: %+v", runner)
-	t.Logf("claude bound in %s (session=%s)", time.Since(start), providerSessionID)
 
 	const codeword = "GRACEFUL-8847"
-	prompt := "Remember this exact codeword for the rest of our conversation: " + codeword +
-		". Reply with only the word: acknowledged."
-	require.NoError(t, h.eng.Terminal.Write(ctx, claudeTermSessID, []byte(prompt)))
-	time.Sleep(300 * time.Millisecond)
-	require.NoError(t, h.eng.Terminal.Write(ctx, claudeTermSessID, []byte("\r")))
+	drive(t, h, claudeTap, claudeTermSessID, "Remember this exact codeword for the rest of our conversation: "+
+		codeword+". Reply with only the word: acknowledged.")
 
-	// Wait for claude's own Stop hook to append to Crowbar's ledger — proof
-	// the turn is FULLY complete, mirroring every other switch test's
-	// synchronization point.
-	start = time.Now()
-	handoff := nudgeUntil(h, claudeTermSessID, 90*time.Second, func() (string, bool) {
-		blob, err := h.app.Usecases.Agent.AssembleHandoff(ctx, chatID)
-		require.NoError(t, err)
-		return blob, strings.Contains(blob, codeword)
-	})
-	t.Logf("waited %s for claude's Stop hook (ledger append)", time.Since(start))
+	// Block on claude's own Stop hook appending to Crowbar's ledger — proof the turn
+	// is FULLY complete, mirroring every other switch test's synchronisation point.
+	// claude must FINISH its turn before the switch terminates it (see awaitTurnComplete).
+	awaitTurnComplete(t, h, wsID, chatID, "claude")
+	handoff := awaitHandoffContains(t, h, chatID, codeword)
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
 	// Switch away — the exact call under test: SwitchProvider now uses
@@ -715,11 +608,11 @@ func TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn(t *testing.T)
 	require.NotEqual(t, codexTermSessID, newClaudeTermSessID, "switch-back must spawn a new terminal session")
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), newClaudeTermSessID) })
 
-	start = time.Now()
-	resumedProviderSessionID, resumedRunner := waitForProviderSessionID(t, h, newClaudeTermSessID, newClaudeSegID, 30*time.Second)
-	t.Logf("claude resumed in %s (session=%s)", time.Since(start), resumedProviderSessionID)
+	newClaudeTap := attachReady(t, h, newClaudeTermSessID, "claude", newClaudeSegID)
+
+	resumedProviderSessionID, resumedRunner := awaitSessionBound(t, h, newClaudeSegID, newClaudeTermSessID, newClaudeTap)
 	require.NotEmpty(t, resumedProviderSessionID,
-		"timed out waiting for the switched-back claude's SessionStart hook to bind: %+v", resumedRunner)
+		"the switched-back claude's SessionStart hook never bound: %+v", resumedRunner)
 	require.Equal(t, providerSessionID, resumedProviderSessionID,
 		"switch-back must --resume the ORIGINAL claude session id (v2's native-resume continuity witness, "+
 			"replacing the pre-v2 transcript-path equality)")
@@ -730,24 +623,12 @@ func TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn(t *testing.T)
 	// unsurfaced until further input landed, so reading immediately post-resume
 	// with no follow-up would not reliably exercise the failure mode this test
 	// exists to catch.
-	followUp := "What was the codeword I asked you to remember earlier in our conversation? Reply with only that word."
-	require.NoError(t, h.eng.Terminal.Write(ctx, newClaudeTermSessID, []byte(followUp)))
-	time.Sleep(300 * time.Millisecond)
-	require.NoError(t, h.eng.Terminal.Write(ctx, newClaudeTermSessID, []byte("\r")))
+	drive(t, h, newClaudeTap, newClaudeTermSessID,
+		"What was the codeword I asked you to remember earlier in our conversation? Reply with only that word.")
 
-	start = time.Now()
-	var texts []string
-	found := nudgeUntil(h, newClaudeTermSessID, 90*time.Second, func() (bool, bool) {
-		texts = assistantReplies(readLedgerTurns(t, h, wsID, chatID), "claude")
-		for _, tx := range texts {
-			if strings.Contains(tx, codeword) {
-				return true, true
-			}
-		}
-		return false, false
-	})
-	t.Logf("waited %s for the follow-up's reply; all claude assistant turns observed after switch-back: %q", time.Since(start), texts)
-	require.True(t, found, "timed out waiting for the follow-up turn's reply to reference the codeword; turns observed: %q", texts)
+	texts := awaitAssistantReply(t, h, wsID, chatID, "claude", codeword)
+	require.Contains(t, strings.Join(texts, "\n"), codeword,
+		"the follow-up turn's reply never referenced the codeword; turns observed: %q", texts)
 
 	// THE KEY ASSERTION for this round trip (see the v2 CAVEAT above for its
 	// best-effort strength): no synthetic gap-filling "No response requested."
@@ -791,32 +672,27 @@ func TestAgent_SwitchBackToCodexResumesItsOwnSession(t *testing.T) {
 
 	const codeword = "PANGOLIN-9931"
 
-	chatID, codexSegID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "codex")
-	require.NoError(t, err)
-	codexTermSessID := liveRunnerTerminalSession(t, h, chatID)
-	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), codexTermSessID) })
+	// Clear the trust dialog, then DRIVE A TURN, and only then wait for the
+	// conversation to bind. The order is forced by codex, not by taste: it creates
+	// its rollout — and so fires SessionStart — lazily, on its first real turn.
+	// Waiting for a session id on a codex that has not spoken yet waits forever
+	// (TestAgent_CodexTurnAppendsLedger drives first, which is why it passes).
+	chatID, codexSegID, codexTermSessID, codexTap := spawnReady(t, h, wsID, "codex")
 
-	// Settle, then DRIVE A TURN, and only then wait for the conversation to bind. The
-	// order is forced by codex, not by taste: it creates its rollout — and so fires
-	// SessionStart — lazily, on its first real turn. Waiting for a session id on a codex
-	// that has not spoken yet waits forever (see codexDismissTrustDialog's doc comment,
-	// and TestAgent_CodexTurnAppendsLedger, which drives first and is why it passes).
-	codexDismissTrustDialog(ctx, h, codexTermSessID, 30*time.Second)
-	prompt := "Remember this exact codeword for the rest of our conversation: " + codeword +
-		". Reply with only the word: acknowledged."
-	require.NoError(t, h.eng.Terminal.Write(ctx, codexTermSessID, []byte(prompt)))
-	time.Sleep(300 * time.Millisecond)
-	require.NoError(t, h.eng.Terminal.Write(ctx, codexTermSessID, []byte("\r")))
+	drive(t, h, codexTap, codexTermSessID, "Remember this exact codeword for the rest of our conversation: "+
+		codeword+". Reply with only the word: acknowledged.")
 
-	origSessionID, runner := waitForProviderSessionID(t, h, codexTermSessID, codexSegID, 60*time.Second)
+	origSessionID, runner := awaitSessionBound(t, h, codexSegID, codexTermSessID, codexTap)
 	require.NotEmpty(t, origSessionID, "codex never bound a session even after a real turn was driven: %+v", runner)
 
-	blob := nudgeUntil(h, codexTermSessID, 90*time.Second, func() (string, bool) {
-		b, err := h.app.Usecases.Agent.AssembleHandoff(ctx, chatID)
-		require.NoError(t, err)
-		return b, strings.Contains(b, codeword)
-	})
-	require.Contains(t, blob, codeword, "timed out waiting for codex's turn to reach the ledger")
+	// codex must FINISH its turn before we leave it. This is THE load-bearing barrier of
+	// this test: the switch below terminates the outgoing codex, and if it is still
+	// composing its reply, that reply never lands — not in the ledger, and not in codex's
+	// own rollout. The codex resumed at the end would then have nothing to recall, and the
+	// test would fail on its final assertion for a reason four steps upstream.
+	awaitTurnComplete(t, h, wsID, chatID, "codex")
+	blob := awaitHandoffContains(t, h, chatID, codeword)
+	require.Contains(t, blob, codeword, "codex's turn never reached the ledger")
 
 	// Leave codex. This ends its segment and reaps that segment's tmp dir — the very
 	// thing that used to take codex's session with it.
@@ -824,7 +700,8 @@ func TestAgent_SwitchBackToCodexResumesItsOwnSession(t *testing.T) {
 	require.NoError(t, err)
 	claudeTermSessID := runnerTerminalSession(t, h, claudeSegID)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), claudeTermSessID) })
-	claudeSessionID, claudeRunner := waitForProviderSessionID(t, h, claudeTermSessID, claudeSegID, 30*time.Second)
+	claudeLegTap := attachReady(t, h, claudeTermSessID, "claude", claudeSegID)
+	claudeSessionID, claudeRunner := awaitSessionBound(t, h, claudeSegID, claudeTermSessID, claudeLegTap)
 	require.NotEmpty(t, claudeSessionID, "the switched-to claude never bound a session: %+v", claudeRunner)
 
 	// ...and come back.
@@ -836,29 +713,17 @@ func TestAgent_SwitchBackToCodexResumesItsOwnSession(t *testing.T) {
 	// Drive the follow-up turn FIRST, for the same reason as above: codex announces its
 	// conversation on its first turn, not at startup. That turn does double duty — it is
 	// also the question whose ANSWER proves the resumed codex still has its own history.
-	codexDismissTrustDialog(ctx, h, backTermSessID, 30*time.Second)
-	followUp := "What was the codeword I asked you to remember? Reply with only that word."
-	require.NoError(t, h.eng.Terminal.Write(ctx, backTermSessID, []byte(followUp)))
-	time.Sleep(300 * time.Millisecond)
-	require.NoError(t, h.eng.Terminal.Write(ctx, backTermSessID, []byte("\r")))
+	backTap := attachReady(t, h, backTermSessID, "codex", backSegID)
+	drive(t, h, backTap, backTermSessID, "What was the codeword I asked you to remember? Reply with only that word.")
 
-	resumedSessionID, resumedRunner := waitForProviderSessionID(t, h, backTermSessID, backSegID, 60*time.Second)
+	resumedSessionID, resumedRunner := awaitSessionBound(t, h, backSegID, backTermSessID, backTap)
 	require.NotEmpty(t, resumedSessionID,
 		"the switched-back codex never bound a session — it almost certainly died on startup, which is "+
 			"what happens when its rollout was deleted with the previous runner: %+v", resumedRunner)
 	require.Equal(t, origSessionID, resumedSessionID,
 		"switching back to codex must RESUME its original native session, not mint a new one")
 
-	var replies []string
-	found := nudgeUntil(h, backTermSessID, 90*time.Second, func() (bool, bool) {
-		replies = assistantReplies(readLedgerTurns(t, h, wsID, chatID), "codex")
-		for _, r := range replies[max(0, len(replies)-3):] {
-			if strings.Contains(r, codeword) {
-				return true, true
-			}
-		}
-		return false, false
-	})
-	require.True(t, found,
+	replies := awaitAssistantReply(t, h, wsID, chatID, "codex", codeword)
+	require.Contains(t, strings.Join(replies, "\n"), codeword,
 		"the resumed codex must answer from its OWN restored session; replies seen: %q", replies)
 }

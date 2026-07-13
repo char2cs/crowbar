@@ -24,7 +24,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -35,7 +34,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
@@ -53,6 +51,14 @@ type harness struct {
 	home string
 	app  *app.Container
 	eng  *engine.Container
+	// hooks fires after every COMPLETED `crowbar hook` POST. It is this suite's
+	// synchronisation primitive: a vendor CLI announcing itself is an event, and
+	// awaitHook blocks on it instead of re-sampling the read model on a timer.
+	hooks *hookBarrier
+	// trusted records which providers have already answered a trust dialog in this
+	// harness's repo. See firstOfProvider: only the FIRST CLI of a provider is shown
+	// one, so it is the only one a test may block on.
+	trusted map[string]bool
 }
 
 // newHarness builds a real crowbar binary, points CROWBAR_HOME + the
@@ -80,6 +86,11 @@ func newHarness(t *testing.T) *harness {
 	require.NoError(t, err)
 
 	router := gin.New()
+	// Installed BEFORE Register so it wraps the hook route: it fires once the hook
+	// handler chain has fully returned, which is the moment IngestHook's effects
+	// (the reducer's committed outcome, the ledger turn on disk) are all readable.
+	hooks := newHookBarrier()
+	router.Use(hooks.middleware())
 	apiContainer := v0.New(appContainer, eng)
 	apiContainer.Register(router.Group("/v0"))
 
@@ -100,7 +111,7 @@ func newHarness(t *testing.T) *harness {
 		appContainer.Close()
 	})
 
-	return &harness{home: home, app: appContainer, eng: eng}
+	return &harness{home: home, app: appContainer, eng: eng, hooks: hooks, trusted: map[string]bool{}}
 }
 
 // buildCrowbarBinary compiles a real ./cmd/crowbar binary so the daemon's
@@ -245,76 +256,6 @@ func chatSessionIDs(t *testing.T, h *harness, chatID string) []string {
 	return out
 }
 
-// nudgeUntil polls check every 250ms for up to timeout, periodically writing a
-// bare Enter into the PTY session. This is test-harness driving, not product
-// behaviour: it dismisses claude's "do you trust the files in this folder?"
-// first-run prompt, which the Phase-0 spike
-// (docs/superpowers/specs/spike-2026-07-05-agentic/drive.py) found blocks
-// SessionStart until dismissed. A stray Enter is a safe no-op once the prompt
-// is already gone (submitting an empty input box does nothing in the Claude
-// Code TUI). Returns the last check result (possibly the zero value) so the
-// caller can assert with a rich failure message rather than failing here.
-func nudgeUntil[T any](
-	h *harness,
-	termSessID string,
-	timeout time.Duration,
-	check func() (T, bool),
-) T {
-	ctx := context.Background()
-	deadline := time.Now().Add(timeout)
-	lastNudge := time.Time{}
-	var last T
-	for {
-		v, ok := check()
-		last = v
-		if ok {
-			return last
-		}
-		if time.Since(lastNudge) > 2*time.Second {
-			_ = h.eng.Terminal.Write(ctx, termSessID, []byte("\r"))
-			lastNudge = time.Now()
-		}
-		if time.Now().After(deadline) {
-			return last
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
-}
-
-// waitForProviderSessionID waits until runnerID has announced a native provider
-// conversation — CurrentSession going non-empty, the reducer's "bound" outcome
-// having landed — nudging past the CLI's trust dialog in the meantime. It returns
-// that conversation id and the runner it read.
-//
-// It is keyed on the RUNNER, and that is now the only sane way to ask. A runner id
-// is minted at spawn and is stable for the whole life of the process, INCLUDING
-// across every conversation move it makes — so this one lookup keeps answering after
-// a /clear has carried the CLI to a different chat entirely, where the old
-// chat-scoped segment scan would have been looking in the wrong place.
-//
-// (A dead runner reads as ErrNotFound rather than a stale row, so a CLI that died on
-// startup shows up here as "never bound" instead of silently passing on a corpse.)
-func waitForProviderSessionID(
-	t *testing.T,
-	h *harness,
-	termSessID string,
-	runnerID string,
-	timeout time.Duration,
-) (string, domain.AgentRunner) {
-	t.Helper()
-	ctx := context.Background()
-	var last domain.AgentRunner
-	sid := nudgeUntil(h, termSessID, timeout, func() (string, bool) {
-		runner, err := h.app.Repositories.AgentRunner.Get(ctx, runnerID)
-		if err != nil {
-			return "", false // not live (yet, or any more)
-		}
-		last = runner
-		return runner.CurrentSession, runner.CurrentSession != ""
-	})
-	return sid, last
-}
-
 // TestAgent_ClaudeSpawnAndDetect is the must-have acceptance test: it proves
 // the daemon's engine/terminal spawns a real `claude` with the descriptor-built
 // argv/env, claude's SessionStart hook runs `crowbar hook session_start`, which
@@ -324,30 +265,27 @@ func waitForProviderSessionID(
 func TestAgent_ClaudeSpawnAndDetect(t *testing.T) {
 	requireCLI(t, "claude")
 	h := newHarness(t)
-	ctx := context.Background()
 
 	repoPath := kit.InitRepo(t)
 	_, _, wsID := h.importRepoAndWorkspace(t, "claude-spawn", repoPath)
 
-	chatID, runnerID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "claude")
-	require.NoError(t, err)
+	// spawnReady spawns claude, taps its PTY and blocks until it has PAINTED its
+	// trust dialog, which it then dismisses with one Enter. That dialog is not
+	// cosmetic: claude fires no SessionStart at all until the folder is trusted, so
+	// dismissing it is the precondition for the hook this test is about.
+	chatID, runnerID, termSessID, tap := spawnReady(t, h, wsID, "claude")
 	require.NotEmpty(t, chatID)
 	require.NotEmpty(t, runnerID)
 	t.Logf("spawned claude: chat=%s runner=%s workspace=%s home=%s", chatID, runnerID, wsID, h.home)
 
-	termSessID := liveRunnerTerminalSession(t, h, chatID)
-	require.NotEmpty(t, termSessID)
-	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })
-
-	start := time.Now()
-	providerSessionID, runner := waitForProviderSessionID(t, h, termSessID, runnerID, 30*time.Second)
-	t.Logf("waited %s for SessionStart hook round trip; runner=%+v", time.Since(start), runner)
-
+	// No turn is driven and nothing is nudged: claude announces itself at boot, and
+	// this blocks on that hook ARRIVING rather than on a stopwatch.
+	providerSessionID, runner := awaitSessionBound(t, h, runnerID, termSessID, tap)
 	require.NotEmpty(t, providerSessionID,
-		"timed out after 30s waiting for claude's SessionStart hook to reach /v0/agent/hooks and bind a "+
-			"provider conversation; this means either claude never started in the PTY, its SessionStart hook never "+
-			"fired, `crowbar hook` could not reach the unix socket, or IngestHook/the reducer did not persist the "+
-			"outcome — runner observed: %+v", runner)
+		"claude's SessionStart hook never reached /v0/agent/hooks to bind a provider conversation; this means "+
+			"either claude never started in the PTY, its SessionStart hook never fired, `crowbar hook` could not "+
+			"reach the unix socket, or IngestHook/the reducer did not persist the outcome — runner observed: %+v",
+		runner)
 
 	// The runner SpawnChat created is still the one placed on the chat: a bind stays
 	// put (it is not a move), and the chat is live because a live-runner row exists.
@@ -376,36 +314,27 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	repoPath := kit.InitRepo(t)
 	_, _, wsID := h.importRepoAndWorkspace(t, "claude-switch", repoPath)
 
-	chatID, claudeRunnerID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "claude")
-	require.NoError(t, err)
+	chatID, claudeRunnerID, termSessID, tap := spawnReady(t, h, wsID, "claude")
 
-	termSessID := liveRunnerTerminalSession(t, h, chatID)
-	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })
-
-	start := time.Now()
-	providerSessionID, runner := waitForProviderSessionID(t, h, termSessID, claudeRunnerID, 30*time.Second)
+	providerSessionID, runner := awaitSessionBound(t, h, claudeRunnerID, termSessID, tap)
 	require.NotEmpty(t, providerSessionID, "claude never bound a session before a turn could be driven: %+v", runner)
-	t.Logf("claude bound in %s (session=%s)", time.Since(start), providerSessionID)
 
 	const codeword = "FALCON-7719"
-	prompt := "Remember this exact codeword for the rest of our conversation: " + codeword +
-		". Reply with only the word: acknowledged."
-	require.NoError(t, h.eng.Terminal.Write(ctx, termSessID, []byte(prompt)))
-	// Claude's TUI needs the pasted text to land in the input box before a
-	// separate Enter submits it — a trailing \r in the same write is a literal
-	// newline inside the box, not a submit (docs/superpowers/specs/
-	// spike-2026-07-05-agentic/orchestrator.py found this the hard way).
-	time.Sleep(300 * time.Millisecond)
-	require.NoError(t, h.eng.Terminal.Write(ctx, termSessID, []byte("\r")))
+	// drive blocks on claude's OWN ECHO of the prompt into its composer before it
+	// sends the submitting Enter — the app telling us it took the input. The two
+	// writes cannot be merged (a trailing \r in the same write is a literal newline
+	// inside the box, not a submit), and the gap between them is a real signal, not
+	// a 300ms guess.
+	drive(t, h, tap, termSessID, "Remember this exact codeword for the rest of our conversation: "+codeword+
+		". Reply with only the word: acknowledged.")
 
-	start = time.Now()
-	handoff := nudgeUntil(h, termSessID, 90*time.Second, func() (string, bool) {
-		blob, err := h.app.Usecases.Agent.AssembleHandoff(ctx, chatID)
-		require.NoError(t, err)
-		return blob, blob != ""
-	})
-	t.Logf("waited %s for the Stop hook's ledger append", time.Since(start))
-	require.NotEmpty(t, handoff, "timed out waiting for a turn_stop hook (ledger append) after driving a real claude turn")
+	// Block on claude's Stop hook landing the turn in the ledger.
+	// Wait for claude to FINISH the turn (its turn_stop hook appending an assistant
+	// entry), not merely for the ledger to mention the codeword — the prompt we typed
+	// puts the codeword there the instant it is submitted. Switching on the weaker
+	// signal would terminate claude mid-answer.
+	awaitTurnComplete(t, h, wsID, chatID, "claude")
+	handoff := awaitHandoffContains(t, h, chatID, codeword)
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
 	newRunnerID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
@@ -425,26 +354,22 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	// — exactly as Test A proves for claude.
 	//
 	// It has to DRIVE A TURN to get there, and cannot simply wait. codex creates its
-	// rollout — and so fires SessionStart — lazily, on its first real turn (see
-	// codexDismissTrustDialog in agent_gaps_test.go), and a switched-to codex comes up
-	// IDLE by design: the handoff reaches it through the silent developer_instructions
-	// channel, not as a prompt, so it has nothing to answer and nothing to announce.
-	// Waiting for a session id from a codex that has not spoken waits forever. (This is
-	// also why the test spends one small codex turn it once tried to avoid — that turn is
-	// now the price of codex announcing itself at all, not an extra assertion.)
-	codexDismissTrustDialog(ctx, h, newTermSessID, 30*time.Second)
-	require.NoError(t, h.eng.Terminal.Write(ctx, newTermSessID, []byte("Reply with only the word: ready.")))
-	time.Sleep(300 * time.Millisecond)
-	require.NoError(t, h.eng.Terminal.Write(ctx, newTermSessID, []byte("\r")))
+	// rollout — and so fires SessionStart — LAZILY, on its first real turn, and a
+	// switched-to codex comes up IDLE by design: the handoff reaches it through the
+	// silent developer_instructions channel, not as a prompt, so it has nothing to
+	// answer and nothing to announce. Waiting for a session id from a codex that has
+	// not spoken waits forever. (This is also why the test spends one small codex turn
+	// it once tried to avoid — that turn is the price of codex announcing itself at
+	// all, not an extra assertion.)
+	codexTap := attachReady(t, h, newTermSessID, "codex", newRunnerID)
+	drive(t, h, codexTap, newTermSessID, "Reply with only the word: ready.")
 
-	codexStart := time.Now()
-	codexProviderSessionID, codexRunner := waitForProviderSessionID(t, h, newTermSessID, newRunnerID, 60*time.Second)
-	t.Logf("codex bound in %s (session=%s)", time.Since(codexStart), codexProviderSessionID)
+	codexProviderSessionID, codexRunner := awaitSessionBound(t, h, newRunnerID, newTermSessID, codexTap)
 	require.NotEmpty(t, codexProviderSessionID,
-		"timed out after 30s waiting for codex's SessionStart hook to reach /v0/agent/hooks and bind a "+
-			"conversation to the switched-to runner; this means either codex never started in the new PTY, "+
-			"its SessionStart hook never fired, `crowbar hook` could not reach the unix socket, or IngestHook/the "+
-			"reducer did not persist the outcome — runner observed: %+v", codexRunner)
+		"codex's SessionStart hook never reached /v0/agent/hooks to bind a conversation to the switched-to "+
+			"runner; this means either codex never started in the new PTY, its SessionStart hook never fired, "+
+			"`crowbar hook` could not reach the unix socket, or IngestHook/the reducer did not persist the "+
+			"outcome — runner observed: %+v", codexRunner)
 
 	require.Equal(t, "codex", codexRunner.ProviderID, "the switched-to runner must be codex")
 	require.Equal(t, chatID, codexRunner.CurrentChatID,

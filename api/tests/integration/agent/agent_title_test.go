@@ -20,7 +20,6 @@ import (
 	"os"
 	"os/exec"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -76,27 +75,25 @@ func crowbarBinPath(t *testing.T) string {
 	return bin
 }
 
-// waitUntil polls check every 100ms until it returns true or timeout elapses,
-// failing the test if it never does. Unlike agent_test.go's nudgeUntil, the
-// tests in this file never drive a PTY: both the rename binary's POST and the
-// hook binary's POST are handled synchronously by their gin handlers (Rename
-// calls RenameChat, Hooks calls IngestHook, both before writing the response)
-// before the subprocess ever returns, so there is nothing to nudge past — a
-// bare poll loop is enough, kept bounded only as a defensive margin against
-// any incidental async broadcast work.
-func waitUntil(t *testing.T, timeout time.Duration, check func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		if check() {
-			return
-		}
-		if time.Now().After(deadline) {
-			require.Fail(t, "waitUntil: condition never became true", "timeout=%s", timeout)
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+// settleTitle blocks until the daemon has finished recording a title change, with
+// no polling at all — because by this point there is nothing left to poll FOR.
+//
+// The tests in this file drive no PTY: they invoke the real `crowbar` binary as an
+// OS subprocess, and its POST is handled SYNCHRONOUSLY by the gin handler (rename
+// calls RenameChat, hook calls IngestHook, both before the response is written).
+// So when CombinedOutput() returns, the subprocess has exited, which means the
+// daemon already answered it, which means the aggregate is committed. The one thing
+// that can still be in flight is the INDEPENDENT store projection the read-back goes
+// through — and Quiesce is exactly the barrier for that: it returns when every
+// projection has folded.
+//
+// The old helper re-read the chat every 100ms for 5 seconds. It was not waiting for
+// the subprocess (already dead) but for that projection, and a poll cannot know when
+// a projection is done — it can only guess that 5 seconds is enough.
+func settleTitle(
+	h *harness,
+) {
+	h.app.Repositories.WaitQuiescent()
 }
 
 // TestAgent_CrowbarChatRename_SetsTitle proves the agent-facing command path:
@@ -139,11 +136,7 @@ func TestAgent_CrowbarChatRename_SetsTitle(t *testing.T) {
 	require.NoError(t, err, "exec crowbar chat rename: %s", out)
 	t.Logf("crowbar chat rename output: %q", out)
 
-	waitUntil(t, 5*time.Second, func() bool {
-		c, err := h.app.Usecases.Agent.GetChat(ctx, chatID)
-		require.NoError(t, err)
-		return c.Title == wantTitle
-	})
+	settleTitle(h)
 
 	chat, err := h.app.Usecases.Agent.GetChat(ctx, chatID)
 	require.NoError(t, err)
@@ -183,11 +176,7 @@ func TestAgent_FirstPrompt_DerivesTitle(t *testing.T) {
 	require.NoError(t, err, "exec crowbar hook user_prompt: %s", out)
 	t.Logf("crowbar hook user_prompt output: %q", out)
 
-	waitUntil(t, 5*time.Second, func() bool {
-		c, err := h.app.Usecases.Agent.GetChat(ctx, chatID)
-		require.NoError(t, err)
-		return c.Title == prompt
-	})
+	settleTitle(h)
 
 	chat, err := h.app.Usecases.Agent.GetChat(ctx, chatID)
 	require.NoError(t, err)

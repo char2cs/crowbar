@@ -415,19 +415,16 @@ func TestRegression_DeleteWorkspaceTombstones(t *testing.T) {
 	imported := importWritableWorkspace(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	// The read model is now eventually consistent (Send, not SendWait): wait until
-	// the imported workspace is listable before deleting, so the background delete
-	// cascade (which lists to build the tree) sees it.
-	require.Eventually(t, func() bool {
-		var rows []map[string]any
-		h.get(repoBase+"/workspaces", &rows)
-		for _, r := range rows {
-			if r["id"] == imported.workspaceID {
-				return true
-			}
-		}
-		return false
-	}, 5*time.Second, 25*time.Millisecond)
+	// The read model is eventually consistent (Send, not SendWait), so the import's
+	// row can trail the call that made it. Quiesce is the deterministic
+	// read-your-writes barrier — every projection folded — so the workspace is
+	// listable when it returns, and the background delete cascade below (which lists
+	// to build its tree) is guaranteed to see it. No polling, no window to miss.
+	h.Quiesce()
+	var rows []map[string]any
+	h.get(repoBase+"/workspaces", &rows)
+	require.Contains(t, workspaceIDs(rows), imported.workspaceID,
+		"the imported workspace must be listable before the delete cascade runs")
 
 	conn := h.dial(repoBase + "/workspaces")
 	resp := h.raw(http.MethodDelete, repoBase+"/workspaces/"+imported.workspaceID, nil,
@@ -655,29 +652,17 @@ func TestRegression_LinkedWorktreeImportsAsOneRepo(t *testing.T) {
 		return m["branch"] == "main"
 	})
 
-	listURL := h.url + "/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces"
-	countLinkedRaw := func() int {
-		r, err := h.server.Client().Get(listURL)
-		if err != nil {
-			return 0
-		}
-		defer func() { _ = r.Body.Close() }()
-		var env struct {
-			Data []workspaceDTO `json:"data"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
-			return 0
-		}
-		n := 0
-		for _, w := range env.Data {
-			if w.Branch == "feature/linked" {
-				n++
-			}
-		}
-		return n
-	}
-	require.Never(t, func() bool { return countLinkedRaw() > 0 },
-		2*time.Second, 100*time.Millisecond,
+	// feature/linked must NEVER be adopted. Watching for two seconds and concluding
+	// "it did not show up" proves only that it had not shown up YET — on a loaded
+	// machine a slow importer makes that pass for the wrong reason, and it would keep
+	// passing even if the adoption were merely late rather than absent.
+	//
+	// The sound form of a NEVER is: run the producer to COMPLETION, then assert once.
+	// Quiesce drains the import's projections, so when it returns the importer has
+	// finished deciding what to adopt and nothing is left in flight that could still
+	// add the row. Its absence is then final.
+	h.Quiesce()
+	require.Zero(t, countBranchRows(t, h, projectID, repoID, "feature/linked"),
 		"a non-protected linked worktree must not be auto-adopted at import")
 
 	// Under the protected-branch model the repo home STAYS on its protected default
@@ -848,7 +833,8 @@ func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T)
 		HeldByPath string `json:"heldByPath"`
 		LastError  string `json:"lastError"`
 	}
-	// Goroutine-safe raw fetch (no test assertions), callable from Eventually.
+	// Raw fetch: tolerates transport errors rather than asserting, so it stays usable
+	// as a plain read after the async op has been drained to completion.
 	listURL := h.url + repoBase + "/workspaces"
 	fetchRows := func() []wsRow {
 		r, err := h.server.Client().Get(listURL)
@@ -875,26 +861,34 @@ func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T)
 	}
 	require.NotEmpty(t, placeholderID, "the held main branch must surface as a placeholder")
 
-	// Act: detach the holder (async → 202 Accepted).
+	// Act: detach the holder (async → 202 Accepted). Dial BEFORE the POST so the
+	// working overlay's rising edge can never be missed.
+	conn := h.dial(repoBase + "/workspaces")
 	resp := h.raw(http.MethodPost, repoBase+"/workspaces/"+placeholderID+"/detach-holder", nil, http.StatusAccepted)
 	_ = resp.Body.Close()
 
-	// Assert: the placeholder becomes a real, on-disk managed worktree — the branch
-	// was freed and re-provisioned in place, with no error.
+	// The 202 only means "accepted": the real work — freeing the branch from the repo
+	// home and running `git worktree add` to materialise the placeholder — happens in a
+	// detached goroutine. The daemon brackets that goroutine with its working overlay,
+	// so the falling edge is the op ANNOUNCING it is finished. Block on that, then fold
+	// the projections, and the read model can be inspected as a settled fact instead of
+	// polled for 10 seconds.
+	waitForWorkComplete(t, conn, placeholderID)
+	h.QuiesceReactors()
+
+	// Assert: the placeholder became a real, on-disk managed worktree — the branch was
+	// freed and re-provisioned in place, with no error.
 	var final wsRow
-	require.Eventually(t, func() bool {
-		for _, w := range fetchRows() {
-			if w.ID != placeholderID {
-				continue
-			}
-			if w.HeldByPath == "" && w.LocalPath != "" && dirExists(w.LocalPath) && w.LastError == "" {
-				final = w
-				return true
-			}
+	for _, w := range fetchRows() {
+		if w.ID == placeholderID {
+			final = w
 		}
-		return false
-	}, 10*time.Second, 100*time.Millisecond,
-		"detach-holder must free the branch and materialise the placeholder into a managed worktree (no LastError)")
+	}
+	require.Equal(t, placeholderID, final.ID, "the placeholder row must still exist after detach-holder")
+	require.Empty(t, final.HeldByPath, "detach-holder must free the branch from the repo home")
+	require.Empty(t, final.LastError, "detach-holder must materialise the placeholder with no error")
+	require.NotEmpty(t, final.LocalPath, "detach-holder must give the placeholder a managed worktree")
+	require.True(t, dirExists(final.LocalPath), "the materialised worktree must exist on disk")
 
 	require.FileExists(t, filepath.Join(final.LocalPath, ".git"),
 		"the materialised placeholder must be a real linked git worktree (.git pointer present)")
@@ -916,8 +910,8 @@ func currentBranch(t *testing.T, dir string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// dirExists reports whether path is an existing directory (goroutine-safe: no
-// testing assertions, so it is callable from require.Eventually closures).
+// dirExists reports whether path is an existing directory. It makes no testing
+// assertions, so it composes freely inside other predicates.
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
@@ -932,51 +926,67 @@ func TestRegression_DuplicateNonDefaultBranchWorkspace(t *testing.T) {
 	imported := importProject(t, h)
 	base := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	// Create a child workspace on a fresh branch (async 202).
+	// Create a child workspace on a fresh branch (async 202). The row is not produced
+	// by the request at all — it is produced by the detached provisioner the 202 spawns,
+	// which no projection drain can see (a drain can only settle work that has already
+	// been dispatched; here the dispatch itself is what we are waiting for).
+	//
+	// The workspace's own broadcast IS the signal: the aggregate announces the new row
+	// on the repo-scoped stream the moment it exists. Dial BEFORE the POST so it cannot
+	// be missed, block on the branch appearing, then fold the list projection the
+	// assertion reads through.
+	conn := h.dial(base + "/workspaces")
 	_ = h.raw(http.MethodPost, base+"/workspaces",
 		map[string]string{"branch": "feature/dup"}, http.StatusAccepted).Body.Close()
-
-	countBranch := func(name string) int {
-		n := 0
-		for _, w := range listWorkspaces(t, h, imported.projectID, imported.repoID) {
-			if w.Branch == name {
-				n++
-			}
-		}
-		return n
-	}
-	require.Eventually(t, func() bool { return countBranch("feature/dup") == 1 },
-		3*time.Second, 100*time.Millisecond, "first feature/dup workspace should land")
+	readUntil(t, conn, func(m map[string]any) bool { return m["branch"] == "feature/dup" })
+	h.Quiesce()
+	require.Equal(t, 1, countBranchRows(t, h, imported.projectID, imported.repoID, "feature/dup"),
+		"the first feature/dup workspace must land")
 
 	// A second create on the same branch is rejected synchronously with 409.
 	resp := h.raw(http.MethodPost, base+"/workspaces",
 		map[string]string{"branch": "feature/dup"}, http.StatusConflict)
 	_ = resp.Body.Close()
 
-	// And never produces a duplicate. countBranch is called in a goroutine by
-	// require.Never, so drive it via a raw GET that tolerates connection errors
-	// rather than require.NoError (which would FailNow from a non-test goroutine).
-	dupURL := h.url + base + "/workspaces"
-	countDupRaw := func() int {
-		r, err := h.server.Client().Get(dupURL)
-		if err != nil {
-			return 0
+	// And never produces a duplicate. The 409 is SYNCHRONOUS — the request was refused
+	// on the write path and scheduled no work at all — so there is nothing in flight to
+	// wait out; the 2-second Never here was watching a producer that had already been
+	// told no. Drain anyway (cheap, and it forecloses the theory that something was
+	// still settling), then assert the count once.
+	h.QuiesceReactors()
+	require.Equal(t, 1, countBranchRows(t, h, imported.projectID, imported.repoID, "feature/dup"),
+		"a rejected duplicate must never persist a second feature/dup workspace")
+}
+
+// countBranchRows returns how many workspaces in the repo's read model sit on the
+// given branch. It is the shared oracle for the one-per-branch invariants, read
+// through the same list endpoint a client would use.
+func countBranchRows(
+	t *testing.T,
+	h *harness,
+	projectID string,
+	repoID string,
+	branch string,
+) int {
+	t.Helper()
+	n := 0
+	for _, w := range listWorkspaces(t, h, projectID, repoID) {
+		if w.Branch == branch {
+			n++
 		}
-		defer func() { _ = r.Body.Close() }()
-		var env struct {
-			Data []workspaceDTO `json:"data"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
-			return 0
-		}
-		n := 0
-		for _, w := range env.Data {
-			if w.Branch == "feature/dup" {
-				n++
-			}
-		}
-		return n
 	}
-	require.Never(t, func() bool { return countDupRaw() > 1 },
-		2*time.Second, 100*time.Millisecond, "no duplicate feature/dup workspace")
+	return n
+}
+
+// workspaceIDs extracts the id of every row in a decoded workspace list.
+func workspaceIDs(
+	rows []map[string]any,
+) []string {
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if id, ok := r["id"].(string); ok {
+			out = append(out, id)
+		}
+	}
+	return out
 }

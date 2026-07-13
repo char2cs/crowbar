@@ -181,6 +181,20 @@ func (h *harness) Quiesce() {
 	h.app.Repositories.WaitQuiescent()
 }
 
+// QuiesceReactors is Quiesce PLUS the join of every post-commit REACTOR the
+// mutation set in motion, then a final fold of what those reactors dispatched.
+// It mirrors kit.Env.QuiesceReactors (see its doc comment for why all three steps
+// are load-bearing) and is the barrier for the async cascades — above all DELETE —
+// whose effect lands outside the aggregate and is therefore invisible to a plain
+// projection drain: a reactor detaches into its own goroutine, so WaitQuiescent
+// sees its handler "complete" the moment the goroutine is spawned, long before
+// the purge it spawned has finished.
+func (h *harness) QuiesceReactors() {
+	h.app.Repositories.WaitQuiescent()
+	h.app.Repositories.Drain().WG.Wait()
+	h.app.Repositories.WaitQuiescent()
+}
+
 // get issues GET path, asserts the success envelope, and decodes data into out.
 func (h *harness) get(
 	path string,
@@ -343,6 +357,36 @@ func readUntil(
 		}
 		require.True(t, time.Now().Before(deadline), "deadline exceeded before match")
 	}
+}
+
+// waitForWorkComplete blocks until wsID's in-flight async mutation has STARTED and
+// then FINISHED, returning the final frame. It is the completion barrier for the
+// fire-and-forget 202 handlers, whose slow work (provisioning a worktree, running a
+// merge) happens in a detached goroutine that no projection drain can observe.
+//
+// It reads the daemon's OWN "am I busy" overlay: every detached op is bracketed
+// BeginWork → EndWork, and EndWork fires only after the work function has returned,
+// on success, error and panic alike. Both edges broadcast a WorkspaceDTO, so the
+// falling edge is the daemon stating the op is over. Waiting for the RISING edge
+// first is what makes the falling one mean anything — a workspace at rest already
+// reads working:false, so matching that alone would return before the op began.
+//
+// Mirrors kit.WaitForWorkComplete for the httptest-based suites in this package.
+func waitForWorkComplete(
+	t *testing.T,
+	conn *websocket.Conn,
+	wsID string,
+) map[string]any {
+	t.Helper()
+	isWorking := func(m map[string]any, want bool) bool {
+		if m["id"] != wsID {
+			return false
+		}
+		working, ok := m["working"].(bool)
+		return ok && working == want
+	}
+	readUntil(t, conn, func(m map[string]any) bool { return isWorking(m, true) })
+	return readUntil(t, conn, func(m map[string]any) bool { return isWorking(m, false) })
 }
 
 // gitRepoWithCommit creates a real on-disk git repo with one committed file and
