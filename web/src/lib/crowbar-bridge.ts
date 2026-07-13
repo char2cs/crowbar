@@ -159,6 +159,13 @@ async function openTauriSocket(connectionId: string, wsPath: string): Promise<vo
     // remount) can register a fresh entry before the dead one's drop event lands.
     if (tauriTerminals.get(connectionId) !== conn) return
     tauriTerminals.delete(connectionId)
+    // Unsubscribe on the way out. Deleting the entry above is what makes every later
+    // firing a no-op, so the listener is dead weight from here on — but it is dead
+    // weight held in Rust's listener registry, and terminalClose/terminalDetach can no
+    // longer reach it (they only unlisten while the entry still exists). Every daemon
+    // restart drops all sessions and re-attaches them, so without this the registry
+    // grows by one listener per terminal per restart, for the life of the app.
+    conn.unlisten?.()
     const cbs = dropCallbacks.get(connectionId)
     if (cbs) {
       for (const cb of cbs) cb()

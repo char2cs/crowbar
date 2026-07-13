@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use http_body_util::{BodyExt, Full};
 use hyper::Request as HyperRequest;
@@ -8,6 +9,20 @@ use tauri::{Manager, Runtime, UriSchemeContext, UriSchemeResponder};
 use tokio::net::UnixStream;
 
 use crate::sidecar::SidecarHandle;
+
+/// Upper bound on one proxied request.
+///
+/// Each request costs this process a unix socket, and a daemon that accepts a
+/// connection but never answers — the wedge the health watchdog exists for — would
+/// otherwise pin that descriptor, and the two tasks driving it, for the life of the
+/// app. Nothing else would ever release them: there is no cap on requests in
+/// flight, and the frontend's `fetch` has no AbortController, so it never gives up
+/// either.
+///
+/// Comfortably above anything the daemon can legitimately take: it bounds its own
+/// slowest work — a network git transfer — at 3 minutes (`netTransferTimeout`), and
+/// it never clones, so no honest request outlives that.
+const PROXY_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Build an HTTP error response for the webview when proxying fails.
 fn error_response(status: u16, msg: &str) -> http::Response<Vec<u8>> {
@@ -34,9 +49,13 @@ pub fn handle_request<R: Runtime>(
 
     tauri::async_runtime::spawn(async move {
         let resp = match socket {
-            Some(path) => proxy(path, request)
-                .await
-                .unwrap_or_else(|e| error_response(502, &format!("crowbar proxy error: {e}"))),
+            // Dropping the timed-out future drops the request sender, which is what
+            // tells hyper's connection task to close and hand the descriptor back.
+            Some(path) => match tokio::time::timeout(PROXY_TIMEOUT, proxy(path, request)).await {
+                Ok(Ok(resp)) => resp,
+                Ok(Err(e)) => error_response(502, &format!("crowbar proxy error: {e}")),
+                Err(_) => error_response(504, "crowbar daemon did not answer in time"),
+            },
             None => error_response(502, "crowbar daemon socket not ready"),
         };
         // Respond on the main thread: WKURLSchemeTask cancellation

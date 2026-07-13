@@ -22,6 +22,14 @@ const DAEMON_LOG_MAX_LEN: u64 = 4 * 1024 * 1024;
 const WATCHDOG_INTERVAL: Duration = Duration::from_secs(10);
 /// Per-probe budget; the deep path answers in microseconds when healthy.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Per-attempt budget for the startup health probe. A booting daemon answers
+/// /v0/health immediately or not at all, so this only has to outlast a loaded
+/// machine — never a slow request.
+const HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+/// A final, more generous probe budget after the failure threshold trips,
+/// giving a daemon that just resumed from an OS suspension time to answer
+/// before the watchdog commits to a restart.
+const SUSPEND_GRACE_PROBE: Duration = Duration::from_secs(8);
 /// Consecutive failed probes before the watchdog declares a wedge.
 const PROBE_FAILURE_THRESHOLD: u32 = 3;
 /// At most this many automatic respawns per window; beyond it the daemon is
@@ -342,12 +350,19 @@ async fn wait_for_health(
     for i in 0..attempts {
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        if let Ok(pid) = check_health(socket).await {
+        // Budget every attempt. A daemon that accepts the connection but never
+        // serves /v0/health would otherwise park this loop forever — and with it
+        // `spawn`, which is what records `daemon_pid`. The watchdog would then trip,
+        // find no pid, and fall back to `CommandChild::kill()`: the one call that
+        // deadlocks on a live daemon (see `SidecarHandle`). The supervisor would
+        // never run again, so the leak is not the descriptor, it is the recovery.
+        if let Ok(Ok(pid)) = tokio::time::timeout(HEALTH_PROBE_TIMEOUT, check_health(socket)).await
+        {
             return Ok(pid);
         }
 
         if i == attempts - 1 {
-            return Err("daemon did not become healthy within 6s".into());
+            return Err(format!("daemon did not become healthy in {attempts} attempts").into());
         }
     }
     Ok(None)
@@ -397,15 +412,39 @@ pub(crate) async fn http_get(
 /// through the global view store, the exact resource every observed
 /// production wedge pinned. A daemon that cannot answer this is not serving
 /// users, whatever its liveness endpoint says.
-async fn probe_ready(socket: &PathBuf) -> bool {
+///
+/// Dialling costs a descriptor of *this* process, so the probe reports whether it
+/// could dial at all: an exhausted app cannot reach even a perfectly healthy
+/// daemon, and the watchdog must not read that as the daemon's fault.
+async fn probe_ready(socket: &PathBuf) -> supervisor::Probe {
     match http_get(socket, "/v0/projects").await {
         Ok(resp) => {
             let ok = resp.status().is_success();
             let _ = resp.into_body().collect().await;
-            ok
+            if ok {
+                supervisor::Probe::Healthy
+            } else {
+                supervisor::Probe::Unserved
+            }
         }
-        Err(_) => false,
+        Err(e) if is_descriptor_exhaustion(&*e) => supervisor::Probe::LocalDescriptorExhaustion,
+        Err(_) => supervisor::Probe::Unserved,
     }
+}
+
+/// Whether a dial failed because this process is out of file descriptors. hyper
+/// wraps the `connect(2)` error, so the cause chain has to be walked.
+fn is_descriptor_exhaustion(err: &(dyn std::error::Error + 'static)) -> bool {
+    let mut cause = Some(err);
+    while let Some(e) = cause {
+        if let Some(io) = e.downcast_ref::<std::io::Error>() {
+            if matches!(io.raw_os_error(), Some(libc::EMFILE) | Some(libc::ENFILE)) {
+                return true;
+            }
+        }
+        cause = e.source();
+    }
+    false
 }
 
 /// Fetches a full goroutine dump from the daemon's pprof surface, so a wedge
@@ -432,8 +471,17 @@ async fn capture_goroutine_dump(socket: &PathBuf) -> Option<String> {
 pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         let mut tracker = supervisor::FailureTracker::new(PROBE_FAILURE_THRESHOLD);
+        let mut prev_cycle = std::time::SystemTime::now();
         loop {
             tokio::time::sleep(WATCHDOG_INTERVAL).await;
+
+            // Wall-clock elapsed since the previous cycle. SystemTime — unlike a
+            // monotonic Instant — keeps advancing through a system sleep, so an
+            // OS suspension (App Nap / sleep) that froze this whole app surfaces
+            // here as a gap far larger than the nominal cycle.
+            let now = std::time::SystemTime::now();
+            let cycle = now.duration_since(prev_cycle).unwrap_or(Duration::ZERO);
+            prev_cycle = now;
 
             let state = app.state::<SidecarHandle>();
             if state.shutting_down.load(Ordering::SeqCst) {
@@ -449,10 +497,73 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
                 continue;
             };
 
-            let healthy = tokio::time::timeout(PROBE_TIMEOUT, probe_ready(&socket))
+            // The app was suspended across this cycle (App Nap / system sleep):
+            // the daemon was frozen alongside us, not wedged, and answers again
+            // the instant it resumes. Counting this cycle's probe failure would
+            // SIGQUIT a healthy daemon on wake — the exact false positive behind
+            // the "backend closed itself while idle" reports. Discard the cycle.
+            if supervisor::cycle_was_suspended(cycle, WATCHDOG_INTERVAL, PROBE_TIMEOUT) {
+                tracker.reset();
+                continue;
+            }
+
+            let outcome = tokio::time::timeout(PROBE_TIMEOUT, probe_ready(&socket))
                 .await
-                .unwrap_or(false);
-            if !tracker.observe(healthy) {
+                .unwrap_or(supervisor::Probe::Unserved);
+
+            // We could not dial the daemon because *we* have no descriptors left.
+            // That is our bug, not the daemon's, and no restart of it can hand one
+            // back — the next probe would fail identically until the app is
+            // restarted. Killing a backend on this evidence is how a healthy daemon
+            // gets destroyed mid-session, so refuse to, and say so loudly.
+            if outcome == supervisor::Probe::LocalDescriptorExhaustion {
+                log::error!(
+                    "the app is out of file descriptors and cannot dial the daemon. \
+                     NOT restarting it — the daemon is not what is broken here."
+                );
+                tracker.reset();
+                continue;
+            }
+            if !tracker.observe(outcome == supervisor::Probe::Healthy) {
+                continue;
+            }
+
+            // Three consecutive failed probes. Before the irreversible
+            // SIGQUIT+SIGKILL, rule out the false positive that dominates in
+            // practice: an OS-suspended daemon. macOS task-suspends an idle,
+            // backgrounded helper; while suspended it fails every probe because
+            // it is not executing, then answers the instant it resumes. Killing
+            // it is the "backend closed itself while idle" bug. A genuinely
+            // wedged daemon is running (state R/S) yet stuck, and answers
+            // neither the probe nor a longer grace probe.
+            let daemon_suspended = match state.daemon_pid() {
+                Some(pid) => process_is_suspended(pid).await,
+                None => false,
+            };
+            // A last, more generous probe. It exonerates the daemon two ways: it
+            // answered after all (it had merely resumed, or was transiently slow),
+            // or we could not even dial it because we are out of descriptors — in
+            // which case the silence was never the daemon's to explain.
+            let exonerated = if daemon_suspended {
+                false
+            } else {
+                !supervisor::probe_indicts_daemon(
+                    tokio::time::timeout(SUSPEND_GRACE_PROBE, probe_ready(&socket))
+                        .await
+                        .unwrap_or(supervisor::Probe::Unserved),
+                )
+            };
+            if !supervisor::should_kill_wedged(daemon_suspended, exonerated) {
+                log::warn!(
+                    "crowbar daemon failed {PROBE_FAILURE_THRESHOLD} probes but is {} \
+                     — not a wedge; leaving it to recover",
+                    if daemon_suspended {
+                        "OS-suspended"
+                    } else {
+                        "answering again"
+                    }
+                );
+                tracker.reset();
                 continue;
             }
 
@@ -481,6 +592,24 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
             tracker.reset();
         }
     });
+}
+
+/// Reports whether the process `pid` is OS-suspended (macOS task_suspend or a
+/// job-control SIGSTOP) rather than running. `ps -o stat` reports a leading 'T'
+/// for a stopped/suspended process and 'S'/'R' for a running one. On any error
+/// we report false: better to let a genuine wedge be killed than to suppress a
+/// restart because the process state could not be read.
+async fn process_is_suspended(pid: i32) -> bool {
+    let output = tokio::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+        .await;
+    match output {
+        Ok(out) => String::from_utf8_lossy(&out.stdout)
+            .trim_start()
+            .starts_with('T'),
+        Err(_) => false,
+    }
 }
 
 /// SIGQUIT then SIGKILL for a daemon that stopped answering. SIGQUIT is not

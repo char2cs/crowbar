@@ -57,15 +57,14 @@ jobs:
           gh pr create \
             --title "Release v${VERSION}" \
             --body "$(cat <<EOF
-Automated release PR for **v${VERSION}**.
+          Automated release PR for **v${VERSION}**.
 
-## What to do
-- Merge commits from \`develop\` into this branch as bugs are fixed during stabilization
-- Each push to this branch triggers a pre-release build (beta)
-- Merging this PR into \`master\` publishes the stable release
-
-EOF
-)" \
+          ## What to do
+          - Merge commits from \`develop\` into this branch as bugs are fixed during stabilization
+          - Each push to this branch triggers a pre-release build (beta)
+          - Merging this PR into \`master\` publishes the stable release
+          EOF
+          )" \
             --base master \
             --head "$BRANCH" \
             --label "release"

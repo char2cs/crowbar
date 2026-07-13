@@ -4,6 +4,34 @@
 
 use std::time::{Duration, Instant};
 
+/// What a readiness probe learned.
+///
+/// A probe dials the daemon over a unix socket from *this* process, so it can come
+/// back unhappy for two entirely different reasons, and the watchdog must never
+/// confuse them: the daemon is not serving, or this process has no descriptors left
+/// to dial it with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Probe {
+    /// The daemon answered.
+    Healthy,
+    /// The daemon was dialled and did not serve the request.
+    Unserved,
+    /// This process hit its own open-file limit (`EMFILE`/`ENFILE`) while dialling.
+    /// Says nothing whatsoever about the daemon's health.
+    LocalDescriptorExhaustion,
+}
+
+/// Whether a probe outcome is evidence *about the daemon*.
+///
+/// Running this process out of descriptors is evidence about this process. The
+/// daemon may be serving perfectly and merely be unreachable, so such a failure
+/// must never count toward the kill threshold: restarting the daemon cannot hand a
+/// descriptor back, the next probe fails identically, and the only thing achieved
+/// is destroying a healthy backend — and the user's session with it.
+pub fn probe_indicts_daemon(outcome: Probe) -> bool {
+    matches!(outcome, Probe::Unserved)
+}
+
 /// Trips after N consecutive failed probes. A single healthy probe resets the
 /// streak, so transient blips (one slow request during a heavy git operation)
 /// never trigger the kill path — only a sustained wedge does.
@@ -36,6 +64,36 @@ impl FailureTracker {
     pub fn reset(&mut self) {
         self.consecutive = 0;
     }
+}
+
+/// Extra wall-clock time beyond a nominal probe cycle still attributable to a
+/// merely-busy machine rather than an OS suspension. A watchdog cycle is
+/// nominally `WATCHDOG_INTERVAL + PROBE_TIMEOUT`; load can stretch it a little,
+/// but App Nap or a system sleep overshoots it by far more.
+const SUSPENSION_MARGIN: Duration = Duration::from_secs(15);
+
+/// Reports whether a watchdog cycle that spanned `elapsed` wall-clock time was
+/// interrupted by an OS suspension (App Nap / system sleep) rather than merely
+/// running slowly. A suspended daemon is frozen, not wedged: its probe failed
+/// only because it was not executing, and it answers again the instant it
+/// resumes — so a failure observed across such a gap is not evidence of a wedge
+/// and must not count toward the kill threshold. The caller measures `elapsed`
+/// with the wall clock (SystemTime), which — unlike a monotonic Instant —
+/// keeps advancing through a system sleep, so the overshoot is visible on resume.
+pub fn cycle_was_suspended(elapsed: Duration, interval: Duration, probe_timeout: Duration) -> bool {
+    elapsed > interval + probe_timeout + SUSPENSION_MARGIN
+}
+
+/// Final gate before the watchdog's irreversible SIGQUIT+SIGKILL restart, given
+/// whether the daemon process is currently OS-suspended and whether it answered
+/// a longer grace probe. macOS task-suspends an idle, backgrounded helper: while
+/// suspended it fails every probe because it is not executing, yet answers the
+/// instant it resumes — so a suspended daemon must never be killed (that is the
+/// "backend closed itself while idle" false positive). A daemon that answers the
+/// grace probe merely resumed or was transiently slow. Only a daemon that is
+/// running (not suspended) AND still unresponsive is genuinely wedged.
+pub fn should_kill_wedged(daemon_suspended: bool, grace_probe_healthy: bool) -> bool {
+    !daemon_suspended && !grace_probe_healthy
 }
 
 /// Allows at most `max` restarts inside a sliding `window`. A daemon that
@@ -92,6 +150,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn only_an_unserved_probe_indicts_the_daemon() {
+        assert!(
+            probe_indicts_daemon(Probe::Unserved),
+            "the daemon was reached and did not serve — that is its failure"
+        );
+        assert!(!probe_indicts_daemon(Probe::Healthy));
+        assert!(
+            !probe_indicts_daemon(Probe::LocalDescriptorExhaustion),
+            "the app ran out of descriptors; the daemon may be perfectly healthy \
+             and killing it cannot hand one back"
+        );
+    }
+
+    #[test]
     fn failure_tracker_trips_exactly_once_at_threshold() {
         let mut t = FailureTracker::new(3);
         assert!(!t.observe(false));
@@ -122,6 +194,60 @@ mod tests {
     }
 
     #[test]
+    fn cycle_was_suspended_ignores_normal_and_heavy_load_cycles() {
+        let interval = Duration::from_secs(10);
+        let probe = Duration::from_secs(5);
+        assert!(!cycle_was_suspended(
+            Duration::from_secs(10),
+            interval,
+            probe
+        ));
+        assert!(!cycle_was_suspended(
+            Duration::from_secs(15),
+            interval,
+            probe
+        ));
+        assert!(
+            !cycle_was_suspended(Duration::from_secs(30), interval, probe),
+            "a cycle at interval+probe+margin is heavy load, not suspension"
+        );
+    }
+
+    #[test]
+    fn cycle_was_suspended_flags_app_nap_and_system_sleep_gaps() {
+        let interval = Duration::from_secs(10);
+        let probe = Duration::from_secs(5);
+        assert!(
+            cycle_was_suspended(Duration::from_secs(31), interval, probe),
+            "a 31s cycle for a 10s sleep means the process was not executing"
+        );
+        assert!(
+            cycle_was_suspended(Duration::from_secs(3600), interval, probe),
+            "an hour-long gap is a system sleep"
+        );
+    }
+
+    #[test]
+    fn should_kill_only_a_running_and_still_unresponsive_daemon() {
+        assert!(
+            should_kill_wedged(false, false),
+            "running yet unresponsive after the grace probe = genuine wedge, kill"
+        );
+        assert!(
+            !should_kill_wedged(true, false),
+            "an OS-suspended daemon is frozen, not wedged — never kill it"
+        );
+        assert!(
+            !should_kill_wedged(false, true),
+            "answered the grace probe — it recovered, do not kill"
+        );
+        assert!(
+            !should_kill_wedged(true, true),
+            "suspended (and/or recovered) — do not kill"
+        );
+    }
+
+    #[test]
     fn restart_budget_allows_up_to_max_within_window() {
         let mut b = RestartBudget::new(3, Duration::from_secs(600));
         let now = Instant::now();
@@ -146,6 +272,9 @@ mod tests {
 
     #[test]
     fn rotate_if_needed_moves_full_log_aside() {
+        // Opens files, so it must not run while a descriptor count is being taken.
+        let _serialised = crate::test_support::fd_tests_blocking();
+
         let dir = std::env::temp_dir().join(format!("crowbar-rotate-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let log = dir.join("daemon.log");
