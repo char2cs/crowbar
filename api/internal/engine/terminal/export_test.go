@@ -70,6 +70,43 @@ func SnapshotLenForTest(eng Engine, id string) int {
 	return s.SerializedLen()
 }
 
+// PumpNotifyForTest returns the session's pump-progress signal (see
+// session.PumpNotifyForTest): a coalescing edge published every time the pump has FULLY
+// processed a chunk of PTY output. Blocking on it is how a test waits for a real shell to
+// speak without guessing a duration. Returns nil if the session is unknown — a caller
+// blocking on a nil channel blocks forever, which `go test -timeout` reports as the hang
+// it is, rather than the silent pass a zero-value would give.
+func PumpNotifyForTest(eng Engine, id string) <-chan struct{} {
+	s, ok := eng.(*terminalEngine).reg.Get(id)
+	if !ok {
+		return nil
+	}
+	return s.PumpNotifyForTest()
+}
+
+// SerializedForTest returns the session's current serialized screen (non-consuming, so it
+// never eats a dirty bit a later cadence flush is owed). Tests strip the ANSI and match on
+// the resulting screen text to decide "the shell has finished doing what I asked".
+func SerializedForTest(eng Engine, id string) []byte {
+	s, ok := eng.(*terminalEngine).reg.Get(id)
+	if !ok {
+		return nil
+	}
+	return s.SerializedForTest()
+}
+
+// SessionDoneForTest returns the session's death channel. Waiters select on it alongside
+// PumpNotifyForTest purely for DIAGNOSTICS: it is a real signal (the PTY closed), not a
+// clock, and it turns "the shell exited and will never produce the output you're waiting
+// for" from a silent 10-minute hang into an immediate, precise failure.
+func SessionDoneForTest(eng Engine, id string) <-chan struct{} {
+	s, ok := eng.(*terminalEngine).reg.Get(id)
+	if !ok {
+		return nil
+	}
+	return s.Done()
+}
+
 // StopMaintenanceForTest stops the background maintenance ticker goroutine
 // without killing any active sessions. Call this immediately after New() in any
 // test that either drives maintenance manually via RunMaintenanceOnceForTest or

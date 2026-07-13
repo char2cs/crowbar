@@ -116,6 +116,13 @@ type Session struct {
 	// solely so a test can substitute a deterministic hooked sampler to pin the
 	// fan-out → model-write → foreground-sample ordering the spec mandates (§11.1 site #1).
 	sampleForegroundLocked func()
+	// pumpNotify is a test-only observability seam (read via PumpNotifyForTest): pumpStep
+	// signals it, last in its critical section, once a chunk is fully processed. It exists
+	// so a test can BLOCK on real pump progress instead of sleeping and hoping — the PTY is
+	// an asynchronous source, and a duration is a guess about fork/exec speed, not a wait.
+	// Production never receives from it; the send is non-blocking, so an absent listener
+	// costs the pump nothing and changes no behaviour. See notifyPumpLocked.
+	pumpNotify chan struct{}
 	// Model-driven output (spec 2026-07-03): every live session is model-driven —
 	// clients receive model-derived diff/keyframe frames, never raw PTY bytes.
 	// Raw streaming survives ONLY as the degraded fallback. modelPanics counts
@@ -168,6 +175,10 @@ func newBareSession(
 		shell:     shell,
 		profileID: profileID,
 		exitCode:  -1,
+		// 1-buffered: notifyPumpLocked's send is non-blocking, so this is a coalescing
+		// edge, not a queue. Always allocated (a nil channel would make the send's
+		// select fall through to default forever, silently disabling the seam).
+		pumpNotify: make(chan struct{}, 1),
 	}
 	s.sampleForegroundLocked = s.checkForegroundResetLocked
 	return s
@@ -897,6 +908,24 @@ func (s *Session) pumpStep(chunk []byte) {
 	if now := time.Now(); now.Sub(s.lastFgSampleAt) >= foregroundSampleInterval {
 		s.lastFgSampleAt = now
 		s.sampleForegroundLocked()
+	}
+	s.notifyPumpLocked()
+}
+
+// notifyPumpLocked publishes "the pump has fully processed another chunk" on the
+// pumpNotify seam. It runs LAST in pumpStep's critical section, so a woken waiter is
+// guaranteed to observe every effect of that chunk — the model write, the emit, and
+// s.dirty — as soon as it can re-acquire s.mu.
+//
+// The send is non-blocking onto a 1-buffered channel, making the signal a coalescing
+// edge ("something happened since you last looked") rather than a queue: the pump can
+// never block on, or be paced by, whether anyone is listening, so production behaviour
+// with no listener is byte-for-byte what it was before the seam existed. Caller holds
+// s.mu.
+func (s *Session) notifyPumpLocked() {
+	select {
+	case s.pumpNotify <- struct{}{}:
+	default:
 	}
 }
 

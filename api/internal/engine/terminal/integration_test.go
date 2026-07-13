@@ -7,9 +7,7 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
-	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/terminal"
@@ -70,31 +68,31 @@ type closedErr struct{}
 
 func (e *closedErr) Error() string { return "connection closed" }
 
-// waitForOutput blocks until pred returns true for a received frame or timeout.
+// waitForOutput blocks until a frame the engine fanned out to conn satisfies pred.
+//
+// conn.inbox is fed by the engine's own WriteMessage, so receiving from it is a real signal
+// and the wait needs no deadline: between frames there is by definition nothing new to test.
+// A predicate that is never satisfied means the engine never produced the output the test was
+// waiting for — a hang, which `go test -timeout` reports with the full goroutine dump, rather
+// than a bare "conn1 must see 'hello'" with no indication of where it got stuck.
 func waitForOutput(
 	t *testing.T,
 	conn *pipeConn,
 	pred func(data string) bool,
-	timeout time.Duration,
-) bool {
+) {
 	t.Helper()
-	deadline := time.After(timeout)
-	for {
-		select {
-		case raw := <-conn.inbox:
-			var msg struct {
-				Data string `json:"data"`
-			}
-			if err := json.Unmarshal(raw, &msg); err != nil {
-				continue
-			}
-			if pred(msg.Data) {
-				return true
-			}
-		case <-deadline:
-			return false
+	for raw := range conn.inbox {
+		var msg struct {
+			Data string `json:"data"`
+		}
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			continue
+		}
+		if pred(msg.Data) {
+			return
 		}
 	}
+	t.Fatal("conn closed before the awaited output arrived")
 }
 
 func TestIntegration_TwoClientsReceiveOutput(t *testing.T) {
@@ -135,8 +133,8 @@ func TestIntegration_TwoClientsReceiveOutput(t *testing.T) {
 		return containsSubstr(data, "hello")
 	}
 
-	assert.True(t, waitForOutput(t, conn1, contains, 5*time.Second), "conn1 must see 'hello'")
-	assert.True(t, waitForOutput(t, conn2, contains, 5*time.Second), "conn2 must see 'hello'")
+	waitForOutput(t, conn1, contains) // blocks on the fan-out signal — conn1 must see 'hello'
+	waitForOutput(t, conn2, contains) // blocks on the fan-out signal — conn2 must see 'hello'
 
 	conn1.Close()
 	conn2.Close()
@@ -165,7 +163,7 @@ func TestIntegration_ReattachSerializedRedraw(t *testing.T) {
 	require.NoError(t, eng.Write(ctx, sid, []byte("echo ring\n")))
 
 	hasRing := func(data string) bool { return containsSubstr(data, "ring") }
-	assert.True(t, waitForOutput(t, conn1, hasRing, 5*time.Second), "first client must see 'ring'")
+	waitForOutput(t, conn1, hasRing) // blocks on the fan-out signal — first client must see 'ring'
 
 	conn1.Close()
 	<-attachDone1
@@ -180,7 +178,7 @@ func TestIntegration_ReattachSerializedRedraw(t *testing.T) {
 		_ = eng.Attach(ctx, sid, conn2)
 	}()
 
-	assert.True(t, waitForOutput(t, conn2, hasRing, 3*time.Second), "serialized redraw must contain 'ring'")
+	waitForOutput(t, conn2, hasRing) // blocks on the fan-out signal — serialized redraw must contain 'ring'
 
 	conn2.Close()
 	require.NoError(t, eng.Kill(ctx, sid))
@@ -205,11 +203,10 @@ func TestIntegration_KillClosesClients(t *testing.T) {
 
 	require.NoError(t, eng.Kill(ctx, sid))
 
-	select {
-	case <-attachDone:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Attach did not return after Kill")
-	}
+	// Block on the real signal. A hand-rolled deadline here would only be a second,
+	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
+	// -timeout` reports it with the blocked stack.
+	<-attachDone
 }
 
 func containsSubstr(

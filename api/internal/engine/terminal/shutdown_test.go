@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,37 +28,29 @@ import (
 //  7. Construct a fresh engine + LoadPlaceholder and assert sessions come back
 //     as suspended placeholders.
 func TestShutdown_FlushPersistNoBufDelete(t *testing.T) {
+	pinShell(t)
+
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
 
+	// Each session is blocked on until its shell has printed its prompt — which confirms
+	// the PTY is live and the screen model has content for Shutdown to flush, and does so by
+	// observing the shell rather than by assuming 10 s is enough for it to have spoken.
 	const N = 3
 	sids := make([]string, N)
 	for i := range sids {
-		sid, err := eng.Create(ctx, "ws-graceful-shutdown", store.dir, nil)
-		require.NoError(t, err)
-		sids[i] = sid
+		sids[i] = newReadyShell(t, eng, "ws-graceful-shutdown", store.dir)
 	}
 
-	// Wait for each session to produce output — confirms the PTY is live and
-	// the screen model has content that Shutdown can flush.
-	for _, sid := range sids {
-		waitForModelOutput(t, eng, sid, 10*time.Second)
-	}
-
-	// Shutdown must return promptly (maintenance goroutine closes the stop channel).
-	shutdownDone := make(chan struct{})
-	go func() {
-		eng.Shutdown()
-		close(shutdownDone)
-	}()
-	select {
-	case <-shutdownDone:
-	case <-time.After(15 * time.Second):
-		t.Fatal("Shutdown did not return within 15 s")
-	}
+	// Shutdown is called directly, on this goroutine. It joins the maintenance sweep and
+	// every reaper before returning (see the <-reaped at the end of Shutdown), so it
+	// converges on the work itself; there is nothing here for a 15-second deadline to add
+	// except a second, weaker definition of "too slow". If it ever fails to return, that is
+	// a hang, and `go test -timeout` reports it with the blocked stack.
+	eng.Shutdown()
 
 	// Shutdown persists every live session synchronously — WriteBuf + saveMeta
 	// (state="suspended"), both under the per-session lock — BEFORE it returns, and
@@ -76,19 +67,18 @@ func TestShutdown_FlushPersistNoBufDelete(t *testing.T) {
 			"meta must be saved with state=suspended after Shutdown for sid=%s", sid)
 	}
 
-	// 3. Delete must NEVER be called — scrollback is preserved for restart. This is
-	// a genuine negative assertion: a reapOnDone goroutine racing s.Kill must
-	// early-return on the suspending flag. Prove the absence over a bounded window
-	// deterministically (require.Never) instead of sleeping-then-checking once.
-	require.Never(t, func() bool {
-		for _, sid := range sids {
-			if store.hasDeleted(sid) {
-				return true
-			}
-		}
-		return false
-	}, 300*time.Millisecond, 20*time.Millisecond,
-		"meta Delete must NOT be called during Shutdown")
+	// 3. Delete must NEVER be called — scrollback is preserved for restart. The racing
+	// reapOnDone goroutine (which must early-return on the suspending flag rather than
+	// deleting) has ALREADY RUN TO COMPLETION: Shutdown ends by joining every reaper
+	// (<-reaped), so the set of Delete calls is final and closed the moment it returns.
+	//
+	// So this is a plain read, not a 300 ms require.Never window. The window was trying to
+	// out-wait goroutines that Shutdown provably joins — which made it both redundant and
+	// WEAKER than the direct assertion: a Delete arriving at 301 ms would have satisfied it.
+	for _, sid := range sids {
+		assert.False(t, store.hasDeleted(sid),
+			"meta Delete must NOT be called during Shutdown (sid=%s)", sid)
+	}
 
 	// 4. A fresh engine can reload sessions via LoadPlaceholder (simulating
 	//    RestorePersistedSessions at daemon start).

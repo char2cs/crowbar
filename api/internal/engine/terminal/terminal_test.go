@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -113,12 +112,19 @@ type mockConn struct {
 	outbox    chan []byte
 	closed    chan struct{}
 	closeOnce sync.Once
+	// notify is a 1-buffered, coalescing edge published on every frame the engine fans out
+	// to this conn. WriteMessage IS the engine telling us it produced output — that is a
+	// real signal, and it was previously thrown away in favour of polling inbox on a 10 ms
+	// timer. Waiters now block on this and re-scan inbox on each edge, so they wake exactly
+	// when there is something new to look at.
+	notify chan struct{}
 }
 
 func newMockConn() *mockConn {
 	return &mockConn{
 		outbox: make(chan []byte, 256),
 		closed: make(chan struct{}),
+		notify: make(chan struct{}, 1),
 	}
 }
 
@@ -127,10 +133,17 @@ func (m *mockConn) WriteMessage(
 	data []byte,
 ) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	cp := make([]byte, len(data))
 	copy(cp, data)
 	m.inbox = append(m.inbox, cp)
+	m.mu.Unlock()
+	// Non-blocking: the engine's fan-out must never be paced by whether a test is
+	// listening. inbox retains every frame, so a coalesced edge loses no data — it only
+	// says "look again".
+	select {
+	case m.notify <- struct{}{}:
+	default:
+	}
 	return nil
 }
 
@@ -160,32 +173,54 @@ type connClosedErr struct{}
 
 func (e *connClosedErr) Error() string { return "connection closed" }
 
+// waitForMsg blocks until some frame the engine has fanned out to conn satisfies pred.
+//
+// It carries no deadline and no poll interval. The engine calls WriteMessage every time it
+// emits a frame, so that call is the real signal, and conn.notify publishes it; between
+// edges there is by definition nothing new to test. A predicate that is never satisfied
+// means the engine never produced the output the test was waiting for — a hang, which
+// `go test -timeout` reports with the full goroutine dump.
+//
+// The pred is evaluated against the ACCUMULATED inbox rather than the single newest frame,
+// so a payload split across frames still matches.
 func waitForMsg(
 	t *testing.T,
 	conn *mockConn,
 	pred func(string) bool,
-	timeout time.Duration,
-) bool {
+) {
 	t.Helper()
-	deadline := time.After(timeout)
 	for {
-		for _, raw := range conn.allReceived() {
-			var msg struct {
-				Data string `json:"data"`
-			}
-			if err := json.Unmarshal(raw, &msg); err != nil {
-				continue
-			}
-			if pred(msg.Data) {
-				return true
-			}
+		if connMatches(conn, pred) {
+			return
 		}
 		select {
-		case <-deadline:
-			return false
-		case <-time.After(10 * time.Millisecond):
+		case <-conn.notify:
+			// A new frame landed; re-scan.
+		case <-conn.closed:
+			// The conn is closed: no further frame can arrive. Re-check once for a frame
+			// that landed in the same instant, then fail rather than block forever.
+			if connMatches(conn, pred) {
+				return
+			}
+			t.Fatal("conn closed before the awaited frame arrived")
 		}
 	}
+}
+
+// connMatches reports whether any frame received so far satisfies pred.
+func connMatches(conn *mockConn, pred func(string) bool) bool {
+	for _, raw := range conn.allReceived() {
+		var msg struct {
+			Data string `json:"data"`
+		}
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			continue
+		}
+		if pred(msg.Data) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestEngine_Create_And_ListSessions(t *testing.T) {
@@ -262,15 +297,14 @@ func TestEngine_OnSessionEnded_FiresOnReap(t *testing.T) {
 	// OnSessionEnded callback. Synchronise on the callback channel, never sleep.
 	require.NoError(t, eng.Kill(ctx, sid))
 
-	select {
-	case got := <-endedCh:
-		assert.Equal(t, "ws-a", got.wsID)
-		assert.Equal(t, sid, got.sid)
-		// exitCode is -1 when killed by signal; any integer is valid here.
-		_ = got.exitCode
-	case <-time.After(5 * time.Second):
-		t.Fatal("OnSessionEnded did not fire after Kill")
-	}
+	// Block on the real signal — the callback firing. A hand-rolled deadline would only be
+	// a second, weaker definition of "too slow"; a callback that never fires is a hang, and
+	// `go test -timeout` reports it with the blocked stack.
+	got := <-endedCh
+	assert.Equal(t, "ws-a", got.wsID)
+	assert.Equal(t, sid, got.sid)
+	// exitCode is -1 when killed by signal; any integer is valid here.
+	_ = got.exitCode
 }
 
 func TestEngine_Kill_Unknown(t *testing.T) {
@@ -343,10 +377,9 @@ func TestEngine_Attach_ReceivesOutput(t *testing.T) {
 
 	require.NoError(t, eng.Write(ctx, sid, []byte("echo hello\n")))
 
-	found := waitForMsg(t, conn, func(data string) bool {
+	waitForMsg(t, conn, func(data string) bool {
 		return len(data) >= 5 && containsStr(data, "hello")
-	}, 10*time.Second)
-	assert.True(t, found, "must receive output containing 'hello'")
+	}) // blocks on the fan-out signal: "must receive output containing 'hello'"
 
 	conn.Close()
 	require.NoError(t, eng.Kill(ctx, sid))
@@ -435,11 +468,10 @@ func TestEngine_Attach_ResyncMessage(t *testing.T) {
 		_ = eng.Attach(ctx, sid, conn)
 	}()
 
-	select {
-	case <-conn.allConsumed:
-	case <-time.After(3 * time.Second):
-		t.Fatal("timeout waiting for resync messages to be consumed")
-	}
+	// Block on the real signal. A hand-rolled deadline here would only be a second,
+	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
+	// -timeout` reports it with the blocked stack.
+	<-conn.allConsumed
 
 	conn.Close()
 	require.NoError(t, eng.Kill(ctx, sid))
@@ -471,11 +503,10 @@ func TestEngine_Attach_ResizeMessage(t *testing.T) {
 	}()
 
 	// Wait until the seqConn has delivered all messages.
-	select {
-	case <-conn.allConsumed:
-	case <-time.After(3 * time.Second):
-		t.Fatal("timeout waiting for messages to be consumed")
-	}
+	// Block on the real signal. A hand-rolled deadline here would only be a second,
+	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
+	// -timeout` reports it with the blocked stack.
+	<-conn.allConsumed
 
 	conn.Close()
 	require.NoError(t, eng.Kill(ctx, sid))
@@ -549,11 +580,10 @@ func TestEngine_Attach_WritePumpClosedConn(t *testing.T) {
 	// Write to trigger writePump which will fail on WriteMessage.
 	require.NoError(t, eng.Write(ctx, sid, []byte("echo hi\n")))
 
-	select {
-	case <-attachDone:
-	case <-time.After(10 * time.Second):
-		t.Fatal("Attach did not return after write error")
-	}
+	// Block on the real signal. A hand-rolled deadline here would only be a second,
+	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
+	// -timeout` reports it with the blocked stack.
+	<-attachDone
 	require.NoError(t, eng.Kill(ctx, sid))
 }
 
@@ -754,10 +784,9 @@ func TestEngine_LoadPlaceholder_ThenAttach_Restores(t *testing.T) {
 	}()
 
 	// The replayed scrollback must appear in the first messages.
-	found := waitForMsg(t, conn, func(data string) bool {
+	waitForMsg(t, conn, func(data string) bool {
 		return containsStr(data, marker)
-	}, 8*time.Second)
-	assert.True(t, found, "scrollback must be replayed after LoadPlaceholder → Attach")
+	}) // blocks on the fan-out signal: "scrollback must be replayed after LoadPlaceholder → Attach"
 
 	conn.Close()
 	<-attachDone
@@ -789,10 +818,10 @@ func TestEngine_Detach_PersistsScrollbackAndMeta(t *testing.T) {
 	}()
 
 	require.NoError(t, eng.Write(ctx, sid, []byte("echo detach-marker\n")))
-	found := waitForMsg(t, conn, func(data string) bool {
+	// blocks on the fan-out signal — must receive 'detach-marker' output before detaching
+	waitForMsg(t, conn, func(data string) bool {
 		return containsStr(data, "detach-marker")
-	}, 5*time.Second)
-	require.True(t, found, "must receive 'detach-marker' output before detaching")
+	})
 
 	conn.Close()
 	<-attachDone
@@ -823,8 +852,8 @@ func TestEngine_Suspend_WithConnectedClient_NoOp(t *testing.T) {
 	}()
 
 	// Wait for at least one frame to confirm the client is fully registered.
-	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 10*time.Second)
-	require.True(t, found, "must receive initial PTY output to confirm attach is live")
+	// blocks on the fan-out signal — must receive initial PTY output to confirm attach is live
+	waitForMsg(t, conn, func(d string) bool { return len(d) > 0 })
 
 	// Suspend with a connected client must be a no-op.
 	require.NoError(t, eng.Suspend(ctx, sid))
@@ -844,6 +873,8 @@ func TestEngine_Suspend_WithConnectedClient_NoOp(t *testing.T) {
 //   - meta is saved with state="suspended"
 //   - the onEnded callback is NOT fired
 func TestEngine_Suspend_MakesPlaceholder(t *testing.T) {
+	pinShell(t)
+
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
@@ -861,34 +892,31 @@ func TestEngine_Suspend_MakesPlaceholder(t *testing.T) {
 		}
 	})
 
-	sid, err := eng.Create(ctx, "ws-susp", dir, nil)
-	require.NoError(t, err)
-
-	// Poll: keep calling Suspend until meta shows "suspended" (shell must be idle).
-	deadline := time.After(15 * time.Second)
-	for {
-		_ = eng.Suspend(ctx, sid)
-		if store.hasSavedWithState(sid, "suspended") {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatal("session was not suspended within 15s")
-		case <-time.After(200 * time.Millisecond):
-		}
-	}
+	// The shell is parked at its prompt, hence idle, which is the precondition Suspend's
+	// eligibility gate checks. So ONE call must take — no retry loop.
+	sid := newReadyShell(t, eng, "ws-susp", dir)
+	require.NoError(t, eng.Suspend(ctx, sid))
+	require.True(t, store.hasSavedWithState(sid, "suspended"),
+		"Suspend persists the suspended meta before returning")
 
 	assert.True(t, eng.SessionExists(ctx, sid), "suspended session must still be in registry")
 	assert.True(t, bufExists(store.dir, sid), ".buf must exist after suspend")
 
-	// Negative assertion: a suspended session must NOT fire onEnded. Wait a bounded
-	// window and fail if the callback ever fires (deterministic replacement for a
-	// blind sleep-then-check; time.After here is the negative-window deadline, not a
-	// sleep to paper over a race).
+	// Negative assertion: a suspended session must NOT fire onEnded. The thing that could
+	// wrongly fire it is the suspended session's reapOnDone goroutine — which must observe the
+	// placeholder swap and return without firing. So the barrier is to JOIN that goroutine:
+	// Shutdown drains every outstanding reaper before returning, after which the set of
+	// onEnded fires is final and closed.
+	//
+	// That is a real barrier, where the 300 ms window it replaces was a guess. The window did
+	// not prove the callback never fires; it proved it had not fired YET, and would have
+	// passed just as happily if the reaper were merely slow.
+	eng.Shutdown()
+
 	select {
 	case <-endedCh:
 		t.Fatal("onEnded must NOT fire for a suspended session")
-	case <-time.After(300 * time.Millisecond):
+	default:
 	}
 }
 
@@ -896,6 +924,8 @@ func TestEngine_Suspend_MakesPlaceholder(t *testing.T) {
 // session triggers restore: a fresh shell spawns, prior scrollback is replayed,
 // and new output flows normally.
 func TestEngine_Suspend_ThenAttach_Restores(t *testing.T) {
+	pinShell(t)
+
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
@@ -903,36 +933,32 @@ func TestEngine_Suspend_ThenAttach_Restores(t *testing.T) {
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
 
-	sid, err := eng.Create(ctx, "ws-restore", dir, nil)
-	require.NoError(t, err)
+	sid := newReadyShell(t, eng, "ws-restore", dir)
 
 	// Attach first client, write something to populate the ring, then detach.
 	conn1 := newMockConn()
-	go func() { _ = eng.Attach(ctx, sid, conn1) }()
+	attach1Done := make(chan struct{})
+	go func() {
+		defer close(attach1Done)
+		_ = eng.Attach(ctx, sid, conn1)
+	}()
 	require.NoError(t, eng.Write(ctx, sid, []byte("echo pre-suspend\n")))
-	waitForMsg(t, conn1, func(d string) bool { return containsStr(d, "pre-suspend") }, 5*time.Second)
+	waitForMsg(t, conn1, func(d string) bool { return containsStr(d, "pre-suspend") })
 	conn1.Close()
-	// Wait for detach bookkeeping to finish: the session returns to "detached" once
-	// the last client leaves. This is the real precondition Suspend needs (no
-	// attached clients), so gate on it deterministically instead of sleeping.
-	require.Eventually(t, func() bool {
-		st, ok := eng.StateOf(sid)
-		return ok && st == "detached"
-	}, 5*time.Second, 20*time.Millisecond, "session must return to detached after client close")
 
-	// Suspend: poll until it takes effect.
-	deadline := time.After(15 * time.Second)
-	for {
-		_ = eng.Suspend(ctx, sid)
-		if store.hasSavedWithState(sid, "suspended") {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatal("session did not suspend within 15s")
-		case <-time.After(200 * time.Millisecond):
-		}
-	}
+	// Join the Attach goroutine. Attach runs the client's read pump and calls Detach on its
+	// way out, so its RETURN is the detach-bookkeeping completing — the real signal that the
+	// session has no attached clients left, which is exactly the precondition Suspend needs.
+	// Polling StateOf for "detached" was watching for the shadow of this event.
+	<-attach1Done
+	st, ok := eng.StateOf(sid)
+	require.True(t, ok)
+	require.Equal(t, "detached", st, "the session must be detached once its last client has gone")
+
+	// Idle (at its prompt) and detached: Suspend must take on the first call.
+	require.NoError(t, eng.Suspend(ctx, sid))
+	require.True(t, store.hasSavedWithState(sid, "suspended"),
+		"Suspend persists the suspended meta before returning")
 
 	// Attach to the suspended session → restore must happen transparently.
 	conn2 := newMockConn()
@@ -943,17 +969,15 @@ func TestEngine_Suspend_ThenAttach_Restores(t *testing.T) {
 	}()
 
 	// Restored session must replay prior scrollback.
-	found := waitForMsg(t, conn2, func(d string) bool {
+	waitForMsg(t, conn2, func(d string) bool {
 		return containsStr(d, "pre-suspend")
-	}, 8*time.Second)
-	assert.True(t, found, "scrollback must be replayed after restore")
+	}) // blocks on the fan-out signal: "scrollback must be replayed after restore"
 
 	// New output must flow through the restored live shell.
 	require.NoError(t, eng.Write(ctx, sid, []byte("echo post-restore\n")))
-	found = waitForMsg(t, conn2, func(d string) bool {
+	waitForMsg(t, conn2, func(d string) bool {
 		return containsStr(d, "post-restore")
-	}, 5*time.Second)
-	assert.True(t, found, "new output must flow after restore")
+	}) // blocks on the fan-out signal: "new output must flow after restore"
 
 	conn2.Close()
 	<-attachDone
@@ -1011,13 +1035,8 @@ func TestEngine_Kill_CleanReap(t *testing.T) {
 
 	require.NoError(t, eng.Kill(ctx, sid))
 
-	// Wait for reapOnDone to fire the callback.
-	select {
-	case got := <-endedCh:
-		assert.Equal(t, sid, got)
-	case <-time.After(5 * time.Second):
-		t.Fatal("onEnded did not fire after Kill")
-	}
+	// Block on reapOnDone firing the callback — the real signal.
+	assert.Equal(t, sid, <-endedCh)
 
 	assert.False(t, eng.SessionExists(ctx, sid), "session must be absent after kill")
 	assert.True(t, store.hasDeleted(sid), "meta must be deleted by reapOnDone")
@@ -1077,8 +1096,8 @@ func TestEngine_StateOf_ActiveWhileAttached(t *testing.T) {
 	}()
 
 	// Wait until we receive at least one frame, confirming the client is registered.
-	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 10*time.Second)
-	require.True(t, found, "must receive initial output to confirm attach")
+	// blocks on the fan-out signal — must receive initial output to confirm attach
+	waitForMsg(t, conn, func(d string) bool { return len(d) > 0 })
 
 	state, ok := eng.StateOf(sid)
 	assert.True(t, ok)
@@ -1112,18 +1131,14 @@ func TestEngine_OnSessionState_DetachedFiredOnLastClientLeave(t *testing.T) {
 		_ = eng.Attach(ctx, sid, conn)
 	}()
 
-	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 10*time.Second)
-	require.True(t, found, "must receive initial output before closing")
+	// blocks on the fan-out signal — must receive initial output before closing
+	waitForMsg(t, conn, func(d string) bool { return len(d) > 0 })
 
 	conn.Close()
 	<-attachDone
 
-	select {
-	case got := <-stateCh:
-		assert.Equal(t, "detached", got)
-	case <-time.After(3 * time.Second):
-		t.Fatal("OnSessionState 'detached' did not fire after last-client disconnect")
-	}
+	assert.Equal(t, "detached", <-stateCh,
+		"OnSessionState must fire 'detached' after the last client disconnects")
 
 	require.NoError(t, eng.Kill(ctx, sid))
 }
@@ -1134,6 +1149,8 @@ func TestEngine_OnSessionState_DetachedFiredOnLastClientLeave(t *testing.T) {
 // callback must fire "detached" after last-client disconnect and "suspended"
 // after Suspend.
 func TestRegression_TerminalLifecycle_StateOf_And_OnSessionState(t *testing.T) {
+	pinShell(t)
+
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
@@ -1151,9 +1168,9 @@ func TestRegression_TerminalLifecycle_StateOf_And_OnSessionState(t *testing.T) {
 		endedCh <- exitCode
 	})
 
-	// Create → should be detached (no clients).
-	sid, err := eng.Create(ctx, "ws-regress", dir, nil)
-	require.NoError(t, err)
+	// Create → should be detached (no clients). Block until the shell is at its prompt, so the
+	// Suspend later in this test meets the idle gate its eligibility check applies.
+	sid := newReadyShell(t, eng, "ws-regress", dir)
 
 	state, ok := eng.StateOf(sid)
 	assert.True(t, ok)
@@ -1166,8 +1183,8 @@ func TestRegression_TerminalLifecycle_StateOf_And_OnSessionState(t *testing.T) {
 		defer close(attachDone)
 		_ = eng.Attach(ctx, sid, conn)
 	}()
-	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 10*time.Second)
-	require.True(t, found, "must receive initial output to confirm attach")
+	// blocks on the fan-out signal — must receive initial output to confirm attach
+	waitForMsg(t, conn, func(d string) bool { return len(d) > 0 })
 
 	state, ok = eng.StateOf(sid)
 	assert.True(t, ok)
@@ -1177,37 +1194,21 @@ func TestRegression_TerminalLifecycle_StateOf_And_OnSessionState(t *testing.T) {
 	conn.Close()
 	<-attachDone
 
-	select {
-	case got := <-stateCh:
-		assert.Equal(t, "detached", got, "OnSessionState must fire 'detached' on last-client leave")
-	case <-time.After(3 * time.Second):
-		t.Fatal("OnSessionState 'detached' did not fire after detach")
-	}
+	assert.Equal(t, "detached", <-stateCh,
+		"OnSessionState must fire 'detached' on last-client leave")
 
 	state, ok = eng.StateOf(sid)
 	assert.True(t, ok)
 	assert.Equal(t, "detached", state)
 
-	// Suspend → "suspended" + callback fires.
-	deadline := time.After(15 * time.Second)
-	for {
-		_ = eng.Suspend(ctx, sid)
-		if store.hasSavedWithState(sid, "suspended") {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatal("session did not suspend within 15s")
-		case <-time.After(200 * time.Millisecond):
-		}
-	}
+	// Suspend → "suspended" + callback fires. The shell is at its prompt (idle) and now
+	// detached, so Suspend's eligibility gate is satisfied and ONE call must take.
+	require.NoError(t, eng.Suspend(ctx, sid))
+	require.True(t, store.hasSavedWithState(sid, "suspended"),
+		"Suspend persists the suspended meta before returning")
 
-	select {
-	case got := <-stateCh:
-		assert.Equal(t, "suspended", got, "OnSessionState must fire 'suspended' after Suspend")
-	case <-time.After(3 * time.Second):
-		t.Fatal("OnSessionState 'suspended' did not fire after Suspend")
-	}
+	assert.Equal(t, "suspended", <-stateCh,
+		"OnSessionState must fire 'suspended' after Suspend")
 
 	state, ok = eng.StateOf(sid)
 	assert.True(t, ok)
@@ -1216,11 +1217,6 @@ func TestRegression_TerminalLifecycle_StateOf_And_OnSessionState(t *testing.T) {
 	// Kill the placeholder → "ended" via OnSessionEnded.
 	require.NoError(t, eng.Kill(ctx, sid))
 
-	select {
-	case exitCode := <-endedCh:
-		// Placeholder kill → exit code -1 (no process).
-		assert.Equal(t, -1, exitCode, "placeholder kill must report exitCode -1")
-	case <-time.After(5 * time.Second):
-		t.Fatal("OnSessionEnded did not fire after killing suspended placeholder")
-	}
+	// Placeholder kill → exit code -1 (no process).
+	assert.Equal(t, -1, <-endedCh, "placeholder kill must report exitCode -1")
 }
