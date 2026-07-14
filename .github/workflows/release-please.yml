@@ -15,7 +15,7 @@ jobs:
       release_created: ${{ steps.rp.outputs.releases_created }}
       version: ${{ steps.rp.outputs['desktop/src-tauri--version'] }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: rp
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
