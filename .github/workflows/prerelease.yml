@@ -202,7 +202,7 @@ jobs:
         run: |
           cd release-artifacts
           find . -type f ! -name 'SHA256SUMS' -exec sha256sum {} \; | sed 's|./||' > SHA256SUMS
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.derive-tag.outputs.tag }}
           name: "Crowbar ${{ needs.derive-tag.outputs.tag }}"
