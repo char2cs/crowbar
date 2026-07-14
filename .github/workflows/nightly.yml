@@ -18,7 +18,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: v
         run: |
           VERSION=$(grep -m1 '^version' desktop/src-tauri/Cargo.toml | grep -oP '[\d.]+')
@@ -28,7 +28,7 @@ jobs:
     needs: derive-version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: develop
       - uses: actions/setup-go@v5
@@ -68,7 +68,7 @@ jobs:
     env:
       VERSION: ${{ needs.derive-version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: develop
       - uses: dtolnay/rust-toolchain@stable
@@ -137,7 +137,7 @@ jobs:
     env:
       VERSION: ${{ needs.derive-version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: develop
       - uses: dtolnay/rust-toolchain@stable
@@ -190,7 +190,7 @@ jobs:
     needs: [derive-version, daemon, desktop-macos, desktop-linux]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: develop
       - uses: actions/download-artifact@v4

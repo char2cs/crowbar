@@ -27,7 +27,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: master
       - name: Read version from Cargo.toml
@@ -42,7 +42,7 @@ jobs:
     needs: guard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: master
       - uses: actions/setup-go@v5
@@ -82,7 +82,7 @@ jobs:
     env:
       VERSION: ${{ needs.guard.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: master
       - uses: dtolnay/rust-toolchain@stable
@@ -151,7 +151,7 @@ jobs:
     env:
       VERSION: ${{ needs.guard.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: master
       - uses: dtolnay/rust-toolchain@stable
@@ -226,7 +226,7 @@ jobs:
     needs: [guard, release]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
