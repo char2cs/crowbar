@@ -17,7 +17,7 @@ vi.mock('monaco-editor', () => {
       createModel: vi.fn((value: string) => {
         let text = value
         return {
-          uri: FakeUri.parse('athas://editor/x'),
+          uri: FakeUri.parse('crowbar://editor/x'),
           dispose: vi.fn(),
           getValue: vi.fn(() => text),
           getFullModelRange: vi.fn(() => ({})),
@@ -66,13 +66,13 @@ describe('monaco-adapters', () => {
   })
 
   it('createModel wraps the model with a string uri and dispose()', () => {
-    const model = realModelApi().createModel('hello', 'typescript', 'athas://editor/x')
+    const model = realModelApi().createModel('hello', 'typescript', 'crowbar://editor/x')
     expect(typeof model.uri).toBe('string')
     expect(typeof model.dispose).toBe('function')
   })
 
   it('setValueIfChanged uses pushEditOperations (preserves undo) only when text differs', () => {
-    const model = realModelApi().createModel('hello', 'typescript', 'athas://editor/x')
+    const model = realModelApi().createModel('hello', 'typescript', 'crowbar://editor/x')
     // No-op when unchanged.
     model.setValueIfChanged('hello')
     expect(model.getValue()).toBe('hello')
@@ -82,6 +82,6 @@ describe('monaco-adapters', () => {
   })
 
   it('langForUri derives a monaco language id from the file path', () => {
-    expect(langForUri('athas://editor/' + encodeURIComponent('/proj/main.ts'))).toBe('typescript')
+    expect(langForUri('crowbar://editor/' + encodeURIComponent('/proj/main.ts'))).toBe('typescript')
   })
 })

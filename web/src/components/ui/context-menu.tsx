@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { ChevronRightIcon, CheckIcon } from 'lucide-react'
 
-// ── Imperative context-menu compatibility (used by Athas feature modules) ──────
+// ── Imperative context-menu API (opened programmatically, not via a trigger) ──
 
 export interface ContextMenuItem {
   id: string
@@ -154,7 +154,7 @@ export function useContextMenu<T = unknown>() {
   return { ...state, open, openAt, close }
 }
 
-// Re-export imperative ContextMenu under the same name for Athas modules.
+// Re-export the imperative ContextMenu under the same name.
 // The base-ui declarative version is exported as ContextMenuRoot for the Crowbar UI library.
 export { ImperativeContextMenu as ContextMenu }
 

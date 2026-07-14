@@ -810,8 +810,8 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       const term = xtermRef.current
       if (term) term.refresh(0, term.rows - 1)
     }
-    window.addEventListener('athas-terminal-refit', handler)
-    return () => window.removeEventListener('athas-terminal-refit', handler)
+    window.addEventListener('crowbar-terminal-refit', handler)
+    return () => window.removeEventListener('crowbar-terminal-refit', handler)
   }, [fitTerminal, isInitialized, sessionId])
 
   useEffect(() => {

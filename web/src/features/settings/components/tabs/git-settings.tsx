@@ -200,36 +200,6 @@ export const GitSettings = () => {
         </SettingRow>
       </Section>
 
-      <Section title="Editor">
-        <SettingRow
-          label="Enable Inline Blame"
-          description="Show inline Git blame metadata for the current line in the editor"
-          onReset={() =>
-            updateSetting('enableInlineGitBlame', getDefaultSetting('enableInlineGitBlame'))
-          }
-          canReset={settings.enableInlineGitBlame !== getDefaultSetting('enableInlineGitBlame')}
-        >
-          <Switch
-            checked={settings.enableInlineGitBlame}
-            onChange={(checked) => updateSetting('enableInlineGitBlame', checked)}
-            size="sm"
-          />
-        </SettingRow>
-
-        <SettingRow
-          label="Enable Git Gutter"
-          description="Show added, modified, and deleted indicators in the editor gutter"
-          onReset={() => updateSetting('enableGitGutter', getDefaultSetting('enableGitGutter'))}
-          canReset={settings.enableGitGutter !== getDefaultSetting('enableGitGutter')}
-        >
-          <Switch
-            checked={settings.enableGitGutter}
-            onChange={(checked) => updateSetting('enableGitGutter', checked)}
-            size="sm"
-          />
-        </SettingRow>
-      </Section>
-
       <Section title="File Tree">
         <SettingRow
           label="Show Git Status In File Tree"

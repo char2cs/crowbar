@@ -8,7 +8,7 @@ export interface FileExplorerIconProps {
   fileName?: string
   filePath?: string
   isDirectory?: boolean
-  /** Athas alias for isDirectory */
+  /** Alias for isDirectory. */
   isDir?: boolean
   isExpanded?: boolean
   className?: string

@@ -50,7 +50,7 @@ export const EDITOR_CREATE_OPTIONS: monacoEditor.IStandaloneEditorConstructionOp
   },
 }
 
-/** Monaco language id for a model URI (uri → fs path → athas id → monaco id). */
+/** Monaco language id for a model URI (uri → fs path → language id → monaco id). */
 export function langForUri(uri: string): string {
   return toMonacoLanguageId(getLanguageIdFromPath(uriToFsPath(uri)))
 }

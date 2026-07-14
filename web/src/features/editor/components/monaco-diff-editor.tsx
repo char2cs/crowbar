@@ -101,7 +101,7 @@ const EMPTY_COMMENT_ZONES: CommentZoneSpec[] = []
 function createModelUri(bufferId: string | undefined, filePath: string): Monaco.Uri {
   const sanitizedPath = filePath.replace(/^\/+/, '')
   const path = sanitizedPath.length > 0 ? sanitizedPath : `${bufferId ?? 'untitled'}.txt`
-  return Uri.parse(`athas://editor/${encodeURIComponent(bufferId ?? path)}/${path}`)
+  return Uri.parse(`crowbar://editor/${encodeURIComponent(bufferId ?? path)}/${path}`)
 }
 
 export function DiffMonacoEditor({
@@ -534,7 +534,7 @@ export function DiffMonacoEditor({
       if (!e || !m) return
       const startOffset = m.getOffsetAt(range.getStartPosition())
       e.pushUndoStop()
-      e.executeEdits('athas-api', [{ range, text, forceMoveMarkers: true }])
+      e.executeEdits('crowbar-api', [{ range, text, forceMoveMarkers: true }])
       const nextPosition = m.getPositionAt(startOffset + text.length)
       e.setSelection(
         new MonacoRange(
@@ -603,11 +603,11 @@ export function DiffMonacoEditor({
         syncCursorAndSelection()
       },
       undo: () => {
-        editorRef.current?.trigger('athas-api', 'undo', null)
+        editorRef.current?.trigger('crowbar-api', 'undo', null)
         syncCursorAndSelection()
       },
       redo: () => {
-        editorRef.current?.trigger('athas-api', 'redo', null)
+        editorRef.current?.trigger('crowbar-api', 'redo', null)
         syncCursorAndSelection()
       },
       canUndo: () => modelRef.current !== null,

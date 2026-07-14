@@ -1,6 +1,4 @@
-// copied from Athas — no shadcn/ui equivalent
 import '@/features/file-explorer/styles/file-explorer-tree.css'
-import { CaretDown, CaretRight } from '@phosphor-icons/react'
 import type React from 'react'
 import { forwardRef } from 'react'
 import { cn } from '@/lib/utils'
@@ -10,41 +8,39 @@ export const SIDEBAR_TREE_BASE_INDENT = 10
 export const SIDEBAR_TREE_INDENT_SIZE = 14
 export const SIDEBAR_TREE_ICON_SIZE = 14
 
-interface SidebarTreeGuidesProps {
+interface TreeGuidesProps {
   depth: number
-  baseIndent?: number
-  indentSize?: number
-  previousDepth?: number
-  nextDepth?: number
+  baseIndent: number
+  indentSize: number
+  previousDepth: number
+  nextDepth: number
 }
 
-export function SidebarTreeGuides({
-  depth,
-  baseIndent = SIDEBAR_TREE_BASE_INDENT,
-  indentSize = SIDEBAR_TREE_INDENT_SIZE,
-  previousDepth = depth,
-  nextDepth = depth,
-}: SidebarTreeGuidesProps) {
-  if (depth <= 0) return null
+/**
+ * The vertical rules connecting a nested row to its ancestors — one per level.
+ *
+ * A guide is inset at the top when the row begins a level (no sibling above it at that
+ * level) and inset at the bottom when it ends one, which rounds off each run of guides
+ * instead of butting them against neighbouring rows.
+ */
+function TreeGuides({ depth, baseIndent, indentSize, previousDepth, nextDepth }: TreeGuidesProps) {
+  if (depth <= 0) {
+    return null
+  }
 
   return (
     <div className="file-tree-guides">
-      {Array.from({ length: depth }, (_, level) => {
-        const startsHere = previousDepth <= level
-        const endsHere = nextDepth <= level
-
-        return (
-          <span
-            key={level}
-            className="file-tree-guide"
-            style={{
-              left: `calc(${baseIndent + level * indentSize}px + var(--file-tree-guide-icon-offset, 7px))`,
-              top: startsHere ? '4px' : '0',
-              bottom: endsHere ? '4px' : '0',
-            }}
-          />
-        )
-      })}
+      {Array.from({ length: depth }, (_, level) => (
+        <span
+          key={level}
+          className="file-tree-guide"
+          style={{
+            left: `calc(${baseIndent + level * indentSize}px + var(--file-tree-guide-icon-offset, 7px))`,
+            top: previousDepth <= level ? '4px' : '0',
+            bottom: nextDepth <= level ? '4px' : '0',
+          }}
+        />
+      ))}
     </div>
   )
 }
@@ -54,11 +50,13 @@ type SidebarTreeRowProps = React.ComponentPropsWithoutRef<'button'> & {
   depth?: number
   indentSize?: number
   baseIndent?: number
+  /** Depth of the adjacent rows, used to cap the indent guides at each run's edges. */
   previousDepth?: number
   nextDepth?: number
   containerClassName?: string
 }
 
+/** A {@link TreeRow} wrapped with the indent guides used by the sidebar trees. */
 export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>(
   function SidebarTreeRow(
     {
@@ -81,7 +79,7 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
         data-active={active ? 'true' : undefined}
         data-depth={depth}
       >
-        <SidebarTreeGuides
+        <TreeGuides
           depth={depth}
           baseIndent={baseIndent}
           indentSize={indentSize}
@@ -90,7 +88,6 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
         />
         <TreeRow
           ref={ref}
-          active={false}
           depth={depth}
           indentSize={indentSize}
           baseIndent={baseIndent}
@@ -103,49 +100,3 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
     )
   },
 )
-
-interface SidebarTreeDisclosureProps {
-  expanded?: boolean
-  visible?: boolean
-  onClick?: (event: React.MouseEvent<HTMLSpanElement>) => void
-  className?: string
-}
-
-export function SidebarTreeDisclosure({
-  expanded = false,
-  visible = true,
-  onClick,
-  className,
-}: SidebarTreeDisclosureProps) {
-  return (
-    <span
-      className={cn(
-        'mr-0.5 flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors',
-        visible ? 'hover:text-foreground' : 'pointer-events-none text-transparent',
-        className,
-      )}
-      onClick={onClick}
-    >
-      {visible ? (
-        expanded ? (
-          <CaretDown className="size-3" weight="bold" />
-        ) : (
-          <CaretRight className="size-3" weight="bold" />
-        )
-      ) : (
-        <span className="size-3" />
-      )}
-    </span>
-  )
-}
-
-interface SidebarTreeIconProps {
-  icon: React.ReactNode
-  className?: string
-}
-
-export function SidebarTreeIcon({ icon, className }: SidebarTreeIconProps) {
-  return (
-    <span className={cn('relative z-1 shrink-0 text-muted-foreground', className)}>{icon}</span>
-  )
-}

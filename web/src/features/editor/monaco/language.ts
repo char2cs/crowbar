@@ -1,4 +1,4 @@
-export const MONACO_LANGUAGE_BY_ATHAS_ID: Record<string, string> = {
+export const MONACO_LANGUAGE_BY_LANGUAGE_ID: Record<string, string> = {
   angular: 'html',
   bash: 'shell',
   c: 'c',
@@ -57,10 +57,10 @@ export const MONACO_LANGUAGE_BY_ATHAS_ID: Record<string, string> = {
 }
 
 export const MONACO_HIGHLIGHT_LANGUAGE_IDS = new Set(
-  Object.values(MONACO_LANGUAGE_BY_ATHAS_ID).filter((languageId) => languageId !== 'plaintext'),
+  Object.values(MONACO_LANGUAGE_BY_LANGUAGE_ID).filter((languageId) => languageId !== 'plaintext'),
 )
 
 export function toMonacoLanguageId(languageId: string | null | undefined): string {
   if (!languageId) return 'plaintext'
-  return MONACO_LANGUAGE_BY_ATHAS_ID[languageId] ?? languageId
+  return MONACO_LANGUAGE_BY_LANGUAGE_ID[languageId] ?? languageId
 }

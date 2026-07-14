@@ -15,7 +15,6 @@ export interface Settings {
   // General
   autoSave: boolean
   sidebarPosition: 'left' | 'right'
-  quickOpenPreview: boolean
   // Editor
   fontFamily: string
   editorEngine: EditorEngine
@@ -50,16 +49,11 @@ export interface Settings {
   syncSystemTheme: boolean // deprecated — kept for migration only
   autoThemeLight: Theme // deprecated — kept for migration only
   autoThemeDark: Theme // deprecated — kept for migration only
-  nativeMenuBar: boolean
-  compactMenuBar: boolean
   windowTransparency: boolean
-  sidebarTabsPosition: 'top' | 'left'
-  titleBarProjectMode: 'tabs' | 'window'
   headerTrailingItemsOrder: HeaderTrailingItemId[]
   sidebarActivityItemsOrder: Array<SidebarActivityItemId | string>
   footerLeadingItemsOrder: FooterLeadingItemId[]
   footerTrailingItemsOrder: FooterTrailingItemId[]
-  openFoldersInNewWindow: boolean
   // Layout
   sidebarWidth: number
   // Keyboard
@@ -78,21 +72,8 @@ export interface Settings {
   // Features
   coreFeatures: CoreFeaturesState
   // Advanced
-  enterpriseManagedMode: boolean
-  enterpriseRequireExtensionAllowlist: boolean
-  enterpriseAllowedExtensionIds: string[]
   showFpsOverlay: boolean
   // Other
-  extensionsActiveTab:
-    | 'all'
-    | 'core'
-    | 'language'
-    | 'theme'
-    | 'icon-theme'
-    | 'snippet'
-    | 'database'
-    | 'skill'
-    | 'agent'
   maxOpenTabs: number
   //// File tree
   fileTreeIndentSize: number
@@ -114,9 +95,4 @@ export interface Settings {
   collapseEmptyGitSections: boolean
   rememberLastGitPanelMode: boolean
   gitLastPanelMode: 'changes' | 'history' | 'worktrees'
-  gitSidebarTabOrder: Array<'changes' | 'history' | 'worktrees'>
-  enableInlineGitBlame: boolean
-  enableGitGutter: boolean
-  // Telemetry
-  telemetry: boolean
 }

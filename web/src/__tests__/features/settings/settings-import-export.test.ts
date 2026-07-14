@@ -12,7 +12,7 @@ describe('settings import/export', () => {
       fontSize: 15,
     })
 
-    expect(payload.format).toBe('athas.settings')
+    expect(payload.format).toBe('crowbar.settings')
     expect(payload.version).toBe(1)
     expect(payload.settings.fontSize).toBe(15)
   })
@@ -34,7 +34,7 @@ describe('settings import/export', () => {
   it('imports versioned settings payloads', () => {
     const imported = parseSettingsImportJson(
       JSON.stringify({
-        format: 'athas.settings',
+        format: 'crowbar.settings',
         version: 1,
         exportedAt: '2026-04-25T00:00:00.000Z',
         settings: {

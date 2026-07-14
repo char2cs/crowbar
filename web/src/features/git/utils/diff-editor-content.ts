@@ -2,7 +2,7 @@ import type { TokenEntry } from '@/features/panes/types/pane-content'
 import type { MultiFileDiff } from '../types/git-diff-types'
 import type { GitDiff, GitDiffLine } from '../types/git-types'
 
-const DIFF_ACCORDION_PREFIX = '\uE000ATHAS_DIFF_FILE '
+const DIFF_ACCORDION_PREFIX = '\uE000CROWBAR_DIFF_FILE '
 
 export interface DiffAccordionLineMeta {
   name: string

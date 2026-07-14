@@ -21,7 +21,7 @@ interface FileOpenBenchmarkMeta {
 const sessions = new Map<string, FileOpenBenchmarkSession>()
 const DEV_ENABLED = import.meta.env.DEV
 const BUILD_ENABLED = import.meta.env.VITE_FILE_OPEN_BENCHMARK === '1'
-const STORAGE_KEY = 'athas:file-open-benchmark'
+const STORAGE_KEY = 'crowbar:file-open-benchmark'
 
 function now(): number {
   return performance.now()
@@ -135,7 +135,7 @@ export const fileOpenBenchmark = {
     const fileType = meta.fileType ?? getFileType(path)
     logger.info('FileOpenBenchmark', summary.text)
     console.info(
-      `[athas:file-open] file=${shortPath(path)} type=${fileType} lines=${meta.lineCount ?? 'unknown'} seconds=${seconds.toFixed(3)} chars=${meta.contentLength ?? 'unknown'} large=${meta.largeContentMode ?? 'unknown'}`,
+      `[crowbar:file-open] file=${shortPath(path)} type=${fileType} lines=${meta.lineCount ?? 'unknown'} seconds=${seconds.toFixed(3)} chars=${meta.contentLength ?? 'unknown'} large=${meta.largeContentMode ?? 'unknown'}`,
     )
     frontendTrace(level, 'bench:file-open', shortPath(path), {
       totalMs: Math.round(summary.total * 100) / 100,

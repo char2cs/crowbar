@@ -17,7 +17,7 @@ describe('settings download', () => {
     expect(filename).toBe('crowbar-settings.json')
     // Pretty-printed: contains indentation / newlines.
     expect(contents).toContain('\n')
-    expect(contents).toContain('  "format": "athas.settings"')
+    expect(contents).toContain('  "format": "crowbar.settings"')
   })
 
   it('produces JSON that round-trips back through the import parser', () => {
@@ -27,7 +27,7 @@ describe('settings download', () => {
     })
 
     const parsed = JSON.parse(contents)
-    expect(parsed.format).toBe('athas.settings')
+    expect(parsed.format).toBe('crowbar.settings')
     expect(parsed.version).toBe(1)
     expect(typeof parsed.exportedAt).toBe('string')
 

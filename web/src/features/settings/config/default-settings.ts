@@ -18,7 +18,6 @@ export const defaultSettings: Settings = {
   // General
   autoSave: false,
   sidebarPosition: 'left',
-  quickOpenPreview: true,
   // Editor
   fontFamily: DEFAULT_MONO_FONT_FAMILY,
   editorEngine: 'monaco',
@@ -53,16 +52,11 @@ export const defaultSettings: Settings = {
   syncSystemTheme: false,
   autoThemeLight: 'crowbar-light',
   autoThemeDark: 'crowbar-dark',
-  nativeMenuBar: false,
-  compactMenuBar: true,
   windowTransparency: true,
-  sidebarTabsPosition: 'top',
-  titleBarProjectMode: 'window',
   headerTrailingItemsOrder: [...HEADER_TRAILING_ITEM_IDS],
   sidebarActivityItemsOrder: [...SIDEBAR_ACTIVITY_ITEM_IDS],
   footerLeadingItemsOrder: [...FOOTER_LEADING_ITEM_IDS],
   footerTrailingItemsOrder: [...FOOTER_TRAILING_ITEM_IDS],
-  openFoldersInNewWindow: false,
   // Layout
   sidebarWidth: 220,
   // Keyboard
@@ -81,20 +75,11 @@ export const defaultSettings: Settings = {
   // Features
   coreFeatures: {
     git: true,
-    terminal: true,
-    search: true,
-    diagnostics: true,
-    aiChat: true,
     breadcrumbs: true,
-    persistentCommands: true,
   },
   // Advanced
-  enterpriseManagedMode: false,
-  enterpriseRequireExtensionAllowlist: false,
-  enterpriseAllowedExtensionIds: [],
   showFpsOverlay: false,
   // Other
-  extensionsActiveTab: 'all',
   maxOpenTabs: 100,
   //// File tree
   fileTreeIndentSize: 16,
@@ -116,11 +101,6 @@ export const defaultSettings: Settings = {
   collapseEmptyGitSections: false,
   rememberLastGitPanelMode: false,
   gitLastPanelMode: 'changes',
-  gitSidebarTabOrder: ['changes', 'history', 'worktrees'],
-  enableInlineGitBlame: true,
-  enableGitGutter: true,
-  // Telemetry
-  telemetry: false,
 }
 
 export const getDefaultSetting = <K extends keyof Settings>(key: K): Settings[K] =>
@@ -130,7 +110,6 @@ export function getDefaultSettingsSnapshot(): Settings {
   return {
     ...defaultSettings,
     coreFeatures: { ...defaultSettings.coreFeatures },
-    enterpriseAllowedExtensionIds: [...defaultSettings.enterpriseAllowedExtensionIds],
     hiddenFilePatterns: [...defaultSettings.hiddenFilePatterns],
     hiddenDirectoryPatterns: [...defaultSettings.hiddenDirectoryPatterns],
     headerTrailingItemsOrder: [...defaultSettings.headerTrailingItemsOrder],

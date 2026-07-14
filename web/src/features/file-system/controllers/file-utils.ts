@@ -8,7 +8,7 @@ export async function getFileExtension(path: string): Promise<string> {
 export function getFileName(path: string): string {
   return path.split('/').pop() ?? path
 }
-/** Athas alias */
+/** Alias. */
 export const getFilenameFromPath = getFileName
 export function getParentDir(path: string): string {
   return path.split('/').slice(0, -1).join('/') || '/'

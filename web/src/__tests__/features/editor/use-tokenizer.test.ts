@@ -22,7 +22,7 @@ describe('retargetTokensForContentEdit', () => {
   it('expands a token when typing inside it', () => {
     const tokens = [{ start: 0, end: 7, class_name: 'token-string' }]
 
-    expect(retargetTokensForContentEdit(tokens, '"athas"', '"athas!"')).toEqual([
+    expect(retargetTokensForContentEdit(tokens, '"hello"', '"hello!"')).toEqual([
       { start: 0, end: 8, class_name: 'token-string' },
     ])
   })

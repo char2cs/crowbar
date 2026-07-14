@@ -2,56 +2,6 @@ import type { SettingSearchRecord } from '../types/search'
 import { IS_MAC, IS_WINDOWS } from '@/utils/platform'
 
 export const settingsSearchIndex: SettingSearchRecord[] = [
-  // Enterprise Settings
-  {
-    id: 'enterprise-managed-mode',
-    tab: 'enterprise',
-    section: 'Enterprise Controls',
-    label: 'Managed Mode',
-    description: 'Enforce enterprise policy controls in the desktop app',
-    keywords: ['enterprise', 'managed', 'policy', 'organization', 'admin'],
-  },
-  {
-    id: 'enterprise-extension-allowlist-toggle',
-    tab: 'enterprise',
-    section: 'Enterprise Controls',
-    label: 'Require Extension Allowlist',
-    description: 'Only approved extension IDs can be installed or updated',
-    keywords: ['enterprise', 'extensions', 'allowlist', 'policy', 'security'],
-  },
-  {
-    id: 'enterprise-allow-byok',
-    tab: 'enterprise',
-    section: 'Enterprise Controls',
-    label: 'Allow BYOK Autocomplete',
-    description: 'Allow user-provided OpenRouter keys for autocomplete',
-    keywords: ['enterprise', 'byok', 'openrouter', 'autocomplete', 'api', 'key'],
-  },
-  {
-    id: 'enterprise-ai-completion',
-    tab: 'enterprise',
-    section: 'Enterprise Controls',
-    label: 'Enable AI Autocomplete',
-    description: 'Enable inline AI completion for enterprise users',
-    keywords: ['enterprise', 'ai', 'autocomplete', 'completion'],
-  },
-  {
-    id: 'enterprise-ai-chat',
-    tab: 'enterprise',
-    section: 'Enterprise Controls',
-    label: 'Enable AI Chat',
-    description: 'Enable AI chat panel for enterprise users',
-    keywords: ['enterprise', 'ai', 'chat', 'panel'],
-  },
-  {
-    id: 'enterprise-extension-allowlist-entries',
-    tab: 'enterprise',
-    section: 'Extension Allowlist',
-    label: 'Extension Allowlist',
-    description: 'Approved extension IDs for enterprise-managed environments',
-    keywords: ['enterprise', 'extensions', 'ids', 'allowlist', 'approved'],
-  },
-
   // Editor Settings
   {
     id: 'editor-auto-save',
@@ -311,22 +261,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     description: 'Restore the last open stash or history panel section',
     keywords: ['git', 'remember', 'panel', 'stash', 'history'],
   },
-  {
-    id: 'git-enable-inline-blame',
-    tab: 'git',
-    section: 'Editor',
-    label: 'Enable Inline Blame',
-    description: 'Show inline Git blame metadata in the editor',
-    keywords: ['git', 'blame', 'inline', 'editor'],
-  },
-  {
-    id: 'git-enable-gutter',
-    tab: 'git',
-    section: 'Editor',
-    label: 'Enable Git Gutter',
-    description: 'Show Git gutter indicators in the editor',
-    keywords: ['git', 'gutter', 'editor', 'modified', 'added', 'deleted'],
-  },
 
   // Appearance Settings
   {
@@ -394,14 +328,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     description: 'Choose where to position the sidebar',
     keywords: ['sidebar', 'position', 'left', 'right', 'layout'],
   },
-  {
-    id: 'appearance-sidebar-tabs-position',
-    tab: 'appearance',
-    section: 'Layout',
-    label: 'Sidebar Tabs',
-    description: 'Show sidebar activity tabs across the top or in a left rail',
-    keywords: ['sidebar', 'tabs', 'activity', 'top', 'left', 'rail', 'layout'],
-  },
   ...(!IS_MAC && !IS_WINDOWS
     ? [
         {
@@ -433,23 +359,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     label: 'Window Transparency',
     description: 'Use translucent app chrome and transparent native windows where supported',
     keywords: ['window', 'transparency', 'transparent', 'translucent', 'glass', 'chrome'],
-  },
-  {
-    id: 'appearance-title-bar-project-mode',
-    tab: 'appearance',
-    section: 'Layout',
-    label: 'Title Bar Project Mode',
-    description: 'Show project tabs or a single window-style title in the custom title bar',
-    keywords: ['title', 'bar', 'project', 'tabs', 'window', 'mode'],
-  },
-  {
-    id: 'appearance-open-folders-new-window',
-    tab: 'appearance',
-    section: 'Layout',
-    label: 'Open Projects In New Window',
-    description:
-      'In window title mode, opening another folder uses a separate window when a project is already open',
-    keywords: ['open', 'folder', 'project', 'new', 'window', 'separate'],
   },
 
   // Language Settings
@@ -510,54 +419,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     label: 'Git Integration',
     description: 'Source control management with Git repositories',
     keywords: ['git', 'source', 'control', 'version'],
-  },
-  {
-    id: 'features-terminal',
-    tab: 'features',
-    section: 'Features',
-    label: 'Integrated Terminal',
-    description: 'Built-in terminal for command line operations',
-    keywords: ['terminal', 'command', 'line', 'shell'],
-  },
-  {
-    id: 'features-search',
-    tab: 'features',
-    section: 'Features',
-    label: 'Global Search',
-    description: 'Search across files and folders in workspace',
-    keywords: ['search', 'find', 'global', 'workspace'],
-  },
-  {
-    id: 'features-diagnostics',
-    tab: 'features',
-    section: 'Features',
-    label: 'Diagnostics & Problems',
-    description: 'Code diagnostics and error reporting',
-    keywords: ['diagnostics', 'problems', 'errors', 'linting'],
-  },
-  {
-    id: 'features-ai-chat',
-    tab: 'features',
-    section: 'Features',
-    label: 'AI Assistant',
-    description: 'AI-powered code assistance and chat',
-    keywords: ['ai', 'assistant', 'chat'],
-  },
-  {
-    id: 'features-breadcrumbs',
-    tab: 'features',
-    section: 'Features',
-    label: 'Breadcrumbs',
-    description: 'File path navigation breadcrumbs in editor',
-    keywords: ['breadcrumbs', 'navigation', 'path'],
-  },
-  {
-    id: 'features-persistent-commands',
-    tab: 'features',
-    section: 'Features',
-    label: 'Persistent Commands',
-    description: 'The last used commands appear at the top of the command palette',
-    keywords: ['persistent', 'commands', 'recent', 'command', 'palette'],
   },
 
   // Terminal Settings
@@ -649,50 +510,5 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     label: 'Custom Command',
     description: 'Command to run for custom external editor',
     keywords: ['custom', 'command', 'editor', 'external'],
-  },
-
-  // Extensions Settings
-  {
-    id: 'extensions-browse',
-    tab: 'extensions',
-    section: 'Extensions',
-    label: 'Browse Extensions',
-    description: 'Browse and manage installed extensions',
-    keywords: ['extensions', 'browse', 'install', 'manage', 'language', 'theme', 'icon'],
-  },
-
-  // Advanced Settings
-  {
-    id: 'advanced-export-settings',
-    tab: 'advanced',
-    section: 'Data',
-    label: 'Export Settings',
-    description: 'Save all app settings to a JSON file',
-    keywords: ['export', 'settings', 'backup', 'json', 'sync'],
-  },
-  {
-    id: 'advanced-import-settings',
-    tab: 'advanced',
-    section: 'Data',
-    label: 'Import Settings',
-    description: 'Restore app settings from a JSON file',
-    keywords: ['import', 'settings', 'restore', 'backup', 'json'],
-  },
-  {
-    id: 'advanced-reset-settings',
-    tab: 'advanced',
-    section: 'Data',
-    label: 'Reset Settings',
-    description: 'Reset all settings to defaults',
-    keywords: ['reset', 'settings', 'defaults', 'restore'],
-  },
-  {
-    id: 'advanced-telemetry',
-    tab: 'advanced',
-    section: 'Telemetry',
-    label: 'Anonymous Usage Telemetry',
-    description:
-      'Send anonymous operational metadata for updates, heartbeats, extensions, and crashes',
-    keywords: ['telemetry', 'analytics', 'tracking', 'privacy', 'crash', 'updates', 'extensions'],
   },
 ]

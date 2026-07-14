@@ -21,7 +21,7 @@ interface FontActions {
   clearError: () => void
 }
 
-const FONT_CACHE_KEY = 'athas_font_cache'
+const FONT_CACHE_KEY = 'crowbar_font_cache'
 const FONT_CACHE_EXPIRY = 24 * 60 * 60 * 1000 // 24 hours in milliseconds
 // Fonts that ship with the app and are therefore always selectable, regardless
 // of OS-level font enumeration (which is unavailable in the WKWebView). The

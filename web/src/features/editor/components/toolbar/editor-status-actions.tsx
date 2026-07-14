@@ -337,22 +337,6 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
       onToggle: () => updateSetting('autoCompletion', !settings.autoCompletion),
       disabled: false,
     },
-    {
-      id: 'git-gutter',
-      label: 'Git Gutter',
-      checked: settings.enableGitGutter,
-      shortcut: null,
-      onToggle: () => updateSetting('enableGitGutter', !settings.enableGitGutter),
-      disabled: false,
-    },
-    {
-      id: 'inline-git-blame',
-      label: 'Inline Git Blame',
-      checked: settings.enableInlineGitBlame,
-      shortcut: null,
-      onToggle: () => updateSetting('enableInlineGitBlame', !settings.enableInlineGitBlame),
-      disabled: false,
-    },
   ]
 
   return (

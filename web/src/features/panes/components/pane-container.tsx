@@ -263,8 +263,8 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       setInternalHoverZone(hover.paneId === pane.id ? hover.zone : null)
     }
 
-    window.addEventListener('athas-internal-tab-drag-hover', syncHover)
-    return () => window.removeEventListener('athas-internal-tab-drag-hover', syncHover)
+    window.addEventListener('crowbar-internal-tab-drag-hover', syncHover)
+    return () => window.removeEventListener('crowbar-internal-tab-drag-hover', syncHover)
   }, [pane.id])
 
   useEffect(() => {
