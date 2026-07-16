@@ -237,7 +237,13 @@ export function WorkspaceTreeItem({
 
           {pendingCreateRows}
 
-          <div style={{ paddingLeft: (depth + 2) * 14 }}>
+          {/* flex-col so the child <div>/<button> row STRETCHES to fill the width
+              minus its own mx-1.5 (flex stretch respects margins). A bare block
+              wouldn't fill the <button> child — a <button> is shrink-to-fit even
+              at display:flex in WebKit — and `w-full` would overflow by the
+              margins into a horizontal scrollbar (same fix as agent-chats-panel's
+              NewChatRow; this is its twin). */}
+          <div className="flex flex-col" style={{ paddingLeft: (depth + 2) * 14 }}>
             {isCreatingChild ? (
               <div className={cn(ROW_BASE, 'border-transparent text-foreground')}>
                 <svg
@@ -264,9 +270,13 @@ export function WorkspaceTreeItem({
               // conditional rename input), so nothing blocks the native tag.
               <button
                 type="button"
+                // No `w-full`: ROW_BASE is display:flex and the flex-col parent
+                // stretches this button to the row width MINUS its mx-1.5. `w-full`
+                // would force width:100% AND keep the 6px margins, overflowing the
+                // Workspaces panel by 6px → a stray horizontal scrollbar.
                 className={cn(
                   ROW_BASE,
-                  'w-full border-transparent text-muted-foreground/40 hover:bg-accent hover:text-muted-foreground/60',
+                  'border-transparent text-muted-foreground/40 hover:bg-accent hover:text-muted-foreground/60',
                 )}
                 onClick={() => startCreating(repoId, workspace.id)}
               >
