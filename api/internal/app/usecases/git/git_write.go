@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -244,27 +245,78 @@ func (u *gitUsecase) Push(
 	})
 }
 
-// Fetch fetches from the remote and resyncs the working tree.
+// Fetch fetches from the remote and resyncs the working tree, then cascades the
+// resync to the workspace's direct children (a fetch moves origin/<base>, which
+// resolveDiffBase/summaryBase probe, so a child's diff base can shift).
 func (u *gitUsecase) Fetch(
 	ctx context.Context,
 	wsID string,
 	now time.Time,
 ) error {
-	return u.mutate(ctx, wsID, now, func(repoPath string) error {
+	if err := u.mutate(ctx, wsID, now, func(repoPath string) error {
 		return u.git.Fetch(ctx, repoPath)
-	})
+	}); err != nil {
+		return err
+	}
+	u.syncChildren(ctx, wsID, now)
+	return nil
 }
 
-// Pull pulls with the given mode and resyncs the working tree.
+// Pull pulls with the given mode and resyncs the working tree, then cascades the
+// resync to the workspace's direct children: pulling advances this workspace's
+// branch ref, which its children measure their sidebar diff against, so their
+// Added/Deleted go stale until they are recomputed too.
 func (u *gitUsecase) Pull(
 	ctx context.Context,
 	wsID string,
 	mode string,
 	now time.Time,
 ) error {
-	return u.mutate(ctx, wsID, now, func(repoPath string) error {
+	if err := u.mutate(ctx, wsID, now, func(repoPath string) error {
 		return u.git.Pull(ctx, repoPath, mode)
-	})
+	}); err != nil {
+		return err
+	}
+	u.syncChildren(ctx, wsID, now)
+	return nil
+}
+
+// syncChildren resyncs the working-tree summary of every DIRECT child workspace
+// of parentID after a pull/fetch. A child's summary is measured against its
+// PARENT branch's live merge-base (workspace.summaryBase), so advancing the
+// parent's tip silently stales every child's Added/Deleted until it is resynced —
+// and the pull/fetch above only resynced the pulled workspace itself. This mirrors
+// worktree.finalizeMerge, which already resyncs BOTH parent and child after a
+// merge moves a ref their summaries depend on; a pull/fetch has the identical
+// exposure.
+//
+// Best-effort, matching the codebase's best-effort teardown/summary-resync style:
+// a List failure or one child's sync failure must NEVER fail the pull the user
+// just completed, nor block a sibling's resync — log and continue. Only DIRECT
+// children are cascaded; a grandchild's own base is its parent's branch, which
+// this pull did not move (see the doc note on the residual grandchild case).
+func (u *gitUsecase) syncChildren(
+	ctx context.Context,
+	parentID string,
+	now time.Time,
+) {
+	all, err := u.syncer.List(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "git: cascade child resync: list workspaces failed (continuing)",
+			"parent", parentID, "err", err)
+		return
+	}
+	for _, ws := range all {
+		// A self-loop (ParentID == ID) must not resync the pulled workspace as its
+		// own child, and only direct children of parentID are in scope.
+		if ws.ParentID != parentID || ws.ID == parentID {
+			continue
+		}
+		if _, err := u.syncer.SyncWorkingTreeState(ctx, ws.ID, now); err != nil {
+			slog.WarnContext(ctx, "git: cascade child resync failed (continuing)",
+				"parent", parentID, "child", ws.ID, "err", err)
+		}
+	}
 }
 
 // CreateBranch creates a branch and resyncs the working tree. The new name and

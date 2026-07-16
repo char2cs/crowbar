@@ -419,6 +419,36 @@ type Engine interface {
 		branch string,
 	) (bool, error)
 
+	// RemoteTrackingBranchExists reports whether the LOCAL remote-tracking ref
+	// `refs/remotes/origin/<branch>` is present (`git show-ref --verify`). This is
+	// the same universe `git branch -r` reads, so — unlike the live, failure-prone
+	// RemoteBranchExists — it agrees with the branch list the import UI shows. The
+	// worktree usecase consults it first so a live-query hiccup can never downgrade
+	// an existing remote branch into a fresh fork off the default branch.
+	RemoteTrackingBranchExists(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) (bool, error)
+
+	// SetUpstream links a local branch back to its origin counterpart by setting
+	// branch.<branch>.remote/merge (`git branch --set-upstream-to=origin/<branch>
+	// <branch>`), so the branch is recognised as origin's <branch>. The imported-
+	// branch checkout path uses it to make an existing remote branch a proper
+	// review target on BOTH the origin-reachable and offline-fallback paths: the
+	// reachable path creates the local branch via `git fetch origin <b>:<b>`, which
+	// leaves NO upstream, so `git worktree add <path> <b>` checks out that branch
+	// untracked — while the fallback path DWIMs tracking from origin/<b>. It
+	// operates on the branch by NAME and touches only the shared repo config, so it
+	// works whether or not <branch> is repoPath's currently checked-out branch
+	// (the caller runs it after checking the branch out into a separate worktree).
+	// origin/<branch> must already exist locally as a remote-tracking ref.
+	SetUpstream(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) error
+
 	// RangeDiff returns the three-dot diff between base and branch (09 §2).
 	// Uses `git diff -M <base>...<branch>` to show commits reachable from
 	// branch but not from base. Commit metadata fields are always zero-value.

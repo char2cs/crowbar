@@ -404,6 +404,14 @@ func (g *mockGitEngine) RemoteBranchExists(ctx context.Context, repoPath, branch
 	return false, nil
 }
 
+func (g *mockGitEngine) RemoteTrackingBranchExists(ctx context.Context, repoPath, branch string) (bool, error) {
+	return false, nil
+}
+
+func (g *mockGitEngine) SetUpstream(ctx context.Context, repoPath, branch string) error {
+	return nil
+}
+
 var _ gitengine.Engine = (*mockGitEngine)(nil)
 
 // --- helpers ---

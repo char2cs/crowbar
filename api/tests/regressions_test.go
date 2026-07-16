@@ -1074,6 +1074,173 @@ func TestRegression_SidebarDiffTracksAdvancingBaseNotStaleForkPoint(t *testing.T
 	require.Equal(t, 0, child.Deleted, "the child deleted nothing relative to the advanced base")
 }
 
+// BUG-PULL-NO-CASCADE: pulling a PARENT branch (the develop-style base a stack of
+// features is built on) must cascade a working-tree summary recompute to its CHILD
+// workspaces. A child's sidebar diff (Added/Deleted) is measured against its parent
+// branch's LIVE merge-base (workspace.summaryBase), so advancing the parent's tip
+// via a pull silently STALES every child's badge until it is resynced. In the field
+// the pull resynced ONLY the pulled workspace itself — leaving the identical gap
+// worktree.finalizeMerge already closes for a merge (it resyncs BOTH parent and
+// child after a merge moves a shared ref). This reproduces the shape: a child forked
+// off a base branch whose own commit then lands on the base's remote; pulling the
+// PARENT (never the child, never a manual /sync) must ALONE collapse the child's diff
+// to +0/-0.
+//
+// The pullable parent here is an UNLOCKED "feature/base" branch, NOT literally
+// "develop": the test's fallback provider marks main/develop/master protected, and a
+// protected branch provisions LOCKED — which both rejects the pull write and never
+// emits the status:"new" a create wait keys on. A non-protected feature branch is the
+// faithful stand-in for a develop that a real git provider does NOT protect; the
+// cascade mechanism under test is identical.
+func TestRegression_PullingParentUpdatesChildDiffWithoutManualSync(t *testing.T) {
+	h := newHarness(t)
+	imported := importProjectWithOrigin(t, h)
+	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
+
+	// Parent "feature/base": an UNLOCKED managed branch forked off the locked "main".
+	// Push it to origin WITH upstream tracking so a bare `git pull` resolves a remote
+	// to merge.
+	baseID := createChildWorkspace(t, h, repoBase, "feature/base", imported.workspaceID)
+	worktrees := worktreesByBranch(t, imported.repoPath)
+	baseWorktree := worktrees["feature/base"]
+	require.NotEmpty(t, baseWorktree, "managed base worktree must exist")
+	runGit(t, baseWorktree, "push", "-u", "origin", "feature/base")
+
+	// Child forked off feature/base, WITH parentId set, so its diff base resolves to
+	// the parent branch "feature/base" (the shape the real bug had).
+	childID := createChildWorkspace(t, h, repoBase, "feature/child", baseID)
+	worktrees = worktreesByBranch(t, imported.repoPath)
+	childWorktree := worktrees["feature/child"]
+	require.NotEmpty(t, childWorktree, "managed child worktree must exist")
+
+	// The child makes one committed change: +1 line vs "feature/base".
+	require.NoError(t, writeFile(childWorktree, "child.txt", "child change\n"))
+	runGit(t, childWorktree, "add", "child.txt")
+	runGit(t, childWorktree, "commit", "-m", "child change")
+
+	// Establish the STALE baseline: resync the child ONCE so the read model records
+	// Added=1 BEFORE the pull. This is setup — not the behaviour under test — and the
+	// assertion below proves the PULL alone (no post-pull child sync) refreshes it.
+	syncBaseline(t, h, repoBase, childID)
+	require.Equal(t, 1, childDiff(t, h, imported, childID).Added,
+		"baseline: the child shows its own +1 against feature/base before the pull")
+
+	// The child's commit lands on the base's remote (its PR is merged): push the child
+	// branch's tip to origin's feature/base. Local "feature/base" is untouched, stale.
+	runGit(t, childWorktree, "push", "origin", "feature/child:feature/base")
+
+	// Pull the PARENT (feature/base) — the ONLY refresh action. Its ref fast-forwards
+	// to include the child's commit, so the child's live merge-base(feature/base, HEAD)
+	// now equals the child's own tip and its diff must collapse to +0/-0. Nothing syncs
+	// the child explicitly; only the pull's cascade can refresh it.
+	pullWS := h.dial(repoBase + "/workspaces")
+	pull := h.raw(http.MethodPost, repoBase+"/workspaces/"+baseID+"/git/pull", nil, http.StatusAccepted)
+	_ = pull.Body.Close()
+	waitForWorkComplete(t, pullWS, baseID)
+
+	child := childDiff(t, h, imported, childID)
+	require.Equal(t, childID, child.ID, "child workspace must be in the list")
+	require.Equal(t, 0, child.Added,
+		"pulling the parent must cascade a resync to the child so its diff reflects the advanced base (no manual child sync)")
+	require.Equal(t, 0, child.Deleted, "the child's change is now fully contained in the pulled base")
+}
+
+// createChildWorkspace POSTs a child workspace on branch off parentID and returns
+// its id, learned from the status:"new" WorkspaceDTO on the repo-scoped stream
+// (dial-before-POST), mirroring importWritableWorkspace.
+func createChildWorkspace(
+	t *testing.T,
+	h *harness,
+	repoBase string,
+	branch string,
+	parentID string,
+) string {
+	t.Helper()
+	workspacesWS := h.dial(repoBase + "/workspaces")
+	resp := h.raw(http.MethodPost, repoBase+"/workspaces",
+		map[string]string{"branch": branch, "parentId": parentID}, http.StatusAccepted)
+	_ = resp.Body.Close()
+	created := readUntil(t, workspacesWS, func(m map[string]any) bool {
+		return m["branch"] == branch && m["status"] == "new"
+	})
+	id, _ := created["id"].(string)
+	require.NotEmpty(t, id, "child create must broadcast an id for %q", branch)
+	return id
+}
+
+// syncBaseline hits the manual /sync endpoint once and waits for work-complete, so
+// a workspace's read-model summary reflects its current worktree BEFORE the action
+// under test. Used only to set up a pre-condition, never as the propagation step.
+func syncBaseline(
+	t *testing.T,
+	h *harness,
+	repoBase string,
+	wsID string,
+) {
+	t.Helper()
+	syncWS := h.dial(repoBase + "/workspaces")
+	acc := h.raw(http.MethodPost, repoBase+"/workspaces/"+wsID+"/sync", nil, http.StatusAccepted)
+	_ = acc.Body.Close()
+	waitForWorkComplete(t, syncWS, wsID)
+}
+
+// childDiff returns the workspace DTO for wsID from the repo's workspace list.
+func childDiff(
+	t *testing.T,
+	h *harness,
+	imported importedRepo,
+	wsID string,
+) workspaceDTO {
+	t.Helper()
+	for _, w := range listWorkspaces(t, h, imported.projectID, imported.repoID) {
+		if w.ID == wsID {
+			return w
+		}
+	}
+	return workspaceDTO{}
+}
+
+// importProjectWithOrigin imports a repo wired to a real bare origin remote (so
+// git fetch/pull have somewhere to sync from), otherwise identical to
+// importProject: the home is detached before import so the protected default
+// branch "main" provisions as a single managed locked worktree (the returned
+// workspaceID). The extra bare origin is what lets a child branch be pushed to the
+// remote and a parent branch be pulled through the real HTTP endpoint.
+func importProjectWithOrigin(
+	t *testing.T,
+	h *harness,
+) importedRepo {
+	t.Helper()
+	repoPath := gitRepoWithCommit(t)
+	// Wire a bare origin and push "main" WITH upstream tracking; the config lives in
+	// the repo's shared .git/config, so every managed linked worktree inherits it and
+	// a bare `git pull` on a tracked branch resolves its remote.
+	bare := t.TempDir()
+	runGit(t, bare, "init", "--bare", "-b", "main")
+	runGit(t, repoPath, "remote", "add", "origin", bare)
+	runGit(t, repoPath, "push", "-u", "origin", "main")
+
+	// Detach the home off "main" so the protected default branch is free and
+	// provisions as its own managed locked worktree (mirrors importProject).
+	runGit(t, repoPath, "checkout", "--detach")
+
+	projectID, repoID := createProjectAndRepo(t, h, repoPath)
+
+	workspacesWS := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
+	adopted := readUntil(t, workspacesWS, func(m map[string]any) bool {
+		return m["branch"] == "main"
+	})
+	wsID, _ := adopted["id"].(string)
+	require.NotEmpty(t, wsID, "import must provision and broadcast the main managed worktree")
+
+	return importedRepo{
+		projectID:   projectID,
+		repoID:      repoID,
+		workspaceID: wsID,
+		repoPath:    repoPath,
+	}
+}
+
 // worktreesByBranch maps each of repoPath's linked worktrees' checked-out branch
 // to its on-disk path, parsed from `git worktree list --porcelain`. Managed
 // Crowbar worktrees are linked worktrees of the imported repo, so this resolves

@@ -19,6 +19,14 @@ type WorkspaceSyncer interface {
 		ctx context.Context,
 		id string,
 	) (domain.Workspace, error)
+	// List returns every workspace row, so a pull/fetch can enumerate the pulled
+	// workspace's direct children and cascade the summary resync to them (a child's
+	// diff base is its parent branch's live merge-base, so moving the parent's tip
+	// stales the child until it is resynced). Mirrors how worktree usecases already
+	// list workspaces to find a node's children (worktree.childHasChildren).
+	List(
+		ctx context.Context,
+	) ([]domain.Workspace, error)
 	SyncWorkingTreeState(
 		ctx context.Context,
 		id string,
