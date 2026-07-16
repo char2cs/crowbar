@@ -29,6 +29,7 @@ interface ExternalEditorTerminalProps {
   onEditorExit?: () => void
 }
 
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive terminal host — a single external-editor PTY surface with intertwined spawn/resize/teardown effects.
 export const ExternalEditorTerminal = ({
   filePath,
   fileName,
@@ -72,7 +73,7 @@ export const ExternalEditorTerminal = ({
         ),
       }))
     },
-    [terminalConnectionId],
+    [terminalConnectionId, workspaceStore],
   )
 
   const getEditorCommand = useCallback(
@@ -195,19 +196,21 @@ export const ExternalEditorTerminal = ({
         const closedEventName = `pty-closed-${terminalConnectionId}`
         const errorEventName = `pty-error-${terminalConnectionId}`
 
-        const unlisten = await listen<{ data: string }>(outputEventName, (event) => {
-          terminal.write(event.payload.data)
-        })
-
-        const closedUnlisten = await listen(closedEventName, () => {
-          if (onEditorExit) {
-            onEditorExit()
-          }
-        })
-
-        const errorUnlisten = await listen<{ error: string }>(errorEventName, (event) => {
-          console.error('Terminal error:', event.payload.error)
-        })
+        // Each subscription is an independent event name, so register them
+        // concurrently instead of one at a time.
+        const [unlisten, closedUnlisten, errorUnlisten] = await Promise.all([
+          listen<{ data: string }>(outputEventName, (event) => {
+            terminal.write(event.payload.data)
+          }),
+          listen(closedEventName, () => {
+            if (onEditorExit) {
+              onEditorExit()
+            }
+          }),
+          listen<{ error: string }>(errorEventName, (event) => {
+            console.error('Terminal error:', event.payload.error)
+          }),
+        ])
 
         // Store cleanup functions
         ;(terminal as unknown as { _cleanupListeners: () => void })._cleanupListeners = () => {
@@ -304,6 +307,12 @@ export const ExternalEditorTerminal = ({
         }
         themeRefreshTimeoutRef.current = null
       }, 50)
+    }
+    return () => {
+      if (themeRefreshTimeoutRef.current) {
+        clearTimeout(themeRefreshTimeoutRef.current)
+        themeRefreshTimeoutRef.current = null
+      }
     }
   }, [settings.theme, getTerminalTheme])
 

@@ -55,10 +55,6 @@ export function getInternalTabDragHover() {
   return window.__athasInternalTabDragHover ?? { paneId: null, zone: null as InternalDropZone }
 }
 
-export function resolveDropPaneId(point: { x: number; y: number }): string | null {
-  return resolveDropTarget(point).paneId
-}
-
 export function resolveDropTarget(point: { x: number; y: number }) {
   const elements = document.elementsFromPoint(point.x, point.y)
   if (elements.length === 0) {

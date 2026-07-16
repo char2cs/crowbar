@@ -78,6 +78,45 @@ export async function deleteFileNode(wsId: string, path: string): Promise<void> 
   })
 }
 
+/**
+ * Overwrite an existing file's content (the node must already exist). Pass
+ * `encoding: 'base64'` with a base64-encoded `content` to write raw bytes
+ * byte-faithfully — the daemon decodes it, so binary uploads survive intact (a
+ * plain UTF-8 string body corrupts any non-UTF-8 bytes). The default omits the
+ * field and writes `content` as UTF-8 text.
+ */
+export async function writeFileContent(
+  wsId: string,
+  path: string,
+  content: string,
+  encoding?: 'base64',
+): Promise<void> {
+  await apiFetch(`${workspaceBase(wsId)}/files/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encoding ? { path, content, encoding } : { path, content }),
+  })
+}
+
+/**
+ * Copy `sourcePath` to `destPath` (both workspace-relative) via the daemon's
+ * server-side copy verb: byte-faithful (binary files stay intact — a client-side
+ * read/write composition would round-trip them through the base64 content read
+ * and corrupt them) and recursive for directories. An existing destination is a
+ * 409; the daemon's structural FileChangeEvent reconciles the tree.
+ */
+export async function copyFileNode(
+  wsId: string,
+  sourcePath: string,
+  destPath: string,
+): Promise<void> {
+  await apiFetch(`${workspaceBase(wsId)}/files/copy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourcePath, destPath }),
+  })
+}
+
 export function findNode(tree: AppFile[], path: string): AppFile | null {
   for (const node of tree) {
     if (node.path === path) return node

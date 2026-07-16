@@ -15,23 +15,30 @@
  */
 import React from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 
 // ── Mocks ───────────────────────────────────────────────────────────
 
-const { createChatFn, deleteChatFn, renameChatFn, streamHook, toastErrorFn } = vi.hoisted(() => ({
-  createChatFn: vi.fn(),
-  deleteChatFn: vi.fn(),
-  renameChatFn: vi.fn(),
-  streamHook: vi.fn(),
-  toastErrorFn: vi.fn(),
-}))
+const { createChatFn, deleteChatFn, renameChatFn, stopChatFn, streamHook, toastErrorFn } =
+  vi.hoisted(() => ({
+    createChatFn: vi.fn(),
+    deleteChatFn: vi.fn(),
+    renameChatFn: vi.fn(),
+    // stopChat is fired by closeBuffer when a chat TAB is closed (the pane's × or a
+    // close-tab flow the panel triggers). It must be exported here or the fire-and-forget
+    // dynamic import in buffer-slice throws an unhandled rejection during these tests.
+    stopChatFn: vi.fn(async (..._a: unknown[]) => {}),
+    streamHook: vi.fn(),
+    toastErrorFn: vi.fn(),
+  }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
   createChat: (...a: unknown[]) => createChatFn(...a),
   deleteChat: (...a: unknown[]) => deleteChatFn(...a),
   renameChat: (...a: unknown[]) => renameChatFn(...a),
+  stopChat: (...a: unknown[]) => stopChatFn(...a),
 }))
 
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -58,7 +65,8 @@ vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
   clearQueuedWorkspaceSessionSave: vi.fn(),
 }))
 
-import { AgentChatsPanel, reorderIds } from '@/features/agent/components/agent-chats-panel'
+import { AgentChatsPanel } from '@/features/agent/components/agent-chats-panel'
+import { reorderIds } from '@/features/agent/components/agent-chats-reorder'
 import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
@@ -383,6 +391,32 @@ describe('AgentChatsPanel', () => {
     expect(newRow.lastElementChild?.getAttribute('data-add-glyph')).toBe('true')
   })
 
+  // Regression: NewChatRow is a real <button>, whose UA text-align is `center`.
+  // Its label must carry text-left or it centers in the flex-1 span (the "buttons
+  // got broken" report after the div→button role-vs-tag swap). Every other
+  // button-based sidebar row (project-switcher's "Import project", the tree's
+  // "New") already compensates the same way.
+  it('the New-row label is left-aligned, not centered by the <button> default', () => {
+    seed()
+    render(<AgentChatsPanel />)
+    const label = screen.getByText('New Claude chat')
+    expect(label.className).toContain('text-left')
+  })
+
+  // Regression: `w-full` on the button = width:100% of the parent, but ROW_BASE
+  // also has mx-1.5 (6px each side), so the row pokes 6px past the sidebar →
+  // a stray horizontal scrollbar in the Chats panel (jsdom can't measure the
+  // overflow, so guard the two structural facts that prevent it). The rows fill
+  // via the list container being flex-col (each row stretches to width − margin);
+  // a <button> is shrink-to-fit at display:flex, so it must NOT rely on w-full.
+  it('the New rows fill width via flex-col stretch, never w-full (which overflows the sidebar)', () => {
+    seed()
+    const { container } = render(<AgentChatsPanel />)
+    const btn = container.querySelector<HTMLElement>('[data-new-chat="claude"]')!
+    expect(btn.className).not.toContain('w-full')
+    expect(btn.parentElement?.className).toContain('flex-col')
+  })
+
   it('empty state renders only the New rows', () => {
     act(() => state().setAgentProviders(PROVIDERS))
     const { container } = render(<AgentChatsPanel />)
@@ -423,16 +457,24 @@ describe('AgentChatsPanel', () => {
     expect(agentBuffers()[0]).toMatchObject({ chatId: 'c-new', name: 'Seeded title' })
   })
 
-  it('a New row is keyboard-operable (Enter / Space), and ignores other keys', async () => {
+  it('a New row is a real <button> — keyboard-operable via Enter/Space, inert on other keys', async () => {
     seed()
+    const user = userEvent.setup()
     const { container } = render(<AgentChatsPanel />)
     const newRow = container.querySelector<HTMLElement>('[data-new-chat="claude"]')!
 
-    fireEvent.keyDown(newRow, { key: 'Tab' })
+    // NewChatRow renders a real <button> (see role-vs-tag fix), so Enter/Space
+    // activation is the browser's own default action, not app code — exercised
+    // here via user-event (which, unlike bare fireEvent.keyDown, simulates that
+    // default action for native form elements) rather than reimplemented by hand.
+    expect(newRow.tagName).toBe('BUTTON')
+    newRow.focus()
+
+    await user.keyboard('a')
     expect(createChatFn).not.toHaveBeenCalled()
 
-    fireEvent.keyDown(newRow, { key: 'Enter' })
-    fireEvent.keyDown(newRow, { key: ' ' })
+    await user.keyboard('{Enter}')
+    await user.keyboard(' ')
     expect(createChatFn).toHaveBeenCalledTimes(2)
     expect(createChatFn).toHaveBeenLastCalledWith('w1', 'claude')
 

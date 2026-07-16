@@ -15,6 +15,9 @@ export const useBuffersByIds = (ids: string[]): PaneContent[] =>
   useWorkspaceStoreContext(
     useShallow((s) => {
       const map = new Map(s.buffers.map((b) => [b.id, b]))
-      return ids.map((id) => map.get(id)).filter(Boolean) as PaneContent[]
+      return ids.flatMap((id) => {
+        const buffer = map.get(id)
+        return buffer ? [buffer] : []
+      })
     }),
   )

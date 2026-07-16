@@ -22,6 +22,7 @@ class IconThemeRegistry {
   }
 
   unregisterThemesByExtension(extensionId: string) {
+    // react-doctor-disable-next-line js-combine-iterations -- themeSources is bounded by installed extensions' registered icon themes (a handful, total); called only on extension unregister, not a hot path.
     const themeIds = Array.from(this.themeSources.entries())
       .filter(([, source]) => source.extensionId === extensionId)
       .map(([themeId]) => themeId)
@@ -41,6 +42,7 @@ class IconThemeRegistry {
   }
 
   getThemesByExtension(extensionId: string): IconThemeDefinition[] {
+    // react-doctor-disable-next-line js-combine-iterations -- themeSources is bounded by installed extensions' registered icon themes (a handful, total); not a hot path.
     return Array.from(this.themeSources.entries())
       .filter(([, source]) => source.extensionId === extensionId)
       .map(([themeId]) => this.themes.get(themeId))

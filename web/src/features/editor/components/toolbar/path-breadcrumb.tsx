@@ -48,7 +48,7 @@ export function PathBreadcrumb({
         const isLast = index === segments.length - 1
 
         return (
-          <div key={`${segment}-${index}`} className="flex shrink-0 items-center gap-0.5">
+          <div key={getSegmentPath(index)} className="flex shrink-0 items-center gap-0.5">
             {index > 0 && <ChevronRight className="mx-0.5 shrink-0 text-muted-foreground" />}
             {interactive ? (
               <Button

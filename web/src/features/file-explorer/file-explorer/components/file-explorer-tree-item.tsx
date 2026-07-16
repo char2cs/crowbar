@@ -86,6 +86,7 @@ function renderHighlightedLabel(label: string, query: string | undefined) {
   )
 }
 
+// react-doctor-disable-next-line no-many-boolean-props -- these flags (isExpanded, isActive, isDragging, isSearchMatch) are orthogonal render states of a single virtualized tree row, driven per-row by the virtualizer. They are not mutually exclusive, so they can't collapse to one enum; splitting into named variants would mean a 2^4 combinatorial explosion of row components for no benefit.
 function FileExplorerTreeItemComponent({
   file,
   depth,

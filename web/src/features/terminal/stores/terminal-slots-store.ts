@@ -3,6 +3,9 @@ import { create } from 'zustand'
 
 export interface TerminalSlotProps {
   el: HTMLDivElement
+  /** Owning workspace — threaded into XtermTerminal so connection resolution
+   *  targets the slot's workspace, not whichever workspace is active. */
+  workspaceId?: string
   isActive: boolean
   isVisible: boolean
   initialCommand?: string

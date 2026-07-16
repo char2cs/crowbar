@@ -9,7 +9,7 @@ import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE, ADD_GLYPH_PATH } from './workspace-
 import { useWorkspaceTreeActions, useWorkspaceTreeDrag } from './workspace-tree-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { findWorkspaceForBranch } from '@/lib/workspace/branch-workspace'
-import type { WorkspaceTreeNode } from './workspace-tree'
+import type { WorkspaceTreeNode } from './workspace-tree-utils'
 
 interface WorkspaceTreeItemProps {
   node: WorkspaceTreeNode
@@ -73,6 +73,19 @@ export function WorkspaceTreeItem({
   const showChildrenSection = (hasChildren && expanded) || isCreatingChild || hasPendingChild
 
   const variant = isActive ? ROW_ACTIVE : ROW_INACTIVE
+
+  // react-doctor-disable-next-line js-combine-iterations -- pendingCreates is the whole tree's in-flight create operations (bounded by concurrent UI actions, realistically 0-2 at once); a single-pass rewrite here would cost JSX readability for no measurable gain.
+  const pendingCreateRows = Array.from(pendingCreates.entries())
+    .filter(([, p]) => p.parentId === workspace.id)
+    .map(([tempId, pending]) => (
+      <PendingCreateRow
+        key={tempId}
+        tempId={tempId}
+        pending={pending}
+        paddingLeft={(depth + 2) * 14}
+        onClear={clearPendingCreate}
+      />
+    ))
 
   return (
     <div>
@@ -222,17 +235,7 @@ export function WorkspaceTreeItem({
               />
             ))}
 
-          {Array.from(pendingCreates.entries())
-            .filter(([, p]) => p.parentId === workspace.id)
-            .map(([tempId, pending]) => (
-              <PendingCreateRow
-                key={tempId}
-                tempId={tempId}
-                pending={pending}
-                paddingLeft={(depth + 2) * 14}
-                onClear={clearPendingCreate}
-              />
-            ))}
+          {pendingCreateRows}
 
           <div style={{ paddingLeft: (depth + 2) * 14 }}>
             {isCreatingChild ? (
@@ -256,20 +259,16 @@ export function WorkspaceTreeItem({
                 />
               </div>
             ) : (
-              <div
-                role="button"
-                tabIndex={0}
+              // A real <button> — unlike the row above it, this one has no
+              // nested interactive children (no trailing icon buttons, no
+              // conditional rename input), so nothing blocks the native tag.
+              <button
+                type="button"
                 className={cn(
                   ROW_BASE,
-                  'border-transparent text-muted-foreground/40 hover:bg-accent hover:text-muted-foreground/60',
+                  'w-full border-transparent text-muted-foreground/40 hover:bg-accent hover:text-muted-foreground/60',
                 )}
                 onClick={() => startCreating(repoId, workspace.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    startCreating(repoId, workspace.id)
-                  }
-                }}
               >
                 <svg
                   aria-hidden="true"
@@ -283,7 +282,7 @@ export function WorkspaceTreeItem({
                   <path d={ADD_GLYPH_PATH} />
                 </svg>
                 <span className="font-mono text-left text-[13px]">New</span>
-              </div>
+              </button>
             )}
           </div>
         </div>

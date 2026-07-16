@@ -1,4 +1,7 @@
-import { editor as monacoEditor } from 'monaco-editor'
+// See the comment in `monaco-diff-editor.tsx`: `editor.api` is the same real
+// editor singleton as the bare 'monaco-editor' specifier, without eagerly
+// bundling all built-in language contributions.
+import { editor as monacoEditor } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 
@@ -62,6 +65,7 @@ export function useDiffCommentZones(params: {
     editor.changeViewZones((acc) => {
       // Remove zones no longer desired, or whose anchor line moved.
       for (const [key, az] of active) {
+        // react-doctor-disable-next-line js-index-maps -- `desired` is the diff's review-comment zones (bounded by how many comments a user has added, typically a handful); building a Map here would cost readability for no measurable gain.
         const spec = desired.find((z) => z.key === key)
         if (!spec || spec.afterModelLine !== az.afterModelLine) {
           acc.removeZone(az.zoneId)
@@ -109,15 +113,24 @@ export function useDiffCommentZones(params: {
       }
     })
 
+    // react-doctor-disable-next-line js-combine-iterations -- `desired` is the diff's review-comment zones (bounded by how many comments a user has added, typically a handful); a single-pass rewrite here would cost readability for no measurable gain.
     setPortalKeys(desired.filter((z) => active.has(z.key)).map((z) => z.key))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editorReady, signature, enabled])
 
-  // Tear down all zones on unmount.
+  // Tear down all zones on unmount. FP: this is a mount-only teardown whose
+  // cleanup must read editorRef.current *fresh* (the diff editor is recreated
+  // across the component's life); the empty deps are correct.
+  // react-doctor-disable-next-line exhaustive-deps
   useEffect(() => {
+    // activeRef holds a stable Map (only mutated, never reassigned) — capture it
+    // in the effect body per exhaustive-deps. editorRef is read *fresh* in the
+    // cleanup on purpose: the diff editor can be disposed/recreated during the
+    // component's life, so at unmount we must target whatever editor is current
+    // (capturing it here could pin a null/stale editor).
+    const active = activeRef.current
     return () => {
       const editor = editorRef.current
-      const active = activeRef.current
       if (editor) {
         editor.changeViewZones((acc) => {
           for (const az of active.values()) acc.removeZone(az.zoneId)

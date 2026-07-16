@@ -73,5 +73,3 @@ export function Input({
     </span>
   )
 }
-
-export { InputPrimitive }

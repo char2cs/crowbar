@@ -117,9 +117,12 @@ export function AddRepositoryModal({ open, onOpenChange }: AddRepositoryModalPro
 
         <div className="space-y-5 px-6 py-5">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Repository folder</label>
+            <label htmlFor="add-repo-path" className="text-sm font-medium text-foreground">
+              Repository folder
+            </label>
             <div className="flex gap-2">
               <Input
+                id="add-repo-path"
                 value={path}
                 onChange={(e) => setPath(e.target.value)}
                 placeholder="/absolute/path/to/repo"
@@ -139,10 +142,11 @@ export function AddRepositoryModal({ open, onOpenChange }: AddRepositoryModalPro
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">
+            <label htmlFor="add-repo-name" className="text-sm font-medium text-foreground">
               Repository name <span className="font-normal text-muted-foreground">(optional)</span>
             </label>
             <Input
+              id="add-repo-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Derived from folder name"

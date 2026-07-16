@@ -41,6 +41,7 @@ function parseKeyCombination(combo: string): ParsedKey {
 
   for (const part of parts) {
     if (MODIFIER_KEYS.includes(part)) {
+      // react-doctor-disable-next-line js-set-map-lookups -- both `parts` (a single key combo's segments, e.g. "ctrl+shift+k") and `modifiers` (at most MODIFIER_KEYS.length, 5) are provably tiny; a Set here would cost readability for no measurable gain.
       if (!modifiers.includes(part)) {
         modifiers.push(part)
       }

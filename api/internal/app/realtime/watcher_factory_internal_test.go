@@ -51,6 +51,7 @@ func TestNewWatcherFactory_ResolvesWorkspaceAndBuildsWatcher(t *testing.T) {
 		stubFSEngine{watcher: &enginefs.Watcher{}},
 		&gitStatusProvider{engine: stubGitEngine{}},
 		repo,
+		stubGitEngine{},
 		newWatcherDispatcher(hub.NewHub(), repo, time.Now),
 	)
 
@@ -65,6 +66,7 @@ func TestNewWatcherFactory_GetErrorPropagates(t *testing.T) {
 		stubFSEngine{},
 		&gitStatusProvider{engine: stubGitEngine{}},
 		repo,
+		stubGitEngine{},
 		newWatcherDispatcher(hub.NewHub(), repo, time.Now),
 	)
 

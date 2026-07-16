@@ -1,9 +1,20 @@
-import { editor as monacoEditor, Uri } from 'monaco-editor'
+// The bare 'monaco-editor' specifier resolves to the package's "main" bundle
+// (`editor.main.js`), which EAGERLY statically imports all 60+ built-in
+// basic-languages contributions + the 4 heavy language services (verified by
+// reading monaco's own source: editor.main.js literally does
+// `import '../basic-languages/<lang>/<lang>.contribution.js'` for every
+// built-in language). `editor.api` is the exact same `editor`/`Uri` singleton
+// (both resolve through the shared `editor.api2.js`) MINUS that eager
+// bundling — this is the load-bearing prerequisite for `language-contributions
+// .ts`'s on-demand loading to have any effect at all; importing the bare
+// specifier ANYWHERE would silently defeat it.
+import { editor as monacoEditor, Uri } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type { IEditorLike, MonacoEditorApi } from '@/features/editor/lib/editor-manager'
 import type { IModelLike, MonacoModelApi } from '@/features/editor/lib/model-registry'
 import { uriToFsPath } from '@/features/editor/lib/editor-uri'
 import { getLanguageIdFromPath } from '@/features/editor/utils/language-id'
 import { toMonacoLanguageId } from '@/features/editor/monaco/language'
+import { loadLanguageForPath } from '@/features/editor/monaco/language-contributions'
 
 /**
  * Monaco standalone-editor create options, copied verbatim from
@@ -50,9 +61,26 @@ export const EDITOR_CREATE_OPTIONS: monacoEditor.IStandaloneEditorConstructionOp
   },
 }
 
-/** Monaco language id for a model URI (uri → fs path → athas id → monaco id). */
+/**
+ * Monaco language id for a model URI (uri → fs path → athas id → monaco id).
+ *
+ * Also kicks off (fire-and-forget) the on-demand grammar/language-service load
+ * for this path via `loadLanguageForPath` — see `language-contributions.ts`.
+ * NOT awaited: this function must return the language id synchronously so the
+ * caller (`ModelRegistry.acquire` → `monacoEditor.createModel`) can create the
+ * model immediately, without threading an async contract through
+ * `EditorManager`/`ModelRegistry`/the pane-switch controller. If the
+ * contribution resolves shortly after, monaco retokenizes the already-created
+ * model in place once its language is registered — a brief plaintext flash
+ * that self-corrects, not a permanent gap (see task-5-report.md for what was
+ * observed live). A rejected load (e.g. a transient chunk-load failure) is
+ * swallowed here so it never surfaces as an unhandled rejection from this
+ * fire-and-forget kickoff — the user just gets no highlighting for that file.
+ */
 export function langForUri(uri: string): string {
-  return toMonacoLanguageId(getLanguageIdFromPath(uriToFsPath(uri)))
+  const fsPath = uriToFsPath(uri)
+  void loadLanguageForPath(fsPath).catch(() => {})
+  return toMonacoLanguageId(getLanguageIdFromPath(fsPath))
 }
 
 /** Wrap a real Monaco text model so it satisfies `IModelLike` (string `uri`). */

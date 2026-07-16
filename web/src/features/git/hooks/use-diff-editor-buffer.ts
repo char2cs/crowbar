@@ -13,6 +13,14 @@ interface UseDiffEditorBufferOptions {
   pathOverride?: string
   languageOverride?: string
   tokens?: TokenEntry[]
+  /**
+   * Skip registering the buffer entirely (default true). Callers that only
+   * need this buffer conditionally — e.g. the split-diff left/right editors,
+   * which are pointless work while the view is unified — pass `false` to
+   * avoid the setState + Monaco-model churn. Flipping back to `true` mid-session
+   * registers the buffer on the next effect run (it's in the dependency array).
+   */
+  enabled?: boolean
 }
 
 export function useDiffEditorBuffer({
@@ -23,6 +31,7 @@ export function useDiffEditorBuffer({
   pathOverride,
   languageOverride,
   tokens,
+  enabled = true,
 }: UseDiffEditorBufferOptions): string {
   const workspaceStore = useWorkspaceStore()
   const bufferId = useMemo(
@@ -35,6 +44,8 @@ export function useDiffEditorBuffer({
   )
 
   useEffect(() => {
+    if (!enabled) return
+
     const nextBuffer: EditorContent = {
       id: bufferId,
       type: 'editor',
@@ -80,7 +91,17 @@ export function useDiffEditorBuffer({
         buffers: state.buffers.filter((buffer) => buffer.id !== bufferId),
       }))
     }
-  }, [workspaceStore, bufferId, bufferPath, content, languageOverride, name, sourcePath, tokens])
+  }, [
+    workspaceStore,
+    bufferId,
+    bufferPath,
+    content,
+    enabled,
+    languageOverride,
+    name,
+    sourcePath,
+    tokens,
+  ])
 
   return bufferId
 }

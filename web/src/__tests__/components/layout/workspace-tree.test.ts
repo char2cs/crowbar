@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { buildWorkspaceTree } from '@/components/layout/workspace-tree'
+import { buildWorkspaceTree } from '@/components/layout/workspace-tree-utils'
 import type { Workspace } from '@/lib/store/sidebar'
 
 const ws = (id: string, parentId?: string): Workspace => ({

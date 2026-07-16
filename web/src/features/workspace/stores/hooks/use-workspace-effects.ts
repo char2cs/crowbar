@@ -1,8 +1,10 @@
 import { useEffect, useRef } from 'react'
+import deepEqual from 'fast-deep-equal'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useBufferActions } from './use-buffer-store'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import {
+  copyFileNode,
   createFileNode,
   deleteFileNode,
   fetchFileTree,
@@ -12,6 +14,9 @@ import {
   renameFileNode,
 } from '@/features/files/lib/file-tree-api'
 import { joinPath } from '@/utils/path-helpers'
+import { revealItemInFinder } from '@/lib/crowbar-bridge'
+import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
+import { toast } from '@/features/window/stores/toast-store'
 import { wsManager } from '@/lib/ws/manager'
 import { openFileContent } from '@/features/workspace/lib/open-file-content'
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
@@ -19,6 +24,11 @@ import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace
 import { workspaceBase, isHomeWorkspace } from '@/lib/workspace-scope-url'
 import { fetchAllGitData, useGitStore } from '@/features/git/stores/git-store'
 import { useWorkspaceThreadsStream } from './use-workspace-threads-stream'
+import {
+  isWarmDataFresh,
+  peekGitFrame,
+  saveGitFrame,
+} from '@/features/workspace/lib/activation-freshness'
 import type { AppFile } from '@/features/file-system/types/app'
 
 const GIT_REFRESH_DEBOUNCE_MS = 400
@@ -26,6 +36,29 @@ const GIT_REFRESH_DEBOUNCE_MS = 400
 function parentDir(path: string): string {
   const idx = path.lastIndexOf('/')
   return idx === -1 ? '' : path.slice(0, idx)
+}
+
+// Derive a non-colliding "<name> copy" destination for a duplicate, checking the
+// loaded siblings so a second duplicate becomes "<name> copy 2" instead of
+// clobbering the first. A dot in position 0 (dotfile) is treated as part of the
+// stem, not an extension, so ".env" duplicates to ".env copy".
+export function duplicateDestPath(srcPath: string, files: AppFile[]): string {
+  const dir = parentDir(srcPath)
+  const name = dir ? srcPath.slice(dir.length + 1) : srcPath
+  const dotIdx = name.lastIndexOf('.')
+  const hasExt = dotIdx > 0
+  const stem = hasExt ? name.slice(0, dotIdx) : name
+  const ext = hasExt ? name.slice(dotIdx) : ''
+  const taken = (candidate: string) =>
+    findNode(files, dir ? joinPath(dir, candidate) : candidate) !== null
+
+  let candidate = `${stem} copy${ext}`
+  let n = 2
+  while (taken(candidate)) {
+    candidate = `${stem} copy ${n}${ext}`
+    n += 1
+  }
+  return dir ? joinPath(dir, candidate) : candidate
 }
 
 // Carry already-loaded children across a level refresh so a live file change
@@ -52,6 +85,17 @@ function isStructuralChange(type: string | undefined): boolean {
   return type === 'created' || type === 'deleted' || type === 'renamed'
 }
 
+// The push stream repeats identical git/status frames far faster than the
+// reload debounce, so only a frame that actually differs from the previous
+// one should retrigger a reload. `prev` is `null` before the first frame of
+// a session arrives — null must never compare equal to an incoming frame, or
+// that first frame would silently fail to trigger a reload. Comparing the
+// already-parsed frame objects with fast-deep-equal (walk + bail on first
+// mismatch) avoids JSON.stringify-ing a multi-KB payload on every frame.
+export function framesEqual(prev: unknown, next: unknown): boolean {
+  return prev !== null && deepEqual(prev, next)
+}
+
 export function useWorkspaceEffects(wsId: string) {
   const bufferActions = useBufferActions()
   const expandedPaths = useFileTreeStore((state) => state.expandedPaths)
@@ -65,9 +109,125 @@ export function useWorkspaceEffects(wsId: string) {
   useEffect(() => {
     let cancelled = false
     loadingDirs.current.clear()
-    // Reset the shared tree synchronously on switch so the user never sees the
-    // previous workspace's files while the new tree loads.
-    if (useFileSystemStore.getState().rootFolderPath !== wsId) {
+
+    // The workspace-scoped file handlers, wired into the global fs store on
+    // every (re)seed. Built once per mount (closures over wsId/bufferActions) so
+    // the full seed and the warm fast path install the exact same closures.
+    const handlers = {
+      handleFileOpen: async (path: string, revealOrIsDir?: boolean) => {
+        if (revealOrIsDir === true) return
+        await openFileContent(wsId, path, bufferActions, { preview: false })
+      },
+      handleFileSelect: (path: string, isDir?: boolean) => {
+        if (isDir) return
+        void openFileContent(wsId, path, bufferActions, { preview: true })
+      },
+      // File-tree mutations. The daemon emits a structural FileChangeEvent on
+      // success, which the files-WS effect below reconciles into the tree — so
+      // these don't refetch (except the explicit Refresh action).
+      handleCreateNewFileInDirectory: async (dirPath: string, fileName?: string) => {
+        if (!fileName) return
+        // Tree paths are workspace-relative (root === ''). A dirPath equal to
+        // the absolute wsId is the workspace root addressed by its full path
+        // (right-click empty space) — normalise it to '' so we create at the
+        // worktree root rather than at wsId/<name>.
+        const dir = dirPath === wsId ? '' : dirPath
+        const path = dir ? joinPath(dir, fileName) : fileName
+        await createFileNode(wsId, path, 'file')
+        return path
+      },
+      handleCreateNewFolderInDirectory: async (dirPath: string, folderName?: string) => {
+        if (!folderName) return
+        const dir = dirPath === wsId ? '' : dirPath
+        await createFileNode(wsId, dir ? joinPath(dir, folderName) : folderName, 'dir')
+      },
+      handleDeletePath: async (path: string) => {
+        await deleteFileNode(wsId, path)
+      },
+      // Reveal in Finder (explorer + tab context menus). The tab menu passes
+      // the buffer's workspace-relative path; the explorer passes an absolute
+      // one (already joined with the worktree root). Resolve relative paths
+      // against the on-disk workspace root; virtual buffers (remote://,
+      // diff:// …) have no disk presence to reveal. Failures surface as a
+      // toast instead of vanishing into an uncaught rejection.
+      handleRevealInFolder: (path: string) => {
+        if (path.includes('://')) return
+        const root = path.startsWith('/') ? '' : resolveWorkspaceRootPath()
+        if (root === undefined) return
+        const absolute = root ? joinPath(root, path) : path
+        revealItemInFinder(absolute).catch((error: unknown) => {
+          toast.error(
+            'Reveal in Finder failed',
+            error instanceof Error ? error.message : String(error),
+          )
+        })
+      },
+      // Duplicate goes through the daemon's server-side copy verb — byte
+      // faithful (binary files stay intact) and recursive for directories.
+      // Only the collision-free "<name> copy" destination is derived
+      // client-side; the daemon's structural FileChangeEvent reconciles the
+      // new node into the tree. Failures (locked workspace 409, missing
+      // source 404 …) surface as a toast.
+      handleDuplicatePath: async (path: string) => {
+        const files = useFileSystemStore.getState().files
+        try {
+          await copyFileNode(wsId, path, duplicateDestPath(path, files))
+        } catch (error) {
+          toast.error('Duplicate failed', error instanceof Error ? error.message : String(error))
+        }
+      },
+      handleRenamePath: async (path: string, newName?: string) => {
+        if (newName) {
+          const dir = parentDir(path)
+          await renameFileNode(wsId, path, dir ? joinPath(dir, newName) : newName)
+          return
+        }
+        // No newName → START an inline rename: mark the node editable. This is
+        // an idempotent SET (never a toggle) so a double-click reliably opens
+        // the input regardless of any stale isRenaming left by a prior edit —
+        // that toggle-vs-stale-state coupling is what made rename inconsistent.
+        // Cancel (Escape) and commit (Enter/blur) clear the flag explicitly in
+        // the inline-editing hook, so start and clear are independent.
+        const setRenaming = (nodes: AppFile[]): AppFile[] =>
+          nodes.map((n) => {
+            if (n.path === path) return { ...n, isRenaming: true, isEditing: true }
+            return n.children ? { ...n, children: setRenaming(n.children) } : n
+          })
+        const fs = useFileSystemStore.getState()
+        fs.setFiles(setRenaming(fs.files))
+      },
+      refreshDirectory: async (path?: string) => {
+        const fresh = await fetchFileTree(wsId, path || undefined).catch(() => null)
+        if (!Array.isArray(fresh)) return
+        const current = useFileSystemStore.getState().files
+        const reconciled = preserveLoadedChildren(current, fresh)
+        const next = !path ? reconciled : mergeChildren(current, path, reconciled)
+        useFileSystemStore.getState().setFiles(next)
+      },
+    }
+
+    // Warm fast path: this workspace was hidden only briefly AND the global tree
+    // still holds ITS data (no other workspace clobbered it while away) — keep
+    // the loaded tree, skip the refetch and the `isFileTreeLoading:true` flash
+    // (the synchronous re-render that inflated the warm-switch frame). Re-wire
+    // the handlers only if they were somehow dropped. See activation-freshness.
+    //
+    // The `!isFileTreeLoading` clause is LOAD-BEARING for the real A→B→A path:
+    // resetWorkspaceScopedStores (activation layout effect) normalises
+    // rootFolderPath back to the returning wsId with an EMPTY tree and
+    // isFileTreeLoading:true, so the identity check alone would happily "keep"
+    // that empty tree. Mid-load means the store holds no real data — re-seed.
+    const fs0 = useFileSystemStore.getState()
+    if (fs0.rootFolderPath === wsId && !fs0.isFileTreeLoading && isWarmDataFresh(wsId)) {
+      if (!fs0.handleFileOpen) useFileSystemStore.setState(handlers)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    // Cold / stale seed. Reset the shared tree synchronously on switch so the
+    // user never sees the previous workspace's files while the new tree loads.
+    if (fs0.rootFolderPath !== wsId) {
       useFileSystemStore.setState({
         rootFolderPath: wsId,
         files: [],
@@ -89,64 +249,7 @@ export function useWorkspaceEffects(wsId: string) {
         files: root,
         fileTree: root,
         isFileTreeLoading: false,
-        handleFileOpen: async (path: string, revealOrIsDir?: boolean) => {
-          if (revealOrIsDir === true) return
-          await openFileContent(wsId, path, bufferActions, { preview: false })
-        },
-        handleFileSelect: (path: string, isDir?: boolean) => {
-          if (isDir) return
-          void openFileContent(wsId, path, bufferActions, { preview: true })
-        },
-        // File-tree mutations. The daemon emits a structural FileChangeEvent on
-        // success, which the files-WS effect below reconciles into the tree — so
-        // these don't refetch (except the explicit Refresh action).
-        handleCreateNewFileInDirectory: async (dirPath: string, fileName?: string) => {
-          if (!fileName) return
-          // Tree paths are workspace-relative (root === ''). A dirPath equal to
-          // the absolute wsId is the workspace root addressed by its full path
-          // (right-click empty space) — normalise it to '' so we create at the
-          // worktree root rather than at wsId/<name>.
-          const dir = dirPath === wsId ? '' : dirPath
-          const path = dir ? joinPath(dir, fileName) : fileName
-          await createFileNode(wsId, path, 'file')
-          return path
-        },
-        handleCreateNewFolderInDirectory: async (dirPath: string, folderName?: string) => {
-          if (!folderName) return
-          const dir = dirPath === wsId ? '' : dirPath
-          await createFileNode(wsId, dir ? joinPath(dir, folderName) : folderName, 'dir')
-        },
-        handleDeletePath: async (path: string) => {
-          await deleteFileNode(wsId, path)
-        },
-        handleRenamePath: async (path: string, newName?: string) => {
-          if (newName) {
-            const dir = parentDir(path)
-            await renameFileNode(wsId, path, dir ? joinPath(dir, newName) : newName)
-            return
-          }
-          // No newName → START an inline rename: mark the node editable. This is
-          // an idempotent SET (never a toggle) so a double-click reliably opens
-          // the input regardless of any stale isRenaming left by a prior edit —
-          // that toggle-vs-stale-state coupling is what made rename inconsistent.
-          // Cancel (Escape) and commit (Enter/blur) clear the flag explicitly in
-          // the inline-editing hook, so start and clear are independent.
-          const setRenaming = (nodes: AppFile[]): AppFile[] =>
-            nodes.map((n) => {
-              if (n.path === path) return { ...n, isRenaming: true, isEditing: true }
-              return n.children ? { ...n, children: setRenaming(n.children) } : n
-            })
-          const fs = useFileSystemStore.getState()
-          fs.setFiles(setRenaming(fs.files))
-        },
-        refreshDirectory: async (path?: string) => {
-          const fresh = await fetchFileTree(wsId, path || undefined).catch(() => null)
-          if (!Array.isArray(fresh)) return
-          const current = useFileSystemStore.getState().files
-          const reconciled = preserveLoadedChildren(current, fresh)
-          const next = !path ? reconciled : mergeChildren(current, path, reconciled)
-          useFileSystemStore.getState().setFiles(next)
-        },
+        ...handlers,
       })
     })()
     return () => {
@@ -220,17 +323,27 @@ export function useWorkspaceEffects(wsId: string) {
   useEffect(() => {
     if (isHomeWorkspace(wsId)) return
     let cancelled = false
-    void (async () => {
-      const data = await fetchAllGitData(wsId).catch(() => null)
-      if (cancelled || !data) return
-      useGitStore.getState().actions.loadFreshGitData({
-        gitStatus: data.status,
-        commits: data.commits,
-        branches: data.branches,
-        stashes: data.stashes,
-        repoPath: wsId,
-      })
-    })()
+
+    // Warm fast path: git data for THIS workspace survived a brief hide — skip
+    // the four-request initial load. Status/log still self-heal below (the
+    // re-subscribed stream reloads on any frame that differs from the one
+    // preserved across the gap); branches/stashes change only on explicit git
+    // actions, so keeping the loaded values is correct.
+    const gitFresh =
+      useGitStore.getState().currentWorkspaceRepoPath === wsId && isWarmDataFresh(wsId)
+    if (!gitFresh) {
+      void (async () => {
+        const data = await fetchAllGitData(wsId).catch(() => null)
+        if (cancelled || !data) return
+        useGitStore.getState().actions.loadFreshGitData({
+          gitStatus: data.status,
+          commits: data.commits,
+          branches: data.branches,
+          stashes: data.stashes,
+          repoPath: wsId,
+        })
+      })()
+    }
     // Coalescing (non-resetting) timer. The backend can stream git frames more
     // often than the debounce window (observed ~165ms apart, indefinitely); a
     // resetting debounce starves forever under that load and the Changes panel
@@ -257,17 +370,14 @@ export function useWorkspaceEffects(wsId: string) {
       }, GIT_REFRESH_DEBOUNCE_MS)
     }
     // The push stream repeats identical status frames; only a frame that
-    // actually differs from the previous one warrants a refetch.
-    let lastFrame: string | null = null
+    // actually differs from the previous one warrants a refetch. Seed from the
+    // frame preserved across the hidden gap so a re-subscribe that re-pushes the
+    // SAME status doesn't retrigger a reload; a differing frame still does (the
+    // self-heal for a change that landed while hidden). Null on a cold seed.
+    let lastFrame: unknown = gitFresh ? peekGitFrame(wsId) : null
     const unsubscribe = wsManager.subscribe(`${workspaceBase(wsId)}/git/status`, (frame) => {
-      let key: string
-      try {
-        key = JSON.stringify(frame)
-      } catch {
-        key = String(frame)
-      }
-      if (key === lastFrame) return
-      lastFrame = key
+      if (framesEqual(lastFrame, frame)) return
+      lastFrame = frame
       scheduleStatusReload()
     })
     // Editor saves dispatch "git-status-updated" after a successful write.
@@ -279,6 +389,8 @@ export function useWorkspaceEffects(wsId: string) {
       if (timer) clearTimeout(timer)
       window.removeEventListener('git-status-updated', scheduleStatusReload)
       unsubscribe()
+      // Preserve the last-seen frame so a quick warm return dedupes the re-push.
+      saveGitFrame(wsId, lastFrame)
     }
   }, [wsId])
 }

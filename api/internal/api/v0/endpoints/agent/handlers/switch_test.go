@@ -220,3 +220,57 @@ func TestResume_WrongWorkspace404s(
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Empty(t, uc.resumeCalls)
 }
+
+// TestStop_Success proves Stop calls StopChat for the path id and responds 202
+// (accepted, no body) — the chat is dormant-ized, not deleted.
+func TestStop_Success(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/chat-1/stop", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
+
+	h.Stop(ctx)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	require.Len(t, uc.stopCalls, 1)
+	assert.Equal(t, "chat-1", uc.stopCalls[0])
+}
+
+// TestStop_UsecaseError_MapsStatus proves a StopChat failure surfaces with its
+// mapped status rather than a bare 202.
+func TestStop_UsecaseError_MapsStatus(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{stopErr: agentchat.ErrNotFound}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/chat-1/stop", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
+
+	h.Stop(ctx)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestStop_WrongWorkspace404s proves the by-id scope check (requireChatInWorkspace)
+// runs before StopChat: a chat anchored to a DIFFERENT workspace than the :wsId path
+// param can never be stopped through this route.
+func TestStop_WrongWorkspace404s(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{
+		getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-other"},
+	}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/chat-1/stop", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "chat-1"}}
+
+	h.Stop(ctx)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Empty(t, uc.stopCalls, "StopChat must never be called once the scope check 404s")
+}

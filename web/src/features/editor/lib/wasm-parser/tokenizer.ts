@@ -122,50 +122,62 @@ export async function tokenizeCodeWithTree(
     if (injectionRules) {
       const injectionNodes = findInjectionNodes(tree.rootNode, injectionRules)
 
-      for (const { rule, node, parentNode } of injectionNodes) {
-        try {
-          const embeddedContent = content.substring(node.startIndex, node.endIndex)
-          if (!embeddedContent.trim()) continue
+      // Each injection node tokenizes independently (its own embedded-language
+      // parser/WASM+query load), so run them concurrently instead of one at a
+      // time. Promise.all preserves index order, so the position-adjust + push
+      // below still applies in document order regardless of completion order.
+      const injectionResults = await Promise.all(
+        injectionNodes.map(async ({ rule, node, parentNode }) => {
+          try {
+            const embeddedContent = content.substring(node.startIndex, node.endIndex)
+            if (!embeddedContent.trim()) return null
 
-          const embeddedLanguageId = resolveInjectedLanguage(
-            content,
-            languageId,
-            rule,
-            node,
-            parentNode,
-          )
-          const assets = getLanguageAssetConfig(embeddedLanguageId)
-          const subTokens = await tokenizeCode(embeddedContent, embeddedLanguageId, {
-            languageId: embeddedLanguageId,
-            wasmPath: assets.wasmPath,
-            highlightQueryUrl: assets.highlightQueryUrl,
-          })
-
-          const startOffset = node.startIndex
-          const startRow = node.startPosition.row
-          const startCol = node.startPosition.column
-
-          for (const token of subTokens) {
-            if (token.startPosition.row === 0) {
-              token.startPosition.column += startCol
-            }
-            if (token.endPosition.row === 0) {
-              token.endPosition.column += startCol
-            }
-            token.startPosition.row += startRow
-            token.endPosition.row += startRow
-            token.startIndex += startOffset
-            token.endIndex += startOffset
+            const embeddedLanguageId = resolveInjectedLanguage(
+              content,
+              languageId,
+              rule,
+              node,
+              parentNode,
+            )
+            const assets = getLanguageAssetConfig(embeddedLanguageId)
+            const subTokens = await tokenizeCode(embeddedContent, embeddedLanguageId, {
+              languageId: embeddedLanguageId,
+              wasmPath: assets.wasmPath,
+              highlightQueryUrl: assets.highlightQueryUrl,
+            })
+            return { subTokens, node }
+          } catch (error) {
+            logger.warn(
+              'WasmTokenizer',
+              `Failed to tokenize embedded ${rule.language} in ${languageId}`,
+              error,
+            )
+            return null
           }
+        }),
+      )
 
-          tokens.push(...subTokens)
-        } catch (error) {
-          logger.warn(
-            'WasmTokenizer',
-            `Failed to tokenize embedded ${rule.language} in ${languageId}`,
-            error,
-          )
+      for (const result of injectionResults) {
+        if (!result) continue
+        const { subTokens, node } = result
+        const startOffset = node.startIndex
+        const startRow = node.startPosition.row
+        const startCol = node.startPosition.column
+
+        for (const token of subTokens) {
+          if (token.startPosition.row === 0) {
+            token.startPosition.column += startCol
+          }
+          if (token.endPosition.row === 0) {
+            token.endPosition.column += startCol
+          }
+          token.startPosition.row += startRow
+          token.endPosition.row += startRow
+          token.startIndex += startOffset
+          token.endIndex += startOffset
         }
+
+        tokens.push(...subTokens)
       }
     }
 
@@ -249,12 +261,4 @@ export async function tokenizeByLine(
   }
 
   return tokensByLine
-}
-
-/**
- * Initialize the WASM tokenizer
- */
-export async function initializeWasmTokenizer(): Promise<void> {
-  await wasmParserLoader.initialize()
-  logger.info('WasmTokenizer', 'WASM tokenizer initialized')
 }

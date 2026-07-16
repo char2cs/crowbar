@@ -312,6 +312,89 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
   })
 })
 
+// Keep-alive warm return: the workspace store is LIVE (no hydration happens),
+// but files changed on disk while the workspace sat hidden — its file watcher
+// is active-only and agents keep editing hidden worktrees. The warm-activation
+// path calls this to apply the same policy as the restore-time reconcile.
+describe('reconcileWorkspaceBuffersWithDisk (keep-alive warm return)', () => {
+  const WS = 'ws-warm'
+
+  function liveEditorBuffer(overrides: Partial<EditorContent> = {}): EditorContent {
+    return {
+      id: 'buf-live',
+      type: 'editor',
+      path: '/repo/agent-edited.ts',
+      name: 'agent-edited.ts',
+      content: 'content when hidden',
+      savedContent: 'content when hidden',
+      isDirty: false,
+      isVirtual: false,
+      isPinned: false,
+      isPreview: false,
+      isActive: true,
+      tokens: [],
+      ...overrides,
+    }
+  }
+
+  beforeEach(() => {
+    resetDB()
+    globalThis.indexedDB = new IDBFactory()
+    readFileMock.mockReset()
+    toastWarning.mockReset()
+    localStorage.removeItem(`workspace:${WS}:state`)
+  })
+
+  afterEach(() => {
+    destroyWorkspaceStore(WS)
+  })
+
+  it('reloads a clean buffer whose file changed on disk while the workspace was hidden', async () => {
+    const store = getOrCreateWorkspaceStore(WS)
+    store.setState({ buffers: [liveEditorBuffer()] })
+    readFileMock.mockResolvedValue('agent rewrote this while you were away')
+
+    const { reconcileWorkspaceBuffersWithDisk } = await import('@/lib/persistence/hydrate')
+    await reconcileWorkspaceBuffersWithDisk(WS)
+
+    const buf = store.getState().buffers[0] as EditorContent
+    expect(readFileMock).toHaveBeenCalledWith(WS, '/repo/agent-edited.ts')
+    expect(buf.content).toBe('agent rewrote this while you were away')
+    expect(buf.savedContent).toBe('agent rewrote this while you were away')
+    expect(buf.isDirty).toBe(false)
+  })
+
+  it('keeps a dirty buffer intact and flags the external change', async () => {
+    const store = getOrCreateWorkspaceStore(WS)
+    store.setState({
+      buffers: [liveEditorBuffer({ content: 'unsaved user edits', isDirty: true })],
+    })
+    readFileMock.mockResolvedValue('agent rewrote this while you were away')
+
+    const { reconcileWorkspaceBuffersWithDisk } = await import('@/lib/persistence/hydrate')
+    await reconcileWorkspaceBuffersWithDisk(WS)
+
+    const buf = store.getState().buffers[0] as EditorContent
+    expect(buf.content).toBe('unsaved user edits')
+    expect(buf.isDirty).toBe(true)
+    expect(buf.hasExternalChange).toBe(true)
+  })
+
+  it('is a no-op when disk still matches the buffers', async () => {
+    const store = getOrCreateWorkspaceStore(WS)
+    store.setState({ buffers: [liveEditorBuffer()] })
+    readFileMock.mockResolvedValue('content when hidden')
+
+    const { reconcileWorkspaceBuffersWithDisk } = await import('@/lib/persistence/hydrate')
+    await reconcileWorkspaceBuffersWithDisk(WS)
+
+    const buf = store.getState().buffers[0] as EditorContent
+    expect(buf.content).toBe('content when hidden')
+    expect(buf.hasExternalChange).toBeUndefined()
+    expect(toastWarning).not.toHaveBeenCalled()
+  })
+})
+
 describe('hydratePreferences', () => {
   beforeEach(async () => {
     resetDB()

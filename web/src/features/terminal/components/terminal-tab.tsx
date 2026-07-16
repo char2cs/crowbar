@@ -1,5 +1,8 @@
 import { useCallback } from 'react'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import {
+  useWorkspaceStore,
+  useWorkspaceStoreContext,
+} from '@/features/workspace/stores/workspace-context'
 import { XtermTerminal } from './terminal'
 
 interface TerminalTabProps {
@@ -28,6 +31,9 @@ export function TerminalTab({
   isVisible = true,
 }: TerminalTabProps) {
   const workspaceStore = useWorkspaceStore()
+  // The owning workspace — threaded into the terminal so connection resolution
+  // targets THIS workspace even when it is a hidden keep-alive workspace.
+  const workspaceId = useWorkspaceStoreContext((s) => s.workspaceId)
 
   const handleTerminalExit = useCallback(() => {
     workspaceStore.getState().bufferActions.closeBuffer(bufferId)
@@ -53,6 +59,7 @@ export function TerminalTab({
     >
       <XtermTerminal
         sessionId={sessionId}
+        workspaceId={workspaceId}
         isActive={isActive}
         isVisible={isVisible}
         onTerminalExit={handleTerminalExit}

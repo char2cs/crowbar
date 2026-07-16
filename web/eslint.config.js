@@ -1,8 +1,18 @@
 import js from '@eslint/js'
 import reactHooks from 'eslint-plugin-react-hooks'
 import tseslint from 'typescript-eslint'
+import globals from 'globals'
 
 export default tseslint.config(
+  // Build output — a standalone `ignores` entry is a global ignore in flat
+  // config. Without it `eslint .` walks compiled bundles in dist/.
+  { ignores: ['dist/**'] },
+  {
+    // Node build scripts run under Node, not the browser — give them the Node
+    // globals (console/process/__dirname) so no-undef doesn't flag them.
+    files: ['scripts/**/*.{js,mjs,cjs}'],
+    languageOptions: { globals: { ...globals.node } },
+  },
   js.configs.recommended,
   tseslint.configs.recommended,
   {

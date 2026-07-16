@@ -21,6 +21,7 @@ import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 //      which seeds (GET) before the first push so no frame is dropped.
 // Every entity-cache mutation triggers a sidebar rebuild from the cache.
 export function AppSyncProvider({ children }: { children: ReactNode }) {
+  // react-doctor-disable-next-line effect-needs-cleanup -- cleanup exists (l.132-136: `disposed` flag + unsubscribe arrays); tracer can't follow it.
   useEffect(() => {
     let disposed = false
     const unsubscribes: Array<() => void> = []

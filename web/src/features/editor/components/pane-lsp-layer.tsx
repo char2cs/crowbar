@@ -86,6 +86,7 @@ export interface PaneLspLayerProps {
  * depends on the active buffer's path/content so a buffer switch only re-renders
  * this leaf.
  */
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive LSP overlay — hover/completion/diagnostics layers all bind to one editor's LSP client and position math; not separable without duplicating that binding.
 export function PaneLspLayer({
   paneId,
   isActiveSurface,

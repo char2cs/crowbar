@@ -244,6 +244,43 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tau
         .build()
 }
 
+/// Reveal a file or directory in the OS file manager (Finder on macOS) with the
+/// item selected. Calls tauri-plugin-opener's platform implementation as a plain
+/// library function behind our own command: an app command is invokable without
+/// any capability entry, whereas the plugin's FE-facing command would need a
+/// path-glob scope broad enough to whitelist every workspace root (including
+/// dot-segment paths like ~/.crowbar/projects/...), which the glob matcher
+/// handles inconsistently. (Verified: this app has no `permissions/` dir, so no
+/// ACL manifest exists under tauri_utils::acl::APP_ACL_KEY for it — `RuntimeAuthority`
+/// only gates local, non-plugin commands when the app HAS one — see
+/// tauri::webview's invoke dispatch. `cargo build`'s `gen/schemas/acl-manifests.json`
+/// has no "app" key, confirming it today. If a `permissions/` dir is ever added for
+/// some other command, this one must get an explicit allow alongside it.)
+///
+/// Must be `async`, unlike this rule's one other exception below
+/// (`set_vibrancy_appearance`, which genuinely needs the main thread for its
+/// AppKit view mutation): a plain, non-async `#[tauri::command]` runs INLINE on
+/// the calling thread, which for a WKWebView IPC message is the app's main
+/// thread (see `set_vibrancy_appearance`'s doc comment). `reveal_item_in_dir`'s
+/// macOS path calls `NSWorkspace.activateFileViewerSelectingURLs`, a blocking
+/// round trip to Finder over XPC. Run inline on the main thread, a slow round
+/// trip stalls it — and because that same thread also pumps the WKWebView's
+/// message loop, the whole script context freezes (not just this one invoke)
+/// until it resolves. This is exactly the "invoke hangs the page" symptom Task
+/// 30 reported; it is not an ACL denial (see above). Every other IPC command in
+/// this file (terminal.rs, ws_bridge.rs, diagnostics.rs) is already `async` for
+/// this reason — this one just wasn't (Task 28). `spawn_blocking` moves the
+/// actual blocking call onto a dedicated blocking-pool thread so a slow Finder
+/// round trip no longer holds up the UI.
+#[tauri::command]
+async fn reveal_in_finder(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tauri_plugin_opener::reveal_item_in_dir(&path).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("reveal_in_finder task panicked: {e}"))?
+}
+
 /// Pin the native vibrancy frost to a fixed appearance so it renders per-theme.
 ///
 /// window-vibrancy 0.6.0 `apply_vibrancy` adds an NSVisualEffectView tagged
@@ -520,8 +557,34 @@ pub fn run() {
             ws_bridge::ws_send,
             ws_bridge::ws_close,
             diagnostics::diagnostics_export,
+            reveal_in_finder,
             set_vibrancy_appearance,
         ])
         .run(tauri::generate_context!())
         .expect("error running Tauri app");
+}
+
+#[cfg(test)]
+mod reveal_in_finder_tests {
+    use super::reveal_in_finder;
+
+    // Regression for Task 30: `reveal_in_finder` must stay `async` so its
+    // blocking, cross-process Finder call runs on a `spawn_blocking` thread
+    // instead of inline on the caller — inline execution is what froze the
+    // whole webview main thread (see the doc comment on `reveal_in_finder`).
+    //
+    // A nonexistent path fails at `std::fs::canonicalize` before the platform
+    // `imp::reveal_items_in_dir` (the actual NSWorkspace/XPC call) ever runs,
+    // so this stays safe and deterministic in CI: no Finder window, no
+    // WindowServer dependency, no real IPC. It only exercises that the
+    // `async fn` + `spawn_blocking` + `JoinHandle` plumbing still propagates
+    // the underlying error correctly.
+    #[tokio::test]
+    async fn reveal_in_finder_is_async_and_propagates_errors() {
+        let result = reveal_in_finder("/definitely/does/not/exist/crowbar-task-30".into()).await;
+        assert!(
+            result.is_err(),
+            "canonicalize on a nonexistent path must fail"
+        );
+    }
 }

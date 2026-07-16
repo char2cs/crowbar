@@ -11,17 +11,21 @@ interface FrameStats {
 function FpsOverlayInner() {
   const [stats, setStats] = useState<FrameStats>({ fps: 0, maxDt: 0, drops: 0 })
 
-  const prevTsRef = useRef(performance.now())
+  // Lazy ref init (null-guarded): `performance.now()` only needs to run once,
+  // at mount, not as a throwaway useRef() arg re-evaluated on every render.
+  const prevTsRef = useRef<number | null>(null)
+  if (prevTsRef.current === null) prevTsRef.current = performance.now()
   const countRef = useRef(0)
   const maxDtRef = useRef(0)
   const dropsRef = useRef(0)
-  const windowStartRef = useRef(performance.now())
+  const windowStartRef = useRef<number | null>(null)
+  if (windowStartRef.current === null) windowStartRef.current = performance.now()
 
   useEffect(() => {
     let rafId: number
 
     function tick(ts: number) {
-      const dt = ts - prevTsRef.current
+      const dt = ts - prevTsRef.current!
       prevTsRef.current = ts
 
       // Ignore the first frame and any tab-backgrounding pauses
@@ -33,7 +37,7 @@ function FpsOverlayInner() {
         if (dt > 16) dropsRef.current++
       }
 
-      const elapsed = ts - windowStartRef.current
+      const elapsed = ts - windowStartRef.current!
       if (elapsed >= 500) {
         setStats({
           fps: Math.round((countRef.current / elapsed) * 1000),

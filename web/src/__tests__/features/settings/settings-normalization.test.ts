@@ -35,6 +35,30 @@ describe('settings normalization', () => {
     expect(normalizeSettingValue('uiFontFamily', '   ')).toBe(DEFAULT_UI_FONT_FAMILY)
   })
 
+  it('clamps and rounds workspaceKeepAliveMinutes and round-trips valid values', () => {
+    // Valid values survive a normalizeSettings round-trip untouched.
+    expect(
+      normalizeSettings({ ...getDefaultSettingsSnapshot(), workspaceKeepAliveMinutes: 0 })
+        .workspaceKeepAliveMinutes,
+    ).toBe(0)
+    expect(
+      normalizeSettings({ ...getDefaultSettingsSnapshot(), workspaceKeepAliveMinutes: 45 })
+        .workspaceKeepAliveMinutes,
+    ).toBe(45)
+
+    // Out-of-range and non-integer values are clamped/rounded on write.
+    expect(normalizeSettingValue('workspaceKeepAliveMinutes', -5)).toBe(0)
+    expect(normalizeSettingValue('workspaceKeepAliveMinutes', 9999)).toBe(120)
+    expect(normalizeSettingValue('workspaceKeepAliveMinutes', 10.6)).toBe(11)
+    // A corrupt persisted value falls back to the default.
+    expect(
+      normalizeSettings({
+        ...getDefaultSettingsSnapshot(),
+        workspaceKeepAliveMinutes: Number.NaN,
+      }).workspaceKeepAliveMinutes,
+    ).toBe(10)
+  })
+
   it('migrates the old terminal line-height default to preserve TUI block graphics', () => {
     const normalized = normalizeSettings({
       ...getDefaultSettingsSnapshot(),

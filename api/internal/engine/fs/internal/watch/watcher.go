@@ -84,12 +84,12 @@ func (r *realTimer) Chan() <-chan time.Time {
 // Watcher watches a workspace's repo root and fans out every debounced event
 // to a Dispatcher. It self-manages recursive watching for subdirectories.
 type Watcher struct {
-	wsID         string
-	repoPath     string
-	forkPointSha string
-	git          GitStatusProvider
-	dispatcher   Dispatcher
-	ignore       ignore.Matcher
+	wsID       string
+	repoPath   string
+	base       string
+	git        GitStatusProvider
+	dispatcher Dispatcher
+	ignore     ignore.Matcher
 
 	fsw          *fsnotify.Watcher
 	mu           sync.Mutex
@@ -156,20 +156,20 @@ func gitStatusEqual(
 func NewWatcher(
 	wsID string,
 	repoPath string,
-	forkPointSha string,
+	base string,
 	git GitStatusProvider,
 	dispatcher Dispatcher,
 ) *Watcher {
 	return &Watcher{
-		wsID:         wsID,
-		repoPath:     repoPath,
-		forkPointSha: forkPointSha,
-		git:          git,
-		dispatcher:   dispatcher,
-		ignore:       ignore.NewMatcher(repoPath),
-		stopCh:       make(chan struct{}),
-		loopDone:     make(chan struct{}),
-		gitTimer:     newStoppedTimer(gitRecomputeDebounce),
+		wsID:       wsID,
+		repoPath:   repoPath,
+		base:       base,
+		git:        git,
+		dispatcher: dispatcher,
+		ignore:     ignore.NewMatcher(repoPath),
+		stopCh:     make(chan struct{}),
+		loopDone:   make(chan struct{}),
+		gitTimer:   newStoppedTimer(gitRecomputeDebounce),
 	}
 }
 
@@ -496,7 +496,7 @@ func (w *Watcher) fanOutGit(
 	added, deleted, hasConflicts, hasCommits, err := w.git.ComputeWorkingTreeSummary(
 		ctx,
 		w.repoPath,
-		w.forkPointSha,
+		w.base,
 	)
 	if err != nil {
 		return

@@ -115,3 +115,86 @@ func TestRegression_HomeHasNoGitSurface(t *testing.T) {
 		"/v0/projects/"+projectID+"/home/git/status", nil, http.StatusNotFound)
 	_ = resp.Body.Close()
 }
+
+// TestRegression_HomeFilesCopy proves POST /home/files/copy is mounted for the
+// project-home workspace and performs a byte-faithful duplicate: create/rename/
+// delete were mounted on the home route group (Task 28), but the copy verb was
+// not, so Duplicate in the home explorer 404'd every time (Task 34).
+func TestRegression_HomeFilesCopy(t *testing.T) {
+	h := newHarness(t)
+	homeBase := "/v0/projects/" + createProjectForHome(t, h) + "/home"
+
+	var copied struct {
+		ID string `json:"id"`
+	}
+	h.post(homeBase+"/files/copy",
+		map[string]string{"sourcePath": "README.md", "destPath": "README copy.md"},
+		http.StatusCreated, &copied)
+	assert.Equal(t, "README copy.md", copied.ID)
+
+	var original, dup struct {
+		Content string `json:"content"`
+	}
+	h.get(homeBase+"/files/content?path=README.md", &original)
+	h.get(homeBase+"/files/content?path=README+copy.md", &dup)
+	assert.Equal(t, original.Content, dup.Content,
+		"home copy must reproduce the source content byte-for-byte")
+}
+
+// TestRegression_HomeFilesCopyConflictAndMissingSource proves the home copy
+// route maps usecase errors exactly like the workspace-scoped verb it mirrors:
+// an existing destination is a 409, a missing source is a 404.
+func TestRegression_HomeFilesCopyConflictAndMissingSource(t *testing.T) {
+	h := newHarness(t)
+	homeBase := "/v0/projects/" + createProjectForHome(t, h) + "/home"
+
+	var copied struct {
+		ID string `json:"id"`
+	}
+	h.post(homeBase+"/files/copy",
+		map[string]string{"sourcePath": "README.md", "destPath": "README copy2.md"},
+		http.StatusCreated, &copied)
+
+	h.postError(homeBase+"/files/copy",
+		map[string]string{"sourcePath": "README.md", "destPath": "README copy2.md"},
+		http.StatusConflict)
+	h.postError(homeBase+"/files/copy",
+		map[string]string{"sourcePath": "ghost.md", "destPath": "ghost copy.md"},
+		http.StatusNotFound)
+}
+
+// TestRegression_HomeFilesRenameContract proves PATCH /home/files renames on the
+// shared {path, newPath} shape the workspace handler and the FE already send. The
+// handler bound {oldPath, newPath}, so every home-project explorer rename 400'd
+// on the mismatch and failed silently in the UI (Task 28/29/31 built out this
+// explorer). A rename with {path, newPath} moves the file; the retired
+// {oldPath, newPath} shape now 400s.
+func TestRegression_HomeFilesRenameContract(t *testing.T) {
+	h := newHarness(t)
+	homeBase := "/v0/projects/" + createProjectForHome(t, h) + "/home"
+
+	var before struct {
+		Content string `json:"content"`
+	}
+	h.get(homeBase+"/files/content?path=README.md", &before)
+
+	var renamed struct {
+		ID string `json:"id"`
+	}
+	h.patch(homeBase+"/files",
+		map[string]string{"path": "README.md", "newPath": "RENAMED.md"}, &renamed)
+	assert.Equal(t, "RENAMED.md", renamed.ID)
+
+	// Content survives at the new path; the old path is gone.
+	var after struct {
+		Content string `json:"content"`
+	}
+	h.get(homeBase+"/files/content?path=RENAMED.md", &after)
+	assert.Equal(t, before.Content, after.Content, "rename must preserve content at the new path")
+	h.raw(http.MethodGet, homeBase+"/files/content?path=README.md", nil, http.StatusNotFound).Body.Close()
+
+	// The retired {oldPath, newPath} shape leaves `path` unbound → 400.
+	h.raw(http.MethodPatch, homeBase+"/files",
+		map[string]string{"oldPath": "RENAMED.md", "newPath": "AGAIN.md"}, http.StatusBadRequest).
+		Body.Close()
+}

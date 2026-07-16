@@ -111,8 +111,7 @@ export function buildTerminalFontFamily(primaryFont: string): string {
     platformFallback,
     'monospace',
   ])
-    .map(quoteFontName)
-    .filter(Boolean)
+    .flatMap((font) => quoteFontName(font) || [])
     .join(', ')
 }
 

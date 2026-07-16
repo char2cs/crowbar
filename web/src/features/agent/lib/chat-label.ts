@@ -12,8 +12,3 @@
  * re-points a tab at a brand-new, unnamed chat. The tab has to be able to say so.
  */
 export const UNTITLED_CHAT_LABEL = 'Untitled chat'
-
-/** The label to show for a chat, falling back to the placeholder when it has no title. */
-export function chatLabel(title: string | undefined | null): string {
-  return title || UNTITLED_CHAT_LABEL
-}

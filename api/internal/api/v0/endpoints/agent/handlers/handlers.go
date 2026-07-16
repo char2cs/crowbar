@@ -78,6 +78,17 @@ type AgentUsecase interface {
 		chatID string,
 	) (runnerID string, err error)
 
+	// StopChat gracefully terminates chatID's live vendor CLI and leaves the chat
+	// DORMANT and resumable (the chat entry and its bound conversation are retained) —
+	// the counterpart of ResumeChat, and what closing a chat tab calls. It neither
+	// respawns (unlike SwitchProvider) nor deletes the chat (unlike PurgeChat), and the
+	// in-flight turn is aborted by design ("close = stop"). A chat with no live runner
+	// is a nil no-op.
+	StopChat(
+		ctx context.Context,
+		chatID string,
+	) error
+
 	// AssembleHandoff resolves chatID's ledger into the legible handoff blob a
 	// freshly spawned provider CLI can be given as prior context.
 	AssembleHandoff(

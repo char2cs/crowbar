@@ -47,7 +47,7 @@ type WorkingTreeGitEngine interface {
 	WorkingTreeSummary(
 		ctx context.Context,
 		repoPath string,
-		forkPointSha string,
+		base string,
 	) (added, deleted int, hasConflicts, hasCommits bool, err error)
 	WouldMergeConflict(
 		ctx context.Context,
@@ -55,6 +55,13 @@ type WorkingTreeGitEngine interface {
 		ours string,
 		theirs string,
 	) (bool, error)
+	// RevParse resolves a ref to a commit SHA; summaryBase uses it only to verify
+	// a base branch still resolves in the worktree before diffing against it.
+	RevParse(
+		ctx context.Context,
+		repoPath string,
+		rev string,
+	) (string, error)
 }
 
 // ProjectActivityRollup is the best-effort project lastActivity roll-up surface.
@@ -257,7 +264,7 @@ func (u *workspaceUsecase) summarize(
 	added, deleted, hasConflicts, hasCommits, err := u.git.WorkingTreeSummary(
 		ctx,
 		ws.WorktreePath,
-		ws.ForkPointSha,
+		u.summaryBase(ctx, ws),
 	)
 	if err != nil {
 		return wsrepo.SyncInput{}, fmt.Errorf("workspace: sync working tree: summary: %w", err)
@@ -269,4 +276,38 @@ func (u *workspaceUsecase) summarize(
 		HasConflicts: hasConflicts,
 		HasCommits:   hasCommits,
 	}, nil
+}
+
+// summaryBase returns the ref the working-tree summary diffs against: the base
+// BRANCH NAME — the parent's branch for a child, or the workspace's own branch
+// for a protected root — so the engine measures against the merge-base of that
+// branch's current tip and HEAD and the sidebar diff self-corrects as the base
+// branch advances (the frozen ForkPointSha inflates both children AND roots once
+// their recorded fork point falls behind, e.g. a develop root left at an old tip).
+//
+// It falls back to the recorded ForkPointSha whenever the base branch is unusable:
+// no branch name (a detached home), an unresolvable parent row, or a branch that
+// no longer resolves in the worktree (renamed/deleted out of band). Verifying
+// resolvability here — rather than letting the engine diff against a name that
+// yields no merge-base and silently reports +0/-0 — keeps the summary consistent
+// with the branch-review pane, which has the same fork-point fallback.
+func (u *workspaceUsecase) summaryBase(
+	ctx context.Context,
+	ws domain.Workspace,
+) string {
+	base := ws.Branch
+	if ws.ParentID != "" {
+		parent, err := u.repo.Get(ctx, ws.ParentID)
+		if err != nil {
+			return ws.ForkPointSha
+		}
+		base = parent.Branch
+	}
+	if base == "" {
+		return ws.ForkPointSha
+	}
+	if _, err := u.git.RevParse(ctx, ws.WorktreePath, base); err != nil {
+		return ws.ForkPointSha
+	}
+	return base
 }

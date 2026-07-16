@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { findFileInTree } from '@/features/file-system/controllers/file-tree-utils'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
+import { toast } from '@/features/window/stores/toast-store'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { getDirName, joinPath, stripTrailingPathSeparators } from '@/utils/path-helpers'
 
@@ -38,12 +39,12 @@ function clearEditingFlag(items: FileEntry[], path: string): FileEntry[] {
 // which silently breaks rendering so the next inline input never appears (the
 // "can't create files until reload" bug). startInlineEditing clears these first.
 function removeNewItems(items: FileEntry[]): FileEntry[] {
-  return items
-    .filter((i) => !(i.isNewItem && i.isEditing))
-    .map((i) => ({
-      ...i,
-      children: i.children ? removeNewItems(i.children) : undefined,
-    }))
+  const result: FileEntry[] = []
+  for (const i of items) {
+    if (i.isNewItem && i.isEditing) continue
+    result.push({ ...i, children: i.children ? removeNewItems(i.children) : undefined })
+  }
+  return result
 }
 
 export function useFileExplorerInlineEditing({
@@ -132,8 +133,15 @@ export function useFileExplorerInlineEditing({
         if (item.isRenaming) {
           const trimmed = newName.trim()
           // Only hit the rename API if the name actually changed (a blur with the
-          // pre-filled name should not round-trip a no-op rename).
-          if (trimmed !== item.name) onRenamePath?.(item.path, trimmed)
+          // pre-filled name should not round-trip a no-op rename). onRenamePath is
+          // fire-and-forget here, so surface a rejected rename (locked workspace,
+          // name collision, a daemon-contract mismatch …) as a toast instead of
+          // letting it fail silently — mirroring the duplicate/reveal file ops.
+          if (trimmed !== item.name) {
+            Promise.resolve(onRenamePath?.(item.path, trimmed)).catch((error: unknown) => {
+              toast.error('Rename failed', error instanceof Error ? error.message : String(error))
+            })
+          }
           // Clear the flag now so the node is immediately non-editing; the WS
           // refetch will later replace it with a fresh node at the new path. Do
           // not depend on that refetch to clear the editable state.

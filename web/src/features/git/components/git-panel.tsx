@@ -7,7 +7,7 @@ import { openBranchReviewForActiveWorkspace } from '@/features/panes/utils/pane-
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useGitStore } from '@/features/git/stores/git-store'
 import { parseWorkspaceScopeFromPath } from '@/lib/workspace-scope'
-import { useReviewDiff } from '@/features/git/hooks/use-review-diff'
+import { useSidebarChangedFiles } from '@/features/git/hooks/use-sidebar-changed-files'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { ChangedFilesTree } from './changed-files-tree'
 import { BranchSection } from './branch-section'
@@ -33,8 +33,9 @@ export function GitPanel() {
     return null
   })
 
-  // Review diff: branch-vs-parent blended files (for the changed-files tree).
-  const { files } = useReviewDiff(wsId)
+  // Changed-files tree source: the full branch-vs-parent diff only while the
+  // Branch Review pane is open, otherwise the cheap working-tree status (P2b).
+  const { files } = useSidebarChangedFiles(wsId)
 
   // Open the unified branch-review tab and scroll to the clicked file.
   // fileKey must match the scheme used by ReviewDiffView:

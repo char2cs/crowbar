@@ -67,8 +67,31 @@ export async function resolveTerminalConnection(args: ResolveArgs): Promise<Reso
   // reuse immediately. If not, validate against the daemon before re-attaching:
   // the PTY may be gone (Phase 2 suspend / daemon restart), in which case fall
   // through rather than attaching to a dead PTY.
+  //
+  // "Alive" here is trustworthy, not assumed: terminalHasTransport reflects a transport
+  // that is actively removed the moment it dies. Phase 0 closed the gap where a half-open
+  // socket stayed in the map with no drop surfaced — the resolver would then reuse a corpse
+  // (return reused:true onto a socket that delivers nothing). Now such a socket is retired
+  // by Rust and reported dropped, so hasTransport goes false and we take the re-attach path.
+  //
+  // REUSE-WITHOUT-ATTACH IS ONLY SAFE FOR A SHELL TAB. A shell tab's xterm is kept mounted
+  // across pane splits and tab moves (pane-container holds `terminal` buffers behind
+  // visibility:hidden), so a surviving transport keeps feeding the SAME xterm that already
+  // holds the screen — reusing it in place is right.
+  //
+  // An attach-only view (an agent chat) is the opposite, and MUST re-attach even when a
+  // live transport is present. Crowbar does not portal terminals, so an attach-only xterm
+  // is BRAND-NEW on every (re)mount and holds nothing. The daemon serializes its screen
+  // model to a client at ATTACH and nowhere else, so reusing a transport without attaching
+  // leaves that fresh xterm blank; and if the surviving transport is a corpse — an attach
+  // refcount that skipped its detach-on-unmount, a half-open socket — terminalWrite silently
+  // drops every keystroke against it: the "agent chat goes dead after a remount" bug. So an
+  // attach-only resolve always validates the PTY and calls terminalAttach, which pulls the
+  // ground-state redraw AND (re)establishes a live transport. reused:true still reflects that
+  // the SESSION was reused (no fresh spawn), only the transport was re-attached.
   if (args.storeConnectionId) {
-    if (!terminalHasTransport(args.storeConnectionId)) {
+    const canReuseInPlace = !args.attachOnly && terminalHasTransport(args.storeConnectionId)
+    if (!canReuseInPlace) {
       const live = await listLiveWithRetry(args.listLiveSessions)
       if (!live.includes(args.storeConnectionId)) {
         // PTY no longer exists on the daemon.

@@ -51,6 +51,6 @@ type GitStatusProvider interface {
 	ComputeWorkingTreeSummary(
 		ctx context.Context,
 		repoPath string,
-		forkPointSha string,
+		base string,
 	) (added, deleted int, hasConflicts, hasCommits bool, err error)
 }

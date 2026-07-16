@@ -12,7 +12,8 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
-import { SETTINGS_TAB_ITEMS, SettingsVerticalTabs } from './settings-vertical-tabs'
+import { SettingsVerticalTabs } from './settings-vertical-tabs'
+import { SETTINGS_TAB_ITEMS } from './settings-tab-items'
 import { AppearanceSettings } from './tabs/appearance-settings'
 import { EditorSettings } from './tabs/editor-settings'
 import { GitSettings } from './tabs/git-settings'

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nearListEnd } from '@/features/git/components/git-history-list'
+import { nearListEnd } from '@/features/git/components/git-history-list-utils'
 
 describe('nearListEnd', () => {
   it('is false near the top of a long list', () => {
@@ -19,7 +19,7 @@ describe('nearListEnd', () => {
   })
 })
 
-import { commitDateLabel } from '@/features/git/components/git-history-list'
+import { commitDateLabel } from '@/features/git/components/git-history-list-utils'
 
 describe('commitDateLabel', () => {
   it('renders an ISO date as relative time', () => {

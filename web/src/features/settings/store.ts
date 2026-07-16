@@ -123,19 +123,17 @@ export const useSettingsStore = create(
             state.search.isSearching = true
           })
 
-          const results: SearchResult[] = settingsSearchIndex
-            .map((record) => {
-              const score = scoreSearchQuery(query, [
-                { value: record.label, weight: 11 },
-                { value: record.description, weight: 1 },
-                { value: record.section, weight: 1 },
-                ...(record.keywords || []).map((keyword) => ({ value: keyword, weight: 6 })),
-              ])
-
-              return { ...record, score }
-            })
-            .filter((result) => result.score > 0)
-            .sort((a, b) => b.score - a.score)
+          const results: SearchResult[] = []
+          for (const record of settingsSearchIndex) {
+            const score = scoreSearchQuery(query, [
+              { value: record.label, weight: 11 },
+              { value: record.description, weight: 1 },
+              { value: record.section, weight: 1 },
+              ...(record.keywords || []).map((keyword) => ({ value: keyword, weight: 6 })),
+            ])
+            if (score > 0) results.push({ ...record, score })
+          }
+          results.sort((a, b) => b.score - a.score)
 
           set((state) => {
             state.search.results = results

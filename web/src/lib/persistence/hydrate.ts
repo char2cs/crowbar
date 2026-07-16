@@ -70,6 +70,20 @@ export async function hydrateWorkspace(workspaceId: string): Promise<WorkspaceHy
 }
 
 /**
+ * Reconcile a LIVE workspace's open buffers against disk. Workspace keep-alive
+ * skips re-hydration on a warm re-activation (the store never died), but files
+ * can change on disk while the workspace sits hidden — its file watcher is
+ * active-only, and agents/terminals keep working in hidden worktrees. Called on
+ * every hidden→active transition; same policy as restore-time reconciliation:
+ * clean buffers silently reload, dirty buffers keep edits and get flagged with
+ * hasExternalChange.
+ */
+export async function reconcileWorkspaceBuffersWithDisk(workspaceId: string): Promise<void> {
+  const store = getOrCreateWorkspaceStore(workspaceId)
+  await reconcileRestoredBuffers(store, store.getState().buffers)
+}
+
+/**
  * Recompute the dirty flag for a restored editor buffer. Persistence stores
  * the full buffer (content + savedContent + isDirty), but a buffer whose
  * content diverges from savedContent must always show as dirty after a

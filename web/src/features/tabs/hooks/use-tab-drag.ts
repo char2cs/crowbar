@@ -11,6 +11,14 @@ import {
   setInternalTabDragData,
 } from '../utils/internal-tab-drag'
 
+const getClientPoint = (event: Event) => {
+  const candidate = event as Partial<MouseEvent>
+  if (typeof candidate.clientX === 'number' && typeof candidate.clientY === 'number') {
+    return { x: candidate.clientX, y: candidate.clientY }
+  }
+  return null
+}
+
 interface UseTabDragOptions {
   paneId: string | undefined
   sortedBuffers: PaneContent[]
@@ -47,14 +55,6 @@ export function useTabDrag({
 
   const draggedBuffer =
     draggedBufferId != null ? (sortedBuffers.find((b) => b.id === draggedBufferId) ?? null) : null
-
-  const getClientPoint = (event: Event) => {
-    const candidate = event as Partial<MouseEvent>
-    if (typeof candidate.clientX === 'number' && typeof candidate.clientY === 'number') {
-      return { x: candidate.clientX, y: candidate.clientY }
-    }
-    return null
-  }
 
   const getDragPoint = (event: DragMoveEvent | DragEndEvent) => {
     if (pointerPointRef.current) return pointerPointRef.current

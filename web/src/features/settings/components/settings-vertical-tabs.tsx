@@ -1,17 +1,9 @@
-import {
-  Bug,
-  CodeBlock,
-  GitBranch,
-  Keyboard,
-  PaintBrush,
-  TerminalWindow,
-  TreeStructure,
-} from '@phosphor-icons/react'
 import * as React from 'react'
 import { useSettingsStore } from '@/features/settings/store'
 import { filterVisibleSettingsTabs } from '@/features/settings/lib/settings-tab-visibility'
 import { useAuthStore } from '@/features/window/stores/auth-store'
 import type { SettingsTab } from '@/features/window/stores/ui-state-store'
+import { SETTINGS_TAB_ITEMS } from './settings-tab-items'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/utils/cn'
 
@@ -20,28 +12,6 @@ interface SettingsVerticalTabsProps {
   onTabChange: (tab: SettingsTab) => void
   panelIdForTab?: (tab: SettingsTab) => string
 }
-
-export interface SettingsTabItem {
-  id: SettingsTab
-  label: string
-  icon: React.ComponentType<{
-    size?: string | number
-    className?: string
-    weight?: 'regular' | 'duotone'
-  }>
-}
-
-export const SETTINGS_TAB_ITEMS: SettingsTabItem[] = [
-  { id: 'appearance', label: 'Appearance', icon: PaintBrush },
-  { id: 'editor', label: 'Editor', icon: CodeBlock },
-  { id: 'file-explorer', label: 'Files', icon: TreeStructure },
-  { id: 'git', label: 'Git', icon: GitBranch },
-  { id: 'terminal', label: 'Terminal', icon: TerminalWindow },
-  { id: 'keybindings', label: 'Keybindings', icon: Keyboard },
-  ...(import.meta.env.DEV
-    ? [{ id: 'developer' as SettingsTabItem['id'], label: 'Developer', icon: Bug }]
-    : []),
-]
 
 export const SettingsVerticalTabs = ({
   activeTab,

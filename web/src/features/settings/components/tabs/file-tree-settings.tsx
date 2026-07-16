@@ -12,16 +12,25 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select'
-import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from '../settings-section'
+import Section, { SettingRow } from '../settings-section'
+import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/utils/cn'
+
+const parsePatterns = (input: string) =>
+  input
+    .split(',')
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
 
 export const FileTreeSettings = () => {
   const settings = useSettingsStore((s) => s.settings)
   const updateSetting = useSettingsStore((s) => s.updateSetting)
 
-  const [filePatternsInput, setFilePatternsInput] = useState(settings.hiddenFilePatterns.join(', '))
-  const [directoryPatternsInput, setDirectoryPatternsInput] = useState(
+  const [filePatternsInput, setFilePatternsInput] = useState(() =>
+    settings.hiddenFilePatterns.join(', '),
+  )
+  const [directoryPatternsInput, setDirectoryPatternsInput] = useState(() =>
     settings.hiddenDirectoryPatterns.join(', '),
   )
 
@@ -32,12 +41,6 @@ export const FileTreeSettings = () => {
   useEffect(() => {
     setDirectoryPatternsInput(settings.hiddenDirectoryPatterns.join(', '))
   }, [settings.hiddenDirectoryPatterns])
-
-  const parsePatterns = (input: string) =>
-    input
-      .split(',')
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0)
 
   const commitFilePatterns = () => {
     updateSetting('hiddenFilePatterns', parsePatterns(filePatternsInput))

@@ -43,6 +43,7 @@ export function AgentChatRow({
 }: AgentChatRowProps) {
   return (
     <div
+      // react-doctor-disable-next-line prefer-tag-over-role -- can't be a real <button>: while `renaming`, this renders a nested <WorkspaceInlineInput> (a real <input>), and HTML forbids interactive content inside a <button>. role="button" + tabIndex + onKeyDown is the correct fallback.
       role="button"
       tabIndex={0}
       data-agent-chat-drop={chatId}

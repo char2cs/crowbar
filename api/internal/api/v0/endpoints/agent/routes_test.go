@@ -93,6 +93,13 @@ func (stubUsecase) ResumeChat(
 	return "seg-2", nil
 }
 
+func (stubUsecase) StopChat(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
 func (stubUsecase) AssembleHandoff(
 	_ context.Context,
 	_ string,

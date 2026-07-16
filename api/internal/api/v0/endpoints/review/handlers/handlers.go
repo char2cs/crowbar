@@ -19,6 +19,11 @@ type ReviewUsecase interface {
 		ctx context.Context,
 		wsID string,
 	) (domain.BranchReview, error)
+	// GetFiles returns the files-only branch-review summary for a workspace.
+	GetFiles(
+		ctx context.Context,
+		wsID string,
+	) ([]gitdomain.ReviewFileSummary, error)
 	// SetMergeStrategy updates the merge strategy for a workspace.
 	SetMergeStrategy(
 		ctx context.Context,

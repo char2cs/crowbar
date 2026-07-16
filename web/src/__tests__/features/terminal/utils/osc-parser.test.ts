@@ -21,4 +21,19 @@ describe('parseOSC7', () => {
   it('returns null when no OSC 7 present', () => {
     expect(parseOSC7('plain text')).toBeNull()
   })
+
+  it('strips raw C0 control bytes embedded in the path', () => {
+    // \x01 is also the tab-label projection's field separator — a payload
+    // that smuggles it into currentDirectory could corrupt the projected
+    // session tuples downstream, so it must never leave the parser.
+    expect(parseOSC7(osc7('/repo/app\x01two'))).toBe('/repo/apptwo')
+  })
+
+  it('strips percent-encoded control bytes after decoding', () => {
+    expect(parseOSC7(osc7('/a%01b%1bc'))).toBe('/abc')
+  })
+
+  it('returns null when the path is nothing but control bytes', () => {
+    expect(parseOSC7(osc7('\x01'))).toBeNull()
+  })
 })

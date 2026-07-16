@@ -7,7 +7,7 @@ import { getStashes } from '../api/git-stash-api'
 import type { GitCommit, GitStash, GitStatus } from '../types/git-types'
 import { createLoadableSlice } from '@/lib/store/loadable-slice'
 import { workspaceBase } from '@/lib/workspace-scope-url'
-import { success, type Loadable } from '@/lib/loadable'
+import { idle, success, type Loadable } from '@/lib/loadable'
 
 const MAX_WORKSPACE_GIT_STATUS_FILES = 200
 
@@ -288,6 +288,11 @@ export const useGitStore = create<GitState>((set, get) => ({
 
     reset: () =>
       set({
+        // The Loadable must reset too: the History tab renders from gitData
+        // (idle → "Loading…"), so a stale success() would keep showing the
+        // outgoing workspace's commits — indefinitely on home, which never
+        // refetches git.
+        gitData: idle(),
         gitStatus: null,
         commits: [],
         branches: [],

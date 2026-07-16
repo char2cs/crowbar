@@ -13,7 +13,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import NumberInput from '@/components/ui/number-input'
-import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from '../settings-section'
+import Section, { SettingRow } from '../settings-section'
+import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 import {
   Select,
   SelectTrigger,
@@ -28,6 +29,7 @@ import Tooltip from '@/components/ui/tooltip'
 const FONT_HELP_TEXT =
   'Note: Selected font must be installed on your system to work correctly. If icons are missing, try installing a Nerd Font.'
 
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive settings tab — a flat list of SettingRow controls over the terminal settings slice; no logic to extract.
 export const TerminalSettings = () => {
   const settings = useSettingsStore((state) => state.settings)
   const updateSetting = useSettingsStore((state) => state.updateSetting)
@@ -48,15 +50,15 @@ export const TerminalSettings = () => {
     monospaceFonts.some((sysFont) => sysFont.family === nerdFont),
   )
 
-  const fontOptions = [
-    ...installedNerdFonts.map((font) => ({
-      value: font,
-      label: `${font} (Nerd Font)`,
-    })),
-    ...monospaceFonts
-      .filter((f) => !COMMON_TERMINAL_NERD_FONTS.includes(f.family))
-      .map((f) => ({ value: f.family, label: f.family })),
-  ]
+  const fontOptions = installedNerdFonts.map((font) => ({
+    value: font,
+    label: `${font} (Nerd Font)`,
+  }))
+  for (const f of monospaceFonts) {
+    if (!COMMON_TERMINAL_NERD_FONTS.includes(f.family)) {
+      fontOptions.push({ value: f.family, label: f.family })
+    }
+  }
 
   // Add custom option if current value is not in list
   if (
@@ -235,8 +237,14 @@ export const TerminalSettings = () => {
 
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-1.5">
-                    <label className="ui-font ui-text-sm text-foreground">Name</label>
+                    <label
+                      htmlFor={`profile-name-${profile.id}`}
+                      className="ui-font ui-text-sm text-foreground"
+                    >
+                      Name
+                    </label>
                     <Input
+                      id={`profile-name-${profile.id}`}
                       value={profile.name}
                       onChange={(event) =>
                         profileActions.updateProfile(profile.id, {
@@ -248,7 +256,12 @@ export const TerminalSettings = () => {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="ui-font ui-text-sm text-foreground">Shell</label>
+                    <label
+                      htmlFor={`profile-shell-${profile.id}`}
+                      className="ui-font ui-text-sm text-foreground"
+                    >
+                      Shell
+                    </label>
                     <Select
                       value={profile.shell || DEFAULT_SHELL_OPTION_VALUE}
                       onValueChange={(value) => {
@@ -258,7 +271,11 @@ export const TerminalSettings = () => {
                           })
                       }}
                     >
-                      <SelectTrigger size="sm" className="w-full">
+                      <SelectTrigger
+                        id={`profile-shell-${profile.id}`}
+                        size="sm"
+                        className="w-full"
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -273,8 +290,14 @@ export const TerminalSettings = () => {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="ui-font ui-text-sm text-foreground">Startup Directory</label>
+                  <label
+                    htmlFor={`profile-startup-dir-${profile.id}`}
+                    className="ui-font ui-text-sm text-foreground"
+                  >
+                    Startup Directory
+                  </label>
                   <Input
+                    id={`profile-startup-dir-${profile.id}`}
                     value={profile.startupDirectory || ''}
                     onChange={(event) =>
                       profileActions.updateProfile(profile.id, {
@@ -287,8 +310,14 @@ export const TerminalSettings = () => {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="ui-font ui-text-sm text-foreground">Startup Commands</label>
+                  <label
+                    htmlFor={`profile-startup-commands-${profile.id}`}
+                    className="ui-font ui-text-sm text-foreground"
+                  >
+                    Startup Commands
+                  </label>
                   <Textarea
+                    id={`profile-startup-commands-${profile.id}`}
                     value={(profile.startupCommands || []).join('\n')}
                     onChange={(event) =>
                       profileActions.updateProfile(profile.id, {

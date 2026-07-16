@@ -41,8 +41,10 @@ import (
 //     workspace root via ".." or a symlink — the fs engine containment guard),
 //     apperr.ErrInvalidArgument (an unsafe/invalid git operand or reset mode
 //     rejected at the usecase boundary before it can reach the git engine —
-//     see the git write validator), and enginegit.ErrNoRemote (no remote
-//     configured or the remote URL is unreachable).
+//     see the git write validator), fs.ErrInvalid (an invalid fs-engine
+//     operand, e.g. a copy destination inside its own source directory), and
+//     enginegit.ErrNoRemote (no remote configured or the remote URL is
+//     unreachable).
 //   - 413 Request Entity Too Large — safepath.ErrFileTooLarge (a file read was
 //     rejected because the file exceeds the 25 MiB cap; hardening R16).
 //   - 403 Forbidden       — enginegit.ErrAuthFailed (remote rejected the
@@ -52,7 +54,9 @@ import (
 //     a spawn needs — claude, codex — is not installed on this machine or is not
 //     executable). A missing dependency the USER can fix, not a server fault.
 //   - 409 Conflict        — apperr.ErrLocked (a write against a locked,
-//     provider-protected workspace; 04 §5, 05 §3/§4), enginesearch.ErrLocked,
+//     provider-protected workspace; 04 §5, 05 §3/§4), fs.ErrExist (an fs
+//     mutation whose destination already exists, e.g. a copy landing on an
+//     existing path), enginesearch.ErrLocked,
 //     the worktree lock / non-leaf sentinels (ErrParentLocked,
 //     ErrWorkspaceLocked, ErrRebaseNonLeaf,
 //     ErrChildHasChildren), and the git
@@ -134,6 +138,8 @@ func isNotFound(
 }
 
 // isBadRequest reports whether err is one of the sentinels that map to HTTP 400.
+// fs.ErrInvalid is the fs engine's invalid-operand rejection (e.g. a copy whose
+// destination lies inside its own source directory).
 func isBadRequest(
 	err error,
 ) bool {
@@ -141,11 +147,13 @@ func isBadRequest(
 		errors.Is(err, enginesearch.ErrPathOutsideWorkspace) ||
 		errors.Is(err, safepath.ErrPathEscapesWorkspace) ||
 		errors.Is(err, apperr.ErrInvalidArgument) ||
+		errors.Is(err, fs.ErrInvalid) ||
 		errors.Is(err, enginegit.ErrNoRemote)
 }
 
 // isConflict reports whether err is one of the lock or non-leaf conflict
-// sentinels that map to HTTP 409.
+// sentinels that map to HTTP 409. fs.ErrExist is the fs engine's
+// already-exists rejection (e.g. a copy destination that is already on disk).
 func isConflict(
 	err error,
 ) bool {
@@ -158,6 +166,7 @@ func isConflict(
 
 	if errors.Is(err, apperr.ErrLocked) ||
 		errors.Is(err, enginesearch.ErrLocked) ||
+		errors.Is(err, fs.ErrExist) ||
 		errors.Is(err, worktree.ErrParentLocked) ||
 		errors.Is(err, worktree.ErrWorkspaceLocked) ||
 		errors.Is(err, worktree.ErrParentUnprovisioned) {

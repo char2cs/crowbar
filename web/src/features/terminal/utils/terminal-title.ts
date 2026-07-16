@@ -1,3 +1,5 @@
+import { stripControlChars } from './control-chars'
+
 /**
  * Derive a clean tab/window title from a raw xterm OSC 0/1/2 title string.
  *
@@ -28,14 +30,8 @@
 export function sanitizeTerminalTitle(rawTitle: string): string {
   if (rawTitle.includes('\x1b')) return ''
 
-  let out = ''
-  for (const ch of rawTitle) {
-    const code = ch.charCodeAt(0)
-    // Drop C0 controls (0–31), DEL (127), and the C1 CSI introducer (155).
-    if (code <= 31 || code === 127 || code === 155) continue
-    out += ch
-  }
-  out = out.trim()
+  // Drop C0 controls (0–31), DEL (127), and the C1 CSI introducer (155).
+  const out = stripControlChars(rawTitle).trim()
 
   if (/\[[\d;?]*[mhlKJH]/.test(out)) return ''
 

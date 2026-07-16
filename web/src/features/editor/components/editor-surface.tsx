@@ -61,6 +61,7 @@ export interface EditorSurfaceProps {
  *  - {@link PaneEditorStateBridge} mirrors the active buffer's identity into the
  *    shared editor-state store (status-bar view-key + legacy seam).
  */
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive editor surface — hosts one Monaco viewport plus its overlays/resize observer sharing the same editor ref; splitting fragments that ref coordination.
 export function EditorSurface({
   paneId,
   bufferId,
@@ -80,7 +81,9 @@ export function EditorSurface({
   const mouseHandlersRef = useRef<PaneOverlayMouseHandlers | null>(null)
 
   const workspaceStore = useWorkspaceStore()
-  const editorManager = workspaceStore.editorManager
+  // Non-null: EditorPane awaits `store.armEditor()` before it mounts EditorSurface
+  // (that is the lazy-Monaco seam), so the manager is always present here.
+  const editorManager = workspaceStore.editorManager!
   const registry = workspaceStore.activeEditorRegistry
 
   const { setRefs, setCursorAndSelection } = useEditorStateStore.use.actions()
@@ -164,6 +167,7 @@ export function EditorSurface({
           })
         })
       })
+      // react-doctor-disable-next-line effect-needs-cleanup -- observer is disconnected/removed via `resizeCleanupRef` → `unmountPane`; tracer can't follow the ref-stored disposer.
       resizeObserver.observe(container)
 
       const handlePaneResizeEnd = () => {

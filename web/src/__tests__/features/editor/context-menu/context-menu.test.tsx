@@ -6,6 +6,7 @@ import type { Range } from '@/features/editor/types/editor'
 
 // Mock the dependencies
 interface MockMenuItem {
+  id: string
   label?: string
   disabled?: boolean
 }
@@ -18,7 +19,7 @@ vi.mock('@/components/ui/context-menu', () => ({
     return (
       <div data-testid="context-menu" style={{ display: isOpen ? 'block' : 'none' }}>
         {items?.map((item, i) => (
-          <button key={i} data-testid={`menu-item-${i}`} disabled={item.disabled}>
+          <button key={item.id} data-testid={`menu-item-${i}`} disabled={item.disabled}>
             {item.label}
           </button>
         ))}

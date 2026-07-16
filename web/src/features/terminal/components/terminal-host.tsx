@@ -33,20 +33,24 @@ export function TerminalHost() {
   }
 
   // Purge: session's slot is gone AND its PTY connection was terminated.
+  const slotIdSet = new Set(slotIds)
+  const sessionStoreIdSet = new Set(sessionStoreIds)
   for (const id of Array.from(knownRef.current.all)) {
-    const slotGone = !slotIds.includes(id)
-    const ptyGone = knownRef.current.everInStore.has(id) && !sessionStoreIds.includes(id)
+    const slotGone = !slotIdSet.has(id)
+    const ptyGone = knownRef.current.everInStore.has(id) && !sessionStoreIdSet.has(id)
     if (slotGone && ptyGone) {
       knownRef.current.all.delete(id)
       knownRef.current.everInStore.delete(id)
     }
   }
 
-  const liveIds = useMemo(
-    () => Array.from(knownRef.current.all),
-    // Recompute whenever either source changes.
-    [slotIds, sessionStoreIds],
-  )
+  const liveIds = useMemo(() => {
+    // Recompute whenever either source changes; `knownRef.current.all` is the
+    // purge-reconciled set mutated above from exactly these two inputs.
+    void slotIds
+    void sessionStoreIds
+    return Array.from(knownRef.current.all)
+  }, [slotIds, sessionStoreIds])
 
   return (
     <>
@@ -128,6 +132,7 @@ function XtermPortal({ sessionId }: { sessionId: string }) {
   return createPortal(
     <XtermTerminal
       sessionId={sessionId}
+      workspaceId={slot?.workspaceId}
       isActive={slot?.isActive ?? false}
       isVisible={slot?.isVisible ?? true}
       initialCommand={slot?.initialCommand}

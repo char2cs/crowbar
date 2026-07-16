@@ -6,6 +6,41 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Deliberately outside every @layer: cascade layers invert !important
+   precedence (an unlayered !important beats a layered one), so this has to
+   stay unlayered to override every Tailwind utility transition/animation
+   (transition-colors, animate-in, tw-animate-css, the toast keyframes below)
+   regardless of layer order. Covers plain CSS motion — framer-motion's
+   own animations are gated separately via <MotionConfig reducedMotion="user">
+   in main.tsx. WCAG 2.3.3.
+
+   EXEMPT: indeterminate loading spinners. A spinner is STATUS, not
+   decorative motion — freezing it turns "still working" into "looks hung",
+   and reduced-motion guidance targets large translations/parallax/zooms,
+   not a small continuous rotation. Two hooks, both excluded below:
+     - `.animate-spin` — Tailwind's spin utility, covering the shared
+       <Spinner> (components/ui/spinner.tsx), the inline git button spinner
+       (features/git/components/branch-section.tsx) and the OOBE checks
+       (components/oobe/oobe-screen.tsx);
+     - `[data-essential-motion]` (self or descendants) — opt-out attribute
+       for spinners whose animation class is a Tailwind VARIANT (the toast
+       loading icons' `in-data-[type=loading]:animate-spin` in
+       components/ui/toast.tsx and components/layout/
+       sidebar-toast-overlay.tsx generates an escaped class name that
+       `.animate-spin` does not match), and for any future essential
+       indicator.
+   Guarded by src/__tests__/reduced-motion.test.ts. */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.animate-spin, [data-essential-motion], [data-essential-motion] *),
+  *:not(.animate-spin, [data-essential-motion], [data-essential-motion] *)::before,
+  *:not(.animate-spin, [data-essential-motion], [data-essential-motion] *)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

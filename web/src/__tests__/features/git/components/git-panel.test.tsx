@@ -27,8 +27,11 @@ vi.mock('@/features/git/components/git-history-list', () => ({
   GitHistoryList: () => <div data-testid="git-history" />,
 }))
 
-vi.mock('@/features/git/hooks/use-review-diff', () => ({
-  useReviewDiff: () => ({ files: [], uncommittedCount: 0, loading: false }),
+// GitPanel sources its changed-files list from useSidebarChangedFiles (which
+// gates the full-diff fetch on the review pane). The data-source behavior is
+// covered by use-sidebar-changed-files.test.ts; here we just stub it.
+vi.mock('@/features/git/hooks/use-sidebar-changed-files', () => ({
+  useSidebarChangedFiles: () => ({ files: [], uncommittedCount: 0 }),
 }))
 
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({

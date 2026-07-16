@@ -42,9 +42,9 @@ func (m *mockFiles) ReadContent(
 }
 
 func (m *mockFiles) WriteContent(
-	ctx context.Context, wsID, filePath, content string, now time.Time,
+	ctx context.Context, wsID, filePath, content, encoding string, now time.Time,
 ) error {
-	args := m.Called(ctx, wsID, filePath, content, now)
+	args := m.Called(ctx, wsID, filePath, content, encoding, now)
 	return args.Error(0)
 }
 
@@ -59,6 +59,13 @@ func (m *mockFiles) CreateDir(
 	ctx context.Context, wsID, dirPath string, now time.Time,
 ) error {
 	args := m.Called(ctx, wsID, dirPath, now)
+	return args.Error(0)
+}
+
+func (m *mockFiles) Copy(
+	ctx context.Context, wsID, sourcePath, destPath string, now time.Time,
+) error {
+	args := m.Called(ctx, wsID, sourcePath, destPath, now)
 	return args.Error(0)
 }
 
@@ -222,7 +229,7 @@ func TestSaveFileContent_Returns200(t *testing.T) {
 
 	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
 	files := &mockFiles{}
-	files.On("WriteContent", mock.Anything, "ws-1", "a.txt", "new body", mock.AnythingOfType("time.Time")).
+	files.On("WriteContent", mock.Anything, "ws-1", "a.txt", "new body", "", mock.AnythingOfType("time.Time")).
 		Return(nil)
 
 	h := handlers.New(reader, nil, files, nil, stubWork{})
@@ -268,7 +275,7 @@ func TestSaveFileContent_UsecaseError_Returns500(t *testing.T) {
 
 	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
 	files := &mockFiles{}
-	files.On("WriteContent", mock.Anything, "ws-1", "a.txt", "x", mock.AnythingOfType("time.Time")).
+	files.On("WriteContent", mock.Anything, "ws-1", "a.txt", "x", "", mock.AnythingOfType("time.Time")).
 		Return(errors.New("disk full"))
 
 	h := handlers.New(reader, nil, files, nil, stubWork{})
@@ -378,6 +385,72 @@ func TestCreateFile_AlreadyExists_ReturnsConflictMapping(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
+// ── CopyFile ────────────────────────────────────────────────────────────
+
+func TestCopyFile_Returns201(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
+	files := &mockFiles{}
+	files.On("Copy", mock.Anything, "ws-1", "a.txt", "a copy.txt", mock.AnythingOfType("time.Time")).
+		Return(nil)
+
+	h := handlers.New(reader, nil, files, nil, stubWork{})
+	r.POST("/projects/:projectId/home/files/copy", h.CopyFile)
+
+	rec := doReq(r, http.MethodPost, "/projects/proj-1/home/files/copy", map[string]any{
+		"sourcePath": "a.txt", "destPath": "a copy.txt",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+	files.AssertExpectations(t)
+}
+
+func TestCopyFile_MissingFields_Returns400(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
+	h := handlers.New(reader, nil, &mockFiles{}, nil, stubWork{})
+	r.POST("/projects/:projectId/home/files/copy", h.CopyFile)
+
+	rec := doReq(r, http.MethodPost, "/projects/proj-1/home/files/copy", map[string]any{"sourcePath": "a.txt"})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestCopyFile_BadJSON_Returns400(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
+	h := handlers.New(reader, nil, &mockFiles{}, nil, stubWork{})
+	r.POST("/projects/:projectId/home/files/copy", h.CopyFile)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/projects/proj-1/home/files/copy", bytes.NewReader([]byte("{bad")))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestCopyFile_UsecaseError_Returns404WhenNotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
+	files := &mockFiles{}
+	files.On("Copy", mock.Anything, "ws-1", "ghost.txt", "ghost copy.txt", mock.AnythingOfType("time.Time")).
+		Return(errors.New("no such file or directory"))
+
+	h := handlers.New(reader, nil, files, nil, stubWork{})
+	r.POST("/projects/:projectId/home/files/copy", h.CopyFile)
+
+	rec := doReq(r, http.MethodPost, "/projects/proj-1/home/files/copy", map[string]any{
+		"sourcePath": "ghost.txt", "destPath": "ghost copy.txt",
+	})
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
 // ── RenameFile ──────────────────────────────────────────────────────────
 
 func TestRenameFile_Returns200(t *testing.T) {
@@ -393,10 +466,41 @@ func TestRenameFile_Returns200(t *testing.T) {
 	r.PATCH("/projects/:projectId/home/files", h.RenameFile)
 
 	rec := doReq(r, http.MethodPatch, "/projects/proj-1/home/files", map[string]any{
-		"oldPath": "old.txt", "newPath": "new.txt",
+		"path": "old.txt", "newPath": "new.txt",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	files.AssertExpectations(t)
+}
+
+// TestRegression_RenameFile_AcceptsPathNewPathContract pins the home rename
+// handler to the shared {path, newPath} shape the workspace handler and the FE
+// already use. It previously bound {oldPath, newPath}, so every home-project
+// explorer rename 400'd on the mismatch. Red against the old binding: {path,
+// newPath} left `path` empty → the required-fields 400.
+func TestRegression_RenameFile_AcceptsPathNewPathContract(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
+	files := &mockFiles{}
+	files.On("Rename", mock.Anything, "ws-1", "a.txt", "b.txt", mock.AnythingOfType("time.Time")).
+		Return(nil)
+
+	h := handlers.New(reader, nil, files, nil, stubWork{})
+	r.PATCH("/projects/:projectId/home/files", h.RenameFile)
+
+	rec := doReq(r, http.MethodPatch, "/projects/proj-1/home/files", map[string]any{
+		"path": "a.txt", "newPath": "b.txt",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	// The rename must reach the usecase with the bound path as the old path.
+	files.AssertCalled(t, "Rename", mock.Anything, "ws-1", "a.txt", "b.txt", mock.AnythingOfType("time.Time"))
+
+	// The retired {oldPath, newPath} shape now leaves `path` unbound → 400.
+	rec2 := doReq(r, http.MethodPatch, "/projects/proj-1/home/files", map[string]any{
+		"oldPath": "a.txt", "newPath": "b.txt",
+	})
+	require.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
 func TestRenameFile_MissingFields_Returns400(t *testing.T) {
@@ -407,7 +511,7 @@ func TestRenameFile_MissingFields_Returns400(t *testing.T) {
 	h := handlers.New(reader, nil, &mockFiles{}, nil, stubWork{})
 	r.PATCH("/projects/:projectId/home/files", h.RenameFile)
 
-	rec := doReq(r, http.MethodPatch, "/projects/proj-1/home/files", map[string]any{"oldPath": "old.txt"})
+	rec := doReq(r, http.MethodPatch, "/projects/proj-1/home/files", map[string]any{"path": "old.txt"})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
@@ -439,7 +543,7 @@ func TestRenameFile_UsecaseError_Returns404WhenNotFound(t *testing.T) {
 	r.PATCH("/projects/:projectId/home/files", h.RenameFile)
 
 	rec := doReq(r, http.MethodPatch, "/projects/proj-1/home/files", map[string]any{
-		"oldPath": "ghost.txt", "newPath": "new.txt",
+		"path": "ghost.txt", "newPath": "new.txt",
 	})
 	require.Equal(t, http.StatusNotFound, rec.Code)
 }

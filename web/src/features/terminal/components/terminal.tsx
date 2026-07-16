@@ -9,12 +9,12 @@ import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-stor
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import { resolveTerminalConnection } from './resolve-terminal-connection'
 import { saveReconnect } from '../lib/terminal-reconnect-map'
+import { retain as retainAttach, release as releaseAttach } from '../lib/attach-refcount'
 import type { ISearchOptions } from '@xterm/addon-search'
 import { Terminal } from '@xterm/xterm'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
-import { useProjectStore } from '@/features/window/stores/project-store'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
 import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 import {
@@ -26,12 +26,11 @@ import {
 } from '../hooks/use-terminal-addons'
 import { useTerminalConnection } from '../hooks/use-terminal-connection'
 import { registerTerminalFileLinks, workspaceRelativePath } from '../lib/terminal-file-links'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
-import { useProjectDataStore } from '@/lib/store/projects'
-import { dataOf } from '@/lib/loadable'
+import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { useTerminalTheme } from '../hooks/use-terminal-theme'
 import { useTerminalStore } from '../stores/terminal-store'
+import { refitAndSyncPty, pollUntilResizeSettles, type LastSyncedPtyDims } from '../lib/refit'
 import { formatDroppedPathsForTerminal } from '../utils/terminal-file-drop'
 import { analyzeTerminalPaste } from '../utils/paste-guard'
 import { resolveTerminalFont } from '../utils/resolve-font'
@@ -41,32 +40,19 @@ import { TerminalSearch, type TerminalSearchOptions } from './terminal-search'
 import '@xterm/xterm/css/xterm.css'
 import '../styles/terminal.css'
 
-// Resolves the on-disk root of the current view for terminal file links:
-// the active workspace's worktree, the repo root for the default workspace,
-// or — on the project-home route, whose special workspace is not in the
-// sidebar repo list — the project's own path.
-function resolveWorkspaceRootPath(): string | undefined {
-  const wsId = getActiveWorkspaceId()
-  if (wsId) {
-    for (const repo of useSidebarStore.getState().repos) {
-      const ws = repo.workspaces?.find((w) => w.id === wsId)
-      if (ws) return ws.localPath ?? repo.localPath
-      // The default (main-worktree) workspace is not in the workspaces array;
-      // it maps to the repo root path.
-      if (repo.defaultWorkspaceId === wsId) return repo.localPath
-    }
-  }
-  // Project home route (/ide/<projectId>/home): use the project path.
-  const projectId = window.location.hash.match(/\/ide\/([^/]+)\/home/)?.[1]
-  if (projectId) {
-    const projects = dataOf(useProjectDataStore.getState().data) ?? []
-    return projects.find((p) => p.id === projectId)?.path
-  }
-  return undefined
-}
-
 interface XtermTerminalProps {
   sessionId: string
+  /**
+   * The workspace this terminal BELONGS to. Connection resolution (attach /
+   * listLive / create / saveReconnect) must target this workspace, never the
+   * currently-active one: workspace keep-alive keeps hidden workspaces'
+   * terminals mounted and attached, so a transport drop (daemon restart) can
+   * land while a DIFFERENT workspace is active — resolving against the active
+   * workspace would spawn the replacement shell in the wrong worktree and
+   * persist the wrong mapping. Falls back to the active workspace when unset
+   * (callers that only ever render into the active workspace).
+   */
+  workspaceId?: string
   isActive: boolean
   isVisible?: boolean
   onReady?: () => void
@@ -96,8 +82,10 @@ interface XtermTerminalProps {
   flush?: boolean
 }
 
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive xterm host — init lock, resize, theme/font sync and link handling all coordinate one xterm instance via shared refs; the most tuned file in the terminal feature, no safe seam.
 export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   sessionId,
+  workspaceId,
   isActive,
   isVisible = true,
   onReady,
@@ -118,6 +106,12 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const [searchResults, setSearchResults] = useState({ current: 0, total: 0 })
   const isInitializingRef = useRef(false)
   const pasteGuardAttachedRef = useRef(false)
+  // Last rows/cols pushed to the daemon PTY, per connection. refitAndSyncPty
+  // reads this to decide whether a fit needs a resize IPC: it pushes whenever
+  // xterm's grid differs from what the daemon was last told (so a no-op fit on a
+  // freshly-remounted pane split still reconciles the stale PTY), and skips when
+  // they already match (so redundant fits don't spam resize IPC).
+  const lastSyncedPtyDimsRef = useRef<LastSyncedPtyDims | null>(null)
 
   // Held in a ref so an inline arrow from the parent (the agent pane's
   // setAttachment) does not re-identify doReconnect and churn the
@@ -126,6 +120,18 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   useEffect(() => {
     onSessionGoneRef.current = onSessionGone
   }, [onSessionGone])
+
+  // Latest visibility, read inside fitTerminal so the fit path can gate the PTY
+  // push on it WITHOUT putting isVisible in fitTerminal's dep list — which would
+  // re-identify fitTerminal on every tab switch and churn all its dependent
+  // effects (ResizeObserver, theme/font, active-catch-up) for shell tabs too,
+  // whose isVisible flips on tab switch as well. This effect runs before the
+  // active-catch-up effect on a visibility flip (definition order), so the ref is
+  // fresh by the time that effect calls fitTerminal on becoming visible.
+  const isVisibleRef = useRef(isVisible)
+  useEffect(() => {
+    isVisibleRef.current = isVisible
+  }, [isVisible])
 
   const updateSession = useTerminalStore((s) => s.updateSession)
   const getSession = useTerminalStore((s) => s.getSession)
@@ -153,61 +159,41 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     terminalCursorWidth,
   } = useSettingsStore((state) => state.settings)
   const zoomLevel = useZoomStore.use.terminalZoomLevel()
-  const rootFolderPath = useProjectStore((s) => s.rootFolderPath)
   const { getTerminalTheme } = useTerminalTheme()
   const effectiveTerminalFontSize = Math.round(terminalFontSize * zoomLevel * 10) / 10
   const effectiveTerminalLetterSpacing = terminalLetterSpacing * zoomLevel
   const effectiveTerminalCursorWidth = Math.max(1, Math.round(terminalCursorWidth * zoomLevel))
 
-  const fitTerminal = useCallback((attempts = 1) => {
-    let attempt = 0
-    let rafId: number | null = null
+  // The session whose resolve last ACQUIRED the init lock (in flight or landed),
+  // vs the session the owner currently WANTS attached (the latest sessionId prop).
+  // They diverge exactly when a swap raced an in-flight resolve — the reconcile
+  // below is what closes the gap. attachedSessionIdRef is written only at
+  // lock-acquire (doReconnect / initializeTerminal); desiredSessionIdRef only by
+  // the swap effect further down.
+  const attachedSessionIdRef = useRef(sessionId)
+  const desiredSessionIdRef = useRef(sessionId)
+  // Fresh-closure reconciler (assigned every render, after doReconnect exists).
+  // Held in a ref so releaseInitLock can stay identity-stable.
+  const reconcileAttachmentRef = useRef<() => void>(() => {})
 
-    const runFit = () => {
-      const container = terminalContainerRef.current
-      const addons = addonsRef.current
-      if (!container || !addons) return
-
-      const rect = container.getBoundingClientRect()
-      // Use rect dimensions only — offsetParent is null inside position:fixed
-      // ancestors (popup windows, overlays) even when the element is visible.
-      if (rect.width <= 0 || rect.height <= 0) {
-        if (attempt < attempts - 1) {
-          attempt += 1
-          rafId = requestAnimationFrame(runFit)
-        }
-        return
-      }
-
-      const term = xtermRef.current
-      const prevRows = term?.rows ?? 0
-      const prevCols = term?.cols ?? 0
-      addons.fitAddon.fit()
-
-      if (attempt < attempts - 1) {
-        attempt += 1
-        rafId = requestAnimationFrame(runFit)
-      } else if (term && (term.rows !== prevRows || term.cols !== prevCols)) {
-        // Final pass: only force a full WebGL repaint when dimensions actually
-        // changed. An unconditional refresh(0, rows-1) on every fit call causes
-        // expensive full-canvas repaints that compound with WKWebView's CA layer
-        // re-rasterization, making the app feel sluggish after terminal updates.
-        term.refresh(0, term.rows - 1)
-      }
-    }
-
-    rafId = requestAnimationFrame(runFit)
-
-    return () => {
-      if (rafId !== null) cancelAnimationFrame(rafId)
-    }
+  // EVERY release of the init lock reconciles. doReconnect serializes on the lock
+  // and silently drops a call that finds it held — correct for a transport-drop
+  // storm, but a SWAP that lands mid-resolve must not be lost (see the reconcile
+  // effect below). Whoever holds the lock therefore checks, on release, whether
+  // the pane re-pointed the terminal while it was resolving, and fires the swap
+  // it swallowed.
+  const releaseInitLock = useCallback(() => {
+    isInitializingRef.current = false
+    reconcileAttachmentRef.current()
   }, [])
 
   // Re-resolve the terminal connection after a transport drop (daemon restart)
   // without recreating the xterm UI. Runs resolveTerminalConnection which
   // handles the reuse/re-attach/create decision, updates the store, and then
   // bumps reconnectKey so useTerminalConnection re-subscribes its listener on
-  // the freshly-attached connection object.
+  // the freshly-attached connection object. Doubles as the attach-only SWAP
+  // executor: the imperative-reattach effect below calls it when the pane points
+  // this terminal at a new session.
   //
   // This is the second door onto createTerminal, and for an attach-only terminal
   // it is the DANGEROUS one: the agent's PTY can die at any moment while the pane
@@ -216,11 +202,22 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   // into the agent's frame. Both doors are flagged; neither may spawn.
   const doReconnect = useCallback(async () => {
     if (isInitializingRef.current) return
-    const wsId = getActiveWorkspaceId()
+    // Resolve against the OWNING workspace (see the workspaceId prop doc):
+    // hidden keep-alive workspaces reconnect here too, and the active
+    // workspace may be a different one entirely.
+    const wsId = workspaceId ?? getActiveWorkspaceId()
     if (!wsId) return
     const base = `${workspaceBase(wsId)}/terminals`
     const existingSession = getSession(sessionId)
+    // The connection this view is attached to RIGHT NOW, captured BEFORE the
+    // resolve re-points it. Used to conserve the attach ledger across the
+    // reconnect (release the old count before retaining the resolved one). This
+    // is the same value the unmount effect reads to release.
+    const prevConnectionId = existingSession?.connectionId
     isInitializingRef.current = true
+    // The resolve now in flight is FOR this session — recorded at lock-acquire so
+    // a swap racing this resolve is visible as attached ≠ desired at lock-release.
+    attachedSessionIdRef.current = sessionId
     try {
       const result = await resolveTerminalConnection({
         workspaceId: wsId,
@@ -236,12 +233,48 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         onSessionGoneRef.current?.()
         return
       }
+      // This view is now attached to result.connectionId — count it so the LAST
+      // releaser (not merely the first unmount) performs the detach. attachOnly
+      // only: shell tabs never share a transport across views and never detach on
+      // unmount, so they must not touch the ledger.
+      //
+      // CONSERVE THE LEDGER ACROSS A RECONNECT: release the PREVIOUS connection
+      // before retaining the resolved one. Without the release, a plain
+      // transport-drop reconnect — SAME sessionId AND connectionId, so neither the
+      // swap reconciler nor the unmount effect runs — would retain a SECOND time
+      // and leak count[C] 1→2; the unmount-time release then nets 2→1, returns
+      // false, and the detach is SKIPPED — leaving the transport AND the resolver's
+      // terminalHasTransport(C) alive, so the next mount short-circuits reuse
+      // WITHOUT re-attaching → a blank pane (the exact bug this path fixes).
+      //
+      // Ledger-only — NEVER terminalDetach here: on a transport drop the old
+      // transport is already dead (detaching it would close a corpse); on an
+      // id-changing swap the outgoing transport is detached by the attach-only
+      // detach effect's sessionId-change cleanup. On a same-id reconnect this nets
+      // count[C] back to where it was; on an id change it drops the stale entry and
+      // counts the fresh one. Guarded so an undefined/empty prevConnectionId no-ops.
+      if (attachOnly) {
+        if (prevConnectionId) releaseAttach(prevConnectionId)
+        retainAttach(result.connectionId)
+      }
       updateSession(sessionId, { connectionId: result.connectionId })
       saveReconnect(wsId, sessionId, result.connectionId)
-      // Sync PTY dimensions after re-attach so TUI apps redraw correctly.
+      // Re-inject the file-link styles for this session. On an attach-only SWAP the
+      // init effect's cleanup removed the OUTGOING session's styles and nothing else
+      // re-injects (initializeTerminal, the only other injector, never runs again on
+      // a mounted terminal). Idempotent by style-element id, so the transport-drop
+      // path — same session, styles still present — is a no-op.
+      injectLinkStyles(sessionId, terminalContainerRef.current?.id || `terminal-${sessionId}`)
+      // Sync PTY dimensions after re-attach so TUI apps redraw correctly, and
+      // record it so a follow-up no-op fit on the new connection doesn't re-push.
       const term = xtermRef.current
       if (term) {
         void terminalResize(result.connectionId, term.rows, term.cols).catch(() => {})
+        lastSyncedPtyDimsRef.current = {
+          connId: result.connectionId,
+          rows: term.rows,
+          cols: term.cols,
+        }
       }
       setReconnectKey((k) => k + 1)
     } catch (err) {
@@ -251,9 +284,33 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         'Could not reconnect to the terminal session. Try closing and reopening the tab.',
       )
     } finally {
-      isInitializingRef.current = false
+      releaseInitLock()
     }
-  }, [attachOnly, getSession, sessionId, updateSession])
+  }, [attachOnly, getSession, releaseInitLock, sessionId, updateSession, workspaceId])
+
+  // The reconciler: called at every init-lock release. If the pane re-pointed this
+  // terminal at a different session while a resolve was in flight (the guarded
+  // doReconnect swallowed that swap), catch up now: release the transport the
+  // stale resolve may have JUST attached — its sessionId-keyed detach cleanup ran
+  // BEFORE the transport existed, so nobody else ever would — and fire the swap
+  // again. Each pass attaches the LATEST desired session, so a chain of racing
+  // swaps converges instead of looping. Assigned every render so it closes over
+  // the freshest doReconnect (whose closure sessionId IS the desired session).
+  useEffect(() => {
+    reconcileAttachmentRef.current = () => {
+      if (!attachOnly) return
+      if (attachedSessionIdRef.current === desiredSessionIdRef.current) return
+      const staleConnectionId = useTerminalStore
+        .getState()
+        .getSession(attachedSessionIdRef.current)?.connectionId
+      // Release-then-detach: only tear down the orphaned intermediate transport
+      // when this view was its last holder. A co-view still attached to the same
+      // connectionId keeps it alive (release returns false).
+      if (staleConnectionId && releaseAttach(staleConnectionId))
+        void terminalDetach(staleConnectionId).catch(() => {})
+      void doReconnect()
+    }
+  })
 
   // Subscribe to unexpected transport drops for the current connection. When
   // the daemon restarts while a pane terminal stays mounted, the WS closes
@@ -265,6 +322,38 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       void doReconnect()
     })
   }, [connectionId, doReconnect])
+
+  // IMPERATIVE REATTACH — swap the PTY under a LIVE xterm instead of remounting it.
+  //
+  // The agent chat pane points ONE mounted terminal at a succession of PTYs: a
+  // provider switch or a chat revive replaces the agent's runner, and the pane feeds
+  // its new terminalSessionId straight in as a prop change. It used to force that
+  // through with key={sessionId}, which unmounted the ENTIRE component — socket,
+  // xterm instance, gridSlack observers, WS listeners — and rebuilt it on every
+  // switch. Here we keep the instance and swap only the transport: the outgoing PTY
+  // is released by the attach-only detach effect below (its cleanup runs on this same
+  // sessionId change), and doReconnect attaches the incoming one through the SAME
+  // resolver — so it can never spawn a bare shell — then bumps reconnectKey so
+  // useTerminalConnection re-listens on the fresh socket. The daemon replays its
+  // screen model on attach as a snapshot frame, which resets the buffer, so the
+  // outgoing agent's scrollback never bleeds into the incoming one.
+  //
+  // Attach-only only: a shell tab never swaps sessionId under a mounted xterm, and
+  // its portaled socket must survive layout changes untouched.
+  //
+  // attachedSessionIdRef is NOT written here — only at lock-acquire inside
+  // doReconnect/initializeTerminal. If this effect marked the target attached
+  // before the resolve had even started, a doReconnect swallowed by the init lock
+  // (a swap racing an in-flight resolve) would look already-done to the reconciler
+  // and the swap would be lost — the racing-swaps bug this structure exists to
+  // prevent. A guarded-away call here is fine PRECISELY because the lock holder
+  // reconciles on release (see releaseInitLock) and re-fires it.
+  useEffect(() => {
+    desiredSessionIdRef.current = sessionId
+    if (!attachOnly) return
+    if (attachedSessionIdRef.current === sessionId) return
+    void doReconnect()
+  }, [attachOnly, sessionId, doReconnect])
 
   const { currentConnectionIdRef, writeBuffered } = useTerminalConnection({
     connectionId,
@@ -279,6 +368,98 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     terminal: xtermRef.current,
     updateSession,
   })
+
+  // Fit xterm to its container AND reconcile the daemon PTY to xterm's resulting
+  // grid on the final pass. Routing EVERY fit caller (ResizeObserver, active
+  // catch-up, theme/font, portal-refit, imperative resize()) through
+  // refitAndSyncPty is what closes the pane-split blank-top bug: the size is
+  // pushed to the daemon whenever it differs from what the daemon was last told,
+  // instead of relying on xterm's onResize (which only fires when xterm's own
+  // rows/cols change) or on a one-shot external event. The WebGL repaint stays
+  // change-gated (an unconditional refresh per fit is expensive and compounds
+  // with WKWebView CA-layer re-rasterization) — only the PTY push is
+  // unconditional-on-dims-differ. Defined here (not with the other early refs)
+  // because it reads currentConnectionIdRef, returned by useTerminalConnection
+  // above; refs in its closure are stable, so the empty dep list is correct.
+  const fitTerminal = useCallback(
+    (attempts = 1) => {
+      let attempt = 0
+      let rafId: number | null = null
+
+      const runFit = () => {
+        const container = terminalContainerRef.current
+        const addons = addonsRef.current
+        if (!container || !addons) return
+
+        const rect = container.getBoundingClientRect()
+        // Use rect dimensions only — offsetParent is null inside position:fixed
+        // ancestors (popup windows, overlays) even when the element is visible.
+        if (rect.width <= 0 || rect.height <= 0) {
+          if (attempt < attempts - 1) {
+            attempt += 1
+            rafId = requestAnimationFrame(runFit)
+          }
+          return
+        }
+
+        const term = xtermRef.current
+
+        if (attempt < attempts - 1) {
+          // Intermediate pass: just fit and keep polling; the PTY reconcile and
+          // the repaint decision happen once, on the final pass.
+          addons.fitAddon.fit()
+          attempt += 1
+          rafId = requestAnimationFrame(runFit)
+          return
+        }
+
+        const prevRows = term?.rows ?? 0
+        const prevCols = term?.cols ?? 0
+        // Single PTY-size owner: only the VISIBLE view pushes terminalResize. A
+        // hidden attach-only view (an inactive chat tab kept alive behind
+        // visibility:hidden) still fits xterm to its box locally — so its grid is
+        // correct the instant it is shown — but routes the resize into a no-op and
+        // the last-synced record into a throwaway, so neither the daemon PTY nor
+        // the SHARED lastSyncedRef is advanced. The active-catch-up fit re-pushes
+        // the correct size when the tab becomes visible (lastSyncedRef is still
+        // stale, so it differs and pushes). Strictly attachOnly: a shell tab is
+        // always the sole owner of its PTY and pushes as before.
+        const hiddenAttachOnly = attachOnly && !isVisibleRef.current
+        // Final pass: fit AND push the size to the daemon whenever it differs
+        // from what the daemon was last told (refitAndSyncPty also calls fit()).
+        refitAndSyncPty({
+          container,
+          fitAddon: addons.fitAddon,
+          terminal: term,
+          getConnectionId: () => currentConnectionIdRef.current,
+          resize: hiddenAttachOnly
+            ? () => {}
+            : (connId, rows, cols) => {
+                void terminalResize(connId, rows, cols).catch(() => {})
+              },
+          lastSyncedRef: hiddenAttachOnly ? { current: null } : lastSyncedPtyDimsRef,
+        })
+
+        if (term && (term.rows !== prevRows || term.cols !== prevCols)) {
+          // Only force a full WebGL repaint when dimensions actually changed. An
+          // unconditional refresh(0, rows-1) on every fit call causes expensive
+          // full-canvas repaints that compound with WKWebView's CA layer
+          // re-rasterization, making the app feel sluggish after terminal updates.
+          term.refresh(0, term.rows - 1)
+        }
+      }
+
+      rafId = requestAnimationFrame(runFit)
+
+      return () => {
+        if (rafId !== null) cancelAnimationFrame(rafId)
+      }
+    },
+    // attachOnly is constant for a terminal's whole life (shell vs. agent view),
+    // so listing it here does NOT churn fitTerminal on tab switches; isVisible is
+    // read via isVisibleRef precisely so it does not appear here.
+    [attachOnly, currentConnectionIdRef],
+  )
 
   const handleTerminalFileDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
@@ -309,6 +490,10 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     if (rect.width <= 0 || rect.height <= 0) return
 
     isInitializingRef.current = true
+    // Same contract as doReconnect: the resolve now in flight is FOR this session
+    // (the closure's), so a swap racing this init shows up as attached ≠ desired
+    // when the lock is released — and the reconcile catches it up.
+    attachedSessionIdRef.current = sessionId
     const resolved = await resolveTerminalFont(terminalFontFamily, effectiveTerminalFontSize)
     // Skip the font-settle delay when reconnecting to an existing PTY — font is
     // already loaded and rasterized, so the wait is pure dead time that makes
@@ -322,7 +507,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     }
 
     if (!terminalContainerRef.current) {
-      isInitializingRef.current = false
+      releaseInitLock()
       return
     }
 
@@ -369,6 +554,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
 
       if (terminal.textarea) {
         terminal.textarea.spellcheck = false
+        // react-doctor-disable-next-line effect-needs-cleanup -- listener lives on xterm's own textarea and is torn down by `xterm.dispose()` (l.822); tracer can't follow it.
         terminal.textarea.addEventListener('beforeinput', (event) => {
           if (event.inputType === 'insertReplacementText' || event.inputType === 'insertFromDrop') {
             const text = event.dataTransfer?.getData('text/plain') ?? event.data
@@ -467,7 +653,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
           requestAnimationFrame(() => resolve())
         })
         if (!terminalContainerRef.current) {
-          isInitializingRef.current = false
+          releaseInitLock()
           return
         }
       }
@@ -483,10 +669,12 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       // parseRemotePath does not expose connectionId in the stub; use only the passed remoteConnectionId
       const effectiveRemoteConnectionId = remoteConnectionId || undefined
 
-      // Derive the workspace base for attach/listLive paths.
-      // getActiveWorkspaceId() is safe here (we're inside an async callback,
-      // not the render path), and terminalCreate uses the same strategy.
-      const wsId = getActiveWorkspaceId()
+      // Derive the workspace base for attach/listLive paths. Prefer the OWNING
+      // workspace (the workspaceId prop): with keep-alive, a hidden workspace's
+      // terminal can (re)initialize while a different workspace is active.
+      // getActiveWorkspaceId() is a safe fallback here (we're inside an async
+      // callback, not the render path).
+      const wsId = workspaceId ?? getActiveWorkspaceId()
       if (!wsId) throw new Error('no active workspace for terminal')
       const base = `${workspaceBase(wsId)}/terminals`
 
@@ -505,11 +693,16 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         // Attach-only and the PTY is gone. Leave the terminal uninitialized (no
         // connection, nothing to write to) and let the owner render its ended
         // state; it will unmount us.
-        isInitializingRef.current = false
+        releaseInitLock()
         onSessionGoneRef.current?.()
         return
       }
       const activeConnectionId = result.connectionId
+
+      // Count this view's attachment (attachOnly only) so the detach on unmount is
+      // performed by the LAST releaser — a co-view sharing this connectionId during
+      // a pane move must not lose its transport to our unmount. Mirrors doReconnect.
+      if (attachOnly) retainAttach(activeConnectionId)
 
       // Always sync the store so in-memory connectionId is up to date.
       // Only include remoteConnectionId when it is actually defined — writing
@@ -541,12 +734,20 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       //   post-create fit() is a no-op for xterm's dimensions, so no onResize
       //   fires. Pushing the size here makes the running process redraw.
       void terminalResize(activeConnectionId, terminal.rows, terminal.cols).catch(() => {})
+      // Record what we just pushed so the fitTerminal(3) below (and the first
+      // ResizeObserver fit) treat this size as already-synced and don't re-push
+      // it when the fit is a no-op — the daemon is reconciled here.
+      lastSyncedPtyDimsRef.current = {
+        connId: activeConnectionId,
+        rows: terminal.rows,
+        cols: terminal.cols,
+      }
 
       // No snapshot replay: xterm is portaled and never remounts mid-session,
       // so the live PTY redrawing via SIGWINCH is the source of truth.
 
       setIsInitialized(true)
-      isInitializingRef.current = false
+      releaseInitLock()
 
       // Re-fit after connection is established so onResize can notify the PTY
       fitTerminal(3)
@@ -565,7 +766,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       onReady?.()
     } catch (error) {
       console.error('Failed to initialize terminal:', error)
-      isInitializingRef.current = false
+      releaseInitLock()
     }
   }, [
     attachOnly,
@@ -576,12 +777,11 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     isInitialized,
     onReady,
     onTerminalRef,
-    rootFolderPath,
+    releaseInitLock,
     remoteConnectionId,
     sessionId,
     terminalCursorBlink,
     terminalCursorStyle,
-    terminalCursorWidth,
     terminalFontFamily,
     effectiveTerminalCursorWidth,
     effectiveTerminalFontSize,
@@ -590,18 +790,27 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     terminalScrollback,
     updateSession,
     workingDirectory,
+    workspaceId,
     writeBuffered,
   ])
 
+  // Read the freshest theme + refit through an Effect Event so this effect only
+  // re-runs when the theme id itself changes — not every time getTerminalTheme
+  // or fitTerminal takes a new identity (which would needlessly tear down and
+  // restart the timer). Same rationale as the init effects below; the dedicated
+  // font/setting effect above already fits on those changes. See useEffectEvent.
+  const onThemeTick = useEffectEvent(() => {
+    const term = xtermRef.current
+    if (!term) return
+    term.options.theme = getTerminalTheme()
+    term.refresh(0, term.rows - 1)
+    fitTerminal(4)
+  })
   useEffect(() => {
     if (!xtermRef.current) return
-    xtermRef.current.options.theme = getTerminalTheme()
-    const timer = setTimeout(() => {
-      xtermRef.current?.refresh(0, xtermRef.current.rows - 1)
-      fitTerminal(4)
-    }, 10)
+    const timer = setTimeout(onThemeTick, 10)
     return () => clearTimeout(timer)
-  }, [terminalThemeId, getTerminalTheme, fitTerminal])
+  }, [terminalThemeId])
 
   useEffect(() => {
     if (!xtermRef.current || !addonsRef.current) return
@@ -646,14 +855,25 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     fitTerminal,
   ])
 
+  // `initializeTerminal` changes identity whenever any terminal theme/font/setting
+  // changes (large dep list). Wrapping the init calls in Effect Events keeps the two
+  // init effects below from tearing down + restarting their timer/rAF on every such
+  // change, while still calling the freshest initializeTerminal. See useEffectEvent.
+  const onInitTick = useEffectEvent(() => {
+    if (!isInitialized && !isInitializingRef.current) {
+      void initializeTerminal()
+    }
+  })
+  const onAttemptInit = useEffectEvent(() => {
+    void initializeTerminal()
+  })
+
   useEffect(() => {
     if (!isVisible) return
 
     let mounted = true
     const initTimer = setTimeout(() => {
-      if (mounted && !isInitialized && !isInitializingRef.current) {
-        void initializeTerminal()
-      }
+      if (mounted) onInitTick()
     }, 200)
 
     return () => {
@@ -661,7 +881,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       clearTimeout(initTimer)
       removeLinkStyles(sessionId)
     }
-  }, [initializeTerminal, isInitialized, isVisible, sessionId])
+  }, [isVisible, sessionId])
 
   useEffect(() => {
     if (isInitialized || !isVisible || !terminalContainerRef.current) return
@@ -670,7 +890,22 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     const container = terminalContainerRef.current
 
     const attemptInitialize = () => {
-      if (isInitialized || isInitializingRef.current) return
+      // xtermRef (not only isInitialized state) guards re-entry: it is set
+      // synchronously mid-init, so a stale-closure frame that lands between init
+      // completing and this effect re-running cannot start a SECOND init.
+      if (isInitialized || xtermRef.current) return
+
+      // The init lock is held by an in-flight resolve — initializeTerminal from
+      // the timer path, or an attach-only swap's doReconnect that raced this
+      // mount. Returning here without rescheduling used to DROP the init attempt
+      // forever when the holder was a swap (nothing else re-kicks this poll), and
+      // a terminal that never creates its xterm is permanently blank. Keep
+      // polling until the lock frees; the guard above stops the loop the moment
+      // an init actually lands.
+      if (isInitializingRef.current) {
+        rafId = requestAnimationFrame(attemptInitialize)
+        return
+      }
 
       const rect = container.getBoundingClientRect()
       if (rect.width <= 0 || rect.height <= 0) {
@@ -678,7 +913,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         return
       }
 
-      void initializeTerminal()
+      onAttemptInit()
     }
 
     rafId = requestAnimationFrame(attemptInitialize)
@@ -686,7 +921,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId)
     }
-  }, [initializeTerminal, isInitialized, isVisible])
+  }, [isInitialized, isVisible])
 
   // Dispose only the xterm UI on unmount. The PTY process is owned by the
   // buffer store and killed in closeBuffer (via killTerminalSession) when the
@@ -726,7 +961,12 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     if (!attachOnly) return
     return () => {
       const connectionId = useTerminalStore.getState().getSession(sessionId)?.connectionId
-      if (connectionId) void terminalDetach(connectionId).catch(() => {})
+      // Detach only when this was the transport's LAST live view. A pane move (or a
+      // transient duplicate) can leave a co-view attached to the same connectionId;
+      // release returns false there and keeps its transport — the co-view stays live
+      // instead of blanking. An unknown/last count returns true and detaches as before.
+      if (connectionId && releaseAttach(connectionId))
+        void terminalDetach(connectionId).catch(() => {})
     }
   }, [attachOnly, sessionId])
 
@@ -755,6 +995,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   // change, debounce, refit, and ALWAYS push the PTY size (idempotent when
   // unchanged, and terminal.onResize would not fire when only the cell
   // metrics — not cols/rows — went stale).
+  // react-doctor-disable-next-line effect-needs-cleanup -- cleanup exists (l.919-923: removeEventListener ×2 + clearTimeout); tracer can't follow it.
   useEffect(() => {
     if (!isInitialized) return
 
@@ -772,7 +1013,14 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         addons.fitAddon.fit()
         term.refresh(0, term.rows - 1)
         const connId = currentConnectionIdRef.current
-        if (connId) void terminalResize(connId, term.rows, term.cols).catch(() => {})
+        // ALWAYS push here (not gated on dims-differ like refitAndSyncPty): a DPR
+        // flip changes cell metrics without changing cols/rows, and the running
+        // TUI still needs a SIGWINCH to re-measure and redraw. Update the
+        // last-synced record so a follow-up fit treats this as reconciled.
+        if (connId) {
+          void terminalResize(connId, term.rows, term.cols).catch(() => {})
+          lastSyncedPtyDimsRef.current = { connId, rows: term.rows, cols: term.cols }
+        }
       }, 150)
     }
 
@@ -801,59 +1049,93 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
 
   // Listen for portal-target changes from TerminalHost; force a fit + repaint
   // so PTY/xterm dims match the new slot before any TUI relies on them.
+  // fitTerminal + sessionId read fresh through an Effect Event so this listener
+  // is registered once per init, not re-subscribed every time fitTerminal takes
+  // a new identity (tab switch, setting change). See useEffectEvent.
+  const onRefitRequest = useEffectEvent((event: Event) => {
+    const detail = (event as CustomEvent<{ sessionId: string }>).detail
+    if (!detail || detail.sessionId !== sessionId) return
+    fitTerminal(4)
+    const term = xtermRef.current
+    if (term) term.refresh(0, term.rows - 1)
+  })
   useEffect(() => {
     if (!isInitialized) return
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ sessionId: string }>).detail
-      if (!detail || detail.sessionId !== sessionId) return
-      fitTerminal(4)
-      const term = xtermRef.current
-      if (term) term.refresh(0, term.rows - 1)
-    }
+    const handler = (event: Event) => onRefitRequest(event)
     window.addEventListener('athas-terminal-refit', handler)
     return () => window.removeEventListener('athas-terminal-refit', handler)
-  }, [fitTerminal, isInitialized, sessionId])
+  }, [isInitialized])
 
   useEffect(() => {
     if (!addonsRef.current || !terminalContainerRef.current || !isInitialized) return
 
     // Mirror Monaco's pattern: suppress fitting during pane/sidebar drags
-    // (data-pane-resizing attribute) and do one final fit on pane-resize-end.
+    // (data-pane-resizing attribute) and do one final fit once the drag ends.
     // Without this, fitAddon.fit() + terminalResize() IPC fires every frame
     // during drag — far heavier than editor.layout() and causes canvas glitches.
     let rafId: number | null = null
+    let cancelPoll: (() => void) | null = null
     let needsFitAfterResize = false
+
+    // Fit + reconcile the PTY once, if the container currently has a box. Every
+    // call routes through fitTerminal → refitAndSyncPty, so a no-op fit on a
+    // freshly-remounted pane split still pushes the (now stale) daemon PTY size.
+    const runFitIfSized = () => {
+      const container = terminalContainerRef.current
+      if (!addonsRef.current || !container) return
+      const rect = container.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) {
+        fitTerminal(3)
+      }
+    }
+
+    // Recovery that does NOT depend on the one-shot `pane-resize-end` window
+    // event: a terminal remounted mid-drag (a pane split) never receives that
+    // event, so relying on it alone drops the final fit and leaves the daemon
+    // PTY at its pre-split size (the blank-top bug). Poll on rAF until the
+    // drag attribute clears, then apply the last container size exactly once.
+    const startResizePoll = () => {
+      if (cancelPoll) return // already polling this drag
+      cancelPoll = pollUntilResizeSettles({
+        isResizing: () => document.documentElement.hasAttribute('data-pane-resizing'),
+        onSettled: () => {
+          cancelPoll = null
+          if (!needsFitAfterResize) return
+          needsFitAfterResize = false
+          runFitIfSized()
+        },
+        requestFrame: (cb) => requestAnimationFrame(cb),
+        cancelFrame: (id) => cancelAnimationFrame(id),
+      })
+    }
 
     const resizeObserver = new ResizeObserver(() => {
       if (document.documentElement.hasAttribute('data-pane-resizing')) {
         needsFitAfterResize = true
+        startResizePoll()
         return
       }
       if (rafId) cancelAnimationFrame(rafId)
       rafId = requestAnimationFrame(() => {
         rafId = null
-        const container = terminalContainerRef.current
-        if (!addonsRef.current || !container) return
-
-        const rect = container.getBoundingClientRect()
-        if (rect.width > 0 && rect.height > 0) {
-          fitTerminal(3)
-        }
+        runFitIfSized()
       })
     })
 
+    // Additional (faster) trigger for the common case where this terminal is
+    // still mounted when the drag ends; the rAF poll above is the guaranteed
+    // recovery for the remount case.
     const handlePaneResizeEnd = () => {
       if (!needsFitAfterResize) return
       needsFitAfterResize = false
+      if (cancelPoll) {
+        cancelPoll()
+        cancelPoll = null
+      }
       if (rafId !== null) cancelAnimationFrame(rafId)
       rafId = requestAnimationFrame(() => {
         rafId = null
-        const container = terminalContainerRef.current
-        if (!addonsRef.current || !container) return
-        const rect = container.getBoundingClientRect()
-        if (rect.width > 0 && rect.height > 0) {
-          fitTerminal(3)
-        }
+        runFitIfSized()
       })
     }
     window.addEventListener('pane-resize-end', handlePaneResizeEnd)
@@ -864,10 +1146,34 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     return () => {
       resizeObserver.disconnect()
       if (rafId) cancelAnimationFrame(rafId)
+      if (cancelPoll) cancelPoll()
       window.removeEventListener('pane-resize-end', handlePaneResizeEnd)
       cleanupFit?.()
     }
   }, [fitTerminal, isInitialized])
+
+  // SIZE-RECONCILE ON BECOMING VISIBLE — even in an UNFOCUSED pane (attach-only).
+  //
+  // The active-catch-up effect below also re-fits and re-pushes the PTY size on
+  // show, but it is gated on pane FOCUS (isActive = isActivePane && isVisible). The
+  // fitTerminal path SUPPRESSES the PTY push while an attach-only view is HIDDEN
+  // (hiddenAttachOnly routes the resize into a no-op so a background chat tab does
+  // not fight the visible owner for the shared PTY size), delegating the re-push to
+  // a become-visible fit. If that view is then revealed in an UNFOCUSED pane — e.g.
+  // its sibling tab is closed while its split pane is not the focused one — after
+  // its geometry changed while hidden, the focus-gated catch-up never runs and the
+  // daemon PTY stays at a stale size until the pane is focused (a transient
+  // misdraw). Reconcile on VISIBILITY alone here so the size is correct the moment
+  // the view is shown, focused or not; focus-specific work stays on isActive below.
+  //
+  // attachOnly only: a shell tab pushes its PTY size even while hidden (the
+  // suppression is attachOnly-gated), so it is never stale on show and must keep its
+  // existing focus-gated catch-up untouched — this effect must not change it.
+  useEffect(() => {
+    if (!attachOnly || !isVisible || !isInitialized || !xtermRef.current) return
+    const cleanupFit = fitTerminal(6)
+    return () => cleanupFit?.()
+  }, [attachOnly, isVisible, isInitialized, fitTerminal])
 
   useEffect(() => {
     if (!isActive || !isVisible || !xtermRef.current || !isInitialized) return
@@ -968,49 +1274,49 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     setSearchResults({ current: 0, total: 0 })
   }, [])
 
+  // Read the latest search/zoom state + handlers via an Effect Event so the
+  // global keydown listener subscribes once per active session instead of
+  // re-subscribing whenever clearSearch/handleZoom/handleZoomReset or
+  // isSearchVisible change.
+  const onWindowKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    const isTerminalFocused =
+      terminalContainerRef.current?.contains(event.target as Node) ||
+      terminalContainerRef.current?.contains(document.activeElement)
+    const key = event.key.toLowerCase()
+
+    if ((event.ctrlKey || event.metaKey) && key === 'f' && (isTerminalFocused || isSearchVisible)) {
+      event.preventDefault()
+      event.stopPropagation()
+      setIsSearchVisible(true)
+    }
+
+    if (event.key === 'Escape' && isSearchVisible) {
+      event.preventDefault()
+      setIsSearchVisible(false)
+      clearSearch()
+      xtermRef.current?.focus()
+    }
+
+    if (isTerminalFocused && (event.ctrlKey || event.metaKey)) {
+      if (event.key === '+' || event.key === '=') {
+        event.preventDefault()
+        handleZoom(2)
+      } else if (event.key === '-') {
+        event.preventDefault()
+        handleZoom(-2)
+      } else if (event.key === '0') {
+        event.preventDefault()
+        handleZoomReset()
+      }
+    }
+  })
   useEffect(() => {
     if (!isActive) return
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const isTerminalFocused =
-        terminalContainerRef.current?.contains(event.target as Node) ||
-        terminalContainerRef.current?.contains(document.activeElement)
-      const key = event.key.toLowerCase()
-
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        key === 'f' &&
-        (isTerminalFocused || isSearchVisible)
-      ) {
-        event.preventDefault()
-        event.stopPropagation()
-        setIsSearchVisible(true)
-      }
-
-      if (event.key === 'Escape' && isSearchVisible) {
-        event.preventDefault()
-        setIsSearchVisible(false)
-        clearSearch()
-        xtermRef.current?.focus()
-      }
-
-      if (isTerminalFocused && (event.ctrlKey || event.metaKey)) {
-        if (event.key === '+' || event.key === '=') {
-          event.preventDefault()
-          handleZoom(2)
-        } else if (event.key === '-') {
-          event.preventDefault()
-          handleZoom(-2)
-        } else if (event.key === '0') {
-          event.preventDefault()
-          handleZoomReset()
-        }
-      }
-    }
-
+    const handleKeyDown = (event: KeyboardEvent) => onWindowKeyDown(event)
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [clearSearch, handleZoom, handleZoomReset, isActive, isSearchVisible])
+  }, [isActive])
 
   const handleSearch = useCallback(
     (term: string, options: TerminalSearchOptions) => {
@@ -1073,7 +1379,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       serialize: () => (xtermRef.current ? addonsRef.current?.serializeAddon.serialize() : ''),
       resize: () => fitTerminal(4),
     }),
-    [fitTerminal, getSession, isInitialized, sessionId],
+    [fitTerminal],
   )
 
   return (
@@ -1088,6 +1394,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         totalMatches={searchResults.total}
       />
       <div className={`flex min-h-0 flex-1 flex-col ${flush ? '' : 'pl-[16px]'}`}>
+        {/* react-doctor-disable-next-line no-static-element-interactions -- this div is xterm.js's mount point: xterm renders its own canvas + a hidden `.xterm-helper-textarea` inside it, which is the actual focusable/keyboard-operable surface (role, typing, screen-reader relay all live on that textarea, owned by xterm's own accessibility layer). onMouseDown here only forwards DOM focus onto that textarea for clicks that land on the container's own padding rather than the canvas; it isn't a distinct interactive control of its own. */}
         <div
           ref={terminalContainerRef}
           id={`terminal-${sessionId}`}

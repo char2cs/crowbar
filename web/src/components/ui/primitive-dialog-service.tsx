@@ -66,15 +66,6 @@ interface PrimitivePromptOptions extends PrimitiveConfirmOptions {
   placeholder?: string
 }
 
-interface PrimitiveChoiceOptions<T extends string> {
-  title?: string
-  choices: Array<{
-    value: T
-    label: string
-    variant?: ButtonVariant
-  }>
-}
-
 let nextDialogId = 1
 let enqueueDialog: ((request: PrimitiveDialogRequest) => void) | null = null
 const pendingDialogs: PrimitiveDialogRequest[] = []
@@ -88,12 +79,14 @@ function enqueue(request: PrimitiveDialogRequest) {
   pendingDialogs.push(request)
 }
 
+// react-doctor-disable-next-line only-export-components -- imperative dialog API sharing this module's dialog queue state (enqueue/nextDialogId) with PrimitiveDialogProvider below; the API and the provider that renders its queue are one unit.
 export function primitiveAlert(message: ReactNode, title = 'Notice'): Promise<void> {
   return new Promise((resolve) => {
     enqueue({ id: nextDialogId++, type: 'alert', title, message, resolve })
   })
 }
 
+// react-doctor-disable-next-line only-export-components -- imperative dialog API backed by this module's shared queue (see primitiveAlert).
 export function primitiveConfirm(
   message: ReactNode,
   options: PrimitiveConfirmOptions = {},
@@ -111,22 +104,7 @@ export function primitiveConfirm(
   })
 }
 
-export function primitiveChoice<T extends string>(
-  message: ReactNode,
-  options: PrimitiveChoiceOptions<T>,
-): Promise<T | null> {
-  return new Promise((resolve) => {
-    enqueue({
-      id: nextDialogId++,
-      type: 'choice',
-      title: options.title ?? 'Choose',
-      message,
-      choices: options.choices,
-      resolve: (value) => resolve(value as T | null),
-    })
-  })
-}
-
+// react-doctor-disable-next-line only-export-components -- imperative dialog API backed by this module's shared queue (see primitiveAlert).
 export function primitivePrompt(
   message: ReactNode,
   options: PrimitivePromptOptions = {},

@@ -67,79 +67,82 @@ export function useSnippetCompletion(filePath: string | undefined) {
   /**
    * Expand a snippet at the current cursor position
    */
-  const expandSnippetAtCursor = useCallback((completion: CompletionItem) => {
-    const wsState = workspaceStore.getState()
-    const activeBufferId = wsState.panes[wsState.activePaneId]?.activeBufferId ?? null
-    if (!activeBufferId || !completion.data?.isSnippet) return false
+  const expandSnippetAtCursor = useCallback(
+    (completion: CompletionItem) => {
+      const wsState = workspaceStore.getState()
+      const activeBufferId = wsState.panes[wsState.activePaneId]?.activeBufferId ?? null
+      if (!activeBufferId || !completion.data?.isSnippet) return false
 
-    const cursorPosition = useEditorStateStore.getState().cursorPosition
-    const buffer = wsState.buffers.find((b) => b.id === activeBufferId)
-    if (!buffer || !isEditorContent(buffer)) return false
+      const cursorPosition = useEditorStateStore.getState().cursorPosition
+      const buffer = wsState.buffers.find((b) => b.id === activeBufferId)
+      if (!buffer || !isEditorContent(buffer)) return false
 
-    const snippet = completion.data.snippet
-    if (!snippet) return false
+      const snippet = completion.data.snippet
+      if (!snippet) return false
 
-    try {
-      // Create snippet session
-      const session = expandSnippet(
-        { body: snippet.body, prefix: snippet.prefix },
-        cursorPosition,
-        {
-          fileName: buffer.name,
-          filePath: buffer.path,
-        },
-      )
+      try {
+        // Create snippet session
+        const session = expandSnippet(
+          { body: snippet.body, prefix: snippet.prefix },
+          cursorPosition,
+          {
+            fileName: buffer.name,
+            filePath: buffer.path,
+          },
+        )
 
-      const content = buffer.content
+        const content = buffer.content
 
-      // Remove the trigger prefix
-      const beforeCursor = content.slice(0, cursorPosition.offset)
-      const afterCursor = content.slice(cursorPosition.offset)
-      const lastWord = beforeCursor.match(/(\w+)$/)
-      const prefixLength = lastWord ? lastWord[0].length : 0
+        // Remove the trigger prefix
+        const beforeCursor = content.slice(0, cursorPosition.offset)
+        const afterCursor = content.slice(cursorPosition.offset)
+        const lastWord = beforeCursor.match(/(\w+)$/)
+        const prefixLength = lastWord ? lastWord[0].length : 0
 
-      const newContent =
-        content.slice(0, cursorPosition.offset - prefixLength) +
-        session.parsedSnippet.expandedBody +
-        afterCursor
+        const newContent =
+          content.slice(0, cursorPosition.offset - prefixLength) +
+          session.parsedSnippet.expandedBody +
+          afterCursor
 
-      workspaceStore.setState((state) => ({
-        buffers: state.buffers.map((b) =>
-          b.id === activeBufferId && b.type === 'editor'
-            ? { ...b, content: newContent, isDirty: true }
-            : b,
-        ),
-      }))
+        workspaceStore.setState((state) => ({
+          buffers: state.buffers.map((b) =>
+            b.id === activeBufferId && b.type === 'editor'
+              ? { ...b, content: newContent, isDirty: true }
+              : b,
+          ),
+        }))
 
-      // If snippet has tab stops, activate session
-      if (session.parsedSnippet.hasTabStops) {
-        setActiveSession(session)
+        // If snippet has tab stops, activate session
+        if (session.parsedSnippet.hasTabStops) {
+          setActiveSession(session)
 
-        // Move to first tab stop
-        const firstTabStop = getCurrentTabStop(session)
-        if (firstTabStop) {
-          const newOffset = cursorPosition.offset - prefixLength + firstTabStop.offset
-          const newPosition = calculatePosition(newContent, newOffset)
+          // Move to first tab stop
+          const firstTabStop = getCurrentTabStop(session)
+          if (firstTabStop) {
+            const newOffset = cursorPosition.offset - prefixLength + firstTabStop.offset
+            const newPosition = calculatePosition(newContent, newOffset)
 
-          useEditorStateStore
-            .getState()
-            .actions.setCursorPosition(newPosition, { ensureVisible: false })
-          editorAPI.setCursorPosition(newPosition)
+            useEditorStateStore
+              .getState()
+              .actions.setCursorPosition(newPosition, { ensureVisible: false })
+            editorAPI.setCursorPosition(newPosition)
 
-          // Select placeholder if it exists
-          if (firstTabStop.placeholder && firstTabStop.length > 0) {
-            selectRange(newOffset, newOffset + firstTabStop.length)
+            // Select placeholder if it exists
+            if (firstTabStop.placeholder && firstTabStop.length > 0) {
+              selectRange(newOffset, newOffset + firstTabStop.length)
+            }
           }
         }
-      }
 
-      logger.info('SnippetCompletion', `Expanded snippet: ${snippet.prefix}`)
-      return true
-    } catch (error) {
-      logger.error('SnippetCompletion', 'Failed to expand snippet:', error)
-      return false
-    }
-  }, [])
+        logger.info('SnippetCompletion', `Expanded snippet: ${snippet.prefix}`)
+        return true
+      } catch (error) {
+        logger.error('SnippetCompletion', 'Failed to expand snippet:', error)
+        return false
+      }
+    },
+    [workspaceStore],
+  )
 
   /**
    * Navigate to next tab stop
@@ -176,7 +179,7 @@ export function useSnippetCompletion(filePath: string | undefined) {
     }
 
     return true
-  }, [])
+  }, [workspaceStore])
 
   /**
    * Navigate to previous tab stop
@@ -208,7 +211,7 @@ export function useSnippetCompletion(filePath: string | undefined) {
     }
 
     return true
-  }, [])
+  }, [workspaceStore])
 
   /**
    * Exit snippet mode

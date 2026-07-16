@@ -7,6 +7,7 @@ import { execSync } from 'child_process'
 
 const gitSHA = (() => {
   try {
+    // react-doctor-disable-next-line import-metadata-execution-risk -- FALSE POSITIVE: the exec argument is a hardcoded static `git rev-parse` literal, not imported metadata/upload/manifest. The rule's regex only fires because the unrelated word "plugin" (Vite's `plugins:` array below) falls within 200 semicolon-free chars of this call in a semicolon-less file. Build-time only; no attacker-influenceable input reaches exec.
     return execSync('git rev-parse --short HEAD').toString().trim()
   } catch {
     return 'dev'

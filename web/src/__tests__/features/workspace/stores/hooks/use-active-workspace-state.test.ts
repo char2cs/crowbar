@@ -131,4 +131,112 @@ describe('useActiveWorkspaceState', () => {
 
     expect(result.current).toBe('no-workspace')
   })
+
+  describe('equality guard (default shallow)', () => {
+    it('does not notify the consumer when the selector returns a fresh-but-shallow-equal array', () => {
+      mockGetState.mockReturnValue({ items: ['a', 'b'] })
+      let renderCount = 0
+
+      const { result } = renderHook(() => {
+        renderCount++
+        return useActiveWorkspaceState((s) => (s as unknown as { items: string[] }).items, [])
+      })
+
+      const initialValue = result.current
+      const renderCountAfterMount = renderCount
+
+      act(() => {
+        // A brand-new array instance with the same contents — this is what
+        // every workspace-store write produces for unrelated derived slices.
+        capturedStoreSubscriber?.({ items: ['a', 'b'] })
+      })
+
+      expect(renderCount).toBe(renderCountAfterMount)
+      expect(result.current).toBe(initialValue)
+    })
+
+    it('notifies the consumer when the selected value actually changes', () => {
+      mockGetState.mockReturnValue({ items: ['a', 'b'] })
+      let renderCount = 0
+
+      const { result } = renderHook(() => {
+        renderCount++
+        return useActiveWorkspaceState((s) => (s as unknown as { items: string[] }).items, [])
+      })
+
+      const renderCountAfterMount = renderCount
+
+      act(() => {
+        capturedStoreSubscriber?.({ items: ['a', 'c'] })
+      })
+
+      expect(renderCount).toBe(renderCountAfterMount + 1)
+      expect(result.current).toEqual(['a', 'c'])
+    })
+
+    it('respects a custom equalityFn passed by the caller', () => {
+      const alwaysEqual = vi.fn(() => true)
+      mockGetState.mockReturnValue({ key: 'a' })
+
+      const { result } = renderHook(() =>
+        useActiveWorkspaceState(
+          (s) => (s as unknown as { key: string }).key,
+          'fallback',
+          alwaysEqual,
+        ),
+      )
+
+      expect(result.current).toBe('a')
+
+      act(() => {
+        // Custom equalityFn always reports "equal" — even a real change to
+        // the underlying value must not notify the consumer.
+        capturedStoreSubscriber?.({ key: 'b' })
+      })
+
+      expect(result.current).toBe('a')
+      expect(alwaysEqual).toHaveBeenCalledWith('a', 'b')
+    })
+
+    it('resets the equality baseline when the active workspace store instance changes', () => {
+      const firstItems = ['a', 'b']
+      mockGetState.mockReturnValue({ items: firstItems })
+
+      const { result } = renderHook(() =>
+        useActiveWorkspaceState((s) => (s as unknown as { items: string[] }).items, []),
+      )
+
+      expect(result.current).toBe(firstItems)
+
+      // Switch to a different store whose initial value is shallow-equal in
+      // *content* to the old value but a distinct array instance — this is a
+      // genuine workspace switch, not a same-store write.
+      const secondItems = ['a', 'b']
+      const nextStore = {
+        getState: vi.fn(() => ({ items: secondItems })),
+        subscribe: vi.fn((fn: (state: unknown) => void) => {
+          capturedStoreSubscriber = fn
+          return () => {}
+        }),
+      }
+
+      act(() => {
+        capturedChangeListener?.(nextStore)
+      })
+
+      // The switch always applies, regardless of shallow equality with the
+      // previous value.
+      expect(result.current).toBe(secondItems)
+
+      // A subsequent write on the NEW store with a shallow-equal array must
+      // be compared against the NEW baseline (secondItems) and skipped —
+      // proving the baseline was reset to the new store, not left stale.
+      const thirdItems = ['a', 'b']
+      act(() => {
+        capturedStoreSubscriber?.({ items: thirdItems })
+      })
+
+      expect(result.current).toBe(secondItems)
+    })
+  })
 })

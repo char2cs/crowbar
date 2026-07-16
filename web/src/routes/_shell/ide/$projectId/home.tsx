@@ -1,27 +1,19 @@
-import { useEffect, useState } from 'react'
 import { createFileRoute, useParams } from '@tanstack/react-router'
-import { WorkspaceView } from '@/features/workspace/components/workspace-view'
-import { fetchHomeWorkspace } from '@/lib/api'
-import { setWorkspaceScope } from '@/lib/workspace-scope'
+import { useHomeWorkspaceState } from '@/features/workspace/lib/home-workspace-resolver'
 
+/**
+ * Project-home route. Renders nothing itself: IDEShell resolves the home
+ * workspace id (`ensureHomeWorkspaceResolved`) and keeps its WorkspaceView
+ * mounted-but-hidden in WorkspaceHost — the SAME keep-alive retention real
+ * workspaces get — so returning to project home is a warm slot reveal
+ * instead of a cold fetch+hydrate+mount every visit (see
+ * features/workspace/lib/home-workspace-resolver.ts and ide-shell.tsx).
+ * This route only surfaces the loading/error state; WorkspaceHost paints the
+ * actual content in the same content pane, as an Outlet sibling.
+ */
 export function HomeRoute() {
   const { projectId } = useParams({ from: '/_shell/ide/$projectId/home' })
-  const [wsId, setWsId] = useState<string | null>(null)
-  const [error, setError] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    fetchHomeWorkspace(projectId)
-      .then((ws) => {
-        if (!cancelled) setWsId(ws.id)
-      })
-      .catch(() => {
-        if (!cancelled) setError(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [projectId])
+  const { error } = useHomeWorkspaceState(projectId)
 
   if (error) {
     return (
@@ -30,12 +22,7 @@ export function HomeRoute() {
       </div>
     )
   }
-  if (!wsId) return null
-
-  // Record the workspace scope before WorkspaceView renders — home workspaces
-  // have no repoId, so workspaceBase() uses the /home API path instead.
-  setWorkspaceScope({ projectId, repoId: '', wsId })
-  return <WorkspaceView wsId={wsId} />
+  return null
 }
 
 export const Route = createFileRoute('/_shell/ide/$projectId/home')({

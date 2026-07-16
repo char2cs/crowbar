@@ -20,6 +20,7 @@ func Register(
 	rg.GET("/workspaces/:wsId/files/tree", h.Tree)
 	rg.PUT("/workspaces/:wsId/files/content", h.SaveContent)
 	rg.POST("/workspaces/:wsId/files", h.Create)
+	rg.POST("/workspaces/:wsId/files/copy", h.Copy)
 	rg.PATCH("/workspaces/:wsId/files", h.Rename)
 	rg.DELETE("/workspaces/:wsId/files", h.Delete)
 	rg.GET("/workspaces/:wsId/files/ws", filesWS)

@@ -1,5 +1,6 @@
 import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
-import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from '../settings-section'
+import Section, { SettingRow } from '../settings-section'
+import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 import {
   Select,
   SelectTrigger,

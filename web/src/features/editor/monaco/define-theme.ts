@@ -4,7 +4,10 @@
  * theme always matches whatever .dark / [data-theme] is currently applied.
  */
 
-import { editor as monacoEditor } from 'monaco-editor'
+// See the comment in `monaco-diff-editor.tsx`: `editor.api` is the same real
+// editor singleton as the bare 'monaco-editor' specifier, without eagerly
+// bundling all built-in language contributions.
+import { editor as monacoEditor } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
 import {
   readSyntaxPalette,

@@ -147,9 +147,15 @@ export const createPaneSlice: StateCreator<
             const fallbackId =
               remainingIds[0] ?? (key === 'rootLayout' ? ROOT_PANE_ID : BOTTOM_PANE_ID)
             if (closingPane) {
-              for (const bufferId of closingPane.bufferIds) {
-                const fp = state.panes[fallbackId]
-                if (fp && !fp.bufferIds.includes(bufferId)) fp.bufferIds.push(bufferId)
+              const fp = state.panes[fallbackId]
+              if (fp) {
+                const existingBufferIds = new Set(fp.bufferIds)
+                for (const bufferId of closingPane.bufferIds) {
+                  if (!existingBufferIds.has(bufferId)) {
+                    fp.bufferIds.push(bufferId)
+                    existingBufferIds.add(bufferId)
+                  }
+                }
               }
               if (state.activePaneId === paneId && closingPane.activeBufferId) {
                 const fp = state.panes[fallbackId]

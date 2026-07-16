@@ -117,14 +117,15 @@ export function toggleLineComment({
     if (nextLineStart <= offset || nextLineStart > blockEnd) break
   }
 
-  const commentableLines = lineStarts
-    .map((lineStart) => {
-      const lineEnd = getLineEnd(content, lineStart)
-      const line = content.slice(lineStart, lineEnd)
-      const indent = line.match(/^[\t ]*/)?.[0] ?? ''
-      return { lineStart, lineEnd, line, indent }
-    })
-    .filter(({ line }) => line.trim().length > 0)
+  const commentableLines: { lineStart: number; lineEnd: number; line: string; indent: string }[] =
+    []
+  for (const lineStart of lineStarts) {
+    const lineEnd = getLineEnd(content, lineStart)
+    const line = content.slice(lineStart, lineEnd)
+    if (line.trim().length === 0) continue
+    const indent = line.match(/^[\t ]*/)?.[0] ?? ''
+    commentableLines.push({ lineStart, lineEnd, line, indent })
+  }
 
   if (commentableLines.length === 0) {
     return { content, selectionStart, selectionEnd }

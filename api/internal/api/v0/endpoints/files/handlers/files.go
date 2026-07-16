@@ -66,8 +66,9 @@ func (h *Handlers) SaveContent(
 	wsID := ctx.Param("wsId")
 
 	var body struct {
-		Path    string `json:"path"`
-		Content string `json:"content"`
+		Path     string `json:"path"`
+		Content  string `json:"content"`
+		Encoding string `json:"encoding"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
@@ -79,7 +80,7 @@ func (h *Handlers) SaveContent(
 		return
 	}
 
-	if err := h.files.WriteContent(rctx, wsID, body.Path, body.Content, time.Now()); err != nil {
+	if err := h.files.WriteContent(rctx, wsID, body.Path, body.Content, body.Encoding, time.Now()); err != nil {
 		fileError(ctx, err)
 		return
 	}
@@ -125,6 +126,40 @@ func (h *Handlers) Create(
 	}
 
 	libs.WriteMutationOK(ctx, http.StatusCreated, body.Path)
+}
+
+// Copy handles POST /v0/workspaces/:wsId/files/copy. It duplicates sourcePath
+// to destPath (both workspace-relative) byte-faithfully — the server-side
+// io.Copy path exists precisely so binary files never round-trip through the
+// base64 content read (which corrupts them when written back as text).
+// Directories copy recursively; an existing destination is a 409.
+func (h *Handlers) Copy(
+	ctx *gin.Context,
+) {
+	rctx := ctx.Request.Context()
+
+	wsID := ctx.Param("wsId")
+
+	var body struct {
+		SourcePath string `json:"sourcePath"`
+		DestPath   string `json:"destPath"`
+	}
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if body.SourcePath == "" || body.DestPath == "" {
+		libs.WriteErr(ctx, http.StatusBadRequest, "sourcePath and destPath are required")
+		return
+	}
+
+	if err := h.files.Copy(rctx, wsID, body.SourcePath, body.DestPath, time.Now()); err != nil {
+		fileError(ctx, err)
+		return
+	}
+
+	libs.WriteMutationOK(ctx, http.StatusCreated, body.DestPath)
 }
 
 // Rename handles PATCH /v0/workspaces/:wsId/files

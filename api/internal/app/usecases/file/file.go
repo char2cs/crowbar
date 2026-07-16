@@ -47,6 +47,7 @@ type FsEngine interface {
 		repoPath string,
 		filePath string,
 		content string,
+		encoding string,
 	) error
 	CreateFile(
 		repoPath string,
@@ -55,6 +56,11 @@ type FsEngine interface {
 	CreateDir(
 		repoPath string,
 		dirPath string,
+	) error
+	Copy(
+		repoPath string,
+		sourcePath string,
+		destPath string,
 	) error
 	Rename(
 		repoPath string,
@@ -85,12 +91,15 @@ type Usecase interface {
 		filePath string,
 	) (domain.FileContent, error)
 
-	// WriteContent writes a file and resyncs the working tree.
+	// WriteContent writes a file and resyncs the working tree. encoding is
+	// "base64" for a byte-faithful binary payload (e.g. a file upload) or
+	// "" / "utf8" for raw UTF-8 text.
 	WriteContent(
 		ctx context.Context,
 		wsID string,
 		filePath string,
 		content string,
+		encoding string,
 		now time.Time,
 	) error
 
@@ -107,6 +116,17 @@ type Usecase interface {
 		ctx context.Context,
 		wsID string,
 		dirPath string,
+		now time.Time,
+	) error
+
+	// Copy duplicates a file or directory byte-faithfully and resyncs the
+	// working tree. Directories copy recursively; the destination must not
+	// already exist.
+	Copy(
+		ctx context.Context,
+		wsID string,
+		sourcePath string,
+		destPath string,
 		now time.Time,
 	) error
 
@@ -185,13 +205,14 @@ func (u *fileUsecase) WriteContent(
 	wsID string,
 	filePath string,
 	content string,
+	encoding string,
 	now time.Time,
 ) error {
 	repoPath, err := u.writePath(ctx, wsID)
 	if err != nil {
 		return err
 	}
-	if err := u.fs.WriteContent(repoPath, filePath, content); err != nil {
+	if err := u.fs.WriteContent(repoPath, filePath, content, encoding); err != nil {
 		return fmt.Errorf("file: write content: %w", err)
 	}
 	return u.resync(ctx, wsID, now)
@@ -227,6 +248,26 @@ func (u *fileUsecase) CreateDir(
 	}
 	if err := u.fs.CreateDir(repoPath, dirPath); err != nil {
 		return fmt.Errorf("file: create dir: %w", err)
+	}
+	return u.resync(ctx, wsID, now)
+}
+
+// Copy duplicates a file or directory byte-faithfully and resyncs the working
+// tree. Locked (protected-branch) workspaces reject the write with
+// apperr.ErrLocked, same as every other mutation.
+func (u *fileUsecase) Copy(
+	ctx context.Context,
+	wsID string,
+	sourcePath string,
+	destPath string,
+	now time.Time,
+) error {
+	repoPath, err := u.writePath(ctx, wsID)
+	if err != nil {
+		return err
+	}
+	if err := u.fs.Copy(repoPath, sourcePath, destPath); err != nil {
+		return fmt.Errorf("file: copy: %w", err)
 	}
 	return u.resync(ctx, wsID, now)
 }

@@ -24,6 +24,12 @@ export function RepoAvatarImg({
   fallback: React.ReactNode
 }) {
   const [errored, setErrored] = useState(false)
+  // Accepted (no-reset-all-state-on-prop-change): "all state" here is one boolean.
+  // The self-reset-on-src-change is this component's public contract — both
+  // callers (RepoAvatar, workspace-tree) and the covering test rerender with a
+  // new src and expect a fresh <img> attempt WITHOUT keying the element; pushing
+  // a key= onto every caller would externalize a single-field reset (task-21).
+  // react-doctor-disable-next-line no-reset-all-state-on-prop-change
   useEffect(() => {
     setErrored(false)
   }, [src])

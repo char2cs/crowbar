@@ -395,6 +395,26 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ['sidebar', 'position', 'left', 'right', 'layout'],
   },
   {
+    id: 'appearance-workspace-keep-alive',
+    tab: 'appearance',
+    section: 'Performance',
+    label: 'Keep Workspaces in Memory',
+    description:
+      'Keep recently visited workspaces mounted so switching back is instant; 0 disables it',
+    keywords: [
+      'workspace',
+      'workspaces',
+      'keep',
+      'memory',
+      'switch',
+      'switching',
+      'performance',
+      'cache',
+      'ttl',
+      'keep-alive',
+    ],
+  },
+  {
     id: 'appearance-sidebar-tabs-position',
     tab: 'appearance',
     section: 'Layout',

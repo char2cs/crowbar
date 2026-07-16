@@ -6,6 +6,7 @@ import {
   type BranchReviewSlice,
   type ReviewThread,
 } from '@/features/workspace/stores/slices/branch-review-slice'
+import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
 
 function makeStore() {
   return createStore<BranchReviewSlice>()(
@@ -15,6 +16,24 @@ function makeStore() {
       ),
     ),
   )
+}
+
+function makeDiff(files: string[], overrides: Partial<MultiFileDiff> = {}): MultiFileDiff {
+  return {
+    commitHash: 'branch-head',
+    files: files.map((filePath) => ({
+      file_path: filePath,
+      is_new: false,
+      is_deleted: false,
+      is_renamed: false,
+      lines: [],
+      uncommitted: false,
+    })),
+    totalFiles: files.length,
+    totalAdditions: 0,
+    totalDeletions: 0,
+    ...overrides,
+  }
 }
 
 function makeThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
@@ -146,5 +165,61 @@ describe('branch-review-slice', () => {
     const threads = store.getState().branchReview.threads
     expect(threads[0].side).toBe('old')
     expect(threads[1].side).toBe('new')
+  })
+
+  // ── setBranchReviewDiff ───────────────────────────────────────────────
+
+  it('setBranchReviewDiff writes the diff and flips diffStatus to loaded on the first load', () => {
+    expect(store.getState().branchReview.diffStatus).toBe('idle')
+    const diff = makeDiff(['src/a.ts'])
+
+    store.getState().setBranchReviewDiff(diff)
+
+    expect(store.getState().branchReview.diffCache).toBe(diff)
+    expect(store.getState().branchReview.diffStatus).toBe('loaded')
+  })
+
+  it('setBranchReviewDiff writes a new reference when the incoming diff differs from the cached one', () => {
+    store.getState().setBranchReviewDiff(makeDiff(['src/a.ts']))
+    const second = makeDiff(['src/a.ts', 'src/b.ts'])
+
+    store.getState().setBranchReviewDiff(second)
+
+    expect(store.getState().branchReview.diffCache).toBe(second)
+  })
+
+  it('setBranchReviewDiff skips the write — same top-level state reference AND same diffCache reference — when the incoming diff deep-equals the cached one and status is already loaded', () => {
+    const first = makeDiff(['src/a.ts'])
+    store.getState().setBranchReviewDiff(first)
+    const stateAfterFirst = store.getState()
+
+    // A structurally-identical but distinct object instance, as a second
+    // fetch of an unchanged branch diff would produce.
+    const second = makeDiff(['src/a.ts'])
+    store.getState().setBranchReviewDiff(second)
+
+    // Immer no-op: returning from the recipe without mutating the draft must
+    // yield the exact same top-level state reference, not just an
+    // equivalent one.
+    expect(store.getState()).toBe(stateAfterFirst)
+    expect(store.getState().branchReview.diffCache).toBe(first)
+    expect(store.getState().branchReview.diffCache).not.toBe(second)
+  })
+
+  it('setBranchReviewDiff WRITES (does not skip) when the diff deep-equals the cached value but diffStatus is not yet loaded', () => {
+    const seed = makeDiff(['src/a.ts'])
+    // Seed the cache directly so diffCache already deep-equals the incoming
+    // diff, but leave diffStatus at something other than 'loaded' — the
+    // guard must only skip once a load has actually completed.
+    store.setState((s) => {
+      s.branchReview.diffCache = seed
+      s.branchReview.diffStatus = 'error'
+    })
+
+    const equivalent = makeDiff(['src/a.ts'])
+    store.getState().setBranchReviewDiff(equivalent)
+
+    expect(store.getState().branchReview.diffCache).toBe(equivalent)
+    expect(store.getState().branchReview.diffStatus).toBe('loaded')
   })
 })

@@ -24,7 +24,7 @@ func (p *gitStatusProvider) ComputeStatus(
 func (p *gitStatusProvider) ComputeWorkingTreeSummary(
 	ctx context.Context,
 	repoPath string,
-	forkPointSha string,
+	base string,
 ) (int, int, bool, bool, error) {
-	return p.engine.WorkingTreeSummary(ctx, repoPath, forkPointSha)
+	return p.engine.WorkingTreeSummary(ctx, repoPath, base)
 }

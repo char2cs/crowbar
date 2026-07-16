@@ -81,10 +81,13 @@ export const useLspIntegration = ({
 
   // Check if current file is supported
   const activeFilePath = enabled ? filePath : undefined
-  const isLspSupported = useMemo(
-    () => enabled && isFileSupported(activeFilePath),
-    [enabled, activeFilePath, installedExtensions],
-  )
+  const isLspSupported = useMemo(() => {
+    // Read installedExtensions so support re-evaluates when an LSP extension
+    // is installed/removed — isFileSupported consults the extension registry,
+    // which those installs mutate out of band of this closure.
+    void installedExtensions
+    return enabled && isFileSupported(activeFilePath)
+  }, [enabled, activeFilePath, installedExtensions])
 
   // LSP store actions
   const lspActions = useLspStore.use.actions()
@@ -250,7 +253,7 @@ export const useLspIntegration = ({
     initLsp()
 
     return cleanupDocument
-  }, [enabled, filePath, isLspSupported, lspClient, rootFolderPath, resolveValue])
+  }, [enabled, filePath, isLspSupported, lspClient, rootFolderPath, resolveValue, workspaceStore])
 
   // Handle document content changes
   useEffect(() => {
@@ -371,7 +374,7 @@ export const useLspIntegration = ({
         completionTimerRef.current = undefined
       }
     }
-  }, [enabled, filePath, lspActions, isLspSupported, editorRef])
+  }, [enabled, filePath, lspActions, isLspSupported, editorRef, workspaceStore])
 
   useEffect(() => {
     if (!enabled) return
@@ -403,7 +406,7 @@ export const useLspIntegration = ({
 
     window.addEventListener('editor-trigger-suggest', handleTriggerSuggest)
     return () => window.removeEventListener('editor-trigger-suggest', handleTriggerSuggest)
-  }, [enabled, filePath, lspActions, isLspSupported, editorRef])
+  }, [enabled, filePath, lspActions, isLspSupported, editorRef, workspaceStore])
 
   const prevInputTimestampRef = useRef<number>(0)
 

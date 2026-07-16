@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -11,16 +11,8 @@ import { orderedChats } from '@/features/workspace/stores/slices/agent-chats-sli
 import { createChat, deleteChat, renameChat } from '@/features/agent/api/agent-api'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { AgentChatRow } from './agent-chat-row'
+import { reorderIds } from './agent-chats-reorder'
 import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
-
-/** Place draggedId immediately before targetId in the full ordered id list. */
-export function reorderIds(orderedIds: string[], draggedId: string, targetId: string): string[] {
-  if (draggedId === targetId) return orderedIds
-  const without = orderedIds.filter((id) => id !== draggedId)
-  const idx = without.indexOf(targetId)
-  if (idx === -1) return orderedIds
-  return [...without.slice(0, idx), draggedId, ...without.slice(idx)]
-}
 
 // Same hit test as the workspace tree's drag (components/layout/workspace-tree-context.tsx):
 // the drop target is whatever data-* marker sits under the pointer — the trash
@@ -241,6 +233,17 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
   const ghostRef = useRef<HTMLDivElement | null>(null)
   const ghostOriginRef = useRef<{ x: number; y: number } | null>(null)
 
+  // The drop resolution reads the latest removeChat + store via an Effect Event
+  // so the pointer listeners subscribe once for the component's life instead of
+  // re-subscribing whenever removeChat changes identity.
+  const onDrop = useEffectEvent((target: string | null, dragId: string) => {
+    if (target === TRASH) {
+      removeChat(dragId)
+    } else if (target) {
+      const ids = orderedRef.current.map((c) => c.id)
+      store.getState().setAgentChatOrder(reorderIds(ids, dragId, target))
+    }
+  })
   useEffect(() => {
     const endDrag = () => {
       dragRef.current = null
@@ -277,12 +280,7 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
       suppressNextClick()
 
       const target = findDropTarget(e.clientX, e.clientY, drag.id)
-      if (target === TRASH) {
-        removeChat(drag.id)
-      } else if (target) {
-        const ids = orderedRef.current.map((c) => c.id)
-        store.getState().setAgentChatOrder(reorderIds(ids, drag.id, target))
-      }
+      onDrop(target, drag.id)
       endDrag()
     }
 
@@ -294,7 +292,7 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
       window.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('pointercancel', endDrag)
     }
-  }, [removeChat, store])
+  }, [])
 
   const onPointerDownDrag = useCallback((chatId: string, e: React.PointerEvent) => {
     if (e.button !== 0) return
@@ -306,7 +304,11 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <ScrollArea className="min-h-0 flex-1">
-        <div className="py-1">
+        {/* flex-col so each row STRETCHES to fill the width minus its own
+            mx-1.5 (flex stretch respects margins). A bare block wouldn't fill a
+            <button> child — <button> is shrink-to-fit even at display:flex in
+            WebKit — and `w-full` would overflow by the margins (see NewChatRow). */}
+        <div className="flex flex-col py-1">
           {ordered.map((chat) => (
             <AgentChatRow
               key={chat.id}
@@ -350,27 +352,30 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
 }
 
 // Provider icon on the left, "New <provider> chat", + on the right edge.
+// A real <button> — no nested interactive children (unlike AgentChatRow,
+// which conditionally renders a rename <input> and so keeps role="button").
 function NewChatRow({ provider, onClick }: { provider: AgentProvider; onClick: () => void }) {
   return (
-    <div
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
       data-new-chat={provider.id}
+      // No `w-full`: ROW_BASE is `display:flex` (block-level), so the button
+      // already fills the row MINUS its `mx-1.5`. `w-full` forces width:100% of
+      // the parent AND keeps the 6px side margins, overflowing the sidebar by
+      // 6px → a stray horizontal scrollbar in the Chats panel (regression from
+      // the div→button swap; the old <div> never had w-full).
       className={cn(ROW_BASE, ROW_INACTIVE, 'text-muted-foreground hover:text-foreground')}
       onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onClick()
-        }
-      }}
     >
       <span
         aria-hidden="true"
         className="flex size-4 shrink-0 items-center justify-center [&>svg]:size-full"
         dangerouslySetInnerHTML={{ __html: provider.icon }}
       />
-      <span className="min-w-0 flex-1 truncate">New {provider.displayName} chat</span>
+      {/* text-left counters the <button>'s UA text-align:center (same fix as
+          project-switcher-panel's "Import project" and workspace-tree's "New"
+          rows). Without it the label centers in the flex-1 span. */}
+      <span className="min-w-0 flex-1 truncate text-left">New {provider.displayName} chat</span>
       <svg
         aria-hidden="true"
         data-add-glyph="true"
@@ -383,7 +388,7 @@ function NewChatRow({ provider, onClick }: { provider: AgentProvider; onClick: (
       >
         <path d={ADD_GLYPH_PATH} />
       </svg>
-    </div>
+    </button>
   )
 }
 

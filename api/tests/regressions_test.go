@@ -1000,3 +1000,103 @@ func workspaceIDs(
 	}
 	return out
 }
+
+// BUG-STALE-BASE: the workspace sidebar diff summary (added/deleted) must be
+// measured against the base branch's CURRENT tip, not the frozen fork point
+// recorded when the branch was created. In the field, enhancement/performance —
+// branched from a recent develop but whose recorded fork point had gone stale —
+// showed +69k/-44k because the summary diffed against the stale fork point,
+// counting every commit develop had gained since. This test reproduces that
+// exact shape: a child forked from a base branch that then advances by a large
+// commit, with the child rebased onto the new base while its fork point stays
+// frozen. The recomputed summary must count only the child's OWN change, proving
+// the diff base tracks the advancing base branch (its live merge-base) rather
+// than the stale fork point.
+func TestRegression_SidebarDiffTracksAdvancingBaseNotStaleForkPoint(t *testing.T) {
+	h := newHarness(t)
+	imported := importProject(t, h)
+	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
+
+	// Create a child off the managed "main" worktree, WITH an explicit parent, so
+	// its recorded fork point is main's tip at creation and its base branch is
+	// resolvable as "main" (the shape the real bug had: parentId set).
+	workspacesWS := h.dial(repoBase + "/workspaces")
+	resp := h.raw(http.MethodPost, repoBase+"/workspaces",
+		map[string]string{"branch": "feature/perf", "parentId": imported.workspaceID},
+		http.StatusAccepted)
+	_ = resp.Body.Close()
+	created := readUntil(t, workspacesWS, func(m map[string]any) bool {
+		return m["branch"] == "feature/perf" && m["status"] == "new"
+	})
+	childID, _ := created["id"].(string)
+	require.NotEmpty(t, childID, "child create must broadcast an id")
+
+	// Locate the managed worktrees on disk — they are linked worktrees of the
+	// imported repo — so the test can drive real git against them.
+	worktrees := worktreesByBranch(t, imported.repoPath)
+	mainWorktree := worktrees["main"]
+	childWorktree := worktrees["feature/perf"]
+	require.NotEmpty(t, mainWorktree, "managed main worktree must exist")
+	require.NotEmpty(t, childWorktree, "managed child worktree must exist")
+
+	// The child makes one small change; the base branch (main) then advances by a
+	// large commit the child does not yet have.
+	require.NoError(t, writeFile(childWorktree, "child.txt", "child change\n"))
+	runGit(t, childWorktree, "add", "child.txt")
+	runGit(t, childWorktree, "commit", "-m", "child change")
+
+	bigContent := strings.Repeat("base advancement line\n", 200)
+	require.NoError(t, writeFile(mainWorktree, "big.txt", bigContent))
+	runGit(t, mainWorktree, "add", "big.txt")
+	runGit(t, mainWorktree, "commit", "-m", "advance base branch by 200 lines")
+
+	// The child is rebased onto the advanced base: it now CONTAINS the 200-line
+	// commit, while Crowbar's recorded fork point still points at the pre-advance
+	// tip. A stale-fork summary would count all 200 lines; a base-branch summary
+	// counts only the child's one line.
+	runGit(t, childWorktree, "rebase", "main")
+
+	// Recompute the summary (async) and wait for the work-complete edge.
+	syncWS := h.dial(repoBase + "/workspaces")
+	acc := h.raw(http.MethodPost, repoBase+"/workspaces/"+childID+"/sync", nil, http.StatusAccepted)
+	_ = acc.Body.Close()
+	waitForWorkComplete(t, syncWS, childID)
+
+	var child workspaceDTO
+	for _, w := range listWorkspaces(t, h, imported.projectID, imported.repoID) {
+		if w.ID == childID {
+			child = w
+		}
+	}
+	require.Equal(t, childID, child.ID, "child workspace must be in the list")
+	require.Less(t, child.Added, 100,
+		"summary must count only the child's own change, not the base branch's 200-line advancement (stale fork point counted ~201)")
+	require.Equal(t, 0, child.Deleted, "the child deleted nothing relative to the advanced base")
+}
+
+// worktreesByBranch maps each of repoPath's linked worktrees' checked-out branch
+// to its on-disk path, parsed from `git worktree list --porcelain`. Managed
+// Crowbar worktrees are linked worktrees of the imported repo, so this resolves
+// their filesystem locations for tests that drive real git against them.
+func worktreesByBranch(
+	t *testing.T,
+	repoPath string,
+) map[string]string {
+	t.Helper()
+	cmd := exec.Command("git", "-C", repoPath, "worktree", "list", "--porcelain")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git worktree list: %s", out)
+
+	byBranch := make(map[string]string)
+	current := ""
+	for _, line := range strings.Split(string(out), "\n") {
+		if path, ok := strings.CutPrefix(line, "worktree "); ok {
+			current = path
+			continue
+		}
+		if ref, ok := strings.CutPrefix(line, "branch "); ok {
+			byBranch[strings.TrimPrefix(ref, "refs/heads/")] = current
+		}
+	}
+	return byBranch
+}

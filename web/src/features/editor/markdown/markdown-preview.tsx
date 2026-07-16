@@ -162,6 +162,13 @@ export function MarkdownPreview() {
   return (
     <div
       ref={containerRef}
+      // handleLinkClick is pure event delegation: it walks up to the nearest
+      // real <a> (target.closest('a')) rendered inside the sanitized markdown
+      // below and only acts on that. The actual interactive elements are
+      // those anchors — already natively focusable and keyboard-activatable
+      // (Enter on a focused link fires a bubbling click, which lands right
+      // here) — so this wrapper carries no semantics of its own.
+      role="presentation"
       className="markdown-preview flex h-full justify-center overflow-auto bg-transparent p-6"
       style={{
         fontSize: `${fontSize}px`,
@@ -172,6 +179,7 @@ export function MarkdownPreview() {
     >
       <div
         className="markdown-content w-full max-w-3xl"
+        // react-doctor-disable-next-line dangerous-html-sink -- `html` is the output of parseMarkdown(), which returns DOMPurify.sanitize(rawHtml) (parser.ts:217). Already flows through the existing DOMPurify usage; the rule can't trace the cross-function async setState.
         dangerouslySetInnerHTML={{ __html: html }}
       />
     </div>

@@ -93,6 +93,7 @@ export const defaultSettings: Settings = {
   enterpriseRequireExtensionAllowlist: false,
   enterpriseAllowedExtensionIds: [],
   showFpsOverlay: false,
+  workspaceKeepAliveMinutes: 10,
   // Other
   extensionsActiveTab: 'all',
   maxOpenTabs: 100,

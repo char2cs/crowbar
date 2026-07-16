@@ -1,6 +1,5 @@
 // copied from Athas — no shadcn/ui equivalent
 import '@/features/file-explorer/styles/file-explorer-tree.css'
-import { CaretDown, CaretRight } from '@phosphor-icons/react'
 import type React from 'react'
 import { forwardRef } from 'react'
 import { cn } from '@/lib/utils'
@@ -18,7 +17,7 @@ interface SidebarTreeGuidesProps {
   nextDepth?: number
 }
 
-export function SidebarTreeGuides({
+function SidebarTreeGuides({
   depth,
   baseIndent = SIDEBAR_TREE_BASE_INDENT,
   indentSize = SIDEBAR_TREE_INDENT_SIZE,
@@ -103,49 +102,3 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
     )
   },
 )
-
-interface SidebarTreeDisclosureProps {
-  expanded?: boolean
-  visible?: boolean
-  onClick?: (event: React.MouseEvent<HTMLSpanElement>) => void
-  className?: string
-}
-
-export function SidebarTreeDisclosure({
-  expanded = false,
-  visible = true,
-  onClick,
-  className,
-}: SidebarTreeDisclosureProps) {
-  return (
-    <span
-      className={cn(
-        'mr-0.5 flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors',
-        visible ? 'hover:text-foreground' : 'pointer-events-none text-transparent',
-        className,
-      )}
-      onClick={onClick}
-    >
-      {visible ? (
-        expanded ? (
-          <CaretDown className="size-3" weight="bold" />
-        ) : (
-          <CaretRight className="size-3" weight="bold" />
-        )
-      ) : (
-        <span className="size-3" />
-      )}
-    </span>
-  )
-}
-
-interface SidebarTreeIconProps {
-  icon: React.ReactNode
-  className?: string
-}
-
-export function SidebarTreeIcon({ icon, className }: SidebarTreeIconProps) {
-  return (
-    <span className={cn('relative z-1 shrink-0 text-muted-foreground', className)}>{icon}</span>
-  )
-}

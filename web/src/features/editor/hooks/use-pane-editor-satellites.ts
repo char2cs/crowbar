@@ -26,7 +26,15 @@
 
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { editor as monacoEditor, KeyCode, KeyMod, Range as MonacoRange } from 'monaco-editor'
+// See the comment in `monaco-diff-editor.tsx`: `editor.api` is the same real
+// editor/languages singleton as the bare 'monaco-editor' specifier, without
+// eagerly bundling all built-in language contributions.
+import {
+  editor as monacoEditor,
+  KeyCode,
+  KeyMod,
+  Range as MonacoRange,
+} from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
 import { themeRegistry } from '@/extensions/themes/theme-registry'
 import { useSettingsStore } from '@/features/settings/store'
@@ -109,7 +117,9 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
 
   const workspaceStore = useWorkspaceStore()
   const registry = workspaceStore.activeEditorRegistry
-  const editorManager = workspaceStore.editorManager
+  // Non-null: this hook runs inside EditorSurface, which EditorPane mounts only
+  // after awaiting `store.armEditor()`, so the manager is armed by now.
+  const editorManager = workspaceStore.editorManager!
 
   // Active buffer CONTENT is read IMPERATIVELY (U5b) — NOT subscribed into
   // render. A render subscription here re-rendered EditorSurface on every
@@ -445,7 +455,8 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     const editor = editorRef.current
     if (!editor || !isActiveSurface) return
     if (!readOnly) {
-      setTimeout(() => editorRef.current?.focus(), 0)
+      const focusTimer = setTimeout(() => editorRef.current?.focus(), 0)
+      return () => clearTimeout(focusTimer)
     }
   }, [isActiveSurface, readOnly, swapTick])
 

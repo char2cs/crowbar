@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react'
 import { EditorSurface } from '@/features/editor/components/editor-surface'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 
 interface EditorPaneProps {
@@ -24,6 +26,32 @@ export function EditorPane({
 }: EditorPaneProps) {
   const buffer = useBufferById(bufferId)
 
+  // Lazy-Monaco seam (Task 4b): the workspace store constructs its Monaco-backed
+  // EditorManager/ModelRegistry only on the first real editor need, so opening a
+  // file is what pulls in `monaco-editor` — not cold launch. Arm it before we
+  // mount EditorSurface (which reads `store.editorManager` synchronously). The
+  // dynamic import resolves within this already-lazy pane chunk (monaco is loaded
+  // alongside it), so `armed` flips on the same/next tick — no user-visible gap.
+  // `armEditor` is idempotent, so a second pane opening an already-armed store
+  // starts armed and renders immediately.
+  const store = useWorkspaceStore()
+  const [armed, setArmed] = useState(() => store.editorManager !== undefined)
+  useEffect(() => {
+    if (armed) return
+    let cancelled = false
+    void store
+      .armEditor()
+      .then(() => {
+        if (!cancelled) setArmed(true)
+      })
+      // A failed adapter load leaves the pane blank (unarmed) rather than throwing
+      // an unhandled rejection; a remount retries via the store's cleared promise.
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [armed, store])
+
   // BUG-001: the file backing a restored buffer no longer exists on disk.
   // Render a terminal placeholder instead of an editor — there is no content
   // to edit and re-fetching the dead path would only repeat the 404.
@@ -37,6 +65,11 @@ export function EditorPane({
       </div>
     )
   }
+
+  // Hold the surface back until the Monaco handles are armed. Rendering nothing
+  // (rather than a spinner) avoids a flash: arming completes within the same lazy
+  // chunk load that brought us here.
+  if (!armed) return null
 
   return (
     <ErrorBoundary

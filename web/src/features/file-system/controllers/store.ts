@@ -3,6 +3,13 @@ import { create } from 'zustand'
 import { createSelectors } from '@/utils/zustand-selectors'
 import type { AppFile } from '@/features/file-system/types/app'
 
+// Task 28: addFolderToWorkspace/removeFolderFromWorkspace below are stub no-ops
+// — Crowbar has no multi-root workspace model (daemon or FE) yet. While this is
+// false, the file explorer hides its "Add Folder to Workspace" / "Remove From
+// Workspace" context-menu items so no dead actions render; flip it when real
+// implementations replace the stubs.
+export const workspaceFoldersSupported: boolean = false
+
 export interface FileSystemState {
   rootFolderPath: string | null
   handleOpenFolder: () => void

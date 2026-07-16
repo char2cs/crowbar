@@ -123,27 +123,10 @@ function renderConnection(terminal: unknown, overrides: Record<string, unknown> 
 }
 
 describe('useTerminalConnection — re-attach viewport finalize', () => {
-  // Collect rAF callbacks and flush them on demand so scheduleOutputFlush's
-  // `outputFlushFrameRef = requestAnimationFrame(...)` assignment completes
-  // BEFORE the flush runs (a synchronous rAF would null the ref out from under
-  // the assignment and wedge every later flush).
-  let rafCbs: FrameRequestCallback[] = []
-  const flushRaf = () => {
-    const cbs = rafCbs
-    rafCbs = []
-    for (const cb of cbs) cb(0)
-  }
-
   beforeEach(() => {
     bridge.terminalListen.mockClear()
     bridge.terminalResync.mockClear()
     bridge.reset()
-    rafCbs = []
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
-      rafCbs.push(cb)
-      return rafCbs.length
-    })
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
   })
 
   afterEach(() => {
@@ -154,10 +137,10 @@ describe('useTerminalConnection — re-attach viewport finalize', () => {
     const { terminal, scrollToBottom, refresh, write } = makeFakeTerminal()
     renderConnection(terminal)
 
-    // First post-attach frame: the daemon's bulk scrollback replay.
+    // First post-attach frame: the daemon's bulk scrollback replay. Written
+    // to xterm synchronously on arrival — no discretionary rAF delay.
     act(() => {
       bridge.deliver('REPLAYED SCROLLBACK')
-      flushRaf()
     })
 
     expect(write).toHaveBeenCalledTimes(1)
@@ -174,11 +157,9 @@ describe('useTerminalConnection — re-attach viewport finalize', () => {
 
     act(() => {
       bridge.deliver('REPLAYED SCROLLBACK')
-      flushRaf()
     })
     act(() => {
       bridge.deliver('live output chunk')
-      flushRaf()
     })
 
     expect(write).toHaveBeenCalledTimes(2)
@@ -186,26 +167,28 @@ describe('useTerminalConnection — re-attach viewport finalize', () => {
     expect(scrollToBottom).toHaveBeenCalledTimes(1)
     expect(refresh).toHaveBeenCalledTimes(1)
   })
+
+  it('writes an incremental frame synchronously — no discretionary rAF in between', () => {
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0)
+    const { terminal, write } = makeFakeTerminal()
+    renderConnection(terminal)
+
+    // No follow-up rAF flush anywhere: the write must already be visible the
+    // instant deliver() returns, inside the same act().
+    act(() => {
+      bridge.deliver('incremental chunk')
+    })
+
+    expect(write).toHaveBeenCalledWith('incremental chunk', expect.any(Function))
+    expect(rafSpy).not.toHaveBeenCalled()
+  })
 })
 
 describe('useTerminalConnection — snapshot frames (attach redraw / resize resync)', () => {
-  let rafCbs: FrameRequestCallback[] = []
-  const flushRaf = () => {
-    const cbs = rafCbs
-    rafCbs = []
-    for (const cb of cbs) cb(0)
-  }
-
   beforeEach(() => {
     bridge.terminalListen.mockClear()
     bridge.terminalResync.mockClear()
     bridge.reset()
-    rafCbs = []
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
-      rafCbs.push(cb)
-      return rafCbs.length
-    })
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
   })
 
   afterEach(() => {
@@ -228,20 +211,22 @@ describe('useTerminalConnection — snapshot frames (attach redraw / resize resy
     expect(refresh).toHaveBeenCalledWith(0, 39)
   })
 
-  it('drops buffered pre-snapshot output the redraw supersedes', () => {
-    const { terminal, write } = makeFakeTerminal()
+  it('supersedes pre-snapshot output with the reset + redraw', () => {
+    const { terminal, order, scrollToBottom, refresh } = makeFakeTerminal()
     renderConnection(terminal)
 
     act(() => {
-      bridge.deliver('stale junk') // buffered, not yet flushed
+      // Written immediately on arrival — no discretionary delay left to hold
+      // it back — but a snapshot arriving right after still wipes it out.
+      bridge.deliver('stale junk')
       bridge.deliver('CLEAN REDRAW', true)
-      flushRaf() // a stale scheduled flush must find an empty buffer
     })
 
-    // Only the redraw reaches xterm as real content (the empty sequencing write
-    // carries no data and is filtered out).
-    const written = (write.mock.calls as [string][]).map(([d]) => d).filter((d) => d !== '')
-    expect(written).toEqual(['CLEAN REDRAW'])
+    // The pre-snapshot write lands, but the barrier's reset()+redraw run
+    // strictly after it and are the terminal's final, definitive state.
+    expect(order).toEqual(['write:stale junk', 'write:', 'reset', 'write:CLEAN REDRAW'])
+    expect(scrollToBottom).toHaveBeenCalled()
+    expect(refresh).toHaveBeenCalledWith(0, 39)
   })
 
   it('keeps delivering incremental output normally after a snapshot', () => {
@@ -253,7 +238,6 @@ describe('useTerminalConnection — snapshot frames (attach redraw / resize resy
     })
     act(() => {
       bridge.deliver('after')
-      flushRaf()
     })
 
     const written = (write.mock.calls as [string][]).map(([d]) => d).filter((d) => d !== '')
@@ -266,9 +250,8 @@ describe('useTerminalConnection — snapshot frames (attach redraw / resize resy
     renderConnection(terminal)
 
     act(() => {
-      // Live output flushes into xterm's write queue BEFORE the snapshot arrives.
+      // Live output is written immediately — no discretionary delay.
       bridge.deliver('live-1')
-      flushRaf()
       // A snapshot arrives: reset+redraw must sequence THROUGH the write queue so
       // the already-queued 'live-1' parse completes before reset runs.
       bridge.deliver('CLEAN REDRAW', true)
@@ -341,23 +324,10 @@ function makeAsyncFakeTerminal() {
 }
 
 describe('useTerminalConnection — snapshot latch vs async xterm write queue', () => {
-  let rafCbs: FrameRequestCallback[] = []
-  const flushRaf = () => {
-    const cbs = rafCbs
-    rafCbs = []
-    for (const cb of cbs) cb(0)
-  }
-
   beforeEach(() => {
     bridge.terminalListen.mockClear()
     bridge.terminalResync.mockClear()
     bridge.reset()
-    rafCbs = []
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
-      rafCbs.push(cb)
-      return rafCbs.length
-    })
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
   })
 
   afterEach(() => {
@@ -368,12 +338,11 @@ describe('useTerminalConnection — snapshot latch vs async xterm write queue', 
     const { terminal, write, order, drainWrites } = makeAsyncFakeTerminal()
     renderConnection(terminal)
 
-    // D0 lands and gets rAF-flushed, but xterm has not parsed it yet — it sits
-    // enqueued in the async write queue (undrained backlog), exactly like a
-    // real xterm under load.
+    // D0 lands and is handed to xterm immediately (no discretionary delay),
+    // but xterm has not parsed it yet — it sits enqueued in the async write
+    // queue (undrained backlog), exactly like a real xterm under load.
     act(() => {
       bridge.deliver('D0')
-      flushRaf()
     })
     expect(order).toEqual(['enqueue:D0'])
 
@@ -386,29 +355,23 @@ describe('useTerminalConnection — snapshot latch vs async xterm write queue', 
     expect(order).toEqual(['enqueue:D0', 'enqueue:'])
     expect(reset_not_called(terminal)).toBe(true)
 
-    // D1 arrives and is rAF-flushed BEFORE anything is drained. Because the
-    // snapshot latch (snapshotPendingRef) is set, this must NOT reach
-    // terminal.write at all — it must stay buffered in outputBufferRef.
+    // D1 arrives while the snapshot latch (snapshotPendingRef) is set. It
+    // must NOT reach terminal.write at all — it must stay buffered in
+    // outputBufferRef.
     act(() => {
       bridge.deliver('D1')
-      flushRaf()
     })
     expect(write).not.toHaveBeenCalledWith('D1', expect.anything())
     expect(order).toEqual(['enqueue:D0', 'enqueue:'])
 
     // Drain step by step: first D0 parses (stale, pre-barrier content), then
     // the empty barrier write parses, running its callback synchronously,
-    // which calls reset(), enqueues the redraw write (SNAP), clears the latch,
-    // and reschedules a flush for the buffered D1 (via rAF — not synchronous).
+    // which calls reset(), enqueues the redraw write (SNAP), clears the
+    // latch, and — with the discretionary rAF gone — drains the buffered D1
+    // synchronously in that same callback, enqueuing its write right behind
+    // the redraw. No further tick is needed.
     drainWrites()
 
-    expect(order).toEqual(['enqueue:D0', 'enqueue:', 'parse:D0', 'parse:', 'reset', 'enqueue:SNAP'])
-
-    // The rescheduled flush actually enqueues D1's write only once its rAF
-    // fires — and only AFTER the redraw (SNAP) was already enqueued above.
-    act(() => {
-      flushRaf()
-    })
     expect(order).toEqual([
       'enqueue:D0',
       'enqueue:',
@@ -466,23 +429,10 @@ function renderConnectionRerenderable(
 }
 
 describe('useTerminalConnection — generation-guarded snapshot barrier (R3-1)', () => {
-  let rafCbs: FrameRequestCallback[] = []
-  const flushRaf = () => {
-    const cbs = rafCbs
-    rafCbs = []
-    for (const cb of cbs) cb(0)
-  }
-
   beforeEach(() => {
     bridge.terminalListen.mockClear()
     bridge.terminalResync.mockClear()
     bridge.reset()
-    rafCbs = []
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
-      rafCbs.push(cb)
-      return rafCbs.length
-    })
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
   })
 
   afterEach(() => {
@@ -508,17 +458,12 @@ describe('useTerminalConnection — generation-guarded snapshot barrier (R3-1)',
 
     // Drain everything currently queued: both barrier callbacks fire. The
     // first (stale) must be a no-op; only the second may reset + enqueue the
-    // redraw write.
+    // redraw write. With the discretionary rAF gone, the buffered increment
+    // is drained synchronously in that same callback, right behind S2 — no
+    // extra tick needed.
     drainWrites()
 
     expect(reset).toHaveBeenCalledTimes(1)
-    expect(order).toEqual(['enqueue:', 'enqueue:', 'parse:', 'parse:', 'reset', 'enqueue:S2'])
-
-    // The buffered increment reschedules its own flush via rAF (not
-    // synchronously) once the live latch clears.
-    act(() => {
-      flushRaf()
-    })
     expect(order).toEqual([
       'enqueue:',
       'enqueue:',

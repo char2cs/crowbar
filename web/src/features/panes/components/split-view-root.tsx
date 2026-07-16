@@ -4,7 +4,7 @@ import {
   useRootLayout,
   useFullscreenPaneId,
   usePaneActions,
-  usePanes,
+  usePaneById,
 } from '@/features/workspace/stores/hooks/use-pane-store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { PaneContainer } from './pane-container'
@@ -15,13 +15,13 @@ import { ROOT_PANE_POSITION } from '../types/pane'
 export function SplitViewRoot() {
   const rootLayout = useRootLayout()
   const fullscreenPaneId = useFullscreenPaneId()
-  const panes = usePanes()
   const { exitPaneFullscreen } = usePaneActions()
 
-  const fullscreenPane = useMemo(
-    () => (fullscreenPaneId ? (panes[fullscreenPaneId] ?? null) : null),
-    [fullscreenPaneId, panes],
-  )
+  // Subscribe to ONLY the fullscreen pane (or nothing) — never the whole
+  // `panes` record. Reading the whole record re-rendered SplitViewRoot, and
+  // therefore the entire layout tree beneath it, on every pane mutation. This
+  // id-scoped selector is referentially stable across unrelated pane changes.
+  const fullscreenPane = usePaneById(fullscreenPaneId ?? '')
 
   useEffect(() => {
     if (fullscreenPaneId && !fullscreenPane) exitPaneFullscreen()

@@ -179,7 +179,7 @@ function openBuffer(store: Store, chatId: string, runnerId: string, name = 'Chat
   })
 }
 
-function PaneHost({ bufferId }: { bufferId: string }) {
+function PaneHost({ bufferId, isVisible = true }: { bufferId: string; isVisible?: boolean }) {
   const store = useWorkspaceStore()
   const buf = useStore(store, (s) => s.buffers.find((b) => b.id === bufferId)) as
     | AgentChatContent
@@ -191,6 +191,9 @@ function PaneHost({ bufferId }: { bufferId: string }) {
     wsId: buf.wsId,
     bufferId: buf.id,
     isActivePane: true,
+    // Default true: the vast majority of these tests are the ACTIVE, visible tab.
+    // The keep-alive suite drives this false to prove a hidden chat doesn't revive.
+    isVisible,
   })
 }
 
@@ -476,6 +479,126 @@ describe('AgentChatPane', () => {
     })
   })
 
+  // ── Keep-alive: the hidden-tab revive gate ─────────────────────────
+  // The pane now keeps every chat MOUNTED (visibility:hidden) so a tab switch never
+  // remounts a live PTY. That makes a chat MOUNTED-BUT-HIDDEN a real state — and a
+  // hidden DORMANT chat must not auto-revive: a workspace with N dormant chat tabs would
+  // otherwise fire N revives at once, one CLI per hidden tab. Only the visible tab revives.
+  describe('hidden keep-alive tab', () => {
+    // isVisible=false is the hidden tab; isActivePane=true proves the gate is on
+    // VISIBILITY, not pane focus — a dormant chat sitting hidden inside the active pane
+    // still must not spawn a CLI (Risk #4: the two flags are distinct).
+    it('does not revive a hidden dormant chat', async () => {
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      const bufferId = openBuffer(store, 'c1', '')
+      await act(async () => {
+        render(
+          createElement(
+            WorkspaceStoreContext.Provider,
+            { value: store },
+            createElement(AgentChatPane, {
+              chatId: 'c1',
+              runnerId: '',
+              wsId: 'w1',
+              bufferId,
+              isActivePane: true,
+              isVisible: false,
+            }),
+          ),
+        )
+      })
+
+      // Nothing spawned, and no spinner offering to — the chat just waits, hidden.
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      expect(screen.queryByText(/resuming this chat/i)).not.toBeInTheDocument()
+      expect(screen.queryByTestId('xterm')).toBeNull()
+    })
+
+    // Switching TO a dormant chat's tab is exactly what makes it visible — and that is
+    // when "opening a dormant chat revives it" fires. It must revive EXACTLY ONCE: the
+    // attemptedRef budget is spent inside revive(), so re-hiding and re-showing cannot
+    // fire a second spawn.
+    it('revives a dormant chat exactly once when it becomes visible, never again', async () => {
+      const resumed = deferred<string>()
+      resumeChatFn.mockReturnValue(resumed.promise)
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      const bufferId = openBuffer(store, 'c1', '')
+      const props = {
+        chatId: 'c1',
+        runnerId: '',
+        wsId: 'w1',
+        bufferId,
+        isActivePane: true,
+      }
+      const host = (isVisible: boolean) =>
+        createElement(
+          WorkspaceStoreContext.Provider,
+          { value: store },
+          createElement(AgentChatPane, { ...props, isVisible }),
+        )
+
+      let rerender!: (ui: ReturnType<typeof host>) => void
+      await act(async () => {
+        rerender = render(host(false)).rerender
+      })
+      expect(resumeChatFn).not.toHaveBeenCalled() // hidden: dormant, but no CLI spawned
+
+      // Becomes the active tab → the one and only revive fires.
+      await act(async () => {
+        rerender(host(true))
+      })
+      expect(resumeChatFn).toHaveBeenCalledTimes(1)
+      expect(screen.getByText(/resuming this chat/i)).toBeTruthy()
+
+      // The revive lands: the chat is now attached (live pty in the store).
+      await act(async () => {
+        resumed.resolve('r9')
+      })
+      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-revived')
+
+      // Re-hiding then re-showing must NOT spawn a second CLI — budget is spent, and the
+      // chat is attached now anyway.
+      await act(async () => {
+        rerender(host(false))
+      })
+      await act(async () => {
+        rerender(host(true))
+      })
+      expect(resumeChatFn).toHaveBeenCalledTimes(1)
+    })
+
+    // Keep-alive's other half: an ALREADY-ATTACHED chat keeps its live PTY while hidden.
+    // It has a sessionId, so it never reaches the revive gate — it seeds/attaches as
+    // usual, just not focused and not visible.
+    it('keeps an attached chat mounted while hidden (no revive, terminal stays)', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      const bufferId = openBuffer(store, 'c1', 'r1')
+      await act(async () => {
+        render(
+          createElement(
+            WorkspaceStoreContext.Provider,
+            { value: store },
+            createElement(AgentChatPane, {
+              chatId: 'c1',
+              runnerId: 'r1',
+              wsId: 'w1',
+              bufferId,
+              isActivePane: false,
+              isVisible: false,
+            }),
+          ),
+        )
+      })
+
+      const xterm = await screen.findByTestId('xterm')
+      expect(xterm).toHaveAttribute('data-session-id', 'pty1')
+      expect(xterm.getAttribute('data-visible')).toBe('false')
+      expect(xterm.getAttribute('data-active')).toBe('false')
+      expect(resumeChatFn).not.toHaveBeenCalled()
+    })
+  })
+
   // ── Attaching ──────────────────────────────────────────────────────
   it('attaches the live runner PTY: seeds the mapping, then mounts the terminal', async () => {
     const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
@@ -522,19 +645,28 @@ describe('AgentChatPane', () => {
             wsId: 'w1',
             bufferId,
             isActivePane: false,
+            isVisible: true,
           }),
         ),
       )
     })
 
-    expect((await screen.findByTestId('xterm')).getAttribute('data-active')).toBe('false')
+    // isActive is (isActivePane && isVisible): the visible tab of an UNFOCUSED pane is
+    // still not the active surface, so data-active is false while data-visible is true.
+    const xterm = await screen.findByTestId('xterm')
+    expect(xterm.getAttribute('data-active')).toBe('false')
+    expect(xterm.getAttribute('data-visible')).toBe('true')
   })
 
   // ── Adopting a new runner on the same chat ─────────────────────────
-  // A provider switch replaces the runner IN PLACE: same chat, new CLI, new PTY.
-  // The pane's runner is gone from everywhere, so it adopts whoever is on its chat
-  // now — and this one DOES remount the terminal, because the PTY genuinely changed.
-  it('adopts the chat new runner after a provider switch (new PTY, so the terminal remounts)', async () => {
+  // A runner replacement lands a new CLI IN PLACE: same chat, new PTY. The pane's
+  // old runner is gone from everywhere, so it adopts whoever is on its chat now —
+  // and it does so WITHOUT remounting the terminal. The PTY genuinely changed, but
+  // the terminal is the same DOM node with a new sessionId: XtermTerminal swaps the
+  // attachment imperatively (detach old PTY, attach new) rather than tearing the
+  // whole component — socket, listeners, observers — down and rebuilding it. This is
+  // the P4c fix: the terminal used to be key={sessionId} and remounted here.
+  it('adopts the chat new runner in place — new PTY, but the SAME terminal (no remount)', async () => {
     const store = seedWorkspace([
       liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex' }),
     ])
@@ -552,7 +684,7 @@ describe('AgentChatPane', () => {
 
     const after = await screen.findByTestId('xterm')
     expect(after).toHaveAttribute('data-session-id', 'pty2')
-    expect(after).not.toBe(before) // a different PTY IS a different terminal
+    expect(after).toBe(before) // SAME node: the attachment swapped, the terminal did not remount
     expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r2' })
     expect(useTerminalStore.getState().getSession('pty2')?.connectionId).toBe('pty2')
     expect(screen.getByTestId('provider-switch').getAttribute('data-current')).toBe('claude')

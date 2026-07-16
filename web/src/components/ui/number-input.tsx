@@ -1,6 +1,6 @@
 import type React from 'react'
 import { Minus, Plus } from '@phosphor-icons/react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/utils/cn'
 
@@ -27,6 +27,11 @@ const numberInputTextSize = {
   md: 'ui-text-base',
 } as const
 
+const parseNumber = (raw: string | number | readonly string[]) => {
+  const normalized = Array.isArray(raw) ? raw[0] : raw
+  return Number.parseFloat(normalized.toString())
+}
+
 export default function NumberInput({
   size = 'sm',
   value,
@@ -36,22 +41,22 @@ export default function NumberInput({
   onKeyDown,
   ...props
 }: InputProps) {
-  const parseNumber = (raw: string | number | readonly string[]) => {
-    const normalized = Array.isArray(raw) ? raw[0] : raw
-    return Number.parseFloat(normalized.toString())
-  }
-
   const step = props.step ? parseNumber(props.step) : 1
   const precision =
     Number.isFinite(step) && step > 0 ? (step.toString().split('.')[1]?.length ?? 0) : 0
 
-  const formatValue = (num: number) => {
-    if (Number.isNaN(num)) return '0'
+  const formatValue = useCallback(
+    (num: number) => {
+      if (Number.isNaN(num)) return '0'
 
-    return precision > 0 ? num.toFixed(precision).replace(/\.?0+$/, '') : Math.round(num).toString()
-  }
+      return precision > 0
+        ? num.toFixed(precision).replace(/\.?0+$/, '')
+        : Math.round(num).toString()
+    },
+    [precision],
+  )
 
-  const [inputValue, setInputValue] = useState<string>(value?.toString() || '0')
+  const [inputValue, setInputValue] = useState<string>(() => value?.toString() || '0')
   const [numericValue, setNumericValue] = useState<number>(value ? parseNumber(value) : 0)
 
   const min = props.min ? parseNumber(props.min) : Number.MIN_SAFE_INTEGER
@@ -65,7 +70,7 @@ export default function NumberInput({
 
     setInputValue(formatValue(nextValue))
     setNumericValue(nextValue)
-  }, [value, precision])
+  }, [value, formatValue])
 
   const commitValue = (nextValue: number) => {
     const clampedValue = Math.max(min, Math.min(max, nextValue))

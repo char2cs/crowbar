@@ -25,7 +25,7 @@ export function formatHoverContents(contents: Hover['contents']): string {
     typeof contents === 'string'
       ? contents
       : Array.isArray(contents)
-        ? contents.map(formatHoverItem).filter(Boolean).join('\n')
+        ? contents.flatMap((c) => formatHoverItem(c) || []).join('\n')
         : formatHoverItem(contents)
 
   return content

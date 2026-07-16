@@ -28,11 +28,13 @@ type Engine interface {
 		filePath string,
 	) (domain.FileContent, error)
 
-	// WriteContent writes UTF-8 content to a file (05 §3).
+	// WriteContent writes content to a file (05 §3). encoding is "base64" for a
+	// byte-faithful binary payload or "" / "utf8" for raw UTF-8.
 	WriteContent(
 		repoPath string,
 		filePath string,
 		content string,
+		encoding string,
 	) error
 
 	// CreateFile creates an empty file (05 §4).
@@ -45,6 +47,14 @@ type Engine interface {
 	CreateDir(
 		repoPath string,
 		dirPath string,
+	) error
+
+	// Copy duplicates a file or directory byte-faithfully (05 §4). Directories
+	// copy recursively; the destination must not already exist.
+	Copy(
+		repoPath string,
+		sourcePath string,
+		destPath string,
 	) error
 
 	// Rename renames or moves a file or directory (05 §4).
@@ -66,7 +76,7 @@ type Engine interface {
 		ctx context.Context,
 		wsID string,
 		repoPath string,
-		forkPointSha string,
+		base string,
 		git watch.GitStatusProvider,
 		dispatcher watch.Dispatcher,
 	) *watch.Watcher
@@ -100,8 +110,9 @@ func (e *fsEngine) WriteContent(
 	repoPath string,
 	filePath string,
 	c string,
+	encoding string,
 ) error {
-	return content.Write(repoPath, filePath, c)
+	return content.Write(repoPath, filePath, c, encoding)
 }
 
 func (e *fsEngine) CreateFile(
@@ -116,6 +127,14 @@ func (e *fsEngine) CreateDir(
 	dirPath string,
 ) error {
 	return mutate.CreateDir(repoPath, dirPath)
+}
+
+func (e *fsEngine) Copy(
+	repoPath string,
+	sourcePath string,
+	destPath string,
+) error {
+	return mutate.Copy(repoPath, sourcePath, destPath)
 }
 
 func (e *fsEngine) Rename(
@@ -137,9 +156,9 @@ func (e *fsEngine) NewWatcher(
 	_ context.Context,
 	wsID string,
 	repoPath string,
-	forkPointSha string,
+	base string,
 	git watch.GitStatusProvider,
 	dispatcher watch.Dispatcher,
 ) *watch.Watcher {
-	return watch.NewWatcher(wsID, repoPath, forkPointSha, git, dispatcher)
+	return watch.NewWatcher(wsID, repoPath, base, git, dispatcher)
 }

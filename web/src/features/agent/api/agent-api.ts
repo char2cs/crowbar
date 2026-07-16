@@ -128,6 +128,18 @@ export async function resumeChat(wsId: string, id: string): Promise<string> {
   return res.id
 }
 
+// stopChat gracefully terminates the chat's live vendor CLI and leaves the chat
+// DORMANT and resumable — the counterpart of resumeChat. It is what closing a
+// chat TAB calls: the agent process stops, but the chat entry and its bound
+// conversation are KEPT, so reopening the tab revives the real conversation
+// through the same resume path. This is NOT deleteChat: the chat is preserved.
+// A chat whose CLI is already gone is a backend no-op.
+export async function stopChat(wsId: string, id: string): Promise<void> {
+  await apiFetch<unknown>(`${agentBase(wsId)}/chats/${encodeURIComponent(id)}/stop`, {
+    method: 'POST',
+  })
+}
+
 export async function renameChat(wsId: string, id: string, title: string): Promise<void> {
   await apiFetch<unknown>(`${agentBase(wsId)}/chats/${encodeURIComponent(id)}/rename`, {
     method: 'POST',

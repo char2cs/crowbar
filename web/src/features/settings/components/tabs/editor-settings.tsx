@@ -2,7 +2,8 @@ import { useMemo } from 'react'
 import { getAllLanguages } from '@/features/editor/utils/language-id'
 import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 import NumberInput from '@/components/ui/number-input'
-import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from '../settings-section'
+import Section, { SettingRow } from '../settings-section'
+import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 import {
   Select,
   SelectTrigger,
@@ -13,6 +14,14 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { FontSelector } from '../font-selector'
 
+const renderWhitespaceOptions = [
+  { value: 'none', label: 'None' },
+  { value: 'boundary', label: 'Boundary' },
+  { value: 'trailing', label: 'Trailing' },
+  { value: 'all', label: 'All' },
+]
+
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive settings tab — a flat list of SettingRow controls over one settings slice; 'splitting' would only chop a linear form.
 export const EditorSettings = () => {
   const settings = useSettingsStore((s) => s.settings)
   const updateSetting = useSettingsStore((s) => s.updateSetting)
@@ -26,13 +35,6 @@ export const EditorSettings = () => {
     ],
     [],
   )
-  const renderWhitespaceOptions = [
-    { value: 'none', label: 'None' },
-    { value: 'boundary', label: 'Boundary' },
-    { value: 'trailing', label: 'Trailing' },
-    { value: 'all', label: 'All' },
-  ]
-
   return (
     <div className="space-y-4">
       <Section title="Editor">

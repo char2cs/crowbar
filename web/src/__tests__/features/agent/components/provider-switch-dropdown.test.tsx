@@ -27,7 +27,12 @@ vi.mock('framer-motion', () => {
   })
   return {
     motion: new Proxy({} as Record<string, unknown>, { get: () => MotionDiv }),
+    // `m` is the LazyMotion-driven sibling of `motion` (see dropdown.tsx) — same
+    // no-animation stand-in works for it.
+    m: new Proxy({} as Record<string, unknown>, { get: () => MotionDiv }),
     AnimatePresence: ({ children }: { children?: React.ReactNode }) => children ?? null,
+    LazyMotion: ({ children }: { children?: React.ReactNode }) => children ?? null,
+    domAnimation: {},
   }
 })
 

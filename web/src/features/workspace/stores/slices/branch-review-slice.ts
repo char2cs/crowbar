@@ -1,4 +1,5 @@
 import type { StateCreator } from 'zustand'
+import deepEqual from 'fast-deep-equal'
 import type { WorkspaceState } from '../workspace-store.types'
 import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
 
@@ -78,27 +79,6 @@ export interface OptimisticOp {
   commit: () => Promise<void>
 }
 
-/**
- * Optimistic mutation: apply the local change immediately, then attempt the
- * server commit. If the commit throws, roll the local change back. Returns
- * whether the commit succeeded so the caller can surface a toast on failure
- * (stores never import components).
- */
-export async function addThreadOptimistic({
-  apply,
-  rollback,
-  commit,
-}: OptimisticOp): Promise<boolean> {
-  apply()
-  try {
-    await commit()
-    return true
-  } catch {
-    rollback()
-    return false
-  }
-}
-
 export const createBranchReviewSlice: StateCreator<
   WorkspaceState,
   [['zustand/immer', never]],
@@ -117,8 +97,19 @@ export const createBranchReviewSlice: StateCreator<
       s.branchReview.mergeStrategy = strategy
     }),
 
+  // Identity-preserving: a git-status-changed burst can refetch the branch
+  // diff at 2-3Hz, and most of those refetches return byte-identical
+  // payloads. Skipping the write when nothing actually changed (AND a load
+  // has already completed once) keeps diffCache/branchReview referentially
+  // stable, so useShallow/React.memo consumers downstream don't re-render on
+  // every tick. Returning from an immer recipe without touching the draft
+  // yields the same top-level state reference — this is a true no-op, not
+  // just a value-equal one.
   setBranchReviewDiff: (diff) =>
     set((s) => {
+      if (s.branchReview.diffStatus === 'loaded' && deepEqual(s.branchReview.diffCache, diff)) {
+        return
+      }
       s.branchReview.diffCache = diff
       s.branchReview.diffStatus = 'loaded'
     }),

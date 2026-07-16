@@ -21,17 +21,32 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use tauri::ipc::Channel;
 use tauri::{Emitter, State};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::timeout;
 use tokio_tungstenite::client_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::ws_bridge::FrameSink;
 use tokio_tungstenite::tungstenite::Message;
+
+/// How long the reader will tolerate a socket that delivers NOTHING — not a PTY byte,
+/// not a control frame — before judging it dead.
+///
+/// A healthy terminal socket is never silent for long: the daemon pings every 45s
+/// (`wsPingPeriod`, see api/internal/api/v0/endpoints/terminal/handlers/ws.go), so an
+/// attached client sees at least a control frame within that window even when the PTY
+/// is idle. If the socket goes HALF-OPEN — writes still "succeed" into a dead kernel
+/// buffer while nothing is delivered in either direction — `read.next()` would park
+/// here forever against a session the daemon still lists as live, and no drop would
+/// ever fire: the "dead scroll" bug. Two ping periods plus margin, so ordinary load or
+/// GC pauses never trip it, but a genuinely wedged socket is caught and surfaced.
+const READ_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// Everything a live streaming leg needs in order to die. Dropping it ends both of
 /// the session's tasks, and so releases its socket: the sender going away ends the
@@ -147,6 +162,7 @@ pub async fn terminal_open(
         ws_path,
         on_data,
         &manager,
+        READ_IDLE_TIMEOUT,
         move |dropped| {
             let _ = app.emit("terminal:transport-dropped", dropped);
         },
@@ -168,6 +184,7 @@ pub async fn open_terminal_bridge<S, D>(
     ws_path: String,
     on_data: S,
     manager: &TerminalManager,
+    read_idle_timeout: Duration,
     on_drop: D,
 ) -> Result<tokio::task::JoinHandle<()>, String>
 where
@@ -193,10 +210,18 @@ where
     // Writer task: drain the mpsc and push frames at the socket one at a time.
     // It ends when every sender is dropped — which is what retiring the session
     // does, and the only way the socket's write half is ever handed back.
+    //
+    // A `send` FAILURE, though, is not a retirement: it is the write direction of the
+    // socket going dead (the half-open case the old code swallowed with a bare `break`,
+    // so a user's keystroke or wheel vanished with neither error nor reconnect). Signal
+    // it on `writer_dead` so the reader — which owns the single retire + drop-announce
+    // path — wakes and surfaces it, instead of parking on `read.next()` forever.
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
+    let (writer_dead_tx, mut writer_dead) = oneshot::channel::<()>();
     let writer = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
             if write.send(msg).await.is_err() {
+                let _ = writer_dead_tx.send(());
                 break;
             }
         }
@@ -208,10 +233,13 @@ where
     let generation = manager.register(session_id.clone(), tx, cancel);
 
     // Reader task: forward each text frame WHOLE to the webview channel — the TS bridge
-    // parses `{data, snapshot}` for both transports in one place.
+    // parses `{data, snapshot}` for both transports in one place. It is also the SINGLE
+    // owner of the retire + drop-announce path: a daemon close, a writer-side socket
+    // failure, and a silent half-open socket all funnel through here so the drop fires
+    // exactly once and the generation guard is honoured in one place.
     let sessions = Arc::clone(&manager.sessions);
     let reader = tokio::spawn(async move {
-        let mut daemon_closed = false;
+        let mut transport_lost = false;
         loop {
             tokio::select! {
                 // The session was retired: closed, re-opened under a new generation, or
@@ -220,14 +248,34 @@ where
                 // a live PTY's stream open and idle, so without this the reader would
                 // park here for the life of the app, holding the descriptor.
                 _ = &mut cancelled => break,
-                frame = read.next() => match frame {
+                // The writer hit a socket error. `Ok(())` is a real send failure — the
+                // write direction is dead, so the transport is lost and must be surfaced.
+                // `Err(_)` means the writer's queue closed on a normal retirement, which
+                // the cancel branch above already owns, so we just stop reading.
+                writer_result = &mut writer_dead => {
+                    if writer_result.is_ok() {
+                        transport_lost = true;
+                    }
+                    break;
+                }
+                // A read wrapped in an idle timeout. On a healthy socket the daemon's 45s
+                // pings alone keep this arm firing well inside the window; if NOTHING
+                // arrives for `read_idle_timeout`, the socket is half-open (delivers
+                // neither output nor pings) and must be retired rather than parked on.
+                frame = timeout(read_idle_timeout, read.next()) => match frame {
                     // An error from the sink means the webview is gone (app shutdown). It
                     // does NOT mean the page reloaded — a reloaded page is the same
                     // webview — so it is not a teardown signal.
-                    Some(Ok(Message::Text(text))) => on_data.send(text.to_string()),
-                    Some(Ok(_)) => continue,
-                    Some(Err(_)) | None => {
-                        daemon_closed = true;
+                    Ok(Some(Ok(Message::Text(text)))) => on_data.send(text.to_string()),
+                    Ok(Some(Ok(_))) => continue,
+                    Ok(Some(Err(_))) | Ok(None) => {
+                        transport_lost = true;
+                        break;
+                    }
+                    // Idle timeout elapsed: the socket delivered nothing for the full
+                    // window — a half-open corpse the daemon still lists as live.
+                    Err(_elapsed) => {
+                        transport_lost = true;
                         break;
                     }
                 },
@@ -235,15 +283,18 @@ where
         }
         drop(read);
 
-        // The daemon ended it, so nobody else will retire it. When we were cancelled
-        // instead, whoever cancelled us already removed the entry.
-        let still_current = daemon_closed && retire_if_current(&sessions, &session_id, generation);
+        // The daemon ended it, the writer failed, or the socket went silent — in each
+        // case nobody else will retire it, so we do (guarded by generation so a stale
+        // post-reload reader can't evict the session that replaced it). When we were
+        // cancelled instead, `transport_lost` is false and whoever cancelled us already
+        // removed the entry.
+        let still_current = transport_lost && retire_if_current(&sessions, &session_id, generation);
 
         // Both paths wait for the writer, so this task finishing means the socket's other
         // half is really gone — i.e. the descriptor is back.
         let _ = writer.await;
 
-        // Only an unexpected daemon disconnect is worth announcing. A retired session was
+        // Only an unexpected transport loss is worth announcing. A retired session was
         // closed, superseded, or orphaned by a page load — in each case whoever retired it
         // already knows, and a reloaded page must not be told a session it is about to
         // re-attach has "dropped". The JS guard (`tauriTerminals.has`) is a second net.
@@ -336,6 +387,10 @@ mod tests {
     use super::*;
     use tokio::net::UnixListener;
 
+    /// A read-idle timeout long enough that cancellation or a daemon close always wins
+    /// first, so tests that drive retirement/close never wait on the half-open backstop.
+    const TEST_IDLE: Duration = Duration::from_secs(30);
+
     /// Short path: a unix socket's sun_path is capped at 104 bytes.
     fn test_socket(tag: &str) -> std::path::PathBuf {
         let p = std::path::PathBuf::from(format!("/tmp/cbterm-{}-{tag}.sock", std::process::id()));
@@ -398,6 +453,7 @@ mod tests {
             "/v0/x/ws".to_string(),
             silent_sink(),
             &manager,
+            TEST_IDLE,
             |_| panic!("a session the frontend closed is not an unexpected drop"),
         )
         .await
@@ -432,6 +488,7 @@ mod tests {
             "/v0/x/ws".to_string(),
             silent_sink(),
             &manager,
+            TEST_IDLE,
             |_| panic!("a page load must not be reported as an unexpected drop"),
         )
         .await
@@ -463,6 +520,7 @@ mod tests {
             "/v0/x/ws".to_string(),
             silent_sink(),
             &manager,
+            TEST_IDLE,
             move |id| {
                 let _ = dropped_tx.send(id);
             },
@@ -478,6 +536,56 @@ mod tests {
         assert!(
             manager.sessions.lock().unwrap().is_empty(),
             "a dropped session must be retired, not left holding its socket"
+        );
+
+        let _ = std::fs::remove_file(&sock);
+    }
+
+    /// The "dead scroll" bug: a socket that upgrades and then goes utterly silent — no
+    /// PTY bytes, no daemon pings, no close — is HALF-OPEN. `read.next()` would park on it
+    /// forever while the daemon still lists the session live, and the old code surfaced no
+    /// drop, so the webview believed it was connected and never re-attached. The read-idle
+    /// timeout must catch it, retire the session, and announce the drop so the frontend's
+    /// transport-drop → re-attach chain fires.
+    #[tokio::test]
+    async fn a_silent_half_open_socket_is_retired_and_announced() {
+        let _serialised = crate::test_support::fd_tests().await;
+
+        let sock = test_socket("halfopen");
+        // Upgrades, then holds the socket open and idle forever: never sends, never pings,
+        // never closes — exactly the half-open corpse the timeout exists to detect.
+        spawn_idle_pty_daemon(UnixListener::bind(&sock).unwrap());
+        let manager = TerminalManager::new();
+
+        let (dropped_tx, dropped) = oneshot::channel();
+        let reader = open_terminal_bridge(
+            &sock,
+            "s1".to_string(),
+            "/v0/x/ws".to_string(),
+            silent_sink(),
+            &manager,
+            Duration::from_millis(50),
+            move |id| {
+                let _ = dropped_tx.send(id);
+            },
+        )
+        .await
+        .unwrap();
+
+        // No cancellation, no close: the ONLY thing that can end this reader is the
+        // idle timeout judging the socket dead. If it hangs, the backstop is broken.
+        reader
+            .await
+            .expect("a silent half-open socket must be judged dead by the read-idle timeout");
+
+        assert_eq!(
+            dropped.await.unwrap(),
+            "s1",
+            "a half-open socket must reach the frontend so it can re-attach"
+        );
+        assert!(
+            manager.sessions.lock().unwrap().is_empty(),
+            "a half-open session must be retired, not left holding its socket"
         );
 
         let _ = std::fs::remove_file(&sock);

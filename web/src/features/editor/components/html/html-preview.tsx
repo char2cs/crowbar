@@ -53,7 +53,12 @@ export function HtmlPreview() {
         title="HTML Preview"
         srcDoc={iframeContent}
         className="h-full w-full border-none"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+        // No `allow-same-origin`: combined with `allow-scripts` it lets the framed
+        // document (potentially agent-generated / untrusted HTML) reach the parent
+        // Crowbar origin and remove its own sandbox. Dropping it gives the preview an
+        // opaque origin — scripts/forms/popups/modals still run, but it can't touch
+        // the host app's DOM, cookies, or storage.
+        sandbox="allow-scripts allow-forms allow-popups allow-modals"
       />
     </div>
   )

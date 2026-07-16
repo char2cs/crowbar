@@ -203,6 +203,95 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_RecomputesAndRollsUp(t *testing.T
 	assert.True(t, roll.Touched)
 }
 
+// TestWorkspaceUsecase_SyncWorkingTreeState_ChildDiffsAgainstParentBranch pins
+// that a child's summary diffs against the PARENT BRANCH NAME (so the engine
+// re-derives the live merge-base), not the frozen ForkPointSha.
+func TestWorkspaceUsecase_SyncWorkingTreeState_ChildDiffsAgainstParentBranch(t *testing.T) {
+	repo, git, _, uc := newWorkspaceUsecase(t)
+	ctx := context.Background()
+
+	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		if id == "parent" {
+			return domain.Workspace{ID: "parent", Branch: "develop"}, nil
+		}
+		return domain.Workspace{
+			ID: id, WorktreePath: "/repo/x", ParentID: "parent", ForkPointSha: "stale-fork",
+		}, nil
+	}
+	var summaryBase string
+	git.WorkingTreeSummaryFn = func(_ context.Context, _, base string) (int, int, bool, bool, error) {
+		summaryBase = base
+		return 0, 0, false, false, nil
+	}
+	repo.SyncWorkingTreeFn = func(_ context.Context, in wsrepo.SyncInput, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{ID: in.ID}, nil
+	}
+
+	_, err := uc.SyncWorkingTreeState(ctx, "w1", time.Unix(1, 0))
+	require.NoError(t, err)
+	assert.Equal(t, "develop", summaryBase, "child must diff against the parent branch, not the frozen fork point")
+}
+
+// TestWorkspaceUsecase_SyncWorkingTreeState_RootDiffsAgainstOwnBranch pins that a
+// protected root diffs against its OWN branch (live merge-base ≈ HEAD, i.e. only
+// uncommitted work), not its recorded ForkPointSha — which goes stale as the root
+// advances and otherwise inflates the sidebar count for the trunk itself.
+func TestWorkspaceUsecase_SyncWorkingTreeState_RootDiffsAgainstOwnBranch(t *testing.T) {
+	repo, git, _, uc := newWorkspaceUsecase(t)
+	ctx := context.Background()
+
+	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{
+			ID: id, WorktreePath: "/repo/x", Branch: "develop", ForkPointSha: "stale-fork",
+		}, nil
+	}
+	var summaryBase string
+	git.WorkingTreeSummaryFn = func(_ context.Context, _, base string) (int, int, bool, bool, error) {
+		summaryBase = base
+		return 0, 0, false, false, nil
+	}
+	repo.SyncWorkingTreeFn = func(_ context.Context, in wsrepo.SyncInput, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{ID: in.ID}, nil
+	}
+
+	_, err := uc.SyncWorkingTreeState(ctx, "w1", time.Unix(1, 0))
+	require.NoError(t, err)
+	assert.Equal(t, "develop", summaryBase, "root must diff against its own branch, not the frozen fork point")
+}
+
+// TestWorkspaceUsecase_SyncWorkingTreeState_FallsBackToForkPointWhenBaseUnresolvable
+// pins the fork-point fallback: when the base branch no longer resolves in the
+// worktree (renamed/deleted out of band), the summary must diff against the
+// recorded ForkPointSha rather than silently reporting +0/-0.
+func TestWorkspaceUsecase_SyncWorkingTreeState_FallsBackToForkPointWhenBaseUnresolvable(t *testing.T) {
+	repo, git, _, uc := newWorkspaceUsecase(t)
+	ctx := context.Background()
+
+	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		if id == "parent" {
+			return domain.Workspace{ID: "parent", Branch: "gone-branch"}, nil
+		}
+		return domain.Workspace{
+			ID: id, WorktreePath: "/repo/x", ParentID: "parent", ForkPointSha: "fork-sha",
+		}, nil
+	}
+	git.RevParseFn = func(_ context.Context, _, _ string) (string, error) {
+		return "", errors.New("unknown revision")
+	}
+	var summaryBase string
+	git.WorkingTreeSummaryFn = func(_ context.Context, _, base string) (int, int, bool, bool, error) {
+		summaryBase = base
+		return 0, 0, false, false, nil
+	}
+	repo.SyncWorkingTreeFn = func(_ context.Context, in wsrepo.SyncInput, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{ID: in.ID}, nil
+	}
+
+	_, err := uc.SyncWorkingTreeState(ctx, "w1", time.Unix(1, 0))
+	require.NoError(t, err)
+	assert.Equal(t, "fork-sha", summaryBase, "an unresolvable base branch must fall back to the recorded fork point")
+}
+
 func TestWorkspaceUsecase_SyncWorkingTreeState_GetError(t *testing.T) {
 	repo, _, _, uc := newWorkspaceUsecase(t)
 	ctx := context.Background()

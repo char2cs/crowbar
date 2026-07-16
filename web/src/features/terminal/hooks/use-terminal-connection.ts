@@ -8,9 +8,11 @@ import {
 } from '@/lib/crowbar-bridge'
 import type { IDisposable, Terminal as XtermTerminal } from '@xterm/xterm'
 import { useEffect, useRef } from 'react'
+import { markStart, markEnd } from '@/lib/perf/instrumentation'
 import { themeRegistry } from '@/extensions/themes/theme-registry'
 import { parseOSC7 } from '../utils/osc-parser'
 import { sanitizeTerminalTitle } from '../utils/terminal-title'
+import { shouldScrollScrollback } from '../utils/wheel-routing'
 import { readTerminalThemePayload } from './use-terminal-theme'
 import { useTerminalWriteBuffer } from './use-terminal-write-buffer'
 
@@ -58,7 +60,6 @@ export function useTerminalConnection({
   const explicitExitRequestedRef = useRef(false)
   const lastExitInfoRef = useRef<{ exitCode?: number | null; signal?: string | null } | null>(null)
   const outputBufferRef = useRef('')
-  const outputFlushFrameRef = useRef<number | null>(null)
   // One-shot flag: armed on every (re)attach, consumed by the first output
   // flush (the daemon's bulk scrollback replay) to force a viewport repaint.
   const pendingAttachFinalizeRef = useRef(false)
@@ -102,18 +103,9 @@ export function useTerminalConnection({
     lastExitInfoRef.current = null
   }, [connectionId])
 
-  useEffect(() => {
-    return () => {
-      if (outputFlushFrameRef.current !== null) {
-        cancelAnimationFrame(outputFlushFrameRef.current)
-      }
-      outputBufferRef.current = ''
-    }
-  }, [])
-
   // Arm the one-shot viewport finalize for the first output flush after every
   // (re)attach. The first post-attach frame is the daemon's bulk scrollback
-  // replay; flushOutputBuffer repaints + scrolls to bottom once it lands so the
+  // replay; writeFrame repaints + scrolls to bottom once it lands so the
   // re-attached xterm is never left blank in WKWebView. Keyed only on the
   // connection identity (not the main effect's callback deps) so ordinary
   // mid-session re-renders don't re-arm it and yank a scrolled-up user to the
@@ -127,48 +119,51 @@ export function useTerminalConnection({
 
     const disposables: IDisposable[] = []
 
-    const flushOutputBuffer = () => {
-      outputFlushFrameRef.current = null
-      const pendingOutput = outputBufferRef.current
-      if (!pendingOutput) return
+    // Writes a frame straight to xterm on arrival — no discretionary
+    // requestAnimationFrame delay between the daemon's bytes landing and
+    // terminal.write(). That rAF used to add up to a full frame of latency to
+    // every keystroke echo, stacked on top of xterm's own render rAF.
+    const writeFrame = (data: string) => {
+      // Correctness gate: while a snapshot's reset+redraw is pending in
+      // xterm's write queue, hold frames in the buffer instead — the barrier
+      // callback below drains it once the redraw has been enqueued. See
+      // snapshotPendingRef above for why writing here would race the redraw.
+      if (snapshotPendingRef.current) {
+        outputBufferRef.current += data
+        return
+      }
 
-      outputBufferRef.current = ''
-
-      // The first flush after a (re)attach is the daemon's bulk ring-buffer
+      // The first write after a (re)attach is the daemon's bulk ring-buffer
       // replay, written into a freshly-opened xterm. xterm schedules its own
       // render after write(), but in WKWebView that render can no-op — the
       // WebGL canvas is not repainted until something invalidates it, leaving
       // the viewport BLANK until a manual scroll forces refresh() (the
       // "terminal empty until I scroll" bug after a workspace switch). Force it
       // once, in write()'s parse-complete callback: pin to the latest output
-      // and repaint every visible row. Gated to this first post-attach flush so
+      // and repaint every visible row. Gated to this first post-attach write so
       // live streaming keeps xterm's cheap incremental rendering — an
       // unconditional refresh per frame is expensive and compounds with
       // WKWebView CA-layer re-rasterization.
       const finalizeViewport = pendingAttachFinalizeRef.current
       if (finalizeViewport) pendingAttachFinalizeRef.current = false
 
-      terminal.write(
-        pendingOutput,
-        finalizeViewport
-          ? () => {
-              terminal.scrollToBottom()
-              terminal.refresh(0, terminal.rows - 1)
-            }
-          : undefined,
-      )
+      // One callback always runs (rather than only on the finalize path) so the
+      // terminal.echo span opened in onData below gets closed here regardless
+      // of which branch this write takes. markEnd is a no-op without a prior
+      // markStart, so output-only frames (no keystroke) don't fabricate a
+      // span, and several keystrokes whose writes complete before xterm's
+      // parser catches up coalesce into one span — acceptable slop for a p95
+      // latency metric.
+      terminal.write(data, () => {
+        markEnd('terminal.echo')
+        if (finalizeViewport) {
+          terminal.scrollToBottom()
+          terminal.refresh(0, terminal.rows - 1)
+        }
+      })
 
-      const newDirectory = parseOSC7(pendingOutput)
+      const newDirectory = parseOSC7(data)
       if (newDirectory) updateSession(sessionId, { currentDirectory: newDirectory })
-    }
-
-    const scheduleOutputFlush = () => {
-      // While a snapshot's reset+redraw is pending in xterm's write queue,
-      // keep everything in outputBufferRef and do not schedule a flush — see
-      // snapshotPendingRef above for why flushing here would race the redraw.
-      if (snapshotPendingRef.current) return
-      if (outputFlushFrameRef.current !== null) return
-      outputFlushFrameRef.current = window.requestAnimationFrame(flushOutputBuffer)
     }
 
     disposables.push(
@@ -182,6 +177,11 @@ export function useTerminalConnection({
         // via the window focus/blur listeners below, which is what focus-aware
         // TUIs (Claude Code, vim, tmux) actually want to track.
         if (data === '\x1b[I' || data === '\x1b[O') return
+
+        // M1 terminal.echo span: opened here (keystroke in), closed in
+        // writeFrame's terminal.write callback (echo painted). See the
+        // markEnd call site for the coalescing/no-prior-mark caveats.
+        markStart('terminal.echo')
 
         const activeConnectionId = currentConnectionIdRef.current || connectionId
         const hasNewline = data.includes('\n') || data.includes('\r')
@@ -282,14 +282,10 @@ export function useTerminalConnection({
     const unlistenOutput = terminalListen(connectionId, (frame) => {
       if (frame.snapshot) {
         outputBufferRef.current = ''
-        if (outputFlushFrameRef.current !== null) {
-          cancelAnimationFrame(outputFlushFrameRef.current)
-          outputFlushFrameRef.current = null
-        }
         pendingAttachFinalizeRef.current = false
         // Latch BEFORE the barrier write so any incremental frame that arrives
-        // (and gets rAF-flushed) before the barrier callback fires is held in
-        // outputBufferRef instead of being written — see snapshotPendingRef.
+        // before the barrier callback fires is held in outputBufferRef instead
+        // of being written — see snapshotPendingRef and writeFrame above.
         snapshotPendingRef.current = true
         // Bump the generation and let this barrier's callback close over its
         // own value. If a second snapshot latches before this barrier's
@@ -325,33 +321,37 @@ export function useTerminalConnection({
           // parse strictly after the redraw above — never between reset() and
           // the redraw.
           snapshotPendingRef.current = false
-          if (outputBufferRef.current) scheduleOutputFlush()
+          if (outputBufferRef.current) {
+            const held = outputBufferRef.current
+            outputBufferRef.current = ''
+            writeFrame(held)
+          }
         })
         return
       }
-      outputBufferRef.current += frame.data
-      scheduleOutputFlush()
+      writeFrame(frame.data)
     })
 
-    // Wheel handling depends on what the app is doing:
+    // Route the wheel by the app's DECLARED mouse-tracking intent, not by which
+    // buffer is active (see shouldScrollScrollback for the full rationale):
     //
-    //  - No mouse tracking → xterm scrolls its own viewport natively. Leave it.
-    //  - Mouse tracking + ALTERNATE screen (full-screen TUIs: Claude Code, vim,
-    //    less) → the app owns its history/scrolling and there is NO scrollback to
-    //    scroll. Let xterm forward the wheel to the app (its default) so the app
-    //    scrolls. (Intercepting here and calling scrollLines() on the empty alt
-    //    buffer is a no-op — it makes the wheel appear completely dead, which is
-    //    exactly the "can't scroll Claude" bug.)
-    //  - Mouse tracking + NORMAL buffer → xterm would forward the wheel to the
-    //    app, but the user expects to scroll our scrollback, so intercept and do
-    //    it ourselves. scrollLines(): negative = up (older history), positive =
-    //    down; wheel deltaY is already negative on scroll-up, so signs align.
+    //  - No mouse tracking → the terminal owns the wheel; return early and let
+    //    xterm scroll its own viewport natively (unchanged normal-shell behavior).
+    //  - Mouse tracking ON → the APP owns the wheel on BOTH buffers; return early
+    //    and let xterm forward the wheel to the app. This is what makes scrolling
+    //    inside a full-screen TUI (Claude Code) reach the app — even in the
+    //    (mouseTrackingMode === 'any', buffer.active.type === 'normal') state the
+    //    daemon serializes when an app tracks the mouse on the primary buffer.
+    //  - The one escape hatch: Shift+wheel on the primary buffer — the universal
+    //    "scroll the terminal, not the app" modifier — is the ONLY case we
+    //    intercept and scroll our own scrollback. scrollLines(): negative = up
+    //    (older history), positive = down; wheel deltaY is already negative on
+    //    scroll-up, so signs align.
     const wheelContainer = terminal.element?.parentElement
     const handleWheel = (event: WheelEvent) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mode = (terminal as any).modes?.mouseTrackingMode as string | undefined
-      if (!mode || mode === 'none') return
-      if (terminal.buffer.active.type === 'alternate') return
+      if (!shouldScrollScrollback(event, mode, terminal.buffer.active.type)) return
       event.preventDefault()
       event.stopPropagation()
       const lines = Math.ceil(Math.abs(event.deltaY) / 40) * (event.deltaY < 0 ? -1 : 1)
@@ -380,20 +380,18 @@ export function useTerminalConnection({
       wheelContainer?.removeEventListener('wheel', handleWheel, true)
       if (resyncTimer !== null) window.clearTimeout(resyncTimer)
       // Never leave a reconnect starting latched: a fresh (re)attach effect
-      // must be free to schedule flushes from its first frame. Also bump the
+      // must be free to write frames from its first frame. Also bump the
       // generation so any barrier still in flight from THIS effect instance
       // (enqueued but not yet parsed — e.g. a reconnectKey bump mid-burst)
       // becomes inert instead of firing later against the next connection's
       // terminal state — see snapshotGenRef above. Note: outputBufferRef may
       // still hold unflushed bytes buffered while latched; that's benign,
       // since the next attach's snapshot resets outputBufferRef to '' before
-      // anything is written.
+      // anything is written. There is no scheduled-but-not-yet-run write to
+      // flush here: writeFrame writes synchronously on arrival whenever the
+      // latch is clear, so nothing is ever left pending except while latched.
       snapshotGenRef.current += 1
       snapshotPendingRef.current = false
-      if (outputFlushFrameRef.current !== null) {
-        cancelAnimationFrame(outputFlushFrameRef.current)
-        flushOutputBuffer()
-      }
       void flush()
       for (const disposable of disposables) {
         disposable.dispose()

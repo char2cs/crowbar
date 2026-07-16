@@ -55,7 +55,6 @@ export const FontSelector = ({
   const { loadAvailableFonts, loadMonospaceFonts, clearError, validateFont } =
     useFontStore.use.actions()
 
-  const [selectedFont, setSelectedFont] = useState(value)
   const [isCustomFontValid, setIsCustomFontValid] = useState(false)
 
   // Load fonts on mount
@@ -66,11 +65,6 @@ export const FontSelector = ({
       loadAvailableFonts(true) // Force refresh
     }
   }, [monospaceOnly, loadAvailableFonts, loadMonospaceFonts])
-
-  // Update selected font when prop changes
-  useEffect(() => {
-    setSelectedFont(value)
-  }, [value])
 
   const systemFonts = monospaceOnly ? monospaceFonts : availableFonts
   const bundledFonts = monospaceOnly ? BUNDLED_FONTS.filter((f) => f.is_monospace) : BUNDLED_FONTS
@@ -92,13 +86,7 @@ export const FontSelector = ({
 
   // Add custom font option only for real system fonts that validate successfully.
   const currentFontInList = fontOptions.some((option) => option.value === resolvedValue)
-  if (
-    !currentFontInList &&
-    isCustomFontValid &&
-    primaryValue &&
-    selectedFont &&
-    selectedFont.trim() !== ''
-  ) {
+  if (!currentFontInList && isCustomFontValid && primaryValue && value && value.trim() !== '') {
     fontOptions.unshift({
       value: resolvedValue,
       label: `${resolvedValue} (custom)`,
@@ -137,7 +125,6 @@ export const FontSelector = ({
   }, [availableFontFamilies, primaryValue, resolvedValue, validateFont, value])
 
   const handleFontChange = (fontFamily: string) => {
-    setSelectedFont(fontFamily)
     onChange(fontFamily)
     clearError()
   }

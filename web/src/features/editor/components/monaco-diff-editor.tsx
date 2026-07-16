@@ -3,7 +3,20 @@ import '../monaco/language-contributions'
 import 'monaco-editor/min/vs/editor/editor.main.css'
 import '../styles/monaco-editor.css'
 
-import { editor as monacoEditor, KeyCode, KeyMod, Range as MonacoRange, Uri } from 'monaco-editor'
+// The bare 'monaco-editor' specifier resolves to the package's "main" bundle
+// (`editor.main.js`), which EAGERLY statically imports all 60+ built-in
+// basic-languages contributions + the 4 heavy language services — the exact
+// eager cost this task removes. `editor.api` is the same real editor/languages
+// singleton (both resolve through the shared `editor.api2.js`) MINUS that
+// eager language bundling; `language-contributions.ts` now owns loading
+// languages on demand instead.
+import {
+  editor as monacoEditor,
+  KeyCode,
+  KeyMod,
+  Range as MonacoRange,
+  Uri,
+} from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
 import {
   useCallback,
@@ -33,6 +46,7 @@ import type {
   EditorModelPositionResolver,
 } from '../view-model/view-layout'
 import { toMonacoLanguageId } from '../monaco/language'
+import { loadLanguageForPath } from '../monaco/language-contributions'
 import {
   toEditorPosition,
   clampMonacoPosition,
@@ -104,6 +118,7 @@ function createModelUri(bufferId: string | undefined, filePath: string): Monaco.
   return Uri.parse(`athas://editor/${encodeURIComponent(bufferId ?? path)}/${path}`)
 }
 
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive diff host — one Monaco diff instance whose decoration/search/resolver layers all share the editor+model refs; already fixed for other RD rules this program, no natural seam.
 export function DiffMonacoEditor({
   bufferId: propBufferId,
   viewStateKey,
@@ -174,6 +189,18 @@ export function DiffMonacoEditor({
   const filePath = buffer?.path ?? ''
   const languageId = buffer?.languageOverride ?? getLanguageIdFromPath(filePath)
   const monacoLanguageId = toMonacoLanguageId(languageId)
+  // On-demand grammar load for the diff surface (Task 5). The model's language
+  // id is assigned synchronously below (createModel / the setModelLanguage
+  // effect) — this kicks off the extension-keyed contribution fetch so
+  // highlighting appears once it registers, without a code pane having opened
+  // the same language first. Fire-and-forget by design (a brief plaintext
+  // flash self-corrects; see language-contributions.ts); load failures are
+  // swallowed — the diff just stays unhighlighted. Extension-keyed, so a
+  // `languageOverride` that disagrees with the path's extension won't fetch
+  // the override's grammar (same policy as the code-pane path via langForUri).
+  useEffect(() => {
+    if (filePath) void loadLanguageForPath(filePath).catch(() => {})
+  }, [filePath])
   const baseFontSize = useEditorSettingsStore.use.fontSize()
   const fontFamily = useEditorSettingsStore.use.fontFamily()
   const editorLineHeight = useEditorSettingsStore.use.lineHeight()
@@ -301,6 +328,7 @@ export function DiffMonacoEditor({
   // Monaco editor + model per instance and disposes them on unmount — the exact
   // behavior that shipped before the retained-widget refactor. Pane editors use
   // the manager path above instead.
+  // react-doctor-disable-next-line effect-needs-cleanup -- cleanup exists (l.504-520 disposes editor + model + disposables); tracer can't follow it.
   useEffect(() => {
     const container = containerRef.current
     if (!container || !buffer) return
@@ -859,7 +887,8 @@ export function DiffMonacoEditor({
     }
 
     if (!readOnly && !isPreviewMode) {
-      setTimeout(() => editorRef.current?.focus(), 0)
+      const focusTimer = setTimeout(() => editorRef.current?.focus(), 0)
+      return () => clearTimeout(focusTimer)
     }
   }, [activeBufferId, isActiveSurface, isPreviewMode, readOnly, viewStateKey])
 
@@ -1000,7 +1029,17 @@ export function DiffMonacoEditor({
   if (!buffer) return null
 
   return (
+    // Positioning shell around Monaco's own mount point (containerRef below).
+    // Monaco renders its own hidden textarea (role="textbox") inside that
+    // container — a fully keyboard-operable surface it owns and manages
+    // itself, same as xterm's canvas. onClick here is a coordinate→line/column
+    // mapping hook layered on top (for placing review comments in read-only
+    // diffs) plus an optional forwarded callback, not this shell's own
+    // interactive affordance — role="presentation" says so without touching
+    // Monaco's own internal ARIA tree, which lives on different elements
+    // further down this same subtree.
     <div
+      role="presentation"
       className={`monaco-editor-shell absolute inset-0 min-h-0 bg-transparent ${className ?? ''}`}
       onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}

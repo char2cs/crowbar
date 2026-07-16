@@ -82,6 +82,12 @@ export interface Settings {
   enterpriseRequireExtensionAllowlist: boolean
   enterpriseAllowedExtensionIds: string[]
   showFpsOverlay: boolean
+  /**
+   * How long (minutes) a workspace stays mounted in memory after you switch
+   * away, so switching back is instant. 0 destroys it on switch (the old
+   * behaviour). Capped at RETENTION_CAP workspaces regardless of this value.
+   */
+  workspaceKeepAliveMinutes: number
   // Other
   extensionsActiveTab:
     | 'all'

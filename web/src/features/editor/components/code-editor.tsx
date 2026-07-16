@@ -90,6 +90,7 @@ interface GoToLineEventDetail {
 const SEARCH_DEBOUNCE_MS = 300 // Debounce search regex matching
 const MAX_FILE_SEARCH_MATCHES = 20_000
 
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive editor host — coordinates one Monaco instance's lifecycle, layout, and settings sync; its length is inseparable per-editor wiring.
 const CodeEditor = ({
   className,
   paneId,
@@ -168,9 +169,13 @@ const CodeEditor = ({
   const value = activeBuffer && hasTextContent(activeBuffer) ? activeBuffer.content : ''
   valueRef.current = value
   const filePath = activeBuffer?.path || ''
-  const onChange = activeBuffer
-    ? (onContentChange ?? (isActiveSurface ? handleContentChange : () => {}))
-    : () => {}
+  const onChange = useMemo(
+    () =>
+      activeBuffer
+        ? (onContentChange ?? (isActiveSurface ? handleContentChange : () => {}))
+        : () => {},
+    [activeBuffer, onContentChange, isActiveSurface, handleContentChange],
+  )
 
   // When this is a preview tab, promote it to permanent on first content change.
   const onChangeWithPromote = useCallback(
@@ -222,9 +227,10 @@ const CodeEditor = ({
     if (!focusTarget) return
 
     // Small delay to ensure the editor surface is mounted.
-    setTimeout(() => {
+    const focusTimer = setTimeout(() => {
       focusTarget.focus()
     }, 0)
+    return () => clearTimeout(focusTimer)
   }, [activeBufferId, enableInteractiveServices])
 
   // Sync content and file info with editor instance store

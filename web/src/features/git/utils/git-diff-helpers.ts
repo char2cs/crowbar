@@ -110,7 +110,3 @@ export function countDiffStats(diffs: GitDiff[]): { additions: number; deletions
   }
   return { additions, deletions }
 }
-
-export function copyLineContent(content: string) {
-  navigator.clipboard.writeText(content)
-}

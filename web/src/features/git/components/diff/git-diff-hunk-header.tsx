@@ -11,6 +11,18 @@ import { stageHunk, unstageHunk } from '../../api/git-status-api'
 import type { DiffHunkHeaderProps } from '../../types/git-diff-types'
 import { createGitHunk } from '../../utils/git-diff-helpers'
 
+const parseHunkHeader = (content: string) => {
+  const match = content.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)/)
+  if (!match) return { context: content }
+  return {
+    oldStart: match[1],
+    oldCount: match[2] || '1',
+    newStart: match[3],
+    newCount: match[4] || '1',
+    context: match[5]?.trim() || '',
+  }
+}
+
 const DiffHunkHeader = memo(
   ({
     hunk,
@@ -55,29 +67,26 @@ const DiffHunkHeader = memo(
       else if (l.line_type === 'removed') deletions++
     }
 
-    const parseHunkHeader = (content: string) => {
-      const match = content.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)/)
-      if (!match) return { context: content }
-      return {
-        oldStart: match[1],
-        oldCount: match[2] || '1',
-        newStart: match[3],
-        newCount: match[4] || '1',
-        context: match[5]?.trim() || '',
-      }
-    }
-
     const headerInfo = parseHunkHeader(hunk.header.content)
 
     const canStage = !isInMultiFileView && rootFolderPath && filePath
 
     return (
       <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={!isCollapsed}
         className={cn(
           'group flex cursor-pointer items-center justify-between border-border border-b',
           'bg-background px-3 py-1 ui-text-sm leading-5 hover:bg-muted',
         )}
         onClick={onToggleCollapse}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onToggleCollapse()
+          }
+        }}
       >
         <div className="flex items-center gap-2">
           {isCollapsed ? (
@@ -104,6 +113,7 @@ const DiffHunkHeader = memo(
 
           {canStage && (
             <button
+              type="button"
               onClick={handleStageHunk}
               className={cn(
                 'flex items-center gap-1 rounded px-1.5 py-0.5 opacity-0 group-hover:opacity-100',

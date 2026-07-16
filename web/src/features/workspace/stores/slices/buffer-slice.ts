@@ -111,6 +111,22 @@ export const createBufferSlice: StateCreator<
         })()
 
         if (existing) {
+          // A terminal or an agent chat buffer IS a live view onto ONE PTY. Opening
+          // it again must REVEAL the view that already exists — jump to the pane
+          // that holds it — never drop a SECOND copy into the active pane. Two views
+          // of the same PTY race each other over the shared transport (the daemon
+          // serializes its screen model to a client only at attach), and one of the
+          // two ends up blank: the agent-chat duplication-blank bug, and the same
+          // latent hazard for a terminal. Editors and everything else are safe to
+          // surface in the active pane, so they keep the addBufferToPane path.
+          if (existing.type === 'agentChat' || existing.type === 'terminal') {
+            const pane = get().paneActions.getPaneByBufferId(existing.id)
+            if (pane) {
+              get().paneActions.setActivePane(pane.id)
+              get().paneActions.activatePaneBuffer(pane.id, existing.id)
+              return existing.id
+            }
+          }
           get().paneActions.addBufferToPane(get().activePaneId, existing.id, true)
           return existing.id
         }
@@ -299,6 +315,19 @@ export const createBufferSlice: StateCreator<
               clearReconnect(workspaceId, sessionId)
             },
           )
+        }
+        // Closing an agent-chat tab STOPS its vendor CLI process but KEEPS the chat
+        // entry, dormant and resumable: reopening the tab revives the real
+        // conversation through the existing resume path (agent-chat-pane's auto-revive
+        // on mount). This is deliberately NOT deleteChat — unlike a terminal (whose PTY
+        // is destroyed), the chat and its bound conversation survive; only the live
+        // process is gracefully terminated. The backend no-ops when the chat is already
+        // dormant. Dynamic import avoids a workspace-slice → agent-feature cycle.
+        if (buf && buf.type === 'agentChat') {
+          const { chatId, wsId } = buf as AgentChatContent
+          void import('@/features/agent/api/agent-api').then(async ({ stopChat }) => {
+            await stopChat(wsId, chatId).catch(() => {})
+          })
         }
         if (buf && shouldStartLsp(buf)) {
           set((state) => {

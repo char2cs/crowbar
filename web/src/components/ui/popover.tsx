@@ -4,9 +4,6 @@ import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
 import type React from 'react'
 import { cn } from '@/lib/utils'
 
-export const PopoverCreateHandle: typeof PopoverPrimitive.createHandle =
-  PopoverPrimitive.createHandle
-
 export const Popover: typeof PopoverPrimitive.Root = PopoverPrimitive.Root
 
 export function PopoverTrigger({
@@ -21,7 +18,7 @@ export function PopoverTrigger({
   )
 }
 
-export function PopoverPopup({
+function PopoverPopup({
   children,
   className,
   side = 'bottom',
@@ -79,10 +76,6 @@ export function PopoverPopup({
   )
 }
 
-export function PopoverClose({ ...props }: PopoverPrimitive.Close.Props): React.ReactElement {
-  return <PopoverPrimitive.Close data-slot="popover-close" {...props} />
-}
-
 export function PopoverTitle({
   className,
   ...props
@@ -91,19 +84,6 @@ export function PopoverTitle({
     <PopoverPrimitive.Title
       className={cn('font-semibold text-lg leading-none', className)}
       data-slot="popover-title"
-      {...props}
-    />
-  )
-}
-
-export function PopoverDescription({
-  className,
-  ...props
-}: PopoverPrimitive.Description.Props): React.ReactElement {
-  return (
-    <PopoverPrimitive.Description
-      className={cn('text-muted-foreground text-sm', className)}
-      data-slot="popover-description"
       {...props}
     />
   )

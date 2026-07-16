@@ -81,6 +81,10 @@ export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
 export function toSidebarRepo(repo: RepoDTO, workspaces: WorkspaceDTO[]): Repo {
   const repoWs = workspaces.filter((ws) => ws.repoId === repo.id)
   const defaultWs = repoWs.find((ws) => ws.isDefault)
+  const sidebarWorkspaces: Workspace[] = []
+  for (const ws of repoWs) {
+    if (!ws.isDefault) sidebarWorkspaces.push(toSidebarWorkspace(ws))
+  }
   return {
     id: repo.id,
     projectId: repo.projectId,
@@ -88,7 +92,7 @@ export function toSidebarRepo(repo: RepoDTO, workspaces: WorkspaceDTO[]): Repo {
     avatarLabel: repo.avatarLabel || repoAvatarLabel(repo.name),
     avatarColor: repo.avatarColor || repoAvatarColor(repo.name),
     avatarURL: repoAvatarURL(repo),
-    workspaces: repoWs.filter((ws) => !ws.isDefault).map(toSidebarWorkspace),
+    workspaces: sidebarWorkspaces,
     // The default (repo-home) workspace is filtered out of `workspaces` above —
     // it is the repo header, not a tree row — so its live `working` overlay would
     // be dropped with it. Lift it onto the repo as defaultWorking so the header
@@ -98,6 +102,10 @@ export function toSidebarRepo(repo: RepoDTO, workspaces: WorkspaceDTO[]): Repo {
           defaultWorkspaceId: defaultWs.id,
           defaultBranch: defaultWs.branch,
           defaultWorking: defaultWs.working,
+          // Its status is lifted too: adopted protected branches are locked AND
+          // default, and mutation gating (isWorkspaceLockedInSidebar) must see
+          // the lock even though the default ws is not a tree row.
+          defaultWorkspaceStatus: toSidebarStatus(defaultWs),
         }
       : {}),
     ...(repo.path ? { localPath: repo.path } : {}),
@@ -125,15 +133,4 @@ export function buildScopedRepoTree(
     repos.filter((repo) => repo.projectId === activeProjectId),
     workspaces,
   )
-}
-
-// countReposByProject derives the per-project repo count the project cards
-// show, from the same repo list the sidebar already fetched.
-export function countReposByProject(repos: Array<{ projectId?: string }>): Map<string, number> {
-  const counts = new Map<string, number>()
-  for (const repo of repos) {
-    if (!repo.projectId) continue
-    counts.set(repo.projectId, (counts.get(repo.projectId) ?? 0) + 1)
-  }
-  return counts
 }

@@ -10,7 +10,13 @@ vi.mock('@/lib/workspace-scope-url', () => ({
   workspaceBase: (wsId: string) => `/v0/ws/${wsId}`,
 }))
 
-import { createFileNode, renameFileNode, deleteFileNode } from '@/features/files/lib/file-tree-api'
+import {
+  copyFileNode,
+  createFileNode,
+  renameFileNode,
+  deleteFileNode,
+  writeFileContent,
+} from '@/features/files/lib/file-tree-api'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -47,6 +53,39 @@ describe('file-tree-api mutations', () => {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: 'gone.ts' }),
+    })
+  })
+
+  it('writeFileContent PUTs {path, content} as UTF-8 by default (no encoding field)', async () => {
+    await writeFileContent('ws1', 'a.ts', 'hi')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/ws1/files/content', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'a.ts', content: 'hi' }),
+    })
+  })
+
+  it('writeFileContent includes encoding:"base64" for byte-faithful binary writes', async () => {
+    await writeFileContent('ws1', 'img.png', 'iVBORw==', 'base64')
+    expect(apiFetch.mock.calls[0][1].body).toBe(
+      JSON.stringify({ path: 'img.png', content: 'iVBORw==', encoding: 'base64' }),
+    )
+  })
+})
+
+// Duplicate goes through the daemon's server-side copy verb in ONE call —
+// byte-faithful and recursive on the server. The old client-side composition
+// (GET content → POST create → PUT content) silently corrupted binary files by
+// writing the base64 read back as text; this locks the single-call shape.
+describe('copyFileNode', () => {
+  it('POSTs {sourcePath, destPath} to the copy verb in a single call', async () => {
+    await copyFileNode('ws1', 'img.png', 'img copy.png')
+
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/ws1/files/copy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourcePath: 'img.png', destPath: 'img copy.png' }),
     })
   })
 })

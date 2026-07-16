@@ -30,6 +30,13 @@ func (stubUsecase) Get(
 	return domain.BranchReview{}, nil
 }
 
+func (stubUsecase) GetFiles(
+	_ context.Context,
+	_ string,
+) ([]gitdomain.ReviewFileSummary, error) {
+	return nil, nil
+}
+
 func (stubUsecase) SetMergeStrategy(
 	_ context.Context,
 	_ string,
@@ -49,6 +56,7 @@ func TestRegisterMountsRoutes(
 		path   string
 	}{
 		{http.MethodGet, "/v0/workspaces/ws1/review"},
+		{http.MethodGet, "/v0/workspaces/ws1/review/files"},
 		{http.MethodPatch, "/v0/workspaces/ws1/review"},
 	}
 	for _, tc := range cases {

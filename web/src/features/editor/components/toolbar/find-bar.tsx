@@ -1,17 +1,13 @@
 import type React from 'react'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { useEditorUIStore } from '@/features/editor/stores/ui-store'
 import { hasTextContent } from '@/features/panes/types/pane-content'
 import { useUIState } from '@/features/window/stores/ui-state-store'
-import {
-  SEARCH_TOGGLE_ICONS,
-  SearchPopover,
-  SearchReplaceRow,
-  SearchReplaceToggle,
-} from '@/components/ui/search'
+import { SearchPopover, SearchReplaceRow, SearchReplaceToggle } from '@/components/ui/search'
+import { SEARCH_TOGGLE_ICONS } from '@/components/ui/search-toggle-icons'
 
 const FindBar = () => {
   const workspaceStore = useWorkspaceStore()
@@ -52,14 +48,17 @@ const FindBar = () => {
   } = useEditorUIStore.use.actions()
 
   const isVisible = isFindVisible
-  const onClose = () => {
+  // Stable identity: the global find-navigation effect depends on onClose, so a
+  // fresh function each render would re-subscribe the document keydown listener
+  // on every keystroke. setIsFindVisible is a stable store action.
+  const onClose = useCallback(() => {
     setIsFindVisible(false)
     const { editorRef } = useEditorStateStore.getState()
     const textarea = editorRef?.current?.querySelector('[data-monaco-editor-scroll] textarea')
     if (textarea instanceof HTMLTextAreaElement) {
       textarea.focus()
     }
-  }
+  }, [setIsFindVisible])
   const currentMatch = currentMatchIndex + 1
   const totalMatches = searchMatches.length
   const hasNoResults = Boolean(searchQuery) && totalMatches === 0
@@ -74,7 +73,7 @@ const FindBar = () => {
   const replaceInputRef = useRef<HTMLInputElement>(null)
   const wasVisibleRef = useRef(false)
 
-  const getSelectedSearchText = () => {
+  const getSelectedSearchText = useCallback(() => {
     const { selection, editorRef } = useEditorStateStore.getState()
     if (!selection) return ''
 
@@ -102,7 +101,7 @@ const FindBar = () => {
     if (!selectedText || selectedText.includes('\n')) return ''
 
     return selectedText
-  }
+  }, [workspaceStore])
 
   // Focus input when find bar becomes visible
   useEffect(() => {
@@ -122,34 +121,36 @@ const FindBar = () => {
         inputRef.current.select()
       }
     }
-  }, [isVisible, searchQuery, setSearchQuery])
+  }, [isVisible, searchQuery, setSearchQuery, getSelectedSearchText])
 
-  // Global find navigation shortcuts while the popover is open
+  // Global find navigation shortcuts while the popover is open. The key logic
+  // reads the latest onClose/searchNext/searchPrevious via an Effect Event so the
+  // listener subscribes once per open instead of re-subscribing when those
+  // callbacks change identity.
+  const onGlobalKeyDown = useEffectEvent((e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+      e.preventDefault()
+      onClose()
+      return
+    }
+
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'g') {
+      e.preventDefault()
+      if (e.shiftKey) {
+        searchPrevious()
+      } else {
+        searchNext()
+      }
+    }
+  })
   useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
-        e.preventDefault()
-        onClose()
-        return
-      }
-
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'g') {
-        e.preventDefault()
-        if (e.shiftKey) {
-          searchPrevious()
-        } else {
-          searchNext()
-        }
-      }
+    if (!isVisible) return
+    const handleGlobalKeyDown = (e: KeyboardEvent) => onGlobalKeyDown(e)
+    document.addEventListener('keydown', handleGlobalKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleGlobalKeyDown)
     }
-
-    if (isVisible) {
-      document.addEventListener('keydown', handleGlobalKeyDown)
-      return () => {
-        document.removeEventListener('keydown', handleGlobalKeyDown)
-      }
-    }
-  }, [isVisible, onClose, searchNext, searchPrevious])
+  }, [isVisible])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {

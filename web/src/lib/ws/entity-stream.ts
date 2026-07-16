@@ -80,18 +80,24 @@ export function subscribeEntityStream<T extends { id: string; status?: string }>
     const fresh = new Set(items.map((item) => item.id))
     const cached = await getAllEntities<T>(store)
     if (disposed || generation !== seedGeneration) return
+    // Prune a ghost ONLY if this seed is authoritative over it. Without a
+    // pruneScope the seed owns the whole store (legacy behaviour). With one, a
+    // narrowly-scoped seed (e.g. the single-:wsId stream) leaves entities
+    // outside its scope untouched instead of wiping every sibling. Any cached
+    // entity present in `fresh` is skipped here, so this set and the upsert
+    // set below are always disjoint (different ids) — each id gets its own
+    // IDB transaction, so running them concurrently can't race on the same
+    // row. The seed as a whole is still serialized against live frames via
+    // applyChain above, so this doesn't reintroduce the upsert/delete-ordering
+    // race (H21) that motivated that chain.
+    const idsToPrune: string[] = []
     for (const entity of cached) {
-      // Prune a ghost ONLY if this seed is authoritative over it. Without a
-      // pruneScope the seed owns the whole store (legacy behaviour). With one,
-      // a narrowly-scoped seed (e.g. the single-:wsId stream) leaves entities
-      // outside its scope untouched instead of wiping every sibling.
-      if (fresh.has(entity.id)) continue
-      if (pruneScope && !pruneScope(entity)) continue
-      await removeEntity(store, entity.id)
+      if (!fresh.has(entity.id) && (!pruneScope || pruneScope(entity))) {
+        idsToPrune.push(entity.id)
+      }
     }
-    for (const item of items) {
-      await upsertEntity(store, item)
-    }
+    await Promise.all(idsToPrune.map((id) => removeEntity(store, id)))
+    await Promise.all(items.map((item) => upsertEntity(store, item)))
   }
 
   function runSeed(): void {

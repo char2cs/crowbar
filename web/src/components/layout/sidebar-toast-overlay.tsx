@@ -7,7 +7,7 @@ import {
   TriangleAlertIcon,
   X,
 } from 'lucide-react'
-import { buttonVariants } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button-variants'
 import { toastManager } from '@/lib/toast-manager'
 
 const TOAST_ICONS = {
@@ -44,6 +44,12 @@ function SidebarToastItem({
             <div
               className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
               data-slot="toast-icon"
+              // The loading icon's spin comes from the variant class
+              // in-data-[type=loading]:animate-spin, which the .animate-spin
+              // reduced-motion exemption in index.css can't match — this
+              // attribute keeps the spinner (status, not decoration) running
+              // under prefers-reduced-motion.
+              data-essential-motion=""
             >
               <Icon className="in-data-[type=loading]:animate-spin in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning in-data-[type=loading]:opacity-80" />
             </div>
