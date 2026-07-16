@@ -335,10 +335,10 @@ func siblingWorktreePaths(
 // addWorktree applies the spec-§3 checkout-vs-create decision and returns the
 // fork-point SHA the workspace aggregate should record.
 //
-// If the requested branch already exists on the `origin` remote, it is fetched
-// and checked out into a fresh worktree (tracking origin/<branch>); the fork
-// point is the resolved tip of origin/<branch>. Otherwise the branch is created
-// locally from ParentBranch, and the fork point is the start SHA reported by
+// If the requested branch is an EXISTING remote branch (see branchIsRemoteBranch),
+// it is checked out into a fresh worktree tracking origin/<branch>; the fork point
+// is the resolved tip of origin/<branch>. Otherwise the branch is created locally
+// from ParentBranch, and the fork point is the start SHA reported by
 // WorktreeAddBranch. The two paths have DIFFERENT fork-point semantics: the
 // checkout path's fork point is the remote tip (so later merge/reparent math
 // diffs against what the remote already contains), while the create path's fork
@@ -361,11 +361,11 @@ func (u *worktreeUsecase) addWorktree(
 			}
 		}
 	}
-	exists, err := u.git.RemoteBranchExists(ctx, in.RepoPath, in.Branch)
+	onRemote, err := u.branchIsRemoteBranch(ctx, in.RepoPath, in.Branch)
 	if err != nil {
-		return "", fmt.Errorf("create child: remote branch exists: %w", err)
+		return "", err
 	}
-	if exists {
+	if onRemote {
 		return u.checkoutRemoteBranch(ctx, in, path)
 	}
 	startSha, err := u.git.WorktreeAddBranch(ctx, in.RepoPath, path, in.Branch, in.ParentBranch)
@@ -375,17 +375,61 @@ func (u *worktreeUsecase) addWorktree(
 	return startSha, nil
 }
 
+// branchIsRemoteBranch reports whether branch must be treated as an EXISTING
+// remote branch to check out, rather than a brand-new branch to fork off the
+// parent. It trusts the LOCAL remote-tracking ref origin/<branch> FIRST — the
+// same universe `git branch -r` (and the import branch list) reads — so the
+// decision always agrees with the list the branch was picked from. Only when no
+// such local ref exists does it fall back to the live `ls-remote` query, whose
+// swallow-any-failure-as-false contract is fine for a genuinely-unknown branch
+// (a local-only repo with no remote still correctly creates locally) but must
+// NEVER be allowed to VETO a branch a local remote-tracking ref already confirms:
+// that veto is exactly what silently fabricated a fresh fork off the default
+// branch when the live query hiccupped.
+func (u *worktreeUsecase) branchIsRemoteBranch(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) (bool, error) {
+	tracking, err := u.git.RemoteTrackingBranchExists(ctx, repoPath, branch)
+	if err != nil {
+		return false, fmt.Errorf("create child: remote-tracking branch exists: %w", err)
+	}
+	if tracking {
+		return true, nil
+	}
+	remote, err := u.git.RemoteBranchExists(ctx, repoPath, branch)
+	if err != nil {
+		return false, fmt.Errorf("create child: remote branch exists: %w", err)
+	}
+	return remote, nil
+}
+
 // checkoutRemoteBranch fast-forwards the local copy of an existing remote
 // branch and adds a worktree checking it out. The fork point is the resolved
 // origin/<branch> tip. Using FastForwardBranch (rather than FetchRef) ensures
-// the worktree starts at the same commit as origin, not a stale local ref.
+// the worktree starts at the same commit as origin when the network is up.
+//
+// A fetch failure is BEST-EFFORT when the local remote-tracking ref
+// origin/<branch> is already present: we check the branch out from that local ref
+// (losing only the freshest commits, not correctness) rather than aborting the
+// whole import — the same swallowed-live-failure conditions that route us here can
+// also break the fetch. Only when there is NEITHER a successful fetch NOR a local
+// origin/<branch> to resolve is the failure fatal. `git worktree add <path>
+// <branch>` then DWIMs a local branch tracking origin/<branch> (the local <branch>
+// is absent but origin/<branch> exists), so PR detection keeps working.
 func (u *worktreeUsecase) checkoutRemoteBranch(
 	ctx context.Context,
 	in CreateChildInput,
 	path string,
 ) (string, error) {
-	if err := u.git.FastForwardBranch(ctx, in.RepoPath, in.Branch); err != nil {
-		return "", fmt.Errorf("create child: fast-forward branch: %w", err)
+	if ffErr := u.git.FastForwardBranch(ctx, in.RepoPath, in.Branch); ffErr != nil {
+		tracking, trErr := u.git.RemoteTrackingBranchExists(ctx, in.RepoPath, in.Branch)
+		if trErr != nil || !tracking {
+			return "", fmt.Errorf("create child: fast-forward branch: %w", ffErr)
+		}
+		slog.WarnContext(ctx, "create child: could not fetch origin branch; checking out from local remote-tracking ref",
+			"branch", in.Branch, "err", ffErr)
 	}
 	forkPoint, err := u.git.RevParse(ctx, in.RepoPath, "origin/"+in.Branch)
 	if err != nil {

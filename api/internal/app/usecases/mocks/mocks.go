@@ -182,15 +182,16 @@ type GitEngine struct {
 	WorktreeListFn func(repoPath string) ([]gitengine.WorktreeEntry, error)
 
 	// Protected-branch managed-worktree provisioning fakes (project import).
-	Detached              []string          // worktree paths detached to HEAD
-	CheckedOut            []WorktreeAddCall // (path, branch) re-attach calls
-	WorktreeAdds          []WorktreeAddCall // (path, branch) worktrees materialised
-	WorktreeRemoves       []string          // worktree paths force-removed
-	FetchedRefs           []string          // branches fetched from origin (FetchRef)
-	FastForwardedBranches []string          // branches fast-forwarded from origin (FastForwardBranch)
-	RemoteBranches        map[string]bool   // branch -> exists on origin (default false)
-	RevParseShas          map[string]string // rev -> sha (default "")
-	DetachErr             error             // forces DetachWorktree to fail
+	Detached               []string          // worktree paths detached to HEAD
+	CheckedOut             []WorktreeAddCall // (path, branch) re-attach calls
+	WorktreeAdds           []WorktreeAddCall // (path, branch) worktrees materialised
+	WorktreeRemoves        []string          // worktree paths force-removed
+	FetchedRefs            []string          // branches fetched from origin (FetchRef)
+	FastForwardedBranches  []string          // branches fast-forwarded from origin (FastForwardBranch)
+	RemoteBranches         map[string]bool   // branch -> exists on origin live (default false)
+	RemoteTrackingBranches map[string]bool   // branch -> local refs/remotes/origin/<branch> present (default false)
+	RevParseShas           map[string]string // rev -> sha (default "")
+	DetachErr              error             // forces DetachWorktree to fail
 	// WorktreeAddErrByBranch forces WorktreeAdd to fail for specific branches.
 	WorktreeAddErrByBranch map[string]error
 	// Pruned records repo paths WorktreePrune was called on.
@@ -268,6 +269,14 @@ func (g *GitEngine) RemoteBranchExists(
 	branch string,
 ) (bool, error) {
 	return g.RemoteBranches[branch], nil
+}
+
+func (g *GitEngine) RemoteTrackingBranchExists(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) (bool, error) {
+	return g.RemoteTrackingBranches[branch], nil
 }
 
 func (g *GitEngine) FetchRef(

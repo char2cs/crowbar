@@ -419,6 +419,18 @@ type Engine interface {
 		branch string,
 	) (bool, error)
 
+	// RemoteTrackingBranchExists reports whether the LOCAL remote-tracking ref
+	// `refs/remotes/origin/<branch>` is present (`git show-ref --verify`). This is
+	// the same universe `git branch -r` reads, so — unlike the live, failure-prone
+	// RemoteBranchExists — it agrees with the branch list the import UI shows. The
+	// worktree usecase consults it first so a live-query hiccup can never downgrade
+	// an existing remote branch into a fresh fork off the default branch.
+	RemoteTrackingBranchExists(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) (bool, error)
+
 	// RangeDiff returns the three-dot diff between base and branch (09 §2).
 	// Uses `git diff -M <base>...<branch>` to show commits reachable from
 	// branch but not from base. Commit metadata fields are always zero-value.

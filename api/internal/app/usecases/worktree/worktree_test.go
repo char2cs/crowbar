@@ -187,26 +187,29 @@ type gitCall struct {
 
 type fakeGit struct {
 	enginegit.Engine
-	calls                []gitCall
-	addStartSha          string
-	addErr               error
-	revParseSha          string
-	revParseErr          error
-	mergeErr             error
-	squashErr            error
-	rebaseErr            error
-	ffErr                error
-	rebaseFFErr          error
-	rebaseOnto           error
-	operationAbortErr    error
-	removeErr            error
-	deleteErr            error
-	remoteExists         bool
-	remoteExistsByBranch map[string]bool // overrides remoteExists per branch when non-nil
-	remoteExistsErr      error
-	fetchRefErr          error
-	fastForwardBranchErr error
-	worktreeAddErr       error
+	calls                  []gitCall
+	addStartSha            string
+	addErr                 error
+	revParseSha            string
+	revParseErr            error
+	mergeErr               error
+	squashErr              error
+	rebaseErr              error
+	ffErr                  error
+	rebaseFFErr            error
+	rebaseOnto             error
+	operationAbortErr      error
+	removeErr              error
+	deleteErr              error
+	remoteExists           bool
+	remoteExistsByBranch   map[string]bool // overrides remoteExists per branch when non-nil
+	remoteExistsErr        error
+	trackingExists         bool
+	trackingExistsByBranch map[string]bool // overrides trackingExists per branch when non-nil
+	trackingExistsErr      error
+	fetchRefErr            error
+	fastForwardBranchErr   error
+	worktreeAddErr         error
 
 	summaryAdded        int
 	summaryDeleted      int
@@ -305,6 +308,18 @@ func (f *fakeGit) RemoteBranchExists(
 		return f.remoteExistsByBranch[branch], f.remoteExistsErr
 	}
 	return f.remoteExists, f.remoteExistsErr
+}
+
+func (f *fakeGit) RemoteTrackingBranchExists(
+	_ context.Context,
+	repoPath string,
+	branch string,
+) (bool, error) {
+	f.record("RemoteTrackingBranchExists", repoPath, branch)
+	if f.trackingExistsByBranch != nil {
+		return f.trackingExistsByBranch[branch], f.trackingExistsErr
+	}
+	return f.trackingExists, f.trackingExistsErr
 }
 
 func (f *fakeGit) FetchRef(
@@ -536,9 +551,10 @@ func TestCreateChild_RecordsForkPointAndLocked(t *testing.T) {
 	assert.Equal(t, "sha123", created.ForkPointSha)
 	assert.False(t, created.Protected)
 	assert.Equal(t, "w-parent", created.ParentID)
-	// Parent check (develop → not on remote) + child check (feature/x → not on remote).
-	assert.Equal(t, []string{"RemoteBranchExists", "RemoteBranchExists", "WorktreeAddBranch"}, g.ops())
-	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[2].args)
+	// Parent check (develop → not on remote), then the child decision: local
+	// remote-tracking ref (absent) then the live remote query (absent) → create local.
+	assert.Equal(t, []string{"RemoteBranchExists", "RemoteTrackingBranchExists", "RemoteBranchExists", "WorktreeAddBranch"}, g.ops())
+	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[3].args)
 }
 
 // TestCreateChild_DerivesHumanReadableWorktreePath proves the managed child
@@ -682,9 +698,10 @@ func TestCreateChild_RemoteBranchAbsent_CreatesLocal(t *testing.T) {
 		ParentBranch: "develop",
 	})
 	require.NoError(t, err)
-	// Parent check (develop → not on remote) + child check (feature/x → not on remote).
-	assert.Equal(t, []string{"RemoteBranchExists", "RemoteBranchExists", "WorktreeAddBranch"}, g.ops())
-	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[2].args)
+	// Parent check (develop → not on remote), then the child decision: local
+	// remote-tracking ref (absent) then the live remote query (absent) → create local.
+	assert.Equal(t, []string{"RemoteBranchExists", "RemoteTrackingBranchExists", "RemoteBranchExists", "WorktreeAddBranch"}, g.ops())
+	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[3].args)
 	// Fork point comes from the create-local startSha.
 	assert.Equal(t, "localfork", created.ForkPointSha)
 }
@@ -720,13 +737,15 @@ func TestCreateChild_RemoteBranchExists_ChecksOut(t *testing.T) {
 		ParentBranch: "develop",
 	})
 	require.NoError(t, err)
-	// Op sequence: parent fast-forward check + fast-forward, then child exists
-	// check + fast-forward + rev-parse + worktree-add.
+	// Op sequence: parent fast-forward check + fast-forward, then the child
+	// decision (local remote-tracking ref absent → falls back to the live query,
+	// which says true), then fast-forward + rev-parse + worktree-add.
 	assert.Equal(t, []string{
-		"RemoteBranchExists", // parent exists?
-		"FastForwardBranch",  // fast-forward parent
-		"RemoteBranchExists", // child exists?
-		"FastForwardBranch",  // fast-forward child
+		"RemoteBranchExists",         // parent exists?
+		"FastForwardBranch",          // fast-forward parent
+		"RemoteTrackingBranchExists", // child local remote-tracking ref? → false
+		"RemoteBranchExists",         // child exists live? → true
+		"FastForwardBranch",          // fast-forward child
 		"RevParse",
 		"WorktreeAdd",
 	}, g.ops())
@@ -734,8 +753,9 @@ func TestCreateChild_RemoteBranchExists_ChecksOut(t *testing.T) {
 	assert.Equal(t, []string{"/repo", "develop"}, g.calls[1].args)
 	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[2].args)
 	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[3].args)
-	assert.Equal(t, []string{"/repo", "origin/feature/x"}, g.calls[4].args)
-	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x"}, g.calls[5].args)
+	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[4].args)
+	assert.Equal(t, []string{"/repo", "origin/feature/x"}, g.calls[5].args)
+	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x"}, g.calls[6].args)
 	// WorktreeAddBranch must NOT be called on the checkout path.
 	assert.NotContains(t, g.ops(), "WorktreeAddBranch")
 	assert.Equal(t, "remotefork", created.ForkPointSha)
@@ -766,14 +786,111 @@ func TestCreateChild_NewBranch_ParentFastForwarded(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{
-		"RemoteBranchExists", // parent exists? → true
-		"FastForwardBranch",  // fast-forward parent
-		"RemoteBranchExists", // child exists? → false
-		"WorktreeAddBranch",  // create new branch from fast-forwarded parent
+		"RemoteBranchExists",         // parent exists? → true
+		"FastForwardBranch",          // fast-forward parent
+		"RemoteTrackingBranchExists", // child local remote-tracking ref? → false
+		"RemoteBranchExists",         // child exists live? → false
+		"WorktreeAddBranch",          // create new branch from fast-forwarded parent
 	}, g.ops())
 	assert.Equal(t, []string{"/repo", "develop"}, g.calls[0].args)
 	assert.Equal(t, []string{"/repo", "develop"}, g.calls[1].args)
 	assert.Equal(t, []string{"/repo", "my-feature"}, g.calls[2].args)
+	assert.Equal(t, []string{"/repo", "my-feature"}, g.calls[3].args)
+}
+
+// TestCreateChild_LocalRemoteTrackingRef_ChecksOutDespiteLiveMiss is the unit
+// encoding of the import bug fix: when a LOCAL remote-tracking ref for the branch
+// exists, the checkout path is taken EVEN IF the live `ls-remote`
+// (RemoteBranchExists) would answer false — the swallowed-live-failure that used
+// to silently fork a same-named branch off the default branch. The live query is
+// not even consulted for the child (short-circuit), and WorktreeAddBranch (the
+// create-new-off-parent path) is never reached.
+func TestCreateChild_LocalRemoteTrackingRef_ChecksOutDespiteLiveMiss(t *testing.T) {
+	g := &fakeGit{
+		trackingExistsByBranch: map[string]bool{"feature/x": true},
+		remoteExists:           false, // live ls-remote spuriously says "not on remote"
+		revParseSha:            "remotefork",
+	}
+	var created workspace.CreateInput
+	ws := &fakeWorkspace{
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			created = in
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		RepoPath:     "/repo",
+		Branch:       "feature/x",
+		ParentID:     "w-parent",
+		ParentBranch: "develop",
+	})
+	require.NoError(t, err)
+	// Parent live check (develop → false, no FF), then the child decision resolves
+	// to checkout via the LOCAL tracking ref — the live query is short-circuited.
+	assert.Equal(t, []string{
+		"RemoteBranchExists",         // parent exists? → false
+		"RemoteTrackingBranchExists", // child local remote-tracking ref? → true
+		"FastForwardBranch",          // fast-forward child
+		"RevParse",
+		"WorktreeAdd",
+	}, g.ops())
+	assert.NotContains(t, g.ops(), "WorktreeAddBranch",
+		"a branch with a local remote-tracking ref must never be forked off the parent")
+	assert.Equal(t, "remotefork", created.ForkPointSha)
+}
+
+// TestCreateChild_CheckoutBestEffortWhenFetchFailsButTrackingRefPresent proves
+// the checkout is resilient: when the fetch (FastForwardBranch) fails but the
+// local origin/<branch> ref is present, the branch is still checked out from that
+// ref rather than aborting the import.
+func TestCreateChild_CheckoutBestEffortWhenFetchFailsButTrackingRefPresent(t *testing.T) {
+	g := &fakeGit{
+		trackingExistsByBranch: map[string]bool{"feature/x": true},
+		fastForwardBranchErr:   errBoom, // offline fetch failure
+		revParseSha:            "remotefork",
+	}
+	var created workspace.CreateInput
+	ws := &fakeWorkspace{
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			created = in
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		RepoPath:     "/repo",
+		Branch:       "feature/x",
+		ParentID:     "w-parent",
+		ParentBranch: "develop",
+	})
+	require.NoError(t, err, "a fetch failure must be best-effort when origin/<branch> is present locally")
+	assert.Equal(t, []string{
+		"RemoteBranchExists",         // parent exists? → false
+		"RemoteTrackingBranchExists", // child local remote-tracking ref? → true → checkout
+		"FastForwardBranch",          // fetch → fails
+		"RemoteTrackingBranchExists", // re-check: local ref present → continue best-effort
+		"RevParse",
+		"WorktreeAdd",
+	}, g.ops())
+	assert.Equal(t, "remotefork", created.ForkPointSha)
+}
+
+// TestCreateChild_RemoteTrackingBranchExistsError proves a genuine failure of the
+// local remote-tracking check (a broken repo) is surfaced, not swallowed.
+func TestCreateChild_RemoteTrackingBranchExistsError(t *testing.T) {
+	g := &fakeGit{trackingExistsErr: errBoom}
+	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoPath: "/r", ProjectID: "p1", Branch: "b", ParentBranch: "develop",
+	})
+	require.ErrorIs(t, err, errBoom)
 }
 
 func TestCreateChild_RemoteBranchExistsError(t *testing.T) {
