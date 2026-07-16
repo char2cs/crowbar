@@ -168,3 +168,77 @@ func TestRegression_ImportBranchChecksOutOriginContentNotParentFork(t *testing.T
 	assert.Equal(t, "origin/feature/x", upstream,
 		"imported branch must track origin/feature/x (PR detection depends on it)")
 }
+
+// TestRegression_ImportBranchTracksOriginOnReachablePath is the ORIGIN-REACHABLE
+// (happy-path) counterpart to the offline-fallback assertion above. It drives the
+// REAL git engine with NO simulated failures, so the fetch succeeds: on that path
+// FastForwardBranch (`git fetch origin <b>:<b>`) CREATES a local <b> with NO
+// upstream, and `git worktree add <path> <b>` then checks out that already-existing
+// local branch WITHOUT tracking — so, before the fix, the imported branch had
+// origin's content but no `<b>@{upstream}`. The offline path (above) DWIMs tracking
+// via `git worktree add`, so the two paths were inconsistent.
+//
+// An imported branch exists to be REVIEWED (branch-review + its PR vs its base), so
+// it must be recognised as origin's <b>: checked out from origin's content AND
+// linked back to origin (tracking origin/<b>). This asserts the upstream link on the
+// reachable path — it FAILS before the fix ("fatal: no upstream configured") and
+// passes after checkoutRemoteBranch sets it explicitly.
+func TestRegression_ImportBranchTracksOriginOnReachablePath(t *testing.T) {
+	repoPath, featureContent := setupImportRepo(t)
+
+	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+
+	workspaces, quiesce := newWorkspaceRepo(t, adapters)
+	repos, err := storesqlite.NewFromDB[domain.Repository, string](adapters.GlobalView())
+	require.NoError(t, err)
+
+	repoID := "r1"
+	projectID := "p1"
+	require.NoError(t, repos.Save(context.Background(), domain.Repository{
+		ID:            repoID,
+		ProjectID:     projectID,
+		Name:          "repo",
+		Path:          repoPath,
+		RemoteURL:     "https://github.com/test/integration-repo.git",
+		DefaultBranch: "main",
+	}))
+
+	// The REAL engine, origin reachable: the fetch succeeds and creates local
+	// feature/x from origin/feature/x with no upstream — exactly the gap.
+	uc := worktree.New(
+		workspaces,
+		enginegit.New(),
+		&stubProvider{},
+		repos,
+		func() time.Time { return time.Unix(1000, 0).UTC() },
+		func() (string, error) { return t.TempDir(), nil },
+	)
+
+	child, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID:       repoID,
+		ProjectID:    projectID,
+		RepoPath:     repoPath,
+		RemoteURL:    "https://github.com/test/integration-repo.git",
+		Branch:       "feature/x",
+		ParentID:     "",
+		ParentBranch: "main",
+	})
+	require.NoError(t, err)
+	quiesce()
+
+	got, err := os.ReadFile(filepath.Join(child.WorktreePath, "f.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, featureContent, string(got),
+		"imported worktree must carry origin/feature/x content")
+
+	originTip := revParse(t, repoPath, "origin/feature/x")
+	assert.Equal(t, originTip, revParse(t, child.WorktreePath, "HEAD"),
+		"worktree tip must match origin/feature/x")
+
+	upstream := trimNewline(gitRun(t, child.WorktreePath,
+		"rev-parse", "--abbrev-ref", "feature/x@{upstream}"))
+	assert.Equal(t, "origin/feature/x", upstream,
+		"origin-reachable import must ALSO track origin/feature/x — a proper review target")
+}

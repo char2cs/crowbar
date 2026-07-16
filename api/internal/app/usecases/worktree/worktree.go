@@ -438,6 +438,19 @@ func (u *worktreeUsecase) checkoutRemoteBranch(
 	if err := u.git.WorktreeAdd(ctx, in.RepoPath, path, in.Branch); err != nil {
 		return "", fmt.Errorf("create child: worktree checkout: %w", err)
 	}
+	// Link the checked-out branch back to origin/<branch> so it is recognised as
+	// origin's branch — a proper branch-review target (its PR is looked up by
+	// branch NAME, its base by the parent/default branch, but a tracked branch is
+	// the git-hygiene contract for "this IS origin's <branch>", and drives
+	// ahead/behind reporting). The origin-reachable path created the local branch
+	// via `git fetch origin <b>:<b>`, which sets NO upstream; the offline-fallback
+	// path DWIMs tracking when `git worktree add` materialises <b> from origin/<b>.
+	// Setting it explicitly on BOTH paths makes them consistent. Best-effort: the
+	// content is already correct, so a failure here must never abort the import.
+	if err := u.git.SetUpstream(ctx, in.RepoPath, in.Branch); err != nil {
+		slog.WarnContext(ctx, "create child: could not set upstream on imported branch; content is correct but ahead/behind may not report",
+			"branch", in.Branch, "err", err)
+	}
 	return forkPoint, nil
 }
 

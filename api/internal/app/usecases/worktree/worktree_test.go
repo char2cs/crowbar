@@ -207,6 +207,7 @@ type fakeGit struct {
 	trackingExists         bool
 	trackingExistsByBranch map[string]bool // overrides trackingExists per branch when non-nil
 	trackingExistsErr      error
+	setUpstreamErr         error
 	fetchRefErr            error
 	fastForwardBranchErr   error
 	worktreeAddErr         error
@@ -320,6 +321,15 @@ func (f *fakeGit) RemoteTrackingBranchExists(
 		return f.trackingExistsByBranch[branch], f.trackingExistsErr
 	}
 	return f.trackingExists, f.trackingExistsErr
+}
+
+func (f *fakeGit) SetUpstream(
+	_ context.Context,
+	repoPath string,
+	branch string,
+) error {
+	f.record("SetUpstream", repoPath, branch)
+	return f.setUpstreamErr
 }
 
 func (f *fakeGit) FetchRef(
@@ -748,6 +758,7 @@ func TestCreateChild_RemoteBranchExists_ChecksOut(t *testing.T) {
 		"FastForwardBranch",          // fast-forward child
 		"RevParse",
 		"WorktreeAdd",
+		"SetUpstream", // link the checked-out branch to origin/<branch>
 	}, g.ops())
 	assert.Equal(t, []string{"/repo", "develop"}, g.calls[0].args)
 	assert.Equal(t, []string{"/repo", "develop"}, g.calls[1].args)
@@ -756,6 +767,8 @@ func TestCreateChild_RemoteBranchExists_ChecksOut(t *testing.T) {
 	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[4].args)
 	assert.Equal(t, []string{"/repo", "origin/feature/x"}, g.calls[5].args)
 	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x"}, g.calls[6].args)
+	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[7].args,
+		"the imported branch is linked back to origin/feature/x")
 	// WorktreeAddBranch must NOT be called on the checkout path.
 	assert.NotContains(t, g.ops(), "WorktreeAddBranch")
 	assert.Equal(t, "remotefork", created.ForkPointSha)
@@ -837,6 +850,7 @@ func TestCreateChild_LocalRemoteTrackingRef_ChecksOutDespiteLiveMiss(t *testing.
 		"FastForwardBranch",          // fast-forward child
 		"RevParse",
 		"WorktreeAdd",
+		"SetUpstream", // link the checked-out branch to origin/<branch>
 	}, g.ops())
 	assert.NotContains(t, g.ops(), "WorktreeAddBranch",
 		"a branch with a local remote-tracking ref must never be forked off the parent")
@@ -878,6 +892,7 @@ func TestCreateChild_CheckoutBestEffortWhenFetchFailsButTrackingRefPresent(t *te
 		"RemoteTrackingBranchExists", // re-check: local ref present → continue best-effort
 		"RevParse",
 		"WorktreeAdd",
+		"SetUpstream", // link the checked-out branch to origin/<branch>
 	}, g.ops())
 	assert.Equal(t, "remotefork", created.ForkPointSha)
 }
