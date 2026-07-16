@@ -1,5 +1,5 @@
 import { memo, useCallback, useRef } from 'react'
-import { usePaneActions, usePanes } from '@/features/workspace/stores/hooks/use-pane-store'
+import { usePaneActions, usePaneById } from '@/features/workspace/stores/hooks/use-pane-store'
 import type { LayoutNode, PanePosition } from '../types/pane'
 import { ROOT_PANE_POSITION } from '../types/pane'
 import { PaneContainer } from './pane-container'
@@ -38,7 +38,14 @@ export const PaneNodeRenderer = memo(function PaneNodeRenderer({
   hiddenPaneId = null,
   position = ROOT_PANE_POSITION,
 }: PaneNodeRendererProps) {
-  const panes = usePanes()
+  // Subscribe to ONLY this node's own pane — never the whole `panes` record.
+  // immer's structural sharing keeps every sibling pane's reference identical
+  // across a mutation, so a change to pane A (tab switch, focus, open/close)
+  // leaves pane B's selector output === its previous value and B's leaf
+  // renderer is skipped. This is what stops a pane-local change from
+  // re-rendering the entire layout tree at every recursion level. Split nodes
+  // pass their own (non-pane) id, which resolves to null here and is unused.
+  const pane = usePaneById(node.id)
   const { resizePaneSplit } = usePaneActions()
 
   const containerRef = useRef<HTMLDivElement>(null)
@@ -57,7 +64,6 @@ export const PaneNodeRenderer = memo(function PaneNodeRenderer({
     if (hiddenPaneId === node.id) {
       return <div className="h-full w-full bg-transparent" aria-hidden="true" />
     }
-    const pane = panes[node.id]
     if (!pane) return null
     return (
       <PaneBoundary paneId={node.id}>

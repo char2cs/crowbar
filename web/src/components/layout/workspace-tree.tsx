@@ -22,48 +22,7 @@ import {
 import { RepoSettingsPanel } from './repo-settings-panel'
 import { ProjectHomeRow } from './project-home-row'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
-import type { Workspace } from '@/lib/store/sidebar'
-
-export interface WorkspaceTreeNode {
-  workspace: Workspace
-  children: WorkspaceTreeNode[]
-}
-
-export function buildWorkspaceTree(workspaces: Workspace[]): WorkspaceTreeNode[] {
-  const nodeMap = new Map<string, WorkspaceTreeNode>()
-  for (const ws of workspaces) {
-    nodeMap.set(ws.id, { workspace: ws, children: [] })
-  }
-
-  const roots: WorkspaceTreeNode[] = []
-  for (const ws of workspaces) {
-    const node = nodeMap.get(ws.id)!
-    const parent = ws.parentId ? nodeMap.get(ws.parentId) : undefined
-
-    if (!parent || parent === node) {
-      roots.push(node)
-    } else {
-      let cursor: WorkspaceTreeNode | undefined = parent
-      let cycle = false
-      const visited = new Set<string>()
-      while (cursor) {
-        if (cursor.workspace.id === ws.id) {
-          cycle = true
-          break
-        }
-        if (visited.has(cursor.workspace.id)) {
-          cycle = true
-          break
-        }
-        visited.add(cursor.workspace.id)
-        cursor = cursor.workspace.parentId ? nodeMap.get(cursor.workspace.parentId) : undefined
-      }
-      if (cycle) roots.push(node)
-      else parent.children.push(node)
-    }
-  }
-  return roots
-}
+import { buildWorkspaceTree, type WorkspaceTreeNode } from './workspace-tree-utils'
 
 function WorkspaceTreeInner() {
   const navigate = useNavigate()
@@ -117,6 +76,18 @@ function WorkspaceTreeInner() {
             const roots = rootsByRepo.get(repo.id) ?? []
             const isCollapsed = collapsedRepos.has(repo.id)
             const isRepoDragOver = hoverTargetId === `repo:${repo.id}`
+            // react-doctor-disable-next-line js-combine-iterations -- pendingCreates is the whole tree's in-flight create operations (bounded by concurrent UI actions, realistically 0-2 at once); a single-pass rewrite here would cost JSX readability for no measurable gain.
+            const pendingCreateRows = Array.from(pendingCreates.entries())
+              .filter(([, p]) => p.repoId === repo.id && p.parentId === repo.defaultWorkspaceId)
+              .map(([tempId, pending]) => (
+                <PendingCreateRow
+                  key={tempId}
+                  tempId={tempId}
+                  pending={pending}
+                  paddingLeft={14}
+                  onClear={clearPendingCreate}
+                />
+              ))
             return (
               <div key={repo.id} className="mb-1">
                 <div
@@ -296,19 +267,7 @@ function WorkspaceTreeInner() {
                           </div>
                         </div>
                       )}
-                    {Array.from(pendingCreates.entries())
-                      .filter(
-                        ([, p]) => p.repoId === repo.id && p.parentId === repo.defaultWorkspaceId,
-                      )
-                      .map(([tempId, pending]) => (
-                        <PendingCreateRow
-                          key={tempId}
-                          tempId={tempId}
-                          pending={pending}
-                          paddingLeft={14}
-                          onClear={clearPendingCreate}
-                        />
-                      ))}
+                    {pendingCreateRows}
                     {roots.map((node) => (
                       <WorkspaceTreeItem
                         key={node.workspace.id}

@@ -7,10 +7,10 @@ import {
 } from '@phosphor-icons/react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useStore } from 'zustand'
 const openUrl = (url: string) => {
   window.open(url, '_blank')
 }
+import { markStart, markEnd } from '@/lib/perf/instrumentation'
 import CodeEditor from '@/features/editor/components/code-editor'
 import { useHunkStagingZones } from './use-hunk-staging-zones'
 import { useReviewCommentLayer } from './use-review-comment-layer'
@@ -37,14 +37,13 @@ import { getRemotes } from '../../api/git-remotes-api'
 import { getGitStatus } from '../../api/git-status-api'
 import { useDiffEditorBuffer } from '../../hooks/use-diff-editor-buffer'
 import type { MultiFileDiff } from '../../types/git-diff-types'
-import type { GitDiff } from '../../types/git-types'
-import { gitDiffCache } from '../../utils/git-diff-cache'
+import type { GitDiff, GitStatus } from '../../types/git-types'
 import { getFileStatus } from '../../utils/git-diff-helpers'
 import {
   getInitialExpandedDiffFileKeys,
   shouldUseScrollableDiffEditor,
 } from '../../utils/diff-viewer-scale'
-import { buildWorkingTreeMultiDiff } from '../../utils/working-tree-multi-diff'
+import { refreshWorkingTreeMultiDiff } from '../../utils/working-tree-multi-diff'
 import {
   serializeGitDiffForEditor,
   serializeGitDiffSourceForEditor,
@@ -119,12 +118,12 @@ function buildGitHubReferenceUrl(remoteUrl: string, gitRef: string): string | nu
   return `https://github.com/${slug.owner}/${slug.repo}/commit/${encodeURIComponent(gitRef)}`
 }
 
-function LargeDiffSectionEditor({ diff, cacheKey }: { diff: GitDiff; cacheKey: string }) {
-  const containerStyle = {
-    height: 'min(72vh, 760px)',
-    minHeight: '420px',
-  } as const
+const LARGE_DIFF_CONTAINER_STYLE = {
+  height: 'min(72vh, 760px)',
+  minHeight: '420px',
+} as const
 
+function LargeDiffSectionEditor({ diff, cacheKey }: { diff: GitDiff; cacheKey: string }) {
   // Hoist all hooks above any early returns (Rules of Hooks)
   const sourcePath = diff.new_path || diff.old_path || diff.file_path
   const editorContent = useMemo(() => serializeGitDiffForEditor(diff), [diff])
@@ -140,7 +139,7 @@ function LargeDiffSectionEditor({ diff, cacheKey }: { diff: GitDiff; cacheKey: s
     return (
       <div
         className="relative overflow-hidden border-border border-t bg-transparent"
-        style={containerStyle}
+        style={LARGE_DIFF_CONTAINER_STYLE}
       >
         <GitDiffEditorSurface cacheKey={`${cacheKey}_raw`} diff={diff} />
       </div>
@@ -150,7 +149,7 @@ function LargeDiffSectionEditor({ diff, cacheKey }: { diff: GitDiff; cacheKey: s
   return (
     <div
       className="relative overflow-hidden border-border border-t bg-transparent"
-      style={containerStyle}
+      style={LARGE_DIFF_CONTAINER_STYLE}
     >
       <CodeEditor
         bufferId={bufferId}
@@ -186,7 +185,12 @@ function EmbeddedDiffSectionEditor({
   const activeSearchMatch =
     searchLayer?.active && searchLayer.active.fileKey === cacheKey ? searchLayer.active : null
   const unifiedContent = useMemo(() => serializeGitDiffSourceForEditor(diff), [diff])
-  const splitContent = useMemo(() => serializeGitDiffSourceForSplitEditor(diff), [diff])
+  // Split serialization is real work (walks every diff line twice more); skip it
+  // entirely while the view is unified (the default), same as the buffers below.
+  const splitContent = useMemo(
+    () => (viewMode === 'split' ? serializeGitDiffSourceForSplitEditor(diff) : null),
+    [diff, viewMode],
+  )
   // Inline review comments and per-hunk staging are both hosted as Monaco view
   // zones on the unified surface (split would need per-side zones).
   const commentLayer = useReviewCommentLayer({
@@ -213,23 +217,28 @@ function EmbeddedDiffSectionEditor({
     name: sourcePath.split('/').pop() || 'Diff',
     pathOverride: sourcePath,
   })
+  // Registered only while split view is active — unified is the default, and
+  // unconditionally registering these doubled the Monaco buffer/model churn
+  // for every file that never renders split.
   const leftSplitBufferId = useDiffEditorBuffer({
     cacheKey: `${cacheKey}_left`,
-    content: splitContent.left.content,
+    content: splitContent?.left.content ?? '',
     sourcePath,
     name: `${sourcePath.split('/').pop() || 'Diff'} (left)`,
     pathOverride: sourcePath,
+    enabled: viewMode === 'split',
   })
   const rightSplitBufferId = useDiffEditorBuffer({
     cacheKey: `${cacheKey}_right`,
-    content: splitContent.right.content,
+    content: splitContent?.right.content ?? '',
     sourcePath,
     name: `${sourcePath.split('/').pop() || 'Diff'} (right)`,
     pathOverride: sourcePath,
+    enabled: viewMode === 'split',
   })
   const height = useMemo(() => {
     const lineCount =
-      viewMode === 'split'
+      viewMode === 'split' && splitContent
         ? Math.max(
             splitLines(splitContent.left.content).length,
             splitLines(splitContent.right.content).length,
@@ -243,16 +252,9 @@ function EmbeddedDiffSectionEditor({
         EDITOR_CONSTANTS.EDITOR_PADDING_BOTTOM,
       160,
     )
-  }, [
-    fontSize,
-    splitContent.left.content,
-    splitContent.right.content,
-    unifiedContent.content,
-    viewMode,
-    zoomLevel,
-  ])
+  }, [fontSize, splitContent, unifiedContent.content, viewMode, zoomLevel])
 
-  if (viewMode === 'split') {
+  if (viewMode === 'split' && splitContent) {
     return (
       <div
         className="grid grid-cols-2 border-border border-t bg-transparent"
@@ -528,6 +530,7 @@ function getInitialExpandedFiles(multiDiff: MultiFileDiff): Set<string> {
   return new Set(getInitialExpandedDiffFileKeys(multiDiff))
 }
 
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive multi-file diff stack — virtualization, per-file expand state, search and review layers share one scroll container and diff model.
 const GitDiffEditorStack = memo(function GitDiffEditorStack({
   multiDiff,
   enableComments = false,
@@ -551,33 +554,38 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
    */
   isActivePane?: boolean
 }) {
+  // M3 diff.open span: opened on mount, closed once the virtualizer below has
+  // actually produced sections to paint (see the effect near its definition).
+  useEffect(() => {
+    markStart('diff.open')
+  }, [])
+
   const workspaceStore = useWorkspaceStore()
-  const buffers = useStore(workspaceStore, (s) => s.buffers)
-  const activeBufferId = useStore(
-    workspaceStore,
-    (s) => s.paneActions.getActivePane()?.activeBufferId ?? null,
+  // Stable identity: refreshWorkingTreeBuffer depends on this, and it in turn is
+  // a dependency of the git-status-changed listener effect — an unstable
+  // reference would tear down and re-add that window listener every render.
+  const updateBufferContent = useCallback(
+    (bufferId: string, content: string, _markDirty: boolean, diffData?: MultiFileDiff) => {
+      workspaceStore.setState((state) => ({
+        ...state,
+        buffers: state.buffers.map((b) =>
+          b.id === bufferId && b.type === 'diff'
+            ? { ...b, content, ...(diffData !== undefined ? { diffData } : {}) }
+            : b,
+        ),
+      }))
+    },
+    [workspaceStore],
   )
-  const updateBufferContent = (
-    bufferId: string,
-    content: string,
-    _markDirty: boolean,
-    diffData?: MultiFileDiff,
-  ) => {
-    workspaceStore.setState((state) => ({
-      ...state,
-      buffers: state.buffers.map((b) =>
-        b.id === bufferId && b.type === 'diff'
-          ? { ...b, content, ...(diffData !== undefined ? { diffData } : {}) }
-          : b,
-      ),
-    }))
-  }
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath)
   const [viewMode, setViewMode] = useState<'unified' | 'split'>('unified')
   const isWorkingTree = multiDiff.commitHash === 'working-tree'
-  const activeBuffer = buffers.find((buffer) => buffer.id === activeBufferId) || null
-  const isWorkingTreeBuffer = activeBuffer?.path === 'diff://working-tree/all-files'
   const isRefreshingRef = useRef(false)
+  // The working-tree status from the last refresh — diffed against the next one
+  // so only files whose status actually changed refetch (see
+  // refreshWorkingTreeMultiDiff). Null before the first tick → that tick
+  // invalidates every changed file once, then every later tick is surgical.
+  const prevWorkingTreeStatusRef = useRef<GitStatus | null>(null)
   const handleOpenFile = useCallback(async (filePath: string) => {
     // Diff file paths are workspace-relative; handleFileSelect → openFileContent
     // resolves them within the workspace. Joining with a repo root (the old code)
@@ -621,6 +629,28 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
     measureElement: (el) => el.getBoundingClientRect().height,
   })
 
+  // diff.open's end signal: the virtualizer's item count depends on both
+  // multiDiff.files (may still be loading at mount) and scrollRef being
+  // attached/measured, so `getVirtualItems().length > 0` is the earliest point
+  // that is true only once there is real section content to paint — earlier
+  // than that, the scroll container renders with nothing in it regardless of
+  // how many files the diff has. A legitimately empty diff never produces
+  // virtual items (count 0 → zero items; the component paints the explicit
+  // "No uncommitted changes" state instead), so "files resolved to zero and
+  // not loading" is equally sections-ready — without it the span would stay
+  // open forever on a clean working tree. Guarded by a ref so the once-only
+  // rAF fires on the first qualifying render, not every subsequent re-render.
+  const diffOpenEndedRef = useRef(false)
+  useEffect(() => {
+    if (diffOpenEndedRef.current) return
+    const sectionsReady =
+      virtualizer.getVirtualItems().length > 0 ||
+      (multiDiff.files.length === 0 && !multiDiff.isLoading)
+    if (!sectionsReady) return
+    diffOpenEndedRef.current = true
+    requestAnimationFrame(() => markEnd('diff.open'))
+  })
+
   // ── Diff-wide search ──────────────────────────────────────────────────────
   // The search button + Cmd/Ctrl+F toggle the global find flag; the diff opens
   // its own find bar in response and searches across ALL files.
@@ -637,13 +667,23 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
     keyForIndex,
     enabled: searchOpen,
   })
+  // Destructure the fields the context needs so the memo depends on plain
+  // values. `search.current` is the current match (a value, not a React ref);
+  // reading it as a member expression trips exhaustive-deps' mutable-ref
+  // heuristic, which would push the whole (freshly-built each render) `search`
+  // object into the deps and defeat the memo.
+  const {
+    matchesByFile: searchMatchesByFile,
+    current: searchCurrent,
+    revealNonce: searchRevealNonce,
+  } = search
   const searchContextValue = useMemo(
     () => ({
-      matchesByFile: search.matchesByFile,
-      active: search.current,
-      revealNonce: search.revealNonce,
+      matchesByFile: searchMatchesByFile,
+      active: searchCurrent,
+      revealNonce: searchRevealNonce,
     }),
-    [search.matchesByFile, search.current, search.revealNonce],
+    [searchMatchesByFile, searchCurrent, searchRevealNonce],
   )
   // On navigation / new results, bring the active match's file into view; its
   // editor then reveals the exact line (see monaco-diff-editor reveal effect).
@@ -676,6 +716,11 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeReviewFileNonce])
 
+  // Latest-value ref so the initial-expansion fallback can read the whole
+  // multiDiff without pulling the (possibly unmemoized) prop object into the
+  // effect deps — the effect's real trigger is the three fields below.
+  const multiDiffRef = useRef(multiDiff)
+  multiDiffRef.current = multiDiff
   useEffect(() => {
     const nextKeys = new Set(
       multiDiff.files.map(
@@ -687,7 +732,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
       const nextExpanded = new Set(Array.from(previous).filter((key) => nextKeys.has(key)))
 
       if (nextExpanded.size === 0) {
-        return getInitialExpandedFiles(multiDiff)
+        return getInitialExpandedFiles(multiDiffRef.current)
       }
 
       if (multiDiff.initiallyExpandedFileKey && nextKeys.has(multiDiff.initiallyExpandedFileKey)) {
@@ -699,19 +744,30 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   }, [multiDiff.fileKeys, multiDiff.files, multiDiff.initiallyExpandedFileKey])
 
   const refreshWorkingTreeBuffer = useCallback(async () => {
-    if (!isWorkingTree || !isWorkingTreeBuffer || !rootFolderPath || !activeBuffer) return
+    if (!isWorkingTree || !rootFolderPath) return
     if (isRefreshingRef.current) return
+
+    // Read the current buffer straight off the store instead of subscribing to
+    // it in render — this handler is the ONLY consumer, and a live `buffers`
+    // subscription re-rendered the whole stack on every buffer mount/unmount
+    // (e.g. scrolling a huge diff churns useDiffEditorBuffer registrations).
+    const { buffers, paneActions } = workspaceStore.getState()
+    const activeBufferId = paneActions.getActivePane()?.activeBufferId ?? null
+    const activeBuffer = buffers.find((buffer) => buffer.id === activeBufferId) || null
+    const isWorkingTreeBuffer = activeBuffer?.path === 'diff://working-tree/all-files'
+    if (!isWorkingTreeBuffer || !activeBuffer) return
 
     isRefreshingRef.current = true
 
     try {
-      gitDiffCache.invalidate(rootFolderPath)
       const gitStatus = await getGitStatus(rootFolderPath)
-      const nextMultiDiff = await buildWorkingTreeMultiDiff({
+      const nextMultiDiff = await refreshWorkingTreeMultiDiff({
         repoPath: rootFolderPath,
-        status: gitStatus,
+        previousStatus: prevWorkingTreeStatusRef.current,
+        nextStatus: gitStatus,
         previousFileKeys: multiDiff.fileKeys,
       })
+      prevWorkingTreeStatusRef.current = gitStatus
 
       // A clean tree keeps the tab open with an explicit empty state — the
       // committed hunks must never linger after the working tree is clean.
@@ -719,14 +775,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
     } finally {
       isRefreshingRef.current = false
     }
-  }, [
-    activeBuffer,
-    isWorkingTree,
-    isWorkingTreeBuffer,
-    multiDiff.fileKeys,
-    rootFolderPath,
-    updateBufferContent,
-  ])
+  }, [isWorkingTree, multiDiff.fileKeys, rootFolderPath, updateBufferContent, workspaceStore])
 
   useEffect(() => {
     if (!isWorkingTree) return

@@ -1,50 +1,19 @@
+const relativeTimeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+const dateFormatterUS = new Intl.DateTimeFormat('en-US')
+
 /**
  * Format a Unix timestamp (seconds) to a relative time string.
  * Returns "3 hours ago", "2 days ago", "last month", etc.
  */
 export const formatRelativeTime = (timestamp: number) => {
   const date = new Date(timestamp * 1000)
-  const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
   const diff = (Date.now() - date.getTime()) / 1000
 
-  if (diff < 60) return rtf.format(-Math.round(diff), 'second')
-  if (diff < 3600) return rtf.format(-Math.round(diff / 60), 'minute')
-  if (diff < 86400) return rtf.format(-Math.round(diff / 3600), 'hour')
-  if (diff < 2592000) return rtf.format(-Math.round(diff / 86400), 'day')
-  return rtf.format(-Math.round(diff / 2592000), 'month')
-}
-
-/**
- * Format a Unix timestamp (seconds) to a locale date-time string.
- * Returns "YYYY-MM-DD HH:MM" (e.g., "2024-01-20 14:30").
- */
-export const formatDate = (timestamp: number) => {
-  return new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
-    .format(timestamp * 1000)
-    .replace(',', '')
-}
-
-/**
- * Format a date string to a short date format.
- * Returns "Jan 20, 2024" style output.
- */
-export const formatShortDate = (dateString: string | Date): string => {
-  const date = new Date(dateString)
-  if (Number.isNaN(date.getTime())) {
-    return typeof dateString === 'string' ? dateString : 'unknown'
-  }
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).format(date)
+  if (diff < 60) return relativeTimeFormatter.format(-Math.round(diff), 'second')
+  if (diff < 3600) return relativeTimeFormatter.format(-Math.round(diff / 60), 'minute')
+  if (diff < 86400) return relativeTimeFormatter.format(-Math.round(diff / 3600), 'hour')
+  if (diff < 2592000) return relativeTimeFormatter.format(-Math.round(diff / 86400), 'day')
+  return relativeTimeFormatter.format(-Math.round(diff / 2592000), 'month')
 }
 
 /**
@@ -68,5 +37,5 @@ export const formatRelativeDate = (dateString: string | Date): string => {
   if (diffDays === 1) return 'yesterday'
   if (diffDays < 7) return `${diffDays}d ago`
 
-  return new Intl.DateTimeFormat('en-US').format(date)
+  return dateFormatterUS.format(date)
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, Suspense } from 'react'
+import { useCallback, useEffect, useRef, Suspense } from 'react'
 import { NavStack } from './nav-stack'
 import { WorkspaceTree } from './workspace-tree'
 import { FileExplorerTree } from '@/features/file-explorer/components/file-explorer-tree'
@@ -7,6 +7,7 @@ import { ErrorBoundary } from '@/components/error-boundary'
 import { SidebarSkeleton } from './sidebar-skeleton'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
 import { AgentChatsPanel } from '@/features/agent/components/agent-chats-panel'
 
@@ -31,7 +32,13 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
     useFileSystemStore.use.handleCreateNewFolderInDirectory?.()
   const handleRenamePath = useFileSystemStore.use.handleRenamePath?.()
   const handleDeletePath = useFileSystemStore.use.handleDeletePath?.()
+  const handleDuplicatePath = useFileSystemStore.use.handleDuplicatePath?.()
+  const handleRevealInFolder = useFileSystemStore.use.handleRevealInFolder?.()
   const refreshDirectory = useFileSystemStore.use.refreshDirectory?.()
+  const handleUploadFile = useCallback(
+    (directoryPath: string) => void pickAndUploadFiles(directoryPath),
+    [],
+  )
   const containerRef = useRef<HTMLDivElement>(null)
   const isScrollingProgrammatically = useRef(false)
 
@@ -125,6 +132,9 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
                 onCreateNewFolderInDirectory={handleCreateNewFolderInDirectory ?? undefined}
                 onRenamePath={handleRenamePath ?? undefined}
                 onDeletePath={handleDeletePath ?? undefined}
+                onDuplicatePath={handleDuplicatePath ?? undefined}
+                onRevealInFinder={handleRevealInFolder ?? undefined}
+                onUploadFile={handleUploadFile}
                 onRefreshDirectory={refreshDirectory ?? undefined}
               />
             </Suspense>

@@ -33,11 +33,12 @@ func (stubFiles) Tree(_ context.Context, _, _ string, _ file.FileStatusProvider)
 func (stubFiles) ReadContent(_ context.Context, _, _ string) (domain.FileContent, error) {
 	return domain.FileContent{Content: "hello"}, nil
 }
-func (stubFiles) WriteContent(_ context.Context, _, _, _ string, _ time.Time) error { return nil }
-func (stubFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) error      { return nil }
-func (stubFiles) CreateDir(_ context.Context, _, _ string, _ time.Time) error       { return nil }
-func (stubFiles) Rename(_ context.Context, _, _, _ string, _ time.Time) error       { return nil }
-func (stubFiles) Delete(_ context.Context, _, _ string, _ time.Time) error          { return nil }
+func (stubFiles) WriteContent(_ context.Context, _, _, _, _ string, _ time.Time) error { return nil }
+func (stubFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) error         { return nil }
+func (stubFiles) CreateDir(_ context.Context, _, _ string, _ time.Time) error          { return nil }
+func (stubFiles) Copy(_ context.Context, _, _, _ string, _ time.Time) error            { return nil }
+func (stubFiles) Rename(_ context.Context, _, _, _ string, _ time.Time) error          { return nil }
+func (stubFiles) Delete(_ context.Context, _, _ string, _ time.Time) error             { return nil }
 
 func newRouter(
 	f handlers.Files,
@@ -49,6 +50,7 @@ func newRouter(
 	rg.GET("/workspaces/:wsId/files/content", h.ReadContent)
 	rg.PUT("/workspaces/:wsId/files/content", h.SaveContent)
 	rg.POST("/workspaces/:wsId/files", h.Create)
+	rg.POST("/workspaces/:wsId/files/copy", h.Copy)
 	rg.PATCH("/workspaces/:wsId/files", h.Rename)
 	rg.DELETE("/workspaces/:wsId/files", h.Delete)
 	return r
@@ -89,6 +91,10 @@ func TestFileHandlers_HappyPath(
 		map[string]any{"path": "new.go", "type": "file"})
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
+	rec = do(r, http.MethodPost, "/v0/workspaces/ws1/files/copy",
+		map[string]any{"sourcePath": "a.go", "destPath": "a copy.go"})
+	assert.Equal(t, http.StatusCreated, rec.Code)
+
 	rec = do(r, http.MethodPatch, "/v0/workspaces/ws1/files",
 		map[string]any{"path": "a.go", "newPath": "b.go"})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -106,5 +112,19 @@ func TestFileHandlers_ReadContent_MissingPath(
 ) {
 	r := newRouter(stubFiles{})
 	rec := do(r, http.MethodGet, "/v0/workspaces/ws1/files/content", nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestFileHandlers_Copy_MissingPaths(
+	t *testing.T,
+) {
+	r := newRouter(stubFiles{})
+
+	rec := do(r, http.MethodPost, "/v0/workspaces/ws1/files/copy",
+		map[string]any{"destPath": "a copy.go"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	rec = do(r, http.MethodPost, "/v0/workspaces/ws1/files/copy",
+		map[string]any{"sourcePath": "a.go"})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

@@ -153,9 +153,10 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           before.hydrateAgentChatOrder()
 
           const present = new Set(chats.map((c) => c.id))
-          const vanished = before.agentChats.chats
-            .filter((c) => !present.has(c.id))
-            .map((c) => c.id)
+          const vanished: string[] = []
+          for (const c of before.agentChats.chats) {
+            if (!present.has(c.id)) vanished.push(c.id)
+          }
 
           store.getState().seedAgentChats(chats)
 

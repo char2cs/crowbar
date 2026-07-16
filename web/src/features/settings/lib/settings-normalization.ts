@@ -21,6 +21,9 @@ const EDITOR_LINE_HEIGHT_MIN = 1
 const EDITOR_LINE_HEIGHT_MAX = 2
 const FILE_TREE_INDENT_SIZE_MIN = 8
 const FILE_TREE_INDENT_SIZE_MAX = 32
+const WORKSPACE_KEEP_ALIVE_MIN = 0
+const WORKSPACE_KEEP_ALIVE_MAX = 120
+const WORKSPACE_KEEP_ALIVE_DEFAULT = 10
 const RENDER_WHITESPACE_MODES = new Set<Settings['renderWhitespace']>([
   'none',
   'boundary',
@@ -58,6 +61,15 @@ function normalizeFileTreeIndentSize(value: number): number {
 
   const snapped = Math.round(value)
   return Math.min(FILE_TREE_INDENT_SIZE_MAX, Math.max(FILE_TREE_INDENT_SIZE_MIN, snapped))
+}
+
+function normalizeWorkspaceKeepAliveMinutes(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return WORKSPACE_KEEP_ALIVE_DEFAULT
+  }
+
+  const snapped = Math.round(value)
+  return Math.min(WORKSPACE_KEEP_ALIVE_MAX, Math.max(WORKSPACE_KEEP_ALIVE_MIN, snapped))
 }
 
 function isRenderWhitespaceMode(value: unknown): value is Settings['renderWhitespace'] {
@@ -154,6 +166,9 @@ export function normalizeSettings(settings: Settings): Settings {
   normalizedSettings.fileTreeIndentSize = normalizeFileTreeIndentSize(
     normalizedSettings.fileTreeIndentSize,
   )
+  normalizedSettings.workspaceKeepAliveMinutes = normalizeWorkspaceKeepAliveMinutes(
+    (normalizedSettings as { workspaceKeepAliveMinutes?: unknown }).workspaceKeepAliveMinutes,
+  )
   normalizedSettings.fileTreeDensity = normalizeFileTreeDensity(normalizedSettings.fileTreeDensity)
 
   if (!isKeybindingPreset(normalizedSettings.keybindingPreset)) {
@@ -222,6 +237,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === 'fileTreeIndentSize') {
     return normalizeFileTreeIndentSize(value as number) as Settings[K]
+  }
+
+  if (key === 'workspaceKeepAliveMinutes') {
+    return normalizeWorkspaceKeepAliveMinutes(value) as Settings[K]
   }
 
   if (key === 'fileTreeDensity') {

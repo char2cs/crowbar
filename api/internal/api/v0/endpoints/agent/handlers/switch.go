@@ -70,6 +70,33 @@ func (h *Handlers) Resume(
 	libs.WriteMutationOK(ctx, http.StatusOK, segID)
 }
 
+// Stop handles POST .../workspaces/:wsId/agent/chats/:id/stop: gracefully
+// terminates the chat's live vendor CLI and leaves the chat DORMANT and resumable
+// — the counterpart of Resume, and what closing a chat TAB calls. The agent
+// process stops, but the chat entry (and the conversation it can be resumed into)
+// is kept, so reopening the tab revives it via the resume path. The in-flight turn
+// is aborted by design ("close = stop"). A chat whose CLI is already gone is a nil
+// no-op. 404s (via requireChatInWorkspace) when id names a chat anchored to a
+// DIFFERENT workspace than :wsId.
+func (h *Handlers) Stop(
+	ctx *gin.Context,
+) {
+	rctx := ctx.Request.Context()
+	id := ctx.Param("id")
+
+	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {
+		return
+	}
+
+	if err := h.usecase.StopChat(rctx, id); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+
+	libs.WriteAccepted(ctx)
+}
+
 // Handoff handles GET .../workspaces/:wsId/agent/chats/:id/handoff: assembles
 // the chat's ledger into the legible handoff blob a freshly spawned provider
 // CLI can be given as prior context. Used by the `crowbar handoff dump` CLI

@@ -1,28 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import DOMPurify from 'dompurify'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { EditorView } from '@codemirror/view'
+// react-doctor-disable-next-line prefer-dynamic-import -- only imported by comment-composer.tsx, itself already behind the `GitDiffEditorStackLazy` React.lazy() boundary (review-diff-tab.tsx). Verified via `bunx vite build`: 0 "codemirror" occurrences in the entry chunk, 3 in the git-diff-editor-stack chunk.
 import { cn } from '@/utils/cn'
 
 /** Transparent CodeMirror theme so the editor blends into its container. */
-export const transparentMarkdownTheme = EditorView.theme({
-  '&': { backgroundColor: 'transparent !important', color: 'var(--foreground)' },
-  '&.cm-focused': { outline: 'none !important', backgroundColor: 'transparent !important' },
-  '.cm-content': { caretColor: 'var(--foreground)', padding: '0' },
-  '.cm-cursor': { borderLeftColor: 'var(--foreground)' },
-  '.cm-placeholder': { color: 'var(--muted-foreground)', opacity: '0.4' },
-  '.cm-line': { padding: '0' },
-  '.cm-scroller': { fontFamily: 'inherit', backgroundColor: 'transparent !important' },
-  '.cm-gutters': { backgroundColor: 'transparent !important', border: 'none' },
-  '.cm-activeLine': { backgroundColor: 'transparent !important' },
-  '.cm-activeLineGutter': { backgroundColor: 'transparent !important' },
-  '.cm-selectionBackground': {
-    backgroundColor: 'color-mix(in srgb, var(--primary) 20%, transparent) !important',
-  },
-  '&.cm-focused .cm-selectionBackground': {
-    backgroundColor: 'color-mix(in srgb, var(--primary) 30%, transparent) !important',
-  },
-})
 
 /** Shared prose styling for rendered markdown across the branch-review feature. */
 export const MARKDOWN_PROSE_CLASS =
@@ -100,7 +83,11 @@ function ShikiCodeBlock({ code, lang }: ShikiCodeProps) {
     promise
       .then((fn) => fn(code, lang))
       .then((result) => {
-        if (mountedRef.current && result) setHtml(result)
+        // Shiki HTML-escapes all code text, but markdown here can carry
+        // attacker-influenceable agent/PR content — DOMPurify.sanitize is
+        // defense-in-depth guaranteeing no script/handler survives regardless
+        // of shiki config (preserves shiki's span/class/style highlighting).
+        if (mountedRef.current && result) setHtml(DOMPurify.sanitize(result))
       })
       .catch(() => {
         /* ignore — plain fallback stays visible */
@@ -115,7 +102,8 @@ function ShikiCodeBlock({ code, lang }: ShikiCodeProps) {
     return (
       <div
         className="[&_pre]:!bg-transparent [&_pre]:!p-0 [&_.shiki]:overflow-x-auto [&_.shiki]:rounded-lg [&_.shiki]:bg-muted/60 [&_.shiki]:p-3 [&_.shiki]:text-xs"
-        // biome-ignore lint/security/noDangerouslySetInnerHtml: shiki output is sanitised HTML
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: shiki output is DOMPurify-sanitised
+        // react-doctor-disable-next-line dangerous-html-sink -- `html` is shiki codeToHtml output (escapes all code text), additionally DOMPurify.sanitize'd above as defense-in-depth on attacker-influenceable agent content.
         dangerouslySetInnerHTML={{ __html: html }}
       />
     )

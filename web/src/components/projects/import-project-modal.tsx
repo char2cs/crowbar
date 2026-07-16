@@ -80,9 +80,12 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
 
         <div className="space-y-5 px-6 py-5">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Project folder</label>
+            <label htmlFor="import-project-path" className="text-sm font-medium text-foreground">
+              Project folder
+            </label>
             <div className="flex gap-2">
               <Input
+                id="import-project-path"
                 value={selectedPath}
                 onChange={(e) => setSelectedPath(e.target.value)}
                 placeholder="/absolute/path/to/project"
@@ -102,8 +105,11 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Project name</label>
+            <label htmlFor="import-project-name" className="text-sm font-medium text-foreground">
+              Project name
+            </label>
             <Input
+              id="import-project-name"
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
               placeholder="My project"

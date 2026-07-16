@@ -69,17 +69,6 @@ export const getFileDiff = async (
   }
 }
 
-// The backend has no content-vs-working diff; fall back to the on-disk diff
-// (staged or working tree) so the diff view still renders.
-export const getFileDiffAgainstContent = async (
-  wsId: string,
-  filePath: string,
-  _content: string,
-  base: 'head' | 'index' = 'head',
-): Promise<GitDiff | null> => {
-  return getFileDiff(wsId, filePath, base === 'index')
-}
-
 export const getCommitDiff = async (
   wsId: string,
   commitHash: string,

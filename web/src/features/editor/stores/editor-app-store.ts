@@ -342,6 +342,7 @@ export const useEditorAppStore = createSelectors(
           let savedCount = 0
 
           for (const bufferId of dirtyBufferIds) {
+            // react-doctor-disable-next-line async-await-in-loop -- kept sequential: saveEditorBufferById can synchronously block on window.prompt('Save as:') for an untitled buffer, so parallel saves could pop multiple native prompts at once with no way to tell which file each belongs to. Save All is a rare, user-invoked action, not a hot path.
             const saved = await saveEditorBufferById(bufferId)
             const nextBuffer = getActiveWorkspaceStoreRef()
               ?.getState()

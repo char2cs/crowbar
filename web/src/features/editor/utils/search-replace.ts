@@ -68,16 +68,16 @@ export function replaceSearchMatch(
   const contentAfterMatch = content.slice(match.end)
   const nextContent = `${contentBeforeMatch}${nextReplacement}${contentAfterMatch}`
   const lengthDelta = nextReplacement.length - (match.end - match.start)
-  const nextMatches = matches
-    .filter((_, index) => index !== currentMatchIndex)
-    .map((candidate) =>
+  const nextMatches: SearchMatch[] = []
+  for (let index = 0; index < matches.length; index++) {
+    if (index === currentMatchIndex) continue
+    const candidate = matches[index]
+    nextMatches.push(
       candidate.start > match.start
-        ? {
-            start: candidate.start + lengthDelta,
-            end: candidate.end + lengthDelta,
-          }
+        ? { start: candidate.start + lengthDelta, end: candidate.end + lengthDelta }
         : candidate,
     )
+  }
 
   return {
     content: nextContent,

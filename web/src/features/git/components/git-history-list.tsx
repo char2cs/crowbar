@@ -4,28 +4,9 @@ import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useGitStore } from '@/features/git/stores/git-store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { dataOf } from '@/lib/loadable'
-import { formatRelativeTime } from '@/utils/date'
 import type { GitCommit } from '../types/git-types'
 import { useGitDiffHandlers } from '../hooks/use-git-diff-handlers'
-
-// commitDateLabel renders the backend's ISO commit date as a relative time
-// ("2 hours ago"); an unparseable date falls back to the raw string.
-export function commitDateLabel(isoDate: string): string {
-  const ms = Date.parse(isoDate)
-  if (Number.isNaN(ms)) return isoDate
-  return formatRelativeTime(ms / 1000)
-}
-
-// nearListEnd reports whether the viewport has scrolled past 80% of the list —
-// the threshold at which the next commit page is requested.
-export function nearListEnd(
-  scrollTop: number,
-  clientHeight: number,
-  scrollHeight: number,
-): boolean {
-  if (scrollHeight <= 0) return false
-  return (scrollTop + clientHeight) / scrollHeight >= 0.8
-}
+import { commitDateLabel } from './git-history-list-utils'
 
 export function GitHistoryList() {
   const gitData = useGitStore((s) => s.gitData)

@@ -1,4 +1,13 @@
-import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  memo,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { useEditorLayout } from '@/features/editor/hooks/use-layout'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
@@ -161,6 +170,27 @@ const SignatureHelpTooltipImpl = ({
       window.removeEventListener('editor-trigger-signature-help', handleTriggerSignatureHelp)
   }, [fetchSignatureHelp])
 
+  // Read the latest fetchSignatureHelp/triggerCharacters via an Effect Event so
+  // the store subscription is established once instead of re-subscribing every
+  // time those change.
+  const onEditorInput = useEffectEvent(() => {
+    // Check if the character just typed is a trigger character
+    const textarea = editorRef.current?.querySelector('textarea')
+    if (!textarea) return
+
+    const content = textarea.value
+    const offset = cursorPositionRef.current.offset
+    if (offset <= 0) return
+
+    const charBefore = content[offset - 1]
+    if (triggerCharacters.includes(charBefore)) {
+      setTooltipCursorPosition(cursorPositionRef.current)
+      void fetchSignatureHelp()
+    } else if (charBefore === ')') {
+      setSignatureHelp(null)
+    }
+  })
+
   // Trigger on typing
   useEffect(() => {
     let lastInputTimestamp = useEditorUIStore.getState().lastInputTimestamp
@@ -171,26 +201,11 @@ const SignatureHelpTooltipImpl = ({
       }
 
       lastInputTimestamp = state.lastInputTimestamp
-
-      // Check if the character just typed is a trigger character
-      const textarea = editorRef.current?.querySelector('textarea')
-      if (!textarea) return
-
-      const content = textarea.value
-      const offset = cursorPositionRef.current.offset
-      if (offset <= 0) return
-
-      const charBefore = content[offset - 1]
-      if (triggerCharacters.includes(charBefore)) {
-        setTooltipCursorPosition(cursorPositionRef.current)
-        void fetchSignatureHelp()
-      } else if (charBefore === ')') {
-        setSignatureHelp(null)
-      }
+      onEditorInput()
     })
 
     return unsubscribe
-  }, [editorRef, fetchSignatureHelp, triggerCharacters])
+  }, [])
 
   const position = useMemo(() => {
     const cursorPosition = tooltipCursorPosition

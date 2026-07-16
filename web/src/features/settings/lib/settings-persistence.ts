@@ -54,15 +54,19 @@ const load = async (_path: string, _opts?: unknown): Promise<Store> => {
 let storeInstance: Store
 
 async function initializeStoreDefaults(store: Store) {
-  for (const [key, value] of Object.entries(defaultSettings)) {
-    const current = await store.get(key)
-    if (current === null || current === undefined) {
-      await store.set(key, value)
-    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      const merged = { ...value, ...(current as object) }
-      await store.set(key, merged)
-    }
-  }
+  // Every key is independent (its own get -> maybe-set), so run them
+  // concurrently instead of one setting at a time.
+  await Promise.all(
+    Object.entries(defaultSettings).map(async ([key, value]) => {
+      const current = await store.get(key)
+      if (current === null || current === undefined) {
+        await store.set(key, value)
+      } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        const merged = { ...value, ...(current as object) }
+        await store.set(key, merged)
+      }
+    }),
+  )
   await store.save()
 }
 
@@ -79,13 +83,17 @@ export async function loadSettingsFromStore(): Promise<Settings> {
   const store = await getSettingsStore()
   const loadedSettings = getDefaultSettingsSnapshot()
 
-  for (const key of Object.keys(defaultSettings) as Array<keyof Settings>) {
-    const value = await store.get(key)
-    if (value !== null && value !== undefined) {
-      ;(loadedSettings as Record<keyof Settings, Settings[keyof Settings]>)[key] =
-        value as Settings[typeof key]
-    }
-  }
+  // Every key is read independently and written to its own distinct property
+  // of `loadedSettings`, so run the reads concurrently.
+  await Promise.all(
+    (Object.keys(defaultSettings) as Array<keyof Settings>).map(async (key) => {
+      const value = await store.get(key)
+      if (value !== null && value !== undefined) {
+        ;(loadedSettings as Record<keyof Settings, Settings[keyof Settings]>)[key] =
+          value as Settings[typeof key]
+      }
+    }),
+  )
 
   return loadedSettings
 }
@@ -94,9 +102,8 @@ export async function saveSettingsToStore(settings: Partial<Settings>) {
   try {
     const store = await getSettingsStore()
 
-    for (const [key, value] of Object.entries(settings)) {
-      await store.set(key, value)
-    }
+    // Every key is written independently, so run them concurrently.
+    await Promise.all(Object.entries(settings).map(([key, value]) => store.set(key, value)))
 
     await store.save()
   } catch (error) {

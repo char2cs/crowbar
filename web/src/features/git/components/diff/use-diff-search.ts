@@ -71,11 +71,18 @@ export function useDiffSearch(params: {
     })
   }, [shouldSearch, contents, debouncedQuery, caseSensitive, keyForIndex])
 
-  // New results → select the first match and reveal it.
-  useEffect(() => {
+  // New results → select the first match and reveal it. Adjust-during-render
+  // (React docs "adjusting state when a prop changes"): `matches` derives
+  // synchronously above, and resetting via an effect painted one frame where
+  // the OLD currentIndex indexed into the NEW matches array (a transiently
+  // wrong `current`). Keying the reset on the matches identity during render
+  // removes that frame while keeping the exact same transitions.
+  const [prevMatches, setPrevMatches] = useState(matches)
+  if (prevMatches !== matches) {
+    setPrevMatches(matches)
     setCurrentIndex(matches.length > 0 ? 0 : -1)
     if (matches.length > 0) setRevealNonce((nonce) => nonce + 1)
-  }, [matches])
+  }
 
   const matchesByFile = useMemo(() => {
     const map = new Map<string, DiffSearchMatch[]>()

@@ -508,7 +508,7 @@ type WorkingTreeGitEngine struct {
 	WorkingTreeSummaryFn func(
 		ctx context.Context,
 		repoPath string,
-		forkPointSha string,
+		base string,
 	) (int, int, bool, bool, error)
 	WouldMergeConflictFn func(
 		ctx context.Context,
@@ -516,6 +516,11 @@ type WorkingTreeGitEngine struct {
 		ours string,
 		theirs string,
 	) (bool, error)
+	RevParseFn func(
+		ctx context.Context,
+		repoPath string,
+		rev string,
+	) (string, error)
 }
 
 // NewWorkingTreeGitEngine returns an empty WorkingTreeGitEngine.
@@ -526,9 +531,9 @@ func NewWorkingTreeGitEngine() *WorkingTreeGitEngine {
 func (g *WorkingTreeGitEngine) WorkingTreeSummary(
 	ctx context.Context,
 	repoPath string,
-	forkPointSha string,
+	base string,
 ) (int, int, bool, bool, error) {
-	return g.WorkingTreeSummaryFn(ctx, repoPath, forkPointSha)
+	return g.WorkingTreeSummaryFn(ctx, repoPath, base)
 }
 
 func (g *WorkingTreeGitEngine) WouldMergeConflict(
@@ -541,6 +546,20 @@ func (g *WorkingTreeGitEngine) WouldMergeConflict(
 		return false, nil
 	}
 	return g.WouldMergeConflictFn(ctx, repoPath, ours, theirs)
+}
+
+// RevParse resolves rev, or reports it as resolvable by default so summaryBase's
+// verification step is a no-op unless a test opts into RevParseFn to exercise the
+// fork-point fallback.
+func (g *WorkingTreeGitEngine) RevParse(
+	ctx context.Context,
+	repoPath string,
+	rev string,
+) (string, error) {
+	if g.RevParseFn == nil {
+		return rev, nil
+	}
+	return g.RevParseFn(ctx, repoPath, rev)
 }
 
 // ProjectRollup is a fake of the project lastActivity roll-up surface. It
@@ -620,9 +639,10 @@ type FsEngine struct {
 	TreeFn func(repoPath, dirPath string, provider file.FileStatusProvider) ([]domain.FileNode, error)
 
 	ReadContentFn  func(repoPath, filePath string) (domain.FileContent, error)
-	WriteContentFn func(repoPath, filePath, content string) error
+	WriteContentFn func(repoPath, filePath, content, encoding string) error
 	CreateFileFn   func(repoPath, filePath string) error
 	CreateDirFn    func(repoPath, dirPath string) error
+	CopyFn         func(repoPath, sourcePath, destPath string) error
 	RenameFn       func(repoPath, oldPath, newPath string) error
 	DeleteFn       func(repoPath, filePath string) error
 }
@@ -651,8 +671,9 @@ func (e *FsEngine) WriteContent(
 	repoPath string,
 	filePath string,
 	content string,
+	encoding string,
 ) error {
-	return e.WriteContentFn(repoPath, filePath, content)
+	return e.WriteContentFn(repoPath, filePath, content, encoding)
 }
 
 func (e *FsEngine) CreateFile(
@@ -667,6 +688,14 @@ func (e *FsEngine) CreateDir(
 	dirPath string,
 ) error {
 	return e.CreateDirFn(repoPath, dirPath)
+}
+
+func (e *FsEngine) Copy(
+	repoPath string,
+	sourcePath string,
+	destPath string,
+) error {
+	return e.CopyFn(repoPath, sourcePath, destPath)
 }
 
 func (e *FsEngine) Rename(

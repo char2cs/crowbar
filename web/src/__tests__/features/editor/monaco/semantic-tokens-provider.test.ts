@@ -14,7 +14,9 @@ vi.mock('@/features/editor/lib/wasm-parser/tokenizer-worker-client', () => ({
 vi.mock('@/features/editor/utils/language-id', () => ({
   getLanguageIdFromPath: vi.fn(),
 }))
-vi.mock('monaco-editor', () => ({
+// `semantic-tokens-provider.ts` imports the light `editor.api.js` entry, not
+// the bare `monaco-editor` specifier (see the comment there) — mock that.
+vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => ({
   editor: {},
   languages: { registerDocumentRangeSemanticTokensProvider: vi.fn() },
 }))

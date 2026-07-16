@@ -149,9 +149,10 @@ export function collectWorkspaceTextEdits(edit: WorkspaceEdit): Map<string, LspT
 async function readEditableSource(
   filePath: string,
 ): Promise<{ bufferId: string | null; content: string }> {
-  const { getActiveWorkspaceStoreRef } =
-    await import('@/features/workspace/stores/workspace-store-ref')
-  const { readFile } = await import('@/features/file-system/controllers/platform')
+  const [{ getActiveWorkspaceStoreRef }, { readFile }] = await Promise.all([
+    import('@/features/workspace/stores/workspace-store-ref'),
+    import('@/features/file-system/controllers/platform'),
+  ])
   const wsStore = getActiveWorkspaceStoreRef()?.getState()
   const buffers = wsStore?.buffers ?? []
   const openBuffer = buffers.find(
@@ -166,10 +167,11 @@ async function readEditableSource(
 }
 
 async function writeEditableSource(filePath: string, bufferId: string | null, content: string) {
-  const { getActiveWorkspaceStoreRef } =
-    await import('@/features/workspace/stores/workspace-store-ref')
-  const { isEditorContent } = await import('@/features/panes/types/pane-content')
-  const { writeFile } = await import('@/features/file-system/controllers/platform')
+  const [{ getActiveWorkspaceStoreRef }, { isEditorContent }, { writeFile }] = await Promise.all([
+    import('@/features/workspace/stores/workspace-store-ref'),
+    import('@/features/panes/types/pane-content'),
+    import('@/features/file-system/controllers/platform'),
+  ])
 
   if (bufferId) {
     const wsRef = getActiveWorkspaceStoreRef()
@@ -189,11 +191,16 @@ async function writeEditableSource(filePath: string, bufferId: string | null, co
 export async function applyWorkspaceEdit(edit: WorkspaceEdit): Promise<WorkspaceEditApplyResult> {
   const editsByFile = collectWorkspaceTextEdits(edit)
 
-  for (const [filePath, edits] of editsByFile) {
-    const source = await readEditableSource(filePath)
-    const nextContent = applyTextEditsToContent(source.content, edits)
-    await writeEditableSource(filePath, source.bufferId, nextContent)
-  }
+  // Each file's read -> transform -> write is independent of every other
+  // file's (distinct paths, distinct buffer ids), so run them concurrently
+  // instead of one file at a time — a rename can touch many files.
+  await Promise.all(
+    Array.from(editsByFile, async ([filePath, edits]) => {
+      const source = await readEditableSource(filePath)
+      const nextContent = applyTextEditsToContent(source.content, edits)
+      await writeEditableSource(filePath, source.bufferId, nextContent)
+    }),
+  )
 
   return { editedFiles: editsByFile.size }
 }

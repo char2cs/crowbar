@@ -22,17 +22,6 @@ interface SectionProps {
   className?: string
 }
 
-export const SETTINGS_CONTROL_WIDTHS = {
-  compact: 'w-28 max-w-full',
-  default: 'w-36 max-w-full',
-  wide: 'w-44 max-w-full',
-  xwide: 'w-56 max-w-full',
-  number: 'w-28 max-w-full',
-  numberCompact: 'w-24 max-w-full',
-  text: 'w-48 max-w-full',
-  textWide: 'w-56 max-w-full',
-} as const
-
 export default function Section({ title, description, children, className }: SectionProps) {
   const isSearchActive = useSettingsStore((state) => state.search.query.trim().length > 0)
   const rowVisibilityRef = React.useRef(new Map<string, boolean>())
@@ -143,6 +132,16 @@ export function SettingRow({
     }
   }, [description, descriptionId, getPrimaryInteractive, labelId])
 
+  // Mouse-only convenience delegation: clicking anywhere on the row forwards
+  // activation to the row's primary control, unless the click already landed
+  // on a real interactive descendant (passthroughSelector) — those handle
+  // their own clicks natively and this would double-fire. There is
+  // deliberately NO keyboard counterpart and no row tabIndex: the primary
+  // control is itself natively tabbable (button/input/select/switch) and the
+  // useLayoutEffect above wires the row's label/description to it via
+  // aria-labelledby/aria-describedby, so keyboard users Tab straight to the
+  // labeled control — a row-level tab stop would only double every stop in
+  // Settings.
   const handleRowClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
 
@@ -205,9 +204,13 @@ export function SettingRow({
 
   return (
     <div
-      role="group"
-      aria-labelledby={labelId}
-      aria-describedby={description ? descriptionId : undefined}
+      // Presentation, not group: this row div is a mouse-only click-to-focus
+      // hit area around its real control (see handleRowClick) — the same
+      // delegation pattern as InputGroupAddon. The accessible name/description
+      // live on the control itself (aria-labelledby/aria-describedby wired in
+      // the useLayoutEffect above), so this wrapper carries no semantics of
+      // its own and needs no aria attributes or keyboard handler.
+      role="presentation"
       className={cn(
         'flex items-center justify-between gap-3 rounded-lg px-1 py-2 select-none transition-colors hover:bg-muted/50 focus-within:bg-muted/50 max-[640px]:flex-col max-[640px]:items-stretch max-[640px]:gap-2',
         className,

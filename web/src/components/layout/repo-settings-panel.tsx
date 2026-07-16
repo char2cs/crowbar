@@ -25,6 +25,7 @@ interface RepoSettingsPanelProps {
 }
 
 // §3: every repo-scoped route is hierarchical under the owning project now.
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive settings panel — its branch list, protected-set editing and danger-zone sections all read/write one repo's derived state and share the same mutation handlers; splitting scatters that coordination.
 export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsPanelProps) {
   const repoBase = `/v0/projects/${projectId}/repos/${repoId}`
   const [branches, setBranches] = useState<BranchEntry[]>([])

@@ -6,6 +6,7 @@ import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-hi
 import type { TerminalContent } from '@/features/panes/types/pane-content'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { setActiveScopeWorkspaceId } from '@/lib/workspace-scope'
+import { clearWorkspaceFreshness } from '../lib/activation-freshness'
 
 const registry = new Map<string, WorkspaceStore>()
 const persistTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -124,7 +125,10 @@ export function destroyWorkspaceStore(wsId: string): void {
     // OTHER still-active workspaces; we instead clear only this workspace's editor
     // buffer paths. Dynamic import avoids a registry → git-feature cycle, mirroring
     // the terminal branch above.
-    const editorPaths = buffers.filter(isEditorContent).map((b) => b.path)
+    const editorPaths: string[] = []
+    for (const b of buffers) {
+      if (isEditorContent(b)) editorPaths.push(b.path)
+    }
     if (editorPaths.length > 0) {
       void import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
         const { clearBlameForFile } = useGitBlameStore.getState()
@@ -146,9 +150,14 @@ export function destroyWorkspaceStore(wsId: string): void {
     // handled above; this one lives inside the store itself.
     store._disposeSession()
 
-    // Dispose editor resources
-    store.editorManager.disposeAll()
+    // Dispose editor resources (only if the workspace ever armed the editor —
+    // a terminal/agent-only workspace never constructs the manager).
+    store.editorManager?.disposeAll()
   }
+
+  // Drop the warm-reactivation freshness ledger for this workspace so a future
+  // workspace reusing the id can't inherit a stale "hidden briefly" stamp.
+  clearWorkspaceFreshness(wsId)
 
   registry.delete(wsId)
 }

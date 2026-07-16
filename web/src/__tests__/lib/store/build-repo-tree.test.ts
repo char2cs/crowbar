@@ -166,6 +166,22 @@ describe('buildRepoTree', () => {
     const tree = buildRepoTree([repo('r1', 'crowbar')], [ws('w1', 'r1', { working: true })])
     expect(tree[0].defaultWorking).toBeUndefined()
   })
+
+  // Adopted protected branches are locked AND default (adoptMainWorktree) — the
+  // default ws is not a tree row, so its status must be lifted onto the repo or
+  // mutation gating (isWorkspaceLockedInSidebar) can't see the lock.
+  it('lifts the isDefault workspace status onto the repo (locked default)', () => {
+    const tree = buildRepoTree(
+      [repo('r1', 'crowbar')],
+      [ws('w-default', 'r1', { isDefault: true, branch: 'develop', status: 'locked' })],
+    )
+    expect(tree[0].defaultWorkspaceStatus).toBe('locked')
+  })
+
+  it('leaves defaultWorkspaceStatus undefined when no workspace is the default', () => {
+    const tree = buildRepoTree([repo('r1', 'crowbar')], [ws('w1', 'r1', { status: 'locked' })])
+    expect(tree[0].defaultWorkspaceStatus).toBeUndefined()
+  })
 })
 
 function makeWs(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceDTO {

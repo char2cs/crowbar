@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { formatDiffBufferLabel } from '@/features/git/utils/diff-buffer-label'
 import type { PaneContent } from '@/features/panes/types/pane-content'
@@ -9,13 +10,59 @@ interface UseBufferDisplayNameOptions {
   rootFolderPath: string | undefined
 }
 
+// Separates the projected fields joined into each tuple string below. The
+// brief this hook implements space-joins the fields, but terminal titles and
+// cwd paths routinely contain spaces (e.g. "My Project", "/Users/x/My Docs"),
+// which would let two different session states alias onto the same joined
+// string and silently collapse the shallow-equality check. A control
+// character that can never appear in a title or path is used instead.
+const FIELD_SEP = ''
+
+interface TerminalSessionFields {
+  customName: boolean
+  name: string
+  title: string
+  currentDirectory: string
+}
+
 /**
  * Returns `getBufferDisplayName(buffer)` — a stable callback that derives the
  * human-readable tab label from buffer metadata, terminal session state and
  * path-shortener disambiguation.
  */
 export function useBufferDisplayName({ buffers, rootFolderPath }: UseBufferDisplayNameOptions) {
-  const terminalSessions = useTerminalStore((state) => state.sessions)
+  // Subscribe only to the session fields this hook actually reads, projected
+  // per terminal buffer into a flat string. Previously this subscribed to
+  // the whole `sessions` Map, so every terminal's prompt redraw or `cd`
+  // (which reallocates that Map) re-rendered every tab label in the app.
+  // useShallow compares the resulting array element-by-element, so a change
+  // to an unrelated session — or to a field of this session that no tab
+  // label reads — never invalidates it.
+  const sessionFieldTuples = useTerminalStore(
+    useShallow((state) =>
+      buffers
+        .filter((b): b is Extract<PaneContent, { type: 'terminal' }> => b.type === 'terminal')
+        .map((b) => {
+          const s = state.sessions.get(b.sessionId)
+          return [
+            b.sessionId,
+            s?.customName ? '1' : '0',
+            s?.name ?? '',
+            s?.title ?? '',
+            s?.currentDirectory ?? '',
+          ].join(FIELD_SEP)
+        }),
+    ),
+  )
+
+  const terminalSessionFields = useMemo(() => {
+    const map = new Map<string, TerminalSessionFields>()
+    for (const tuple of sessionFieldTuples) {
+      const [sessionId, customName, name, title, currentDirectory] = tuple.split(FIELD_SEP)
+      map.set(sessionId, { customName: customName === '1', name, title, currentDirectory })
+    }
+    return map
+  }, [sessionFieldTuples])
 
   const displayNames = useMemo(
     () => calculateDisplayNames(buffers, rootFolderPath),
@@ -55,7 +102,7 @@ export function useBufferDisplayName({ buffers, rootFolderPath }: UseBufferDispl
   const getBufferDisplayName = useCallback(
     (buffer: PaneContent) => {
       if (buffer.type === 'terminal') {
-        const session = terminalSessions.get(buffer.sessionId)
+        const session = terminalSessionFields.get(buffer.sessionId)
         if (session?.customName) {
           return session.name?.trim() || buffer.name
         }
@@ -76,7 +123,13 @@ export function useBufferDisplayName({ buffers, rootFolderPath }: UseBufferDispl
 
       return displayNames.get(buffer.id) ?? buffer.name
     },
-    [displayNames, getCommandLabel, getDirectoryLabel, isUsefulTerminalTitle, terminalSessions],
+    [
+      displayNames,
+      getCommandLabel,
+      getDirectoryLabel,
+      isUsefulTerminalTitle,
+      terminalSessionFields,
+    ],
   )
 
   return getBufferDisplayName

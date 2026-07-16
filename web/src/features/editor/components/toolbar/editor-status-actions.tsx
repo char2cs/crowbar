@@ -27,7 +27,8 @@ import {
 } from '@/features/editor/utils/language-id'
 import { hasTextContent } from '@/features/panes/types/pane-content'
 import { useSettingsStore } from '@/features/settings/store'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button-variants'
 import { Dropdown, dropdownItemClassName } from '@/components/ui/dropdown'
 import Keybinding from '@/components/ui/keybinding'
 import { toast } from '@/features/window/stores/toast-store'
@@ -45,6 +46,35 @@ const menuItemClass =
   'ui-font flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-left ui-text-xs text-foreground transition-colors hover:bg-muted'
 
 const menuItemDisabledClass = 'cursor-not-allowed opacity-50 hover:bg-transparent'
+
+const getStatusConfig = (status: LspStatus) => {
+  switch (status) {
+    case 'connected':
+      return {
+        icon: <Zap />,
+        color: 'text-green-400',
+        title: 'Language Servers Active',
+      }
+    case 'connecting':
+      return {
+        icon: <LoadingSpinner label="Connecting" compact />,
+        color: 'text-yellow-400',
+        title: 'Connecting to Language Server...',
+      }
+    case 'error':
+      return {
+        icon: <ZapOff />,
+        color: 'text-red-400',
+        title: 'Language server issue',
+      }
+    default:
+      return {
+        icon: <ZapOff />,
+        color: 'text-muted-foreground opacity-50',
+        title: 'No active language servers',
+      }
+  }
+}
 function getLanguageDisplayNameOrNull(languageId: string | null) {
   if (!languageId) return null
   return getLanguageDisplayName(languageId)
@@ -74,6 +104,7 @@ function CursorPositionChip({ editorViewKey }: { editorViewKey?: string | null }
   )
 }
 
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive toolbar — cursor/language/LSP-status controls share the active-buffer selectors and command shortcuts; touched this program (getStatusConfig hoisted) with no further seam.
 export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusActionsProps = {}) {
   const workspaceStore = useWorkspaceStore()
   const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath)
@@ -95,35 +126,6 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
   const viewButtonRef = useRef<HTMLButtonElement>(null)
   const languageButtonRef = useRef<HTMLButtonElement>(null)
   const languageSearchRef = useRef<HTMLInputElement>(null)
-
-  const getStatusConfig = (status: LspStatus) => {
-    switch (status) {
-      case 'connected':
-        return {
-          icon: <Zap />,
-          color: 'text-green-400',
-          title: 'Language Servers Active',
-        }
-      case 'connecting':
-        return {
-          icon: <LoadingSpinner label="Connecting" compact />,
-          color: 'text-yellow-400',
-          title: 'Connecting to Language Server...',
-        }
-      case 'error':
-        return {
-          icon: <ZapOff />,
-          color: 'text-red-400',
-          title: 'Language server issue',
-        }
-      default:
-        return {
-          icon: <ZapOff />,
-          color: 'text-muted-foreground opacity-50',
-          title: 'No active language servers',
-        }
-    }
-  }
 
   const config = getStatusConfig(lspStatus.status)
   const activeServers = lspStatus.supportedLanguages || []
@@ -283,7 +285,14 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
       setIsLanguageOpen(false)
       setLanguageSearch('')
     },
-    [activeBuffer, resolvedBufferId, currentFileLanguageId, rootFolderPath, lspClient],
+    [
+      activeBuffer,
+      resolvedBufferId,
+      currentFileLanguageId,
+      rootFolderPath,
+      lspClient,
+      workspaceStore,
+    ],
   )
 
   const displayOptions = [

@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Popover, PopoverTrigger, PopoverContent, PopoverTitle } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -17,6 +17,12 @@ interface CommitPopoverProps {
   trigger: ReactElement
 }
 
+// Accepted (prefer-useReducer): these five states only "change together" on the
+// once-per-open reset; every other update (typing a message, toggling a file,
+// commit progress/error) touches exactly one of them. A reducer would centralize
+// five independent fields for the sake of one batched reset — style call, judged
+// not worth the churn (task-21 batch 3).
+// react-doctor-disable-next-line prefer-useReducer
 export function CommitPopover({ wsId, files, onCommitted, trigger }: CommitPopoverProps) {
   const [open, setOpen] = useState(false)
   const [message, setMessage] = useState('')
@@ -27,16 +33,21 @@ export function CommitPopover({ wsId, files, onCommitted, trigger }: CommitPopov
   const [isCommitting, setIsCommitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Reset to a fresh state (snapshot the files, all checked, empty message) on open.
-  useEffect(() => {
-    if (!open) return
-    setPopoverFiles(files)
-    setChecked(new Set(files.map((f) => f.path)))
-    setMessage('')
-    setError(null)
-    setIsCommitting(false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  // Reset to a fresh state (snapshot the files, all checked, empty message) when
+  // the popover opens. Done in the open handler — not a useEffect reacting to
+  // `open` — so the writes happen in the event that triggers them (no derived-
+  // state chain) and `popoverFiles` stays a true at-open SNAPSHOT: later `files`
+  // prop updates from a background git-status refresh can't flow in mid-edit.
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen) {
+      setPopoverFiles(files)
+      setChecked(new Set(files.map((f) => f.path)))
+      setMessage('')
+      setError(null)
+      setIsCommitting(false)
+    }
+    setOpen(nextOpen)
+  }
 
   const canCommit = message.trim().length > 0 && checked.size > 0 && !isCommitting
 
@@ -52,8 +63,11 @@ export function CommitPopover({ wsId, files, onCommitted, trigger }: CommitPopov
     if (!canCommit) return
     setIsCommitting(true)
     setError(null)
-    const stage = popoverFiles.filter((f) => checked.has(f.path)).map((f) => f.path)
-    const unstage = popoverFiles.filter((f) => !checked.has(f.path)).map((f) => f.path)
+    const stage: string[] = []
+    const unstage: string[] = []
+    for (const f of popoverFiles) {
+      ;(checked.has(f.path) ? stage : unstage).push(f.path)
+    }
     try {
       // stagePaths/unstagePaths swallow their errors and return false (they toast),
       // so guard the booleans — never commit against a half-staged index.
@@ -80,7 +94,7 @@ export function CommitPopover({ wsId, files, onCommitted, trigger }: CommitPopov
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger render={trigger} />
       <PopoverContent side="top" align="start" className="w-80">
         <PopoverTitle className="mb-2 text-sm">Commit changes</PopoverTitle>

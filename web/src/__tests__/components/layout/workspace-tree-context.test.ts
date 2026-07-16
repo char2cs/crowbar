@@ -19,7 +19,7 @@ import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import {
   performCreateWorkspace,
   performDeleteWorkspace,
-} from '@/components/layout/workspace-tree-context'
+} from '@/components/layout/workspace-tree-actions'
 
 const repo = (workspaces: Repo['workspaces']): Repo => ({
   id: 'r1',

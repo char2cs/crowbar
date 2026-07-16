@@ -70,7 +70,7 @@ func TestWriteContent_Persists(t *testing.T) {
 	dir := initDir(t)
 	writeFile(t, dir, "file.txt", "old\n")
 
-	require.NoError(t, fs.New().WriteContent(dir, "file.txt", "new\n"))
+	require.NoError(t, fs.New().WriteContent(dir, "file.txt", "new\n", ""))
 
 	got, err := os.ReadFile(filepath.Join(dir, "file.txt"))
 	require.NoError(t, err)
@@ -80,7 +80,7 @@ func TestWriteContent_Persists(t *testing.T) {
 func TestWriteContent_CreatesParentDirs(t *testing.T) {
 	dir := initDir(t)
 	// Write creates intermediate directories automatically.
-	require.NoError(t, fs.New().WriteContent(dir, filepath.Join("sub", "dir", "file.txt"), "hello\n"))
+	require.NoError(t, fs.New().WriteContent(dir, filepath.Join("sub", "dir", "file.txt"), "hello\n", ""))
 	got, err := os.ReadFile(filepath.Join(dir, "sub", "dir", "file.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "hello\n", string(got))

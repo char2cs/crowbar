@@ -1,3 +1,5 @@
+import { stripControlChars } from './control-chars'
+
 const ESC = String.fromCharCode(0x1b)
 const BEL = String.fromCharCode(0x07)
 const OSC7_PREFIX = `${ESC}]7;`
@@ -24,9 +26,17 @@ export function parseOSC7(data: string): string | null {
     if (match[1]) lastPath = match[1]
   }
   if (lastPath === null) return null
+  let decoded: string
   try {
-    return decodeURIComponent(lastPath)
+    decoded = decodeURIComponent(lastPath)
   } catch {
-    return lastPath
+    decoded = lastPath
   }
+  // The capture group excludes only BEL, so a hostile/buggy payload can embed
+  // other C0 bytes (raw or percent-encoded — hence stripping AFTER decode).
+  // These must never reach the session store: the tab-label projection joins
+  // session fields with \x01, so a surviving control byte could truncate or
+  // alias those tuples. Same policy as sanitizeTerminalTitle on titles.
+  const path = stripControlChars(decoded)
+  return path === '' ? null : path
 }

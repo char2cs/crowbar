@@ -124,6 +124,30 @@ export async function getBranchDiff(wsId: string): Promise<MultiFileDiff> {
   return raw.diff
 }
 
+/** One entry in the files-only branch-review summary (domain.ReviewFileSummary).
+ *  It is the FULL changed-files picture for a path — committed-vs-fork-point AND
+ *  working-tree — with +/- counts but NO line content. `additions`/`deletions`
+ *  are -1 for binary files (numstat "-" convention). */
+export interface ReviewFileSummary {
+  path: string
+  old_path?: string
+  status: 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked'
+  additions: number
+  deletions: number
+  uncommitted: boolean
+  staged: boolean
+}
+
+/** GET the files-only branch-review summary for a workspace. This is the cheap,
+ *  O(file count) source for the always-mounted sidebar changed-files list: it
+ *  returns the full branch picture WITHOUT the line-level diff body that
+ *  getReview carries, so it can be fetched on every git-status tick without the
+ *  refetch loop that made the full diff expensive. */
+export async function getReviewFiles(wsId: string): Promise<ReviewFileSummary[]> {
+  const raw = await apiFetch<{ files: ReviewFileSummary[] }>(`${reviewBase(wsId)}/files`)
+  return raw.files ?? []
+}
+
 // ── Writes ──────────────────────────────────────────────────────────
 
 /**

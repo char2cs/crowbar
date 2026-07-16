@@ -221,6 +221,28 @@ export function getAllLanguages(): Array<{ id: string; displayName: string }> {
     .sort((a, b) => a.displayName.localeCompare(b.displayName))
 }
 
+/**
+ * Test-only: every athas language id `getLanguageIdFromPath` can produce — the
+ * values of the extension/filename tables plus the ids the function special-cases
+ * inline (dotenv, the two `.git/info/*` files, the Angular template overlay).
+ *
+ * The drift guard in `language-contributions.test.ts` cross-checks each of these
+ * against `MONACO_LANGUAGE_BY_ATHAS_ID` so none silently hits
+ * `toMonacoLanguageId`'s `?? languageId` fallback (an id nothing registers →
+ * permanent plaintext). This is the KEY-side complement to that test's existing
+ * VALUE-side check (every monaco id the map produces must have a grammar).
+ */
+export function __resolverAthasIdsForTests(): string[] {
+  return [
+    ...Object.values(EXTENSION_TO_LANGUAGE),
+    ...Object.values(FILENAME_TO_LANGUAGE),
+    'dotenv', // isEnvFileName
+    'gitignore', // .git/info/exclude
+    'gitattributes', // .git/info/attributes
+    ANGULAR_TEMPLATE_LANGUAGE_ID,
+  ]
+}
+
 export function getLanguageIdFromPath(filePath: string): string | null {
   if (isAngularTemplatePath(filePath)) {
     return ANGULAR_TEMPLATE_LANGUAGE_ID

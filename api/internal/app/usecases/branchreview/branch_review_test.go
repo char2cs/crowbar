@@ -3,6 +3,7 @@ package branchreview_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -203,6 +204,7 @@ var _ reviewthread.ReviewThread = (*mockReviewThread)(nil)
 type mockGitEngine struct {
 	RangeDiffFn      func(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error)
 	DiffAgainstRefFn func(ctx context.Context, repoPath, ref string) (gitdomain.MultiFileDiff, error)
+	ReviewFilesFn    func(ctx context.Context, repoPath, ref string) ([]gitdomain.ReviewFileSummary, error)
 	MergeBaseFn      func(ctx context.Context, repoPath, a, b string) (string, error)
 	StatusFn         func(ctx context.Context, repoPath string) (gitdomain.GitStatus, error)
 }
@@ -219,6 +221,13 @@ func (g *mockGitEngine) DiffAgainstRef(ctx context.Context, repoPath, ref string
 		return g.DiffAgainstRefFn(ctx, repoPath, ref)
 	}
 	return gitdomain.MultiFileDiff{}, nil
+}
+
+func (g *mockGitEngine) ReviewFiles(ctx context.Context, repoPath, ref string) ([]gitdomain.ReviewFileSummary, error) {
+	if g.ReviewFilesFn != nil {
+		return g.ReviewFilesFn(ctx, repoPath, ref)
+	}
+	return nil, nil
 }
 
 func (g *mockGitEngine) Status(ctx context.Context, repoPath string) (gitdomain.GitStatus, error) {
@@ -461,7 +470,12 @@ func TestBranchReview_Get_RootUsesDefaultBranch(t *testing.T) {
 	var gotMergeBase string
 	var gotDiffRef string
 	gitEng := &mockGitEngine{
+		// Model a repo with no origin remote: the origin/<base> attempt fails, so
+		// the review falls back to the local default branch ref.
 		MergeBaseFn: func(_ context.Context, _, a, _ string) (string, error) {
+			if strings.HasPrefix(a, "origin/") {
+				return "", errors.New("unknown revision")
+			}
 			gotMergeBase = a
 			return "abc123", nil
 		},
@@ -514,7 +528,12 @@ func TestBranchReview_Get_ChildUsesParentBranch(t *testing.T) {
 	var gotMergeBase string
 	var gotDiffRef string
 	gitEng := &mockGitEngine{
+		// Model a repo with no origin remote: the origin/<base> attempt fails, so
+		// the review falls back to the local parent branch ref.
 		MergeBaseFn: func(_ context.Context, _, a, _ string) (string, error) {
+			if strings.HasPrefix(a, "origin/") {
+				return "", errors.New("unknown revision")
+			}
 			gotMergeBase = a
 			return "fork123", nil
 		},
@@ -870,11 +889,15 @@ func TestBranchReview_Get_ParentGetError(t *testing.T) {
 	assert.Contains(t, err.Error(), "branch review: resolve ref")
 }
 
-// --- ForkPointSha fast-path and annotateUncommitted tests ---
+// --- ForkPointSha fallback and annotateUncommitted tests ---
 
-// TestBranchReview_Get_UsesForkPointSha verifies that when ws.ForkPointSha is
-// set, MergeBase is never called and DiffAgainstRef receives that exact SHA.
-func TestBranchReview_Get_UsesForkPointSha(t *testing.T) {
+// TestBranchReview_Get_FallsBackToForkPointSha verifies that when the base
+// branch cannot be resolved (here: the repo row is absent from the store, so
+// resolveBase errors), the review falls back to the recorded ForkPointSha rather
+// than failing. The fork point is a FALLBACK, not a fast-path: when the base
+// branch DOES resolve, the live merge-base is preferred (see
+// TestBranchReview_Get_PrefersLiveMergeBaseOverStaleForkPoint).
+func TestBranchReview_Get_FallsBackToForkPointSha(t *testing.T) {
 	ctx := context.Background()
 
 	ws := domain.Workspace{
@@ -891,11 +914,6 @@ func TestBranchReview_Get_UsesForkPointSha(t *testing.T) {
 
 	var gotDiffRef string
 	gitEng := &mockGitEngine{
-		// MergeBaseFn is intentionally nil: the mock panics via t.Fatal if invoked.
-		MergeBaseFn: func(_ context.Context, _, _, _ string) (string, error) {
-			t.Fatal("MergeBase must not be called when ForkPointSha is set")
-			return "", nil
-		},
 		DiffAgainstRefFn: func(_ context.Context, _, ref string) (gitdomain.MultiFileDiff, error) {
 			gotDiffRef = ref
 			return gitdomain.MultiFileDiff{}, nil
@@ -907,7 +925,59 @@ func TestBranchReview_Get_UsesForkPointSha(t *testing.T) {
 	_, err := uc.Get(ctx, "ws1")
 
 	require.NoError(t, err)
-	assert.Equal(t, "sha123", gotDiffRef, "DiffAgainstRef must receive ForkPointSha directly")
+	assert.Equal(t, "sha123", gotDiffRef, "DiffAgainstRef must fall back to ForkPointSha when the base branch is unresolvable")
+}
+
+// TestBranchReview_Get_PrefersLiveMergeBaseOverStaleForkPoint pins the fix for
+// the stale-base sidebar bug: even with a ForkPointSha recorded, the review must
+// diff against the LIVE merge-base of the base branch's current tip and HEAD, not
+// the frozen fork point — otherwise a branch rebased onto a newer base shows the
+// base branch's whole advancement as bogus additions/deletions.
+func TestBranchReview_Get_PrefersLiveMergeBaseOverStaleForkPoint(t *testing.T) {
+	ctx := context.Background()
+
+	child := domain.Workspace{
+		ID:           "child",
+		RepoID:       "repo1",
+		Branch:       "feat/child",
+		WorktreePath: "/wt/child",
+		ParentID:     "parent",
+		ForkPointSha: "stale-fork-sha",
+	}
+	parent := domain.Workspace{ID: "parent", Branch: "develop"}
+	wsMock := &mockWorkspace{
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			switch id {
+			case "child":
+				return child, nil
+			case "parent":
+				return parent, nil
+			}
+			return domain.Workspace{}, errors.New("not found")
+		},
+	}
+
+	var gotDiffRef string
+	gitEng := &mockGitEngine{
+		MergeBaseFn: func(_ context.Context, _, a, _ string) (string, error) {
+			if strings.HasPrefix(a, "origin/") {
+				return "", errors.New("unknown revision")
+			}
+			return "live-merge-base", nil
+		},
+		DiffAgainstRefFn: func(_ context.Context, _, ref string) (gitdomain.MultiFileDiff, error) {
+			gotDiffRef = ref
+			return gitdomain.MultiFileDiff{}, nil
+		},
+	}
+
+	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), gitEng)
+
+	_, err := uc.Get(ctx, "child")
+
+	require.NoError(t, err)
+	assert.Equal(t, "live-merge-base", gotDiffRef,
+		"DiffAgainstRef must receive the live merge-base, not the recorded ForkPointSha")
 }
 
 // TestBranchReview_Get_AnnotatesUncommitted verifies that files appearing in

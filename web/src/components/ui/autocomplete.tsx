@@ -84,54 +84,6 @@ export function AutocompleteInput({
   )
 }
 
-export function AutocompletePopup({
-  className,
-  children,
-  side = 'bottom',
-  sideOffset = 4,
-  alignOffset,
-  align = 'start',
-  anchor,
-  portalProps,
-  ...props
-}: AutocompletePrimitive.Popup.Props & {
-  align?: AutocompletePrimitive.Positioner.Props['align']
-  sideOffset?: AutocompletePrimitive.Positioner.Props['sideOffset']
-  alignOffset?: AutocompletePrimitive.Positioner.Props['alignOffset']
-  side?: AutocompletePrimitive.Positioner.Props['side']
-  anchor?: AutocompletePrimitive.Positioner.Props['anchor']
-  portalProps?: AutocompletePrimitive.Portal.Props
-}): React.ReactElement {
-  return (
-    <AutocompletePrimitive.Portal {...portalProps}>
-      <AutocompletePrimitive.Positioner
-        align={align}
-        alignOffset={alignOffset}
-        anchor={anchor}
-        className="z-50 select-none"
-        data-slot="autocomplete-positioner"
-        side={side}
-        sideOffset={sideOffset}
-      >
-        <span
-          className={cn(
-            'relative flex max-h-full min-w-(--anchor-width) max-w-(--available-width) origin-(--transform-origin) rounded-lg border bg-popover not-dark:bg-clip-padding shadow-lg/5 transition-[scale,opacity] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]',
-            className,
-          )}
-        >
-          <AutocompletePrimitive.Popup
-            className="flex max-h-[min(var(--available-height),23rem)] flex-1 flex-col text-foreground"
-            data-slot="autocomplete-popup"
-            {...props}
-          >
-            {children}
-          </AutocompletePrimitive.Popup>
-        </span>
-      </AutocompletePrimitive.Positioner>
-    </AutocompletePrimitive.Portal>
-  )
-}
-
 export function AutocompleteItem({
   className,
   children,
@@ -206,19 +158,6 @@ export function AutocompleteEmpty({
   )
 }
 
-export function AutocompleteRow({
-  className,
-  ...props
-}: AutocompletePrimitive.Row.Props): React.ReactElement {
-  return <AutocompletePrimitive.Row className={className} data-slot="autocomplete-row" {...props} />
-}
-
-export function AutocompleteValue({
-  ...props
-}: AutocompletePrimitive.Value.Props): React.ReactElement {
-  return <AutocompletePrimitive.Value data-slot="autocomplete-value" {...props} />
-}
-
 export function AutocompleteList({
   className,
   ...props
@@ -234,7 +173,7 @@ export function AutocompleteList({
   )
 }
 
-export function AutocompleteClear({
+function AutocompleteClear({
   className,
   ...props
 }: AutocompletePrimitive.Clear.Props): React.ReactElement {
@@ -252,29 +191,13 @@ export function AutocompleteClear({
   )
 }
 
-export function AutocompleteStatus({
-  className,
-  ...props
-}: AutocompletePrimitive.Status.Props): React.ReactElement {
-  return (
-    <AutocompletePrimitive.Status
-      className={cn(
-        'px-3 py-2 font-medium text-muted-foreground text-xs empty:m-0 empty:p-0',
-        className,
-      )}
-      data-slot="autocomplete-status"
-      {...props}
-    />
-  )
-}
-
 export function AutocompleteCollection({
   ...props
 }: AutocompletePrimitive.Collection.Props): React.ReactElement {
   return <AutocompletePrimitive.Collection data-slot="autocomplete-collection" {...props} />
 }
 
-export function AutocompleteTrigger({
+function AutocompleteTrigger({
   className,
   children,
   ...props
@@ -289,8 +212,5 @@ export function AutocompleteTrigger({
     </AutocompletePrimitive.Trigger>
   )
 }
-
-export const useAutocompleteFilter: typeof AutocompletePrimitive.useFilter =
-  AutocompletePrimitive.useFilter
 
 export { AutocompletePrimitive }

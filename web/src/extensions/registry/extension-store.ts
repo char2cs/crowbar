@@ -40,4 +40,3 @@ const useExtensionStoreBase = create<ExtensionStoreState>(() => ({
 }))
 
 export const useExtensionStore = createSelectors(useExtensionStoreBase)
-export async function waitForExtensionStoreInitialization(): Promise<void> {}

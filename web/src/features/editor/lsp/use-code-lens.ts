@@ -58,7 +58,7 @@ export const useCodeLens = (filePath: string | undefined, enabled: boolean) => {
       unsubscribe()
       if (timerRef.current) clearTimeout(timerRef.current)
     }
-  }, [fetchLenses])
+  }, [fetchLenses, enabled, filePath])
 
   return lenses
 }

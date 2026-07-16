@@ -1,6 +1,8 @@
 package mutate_test
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -140,6 +142,90 @@ func TestRename_CrossDir(
 	data, err := os.ReadFile(filepath.Join(dir, "dst/deep/file.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "hello", string(data))
+}
+
+// TestRegression_Rename_RefusesToClobberExistingDest pins the silent-data-loss
+// fix: os.Rename replaces an occupied destination file with no error, so a rename
+// or drag-drop move onto an existing name destroyed the occupant. Rename now
+// refuses with fs.ErrExist (mapped to 409), and the occupant survives intact.
+func TestRegression_Rename_RefusesToClobberExistingDest(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "src.txt"), []byte("SOURCE"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "dst.txt"), []byte("PRECIOUS"), 0o600))
+
+	err := mutate.Rename(dir, "src.txt", "dst.txt")
+	require.ErrorIs(t, err, fs.ErrExist)
+
+	kept, readErr := os.ReadFile(filepath.Join(dir, "dst.txt"))
+	require.NoError(t, readErr)
+	assert.Equal(t, []byte("PRECIOUS"), kept, "existing destination must be untouched")
+	// Source also survives — the rename never happened.
+	src, srcErr := os.ReadFile(filepath.Join(dir, "src.txt"))
+	require.NoError(t, srcErr)
+	assert.Equal(t, []byte("SOURCE"), src)
+}
+
+// TestRegression_Rename_RefusesToClobberExistingDir verifies the collision guard
+// covers a directory destination too (os.Rename silently replaces an empty one).
+func TestRegression_Rename_RefusesToClobberExistingDir(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "from"), 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "to"), 0o700))
+
+	err := mutate.Rename(dir, "from", "to")
+	require.ErrorIs(t, err, fs.ErrExist)
+
+	_, statErr := os.Stat(filepath.Join(dir, "from"))
+	require.NoError(t, statErr, "source directory must survive a refused clobber")
+}
+
+// TestRename_CaseOnlyRenameAllowed verifies the same-file exception: renaming a
+// file to a case variant of its own name (Foo → foo) is a legitimate rename, not
+// a clobber, and must not be rejected as a collision.
+func TestRename_CaseOnlyRenameAllowed(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "Foo.txt"), []byte("data"), 0o600))
+
+	err := mutate.Rename(dir, "Foo.txt", "foo.txt")
+	require.NoError(t, err, "case-only rename must be allowed")
+
+	data, readErr := os.ReadFile(filepath.Join(dir, "foo.txt"))
+	require.NoError(t, readErr)
+	assert.Equal(t, []byte("data"), data)
+}
+
+// TestRegression_Copy_CleansUpPartialDestOnFailure verifies a recursive copy that
+// fails partway removes its half-populated destination rather than leaving cruft
+// that would both mislead the tree and make a retry fail on destination-exists.
+// An unreadable leaf (chmod 000) forces the mid-copy failure.
+func TestRegression_Copy_CleansUpPartialDestOnFailure(
+	t *testing.T,
+) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permission semantics")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses the unreadable-file permission, so no failure is provoked")
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "src"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "src/ok.txt"), []byte("ok"), 0o600))
+	unreadable := filepath.Join(dir, "src/secret.bin")
+	require.NoError(t, os.WriteFile(unreadable, []byte("no read"), 0o600))
+	require.NoError(t, os.Chmod(unreadable, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o600) })
+
+	err := mutate.Copy(dir, "src", "dst")
+	require.Error(t, err, "copy of a tree with an unreadable leaf must fail")
+
+	_, statErr := os.Stat(filepath.Join(dir, "dst"))
+	assert.True(t, os.IsNotExist(statErr), "the partial destination must be removed on failure")
 }
 
 func TestDelete_File(
@@ -382,4 +468,112 @@ func TestRegression_Delete_AllowsInWorkspace(
 
 	_, err := os.Stat(filepath.Join(root, "del.txt"))
 	assert.True(t, os.IsNotExist(err))
+}
+
+// TestCopy_File_BinaryBytesFaithful proves the copy is a byte copy, not a text
+// round-trip: bytes that are invalid UTF-8 (and contain NULs) must come out
+// identical. This is the case the base64 content read corrupts.
+func TestCopy_File_BinaryBytesFaithful(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	binary := []byte{0x89, 0x50, 0x4E, 0x47, 0x00, 0xFF, 0xFE, 0x00, 0x01, 0x02}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "img.png"), binary, 0o600))
+
+	require.NoError(t, mutate.Copy(dir, "img.png", "img copy.png"))
+
+	got, err := os.ReadFile(filepath.Join(dir, "img copy.png"))
+	require.NoError(t, err)
+	assert.Equal(t, binary, got)
+}
+
+// TestCopy_Directory_Recursive copies a nested tree, including a binary leaf,
+// and creates missing parents of the destination.
+func TestCopy_Directory_Recursive(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "src/nested"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "src/a.txt"), []byte("text"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "src/nested/b.bin"), []byte{0x00, 0x01}, 0o600))
+
+	require.NoError(t, mutate.Copy(dir, "src", "sub/src copy"))
+
+	text, err := os.ReadFile(filepath.Join(dir, "sub/src copy/a.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("text"), text)
+	bin, err := os.ReadFile(filepath.Join(dir, "sub/src copy/nested/b.bin"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte{0x00, 0x01}, bin)
+}
+
+// TestCopy_Symlink recreates the link itself rather than following it.
+func TestCopy_Symlink(
+	t *testing.T,
+) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on windows")
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "target.txt"), []byte("t"), 0o600))
+	require.NoError(t, os.Symlink("target.txt", filepath.Join(dir, "link")))
+
+	require.NoError(t, mutate.Copy(dir, "link", "link copy"))
+
+	got, err := os.Readlink(filepath.Join(dir, "link copy"))
+	require.NoError(t, err)
+	assert.Equal(t, "target.txt", got)
+}
+
+// TestCopy_DestinationExists refuses to clobber an existing destination with
+// the fs.ErrExist sentinel (mapped to 409 by the API layer).
+func TestCopy_DestinationExists(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.txt"), []byte("keep"), 0o600))
+
+	err := mutate.Copy(dir, "a.txt", "b.txt")
+	require.ErrorIs(t, err, fs.ErrExist)
+
+	kept, readErr := os.ReadFile(filepath.Join(dir, "b.txt"))
+	require.NoError(t, readErr)
+	assert.Equal(t, []byte("keep"), kept, "existing destination must be untouched")
+}
+
+// TestCopy_DestinationInsideSource rejects the self-recursive copy with the
+// fs.ErrInvalid sentinel (mapped to 400 by the API layer).
+func TestCopy_DestinationInsideSource(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "src"), 0o700))
+
+	err := mutate.Copy(dir, "src", "src/inner")
+	require.ErrorIs(t, err, fs.ErrInvalid)
+}
+
+// TestCopy_SourceMissing surfaces the Lstat not-found error.
+func TestCopy_SourceMissing(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	err := mutate.Copy(dir, "nope.txt", "nope copy.txt")
+	require.Error(t, err)
+	assert.True(t, os.IsNotExist(err) || errors.Is(err, fs.ErrNotExist))
+}
+
+// TestCopy_TraversalRejected keeps both operands inside the workspace.
+func TestCopy_TraversalRejected(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o600))
+
+	err := mutate.Copy(dir, "a.txt", "../escape.txt")
+	require.ErrorIs(t, err, safepath.ErrPathEscapesWorkspace)
+
+	err = mutate.Copy(dir, "../etc/passwd", "stolen.txt")
+	require.ErrorIs(t, err, safepath.ErrPathEscapesWorkspace)
 }

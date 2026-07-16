@@ -54,22 +54,10 @@ const NODE_MODULES_WEB_TREE_SITTER = join(
 // Grammar wasms: sibling athas project (local-dev workaround; see header comment)
 const ATHAS_TREE_SITTER = join(homedir(), 'Projects', 'Cloned', 'athas', 'public', 'tree-sitter')
 
-// Languages whose parser.wasm lives in a different folder than the languageId
-// (mirrors PARSER_FOLDER_BY_LANGUAGE in extension-assets.ts)
-const PARSER_FOLDER_BY_LANGUAGE = {
-  angular: 'html',
-  less: 'css',
-  sass: 'css',
-  scss: 'css',
-  javascript: 'tsx',
-  javascriptreact: 'tsx',
-  typescript: 'tsx',
-  typescriptreact: 'tsx',
-  mdx: 'markdown',
-  csharp: 'c_sharp',
-  scheme: 'elisp',
-  dotenv: 'bash',
-}
+// The distinct parser folders below are the resolved targets of the
+// languageId -> folder mapping in extension-assets.ts (PARSER_FOLDER_BY_LANGUAGE):
+// e.g. angular->html, less/sass/scss->css, javascript/typescript->tsx, mdx->markdown,
+// csharp->c_sharp, scheme->elisp, dotenv->bash.
 
 // Full set of distinct parser folder names needed by crowbar
 const PARSER_FOLDERS = [

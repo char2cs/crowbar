@@ -23,6 +23,24 @@ interface FilePathBreadcrumbProps {
   className?: string
 }
 
+const loadDirectoryEntries = async (path: string) => {
+  const entries = await readDirectory(path)
+  const fileEntries: FileEntry[] = entries.map((entry: DirectoryEntry) => ({
+    name: entry.name || 'Unknown',
+    path: entry.path,
+    isDir: entry.is_dir || false,
+    children: undefined,
+  }))
+
+  fileEntries.sort((a, b) => {
+    if (a.isDir && !b.isDir) return -1
+    if (!a.isDir && b.isDir) return 1
+    return a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+  })
+
+  return fileEntries
+}
+
 export function FilePathBreadcrumb({
   filePath,
   interactive = true,
@@ -77,24 +95,6 @@ export function FilePathBreadcrumb({
     } catch (error) {
       logger.error('Editor', 'Failed to navigate to path:', path, error)
     }
-  }
-
-  const loadDirectoryEntries = async (path: string) => {
-    const entries = await readDirectory(path)
-    const fileEntries: FileEntry[] = entries.map((entry: DirectoryEntry) => ({
-      name: entry.name || 'Unknown',
-      path: entry.path,
-      isDir: entry.is_dir || false,
-      children: undefined,
-    }))
-
-    fileEntries.sort((a, b) => {
-      if (a.isDir && !b.isDir) return -1
-      if (!a.isDir && b.isDir) return 1
-      return a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-    })
-
-    return fileEntries
   }
 
   const handleGoBack = async () => {

@@ -120,6 +120,15 @@ export class EditorManager {
   layoutPane(paneId: string): void {
     this.panes.get(paneId)?.editor.layout()
   }
+  /**
+   * Lay out every mounted pane's editor. Used by staged reactivation (Task 39):
+   * on a compositor-preserved reveal the ResizeObserver may not fire (the DOM
+   * stayed laid out while hidden), so the host runs one deferred, post-first-frame
+   * layout to correct any drift accrued while off-screen.
+   */
+  layoutAll(): void {
+    for (const id of this.panes.keys()) this.layoutPane(id)
+  }
   disposeAll(): void {
     for (const id of [...this.panes.keys()]) this.unmountPane(id)
     this.registry.disposeAll()

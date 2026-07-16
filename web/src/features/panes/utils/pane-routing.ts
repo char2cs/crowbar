@@ -9,11 +9,9 @@ export function getPaneScopeForPaneId(
 ): PaneGroup[] {
   const rootIds = getAllLeafIds(rootLayout)
   if (rootIds.includes(paneId)) {
-    return rootIds.map((id) => panes[id]).filter(Boolean) as PaneGroup[]
+    return rootIds.flatMap((id) => (panes[id] ? [panes[id]] : []))
   }
-  return getAllLeafIds(bottomLayout)
-    .map((id) => panes[id])
-    .filter(Boolean) as PaneGroup[]
+  return getAllLeafIds(bottomLayout).flatMap((id) => (panes[id] ? [panes[id]] : []))
 }
 
 export interface WritablePaneRoutingInput {

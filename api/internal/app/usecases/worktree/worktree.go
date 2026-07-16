@@ -677,6 +677,14 @@ func (u *worktreeUsecase) finalizeMerge(
 // the post-merge state of both the parent and the kept child. It returns the
 // hasConflicts it computed so callers can act on it without a second
 // WorkingTreeSummary call.
+//
+// forkPointSha is passed as the diff base verbatim (not the parent branch NAME
+// that summaryBase resolves): the callers here supply a FRESHLY computed post-op
+// SHA — the parent's just-merged tip, the reparent merge-base — which the engine
+// treats idempotently (merge-base(<sha>, HEAD) == <sha>), so it is never stale.
+// This transient value is superseded on the next branch-based summarize/watcher
+// recompute; routing it through summaryBase would only entangle the delicate
+// merge/reparent fork-point accounting for no correctness gain.
 func (u *worktreeUsecase) resyncSummary(
 	ctx context.Context,
 	id string,

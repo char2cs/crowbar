@@ -28,18 +28,6 @@ export interface FilteredCompletion {
 }
 
 /**
- * Perform fuzzy matching on a list of strings
- */
-export async function fuzzyMatch(request: FuzzyMatchRequest): Promise<FuzzyMatchItem[]> {
-  // No-op stub: Tauri invoke not available in web frontend
-  return request.items.map((item) => ({
-    text: item,
-    score: 0,
-    indices: [],
-  }))
-}
-
-/**
  * Sanitize a CompletionItem for the Rust backend
  * The Rust struct expects simple types, but LSP types can have complex objects
  */
@@ -76,25 +64,6 @@ export async function filterCompletions(
     score: 0,
     indices: [],
   }))
-}
-
-/**
- * Extract the current word being typed at the cursor position
- */
-export function extractCurrentWord(text: string, cursorPos: number): string {
-  // Find word boundaries before cursor
-  let start = cursorPos
-  while (start > 0 && /\w/.test(text[start - 1])) {
-    start--
-  }
-
-  // Find word boundaries after cursor (in case cursor is in middle of word)
-  let end = cursorPos
-  while (end < text.length && /\w/.test(text[end])) {
-    end++
-  }
-
-  return text.substring(start, end)
 }
 
 /**

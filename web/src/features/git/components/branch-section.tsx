@@ -9,6 +9,8 @@ import { pushChanges, pullChanges } from '../api/git-remotes-api'
 import { rebaseOntoParent } from '@/lib/api/workspace'
 import type { GitFile } from '../types/git-types'
 
+const refresh = () => window.dispatchEvent(new Event('git-status-changed'))
+
 interface BranchSectionProps {
   wsId: string
   parentBranch?: string
@@ -41,8 +43,6 @@ export function BranchSection({
     ahead,
     behind,
   })
-
-  const refresh = () => window.dispatchEvent(new Event('git-status-changed'))
 
   // User-initiated "finish the move": rebase the branch onto its parent. Async on
   // the daemon — a clean rebase integrates it; a conflict is kept and surfaces as

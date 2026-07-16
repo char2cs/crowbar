@@ -90,22 +90,31 @@ export async function highlightCodeBlock(html: string): Promise<string> {
 
   if (matches.length === 0) return html
 
+  // Each code block tokenizes independently, so run them concurrently instead
+  // of one at a time; Promise.all preserves index order, so the sequential
+  // string-replace pass below still applies in document order.
+  const highlightedBlocks = await Promise.all(
+    matches.map(async (m) => {
+      const lang = normalizeLanguage(m.lang)
+      if (lang === 'plaintext') return null
+
+      // Unescape HTML entities back to raw code for tokenization
+      const rawCode = m.code.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+
+      const tokens = await tokenizeForLanguage(rawCode, lang)
+      if (!tokens || tokens.length === 0) return null
+
+      return { lang, highlighted: applyTokensToCode(rawCode, tokens) }
+    }),
+  )
+
   let result = html
-
-  for (const m of matches) {
-    const lang = normalizeLanguage(m.lang)
-    if (lang === 'plaintext') continue
-
-    // Unescape HTML entities back to raw code for tokenization
-    const rawCode = m.code.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-
-    const tokens = await tokenizeForLanguage(rawCode, lang)
-    if (!tokens || tokens.length === 0) continue
-
-    const highlighted = applyTokensToCode(rawCode, tokens)
+  for (let i = 0; i < matches.length; i++) {
+    const block = highlightedBlocks[i]
+    if (!block) continue
     result = result.replace(
-      m.full,
-      `<pre><code class="language-${lang}">${highlighted}</code></pre>`,
+      matches[i].full,
+      `<pre><code class="language-${block.lang}">${block.highlighted}</code></pre>`,
     )
   }
 

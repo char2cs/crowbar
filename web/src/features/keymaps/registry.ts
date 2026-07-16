@@ -161,6 +161,3 @@ const COMMAND_BY_ID = new Map(COMMANDS.map((c) => [c.id, c]))
 export function getCommand(id: string): Command | undefined {
   return COMMAND_BY_ID.get(id)
 }
-
-/** Commands whose live binding is resolved from the effective keymap. */
-export const LIVE_EDITABLE_COMMAND_IDS = COMMANDS.filter((c) => c.liveEditable).map((c) => c.id)

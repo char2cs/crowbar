@@ -63,7 +63,7 @@ func (s *stubFiles) ReadContent(_ context.Context, _, _ string) (domain.FileCont
 	return domain.FileContent{}, nil
 }
 
-func (s *stubFiles) WriteContent(_ context.Context, _, _, _ string, _ time.Time) error {
+func (s *stubFiles) WriteContent(_ context.Context, _, _, _, _ string, _ time.Time) error {
 	return nil
 }
 
@@ -72,6 +72,10 @@ func (s *stubFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) erro
 }
 
 func (s *stubFiles) CreateDir(_ context.Context, _, _ string, _ time.Time) error {
+	return nil
+}
+
+func (s *stubFiles) Copy(_ context.Context, _, _, _ string, _ time.Time) error {
 	return nil
 }
 

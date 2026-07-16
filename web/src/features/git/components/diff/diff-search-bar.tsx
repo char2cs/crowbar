@@ -32,10 +32,9 @@ export function DiffSearchBar({ search, onClose }: DiffSearchBarProps) {
         : `${currentIndex + 1}/${total}${limited ? '+' : ''}`
 
   return (
-    <div
-      role="search"
-      className="flex shrink-0 items-center gap-1 border-border border-b bg-background px-2 py-1.5"
-    >
+    // <search> is the native HTML element for this landmark (Baseline 2023),
+    // so it carries the "search" role for free — no role attribute needed.
+    <search className="flex shrink-0 items-center gap-1 border-border border-b bg-background px-2 py-1.5">
       <Input
         size="sm"
         autoFocus
@@ -105,6 +104,6 @@ export function DiffSearchBar({ search, onClose }: DiffSearchBarProps) {
       >
         <X className="size-3.5" />
       </Button>
-    </div>
+    </search>
   )
 }

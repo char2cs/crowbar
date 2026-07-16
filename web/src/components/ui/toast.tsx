@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import type React from 'react'
 import { cn } from '@/lib/utils'
-import { buttonVariants } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button-variants'
 
 const TOAST_ICONS = {
   error: CircleAlertIcon,
@@ -138,6 +138,12 @@ function Toasts({
                     <div
                       className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
                       data-slot="toast-icon"
+                      // The loading icon's spin is applied via the variant class
+                      // in-data-[type=loading]:animate-spin, whose generated CSS
+                      // class .animate-spin doesn't match — this attribute is what
+                      // exempts it from the prefers-reduced-motion kill-switch in
+                      // index.css (a spinner is status, not decorative motion).
+                      data-essential-motion=""
                     >
                       <Icon className="in-data-[type=loading]:animate-spin in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning in-data-[type=loading]:opacity-80" />
                     </div>
@@ -225,6 +231,9 @@ function AnchoredToasts({
                         <div
                           className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
                           data-slot="toast-icon"
+                          // Same reduced-motion spinner exemption as the stacked
+                          // variant above — see index.css.
+                          data-essential-motion=""
                         >
                           <Icon className="in-data-[type=loading]:animate-spin in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning in-data-[type=loading]:opacity-80" />
                         </div>
@@ -313,5 +322,3 @@ export function AnchoredToastProvider({
     </Toast.Provider>
   )
 }
-
-export { Toast as ToastPrimitive }

@@ -35,11 +35,6 @@ export const joinPath = (parentPath: string, ...segments: string[]): string => {
   return result
 }
 
-export const ensureTrailingPathSeparator = (path: string): string => {
-  if (!path || /[\\/]$/.test(path)) return path
-  return `${path}${getPathSeparator(path)}`
-}
-
 export const getBaseName = (path: string, fallback = 'Untitled'): string => {
   const strippedPath = stripTrailingPathSeparators(path)
   const normalizedPath = normalizePath(strippedPath)
@@ -101,29 +96,4 @@ export const getRelativePath = (
   }
 
   return fullPath
-}
-
-/**
- * Get the directory path without the filename
- * @param fullPath - The full file path
- * @param rootFolderPath - The root folder path
- * @returns The directory path
- */
-export const getDirectoryPath = (
-  fullPath: string,
-  rootFolderPath: string | null | undefined,
-): string => {
-  const relativePath = getRelativePath(fullPath, rootFolderPath)
-  const normalizedRelativePath = normalizePath(relativePath)
-  const lastSlashIndex = normalizedRelativePath.lastIndexOf('/')
-  return lastSlashIndex > 0 ? normalizedRelativePath.substring(0, lastSlashIndex) : ''
-}
-
-/**
- * Get the folder name from a path
- * @param path - The full folder path
- * @returns The folder name
- */
-export const getFolderName = (path: string): string => {
-  return getBaseName(path, 'Folder')
 }

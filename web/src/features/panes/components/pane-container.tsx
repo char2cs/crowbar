@@ -65,9 +65,9 @@ const AgentChatPane = lazy(() =>
     default: m.AgentChatPane,
   })),
 )
-import { EditorPane } from './editor-pane'
+const EditorPane = lazy(() => import('./editor-pane').then((m) => ({ default: m.EditorPane })))
+const DiffPane = lazy(() => import('./diff-pane').then((m) => ({ default: m.DiffPane })))
 import { TerminalPane } from './terminal-pane'
-import { DiffPane } from './diff-pane'
 
 interface PaneContainerProps {
   pane: PaneGroup
@@ -79,6 +79,7 @@ type PaneRenderBuffer =
   | Exclude<import('../types/pane-content').PaneContent, EditorContent | NewTabContent>
   | EditorBufferShell
 
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive pane renderer — resolves pane content to lazily-loaded surfaces and owns split routing; its length is the routing table, not multiple concerns.
 export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneContainerProps) {
   const activePaneId = useActivePaneId()
   const { activatePaneBuffer, setActivePane } = usePaneActions()
@@ -92,14 +93,19 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
     [bufferActions],
   )
   const workspaceStore = useWorkspaceStore()
-  const openTerminalBuffer = (options?: {
-    name?: string
-    command?: string
-    workingDirectory?: string
-    remoteConnectionId?: string
-    sessionId?: string
-  }): string =>
-    workspaceStore.getState().bufferActions.openContent({ type: 'terminal', ...options })
+  // Stable identity: this feeds a memoized drop handler's dep array; an unstable
+  // wrapper would defeat that memoization. It only closes over workspaceStore.
+  const openTerminalBuffer = useCallback(
+    (options?: {
+      name?: string
+      command?: string
+      workingDirectory?: string
+      remoteConnectionId?: string
+      sessionId?: string
+    }): string =>
+      workspaceStore.getState().bufferActions.openContent({ type: 'terminal', ...options }),
+    [workspaceStore],
+  )
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.()
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
@@ -450,12 +456,13 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       const droppedPaths = extractDroppedFilePaths(e.dataTransfer)
       if (droppedPaths.length > 0 && handleFileOpen) {
         for (const droppedPath of droppedPaths) {
+          // react-doctor-disable-next-line async-await-in-loop -- kept sequential: each open reads the pane's current tab list and appends, so concurrent opens could race on that read-modify-write and land tabs out of drop order. Rare (multi-file drag-drop), not a hot path.
           await handleFileOpen(droppedPath, false)
         }
         return
       }
     },
-    [pane.id, handleFileOpen],
+    [pane.id, handleFileOpen, workspaceStore],
   )
 
   const renderActiveBuffer = useCallback(
@@ -501,21 +508,10 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
             />
           )
 
-        case 'agentChat': {
-          // Both ids are fed straight back from the buffer, and the pane writes both
-          // back through it (repointAgentChatBuffer) — that loop is what makes the tab
-          // follow its runner when the CLI changes conversation.
-          const c = buffer as import('../types/pane-content').AgentChatContent
-          return (
-            <AgentChatPane
-              chatId={c.chatId}
-              runnerId={c.runnerId}
-              wsId={c.wsId}
-              bufferId={c.id}
-              isActivePane={isActivePane}
-            />
-          )
-        }
+        // NOTE: 'agentChat' is intentionally NOT handled here. Like 'terminal', it is
+        // hosted by the always-mounted keep-alive block above (visibility:hidden when
+        // inactive) so a tab switch never remounts its live PTY — and it is excluded
+        // from the active-only Suspense that calls this switch.
 
         case 'markdownPreview':
           return <MarkdownPreview />
@@ -540,11 +536,12 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
     },
     [
       handleExternalEditorExit,
+      handlePromote,
       handleStageHunk,
       handleUnstageHunk,
       isActivePane,
       pane.id,
-      rootFolderPath,
+      pane.previewBufferId,
     ],
   )
 
@@ -553,6 +550,12 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       ref={containerRef}
       data-pane-container
       data-pane-id={pane.id}
+      // The whole pane is layout chrome: clicking anywhere in it (the tab
+      // bar, the editor, empty padding) just marks this pane active as a
+      // side effect. Every actually-interactive surface inside — tabs,
+      // editor, terminal — is a real focusable, keyboard-operable element
+      // that keeps its own role; this wrapper conveys none of its own.
+      role="presentation"
       className={`relative flex h-full w-full flex-col overflow-hidden ${
         // Only ring the whole pane for file drags. Tab drags get the inner
         // SplitDropOverlay zone border instead — showing both is a double border.
@@ -588,38 +591,86 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       >
         {!activeBuffer && <EmptyEditorState />}
 
+        {/* Keep terminal and webviewer buffers always mounted to preserve PTY
+            sessions and embedded webview state. Deliberately OUTSIDE the
+            Suspense boundary below: TerminalPane is statically imported (it
+            never suspends), so a cold chunk load of whichever lazy pane type
+            is active must not transiently unmount these siblings. */}
+        {paneBuffers
+          .filter(
+            (b): b is import('../types/pane-content').TerminalContent => b.type === 'terminal',
+          )
+          .map((b) => {
+            const isActive = b.id === activeBuffer?.id
+            return (
+              <div
+                key={b.id}
+                className="absolute inset-0"
+                style={isActive ? undefined : { visibility: 'hidden' }}
+              >
+                <TerminalPane
+                  sessionId={b.sessionId}
+                  bufferId={b.id}
+                  paneId={pane.id}
+                  initialCommand={b.initialCommand}
+                  workingDirectory={b.workingDirectory}
+                  isActive={isActive && isActivePane}
+                  isVisible={isActive}
+                />
+              </div>
+            )
+          })}
+
+        {/* Agent chats keep-alive exactly like the terminal block above: each is
+            mounted always and only HIDDEN when it isn't the active tab, so its live
+            PTY attachment (and its dormant-revive budget) survive a tab switch with
+            no remount. AgentChatPane is lazy, so — unlike the statically-imported
+            TerminalPane — each buffer needs its OWN Suspense: a cold chunk load must
+            resolve to `null` for that one buffer without unmounting its siblings
+            (the sibling terminals or other chats). `isVisible` is the ACTIVE TAB
+            within this pane; `isActivePane` is whether this pane has focus — they are
+            distinct, and the pane threads both. */}
+        {paneBuffers
+          .filter(
+            (b): b is import('../types/pane-content').AgentChatContent => b.type === 'agentChat',
+          )
+          .map((b) => {
+            const isActive = b.id === activeBuffer?.id
+            return (
+              <div
+                key={b.id}
+                className="absolute inset-0"
+                style={isActive ? undefined : { visibility: 'hidden' }}
+              >
+                <Suspense fallback={null}>
+                  <AgentChatPane
+                    chatId={b.chatId}
+                    runnerId={b.runnerId}
+                    wsId={b.wsId}
+                    bufferId={b.id}
+                    isActivePane={isActivePane}
+                    isVisible={isActive}
+                  />
+                </Suspense>
+              </div>
+            )
+          })}
+
         <Suspense fallback={null}>
-          <>
-            {/* Keep terminal and webviewer buffers always mounted to preserve
-                PTY sessions and embedded webview state. */}
-            {paneBuffers
-              .filter(
-                (b): b is import('../types/pane-content').TerminalContent => b.type === 'terminal',
-              )
-              .map((b) => {
-                const isActive = b.id === activeBuffer?.id
-                return (
-                  <div
-                    key={b.id}
-                    className="absolute inset-0"
-                    style={isActive ? undefined : { visibility: 'hidden' }}
-                  >
-                    <TerminalPane
-                      sessionId={b.sessionId}
-                      bufferId={b.id}
-                      paneId={pane.id}
-                      initialCommand={b.initialCommand}
-                      workingDirectory={b.workingDirectory}
-                      isActive={isActive && isActivePane}
-                      isVisible={isActive}
-                    />
-                  </div>
-                )
-              })}
-            {activeBuffer && activeBuffer.type !== 'terminal' && renderActiveBuffer(activeBuffer)}
-          </>
+          {activeBuffer &&
+            activeBuffer.type !== 'terminal' &&
+            activeBuffer.type !== 'agentChat' &&
+            renderActiveBuffer(activeBuffer)}
         </Suspense>
       </div>
     </div>
   )
 }
+
+// Prefetch the editor chunk after startup settles: first file-open should not
+// pay the network/parse cost, but cold launch must not either (spec P1).
+// Exported (rather than fired as a module-scope side effect) so callers control
+// WHEN this runs relative to the rest of startup — main.tsx invokes it once
+// after the existing init calls. `scheduleIdleTask` falls back to
+// `setTimeout(fn, 0)` where `requestIdleCallback` is absent (jsdom, WKWebView),
+// so production prefetch happens promptly instead of after a fixed 2s.

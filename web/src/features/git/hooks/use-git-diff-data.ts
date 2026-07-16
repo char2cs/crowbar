@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
@@ -20,30 +20,46 @@ interface UseDiffDataReturn {
 
 export const useDiffData = (): UseDiffDataReturn => {
   const workspaceStore = useWorkspaceStore()
-  const buffers = useStore(workspaceStore, (s) => s.buffers)
   const activeBufferId = useStore(
     workspaceStore,
     (s) => s.paneActions.getActivePane()?.activeBufferId ?? null,
   )
-  const activeBuffer = buffers.find((b) => b.id === activeBufferId) || null
-  const updateBufferContent = (
-    bufferId: string,
-    content: string,
-    _markDirty: boolean,
-    diffData?:
-      | import('../types/git-diff-types').MultiFileDiff
-      | import('../types/git-types').GitDiff,
-  ) => {
-    workspaceStore.setState((state) => ({
-      ...state,
-      buffers: state.buffers.map((b) =>
-        b.id === bufferId && b.type === 'diff'
-          ? { ...b, content, ...(diffData !== undefined ? { diffData } : {}) }
-          : b,
-      ),
-    }))
-  }
-  const closeBuffer = (id: string) => workspaceStore.getState().bufferActions.closeBuffer(id)
+  // Subscribe to ONLY the active buffer, not the whole `buffers` array. immer's
+  // structural sharing keeps every other buffer's reference identical, so a
+  // content flush on some OTHER buffer no longer re-renders DiffViewer or
+  // re-runs the find + JSON.parse below. This re-renders only when the active
+  // buffer itself changes identity (its content/diffData actually moved).
+  const activeBuffer = useStore(
+    workspaceStore,
+    (s) => s.buffers.find((b) => b.id === activeBufferId) ?? null,
+  )
+  // Stable identity: refresh() depends on these, and refresh() is itself a
+  // dependency of the git-status-changed listener effect — unstable references
+  // would re-subscribe that window listener on every render.
+  const updateBufferContent = useCallback(
+    (
+      bufferId: string,
+      content: string,
+      _markDirty: boolean,
+      diffData?:
+        | import('../types/git-diff-types').MultiFileDiff
+        | import('../types/git-types').GitDiff,
+    ) => {
+      workspaceStore.setState((state) => ({
+        ...state,
+        buffers: state.buffers.map((b) =>
+          b.id === bufferId && b.type === 'diff'
+            ? { ...b, content, ...(diffData !== undefined ? { diffData } : {}) }
+            : b,
+        ),
+      }))
+    },
+    [workspaceStore],
+  )
+  const closeBuffer = useCallback(
+    (id: string) => workspaceStore.getState().bufferActions.closeBuffer(id),
+    [workspaceStore],
+  )
   const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath)
 
   const [isLoading, setIsLoading] = useState(false)
@@ -51,17 +67,23 @@ export const useDiffData = (): UseDiffDataReturn => {
 
   const isRefreshing = useRef(false)
 
-  const rawDiffData: GitDiff | MultiFileDiff | null =
-    (activeBuffer?.type === 'diff' && activeBuffer.diffData) ||
-    (activeBuffer?.type === 'diff' && activeBuffer.content
-      ? (() => {
-          try {
-            return JSON.parse(activeBuffer.content) as GitDiff | MultiFileDiff
-          } catch {
-            return null
-          }
-        })()
-      : null)
+  // Keep the JSON.parse fallback out of the render path: it now runs only when
+  // the active buffer's identity changes (memoized on it), not on every
+  // unrelated buffer churn tick — the id-scoped subscription above already
+  // stops those from re-rendering, and this stops the parse from re-running
+  // even when this hook does re-render for another reason.
+  const rawDiffData = useMemo<GitDiff | MultiFileDiff | null>(() => {
+    if (activeBuffer?.type !== 'diff') return null
+    if (activeBuffer.diffData) return activeBuffer.diffData
+    if (activeBuffer.content) {
+      try {
+        return JSON.parse(activeBuffer.content) as GitDiff | MultiFileDiff
+      } catch {
+        return null
+      }
+    }
+    return null
+  }, [activeBuffer])
 
   const diff = rawDiffData && 'file_path' in rawDiffData ? rawDiffData : null
 

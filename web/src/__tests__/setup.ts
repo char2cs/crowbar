@@ -89,3 +89,24 @@ if (typeof document !== 'undefined') {
   if (typeof doc.queryCommandValue !== 'function') doc.queryCommandValue = () => ''
   if (typeof doc.execCommand !== 'function') doc.execCommand = () => false
 }
+
+// jsdom does not implement matchMedia. Monaco's StandaloneThemeService reads it
+// (for the OS high-contrast-scheme listener) as soon as the standalone editor
+// services / any basic-languages contribution's shared editor/contrib chain is
+// evaluated — for some import paths that happens at MODULE IMPORT time, before
+// any per-test shim assigned after an `import` statement would run (ES module
+// imports are hoisted ahead of sibling top-level statements in the same file,
+// so a same-file shim can lose this race). A global stub here runs before every
+// test file's module graph loads. Inert: never matches, no listeners fire.
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  })) as typeof window.matchMedia
+}

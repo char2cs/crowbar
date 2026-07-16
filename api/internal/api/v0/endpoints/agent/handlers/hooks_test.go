@@ -110,6 +110,9 @@ type fakeAgentUsecase struct {
 	resumeSegID string
 	resumeErr   error
 
+	stopCalls []string
+	stopErr   error
+
 	handoffStr string
 	handoffErr error
 
@@ -243,6 +246,14 @@ func (f *fakeAgentUsecase) ResumeChat(
 		return "", f.resumeErr
 	}
 	return f.resumeSegID, nil
+}
+
+func (f *fakeAgentUsecase) StopChat(
+	_ context.Context,
+	chatID string,
+) error {
+	f.stopCalls = append(f.stopCalls, chatID)
+	return f.stopErr
 }
 
 func (f *fakeAgentUsecase) AssembleHandoff(

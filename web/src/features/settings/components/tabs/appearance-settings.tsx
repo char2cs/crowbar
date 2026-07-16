@@ -11,7 +11,8 @@ import {
 import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 import { Button } from '@/components/ui/button'
 import NumberInput from '@/components/ui/number-input'
-import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from '../settings-section'
+import Section, { SettingRow } from '../settings-section'
+import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 import {
   Select,
   SelectTrigger,
@@ -22,6 +23,26 @@ import {
 import { cn } from '@/utils/cn'
 import { FontSelector } from '../font-selector'
 import type { Theme, ThemeMode } from '@/features/settings/types/settings'
+
+const handleUploadTheme = () => {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.json'
+  input.style.display = 'none'
+  document.body.appendChild(input)
+  input.onchange = async (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0]
+    input.remove()
+    if (file) {
+      const { uploadTheme } = await import('@/features/settings/utils/theme-upload')
+      const result = await uploadTheme(file)
+      if (!result.success) {
+        console.error('Theme upload failed:', result.error)
+      }
+    }
+  }
+  input.click()
+}
 
 const THEME_MODE_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'system', label: 'Sync with System' },
@@ -80,26 +101,6 @@ export const AppearanceSettings = () => {
     if (!fallback) return iconThemeOptions
     return [{ value: fallback.id, label: fallback.name }, ...iconThemeOptions]
   }, [iconThemeOptions, settings.iconTheme])
-
-  const handleUploadTheme = () => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.json'
-    input.style.display = 'none'
-    document.body.appendChild(input)
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0]
-      input.remove()
-      if (file) {
-        const { uploadTheme } = await import('@/features/settings/utils/theme-upload')
-        const result = await uploadTheme(file)
-        if (!result.success) {
-          console.error('Theme upload failed:', result.error)
-        }
-      }
-    }
-    input.click()
-  }
 
   return (
     <div className="space-y-4">
@@ -252,6 +253,32 @@ export const AppearanceSettings = () => {
               ))}
             </SelectContent>
           </Select>
+        </SettingRow>
+      </Section>
+
+      <Section title="Performance">
+        <SettingRow
+          label="Keep Workspaces in Memory"
+          description="Minutes a workspace stays loaded after you switch away, so switching back is instant. 0 unloads it immediately. At most 6 workspaces are kept regardless."
+          onReset={() =>
+            updateSetting(
+              'workspaceKeepAliveMinutes',
+              getDefaultSetting('workspaceKeepAliveMinutes'),
+            )
+          }
+          canReset={
+            settings.workspaceKeepAliveMinutes !== getDefaultSetting('workspaceKeepAliveMinutes')
+          }
+        >
+          <NumberInput
+            min="0"
+            max="120"
+            value={settings.workspaceKeepAliveMinutes}
+            onChange={(val) => updateSetting('workspaceKeepAliveMinutes', val)}
+            className={cn(SETTINGS_CONTROL_WIDTHS.number, 'tabular-nums')}
+            size="xs"
+            aria-label={`Keep workspaces in memory: ${settings.workspaceKeepAliveMinutes} minutes`}
+          />
         </SettingRow>
       </Section>
     </div>

@@ -357,4 +357,72 @@ describe('attachOnly — an agent pane must never spawn a shell', () => {
     expect(createSpy).toHaveBeenCalledOnce()
     expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
   })
+
+  // THE DEAD-AGENT-CHAT REGRESSION. Crowbar does not portal terminals, so an
+  // attach-only xterm is BRAND-NEW on every (re)mount — it holds no screen. The
+  // daemon paints a client only at ATTACH, so a live in-memory transport that is
+  // merely REUSED (no terminalAttach) leaves that fresh xterm blank; and when the
+  // survivor is a corpse (a refcount that skipped its detach, a half-open socket)
+  // every keystroke is dropped against it. So — UNLIKE a shell tab — attach-only
+  // must re-attach even when terminalHasTransport() is true. This is the case the
+  // prior code silently reused (setHasTransport(true) below), and the fix re-attaches.
+  it('attachOnly RE-ATTACHES even when a live in-memory transport is present (never silent-reuse)', async () => {
+    mocks.setHasTransport(true) // a transport SURVIVED the remount (refcount skip / co-view)
+    listSpy.mockResolvedValueOnce(['agent-term']) // the agent PTY is still live on the daemon
+
+    const r = await resolveTerminalConnection({
+      workspaceId: 'ws-1',
+      tabSessionId: 'agent-term',
+      storeConnectionId: 'agent-term',
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
+      attachOnly: true,
+    })
+
+    // The load-bearing assertion: it re-attached (pulling the daemon snapshot and a
+    // fresh live transport) rather than short-circuiting on the surviving transport.
+    expect(mocks.attachSpy).toHaveBeenCalledWith('agent-term', '/base')
+    expect(r).toEqual({ connectionId: 'agent-term', reused: true })
+    expect(createSpy).not.toHaveBeenCalled()
+  })
+
+  it('attachOnly with a live in-memory transport but a daemon-reaped PTY reports GONE (no phantom reuse)', async () => {
+    mocks.setHasTransport(true) // stale/phantom transport lingers in the map
+    listSpy.mockResolvedValue([]) // ...but the daemon has actually reaped the PTY
+
+    const promise = resolveTerminalConnection({
+      workspaceId: 'ws-1',
+      tabSessionId: 'agent-term',
+      storeConnectionId: 'agent-term',
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
+      attachOnly: true,
+    })
+    await vi.advanceTimersByTimeAsync(400) // the restart-window retry still applies
+    const r = await promise
+
+    // Reusing the phantom would have handed back a dead connection; instead it must
+    // report gone so the pane renders its dormant/Resume state.
+    expect(r).toEqual({ gone: true })
+    expect(mocks.attachSpy).not.toHaveBeenCalled()
+    expect(createSpy).not.toHaveBeenCalled()
+  })
+
+  it('NO REGRESSION: a SHELL tab with a live transport still reuses in place (no re-attach)', async () => {
+    mocks.setHasTransport(true)
+    const r = await resolveTerminalConnection({
+      workspaceId: 'ws-1',
+      tabSessionId: 'tab-1',
+      storeConnectionId: 'conn-store',
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
+      // attachOnly unset — a portaled shell tab whose xterm outlives layout changes.
+    })
+    expect(r).toEqual({ connectionId: 'conn-store', reused: true })
+    expect(mocks.attachSpy).not.toHaveBeenCalled() // fast in-place reuse preserved
+    expect(listSpy).not.toHaveBeenCalled()
+  })
 })

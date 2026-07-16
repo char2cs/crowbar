@@ -1672,6 +1672,64 @@ func (u *Usecase) ResumeChat(
 	return u.switchProviderLocked(ctx, chatID, last.ProviderID)
 }
 
+// StopChat gracefully terminates the chat's live agent process and leaves the
+// chat DORMANT (the chat entry and its bound vendor conversation are retained) so
+// a later reopen resumes the real conversation via the ordinary ResumeChat path.
+// It is what closing a chat TAB calls, and it is the exact counterpart of
+// ResumeChat: unlike SwitchProvider it does not respawn, and unlike PurgeChat it
+// does not delete the chat.
+//
+// The in-flight turn is aborted BY DESIGN — "close = stop". It deliberately does
+// NOT awaitTurnComplete: completed turns are already flushed to the CLI's on-disk
+// transcript (that is what makes --resume work), so only the in-progress reply is
+// lost, and that is the cost the user chose. This is precisely the state the daemon
+// already handles when an agent process dies on its own mid-turn.
+//
+// It reuses retire — the same displace-then-graceful-terminate teardown every close
+// path in this package converges on — rather than quitOutgoingCLI, and the choice is
+// deliberate: quitOutgoingCLI is documented "only ever reached once the chat is NOT
+// mid-turn", because a switch WAITS for the turn before quitting so its handoff
+// carries it. A close does the opposite. retire fits it exactly:
+//
+//   - DISPLACE FIRST records the placement fact (the runner is off the chat) — a
+//     truth we own, not a liveness claim — which drops the chat to the dormant query
+//     (LiveRunnerForChat now reports none) and clears any "Working" turn spinner via
+//     closeAbandonedTurn, the moment this returns.
+//   - TERMINATE SECOND, best-effort. There is no respawn to protect, so the kill-first
+//     ordering quitOutgoingCLI needs does not apply here; a failed SIGTERM leaks a
+//     process that dies on its own rather than wedging a close the user asked for
+//     (the same best-effort contract PurgeChat's teardown has).
+//
+// The runner is NOT Exited here. Its PTY's death does that (onExit →
+// reconcileRunnerExit — "every teardown path in this package converges here through
+// the same door"), the identical door a mid-turn crash exits through — so StopChat
+// lands the exact end-state the daemon already produces when a CLI dies on its own:
+// no live runner on the chat, the chat still present with its bound conversation, and
+// no stuck turn.
+//
+// A chat with no live runner is ALREADY dormant: a clean nil no-op, not an error —
+// the same absence-is-the-answer contract as retireChatRunners.
+func (u *Usecase) StopChat(
+	ctx context.Context,
+	chatID string,
+) error {
+	// The chat's spawn gate, for the same reason every teardown path takes it: a stop
+	// racing a switch or resume must not terminate a runner the other path is mid-way
+	// through placing. It is never taken on the hook path, so a CLI still talking as it
+	// dies can always reach us.
+	defer u.spawns.lock(chatID)()
+
+	live, err := u.runners.LiveRunnerForChat(ctx, chatID)
+	if errors.Is(err, agentrunner.ErrNotFound) {
+		return nil // already dormant: there is no live CLI to stop
+	}
+	if err != nil {
+		return fmt.Errorf("agent: stop chat: live runner: %w", err)
+	}
+	u.retire(ctx, live)
+	return nil
+}
+
 // resumableConversation picks the conversation targetProviderID should be resumed
 // into, and the moment it left (the cut for the "while you were away" gap). Returns
 // "" when there is nothing resumable — the provider is new to this chat, or it never

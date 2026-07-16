@@ -95,17 +95,19 @@ func TestFileUsecase_WriteContent_TriggersSync(t *testing.T) {
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
 		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
 	}
-	var wrotePath, wroteContent string
-	fs.WriteContentFn = func(_, filePath, content string) error {
+	var wrotePath, wroteContent, wroteEncoding string
+	fs.WriteContentFn = func(_, filePath, content, encoding string) error {
 		wrotePath = filePath
 		wroteContent = content
+		wroteEncoding = encoding
 		return nil
 	}
 
-	err := uc.WriteContent(ctx, "w1", "a.go", "data", now)
+	err := uc.WriteContent(ctx, "w1", "a.go", "data", "base64", now)
 	require.NoError(t, err)
 	assert.Equal(t, "a.go", wrotePath)
 	assert.Equal(t, "data", wroteContent)
+	assert.Equal(t, "base64", wroteEncoding, "encoding must reach the fs engine unchanged")
 	assert.True(t, syncer.Synced)
 	assert.Equal(t, "w1", syncer.SyncedID)
 }
@@ -117,11 +119,11 @@ func TestFileUsecase_WriteContent_FsError(t *testing.T) {
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
 		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
 	}
-	fs.WriteContentFn = func(_, _, _ string) error {
+	fs.WriteContentFn = func(_, _, _, _ string) error {
 		return errors.New("boom")
 	}
 
-	err := uc.WriteContent(ctx, "w1", "a.go", "data", time.Now())
+	err := uc.WriteContent(ctx, "w1", "a.go", "data", "", time.Now())
 	assert.Error(t, err)
 	assert.False(t, syncer.Synced)
 }
@@ -165,6 +167,39 @@ func TestFileUsecase_Rename_TriggersSync(t *testing.T) {
 	assert.True(t, syncer.Synced)
 }
 
+func TestFileUsecase_Copy_TriggersSync(t *testing.T) {
+	fs, syncer, uc := newFileUsecase(t)
+	ctx := context.Background()
+
+	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+	}
+	var gotRepo, gotSrc, gotDest string
+	fs.CopyFn = func(repoPath, sourcePath, destPath string) error {
+		gotRepo, gotSrc, gotDest = repoPath, sourcePath, destPath
+		return nil
+	}
+
+	require.NoError(t, uc.Copy(ctx, "w1", "a.png", "a copy.png", time.Now()))
+	assert.Equal(t, "/repo/x", gotRepo)
+	assert.Equal(t, "a.png", gotSrc)
+	assert.Equal(t, "a copy.png", gotDest)
+	assert.True(t, syncer.Synced)
+}
+
+func TestFileUsecase_Copy_FsError(t *testing.T) {
+	fs, syncer, uc := newFileUsecase(t)
+	ctx := context.Background()
+
+	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+	}
+	fs.CopyFn = func(_, _, _ string) error { return errors.New("boom") }
+
+	assert.Error(t, uc.Copy(ctx, "w1", "a.png", "a copy.png", time.Now()))
+	assert.False(t, syncer.Synced, "a failed copy must not resync")
+}
+
 func TestFileUsecase_Delete_TriggersSync(t *testing.T) {
 	fs, syncer, uc := newFileUsecase(t)
 	ctx := context.Background()
@@ -200,9 +235,10 @@ func TestFileUsecase_AllOps_WorkspaceError(t *testing.T) {
 
 	_, err := uc.ReadContent(ctx, "w1", "a.go")
 	assert.Error(t, err)
-	assert.Error(t, uc.WriteContent(ctx, "w1", "a.go", "d", now))
+	assert.Error(t, uc.WriteContent(ctx, "w1", "a.go", "d", "", now))
 	assert.Error(t, uc.CreateFile(ctx, "w1", "a.go", now))
 	assert.Error(t, uc.CreateDir(ctx, "w1", "d", now))
+	assert.Error(t, uc.Copy(ctx, "w1", "a.go", "a copy.go", now))
 	assert.Error(t, uc.Rename(ctx, "w1", "a.go", "b.go", now))
 }
 
@@ -215,9 +251,9 @@ func TestFileUsecase_WriteContent_ResyncError(t *testing.T) {
 	syncer.SyncFn = func(_ context.Context, _ string, _ time.Time) (domain.Workspace, error) {
 		return domain.Workspace{}, errors.New("boom")
 	}
-	fs.WriteContentFn = func(_, _, _ string) error { return nil }
+	fs.WriteContentFn = func(_, _, _, _ string) error { return nil }
 
-	err := uc.WriteContent(ctx, "w1", "a.go", "d", time.Now())
+	err := uc.WriteContent(ctx, "w1", "a.go", "d", "", time.Now())
 	assert.Error(t, err)
 }
 
@@ -234,15 +270,17 @@ func TestFileUsecase_Writes_RejectLockedWorkspace(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 	lockedWorkspace(syncer)
-	fs.WriteContentFn = func(_, _, _ string) error { return nil }
+	fs.WriteContentFn = func(_, _, _, _ string) error { return nil }
 	fs.CreateFileFn = func(_, _ string) error { return nil }
 	fs.CreateDirFn = func(_, _ string) error { return nil }
+	fs.CopyFn = func(_, _, _ string) error { return nil }
 	fs.RenameFn = func(_, _, _ string) error { return nil }
 	fs.DeleteFn = func(_, _ string) error { return nil }
 
-	require.ErrorIs(t, uc.WriteContent(ctx, "w1", "a.go", "d", now), apperr.ErrLocked)
+	require.ErrorIs(t, uc.WriteContent(ctx, "w1", "a.go", "d", "", now), apperr.ErrLocked)
 	require.ErrorIs(t, uc.CreateFile(ctx, "w1", "a.go", now), apperr.ErrLocked)
 	require.ErrorIs(t, uc.CreateDir(ctx, "w1", "sub", now), apperr.ErrLocked)
+	require.ErrorIs(t, uc.Copy(ctx, "w1", "a.go", "a copy.go", now), apperr.ErrLocked)
 	require.ErrorIs(t, uc.Rename(ctx, "w1", "a.go", "b.go", now), apperr.ErrLocked)
 	require.ErrorIs(t, uc.Delete(ctx, "w1", "a.go", now), apperr.ErrLocked)
 	assert.False(t, syncer.Synced, "locked rejection must not mutate or resync")

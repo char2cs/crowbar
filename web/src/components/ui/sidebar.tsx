@@ -3,7 +3,7 @@
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
 import { cva, type VariantProps } from 'class-variance-authority'
-import { animate, motion, useMotionValue } from 'framer-motion'
+import { animate, domAnimation, LazyMotion, m, useMotionValue } from 'framer-motion'
 import { PanelLeftIcon } from 'lucide-react'
 import * as React from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -58,7 +58,7 @@ export type SidebarContextProps = {
   toggleSidebar: () => void
 }
 
-export const SidebarContext: React.Context<SidebarContextProps | null> =
+const SidebarContext: React.Context<SidebarContextProps | null> =
   React.createContext<SidebarContextProps | null>(null)
 
 export function useSidebar(): SidebarContextProps {
@@ -1011,23 +1011,25 @@ export function SidebarSectionPager({
 
   return (
     <div ref={viewportRef} className={cn('min-h-0 overflow-hidden', className)}>
-      <motion.div className="flex h-full min-h-0" style={{ x }}>
-        {items.map((item) => {
-          const isActive = item.id === value
-          return (
-            <div
-              key={item.id}
-              aria-hidden={!isActive}
-              className={cn(
-                'h-full min-w-full cursor-auto overflow-hidden',
-                !isActive && 'pointer-events-none',
-              )}
-            >
-              {item.content}
-            </div>
-          )
-        })}
-      </motion.div>
+      <LazyMotion features={domAnimation}>
+        <m.div className="flex h-full min-h-0" style={{ x }}>
+          {items.map((item) => {
+            const isActive = item.id === value
+            return (
+              <div
+                key={item.id}
+                aria-hidden={!isActive}
+                className={cn(
+                  'h-full min-w-full cursor-auto overflow-hidden',
+                  !isActive && 'pointer-events-none',
+                )}
+              >
+                {item.content}
+              </div>
+            )
+          })}
+        </m.div>
+      </LazyMotion>
     </div>
   )
 }

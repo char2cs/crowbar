@@ -24,6 +24,16 @@ vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
   loadReconnect: vi.fn(() => null),
 }))
 
+const { stopChat, deleteChat } = vi.hoisted(() => ({
+  stopChat: vi.fn(async () => {}),
+  deleteChat: vi.fn(async () => {}),
+}))
+
+vi.mock('@/features/agent/api/agent-api', () => ({
+  stopChat,
+  deleteChat,
+}))
+
 const makePaneActions = () => ({
   addBufferToPane: vi.fn(),
   setPanePreviewBuffer: vi.fn(),
@@ -129,6 +139,61 @@ describe('buffer-slice', () => {
     store.getState().bufferActions.closeBuffer(id)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(killTerminalSession).not.toHaveBeenCalled()
+  })
+
+  // Closing an agent-chat tab STOPS its vendor CLI (so the process doesn't leak)
+  // but must KEEP the chat entry resumable — the backend goes dormant, not deleted.
+  // stopChat is called with the buffer's OWN wsId + chatId, and deleteChat is never
+  // touched (closing a tab is not deleting a chat).
+  it('closeBuffer stops the agent CLI of an agentChat buffer (keeps it resumable)', async () => {
+    stopChat.mockClear()
+    deleteChat.mockClear()
+    killTerminalSession.mockClear()
+    const id = store.getState().bufferActions.openContent({
+      type: 'agentChat',
+      chatId: 'chat-7',
+      wsId: 'ws-agent',
+      name: 'Fix the bug',
+    })
+    store.getState().bufferActions.closeBuffer(id)
+    expect(store.getState().buffers).toHaveLength(0)
+    // The stop goes through a dynamic import — flush microtasks.
+    await vi.waitFor(() => expect(stopChat).toHaveBeenCalledWith('ws-agent', 'chat-7'))
+    expect(deleteChat).not.toHaveBeenCalled()
+    expect(killTerminalSession).not.toHaveBeenCalled()
+  })
+
+  // Closing a shell terminal STILL hard-kills its PTY (unchanged) and must NOT call the
+  // agent stop endpoint — the two close behaviours are distinct.
+  it('closeBuffer does not stop an agent CLI for a terminal buffer', async () => {
+    stopChat.mockClear()
+    const id = store.getState().bufferActions.openContent({
+      type: 'terminal',
+      sessionId: 'sess-term',
+      name: 'Terminal 1',
+    })
+    store.getState().bufferActions.closeBuffer(id)
+    await vi.waitFor(() => expect(killTerminalSession).toHaveBeenCalledWith('sess-term'))
+    expect(stopChat).not.toHaveBeenCalled()
+  })
+
+  // Closing an already-dormant chat (no runner, runnerId '') is a safe no-op: the FE
+  // still calls stopChat (the backend no-ops on a chat with no live CLI), never
+  // deleteChat, and the tab just closes.
+  it('closeBuffer on a dormant agentChat still calls stopChat and never deletes the chat', async () => {
+    stopChat.mockClear()
+    deleteChat.mockClear()
+    const id = store.getState().bufferActions.openContent({
+      type: 'agentChat',
+      chatId: 'chat-dormant',
+      wsId: 'ws-agent',
+      name: 'Dormant chat',
+      runnerId: '',
+    })
+    store.getState().bufferActions.closeBuffer(id)
+    expect(store.getState().buffers).toHaveLength(0)
+    await vi.waitFor(() => expect(stopChat).toHaveBeenCalledWith('ws-agent', 'chat-dormant'))
+    expect(deleteChat).not.toHaveBeenCalled()
   })
 
   it('preview flag is set when isPreview is true', () => {

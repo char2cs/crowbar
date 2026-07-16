@@ -60,17 +60,4 @@ export function Slider({
   )
 }
 
-export function SliderValue({
-  className,
-  ...props
-}: SliderPrimitive.Value.Props): React.ReactElement {
-  return (
-    <SliderPrimitive.Value
-      className={cn('flex justify-end text-sm', className)}
-      data-slot="slider-value"
-      {...props}
-    />
-  )
-}
-
 export { SliderPrimitive }

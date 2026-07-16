@@ -21,6 +21,10 @@ func (e errUsecase) Get(_ context.Context, _ string) (domain.BranchReview, error
 	return domain.BranchReview{}, e.err
 }
 
+func (e errUsecase) GetFiles(_ context.Context, _ string) ([]gitdomain.ReviewFileSummary, error) {
+	return nil, e.err
+}
+
 func (e errUsecase) SetMergeStrategy(
 	_ context.Context,
 	_ string,
@@ -34,6 +38,7 @@ func newErrRouter(uc handlers.ReviewUsecase) *gin.Engine {
 	h := handlers.New(uc)
 	rg := r.Group("/v0")
 	rg.GET("/workspaces/:wsId/review", h.Get)
+	rg.GET("/workspaces/:wsId/review/files", h.GetFiles)
 	rg.PATCH("/workspaces/:wsId/review", h.SetMergeStrategy)
 	return r
 }
@@ -44,6 +49,7 @@ func TestReviewHandlers_NotFound(
 	r := newErrRouter(errUsecase{err: apperr.ErrNotFound})
 
 	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/workspaces/ws1/review", nil).Code)
+	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/workspaces/ws1/review/files", nil).Code)
 }
 
 func TestReviewHandlers_InternalError(
@@ -52,6 +58,7 @@ func TestReviewHandlers_InternalError(
 	r := newErrRouter(errUsecase{err: errors.New("boom")})
 
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, "/v0/workspaces/ws1/review", nil).Code)
+	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, "/v0/workspaces/ws1/review/files", nil).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPatch, "/v0/workspaces/ws1/review",
 		map[string]any{"mergeStrategy": "merge"}).Code)
 }

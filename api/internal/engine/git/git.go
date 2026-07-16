@@ -340,12 +340,17 @@ type Engine interface {
 		branch string,
 	) error
 
-	// WorkingTreeSummary returns +N/-N diff stats from forkPointSha and
-	// hasConflicts/hasCommits used by SyncWorkingTreeState (00 §5.3).
+	// WorkingTreeSummary returns +N/-N diff stats plus hasConflicts/hasCommits
+	// used by SyncWorkingTreeState (00 §5.3). base is EITHER a base branch name
+	// (e.g. "develop") or a fork-point SHA: the summary diffs against the
+	// merge-base of base's freshest tip and HEAD, so it counts only the branch's
+	// own changes and stays correct as the branch is rebased onto newer base
+	// commits — never a frozen fork point that would also count the base branch's
+	// advancement.
 	WorkingTreeSummary(
 		ctx context.Context,
 		repoPath string,
-		forkPointSha string,
+		base string,
 	) (added, deleted int, hasConflicts, hasCommits bool, err error)
 
 	// MergeBase returns the best common ancestor of commits a and b, used to seed
@@ -432,6 +437,16 @@ type Engine interface {
 		repoPath string,
 		ref string,
 	) (gitdomain.MultiFileDiff, error)
+
+	// ReviewFiles returns the files-only summary of DiffAgainstRef's file set —
+	// per-file status + line counts, no hunk content (`git diff --name-status`
+	// + `--numstat`). Backs the sidebar's full changed-files list without ever
+	// fetching line-level diff content (Task 27).
+	ReviewFiles(
+		ctx context.Context,
+		repoPath string,
+		ref string,
+	) ([]gitdomain.ReviewFileSummary, error)
 }
 
 // WorktreeEntry is a single worktree from `git worktree list`. Prunable is true

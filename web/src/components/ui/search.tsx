@@ -1,13 +1,10 @@
 import { cva } from 'class-variance-authority'
 import {
-  TextAa as CaseSensitive,
   CaretDown as ChevronDown,
   CaretRight as ChevronRight,
   CaretUp as ChevronUp,
-  BracketsCurly as Regex,
   ArrowsLeftRight as Replace,
   MagnifyingGlass as Search,
-  TextT as WholeWord,
   X,
 } from '@phosphor-icons/react'
 import type { ReactNode, RefObject } from 'react'
@@ -320,92 +317,4 @@ export function SearchReplaceRow({
       </Button>
     </div>
   )
-}
-
-interface SearchInputProps {
-  value: string
-  onChange: (value: string) => void
-  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void
-  placeholder: string
-  inputRef?: RefObject<HTMLInputElement | null>
-  matchLabel?: string | null
-  options?: SearchToggleOption[]
-  extraActions?: ReactNode
-  className?: string
-}
-
-export function SearchInput({
-  value,
-  onChange,
-  onKeyDown,
-  placeholder,
-  inputRef,
-  matchLabel,
-  options = [],
-  extraActions,
-  className,
-}: SearchInputProps) {
-  return (
-    <div className={cn('flex min-w-0 flex-1 items-center gap-1.5', className)}>
-      <div className="relative min-w-0 flex-1">
-        <Search className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 text-muted-foreground" />
-        <Input
-          ref={inputRef}
-          type="text"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={placeholder}
-          className="ui-text-sm h-8 rounded-lg border-border/80 bg-background py-1 pr-8 pl-8"
-        />
-        {value && (
-          <Button
-            type="button"
-            onClick={() => onChange('')}
-            variant="ghost"
-            compact
-            className="-translate-y-1/2 absolute top-1/2 right-1"
-            aria-label="Clear search"
-          >
-            <X />
-          </Button>
-        )}
-      </div>
-
-      {options.length > 0 && (
-        <div className="flex shrink-0 items-center gap-1">
-          {options.map((option) => (
-            <Button
-              key={option.id}
-              type="button"
-              onClick={option.onToggle}
-              variant="ghost"
-              className={searchToggleButtonVariants({
-                active: option.active,
-              })}
-              tooltip={option.label}
-              aria-label={option.label}
-              aria-pressed={option.active}
-              compact
-            >
-              {option.icon}
-            </Button>
-          ))}
-        </div>
-      )}
-
-      {matchLabel && (
-        <span className="ui-font ui-text-sm shrink-0 text-muted-foreground">{matchLabel}</span>
-      )}
-
-      {extraActions}
-    </div>
-  )
-}
-
-export const SEARCH_TOGGLE_ICONS = {
-  caseSensitive: <CaseSensitive />,
-  wholeWord: <WholeWord />,
-  regex: <Regex />,
-  preserveCase: <span className="ui-font ui-text-xs font-semibold">Aa</span>,
 }

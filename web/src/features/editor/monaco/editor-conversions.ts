@@ -5,7 +5,10 @@
  * per-pane satellites hook share one implementation.
  */
 
-import { MarkerSeverity, Range as MonacoRange } from 'monaco-editor'
+// See the comment in `monaco-diff-editor.tsx`: `editor.api` is the same real
+// singleton as the bare 'monaco-editor' specifier, without eagerly bundling
+// all built-in language contributions.
+import { MarkerSeverity, Range as MonacoRange } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
 import type { Position, Range } from '../types/editor'
 import type { LspDiagnostic } from '../lsp/lsp-client'

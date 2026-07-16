@@ -19,5 +19,6 @@ func Register(
 ) {
 	h := reviewhandlers.New(reviewUsecase)
 	rg.GET("/workspaces/:wsId/review", h.Get)
+	rg.GET("/workspaces/:wsId/review/files", h.GetFiles)
 	rg.PATCH("/workspaces/:wsId/review", h.SetMergeStrategy)
 }

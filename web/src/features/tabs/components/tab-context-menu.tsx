@@ -13,12 +13,15 @@ import {
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { isVirtualContent } from '@/features/panes/types/pane-content'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { stripControlChars } from '@/features/terminal/utils/control-chars'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { ContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { primitivePrompt } from '@/components/ui/primitive-dialog-service'
 import { getBaseName, getDirName } from '@/utils/path-helpers'
 import Keybinding from '@/components/ui/keybinding'
 import { IS_MAC } from '@/utils/platform'
+
+const closeKeys = [IS_MAC ? 'Cmd' : 'Ctrl', 'W']
 
 interface TabContextMenuProps {
   isOpen: boolean
@@ -61,7 +64,6 @@ const TabContextMenu = ({
 
   if (!isOpen || !buffer) return null
 
-  const closeKeys = [IS_MAC ? 'Cmd' : 'Ctrl', 'W']
   const items: ContextMenuItem[] = [
     {
       id: 'pin',
@@ -76,14 +78,17 @@ const TabContextMenu = ({
             label: 'Rename',
             icon: <PencilSimpleLine />,
             onClick: async () => {
-              const nextName = (
-                await primitivePrompt('Enter a terminal name:', {
-                  title: 'Rename Terminal',
-                  defaultValue: buffer.name,
-                  placeholder: 'Terminal name',
-                  confirmLabel: 'Rename',
-                })
-              )?.trim()
+              const rawName = await primitivePrompt('Enter a terminal name:', {
+                title: 'Rename Terminal',
+                defaultValue: buffer.name,
+                placeholder: 'Terminal name',
+                confirmLabel: 'Rename',
+              })
+              // Session `name` feeds the tab-label projection in
+              // useBufferDisplayName (fields joined with \x01), so a pasted
+              // control byte must be stripped before it reaches the store —
+              // same ingress policy as OSC7 cwd paths and OSC titles.
+              const nextName = rawName ? stripControlChars(rawName).trim() : ''
 
               if (!nextName) return
 

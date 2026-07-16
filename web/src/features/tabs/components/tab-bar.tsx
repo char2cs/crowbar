@@ -5,11 +5,7 @@ import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { usePaneById, usePaneActions } from '@/features/workspace/stores/hooks/use-pane-store'
-import {
-  useBuffers,
-  useBuffersByIds,
-  useBufferActions,
-} from '@/features/workspace/stores/hooks/use-buffer-store'
+import { useBufferActions } from '@/features/workspace/stores/hooks/use-buffer-store'
 import {
   useWorkspaceStore,
   useWorkspaceStoreContext,
@@ -25,6 +21,7 @@ import { getRelativePath } from '@/utils/path-helpers'
 import { cn } from '@/utils/cn'
 import { IS_MAC } from '@/utils/platform'
 import TabBarItem from './tab-bar-item'
+import { sameRenderedBuffer } from './tab-bar-item-utils'
 import TabContextMenu from './tab-context-menu'
 import TabNavigationButtons from './tab-navigation-buttons'
 import TabNewButton from './tab-new-button'
@@ -37,12 +34,50 @@ import { NoDndPointerSensor } from '../lib/no-dnd-pointer-sensor'
 
 const writeText = (text: string) => navigator.clipboard.writeText(text)
 
+/**
+ * Subscribes to a pane's buffers PROJECTED to only the fields the tab strip
+ * paints — so TabBar re-renders when a tab's *appearance* changes, never on a
+ * mere content flush. `s.buffers` is a brand-new array on every keystroke
+ * (immer copy-on-write) and the edited buffer gets a fresh identity, so a plain
+ * `useBuffersByIds` subscription re-rendered the entire TabBar (sort + remap)
+ * on every keystroke in any open file. This selector instead returns the SAME
+ * array reference across content flushes and yields a new one only when a
+ * rendered field actually moves.
+ *
+ * The rendered-field set is defined once by `sameRenderedBuffer`
+ * (tab-bar-item.tsx) and reused here as the per-buffer equality, so this
+ * strip-level gate and TabBarItem's per-tab memo can never fall out of sync.
+ * Real `PaneContent` objects are returned (not a reduced tuple) because the tab
+ * strip's own hooks — drag, keyboard-nav, display-name — need the full buffer;
+ * they only ever read rendered fields, so returning a stale-but-rendered-equal
+ * object is safe. Handlers that need live non-rendered fields (e.g. reload,
+ * which reads `content`) read `workspaceStore.getState()` instead.
+ */
+function useRenderedPaneBuffers(paneBufferIds: string[]): PaneContent[] {
+  const prev = useRef<PaneContent[]>([])
+  return useWorkspaceStoreContext((s) => {
+    const map = new Map(s.buffers.map((b) => [b.id, b]))
+    const next: PaneContent[] = []
+    for (const id of paneBufferIds) {
+      const b = map.get(id)
+      if (b && b.type !== 'newTab') next.push(b)
+    }
+    const p = prev.current
+    if (p.length === next.length && next.every((b, i) => sameRenderedBuffer(p[i], b))) {
+      return p
+    }
+    prev.current = next
+    return next
+  })
+}
+
 interface TabBarProps {
   paneId?: string
   onTabClick?: (bufferId: string) => void
   disablePaneActions?: boolean
 }
 
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive tab strip — drag/reorder, overflow scroll and active-tab tracking share one dnd context and scroll ref.
 const TabBar = ({
   paneId,
   onTabClick: externalTabClick,
@@ -71,23 +106,24 @@ const TabBar = ({
     setPendingClose,
   } = useBufferActions()
   const workspaceStore = useWorkspaceStore()
-  const allBuffers = useBuffers()
   const paneBufferIds = pane?.bufferIds ?? []
-  const paneSpecificBuffers = useBuffersByIds(paneBufferIds)
-  const buffers = useMemo(
-    () => (pane ? paneSpecificBuffers : allBuffers).filter((buffer) => buffer.type !== 'newTab'),
-    [pane, paneSpecificBuffers, allBuffers],
-  )
+  // Projected, rendered-field-gated subscription (see useRenderedPaneBuffers):
+  // TabBar no longer re-renders on content flushes, only on tab-appearance
+  // changes. newTab buffers are already filtered out inside the hook.
+  const buffers = useRenderedPaneBuffers(paneBufferIds)
   const activeBufferCandidate = pane ? pane.activeBufferId : globalActiveBufferId
   const activeBufferId =
     activeBufferCandidate && buffers.some((buffer) => buffer.id === activeBufferCandidate)
       ? activeBufferCandidate
       : null
 
-  function handleTabPin(bufferId: string) {
-    const buf = workspaceStore.getState().buffers.find((b) => b.id === bufferId)
-    if (buf) setPinned(bufferId, !buf.isPinned)
-  }
+  const handleTabPin = useCallback(
+    (bufferId: string) => {
+      const buf = workspaceStore.getState().buffers.find((b) => b.id === bufferId)
+      if (buf) setPinned(bufferId, !buf.isPinned)
+    },
+    [workspaceStore, setPinned],
+  )
   function handleCloseOtherTabs(keepBufferId: string) {
     const { buffers: allBufs } = workspaceStore.getState()
     const toClose = allBufs.filter((b) => b.id !== keepBufferId && !b.isPinned)
@@ -121,7 +157,9 @@ const TabBar = ({
     [paneId, reorderPaneBuffers],
   )
   const confirmCloseWithoutSaving = confirmPendingClose
-  const cancelPendingClose = () => setPendingClose(null)
+  // Stable identity: handleCancelClose memoizes on this, so a fresh function each
+  // render would defeat that memo. setPendingClose is a stable store action.
+  const cancelPendingClose = useCallback(() => setPendingClose(null), [setPendingClose])
   const convertPreviewToDefinite = promotePreviewBuffer
 
   const handleTabClick = useCallback(
@@ -154,8 +192,13 @@ const TabBar = ({
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined
-  const allPanes = useWorkspaceStoreContext((s) => s.panes)
-  const mainPaneCount = Object.keys(allPanes).filter((id) => id !== BOTTOM_PANE_ID).length
+  // Subscribe to the DERIVED count, not the whole `panes` record: a number is
+  // referentially stable, so TabBar no longer re-renders on every pane mutation
+  // (another pane's active-buffer swap, buffer add/remove, etc.) — only when the
+  // number of main panes actually changes.
+  const mainPaneCount = useWorkspaceStoreContext(
+    (s) => Object.keys(s.panes).filter((id) => id !== BOTTOM_PANE_ID).length,
+  )
   const isInSplit = pane !== null && paneId !== null && mainPaneCount > 1
   const isBottomPane = paneId === BOTTOM_PANE_ID
 
@@ -267,18 +310,20 @@ const TabBar = ({
     tabRefs.current = tabRefs.current.slice(0, sortedBuffers.length)
   }, [sortedBuffers.length])
 
+  // Takes the item's own buffer (not an index into sortedBuffers) so its deps
+  // stay stable across content flushes — sortedBuffers is rebuilt on every
+  // keystroke, and closing over it here would give every tab a fresh handler
+  // reference and defeat TabBarItem's memo.
   const handleDoubleClick = useCallback(
-    (e: React.MouseEvent, index: number) => {
+    (e: React.MouseEvent, buffer: PaneContent) => {
       e.preventDefault()
       e.stopPropagation()
-      const buffer = sortedBuffers[index]
-      if (!buffer) return
       if (buffer.isPreview) {
         convertPreviewToDefinite(buffer.id)
         promotePreviewBuffer(buffer.id)
       }
     },
-    [sortedBuffers, convertPreviewToDefinite, promotePreviewBuffer],
+    [convertPreviewToDefinite, promotePreviewBuffer],
   )
 
   const handleContextMenu = useCallback((e: React.MouseEvent, buffer: PaneContent) => {
@@ -347,6 +392,34 @@ const TabBar = ({
     onCloseTab: closeTab,
   })
 
+  // Keyboard nav genuinely needs the whole (index-addressed) buffer list to find
+  // neighbours, so useTabKeyboardNav's callback is rebuilt whenever sortedBuffers
+  // changes — i.e. on every content flush. Route it through a latest-ref so the
+  // reference handed to every tab stays stable (memo-friendly) while still
+  // invoking the up-to-date logic.
+  const handleKeyDownRef = useRef(handleKeyDown)
+  handleKeyDownRef.current = handleKeyDown
+  const handleTabKeyDown = useCallback(
+    (e: React.KeyboardEvent, index: number) => handleKeyDownRef.current(e, index),
+    [],
+  )
+
+  // One stable ref-callback per index, cached so the prop handed to each
+  // SortableEditorTab keeps its identity across renders (a fresh ref callback
+  // would make React detach+reattach the node on every render).
+  const tabRefCallbacks = useRef(new Map<number, (el: HTMLDivElement | null) => void>())
+  const getTabRefCallback = useCallback((index: number) => {
+    const cache = tabRefCallbacks.current
+    let cb = cache.get(index)
+    if (!cb) {
+      cb = (el: HTMLDivElement | null) => {
+        tabRefs.current[index] = el
+      }
+      cache.set(index, cb)
+    }
+    return cb
+  }, [])
+
   const MemoizedTabContextMenu = useMemo(() => TabContextMenu, [])
 
   const handleContextMenuCloseTab = useCallback(
@@ -359,7 +432,10 @@ const TabBar = ({
 
   const handleReloadTab = useCallback(
     (bufferId: string) => {
-      const buf = buffers.find((b) => b.id === bufferId)
+      // Read from getState(), not the rendered-field-gated `buffers`: reload
+      // needs the buffer's LIVE `content`, which that projection deliberately
+      // does not track (it can hold a content-stale object reference).
+      const buf = workspaceStore.getState().buffers.find((b) => b.id === bufferId)
       if (buf && buf.path !== 'extensions://marketplace') {
         if (paneId) removeBufferFromPane(paneId, bufferId)
         closeBuffer(bufferId)
@@ -377,7 +453,7 @@ const TabBar = ({
         }, 100)
       }
     },
-    [buffers, closeBuffer, openContent, paneId, removeBufferFromPane],
+    [workspaceStore, closeBuffer, openContent, paneId, removeBufferFromPane],
   )
 
   const handleSplitRight = useMemo(
@@ -443,23 +519,17 @@ const TabBar = ({
               className="tab-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]"
             >
               {sortedBuffers.map((buffer, index) => (
-                <SortableEditorTab
-                  key={buffer.id}
-                  id={buffer.id}
-                  tabRef={(el) => {
-                    tabRefs.current[index] = el
-                  }}
-                >
+                <SortableEditorTab key={buffer.id} id={buffer.id} tabRef={getTabRefCallback(index)}>
                   <TabBarItem
                     buffer={buffer}
                     displayName={getBufferDisplayName(buffer)}
                     index={index}
                     isActive={buffer.id === activeBufferId}
                     isDraggedTab={buffer.id === draggedBufferId}
-                    onClick={() => handleTabSelect(buffer)}
-                    onDoubleClick={(e) => handleDoubleClick(e, index)}
-                    onContextMenu={(e) => handleContextMenu(e, buffer)}
-                    onKeyDown={(e) => handleKeyDown(e, index)}
+                    onSelect={handleTabSelect}
+                    onDoubleClick={handleDoubleClick}
+                    onContextMenu={handleContextMenu}
+                    onKeyDown={handleTabKeyDown}
                     handleTabClose={closeTab}
                     handleTabPin={handleTabPin}
                   />

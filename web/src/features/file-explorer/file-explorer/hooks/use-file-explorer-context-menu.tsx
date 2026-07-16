@@ -1,11 +1,14 @@
 import {
   CaretDoubleUp,
   Copy,
+  CopySimple,
   PencilSimple as Edit,
   FilePlus,
   FileText,
+  FolderMinus,
   FolderOpen,
   FolderPlus,
+  FolderSimplePlus,
   Image as ImageIcon,
   Info,
   Link,
@@ -13,6 +16,7 @@ import {
   Scissors,
   TerminalWindow as Terminal,
   Trash,
+  UploadSimple,
   Warning,
 } from '@phosphor-icons/react'
 import { useCallback, useMemo, useState } from 'react'
@@ -33,12 +37,19 @@ import { getBaseName, getDirName, getRelativePath, joinPath } from '@/utils/path
 
 interface UseFileExplorerContextMenuOptions {
   rootFolderPath?: string
+  /**
+   * True when the active workspace is a protected/locked worktree. The daemon
+   * refuses every write on a locked workspace (409 "workspace locked"), so the
+   * menu must not offer always-refused mutations. Mutation items (New File, New
+   * Folder, Upload, Duplicate, Rename, Delete, Cut, env-template) are hidden;
+   * read-only items (Open, Copy Path/Content, Reveal, Copy, …) stay.
+   */
+  isLocked?: boolean
   onFileSelect: (path: string, isDir: boolean) => void | Promise<void>
   onCreateNewFileInDirectory?: (
     directoryPath: string,
     fileName: string,
   ) => void | string | Promise<string | undefined>
-  onCreateNewFolderInDirectory?: (directoryPath: string, folderName: string) => void
   onGenerateImage?: (directoryPath: string) => void
   onRefreshDirectory?: (path: string) => void
   onRenamePath?: (path: string, newName?: string) => void
@@ -86,9 +97,9 @@ function formatFileSize(sizeHeader: string | null): string {
 
 export function useFileExplorerContextMenu({
   rootFolderPath,
+  isLocked = false,
   onFileSelect,
   onCreateNewFileInDirectory,
-  onCreateNewFolderInDirectory,
   onGenerateImage,
   onRefreshDirectory,
   onRenamePath,
@@ -221,18 +232,35 @@ export function useFileExplorerContextMenu({
       const dirTargetPath = isRootTarget ? '' : contextMenu.path
 
       items.push(
-        {
-          id: 'new-file',
-          label: 'New File',
-          icon: <FilePlus />,
-          onClick: () => onStartInlineEditing(dirTargetPath, false),
-        },
-        {
-          id: 'new-folder',
-          label: 'New Folder',
-          icon: <FolderPlus />,
-          onClick: () => onStartInlineEditing(dirTargetPath, true),
-        },
+        // New File / New Folder / Upload mutate the worktree — hidden on a locked
+        // workspace (every write there is a guaranteed 409). Refresh / Open All /
+        // Collapse All / Open in Terminal below are read-only and always shown.
+        ...(isLocked
+          ? []
+          : [
+              {
+                id: 'new-file',
+                label: 'New File',
+                icon: <FilePlus />,
+                onClick: () => onStartInlineEditing(dirTargetPath, false),
+              },
+              {
+                id: 'new-folder',
+                label: 'New Folder',
+                icon: <FolderPlus />,
+                onClick: () => onStartInlineEditing(dirTargetPath, true),
+              },
+            ]),
+        ...(onUploadFile && !isLocked
+          ? [
+              {
+                id: 'upload-file',
+                label: 'Upload File',
+                icon: <UploadSimple />,
+                onClick: () => onUploadFile(dirTargetPath),
+              },
+            ]
+          : []),
         {
           id: 'refresh',
           label: 'Refresh',
@@ -283,10 +311,25 @@ export function useFileExplorerContextMenu({
         })
       }
 
+      // "Add Folder to Workspace" is a workspace-level affordance: its impl takes
+      // no path (it opens a folder picker), so it belongs on the root target only,
+      // not on every subdirectory.
+      if (isRootTarget && onAddFolderToWorkspace) {
+        items.push({
+          id: 'add-folder-to-workspace',
+          label: 'Add Folder to Workspace',
+          icon: <FolderSimplePlus />,
+          onClick: () => onAddFolderToWorkspace(),
+        })
+      }
+
       items.push({ id: 'sep-dir', label: '', separator: true, onClick: () => {} })
     } else {
       const fileName = getBaseName(contextMenu.path, '')
+      // Env-template items create a sibling .env file — a mutation, so hidden on
+      // a locked workspace.
       const canCreateEnvTemplate =
+        !isLocked &&
         isEnvFileName(fileName) &&
         !contextMenu.path.startsWith('remote://') &&
         Boolean(onCreateNewFileInDirectory)
@@ -388,6 +431,25 @@ export function useFileExplorerContextMenu({
           )
         },
       },
+      ...(onRevealInFinder
+        ? [
+            {
+              id: 'reveal',
+              label: 'Reveal in Finder',
+              icon: <FolderOpen />,
+              onClick: () => {
+                // Tree nodes carry a root-relative path; Finder needs the absolute
+                // one. Mirror the Copy Path join (skip when already absolute, which
+                // happens for the workspace root itself).
+                const absolutePath =
+                  rootFolderPath && !contextMenu.path.startsWith(rootFolderPath)
+                    ? joinPath(rootFolderPath, contextMenu.path)
+                    : contextMenu.path
+                onRevealInFinder(absolutePath)
+              },
+            },
+          ]
+        : []),
       {
         id: 'copy',
         label: 'Copy',
@@ -396,18 +458,46 @@ export function useFileExplorerContextMenu({
           clipboardActions.copy([{ path: contextMenu.path, is_dir: contextMenu.isDir }])
         },
       },
-      {
-        id: 'cut',
-        label: 'Cut',
-        icon: <Scissors />,
-        onClick: () => {
-          clipboardActions.cut([{ path: contextMenu.path, is_dir: contextMenu.isDir }])
-        },
-      },
+      // Cut stages a move whose completion (paste) deletes from this workspace —
+      // a mutation, so hidden when locked. Copy above only reads, so it stays.
+      ...(isLocked
+        ? []
+        : [
+            {
+              id: 'cut',
+              label: 'Cut',
+              icon: <Scissors />,
+              onClick: () => {
+                clipboardActions.cut([{ path: contextMenu.path, is_dir: contextMenu.isDir }])
+              },
+            },
+          ]),
+      ...(onRemoveFolderFromWorkspace && canRemoveWorkspaceRootPath?.(contextMenu.path)
+        ? [
+            {
+              id: 'remove-from-workspace',
+              label: 'Remove From Workspace',
+              icon: <FolderMinus />,
+              onClick: () => onRemoveFolderFromWorkspace(contextMenu.path),
+            },
+          ]
+        : []),
     )
 
-    if (shouldShowFileManagementItems) {
+    // The file-management group (Duplicate / Rename / Delete) mutates the
+    // worktree — hidden entirely on a locked workspace.
+    if (shouldShowFileManagementItems && !isLocked) {
       items.push(
+        ...(onDuplicatePath
+          ? [
+              {
+                id: 'duplicate',
+                label: 'Duplicate',
+                icon: <CopySimple />,
+                onClick: () => onDuplicatePath(contextMenu.path),
+              },
+            ]
+          : []),
         {
           id: 'rename',
           label: 'Rename',
@@ -432,7 +522,7 @@ export function useFileExplorerContextMenu({
     clipboardActions,
     contextMenu,
     createEnvTemplateFile,
-    onCreateNewFolderInDirectory,
+    isLocked,
     onCreateNewFileInDirectory,
     onDeleteRequested,
     onDuplicatePath,

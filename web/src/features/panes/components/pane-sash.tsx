@@ -181,6 +181,7 @@ export function PaneSash({
       onPointerUpRef.current = onUp
 
       isDraggingRef.current = true
+      // react-doctor-disable-next-line effect-needs-cleanup -- this is an event handler, not an effect; listeners are removed via `teardownDrag` + the unmount effect (l.112-116).
       window.addEventListener('pointermove', onMove)
       window.addEventListener('pointerup', onUp)
       window.addEventListener('pointercancel', onUp)

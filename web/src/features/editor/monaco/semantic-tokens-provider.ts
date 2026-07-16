@@ -29,7 +29,10 @@
  *   keeping the delay at the minimum — so resize/scroll performance is better than
  *   with the async path.
  */
-import { editor, languages } from 'monaco-editor'
+// See the comment in `monaco-diff-editor.tsx`: `editor.api` is the same real
+// editor/languages singleton as the bare 'monaco-editor' specifier, without
+// eagerly bundling all built-in language contributions.
+import { editor, languages } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import { getLanguageAssetConfig } from '@/features/editor/lib/wasm-parser/extension-assets'
 import { tokenizerWorkerClient } from '@/features/editor/lib/wasm-parser/tokenizer-worker-client'
 import type { HighlightToken } from '@/features/editor/lib/wasm-parser/types'

@@ -13,6 +13,15 @@ import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import { ProjectSwitcherPanel } from './project-switcher-panel'
 import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
 
+function handleOpenSwitcher(e: React.MouseEvent) {
+  e.stopPropagation()
+  useSidebarNavStore.getState().push({
+    id: 'project-switcher',
+    title: 'Projects',
+    component: <ProjectSwitcherPanel />,
+  })
+}
+
 export function ProjectHomeRow() {
   const navigate = useNavigate()
   const projectId = useProjectStore((s) => s.activeProjectId)
@@ -29,15 +38,6 @@ export function ProjectHomeRow() {
     void navigate({ to: '/ide/$projectId/home', params: { projectId } })
   }
 
-  function handleOpenSwitcher(e: React.MouseEvent) {
-    e.stopPropagation()
-    useSidebarNavStore.getState().push({
-      id: 'project-switcher',
-      title: 'Projects',
-      component: <ProjectSwitcherPanel />,
-    })
-  }
-
   function handleAddRepo(e: React.MouseEvent) {
     e.stopPropagation()
     setAddRepoOpen(true)
@@ -46,6 +46,7 @@ export function ProjectHomeRow() {
   return (
     <>
       <div
+        // react-doctor-disable-next-line prefer-tag-over-role -- can't be a real <button>: it contains two nested real <Button>s (Import repository, Switch project) below, and HTML forbids interactive content inside a <button>. role="button" + tabIndex + onKeyDown is the correct fallback for a clickable row with nested action buttons.
         role="button"
         tabIndex={0}
         className={cn(ROW_BASE, 'group', isActive ? ROW_ACTIVE : ROW_INACTIVE)}

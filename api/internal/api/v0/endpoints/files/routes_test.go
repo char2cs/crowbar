@@ -46,6 +46,7 @@ func (stubFiles) WriteContent(
 	_ string,
 	_ string,
 	_ string,
+	_ string,
 	_ time.Time,
 ) error {
 	return nil
@@ -62,6 +63,16 @@ func (stubFiles) CreateFile(
 
 func (stubFiles) CreateDir(
 	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubFiles) Copy(
+	_ context.Context,
+	_ string,
 	_ string,
 	_ string,
 	_ time.Time,
@@ -102,6 +113,7 @@ func TestRegisterMountsRoutes(
 		{http.MethodGet, "/v0/workspaces/ws1/files/content"},
 		{http.MethodPut, "/v0/workspaces/ws1/files/content"},
 		{http.MethodPost, "/v0/workspaces/ws1/files"},
+		{http.MethodPost, "/v0/workspaces/ws1/files/copy"},
 		{http.MethodPatch, "/v0/workspaces/ws1/files"},
 		{http.MethodDelete, "/v0/workspaces/ws1/files"},
 	}

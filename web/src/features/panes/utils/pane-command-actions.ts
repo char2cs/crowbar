@@ -116,9 +116,10 @@ export function closeOtherEditorGroups(): boolean {
     return false
   }
 
-  const editorGroups = getAllLeafIds(state.rootLayout)
-    .map((id) => state.panes[id])
-    .filter(Boolean)
+  const editorGroups = getAllLeafIds(state.rootLayout).flatMap((id) => {
+    const pane = state.panes[id]
+    return pane ? [pane] : []
+  })
   if (!editorGroups.some((pane) => pane.id === activePane.id) || editorGroups.length <= 1) {
     return false
   }

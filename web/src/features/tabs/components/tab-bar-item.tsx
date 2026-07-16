@@ -11,6 +11,7 @@ import type { RefCallback } from 'react'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
 import { AgentChatTabIcon } from '@/features/agent/components/agent-chat-tab-icon'
 import type { PaneContent } from '@/features/panes/types/pane-content'
+import { sameRenderedBuffer } from './tab-bar-item-utils'
 import { Button } from '@/components/ui/button'
 import { Tab } from '@/components/ui/tabs'
 import { getBaseName } from '@/utils/path-helpers'
@@ -26,11 +27,15 @@ interface TabBarItemProps {
   isDraggedTab: boolean
   showDropIndicatorBefore?: boolean
   tabRef?: RefCallback<HTMLDivElement>
-  onClick?: () => void
+  // Delegated handlers: the parent passes ONE stable reference of each (shared
+  // by every item); the item re-supplies its own identity (buffer / index) when
+  // it fires. This keeps the handler props referentially stable across TabBar
+  // renders so the memo comparator below can bail out on unchanged tabs.
+  onSelect?: (buffer: PaneContent) => void
   onMouseDown?: (e: React.MouseEvent) => void
-  onDoubleClick: (e: React.MouseEvent) => void
-  onContextMenu: (e: React.MouseEvent) => void
-  onKeyDown: (e: React.KeyboardEvent) => void
+  onDoubleClick: (e: React.MouseEvent, buffer: PaneContent) => void
+  onContextMenu: (e: React.MouseEvent, buffer: PaneContent) => void
+  onKeyDown: (e: React.KeyboardEvent, index: number) => void
   handleTabClose: (id: string) => void
   handleTabPin: (id: string) => void
 }
@@ -38,11 +43,12 @@ interface TabBarItemProps {
 const TabBarItem = memo(function TabBarItem({
   buffer,
   displayName,
+  index,
   isActive,
   isDraggedTab,
   showDropIndicatorBefore = false,
   tabRef,
-  onClick,
+  onSelect,
   onMouseDown,
   onDoubleClick,
   onContextMenu,
@@ -50,6 +56,23 @@ const TabBarItem = memo(function TabBarItem({
   handleTabClose,
   handleTabPin,
 }: TabBarItemProps) {
+  // Re-bind the delegated handlers to THIS item's buffer/index. These closures
+  // live inside the memoized item, so they are only rebuilt when the item
+  // actually re-renders — they never reach the parent and so never defeat memo.
+  const handleClick = useCallback(() => onSelect?.(buffer), [onSelect, buffer])
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent) => onDoubleClick(e, buffer),
+    [onDoubleClick, buffer],
+  )
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => onContextMenu(e, buffer),
+    [onContextMenu, buffer],
+  )
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => onKeyDown(e, index),
+    [onKeyDown, index],
+  )
+
   const getDiffIconName = () => {
     if (buffer.type !== 'diff') return buffer.name
     if (buffer.path === 'diff://working-tree/all-files') return null
@@ -107,11 +130,11 @@ const TabBarItem = memo(function TabBarItem({
             isDirtyEditor &&
             'border-primary bg-primary text-primary-foreground shadow-primary/24',
         )}
-        onClick={onClick}
+        onClick={handleClick}
         onMouseDown={onMouseDown}
-        onDoubleClick={onDoubleClick}
-        onContextMenu={onContextMenu}
-        onKeyDown={onKeyDown}
+        onDoubleClick={handleDoubleClick}
+        onContextMenu={handleContextMenu}
+        onKeyDown={handleKeyDown}
         onAuxClick={handleAuxClick}
       >
         <div className="grid size-3.5 shrink-0 place-content-center">
@@ -191,7 +214,41 @@ const TabBarItem = memo(function TabBarItem({
       )}
     </div>
   )
-})
+}, arePropsEqual)
+
+/**
+ * Compares ONLY the buffer fields this component actually renders. The buffer
+ * object identity changes on every content flush (immer copy-on-write), so a
+ * naive `prev.buffer === next.buffer` check would re-render the active tab on
+ * every keystroke even though nothing it draws has changed. Enumerated from the
+ * fields read in the render body: id, type, name, path, isPinned, isPreview,
+ * isUncloseable, the editor dirty flag, the diff payload and the agent-chat ids.
+ *
+ * Exported and REUSED by TabBar's `useRenderedPaneBuffers` subscription
+ * (tab-bar.tsx) so the field set that gates the WHOLE tab strip's re-render is
+ * the exact same one that gates each individual tab's — the two can never
+ * drift. Any field added here is automatically respected there. Keep the field
+ * list in sync with the render body above.
+ */
+
+function arePropsEqual(prev: TabBarItemProps, next: TabBarItemProps): boolean {
+  return (
+    prev.displayName === next.displayName &&
+    prev.index === next.index &&
+    prev.isActive === next.isActive &&
+    prev.isDraggedTab === next.isDraggedTab &&
+    prev.showDropIndicatorBefore === next.showDropIndicatorBefore &&
+    prev.tabRef === next.tabRef &&
+    prev.onSelect === next.onSelect &&
+    prev.onMouseDown === next.onMouseDown &&
+    prev.onDoubleClick === next.onDoubleClick &&
+    prev.onContextMenu === next.onContextMenu &&
+    prev.onKeyDown === next.onKeyDown &&
+    prev.handleTabClose === next.handleTabClose &&
+    prev.handleTabPin === next.handleTabPin &&
+    sameRenderedBuffer(prev.buffer, next.buffer)
+  )
+}
 
 function isMultiFileDiff(diffData: GitDiff | MultiFileDiff | undefined): diffData is MultiFileDiff {
   return Boolean(diffData && 'files' in diffData)

@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react'
 import { useChaosStore, FAULT_KEYS, FAULT_LABELS } from '@/lib/store/chaos'
 import type { Scenario } from '@/lib/store/chaos'
-import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from '../settings-section'
+import Section, { SettingRow } from '../settings-section'
+import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 import NumberInput from '@/components/ui/number-input'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -35,10 +36,73 @@ const SCENARIO_OPTIONS: { value: Scenario; label: string; description: string }[
   { value: 'empty', label: 'Empty', description: 'New user — no repos, no workspaces' },
 ]
 
-export function DeveloperSettings() {
+function handleExport() {
+  downloadSettingsFile(useSettingsStore.getState().settings)
+  toast.success('Settings exported', 'Saved crowbar-settings.json to your downloads.')
+}
+
+async function handleImportFile(event: React.ChangeEvent<HTMLInputElement>) {
+  const file = event.target.files?.[0]
+  // Allow re-selecting the same file later.
+  event.target.value = ''
+  if (!file) return
+
+  try {
+    const text = await file.text()
+    const ok = useSettingsStore.getState().updateSettingsFromJSON(text)
+    if (ok) {
+      toast.success('Settings imported', 'Your settings have been restored from the file.')
+    } else {
+      toast.error('Import failed', 'The file is not a valid Crowbar settings export.')
+    }
+  } catch {
+    toast.error('Import failed', 'Could not read the selected file.')
+  }
+}
+
+async function handleReset() {
+  const confirmed = await primitiveConfirm(
+    'Reset all settings to their defaults? This cannot be undone.',
+    {
+      title: 'Reset settings',
+      confirmLabel: 'Reset all',
+      cancelLabel: 'Cancel',
+    },
+  )
+  if (!confirmed) return
+
+  await useSettingsStore.getState().resetToDefaults()
+  toast.success('Settings reset', 'All settings have been restored to their defaults.')
+}
+
+// Persisted diagnostic overlays. Split out of DeveloperSettings so each stays
+// small and readable; both rows drive `useSettingsStore` directly.
+function PerformanceSection() {
   const showFpsOverlay = useSettingsStore((s) => s.settings.showFpsOverlay)
   const updateSetting = useSettingsStore((s) => s.updateSetting)
 
+  return (
+    <Section
+      title="Performance"
+      description="Diagnostic overlays that appear on top of the editor. Persisted across restarts."
+    >
+      <SettingRow
+        label="FPS overlay"
+        description="Show a live frame-rate counter in the bottom-right corner — fps, worst frame time, and drop count per 500ms window."
+        onReset={() => updateSetting('showFpsOverlay', getDefaultSetting('showFpsOverlay'))}
+        canReset={showFpsOverlay !== getDefaultSetting('showFpsOverlay')}
+      >
+        <Switch
+          checked={showFpsOverlay}
+          onChange={(checked) => updateSetting('showFpsOverlay', checked)}
+          size="sm"
+        />
+      </SettingRow>
+    </Section>
+  )
+}
+
+export function DeveloperSettings() {
   const latency = useChaosStore((s) => s.latency)
   const errorRate = useChaosStore((s) => s.errorRate)
   const scenario = useChaosStore((s) => s.scenario)
@@ -63,11 +127,6 @@ export function DeveloperSettings() {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  function handleExport() {
-    downloadSettingsFile(useSettingsStore.getState().settings)
-    toast.success('Settings exported', 'Saved crowbar-settings.json to your downloads.')
-  }
-
   const [exportingDiagnostics, setExportingDiagnostics] = useState(false)
 
   async function handleExportDiagnostics() {
@@ -82,59 +141,9 @@ export function DeveloperSettings() {
     }
   }
 
-  async function handleImportFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    // Allow re-selecting the same file later.
-    event.target.value = ''
-    if (!file) return
-
-    try {
-      const text = await file.text()
-      const ok = useSettingsStore.getState().updateSettingsFromJSON(text)
-      if (ok) {
-        toast.success('Settings imported', 'Your settings have been restored from the file.')
-      } else {
-        toast.error('Import failed', 'The file is not a valid Crowbar settings export.')
-      }
-    } catch {
-      toast.error('Import failed', 'Could not read the selected file.')
-    }
-  }
-
-  async function handleReset() {
-    const confirmed = await primitiveConfirm(
-      'Reset all settings to their defaults? This cannot be undone.',
-      {
-        title: 'Reset settings',
-        confirmLabel: 'Reset all',
-        cancelLabel: 'Cancel',
-      },
-    )
-    if (!confirmed) return
-
-    await useSettingsStore.getState().resetToDefaults()
-    toast.success('Settings reset', 'All settings have been restored to their defaults.')
-  }
-
   return (
     <div className="space-y-4">
-      <Section
-        title="Performance"
-        description="Diagnostic overlays that appear on top of the editor. Persisted across restarts."
-      >
-        <SettingRow
-          label="FPS overlay"
-          description="Show a live frame-rate counter in the bottom-right corner — fps, worst frame time, and drop count per 500ms window."
-          onReset={() => updateSetting('showFpsOverlay', getDefaultSetting('showFpsOverlay'))}
-          canReset={showFpsOverlay !== getDefaultSetting('showFpsOverlay')}
-        >
-          <Switch
-            checked={showFpsOverlay}
-            onChange={(checked) => updateSetting('showFpsOverlay', checked)}
-            size="sm"
-          />
-        </SettingRow>
-      </Section>
+      <PerformanceSection />
 
       {isTauri() && (
         <Section

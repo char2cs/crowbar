@@ -154,8 +154,7 @@ export const useHover = ({
       lineHeight,
       charWidth,
       resolveEditorPosition,
-      actions.setHoverInfo,
-      actions.setIsHovering,
+      actions,
     ],
   )
 
@@ -171,11 +170,11 @@ export const useHover = ({
         actions.setHoverInfo(null)
       }
     }, 150)
-  }, [actions.setIsHovering, actions.setHoverInfo])
+  }, [actions])
 
   const handleMouseEnter = useCallback(() => {
     actions.setIsHovering(true)
-  }, [actions.setIsHovering])
+  }, [actions])
 
   // Clear hover when switching files/unmounting to avoid sticky tooltip across tabs.
   useEffect(() => {

@@ -142,10 +142,6 @@ async function discoverRepo(path: string): Promise<string | null> {
   }
 }
 
-export async function resolveRepositoryPath(repoPath: string): Promise<string | null> {
-  return discoverRepo(repoPath)
-}
-
 export async function resolveRepositoryForFile(
   repoPath: string,
   filePath: string,
@@ -256,9 +252,4 @@ export async function discoverWorkspaceRepositories(
   })
 
   return repositories
-}
-
-export function clearRepositoryDiscoveryCache(): void {
-  repoDiscoveryCache.clear()
-  workspaceRepoDiscoveryCache.clear()
 }

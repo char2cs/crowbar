@@ -22,11 +22,12 @@ func (e errFiles) Tree(_ context.Context, _, _ string, _ file.FileStatusProvider
 func (e errFiles) ReadContent(_ context.Context, _, _ string) (domain.FileContent, error) {
 	return domain.FileContent{}, e.err
 }
-func (e errFiles) WriteContent(_ context.Context, _, _, _ string, _ time.Time) error { return e.err }
-func (e errFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) error      { return e.err }
-func (e errFiles) CreateDir(_ context.Context, _, _ string, _ time.Time) error       { return e.err }
-func (e errFiles) Rename(_ context.Context, _, _, _ string, _ time.Time) error       { return e.err }
-func (e errFiles) Delete(_ context.Context, _, _ string, _ time.Time) error          { return e.err }
+func (e errFiles) WriteContent(_ context.Context, _, _, _, _ string, _ time.Time) error { return e.err }
+func (e errFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) error         { return e.err }
+func (e errFiles) CreateDir(_ context.Context, _, _ string, _ time.Time) error          { return e.err }
+func (e errFiles) Copy(_ context.Context, _, _, _ string, _ time.Time) error            { return e.err }
+func (e errFiles) Rename(_ context.Context, _, _, _ string, _ time.Time) error          { return e.err }
+func (e errFiles) Delete(_ context.Context, _, _ string, _ time.Time) error             { return e.err }
 
 func TestFileHandlers_ErrorPaths(
 	t *testing.T,
@@ -39,6 +40,8 @@ func TestFileHandlers_ErrorPaths(
 		map[string]any{"path": "a.go", "content": "hi"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, "/v0/workspaces/ws1/files",
 		map[string]any{"path": "new.go", "type": "file"}).Code)
+	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, "/v0/workspaces/ws1/files/copy",
+		map[string]any{"sourcePath": "a.go", "destPath": "a copy.go"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPatch, "/v0/workspaces/ws1/files",
 		map[string]any{"path": "a.go", "newPath": "b.go"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodDelete, "/v0/workspaces/ws1/files?path=a.go", nil).Code)

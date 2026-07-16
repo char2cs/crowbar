@@ -1,5 +1,5 @@
 import { cva } from 'class-variance-authority'
-import { AnimatePresence, motion, type Transition } from 'framer-motion'
+import { AnimatePresence, domAnimation, LazyMotion, m, type Transition } from 'framer-motion'
 import {
   type CSSProperties,
   type ReactNode,
@@ -12,7 +12,7 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { buttonVariants } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button-variants'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/utils/cn'
 import { matchesSearchQuery } from '@/utils/search-match'
@@ -35,6 +35,13 @@ import { MagnifyingGlass as Search } from '@phosphor-icons/react'
 // them — the trigger would silently render at the button's padding instead of its own.
 const TRIGGER_SHARED = 'min-w-0 gap-1 rounded-lg px-2 text-muted-foreground'
 
+const TRANSFORM_ORIGIN_MAP: Record<string, string> = {
+  'bottom-start': 'top left',
+  'bottom-end': 'top right',
+  'top-start': 'bottom left',
+  'top-end': 'bottom right',
+}
+
 const dropdownTriggerVariants = cva('', {
   variants: {
     variant: {
@@ -48,8 +55,6 @@ const dropdownTriggerVariants = cva('', {
 })
 
 export type DropdownTriggerVariant = 'default' | 'ghost'
-
-export const DROPDOWN_TRIGGER_BASE = dropdownTriggerVariants()
 
 const dropdownRootVariants = cva(
   'pointer-events-auto fixed z-[10040] min-w-[240px] max-w-[min(480px,calc(100vw-16px))] select-none overflow-y-auto rounded-xl border border-border bg-card/95 p-1 shadow-[0_14px_30px_-24px_rgba(0,0,0,0.45)] backdrop-blur-sm [overscroll-behavior:contain]',
@@ -77,8 +82,9 @@ const dropdownItemVariants = cva(
 
 const dropdownSectionLabelVariants = cva('ui-font ui-text-sm px-2.5 py-1 text-muted-foreground')
 
-export const DROPDOWN_ITEM_BASE = dropdownItemVariants()
+const DROPDOWN_ITEM_BASE = dropdownItemVariants()
 
+// react-doctor-disable-next-line only-export-components -- className builder tied to this file's cva variants (dropdownTriggerVariants); extracting it to a satellite module would fragment the dropdown's styling layer for a dev-only Fast-Refresh benefit.
 export function dropdownTriggerClassName(
   className?: string,
   variant: DropdownTriggerVariant = 'default',
@@ -86,6 +92,7 @@ export function dropdownTriggerClassName(
   return cn(dropdownTriggerVariants({ variant }), className)
 }
 
+// react-doctor-disable-next-line only-export-components -- className builder tied to this file's cva variants (DROPDOWN_ITEM_BASE); co-located with the dropdown styling it parametrizes.
 export function dropdownItemClassName(className?: string) {
   return cn(DROPDOWN_ITEM_BASE, className)
 }
@@ -144,7 +151,7 @@ interface MenuPopoverProps {
   transition?: Transition
 }
 
-export function MenuPopover({
+function MenuPopover({
   isOpen,
   menuRef,
   children,
@@ -160,7 +167,7 @@ export function MenuPopover({
   if (typeof document === 'undefined') return null
 
   const node = isOpen ? (
-    <motion.div
+    <m.div
       ref={menuRef}
       data-prevent-dialog-escape="true"
       onMouseDown={(event) => event.stopPropagation()}
@@ -174,10 +181,15 @@ export function MenuPopover({
       style={style}
     >
       {children}
-    </motion.div>
+    </m.div>
   ) : null
 
-  return createPortal(<AnimatePresence>{node}</AnimatePresence>, portalContainer ?? document.body)
+  return createPortal(
+    <LazyMotion features={domAnimation}>
+      <AnimatePresence>{node}</AnimatePresence>
+    </LazyMotion>,
+    portalContainer ?? document.body,
+  )
 }
 
 interface MenuItemsListProps {
@@ -188,7 +200,7 @@ interface MenuItemsListProps {
   focusIndex?: number
 }
 
-export function MenuItemsList({
+function MenuItemsList({
   items,
   onItemSelect,
   className,
@@ -347,6 +359,7 @@ function getViewportBounds() {
   }
 }
 
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive primitive — the Dropdown owns keyboard traversal, portal positioning, search filtering and outside-click as one interacting unit; extracting pieces would spread that state across files.
 export function Dropdown(props: DropdownProps) {
   const {
     isOpen,
@@ -395,14 +408,14 @@ export function Dropdown(props: DropdownProps) {
   const getFilteredSections = useCallback((): DropdownSection[] => {
     if (!hasSections) return []
     if (!searchQuery.trim()) return props.sections!
-    return props
-      .sections!.map((section) => ({
-        ...section,
-        items: section.items.filter(
-          (item) => !item.separator && matchesSearchQuery(searchQuery, [item.label]),
-        ),
-      }))
-      .filter((section) => section.items.length > 0)
+    const result: DropdownSection[] = []
+    for (const section of props.sections!) {
+      const items = section.items.filter(
+        (item) => !item.separator && matchesSearchQuery(searchQuery, [item.label]),
+      )
+      if (items.length > 0) result.push({ ...section, items })
+    }
+    return result
   }, [hasSections, searchQuery, props])
 
   const positionMenu = useCallback(() => {
@@ -508,7 +521,7 @@ export function Dropdown(props: DropdownProps) {
     menu.style.top = `${Math.round(y)}px`
     setResolvedSide(finalSide)
     setIsPositioned(true)
-  }, [anchorRef, anchorSide, anchorAlign, point])
+  }, [anchorRef, anchorSide, anchorAlign, point, style?.maxHeight, style?.width])
 
   useLayoutEffect(() => {
     if (!isOpen) return
@@ -639,14 +652,8 @@ export function Dropdown(props: DropdownProps) {
 
   if (typeof document === 'undefined') return null
 
-  const originMap: Record<string, string> = {
-    'bottom-start': 'top left',
-    'bottom-end': 'top right',
-    'top-start': 'bottom left',
-    'top-end': 'bottom right',
-  }
   const transformOrigin =
-    originMap[`${resolvedSide}-${anchorAlign}`] ?? (point ? 'top left' : 'top left')
+    TRANSFORM_ORIGIN_MAP[`${resolvedSide}-${anchorAlign}`] ?? (point ? 'top left' : 'top left')
 
   return (
     <MenuPopover

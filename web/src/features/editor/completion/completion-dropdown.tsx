@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, domAnimation, LazyMotion, m } from 'framer-motion'
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { CompletionItem } from 'vscode-languageserver-protocol'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
@@ -38,6 +38,7 @@ function CompletionDropdownContent({ onApplyCompletion }: CompletionDropdownProp
   const lineHeight = Math.ceil(fontSize * lineHeightMultiplier)
   const [scrollOffset, setScrollOffset] = useState({ top: 0, left: 0 })
 
+  // react-doctor-disable-next-line effect-needs-cleanup -- cleanup exists (l.73-78: cancelAnimationFrame + removeEventListener via captured local); tracer can't follow it.
   useEffect(() => {
     let textarea: HTMLTextAreaElement | null = null
     let rafId: number | null = null
@@ -125,7 +126,7 @@ function CompletionDropdownContent({ onApplyCompletion }: CompletionDropdownProp
   const hasDocPanel = selectedDocumentation || selectedDetail
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, scale: 0.95, y: -4 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95, y: -4 }}
@@ -139,6 +140,8 @@ function CompletionDropdownContent({ onApplyCompletion }: CompletionDropdownProp
       }}
     >
       <div
+        role="listbox"
+        aria-label="Completions"
         className="editor-completion-list custom-scrollbar overflow-y-auto"
         style={{
           minWidth: `${EDITOR_CONSTANTS.DROPDOWN_MIN_WIDTH}px`,
@@ -153,6 +156,9 @@ function CompletionDropdownContent({ onApplyCompletion }: CompletionDropdownProp
           return (
             <div
               key={index}
+              id={`editor-completion-item-${index}`}
+              role="option"
+              aria-selected={isSelected}
               ref={(el) => {
                 if (isSelected && el) {
                   el.scrollIntoView({ block: 'nearest' })
@@ -164,6 +170,7 @@ function CompletionDropdownContent({ onApplyCompletion }: CompletionDropdownProp
                   ? 'editor-completion-item-selected text-foreground'
                   : 'text-foreground hover:bg-muted',
               )}
+              // react-doctor-disable-next-line click-events-have-key-events -- this option is never itself a focus target (no tabIndex — moving DOM focus off the real editor textarea would blur it and hide this popup). Real keyboard selection needs the arrow/Enter dispatch wired into the editor's own keydown pipeline via resolveLspCompletionKeyAction (lsp-completion-keys.ts), which exists and is unit-tested but isn't wired to a live listener yet — a pre-existing gap, not something this row can fix on its own without touching the hot typing path. Tracked as a follow-up; onClick here is the mouse-only path today.
               onClick={() => handleSelect(item)}
             >
               <div className="flex items-center gap-2">
@@ -200,7 +207,7 @@ function CompletionDropdownContent({ onApplyCompletion }: CompletionDropdownProp
           )}
         </div>
       )}
-    </motion.div>
+    </m.div>
   )
 }
 
@@ -218,11 +225,13 @@ export const CompletionDropdown = memo(
     }, [isLspCompletionVisible, showOverlay, hideOverlay])
 
     return (
-      <AnimatePresence>
-        {isLspCompletionVisible && (
-          <CompletionDropdownContent onApplyCompletion={onApplyCompletion} />
-        )}
-      </AnimatePresence>
+      <LazyMotion features={domAnimation}>
+        <AnimatePresence>
+          {isLspCompletionVisible && (
+            <CompletionDropdownContent onApplyCompletion={onApplyCompletion} />
+          )}
+        </AnimatePresence>
+      </LazyMotion>
     )
   },
   (prevProps, nextProps) => prevProps.onApplyCompletion === nextProps.onApplyCompletion,

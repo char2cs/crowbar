@@ -60,6 +60,11 @@ export interface Repo {
   /** Branch name of the default (main-worktree) workspace, surfaced on the repo
    *  header. Used by create-input validation to reserve the default branch. */
   defaultBranch?: string
+  /** Status of the default (main-worktree) workspace. It is not a tree row, so
+   *  it has no Workspace entry to carry the status — consumers gating on the
+   *  locked state (e.g. the file explorer's mutation menu items) read it from
+   *  here. Default workspaces adopted from protected branches are 'locked'. */
+  defaultWorkspaceStatus?: WorkspaceStatus
   /** `working` of the default (repo-home) workspace. It is not a tree row, so it
    *  has no Workspace entry to carry the flag — the repo header and the context
    *  pill read it from here to spin the repo's icon during an agent turn. */
@@ -107,19 +112,49 @@ interface SidebarState {
  * descendants, skipping locked subtrees — mirrors `deleteWorkspace` above.
  */
 function collectDeletedIds(allWorkspaces: Workspace[], wsId: string): Set<string> {
+  // Index once so the BFS below is O(n) instead of an array.find()/filter()
+  // per queued id (this list is every workspace across every repo).
+  const byId = new Map(allWorkspaces.map((w) => [w.id, w]))
+  const childrenByParentId = new Map<string, Workspace[]>()
+  for (const w of allWorkspaces) {
+    if (!w.parentId) continue
+    const siblings = childrenByParentId.get(w.parentId)
+    if (siblings) siblings.push(w)
+    else childrenByParentId.set(w.parentId, [w])
+  }
+
   const toDelete = new Set<string>()
   const queue = [wsId]
   while (queue.length > 0) {
     const id = queue.shift()!
     if (toDelete.has(id)) continue
-    const ws = allWorkspaces.find((w) => w.id === id)
+    const ws = byId.get(id)
     if (ws?.status === 'locked') continue
     toDelete.add(id)
-    for (const child of allWorkspaces.filter((w) => w.parentId === id)) {
+    for (const child of childrenByParentId.get(id) ?? []) {
       queue.push(child.id)
     }
   }
   return toDelete
+}
+
+/**
+ * Whether `wsId` is a locked (protected-branch) workspace. Locked worktrees
+ * refuse every daemon write (409 "workspace locked"), so mutation UI gates on
+ * this. Checks BOTH id spaces a workspace can live in: the repo's tree rows
+ * (`repo.workspaces`) AND the default (main-worktree) workspace, which is never
+ * a tree row — it exists only as `repo.defaultWorkspaceId`, with its status
+ * lifted onto `repo.defaultWorkspaceStatus` (adopted protected branches are
+ * locked + default, so missing this branch un-gated every repo home).
+ */
+export function isWorkspaceLockedInSidebar(repos: Repo[], wsId: string | null): boolean {
+  if (!wsId) return false
+  for (const repo of repos) {
+    if (repo.defaultWorkspaceId === wsId) return repo.defaultWorkspaceStatus === 'locked'
+    const ws = repo.workspaces.find((w) => w.id === wsId)
+    if (ws) return ws.status === 'locked'
+  }
+  return false
 }
 
 /**
@@ -202,19 +237,12 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
 
   deleteWorkspace: (wsId) =>
     set((s) => {
-      // BFS to collect the target and all non-locked descendants
-      const allWorkspaces = s.repos.flatMap((r) => r.workspaces)
-      const toDelete = new Set<string>()
-      const queue = [wsId]
-      while (queue.length > 0) {
-        const id = queue.shift()!
-        const ws = allWorkspaces.find((w) => w.id === id)
-        if (ws?.status === 'locked') continue
-        toDelete.add(id)
-        for (const child of allWorkspaces.filter((w) => w.parentId === id)) {
-          queue.push(child.id)
-        }
-      }
+      // Collect the target and all non-locked descendants (shared with
+      // getPostDeleteNavigationTarget below).
+      const toDelete = collectDeletedIds(
+        s.repos.flatMap((r) => r.workspaces),
+        wsId,
+      )
       return {
         repos: s.repos.map((r) => ({
           ...r,

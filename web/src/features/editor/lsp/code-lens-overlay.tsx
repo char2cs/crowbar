@@ -85,9 +85,9 @@ const CodeLensOverlayImpl = forwardRef(
                 lineHeight: `${lineHeight * 0.8}px`,
               }}
             >
-              {items.map((item, i) => (
+              {items.map((item) => (
                 <button
-                  key={`${item.title}-${i}`}
+                  key={`${item.line}:${item.title}:${item.command ?? ''}`}
                   type="button"
                   className="mr-2 cursor-pointer border-none bg-transparent p-0 editor-font text-muted-foreground/60 hover:text-foreground"
                   disabled={!item.command}

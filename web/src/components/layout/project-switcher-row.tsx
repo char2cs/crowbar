@@ -9,18 +9,18 @@ import { ProjectSwitcherPanel } from './project-switcher-panel'
  * rule with the active project name sitting inside the line (right-aligned);
  * clicking it opens the project switcher as a pushed sidebar screen.
  */
+function open() {
+  useSidebarNavStore.getState().push({
+    id: 'project-switcher',
+    title: 'Projects',
+    component: <ProjectSwitcherPanel />,
+  })
+}
+
 export function ProjectSwitcherRow() {
   const projects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const activeProject = projects.find((p) => p.id === activeProjectId)
-
-  function open() {
-    useSidebarNavStore.getState().push({
-      id: 'project-switcher',
-      title: 'Projects',
-      component: <ProjectSwitcherPanel />,
-    })
-  }
 
   return (
     <button

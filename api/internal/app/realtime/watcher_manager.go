@@ -70,7 +70,7 @@ func NewWatcherManager(
 ) *WatcherManager {
 	dispatcher := newWatcherDispatcher(h, workspace, now)
 	provider := &gitStatusProvider{engine: gitEngine}
-	factory := newWatcherFactory(fsEngine, provider, workspace, dispatcher)
+	factory := newWatcherFactory(fsEngine, provider, workspace, gitEngine, dispatcher)
 	return newWatcherManager(root, factory, watcherLingerDuration, realTimer)
 }
 

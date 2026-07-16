@@ -118,6 +118,15 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=6144
         run: cd web && bun run build
+      - name: Entry-bundle budget
+        run: cd web && node scripts/check-bundle-budget.mjs
+      - name: React Doctor (0 findings gate)
+        # --blocking warning: the base CLI's default (`--blocking error`) only
+        # fails on error-severity findings and exits 0 on a warning-only run
+        # (verified locally: a single-warning finding scored 98/100 but still
+        # exited 0 under the default). `warning` is the level that actually
+        # gates on "not 100/100".
+        run: cd web && bunx react-doctor . -y --blocking warning --no-color
 
   tauri-checks-linux:
     needs: changes

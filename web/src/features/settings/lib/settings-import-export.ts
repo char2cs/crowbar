@@ -20,7 +20,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function cloneSettings(settings: Settings): Settings {
-  return JSON.parse(JSON.stringify(settings)) as Settings
+  return structuredClone(settings)
 }
 
 function pickSettings(value: unknown): Partial<Settings> | null {

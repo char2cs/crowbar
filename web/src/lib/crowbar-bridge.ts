@@ -213,7 +213,14 @@ export async function terminalCreate(wsId: string, profileId?: string): Promise<
 
 export async function terminalWrite(id: string, data: string): Promise<void> {
   if (isTauri()) {
-    if (tauriTerminals.has(id)) await tauriInvoke('terminal_send', { sessionId: id, data })
+    // A send can race the transport being retired underneath us. When Rust detects a
+    // broken/half-open socket it retires the session and emits `terminal:transport-dropped`
+    // (Phase 0); a `terminal_send` that lands in the window between that retirement and the
+    // drop event deleting our map entry rejects with "no open terminal session". Swallow it
+    // — the drop event drives the re-attach — so a transient rejection never propagates into
+    // the write buffer (writeChunk awaits this). Best-effort, matching terminalResize.
+    if (tauriTerminals.has(id))
+      await tauriInvoke('terminal_send', { sessionId: id, data }).catch(() => {})
     return
   }
   const conn = terminals.get(id)
@@ -357,6 +364,14 @@ export async function terminalDetach(connectionId: string): Promise<void> {
 // True when a live WS/channel transport exists for this connectionId. Used by the
 // reconnect resolver: a surviving store entry whose transport was detached on a
 // workspace switch must be RE-ATTACHED, not reused as-is.
+//
+// This is LIVENESS, not just "we once created this": map presence is now truthful
+// because a dead transport is actively removed from the map. The browser path deletes
+// its entry on ws.onclose; the Tauri path deletes its entry when Rust emits
+// `terminal:transport-dropped`, which Phase 0 makes fire for EVERY way a socket dies —
+// a daemon close, a writer-side send failure, AND a silent half-open socket (read-idle
+// timeout). So a session that is not provably alive is no longer left in the map for the
+// resolver to reuse as a corpse: it is gone, `has()` is false, and the resolver re-attaches.
 export function terminalHasTransport(connectionId: string): boolean {
   return terminals.has(connectionId) || tauriTerminals.has(connectionId)
 }
@@ -469,6 +484,34 @@ export async function clipboardClear(): Promise<void> {
 export async function openDirectory(): Promise<string | null> {
   // FUTURE: @tauri-apps/plugin-dialog open({ directory: true, multiple: false })
   return null
+}
+
+// ── File Manager ──────────────────────────────────────────────────────────────
+
+// The `reveal_in_finder` invoke should always settle in well under a second —
+// see desktop/src-tauri/src/lib.rs for the (now-fixed) main-thread-blocking bug
+// that could make it hang indefinitely. This guard is defence in depth: if a
+// future regression (or a denied/reworked capability) makes the invoke hang
+// again, callers of revealItemInFinder — which all `.catch` to surface a toast
+// (see use-workspace-effects.ts) — get a rejection instead of silence.
+const REVEAL_IN_FINDER_TIMEOUT_MS = 3_000
+
+/** Reveal a file or directory in the OS file manager (Finder on macOS) with the
+ *  item selected. `path` must be absolute. No-op outside Tauri (browser dev). */
+export async function revealItemInFinder(path: string): Promise<void> {
+  if (!isTauri()) return
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error('reveal_in_finder timed out')),
+      REVEAL_IN_FINDER_TIMEOUT_MS,
+    )
+  })
+  try {
+    await Promise.race([tauriInvoke('reveal_in_finder', { path }), timeout])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 // ── Window Management ─────────────────────────────────────────────────────────

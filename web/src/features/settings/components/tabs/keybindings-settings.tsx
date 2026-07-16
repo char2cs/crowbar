@@ -1,5 +1,5 @@
 import { Keyboard, Warning } from '@phosphor-icons/react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useMemo, useState } from 'react'
 import { KEYMAP_PRESET_OPTIONS } from '@/features/keymaps/defaults/keybinding-presets'
 import { useKeymapStore } from '@/features/keymaps/stores/store'
 import { COMMANDS } from '@/features/keymaps/registry'
@@ -24,7 +24,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/utils/cn'
-import Section, { SETTINGS_CONTROL_WIDTHS } from '../settings-section'
+import Section from '../settings-section'
+import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 
 const CATEGORY_ORDER: CommandCategory[] = ['Navigation', 'Panes', 'Tabs', 'Editor']
 
@@ -42,6 +43,13 @@ function RebindControl({
 }) {
   const [capturing, setCapturing] = useState(false)
 
+  // Read the latest onCapture via an Effect Event so the capture listener
+  // subscribes once per capturing session instead of re-subscribing when the
+  // parent hands down a new onCapture identity.
+  const onChordCaptured = useEffectEvent((chord: string) => {
+    onCapture(chord)
+    setCapturing(false)
+  })
   useEffect(() => {
     if (!capturing) return
     const handler = (e: KeyboardEvent) => {
@@ -53,12 +61,11 @@ function RebindControl({
       }
       const chord = chordFromEvent(e)
       if (!chord) return // bare modifier — keep waiting
-      onCapture(chord)
-      setCapturing(false)
+      onChordCaptured(chord)
     }
     window.addEventListener('keydown', handler, { capture: true })
     return () => window.removeEventListener('keydown', handler, { capture: true })
-  }, [capturing, onCapture])
+  }, [capturing])
 
   const hasConflict = conflictCommandIds.length > 0
   const conflictLabels = conflictCommandIds.map((id) => getCommand(id)?.label ?? id).join(', ')

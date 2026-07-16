@@ -47,12 +47,14 @@ type Files interface {
 		filePath string,
 	) (domain.FileContent, error)
 
-	// WriteContent writes a file and resyncs the working tree.
+	// WriteContent writes a file and resyncs the working tree. encoding is
+	// "base64" for a byte-faithful binary payload or "" / "utf8" for raw UTF-8.
 	WriteContent(
 		ctx context.Context,
 		wsID string,
 		filePath string,
 		content string,
+		encoding string,
 		now time.Time,
 	) error
 
@@ -69,6 +71,16 @@ type Files interface {
 		ctx context.Context,
 		wsID string,
 		dirPath string,
+		now time.Time,
+	) error
+
+	// Copy duplicates a file or directory byte-faithfully and resyncs the
+	// working tree.
+	Copy(
+		ctx context.Context,
+		wsID string,
+		sourcePath string,
+		destPath string,
 		now time.Time,
 	) error
 

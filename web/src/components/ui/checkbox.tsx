@@ -76,5 +76,3 @@ export function Checkbox({
     </CheckboxPrimitive.Root>
   )
 }
-
-export { CheckboxPrimitive }

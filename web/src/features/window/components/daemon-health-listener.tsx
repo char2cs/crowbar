@@ -43,8 +43,10 @@ export function DaemonHealthListener() {
             ),
         ],
       ]
-      for (const [name, fire] of subscriptions) {
-        const unlisten = await listen(name, fire)
+      // Each subscription is an independent event name, so register them
+      // concurrently instead of one at a time.
+      const registered = await Promise.all(subscriptions.map(([name, fire]) => listen(name, fire)))
+      for (const unlisten of registered) {
         if (disposed) unlisten()
         else unlistens.push(unlisten)
       }

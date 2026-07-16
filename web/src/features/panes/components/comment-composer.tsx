@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
+// react-doctor-disable-next-line prefer-dynamic-import -- this file is only reachable through review-thread-item.tsx / use-review-comment-layer.tsx -> git-diff-editor-stack.tsx, already behind the `GitDiffEditorStackLazy` React.lazy() boundary (review-diff-tab.tsx). Verified via `bunx vite build`: 0 "codemirror" occurrences in the entry chunk, 3 in the git-diff-editor-stack chunk.
 import { keymap } from '@codemirror/view'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
-import { transparentMarkdownTheme, MarkdownPreview } from '@/features/panes/lib/markdown'
+import { MarkdownPreview } from '@/features/panes/lib/markdown'
+import { transparentMarkdownTheme } from '@/features/panes/lib/markdown-theme'
 
 interface CommentComposerProps {
   /** Optional header, e.g. "Add a comment on line R7". */

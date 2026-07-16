@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { motion, AnimatePresence } from 'framer-motion'
+import { AnimatePresence, domAnimation, LazyMotion, m } from 'framer-motion'
 import { ShaderGradient, ShaderGradientCanvas } from '@shadergradient/react'
+// @shadergradient/react's WebGL renderer imports these at runtime but omits them
+// from its peerDependencies, so they must remain direct deps (the build fails to
+// resolve them otherwise). These type-only imports are erased at compile time
+// (zero bundle cost) and only anchor the packages for dead-code analysis.
+// `three` itself is covered transitively as @react-three/fiber's declared peer.
+import type {} from 'three-stdlib'
+import type {} from 'camera-controls'
+import type {} from '@react-three/fiber'
 import { CheckCircle, XCircle, Warning, ArrowRight, ArrowClockwise } from '@phosphor-icons/react'
 import { Loader2 } from 'lucide-react'
 import { CrowbarWordmark } from '@/components/ui/crowbar-wordmark'
@@ -73,7 +81,7 @@ function CheckRow({
   visible: boolean
 }) {
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, x: -8 }}
       animate={visible ? { opacity: 1, x: 0 } : { opacity: 0, x: -8 }}
       transition={{ duration: 0.3, ease: 'easeOut' }}
@@ -89,7 +97,7 @@ function CheckRow({
         {status === 'warn' && <Warning weight="fill" className="size-5 text-amber-400" />}
         {status === 'error' && <XCircle weight="fill" className="size-5 text-red-400" />}
       </div>
-    </motion.div>
+    </m.div>
   )
 }
 
@@ -196,14 +204,17 @@ function PrerequisitesStep({
 
       <AnimatePresence>
         {blockedReason && (
-          <motion.p
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
+          // Opacity-only: the strings here are short and fixed (see
+          // `blockedReason` above), so a height tween buys nothing visually
+          // over a fade — and it avoids animating a layout property (perf).
+          <m.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             className="text-xs text-red-300"
           >
             {blockedReason}
-          </motion.p>
+          </m.p>
         )}
       </AnimatePresence>
 
@@ -270,6 +281,7 @@ export function OobeScreen() {
   const [importOpen, setImportOpen] = useState(false)
   const navigate = useNavigate()
 
+  // react-doctor-disable-next-line effect-needs-cleanup -- cleanup exists (l.302-305: `cancelled` flag + timers.forEach(clearTimeout)); tracer can't follow it.
   useEffect(() => {
     if (step !== 'prerequisites') return
     let cancelled = false
@@ -313,102 +325,111 @@ export function OobeScreen() {
   }
 
   return (
-    <div className="relative flex h-screen items-center justify-center overflow-hidden">
-      <div data-tauri-drag-region className="absolute inset-x-0 top-0 z-20 h-8" />
-      <GradientBackground />
+    // Single LazyMotion boundary for the whole screen: it covers GradientBackground,
+    // CheckRow, and PrerequisitesStep's m.* usage too, since they all render as
+    // descendants here. Only enter/exit animations are used -> domAnimation.
+    <LazyMotion features={domAnimation}>
+      <div className="relative flex h-screen items-center justify-center overflow-hidden">
+        <div data-tauri-drag-region className="absolute inset-x-0 top-0 z-20 h-8" />
+        <GradientBackground />
 
-      <>
-        {/* ── Step 1: Presentation (full-screen, no card) ── */}
-        <AnimatePresence>
-          {step === 'presentation' && (
-            <motion.div
-              key="presentation"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0, transition: { duration: 0.25 } }}
-              className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-8 text-center"
-            >
-              <CrowbarWordmark className="w-[min(360px,44vw)] text-white" />
-              <motion.p
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.15 }}
-                className="max-w-xs text-base text-white/70"
+        <>
+          {/* ── Step 1: Presentation (full-screen, no card) ── */}
+          <AnimatePresence>
+            {step === 'presentation' && (
+              <m.div
+                key="presentation"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, transition: { duration: 0.25 } }}
+                className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-8 text-center"
               >
-                The IDE where agents do the heavy lifting.
-              </motion.p>
-              <motion.div
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.25 }}
-              >
-                <Button
-                  className="rounded-full bg-white px-8 text-black hover:bg-white/90"
-                  onClick={() => setStep('prerequisites')}
+                <CrowbarWordmark className="w-[min(360px,44vw)] text-white" />
+                <m.p
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.15 }}
+                  className="max-w-xs text-base text-white/70"
                 >
-                  Get started with agents
-                  <ArrowRight className="ml-1.5 size-4" />
-                </Button>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                  The IDE where agents do the heavy lifting.
+                </m.p>
+                <m.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.25 }}
+                >
+                  <Button
+                    className="rounded-full bg-white px-8 text-black hover:bg-white/90"
+                    onClick={() => setStep('prerequisites')}
+                  >
+                    Get started with agents
+                    <ArrowRight className="ml-1.5 size-4" />
+                  </Button>
+                </m.div>
+              </m.div>
+            )}
+          </AnimatePresence>
 
-        {/* ── Steps 2+: Glass card ── */}
-        <AnimatePresence>
-          {step !== 'presentation' && (
-            <motion.div
-              key="card"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.3 }}
-              className="absolute inset-0 z-10 flex items-center justify-center p-6"
-            >
-              <div className="w-full max-w-md rounded-3xl border border-white/20 bg-white/10 p-10 shadow-2xl backdrop-blur-2xl">
-                {/* Logo pinned to top of card */}
-                <div className="mb-8 flex justify-center">
-                  <CrowbarWordmark className="w-[min(180px,28vw)] text-white" />
+          {/* ── Steps 2+: Glass card ── */}
+          <AnimatePresence>
+            {step !== 'presentation' && (
+              <m.div
+                key="card"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="absolute inset-0 z-10 flex items-center justify-center p-6"
+              >
+                <div className="w-full max-w-md rounded-3xl border border-white/20 bg-white/10 p-10 shadow-2xl backdrop-blur-2xl">
+                  {/* Logo pinned to top of card */}
+                  <div className="mb-8 flex justify-center">
+                    <CrowbarWordmark className="w-[min(180px,28vw)] text-white" />
+                  </div>
+
+                  {/* Step content cross-fades inside the card */}
+                  <AnimatePresence mode="wait">
+                    {step === 'prerequisites' && (
+                      <m.div
+                        key="prereqs"
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <PrerequisitesStep
+                          prereqs={prereqs}
+                          visible={visible}
+                          onContinue={() => setStep('add-project')}
+                          onRetry={() => setRetryCount((c) => c + 1)}
+                        />
+                      </m.div>
+                    )}
+
+                    {step === 'add-project' && (
+                      <m.div
+                        key="add-project"
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <AddProjectStep onChooseFolder={() => setImportOpen(true)} />
+                      </m.div>
+                    )}
+                  </AnimatePresence>
                 </div>
+              </m.div>
+            )}
+          </AnimatePresence>
+        </>
 
-                {/* Step content cross-fades inside the card */}
-                <AnimatePresence mode="wait">
-                  {step === 'prerequisites' && (
-                    <motion.div
-                      key="prereqs"
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      <PrerequisitesStep
-                        prereqs={prereqs}
-                        visible={visible}
-                        onContinue={() => setStep('add-project')}
-                        onRetry={() => setRetryCount((c) => c + 1)}
-                      />
-                    </motion.div>
-                  )}
-
-                  {step === 'add-project' && (
-                    <motion.div
-                      key="add-project"
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      <AddProjectStep onChooseFolder={() => setImportOpen(true)} />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </>
-
-      <ImportProjectModal open={importOpen} onOpenChange={setImportOpen} onImport={handleImport} />
-    </div>
+        <ImportProjectModal
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          onImport={handleImport}
+        />
+      </div>
+    </LazyMotion>
   )
 }

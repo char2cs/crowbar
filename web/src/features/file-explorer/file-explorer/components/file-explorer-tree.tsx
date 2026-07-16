@@ -24,10 +24,14 @@ import { FILE_TREE_DENSITY_CONFIG } from '@/features/file-explorer/lib/file-tree
 import { fileOpenBenchmark } from '@/features/editor/utils/file-open-benchmark'
 import { findFileInTree } from '@/features/file-system/controllers/file-tree-utils'
 import { readDirectory } from '@/features/file-system/controllers/platform'
-import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import {
+  useFileSystemStore,
+  workspaceFoldersSupported,
+} from '@/features/file-system/controllers/store'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { useGitStore } from '@/features/git/stores/git-store'
 import { useSettingsStore } from '@/features/settings/store'
+import { isWorkspaceLockedInSidebar, useSidebarStore } from '@/lib/store/sidebar'
 import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { Button } from '@/components/ui/button'
 import { Dropdown, type MenuItem } from '@/components/ui/dropdown'
@@ -100,6 +104,12 @@ const FILE_TREE_HEADER_HEIGHT = 32
 const FILE_TREE_SEARCH_DEBOUNCE_DELAY = 80
 const getFileTreeRowId = (path: string) => `file-tree-row-${path.replace(/[^a-zA-Z0-9_-]/g, '_')}`
 
+const handleRootDrop = (e: React.DragEvent) => {
+  e.preventDefault()
+  e.stopPropagation()
+}
+
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive virtualized tree — keyboard nav, search, drag-drop and gitignore all operate over one shared row model + refs; this is the tree's core, splitting hurts locality.
 function FileExplorerTreeComponent({
   files,
   activePath,
@@ -177,7 +187,9 @@ function FileExplorerTreeComponent({
     handleMoveError,
   )
 
-  const [mouseDownInfo, setMouseDownInfo] = useState<{
+  // Drag-threshold bookkeeping only — never rendered, so a ref avoids a
+  // redraw on every mousedown/mousemove/mouseup during drag detection.
+  const mouseDownInfoRef = useRef<{
     x: number
     y: number
     file: FileEntry
@@ -195,7 +207,10 @@ function FileExplorerTreeComponent({
   }, [settings.hiddenFilePatterns, settings.hiddenDirectoryPatterns])
 
   const workspaceRootPaths = useMemo(() => {
-    const roots = files.filter((file) => file.isDir).map((file) => file.path)
+    const roots: string[] = []
+    for (const file of files) {
+      if (file.isDir) roots.push(file.path)
+    }
     if (rootFolderPath && !roots.includes(rootFolderPath)) {
       roots.unshift(rootFolderPath)
     }
@@ -242,6 +257,16 @@ function FileExplorerTreeComponent({
     workspaceGitStatus,
     currentWorkspaceRepoPath,
     activeWorkspaceId,
+  )
+
+  // A locked (protected-branch) worktree refuses every daemon write (409
+  // "workspace locked"), so the context menu must not offer mutations there.
+  // isWorkspaceLockedInSidebar checks tree rows AND the default (main-worktree)
+  // workspace, which is not a tree row (repo.defaultWorkspaceId/…Status) —
+  // adopted protected branches are locked defaults, so repo homes gate too.
+  // Returns a boolean, so the selector stays referentially stable.
+  const isWorkspaceLocked = useSidebarStore((s) =>
+    isWorkspaceLockedInSidebar(s.repos, activeWorkspaceId),
   )
 
   const gitStatusDecorationLookup = useMemo(() => {
@@ -331,12 +356,15 @@ function FileExplorerTreeComponent({
       ),
     [filteredFiles, debouncedTreeSearchQuery],
   )
-  const displayedFiles =
-    isTreeSearchActive && !isTreeSearchSearching
-      ? treeSearchResult.files
-      : isTreeSearchActive
-        ? []
-        : filteredFiles
+  const displayedFiles = useMemo(
+    () =>
+      isTreeSearchActive && !isTreeSearchSearching
+        ? treeSearchResult.files
+        : isTreeSearchActive
+          ? []
+          : filteredFiles,
+    [isTreeSearchActive, isTreeSearchSearching, treeSearchResult.files, filteredFiles],
+  )
   const displayedExpandedPaths =
     isTreeSearchActive && !isTreeSearchSearching ? treeSearchResult.expandedPaths : undefined
   const hasActiveFileTreeFilters =
@@ -439,6 +467,7 @@ function FileExplorerTreeComponent({
 
   useEffect(() => {
     if (!hasTreeFocus) {
+      // react-doctor-disable-next-line no-chain-state-updates -- FP: this is a one-way sync of the keyboard cursor to `activePath` while the tree is unfocused (so re-focus resumes at the active file). Nothing chains off `focusedPath` via another effect — it's only read at render (`keyboardPath = focusedPath || activePath`) and written by keyboard handlers — so there is no multi-step render cascade.
       setFocusedPath(activePath)
     }
   }, [activePath, hasTreeFocus])
@@ -463,13 +492,18 @@ function FileExplorerTreeComponent({
     (direction: 1 | -1) => {
       if (!isTreeSearchActive || treeSearchResult.matchedPaths.size === 0) return
 
-      const matchIndexes = treeSearchResult.orderedMatchedPaths
-        .map((path) => visibleRows.findIndex((row) => row.file.path === path))
-        .filter((index) => index >= 0)
+      // visibleRows can be large (every visible row in the tree), so index it
+      // once by path instead of calling findIndex per matched path.
+      const rowIndexByPath = new Map(visibleRows.map((row, index) => [row.file.path, index]))
+      const matchIndexes: number[] = []
+      for (const path of treeSearchResult.orderedMatchedPaths) {
+        const index = rowIndexByPath.get(path)
+        if (index !== undefined) matchIndexes.push(index)
+      }
 
       if (matchIndexes.length === 0) return
 
-      const currentIndex = visibleRows.findIndex((row) => row.file.path === keyboardPath)
+      const currentIndex = keyboardPath ? (rowIndexByPath.get(keyboardPath) ?? -1) : -1
       const fallbackIndex = direction > 0 ? matchIndexes[0] : matchIndexes[matchIndexes.length - 1]
       const nextIndex =
         direction > 0
@@ -654,6 +688,7 @@ function FileExplorerTreeComponent({
   const openFilePathsInTabs = useCallback(
     async (filePaths: string[]) => {
       for (const filePath of filePaths) {
+        // react-doctor-disable-next-line async-await-in-loop -- kept sequential: each open reads the pane's current tab list via getState() and appends, so concurrent opens could race on that read-modify-write and land tabs out of drop order. Rare (multi-file drag-drop), not a hot path.
         await openPathInTab(filePath)
       }
 
@@ -708,21 +743,30 @@ function FileExplorerTreeComponent({
   const { setContextMenu, handleContextMenu, contextMenuElement, fileFeedback } =
     useFileExplorerContextMenu({
       rootFolderPath,
+      // Locked worktrees refuse writes — hide every mutation item (New File/Folder,
+      // Upload, Duplicate, Rename, Delete, Cut, env-template).
+      isLocked: isWorkspaceLocked,
       onFileSelect,
       onCreateNewFileInDirectory,
-      onCreateNewFolderInDirectory,
       onGenerateImage,
       onRefreshDirectory,
       onRenamePath,
       onRevealInFinder,
       onUploadFile,
       onDuplicatePath,
-      onAddFolderToWorkspace: () => {
-        void addFolderToWorkspace()
-      },
-      onRemoveFolderFromWorkspace: (path) => {
-        void removeFolderFromWorkspace(path)
-      },
+      // The store impls behind these are still no-op stubs (no multi-root
+      // workspace model exists yet); an undefined handler hides the menu items
+      // so no dead actions render. See workspaceFoldersSupported (Task 28).
+      onAddFolderToWorkspace: workspaceFoldersSupported
+        ? () => {
+            void addFolderToWorkspace()
+          }
+        : undefined,
+      onRemoveFolderFromWorkspace: workspaceFoldersSupported
+        ? (path) => {
+            void removeFolderFromWorkspace(path)
+          }
+        : undefined,
       // Only the actual workspace root hides Rename/Delete. workspaceRootPaths
       // lists every top-level folder (a multi-root-workspace notion that doesn't
       // apply to Crowbar's single worktree); using it here wrongly treated every
@@ -752,17 +796,20 @@ function FileExplorerTreeComponent({
     return m
   }, [visibleRows])
 
-  const getTargetItem = (target: EventTarget | null) => {
-    const el = (target as HTMLElement | null)?.closest('[data-file-path]') as
-      | (HTMLElement & { dataset: { filePath?: string; isDir?: string } })
-      | null
-    if (!el) return null
-    const path = el.dataset.filePath || el.getAttribute('data-file-path') || ''
-    const isDir = (el.dataset.isDir || el.getAttribute('data-is-dir')) === 'true'
-    const file = pathToFile.get(path)
-    if (!file) return null
-    return { path, isDir, file }
-  }
+  const getTargetItem = useCallback(
+    (target: EventTarget | null) => {
+      const el = (target as HTMLElement | null)?.closest('[data-file-path]') as
+        | (HTMLElement & { dataset: { filePath?: string; isDir?: string } })
+        | null
+      if (!el) return null
+      const path = el.dataset.filePath || el.getAttribute('data-file-path') || ''
+      const isDir = (el.dataset.isDir || el.getAttribute('data-is-dir')) === 'true'
+      const file = pathToFile.get(path)
+      if (!file) return null
+      return { path, isDir, file }
+    },
+    [pathToFile],
+  )
 
   const toggleDirectory = useCallback(
     async (path: string) => {
@@ -796,7 +843,7 @@ function FileExplorerTreeComponent({
         void Promise.resolve(onFileSelect(t.path, false))
       }
     },
-    [onFileSelect, toggleDirectory, updateActivePath, pathToFile],
+    [onFileSelect, toggleDirectory, updateActivePath, getTargetItem],
   )
 
   const handleContainerDoubleClick = useCallback(
@@ -811,7 +858,7 @@ function FileExplorerTreeComponent({
       // "Rename" uses this same path.
       onRenamePath?.(t.path)
     },
-    [onRenamePath],
+    [onRenamePath, getTargetItem],
   )
 
   const handleContainerContextMenu = useCallback(
@@ -826,7 +873,7 @@ function FileExplorerTreeComponent({
         handleContextMenu(e, rootFolderPath, true)
       }
     },
-    [handleContextMenu, pathToFile, rootFolderPath],
+    [handleContextMenu, rootFolderPath, getTargetItem],
   )
 
   const handleContainerMouseDown = useCallback(
@@ -834,34 +881,34 @@ function FileExplorerTreeComponent({
       if (e.button !== 0) return
       const t = getTargetItem(e.target)
       if (!t) return
-      setMouseDownInfo({ x: e.clientX, y: e.clientY, file: t.file })
+      mouseDownInfoRef.current = { x: e.clientX, y: e.clientY, file: t.file }
     },
-    [pathToFile],
+    [getTargetItem],
   )
 
   const handleContainerMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (mouseDownInfo && !dragState.isDragging) {
-        const dx = e.clientX - mouseDownInfo.x
-        const dy = e.clientY - mouseDownInfo.y
+      const info = mouseDownInfoRef.current
+      if (info && !dragState.isDragging) {
+        const dx = e.clientX - info.x
+        const dy = e.clientY - info.y
         if (Math.hypot(dx, dy) > 5) {
-          startDrag(e, mouseDownInfo.file)
-          setMouseDownInfo(null)
+          startDrag(e, info.file)
+          mouseDownInfoRef.current = null
         }
       }
     },
-    [mouseDownInfo, dragState.isDragging, startDrag],
+    [dragState.isDragging, startDrag],
   )
 
-  const handleContainerMouseUp = useCallback(() => setMouseDownInfo(null), [])
-  const handleContainerMouseLeave = useCallback(() => setMouseDownInfo(null), [])
+  const handleContainerMouseUp = useCallback(() => {
+    mouseDownInfoRef.current = null
+  }, [])
+  const handleContainerMouseLeave = useCallback(() => {
+    mouseDownInfoRef.current = null
+  }, [])
 
   // No recursive render; rows are virtualized
-
-  const handleRootDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-  }
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteCandidate) return

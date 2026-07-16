@@ -76,6 +76,15 @@ interface AgentChatPaneProps {
   /** The pane buffer backing this tab — the thing the pane re-points and relabels. */
   bufferId: string
   isActivePane: boolean
+  /**
+   * Whether this tab is the ACTIVE (visible) tab in its pane — distinct from
+   * isActivePane (whether the pane has focus). The pane keeps every chat mounted
+   * `visibility:hidden` for keep-alive, so a chat can be MOUNTED-BUT-HIDDEN. This
+   * gates auto-revive: a hidden DORMANT chat must never spawn a CLI (N hidden
+   * dormant tabs would each spawn one on workspace load) — it revives only once it
+   * becomes visible. An already-attached chat stays attached while hidden.
+   */
+  isVisible: boolean
 }
 
 // A flat, opaque pane: one centred column holding the live agent terminal, with the
@@ -101,12 +110,14 @@ interface AgentChatPaneProps {
 // Both are one rule, applied in order: FOLLOW MY RUNNER IF IT STILL EXISTS ANYWHERE;
 // OTHERWISE ADOPT WHOEVER IS ON MY CHAT. Attaching, relabelling and the exited state all
 // fall out of it rather than being engineered separately.
+// react-doctor-disable-next-line no-giant-component -- accepted: cohesive pane — drives a single live PTY-backed chat with tightly-coupled resize/focus/stream effects; no independent sub-surface to lift out.
 export function AgentChatPane({
   chatId,
   runnerId,
   wsId,
   bufferId,
   isActivePane,
+  isVisible,
 }: AgentChatPaneProps) {
   const store = useWorkspaceStore()
 
@@ -375,12 +386,20 @@ export function AgentChatPane({
     }
     if (!sessionId) {
       if (switchingRef.current) return // the switch's own spinner stands
-      if (!attemptedRef.current.has(shownChatId)) {
+      // ONLY THE VISIBLE TAB REVIVES. A dormant chat kept alive on a hidden tab must
+      // NOT spawn a CLI: opening a workspace with N dormant chat tabs would otherwise
+      // fire N revives at once, one CLI per hidden tab. A hidden dormant chat waits;
+      // when the user switches to it (isVisible flips true, this effect re-runs) it
+      // revives — exactly once, because the budget below is spent inside revive(). An
+      // already-attached chat has a sessionId and never reaches here, so it keeps its
+      // live PTY while hidden.
+      if (isVisible && !attemptedRef.current.has(shownChatId)) {
         void revive()
         return
       }
-      // Budget spent. Don't stomp a revive still in flight, and don't overwrite a
-      // `failed` we have already earned with the vaguer `exited`.
+      // Budget spent, or hidden and waiting to become visible. Don't stomp a revive
+      // still in flight, and don't overwrite a `failed` we have already earned with the
+      // vaguer `exited`.
       setAttachment((a) =>
         a.state === 'reviving' || a.state === 'idle' ? a : { state: 'idle', reason: 'exited' },
       )
@@ -388,7 +407,7 @@ export function AgentChatPane({
     }
     seedAttach(wsId, sessionId)
     setAttachment({ state: 'attached', sessionId })
-  }, [wsId, known, sessionId, shownChatId, revive])
+  }, [wsId, known, sessionId, shownChatId, revive, isVisible])
 
   // The attach above proves the PTY was alive when the store last spoke. The CLI can die
   // at any moment while the pane sits here — daemon restart, /exit, crash — and the
@@ -492,6 +511,13 @@ export function AgentChatPane({
     // focusTerminalFromEmptySpace.
     <div
       ref={rootRef}
+      // Dead-space layout chrome, not a control: the whitelist above already
+      // guarantees this handler only fires when the click landed on the empty
+      // div itself, never on real content. role="presentation" tells AT the
+      // same thing — this wrapper carries no semantics of its own, and every
+      // actually-interactive descendant (the terminal, the switcher) keeps
+      // its own role untouched.
+      role="presentation"
       onMouseDown={focusTerminalFromEmptySpace}
       className="flex h-full w-full flex-col"
     >
@@ -513,11 +539,24 @@ export function AgentChatPane({
       >
         <div className="min-h-0 flex-1">
           {attachment.state === 'attached' && (
+            // NO key={sessionId}. When the agent's runner is replaced under a still-
+            // attached pane (a provider switch, or a revive that lands a new CLI), the
+            // sessionId changes but the terminal stays mounted: XtermTerminal swaps the
+            // PTY imperatively — detach the old, attach the new — instead of tearing the
+            // whole component (socket, observers, xterm) down and rebuilding it. A move
+            // (same PTY, new conversation) never changed the id and so never remounted;
+            // this makes a REPLACEMENT behave the same way.
             <XtermTerminal
-              key={attachment.sessionId}
               sessionId={attachment.sessionId}
-              isActive={isActivePane}
-              isVisible
+              // The chat's own workspace: a transport-drop reconnect on a hidden
+              // keep-alive workspace must listLive/attach against THIS workspace,
+              // or the agent's live PTY looks gone from the active one's list.
+              workspaceId={wsId}
+              // isActive = focused AND the visible tab; isVisible = the visible tab.
+              // A hidden keep-alive chat is neither, so its terminal fits locally but
+              // does not steal focus or (Task 4) push PTY resize while off-screen.
+              isActive={isActivePane && isVisible}
+              isVisible={isVisible}
               attachOnly
               // The column already supplies the inset; the terminal's own pl-[16px]
               // would double it and push the agent out of line with the switcher.
