@@ -38,8 +38,7 @@ import (
 // restartFrame is the decoded wire frame the engine's writePump emits. Snapshot
 // marks a serialized SCREEN-MODEL redraw (the scrollback replay handed to a
 // freshly attached client); a frame without it is live output the restored PTY
-// produced just now. The distinction is the test's readiness signal — see
-// waitForLiveOutput.
+// produced just now.
 type restartFrame struct {
 	Data     string `json:"data"`
 	Snapshot bool   `json:"snapshot"`
@@ -112,19 +111,6 @@ func (r *restartConn) waitFor(pred func(restartFrame) bool) {
 // waitForData blocks until any received frame's payload satisfies pred.
 func (r *restartConn) waitForData(pred func(string) bool) {
 	r.waitFor(func(f restartFrame) bool { return pred(f.Data) })
-}
-
-// waitForLiveOutput blocks until the session emits a NON-snapshot frame: output
-// the PTY produced live, as opposed to the replayed screen-model snapshot handed
-// to a client on attach.
-//
-// On a RESTORED session this is the readiness signal that the re-spawned shell
-// really came up: the scrollback replay lands instantly (it is read from disk),
-// so it proves nothing about the new process. Blocking on the shell's own first
-// byte — its prompt/title — is what proves the restore produced a working shell,
-// and it is a real signal rather than "surely a shell boots within N seconds".
-func (r *restartConn) waitForLiveOutput() {
-	r.waitFor(func(f restartFrame) bool { return !f.Snapshot && len(f.Data) > 0 })
 }
 
 type restartConnClosedErr struct{}
@@ -330,13 +316,21 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 	// the re-spawned shell came up.
 	conn2.waitForData(func(data string) bool { return rrHas(data, "restart-crossboundary-marker") })
 
-	// So block, separately, on the restored shell's OWN first byte (a live,
-	// non-snapshot frame). That is the real "the restore produced a working
-	// shell" signal — and the one this test used to fake with a 5 s deadline,
-	// which is why it went red under the load of the full suite while passing
-	// alone: a ~/.zshrc that boots in ~400 ms idle can take many seconds on a
-	// saturated machine.
-	conn2.waitForLiveOutput()
+	// Prove the restore produced a WORKING shell by DRIVING output, not by
+	// waiting for a spontaneous one. A freshly re-spawned login shell may fold
+	// its only spontaneous output — the prompt/title — into the scrollback-replay
+	// SNAPSHOT frame above; when it does, no non-snapshot frame ever follows, and
+	// a wait for spontaneous live output blocks until go test's whole-binary
+	// timeout, taking every test in this package's binary down with it. (That is
+	// the rare full-suite CI hang the earlier 5 s-deadline version papered over —
+	// removing the deadline turned a fast flake into a 10-minute one.) Echo a
+	// marker that cannot exist in the pre-restart scrollback and block on its
+	// echo instead: the shell must read input, run the command, and emit for that
+	// marker to arrive, which is a complete and deterministic proof of a live
+	// restored shell — and, unlike a prompt, cannot be pre-folded into a snapshot.
+	const liveMarker = "restored-shell-live-marker"
+	require.NoError(t, eng2.Write(ctx, sessionID, []byte("echo "+liveMarker+"\n")))
+	conn2.waitForData(func(data string) bool { return rrHas(data, liveMarker) })
 
 	// The restored shell must run in the saved CWD (the working directory from
 	// before the restart). We write `pwd` and block until the path comes back.
