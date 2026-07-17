@@ -557,19 +557,29 @@ func (c *Container) rebroadcast(
 
 // registerAgentWorkingProjection subscribes a THIRD projection on axAgentChat
 // (alongside the store + hub projections built in NewEventSourced): it re-derives
-// the per-workspace Working overlay from agent turn events (00 §7.4). turn_started
-// marks the chat working, turn_stopped clears it, and a Forget of a chat mid-turn
-// clears it too (so a delete never wedges the spinner on); each transition
-// re-broadcasts the affected workspace through the same enrichFrame path the
-// inflight overlay uses, so the FE spinner on the workspace tree + context pill +
-// tiles tracks live agent activity. The in-memory set is authoritative (not a
+// the per-workspace Working overlay from agent live-state events (00 §7.4), and a
+// Forget of a working chat clears it too (so a delete never wedges the spinner on).
+// Each transition re-broadcasts the affected workspace through the same enrichFrame
+// path the inflight overlay uses, so the FE spinner on the workspace tree + context
+// pill + tiles tracks live agent activity. The in-memory set is authoritative (not a
 // read-model query), so it never races the store projection.
 //
-// Only turn_started/turn_stopped are folded, and nothing else needs to be: a chat's turn
-// is opened and closed by its hooks, and the ONE case where the closing hook never comes
-// — the CLI dying mid-turn — is covered by the runner-exit reconcile
-// (agent.Usecase.reconcileRunnerExit), which issues the StopTurn itself. So a
-// turn_stopped always arrives to clear the set.
+// The overlay MIRRORS the aggregate's own Working (evt.Aggregate.Working) rather than
+// re-deriving "busy" from the event kind. The fold — a turn being open OR async work
+// being in flight (domain.AgentChat.Working) — then lives in exactly ONE place, the
+// write side, and this cannot drift from what the chat row and REST reads report. It is
+// also why turn_stopped is NOT read as "idle" here: a chat waiting on a background task
+// ends its turn but stays Working, and this reads that Working straight off the event.
+// The two kinds listed are the only ones that can CHANGE it; every other agentchat event
+// (created, title_set, ...) leaves it alone and must not cost a rebroadcast — see
+// setAgentTurn on why a needless one is expensive.
+//
+// The closing event always arrives. A chat's turn is opened and closed by its hooks, and
+// each turn_stop restates the async-work level; the ONE case where the closing hook never
+// comes — the CLI dying — is covered by the runner-exit reconcile
+// (agent.Usecase.reconcileRunnerExit → closeAbandonedTurn), which issues an AbandonTurn
+// that closes the turn AND zeroes the async-work level, since neither can outlive the
+// process that announced them.
 //
 // Boot note (in-memory overlay, empty on restart): agentWorking starts EMPTY on daemon
 // boot, so a chat that was mid-turn when the daemon stopped shows idle until its next
@@ -587,10 +597,8 @@ func (c *Container) registerAgentWorkingProjection() error {
 			}
 			var flipped bool
 			switch agentEventKind(evt.EventName) {
-			case "turn_started":
-				flipped = c.setAgentTurn(wsID, evt.AggregateID, true)
-			case "turn_stopped":
-				flipped = c.setAgentTurn(wsID, evt.AggregateID, false)
+			case "turn_started", "turn_stopped":
+				flipped = c.setAgentTurn(wsID, evt.AggregateID, evt.Aggregate.Working)
 			default:
 				return
 			}

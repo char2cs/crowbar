@@ -132,7 +132,7 @@ func TestNew_ProjectionsError(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	ax := &fakeAx{subscribeErr: errors.New("bus down")}
-	_, err = New(db, nil, ax, func(string, string, string) {})
+	_, err = New(db, nil, ax, func(string, string, string, bool) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat store: projections")
 }

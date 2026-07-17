@@ -29,7 +29,7 @@ type captureBroadcast struct {
 	rows []string
 }
 
-func (c *captureBroadcast) push(chatID string, workspaceID string, kind string) {
+func (c *captureBroadcast) push(chatID string, workspaceID string, kind string, _ bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.rows = append(c.rows, chatID+":"+workspaceID+":"+kind)
@@ -136,7 +136,7 @@ func TestAgentChat_StartStopTurn(t *testing.T) {
 	assert.True(t, started.Working)
 	require.NotNil(t, started.CurrentTurnStarted)
 
-	stopped, err := repo.StopTurn(ctx, "c1", now.Add(2*time.Second))
+	stopped, err := repo.StopTurn(ctx, "c1", now.Add(2*time.Second), 0)
 	require.NoError(t, err)
 	assert.False(t, stopped.Working)
 	assert.Nil(t, stopped.CurrentTurnStarted)
@@ -341,6 +341,6 @@ func TestAgentChat_NewEventSourced_ErrorOnBadDB(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = agentchat.NewEventSourced(ax, es, db, func(string, string, string) {})
+	_, err = agentchat.NewEventSourced(ax, es, db, func(string, string, string, bool) {})
 	require.Error(t, err)
 }

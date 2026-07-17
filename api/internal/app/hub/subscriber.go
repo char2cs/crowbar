@@ -33,10 +33,14 @@ type Subscriber interface {
 	PushFile(
 		evt domain.FileChangeEvent,
 	)
+	// PushAgentChat receives a chat lifecycle frame. working is the chat's folded
+	// busy state as of the event — the server's answer to the spinner, so no client
+	// re-derives it from the kind.
 	PushAgentChat(
 		chatID string,
 		workspaceID string,
 		kind string,
+		working bool,
 	)
 	// PushAgentRunner receives a runner lifecycle frame
 	// (started/session_bound/moved/exited). chatID is the chat the runner is

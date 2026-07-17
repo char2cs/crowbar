@@ -35,7 +35,7 @@ func newStoreWithDeps(
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	st, err := store.New(db, es, ax, func(string, string, string) {})
+	st, err := store.New(db, es, ax, func(string, string, string, bool) {})
 	require.NoError(t, err)
 	return context.Background(), st, ax, db
 }
@@ -186,7 +186,7 @@ func TestStore_Read_RebuildEnumerationError(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	st, err := store.New(db, &fakeReplayES{err: errors.New("boom")}, ax, func(string, string, string) {})
+	st, err := store.New(db, &fakeReplayES{err: errors.New("boom")}, ax, func(string, string, string, bool) {})
 	require.NoError(t, err)
 
 	_, err = st.ListChats(context.Background())
@@ -201,7 +201,7 @@ func TestNew_StorageError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = store.New(db, nil, nil, func(string, string, string) {})
+	_, err = store.New(db, nil, nil, func(string, string, string, bool) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat store")
 }

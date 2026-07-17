@@ -29,8 +29,18 @@ func (c StartTurn) Validate(current *domain.AgentChat) error {
 func (c StartTurn) EmitEvent(current *domain.AgentChat) domain.AgentChat {
 	next := *current
 	t := c.Now
-	next.Working = true
 	next.CurrentTurnStarted = &t
+	// A new turn SUPERSEDES whatever the last one left outstanding. The CLI is
+	// talking again, and its next turn_stop will restate the level from scratch —
+	// so carrying the old number forward could only ever preserve a ghost.
+	//
+	// This is the self-healing edge that covers the one case the hook surface cannot
+	// report at all: an INTERRUPT (ESC) fires NO hook whatsoever — not Stop, not
+	// Notification, nothing (measured against claude 2.1.212) — so a turn the user
+	// interrupted is never closed by anything, and any level it left standing would
+	// sit there with it. The next prompt clears both.
+	next.AsyncWork = 0
+	next.Working = foldWorking(&next)
 	next.LastActivityAt = c.Now
 	return next
 }

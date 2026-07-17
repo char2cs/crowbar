@@ -17,10 +17,20 @@ import (
 const eventNamePrefix = "agentchat."
 
 // BroadcastFunc receives every projected AgentChat event as a bare
-// (chatID, workspaceID, kind) lifecycle frame for hub fan-out. This is the wire
-// shape the FE consumes as dto.AgentChatEvent (00 agentic-engine spec §7) — a
+// (chatID, workspaceID, kind, working) lifecycle frame for hub fan-out. This is the
+// wire shape the FE consumes as dto.AgentChatEvent (00 agentic-engine spec §7) — a
 // bare id+kind frame plus the owning workspace, not the full aggregate — so a
 // Hub.BroadcastAgentChat-shaped func wires straight through with no adapter.
+//
+// working is the aggregate's OWN folded answer (domain.AgentChat.Working) as of this
+// event, and it rides along because the alternative is a second implementation of the
+// fold in TypeScript — which is not a hypothetical cost. The FE used to re-derive the
+// spinner from the KIND alone (turn_stopped → idle), so the instant "the turn ended"
+// stopped meaning "the agent is done", the two answers disagreed and the chat row went
+// dark while the aggregate said Working. One fold, computed once, read everywhere.
+//
+// This is NOT the snapshot the spec refuses: it is one derived fact ABOUT the event
+// being announced, not the chat's state for the client to keep in lieu of reading it.
 // workspaceID is carried on every frame and now scopes the WS fan-out per
 // workspace (Task 3): the agent-chat StreamDef filters frames by WorkspaceID
 // against the subscribed :wsId, so a client only sees its own workspace's chats.
@@ -46,6 +56,7 @@ type BroadcastFunc func(
 	chatID string,
 	workspaceID string,
 	kind string,
+	working bool,
 )
 
 // registerHubProjection subscribes the hub (WS fan-out) projection to every
@@ -73,7 +84,8 @@ func registerHubProjection(
 	// (including WorkspaceID) at the moment it was forgotten, exactly like
 	// every other projected event.
 	if _, err := ax.OnForget(func(_ context.Context, evt asynxModels.Event[domain.AgentChat]) {
-		p.broadcast(evt.Aggregate.ID, evt.Aggregate.WorkspaceID, "deleted")
+		// A forgotten chat is not working: it is not anything. The client drops it.
+		p.broadcast(evt.Aggregate.ID, evt.Aggregate.WorkspaceID, "deleted", false)
 	}); err != nil {
 		return fmt.Errorf("agentchat hub projection: onforget: %w", err)
 	}
@@ -84,16 +96,23 @@ type hubProjector struct {
 	broadcast BroadcastFunc
 }
 
-// onEvent broadcasts the (chatID, workspaceID, kind) lifecycle frame derived
-// from the event. workspaceID comes off the reduced aggregate
-// (evt.Aggregate.WorkspaceID), not the event name/id, since it is not encoded
-// in EventName. It never persists — the store projection owns durability.
+// onEvent broadcasts the (chatID, workspaceID, kind, working) lifecycle frame
+// derived from the event. workspaceID and working both come off the REDUCED
+// aggregate (evt.Aggregate), not the event name/id: neither is encoded in
+// EventName, and Working in particular is the fold's own output as of this event —
+// exactly the value the FE must show, computed by the one authority for it. It
+// never persists — the store projection owns durability.
 func (p *hubProjector) onEvent(
 	ctx context.Context,
 	evt asynxModels.Event[domain.AgentChat],
 ) {
 	_ = ctx
-	p.broadcast(evt.AggregateID, evt.Aggregate.WorkspaceID, eventKind(evt.EventName))
+	p.broadcast(
+		evt.AggregateID,
+		evt.Aggregate.WorkspaceID,
+		eventKind(evt.EventName),
+		evt.Aggregate.Working,
+	)
 }
 
 // eventKind extracts the <kind> segment from an agentchat EventName

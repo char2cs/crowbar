@@ -33,10 +33,13 @@ type WebSocketHub interface {
 	BroadcastFile(
 		evt domain.FileChangeEvent,
 	)
+	// BroadcastAgentChat carries the chat's folded busy state (working) alongside the
+	// kind, so no client re-derives the spinner. See Hub.BroadcastAgentChat.
 	BroadcastAgentChat(
 		chatID string,
 		workspaceID string,
 		kind string,
+		working bool,
 	)
 	// BroadcastAgentRunner carries the CHAT id alongside the runner because the
 	// runner's placement IS the event: a `moved` frame names the chat the CLI moved

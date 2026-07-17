@@ -206,6 +206,9 @@ type broadcastCall struct {
 	chatID      string
 	workspaceID string
 	kind        string
+	// working is the aggregate's folded busy state as of the frame — what the FE's
+	// spinner reads. Captured so a test can assert the SPINNER, not just the kind.
+	working bool
 }
 
 // fakeBroadcaster is a thread-safe Broadcaster double for agentchat frames.
@@ -214,10 +217,15 @@ type fakeBroadcaster struct {
 	calls []broadcastCall
 }
 
-func (f *fakeBroadcaster) BroadcastAgentChat(chatID, workspaceID, kind string) {
+func (f *fakeBroadcaster) BroadcastAgentChat(chatID, workspaceID, kind string, working bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, broadcastCall{chatID: chatID, workspaceID: workspaceID, kind: kind})
+	f.calls = append(f.calls, broadcastCall{
+		chatID:      chatID,
+		workspaceID: workspaceID,
+		kind:        kind,
+		working:     working,
+	})
 }
 
 func (f *fakeBroadcaster) reset() {

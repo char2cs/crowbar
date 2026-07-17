@@ -220,8 +220,8 @@ func TestContainer_PushAgentChat_ReachesFilteredClient(t *testing.T) {
 	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/A/agent/ws/chats")
 	c.agentChats.WaitRegistered()
 
-	c.PushAgentChat("chat-in-b", "B", "bound")
-	c.PushAgentChat("chat-1", "A", "bound")
+	c.PushAgentChat("chat-in-b", "B", "bound", false)
+	c.PushAgentChat("chat-1", "A", "bound", false)
 
 	got := readJSON(t, conn)
 	assert.Equal(t, "chat-1", got["chatId"])

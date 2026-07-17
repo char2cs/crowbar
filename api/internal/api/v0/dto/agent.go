@@ -184,4 +184,14 @@ type AgentChatEvent struct {
 	// itself and name no process. A `moved` frame's ChatID is the chat the runner
 	// moved INTO, so a client re-points the tab that was following RunnerID.
 	RunnerID string `json:"runnerId,omitempty"`
+	// Working is the chat's folded busy state (domain.AgentChat.Working) as of this
+	// event — the spinner, answered by the server. Set on the CHAT kinds; meaningless
+	// on runner kinds, which are about a process and not about a conversation.
+	//
+	// It is here so the client never re-derives it. `turn_stopped` does NOT mean idle
+	// — a CLI that hands work to a background subagent ends its turn and goes quiet
+	// waiting for it — so a spinner driven off the kind is wrong precisely when it
+	// matters, and a second copy of the fold in TypeScript is a second thing to get
+	// wrong. The aggregate folds it once; this carries the answer.
+	Working bool `json:"working"`
 }

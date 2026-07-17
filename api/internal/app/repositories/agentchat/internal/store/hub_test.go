@@ -21,6 +21,9 @@ type frame struct {
 	chatID      string
 	workspaceID string
 	kind        string
+	// working is the aggregate's folded busy state as of the event — the field the
+	// FE's spinner reads straight off the wire instead of re-deriving from kind.
+	working bool
 }
 
 // captureHub is a BroadcastFunc double that records every frame it receives,
@@ -31,10 +34,15 @@ type captureHub struct {
 	frames []frame
 }
 
-func (h *captureHub) push(chatID, workspaceID, kind string) {
+func (h *captureHub) push(chatID, workspaceID, kind string, working bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.frames = append(h.frames, frame{chatID: chatID, workspaceID: workspaceID, kind: kind})
+	h.frames = append(h.frames, frame{
+		chatID:      chatID,
+		workspaceID: workspaceID,
+		kind:        kind,
+		working:     working,
+	})
 }
 
 func (h *captureHub) all() []frame {
@@ -96,8 +104,66 @@ func TestHubProjection_TurnToggle_BroadcastsStartedThenStopped(t *testing.T) {
 	frames := h.all()
 	require.Len(t, frames, 3)
 	assert.Equal(t, frame{chatID: "c1", workspaceID: "w1", kind: "created"}, frames[0])
-	assert.Equal(t, frame{chatID: "c1", workspaceID: "w1", kind: "turn_started"}, frames[1])
-	assert.Equal(t, frame{chatID: "c1", workspaceID: "w1", kind: "turn_stopped"}, frames[2])
+	// working rides the frame, folded by the aggregate: the FE spinner reads this and
+	// never re-derives it from the kind. A plain StopTurn reports no outstanding async
+	// work, so it lands idle.
+	assert.Equal(t,
+		frame{chatID: "c1", workspaceID: "w1", kind: "turn_started", working: true},
+		frames[1])
+	assert.Equal(t,
+		frame{chatID: "c1", workspaceID: "w1", kind: "turn_stopped", working: false},
+		frames[2])
+}
+
+// TestHubProjection_TurnStoppedWithAsyncWork_BroadcastsStillWorking is THE bug, at the
+// wire: claude hands work to a background subagent and ends its turn right there, so a
+// turn_stopped frame must still say working=true or the chat row goes dark under an
+// agent that is very much alive.
+//
+// It is the one frame in the vocabulary whose kind and whose meaning disagree, which is
+// exactly why the FE must not infer the spinner from the kind — and why this asserts the
+// FIELD, not the kind.
+func TestHubProjection_TurnStoppedWithAsyncWork_BroadcastsStillWorking(t *testing.T) {
+	ctx, ax, _, h := newProjected(t)
+	_, err := ax.SendWait(ctx, createCmd("c1"))
+	require.NoError(t, err)
+	_, err = ax.SendWait(ctx, accmds.StartTurn{ChatID: "c1", Now: time.Unix(2, 0).UTC()})
+	require.NoError(t, err)
+	// The CLI went quiet with 2 units still running — the level it reported on its Stop.
+	_, err = ax.SendWait(ctx, accmds.StopTurn{ChatID: "c1", Now: time.Unix(3, 0).UTC(), AsyncWork: 2})
+	require.NoError(t, err)
+
+	frames := h.all()
+	require.Len(t, frames, 3)
+	assert.Equal(t,
+		frame{chatID: "c1", workspaceID: "w1", kind: "turn_stopped", working: true},
+		frames[2],
+		"a turn that ended with async work outstanding must still broadcast working")
+}
+
+// TestHubProjection_AsyncWorkDrains_BroadcastsIdle is the other half, and the one that
+// keeps the fix honest: the spinner must actually STOP. The next turn_stop restates the
+// level as 0 and the chat goes idle — no counter to unwind, no pairing to get right.
+func TestHubProjection_AsyncWorkDrains_BroadcastsIdle(t *testing.T) {
+	ctx, ax, _, h := newProjected(t)
+	_, err := ax.SendWait(ctx, createCmd("c1"))
+	require.NoError(t, err)
+	_, err = ax.SendWait(ctx, accmds.StartTurn{ChatID: "c1", Now: time.Unix(2, 0).UTC()})
+	require.NoError(t, err)
+	_, err = ax.SendWait(ctx, accmds.StopTurn{ChatID: "c1", Now: time.Unix(3, 0).UTC(), AsyncWork: 2})
+	require.NoError(t, err)
+	// claude is re-invoked when the work reports back, and ends THAT turn with nothing
+	// left outstanding — the trace's [running,running] → [] transition.
+	_, err = ax.SendWait(ctx, accmds.StartTurn{ChatID: "c1", Now: time.Unix(4, 0).UTC()})
+	require.NoError(t, err)
+	_, err = ax.SendWait(ctx, accmds.StopTurn{ChatID: "c1", Now: time.Unix(5, 0).UTC(), AsyncWork: 0})
+	require.NoError(t, err)
+
+	frames := h.all()
+	assert.Equal(t,
+		frame{chatID: "c1", workspaceID: "w1", kind: "turn_stopped", working: false},
+		frames[len(frames)-1],
+		"once the reported level drains to zero the spinner must stop")
 }
 
 // TestHubProjection_ForgetEmitsScopedDeleted proves the HARD-delete path
@@ -124,7 +190,7 @@ func TestHubProjection_ForgetEmitsScopedDeleted(t *testing.T) {
 }
 
 func TestRegisterHubProjection_SubscribeError(t *testing.T) {
-	err := registerHubProjection(&fakeAx{subscribeErr: errors.New("bus down")}, func(string, string, string) {})
+	err := registerHubProjection(&fakeAx{subscribeErr: errors.New("bus down")}, func(string, string, string, bool) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat hub projection: subscribe")
 }
@@ -133,7 +199,7 @@ func TestRegisterHubProjection_SubscribeError(t *testing.T) {
 // failure surfaces wrapped, mirroring registerStoreProjection's own
 // OnForget-error test.
 func TestRegisterHubProjection_OnForgetError(t *testing.T) {
-	err := registerHubProjection(&fakeAx{forgetErr: errors.New("bus down")}, func(string, string, string) {})
+	err := registerHubProjection(&fakeAx{forgetErr: errors.New("bus down")}, func(string, string, string, bool) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat hub projection: onforget")
 }
@@ -144,7 +210,7 @@ func TestRegisterHubProjection_OnForgetError(t *testing.T) {
 // event name/id) and passed through untouched.
 func TestHubProjector_OnEvent_DerivesKindFromEventName(t *testing.T) {
 	var got frame
-	p := &hubProjector{broadcast: func(chatID, workspaceID, kind string) {
+	p := &hubProjector{broadcast: func(chatID, workspaceID, kind string, _ bool) {
 		got = frame{chatID: chatID, workspaceID: workspaceID, kind: kind}
 	}}
 	p.onEvent(context.Background(), asynxModels.Event[domain.AgentChat]{

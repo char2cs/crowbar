@@ -116,13 +116,13 @@ type fileProbe struct {
 	ch chan domain.FileChangeEvent
 }
 
-func (fileProbe) PushProject(_ dto.ProjectDTO)                 {}
-func (fileProbe) PushRepo(_ dto.RepoDTO)                       {}
-func (fileProbe) PushWorkspace(_ dto.WorkspaceDTO)             {}
-func (fileProbe) PushThread(_ dto.ThreadDTO)                   {}
-func (fileProbe) PushTerminalSession(_ dto.TerminalSessionDTO) {}
-func (fileProbe) PushGit(_ string, _ gitdomain.GitStatus)      {}
-func (fileProbe) PushAgentChat(_ string, _ string, _ string)   {}
+func (fileProbe) PushProject(_ dto.ProjectDTO)                       {}
+func (fileProbe) PushRepo(_ dto.RepoDTO)                             {}
+func (fileProbe) PushWorkspace(_ dto.WorkspaceDTO)                   {}
+func (fileProbe) PushThread(_ dto.ThreadDTO)                         {}
+func (fileProbe) PushTerminalSession(_ dto.TerminalSessionDTO)       {}
+func (fileProbe) PushGit(_ string, _ gitdomain.GitStatus)            {}
+func (fileProbe) PushAgentChat(_ string, _ string, _ string, _ bool) {}
 
 func (fileProbe) PushAgentRunner(_ string, _ string, _ string, _ string) {}
 
