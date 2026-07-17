@@ -57,7 +57,7 @@ describe('scheduleIdleTask', () => {
     pending.cancel() // swap to b
     pending = open('b.ts')
     pending.cancel() // swap to c
-    pending = open('c.ts')
+    open('c.ts')
     // no further swap; c's open is allowed to fire
 
     vi.runAllTimers()

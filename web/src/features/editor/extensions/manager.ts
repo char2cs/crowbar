@@ -269,7 +269,9 @@ class ExtensionManager {
       // Cleanup on failure
       this.newExtensions.delete(extension.id)
       this.contexts.delete(extension.id)
-      throw new Error(`Failed to activate extension ${extension.displayName}: ${error}`)
+      throw new Error(`Failed to activate extension ${extension.displayName}: ${error}`, {
+        cause: error,
+      })
     }
   }
 
@@ -379,7 +381,9 @@ class ExtensionManager {
       // Cleanup on failure
       this.languageExtensions.delete(extension.id)
       this.contexts.delete(extension.id)
-      throw new Error(`Failed to activate language extension ${extension.displayName}: ${error}`)
+      throw new Error(`Failed to activate language extension ${extension.displayName}: ${error}`, {
+        cause: error,
+      })
     }
   }
 

@@ -92,7 +92,7 @@ export const calculateOffsetFromContentPosition = (
   }
 
   let currentLine = 0
-  let lineStartOffset = 0
+  let lineStartOffset: number
 
   for (let index = 0; index < content.length; index++) {
     if (content.charCodeAt(index) !== 10) continue

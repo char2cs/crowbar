@@ -98,8 +98,13 @@ export async function highlightCodeBlock(html: string): Promise<string> {
       const lang = normalizeLanguage(m.lang)
       if (lang === 'plaintext') return null
 
-      // Unescape HTML entities back to raw code for tokenization
-      const rawCode = m.code.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      // Unescape HTML entities back to raw code for tokenization. Do it in a
+      // single pass: chaining .replace() calls would re-process the output of
+      // the previous step, so an escaped literal like `&amp;lt;` would be
+      // double-unescaped into `<` instead of restoring to `&lt;`.
+      const rawCode = m.code.replace(/&(amp|lt|gt);/g, (_match, entity) =>
+        entity === 'amp' ? '&' : entity === 'lt' ? '<' : '>',
+      )
 
       const tokens = await tokenizeForLanguage(rawCode, lang)
       if (!tokens || tokens.length === 0) return null

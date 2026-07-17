@@ -699,7 +699,7 @@ function FileExplorerTreeComponent({
 
   const handleOpenAllFilesInDirectory = useCallback(
     async (directoryPath: string) => {
-      let filePaths: string[] = []
+      let filePaths: string[]
 
       if (directoryPath.startsWith('remote://')) {
         filePaths = collectLoadedFilesInDirectory(directoryPath)

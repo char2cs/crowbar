@@ -197,9 +197,15 @@ describe('ReviewThreadItem', () => {
     render(<ReviewThreadItem thread={thread} {...defaultProps} />)
 
     const imgs = document.querySelectorAll('img')
-    const githubImg = Array.from(imgs).find((img) =>
-      img.getAttribute('src')?.includes('github.com'),
-    )
+    const githubImg = Array.from(imgs).find((img) => {
+      const src = img.getAttribute('src')
+      if (!src) return false
+      try {
+        return new URL(src).hostname === 'github.com'
+      } catch {
+        return false
+      }
+    })
     expect(githubImg).toBeUndefined()
   })
 

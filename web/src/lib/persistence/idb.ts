@@ -104,7 +104,7 @@ export async function wipeEntityCache(): Promise<void> {
  * version; on a match this is a no-op. Call once at startup before seeding.
  */
 export async function maybeWipeOnVersionChange(): Promise<void> {
-  let stored: string | null = null
+  let stored: string | null
   try {
     stored = localStorage.getItem(CACHE_VERSION_KEY)
   } catch {

@@ -561,7 +561,9 @@ class WasmParserLoader {
           blobError,
         )
         await indexedDBParserCache.delete(languageId)
-        throw new Error(`Cached parser corrupted, please reinstall ${languageId}`)
+        throw new Error(`Cached parser corrupted, please reinstall ${languageId}`, {
+          cause: blobError,
+        })
       }
     } else {
       throw new Error(`Cache entry for ${languageId} has no WASM data`)
@@ -782,7 +784,7 @@ class WasmParserLoader {
     } catch (error) {
       if (error instanceof TreeSitterUnavailableError) throw error
       logger.error('WasmParser', `Failed to load parser for ${languageId}`, error)
-      throw new Error(`Failed to load parser for ${languageId}: ${error}`)
+      throw new Error(`Failed to load parser for ${languageId}: ${error}`, { cause: error })
     }
   }
 

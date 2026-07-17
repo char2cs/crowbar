@@ -117,7 +117,7 @@ async function reconcileRestoredBuffers(
       // Read from the hydrating workspace explicitly: hydration can still be
       // in flight when the user switches workspaces, and the active-workspace
       // readFile would then load the sibling worktree's file into this store.
-      let diskContent: string | null = null
+      let diskContent: string | null
       try {
         diskContent = await readWorkspaceFile(store.getState().workspaceId, buffer.path)
       } catch (err) {
