@@ -70,7 +70,26 @@ type EventStore interface {
 		chatID string,
 		now time.Time,
 	) (domain.AgentChat, error)
+	// StopTurn closes the turn, recording the level of async work the CLI reported
+	// still OUTSTANDING as it went quiet (asyncWork — see domain.AgentChat.AsyncWork).
+	// It does NOT assert that work is over: a chat whose CLI ended its turn to wait on
+	// a background task keeps Working through the wait. Pass 0 for a provider that
+	// reports no such level, which folds Working back to the turn alone.
 	StopTurn(
+		ctx context.Context,
+		chatID string,
+		now time.Time,
+		asyncWork int,
+	) (domain.AgentChat, error)
+	// AbandonTurn closes the turn AND zeroes the async-work level. It is the reconcile
+	// door — a dead CLI, a displaced runner — and nothing but a reconcile may call it:
+	// it is precisely what an ordinary StopTurn must not do.
+	//
+	// It is what keeps a killed CLI from stranding the spinner forever. The level is
+	// only ever restated by the CLI's own next turn_stop, so a CLI that dies with work
+	// outstanding leaves its last report standing with nobody left to correct it — and
+	// in an event-sourced aggregate that outlives the restart too.
+	AbandonTurn(
 		ctx context.Context,
 		chatID string,
 		now time.Time,
@@ -226,10 +245,23 @@ func (r *eventSourced) StopTurn(
 	ctx context.Context,
 	chatID string,
 	now time.Time,
+	asyncWork int,
 ) (domain.AgentChat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.StopTurn{ChatID: chatID, Now: now})
+	evt, err := r.sendWithOCC(ctx, commands.StopTurn{ChatID: chatID, Now: now, AsyncWork: asyncWork})
 	if err != nil {
 		return domain.AgentChat{}, fmt.Errorf("agentchat: stop turn: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (r *eventSourced) AbandonTurn(
+	ctx context.Context,
+	chatID string,
+	now time.Time,
+) (domain.AgentChat, error) {
+	evt, err := r.sendWithOCC(ctx, commands.StopTurn{ChatID: chatID, Now: now, Abandoned: true})
+	if err != nil {
+		return domain.AgentChat{}, fmt.Errorf("agentchat: abandon turn: %w", err)
 	}
 	return evt.Aggregate, nil
 }

@@ -36,6 +36,21 @@ export function orderedChats(chats: AgentChat[], order: string[]): AgentChat[] {
 
 export interface AgentChatsState {
   chats: AgentChat[]
+  /**
+   * Is this chat's agent busy — the spinner map, keyed by chat id.
+   *
+   * NOT derived here. Every value is the server's own folded answer
+   * (domain.AgentChat.Working), carried on the lifecycle frame that announced the
+   * change and written through verbatim.
+   *
+   * That is deliberate and load-bearing. This map used to be re-derived from the
+   * frame KIND — `turn_stopped` → idle — which stopped being true the moment a CLI
+   * could hand work to a background subagent and go quiet waiting for it: claude
+   * ends its turn right there, so the row went dark under an agent that was still
+   * working. Re-deriving it here at all means a second copy of a rule that already
+   * exists in Go, and two copies can disagree. One fold, on the server; this map
+   * just displays it.
+   */
   working: Record<string, boolean>
   order: string[]
   activeChatId: string | null
@@ -47,6 +62,7 @@ export interface AgentChatsSlice {
   seedAgentChats: (chats: AgentChat[]) => void
   upsertAgentChat: (chat: AgentChat) => void
   removeAgentChat: (chatId: string) => void
+  /** Write the server's folded busy state for a chat. Never computed client-side. */
   setAgentChatWorking: (chatId: string, working: boolean) => void
   setAgentChatOrder: (order: string[]) => void
   hydrateAgentChatOrder: () => void

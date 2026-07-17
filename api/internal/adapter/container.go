@@ -30,6 +30,18 @@ const (
 	agentRunnerDBName  = "agent_runner.db"
 )
 
+// per-type snapshot DB file names under state/events, one per aggregate type,
+// each its OWN file+connection (never a table in the event log's single-writer
+// db) — see eventsqlite.NewSnapshotStore for the locking rationale. asynx v0.8
+// keeps exactly one upserted snapshot per aggregate here, read in O(1) on the
+// workspace-scoped hot path.
+const (
+	workspaceSnapshotDBName    = "workspace_snapshots.db"
+	reviewThreadSnapshotDBName = "review_thread_snapshots.db"
+	agentChatSnapshotDBName    = "agent_chat_snapshots.db"
+	agentRunnerSnapshotDBName  = "agent_runner_snapshots.db"
+)
+
 // Container is the persistence layer.
 //
 // The quiver-faithful per-type plane opens ONE event log + ONE read-model DB
@@ -43,16 +55,22 @@ type Container struct {
 	crowbarHome string
 
 	reviewThreadES asynxModels.Store
+	reviewThreadSS asynxModels.SnapshotStore
 
-	// Per-type handles (quiver-faithful): one event log + one read-model DB per
-	// aggregate type, routed to many aggregate ids by shard hash.
-	workspaceEventStore   asynxModels.Store
-	workspaceStoreDB      *gormdb.DB
-	reviewThreadView      *gormdb.DB
-	agentChatEventStore   asynxModels.Store
-	agentChatStoreDB      *gormdb.DB
-	agentRunnerEventStore asynxModels.Store
-	agentRunnerStoreDB    *gormdb.DB
+	// Per-type handles (quiver-faithful): one event log + one snapshot store +
+	// one read-model DB per aggregate type, routed to many aggregate ids by
+	// shard hash. The snapshot store is the asynx v0.8 O(1) warm-read cache
+	// (one upserted snapshot per aggregate), keyed by aggregateID alone.
+	workspaceEventStore      asynxModels.Store
+	workspaceSnapshotStore   asynxModels.SnapshotStore
+	workspaceStoreDB         *gormdb.DB
+	reviewThreadView         *gormdb.DB
+	agentChatEventStore      asynxModels.Store
+	agentChatSnapshotStore   asynxModels.SnapshotStore
+	agentChatStoreDB         *gormdb.DB
+	agentRunnerEventStore    asynxModels.Store
+	agentRunnerSnapshotStore asynxModels.SnapshotStore
+	agentRunnerStoreDB       *gormdb.DB
 
 	globalView *gormdb.DB
 
@@ -153,11 +171,23 @@ func newLocked(
 	}
 	rollback = append(rollback, func() error { return closeEventStore(reviewThreadES) })
 
+	reviewThreadSS, err := eventsqlite.NewSnapshotStore(filepath.Join(eventsDir, reviewThreadSnapshotDBName))
+	if err != nil {
+		return nil, fmt.Errorf("adapter: review thread snapshot store: %w", err)
+	}
+	rollback = append(rollback, func() error { return closeSnapshotStore(reviewThreadSS) })
+
 	workspaceEventStore, err := eventsqlite.NewEventStore(filepath.Join(eventsDir, workspaceDBName))
 	if err != nil {
 		return nil, fmt.Errorf("adapter: workspace event store: %w", err)
 	}
 	rollback = append(rollback, func() error { return closeEventStore(workspaceEventStore) })
+
+	workspaceSnapshotStore, err := eventsqlite.NewSnapshotStore(filepath.Join(eventsDir, workspaceSnapshotDBName))
+	if err != nil {
+		return nil, fmt.Errorf("adapter: workspace snapshot store: %w", err)
+	}
+	rollback = append(rollback, func() error { return closeSnapshotStore(workspaceSnapshotStore) })
 
 	workspaceStoreDB, err := storesqlite.OpenReadPoolDB(filepath.Join(storeDir, workspaceDBName))
 	if err != nil {
@@ -177,6 +207,12 @@ func newLocked(
 	}
 	rollback = append(rollback, func() error { return closeEventStore(agentChatEventStore) })
 
+	agentChatSnapshotStore, err := eventsqlite.NewSnapshotStore(filepath.Join(eventsDir, agentChatSnapshotDBName))
+	if err != nil {
+		return nil, fmt.Errorf("adapter: agent chat snapshot store: %w", err)
+	}
+	rollback = append(rollback, func() error { return closeSnapshotStore(agentChatSnapshotStore) })
+
 	agentChatStoreDB, err := storesqlite.OpenReadPoolDB(filepath.Join(storeDir, agentChatDBName))
 	if err != nil {
 		return nil, fmt.Errorf("adapter: agent chat store db: %w", err)
@@ -188,6 +224,12 @@ func newLocked(
 		return nil, fmt.Errorf("adapter: agent runner event store: %w", err)
 	}
 	rollback = append(rollback, func() error { return closeEventStore(agentRunnerEventStore) })
+
+	agentRunnerSnapshotStore, err := eventsqlite.NewSnapshotStore(filepath.Join(eventsDir, agentRunnerSnapshotDBName))
+	if err != nil {
+		return nil, fmt.Errorf("adapter: agent runner snapshot store: %w", err)
+	}
+	rollback = append(rollback, func() error { return closeSnapshotStore(agentRunnerSnapshotStore) })
 
 	agentRunnerStoreDB, err := storesqlite.OpenReadPoolDB(filepath.Join(storeDir, agentRunnerDBName))
 	if err != nil {
@@ -202,25 +244,36 @@ func newLocked(
 	rollback = append(rollback, func() error { return closeViewDB(globalView) })
 
 	c = &Container{
-		crowbarHome:           home,
-		reviewThreadES:        reviewThreadES,
-		workspaceEventStore:   workspaceEventStore,
-		workspaceStoreDB:      workspaceStoreDB,
-		reviewThreadView:      reviewThreadView,
-		agentChatEventStore:   agentChatEventStore,
-		agentChatStoreDB:      agentChatStoreDB,
-		agentRunnerEventStore: agentRunnerEventStore,
-		agentRunnerStoreDB:    agentRunnerStoreDB,
-		globalView:            globalView,
-		lock:                  lock,
+		crowbarHome:              home,
+		reviewThreadES:           reviewThreadES,
+		reviewThreadSS:           reviewThreadSS,
+		workspaceEventStore:      workspaceEventStore,
+		workspaceSnapshotStore:   workspaceSnapshotStore,
+		workspaceStoreDB:         workspaceStoreDB,
+		reviewThreadView:         reviewThreadView,
+		agentChatEventStore:      agentChatEventStore,
+		agentChatSnapshotStore:   agentChatSnapshotStore,
+		agentChatStoreDB:         agentChatStoreDB,
+		agentRunnerEventStore:    agentRunnerEventStore,
+		agentRunnerSnapshotStore: agentRunnerSnapshotStore,
+		agentRunnerStoreDB:       agentRunnerStoreDB,
+		globalView:               globalView,
+		lock:                     lock,
 	}
-	c.globalClosers = collectClosers(reviewThreadES)
+	c.globalClosers = collectClosers(reviewThreadES, reviewThreadSS)
 	return c, nil
 }
 
 // ReviewThreadES returns the reviewthread event log at state/events/review_thread.db.
 func (c *Container) ReviewThreadES() asynxModels.Store {
 	return c.reviewThreadES
+}
+
+// ReviewThreadSS returns the reviewthread snapshot store at
+// state/events/review_thread_snapshots.db — the asynx v0.8 O(1) warm-read cache
+// paired with ReviewThreadES.
+func (c *Container) ReviewThreadSS() asynxModels.SnapshotStore {
+	return c.reviewThreadSS
 }
 
 // ReviewThreadView returns the reviewthread read-model DB at
@@ -238,6 +291,15 @@ func (c *Container) WorkspaceES() asynxModels.Store {
 	return c.workspaceEventStore
 }
 
+// WorkspaceSS returns the workspace snapshot store at
+// state/events/workspace_snapshots.db — the asynx v0.8 O(1) warm-read cache
+// paired with WorkspaceES. It is the store the workspace-scoped read hot path
+// (scopeWorkspaceToPath -> workspace.Get -> Reader.Load) now Gets by
+// aggregateID instead of the old O(n) snapshot-stream scan.
+func (c *Container) WorkspaceSS() asynxModels.SnapshotStore {
+	return c.workspaceSnapshotStore
+}
+
 // WorkspaceView returns the workspace read-model DB at state/store/workspace.db,
 // opened as a read pool (decision 12). The workspace store projection folds
 // evt.Aggregate into it, and it doubles as the location index (spec §3.7).
@@ -251,6 +313,13 @@ func (c *Container) WorkspaceView() *gormdb.DB {
 // WorkspaceES/ReviewThreadES.
 func (c *Container) AgentChatES() asynxModels.Store {
 	return c.agentChatEventStore
+}
+
+// AgentChatSS returns the agent-chat snapshot store at
+// state/events/agent_chat_snapshots.db — the asynx v0.8 O(1) warm-read cache
+// paired with AgentChatES.
+func (c *Container) AgentChatSS() asynxModels.SnapshotStore {
+	return c.agentChatSnapshotStore
 }
 
 // AgentChatReadDB returns the agent-chat read-model DB at
@@ -267,6 +336,13 @@ func (c *Container) AgentChatReadDB() *gormdb.DB {
 // hash, mirroring WorkspaceES/ReviewThreadES/AgentChatES.
 func (c *Container) AgentRunnerES() asynxModels.Store {
 	return c.agentRunnerEventStore
+}
+
+// AgentRunnerSS returns the agent-runner snapshot store at
+// state/events/agent_runner_snapshots.db — the asynx v0.8 O(1) warm-read cache
+// paired with AgentRunnerES.
+func (c *Container) AgentRunnerSS() asynxModels.SnapshotStore {
+	return c.agentRunnerSnapshotStore
 }
 
 // AgentRunnerReadDB returns the agent-runner read-model DB at
@@ -339,17 +415,35 @@ func (c *Container) Close() error {
 		}
 		c.workspaceEventStore = nil
 	}
+	if c.workspaceSnapshotStore != nil {
+		if err := closeSnapshotStore(c.workspaceSnapshotStore); err != nil {
+			errs = append(errs, fmt.Errorf("adapter: close workspace snapshot store: %w", err))
+		}
+		c.workspaceSnapshotStore = nil
+	}
 	if c.agentChatEventStore != nil {
 		if err := closeEventStore(c.agentChatEventStore); err != nil {
 			errs = append(errs, fmt.Errorf("adapter: close agent chat event store: %w", err))
 		}
 		c.agentChatEventStore = nil
 	}
+	if c.agentChatSnapshotStore != nil {
+		if err := closeSnapshotStore(c.agentChatSnapshotStore); err != nil {
+			errs = append(errs, fmt.Errorf("adapter: close agent chat snapshot store: %w", err))
+		}
+		c.agentChatSnapshotStore = nil
+	}
 	if c.agentRunnerEventStore != nil {
 		if err := closeEventStore(c.agentRunnerEventStore); err != nil {
 			errs = append(errs, fmt.Errorf("adapter: close agent runner event store: %w", err))
 		}
 		c.agentRunnerEventStore = nil
+	}
+	if c.agentRunnerSnapshotStore != nil {
+		if err := closeSnapshotStore(c.agentRunnerSnapshotStore); err != nil {
+			errs = append(errs, fmt.Errorf("adapter: close agent runner snapshot store: %w", err))
+		}
+		c.agentRunnerSnapshotStore = nil
 	}
 
 	for _, cl := range c.globalClosers {
@@ -372,6 +466,15 @@ func closeEventStore(
 	es asynxModels.Store,
 ) error {
 	if cl, ok := es.(io.Closer); ok {
+		return cl.Close()
+	}
+	return nil
+}
+
+func closeSnapshotStore(
+	ss asynxModels.SnapshotStore,
+) error {
+	if cl, ok := ss.(io.Closer); ok {
 		return cl.Close()
 	}
 	return nil

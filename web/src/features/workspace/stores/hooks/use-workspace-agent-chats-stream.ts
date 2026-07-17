@@ -65,8 +65,10 @@ function providerOn(st: WorkspaceSnapshot, chatId: string): string {
 // frame is a runner frame *iff* runnerId is present. That is structural, not temporal.
 //
 // The frames carry no snapshot (00 agentic-engine spec §7), so most kinds
-// react-then-refetch; only turn_started/turn_stopped say enough in the kind itself to
-// update the store without a round trip.
+// react-then-refetch; only turn_started/turn_stopped say enough ON THE FRAME to update
+// the store without a round trip — they carry `working`. A round trip is not an option
+// for those two: they are the hottest frames on the feed and the spinner has to be right
+// the instant the frame lands.
 interface AgentStreamEvent {
   /** The chat the frame is about — EMPTY on `displaced`, where the emptiness is the point. */
   chatId: string
@@ -84,6 +86,19 @@ interface AgentStreamEvent {
     | 'exited'
   /** Set only on runner frames. Present ⟺ this frame is about a process. */
   runnerId?: string
+  /**
+   * The chat's folded busy state as of this event, straight from the aggregate
+   * (domain.AgentChat.Working) — the server's answer to the spinner.
+   *
+   * Never recomputed here from the kind. `turn_stopped` does NOT mean idle: a CLI that
+   * handed work to a background subagent has genuinely ended its turn and is still
+   * working, and a client that reads "turn stopped" as "done" goes dark on a live agent.
+   * That is the bug this field exists to end.
+   *
+   * Meaningful on the chat kinds; runner frames name a process, not a conversation, and
+   * never reach the branch that reads it.
+   */
+  working?: boolean
 }
 
 /**
@@ -91,8 +106,9 @@ interface AgentStreamEvent {
  * subscribe, reseed on the {reconnected} sentinel, and route each frame:
  *
  *  CHAT frames
- *   - turn_started / turn_stopped: the kind alone is enough — toggle the working map
- *     directly, no refetch.
+ *   - turn_started / turn_stopped: the frame carries the server's folded `working`
+ *     — write it through, no refetch. `turn_stopped` is NOT "idle": a chat waiting on
+ *     a background subagent keeps spinning through it.
  *   - created: a new chat (and its ordering) may have appeared — reseed the whole list.
  *   - title_set / session_bound: refetch just that chat and upsert it.
  *   - deleted: drop the chat from the store and close its pane tab if open.
@@ -325,10 +341,15 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       const st = stateOf()
       switch (ev.kind) {
         case 'turn_started':
-          st.setAgentChatWorking(ev.chatId, true)
-          return
         case 'turn_stopped':
-          st.setAgentChatWorking(ev.chatId, false)
+          // The FRAME says whether the chat is working; this does not decide. Both kinds
+          // go through the same line on purpose — `turn_stopped` is not "idle" and
+          // `turn_started` is not "busy", they are just the two moments the answer can
+          // change, and the answer itself was folded by the aggregate that emitted them.
+          //
+          // Hardcoding false here is exactly what kept the spinner dark under a live
+          // background subagent even after the server knew better.
+          st.setAgentChatWorking(ev.chatId, ev.working === true)
           return
         case 'deleted': {
           st.removeAgentChat(ev.chatId)

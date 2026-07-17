@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/require"
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
@@ -206,6 +207,9 @@ type broadcastCall struct {
 	chatID      string
 	workspaceID string
 	kind        string
+	// working is the aggregate's folded busy state as of the frame — what the FE's
+	// spinner reads. Captured so a test can assert the SPINNER, not just the kind.
+	working bool
 }
 
 // fakeBroadcaster is a thread-safe Broadcaster double for agentchat frames.
@@ -214,10 +218,15 @@ type fakeBroadcaster struct {
 	calls []broadcastCall
 }
 
-func (f *fakeBroadcaster) BroadcastAgentChat(chatID, workspaceID, kind string) {
+func (f *fakeBroadcaster) BroadcastAgentChat(chatID, workspaceID, kind string, working bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, broadcastCall{chatID: chatID, workspaceID: workspaceID, kind: kind})
+	f.calls = append(f.calls, broadcastCall{
+		chatID:      chatID,
+		workspaceID: workspaceID,
+		kind:        kind,
+		working:     working,
+	})
 }
 
 func (f *fakeBroadcaster) reset() {
@@ -523,6 +532,7 @@ func newChatStore(
 	require.NoError(t, err)
 	ax, err := asynx.New[domain.AgentChat]().
 		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)
@@ -547,6 +557,7 @@ func newRunnerStore(
 	require.NoError(t, err)
 	ax, err := asynx.New[domain.AgentRunner]().
 		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)

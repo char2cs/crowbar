@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -34,6 +35,7 @@ func ax[T any](
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 	a, err := asynx.New[T]().WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
@@ -59,6 +61,7 @@ func wsAx(
 	t.Helper()
 	a, err := asynx.New[domain.Workspace]().
 		WithEventStore(ad.WorkspaceES()).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)
@@ -76,6 +79,7 @@ func agentChatAx(
 	t.Helper()
 	a, err := asynx.New[domain.AgentChat]().
 		WithEventStore(ad.AgentChatES()).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)
@@ -94,6 +98,7 @@ func agentRunnerAx(
 	t.Helper()
 	a, err := asynx.New[domain.AgentRunner]().
 		WithEventStore(ad.AgentRunnerES()).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)

@@ -27,6 +27,7 @@ type agentChatPush struct {
 	chatID      string
 	workspaceID string
 	kind        string
+	working     bool
 }
 
 type agentRunnerPush struct {
@@ -83,8 +84,14 @@ func (f *fakeSubscriber) PushAgentChat(
 	chatID string,
 	workspaceID string,
 	kind string,
+	working bool,
 ) {
-	f.agentChats = append(f.agentChats, agentChatPush{chatID: chatID, workspaceID: workspaceID, kind: kind})
+	f.agentChats = append(f.agentChats, agentChatPush{
+		chatID:      chatID,
+		workspaceID: workspaceID,
+		kind:        kind,
+		working:     working,
+	})
 }
 
 func (f *fakeSubscriber) PushAgentRunner(
@@ -203,11 +210,13 @@ func TestHub_BroadcastAgentChat_FansOut(t *testing.T) {
 	h.Register(a)
 	h.Register(b)
 
-	h.BroadcastAgentChat("c1", "w1", "bound")
+	h.BroadcastAgentChat("c1", "w1", "bound", true)
 
 	assert.Len(t, a.agentChats, 1)
 	assert.Len(t, b.agentChats, 1)
-	assert.Equal(t, agentChatPush{chatID: "c1", workspaceID: "w1", kind: "bound"}, a.agentChats[0])
+	assert.Equal(t,
+		agentChatPush{chatID: "c1", workspaceID: "w1", kind: "bound", working: true},
+		a.agentChats[0])
 }
 
 // TestHub_BroadcastAgentRunner_FansOut pins the runner frame's shape: it carries

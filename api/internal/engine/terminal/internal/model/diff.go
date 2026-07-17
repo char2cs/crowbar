@@ -246,7 +246,11 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 		// The client screen scrolls while absorbing the delta; every row's
 		// on-screen identity moves, so rebuild the whole viewport after.
 		for y := range e.lastGrid {
-			e.lastGrid[y] = nil // nil never equals a real row → forced rewrite
+			// Truncate instead of nilling: a zero-length row still fails
+			// rowEqualsGrid's len(row) != cols check, so the forced rewrite is
+			// unchanged, but the backing array survives for snapshotRowInto to
+			// refill. Nilling here re-allocated every row on every scroll.
+			e.lastGrid[y] = e.lastGrid[y][:0]
 		}
 	}
 
@@ -405,8 +409,10 @@ func (e *DiffEmitter) writeScreenDiff(
 		dirty = true
 		b.WriteString(cup(y+1, 1)) // row y+1, col 1 (1-based)
 		b.WriteString(ansi.EraseLineRight)
-		b.WriteString(encodeGridRow(vm.emu, cols, y))
-		e.lastGrid[y] = snapshotRow(vm.emu, cols, y)
+		// Snapshot first, then encode the snapshot: both read the same emulator
+		// row, so one materialisation serves the wire and the diff base.
+		e.lastGrid[y] = snapshotRowInto(vm.emu, e.lastGrid[y], cols, y)
+		b.WriteString(encodeLine(e.lastGrid[y], cols, true))
 	}
 	return dirty
 }
@@ -586,15 +592,28 @@ func snapshotGrid(emu emulator, cols, rows int) [][]uv.Cell {
 }
 
 func snapshotRow(emu emulator, cols, y int) []uv.Cell {
-	row := make([]uv.Cell, cols)
+	return snapshotRowInto(emu, nil, cols, y)
+}
+
+// snapshotRowInto fills dst with row y and returns it, reusing dst's backing
+// array when it is large enough. Every element in [0,cols) is overwritten, so a
+// reused array carries no stale cells. A nil dst (the scrollback-growth
+// invalidation marker set in Emit) allocates, which keeps that marker's
+// force-rewrite meaning intact.
+func snapshotRowInto(emu emulator, dst []uv.Cell, cols, y int) []uv.Cell {
+	if cap(dst) < cols {
+		dst = make([]uv.Cell, cols)
+	} else {
+		dst = dst[:cols]
+	}
 	for x := 0; x < cols; x++ {
 		if c := emu.CellAt(x, y); c != nil {
-			row[x] = *c
+			dst[x] = *c
 		} else {
-			row[x] = uv.EmptyCell
+			dst[x] = uv.EmptyCell
 		}
 	}
-	return row
+	return dst
 }
 
 // rowEqualsGrid reports whether row y of emu matches lastRow without

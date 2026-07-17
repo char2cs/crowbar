@@ -117,15 +117,19 @@ func (h *Hub) BroadcastFile(
 // StreamDef scopes the fan-out to the matching :wsId subscription (Task 3): this
 // method pushes to every subscriber, and the per-subscription Filter drops frames
 // whose WorkspaceID does not match the subscribed workspace.
+//
+// working is the chat's folded busy state as of this event, carried so the client
+// never has to re-derive it from the kind — see store.BroadcastFunc.
 func (h *Hub) BroadcastAgentChat(
 	chatID string,
 	workspaceID string,
 	kind string,
+	working bool,
 ) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
-		s.PushAgentChat(chatID, workspaceID, kind)
+		s.PushAgentChat(chatID, workspaceID, kind, working)
 	}
 }
 

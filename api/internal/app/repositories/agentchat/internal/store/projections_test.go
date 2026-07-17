@@ -8,6 +8,7 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -28,6 +29,7 @@ func newProjected(
 	require.NoError(t, err)
 	ax, err := asynx.New[domain.AgentChat]().
 		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)
@@ -132,7 +134,7 @@ func TestNew_ProjectionsError(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	ax := &fakeAx{subscribeErr: errors.New("bus down")}
-	_, err = New(db, nil, ax, func(string, string, string) {})
+	_, err = New(db, nil, ax, func(string, string, string, bool) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat store: projections")
 }

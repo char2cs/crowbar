@@ -8,6 +8,7 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gormdb "gorm.io/gorm"
@@ -27,6 +28,7 @@ func newStoreWithDeps(
 	require.NoError(t, err)
 	ax, err := asynx.New[domain.AgentChat]().
 		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)
@@ -35,7 +37,7 @@ func newStoreWithDeps(
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	st, err := store.New(db, es, ax, func(string, string, string) {})
+	st, err := store.New(db, es, ax, func(string, string, string, bool) {})
 	require.NoError(t, err)
 	return context.Background(), st, ax, db
 }
@@ -178,6 +180,7 @@ func TestStore_Read_RebuildEnumerationError(t *testing.T) {
 	require.NoError(t, err)
 	ax, err := asynx.New[domain.AgentChat]().
 		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)
@@ -186,7 +189,7 @@ func TestStore_Read_RebuildEnumerationError(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	st, err := store.New(db, &fakeReplayES{err: errors.New("boom")}, ax, func(string, string, string) {})
+	st, err := store.New(db, &fakeReplayES{err: errors.New("boom")}, ax, func(string, string, string, bool) {})
 	require.NoError(t, err)
 
 	_, err = st.ListChats(context.Background())
@@ -201,7 +204,7 @@ func TestNew_StorageError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = store.New(db, nil, nil, func(string, string, string) {})
+	_, err = store.New(db, nil, nil, func(string, string, string, bool) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat store")
 }

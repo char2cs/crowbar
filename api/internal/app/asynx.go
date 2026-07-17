@@ -10,9 +10,11 @@ import (
 
 func newAsynx[T any](
 	es asynxModels.Store,
+	ss asynxModels.SnapshotStore,
 ) (asynx.Asynx[T], error) {
 	return asynx.New[T]().
 		WithEventStore(es).
+		WithSnapshotStore(ss).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		// Surface dropped projections instead of letting the read model rot
 		// silently: a projection panic or a publish error means the event is

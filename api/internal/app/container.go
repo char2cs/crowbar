@@ -62,14 +62,14 @@ func New(
 	engines *engine.Container,
 	adapters *adapter.Container,
 ) (*Container, error) {
-	axReviewThread, err := newAsynx[domain.ReviewThread](adapters.ReviewThreadES())
+	axReviewThread, err := newAsynx[domain.ReviewThread](adapters.ReviewThreadES(), adapters.ReviewThreadSS())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx review thread: %w", err)
 	}
 	// One eager axWorkspace singleton over the per-type event log, routing every
 	// workspace id to a shard by hash (decision 1) — replaces the per-entity
 	// AsynxFactory the repository used to resolve per workspace.
-	axWorkspace, err := newAsynx[domain.Workspace](adapters.WorkspaceES())
+	axWorkspace, err := newAsynx[domain.Workspace](adapters.WorkspaceES(), adapters.WorkspaceSS())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx workspace: %w", err)
 	}
@@ -78,7 +78,7 @@ func New(
 	// agentchat.NewEventSourced), and the agent usecase now sends every AgentChat
 	// mutation through it (the gorm-backed store was retired in the Task 10
 	// cutover).
-	axAgentChat, err := newAsynx[domain.AgentChat](adapters.AgentChatES())
+	axAgentChat, err := newAsynx[domain.AgentChat](adapters.AgentChatES(), adapters.AgentChatSS())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx agent chat: %w", err)
 	}
@@ -89,7 +89,7 @@ func New(
 	// Built and its projections registered (via repositories.New ->
 	// agentrunner.NewEventSourced); nothing SENDS runner commands yet — that
 	// cutover is a later task — so it is additive for now.
-	axAgentRunner, err := newAsynx[domain.AgentRunner](adapters.AgentRunnerES())
+	axAgentRunner, err := newAsynx[domain.AgentRunner](adapters.AgentRunnerES(), adapters.AgentRunnerSS())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx agent runner: %w", err)
 	}

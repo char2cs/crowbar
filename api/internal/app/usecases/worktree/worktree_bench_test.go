@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
@@ -39,6 +40,7 @@ func newWorkspaceRepo(
 	tb.Helper()
 	ax, err := asynx.New[domain.Workspace]().
 		WithEventStore(adapters.WorkspaceES()).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(tb, err)

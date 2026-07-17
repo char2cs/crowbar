@@ -99,12 +99,21 @@ func TestEventStore_ReadRange_TruncatesCount(t *testing.T) {
 	assert.Len(t, blobs, 2)
 }
 
+// counter is the extra-method surface eventStore keeps beyond the v0.8
+// models.Store interface (which dropped Count). Tests reach it by assertion,
+// mirroring the AggregateIDs tests.
+type counter interface {
+	Count(ctx context.Context, aggregateID string, fromVersion int64) (int64, error)
+}
+
 func TestEventStore_Count(t *testing.T) {
 	s := newTestEventStore(t)
 	ctx := context.Background()
 	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("e1")))
 	require.NoError(t, s.Append(ctx, "agg-1", 2, []byte("e2")))
-	count, err := s.Count(ctx, "agg-1", 1)
+	c, ok := s.(counter)
+	require.True(t, ok)
+	count, err := c.Count(ctx, "agg-1", 1)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), count)
 }
@@ -156,7 +165,9 @@ func TestEventStore_ReadRange_ContextCancelled(t *testing.T) {
 
 func TestEventStore_Count_ContextCancelled(t *testing.T) {
 	s := newTestEventStore(t)
-	_, err := s.Count(cancelledCtx(), "agg-1", 1)
+	c, ok := s.(counter)
+	require.True(t, ok)
+	_, err := c.Count(cancelledCtx(), "agg-1", 1)
 	assert.Error(t, err)
 }
 

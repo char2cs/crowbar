@@ -300,8 +300,14 @@ func (c *Container) PushAgentChat(
 	chatID string,
 	workspaceID string,
 	kind string,
+	working bool,
 ) {
-	c.agentChats.Push(dto.AgentChatEvent{ChatID: chatID, WorkspaceID: workspaceID, Kind: kind})
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID:      chatID,
+		WorkspaceID: workspaceID,
+		Kind:        kind,
+		Working:     working,
+	})
 }
 
 // PushAgentRunner implements hub.Subscriber. It fans a runner lifecycle event

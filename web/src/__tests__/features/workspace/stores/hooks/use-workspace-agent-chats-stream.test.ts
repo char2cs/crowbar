@@ -99,6 +99,8 @@ type Frame = {
   kind?: string
   runnerId?: string
   reconnected?: boolean
+  /** The server's folded busy state, carried on the chat kinds. Optional on the wire. */
+  working?: boolean
 }
 
 const chat = (id: string) => ({
@@ -215,18 +217,51 @@ describe('useWorkspaceAgentChatsStream', () => {
     expect(seedAgentChats).not.toHaveBeenCalledWith([chat('c1')])
   })
 
-  it('turn_started/turn_stopped toggle the working map without a refetch', async () => {
+  it('turn_started/turn_stopped write the frame working state without a refetch', async () => {
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
     const onFrame = captureCb()
 
-    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_started' })
+    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_started', working: true })
     expect(setAgentChatWorking).toHaveBeenCalledWith('c1', true)
 
-    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_stopped' })
+    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_stopped', working: false })
     expect(setAgentChatWorking).toHaveBeenCalledWith('c1', false)
 
+    // No round trip: these are the hottest frames on the feed and the spinner has to be
+    // right the instant they land.
     expect(getChatFn).not.toHaveBeenCalled()
+  })
+
+  // THE BUG, at the FE seam. The backend fold alone did not fix the spinner: this hook
+  // used to hardcode `turn_stopped -> false`, so the chat row went dark the moment claude
+  // ended its turn to wait on a background subagent, no matter what the server said.
+  //
+  // `turn_stopped` is not "idle" — it is just the moment the answer can change, and the
+  // answer is on the frame.
+  it('keeps the spinner on for a turn_stopped that reports the chat still working', async () => {
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+    const onFrame = captureCb()
+
+    // claude handed work to a background subagent and ended its turn — still working.
+    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_stopped', working: true })
+
+    expect(setAgentChatWorking).toHaveBeenCalledWith('c1', true)
+    expect(setAgentChatWorking).not.toHaveBeenCalledWith('c1', false)
+    expect(getChatFn).not.toHaveBeenCalled()
+  })
+
+  // The spinner must never be STUCK ON, which is worse than the bug it fixes. A frame
+  // that omits `working` (an older daemon) reads as idle, never as spinning-forever.
+  it('treats a frame with no working field as idle, never as stuck on', async () => {
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+    const onFrame = captureCb()
+
+    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_stopped' })
+
+    expect(setAgentChatWorking).toHaveBeenCalledWith('c1', false)
   })
 
   it('created reseeds the whole list rather than refetching a single chat', async () => {

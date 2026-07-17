@@ -477,8 +477,18 @@ func (u *Usecase) closeAbandonedTurn(
 	if !chat.Working {
 		return
 	}
-	if _, err := u.chats.StopTurn(ctx, chat.ID, time.Now()); err != nil {
-		slog.WarnContext(ctx, "agent: close abandoned turn: stop turn", "chat_id", chatID, "err", err)
+	// AbandonTurn, not StopTurn: the CLI is GONE, so it will never restate the level of
+	// async work it last reported outstanding, and a plain StopTurn would leave that
+	// number standing — Working is folded from the turn OR that level, so the chat would
+	// spin forever on work nothing is doing. That is the same wedge this function exists
+	// to prevent, one field over. Nothing a dead CLI announced survives it.
+	//
+	// This is the ONLY thing standing between a killed CLI and a permanently-spinning
+	// chat: measured against claude 2.1.212, a SIGKILL mid-background-work sends no
+	// SessionEnd and no final Stop — the last word is a turn_stop reporting work still
+	// running, and in an event-sourced aggregate that word outlives the restart.
+	if _, err := u.chats.AbandonTurn(ctx, chat.ID, time.Now()); err != nil {
+		slog.WarnContext(ctx, "agent: close abandoned turn: abandon turn", "chat_id", chatID, "err", err)
 	}
 }
 
@@ -1092,6 +1102,34 @@ func (u *Usecase) IngestHook(
 	return nil
 }
 
+// chatForRunner resolves the chat a hook belongs to: the one the runner is on RIGHT
+// NOW, read from the runner, which the preceding session_start has already moved if
+// the CLI changed conversation. ok=false means the hook belongs nowhere and must be
+// dropped — never an error, because a hook must never break the vendor CLI's turn.
+func (u *Usecase) chatForRunner(
+	ctx context.Context,
+	runner domain.AgentRunner,
+) (domain.AgentChat, bool, error) {
+	if runner.CurrentChatID == "" {
+		// The runner is placed NOWHERE: Crowbar has taken it off its chat and is killing
+		// it (a switch, an eviction, a chat deleted under it), and a SIGTERM'd CLI keeps
+		// talking for a moment. Its turns belong to nobody, and nowhere is never looked up
+		// — GetChat("") would miss and trigger agentchat's lazy self-heal, replaying the
+		// ENTIRE event log, on every hook of a dying CLI.
+		return domain.AgentChat{}, false, nil
+	}
+	chat, err := u.chats.GetChat(ctx, runner.CurrentChatID)
+	if err != nil {
+		if errors.Is(err, agentchat.ErrNotFound) {
+			// The chat was deleted out from under the CLI (which is still dying). A turn
+			// typed into a chat the user has just removed goes nowhere, by design.
+			return domain.AgentChat{}, false, nil
+		}
+		return domain.AgentChat{}, false, fmt.Errorf("agent: ingest hook: chat: %w", err)
+	}
+	return chat, true, nil
+}
+
 // handleTurn applies a turn hook to the chat the runner is on RIGHT NOW — read from
 // the runner, which the preceding session_start has already moved if the CLI changed
 // conversation (a provider announces the switch BEFORE the turn that follows it, so
@@ -1101,23 +1139,9 @@ func (u *Usecase) handleTurn(
 	runner domain.AgentRunner,
 	ev engineagent.CanonicalEvent,
 ) error {
-	if runner.CurrentChatID == "" {
-		// The runner is placed NOWHERE: Crowbar has taken it off its chat and is killing
-		// it (a switch, an eviction, a chat deleted under it), and a SIGTERM'd CLI keeps
-		// talking for a moment. Its turns belong to nobody, and nowhere is never looked up
-		// — GetChat("") would miss and trigger agentchat's lazy self-heal, replaying the
-		// ENTIRE event log, on every hook of a dying CLI.
-		return nil
-	}
-
-	chat, err := u.chats.GetChat(ctx, runner.CurrentChatID)
-	if err != nil {
-		if errors.Is(err, agentchat.ErrNotFound) {
-			// The chat was deleted out from under the CLI (which is still dying). A turn
-			// typed into a chat the user has just removed goes nowhere, by design.
-			return nil
-		}
-		return fmt.Errorf("agent: ingest hook: chat: %w", err)
+	chat, ok, err := u.chatForRunner(ctx, runner)
+	if err != nil || !ok {
+		return err
 	}
 
 	switch ev.Kind {
@@ -1151,10 +1175,18 @@ func (u *Usecase) handleTurn(
 		return u.appendTurn(ctx, chat, runner.ProviderID, "user", ev.Message)
 
 	case "turn_stop":
-		// The turn ended: clear Working. Issued before the ledger append so the
-		// live-state event lands even when the assistant message is empty (an empty
-		// message is a ledger no-op, not a turn-state no-op).
-		if _, err := u.chats.StopTurn(ctx, chat.ID, time.Now()); err != nil {
+		// The turn ended — which is NOT the same fact as the agent being done, so this
+		// carries the CLI's own count of what it left running (ev.AsyncWork) and lets the
+		// aggregate fold Working from both. A CLI that hands work to a background task
+		// ends its turn right here and goes quiet until that work reports back; clearing
+		// Working on the strength of this hook alone is what darkened the spinner under a
+		// live subagent. A provider that reports no such level sends 0 and gets exactly
+		// the turn-only behaviour it had before.
+		//
+		// Issued before the ledger append so the live-state event lands even when the
+		// assistant message is empty (an empty message is a ledger no-op, not a
+		// turn-state no-op).
+		if _, err := u.chats.StopTurn(ctx, chat.ID, time.Now(), ev.AsyncWork); err != nil {
 			return fmt.Errorf("agent: ingest hook: stop turn: %w", err)
 		}
 		// Released only ONCE THE LEDGER HAS THE ANSWER (hence the defer, which runs after
