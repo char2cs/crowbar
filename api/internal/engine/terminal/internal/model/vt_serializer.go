@@ -97,11 +97,13 @@ func writeContent(
 			b.WriteString("\r\n")
 		}
 	}
+	var scratch []uv.Cell
 	for y := 0; y < rows; y++ {
 		if y > 0 {
 			b.WriteString("\r\n")
 		}
-		b.WriteString(encodeGridRow(vm.emu, cols, y))
+		scratch = snapshotRowInto(vm.emu, scratch, cols, y)
+		b.WriteString(encodeLine(scratch, cols, true))
 	}
 }
 
@@ -218,16 +220,7 @@ func encodeGridRow(
 	cols int,
 	y int,
 ) string {
-	cells := make([]uv.Cell, cols)
-	for x := 0; x < cols; x++ {
-		c := emu.CellAt(x, y)
-		if c == nil {
-			cells[x] = uv.EmptyCell
-			continue
-		}
-		cells[x] = *c
-	}
-	return encodeLine(cells, cols, true)
+	return encodeLine(snapshotRowInto(emu, nil, cols, y), cols, true)
 }
 
 // encodeLine renders cells (up to width columns) into SGR-run-length ANSI, trimming
