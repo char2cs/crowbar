@@ -50,7 +50,12 @@ use tauri::Manager;
 //   2. Direct WKPreferences setter to remove the 60fps cap.
 //      Guarded by respondsToSelector: — safe in FFI context.
 //   3. preferredFrameRateRange on the WKWebView itself (public API, macOS 13.3+).
-//      Sets minimum=80fps so ProMotion never drops to 60fps during idle periods.
+//      Sets minimum=80fps for the frames the app actually produces. This raises
+//      the rate of real rendering; it deliberately does NOT keep the display link
+//      alive while content is static. Rendering is demand-driven: an idle window
+//      must produce no frames, so ProMotion is free to drop. Do not "fix" an idle
+//      refresh-rate reading by driving a permanent rAF/WebGL loop — that pins the
+//      whole layer tree at ~120 commits/sec and costs ~65% of a core at idle.
 //
 // The post-creation plugin approach (tauri-plugin-macos-fps) uses the private
 // `_features` array API. That selector was removed in macOS 26 and calling it
