@@ -61,6 +61,7 @@ func TestReviewThreadES_Global(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	assert.NotNil(t, c.ReviewThreadES())
+	assert.NotNil(t, c.ReviewThreadSS())
 }
 
 // TestAgentChatES_Global mirrors TestReviewThreadES_Global for the additive
@@ -74,10 +75,13 @@ func TestAgentChatES_Global(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	assert.NotNil(t, c.AgentChatES())
+	assert.NotNil(t, c.AgentChatSS())
 	assert.NotNil(t, c.AgentChatReadDB())
 
 	_, statErr := os.Stat(filepath.Join(home, "state", "events", "agent_chat.db"))
 	assert.NoError(t, statErr, "agent chat event log must exist under state/events/")
+	_, statErr = os.Stat(filepath.Join(home, "state", "events", "agent_chat_snapshots.db"))
+	assert.NoError(t, statErr, "agent chat snapshot store must exist under state/events/")
 	_, statErr = os.Stat(filepath.Join(home, "state", "store", "agent_chat.db"))
 	assert.NoError(t, statErr, "agent chat read-model db must exist under state/store/")
 }
@@ -89,11 +93,17 @@ func TestClose_ClosesAllAndLock(t *testing.T) {
 
 	// Touch every per-type plane so Close has real handles to checkpoint + close.
 	require.NotNil(t, c.WorkspaceES())
+	require.NotNil(t, c.WorkspaceSS())
 	require.NotNil(t, c.WorkspaceView())
 	require.NotNil(t, c.ReviewThreadES())
+	require.NotNil(t, c.ReviewThreadSS())
 	require.NotNil(t, c.ReviewThreadView())
 	require.NotNil(t, c.AgentChatES())
+	require.NotNil(t, c.AgentChatSS())
 	require.NotNil(t, c.AgentChatReadDB())
+	require.NotNil(t, c.AgentRunnerES())
+	require.NotNil(t, c.AgentRunnerSS())
+	require.NotNil(t, c.AgentRunnerReadDB())
 	require.NotNil(t, c.GlobalView())
 
 	require.NoError(t, c.Close())

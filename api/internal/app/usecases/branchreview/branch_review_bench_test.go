@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
@@ -43,6 +44,7 @@ func newBenchReviewHarness(
 	require.NoError(b, err)
 	axRT, err := asynx.New[domain.ReviewThread]().
 		WithEventStore(rtES).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(b, err)
@@ -53,6 +55,7 @@ func newBenchReviewHarness(
 
 	wsAx, err := asynx.New[domain.Workspace]().
 		WithEventStore(adapters.WorkspaceES()).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(b, err)

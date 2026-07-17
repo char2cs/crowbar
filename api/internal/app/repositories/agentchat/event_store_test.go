@@ -9,6 +9,7 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
@@ -52,6 +53,7 @@ func newRepoWithDeps(
 	require.NoError(t, err)
 	ax, err := asynx.New[domain.AgentChat]().
 		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)
@@ -330,6 +332,7 @@ func TestAgentChat_NewEventSourced_ErrorOnBadDB(t *testing.T) {
 	require.NoError(t, err)
 	ax, err := asynx.New[domain.AgentChat]().
 		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)

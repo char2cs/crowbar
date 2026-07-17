@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -39,6 +40,7 @@ func wsAx(
 	t.Helper()
 	ax, err := asynx.New[domain.Workspace]().
 		WithEventStore(ad.WorkspaceES()).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)
@@ -211,6 +213,7 @@ func TestPersistence_AcrossReopen(t *testing.T) {
 	require.NoError(t, err)
 	ax1, err := asynx.New[domain.Workspace]().
 		WithEventStore(first.WorkspaceES()).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)

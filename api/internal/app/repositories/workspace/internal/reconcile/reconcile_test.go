@@ -10,6 +10,7 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -175,6 +176,7 @@ func newAx(
 	require.NoError(t, err)
 	ax, err := asynx.New[domain.Workspace]().
 		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)

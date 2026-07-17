@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
-	github.com/char2cs/asynx v0.7.0
+	github.com/char2cs/asynx v0.8.0
 	github.com/charmbracelet/ultraviolet v0.0.0-20260622092850-f39628c8a989
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/charmbracelet/x/vt v0.0.0-20260629091435-9c70f75e26a4

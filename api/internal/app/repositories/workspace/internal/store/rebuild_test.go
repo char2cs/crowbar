@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/require"
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
@@ -28,6 +29,7 @@ func TestListOrRebuild_RebuildsWhenModelEmptyButLogNonEmpty(t *testing.T) {
 	require.NoError(t, err)
 	ax, err := asynx.New[domain.Workspace]().
 		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)
@@ -84,6 +86,7 @@ func TestListOrRebuild_EmptyLogReturnsEmpty(t *testing.T) {
 	require.NoError(t, err)
 	ax, err := asynx.New[domain.Workspace]().
 		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)

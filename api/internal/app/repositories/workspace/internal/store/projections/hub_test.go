@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -41,6 +42,7 @@ func newHubAsynx(
 	require.NoError(t, err)
 	ax, err := asynx.New[domain.Workspace]().
 		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)
