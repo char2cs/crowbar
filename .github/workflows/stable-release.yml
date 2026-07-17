@@ -27,7 +27,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: master
       - name: Read version from Cargo.toml
@@ -42,10 +42,10 @@ jobs:
     needs: guard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: master
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26.2'
           cache-dependency-path: api/go.sum
@@ -82,7 +82,7 @@ jobs:
     env:
       VERSION: ${{ needs.guard.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: master
       - uses: dtolnay/rust-toolchain@stable
@@ -92,7 +92,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26.2'
           cache-dependency-path: api/go.sum
@@ -151,7 +151,7 @@ jobs:
     env:
       VERSION: ${{ needs.guard.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: master
       - uses: dtolnay/rust-toolchain@stable
@@ -160,7 +160,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26.2'
           cache-dependency-path: api/go.sum
@@ -213,7 +213,7 @@ jobs:
         run: |
           cd release-artifacts
           find . -type f ! -name 'SHA256SUMS' -exec sha256sum {} \; | sed 's|./||' > SHA256SUMS
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.guard.outputs.tag }}
           name: "Crowbar ${{ needs.guard.outputs.tag }}"
@@ -226,7 +226,7 @@ jobs:
     needs: [guard, release]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}

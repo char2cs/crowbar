@@ -18,7 +18,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: v
         run: |
           VERSION=$(grep -m1 '^version' desktop/src-tauri/Cargo.toml | grep -oP '[\d.]+')
@@ -28,10 +28,10 @@ jobs:
     needs: derive-version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: develop
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26.2'
           cache-dependency-path: api/go.sum
@@ -68,7 +68,7 @@ jobs:
     env:
       VERSION: ${{ needs.derive-version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: develop
       - uses: dtolnay/rust-toolchain@stable
@@ -78,7 +78,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26.2'
           cache-dependency-path: api/go.sum
@@ -137,7 +137,7 @@ jobs:
     env:
       VERSION: ${{ needs.derive-version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: develop
       - uses: dtolnay/rust-toolchain@stable
@@ -146,7 +146,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26.2'
           cache-dependency-path: api/go.sum
@@ -190,7 +190,7 @@ jobs:
     needs: [derive-version, daemon, desktop-macos, desktop-linux]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: develop
       - uses: actions/download-artifact@v4
@@ -206,7 +206,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
       - name: Publish nightly release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: nightly
           name: "Nightly (${{ github.run_id }})"

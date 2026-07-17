@@ -20,7 +20,7 @@ jobs:
       tag: ${{ steps.tag.outputs.tag }}
       version: ${{ steps.tag.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Compute beta tag
@@ -37,8 +37,8 @@ jobs:
     needs: derive-tag
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26.2'
           cache-dependency-path: api/go.sum
@@ -75,7 +75,7 @@ jobs:
     env:
       VERSION: ${{ needs.derive-tag.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.88'
@@ -83,7 +83,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26.2'
           cache-dependency-path: api/go.sum
@@ -142,14 +142,14 @@ jobs:
     env:
       VERSION: ${{ needs.derive-tag.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.88'
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26.2'
           cache-dependency-path: api/go.sum
@@ -202,7 +202,7 @@ jobs:
         run: |
           cd release-artifacts
           find . -type f ! -name 'SHA256SUMS' -exec sha256sum {} \; | sed 's|./||' > SHA256SUMS
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.derive-tag.outputs.tag }}
           name: "Crowbar ${{ needs.derive-tag.outputs.tag }}"
