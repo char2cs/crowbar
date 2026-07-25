@@ -4,6 +4,7 @@ package worktree_test
 
 import (
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -82,6 +83,26 @@ func (s *WorktreeSuite) getWorkspace(id string) map[string]any {
 	var ws map[string]any
 	kit.DecodeEnvData(s.T(), resp, &ws)
 	return ws
+}
+
+// defaultBranch returns the repo's default branch as the daemon records it —
+// read from the API rather than from the repo's HEAD, which Crowbar may have
+// detached to free the branch for a managed worktree.
+func (s *WorktreeSuite) defaultBranch() string {
+	s.T().Helper()
+	resp := s.Env.GET(s.T(), "/v0/projects/"+s.imported.ProjectID+"/repos")
+	kit.RequireStatus(s.T(), resp, http.StatusOK)
+	var repos []map[string]any
+	kit.DecodeEnvData(s.T(), resp, &repos)
+	for _, r := range repos {
+		if r["id"] == s.imported.RepoID {
+			branch, _ := r["defaultBranch"].(string)
+			s.Require().NotEmpty(branch, "the imported repo must report a default branch")
+			return branch
+		}
+	}
+	s.Require().Fail("imported repo not found in the repo list")
+	return ""
 }
 
 // listWorkspaces fetches the repo's workspaces and returns the decoded slice.
@@ -168,6 +189,69 @@ func (s *WorktreeSuite) TestWorktree_importCreatesWorkspacesForBranches() {
 		"import must create branch import/alpha")
 	s.Assert().True(kit.BranchExists(t, s.imported.RepoPath, "import/beta"),
 		"import must create branch import/beta")
+}
+
+// TestWorktree_importHeldBranchYieldsPlaceholder is the black-box regression for
+// the confirmed production hang: importing a branch that a worktree OUTSIDE
+// Crowbar already has checked out produced nothing at all. git refuses to check
+// a branch out twice, CreateChild failed, the batch swallowed it and returned
+// success, and the handler's error channel is a no-op without a workspace id —
+// so no frame ever reached this stream and the client's optimistic import row,
+// which is cleared only by a workspace for that branch, spun forever with
+// nothing surfaced.
+//
+// The contract asserted here is that EVERY imported branch produces a frame: an
+// unmaterialisable one arrives as a placeholder (no localPath, carrying the
+// holder path) that the client can explain, retry and detach.
+func (s *WorktreeSuite) TestWorktree_importHeldBranchYieldsPlaceholder() {
+	t := s.T()
+
+	// A live worktree outside crowbar home holds the branch — the production
+	// trigger was another tool's worktree under ~/.superconductor.
+	holderPath := filepath.Join(t.TempDir(), "external-holder")
+	kit.GitRun(t, s.imported.RepoPath, "worktree", "add", "-b", "import/held", holderPath)
+
+	watcher := s.Env.DialWorkspaces(t, s.imported.ProjectID, s.imported.RepoID)
+	resp := s.Env.POST(t, s.reposBase()+"/import", map[string]any{
+		"branches": []string{"import/held"},
+	})
+	kit.RequireStatus(t, resp, http.StatusAccepted)
+	resp.Body.Close()
+
+	var placeholder map[string]any
+	watcher.ReadUntil(t, 20*time.Second, func(m map[string]any) bool {
+		if m["repoId"] != s.imported.RepoID {
+			return false
+		}
+		if b, _ := m["branch"].(string); b != "import/held" {
+			return false
+		}
+		placeholder = m
+		return true
+	})
+
+	s.Assert().Empty(placeholder["localPath"],
+		"a held branch has no managed worktree — the empty path IS the placeholder signal")
+	s.Assert().NotEmpty(placeholder["heldByPath"],
+		"the holder path is what the placeholder toast and the Detach… modal render")
+	s.Assert().NotEqual("locked", placeholder["status"],
+		"an imported feature branch must not be locked; locked survives provisioning "+
+			"and would block merge/rename/delete forever")
+}
+
+// TestWorktree_importDefaultBranchIsRefusedSynchronously pins the other silent
+// hang: the import chain walk terminates AT the default branch, so a request
+// naming it created nothing while still answering 202 — leaving the caller's
+// optimistic row waiting on a workspace that was never coming. It must be
+// refused on the request path, where the caller can surface it.
+func (s *WorktreeSuite) TestWorktree_importDefaultBranchIsRefusedSynchronously() {
+	t := s.T()
+
+	resp := s.Env.POST(t, s.reposBase()+"/import", map[string]any{
+		"branches": []string{s.defaultBranch()},
+	})
+	defer resp.Body.Close()
+	kit.RequireStatus(t, resp, http.StatusConflict)
 }
 
 // TestWorktree_mergeStrategyMerge verifies the fast-forward merge advances the parent.

@@ -181,6 +181,17 @@ describe('performImportBranches', () => {
     expect(h.setError).toHaveBeenCalledWith(expect.any(String), '403 forbidden')
   })
 
+  // The errored row shows only "failed" with no reason, and the sidebar it sits
+  // in is easy to miss — a refused import has to say what went wrong.
+  it('toasts the reason when the request itself is rejected', async () => {
+    vi.mocked(importBranches).mockRejectedValueOnce(new Error('403 forbidden'))
+    const h = hooks()
+    performImportBranches('r1', ['feat/a'], h)
+
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(toast.error).mock.calls[0][0]).toContain('403 forbidden')
+  })
+
   it('errors the rows and never calls the API when the project is unknown', () => {
     useSidebarStore.setState({ repos: [] }) // r1 absent → no projectId resolves
     const h = hooks()

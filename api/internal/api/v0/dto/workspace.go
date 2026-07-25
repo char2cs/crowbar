@@ -36,8 +36,9 @@ type WorkspaceDTO struct {
 	// Exposed here so workspace-creation details never bleed into client code.
 	LocalPath string `json:"localPath,omitempty"`
 	// HeldByPath is the worktree directory holding this branch when the workspace
-	// is a placeholder (locked + empty LocalPath). The client reconstructs the
-	// "checked out elsewhere" reason from it; absent on healthy workspaces.
+	// is a placeholder (empty LocalPath — a protected placeholder is also locked,
+	// an imported one is not). The client reconstructs the "checked out
+	// elsewhere" reason from it; absent on healthy workspaces.
 	HeldByPath string `json:"heldByPath,omitempty"`
 }
 
