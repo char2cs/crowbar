@@ -47,23 +47,3 @@ export function getPreset(id: KeymapPresetId): KeymapPreset {
 export function isKeymapPresetId(value: unknown): value is KeymapPresetId {
   return value === 'default' || value === 'compact'
 }
-
-/**
- * Validates the legacy `settings.keybindingPreset` value (a separate, dead
- * setting whose allowed values are the IDE preset names). Kept here so
- * settings normalization continues to validate that field.
- */
-const LEGACY_SETTINGS_PRESETS = new Set([
-  'none',
-  'vscode',
-  'jetbrains',
-  'sublime',
-  'xcode',
-  'atom',
-  'emacs',
-  'zed',
-])
-
-export function isKeybindingPreset(value: unknown): boolean {
-  return typeof value === 'string' && LEGACY_SETTINGS_PRESETS.has(value)
-}

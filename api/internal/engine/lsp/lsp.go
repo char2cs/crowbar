@@ -224,7 +224,7 @@ func (e *engine) Completion(
 	filePath string,
 	pos domlsp.Position,
 ) (json.RawMessage, error) {
-	params := convert.TextDocumentPositionParams(filePath, pos)
+	params := convert.TextDocumentPositionParams(absFilePath(worktreePath, filePath), pos)
 	return e.rawRequest(ctx, wsID, worktreePath, filePath, "textDocument/completion", params)
 }
 
@@ -235,7 +235,7 @@ func (e *engine) Hover(
 	filePath string,
 	pos domlsp.Position,
 ) (json.RawMessage, error) {
-	params := convert.TextDocumentPositionParams(filePath, pos)
+	params := convert.TextDocumentPositionParams(absFilePath(worktreePath, filePath), pos)
 	return e.rawRequest(ctx, wsID, worktreePath, filePath, "textDocument/hover", params)
 }
 
@@ -246,12 +246,16 @@ func (e *engine) Definition(
 	filePath string,
 	pos domlsp.Position,
 ) ([]domlsp.Location, error) {
-	params := convert.TextDocumentPositionParams(filePath, pos)
+	params := convert.TextDocumentPositionParams(absFilePath(worktreePath, filePath), pos)
 	raw, ok, err := e.request(ctx, wsID, worktreePath, filePath, "textDocument/definition", params)
 	if err != nil || !ok {
 		return nil, err
 	}
-	return convert.LocationsFromResult(raw)
+	locs, err := convert.LocationsFromResult(raw)
+	if err != nil {
+		return nil, err
+	}
+	return relLocations(worktreePath, locs), nil
 }
 
 func (e *engine) References(
@@ -261,12 +265,16 @@ func (e *engine) References(
 	filePath string,
 	pos domlsp.Position,
 ) ([]domlsp.Location, error) {
-	params := convert.ReferenceParams(filePath, pos)
+	params := convert.ReferenceParams(absFilePath(worktreePath, filePath), pos)
 	raw, ok, err := e.request(ctx, wsID, worktreePath, filePath, "textDocument/references", params)
 	if err != nil || !ok {
 		return nil, err
 	}
-	return convert.LocationsFromResult(raw)
+	locs, err := convert.LocationsFromResult(raw)
+	if err != nil {
+		return nil, err
+	}
+	return relLocations(worktreePath, locs), nil
 }
 
 func (e *engine) Rename(
@@ -277,12 +285,16 @@ func (e *engine) Rename(
 	pos domlsp.Position,
 	newName string,
 ) (domlsp.WorkspaceEdit, error) {
-	params := convert.RenameParams(filePath, pos, newName)
+	params := convert.RenameParams(absFilePath(worktreePath, filePath), pos, newName)
 	raw, ok, err := e.request(ctx, wsID, worktreePath, filePath, "textDocument/rename", params)
 	if err != nil || !ok {
 		return domlsp.WorkspaceEdit{}, err
 	}
-	return convert.WorkspaceEditFromResult(raw)
+	edit, err := convert.WorkspaceEditFromResult(raw)
+	if err != nil {
+		return domlsp.WorkspaceEdit{}, err
+	}
+	return relWorkspaceEdit(worktreePath, edit), nil
 }
 
 func (e *engine) CodeAction(
@@ -292,7 +304,7 @@ func (e *engine) CodeAction(
 	filePath string,
 	rng domlsp.Range,
 ) (json.RawMessage, error) {
-	params := convert.CodeActionParams(filePath, rng)
+	params := convert.CodeActionParams(absFilePath(worktreePath, filePath), rng)
 	return e.rawRequest(ctx, wsID, worktreePath, filePath, "textDocument/codeAction", params)
 }
 
@@ -302,7 +314,7 @@ func (e *engine) DocumentSymbol(
 	worktreePath string,
 	filePath string,
 ) (json.RawMessage, error) {
-	params := convert.DocumentSymbolParams(filePath)
+	params := convert.DocumentSymbolParams(absFilePath(worktreePath, filePath))
 	return e.rawRequest(ctx, wsID, worktreePath, filePath, "textDocument/documentSymbol", params)
 }
 
@@ -381,6 +393,38 @@ func absFilePath(
 		return filePath
 	}
 	return filepath.Join(worktreePath, filePath)
+}
+
+// relLocations rewrites every location's FilePath to its workspace-relative
+// form. It is the outbound half of the path contract absFilePath opens: the
+// frontend addresses files by workspace-relative path, so absolute paths from
+// the language server never reach it.
+func relLocations(
+	worktreePath string,
+	locations []domlsp.Location,
+) []domlsp.Location {
+	for i := range locations {
+		locations[i].FilePath = convert.WorkspaceRelPath(worktreePath, locations[i].FilePath)
+	}
+	return locations
+}
+
+// relWorkspaceEdit rewrites a workspace edit's per-file keys to their
+// workspace-relative form, so a rename's edits address the same paths the
+// editor's buffers and the files API use.
+func relWorkspaceEdit(
+	worktreePath string,
+	edit domlsp.WorkspaceEdit,
+) domlsp.WorkspaceEdit {
+	if len(edit.Changes) == 0 {
+		return edit
+	}
+
+	changes := make(map[string][]domlsp.TextEdit, len(edit.Changes))
+	for path, edits := range edit.Changes {
+		changes[convert.WorkspaceRelPath(worktreePath, path)] = edits
+	}
+	return domlsp.WorkspaceEdit{Changes: changes}
 }
 
 func (e *engine) DidOpen(

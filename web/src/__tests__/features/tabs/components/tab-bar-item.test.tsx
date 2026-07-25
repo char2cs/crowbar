@@ -7,6 +7,10 @@ vi.mock('@/features/file-explorer/components/file-explorer-icon', () => ({
   FileExplorerIcon: () => <span data-testid="file-icon" />,
 }))
 
+vi.mock('@/components/ui/crowbar-mark', () => ({
+  CrowbarMark: () => <span data-testid="crowbar-mark" />,
+}))
+
 const editorBuffer: EditorContent = {
   id: 'buf-1',
   type: 'editor',
@@ -76,5 +80,39 @@ describe('TabBarItem pill restyle', () => {
     expect(closeBtn).toBeDefined()
     expect(closeBtn).toHaveClass('opacity-60')
     expect(closeBtn).not.toHaveClass('opacity-100')
+  })
+
+  it('renders a New Tab with its label and no close button when uncloseable', () => {
+    const buffer = {
+      id: 'nt-1',
+      type: 'newTab' as const,
+      path: '',
+      name: 'New Tab',
+      isPinned: false,
+      isPreview: false,
+      isActive: true,
+      isUncloseable: true,
+    }
+    render(
+      <TabBarItem
+        buffer={buffer}
+        displayName="New Tab"
+        index={0}
+        isActive
+        isDraggedTab={false}
+        onDoubleClick={vi.fn()}
+        onContextMenu={vi.fn()}
+        onKeyDown={vi.fn()}
+        handleTabClose={vi.fn()}
+        handleTabPin={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('New Tab')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/close/i)).not.toBeInTheDocument()
+    // The Crowbar mark is the New Tab icon; the file-explorer fallback icon
+    // must NOT render for this buffer type (it did, unconditionally, before
+    // the newTab case was added).
+    expect(screen.getByTestId('crowbar-mark')).toBeInTheDocument()
+    expect(screen.queryByTestId('file-icon')).not.toBeInTheDocument()
   })
 })

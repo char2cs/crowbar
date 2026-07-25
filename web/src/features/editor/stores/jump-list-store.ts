@@ -5,6 +5,19 @@ import { createSelectors } from '@/utils/zustand-selectors'
 
 export interface JumpListEntry {
   bufferId: string
+  /**
+   * The workspace this entry was recorded in.
+   *
+   * This store is a process-GLOBAL singleton that outlives every workspace
+   * switch (`resetWorkspaceScopedStores` does not clear it), while `filePath`
+   * is workspace-RELATIVE. Linked worktrees of one repo hold the same relative
+   * paths with different content, so an entry that does not name its own
+   * workspace is ambiguous: resolving it against whatever is active at
+   * navigation time opens a sibling checkout's file under the right tab title.
+   * `navigateToJumpEntry` refuses any entry whose workspace is not the active
+   * one rather than guessing.
+   */
+  workspaceId: string
   filePath: string
   line: number
   column: number
@@ -21,12 +34,51 @@ interface JumpListActions {
   canGoBack: () => boolean
   canGoForward: () => boolean
   clear: () => void
+  /**
+   * Consume the pending "this activation came from Back/Forward" marker.
+   * Returns true if `bufferId` is the buffer history navigation just moved to,
+   * in which case the caller must NOT record it as a new navigation.
+   */
+  consumeNavigationTarget: (bufferId: string) => boolean
+  /**
+   * Re-point the pending marker at the buffer the target file was actually
+   * reopened under.
+   *
+   * The marker names a BUFFER id, but an entry whose tab was closed can only be
+   * satisfied by reading the file back from disk — and that mints a NEW id. The
+   * recorder would then fail to recognise the activation it sees, record it as a
+   * fresh navigation, and `pushEntry` would truncate the forward branch: one
+   * Back into a closed file permanently disabled Forward and sent the next Back
+   * to the file the user started from. Only moves the marker — the entry, and
+   * therefore its workspace stamp, is untouched.
+   *
+   * A no-op when no navigation is pending, so an ordinary open can't fabricate
+   * a handshake that swallows the next genuine record.
+   */
+  retargetNavigation: (bufferId: string) => void
+  /**
+   * Drop the pending marker. Navigation that could not be completed must not
+   * leave one behind: it would silently suppress the next genuine visit to that
+   * buffer id, long after the failed Back is forgotten.
+   */
+  clearNavigationTarget: () => void
 }
 
 interface JumpListState {
   entries: JumpListEntry[]
   currentIndex: number
   maxEntries: number
+  /**
+   * Buffer that goBack/goForward last navigated to, pending acknowledgement by
+   * the history recorder.
+   *
+   * Back/Forward activate a buffer, which the recorder observes one render later
+   * and would otherwise push as a brand-new navigation — making it impossible to
+   * go back twice. A boolean "isNavigating" flag can't express this: it would
+   * have to be cleared on a timer racing that render. Naming the target buffer
+   * makes the handshake explicit and timing-independent.
+   */
+  navigationTargetBufferId: string | null
   actions: JumpListActions
 }
 
@@ -39,6 +91,7 @@ export const useJumpListStore = createSelectors(
       entries: [],
       currentIndex: -1,
       maxEntries: DEFAULT_MAX_ENTRIES,
+      navigationTargetBufferId: null,
 
       actions: {
         pushEntry: (entry) => {
@@ -120,6 +173,7 @@ export const useJumpListStore = createSelectors(
 
           set((s) => {
             s.currentIndex = newIndex
+            s.navigationTargetBufferId = entry.bufferId
           })
 
           return entry
@@ -138,6 +192,7 @@ export const useJumpListStore = createSelectors(
 
           set((s) => {
             s.currentIndex = newIndex
+            s.navigationTargetBufferId = entry.bufferId
           })
 
           return entry
@@ -160,6 +215,29 @@ export const useJumpListStore = createSelectors(
           set((state) => {
             state.entries = []
             state.currentIndex = -1
+            state.navigationTargetBufferId = null
+          })
+        },
+
+        consumeNavigationTarget: (bufferId) => {
+          if (get().navigationTargetBufferId !== bufferId) return false
+          set((state) => {
+            state.navigationTargetBufferId = null
+          })
+          return true
+        },
+
+        retargetNavigation: (bufferId) => {
+          if (get().navigationTargetBufferId === null) return
+          set((state) => {
+            state.navigationTargetBufferId = bufferId
+          })
+        },
+
+        clearNavigationTarget: () => {
+          if (get().navigationTargetBufferId === null) return
+          set((state) => {
+            state.navigationTargetBufferId = null
           })
         },
       },

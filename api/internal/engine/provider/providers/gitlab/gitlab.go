@@ -81,6 +81,7 @@ type mrJSON struct {
 	State        string `json:"state"`
 	WebURL       string `json:"web_url"`
 	Title        string `json:"title"`
+	SourceBranch string `json:"source_branch"`
 	TargetBranch string `json:"target_branch"`
 	SHA          string `json:"sha"`
 }
@@ -128,6 +129,41 @@ func (g *glabProvider) PullRequestForBranch(
 		Title:        best.Title,
 		TargetBranch: best.TargetBranch,
 	}, nil
+}
+
+// OpenPullRequests lists every open MR as a source→target link in one glab
+// call. Open MRs own their source ref by name, so no ownership check is needed.
+func (g *glabProvider) OpenPullRequests(
+	ctx context.Context,
+	repoPath string,
+) ([]providertypes.PRLink, error) {
+	out, err := g.runGlab(
+		ctx,
+		repoPath,
+		"mr", "list",
+		"--state", "opened",
+		"--output", "json",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("gitlab: open-mrs: %w", err)
+	}
+	mrs, err := parseMRList([]byte(out))
+	if err != nil {
+		return nil, fmt.Errorf("gitlab: open-mrs: parse: %w", err)
+	}
+	links := make([]providertypes.PRLink, 0, len(mrs))
+	for i := range mrs {
+		m := &mrs[i]
+		links = append(links, providertypes.PRLink{
+			Head:   m.SourceBranch,
+			Base:   m.TargetBranch,
+			Number: m.IID,
+			Status: mapState(m.State),
+			URL:    m.WebURL,
+			Title:  m.Title,
+		})
+	}
+	return links, nil
 }
 
 // ownsMR reports whether mr is really this branch's MR.

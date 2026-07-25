@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -23,6 +24,44 @@ type mergeRequest struct {
 // new parent the leaf child is rebased onto.
 type reparentRequest struct {
 	NewParentID string `json:"newParentId"`
+}
+
+// renameRequest is the PATCH .../workspaces/:wsId body: the branch name the
+// workspace is renamed to.
+type renameRequest struct {
+	Branch string `json:"branch"`
+}
+
+// Rename handles PATCH /v0/projects/:projectId/repos/:repoId/workspaces/:wsId.
+// It renames the workspace's branch and relocates its workspace root to match.
+//
+// Unlike the other hierarchy mutations this answers SYNCHRONOUSLY. A rename is
+// one directory rename rather than a long-running git operation, and every way
+// it can be refused (the name is taken, the destination is occupied, the
+// workspace is locked or adopted) is something the user has to see while the
+// inline editor is still in front of them — a 202 would strand those behind a
+// LastError frame. The updated workspace still arrives on the WebSocket stream,
+// so callers do not patch their own cache.
+func (h *Handlers) Rename(
+	c *gin.Context,
+) {
+	var body renameRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if strings.TrimSpace(body.Branch) == "" {
+		libs.WriteErr(c, http.StatusBadRequest, "branch is required")
+		return
+	}
+	id := c.Param("wsId")
+	renamed, err := h.hierarchy.RenameBranch(c.Request.Context(), id, body.Branch)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
+	}
+	libs.WriteMutationOK(c, http.StatusOK, renamed.ID)
 }
 
 // MergeIntoParent handles

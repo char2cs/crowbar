@@ -68,11 +68,12 @@ describe('spinner exemption hooks in the exempted components', () => {
     const toast = read('components/ui/toast.tsx')
     const overlay = read('components/layout/sidebar-toast-overlay.tsx')
 
-    // Both toast.tsx icon renders (stacked + expanded) and the sidebar
-    // overlay's one — each wrapper carries the opt-out attribute because
-    // their spin class `in-data-[type=loading]:animate-spin` generates an
-    // escaped class name the `.animate-spin` exemption cannot match.
-    expect(toast.match(/data-essential-motion/g)?.length).toBe(2)
+    // toast.tsx's anchored icon render and the sidebar overlay's one — each
+    // wrapper carries the opt-out attribute because their spin class
+    // `in-data-[type=loading]:animate-spin` generates an escaped class name
+    // the `.animate-spin` exemption cannot match. (The stacked global viewport
+    // was removed — SidebarToastOverlay is the sole viewport for toastManager.)
+    expect(toast.match(/data-essential-motion/g)?.length).toBe(1)
     expect(overlay.match(/data-essential-motion/g)?.length).toBe(1)
     expect(toast).toContain('in-data-[type=loading]:animate-spin')
     expect(overlay).toContain('in-data-[type=loading]:animate-spin')

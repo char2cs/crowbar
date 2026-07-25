@@ -1,5 +1,3 @@
-import { useMemo } from 'react'
-import { getAllLanguages } from '@/features/editor/utils/language-id'
 import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 import NumberInput from '@/components/ui/number-input'
 import Section, { SettingRow } from '../settings-section'
@@ -25,16 +23,6 @@ const renderWhitespaceOptions = [
 export const EditorSettings = () => {
   const settings = useSettingsStore((s) => s.settings)
   const updateSetting = useSettingsStore((s) => s.updateSetting)
-  const languageOptions = useMemo(
-    () => [
-      { value: 'auto', label: 'Auto Detect' },
-      ...getAllLanguages().map((language) => ({
-        value: language.id,
-        label: language.displayName,
-      })),
-    ],
-    [],
-  )
   return (
     <div className="space-y-4">
       <Section title="Editor">
@@ -237,46 +225,6 @@ export const EditorSettings = () => {
             size="sm"
           />
         </SettingRow>
-        <SettingRow
-          label="Default Language"
-          description="Default syntax highlighting for new files"
-          onReset={() => updateSetting('defaultLanguage', getDefaultSetting('defaultLanguage'))}
-          canReset={settings.defaultLanguage !== getDefaultSetting('defaultLanguage')}
-        >
-          <Select
-            value={settings.defaultLanguage}
-            onValueChange={(value) => {
-              if (value) updateSetting('defaultLanguage', value)
-            }}
-          >
-            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.default}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {languageOptions.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingRow>
-
-        <SettingRow
-          label="Auto-detect Language"
-          description="Automatically detect file language from extension"
-          onReset={() =>
-            updateSetting('autoDetectLanguage', getDefaultSetting('autoDetectLanguage'))
-          }
-          canReset={settings.autoDetectLanguage !== getDefaultSetting('autoDetectLanguage')}
-        >
-          <Switch
-            checked={settings.autoDetectLanguage}
-            onChange={(checked) => updateSetting('autoDetectLanguage', checked)}
-            size="sm"
-          />
-        </SettingRow>
-
         <SettingRow
           label="Format on Save"
           description="Automatically format code when saving"

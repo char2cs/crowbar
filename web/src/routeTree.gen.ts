@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as OobeRouteImport } from './routes/oobe'
 import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
-import { Route as ShellWorkspacesNewRouteImport } from './routes/_shell/workspaces/new'
 import { Route as ShellIdeProjectIdHomeRouteImport } from './routes/_shell/ide/$projectId/home'
 import { Route as ShellIdeProjectIdRepoIdWsIdRouteImport } from './routes/_shell/ide/$projectId/$repoId/$wsId'
 import { Route as ShellIdeProjectIdRepoIdWsIdIndexRouteImport } from './routes/_shell/ide/$projectId/$repoId/$wsId/index'
@@ -29,11 +28,6 @@ const ShellRoute = ShellRouteImport.update({
 const ShellIndexRoute = ShellIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => ShellRoute,
-} as any)
-const ShellWorkspacesNewRoute = ShellWorkspacesNewRouteImport.update({
-  id: '/workspaces/new',
-  path: '/workspaces/new',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellIdeProjectIdHomeRoute = ShellIdeProjectIdHomeRouteImport.update({
@@ -57,7 +51,6 @@ const ShellIdeProjectIdRepoIdWsIdIndexRoute =
 export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
   '/oobe': typeof OobeRoute
-  '/workspaces/new': typeof ShellWorkspacesNewRoute
   '/ide/$projectId/home': typeof ShellIdeProjectIdHomeRoute
   '/ide/$projectId/$repoId/$wsId': typeof ShellIdeProjectIdRepoIdWsIdRouteWithChildren
   '/ide/$projectId/$repoId/$wsId/': typeof ShellIdeProjectIdRepoIdWsIdIndexRoute
@@ -65,7 +58,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/oobe': typeof OobeRoute
   '/': typeof ShellIndexRoute
-  '/workspaces/new': typeof ShellWorkspacesNewRoute
   '/ide/$projectId/home': typeof ShellIdeProjectIdHomeRoute
   '/ide/$projectId/$repoId/$wsId': typeof ShellIdeProjectIdRepoIdWsIdIndexRoute
 }
@@ -74,7 +66,6 @@ export interface FileRoutesById {
   '/_shell': typeof ShellRouteWithChildren
   '/oobe': typeof OobeRoute
   '/_shell/': typeof ShellIndexRoute
-  '/_shell/workspaces/new': typeof ShellWorkspacesNewRoute
   '/_shell/ide/$projectId/home': typeof ShellIdeProjectIdHomeRoute
   '/_shell/ide/$projectId/$repoId/$wsId': typeof ShellIdeProjectIdRepoIdWsIdRouteWithChildren
   '/_shell/ide/$projectId/$repoId/$wsId/': typeof ShellIdeProjectIdRepoIdWsIdIndexRoute
@@ -84,23 +75,16 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/oobe'
-    | '/workspaces/new'
     | '/ide/$projectId/home'
     | '/ide/$projectId/$repoId/$wsId'
     | '/ide/$projectId/$repoId/$wsId/'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/oobe'
-    | '/'
-    | '/workspaces/new'
-    | '/ide/$projectId/home'
-    | '/ide/$projectId/$repoId/$wsId'
+  to: '/oobe' | '/' | '/ide/$projectId/home' | '/ide/$projectId/$repoId/$wsId'
   id:
     | '__root__'
     | '/_shell'
     | '/oobe'
     | '/_shell/'
-    | '/_shell/workspaces/new'
     | '/_shell/ide/$projectId/home'
     | '/_shell/ide/$projectId/$repoId/$wsId'
     | '/_shell/ide/$projectId/$repoId/$wsId/'
@@ -132,13 +116,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof ShellIndexRouteImport
-      parentRoute: typeof ShellRoute
-    }
-    '/_shell/workspaces/new': {
-      id: '/_shell/workspaces/new'
-      path: '/workspaces/new'
-      fullPath: '/workspaces/new'
-      preLoaderRoute: typeof ShellWorkspacesNewRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/ide/$projectId/home': {
@@ -182,14 +159,12 @@ const ShellIdeProjectIdRepoIdWsIdRouteWithChildren =
 
 interface ShellRouteChildren {
   ShellIndexRoute: typeof ShellIndexRoute
-  ShellWorkspacesNewRoute: typeof ShellWorkspacesNewRoute
   ShellIdeProjectIdHomeRoute: typeof ShellIdeProjectIdHomeRoute
   ShellIdeProjectIdRepoIdWsIdRoute: typeof ShellIdeProjectIdRepoIdWsIdRouteWithChildren
 }
 
 const ShellRouteChildren: ShellRouteChildren = {
   ShellIndexRoute: ShellIndexRoute,
-  ShellWorkspacesNewRoute: ShellWorkspacesNewRoute,
   ShellIdeProjectIdHomeRoute: ShellIdeProjectIdHomeRoute,
   ShellIdeProjectIdRepoIdWsIdRoute:
     ShellIdeProjectIdRepoIdWsIdRouteWithChildren,

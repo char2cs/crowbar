@@ -1,17 +1,11 @@
-import { isKeybindingPreset } from '@/features/keymaps/defaults/keybinding-presets'
+import { themeRegistry } from '@/extensions/themes/theme-registry'
 import { normalizeFileTreeDensity } from '@/features/file-explorer/lib/file-tree-density'
+import { getDefaultSetting } from '@/features/settings/config/default-settings'
 import {
   DEFAULT_MONO_FONT_FAMILY,
   DEFAULT_UI_FONT_FAMILY,
 } from '@/features/settings/config/typography-defaults'
 import { normalizeConfiguredFontFamily } from '@/features/settings/lib/font-family-resolution'
-import {
-  FOOTER_LEADING_ITEM_IDS,
-  FOOTER_TRAILING_ITEM_IDS,
-  HEADER_TRAILING_ITEM_IDS,
-  SIDEBAR_ACTIVITY_ITEM_IDS,
-  normalizeItemOrder,
-} from '@/features/layout/config/item-order'
 import { normalizeUiFontSize } from '@/features/settings/lib/ui-font-size'
 import type { Settings } from '@/features/settings/types/settings'
 
@@ -72,6 +66,23 @@ function normalizeWorkspaceKeepAliveMinutes(value: unknown): number {
   return Math.min(WORKSPACE_KEEP_ALIVE_MAX, Math.max(WORKSPACE_KEEP_ALIVE_MIN, snapped))
 }
 
+/**
+ * `Theme` is a bare `string`, so a persisted id survives the theme it names being
+ * renamed or removed ('terra' → 'zen'). Coerce an id the registry doesn't know
+ * back to the default at READ time — a graceful fallback, not a migration pass —
+ * so no consumer has to guess what a dead id means.
+ *
+ * The registry is the source of truth, so a theme uploaded this session (the only
+ * way a non-builtin id exists — uploads aren't persisted) still round-trips.
+ */
+function normalizeTheme(value: unknown): Settings['theme'] {
+  if (typeof value === 'string' && themeRegistry.getTheme(value)) {
+    return value
+  }
+
+  return getDefaultSetting('theme')
+}
+
 function isRenderWhitespaceMode(value: unknown): value is Settings['renderWhitespace'] {
   return (
     typeof value === 'string' && RENDER_WHITESPACE_MODES.has(value as Settings['renderWhitespace'])
@@ -114,16 +125,6 @@ function normalizeExternalEditor(
 
 export function normalizeSettings(settings: Settings): Settings {
   const normalizedSettings = { ...settings }
-  const persistedGitPanelMode = (normalizedSettings as { gitLastPanelMode?: string })
-    .gitLastPanelMode
-
-  if (
-    persistedGitPanelMode === 'none' ||
-    (persistedGitPanelMode && !['changes', 'history', 'worktrees'].includes(persistedGitPanelMode))
-  ) {
-    normalizedSettings.gitLastPanelMode = 'changes'
-  }
-
   normalizedSettings.uiFontSize = normalizeUiFontSize(normalizedSettings.uiFontSize)
   normalizedSettings.fontFamily = normalizeConfiguredFontFamily(
     normalizedSettings.fontFamily,
@@ -170,31 +171,11 @@ export function normalizeSettings(settings: Settings): Settings {
     (normalizedSettings as { workspaceKeepAliveMinutes?: unknown }).workspaceKeepAliveMinutes,
   )
   normalizedSettings.fileTreeDensity = normalizeFileTreeDensity(normalizedSettings.fileTreeDensity)
-
-  if (!isKeybindingPreset(normalizedSettings.keybindingPreset)) {
-    normalizedSettings.keybindingPreset = 'none'
-  }
+  normalizedSettings.theme = normalizeTheme((normalizedSettings as { theme?: unknown }).theme)
 
   if (!normalizedSettings.themeMode) {
     normalizedSettings.themeMode = normalizedSettings.syncSystemTheme ? 'system' : 'light'
   }
-
-  normalizedSettings.headerTrailingItemsOrder = normalizeItemOrder(
-    normalizedSettings.headerTrailingItemsOrder,
-    HEADER_TRAILING_ITEM_IDS,
-  )
-  normalizedSettings.sidebarActivityItemsOrder = normalizeItemOrder(
-    normalizedSettings.sidebarActivityItemsOrder,
-    SIDEBAR_ACTIVITY_ITEM_IDS,
-  )
-  normalizedSettings.footerLeadingItemsOrder = normalizeItemOrder(
-    normalizedSettings.footerLeadingItemsOrder,
-    FOOTER_LEADING_ITEM_IDS,
-  )
-  normalizedSettings.footerTrailingItemsOrder = normalizeItemOrder(
-    normalizedSettings.footerTrailingItemsOrder,
-    FOOTER_TRAILING_ITEM_IDS,
-  )
 
   return normalizedSettings
 }
@@ -247,8 +228,8 @@ export function normalizeSettingValue<K extends keyof Settings>(
     return normalizeFileTreeDensity(value as string) as Settings[K]
   }
 
-  if (key === 'keybindingPreset' && !isKeybindingPreset(value as string)) {
-    return 'none' as Settings[K]
+  if (key === 'theme') {
+    return normalizeTheme(value) as Settings[K]
   }
 
   if (key === 'themeMode') {

@@ -12,7 +12,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 
 const repo: Repo = {
   id: 'r1',
-  name: 'athas',
+  name: 'demo-repo',
   avatarLabel: 'A',
   avatarColor: 'avatar-rose',
   defaultWorkspaceId: 'ws-default',

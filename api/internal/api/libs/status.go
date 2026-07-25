@@ -175,7 +175,9 @@ func isConflict(
 
 	if errors.Is(err, worktree.ErrRebaseNonLeaf) ||
 		errors.Is(err, worktree.ErrChildHasChildren) ||
-		errors.Is(err, worktree.ErrBranchWorkspaceExists) {
+		errors.Is(err, worktree.ErrBranchWorkspaceExists) ||
+		errors.Is(err, worktree.ErrRenameTargetExists) ||
+		errors.Is(err, worktree.ErrRenameUnmanagedWorkspace) {
 		return true
 	}
 

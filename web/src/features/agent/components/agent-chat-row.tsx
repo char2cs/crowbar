@@ -1,24 +1,25 @@
+import { memo } from 'react'
+import { useStore } from 'zustand'
 import { cn } from '@/lib/utils'
 import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE } from '@/components/layout/workspace-row-base'
 import { WorkspaceInlineInput } from '@/components/layout/workspace-inline-input'
+import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { AgentChatGlyph } from './agent-chat-glyph'
 
 interface AgentChatRowProps {
+  wsId: string
   chatId: string
   title: string
   providerIcon: string
-  working: boolean
   active: boolean
   renaming: boolean
   /** This row is the one under the pointer mid-drag (dimmed, as in the tree). */
   dragging?: boolean
-  /** A drop right now would land here — same ring the workspace tree uses. */
-  dropTarget?: boolean
-  onSelect: () => void
-  onStartRename: () => void
-  onConfirmRename: (title: string) => void
+  onSelect: (chatId: string) => void
+  onStartRename: (chatId: string) => void
+  onConfirmRename: (chatId: string, title: string) => void
   onCancelRename: () => void
-  onPointerDownDrag: (e: React.PointerEvent) => void
+  onPointerDownDrag: (chatId: string, e: React.PointerEvent) => void
 }
 
 // Sidebar row for one agent chat — a visual sibling of WorkspaceTreeItem
@@ -26,21 +27,34 @@ interface AgentChatRowProps {
 // but with no ⋯ menu / × delete: deletion is drag-to-trash, owned by the
 // Task 16 panel via the data-agent-chat-drop + pointer-down drag affordance
 // exposed here.
-export function AgentChatRow({
+//
+// Memoised, and it reads its OWN turn state straight from the store rather than
+// taking a `working` prop — exactly like AgentChatTabIcon. That combination is
+// load-bearing for a long list: a `turn_started`/`turn_stopped` frame is the
+// hottest thing on the chat feed, and it must re-render ONLY the one row it
+// concerns. Every other prop is a primitive or a stable callback, so the panel
+// re-rendering for an unrelated reason (a new chat, a drag) skips untouched rows.
+function AgentChatRowComponent({
+  wsId,
   chatId,
   title,
   providerIcon,
-  working,
   active,
   renaming,
   dragging = false,
-  dropTarget = false,
   onSelect,
   onStartRename,
   onConfirmRename,
   onCancelRename,
   onPointerDownDrag,
 }: AgentChatRowProps) {
+  // Own turn state, self-subscribed: a primitive selector, so this row re-renders
+  // only when THIS chat's spinner flips — never when a sibling's does.
+  const working = useStore(
+    getOrCreateWorkspaceStore(wsId),
+    (s) => s.agentChats.working[chatId] ?? false,
+  )
+
   return (
     <div
       // react-doctor-disable-next-line prefer-tag-over-role -- can't be a real <button>: while `renaming`, this renders a nested <WorkspaceInlineInput> (a real <input>), and HTML forbids interactive content inside a <button>. role="button" + tabIndex + onKeyDown is the correct fallback.
@@ -50,21 +64,22 @@ export function AgentChatRow({
       className={cn(
         ROW_BASE,
         active ? ROW_ACTIVE : ROW_INACTIVE,
-        // Drag feedback, identical to WorkspaceTreeItem: the row being dragged
-        // fades, the row it would land in front of takes the focus ring.
+        // Drag feedback: the row being dragged fades. WHERE it would land is
+        // drawn by the panel's insertion line, in the gap between rows — a ring
+        // on a row can only mean "in front of this one", which cannot name the
+        // end of the list (see agent-chat-drop-geometry.ts).
         dragging && 'opacity-40',
-        dropTarget && 'ring-1 ring-ring',
       )}
-      onPointerDown={renaming ? undefined : onPointerDownDrag}
-      onClick={renaming ? undefined : onSelect}
-      onDoubleClick={renaming ? undefined : onStartRename}
+      onPointerDown={renaming ? undefined : (e) => onPointerDownDrag(chatId, e)}
+      onClick={renaming ? undefined : () => onSelect(chatId)}
+      onDoubleClick={renaming ? undefined : () => onStartRename(chatId)}
       onKeyDown={
         renaming
           ? undefined
           : (e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault()
-                onSelect()
+                onSelect(chatId)
               }
             }
       }
@@ -80,7 +95,7 @@ export function AgentChatRow({
           defaultValue={title}
           placeholder="chat title"
           kind="prose"
-          onConfirm={onConfirmRename}
+          onConfirm={(value) => onConfirmRename(chatId, value)}
           onCancel={onCancelRename}
         />
       ) : (
@@ -89,3 +104,5 @@ export function AgentChatRow({
     </div>
   )
 }
+
+export const AgentChatRow = memo(AgentChatRowComponent)

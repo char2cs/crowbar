@@ -119,6 +119,26 @@ func TestDerive_RejectsEmptyComponent(t *testing.T) {
 	}
 }
 
+// Derive splices caller-supplied slug and branch straight into filepath.Join,
+// which CLEANS the result — so a traversal component in either escapes the
+// crowbar home entirely. A workspace out there can never be reclaimed: every
+// removal guard refuses to touch anything that is not strictly under home.
+func TestDerive_RejectsPathsThatEscapeHome(t *testing.T) {
+	cases := []struct{ name, project, slug, branch string }{
+		{"traversal in slug", "proj", "../../../../tmp/pwned", "main"},
+		{"traversal in project", "../..", "slug", "main"},
+		{"traversal in branch", "proj", "slug", "../../../../../../tmp/pwned"},
+		{"slug climbs exactly to home", "proj", "../..", "main"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := Derive("/h/.crowbar", c.project, c.slug, c.branch)
+			require.Error(t, err, "derived %q", got)
+			require.Empty(t, got)
+		})
+	}
+}
+
 func TestDetectClash_CaseInsensitive(t *testing.T) {
 	existing := []string{"/h/projects/p/github.com/o/Repo/main"}
 	err := DetectClash(existing, "/h/projects/p/github.com/o/repo/main")

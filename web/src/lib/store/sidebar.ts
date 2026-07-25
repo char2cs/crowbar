@@ -84,7 +84,10 @@ interface SidebarState {
   activeTab: SidebarTab
   addWorkspace: (repoId: string, wsId: string, branch: string, parentId?: string) => void
   deleteWorkspace: (wsId: string) => void
-  renameWorkspace: (wsId: string, branch: string) => void
+  // NOTE: there is deliberately no renameWorkspace here. A branch rename moves
+  // the git branch AND the workspace's on-disk directory, so it belongs to the
+  // daemon; the renamed WorkspaceDTO returns via applyWorkspaceDTO. A local
+  // relabel is what made rename look like it worked while changing nothing.
   reparentWorkspace: (wsId: string, newParentId: string | undefined) => void
   toggleRepo: (repoId: string) => void
   toggleWorkspace: (wsId: string) => void
@@ -250,14 +253,6 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
         })),
       }
     }),
-
-  renameWorkspace: (wsId, branch) =>
-    set((s) => ({
-      repos: s.repos.map((r) => ({
-        ...r,
-        workspaces: r.workspaces.map((w) => (w.id === wsId ? { ...w, branch } : w)),
-      })),
-    })),
 
   reparentWorkspace: (wsId, newParentId) =>
     set((s) => {

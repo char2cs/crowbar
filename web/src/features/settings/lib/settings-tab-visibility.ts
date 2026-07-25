@@ -1,26 +1,16 @@
 import type { SettingsTab } from '@/features/window/stores/ui-state-store'
 
-export function filterVisibleSettingsTabs<T extends { id: SettingsTab }>(
+/**
+ * Narrows the settings tab list to the tabs that matched the active search query.
+ * A null `matchingTabs` means no search is active, so every tab stays visible.
+ */
+export function filterSettingsTabsBySearch<T extends { id: SettingsTab }>(
   tabs: T[],
-  params: {
-    hasEnterpriseAccess: boolean
-    hasTeamsAccess: boolean
-    matchingTabs?: Set<SettingsTab> | null
-  },
-) {
-  return tabs.filter((item) => {
-    if (!params.hasEnterpriseAccess && item.id === 'enterprise') {
-      return false
-    }
+  matchingTabs: Set<SettingsTab> | null | undefined,
+): T[] {
+  if (!matchingTabs) {
+    return tabs
+  }
 
-    if (!params.hasTeamsAccess && item.id === 'collaboration') {
-      return false
-    }
-
-    if (!params.matchingTabs) {
-      return true
-    }
-
-    return params.matchingTabs.has(item.id)
-  })
+  return tabs.filter((item) => matchingTabs.has(item.id))
 }

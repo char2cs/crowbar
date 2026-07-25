@@ -241,3 +241,58 @@ func TestGlabProvider_OwnerAvatarURL_CliError_ReturnsEmpty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
+
+// TestGlabProvider_OpenPullRequests maps every open MR to a source→target link in
+// one glab call. Unlike PullRequestForBranch there is no ownership check: an OPEN
+// MR still owns its source ref by name, so a stale-name match is impossible.
+func TestGlabProvider_OpenPullRequests(t *testing.T) {
+	dir := t.TempDir()
+	mrJSON := `[
+		{"iid":7,"state":"opened","web_url":"https://gitlab.com/o/r/-/merge_requests/7","title":"Add A","source_branch":"feature/a","target_branch":"develop"},
+		{"iid":8,"state":"opened","web_url":"https://gitlab.com/o/r/-/merge_requests/8","title":"Add B","source_branch":"feature/b","target_branch":"feature/a"}
+	]`
+	g := NewWithExec(fakeCmd(mrJSON, 0))
+
+	links, err := g.OpenPullRequests(context.Background(), dir)
+
+	require.NoError(t, err)
+	require.Len(t, links, 2)
+	assert.Equal(t, "feature/a", links[0].Head)
+	assert.Equal(t, "develop", links[0].Base)
+	assert.Equal(t, 7, links[0].Number)
+	assert.Equal(t, "Add A", links[0].Title)
+	// The chained MR is what makes this a graph rather than a flat list: b's base
+	// is a's head, which is exactly the parent chain the import dialog walks.
+	assert.Equal(t, "feature/b", links[1].Head)
+	assert.Equal(t, "feature/a", links[1].Base)
+}
+
+func TestGlabProvider_OpenPullRequests_NoOpenMRs(t *testing.T) {
+	dir := t.TempDir()
+	g := NewWithExec(fakeCmd(`[]`, 0))
+
+	links, err := g.OpenPullRequests(context.Background(), dir)
+
+	require.NoError(t, err)
+	assert.Empty(t, links)
+}
+
+func TestGlabProvider_OpenPullRequests_GlabError(t *testing.T) {
+	dir := t.TempDir()
+	g := NewWithExec(fakeCmd("not authenticated", 1))
+
+	_, err := g.OpenPullRequests(context.Background(), dir)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gitlab: open-mrs")
+}
+
+func TestGlabProvider_OpenPullRequests_InvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	g := NewWithExec(fakeCmd(`{not json`, 0))
+
+	_, err := g.OpenPullRequests(context.Background(), dir)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gitlab: open-mrs: parse")
+}

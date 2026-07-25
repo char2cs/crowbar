@@ -74,11 +74,11 @@ describe('EditorManager', () => {
     const reg = new ModelRegistry(fakeModelApi())
     const m = new EditorManager(ea, reg, { lang, text })
     m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'athas://editor/a')
-    m.showBuffer('p1', 'athas://editor/b')
+    m.showBuffer('p1', 'crowbar://editor/a')
+    m.showBuffer('p1', 'crowbar://editor/b')
     expect(ea.create).toHaveBeenCalledTimes(1)
     const ed = ea.created[0]
-    expect(ed.getModel()!.uri).toBe('athas://editor/b')
+    expect(ed.getModel()!.uri).toBe('crowbar://editor/b')
   })
 
   it('saves outgoing view-state and restores incoming on swap', () => {
@@ -86,9 +86,9 @@ describe('EditorManager', () => {
     const reg = new ModelRegistry(fakeModelApi())
     const m = new EditorManager(ea, reg, { lang, text })
     m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'athas://editor/a')
-    m.showBuffer('p1', 'athas://editor/b')
-    m.showBuffer('p1', 'athas://editor/a')
+    m.showBuffer('p1', 'crowbar://editor/a')
+    m.showBuffer('p1', 'crowbar://editor/b')
+    m.showBuffer('p1', 'crowbar://editor/a')
     const ed = ea.created[0]
     expect(ed.restoreViewState).toHaveBeenCalled()
   })
@@ -98,15 +98,15 @@ describe('EditorManager', () => {
     const reg = new ModelRegistry(fakeModelApi())
     const m = new EditorManager(ea, reg, { lang, text })
     m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'athas://editor/a')
+    m.showBuffer('p1', 'crowbar://editor/a')
     const ed = ea.created[0]
     // simulate a meaningful view-state for 'a' by stubbing saveViewState's return
     const stateA = { scroll: 42 }
     ed.saveViewState = () => stateA
-    m.showBuffer('p1', 'athas://editor/b') // leaving a -> saves stateA
+    m.showBuffer('p1', 'crowbar://editor/b') // leaving a -> saves stateA
     const restored: unknown[] = []
     ed.restoreViewState = (s: unknown) => restored.push(s)
-    m.showBuffer('p1', 'athas://editor/a') // returning to a -> restores stateA
+    m.showBuffer('p1', 'crowbar://editor/a') // returning to a -> restores stateA
     expect(restored).toContain(stateA)
   })
 
@@ -117,8 +117,8 @@ describe('EditorManager', () => {
     const m = new EditorManager(ea, reg, { lang, text })
     m.mountPane('p1', {} as HTMLElement)
     m.mountPane('p2', {} as HTMLElement)
-    m.showBuffer('p1', 'athas://editor/a')
-    m.showBuffer('p2', 'athas://editor/a')
+    m.showBuffer('p1', 'crowbar://editor/a')
+    m.showBuffer('p2', 'crowbar://editor/a')
     expect(modelApi.createModel).toHaveBeenCalledTimes(1)
     expect(ea.created[0].getModel()).toBe(ea.created[1].getModel())
   })
@@ -129,7 +129,7 @@ describe('EditorManager', () => {
     const reg = new ModelRegistry(modelApi)
     const m = new EditorManager(ea, reg, { lang, text })
     m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'athas://editor/a')
+    m.showBuffer('p1', 'crowbar://editor/a')
     const ed = ea.created[0]
     const model = ed.getModel()
     m.unmountPane('p1')
@@ -142,11 +142,11 @@ describe('EditorManager', () => {
     const ea = fakeEditorApi()
     const m = new EditorManager(ea, new ModelRegistry(modelApi), { lang, text })
     m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'athas://editor/a')
-    m.showBuffer('p1', 'athas://editor/b')
-    m.showBuffer('p1', 'athas://editor/a') // back to a
+    m.showBuffer('p1', 'crowbar://editor/a')
+    m.showBuffer('p1', 'crowbar://editor/b')
+    m.showBuffer('p1', 'crowbar://editor/a') // back to a
     expect(modelApi.createModel).toHaveBeenCalledTimes(2) // a and b only — NOT 3
-    expect(ea.created[0].getModel()!.uri).toBe('athas://editor/a')
+    expect(ea.created[0].getModel()!.uri).toBe('crowbar://editor/a')
   })
 
   it("closeBuffer releases a tab's model; unmountPane releases all remaining held", () => {
@@ -154,11 +154,11 @@ describe('EditorManager', () => {
     const ea = fakeEditorApi()
     const m = new EditorManager(ea, new ModelRegistry(modelApi), { lang, text })
     m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'athas://editor/a')
-    m.showBuffer('p1', 'athas://editor/b')
-    m.showBuffer('p1', 'athas://editor/a')
+    m.showBuffer('p1', 'crowbar://editor/a')
+    m.showBuffer('p1', 'crowbar://editor/b')
+    m.showBuffer('p1', 'crowbar://editor/a')
     const aModel = ea.created[0].getModel()
-    m.closeBuffer('p1', 'athas://editor/b')
+    m.closeBuffer('p1', 'crowbar://editor/b')
     // b released & disposed (no other holder)
     m.unmountPane('p1')
     expect(aModel!.dispose).toHaveBeenCalled() // a released on unmount
@@ -170,10 +170,10 @@ describe('EditorManager', () => {
     const ea = fakeEditorApi()
     const m = new EditorManager(ea, new ModelRegistry(modelApi), { lang, text })
     m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'athas://editor/a')
+    m.showBuffer('p1', 'crowbar://editor/a')
     const aModel = ea.created[0].getModel()
     expect(aModel!.dispose).not.toHaveBeenCalled()
-    m.closeBuffer('p1', 'athas://editor/a') // last (only) holder closes
+    m.closeBuffer('p1', 'crowbar://editor/a') // last (only) holder closes
     expect(aModel!.dispose).toHaveBeenCalled()
   })
 
@@ -182,10 +182,10 @@ describe('EditorManager', () => {
     const ea = fakeEditorApi()
     const m = new EditorManager(ea, new ModelRegistry(modelApi), { lang, text })
     m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'athas://editor/a')
+    m.showBuffer('p1', 'crowbar://editor/a')
     expect(modelApi.createModel).toHaveBeenCalledTimes(1)
-    m.closeBuffer('p1', 'athas://editor/a') // releases + disposes (no holder)
-    m.showBuffer('p1', 'athas://editor/a') // reopen → fresh model (reads disk text)
+    m.closeBuffer('p1', 'crowbar://editor/a') // releases + disposes (no holder)
+    m.showBuffer('p1', 'crowbar://editor/a') // reopen → fresh model (reads disk text)
     expect(modelApi.createModel).toHaveBeenCalledTimes(2)
   })
 
@@ -195,12 +195,12 @@ describe('EditorManager', () => {
     const m = new EditorManager(ea, new ModelRegistry(modelApi), { lang, text })
     m.mountPane('p1', {} as HTMLElement)
     m.mountPane('p2', {} as HTMLElement)
-    m.showBuffer('p1', 'athas://editor/a')
-    m.showBuffer('p2', 'athas://editor/a') // shared model, two holders
+    m.showBuffer('p1', 'crowbar://editor/a')
+    m.showBuffer('p2', 'crowbar://editor/a') // shared model, two holders
     const aModel = ea.created[0].getModel()
-    m.closeBuffer('p1', 'athas://editor/a') // one holder gone
+    m.closeBuffer('p1', 'crowbar://editor/a') // one holder gone
     expect(aModel!.dispose).not.toHaveBeenCalled()
-    m.closeBuffer('p2', 'athas://editor/a') // last holder gone
+    m.closeBuffer('p2', 'crowbar://editor/a') // last holder gone
     expect(aModel!.dispose).toHaveBeenCalled()
   })
 
@@ -210,10 +210,10 @@ describe('EditorManager', () => {
     const reg = new ModelRegistry(modelApi)
     const m = new EditorManager(ea, reg, { lang, text })
     m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'athas://editor/a')
+    m.showBuffer('p1', 'crowbar://editor/a')
     const createdCount = vi.mocked(modelApi.createModel).mock.calls.length
     const model = ea.created[0].getModel()
-    m.applyExternalEdit('p1', 'athas://editor/a', 'fresh from disk')
+    m.applyExternalEdit('p1', 'crowbar://editor/a', 'fresh from disk')
     expect(model!.setValueIfChanged).toHaveBeenCalledWith('fresh from disk')
     expect(model!.getValue()).toBe('fresh from disk')
     // No model recreation — it edited in place (undo preserved).
@@ -226,11 +226,11 @@ describe('EditorManager', () => {
     const reg = new ModelRegistry(modelApi)
     const m = new EditorManager(ea, reg, { lang, text })
     m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'athas://editor/a') // a is held
-    m.showBuffer('p1', 'athas://editor/b') // now showing b, a still held
-    const heldA = reg.get('athas://editor/a')
+    m.showBuffer('p1', 'crowbar://editor/a') // a is held
+    m.showBuffer('p1', 'crowbar://editor/b') // now showing b, a still held
+    const heldA = reg.get('crowbar://editor/a')
     expect(heldA?.getValue()).toBe('code') // initial registry text
-    m.applyExternalEdit('p1', 'athas://editor/a', 'disk text')
+    m.applyExternalEdit('p1', 'crowbar://editor/a', 'disk text')
     // Edited the held model in place (not via the visible-pane branch).
     expect(heldA?.getValue()).toBe('disk text')
   })
@@ -240,7 +240,7 @@ describe('EditorManager', () => {
     const reg = new ModelRegistry(fakeModelApi())
     const m = new EditorManager(ea, reg, { lang, text })
     m.mountPane('p1', {} as HTMLElement)
-    expect(() => m.applyExternalEdit('p1', 'athas://editor/never', 'x')).not.toThrow()
+    expect(() => m.applyExternalEdit('p1', 'crowbar://editor/never', 'x')).not.toThrow()
   })
 
   it('getRawEditor exposes the underlying editor for a mounted pane', () => {

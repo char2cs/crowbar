@@ -16,6 +16,7 @@ const {
   closeBuffer,
   repointAgentChatBuffer,
   toastInfo,
+  toastError,
 } = vi.hoisted(() => ({
   subscribe: vi.fn(() => () => {}),
   listChatsFn: vi.fn(),
@@ -30,6 +31,7 @@ const {
   closeBuffer: vi.fn(),
   repointAgentChatBuffer: vi.fn(),
   toastInfo: vi.fn(),
+  toastError: vi.fn(),
 }))
 
 // Mutable fixtures the mocked store's getState() reads from — tests set them
@@ -70,7 +72,10 @@ vi.mock('@/features/agent/api/agent-api', () => ({
 }))
 
 vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { info: (...a: unknown[]) => toastInfo(...a) },
+  toast: {
+    info: (...a: unknown[]) => toastInfo(...a),
+    error: (...a: unknown[]) => toastError(...a),
+  },
 }))
 
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
@@ -92,6 +97,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 }))
 
 import { useWorkspaceAgentChatsStream } from '@/features/workspace/stores/hooks/use-workspace-agent-chats-stream'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 
 type Frame = {
   chatId?: string
@@ -186,12 +192,94 @@ describe('useWorkspaceAgentChatsStream', () => {
   })
 
   it('seed failures (listChats/listProviders reject) are non-fatal', async () => {
-    listChatsFn.mockRejectedValueOnce(new Error('boom'))
-    listProvidersFn.mockRejectedValueOnce(new Error('boom'))
+    listChatsFn.mockRejectedValue(new Error('boom'))
+    listProvidersFn.mockRejectedValue(new Error('boom'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
     expect(seedAgentChats).not.toHaveBeenCalled()
     expect(setAgentProviders).not.toHaveBeenCalled()
+  })
+
+  // ── The provider seed must be RECOVERABLE ──────────────────────────
+  // agentChats.providers starts EMPTY, so one lost provider fetch — a daemon
+  // restarting, a hot-reload remount, a transient socket error — used to leave it
+  // empty for the whole life of the workspace, with nothing retrying and nothing
+  // said. Every provider-dependent surface died at once: Settings → Providers
+  // read "No providers available.", the sidebar's New chat row vanished, and both
+  // the New Tab action and ⌘N silently did nothing. This is the reported live
+  // failure: healthy daemon, both providers enabled in sqlite, empty UI.
+  describe('provider seed recovery', () => {
+    const providers = [{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }]
+
+    it('retries a failed provider fetch instead of giving up on first error', async () => {
+      listProvidersFn.mockRejectedValueOnce(new Error('daemon restarting'))
+      listProvidersFn.mockResolvedValue(providers)
+
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+
+      expect(setAgentProviders).toHaveBeenCalledWith(providers)
+    })
+
+    it('says so when every attempt fails, instead of an empty UI with no explanation', async () => {
+      listProvidersFn.mockRejectedValue(new Error('daemon is down'))
+
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+
+      expect(setAgentProviders).not.toHaveBeenCalled()
+      expect(toastError).toHaveBeenCalled()
+    })
+
+    it('re-seeds providers when the socket reconnects', async () => {
+      // A daemon restart is exactly the case that empties them, and the socket
+      // coming back is the app's own signal that it is answering again.
+      listProvidersFn.mockRejectedValue(new Error('daemon is down'))
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      expect(setAgentProviders).not.toHaveBeenCalled()
+
+      listProvidersFn.mockResolvedValue(providers)
+      captureCb()({ reconnected: true })
+      await flush()
+
+      expect(setAgentProviders).toHaveBeenCalledWith(providers)
+    })
+
+    it('publishes the seeded list to the GLOBAL provider store as well', async () => {
+      // Providers are machine-level and the Settings dialog is global, so the
+      // per-workspace copy cannot be the only one: opening Settings with no
+      // workspace in view read an empty list and said the daemon had none.
+      listProvidersFn.mockResolvedValue(providers)
+
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+
+      expect(useAgentProvidersStore.getState().providers).toEqual(providers)
+      expect(useAgentProvidersStore.getState().status).toBe('ready')
+    })
+
+    it('lets only the LATEST provider read write — a stale one cannot overwrite it', async () => {
+      let landOlder: (p: unknown[]) => void = () => {}
+      listProvidersFn.mockReturnValueOnce(
+        new Promise((resolve) => {
+          landOlder = resolve as (p: unknown[]) => void
+        }),
+      )
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+
+      // The reconnect's read is issued second and lands first.
+      listProvidersFn.mockResolvedValue(providers)
+      captureCb()({ reconnected: true })
+      await flush()
+      expect(setAgentProviders).toHaveBeenLastCalledWith(providers)
+
+      landOlder([{ id: 'stale', displayName: 'Stale', icon: '' }])
+      await flush()
+
+      expect(setAgentProviders).toHaveBeenLastCalledWith(providers)
+    })
   })
 
   it('cancels the in-flight chats seed when wsId changes before it resolves', async () => {
@@ -275,6 +363,60 @@ describe('useWorkspaceAgentChatsStream', () => {
 
     expect(listChatsFn).toHaveBeenCalledWith('w1')
     expect(getChatFn).not.toHaveBeenCalled()
+  })
+
+  it('created reseeds with keepWorking:true — a live-socket new chat must not blank other chats spinners', async () => {
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+    const onFrame = captureCb()
+    seedAgentChats.mockClear()
+
+    onFrame({ chatId: 'c2', workspaceId: 'w1', kind: 'created' })
+    await flush()
+
+    // Reconnect clears working (unknown after an outage); a `created` reseed rides a
+    // LIVE socket, so it must KEEP working — else opening a chat blanks the spinner on
+    // every OTHER mid-turn chat until its next turn frame.
+    expect(seedAgentChats).toHaveBeenCalledWith([chat('c1')], { keepWorking: true })
+  })
+
+  // TWO SEEDS RACING EACH OTHER. seedChats already refuses to be overtaken by a
+  // per-chat READ (chatWrites), but nothing stopped it being overtaken by another
+  // SEED — and a seed is a full REPLACE ("chats absent from the response are
+  // DROPPED"). Two ⌘N presses issue two list reads; if the older one resolves
+  // last it reinstates the list as it was before the second chat existed, and the
+  // brand-new chat vanishes from the sidebar with nothing left to refetch it.
+  it('a stale LIST seed must not drop a chat a newer seed already saw', async () => {
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+
+    // The two reads the two `created` frames issue, both held in flight.
+    let landOlder: (chats: unknown[]) => void = () => {}
+    let landNewer: (chats: unknown[]) => void = () => {}
+    listChatsFn.mockReturnValueOnce(
+      new Promise((resolve) => {
+        landOlder = resolve as (chats: unknown[]) => void
+      }),
+    )
+    listChatsFn.mockReturnValueOnce(
+      new Promise((resolve) => {
+        landNewer = resolve as (chats: unknown[]) => void
+      }),
+    )
+
+    const onFrame = captureCb()
+    onFrame({ chatId: 'c2', workspaceId: 'w1', kind: 'created' })
+    onFrame({ chatId: 'c3', workspaceId: 'w1', kind: 'created' })
+    await flush()
+
+    // The NEWER read lands first and sees all three chats…
+    landNewer([chat('c1'), chat('c2'), chat('c3')])
+    await flush()
+    // …then the OLDER one lands, taken before c3 was minted.
+    landOlder([chat('c1'), chat('c2')])
+    await flush()
+
+    expect(storeChats.map((c) => c.id)).toEqual(['c1', 'c2', 'c3'])
   })
 
   it.each(['title_set', 'session_bound'] as const)(

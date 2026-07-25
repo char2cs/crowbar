@@ -15,9 +15,3 @@ export function useEffectiveChordMap(): Record<string, string> {
   const overrides = useKeymapStore.use.overrides()
   return useMemo(() => getEffectiveChordMap({ preset, overrides }), [preset, overrides])
 }
-
-/** Effective chord for a single command id. */
-export function useEffectiveKeybinding(commandId: string): string | undefined {
-  const map = useEffectiveChordMap()
-  return map[commandId]
-}

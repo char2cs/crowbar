@@ -2,7 +2,7 @@ import { Keyboard, Warning } from '@phosphor-icons/react'
 import { useCallback, useEffect, useEffectEvent, useMemo, useState } from 'react'
 import { KEYMAP_PRESET_OPTIONS } from '@/features/keymaps/defaults/keybinding-presets'
 import { useKeymapStore } from '@/features/keymaps/stores/store'
-import { COMMANDS } from '@/features/keymaps/registry'
+import { COMMANDS, CATEGORY_ORDER } from '@/features/keymaps/registry'
 import { chordFromEvent, formatChord } from '@/features/keymaps/utils/chord'
 import {
   findConflictingCommands,
@@ -27,7 +27,9 @@ import { cn } from '@/utils/cn'
 import Section from '../settings-section'
 import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 
-const CATEGORY_ORDER: CommandCategory[] = ['Navigation', 'Panes', 'Tabs', 'Editor']
+// Imported, not redeclared: this list decides which categories render AT ALL, so a
+// second copy here would silently hide any command whose category the registry
+// knows about and this file has not been told about.
 
 /** Inline key-capture button for rebinding a single command. */
 function RebindControl({

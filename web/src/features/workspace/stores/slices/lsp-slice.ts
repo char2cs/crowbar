@@ -17,15 +17,18 @@ export interface CompletionHandlers {
 }
 
 export interface LspActions {
-  setWorkspaceRoot(root: string): void
   setCompletionHandlers(handlers: CompletionHandlers): void
   updateLspStatus(info: Partial<LspStatusInfo>): void
   updateCompletionCache(key: string, items: CompletionItem[]): void
   clearCompletionCache(): void
 }
 
+// The workspace's absolute disk root deliberately does NOT live here. The
+// frontend never learns it: the daemon owns the LSP session and the worktree,
+// and it relativizes every path it returns. A `workspaceRoot` field used to sit
+// in this slice with no production writer, so it was permanently '' and the one
+// reader (go-to-definition) silently "stripped" nothing.
 export interface LspSlice {
-  workspaceRoot: string
   lspStatus: LspStatusInfo
   completionCache: CompletionCache
   currentCompletionRequest: AbortController | null
@@ -40,7 +43,6 @@ export const createLspSlice: StateCreator<
   [],
   LspSlice
 > = (set, _get) => ({
-  workspaceRoot: '',
   lspStatus: { status: 'idle' },
   completionCache: {},
   currentCompletionRequest: null,
@@ -48,12 +50,6 @@ export const createLspSlice: StateCreator<
   isLanguageSupported: undefined,
 
   lspActions: {
-    setWorkspaceRoot(root) {
-      set((state) => {
-        state.workspaceRoot = root
-      })
-    },
-
     setCompletionHandlers({ getCompletions, isLanguageSupported }) {
       set((state) => {
         if (getCompletions) state.getCompletions = getCompletions

@@ -42,6 +42,21 @@ var ErrBranchWorkspaceExists = errors.New("usecases: a workspace already exists 
 // against "". Handlers map it to HTTP 409 (spec §3.4/B2).
 var ErrParentUnprovisioned = errors.New("usecases: parent branch is not yet provisioned")
 
+// ErrRenameUnmanagedWorkspace is returned when a branch rename targets a
+// workspace whose worktree is NOT under crowbar home — an adopted checkout (the
+// repo home / project home) living at the user's own directory. Crowbar derives
+// managed worktree paths from branch names, but it does not own that directory
+// and must never relocate it, so the rename is refused rather than silently
+// moving a user's folder. Handlers map it to HTTP 409.
+var ErrRenameUnmanagedWorkspace = errors.New(
+	"usecases: cannot rename the branch of an adopted checkout")
+
+// ErrRenameTargetExists is returned when the directory a branch rename would
+// move the workspace into is already occupied. The guard runs before any git
+// work: renaming onto a live path would either clobber another workspace's tree
+// or nest this one inside it. Handlers map it to HTTP 409.
+var ErrRenameTargetExists = errors.New("usecases: a directory already exists for the new branch")
+
 // ErrBranchStillHeld is returned by RetryProvision when the protected branch is
 // still held by a live worktree (the repo home or an external checkout) that was
 // not freed first: the user must detach the holder before a retry can succeed

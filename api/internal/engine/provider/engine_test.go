@@ -330,6 +330,8 @@ type mockProvider struct {
 	prErr             error
 	avatarURL         string
 	avatarErr         error
+	prLinks           []PRLink
+	prLinksErr        error
 }
 
 func (m *mockProvider) ProtectedBranches(
@@ -352,6 +354,13 @@ func (m *mockProvider) OwnerAvatarURL(
 	_ string,
 ) (string, error) {
 	return m.avatarURL, m.avatarErr
+}
+
+func (m *mockProvider) OpenPullRequests(
+	_ context.Context,
+	_ string,
+) ([]PRLink, error) {
+	return m.prLinks, m.prLinksErr
 }
 
 func TestOwnerAvatarURL_WithProvider(t *testing.T) {
@@ -393,4 +402,53 @@ func TestOwnerAvatarURL_ProviderError_ReturnsEmpty(t *testing.T) {
 	got, err := e.OwnerAvatarURL(context.Background(), "/repo")
 	require.NoError(t, err)
 	assert.Empty(t, got)
+}
+
+// OpenPullRequests is best-effort by contract: it feeds the import dialog's
+// parent-chain hint, which must degrade to "no links" rather than fail the import
+// when the provider CLI is missing, unauthenticated, or erroring. These mirror the
+// OwnerAvatarURL cases above, one per way the chain can come up empty.
+func TestOpenPullRequests_WithProvider(t *testing.T) {
+	mp := &mockProvider{
+		prLinks: []PRLink{
+			{Head: "feature/a", Base: "develop", Number: 1},
+			{Head: "feature/b", Base: "feature/a", Number: 2},
+		},
+	}
+	e := makeEngineWithProvider("github", true, mp)
+	got, err := e.OpenPullRequests(context.Background(), "/repo")
+	require.NoError(t, err)
+	assert.Equal(t, []PRLink{
+		{Head: "feature/a", Base: "develop", Number: 1},
+		{Head: "feature/b", Base: "feature/a", Number: 2},
+	}, got)
+}
+
+func TestOpenPullRequests_DetectError_ReturnsNil(t *testing.T) {
+	e := makeEngine("", false, errors.New("no git"))
+	got, err := e.OpenPullRequests(context.Background(), "/repo")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
+func TestOpenPullRequests_NotEnabled_ReturnsNil(t *testing.T) {
+	e := makeEngine("github", false, nil)
+	got, err := e.OpenPullRequests(context.Background(), "/repo")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
+func TestOpenPullRequests_UnknownKind_ReturnsNil(t *testing.T) {
+	e := makeEngine("none", true, nil)
+	got, err := e.OpenPullRequests(context.Background(), "/repo")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
+func TestOpenPullRequests_ProviderError_ReturnsNil(t *testing.T) {
+	mp := &mockProvider{prLinksErr: errors.New("api error")}
+	e := makeEngineWithProvider("github", true, mp)
+	got, err := e.OpenPullRequests(context.Background(), "/repo")
+	require.NoError(t, err)
+	assert.Nil(t, got, "a provider failure degrades to no links, it does not fail the caller")
 }

@@ -320,3 +320,45 @@ func (h *parkHandler) Handle(_ context.Context, r slog.Record) error {
 func (h *parkHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
 
 func (h *parkHandler) WithGroup(_ string) slog.Handler { return h }
+
+// TestRegression_ClearMidTurn_ClosesTheTurnOnTheChatLeftBehind is the workspace-spinner
+// wedge, reported from production as "all the agents stopped working but the workspace
+// is still spinning".
+//
+// A turn is opened by the user_prompt hook and closed by the turn_stop hook, and BOTH
+// are filed against the chat the runner is on WHEN THEY ARRIVE. So a /clear taken
+// mid-turn splits the pair: user_prompt landed on the old chat, the runner then walks
+// into a freshly minted one, and the turn_stop lands over there. Nothing closes the
+// turn where it was opened.
+//
+// The cost is not cosmetic. domain.AgentChat.Working stays true forever, and the
+// workspace's derived Working overlay (repositories.Container.agentWorking) keeps that
+// chat in its mid-turn set for the life of the daemon — so the sidebar and context-pill
+// spinners run forever over a workspace where nothing at all is happening. The chat ROWS
+// look idle the whole time, because the frontend clears its own working map on every
+// reseed while the daemon-side set has no such reset. That asymmetry is exactly what the
+// bug report described.
+//
+// The runner has left, and no successor has taken the old chat, so closeAbandonedTurn's
+// own guards are the whole judgement: it asserts nothing about any live process.
+func TestRegression_ClearMidTurn_ClosesTheTurnOnTheChatLeftBehind(t *testing.T) {
+	f := newFixture(t)
+
+	left, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-claude-native")
+
+	// The user typed, and then hit /clear before the answer came back.
+	prompt(t, f, runnerID, "claude", "think hard about this")
+	require.True(t, f.chat(t, left).Working, "precondition: the chat is mid-turn")
+
+	f.announce(t, runnerID, "sid-after-clear") // /clear: mints a chat, moves the runner
+	f.wait()
+
+	entered := f.runner(t, runnerID).CurrentChatID
+	require.NotEqual(t, left, entered, "precondition: the /clear moved the runner off")
+
+	assert.False(t, f.chat(t, left).Working,
+		"the chat the runner walked out of must not be left mid-turn: its turn_stop is "+
+			"going to land on the new chat, so nothing else will ever close it here")
+	assert.Nil(t, f.chat(t, left).CurrentTurnStarted, "a closed turn must clear CurrentTurnStarted")
+}

@@ -33,19 +33,34 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
     // refetch collapses that burst (and rapid mutations) into a single request.
     const deltaTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
+    // Only the most-recently ISSUED fetch may write. Callers overlap routinely —
+    // the sidebar's rebuildSidebar() runs one fetch per entity-stream frame,
+    // undebounced, from five streams sharing the callback — and resolution order
+    // is not issue order, so without this the LAST FETCH TO RESOLVE wins. An older,
+    // slower fetch then overwrites a newer result with the state it read before the
+    // newer frame landed, and persists that stale snapshot to the cache on the way
+    // out. Nothing repairs it: the daemon sends a delta like a workspace's
+    // `working:false` exactly once, so a row that loses this race stays wrong until
+    // the next unrelated frame — which is how an idle workspace kept spinning.
+    let latestFetch = 0
+
     return {
       data: idle() as Loadable<T>,
 
       fetch: async (...args: K) => {
+        const seq = ++latestFetch
         const cached = await loadCache<T>(cfg.store, keyOf(...args))
+        if (seq !== latestFetch) return
         set({
           data: loading(cached ? success(cached.data, cached.fetchedAt) : get().data),
         })
         try {
           const fresh = await cfg.fetcher(...args)
+          if (seq !== latestFetch) return
           await saveCache(cfg.store, keyOf(...args), fresh)
           set({ data: success(fresh) })
         } catch (err) {
+          if (seq !== latestFetch) return
           set({ data: failed(err as Error, get().data) })
         }
       },

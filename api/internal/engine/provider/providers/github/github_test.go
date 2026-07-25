@@ -200,6 +200,37 @@ func TestPullRequestForBranch_NoPRs(t *testing.T) {
 	assert.Nil(t, pr)
 }
 
+// TestOpenPullRequests_ParsesHeadBaseGraph pins the repo-wide open-PR graph used
+// by import auto-parenting: one gh call yields every open PR's head→base edge.
+func TestOpenPullRequests_ParsesHeadBaseGraph(t *testing.T) {
+	dir := t.TempDir()
+	out := `[
+		{"number":9324,"state":"OPEN","url":"u1","title":"t1","headRefName":"feat/9324","baseRefName":"feat/base"},
+		{"number":10,"state":"OPEN","url":"u2","title":"t2","headRefName":"feat/base","baseRefName":"dev"}
+	]`
+	g := NewWithExec(sequentialFake([]fakeResponse{
+		{output: out, code: 0}, // gh pr list --state open, and nothing else
+	}))
+	links, err := g.OpenPullRequests(context.Background(), dir)
+	require.NoError(t, err)
+	got := map[string]string{}
+	for _, l := range links {
+		got[l.Head] = l.Base
+	}
+	assert.Equal(t, "feat/base", got["feat/9324"])
+	assert.Equal(t, "dev", got["feat/base"])
+}
+
+func TestOpenPullRequests_Empty(t *testing.T) {
+	dir := t.TempDir()
+	g := NewWithExec(sequentialFake([]fakeResponse{
+		{output: "[]", code: 0},
+	}))
+	links, err := g.OpenPullRequests(context.Background(), dir)
+	require.NoError(t, err)
+	assert.Empty(t, links)
+}
+
 func TestPullRequestForBranch_GHError(t *testing.T) {
 	dir := t.TempDir()
 	g := NewWithExec(sequentialFake([]fakeResponse{

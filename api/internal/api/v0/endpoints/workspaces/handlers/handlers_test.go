@@ -110,6 +110,38 @@ type fakeHierarchy struct {
 	deleteDone   chan struct{}
 	mergeDone    chan struct{}
 	reparentDone chan struct{}
+	renamed      domain.Workspace
+	renameErr    error
+	gotRenameID  string
+	gotRenameTo  string
+	gotImport    worktree.ImportInput
+	importErr    error
+	importDone   chan struct{}
+	gotRebaseID  string
+	rebaseErr    error
+}
+
+func (f *fakeHierarchy) CreateFromImport(
+	_ context.Context,
+	in worktree.ImportInput,
+) error {
+	f.gotImport = in
+	if f.importDone != nil {
+		close(f.importDone)
+	}
+	return f.importErr
+}
+
+func (f *fakeHierarchy) RenameBranch(
+	_ context.Context,
+	wsID string,
+	newBranch string,
+) (domain.Workspace, error) {
+	f.gotRenameID, f.gotRenameTo = wsID, newBranch
+	if f.renameErr != nil {
+		return domain.Workspace{}, f.renameErr
+	}
+	return f.renamed, nil
 }
 
 func (f *fakeHierarchy) CreateChild(
@@ -151,9 +183,10 @@ func (f *fakeHierarchy) Reparent(
 
 func (f *fakeHierarchy) RebaseOntoParent(
 	_ context.Context,
-	_ string,
+	childID string,
 ) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
+	f.gotRebaseID = childID
+	return domain.Workspace{}, f.rebaseErr
 }
 
 func (f *fakeHierarchy) DeleteCascade(
@@ -234,6 +267,8 @@ func newRouter(
 	rg.GET("/workspaces", h.List)
 	rg.GET("/workspaces/:wsId", h.Detail)
 	rg.POST("/workspaces", h.Create)
+	rg.POST("/workspaces/import", h.Import)
+	rg.PATCH("/workspaces/:wsId", h.Rename)
 	rg.DELETE("/workspaces/:wsId", h.Delete)
 	rg.POST("/workspaces/:wsId/sync", h.Sync)
 	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)

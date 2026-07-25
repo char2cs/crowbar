@@ -99,34 +99,35 @@ export async function applyTheme(theme: Theme) {
   try {
     const { themeRegistry } = await import('@/extensions/themes/theme-registry')
 
-    if (!themeRegistry.isRegistryReady()) {
-      themeRegistry.onReady(() => {
-        themeRegistry.applyTheme(theme)
-        const appliedTheme = themeRegistry.getTheme(theme)
-        if (appliedTheme) {
-          cacheThemeForBootstrap(appliedTheme)
-          syncMacOSWindowAppearance(appliedTheme.isDark ? 'dark' : 'light')
-        } else {
-          const isDark = !theme.includes('light')
-          document.documentElement.classList.toggle('dark', isDark)
-          syncMacOSWindowAppearance(isDark ? 'dark' : 'light')
-        }
-      })
-      return
-    }
+    const syncAppliedTheme = () => {
+      themeRegistry.applyTheme(theme)
+      // Consume the theme the registry RESOLVED to, never a fresh lookup of the
+      // raw id. applyTheme() degrades an id it doesn't know (a persisted 'terra'
+      // from before the theme was renamed to 'zen', say) to the default theme —
+      // but getTheme('terra') still returns undefined, which dropped us into the
+      // guess-from-the-name fallback below. That fallback force-added .dark and
+      // pinned the native window dark on every launch AND every Theme Mode
+      // change, so Theme Mode = Light could never take effect.
+      const appliedTheme = themeRegistry.getActiveTheme()
+      if (appliedTheme) {
+        cacheThemeForBootstrap(appliedTheme)
+        syncMacOSWindowAppearance(appliedTheme.isDark ? 'dark' : 'light')
+        return
+      }
 
-    themeRegistry.applyTheme(theme)
-    const appliedTheme = themeRegistry.getTheme(theme)
-    if (appliedTheme) {
-      cacheThemeForBootstrap(appliedTheme)
-      syncMacOSWindowAppearance(appliedTheme.isDark ? 'dark' : 'light')
-    } else {
-      // Registry is a stub or doesn't recognise this theme yet.
-      // Derive dark/light from the theme name so Tailwind dark: variants apply correctly.
+      // Genuine registry failure: a stub that resolved to no theme at all.
+      // Derive dark/light from the theme name so Tailwind dark: variants apply.
       const isDark = !theme.includes('light')
       document.documentElement.classList.toggle('dark', isDark)
       syncMacOSWindowAppearance(isDark ? 'dark' : 'light')
     }
+
+    if (!themeRegistry.isRegistryReady()) {
+      themeRegistry.onReady(syncAppliedTheme)
+      return
+    }
+
+    syncAppliedTheme()
   } catch (error) {
     console.error('Failed to apply theme via registry:', error)
     applyFallbackTheme(theme)

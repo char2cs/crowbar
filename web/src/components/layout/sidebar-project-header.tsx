@@ -1,4 +1,9 @@
-import { ArrowLeft, ArrowRight, GearSix, SidebarSimple } from '@phosphor-icons/react'
+// Lucide (ISC) rather than Phosphor for this cluster: long-tail arrows, a round
+// cog with a ring centre, and a panel glyph — the toolbar language this app is
+// aiming at. Phosphor's GearSix is a six-lobed scalloped gear that reads as a
+// flower at 16px and was the most obviously off-key icon in the set.
+import { ArrowLeft, ArrowRight, Settings } from 'lucide-react'
+import { SidebarToggleIcon } from '@/components/ui/sidebar-toggle-icon'
 import { Button } from '@/components/ui/button'
 import { useSidebar } from '@/components/ui/sidebar'
 import { useSettingsStore } from '@/features/settings/store'
@@ -31,7 +36,7 @@ export function SidebarProjectHeader() {
       tooltipSide="bottom"
       aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
     >
-      <SidebarSimple size={16} />
+      <SidebarToggleIcon size={16} />
     </Button>
   )
 
@@ -70,7 +75,7 @@ export function SidebarProjectHeader() {
         tooltipSide="bottom"
         aria-label="Settings"
       >
-        <GearSix size={16} />
+        <Settings size={16} />
       </Button>
     </div>
   )
@@ -78,7 +83,11 @@ export function SidebarProjectHeader() {
   return (
     <div
       className={cn(
-        'flex w-full flex-shrink-0 items-center gap-1 px-3',
+        'flex w-full flex-shrink-0 items-center gap-1',
+        // The 12px breathing room hugs the outer (screen-edge) side the sidebar
+        // is docked against; the inner side uses the same 8px inset as the
+        // context pill and tab bar so the buttons line up with the column.
+        isRight ? 'pr-3 pl-2' : 'pl-3 pr-2',
         IS_MAC ? 'h-[44px]' : 'h-[34px]',
         isRight && 'flex-row-reverse',
       )}

@@ -13,7 +13,12 @@ import { DragGhost, DRAG_GHOST_OFFSET_X, DRAG_GHOST_OFFSET_Y } from './drag-ghos
 import { getPostDeleteNavigationTarget, useSidebarStore } from '@/lib/store/sidebar'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { postWorkspace } from '@/lib/api'
-import { projectIdForRepo, performDeleteWorkspace } from './workspace-tree-actions'
+import {
+  projectIdForRepo,
+  performDeleteWorkspace,
+  performRenameWorkspaceBranch,
+  performImportBranches,
+} from './workspace-tree-actions'
 
 interface CreatingState {
   repoId: string
@@ -49,6 +54,8 @@ interface WorkspaceTreeActionsContextValue {
   // Pending creates (in-flight / errored)
   pendingCreates: Map<string, PendingCreate>
   clearPendingCreate: (tempId: string) => void
+  // Import: optimistically add a spinner row per branch, then fire the batch import
+  startImport: (repoId: string, branches: string[]) => void
   // Rename
   renamingId: string | null
   startRenaming: (wsId: string) => void
@@ -208,12 +215,26 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   )
 
   const cancelCreate = useCallback(() => setCreatingChildOf(null), [])
+
+  // Batch import: optimistic spinner rows + the 202 import, orchestrated by the
+  // testable helper. The row setters are stable functional-setState wrappers.
+  const startImport = useCallback((repoId: string, branches: string[]) => {
+    performImportBranches(repoId, branches, {
+      addPending: addPendingCreate,
+      setError: setPendingCreateError,
+      clearPending: clearPendingCreate,
+    })
+  }, [])
+
   const startRenaming = useCallback((wsId: string) => setRenamingId(wsId), [])
 
   const confirmRename = useCallback(
     (branch: string) => {
       if (renamingId && branch.trim()) {
-        useSidebarStore.getState().renameWorkspace(renamingId, branch.trim())
+        // The renamed WorkspaceDTO arrives on the workspaces WS stream and
+        // updates the tree — no optimistic write here, which is what made the
+        // rename appear to work while the branch never actually changed.
+        void performRenameWorkspaceBranch(renamingId, branch.trim())
       }
       setRenamingId(null)
     },
@@ -396,6 +417,7 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       cancelCreate,
       pendingCreates,
       clearPendingCreate,
+      startImport,
       renamingId,
       startRenaming,
       confirmRename,
@@ -408,6 +430,7 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       confirmCreate,
       cancelCreate,
       pendingCreates,
+      startImport,
       renamingId,
       startRenaming,
       confirmRename,

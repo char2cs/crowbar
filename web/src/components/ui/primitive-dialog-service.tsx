@@ -1,5 +1,4 @@
-// copied from Athas — no shadcn/ui equivalent
-import { useEffect, useState, type ReactNode, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -10,96 +9,89 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 
-type ButtonVariant = 'default' | 'outline' | 'secondary' | 'ghost' | 'destructive' | 'link'
+/**
+ * Promise-based replacements for window.alert/confirm/prompt, rendered with the app's
+ * own Dialog so they inherit theming and cannot block the main thread.
+ *
+ * Requests queue up and are shown one at a time. Every request carries a `dismiss`
+ * outcome, so closing a dialog by any route — Cancel, Escape, or a backdrop click —
+ * settles the caller's promise instead of leaving it pending forever.
+ */
 
-interface PrimitiveChoiceOption {
-  value: string
-  label: string
-  variant?: ButtonVariant
-}
-
-type PrimitiveDialogRequest =
-  | {
-      id: number
-      type: 'alert'
-      title: string
-      message: ReactNode
-      resolve: () => void
-    }
-  | {
-      id: number
-      type: 'confirm'
-      title: string
-      message: ReactNode
-      confirmLabel: string
-      cancelLabel: string
-      resolve: (value: boolean) => void
-    }
-  | {
-      id: number
-      type: 'choice'
-      title: string
-      message: ReactNode
-      choices: PrimitiveChoiceOption[]
-      resolve: (value: string | null) => void
-    }
-  | {
-      id: number
-      type: 'prompt'
-      title: string
-      message: ReactNode
-      defaultValue: string
-      placeholder?: string
-      confirmLabel: string
-      cancelLabel: string
-      resolve: (value: string | null) => void
-    }
-
-interface PrimitiveConfirmOptions {
+interface ConfirmOptions {
   title?: string
   confirmLabel?: string
   cancelLabel?: string
 }
 
-interface PrimitivePromptOptions extends PrimitiveConfirmOptions {
+interface PromptOptions extends ConfirmOptions {
   defaultValue?: string
   placeholder?: string
 }
 
-let nextDialogId = 1
-let enqueueDialog: ((request: PrimitiveDialogRequest) => void) | null = null
-const pendingDialogs: PrimitiveDialogRequest[] = []
+type DialogRequest = { id: number; title: string; message: ReactNode } & (
+  | { kind: 'alert'; confirmLabel: string; onConfirm: () => void; onDismiss: () => void }
+  | {
+      kind: 'confirm'
+      confirmLabel: string
+      cancelLabel: string
+      onConfirm: () => void
+      onDismiss: () => void
+    }
+  | {
+      kind: 'prompt'
+      confirmLabel: string
+      cancelLabel: string
+      defaultValue: string
+      placeholder?: string
+      onConfirm: (value: string) => void
+      onDismiss: () => void
+    }
+)
 
-function enqueue(request: PrimitiveDialogRequest) {
-  if (enqueueDialog) {
-    enqueueDialog(request)
-    return
+let nextId = 1
+let deliver: ((request: DialogRequest) => void) | null = null
+// Requests raised before the provider mounts wait here rather than being dropped.
+const backlog: DialogRequest[] = []
+
+function enqueue(request: DialogRequest) {
+  if (deliver) {
+    deliver(request)
+  } else {
+    backlog.push(request)
   }
-
-  pendingDialogs.push(request)
 }
 
-// react-doctor-disable-next-line only-export-components -- imperative dialog API sharing this module's dialog queue state (enqueue/nextDialogId) with PrimitiveDialogProvider below; the API and the provider that renders its queue are one unit.
+// react-doctor-disable-next-line only-export-components -- imperative dialog API sharing this module's dialog queue state (enqueue/nextId) with PrimitiveDialogProvider below; the API and the provider that renders its queue are one unit.
 export function primitiveAlert(message: ReactNode, title = 'Notice'): Promise<void> {
   return new Promise((resolve) => {
-    enqueue({ id: nextDialogId++, type: 'alert', title, message, resolve })
+    enqueue({
+      id: nextId++,
+      kind: 'alert',
+      title,
+      message,
+      confirmLabel: 'OK',
+      onConfirm: () => resolve(),
+      onDismiss: () => resolve(),
+    })
   })
 }
 
 // react-doctor-disable-next-line only-export-components -- imperative dialog API backed by this module's shared queue (see primitiveAlert).
 export function primitiveConfirm(
   message: ReactNode,
-  options: PrimitiveConfirmOptions = {},
+  options: ConfirmOptions = {},
 ): Promise<boolean> {
   return new Promise((resolve) => {
     enqueue({
-      id: nextDialogId++,
-      type: 'confirm',
+      id: nextId++,
+      kind: 'confirm',
       title: options.title ?? 'Confirm',
       message,
       confirmLabel: options.confirmLabel ?? 'Confirm',
       cancelLabel: options.cancelLabel ?? 'Cancel',
-      resolve,
+      onConfirm: () => resolve(true),
+      onDismiss: () => resolve(false),
     })
   })
 }
@@ -107,164 +99,110 @@ export function primitiveConfirm(
 // react-doctor-disable-next-line only-export-components -- imperative dialog API backed by this module's shared queue (see primitiveAlert).
 export function primitivePrompt(
   message: ReactNode,
-  options: PrimitivePromptOptions = {},
+  options: PromptOptions = {},
 ): Promise<string | null> {
   return new Promise((resolve) => {
     enqueue({
-      id: nextDialogId++,
-      type: 'prompt',
+      id: nextId++,
+      kind: 'prompt',
       title: options.title ?? 'Input',
       message,
       defaultValue: options.defaultValue ?? '',
       placeholder: options.placeholder,
       confirmLabel: options.confirmLabel ?? 'OK',
       cancelLabel: options.cancelLabel ?? 'Cancel',
-      resolve,
+      onConfirm: (value) => resolve(value),
+      onDismiss: () => resolve(null),
     })
   })
 }
 
 export function PrimitiveDialogProvider({ children }: { children: ReactNode }) {
-  const [queue, setQueue] = useState<PrimitiveDialogRequest[]>([])
+  const [queue, setQueue] = useState<DialogRequest[]>([])
 
   useEffect(() => {
-    enqueueDialog = (request) => setQueue((current) => [...current, request])
+    deliver = (request) => setQueue((current) => [...current, request])
 
-    if (pendingDialogs.length > 0) {
-      setQueue((current) => [...current, ...pendingDialogs.splice(0)])
+    if (backlog.length > 0) {
+      setQueue((current) => [...current, ...backlog.splice(0)])
     }
 
     return () => {
-      enqueueDialog = null
+      deliver = null
     }
   }, [])
 
-  const activeDialog = queue[0] ?? null
-  const closeActive = (resolve: () => void) => {
-    resolve()
-    setQueue((current) => current.slice(1))
-  }
+  const dequeue = useCallback(() => setQueue((current) => current.slice(1)), [])
+
+  const active = queue[0]
 
   return (
     <>
       {children}
-      {activeDialog && (
-        <PrimitiveDialogHost key={activeDialog.id} dialog={activeDialog} onClose={closeActive} />
-      )}
+      {active ? <DialogHost key={active.id} request={active} onSettled={dequeue} /> : null}
     </>
   )
 }
 
-function PrimitiveDialogHost({
-  dialog,
-  onClose,
-}: {
-  dialog: PrimitiveDialogRequest
-  onClose: (resolve: () => void) => void
-}) {
-  const [promptValue, setPromptValue] = useState(
-    dialog.type === 'prompt' ? dialog.defaultValue : '',
-  )
-  const [open, setOpen] = useState(true)
+function DialogHost({ request, onSettled }: { request: DialogRequest; onSettled: () => void }) {
+  const [value, setValue] = useState(request.kind === 'prompt' ? request.defaultValue : '')
+  // Closing the dialog makes Base UI emit onOpenChange(false) as it unmounts, which would
+  // otherwise settle the request a second time and drop the next one off the queue.
+  const settled = useRef(false)
 
-  const handleClose = (resolve: () => void) => {
-    setOpen(false)
-    onClose(resolve)
+  const settle = (notifyCaller: () => void) => {
+    if (settled.current) return
+    settled.current = true
+    notifyCaller()
+    onSettled()
   }
 
-  if (dialog.type === 'alert') {
-    return (
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{dialog.title}</DialogTitle>
-          </DialogHeader>
-          <div className="whitespace-pre-wrap text-xs text-foreground">{dialog.message}</div>
-          <DialogFooter>
-            <Button onClick={() => handleClose(dialog.resolve)}>OK</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    )
-  }
+  const dismiss = () => settle(request.onDismiss)
 
-  if (dialog.type === 'confirm') {
-    return (
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{dialog.title}</DialogTitle>
-          </DialogHeader>
-          <div className="whitespace-pre-wrap text-xs text-foreground">{dialog.message}</div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => handleClose(() => dialog.resolve(false))}>
-              {dialog.cancelLabel}
-            </Button>
-            <Button onClick={() => handleClose(() => dialog.resolve(true))}>
-              {dialog.confirmLabel}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    )
-  }
-
-  if (dialog.type === 'choice') {
-    return (
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{dialog.title}</DialogTitle>
-          </DialogHeader>
-          <div className="whitespace-pre-wrap text-xs text-foreground">{dialog.message}</div>
-          <DialogFooter>
-            {dialog.choices.map((choice) => (
-              <Button
-                key={choice.value}
-                variant={choice.variant ?? 'default'}
-                onClick={() => handleClose(() => dialog.resolve(choice.value))}
-              >
-                {choice.label}
-              </Button>
-            ))}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    )
+  const confirm = () => {
+    if (request.kind === 'prompt') {
+      settle(() => request.onConfirm(value))
+    } else {
+      settle(request.onConfirm)
+    }
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open onOpenChange={(next) => !next && dismiss()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{dialog.title}</DialogTitle>
+          <DialogTitle>{request.title}</DialogTitle>
         </DialogHeader>
-        <form
-          onSubmit={(event: ChangeEvent<HTMLFormElement> & React.FormEvent<HTMLFormElement>) => {
-            event.preventDefault()
-            handleClose(() => dialog.resolve(promptValue))
-          }}
-          className="flex flex-col gap-2"
-        >
-          <label className="flex flex-col gap-2 text-sm text-foreground">
-            {dialog.message}
-            <Input
-              autoFocus
-              value={promptValue}
-              placeholder={dialog.placeholder}
-              onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                setPromptValue(event.target.value)
-              }
-            />
-          </label>
-        </form>
+
+        {request.kind === 'prompt' ? (
+          <form
+            className="flex flex-col gap-2"
+            onSubmit={(event) => {
+              event.preventDefault()
+              confirm()
+            }}
+          >
+            <label className="flex flex-col gap-2 text-sm text-foreground">
+              {request.message}
+              <Input
+                autoFocus
+                value={value}
+                placeholder={request.placeholder}
+                onChange={(event) => setValue(event.target.value)}
+              />
+            </label>
+          </form>
+        ) : (
+          <div className="whitespace-pre-wrap text-xs text-foreground">{request.message}</div>
+        )}
+
         <DialogFooter>
-          <Button variant="outline" onClick={() => handleClose(() => dialog.resolve(null))}>
-            {dialog.cancelLabel}
-          </Button>
-          <Button onClick={() => handleClose(() => dialog.resolve(promptValue))}>
-            {dialog.confirmLabel}
-          </Button>
+          {request.kind !== 'alert' && (
+            <Button variant="outline" onClick={dismiss}>
+              {request.cancelLabel}
+            </Button>
+          )}
+          <Button onClick={confirm}>{request.confirmLabel}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

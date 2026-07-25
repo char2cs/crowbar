@@ -828,12 +828,12 @@ func TestImportRepo_DuplicatePath_IsNoOp(t *testing.T) {
 		Stat:        statExists,
 	})
 
-	r1, err := uc.ImportRepo(context.Background(), "p1", "/root/repoA")
+	r1, err := uc.ImportRepo(context.Background(), "p1", "", "/root/repoA")
 	require.NoError(t, err)
 	require.Len(t, repos.Saved, 1)
 	wsCount := len(ws.Created)
 
-	r2, err := uc.ImportRepo(context.Background(), "p1", "/root/repoA")
+	r2, err := uc.ImportRepo(context.Background(), "p1", "", "/root/repoA")
 	require.NoError(t, err)
 	assert.Equal(t, r1.ID, r2.ID, "re-add returns the already-imported repo")
 	assert.Len(t, repos.Saved, 1, "no duplicate repository row")
@@ -894,7 +894,7 @@ func TestImportRepo_AdoptsDefaultBranchWorkspace(
 		Stat:        statExists,
 	})
 
-	repo, err := uc.ImportRepo(context.Background(), "proj-1", "/root/repoA")
+	repo, err := uc.ImportRepo(context.Background(), "proj-1", "", "/root/repoA")
 	require.NoError(t, err)
 
 	require.Len(t, repos.Saved, 1)
@@ -950,7 +950,7 @@ func TestImportRepo_AdoptionFailure_RollsBackRepo(t *testing.T) {
 		Stat: statExists,
 	})
 
-	_, err := uc.ImportRepo(context.Background(), "proj-1", "/root/repoA")
+	_, err := uc.ImportRepo(context.Background(), "proj-1", "", "/root/repoA")
 	require.Error(t, err, "ImportRepo must propagate the adoption failure")
 	assert.Empty(t, repos.Saved,
 		"the repo row must be rolled back so retries cannot accumulate orphaned repos")
@@ -994,7 +994,7 @@ func TestImportRepo_SetsGithubAvatarBestEffort(
 		Stat: statExists,
 	})
 
-	repo, err := uc.ImportRepo(context.Background(), "proj-1", repoDir)
+	repo, err := uc.ImportRepo(context.Background(), "proj-1", "", repoDir)
 	require.NoError(t, err)
 	assert.True(t, fetched, "the github avatar fetcher must run when no local icon exists")
 	assert.True(t, repo.AvatarHasIcon)
@@ -1028,7 +1028,7 @@ func TestImportRepo_UnknownProject_Errors(
 		Stat: statExists,
 	})
 
-	_, err := uc.ImportRepo(context.Background(), "missing", "/root/repoA")
+	_, err := uc.ImportRepo(context.Background(), "missing", "", "/root/repoA")
 	require.Error(t, err)
 	assert.Empty(t, repos.Saved)
 }
@@ -1058,7 +1058,7 @@ func TestImportRepo_FlagsMainWorktreeAsDefault(t *testing.T) {
 		Stat:      statExists,
 	})
 
-	_, err := uc.ImportRepo(context.Background(), "proj-1", "/root/repoA")
+	_, err := uc.ImportRepo(context.Background(), "proj-1", "", "/root/repoA")
 	require.NoError(t, err)
 
 	byBranch := map[string]bool{}
@@ -1094,7 +1094,7 @@ func TestImportRepo_LoadProjectError_Errors(
 		Stat: statExists,
 	})
 
-	_, err := uc.ImportRepo(context.Background(), "proj-1", "/root/repoA")
+	_, err := uc.ImportRepo(context.Background(), "proj-1", "", "/root/repoA")
 	require.Error(t, err)
 	assert.Empty(t, repos.Saved)
 }
@@ -1303,4 +1303,59 @@ func TestImport_ParentFetchFails_ProvisionsFromLocalTip(t *testing.T) {
 	}
 	require.NotNil(t, managed, "develop is provisioned despite the FF failure")
 	assert.NotEmpty(t, managed.WorktreePath)
+}
+
+// The repo NAME is a user-editable label; the on-disk slug is not. Import must
+// therefore seed Repository.PathSlug from the repo's own PATH, never from the
+// supplied name — otherwise the whole worktree tree of a repo with no parseable
+// remote hangs off a string the user can change at will.
+func TestImportRepo_SeedsPathSlugFromThePathNotTheSuppliedName(t *testing.T) {
+	projects := mocks.NewProjectStore()
+	repos := mocks.NewRepositoryStore()
+	ws := mocks.NewWorkspaceRepo()
+	git := mocks.NewGitEngine()
+	prov := mocks.NewProviderEngine()
+
+	require.NoError(t, projects.Save(
+		context.Background(),
+		domain.Project{ID: "proj-1", Name: "P", Path: "/root"},
+	))
+	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/root/widget", Branch: "main", Head: "h1"}}
+	prov.Protected = []string{"develop"}
+
+	uc := project.NewImport(project.ImportDeps{
+		Projects:   projects,
+		Repos:      repos,
+		Workspaces: ws,
+		Git:        git,
+		Provider:   prov,
+		Discover:   func(_ string, _ int) ([]string, error) { return nil, nil },
+		RefRunner: func(_ string) defaultbranch.RefRunner {
+			return func(_ ...string) (string, bool) { return "", false }
+		},
+		Now:         func() time.Time { return time.Unix(1000, 0).UTC() },
+		CrowbarHome: func() (string, error) { return "/crowbar-home", nil },
+		Stat:        statExists,
+	})
+
+	repo, err := uc.ImportRepo(context.Background(), "proj-1", "My Custom Name", "/root/widget")
+	require.NoError(t, err)
+
+	assert.Equal(t, "My Custom Name", repo.Name, "the display name is still the supplied one")
+	assert.Equal(t, "widget", repo.PathSlug,
+		"the on-disk slug is seeded from filepath.Base(repo.Path)")
+	require.Len(t, repos.Saved, 1)
+	assert.Equal(t, "widget", repos.Saved[0].PathSlug, "the seeded slug is persisted")
+
+	var managed *domain.Workspace
+	for i := range ws.Created {
+		if ws.Created[i].Branch == "develop" {
+			managed = &ws.Created[i]
+		}
+	}
+	require.NotNil(t, managed, "develop is provisioned as a managed worktree")
+	assert.Equal(t,
+		filepath.Join("/crowbar-home", "projects", "proj-1", "widget", "develop", "worktree"),
+		managed.WorktreePath,
+		"the managed worktree hangs off the path slug, not off the display name")
 }

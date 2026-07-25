@@ -26,8 +26,16 @@ import (
 // the `crowbar chat rename --segment <segid>` CLI a spawned agent invokes can
 // never carry a chat id baked in at spawn — the exact staleness a /clear or
 // /resume moving the runner between chats used to produce.
+//
+// settingsRG is the top-level /v0 group. Provider PRIORITY + enable/disable is a
+// GLOBAL user setting (per user/machine, not per workspace — the CLIs are
+// machine-level), so its write route mounts there at /settings/agent/providers,
+// outside the entity hierarchy — mirroring /settings/terminal/profiles. It is the
+// counterpart of the workspace-scoped enriched GET .../agent/providers above, and
+// is mounted exactly once (the home group re-mounts the GET but never this write).
 func Register(
 	wsScoped *gin.RouterGroup,
+	settingsRG *gin.RouterGroup,
 	usecase agenthandlers.AgentUsecase,
 	wsHandle gin.HandlerFunc,
 ) {
@@ -46,4 +54,6 @@ func Register(
 	wsScoped.POST("/agent/hooks", h.Hooks)
 	wsScoped.GET("/agent/providers", h.Providers)
 	wsScoped.GET("/agent/ws/chats", wsHandle)
+
+	settingsRG.PUT("/settings/agent/providers", h.UpdateProviderPreferences)
 }

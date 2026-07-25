@@ -8,6 +8,7 @@ import { resetWorkspaceScopedStores } from '../lib/reset-workspace-scoped-stores
 import { markWorkspaceDeactivated } from '../lib/activation-freshness'
 import { WorkspaceLayoutRoot } from './workspace-layout-root'
 import { useWorkspaceEffects } from '../stores/hooks/use-workspace-effects'
+import { useOpenOnNewTab } from '../stores/hooks/use-open-on-new-tab'
 import { useSaveKeyboard } from '@/features/keymaps/hooks/use-save-keyboard'
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
 import { useSidebarTabKeyboard } from '@/features/keymaps/hooks/use-sidebar-tab-keyboard'
@@ -119,6 +120,8 @@ export function WorkspaceView({ wsId, active }: WorkspaceViewProps) {
     if (!active || previouslyActive || !hydrated) return
     void reconcileWorkspaceBuffersWithDisk(wsId).catch(() => {})
   }, [active, hydrated, wsId])
+
+  useOpenOnNewTab(store, hydrated)
 
   if (!hydrated) return null
 

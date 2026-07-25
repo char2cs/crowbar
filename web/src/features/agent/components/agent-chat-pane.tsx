@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { getChat, resumeChat, switchProvider } from '@/features/agent/api/agent-api'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
+import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
+import { AGENT_CYCLE_PROVIDER } from '@/features/keymaps/registry'
+import { eventMatchesChord } from '@/features/keymaps/utils/chord'
 import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 import { XtermTerminal } from '@/features/terminal/components/terminal'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { ProviderSwitchDropdown } from './provider-switch-dropdown'
 
@@ -468,6 +472,65 @@ export function AgentChatPane({
       }
     })()
   }
+
+  // ⌘/ cycles this chat to the NEXT ENABLED provider, the way ⌘-tab cycles apps.
+  //
+  // It lives here rather than in usePaneKeyboard because switching is not just an
+  // API call: handleSwitch owns the transient-dormancy guard, the "Starting …"
+  // attachment state and the 424-aware toast. Re-implementing that in the global
+  // dispatcher would fork the switch flow.
+  //
+  // THE LISTENER IS ON `window`, SO IT IS NOT SCOPED BY ANYTHING IT RENDERS
+  // INSIDE. Three separate things keep a chat mounted while the user is looking
+  // somewhere else, and each needs its own answer here:
+  //
+  //   another PANE has focus         → isActivePane
+  //   another TAB is showing in this pane (chats stay mounted for keep-alive)
+  //                                  → isVisible
+  //   another WORKSPACE is in view   → the wsId check inside onKeyDown
+  //
+  // The third one is the reason this is not "by construction". A retained
+  // workspace stays MOUNTED under `display:none` + `inert` (workspace-host), and
+  // neither hides a window-level listener nor changes this effect's deps — so N
+  // retained workspaces each satisfied isActivePane && isVisible at once. ⌘/
+  // pressed in workspace B was swallowed here by A's invisible listener: the
+  // preventDefault killed B's Monaco comment toggle, and A switched provider on a
+  // chat the user could not see, killing that CLI and spawning another.
+  //
+  // It is asked INSIDE the handler rather than in the guard because the active
+  // workspace changes without re-rendering this pane — a dep on it would leave
+  // the listener registered against a stale answer, which is the bug itself.
+  // The chord comes from the keymap so it stays rebindable.
+  const cycleChord = useEffectiveChordMap()[AGENT_CYCLE_PROVIDER]
+  const onCycleProvider = useEffectEvent(() => {
+    const enabled = providers.filter((p) => p.enabled)
+    if (enabled.length < 2) return
+    const i = enabled.findIndex((p) => p.id === activeProviderId)
+    // An unknown current provider (a chat on one since disabled) starts the cycle
+    // at the top of the list rather than doing nothing.
+    const next = enabled[(i + 1) % enabled.length]
+    if (!next || next.id === activeProviderId) return
+    handleSwitch(next.id)
+  })
+
+  useEffect(() => {
+    if (!isActivePane || !isVisible || !cycleChord) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!eventMatchesChord(e, cycleChord)) return
+      // A retained (hidden) workspace's pane must neither act NOR swallow the key.
+      if (getActiveWorkspaceId() !== wsId) return
+      e.preventDefault()
+      e.stopPropagation()
+      onCycleProvider()
+    }
+    // CAPTURE phase, and that is the whole point. When a chat is open the focus is
+    // in its xterm, which preventDefaults + stopPropagations the keys it handles —
+    // so a bubble-phase listener never sees the chord in the one place this command
+    // is meant to work. Every other chord that must win over a focused terminal
+    // registers the same way (use-workspace-switcher-keyboard, hover-tooltip).
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [isActivePane, isVisible, cycleChord, wsId])
 
   // Clicking the gutters or the column's padding focuses the terminal.
   //

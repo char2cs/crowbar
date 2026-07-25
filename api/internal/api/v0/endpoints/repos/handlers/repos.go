@@ -25,6 +25,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
 var avatarColors = []string{
@@ -89,9 +90,11 @@ type Store interface {
 	) error
 }
 
-// BranchProviderEngine is the provider surface the Branches handler needs.
+// BranchProviderEngine is the provider surface the Branches and PullRequests
+// handlers need.
 type BranchProviderEngine interface {
 	ProtectedBranches(ctx context.Context, repoPath string) ([]string, error)
+	OpenPullRequests(ctx context.Context, repoPath string) ([]providertypes.PRLink, error)
 }
 
 // WorkspaceReader is the workspace surface the Branches handler needs.
@@ -121,7 +124,18 @@ type RepoImporter interface {
 	ImportRepo(
 		ctx context.Context,
 		projectID string,
+		name string,
 		repoPath string,
+	) (domain.Repository, error)
+}
+
+// RepoRenamer updates a repository's display name (and its derived avatar) and
+// returns the updated repo so the handler can broadcast the new RepoDTO.
+type RepoRenamer interface {
+	RenameRepo(
+		ctx context.Context,
+		repoID string,
+		name string,
 	) (domain.Repository, error)
 }
 
@@ -135,6 +149,7 @@ type Handlers struct {
 	provider    BranchProviderEngine
 	wsReader    WorkspaceReader
 	importer    RepoImporter
+	renamer     RepoRenamer
 	crowbarHome func() (string, error)
 	fetchAvatar AvatarBytesFetcher
 	broadcast   func(dto.RepoDTO)
@@ -191,6 +206,18 @@ func (h *Handlers) WithImporter(
 ) *Handlers {
 	if importer != nil {
 		h.importer = importer
+	}
+	return h
+}
+
+// WithRenamer wires the repo-rename usecase that the Rename handler calls to
+// update a repo's name and derived avatar. A nil arg leaves rename unavailable
+// (the handler answers 500), matching the bare-handler fallback of WithImporter.
+func (h *Handlers) WithRenamer(
+	renamer RepoRenamer,
+) *Handlers {
+	if renamer != nil {
+		h.renamer = renamer
 	}
 	return h
 }
@@ -290,6 +317,10 @@ func (h *Handlers) Create(
 		libs.WriteErr(c, http.StatusBadRequest, "name is required")
 		return
 	}
+	if !safeRepoName(body.Name) {
+		libs.WriteErr(c, http.StatusBadRequest, unsafeRepoNameMessage)
+		return
+	}
 	if body.Path == "" {
 		libs.WriteErr(c, http.StatusBadRequest, "path is required")
 		return
@@ -319,7 +350,7 @@ func (h *Handlers) persistRepo(
 	body createRequest,
 ) (domain.Repository, bool) {
 	if h.importer != nil {
-		repo, err := h.importer.ImportRepo(ctx, body.ProjectID, body.Path)
+		repo, err := h.importer.ImportRepo(ctx, body.ProjectID, body.Name, body.Path)
 		if err != nil {
 			return domain.Repository{}, false
 		}
@@ -334,7 +365,8 @@ func (h *Handlers) persistRepo(
 
 // buildRepo derives the persisted Repository from the validated create request:
 // a generated id when absent, the git-derived default branch and remote URL when
-// a local path is present, and the generated label/color avatar.
+// a local path is present, the on-disk path slug, and the generated label/color
+// avatar.
 func buildRepo(
 	body createRequest,
 ) domain.Repository {
@@ -356,11 +388,112 @@ func buildRepo(
 		ProjectID:     body.ProjectID,
 		Name:          body.Name,
 		Path:          body.Path,
+		PathSlug:      pathSlug(body.Path),
 		DefaultBranch: defaultBranch,
 		RemoteURL:     remoteURL,
 		AvatarLabel:   label,
 		AvatarColor:   color,
 	}
+}
+
+// pathSlug returns the immutable on-disk identity persisted as
+// Repository.PathSlug: the repo directory's own base name.
+//
+// The slug chain that consumes it (worktreepath.RemoteSlug) resolves the git
+// remote FIRST and only then this value, and the RemoteURL persisted beside it
+// is never rewritten afterwards — so a repo with a parseable remote keeps its
+// host/owner/repo layout either way, and this is the leaf identity for every
+// repo without one. What it must never be is the display Name: that is
+// user-renameable, and a slug that moved with a rename would strand every
+// already-derived worktree under the previous slug.
+//
+// The path is only stat'd by Create, never normalised, so it is CLEANED before
+// its leaf is taken and a leaf that is not a usable directory name yields "" —
+// the same shape safeRepoName refuses for the display name, and for the same
+// reason: "." and ".." are joined into the derived worktree path, where they
+// silently collapse a level out of the layout. "" falls the chain through to the
+// already-validated name. Mirrors worktreepath.SeedPathSlug, which the api layer
+// may not import (usecase-internal).
+func pathSlug(
+	repoPath string,
+) string {
+	if repoPath == "" {
+		return ""
+	}
+	leaf := filepath.Base(filepath.Clean(repoPath))
+	if strings.ContainsAny(leaf, `/\`) || strings.Trim(leaf, ".") == "" {
+		return ""
+	}
+	return leaf
+}
+
+// renameRequest is the PATCH .../repos/:repoId body.
+type renameRequest struct {
+	Name string `json:"name"`
+}
+
+// unsafeRepoNameMessage is the 400 both name-taking endpoints answer with.
+const unsafeRepoNameMessage = "name must not contain a path separator or be a dot-only component"
+
+// safeRepoName reports whether a user-supplied repository name may be used as
+// an on-disk identity.
+//
+// The name is not only a label. A repository with no parseable git remote falls
+// back to it for its worktree slug (worktreepath.RemoteSlug), which is joined
+// into <home>/projects/<project>/<slug>/<branch>/worktree — and filepath.Join
+// CLEANS what it joins, so "../../../../tmp/pwned" derives worktrees outside the
+// crowbar home. Workspaces created out there can never be reclaimed: every
+// removal guard refuses to touch anything that is not strictly under home.
+//
+// This is newly reachable. The name used to be filepath.Base(repoPath), which
+// cannot contain a separator; now both the create and the rename endpoint take
+// it verbatim from the client, so both check it here — before it is persisted,
+// rather than at each of the many places it is later joined.
+func safeRepoName(
+	name string,
+) bool {
+	if strings.ContainsAny(name, `/\`) {
+		return false
+	}
+	return strings.Trim(name, ".") != ""
+}
+
+// Rename handles PATCH /v0/projects/:projectId/repos/:repoId. It updates the
+// repository's display name (and its derived label/color avatar), then delivers
+// the updated repo as a RepoDTO on the repos WebSocket stream so every client's
+// sidebar refreshes. Validation is synchronous (name present); the rename itself
+// is a single store write, so unlike Create it runs inline and answers 204 — the
+// updated avatar rides the broadcast, not this response (the FE apiFetch throws
+// on any non-enveloped 200 body, matching the icon mutations).
+func (h *Handlers) Rename(
+	c *gin.Context,
+) {
+	if h.renamer == nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "rename unavailable")
+		return
+	}
+	var body renameRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		libs.WriteErr(c, http.StatusBadRequest, "name is required")
+		return
+	}
+	if !safeRepoName(name) {
+		libs.WriteErr(c, http.StatusBadRequest, unsafeRepoNameMessage)
+		return
+	}
+	repo, err := h.renamer.RenameRepo(c.Request.Context(), c.Param("repoId"), name)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
+	}
+	h.broadcast(dto.RepoDTOFrom(repo))
+	c.Status(http.StatusNoContent)
 }
 
 // DeleteRepo handles DELETE /v0/projects/:projectId/repos/:repoId. It validates
@@ -664,6 +797,44 @@ func (h *Handlers) Branches(c *gin.Context) {
 		})
 	}
 	libs.WriteQueryOK(c, entries)
+}
+
+// PRLinkDTO is one head→base edge of the repo's open-PR graph, returned by
+// GET …/repos/:repoId/pull-requests for the import dialog's parent hint.
+type PRLinkDTO struct {
+	Head   string `json:"head"`
+	Base   string `json:"base"`
+	Number int    `json:"number"`
+	Status string `json:"status"`
+	URL    string `json:"url"`
+	Title  string `json:"title"`
+}
+
+// PullRequests handles GET /v0/projects/:projectId/repos/:repoId/pull-requests.
+// Returns the open-PR head→base graph for the import dialog's parent hint. It is
+// advisory only — the import endpoint re-resolves parenting authoritatively — and
+// soft-fails to [] when the provider CLI is unavailable or unauthenticated.
+func (h *Handlers) PullRequests(c *gin.Context) {
+	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
+	if err != nil || repo == nil {
+		libs.WriteErr(c, http.StatusNotFound, "repo not found")
+		return
+	}
+	links := []PRLinkDTO{}
+	if h.provider != nil {
+		got, _ := h.provider.OpenPullRequests(c.Request.Context(), repo.Path)
+		for _, l := range got {
+			links = append(links, PRLinkDTO{
+				Head:   l.Head,
+				Base:   l.Base,
+				Number: l.Number,
+				Status: l.Status,
+				URL:    l.URL,
+				Title:  l.Title,
+			})
+		}
+	}
+	libs.WriteQueryOK(c, links)
 }
 
 // parseRemoteBranches strips the "origin/" prefix from git branch -r output

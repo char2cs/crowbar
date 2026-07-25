@@ -3,7 +3,7 @@ export interface AppFile {
   path: string
   name: string
   isDirectory?: boolean
-  /** Athas alias for isDirectory */
+  /** Alias for isDirectory. */
   isDir?: boolean
   isFile?: boolean
   isSymlink?: boolean
@@ -18,9 +18,8 @@ export interface AppFile {
   isNewItem?: boolean
   gitStatus?: string
 }
-/** Alias used by Athas file-explorer */
+/** Alias used by the file explorer. */
 export type FileEntry = AppFile
-export type AppFileType = 'file' | 'directory' | 'symlink'
 export interface ContextMenuState<T = unknown> {
   /** Horizontal position */
   x?: number
@@ -29,18 +28,11 @@ export interface ContextMenuState<T = unknown> {
   isOpen?: boolean
   position?: { x: number; y: number }
   data?: T | null
-  /** File path (Athas file-explorer context menu) */
+  /** File path (file-explorer context menu). */
   path: string
   /** Whether the target is a directory */
   isDir: boolean
   /** Whether the target is a file */
   isFile?: boolean
   name?: string
-}
-export interface FileStats {
-  size: number
-  modified: number
-  created: number
-  isFile: boolean
-  isDirectory: boolean
 }

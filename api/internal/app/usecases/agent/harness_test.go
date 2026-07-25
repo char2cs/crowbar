@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
+	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
@@ -400,6 +401,39 @@ type testFixture struct {
 	rbc      *fakeRunnerBroadcaster
 	ws       *fakeWorkspace
 	registry *engineagent.Registry
+	// providerPrefs is the real sqlite preference store the usecase resolves
+	// providers against; setPrefs writes into it. connected is the injected install
+	// probe's answer keyed by spawn.cmd; setConnected rewrites it. Both let the
+	// provider-resolution tests control ordering/enabled/connected without touching
+	// the host or a real PATH.
+	providerPrefs store.Store[domain.AgentProviderPreference, string]
+	connected     map[string]bool
+}
+
+// setPrefs saves global provider preferences into the fixture's real store, so a
+// following ResolveProviders reads them back.
+func (f testFixture) setPrefs(
+	t *testing.T,
+	prefs ...domain.AgentProviderPreference,
+) {
+	t.Helper()
+	for _, p := range prefs {
+		require.NoError(t, f.providerPrefs.Save(f.ctx, p))
+	}
+}
+
+// setConnected rewrites the injected probe's verdict, keyed by spawn.cmd (which
+// equals the provider id for claude/codex/gemini). It mutates the map in place so
+// the closure the usecase was built with sees the change.
+func (f testFixture) setConnected(
+	m map[string]bool,
+) {
+	for k := range f.connected {
+		delete(f.connected, k)
+	}
+	for k, v := range m {
+		f.connected[k] = v
+	}
 }
 
 // wait blocks until every projection has folded.
@@ -631,18 +665,25 @@ func newFixtureUsing(
 	}
 
 	reg := engineagent.NewRegistry()
-	u := agentusecase.New(usedChats, usedRunners, reg, term, ws)
+	providerPrefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
+	require.NoError(t, err)
+	connected := map[string]bool{}
+	homeFn := func() (string, error) { return home, nil }
+	probe := func(cmd string) bool { return connected[cmd] }
+	u := agentusecase.New(usedChats, usedRunners, reg, term, ws, providerPrefs, homeFn, probe)
 	f := testFixture{
-		ctx:      context.Background(),
-		usecase:  u,
-		chats:    realChats,
-		runners:  realRunners,
-		waitFn:   func() { waitChats(); waitRunners() },
-		term:     term,
-		bc:       bc,
-		rbc:      rbc,
-		ws:       ws,
-		registry: reg,
+		ctx:           context.Background(),
+		usecase:       u,
+		chats:         realChats,
+		runners:       realRunners,
+		waitFn:        func() { waitChats(); waitRunners() },
+		term:          term,
+		bc:            bc,
+		rbc:           rbc,
+		ws:            ws,
+		registry:      reg,
+		providerPrefs: providerPrefs,
+		connected:     connected,
 	}
 	return f, realChats, realRunners
 }

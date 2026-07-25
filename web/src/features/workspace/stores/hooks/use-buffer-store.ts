@@ -3,8 +3,6 @@ import { useWorkspaceStoreContext } from '../workspace-context'
 import type { BufferActions } from '../slices/buffer-slice'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 
-export const useBuffers = (): PaneContent[] => useWorkspaceStoreContext((s) => s.buffers)
-
 export const useBufferActions = (): BufferActions =>
   useWorkspaceStoreContext((s) => s.bufferActions)
 

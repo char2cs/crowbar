@@ -151,22 +151,25 @@ test('addWorkspace stores no parentId when omitted', () => {
   expect(ws.parentId).toBeUndefined()
 })
 
-test('renameWorkspace updates branch on matching workspace', () => {
-  useSidebarStore.getState().renameWorkspace('ws3', 'feature/renamed')
-  const ws = useSidebarStore
+// A branch rename moves the git branch AND the workspace's on-disk directory,
+// so it is the daemon's to perform; the renamed row comes back through
+// applyWorkspaceDTO. The store deliberately exposes no local rename — one was
+// what made the sidebar relabel a row while the branch never changed.
+test('a renamed workspace arrives through applyWorkspaceDTO', () => {
+  const before = useSidebarStore
     .getState()
     .repos.flatMap((r) => r.workspaces)
     .find((w) => w.id === 'ws3')!
-  expect(ws.branch).toBe('feature/renamed')
-})
 
-test('renameWorkspace leaves other workspaces unchanged', () => {
-  useSidebarStore.getState().renameWorkspace('ws3', 'feature/renamed')
-  const ws = useSidebarStore
-    .getState()
-    .repos.flatMap((r) => r.workspaces)
-    .find((w) => w.id === 'ws1')!
-  expect(ws.branch).toBe('enhancement/scaffold')
+  useSidebarStore.getState().applyWorkspaceDTO({
+    ...before,
+    repoId: 'crowbar',
+    branch: 'feature/renamed',
+  } as never)
+
+  const workspaces = useSidebarStore.getState().repos.flatMap((r) => r.workspaces)
+  expect(workspaces.find((w) => w.id === 'ws3')!.branch).toBe('feature/renamed')
+  expect(workspaces.find((w) => w.id === 'ws1')!.branch).toBe('enhancement/scaffold')
 })
 
 test('reparentWorkspace changes parentId', () => {

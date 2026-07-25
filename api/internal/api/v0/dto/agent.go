@@ -154,10 +154,19 @@ type HandoffDTO struct {
 // human display name, and an inline SVG icon (fill="currentColor"). Backed by the
 // descriptor enumeration; workspace-independent but served on the workspace-scoped
 // route for surface consistency.
+//
+// Connected is whether the provider's spawn.cmd resolves to an installed
+// executable on PATH (install-only, no auth probe). Enabled is !disabled from the
+// global AgentProviderPreference (a provider with no stored preference defaults to
+// enabled). The list is returned in priority order — priority is implicit in the
+// array position, preferenced providers first in saved order, unpreferenced ones
+// appended by descriptor id.
 type AgentProviderDTO struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"displayName"`
 	Icon        string `json:"icon"`
+	Connected   bool   `json:"connected"`
+	Enabled     bool   `json:"enabled"`
 }
 
 // AgentChatEvent is the wire frame pushed on the agent-chat lifecycle WebSocket

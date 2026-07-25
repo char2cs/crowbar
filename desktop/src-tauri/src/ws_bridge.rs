@@ -33,7 +33,7 @@
 //! the sender, which ends the writer task, and drops the cancel channel, which ends
 //! the reader task. **Removing a connection from the map is therefore the one and only
 //! teardown primitive** — the reader retires itself on (1), and `ws_close` and
-//! [`WsBridgeManager::close_all`] do the removing for (2) and (3).
+//! [`WsBridgeManager::close_for_window`] do the removing for (2) and (3).
 //!
 //! Note what this deliberately does *not* rely on: a dead `Channel`. `Channel::send`
 //! bottoms out in `webview.eval()`, which succeeds for as long as the *webview* is
@@ -82,6 +82,9 @@ impl FrameSink for Channel<String> {
 /// writer, and the cancel channel going away ends the reader.
 struct Connection {
     generation: u64,
+    /// The Tauri window label that opened this connection. A page load retires only
+    /// the connections belonging to the window that loaded — see `close_for_window`.
+    window_label: String,
     tx: mpsc::UnboundedSender<Message>,
     /// Held, never used. Its `Drop` is the signal.
     _cancel: oneshot::Sender<()>,
@@ -110,11 +113,19 @@ impl WsBridgeManager {
             .map(|c| c.tx.clone())
     }
 
-    /// Retires every connection. Called when a page load orphans them all: the JS
-    /// that owned these ids is gone and will never call `ws_close` for them, and the
-    /// new page opens fresh ids of its own.
-    pub fn close_all(&self) {
-        self.connections.lock().unwrap().clear();
+    /// Retires every connection belonging to `label`. Called when a page load orphans
+    /// that window's connections: the JS that owned these ids is gone and will never
+    /// call `ws_close` for them, and the new page opens fresh ids of its own.
+    ///
+    /// Scoped to one window, never app-wide: with two windows open, an app-wide clear
+    /// means window B merely reloading strands every socket window A owns. Connection
+    /// ids are globally unique (`crypto.randomUUID` on the JS side), so the id-keyed
+    /// map needs no re-keying — only teardown is window-aware.
+    pub fn close_for_window(&self, label: &str) {
+        self.connections
+            .lock()
+            .unwrap()
+            .retain(|_, c| c.window_label != label);
     }
 }
 
@@ -127,11 +138,19 @@ pub async fn ws_open(
     path: String,
     on_message: Channel<String>,
     manager: State<'_, WsBridgeManager>,
+    window: tauri::WebviewWindow,
 ) -> Result<(), String> {
     let socket = crate::sidecar::socket_path();
-    open_bridge(&socket, conn_id, path, on_message, &manager)
-        .await
-        .map(|_reader| ())
+    open_bridge(
+        &socket,
+        conn_id,
+        path,
+        on_message,
+        &manager,
+        window.label().to_string(),
+    )
+    .await
+    .map(|_reader| ())
 }
 
 /// The transport half of [`ws_open`], free of Tauri's `State` so it can be driven
@@ -147,6 +166,7 @@ pub async fn open_bridge<S: FrameSink>(
     path: String,
     on_message: S,
     manager: &WsBridgeManager,
+    window_label: String,
 ) -> Result<tokio::task::JoinHandle<()>, String> {
     let stream = UnixStream::connect(socket).await.map_err(|e| {
         log::error!("ws_open: connect daemon socket failed: {e}");
@@ -188,6 +208,7 @@ pub async fn open_bridge<S: FrameSink>(
         conn_id.clone(),
         Connection {
             generation,
+            window_label,
             tx,
             _cancel: cancel,
         },
@@ -353,6 +374,22 @@ mod tests {
         });
     }
 
+    /// Same wedged peer as [`spawn_wedged_daemon`], but accepting connections forever
+    /// rather than one. A window-scoping test needs two live connections on one
+    /// listener; with the single-accept version the second `open_bridge` would block on
+    /// a peer that never accepts.
+    fn spawn_wedged_daemon_multi(listener: UnixListener) {
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    if let Ok(_ws) = tokio_tungstenite::accept_async(stream).await {
+                        std::future::pending::<()>().await;
+                    }
+                });
+            }
+        });
+    }
+
     #[tokio::test]
     async fn daemon_initiated_close_retires_the_connection() {
         let _serialised = crate::test_support::fd_tests().await;
@@ -368,6 +405,7 @@ mod tests {
             "/v0/x".to_string(),
             sentinel_sink(tx),
             &manager,
+            "main".to_string(),
         );
         let (opened, _) = tokio::join!(opened, accept_then_close(&listener));
         opened.unwrap();
@@ -410,6 +448,7 @@ mod tests {
                 "/v0/x".to_string(),
                 sentinel_sink(tx),
                 &manager,
+                "main".to_string(),
             );
             let (opened, _) = tokio::join!(opened, accept_then_close(&listener));
             opened.unwrap();
@@ -456,6 +495,7 @@ mod tests {
             "/v0/x".to_string(),
             silent_sink(),
             &manager,
+            "main".to_string(),
         )
         .await
         .unwrap();
@@ -471,10 +511,10 @@ mod tests {
 
     /// A page load orphans every connection the old page owned: its JS is gone and will never
     /// call `ws_close` for ids it no longer remembers. Nothing else can notice — a `Channel`
-    /// keeps working across a reload — so `close_all` is all that stands between a reload and
-    /// a permanently stranded socket.
+    /// keeps working across a reload — so `close_for_window` is all that stands between a
+    /// reload and a permanently stranded socket.
     #[tokio::test]
-    async fn close_all_retires_connections_a_reloaded_page_abandoned() {
+    async fn a_page_load_retires_the_connections_a_reloaded_page_abandoned() {
         let _serialised = crate::test_support::fd_tests().await;
 
         let sock = test_socket("reload");
@@ -487,15 +527,74 @@ mod tests {
             "/v0/x".to_string(),
             silent_sink(),
             &manager,
+            "main".to_string(),
         )
         .await
         .unwrap();
 
-        manager.close_all();
+        manager.close_for_window("main");
 
         reader.await.expect("a page load must end its readers");
 
         assert!(manager.connections.lock().unwrap().is_empty());
+
+        let _ = std::fs::remove_file(&sock);
+    }
+
+    /// The multi-window invariant: a page load in ONE window must not touch another
+    /// window's connections. Before window scoping this was `close_all`, so window B
+    /// merely opening — or reloading — silently stranded every socket window A owned.
+    #[tokio::test]
+    async fn a_page_load_retires_only_the_loading_windows_connections() {
+        let _serialised = crate::test_support::fd_tests().await;
+
+        let sock = test_socket("window-scope");
+        spawn_wedged_daemon_multi(UnixListener::bind(&sock).unwrap());
+        let manager = WsBridgeManager::new();
+
+        let main_reader = open_bridge(
+            &sock,
+            "main-conn".to_string(),
+            "/v0/x".to_string(),
+            silent_sink(),
+            &manager,
+            "main".to_string(),
+        )
+        .await
+        .unwrap();
+
+        let w2_reader = open_bridge(
+            &sock,
+            "w2-conn".to_string(),
+            "/v0/x".to_string(),
+            silent_sink(),
+            &manager,
+            "w2".to_string(),
+        )
+        .await
+        .unwrap();
+
+        manager.close_for_window("w2");
+
+        w2_reader
+            .await
+            .expect("the loading window's own reader must end");
+
+        {
+            let conns = manager.connections.lock().unwrap();
+            assert!(
+                conns.contains_key("main-conn"),
+                "window `main`'s connection must survive window `w2`'s page load"
+            );
+            assert!(
+                !conns.contains_key("w2-conn"),
+                "window `w2`'s own connection must be retired by its page load"
+            );
+        }
+
+        // Clean up the surviving connection so the test leaves no live socket behind.
+        manager.close_for_window("main");
+        main_reader.await.expect("teardown must end the reader");
 
         let _ = std::fs::remove_file(&sock);
     }

@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Outlet, useRouterState } from '@tanstack/react-router'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import type { PanelImperativeHandle, PanelSize } from 'react-resizable-panels'
 import { SidebarProjectHeader } from './sidebar-project-header'
+import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
 import { SidebarTabBar } from './sidebar-tab-bar'
 import { ContextPill } from './context-pill'
 import { SidebarCarousel } from './sidebar-carousel'
@@ -47,6 +48,10 @@ export function IDEShell() {
   const routerState = useRouterState()
   const pathname = routerState.location.pathname
   const repos = useSidebarStore((s) => s.repos)
+  // Feeds the sidebar header's back/forward arrows. Mounted here rather than in
+  // SidebarProjectHeader so history keeps accruing while the header is hidden
+  // (nav screens) and survives the header unmounting.
+  useNavigationHistory()
   const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -121,15 +126,6 @@ export function IDEShell() {
       useProjectStore.getState().setActiveProject(workspaceProjectId)
     }
   }, [workspaceProjectId])
-
-  // Signal to root ToastProvider that IDEShell is mounted so it can suppress
-  // the fixed-position global toast overlay (SidebarToastOverlay takes over).
-  // useLayoutEffect fires synchronously before paint so ideShellMounted is true
-  // before the root ever renders <Toasts>, preventing a double-viewport flash.
-  useLayoutEffect(() => {
-    useUIState.getState().setIdeShellMounted(true)
-    return () => useUIState.getState().setIdeShellMounted(false)
-  }, [])
 
   // Drive panel collapse/expand from sidebarOpen state (set by SidebarProvider's toggleSidebar)
   useEffect(() => {

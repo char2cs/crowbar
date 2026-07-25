@@ -135,6 +135,15 @@ type Workspace interface {
 		ctx context.Context,
 		id string,
 	) (domain.Workspace, error)
+	// RenameBranch records a branch rename: the new name and the worktree path
+	// the managed tree moved to, which travel together because the worktree leaf
+	// is derived from the branch name. Identity and lineage are untouched.
+	RenameBranch(
+		ctx context.Context,
+		id string,
+		branch string,
+		worktreePath string,
+	) (domain.Workspace, error)
 	// SetParentFromPR sets ParentID from an open PR's target branch without
 	// recomputing ForkPointSha.
 	SetParentFromPR(
@@ -602,6 +611,54 @@ func (w *workspace) ClearBranch(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: clear branch: %w", err)
 	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) RenameBranch(
+	ctx context.Context,
+	id string,
+	branch string,
+	worktreePath string,
+) (domain.Workspace, error) {
+	// §3.9 write-point (b): the rename MOVED the workspace on disk before this
+	// call, so the id→path row is already stale when we get here and has to be
+	// re-pointed. It is not bookkeeping — the delete reactor resolves the
+	// directory it rm -rf's from this index alone, so a row still naming the
+	// pre-rename directory makes a later delete of this workspace destroy
+	// whatever now occupies that name (a new workspace on the old branch takes
+	// exactly that path) while this workspace's real tree is orphaned.
+	//
+	// It is written BEFORE the command, never after: the caller has already
+	// moved the tree, so the new path is the one that exists on disk and the
+	// index must never trail it. A refused command rolls the row back, mirroring
+	// Create — a failed rename leaves the index agreeing with the untouched
+	// record instead of advertising a move the record never took.
+	previousPath, previousErr := w.pathsStore.Get(ctx, id)
+	if previousErr != nil && !errors.Is(previousErr, wspaths.ErrNotFound) {
+		return domain.Workspace{}, fmt.Errorf("workspace: rename branch: paths: %w", previousErr)
+	}
+	if err := w.pathsStore.Put(ctx, id, worktreePath); err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: rename branch: paths: %w", err)
+	}
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		if errors.Is(previousErr, wspaths.ErrNotFound) {
+			_ = w.pathsStore.Delete(ctx, id)
+			return
+		}
+		_ = w.pathsStore.Put(ctx, id, previousPath)
+	}()
+	evt, err := w.sendWithOCC(
+		ctx,
+		commands.RenameBranch{ID: id, Branch: branch, WorktreePath: worktreePath},
+	)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: rename branch: %w", err)
+	}
+	committed = true
 	return evt.Aggregate, nil
 }
 

@@ -1,7 +1,11 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { orderedChats } from '@/features/workspace/stores/slices/agent-chats-slice'
-import type { AgentChat } from '@/features/agent/api/agent-api'
+import {
+  orderedChats,
+  selectEnabledProviders,
+} from '@/features/workspace/stores/slices/agent-chats-slice'
+import type { WorkspaceState } from '@/features/workspace/stores/workspace-store.types'
+import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
 
 const chat = (id: string, createdAt: string): AgentChat => ({
   id,
@@ -95,6 +99,21 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.chats).toHaveLength(1)
   })
 
+  it('seedAgentChats with { keepWorking } PRESERVES surviving chats working state — a live `created` reseed must not blank other chats spinners', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatWorking('c1', true) // mid-turn, socket LIVE
+    s.getState().setAgentChatWorking('c2', true) // mid-turn, about to vanish
+    expect(s.getState().agentChats.working).toEqual({ c1: true, c2: true })
+
+    // A new chat opened while the socket never dropped: the whole list is reseeded to
+    // pick up the newcomer + ordering, but no turn frame was missed, so every surviving
+    // chat's working state is still the truth. c2 is gone from the list; c1 survives.
+    s.getState().seedAgentChats([chat('c1', '2026-01-01T00:00:00Z')], { keepWorking: true })
+
+    expect(s.getState().agentChats.working.c1).toBe(true) // preserved — spinner keeps spinning
+    expect(s.getState().agentChats.working.c2).toBeUndefined() // the gone chat is forgotten
+  })
+
   it('seedAgentChats DROPS chats absent from the response — a delete missed during an outage leaves no ghost row', () => {
     const s = createWorkspaceStore('w1')
     s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
@@ -129,7 +148,9 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.working.c1).toBe(true)
     s.getState().setAgentChatWorking('c1', false)
     expect(s.getState().agentChats.working.c1).toBe(false)
-    s.getState().setAgentProviders([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
+    s.getState().setAgentProviders([
+      { id: 'claude', displayName: 'Claude', icon: '<svg/>', connected: true, enabled: true },
+    ])
     expect(s.getState().agentChats.providers).toHaveLength(1)
     s.getState().setActiveAgentChatId('c1')
     expect(s.getState().agentChats.activeChatId).toBe('c1')
@@ -209,20 +230,106 @@ describe('agent-chats-slice', () => {
     spy.mockRestore()
   })
 
-  it('orderedChats: saved order first, unknown chats appended by createdAt', () => {
+  it('orderedChats: saved order first, unknown chats appended NEWEST first', () => {
     const chats = [
       chat('a', '2026-01-03T00:00:00Z'),
       chat('b', '2026-01-01T00:00:00Z'),
       chat('c', '2026-01-02T00:00:00Z'),
     ]
-    // order pins b then a; c is absent → appended after, sorted by createdAt.
+    // order pins b then a; c is absent → appended after.
     expect(orderedChats(chats, ['b', 'a']).map((x) => x.id)).toEqual(['b', 'a', 'c'])
-    // empty order → pure createdAt ascending.
-    expect(orderedChats(chats, []).map((x) => x.id)).toEqual(['b', 'c', 'a'])
+    // empty order → createdAt DESCENDING. A chat you just started belongs at the
+    // top, and the New Tab's "Recent" list takes its top-N straight from here.
+    expect(orderedChats(chats, []).map((x) => x.id)).toEqual(['a', 'c', 'b'])
+  })
+
+  // A `created` frame RESEEDS the list (use-workspace-agent-chats-stream), so
+  // this — not upsert — is where a brand-new chat first appears.
+  describe('seedAgentChats: a new chat joins the top of a saved order', () => {
+    it('promotes a newly arrived chat above the chats the user arranged', () => {
+      const s = createWorkspaceStore('w1')
+      s.getState().seedAgentChats([
+        chat('a', '2026-01-01T00:00:00Z'),
+        chat('b', '2026-01-02T00:00:00Z'),
+      ])
+      s.getState().setAgentChatOrder(['a', 'b'])
+
+      s.getState().seedAgentChats([
+        chat('a', '2026-01-01T00:00:00Z'),
+        chat('b', '2026-01-02T00:00:00Z'),
+        chat('c', '2026-01-03T00:00:00Z'),
+      ])
+
+      // Without this, one drag pins the whole list and every later chat sinks
+      // below all of them — off the New Tab's capped Recent list entirely.
+      expect(s.getState().agentChats.order).toEqual(['c', 'a', 'b'])
+      expect(JSON.parse(localStorage.getItem('crowbar:agent-chat-order:w1') ?? '[]')).toEqual([
+        'c',
+        'a',
+        'b',
+      ])
+    })
+
+    it('does not start an order for a user who has never arranged the list', () => {
+      const s = createWorkspaceStore('w1')
+      s.getState().seedAgentChats([chat('a', '2026-01-01T00:00:00Z')])
+      s.getState().seedAgentChats([
+        chat('a', '2026-01-01T00:00:00Z'),
+        chat('b', '2026-01-02T00:00:00Z'),
+      ])
+
+      // With no saved arrangement the newest-first sort already puts b first;
+      // writing an order here would start pinning a list nobody arranged.
+      expect(s.getState().agentChats.order).toEqual([])
+    })
+
+    it('the first seed of a session never rewrites the saved order', () => {
+      const s = createWorkspaceStore('w1')
+      s.getState().setAgentChatOrder(['b', 'a'])
+
+      // Every chat looks "new" against an empty previous list — promoting them
+      // would scramble exactly the arrangement being restored.
+      s.getState().seedAgentChats([
+        chat('a', '2026-01-01T00:00:00Z'),
+        chat('b', '2026-01-02T00:00:00Z'),
+      ])
+
+      expect(s.getState().agentChats.order).toEqual(['b', 'a'])
+    })
   })
 
   it('orderedChats ignores order entries that no longer correspond to a chat', () => {
     const chats = [chat('a', '2026-01-01T00:00:00Z')]
     expect(orderedChats(chats, ['ghost', 'a']).map((x) => x.id)).toEqual(['a'])
+  })
+
+  // The one selector every New-chat surface leans on: the enabled subset, in the
+  // backend's priority order. A disabled provider must be dropped (spec §2.2 —
+  // "disabled = hidden entirely"), and the surviving order preserved unchanged.
+  it('selectEnabledProviders drops disabled providers, preserving order', () => {
+    const provider = (id: string, enabled: boolean): AgentProvider => ({
+      id,
+      displayName: id,
+      icon: '',
+      connected: true,
+      enabled,
+    })
+    const s = {
+      agentChats: {
+        providers: [provider('codex', true), provider('claude', false), provider('gemini', true)],
+      },
+    } as unknown as WorkspaceState
+    expect(selectEnabledProviders(s).map((p) => p.id)).toEqual(['codex', 'gemini'])
+  })
+
+  it('selectEnabledProviders returns [] when nothing is enabled', () => {
+    const s = {
+      agentChats: {
+        providers: [
+          { id: 'codex', displayName: 'Codex', icon: '', connected: true, enabled: false },
+        ],
+      },
+    } as unknown as WorkspaceState
+    expect(selectEnabledProviders(s)).toEqual([])
   })
 })

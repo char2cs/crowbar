@@ -1,27 +1,17 @@
-import { useCallback, useMemo } from 'react'
-import { Settings } from 'lucide-react'
+import { useCallback, useMemo, useState } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { InlineError } from '@/components/ui/inline-error'
-import { cn } from '@/lib/utils'
-import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE, ADD_GLYPH_PATH } from './workspace-row-base'
-import { WorkspaceInlineInput } from './workspace-inline-input'
-import { findWorkspaceForBranch } from '@/lib/workspace/branch-workspace'
 import { WorkspaceTreeFooter } from './workspace-tree-footer'
-import { WorkspaceTreeItem } from './workspace-tree-item'
-import { RepoAvatarImg } from './repo-avatar'
-import { WorkspaceAgentSpinner } from './workspace-branch-icon'
-import { PendingCreateRow } from './pending-create-row'
+import { RepoSection } from './repo-section'
 import {
   WorkspaceTreeProvider,
   useWorkspaceTreeActions,
   useWorkspaceTreeDrag,
 } from './workspace-tree-context'
-import { RepoSettingsPanel } from './repo-settings-panel'
 import { ProjectHomeRow } from './project-home-row'
-import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import { buildWorkspaceTree, type WorkspaceTreeNode } from './workspace-tree-utils'
 
 function WorkspaceTreeInner() {
@@ -36,8 +26,13 @@ function WorkspaceTreeInner() {
     cancelCreate,
     pendingCreates,
     clearPendingCreate,
+    startImport,
   } = useWorkspaceTreeActions()
   const { hoverTargetId } = useWorkspaceTreeDrag()
+  // Which repo header row is in inline-rename mode (double-clicked its name),
+  // mirroring the branch rows' renamingId — null when none. Owned here, not per
+  // RepoSection, so opening one row's rename editor closes any other's.
+  const [renamingRepoId, setRenamingRepoId] = useState<string | null>(null)
   const wsListData = useWorkspaceListStore((s) => s.data)
   const retryWorkspaces = useCallback(() => {
     void useWorkspaceListStore.getState().fetch()
@@ -72,218 +67,27 @@ function WorkspaceTreeInner() {
       <ProjectHomeRow />
       <ScrollArea className="flex-1">
         <div className="pb-1">
-          {repos.map((repo) => {
-            const roots = rootsByRepo.get(repo.id) ?? []
-            const isCollapsed = collapsedRepos.has(repo.id)
-            const isRepoDragOver = hoverTargetId === `repo:${repo.id}`
-            // react-doctor-disable-next-line js-combine-iterations -- pendingCreates is the whole tree's in-flight create operations (bounded by concurrent UI actions, realistically 0-2 at once); a single-pass rewrite here would cost JSX readability for no measurable gain.
-            const pendingCreateRows = Array.from(pendingCreates.entries())
-              .filter(([, p]) => p.repoId === repo.id && p.parentId === repo.defaultWorkspaceId)
-              .map(([tempId, pending]) => (
-                <PendingCreateRow
-                  key={tempId}
-                  tempId={tempId}
-                  pending={pending}
-                  paddingLeft={14}
-                  onClear={clearPendingCreate}
-                />
-              ))
-            return (
-              <div key={repo.id} className="mb-1">
-                <div
-                  role="button"
-                  tabIndex={0}
-                  className={cn(
-                    ROW_BASE,
-                    'group',
-                    activeWorkspaceId !== '' && activeWorkspaceId === repo.defaultWorkspaceId
-                      ? ROW_ACTIVE
-                      : ROW_INACTIVE,
-                    isRepoDragOver && 'ring-1 ring-ring',
-                  )}
-                  data-repo-drop={repo.id}
-                  aria-label={`Open ${repo.name}`}
-                  onClick={() => {
-                    if (repo.projectId && repo.defaultWorkspaceId) {
-                      handleWorkspaceClick(repo.defaultWorkspaceId, repo.projectId, repo.id)
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (
-                      e.target === e.currentTarget &&
-                      (e.key === 'Enter' || e.key === ' ') &&
-                      repo.projectId &&
-                      repo.defaultWorkspaceId
-                    ) {
-                      e.preventDefault()
-                      handleWorkspaceClick(repo.defaultWorkspaceId, repo.projectId, repo.id)
-                    }
-                  }}
-                >
-                  {/* The repo header IS the repo-home (default) workspace's row, so an
-                      agent working in it must spin this icon exactly as a worktree row
-                      spins its branch glyph. The spinner replaces the avatar for the
-                      duration of the turn. */}
-                  {repo.defaultWorking ? (
-                    <span className="pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center">
-                      <WorkspaceAgentSpinner />
-                    </span>
-                  ) : repo.avatarURL?.startsWith('emoji:') ? (
-                    <span className="pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center text-lg leading-none">
-                      {repo.avatarURL.slice(6)}
-                    </span>
-                  ) : repo.avatarURL ? (
-                    <RepoAvatarImg
-                      src={repo.avatarURL}
-                      alt={repo.name}
-                      className="pointer-events-none h-5 w-5 shrink-0 rounded-md object-cover"
-                      fallback={
-                        <span
-                          className={cn(
-                            'pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md px-1 text-[11px] font-bold text-primary-foreground',
-                            repo.avatarColor,
-                          )}
-                        >
-                          {repo.avatarLabel}
-                        </span>
-                      }
-                    />
-                  ) : (
-                    <span
-                      className={cn(
-                        'pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md px-1 text-[11px] font-bold text-primary-foreground',
-                        repo.avatarColor,
-                      )}
-                    >
-                      {repo.avatarLabel}
-                    </span>
-                  )}
-                  <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-                    <span className="shrink-0 font-mono text-foreground">{repo.name}</span>
-                    {repo.defaultWorkspaceId && (
-                      <span className="hidden min-w-0 truncate font-mono text-[11px] text-foreground/40 group-hover:inline">
-                        - default
-                      </span>
-                    )}
-                  </span>
-
-                  <button
-                    type="button"
-                    aria-label="Repo settings"
-                    className="inline-flex shrink-0 cursor-pointer rounded-md p-1 text-foreground/50 hover:text-foreground"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      useSidebarNavStore.getState().push({
-                        id: `repo-settings:${repo.id}`,
-                        title: repo.name,
-                        component: (
-                          <RepoSettingsPanel
-                            projectId={repo.projectId ?? ''}
-                            repoId={repo.id}
-                            repoName={repo.name}
-                          />
-                        ),
-                      })
-                    }}
-                  >
-                    <Settings className="size-3" />
-                  </button>
-
-                  {repo.defaultWorkspaceId && (
-                    <button
-                      type="button"
-                      aria-label="Add child workspace"
-                      className="shrink-0 cursor-pointer rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (collapsedRepos.has(repo.id))
-                          useSidebarStore.getState().toggleRepo(repo.id)
-                        startCreating(repo.id, repo.defaultWorkspaceId!)
-                      }}
-                    >
-                      <svg
-                        aria-hidden="true"
-                        className="size-3"
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                      >
-                        <path d={ADD_GLYPH_PATH} />
-                      </svg>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    aria-label={isCollapsed ? 'Expand repo' : 'Collapse repo'}
-                    className="inline-flex shrink-0 cursor-pointer rounded-md p-1 text-foreground/30 hover:text-foreground"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      useSidebarStore.getState().toggleRepo(repo.id)
-                    }}
-                  >
-                    <svg
-                      aria-hidden="true"
-                      className={cn('size-3 transition-transform', !isCollapsed && 'rotate-90')}
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    >
-                      <path d="M6 3l5 5-5 5" />
-                    </svg>
-                  </button>
-                </div>
-                {!isCollapsed && (
-                  <div>
-                    {creatingChildOf?.repoId === repo.id &&
-                      creatingChildOf?.parentId === repo.defaultWorkspaceId && (
-                        <div style={{ paddingLeft: 14 }}>
-                          <div className={cn(ROW_BASE, 'border-transparent text-foreground')}>
-                            <svg
-                              aria-hidden="true"
-                              className="size-4 shrink-0 text-foreground/30"
-                              viewBox="0 0 16 16"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                            >
-                              <path d={ADD_GLYPH_PATH} />
-                            </svg>
-                            <WorkspaceInlineInput
-                              onConfirm={confirmCreate}
-                              onCancel={cancelCreate}
-                              resolveExisting={(b) => findWorkspaceForBranch(repo, b)}
-                              onOpenExisting={(wsId) => {
-                                cancelCreate()
-                                if (repo.projectId)
-                                  handleWorkspaceClick(wsId, repo.projectId, repo.id)
-                              }}
-                            />
-                          </div>
-                        </div>
-                      )}
-                    {pendingCreateRows}
-                    {roots.map((node) => (
-                      <WorkspaceTreeItem
-                        key={node.workspace.id}
-                        node={node}
-                        depth={0}
-                        repoId={repo.id}
-                        projectId={repo.projectId ?? ''}
-                        activeWorkspaceId={activeWorkspaceId}
-                        onWorkspaceClick={handleWorkspaceClick}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+          {repos.map((repo) => (
+            <RepoSection
+              key={repo.id}
+              repo={repo}
+              roots={rootsByRepo.get(repo.id) ?? []}
+              isCollapsed={collapsedRepos.has(repo.id)}
+              isRepoDragOver={hoverTargetId === `repo:${repo.id}`}
+              collapsedRepos={collapsedRepos}
+              activeWorkspaceId={activeWorkspaceId}
+              onWorkspaceClick={handleWorkspaceClick}
+              renamingRepoId={renamingRepoId}
+              setRenamingRepoId={setRenamingRepoId}
+              creatingChildOf={creatingChildOf}
+              startCreating={startCreating}
+              confirmCreate={confirmCreate}
+              cancelCreate={cancelCreate}
+              pendingCreates={pendingCreates}
+              clearPendingCreate={clearPendingCreate}
+              startImport={startImport}
+            />
+          ))}
         </div>
       </ScrollArea>
       <WorkspaceTreeFooter />

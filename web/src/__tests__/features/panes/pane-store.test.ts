@@ -58,15 +58,30 @@ describe('pane-store bottom pane integration', () => {
     addBufferToPane(ROOT_PANE_ID, 'buffer-a')
     moveBufferToPane('buffer-a', ROOT_PANE_ID, BOTTOM_PANE_ID)
 
-    expect(panes()[ROOT_PANE_ID]?.bufferIds).toEqual([])
+    // A pane is never tab-less (I6): root emptied out from the move, so it is
+    // reseeded with a fresh New Tab rather than left with zero tabs.
+    const rootAfterFirstMove = panes()[ROOT_PANE_ID]
+    expect(rootAfterFirstMove?.bufferIds).toHaveLength(1)
+    expect(
+      store.getState().buffers.find((b) => b.id === rootAfterFirstMove?.bufferIds[0])?.type,
+    ).toBe('newTab')
     expect(panes()[BOTTOM_PANE_ID]?.bufferIds).toEqual(['buffer-a'])
     expect(panes()[BOTTOM_PANE_ID]?.activeBufferId).toBe('buffer-a')
 
+    const seededRootNewTabId = rootAfterFirstMove!.bufferIds[0]
     moveBufferToPane('buffer-a', BOTTOM_PANE_ID, ROOT_PANE_ID)
 
-    expect(panes()[ROOT_PANE_ID]?.bufferIds).toEqual(['buffer-a'])
+    // Real content landing beside an existing New Tab is a plain merge (a pane
+    // may hold both real tabs and its own New Tab at once) — root keeps the
+    // New Tab it was reseeded with above AND gains 'buffer-a'.
+    expect(panes()[ROOT_PANE_ID]?.bufferIds).toEqual([seededRootNewTabId, 'buffer-a'])
     expect(panes()[ROOT_PANE_ID]?.activeBufferId).toBe('buffer-a')
-    expect(panes()[BOTTOM_PANE_ID]?.bufferIds).toEqual([])
+    // Bottom, in turn, emptied out and is reseeded the same way root was above.
+    const bottomAfterSecondMove = panes()[BOTTOM_PANE_ID]
+    expect(bottomAfterSecondMove?.bufferIds).toHaveLength(1)
+    expect(
+      store.getState().buffers.find((b) => b.id === bottomAfterSecondMove?.bufferIds[0])?.type,
+    ).toBe('newTab')
   })
 
   it('can split the bottom root like any other pane tree', () => {

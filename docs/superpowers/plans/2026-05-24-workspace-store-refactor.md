@@ -1,10 +1,17 @@
 # Workspace Store Refactor Implementation Plan
 
+> **Status: implemented.** The per-workspace store, slices and registry this plan
+> builds are still how the frontend works — see the companion design spec,
+> `specs/2026-05-24-workspace-store-architecture-design.md`. The frontend was
+> originally assembled from a vendored editor codebase, which has since been
+> removed in full; paths written here as `features/<vendored-editor>/` no longer
+> exist and are kept only so the steps below still read coherently.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace global Athas singleton stores (`usePaneStore`, `useBufferStore`) with a per-workspace Zustand store composed of focused slices, accessed via React context, with localStorage persistence per workspace.
+**Goal:** Replace the vendored global singleton stores (`usePaneStore`, `useBufferStore`) with a per-workspace Zustand store composed of focused slices, accessed via React context, with localStorage persistence per workspace.
 
-**Architecture:** Each workspace gets a `WorkspaceStore` instance created by `createWorkspaceStore(wsId)` and stored in a registry (`Map<wsId, StoreApi>`). The store is provided via `WorkspaceStoreContext`. Athas UI components are updated to call workspace-scoped hooks directly. The old global stores are deleted. Crowbar's `FlowContent` replaces `FlowTab` (which used `<Outlet />`), and `WorkspaceStepFooter` moves outside the pane area.
+**Architecture:** Each workspace gets a `WorkspaceStore` instance created by `createWorkspaceStore(wsId)` and stored in a registry (`Map<wsId, StoreApi>`). The store is provided via `WorkspaceStoreContext`. The vendored UI components are updated to call workspace-scoped hooks directly. The old global stores are deleted. Crowbar's `FlowContent` replaces `FlowTab` (which used `<Outlet />`), and `WorkspaceStepFooter` moves outside the pane area.
 
 **Tech Stack:** React 18, Zustand 5 (`createStore` + `immer` middleware), TypeScript, Vitest, `@testing-library/react`, TanStack Router v2
 
@@ -57,8 +64,8 @@ web/src/features/panes/components/pane-node-renderer.tsx
 web/src/features/panes/components/pane-container.tsx
 web/src/features/tabs/components/tab-bar.tsx
 web/src/features/tabs/components/tab-bar-item.tsx
-web/src/features/athas-editor/hooks/use-lsp-integration.ts
-web/src/features/athas-editor/hooks/use-lsp-initialization.ts
+web/src/features/<vendored-editor>/hooks/use-lsp-integration.ts
+web/src/features/<vendored-editor>/hooks/use-lsp-initialization.ts
 web/src/components/layout/IDEShell.tsx
 web/src/main.tsx
 ```
@@ -584,7 +591,7 @@ import type {
   PaneContent,
 } from '@/features/panes/types/pane-content'
 
-// Only the content types Crowbar actively creates. All 20 Athas types remain in
+// Only the content types Crowbar actively creates. All 20 vendored types remain in
 // pane-content.ts for type-checking, but only these are opened via this slice.
 export type OurOpenContentSpec =
   | { type: 'editor'; path: string; name: string; content: string; isPreview?: boolean; language?: string }
@@ -1854,7 +1861,7 @@ git commit -m "feat(workspace): workflow hooks"
 
 ## Phase 5 — Component Migration
 
-**Strategy:** Update all Athas component imports in one go. The old global stores remain on disk until all components compile correctly, then delete them. This prevents a partial-broken state.
+**Strategy:** Update all vendored component imports in one go. The old global stores remain on disk until all components compile correctly, then delete them. This prevents a partial-broken state.
 
 ### Task 17: Update split-view-root.tsx
 
@@ -2103,7 +2110,7 @@ Expected: zero matches.
 
 - [ ] **Step 3: Update LSP hooks**
 
-`use-lsp-integration.ts` and `use-lsp-initialization.ts` in `features/athas-editor/hooks/` import from the global `lsp-store`. Update them to import from the workspace LSP slice:
+`use-lsp-integration.ts` and `use-lsp-initialization.ts` in the vendored editor's `hooks/` directory import from the global `lsp-store`. Update them to import from the workspace LSP slice:
 
 ```typescript
 // Before:
@@ -2131,8 +2138,8 @@ Expected: no errors.
 ```bash
 git add web/src/features/tabs/components/tab-bar.tsx \
         web/src/features/tabs/components/tab-bar-item.tsx \
-        web/src/features/athas-editor/hooks/use-lsp-integration.ts \
-        web/src/features/athas-editor/hooks/use-lsp-initialization.ts
+        web/src/features/<vendored-editor>/hooks/use-lsp-integration.ts \
+        web/src/features/<vendored-editor>/hooks/use-lsp-initialization.ts
 git commit -m "feat(workspace): migrate TabBar and LSP hooks to workspace context"
 ```
 

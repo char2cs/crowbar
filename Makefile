@@ -2,7 +2,7 @@ export PATH := $(HOME)/.bun/bin:$(HOME)/.cargo/bin:$(HOME)/.rustup/toolchains/st
 export RUSTUP_HOME := $(HOME)/.rustup
 export CARGO_HOME := $(HOME)/.cargo
 
-.PHONY: dev dev-api dev-web dev-desktop dev-bundle build test test-coverage lint pr-checks ci docker-up docker-down
+.PHONY: dev dev-api dev-web dev-desktop dev-bundle web-install build test test-coverage lint pr-checks ci docker-up docker-down
 
 # Dev isolation: every dev target roots Crowbar state (projects, store, socket,
 # logs) at <this workspace>/.crowbar instead of ~/.crowbar, so a dev instance
@@ -20,8 +20,14 @@ dev-api:
 dev-web:
 	$(MAKE) -C web dev
 
-dev-desktop:
+# Preinstall web deps before launching the desktop app: Tauri's beforeDevCommand
+# runs the Vite dev server (cd ../web && npm run dev), which needs web/node_modules
+# to already exist. Kept as a prerequisite so a fresh checkout just works.
+dev-desktop: web-install
 	$(MAKE) -C desktop dev
+
+web-install:
+	$(MAKE) -C web install
 
 # Debug bundle with macOS 26 Tahoe adaptive icon — no hot reload.
 dev-bundle:

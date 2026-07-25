@@ -86,6 +86,7 @@ func (c *Container) Register(
 		c.eng.Provider,
 		c.app.Repositories.Workspace,
 		c.app.Usecases.ProjectImport,
+		c.app.Usecases.Project,
 		c.app.Hub.BroadcastRepo,
 		c.repos.Handle,
 		ws.DualServe,
@@ -156,8 +157,10 @@ func (c *Container) Register(
 	// (.../workspaces/:wsId) exactly like terminal.Register above, giving it
 	// scopeWorkspaceToPath's wsId-ownership enforcement for free. The WS route
 	// (.../agent/ws/chats) lands in the SAME group as the REST routes so its
-	// :wsId path param is available to agentChatDef's Filter (container.go).
-	agent.Register(wsScoped, c.app.Usecases.Agent, c.agentChats.Handle)
+	// :wsId path param is available to agentChatDef's Filter (container.go). rg
+	// carries the GLOBAL provider-preferences write route (/settings/agent/providers),
+	// mounted once outside the entity hierarchy like /settings/terminal/profiles.
+	agent.Register(wsScoped, rg, c.app.Usecases.Agent, c.agentChats.Handle)
 	search.Register(
 		repoScoped,
 		c.eng.Search,

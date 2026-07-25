@@ -7,7 +7,7 @@
  */
 
 /** Categories used to group commands in the Keybindings settings tab. */
-export type CommandCategory = 'Panes' | 'Tabs' | 'Editor' | 'Navigation'
+export type CommandCategory = 'Panes' | 'Tabs' | 'Editor' | 'Navigation' | 'Chats'
 
 /**
  * A command is a finite, knowable action that can be bound to a key chord.
@@ -49,9 +49,4 @@ export interface EffectiveBinding {
   commandId: string
   chord: string
   source: 'default' | 'preset' | 'user'
-}
-
-export interface KeymapConflict {
-  chord: string
-  commandIds: string[]
 }

@@ -21,30 +21,30 @@ export interface InternalTabDragHoverTarget {
 
 declare global {
   interface Window {
-    __athasInternalTabDragData?: InternalTabDragData
-    __athasInternalTabDragHover?: InternalTabDragHoverTarget
+    __crowbarInternalTabDragData?: InternalTabDragData
+    __crowbarInternalTabDragHover?: InternalTabDragHoverTarget
   }
 }
 
 export function setInternalTabDragData(data: InternalTabDragData) {
-  window.__athasInternalTabDragData = data
+  window.__crowbarInternalTabDragData = data
 }
 
 export function getInternalTabDragData(): InternalTabDragData | null {
-  return window.__athasInternalTabDragData ?? null
+  return window.__crowbarInternalTabDragData ?? null
 }
 
 export function clearInternalTabDragData() {
-  delete window.__athasInternalTabDragData
-  delete window.__athasInternalTabDragHover
-  window.dispatchEvent(new CustomEvent('athas-internal-tab-drag-hover'))
+  delete window.__crowbarInternalTabDragData
+  delete window.__crowbarInternalTabDragHover
+  window.dispatchEvent(new CustomEvent('crowbar-internal-tab-drag-hover'))
 }
 
 export function setInternalTabDragHoverTarget(next: InternalTabDragHoverTarget) {
-  const prev = window.__athasInternalTabDragHover
+  const prev = window.__crowbarInternalTabDragHover
   if (prev?.paneId === next.paneId && prev?.zone === next.zone) return
-  window.__athasInternalTabDragHover = next
-  window.dispatchEvent(new CustomEvent('athas-internal-tab-drag-hover'))
+  window.__crowbarInternalTabDragHover = next
+  window.dispatchEvent(new CustomEvent('crowbar-internal-tab-drag-hover'))
 }
 
 export function setInternalTabDragHover(point: { x: number; y: number }) {
@@ -52,7 +52,7 @@ export function setInternalTabDragHover(point: { x: number; y: number }) {
 }
 
 export function getInternalTabDragHover() {
-  return window.__athasInternalTabDragHover ?? { paneId: null, zone: null as InternalDropZone }
+  return window.__crowbarInternalTabDragHover ?? { paneId: null, zone: null as InternalDropZone }
 }
 
 export function resolveDropTarget(point: { x: number; y: number }) {

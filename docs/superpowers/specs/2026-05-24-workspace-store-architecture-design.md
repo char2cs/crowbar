@@ -1,14 +1,18 @@
 # Workspace-as-First-Class-Store Architecture
 
 **Date:** 2026-05-24  
-**Status:** Approved  
+**Status:** Approved — implemented. The per-workspace store, slice composition and
+registry described here are still how the frontend works. Details that named the
+vendored editor codebase this frontend was originally assembled from have been
+generalised, and that code has since been removed entirely; the file paths in the
+LSP and icon-theme sections are historical.  
 **Branch:** feature/agentic-ide-gordon
 
 ---
 
 ## Problem Statement
 
-The current frontend is assembled from Athas IDE infrastructure with global singleton stores (`usePaneStore`, `useBufferStore`) that have no concept of "which workspace". Switching workspaces tramples shared state. The Crowbar AI workflow layer (`FlowTab`, `WorkspaceStepTabs`) is stitched on via `<Outlet />` inside pane buffers — a router outlet living inside the pane system. The result is buggy tab behavior, disappearing chat panels, broken split views, and no per-workspace isolation.
+The current frontend is assembled from vendored IDE infrastructure with global singleton stores (`usePaneStore`, `useBufferStore`) that have no concept of "which workspace". Switching workspaces tramples shared state. The Crowbar AI workflow layer (`FlowTab`, `WorkspaceStepTabs`) is stitched on via `<Outlet />` inside pane buffers — a router outlet living inside the pane system. The result is buggy tab behavior, disappearing chat panels, broken split views, and no per-workspace isolation.
 
 ---
 
@@ -16,7 +20,7 @@ The current frontend is assembled from Athas IDE infrastructure with global sing
 
 **Option C: Workspace as first-class store.**
 
-Each workspace gets its own Zustand store instance, created on first visit, persisted independently to localStorage, retrieved via React context. Athas's global stores are deleted. Athas's UI components are adopted into Crowbar and updated to use workspace-scoped hooks directly — no adapters, no hidden indirection.
+Each workspace gets its own Zustand store instance, created on first visit, persisted independently to localStorage, retrieved via React context. The vendored global stores are deleted. The vendored UI components are adopted into Crowbar and updated to use workspace-scoped hooks directly — no adapters, no hidden indirection.
 
 ---
 
@@ -136,7 +140,7 @@ Manages open buffers (tabs). Supports the content types Crowbar actually uses no
 - `crowbarChat` — the AI chat pane (one per workspace, opened on workspace load)
 - `diff` — diff viewer (rendered inside crowbarChat area when backend says `contentType: 'diff'`)
 
-**Inactive but typed (no-op creation, renders empty):** everything else from Athas's union, kept so type-checking doesn't break when components reference them.
+**Inactive but typed (no-op creation, renders empty):** everything else from the vendored union, kept so type-checking doesn't break when components reference them.
 
 ```typescript
 interface BufferSlice {
@@ -204,7 +208,7 @@ interface WorkflowSlice {
 
 ### Slice: LSP
 
-Wraps Athas's existing `editor/lsp/` implementation (~2,300 lines, kept as-is). The slice makes LSP workspace-scoped by owning the workspace root and providing the connection point.
+Wraps the existing `editor/lsp/` implementation (~2,300 lines, kept as-is). The slice makes LSP workspace-scoped by owning the workspace root and providing the connection point.
 
 ```typescript
 interface LspSlice {
@@ -223,11 +227,11 @@ interface LspSlice {
 }
 ```
 
-The existing `use-lsp-integration.ts` and `use-lsp-initialization.ts` hooks in `features/athas-editor/` are updated to read from workspace context instead of the global `lsp-store`.
+The existing `use-lsp-integration.ts` and `use-lsp-initialization.ts` hooks in the vendored editor feature directory (since removed) are updated to read from workspace context instead of the global `lsp-store`.
 
 ### Slice: Terminal
 
-Wraps Athas's existing terminal implementation (~5,600 lines, kept as-is). The slice adds workspace ownership — tracking which terminal session IDs belong to this workspace.
+Wraps the existing terminal implementation (~5,600 lines, kept as-is). The slice adds workspace ownership — tracking which terminal session IDs belong to this workspace.
 
 ```typescript
 interface TerminalSlice {
@@ -299,7 +303,7 @@ Persisted to localStorage as part of the workspace snapshot.
 
 ## Hooks: How UI Components Connect
 
-The existing Athas UI components (`SplitViewRoot`, `PaneNodeRenderer`, `PaneContainer`, `TabBar`, etc.) are adopted into Crowbar and their imports updated. No adapters — the hooks are direct and honest about their source.
+The existing vendored UI components (`SplitViewRoot`, `PaneNodeRenderer`, `PaneContainer`, `TabBar`, etc.) are adopted into Crowbar and their imports updated. No adapters — the hooks are direct.
 
 ```typescript
 // features/workspace/stores/hooks/use-pane-store.ts
@@ -403,8 +407,8 @@ web/src/features/panes/components/pane-container.tsx
 web/src/features/panes/components/pane-node-renderer.tsx
 web/src/features/tabs/components/tab-bar.tsx
 web/src/features/tabs/components/tab-bar-item.tsx
-web/src/features/athas-editor/hooks/use-lsp-integration.ts
-web/src/features/athas-editor/hooks/use-lsp-initialization.ts
+web/src/features/<vendored-editor>/hooks/use-lsp-integration.ts   # since removed
+web/src/features/<vendored-editor>/hooks/use-lsp-initialization.ts # since removed
 web/src/components/layout/IDEShell.tsx
 ```
 
@@ -429,7 +433,7 @@ The rendering infrastructure is complete — `FileExplorerIcon` component, icon 
 
 ### What We Port
 
-All 6 builtin themes from Athas, plus the real registry implementation and an initializer:
+All 6 builtin icon themes, plus the real registry implementation and an initializer:
 
 | Theme | Description | Icon source |
 |---|---|---|
@@ -442,7 +446,7 @@ All 6 builtin themes from Athas, plus the real registry implementation and an in
 
 ### Files
 
-**Ported from Athas (replace stubs):**
+**Ported in to replace stubs:**
 ```
 web/src/extensions/icon-themes/icon-theme-registry.ts    ← real implementation
 web/src/extensions/icon-themes/icon-theme-initializer.ts ← registers all 6 themes at startup

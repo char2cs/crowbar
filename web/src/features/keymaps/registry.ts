@@ -10,7 +10,7 @@
  *  - features/panes/hooks/use-pane-keyboard.ts   (Panes — live-editable)
  *  - features/keymaps/hooks/use-save-keyboard.ts (Editor — display-only)
  */
-import type { Command } from './types'
+import type { Command, CommandCategory } from './types'
 
 /** Pane commands — these are resolved from the registry by use-pane-keyboard. */
 export const PANE_NAVIGATE_LEFT = 'panes.navigateLeft'
@@ -19,7 +19,11 @@ export const PANE_NAVIGATE_UP = 'panes.navigateUp'
 export const PANE_NAVIGATE_DOWN = 'panes.navigateDown'
 export const PANE_SPLIT_RIGHT = 'panes.splitRight'
 export const PANE_SPLIT_DOWN = 'panes.splitDown'
+export const TAB_NEW = 'tabs.new'
 export const TAB_NEW_TERMINAL = 'tabs.newTerminal'
+export const TAB_NEW_FILE = 'tabs.newFile'
+export const AGENT_NEW_CHAT = 'agent.newChat'
+export const AGENT_CYCLE_PROVIDER = 'agent.cycleProvider'
 export const TAB_REOPEN_CLOSED = 'tabs.reopenClosed'
 export const TAB_CLOSE = 'tabs.closeActive'
 
@@ -32,6 +36,15 @@ export const SIDEBAR_TAB_WORKSPACES = 'navigation.sidebarWorkspaces'
 export const SIDEBAR_TAB_FILES = 'navigation.sidebarFiles'
 export const SIDEBAR_TAB_GIT = 'navigation.sidebarGit'
 export const SIDEBAR_TAB_CHATS = 'navigation.sidebarChats'
+
+/**
+ * The order the Keybindings settings tab renders categories in — and, because it
+ * renders ONLY what is listed here, the set of categories that are visible at all.
+ * It lives beside COMMANDS rather than in the settings component so that adding a
+ * category to a command and forgetting to render it cannot silently hide the
+ * command: a registry test asserts every category in use appears here.
+ */
+export const CATEGORY_ORDER: CommandCategory[] = ['Navigation', 'Panes', 'Tabs', 'Chats', 'Editor']
 
 export const COMMANDS: Command[] = [
   // --- Panes (live-editable, resolved from registry) ---
@@ -79,10 +92,54 @@ export const COMMANDS: Command[] = [
   },
   // --- Tabs (live-editable, resolved from registry) ---
   {
+    id: TAB_NEW,
+    label: 'New tab',
+    category: 'Tabs',
+    defaultChord: 'mod+t',
+    liveEditable: true,
+  },
+  {
+    // Moved off mod+t, which is now New Tab.
     id: TAB_NEW_TERMINAL,
     label: 'New terminal tab',
     category: 'Tabs',
-    defaultChord: 'mod+t',
+    defaultChord: 'mod+j',
+    liveEditable: true,
+  },
+  {
+    // ⌘N is the chat, not the file: starting a conversation is the thing this
+    // app is opened to do, so it takes the unshifted chord and New File takes
+    // ⌘⇧N. (They were the other way round through the New Tab work.)
+    id: AGENT_NEW_CHAT,
+    label: 'New chat',
+    category: 'Tabs',
+    defaultChord: 'mod+n',
+    liveEditable: true,
+  },
+  {
+    id: TAB_NEW_FILE,
+    label: 'New file',
+    category: 'Tabs',
+    defaultChord: 'mod+shift+n',
+    liveEditable: true,
+  },
+  {
+    // Cycles the OPEN chat to the next enabled provider, the way ⌘-tab cycles
+    // apps. It only does anything while a chat pane is the focused, visible one
+    // (agent-chat-pane gates it) — elsewhere the chord is free for other uses.
+    //
+    // Deliberately NOT mod+`, the obvious chord for this. macOS reserves it for
+    // "move focus to next window in application" and consumes it in AppKit before
+    // WKWebView is reached, so it never arrives as a keydown at all — invisible to
+    // this command AND to the settings rebind capture, which is how it presented:
+    // a shortcut that did nothing and could not even be reassigned.
+    //
+    // mod+/ collides with "toggle comment" in editors, which is fine: this fires
+    // only while a CHAT pane is focused, never over the editor.
+    id: AGENT_CYCLE_PROVIDER,
+    label: 'Cycle chat provider',
+    category: 'Chats',
+    defaultChord: 'mod+/',
     liveEditable: true,
   },
   {

@@ -26,6 +26,7 @@ import (
 // remaining methods satisfy the interface and are unused.
 type stubProvider struct {
 	protected []string
+	prLinks   []engineprovider.PRLink
 }
 
 func (s *stubProvider) Capability(
@@ -60,6 +61,13 @@ func (s *stubProvider) StartBackgroundSweep(
 
 func (s *stubProvider) OwnerAvatarURL(ctx context.Context, repoPath string) (string, error) {
 	return "", nil
+}
+
+func (s *stubProvider) OpenPullRequests(
+	ctx context.Context,
+	repoPath string,
+) ([]engineprovider.PRLink, error) {
+	return s.prLinks, nil
 }
 
 // realHarness bundles the wired-up usecase plus the handles a scenario needs to

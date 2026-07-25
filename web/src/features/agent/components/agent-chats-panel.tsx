@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useStore } from 'zustand'
 import { cn } from '@/lib/utils'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { DragGhost, DRAG_GHOST_OFFSET_X, DRAG_GHOST_OFFSET_Y } from '@/components/layout/drag-ghost'
+import { DragGhost } from '@/components/layout/drag-ghost'
+import { AGENT_CHAT_ROW_HEIGHT } from './agent-chat-drop-geometry'
+import { useAgentChatListVirtualizer } from './use-agent-chat-list-virtualizer'
+import { useAgentChatListDrag } from './use-agent-chat-list-drag'
 import { ADD_GLYPH_PATH, ROW_BASE, ROW_INACTIVE } from '@/components/layout/workspace-row-base'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { useActiveWorkspaceState } from '@/features/workspace/stores/hooks/use-active-workspace-state'
@@ -10,36 +12,10 @@ import { useWorkspaceAgentChatsStream } from '@/features/workspace/stores/hooks/
 import { orderedChats } from '@/features/workspace/stores/slices/agent-chats-slice'
 import { createChat, deleteChat, renameChat } from '@/features/agent/api/agent-api'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
+import { openAgentChat } from '@/features/agent/lib/open-agent-chat'
 import { AgentChatRow } from './agent-chat-row'
 import { reorderIds } from './agent-chats-reorder'
-import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
-
-// Same hit test as the workspace tree's drag (components/layout/workspace-tree-context.tsx):
-// the drop target is whatever data-* marker sits under the pointer — the trash
-// zone, or another chat row (never the dragged row itself).
-function findDropTarget(x: number, y: number, draggingId: string): string | null {
-  for (const el of document.elementsFromPoint(x, y)) {
-    if (el.getAttribute('data-trash-drop') !== null) return TRASH
-    const id = el.getAttribute('data-agent-chat-drop')
-    if (id !== null && id !== draggingId) return id
-  }
-  return null
-}
-
-const TRASH = 'trash'
-const DRAG_THRESHOLD_PX = 5
-
-// A completed drag still produces a click on the row it started from, which
-// would select (and open) the dragged chat. Swallow that one click — same trick
-// the workspace tree uses.
-function suppressNextClick(): void {
-  const swallow = (e: MouseEvent) => {
-    e.stopPropagation()
-    e.preventDefault()
-  }
-  window.addEventListener('click', swallow, { capture: true, once: true })
-  setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
-}
+import type { AgentProvider } from '@/features/agent/api/agent-api'
 
 interface AgentChatsPanelProps {
   /**
@@ -52,8 +28,9 @@ interface AgentChatsPanelProps {
 
 /**
  * The sidebar "Chats" panel: every agent chat in the active workspace, then one
- * "New <provider> chat" row per provider. Rows drag to reorder (persisted per
- * workspace) and drag onto the footer trash to delete — no confirm dialog.
+ * unified "New chat" row that opens the first enabled provider. Rows drag to
+ * reorder (persisted per workspace) and drag onto the footer trash to delete — no
+ * confirm dialog.
  *
  * Works for every workspace kind (project home, repo home, worktree). The wsId
  * comes from the active WORKSPACE STORE, not the URL: the project-home route is
@@ -80,13 +57,14 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
 
   const chats = useStore(store, (s) => s.agentChats.chats)
   const order = useStore(store, (s) => s.agentChats.order)
-  const working = useStore(store, (s) => s.agentChats.working)
   const providers = useStore(store, (s) => s.agentChats.providers)
   const buffers = useStore(store, (s) => s.buffers)
+  // NOTE: the panel deliberately does NOT subscribe to `agentChats.working`.
+  // Immer replaces that whole map's reference on every single-chat turn frame,
+  // so a panel-level subscription re-rendered the entire list on the feed's
+  // hottest event. Each AgentChatRow subscribes to its own working state instead.
 
   const [renamingId, setRenamingId] = useState<string | null>(null)
-  const [draggingId, setDraggingId] = useState<string | null>(null)
-  const [hoverTarget, setHoverTarget] = useState<string | null>(null)
 
   // The client-persisted row order (localStorage) is not part of the WS seed —
   // read it back on mount, before the first list paint.
@@ -97,6 +75,19 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
   const ordered = useMemo(() => orderedChats(chats, order), [chats, order])
   const providerIcons = useMemo(() => new Map(providers.map((p) => [p.id, p.icon])), [providers])
 
+  // The unified New-chat pick: the FIRST ENABLED provider in priority order —
+  // the same rule every New-chat surface follows (selectEnabledProviders). Derived
+  // from the already-subscribed `providers` (a referentially stable store slice)
+  // via useMemo, rather than subscribing to selectEnabledProviders directly: that
+  // selector returns a fresh array each call, which a render-path useStore read
+  // would flag as an ever-changing snapshot. `undefined` when nothing is enabled →
+  // no row is offered (spec §5.3).
+  const primaryProvider = useMemo(() => providers.find((p) => p.enabled), [providers])
+
+  // Window the chat rows: only the visible slice is mounted. scrollRef goes on
+  // the overflow-auto scroll container the virtualizer owns.
+  const { scrollRef, rowVirtualizer } = useAgentChatListVirtualizer(ordered.length)
+
   // A row is lit when the chat HAS A TAB, not when it was the last one clicked.
   // The row is a view of the tab strip: close the tab and the row goes dark, open
   // three chats and all three read as open. (The old highlight followed a stored
@@ -106,36 +97,10 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
     [buffers],
   )
 
-  // Read by the window-level pointer handlers, which are registered once — a ref
-  // keeps them off the render-identity treadmill (no listener churn per keystroke).
-  const orderedRef = useRef(ordered)
-  orderedRef.current = ordered
-
+  // Shared with the New Tab surface's recent-chat rows, so the two can never
+  // disagree about what clicking a chat does (open-agent-chat.ts).
   const openChat = useCallback(
-    (chatId: string) => {
-      const st = store.getState()
-      const title = st.agentChats.chats.find((c) => c.id === chatId)?.title
-      st.setActiveAgentChatId(chatId)
-
-      // Already open somewhere? REVEAL it — focus the pane holding the tab and
-      // raise it there. openContent would instead add the buffer to whatever pane
-      // happens to be active, so clicking a chat that lives in the other half of a
-      // split yanked its tab across the screen instead of taking the user to it.
-      const existing = st.buffers.find((b) => b.type === 'agentChat' && b.chatId === chatId)
-      const pane = existing ? st.paneActions.getPaneByBufferId(existing.id) : null
-      if (existing && pane) {
-        st.paneActions.setActivePane(pane.id)
-        st.paneActions.activatePaneBuffer(pane.id, existing.id)
-        return
-      }
-
-      st.bufferActions.openContent({
-        type: 'agentChat',
-        chatId,
-        wsId,
-        name: title || 'Agent chat',
-      })
-    },
+    (chatId: string) => openAgentChat(store, wsId, chatId),
     [store, wsId],
   )
 
@@ -209,136 +174,128 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
     [store, wsId],
   )
 
+  // Takes the chatId (not the chat object) so the row can hold ONE stable
+  // callback for its whole life — passing `(chat) => …` per render would give
+  // every row a fresh closure each parent render and defeat AgentChatRow's memo.
   const confirmRename = useCallback(
-    (chat: AgentChat, title: string) => {
+    (chatId: string, title: string) => {
       setRenamingId(null)
-      if (title === chat.title) return
+      const chat = store.getState().agentChats.chats.find((c) => c.id === chatId)
+      if (!chat || title === chat.title) return
       store.getState().upsertAgentChat({ ...chat, title }) // optimistic; WS title_set confirms
-      renameChat(wsId, chat.id, title).catch((err: unknown) =>
+      renameChat(wsId, chatId, title).catch((err: unknown) =>
         console.error('Failed to rename agent chat:', err),
       )
     },
     [store, wsId],
   )
 
-  // Pointer drag (mirrors the workspace tree's): arm on pointer-down, promote to
-  // a real drag past the movement threshold, resolve the drop target by hit test.
-  const dragRef = useRef<{ id: string; startX: number; startY: number; active: boolean } | null>(
-    null,
-  )
+  // Stable rename open/close callbacks — same reason as confirmRename above.
+  const startRename = useCallback((chatId: string) => setRenamingId(chatId), [])
+  const cancelRename = useCallback(() => setRenamingId(null), [])
 
-  // The cursor-following chip. Its position is written straight to the DOM on
-  // every move — routing that through React would re-render the whole list at
-  // pointer rate. State only says WHETHER it exists; the ref says where.
-  const ghostRef = useRef<HTMLDivElement | null>(null)
-  const ghostOriginRef = useRef<{ x: number; y: number } | null>(null)
-
-  // The drop resolution reads the latest removeChat + store via an Effect Event
-  // so the pointer listeners subscribe once for the component's life instead of
-  // re-subscribing whenever removeChat changes identity.
-  const onDrop = useEffectEvent((target: string | null, dragId: string) => {
-    if (target === TRASH) {
-      removeChat(dragId)
-    } else if (target) {
-      const ids = orderedRef.current.map((c) => c.id)
-      store.getState().setAgentChatOrder(reorderIds(ids, dragId, target))
-    }
+  // Drag-to-reorder / drag-to-trash lives in its own hook: with the list
+  // windowed, the drop target is resolved from scroll geometry (plus edge
+  // auto-scroll), not DOM hit-testing (use-agent-chat-list-drag.ts).
+  const {
+    draggingId,
+    hoverSlot,
+    isOverTrash,
+    ghostRef,
+    ghostOriginRef,
+    trashRef,
+    onPointerDownDrag,
+  } = useAgentChatListDrag({
+    scrollRef,
+    ordered,
+    onReorder: (dragId, slot) =>
+      store.getState().setAgentChatOrder(
+        reorderIds(
+          ordered.map((c) => c.id),
+          dragId,
+          slot,
+        ),
+      ),
+    onDelete: removeChat,
   })
-  useEffect(() => {
-    const endDrag = () => {
-      dragRef.current = null
-      ghostOriginRef.current = null
-      setDraggingId(null)
-      setHoverTarget(null)
-    }
-
-    const onPointerMove = (e: PointerEvent) => {
-      const drag = dragRef.current
-      if (!drag) return
-      if (!drag.active) {
-        if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) <= DRAG_THRESHOLD_PX)
-          return
-        drag.active = true
-        // Seed the ghost's first paint before the render that mounts it.
-        ghostOriginRef.current = { x: e.clientX, y: e.clientY }
-        setDraggingId(drag.id)
-      }
-      if (ghostRef.current) {
-        ghostRef.current.style.left = `${e.clientX + DRAG_GHOST_OFFSET_X}px`
-        ghostRef.current.style.top = `${e.clientY + DRAG_GHOST_OFFSET_Y}px`
-      }
-      setHoverTarget(findDropTarget(e.clientX, e.clientY, drag.id))
-    }
-
-    const onPointerUp = (e: PointerEvent) => {
-      const drag = dragRef.current
-      if (!drag?.active) {
-        endDrag()
-        return
-      }
-      // The post-drop click must never double as a row selection.
-      suppressNextClick()
-
-      const target = findDropTarget(e.clientX, e.clientY, drag.id)
-      onDrop(target, drag.id)
-      endDrag()
-    }
-
-    window.addEventListener('pointermove', onPointerMove)
-    window.addEventListener('pointerup', onPointerUp)
-    window.addEventListener('pointercancel', endDrag)
-    return () => {
-      window.removeEventListener('pointermove', onPointerMove)
-      window.removeEventListener('pointerup', onPointerUp)
-      window.removeEventListener('pointercancel', endDrag)
-    }
-  }, [])
-
-  const onPointerDownDrag = useCallback((chatId: string, e: React.PointerEvent) => {
-    if (e.button !== 0) return
-    dragRef.current = { id: chatId, startX: e.clientX, startY: e.clientY, active: false }
-  }, [])
 
   const draggingChat = draggingId ? ordered.find((c) => c.id === draggingId) : undefined
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <ScrollArea className="min-h-0 flex-1">
-        {/* flex-col so each row STRETCHES to fill the width minus its own
-            mx-1.5 (flex stretch respects margins). A bare block wouldn't fill a
-            <button> child — <button> is shrink-to-fit even at display:flex in
-            WebKit — and `w-full` would overflow by the margins (see NewChatRow). */}
-        <div className="flex flex-col py-1">
-          {ordered.map((chat) => (
-            <AgentChatRow
-              key={chat.id}
-              chatId={chat.id}
-              title={chat.title || 'Untitled chat'}
-              providerIcon={providerIcons.get(chat.activeProviderId) ?? ''}
-              working={working[chat.id] ?? false}
-              active={openChatIds.has(chat.id)}
-              renaming={renamingId === chat.id}
-              dragging={draggingId === chat.id}
-              dropTarget={draggingId !== null && hoverTarget === chat.id}
-              onSelect={() => openChat(chat.id)}
-              onStartRename={() => setRenamingId(chat.id)}
-              onConfirmRename={(title) => confirmRename(chat, title)}
-              onCancelRename={() => setRenamingId(null)}
-              onPointerDownDrag={(e) => onPointerDownDrag(chat.id, e)}
+      {/* The virtualizer owns this scroll element directly (like the file tree
+          beside it). No top padding/border: the drag geometry treats the content
+          origin as row 0's box top. */}
+      <div ref={scrollRef} data-agent-chat-scroll="true" className="min-h-0 flex-1 overflow-auto">
+        {/* Windowed chat region: a spacer of the full list height, with only the
+            visible rows absolutely positioned inside it (avoids margin-collapse
+            and keeps each row at a clean index * AGENT_CHAT_ROW_HEIGHT offset). */}
+        <div className="relative" style={{ height: rowVirtualizer.getTotalSize() }}>
+          {/* THE INSERTION LINE — the drag's only affordance, drawn in the GAP
+              the row would land in. A ring on a row could say one thing only,
+              "in front of this one", which left the end of the list with no
+              affordance (and no reachable slot), and lit up the neighbouring row
+              for a drop that produced the identical list. A line between rows
+              says exactly where the row goes, including after the last one.
+              Outside the windowed rows so it survives any scroll position. */}
+          {draggingId !== null && hoverSlot !== null && (
+            <div
+              data-agent-chat-drop-line={hoverSlot}
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-1.5 z-10 h-0.5 -translate-y-1/2 rounded-full bg-ring"
+              style={{ top: hoverSlot * AGENT_CHAT_ROW_HEIGHT }}
             />
-          ))}
+          )}
+          {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+            const chat = ordered[virtualItem.index]
+            if (!chat) return null
+            return (
+              <div
+                key={chat.id}
+                className="absolute inset-x-0 top-0 flex flex-col"
+                style={{
+                  height: AGENT_CHAT_ROW_HEIGHT,
+                  transform: `translateY(${virtualItem.start}px)`,
+                }}
+              >
+                <AgentChatRow
+                  wsId={wsId}
+                  chatId={chat.id}
+                  title={chat.title || 'Untitled chat'}
+                  providerIcon={providerIcons.get(chat.activeProviderId) ?? ''}
+                  active={openChatIds.has(chat.id)}
+                  renaming={renamingId === chat.id}
+                  dragging={draggingId === chat.id}
+                  onSelect={openChat}
+                  onStartRename={startRename}
+                  onConfirmRename={confirmRename}
+                  onCancelRename={cancelRename}
+                  onPointerDownDrag={onPointerDownDrag}
+                />
+              </div>
+            )
+          })}
+        </div>
 
-          {/* One New row per provider, below every real chat, behind a hairline. */}
-          {providers.length > 0 && ordered.length > 0 && (
+        {/* One unified "New chat" row, below every real chat, behind a hairline.
+            It opens the first ENABLED provider; when none is enabled there is no
+            provider to start, so the row (and its separator) give way to the
+            notice that says so — an empty panel that explains nothing was the
+            defect here. flex-col so the row STRETCHES to fill the width minus its
+            own mx-1.5 (a <button> is shrink-to-fit at display:flex in WebKit). */}
+        <div className="flex flex-col">
+          {primaryProvider && ordered.length > 0 && (
             <div data-new-chat-separator="true" className="mx-3 my-1 border-t border-border/60" />
           )}
-          {providers.map((provider) => (
-            <NewChatRow key={provider.id} provider={provider} onClick={() => newChat(provider)} />
-          ))}
+          {primaryProvider ? (
+            <NewChatRow provider={primaryProvider} onClick={() => newChat(primaryProvider)} />
+          ) : (
+            <NoProvidersNotice />
+          )}
         </div>
-      </ScrollArea>
+      </div>
 
-      <TrashFooter dragging={draggingId !== null} isOver={hoverTarget === TRASH} />
+      <TrashFooter dropRef={trashRef} dragging={draggingId !== null} isOver={isOverTrash} />
 
       {draggingChat && (
         <DragGhost
@@ -351,9 +308,31 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
   )
 }
 
-// Provider icon on the left, "New <provider> chat", + on the right edge.
-// A real <button> — no nested interactive children (unlike AgentChatRow,
-// which conditionally renders a rename <input> and so keeps role="button").
+// What the panel says instead of the New-chat row when NOTHING can start a chat.
+//
+// Turning every provider off is a setting the user can reach in two clicks, and
+// it used to leave this panel completely blank on a fresh worktree — no row, no
+// message, nothing to read or click, and no hint that a settings toggle is what
+// did it. The chats a workspace already has still list above this; only the
+// ability to start a new one is gone, so this says exactly that and names the
+// screen that undoes it.
+function NoProvidersNotice() {
+  return (
+    <p
+      data-testid="no-providers-notice"
+      className="ui-text-xs mx-3 my-2 text-balance text-muted-foreground"
+    >
+      No providers are enabled, so there is nothing to start a chat with. Turn one on in Settings →
+      Providers.
+    </p>
+  )
+}
+
+// The first-enabled provider's icon on the left, the constant "New chat" label,
+// + on the right edge. Provider-agnostic by design: one row, not one-per-provider
+// (the provider it opens is the first enabled one, matching the New Tab surface's
+// "New Chat" action). A real <button> — no nested interactive children (unlike
+// AgentChatRow, which conditionally renders a rename <input> and so keeps role="button").
 function NewChatRow({ provider, onClick }: { provider: AgentProvider; onClick: () => void }) {
   return (
     <button
@@ -375,7 +354,7 @@ function NewChatRow({ provider, onClick }: { provider: AgentProvider; onClick: (
       {/* text-left counters the <button>'s UA text-align:center (same fix as
           project-switcher-panel's "Import project" and workspace-tree's "New"
           rows). Without it the label centers in the flex-1 span. */}
-      <span className="min-w-0 flex-1 truncate text-left">New {provider.displayName} chat</span>
+      <span className="min-w-0 flex-1 truncate text-left">New chat</span>
       <svg
         aria-hidden="true"
         data-add-glyph="true"
@@ -394,7 +373,17 @@ function NewChatRow({ provider, onClick }: { provider: AgentProvider; onClick: (
 
 // Mirrors components/layout/workspace-tree-footer.tsx: always mounted (so the
 // list doesn't resize on drag start), slid in with a max-height transition.
-function TrashFooter({ dragging, isOver }: { dragging: boolean; isOver: boolean }) {
+// dropRef points at the drop target so the drag can hit-test it by rect (it sits
+// outside the windowed scroll container that the geometry resolver covers).
+function TrashFooter({
+  dropRef,
+  dragging,
+  isOver,
+}: {
+  dropRef: React.Ref<HTMLDivElement>
+  dragging: boolean
+  isOver: boolean
+}) {
   return (
     <div
       className={cn(
@@ -404,6 +393,7 @@ function TrashFooter({ dragging, isOver }: { dragging: boolean; isOver: boolean 
     >
       <div className="flex items-center justify-center border-t border-border bg-background p-2">
         <div
+          ref={dropRef}
           data-trash-drop="true"
           className={cn(
             'flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-dashed text-[13px] font-medium transition-colors',

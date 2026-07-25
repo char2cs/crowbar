@@ -2,7 +2,7 @@ import { apiFetch } from '@/lib/api'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import type { GitRemote } from '../types/git-types'
 
-// Remote-management (list/add/remove) has no daemon endpoint yet — still a stub.
+// Remote listing has no daemon endpoint yet — still a stub.
 // FUTURE: migrate to Go API calls alongside the dedicated remote-manager UI.
 const tauriInvoke = async <T>(_cmd: string, _args?: unknown): Promise<T> => {
   throw new Error(`Not implemented: ${_cmd}`)
@@ -22,26 +22,6 @@ export const getRemotes = async (repoPath: string): Promise<GitRemote[]> => {
   } catch (error) {
     console.error('Failed to get remotes:', error)
     return []
-  }
-}
-
-export const addRemote = async (repoPath: string, name: string, url: string): Promise<boolean> => {
-  try {
-    await tauriInvoke('git_add_remote', { repoPath, name, url })
-    return true
-  } catch (error) {
-    console.error('Failed to add remote:', error)
-    return false
-  }
-}
-
-export const removeRemote = async (repoPath: string, name: string): Promise<boolean> => {
-  try {
-    await tauriInvoke('git_remove_remote', { repoPath, name })
-    return true
-  } catch (error) {
-    console.error('Failed to remove remote:', error)
-    return false
   }
 }
 

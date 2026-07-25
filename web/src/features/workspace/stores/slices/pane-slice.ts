@@ -1,7 +1,7 @@
 import type { StateCreator } from 'zustand'
 import type { WorkspaceState } from '../workspace-store.types'
 import type { WorkspaceStore } from '../workspace-store'
-import { isEditorContent } from '@/features/panes/types/pane-content'
+import { isEditorContent, type PaneContent } from '@/features/panes/types/pane-content'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import type {
@@ -85,6 +85,54 @@ function getLayoutKey(
   return paneId === BOTTOM_PANE_ID ? 'bottomLayout' : 'rootLayout'
 }
 
+/**
+ * A New Tab that is a pane's ONLY tab has no close affordance: closing it would
+ * immediately spawn another (see removeBufferFromPane), so the × would be a
+ * button that visibly does nothing. Beside other tabs it closes normally.
+ * Derived state, so it is re-synced wherever a pane's membership changes.
+ */
+function syncNewTabCloseability(
+  state: { panes: Record<string, { bufferIds: string[] }>; buffers?: PaneContent[] },
+  paneId: string,
+): void {
+  const pane = state.panes[paneId]
+  if (!pane || !Array.isArray(state.buffers)) return
+  const sole = pane.bufferIds.length === 1
+  // Index once: these are immer drafts, so the map holds the same draft
+  // objects and mutating through it still records the change.
+  const byId = new Map(state.buffers.map((b) => [b.id, b]))
+  for (const id of pane.bufferIds) {
+    const buf = byId.get(id)
+    if (buf?.type === 'newTab') buf.isUncloseable = sole
+  }
+}
+
+/** Whether `bufferId` names a New Tab placeholder. Defensive against test
+ *  doubles that exercise the slice without a `buffers` array (see
+ *  syncNewTabCloseability's own guard for the same reason). */
+function isNewTabBuffer(state: { buffers?: PaneContent[] }, bufferId: string): boolean {
+  return (
+    Array.isArray(state.buffers) &&
+    state.buffers.some((b) => b.id === bufferId && b.type === 'newTab')
+  )
+}
+
+/** The New Tab id `pane` is currently holding, if any. A pane holds at most one
+ *  (mirrors buffer-slice's `findNewTabInPane`, kept local to avoid a slice ->
+ *  slice import for one lookup). */
+function findNewTabId(
+  state: { buffers?: PaneContent[] },
+  pane: { bufferIds: string[] } | null | undefined,
+): string | undefined {
+  if (!pane || !Array.isArray(state.buffers)) return undefined
+  const byId = new Map(state.buffers.map((b) => [b.id, b]))
+  for (const id of pane.bufferIds) {
+    const buf = byId.get(id)
+    if (buf?.type === 'newTab') return buf.id
+  }
+  return undefined
+}
+
 export const createPaneSlice: StateCreator<
   WorkspaceState,
   [['zustand/immer', never]],
@@ -118,21 +166,40 @@ export const createPaneSlice: StateCreator<
     paneActions: {
       splitPane(paneId, direction, bufferId?, placement = 'after') {
         let newPaneId: string | null = null
+        // A New Tab is a placeholder — two panes can never share the SAME one:
+        // its `isUncloseable` flag can't mean "sole in pane A" and "not sole in
+        // pane B" at once for a single shared buffer id. Handing the new pane
+        // the source's New Tab id (as splitActiveEditorGroup did before this
+        // fix, since getShareableSplitBufferId only excluded terminals) left
+        // the exact same id in TWO panes' bufferIds — and closing/consuming
+        // one side's copy (e.g. "New Terminal" in the new pane) then stranded
+        // the id in the other. Detected here, at the mutation site, so it holds
+        // regardless of which caller reaches this action.
+        let needsOwnNewTab = false
         set((state) => {
           const key = getLayoutKey(state, paneId)
           const result = splitLayout(state[key], paneId, direction, placement)
           if (!result) return
           state[key] = result.layout
           newPaneId = result.newPaneId
+          needsOwnNewTab = Boolean(bufferId) && isNewTabBuffer(state, bufferId!)
+          const sharedBufferId = needsOwnNewTab ? undefined : bufferId
           state.panes[newPaneId] = {
             id: newPaneId,
             type: 'group',
-            bufferIds: bufferId ? [bufferId] : [],
-            activeBufferId: bufferId ?? null,
+            bufferIds: sharedBufferId ? [sharedBufferId] : [],
+            activeBufferId: sharedBufferId ?? null,
           }
           state.activePaneId = newPaneId
           state.mostRecentActivePaneIds = [newPaneId, ...state.mostRecentActivePaneIds]
+          // The source pane's own membership is untouched by a split, so this is
+          // a no-op today — kept so a future change to this action can't silently
+          // leave the source's isUncloseable flag stale.
+          syncNewTabCloseability(state, paneId)
         })
+        if (newPaneId && needsOwnNewTab) {
+          get().bufferActions.openNewTab(newPaneId)
+        }
         return newPaneId
       },
 
@@ -141,25 +208,57 @@ export const createPaneSlice: StateCreator<
           const key = getLayoutKey(state, paneId)
           const closingPane = state.panes[paneId]
           const result = closeLayout(state[key], paneId)
+          let syncTarget: string | null = null
           if (result !== null) {
             state[key] = normalizeLayout(result)
             const remainingIds = getAllLeafIds(state[key])
             const fallbackId =
               remainingIds[0] ?? (key === 'rootLayout' ? ROOT_PANE_ID : BOTTOM_PANE_ID)
+            syncTarget = fallbackId
             if (closingPane) {
               const fp = state.panes[fallbackId]
               if (fp) {
+                // A New Tab is a placeholder that has served its purpose the
+                // moment it lands beside a pane that is (or ends up) non-empty:
+                // merging it in would either duplicate one `fp` already holds,
+                // or sit uselessly next to real content. Only keep it — so `fp`
+                // isn't left tab-less — when `fp` was otherwise completely
+                // empty before this merge.
+                const fpWasEmpty = fp.bufferIds.length === 0
                 const existingBufferIds = new Set(fp.bufferIds)
+                // A New Tab skipped by the merge below is referenced by NO pane
+                // once `paneId` is deleted — and `newTab` is auto-eviction
+                // PROTECTED, so an orphan is unreclaimable: it holds a slot of
+                // the MAX_OPEN_TABS budget for the life of the workspace, and
+                // once the budget fills `openContent` evicts the user's real
+                // file instead. Drop it from `buffers` too, exactly as the two
+                // sibling paths that also discard a New Tab already do
+                // (consumeNewTabInPane, moveBufferToPane's duplicate branch).
+                const droppedNewTabIds: string[] = []
                 for (const bufferId of closingPane.bufferIds) {
-                  if (!existingBufferIds.has(bufferId)) {
-                    fp.bufferIds.push(bufferId)
-                    existingBufferIds.add(bufferId)
+                  if (existingBufferIds.has(bufferId)) continue
+                  if (!fpWasEmpty && isNewTabBuffer(state, bufferId)) {
+                    droppedNewTabIds.push(bufferId)
+                    continue
                   }
+                  fp.bufferIds.push(bufferId)
+                  existingBufferIds.add(bufferId)
                 }
-              }
-              if (state.activePaneId === paneId && closingPane.activeBufferId) {
-                const fp = state.panes[fallbackId]
-                if (fp) fp.activeBufferId = closingPane.activeBufferId
+                if (droppedNewTabIds.length > 0 && Array.isArray(state.buffers)) {
+                  const dropped = new Set(droppedNewTabIds)
+                  state.buffers = state.buffers.filter((b) => !dropped.has(b.id))
+                }
+                // Only adopt the closing pane's active buffer if it actually
+                // survived the merge above (it won't have if it was a dropped
+                // New Tab) — otherwise `fp` keeps whichever tab it already had
+                // active rather than pointing at an id it doesn't hold.
+                if (
+                  state.activePaneId === paneId &&
+                  closingPane.activeBufferId &&
+                  fp.bufferIds.includes(closingPane.activeBufferId)
+                ) {
+                  fp.activeBufferId = closingPane.activeBufferId
+                }
               }
             }
             if (state.activePaneId === paneId) state.activePaneId = fallbackId
@@ -174,6 +273,7 @@ export const createPaneSlice: StateCreator<
             (id) => id !== paneId,
           )
           if (state.fullscreenPaneId === paneId) state.fullscreenPaneId = null
+          if (syncTarget) syncNewTabCloseability(state, syncTarget)
         })
       },
 
@@ -191,6 +291,20 @@ export const createPaneSlice: StateCreator<
         set((state) => {
           const pane = state.panes[paneId]
           if (!pane) return
+          // Only a tab the pane actually HOLDS may be activated. A pane resolves
+          // its content as `paneBuffers.find(b => b.id === activeBufferId)` where
+          // paneBuffers comes from its own bufferIds (pane-container.tsx), so an
+          // id outside that list draws the empty-pane fallback WITH a populated
+          // tab strip above it: tabs visible, none selected, nothing rendered.
+          // Callers reach that routinely by activating right after a move that
+          // may have dropped the buffer — use-tab-drag's drop handler and
+          // pane-container's split-drop both call this with the dragged id
+          // immediately after `moveBufferToPane`, which DELETES that buffer when
+          // it is a duplicate New Tab. The defence belongs here rather than at
+          // every call site. (`null` is the explicit "nothing is active" request
+          // and always applies; attaching first — addBufferToPane — is how a
+          // caller legitimately activates something the pane does not yet hold.)
+          if (bufferId !== null && !pane.bufferIds.includes(bufferId)) return
           pane.activeBufferId = bufferId
           state.activePaneId = paneId
           state.mostRecentActivePaneIds = [
@@ -206,6 +320,7 @@ export const createPaneSlice: StateCreator<
           if (!pane) return
           if (!pane.bufferIds.includes(bufferId)) pane.bufferIds.push(bufferId)
           if (setActive) pane.activeBufferId = bufferId
+          syncNewTabCloseability(state, paneId)
         })
       },
 
@@ -216,6 +331,12 @@ export const createPaneSlice: StateCreator<
         if (get().panes[paneId]?.bufferIds.includes(bufferId)) {
           releaseBufferModel(paneId, bufferId)
         }
+        // Read the type BEFORE the mutation: after it, the buffer may be gone.
+        // A New Tab must never spawn its own replacement, or the pane can never
+        // be emptied and closeBuffer recurses.
+        const removedWasNewTab =
+          (get().buffers as PaneContent[] | undefined)?.find((b) => b.id === bufferId)?.type ===
+          'newTab'
         set((state) => {
           const pane = state.panes[paneId]
           if (!pane) return
@@ -261,7 +382,15 @@ export const createPaneSlice: StateCreator<
               )
             }
           }
+          syncNewTabCloseability(state, paneId)
         })
+        // A pane is never tab-less: an empty pane that SURVIVED (root, bottom, or
+        // an explicit preserveEmptyPane) gets a New Tab so there is always
+        // something to look at and somewhere to start from.
+        const survivor = get().panes[paneId]
+        if (!removedWasNewTab && survivor && survivor.bufferIds.length === 0) {
+          get().bufferActions.openNewTab(paneId)
+        }
       },
 
       moveBufferToPane(bufferId, fromPaneId, toPaneId) {
@@ -272,8 +401,27 @@ export const createPaneSlice: StateCreator<
           fromPane.bufferIds = fromPane.bufferIds.filter((id) => id !== bufferId)
           if (fromPane.activeBufferId === bufferId)
             fromPane.activeBufferId = fromPane.bufferIds[0] ?? null
-          if (!toPane.bufferIds.includes(bufferId)) toPane.bufferIds.push(bufferId)
-          toPane.activeBufferId = bufferId
+
+          // A New Tab is a placeholder — at most one per pane. If the dragged
+          // buffer IS one and the destination already has its own, the dragged
+          // one is a duplicate rather than new content: drop it globally (it
+          // carries no state worth keeping) and focus the pane's existing New
+          // Tab instead of sitting a second blank tab beside it. Real content
+          // is unaffected — it is fine (and intentional elsewhere in this
+          // slice) for a pane to hold both real tabs and its own New Tab at
+          // once, so landing real content beside an existing New Tab is a
+          // plain merge, same as any other buffer.
+          const destNewTabId = isNewTabBuffer(state, bufferId)
+            ? findNewTabId(state, toPane)
+            : undefined
+          if (destNewTabId && destNewTabId !== bufferId) {
+            state.buffers = state.buffers.filter((b) => b.id !== bufferId)
+            toPane.activeBufferId = destNewTabId
+          } else {
+            if (!toPane.bufferIds.includes(bufferId)) toPane.bufferIds.push(bufferId)
+            toPane.activeBufferId = bufferId
+          }
+
           state.activePaneId = toPaneId
           state.mostRecentActivePaneIds = [
             toPaneId,
@@ -294,7 +442,16 @@ export const createPaneSlice: StateCreator<
               )
             }
           }
+          syncNewTabCloseability(state, fromPaneId)
+          syncNewTabCloseability(state, toPaneId)
         })
+        // A pane is never tab-less: reseed the source pane if it survived (root,
+        // bottom, or wasn't closed above) and the move left it with nothing —
+        // mirrors removeBufferFromPane's own survivor check.
+        const survivor = get().panes[fromPaneId]
+        if (survivor && survivor.bufferIds.length === 0) {
+          get().bufferActions.openNewTab(fromPaneId)
+        }
       },
 
       setPanePreviewBuffer(paneId, bufferId) {

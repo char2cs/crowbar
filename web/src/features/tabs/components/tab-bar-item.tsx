@@ -13,6 +13,7 @@ import { AgentChatTabIcon } from '@/features/agent/components/agent-chat-tab-ico
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { sameRenderedBuffer } from './tab-bar-item-utils'
 import { Button } from '@/components/ui/button'
+import { CrowbarMark } from '@/components/ui/crowbar-mark'
 import { Tab } from '@/components/ui/tabs'
 import { getBaseName } from '@/utils/path-helpers'
 import { cn } from '@/utils/cn'
@@ -146,6 +147,13 @@ const TabBarItem = memo(function TabBarItem({
             <GitBranch className="text-muted-foreground" />
           ) : buffer.type === 'terminal' ? (
             <Terminal className="text-muted-foreground" />
+          ) : buffer.type === 'newTab' ? (
+            // Deliberately LARGER than the 14px icon slot (it overflows the
+            // place-content-center box, which has no clip). The mark art is a
+            // circle with generous internal padding, so at the sibling icons'
+            // 14px it reads visibly smaller than them; ~18px makes it match by
+            // eye. Don't "normalise" this back to size-3.5 — that regresses it.
+            <CrowbarMark className="size-[18px] shrink-0 text-muted-foreground" />
           ) : buffer.type === 'agentChat' ? (
             <AgentChatTabIcon wsId={buffer.wsId} chatId={buffer.chatId} />
           ) : (

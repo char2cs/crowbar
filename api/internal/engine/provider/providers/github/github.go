@@ -89,6 +89,7 @@ type prJSON struct {
 	URL         string `json:"url"`
 	Title       string `json:"title"`
 	BaseRefName string `json:"baseRefName"`
+	HeadRefName string `json:"headRefName"`
 	HeadRefOid  string `json:"headRefOid"`
 }
 
@@ -135,6 +136,43 @@ func (g *ghProvider) PullRequestForBranch(
 		Title:        best.Title,
 		TargetBranch: best.BaseRefName,
 	}, nil
+}
+
+// OpenPullRequests lists every open PR as a head→base link in one gh call.
+// Open PRs own their head ref by name, so no per-branch ownership check is
+// needed (see ownsPR) — a merged/closed PR is never returned here.
+func (g *ghProvider) OpenPullRequests(
+	ctx context.Context,
+	repoPath string,
+) ([]providertypes.PRLink, error) {
+	out, err := g.runGH(
+		ctx,
+		repoPath,
+		"pr", "list",
+		"--state", "open",
+		"--limit", "500",
+		"--json", "number,state,url,title,headRefName,baseRefName",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("github: open-prs: %w", err)
+	}
+	prs, err := parsePRList([]byte(out))
+	if err != nil {
+		return nil, fmt.Errorf("github: open-prs: parse: %w", err)
+	}
+	links := make([]providertypes.PRLink, 0, len(prs))
+	for i := range prs {
+		p := &prs[i]
+		links = append(links, providertypes.PRLink{
+			Head:   p.HeadRefName,
+			Base:   p.BaseRefName,
+			Number: p.Number,
+			Status: mapState(p.State),
+			URL:    p.URL,
+			Title:  p.Title,
+		})
+	}
+	return links, nil
 }
 
 // ownsPR reports whether pr is really this branch's PR.

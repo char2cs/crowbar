@@ -2,7 +2,6 @@ import type { MouseEvent } from 'react'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
 import { useSettingsStore } from '@/features/settings/store'
 import { Badge } from '@/components/ui/badge'
-import { Checkbox } from '@/components/ui/checkbox'
 import { SIDEBAR_TREE_ICON_SIZE, SidebarTreeRow } from '@/components/ui/sidebar-tree'
 import { cn } from '@/utils/cn'
 import type { GitFile } from '../../types/git-types'
@@ -15,9 +14,6 @@ interface GitFileItemProps {
   }
   onClick?: () => void
   onContextMenu?: (e: MouseEvent) => void
-  onStage?: () => void
-  onUnstage?: () => void
-  disabled?: boolean
   showDirectory?: boolean
   showFileIcon?: boolean
   indentLevel?: number
@@ -31,9 +27,6 @@ export const GitFileItem = ({
   diffStats,
   onClick,
   onContextMenu,
-  onStage,
-  onUnstage,
-  disabled,
   showDirectory = true,
   showFileIcon = false,
   indentLevel = 0,
@@ -103,24 +96,6 @@ export const GitFileItem = ({
             )}
           </div>
         )}
-        <div
-          className="shrink-0"
-          onClick={(e) => e.stopPropagation()}
-          onContextMenu={(e) => e.stopPropagation()}
-        >
-          <Checkbox
-            checked={file.staged}
-            onChange={(checked: boolean) => {
-              if (checked) {
-                onStage?.()
-                return
-              }
-              onUnstage?.()
-            }}
-            disabled={disabled}
-            ariaLabel={file.staged ? `Unstage ${fileName}` : `Stage ${fileName}`}
-          />
-        </div>
       </div>
     </SidebarTreeRow>
   )

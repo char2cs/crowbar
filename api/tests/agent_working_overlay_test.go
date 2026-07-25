@@ -212,3 +212,51 @@ func TestRegression_WorkspaceWorkingOverlappingChatsBroadcastOnce(t *testing.T) 
 
 	requireRESTWorking(t, h, imported, false)
 }
+
+// TestRegression_WorkspaceWorkingClearsWhenClearAbandonsATurn is the production
+// report "all the agents stopped working, but the workspace spinner is still
+// loading", proved end to end over the wire.
+//
+// A turn is opened by user_prompt and closed by turn_stop, and both are filed
+// against the chat the runner is on WHEN THEY ARRIVE. A /clear taken mid-turn is
+// therefore a split pair: the turn opens on the old chat, the runner walks into a
+// freshly minted one, and the closing hook lands over there. The chat left behind
+// kept Working forever — and with it the workspace's derived overlay, which is an
+// in-memory set with no reset, so the spinner ran for the life of the daemon over
+// a workspace where nothing was happening.
+//
+// It is asserted here, not just in the usecase unit test, because the wedge lives
+// in the CONTAINER's projection: only this level exercises turn events → the
+// agentWorking set → enrichFrame → the workspace frame the sidebar actually reads.
+//
+// No timing: the final working=false frame is the signal, and REST is read after
+// it (the overlay is folded in the same callback that broadcasts — see
+// requireRESTWorking).
+func TestRegression_WorkspaceWorkingClearsWhenClearAbandonsATurn(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	imported := importWritableWorkspace(t, h)
+	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
+
+	_, seg := createLiveStubChat(t, h, imported)
+	postAgentHook(t, h, imported, seg, "session_start", `{"session_id":"sid-original"}`)
+
+	conn := h.dial(repoBase + "/workspaces")
+
+	// The user typed: the workspace lights up.
+	postAgentHook(t, h, imported, seg, "user_prompt", `{"prompt":"think about this"}`)
+	readUntil(t, conn, func(m map[string]any) bool {
+		return m["id"] == imported.workspaceID && m["working"] == true
+	})
+	requireRESTWorking(t, h, imported, true)
+
+	// ...and then hits /clear before the answer arrives. The CLI announces a
+	// conversation Crowbar has never seen, which mints a chat and moves the runner
+	// onto it — abandoning the turn on the chat it just left.
+	postAgentHook(t, h, imported, seg, "session_start", `{"session_id":"sid-after-clear"}`)
+
+	readUntil(t, conn, func(m map[string]any) bool {
+		return m["id"] == imported.workspaceID && m["working"] == false
+	})
+	requireRESTWorking(t, h, imported, false)
+}

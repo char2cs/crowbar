@@ -1,5 +1,5 @@
 /**
- * Athas language id → monaco language id, used for MODEL ASSIGNMENT
+ * Language id → monaco language id, used for MODEL ASSIGNMENT
  * (`toMonacoLanguageId` feeds `langForUri` / the editor+diff surfaces).
  *
  * DRIFT GUARD: `language-contributions.ts` independently maps file EXTENSIONS
@@ -10,7 +10,7 @@
  * id whose grammar never loads (silent plaintext). That test enforces this;
  * adding a value here will fail it until the loader side is updated too.
  */
-export const MONACO_LANGUAGE_BY_ATHAS_ID: Record<string, string> = {
+export const MONACO_LANGUAGE_BY_LANGUAGE_ID: Record<string, string> = {
   angular: 'html',
   bash: 'shell',
   c: 'c',
@@ -83,5 +83,5 @@ export const MONACO_LANGUAGE_BY_ATHAS_ID: Record<string, string> = {
 
 export function toMonacoLanguageId(languageId: string | null | undefined): string {
   if (!languageId) return 'plaintext'
-  return MONACO_LANGUAGE_BY_ATHAS_ID[languageId] ?? languageId
+  return MONACO_LANGUAGE_BY_LANGUAGE_ID[languageId] ?? languageId
 }

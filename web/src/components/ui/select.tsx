@@ -1,6 +1,5 @@
 'use client'
 import { Select as SelectPrimitive } from '@base-ui/react/select'
-import { useRender } from '@base-ui/react/use-render'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { ChevronDownIcon, ChevronsUpDownIcon, ChevronUpIcon } from 'lucide-react'
 import type * as React from 'react'
@@ -25,11 +24,6 @@ const selectTriggerVariants = cva(
 )
 
 export const selectTriggerIconClassName = '-me-1 size-4.5 opacity-80 sm:size-4'
-
-export interface SelectButtonProps extends useRender.ComponentProps<'button'> {
-  size?: VariantProps<typeof selectTriggerVariants>['size']
-}
-
 export function SelectTrigger({
   className,
   size = 'default',

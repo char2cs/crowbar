@@ -116,6 +116,15 @@ func (m *MockWorkspace) ClearBranch(
 	return domain.Workspace{ID: id}, nil
 }
 
+func (m *MockWorkspace) RenameBranch(
+	_ context.Context,
+	id string,
+	branch string,
+	worktreePath string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, Branch: branch, WorktreePath: worktreePath}, nil
+}
+
 func (m *MockWorkspace) SetParentFromPR(
 	ctx context.Context,
 	id string,

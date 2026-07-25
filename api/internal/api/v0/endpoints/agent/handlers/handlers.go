@@ -5,8 +5,8 @@ package handlers
 import (
 	"context"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
 // AgentUsecase is the agentic-chat usecase surface the handlers need: spawning a
@@ -123,13 +123,22 @@ type AgentUsecase interface {
 		chatID string,
 	) error
 
-	// ListProviders enumerates the registered agent providers for the workspace
-	// (the route ignores which workspace — the descriptor set is global — but the
-	// usecase resolves crowbar home from it to read on-disk overrides).
-	ListProviders(
+	// ResolveProviders returns the enriched, priority-ordered provider list the
+	// backend owns: the descriptor catalog joined with the global preference table
+	// and the install probe (connected + enabled, in priority order). It takes no
+	// wsId — providers are global — and backs the enriched GET .../agent/providers.
+	ResolveProviders(
 		ctx context.Context,
-		workspaceID string,
-	) ([]engineagent.Descriptor, error)
+	) ([]dto.AgentProviderDTO, error)
+
+	// ReplaceProviderPreferences rewrites the whole global preference table from the
+	// submitted ordered set (array position → priority), validating ids against the
+	// catalog (unknown → apperr.ErrInvalidArgument → 400) and returning the freshly
+	// resolved list. It backs PUT /v0/settings/agent/providers.
+	ReplaceProviderPreferences(
+		ctx context.Context,
+		prefs []domain.AgentProviderPreference,
+	) ([]dto.AgentProviderDTO, error)
 }
 
 // Handlers serves the .../workspaces/:wsId/agent routes from the agent usecase.

@@ -20,7 +20,7 @@ import {
   resolveDropTarget,
 } from '@/features/tabs/utils/internal-tab-drag'
 
-import { EmptyEditorState } from './empty-editor-state'
+import { NewTabView } from './new-tab-view'
 import { BOTTOM_PANE_ID } from '../constants/pane'
 import {
   useActivePaneId,
@@ -28,7 +28,7 @@ import {
   useVisiblePaneCount,
 } from '@/features/workspace/stores/hooks/use-pane-store'
 import type { PaneGroup } from '../types/pane'
-import type { BranchReviewContent, EditorContent, NewTabContent } from '../types/pane-content'
+import type { BranchReviewContent, EditorContent } from '../types/pane-content'
 import {
   ensureBufferInPaneDropTarget,
   moveBufferToPaneDropTarget,
@@ -76,7 +76,7 @@ interface PaneContainerProps {
 
 type EditorBufferShell = Pick<EditorContent, 'id' | 'path' | 'name' | 'type'>
 type PaneRenderBuffer =
-  | Exclude<import('../types/pane-content').PaneContent, EditorContent | NewTabContent>
+  | Exclude<import('../types/pane-content').PaneContent, EditorContent>
   | EditorBufferShell
 
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive pane renderer — resolves pane content to lazily-loaded surfaces and owns split routing; its length is the routing table, not multiple concerns.
@@ -128,7 +128,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   const rawPaneBuffers = useBuffersByIds(pane.bufferIds)
   const paneBuffers = useMemo((): PaneRenderBuffer[] => {
     return rawPaneBuffers.flatMap((buffer) => {
-      if (buffer.type === 'newTab') return []
       if (buffer.type === 'editor') {
         return [
           {
@@ -269,8 +268,8 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       setInternalHoverZone(hover.paneId === pane.id ? hover.zone : null)
     }
 
-    window.addEventListener('athas-internal-tab-drag-hover', syncHover)
-    return () => window.removeEventListener('athas-internal-tab-drag-hover', syncHover)
+    window.addEventListener('crowbar-internal-tab-drag-hover', syncHover)
+    return () => window.removeEventListener('crowbar-internal-tab-drag-hover', syncHover)
   }, [pane.id])
 
   useEffect(() => {
@@ -468,6 +467,9 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   const renderActiveBuffer = useCallback(
     (buffer: PaneRenderBuffer) => {
       switch (buffer.type) {
+        case 'newTab':
+          return <NewTabView paneId={pane.id} />
+
         case 'terminal':
           return (
             <TerminalPane
@@ -589,7 +591,11 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         )}
         style={paneContentStyle}
       >
-        {!activeBuffer && <EmptyEditorState />}
+        {/* Under the New Tab rules a pane always holds at least one buffer, so
+            this should be unreachable. Kept — pointed at the same component — so
+            that if a bug ever does strand a pane with no tabs, it shows a usable
+            surface instead of a blank rectangle with no way out. */}
+        {!activeBuffer && <NewTabView paneId={pane.id} />}
 
         {/* Keep terminal and webviewer buffers always mounted to preserve PTY
             sessions and embedded webview state. Deliberately OUTSIDE the

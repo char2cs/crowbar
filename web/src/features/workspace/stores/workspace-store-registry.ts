@@ -1,5 +1,6 @@
 import { createWorkspaceStore, type WorkspaceStore } from './workspace-store'
 import { loadFromLocalStorage } from './workspace-persistence'
+import { stripNewTabs } from './persisted-layout'
 import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
 import { useHistoryStore } from '@/features/editor/stores/history-store'
 import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
@@ -66,14 +67,15 @@ export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
       if (existing !== undefined) clearTimeout(existing)
       const timer = setTimeout(() => {
         persistTimers.delete(wsId)
+        const persistable = stripNewTabs({ buffers: state.buffers, panes: state.panes })
         saveWorkspaceLayout({
           workspaceId: wsId,
-          panes: state.panes,
+          panes: persistable.panes,
           rootLayout: state.rootLayout,
           bottomLayout: state.bottomLayout,
           activePaneId: state.activePaneId,
           mostRecentActivePaneIds: state.mostRecentActivePaneIds,
-          buffers: state.buffers,
+          buffers: persistable.buffers,
           sidebarWidth: 0,
           rightSidebarWidth: 0,
           updatedAt: Date.now(),

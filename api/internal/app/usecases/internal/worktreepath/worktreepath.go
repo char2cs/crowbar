@@ -49,12 +49,43 @@ func Derive(
 			"worktreepath: derive requires non-empty home, project, slug, and branch",
 		)
 	}
-	return filepath.Join(home, "projects", project, slug, branch, "worktree"), nil
+	// filepath.Join CLEANS what it joins, so a traversal component anywhere in
+	// project, slug or branch resolves the result OUT of the layout: a repo with
+	// no parseable remote falls back to its user-supplied NAME for the slug, and
+	// a name of "../../../../tmp/pwned" derives /tmp/pwned/<branch>/worktree.
+	// A workspace out there is unreclaimable — every removal guard refuses to
+	// touch anything that is not strictly under crowbar home — so it is refused
+	// here, at the one place the path is built, rather than trusted to callers.
+	//
+	// The floor is <home>/projects, not home: a component that climbs only as far
+	// as home itself still lands the workspace outside the project layout, where
+	// nothing that walks it can find the tree again.
+	root := filepath.Join(home, "projects")
+	path := filepath.Join(root, project, slug, branch, "worktree")
+	if !UnderHome(path, root) {
+		return "", fmt.Errorf(
+			"worktreepath: derive escapes the crowbar home: %q is not under %q", path, root)
+	}
+	return path, nil
 }
 
 // WorkspaceRoot returns the workspace directory that holds the worktree and
 // the chats tree as siblings, given the worktree path.
 func WorkspaceRoot(worktreePath string) string { return filepath.Dir(worktreePath) }
+
+// SlugDir returns the repo's on-disk identity directory
+// <home>/projects/<project>/<slug> — the parent every one of that repo's
+// workspace roots hangs off, and the FLOOR for anything that walks the layout
+// upward. A branch name maps to nested directories, so a workspace root can sit
+// several levels below this; nothing owned by one workspace ever exists at or
+// above it.
+func SlugDir(
+	home string,
+	project string,
+	slug string,
+) string {
+	return filepath.Join(home, "projects", project, slug)
+}
 
 // ChatsDir returns the per-workspace agentic chats directory for a MANAGED
 // worktree: the sibling of the worktree, NOT inside it (so agent state never

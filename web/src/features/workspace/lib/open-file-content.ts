@@ -1,5 +1,9 @@
 import { apiFetch } from '@/lib/api'
 import { workspaceBase } from '@/lib/workspace-scope-url'
+import {
+  decodeFileContent,
+  type FileContentPayload,
+} from '@/features/file-system/utils/file-content-encoding'
 import { toast } from '@/features/window/stores/toast-store'
 
 interface BufferOpener {
@@ -10,16 +14,6 @@ interface BufferOpener {
     content: string
     isPreview?: boolean
   }) => void
-}
-
-interface FileContentPayload {
-  content: string
-  encoding?: string
-}
-
-function decode(payload: FileContentPayload): string {
-  if (payload.encoding === 'base64') return atob(payload.content)
-  return payload.content
 }
 
 /**
@@ -43,7 +37,7 @@ export async function openFileContent(
       type: 'editor',
       path,
       name,
-      content: decode(payload),
+      content: decodeFileContent(payload),
       isPreview: opts.preview,
     })
   } catch {

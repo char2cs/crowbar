@@ -17,14 +17,18 @@ describe('lsp-slice', () => {
     store = makeStore()
   })
 
-  it('starts with empty workspace root and idle status', () => {
-    expect(store.getState().workspaceRoot).toBe('')
+  it('starts with idle status', () => {
     expect(store.getState().lspStatus.status).toBe('idle')
   })
 
-  it('setWorkspaceRoot updates root', () => {
-    store.getState().lspActions.setWorkspaceRoot('/home/user/project')
-    expect(store.getState().workspaceRoot).toBe('/home/user/project')
+  // The slice deliberately holds NO workspace root. It used to carry a
+  // `workspaceRoot` field with no production writer, so it was always '' while
+  // go-to-definition believed it was stripping a real prefix with it. The
+  // daemon owns the worktree and returns workspace-relative paths, so nothing
+  // here needs the absolute root.
+  it('does not carry a workspace root', () => {
+    expect(store.getState()).not.toHaveProperty('workspaceRoot')
+    expect(store.getState().lspActions).not.toHaveProperty('setWorkspaceRoot')
   })
 
   it('updateLspStatus updates status fields', () => {

@@ -226,6 +226,11 @@ pub async fn spawn<R: Runtime>(
         let state = app.state::<SidecarHandle>();
         state.child.lock().unwrap().replace(child);
         state.socket_path.lock().unwrap().replace(socket.clone());
+        // Belt and braces with handle_termination: from here until wait_for_health
+        // returns below, there IS no known pid for the child we just stored, and
+        // claiming a stale one would make a stop in that window signal the wrong
+        // process and orphan this daemon.
+        state.daemon_pid.store(0, Ordering::SeqCst);
     }
 
     // Capture the daemon's stdout/stderr into the daemon log and supervise its
@@ -311,6 +316,14 @@ async fn pump_output<R: Runtime>(
 fn handle_termination<R: Runtime>(app: &AppHandle<R>) {
     let state = app.state::<SidecarHandle>();
     state.child.lock().unwrap().take();
+    // The pid dies with the child. Leaving it set is not merely untidy: `spawn`
+    // does not record the NEW pid until `wait_for_health` returns, which can be
+    // tens of seconds, and anything that stops the daemon in that window would
+    // signal this dead pid, hit ESRCH, and leave the freshly spawned daemon
+    // running — holding the socket, so the next launch cannot bind. Clearing it
+    // sends that path down the `None` arm, which kills the child handle itself.
+    // (A recycled pid would otherwise be signalled instead, which is worse.)
+    state.daemon_pid.store(0, Ordering::SeqCst);
 
     if state.shutting_down.load(Ordering::SeqCst) {
         return;
@@ -625,7 +638,12 @@ async fn kill_wedged<R: Runtime>(app: &AppHandle<R>) {
     let (child, pid) = {
         let state = app.state::<SidecarHandle>();
         let child = state.child.lock().unwrap().take();
-        (child, state.daemon_pid())
+        let pid = state.daemon_pid();
+        // Read it, then clear it — same reason as handle_termination: a stale pid
+        // outliving its child is what lets a later stop signal the wrong process
+        // and orphan the replacement.
+        state.daemon_pid.store(0, Ordering::SeqCst);
+        (child, pid)
     };
     let Some(child) = child else { return };
     #[cfg(unix)]

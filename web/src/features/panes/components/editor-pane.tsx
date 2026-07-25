@@ -1,9 +1,19 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { EditorSurface } from '@/features/editor/components/editor-surface'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { isEditorContent } from '@/features/panes/types/pane-content'
+import { isMarkdownPath } from '@/features/editor/markdown/plate/is-markdown-path'
+import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
+
+// Lazy so Plate (and its dependency graph) stays out of the base pane chunk —
+// only buffers that actually route to the rich surface pull it in.
+const MarkdownEditorPane = lazy(() =>
+  import('@/features/editor/markdown/plate/markdown-editor-pane').then((m) => ({
+    default: m.MarkdownEditorPane,
+  })),
+)
 
 interface EditorPaneProps {
   paneId: string
@@ -25,6 +35,13 @@ export function EditorPane({
   className,
 }: EditorPaneProps) {
   const buffer = useBufferById(bufferId)
+
+  // Declared up with the other hooks (before any early return) — zustand
+  // compares the selected *result*, so this inline selector is stable even
+  // though it's a fresh arrow each render.
+  const markdownView = useMarkdownViewStore((s) =>
+    buffer ? (s.views[buffer.id] ?? 'rich') : 'rich',
+  )
 
   // Lazy-Monaco seam (Task 4b): the workspace store constructs its Monaco-backed
   // EditorManager/ModelRegistry only on the first real editor need, so opening a
@@ -63,6 +80,41 @@ export function EditorPane({
           {buffer.path} no longer exists on disk. Close this tab, or restore the file to reload it.
         </span>
       </div>
+    )
+  }
+
+  // Markdown buffers in rich view route to Plate instead of Monaco. This must
+  // come BEFORE the `!armed` gate below: rich mode never touches Monaco, so it
+  // must not wait on Monaco's arming to render.
+  if (buffer && isEditorContent(buffer) && isMarkdownPath(buffer.path) && markdownView === 'rich') {
+    return (
+      // M8: the lazy chunk can fail to load (offline, a stale asset hash after
+      // a deploy) and a rejected `lazy()` throws during render — Suspense only
+      // handles the pending state, not the rejection. Without a boundary here
+      // that escapes the pane and takes the whole workspace down.
+      <ErrorBoundary
+        fallback={
+          <div className="flex h-full flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
+            Editor failed to load. Try closing and reopening this file.
+          </div>
+        }
+      >
+        <Suspense fallback={null}>
+          {/* C1: the pane tree renders the active buffer WITHOUT a key, so a
+              `.md` -> `.md` tab switch arrives here as a prop update. The rich
+              editor parses its document once per mount, so it must be keyed by
+              buffer — otherwise file A's document stays live while `bufferId`
+              (and the flush target) moves to B, and the next edit writes A's
+              whole text into B. */}
+          <MarkdownEditorPane
+            key={bufferId}
+            paneId={paneId}
+            bufferId={bufferId}
+            isPreview={isPreview}
+            onPromote={onPromote}
+          />
+        </Suspense>
+      </ErrorBoundary>
     )
   }
 

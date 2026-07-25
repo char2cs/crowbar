@@ -20,6 +20,7 @@ import (
 
 	repohandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
 func TestMain(
@@ -345,10 +346,15 @@ func TestPutIcon_Multipart_StoresBytes(t *testing.T) {
 
 type fakeBranchProvider struct {
 	protected []string
+	prLinks   []providertypes.PRLink
 }
 
 func (f *fakeBranchProvider) ProtectedBranches(_ context.Context, _ string) ([]string, error) {
 	return f.protected, nil
+}
+
+func (f *fakeBranchProvider) OpenPullRequests(_ context.Context, _ string) ([]providertypes.PRLink, error) {
+	return f.prLinks, nil
 }
 
 type fakeWSReader struct {
@@ -373,6 +379,41 @@ func TestBranches_AnnotatesProtectionAndWorkspace(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/v0/repos/r1/branches", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestPullRequests_ReturnsOpenPRGraph(t *testing.T) {
+	h := repohandlers.NewWithDeps(
+		&fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}},
+		&fakeBranchProvider{prLinks: []providertypes.PRLink{
+			{Head: "feat/9324", Base: "feat/base"},
+			{Head: "feat/base", Base: "dev"},
+		}},
+		&fakeWSReader{},
+		nil,
+	)
+	r := gin.New()
+	r.GET("/v0/repos/:repoId/pull-requests", h.PullRequests)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/repos/r1/pull-requests", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"head":"feat/9324"`)
+	assert.Contains(t, w.Body.String(), `"base":"feat/base"`)
+	assert.Contains(t, w.Body.String(), `"base":"dev"`)
+}
+
+func TestPullRequests_MissingRepo404(t *testing.T) {
+	h := repohandlers.NewWithDeps(&fakeStore{byKey: nil}, &fakeBranchProvider{}, &fakeWSReader{}, nil)
+	r := gin.New()
+	r.GET("/v0/repos/:repoId/pull-requests", h.PullRequests)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/repos/r1/pull-requests", nil)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)

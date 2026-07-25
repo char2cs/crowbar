@@ -23,16 +23,30 @@ function saveOrder(wsId: string, order: string[]): void {
 
 /** Order chats by the client-persisted order first (chats named in `order`, in
  *  that sequence), then append any chat absent from `order` sorted by createdAt
- *  ascending (creation order, newest last) — default ordering. Pure/testable. */
+ *  DESCENDING — newest first. Pure/testable.
+ *
+ *  Newest-first is the default because a chat you just started is the one you
+ *  want, and because the New Tab's "Recent" list takes its top-N straight from
+ *  this function (new-tab-view.tsx): appending newest LAST buried the newest chat
+ *  and, once past the list cap, hid it entirely. Chats the user has explicitly
+ *  dragged still lead, in the sequence they chose — an explicit arrangement
+ *  outranks recency. */
 export function orderedChats(chats: AgentChat[], order: string[]): AgentChat[] {
   const byId = new Map(chats.map((c) => [c.id, c]))
   const pinned = order.map((id) => byId.get(id)).filter((c): c is AgentChat => c !== undefined)
   const pinnedIds = new Set(pinned.map((c) => c.id))
   const rest = chats
     .filter((c) => !pinnedIds.has(c.id))
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   return [...pinned, ...rest]
 }
+
+/** The enabled providers, in the backend's priority order — the single subset
+ *  every "New chat" surface offers (the first is the provider a unified New-chat
+ *  action opens). A disabled provider is hidden entirely (spec §2.2), so it never
+ *  appears here. Pure selector; use with a narrow `useStore(store, …)` read. */
+export const selectEnabledProviders = (s: WorkspaceState): AgentProvider[] =>
+  s.agentChats.providers.filter((p) => p.enabled)
 
 export interface AgentChatsState {
   chats: AgentChat[]
@@ -59,7 +73,7 @@ export interface AgentChatsState {
 
 export interface AgentChatsSlice {
   agentChats: AgentChatsState
-  seedAgentChats: (chats: AgentChat[]) => void
+  seedAgentChats: (chats: AgentChat[], opts?: { keepWorking?: boolean }) => void
   upsertAgentChat: (chat: AgentChat) => void
   removeAgentChat: (chatId: string) => void
   /** Write the server's folded busy state for a chat. Never computed client-side. */
@@ -97,16 +111,58 @@ export const createAgentChatsSlice: StateCreator<
   //    is UNKNOWN at this point, and spec §2 mandates unknown → idle. Keeping it
   //    would strand a spinner forever on any row whose `turn_stopped` was dropped
   //    during the outage (until that chat happens to run another turn).
-  seedAgentChats: (chats) =>
+  //
+  // `keepWorking` is the one exception, and it exists for the `created` reseed. That
+  // reseed rides a LIVE socket — it fires because a new chat appeared, not because the
+  // connection dropped — so NO turn frame was missed and every surviving chat's working
+  // state is still the truth. Clearing it there is a bug: it blanks the spinner on every
+  // OTHER mid-turn chat the instant a new chat opens, until each runs another turn. So
+  // when told working is known, keep it, and only forget entries for chats that are gone.
+  seedAgentChats: (chats, opts) => {
+    const prev = get().agentChats
+    const present = new Set(chats.map((c) => c.id))
+    const pruned = prev.order.filter((id) => present.has(id))
+
+    // Chats that appeared since the last seed. A `created` frame reseeds the whole
+    // list, so this is where a brand-new chat first shows up. Only meaningful once
+    // a previous list EXISTS: on the first seed of a session every chat looks new,
+    // and promoting them all would scramble the very arrangement being restored.
+    // Both membership tests are Sets — this runs on every reseed, over the whole
+    // list, so a nested scan here would be quadratic in the chat count.
+    const knownIds = new Set(prev.chats.map((c) => c.id))
+    const prunedIds = new Set(pruned)
+    const arrived =
+      prev.chats.length === 0
+        ? []
+        : chats
+            .filter((c) => !knownIds.has(c.id) && !prunedIds.has(c.id))
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+            .map((c) => c.id)
+
+    // A new chat joins the TOP of an existing arrangement. One drag pins the whole
+    // list, so without this every later chat sinks below every pinned one — and off
+    // the New Tab's capped "Recent" list entirely. With NO saved order the
+    // newest-first sort in orderedChats already puts it first, and writing one here
+    // would start pinning a list the user never arranged.
+    const nextOrder = pruned.length > 0 && arrived.length > 0 ? [...arrived, ...pruned] : pruned
+
     set((s) => {
-      const present = new Set(chats.map((c) => c.id))
       s.agentChats.chats = chats
-      s.agentChats.working = {}
-      s.agentChats.order = s.agentChats.order.filter((id) => present.has(id))
+      if (opts?.keepWorking) {
+        for (const id of Object.keys(s.agentChats.working)) {
+          if (!present.has(id)) delete s.agentChats.working[id]
+        }
+      } else {
+        s.agentChats.working = {}
+      }
+      s.agentChats.order = nextOrder
       if (s.agentChats.activeChatId !== null && !present.has(s.agentChats.activeChatId)) {
         s.agentChats.activeChatId = null
       }
-    }),
+    })
+
+    if (arrived.length > 0 && nextOrder !== pruned) saveOrder(get().workspaceId, nextOrder)
+  },
 
   // Upsert ONE chat, refetched because a WS frame said it changed.
   //

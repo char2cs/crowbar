@@ -45,6 +45,49 @@ func TestCreate_Returns202(
 	assert.Empty(t, hierarchy.gotCreate.ParentID)
 }
 
+// TestImport_Returns202AndForwardsBranches asserts the batch-import contract:
+// valid branches pass synchronous validation, return 202 with an empty body, and
+// CreateFromImport runs in the background with the repo context and branch set.
+func TestImport_Returns202AndForwardsBranches(t *testing.T) {
+	hierarchy := &fakeHierarchy{importDone: make(chan struct{})}
+	repos := &fakeRepos{repo: &domain.Repository{
+		ID:            "r1",
+		ProjectID:     "p1",
+		Path:          "/repo",
+		RemoteURL:     "https://github.com/test/repo.git",
+		DefaultBranch: "main",
+	}}
+	rec := do(
+		newRouter(&fakeReader{}, hierarchy, repos),
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces/import",
+		`{"branches":["feat/child","feat/base"]}`,
+	)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Empty(t, rec.Body.Bytes())
+	waitClosed(t, hierarchy.importDone)
+	assert.Equal(t, "r1", hierarchy.gotImport.RepoID)
+	assert.Equal(t, "p1", hierarchy.gotImport.ProjectID)
+	assert.Equal(t, "/repo", hierarchy.gotImport.RepoPath)
+	assert.Equal(t, "main", hierarchy.gotImport.DefaultBranch)
+	assert.Equal(t, []string{"feat/child", "feat/base"}, hierarchy.gotImport.Branches)
+}
+
+// TestImport_EmptyBranches400 asserts the fail-fast guard: an empty branch set
+// is rejected synchronously and never dispatches background work.
+func TestImport_EmptyBranches400(t *testing.T) {
+	hierarchy := &fakeHierarchy{}
+	repos := &fakeRepos{repo: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}}
+	rec := do(
+		newRouter(&fakeReader{}, hierarchy, repos),
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces/import",
+		`{"branches":[]}`,
+	)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 func TestCreateSuccessFromParent(
 	t *testing.T,
 ) {

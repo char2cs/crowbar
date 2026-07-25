@@ -239,7 +239,7 @@ func TestDefinition_ConvertsLocations(t *testing.T) {
 	locs, err := e.Definition(context.Background(), ws, tree, goF, pos())
 	require.NoError(t, err)
 	require.Len(t, locs, 1)
-	assert.Equal(t, "/tree/a.go", locs[0].FilePath)
+	assert.Equal(t, "a.go", locs[0].FilePath)
 	assert.Equal(t, "textDocument/definition", fake.requests()[0].method)
 }
 
@@ -264,7 +264,7 @@ func TestRename_ConvertsWorkspaceEdit(t *testing.T) {
 
 	we, err := e.Rename(context.Background(), ws, tree, goF, pos(), "X")
 	require.NoError(t, err)
-	edits, ok := we.Changes["/tree/a.go"]
+	edits, ok := we.Changes["a.go"]
 	require.True(t, ok)
 	require.Len(t, edits, 1)
 	assert.Equal(t, "X", edits[0].NewText)

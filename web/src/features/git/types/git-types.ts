@@ -62,25 +62,6 @@ export interface GitStash {
   date: string
 }
 
-export interface GitTag {
-  name: string
-  commit: string
-  message?: string
-  date: string
-  is_annotated: boolean
-}
-
-export interface GitWorktree {
-  path: string
-  branch?: string
-  head: string
-  is_bare: boolean
-  is_detached: boolean
-  locked_reason?: string
-  prunable_reason?: string
-  is_current: boolean
-}
-
 export interface GitBlame {
   file_path: string
   lines: GitBlameLine[]

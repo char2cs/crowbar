@@ -1,5 +1,5 @@
 /**
- * Tests for the agent-chats sidebar panel: list + New-per-provider rows +
+ * Tests for the agent-chats sidebar panel: list + the unified New-chat row +
  * drag-to-reorder + drop-to-delete.
  *
  * The workspace store is REAL (registry + agent-chats slice + buffer slice) so
@@ -13,7 +13,6 @@
  * duck-type by name — see pane-sash.test.tsx) and elementsFromPoint is stubbed
  * with the element the pointer is "over".
  */
-import React from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -49,11 +48,26 @@ vi.mock('@/features/workspace/stores/hooks/use-workspace-agent-chats-stream', ()
   useWorkspaceAgentChatsStream: (wsId: string) => streamHook(wsId),
 }))
 
-// ScrollArea's internal ResizeObserver state causes act() warnings — passthrough.
-vi.mock('@/components/ui/scroll-area', () => ({
-  ScrollArea: ({ children, className }: { children: React.ReactNode; className?: string }) => (
-    <div className={className}>{children}</div>
-  ),
+// The list is virtualized; the real virtualizer measures DOM layout, which jsdom
+// reports as zero — so it would render no rows. Replace it with a deterministic
+// stand-in that renders EVERY row (the git-diff-editor-stack.test pattern), so
+// every assertion about rendered rows and drag targeting still holds.
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: (options: { count: number; estimateSize: () => number }) => {
+    const size = options.estimateSize()
+    return {
+      getVirtualItems: () =>
+        Array.from({ length: options.count }, (_, index) => ({
+          index,
+          key: index,
+          start: index * size,
+          size,
+        })),
+      getTotalSize: () => options.count * size,
+      scrollToIndex: () => {},
+      measureElement: () => {},
+    }
+  },
 }))
 
 // Keep the real workspace store out of IndexedDB.
@@ -96,8 +110,20 @@ const chat = (
 })
 
 const PROVIDERS = [
-  { id: 'claude', displayName: 'Claude', icon: '<svg data-p="claude"></svg>' },
-  { id: 'codex', displayName: 'Codex', icon: '<svg data-p="codex"></svg>' },
+  {
+    id: 'claude',
+    displayName: 'Claude',
+    icon: '<svg data-p="claude"></svg>',
+    connected: true,
+    enabled: true,
+  },
+  {
+    id: 'codex',
+    displayName: 'Codex',
+    icon: '<svg data-p="codex"></svg>',
+    connected: true,
+    enabled: true,
+  },
 ]
 
 const CHAT_1 = chat('c1', 'First', 'claude', '2026-01-01T00:00:00Z')
@@ -144,11 +170,6 @@ function trashZone(): HTMLElement {
   return el
 }
 
-/** Point the (stubbed) hit test at `el` — null means "over nothing". */
-function pointerOver(el: Element | null) {
-  document.elementsFromPoint = () => (el ? [el] : [])
-}
-
 function pointerDown(el: HTMLElement, button = 0) {
   act(() => {
     el.dispatchEvent(
@@ -169,14 +190,81 @@ function pointerUp(x = 0, y = 40) {
   })
 }
 
-/** Full drag of `chatId` onto `target` (a row element or the trash zone). */
-function dragOnto(chatId: string, target: Element | null) {
-  pointerOver(null)
-  pointerDown(rowFor(chatId))
-  pointerMove() // crosses the 5px threshold → drag starts
-  pointerOver(target)
-  pointerMove()
-  pointerUp()
+// The list is virtualized and the drag resolves its target from scroll geometry,
+// not DOM hit-testing. jsdom has no layout, so stub the two rects the resolver
+// reads: the scroll container and (for delete) the trash zone.
+const ROW_H = 40
+
+function stubRect(el: Element | null, rect: Partial<DOMRect>) {
+  if (!el) throw new Error('stubRect: element not found')
+  const full = { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, ...rect }
+  el.getBoundingClientRect = () => ({ ...full, toJSON: () => full }) as DOMRect
+}
+
+// The scroll container starts at viewport y=0, so rowY(i) maps to row i. Tall
+// enough that the rows used here clear the auto-scroll edges (auto-scroll has its
+// own pure unit tests; rAF is stubbed off in beforeEach).
+function stubListGeometry() {
+  stubRect(document.querySelector('[data-agent-chat-scroll]'), {
+    top: 0,
+    left: 0,
+    right: 200,
+    bottom: 1000,
+    width: 200,
+    height: 1000,
+  })
+}
+
+const TRASH_X = 10
+const TRASH_Y = 2000
+function stubTrashGeometry() {
+  stubRect(document.querySelector('[data-trash-drop]'), {
+    top: 1980,
+    left: 0,
+    right: 200,
+    bottom: 2040,
+    width: 200,
+    height: 60,
+  })
+}
+
+/** clientY that lands exactly on drop SLOT `slot` — the gap above row `slot`.
+ *  Slots are resolved off row MIDPOINTS, so a boundary y is unambiguous. */
+const slotY = (slot: number) => slot * ROW_H
+
+/** Drag `dragId` and drop it in slot `slot` (the gap above row `slot`; `count`
+ *  is the end of the list). */
+function dragToSlot(dragId: string, slot: number) {
+  stubListGeometry()
+  pointerDown(rowFor(dragId))
+  pointerMove(0, 6) // cross the 5px threshold → drag goes live
+  pointerMove(0, slotY(slot))
+  pointerUp(0, slotY(slot))
+}
+
+/** Drag `dragId` and release far below the list. */
+function dragBelowTheList(dragId: string) {
+  stubListGeometry()
+  pointerDown(rowFor(dragId))
+  pointerMove(0, 6)
+  pointerMove(0, 900) // below every row, above the bottom edge
+  pointerUp(0, 900)
+}
+
+/** The insertion line's slot, or null when no line is drawn. */
+function dropLineSlot(): number | null {
+  const el = document.querySelector('[data-agent-chat-drop-line]')
+  return el ? Number(el.getAttribute('data-agent-chat-drop-line')) : null
+}
+
+/** Drag `dragId` onto the trash zone. */
+function dragToTrash(dragId: string) {
+  stubListGeometry()
+  stubTrashGeometry()
+  pointerDown(rowFor(dragId))
+  pointerMove(0, 6)
+  pointerMove(TRASH_X, TRASH_Y)
+  pointerUp(TRASH_X, TRASH_Y)
 }
 
 const agentBuffers = () => state().buffers.filter((b) => b.type === 'agentChat')
@@ -188,7 +276,11 @@ beforeEach(() => {
   renameChatFn.mockReset().mockResolvedValue(undefined)
   toastErrorFn.mockReset()
   streamHook.mockClear()
-  document.elementsFromPoint = () => []
+  // The drag's edge auto-scroll runs in a rAF loop; jsdom can't scroll and the
+  // loop's logic is covered by the pure autoScrollDelta tests, so make rAF inert
+  // here (returns an id, never invokes the callback).
+  vi.stubGlobal('requestAnimationFrame', () => 1)
+  vi.stubGlobal('cancelAnimationFrame', () => {})
   activate('w1')
 })
 
@@ -205,6 +297,7 @@ afterEach(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -236,14 +329,15 @@ describe('AgentChatsPanel', () => {
     expect(streamHook).toHaveBeenCalledWith('hw1')
     expect(rowIds()).toEqual(['h1'])
     expect(screen.getByText('Home chat')).toBeTruthy()
-    expect(container.querySelectorAll('[data-new-chat]')).toHaveLength(2)
+    // One unified New-chat row, not one-per-provider.
+    expect(container.querySelectorAll('[data-new-chat]')).toHaveLength(1)
   })
 
   it('follows the active workspace when it changes (worktree → project home)', () => {
     seed()
     seed([chat('h1', 'Home chat', 'claude', '2026-03-01T00:00:00Z', 'hw1')], 'hw1')
     render(<AgentChatsPanel />)
-    expect(rowIds()).toEqual(['c1', 'c2'])
+    expect(rowIds()).toEqual(['c2', 'c1'])
 
     activate('hw1')
 
@@ -255,13 +349,16 @@ describe('AgentChatsPanel', () => {
     act(() => setActiveWorkspaceStoreRef(null))
     seed()
     render(<AgentChatsPanel wsId="w1" />)
-    expect(rowIds()).toEqual(['c1', 'c2'])
+    expect(rowIds()).toEqual(['c2', 'c1'])
   })
 
-  it('renders seeded chats oldest-first (newest last) by createdAt', () => {
+  it('renders seeded chats NEWEST-first by createdAt', () => {
     seed()
     render(<AgentChatsPanel />)
-    expect(rowIds()).toEqual(['c1', 'c2'])
+    // c2 is the newer of the two. A chat you just started belongs at the top —
+    // appending newest LAST buried it, and the New Tab's capped "Recent" list
+    // (which takes its top-N from this same ordering) dropped it entirely.
+    expect(rowIds()).toEqual(['c2', 'c1'])
     expect(screen.getByText('First')).toBeTruthy()
     expect(screen.getByText('Second')).toBeTruthy()
   })
@@ -309,11 +406,13 @@ describe('AgentChatsPanel', () => {
     expect(buf[0]).toMatchObject({ type: 'agentChat', chatId: 'c1', wsId: 'w1', name: 'First' })
   })
 
-  it('falls back to a placeholder tab name for an untitled chat', () => {
+  it('names an untitled chat tab the SAME as its row (UNTITLED_CHAT_LABEL)', () => {
+    // The pane tab used to open as 'Agent chat' while the row said 'Untitled
+    // chat' — the exact drift chat-label.ts's constant exists to prevent.
     seed([chat('c3', '', 'claude', '2026-01-04T00:00:00Z')])
     render(<AgentChatsPanel />)
     fireEvent.click(rowFor('c3'))
-    expect(agentBuffers()[0]).toMatchObject({ chatId: 'c3', name: 'Agent chat' })
+    expect(agentBuffers()[0]).toMatchObject({ chatId: 'c3', name: 'Untitled chat' })
   })
 
   it('marks the active chat row active', () => {
@@ -371,24 +470,107 @@ describe('AgentChatsPanel', () => {
     expect(agentBuffers()).toHaveLength(1)
   })
 
-  // ── New-per-provider rows ─────────────────────────────────────────
+  // ── Unified New-chat row ──────────────────────────────────────────
 
-  it('renders one New row per provider BELOW every chat row, + on the right', () => {
+  it('renders exactly one New chat row BELOW every chat row, + on the right', () => {
     seed()
     const { container } = render(<AgentChatsPanel />)
 
+    // One unified row — not one-per-provider. It opens the FIRST ENABLED provider
+    // (claude here), so the row identifies that provider, and sits after the chats.
     const rows = Array.from(container.querySelectorAll('[data-agent-chat-drop], [data-new-chat]'))
     expect(
       rows.map((r) => r.getAttribute('data-agent-chat-drop') ?? r.getAttribute('data-new-chat')),
-    ).toEqual(['c1', 'c2', 'claude', 'codex'])
+    ).toEqual(['c2', 'c1', 'claude'])
 
-    expect(screen.getByText('New Claude chat')).toBeTruthy()
-    expect(screen.getByText('New Codex chat')).toBeTruthy()
+    // A single, provider-agnostic label — no more "New Claude chat"/"New Codex chat".
+    expect(screen.getAllByText('New chat')).toHaveLength(1)
+    expect(screen.queryByText('New Claude chat')).toBeNull()
+    expect(screen.queryByText('New Codex chat')).toBeNull()
+
+    // Separator sits above the row while there are chats to divide from.
+    expect(container.querySelector('[data-new-chat-separator]')).not.toBeNull()
 
     // The + glyph is the row's LAST child (right edge); the provider icon leads.
     const newRow = container.querySelector<HTMLElement>('[data-new-chat="claude"]')!
     expect(newRow.firstElementChild?.querySelector('[data-p="claude"]')).not.toBeNull()
     expect(newRow.lastElementChild?.getAttribute('data-add-glyph')).toBe('true')
+  })
+
+  it('opens the FIRST ENABLED provider — a disabled leading provider is skipped', async () => {
+    // claude is disabled, codex enabled → the row must open codex, never claude.
+    // (seed() resets providers, so override the set AFTER it.)
+    seed([CHAT_1])
+    act(() =>
+      state().setAgentProviders([
+        {
+          id: 'claude',
+          displayName: 'Claude',
+          icon: '<svg data-p="claude"></svg>',
+          connected: true,
+          enabled: false,
+        },
+        {
+          id: 'codex',
+          displayName: 'Codex',
+          icon: '<svg data-p="codex"></svg>',
+          connected: true,
+          enabled: true,
+        },
+      ]),
+    )
+    const { container } = render(<AgentChatsPanel />)
+
+    const newRow = container.querySelector<HTMLElement>('[data-new-chat]')!
+    expect(newRow.getAttribute('data-new-chat')).toBe('codex')
+    fireEvent.click(newRow)
+    expect(createChatFn).toHaveBeenCalledWith('w1', 'codex')
+    await waitFor(() => expect(agentBuffers()).toHaveLength(1))
+  })
+
+  /** Disable every provider. seed() resets them, so this runs AFTER it. */
+  function disableAllProviders() {
+    act(() =>
+      state().setAgentProviders([
+        { id: 'claude', displayName: 'Claude', icon: '', connected: true, enabled: false },
+        { id: 'codex', displayName: 'Codex', icon: '', connected: true, enabled: false },
+      ]),
+    )
+  }
+
+  it('renders no New chat row when no provider is enabled', () => {
+    seed([CHAT_1])
+    disableAllProviders()
+    const { container } = render(<AgentChatsPanel />)
+    expect(container.querySelectorAll('[data-new-chat]')).toHaveLength(0)
+    expect(container.querySelector('[data-new-chat-separator]')).toBeNull()
+  })
+
+  // …and says WHY, instead of leaving a dead surface. With every provider off
+  // and no chats yet, this panel rendered COMPLETELY BLANK: no row, no message,
+  // nothing to click and nothing to read.
+  it('explains itself when no provider is enabled, and names where to fix it', () => {
+    seed([])
+    disableAllProviders()
+    render(<AgentChatsPanel />)
+
+    expect(screen.getByTestId('no-providers-notice')).toBeInTheDocument()
+    expect(screen.getByText(/settings → providers/i)).toBeInTheDocument()
+  })
+
+  it('still explains itself when the workspace HAS chats but nothing can start one', () => {
+    seed([CHAT_1])
+    disableAllProviders()
+    render(<AgentChatsPanel />)
+
+    expect(screen.getByTestId('no-providers-notice')).toBeInTheDocument()
+    expect(screen.getByText('First')).toBeInTheDocument() // the existing chats still list
+  })
+
+  it('shows no notice while a provider is enabled', () => {
+    seed()
+    render(<AgentChatsPanel />)
+    expect(screen.queryByTestId('no-providers-notice')).toBeNull()
   })
 
   // Regression: NewChatRow is a real <button>, whose UA text-align is `center`.
@@ -399,7 +581,7 @@ describe('AgentChatsPanel', () => {
   it('the New-row label is left-aligned, not centered by the <button> default', () => {
     seed()
     render(<AgentChatsPanel />)
-    const label = screen.getByText('New Claude chat')
+    const label = screen.getByText('New chat')
     expect(label.className).toContain('text-left')
   })
 
@@ -417,11 +599,13 @@ describe('AgentChatsPanel', () => {
     expect(btn.parentElement?.className).toContain('flex-col')
   })
 
-  it('empty state renders only the New rows', () => {
+  it('empty state renders only the single New chat row', () => {
     act(() => state().setAgentProviders(PROVIDERS))
     const { container } = render(<AgentChatsPanel />)
     expect(rowIds()).toEqual([])
-    expect(container.querySelectorAll('[data-new-chat]')).toHaveLength(2)
+    expect(container.querySelectorAll('[data-new-chat]')).toHaveLength(1)
+    // With no chats to divide from, no separator is drawn above the row.
+    expect(container.querySelector('[data-new-chat-separator]')).toBeNull()
   })
 
   it('renders no separator and no New rows when providers have not arrived', () => {
@@ -432,14 +616,15 @@ describe('AgentChatsPanel', () => {
     expect(container.querySelector('[data-new-chat-separator]')).toBeNull()
   })
 
-  it('clicking a New row creates a chat for that provider and opens its pane', async () => {
+  it('clicking the New chat row creates a chat for the first enabled provider and opens its pane', async () => {
     seed()
     render(<AgentChatsPanel />)
-    fireEvent.click(screen.getByText('New Codex chat'))
+    fireEvent.click(screen.getByText('New chat'))
 
-    expect(createChatFn).toHaveBeenCalledWith('w1', 'codex')
+    // claude is the first enabled provider in priority order.
+    expect(createChatFn).toHaveBeenCalledWith('w1', 'claude')
     await waitFor(() => expect(agentBuffers()).toHaveLength(1))
-    expect(agentBuffers()[0]).toMatchObject({ chatId: 'c-new', wsId: 'w1', name: 'Codex chat' })
+    expect(agentBuffers()[0]).toMatchObject({ chatId: 'c-new', wsId: 'w1', name: 'Claude chat' })
     expect(state().agentChats.activeChatId).toBe('c-new')
   })
 
@@ -447,11 +632,11 @@ describe('AgentChatsPanel', () => {
     seed()
     createChatFn.mockImplementation(() => {
       // The 'created' WS frame reseeds the list before the POST promise resolves.
-      state().upsertAgentChat(chat('c-new', 'Seeded title', 'codex', '2026-02-01T00:00:00Z'))
+      state().upsertAgentChat(chat('c-new', 'Seeded title', 'claude', '2026-02-01T00:00:00Z'))
       return Promise.resolve('c-new')
     })
     render(<AgentChatsPanel />)
-    fireEvent.click(screen.getByText('New Codex chat'))
+    fireEvent.click(screen.getByText('New chat'))
 
     await waitFor(() => expect(agentBuffers()).toHaveLength(1))
     expect(agentBuffers()[0]).toMatchObject({ chatId: 'c-new', name: 'Seeded title' })
@@ -488,7 +673,7 @@ describe('AgentChatsPanel', () => {
     createChatFn.mockRejectedValue(new Error('boom'))
     seed()
     render(<AgentChatsPanel />)
-    fireEvent.click(screen.getByText('New Claude chat'))
+    fireEvent.click(screen.getByText('New chat'))
 
     await waitFor(() => expect(err).toHaveBeenCalled())
     expect(agentBuffers()).toHaveLength(0)
@@ -504,7 +689,7 @@ describe('AgentChatsPanel', () => {
     createChatFn.mockRejectedValue(new ApiError('terminal: command not found: claude', 424))
     seed()
     render(<AgentChatsPanel />)
-    fireEvent.click(screen.getByText('New Claude chat'))
+    fireEvent.click(screen.getByText('New chat'))
 
     await waitFor(() => expect(toastErrorFn).toHaveBeenCalledTimes(1))
     const [title, description] = toastErrorFn.mock.calls[0] as [string, string]
@@ -566,34 +751,92 @@ describe('AgentChatsPanel', () => {
 
   // ── Drag: reorder ─────────────────────────────────────────────────
 
-  it('dragging a row onto another reorders the list and persists the order', () => {
-    seed()
+  // Newest-first, so three chats render [c3, c2, c1] and every slot 0..3 is a
+  // distinct destination — which is the whole point: the old row-based drop
+  // could reach neither "one row down" nor "the end".
+  const THREE = [CHAT_1, CHAT_2, chat('c3', 'Third', 'claude', '2026-01-03T00:00:00Z')]
+
+  it('dropping on the LOWER half of the row directly beneath moves past it', () => {
+    // The reported no-op: the drop resolved a ROW and inserted BEFORE it, so
+    // dragging a row onto its own neighbour asked for the list it already was —
+    // after lighting that row up as if something would happen. Halves are what
+    // make "below this row" expressible.
+    seed(THREE)
     render(<AgentChatsPanel />)
+    expect(rowIds()).toEqual(['c3', 'c2', 'c1'])
 
-    dragOnto('c2', rowFor('c1'))
+    stubListGeometry()
+    pointerDown(rowFor('c3'))
+    pointerMove(0, 6)
+    pointerMove(0, ROW_H + 30) // row 1 (c2), below its midpoint
+    pointerUp(0, ROW_H + 30)
 
-    expect(rowIds()).toEqual(['c2', 'c1'])
-    expect(state().agentChats.order).toEqual(['c2', 'c1'])
-    expect(JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]')).toEqual(['c2', 'c1'])
+    expect(rowIds()).toEqual(['c2', 'c3', 'c1'])
+    expect(state().agentChats.order).toEqual(['c2', 'c3', 'c1'])
   })
 
-  it('dims the dragged row and rings the row the drop would land in front of', () => {
+  it('dragging a row down one slot moves it past its neighbour', () => {
+    seed(THREE)
+    render(<AgentChatsPanel />)
+
+    dragToSlot('c3', 2) // the gap between c2 and c1
+
+    expect(rowIds()).toEqual(['c2', 'c3', 'c1'])
+    expect(state().agentChats.order).toEqual(['c2', 'c3', 'c1'])
+  })
+
+  it('a drag can reach the LAST slot', () => {
+    seed(THREE)
+    render(<AgentChatsPanel />)
+
+    dragToSlot('c3', 3) // past the last row — no row lives here
+
+    expect(rowIds()).toEqual(['c2', 'c1', 'c3'])
+    expect(state().agentChats.order).toEqual(['c2', 'c1', 'c3'])
+  })
+
+  it('a drag can reach the FIRST slot', () => {
+    seed(THREE)
+    render(<AgentChatsPanel />)
+
+    dragToSlot('c1', 0)
+
+    expect(rowIds()).toEqual(['c1', 'c3', 'c2'])
+    expect(state().agentChats.order).toEqual(['c1', 'c3', 'c2'])
+  })
+
+  it('persists the new order', () => {
     seed()
     render(<AgentChatsPanel />)
 
-    pointerOver(null)
-    pointerDown(rowFor('c2'))
-    pointerMove() // crosses the threshold → the drag is live
-    expect(rowFor('c2').className).toContain('opacity-40')
-    expect(rowFor('c1').className).not.toContain('ring-1 ring-ring')
+    dragToSlot('c2', 2) // [c2, c1] → the end
 
-    pointerOver(rowFor('c1'))
-    pointerMove()
-    expect(rowFor('c1').className).toContain('ring-1 ring-ring')
+    expect(rowIds()).toEqual(['c1', 'c2'])
+    expect(JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]')).toEqual(['c1', 'c2'])
+  })
 
-    pointerUp()
-    expect(rowFor('c1').className).not.toContain('ring-1 ring-ring')
-    expect(rowFor('c2').className).not.toContain('opacity-40')
+  it('dims the dragged row and draws the insertion line in the slot the drop would land in', () => {
+    seed(THREE)
+    render(<AgentChatsPanel />)
+    stubListGeometry()
+
+    expect(dropLineSlot()).toBeNull() // nothing is being dragged
+
+    pointerDown(rowFor('c3'))
+    pointerMove(0, slotY(2))
+    expect(rowFor('c3').className).toContain('opacity-40')
+    // A LINE BETWEEN ROWS, not a ring on one: a ring can only ever say "in front
+    // of this row", which is why the last slot had no affordance at all — and
+    // why the ring on the row directly below the dragged one promised a move
+    // that produced the identical list.
+    expect(dropLineSlot()).toBe(2)
+
+    pointerMove(0, slotY(3))
+    expect(dropLineSlot()).toBe(3)
+
+    pointerUp(0, slotY(3))
+    expect(dropLineSlot()).toBeNull()
+    expect(rowFor('c3').className).not.toContain('opacity-40')
   })
 
   it('a drag carries a ghost labelled with the chat, which follows the cursor and leaves on drop', () => {
@@ -603,7 +846,7 @@ describe('AgentChatsPanel', () => {
 
     expect(ghost()).toBeNull()
 
-    pointerOver(null)
+    stubListGeometry()
     pointerDown(rowFor('c2'))
     pointerMove(30, 40) // crosses the 5px threshold → drag starts
 
@@ -624,7 +867,6 @@ describe('AgentChatsPanel', () => {
     seed()
     render(<AgentChatsPanel />)
 
-    pointerOver(rowFor('c1'))
     pointerDown(rowFor('c2'))
     pointerMove(2, 2) // below the 5px threshold
     pointerUp(2, 2)
@@ -638,21 +880,25 @@ describe('AgentChatsPanel', () => {
     seed()
     render(<AgentChatsPanel />)
 
-    dragOnto('c2', rowFor('c1'))
+    dragToSlot('c2', 2)
     fireEvent.click(rowFor('c2')) // the browser-generated post-drop click
 
     expect(state().agentChats.activeChatId).toBeNull()
     expect(agentBuffers()).toHaveLength(0)
   })
 
-  it('dropping over nothing leaves the order untouched', () => {
+  // There is no "over nothing" inside the list any more: a slot is always
+  // resolved, the line always says which, and the drop always does what the line
+  // showed. Below the last row is the LAST slot — the destination that used to
+  // be unreachable from anywhere.
+  it('dropping below the last row moves the chat to the end, as the line showed', () => {
     seed()
     render(<AgentChatsPanel />)
 
-    dragOnto('c2', null)
+    dragBelowTheList('c2')
 
     expect(rowIds()).toEqual(['c1', 'c2'])
-    expect(state().agentChats.order).toEqual([])
+    expect(state().agentChats.order).toEqual(['c1', 'c2'])
     expect(deleteChatFn).not.toHaveBeenCalled()
   })
 
@@ -661,7 +907,6 @@ describe('AgentChatsPanel', () => {
     render(<AgentChatsPanel />)
 
     pointerDown(rowFor('c2'), 2)
-    pointerOver(rowFor('c1'))
     pointerMove()
     pointerUp()
 
@@ -672,6 +917,7 @@ describe('AgentChatsPanel', () => {
   it('pointercancel aborts an in-flight drag', () => {
     seed()
     render(<AgentChatsPanel />)
+    stubListGeometry()
 
     pointerDown(rowFor('c2'))
     pointerMove()
@@ -679,7 +925,6 @@ describe('AgentChatsPanel', () => {
 
     expect(trashZone().parentElement?.parentElement?.className).toContain('max-h-0')
 
-    pointerOver(rowFor('c1'))
     pointerUp()
     expect(state().agentChats.order).toEqual([])
   })
@@ -689,6 +934,7 @@ describe('AgentChatsPanel', () => {
   it('the trash zone only slides in while dragging', () => {
     seed()
     render(<AgentChatsPanel />)
+    stubListGeometry()
     const slider = () => trashZone().parentElement!.parentElement!
 
     expect(slider().className).toContain('max-h-0')
@@ -704,14 +950,14 @@ describe('AgentChatsPanel', () => {
   it('highlights the trash zone while hovering it mid-drag', () => {
     seed()
     render(<AgentChatsPanel />)
+    stubListGeometry()
+    stubTrashGeometry()
 
-    pointerOver(null)
     pointerDown(rowFor('c1'))
-    pointerMove()
+    pointerMove(0, 900) // live, over nothing
     expect(trashZone().className).toContain('border-destructive/40')
 
-    pointerOver(trashZone())
-    pointerMove()
+    pointerMove(TRASH_X, TRASH_Y) // over the trash zone
     expect(trashZone().className).toContain('bg-destructive/10')
   })
 
@@ -721,7 +967,7 @@ describe('AgentChatsPanel', () => {
     fireEvent.click(rowFor('c1')) // open its pane first
     expect(agentBuffers()).toHaveLength(1)
 
-    dragOnto('c1', trashZone())
+    dragToTrash('c1')
 
     expect(deleteChatFn).toHaveBeenCalledWith('w1', 'c1')
     expect(screen.queryByRole('alertdialog')).toBeNull()
@@ -746,7 +992,7 @@ describe('AgentChatsPanel', () => {
     const survivor = agentBuffers().find((b) => b.chatId === 'c2')!.id
     expect(state().panes[pane].bufferIds).toHaveLength(2)
 
-    dragOnto('c1', trashZone())
+    dragToTrash('c1')
 
     // The deleted tab is gone AND the pane fell through to its sibling — not left pointing
     // at a buffer that no longer exists (which renders the pane's empty state).
@@ -759,7 +1005,7 @@ describe('AgentChatsPanel', () => {
     seed()
     render(<AgentChatsPanel />)
 
-    dragOnto('c1', trashZone())
+    dragToTrash('c1')
 
     expect(deleteChatFn).toHaveBeenCalledWith('w1', 'c1')
     expect(agentBuffers()).toHaveLength(0)
@@ -773,7 +1019,7 @@ describe('AgentChatsPanel', () => {
     render(<AgentChatsPanel />)
     fireEvent.click(rowFor('c1')) // open its pane tab first
 
-    dragOnto('c1', trashZone())
+    dragToTrash('c1')
     expect(rowIds()).toEqual(['c2'])
     expect(agentBuffers()).toHaveLength(0)
 
@@ -787,14 +1033,32 @@ describe('AgentChatsPanel', () => {
   })
 })
 
+// Slot semantics: slot i is the GAP ABOVE row i, so slot `length` is the end of
+// the list. Insertion is expressed against the list as the user sees it (the
+// dragged row still in place), which is also what the insertion line draws.
 describe('reorderIds', () => {
-  it('moves the dragged id in front of the target', () => {
-    expect(reorderIds(['a', 'b', 'c'], 'c', 'a')).toEqual(['c', 'a', 'b'])
-    expect(reorderIds(['a', 'b', 'c'], 'a', 'c')).toEqual(['b', 'a', 'c'])
+  it('moves the dragged id to the head', () => {
+    expect(reorderIds(['a', 'b', 'c'], 'c', 0)).toEqual(['c', 'a', 'b'])
   })
 
-  it('is a no-op when the ids match or the target is unknown', () => {
-    expect(reorderIds(['a', 'b', 'c'], 'a', 'a')).toEqual(['a', 'b', 'c'])
-    expect(reorderIds(['a', 'b', 'c'], 'a', 'zz')).toEqual(['a', 'b', 'c'])
+  it('moves a row DOWN by one — the case "insert before the target row" could not express', () => {
+    // The gap below b is slot 2. Under the old rule this dropped a "before b",
+    // which is where a already was: a visible drop affordance, zero movement.
+    expect(reorderIds(['a', 'b', 'c'], 'a', 2)).toEqual(['b', 'a', 'c'])
+  })
+
+  it('moves the dragged id to the LAST slot', () => {
+    // slot === length: the end of the list, previously unreachable.
+    expect(reorderIds(['a', 'b', 'c'], 'a', 3)).toEqual(['b', 'c', 'a'])
+  })
+
+  it('is a no-op for the two slots that touch the dragged row', () => {
+    expect(reorderIds(['a', 'b', 'c'], 'b', 1)).toEqual(['a', 'b', 'c'])
+    expect(reorderIds(['a', 'b', 'c'], 'b', 2)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('clamps an out-of-range slot and ignores an unknown id', () => {
+    expect(reorderIds(['a', 'b', 'c'], 'a', 99)).toEqual(['b', 'c', 'a'])
+    expect(reorderIds(['a', 'b', 'c'], 'zz', 0)).toEqual(['a', 'b', 'c'])
   })
 })

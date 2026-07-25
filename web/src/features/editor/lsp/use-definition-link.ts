@@ -3,8 +3,12 @@ import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { useEditorUIStore } from '../stores/ui-store'
 import type { EditorCoordinateResolver } from '../view-model/view-layout'
 
+// Mirrors the daemon's location shape (see LspClient.Definition): a
+// workspace-relative file path plus a range. This hook only needs to know
+// WHETHER a definition exists, but the type must agree with the client's so the
+// same `getDefinition` can feed both this and useGoToDefinition.
 interface Definition {
-  uri: string
+  filePath: string
   range: {
     start: { line: number; character: number }
     end: { line: number; character: number }

@@ -16,7 +16,6 @@ import React, { useCallback, useEffect, useEffectEvent, useRef, useState } from 
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
-import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 import {
   createTerminalAddons,
   injectLinkStyles,
@@ -32,8 +31,8 @@ import { useTerminalTheme } from '../hooks/use-terminal-theme'
 import { useTerminalStore } from '../stores/terminal-store'
 import { refitAndSyncPty, pollUntilResizeSettles, type LastSyncedPtyDims } from '../lib/refit'
 import { formatDroppedPathsForTerminal } from '../utils/terminal-file-drop'
-import { analyzeTerminalPaste } from '../utils/paste-guard'
 import { resolveTerminalFont } from '../utils/resolve-font'
+import { selectionTextPreservingWraps } from '../utils/selection-text'
 import { resolveKeyOverride } from '../utils/terminal-key-overrides'
 import { toast } from '@/features/window/stores/toast-store'
 import { TerminalSearch, type TerminalSearchOptions } from './terminal-search'
@@ -105,7 +104,11 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const [isSearchVisible, setIsSearchVisible] = useState(false)
   const [searchResults, setSearchResults] = useState({ current: 0, total: 0 })
   const isInitializingRef = useRef(false)
-  const pasteGuardAttachedRef = useRef(false)
+  const copyGuardAttachedRef = useRef(false)
+  // Alt-drag puts xterm's selection in COLUMN mode, where each row is its own
+  // slice and joining rows would be plain wrong. The mode is not on the public
+  // API, so it is read off the mousedown that starts the drag.
+  const columnSelectRef = useRef(false)
   // Last rows/cols pushed to the daemon PTY, per connection. refitAndSyncPty
   // reads this to decide whether a fit needs a resize IPC: it pushes whenever
   // xterm's grid differs from what the daemon was last told (so a no-op fit on a
@@ -566,38 +569,59 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         })
       }
 
-      // Paste interception MUST be on the container in the capture phase.
-      // xterm registers its own textarea paste listener inside terminal.open()
-      // (before ours), and same-element listeners fire in registration order
-      // regardless of the capture flag — a textarea-level listener runs after
-      // xterm has already written the paste to the PTY (BUG-016). Capturing on
-      // the ancestor runs first; stopPropagation keeps xterm's handler out.
-      // The ref guard makes an init retry (e.g. PTY create failure) not stack
-      // a second listener.
-      if (!pasteGuardAttachedRef.current) {
-        pasteGuardAttachedRef.current = true
-        terminalContainerRef.current.addEventListener(
-          'paste',
-          (event) => {
-            const text = event.clipboardData?.getData('text/plain')
-            if (!text || !currentConnectionIdRef.current) return
+      // PASTE IS xterm's JOB. It is deliberately NOT intercepted here.
+      //
+      // This used to carry a capture-phase paste listener that read the clipboard,
+      // rewrote CRLF to LF and wrote the result straight to the PTY. That path
+      // skipped xterm's paste pipeline entirely, and with it BRACKETED PASTE: the
+      // \x1b[200~ … \x1b[201~ wrapper that tells the receiving program "these bytes
+      // are pasted text, not typing". Without it a pasted command block ran a line
+      // at a time as the newlines arrived, and a multi-line message pasted into an
+      // agent chat was submitted line by line — the "paste arrives in blocks" bug.
+      // The comment that stood here even cited bracketed paste as the reason no
+      // confirmation prompt was needed, while the code was the thing removing it.
+      //
+      // xterm's own handler (registered on the textarea and on .xterm inside
+      // terminal.open()) does the whole job correctly: it normalizes every \r\n AND
+      // bare \n to a single \r — which is also the real fix for BUG-016, the
+      // Windows-authored snippet that ran each line twice — brackets the payload
+      // when the program has asked for bracketed paste, and emits it through
+      // onData, the same route every keystroke takes. Adding anything in front of
+      // it can only take capability away.
 
+      // Copy, unlike paste, DOES need us: the daemon repaints row by row so xterm
+      // never records an auto-wrap, and its own selection reader would put a
+      // newline at every row boundary. See selection-text.ts. Capture phase on the
+      // container so this runs before xterm's own copy listener on .xterm, which
+      // stopPropagation then keeps out. The ref guard stops an init retry (e.g. a
+      // PTY create failure) stacking a second listener.
+      if (!copyGuardAttachedRef.current) {
+        copyGuardAttachedRef.current = true
+        const container = terminalContainerRef.current
+        container.addEventListener(
+          'mousedown',
+          (event) => {
+            columnSelectRef.current = event.altKey
+          },
+          true,
+        )
+        container.addEventListener(
+          'copy',
+          (event) => {
+            const term = xtermRef.current
+            if (!term || columnSelectRef.current) return
+            const range = term.getSelectionPosition()
+            if (!range) return
+
+            const text = selectionTextPreservingWraps(
+              { cols: term.cols, getLine: (y) => term.buffer.active.getLine(y) },
+              range,
+            )
+            if (!text) return
+
+            event.clipboardData?.setData('text/plain', text)
             event.preventDefault()
             event.stopPropagation()
-
-            const { normalizedText, lineCount, requiresConfirmation } = analyzeTerminalPaste(text)
-
-            if (requiresConfirmation) {
-              void primitiveConfirm(
-                `Paste ${lineCount} lines into the terminal? This may execute multiple commands.`,
-                { title: 'Paste Into Terminal', confirmLabel: 'Paste' },
-              ).then((confirmed) => {
-                if (confirmed) writeBuffered(normalizedText)
-              })
-              return
-            }
-
-            writeBuffered(normalizedText)
           },
           true,
         )
@@ -934,7 +958,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         xtermRef.current = null
         addonsRef.current = null
       }
-      pasteGuardAttachedRef.current = false
+      copyGuardAttachedRef.current = false
     }
   }, [])
 
@@ -1062,8 +1086,8 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   useEffect(() => {
     if (!isInitialized) return
     const handler = (event: Event) => onRefitRequest(event)
-    window.addEventListener('athas-terminal-refit', handler)
-    return () => window.removeEventListener('athas-terminal-refit', handler)
+    window.addEventListener('crowbar-terminal-refit', handler)
+    return () => window.removeEventListener('crowbar-terminal-refit', handler)
   }, [isInitialized])
 
   useEffect(() => {

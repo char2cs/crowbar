@@ -8,6 +8,7 @@ import (
 
 	store "github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/avatar"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -32,6 +33,19 @@ type Usecase interface {
 		repoID string,
 		now time.Time,
 	)
+
+	// RenameRepo sets a repository's display name and refreshes its generated
+	// avatar (label + color derive from the name), returning the updated
+	// Repository so the caller can broadcast its DTO. Returns apperr.ErrNotFound
+	// when no repo has the given id.
+	//
+	// It touches the LABEL only. Repository.PathSlug — the repo's on-disk
+	// identity, seeded once at import — is deliberately left as loaded.
+	RenameRepo(
+		ctx context.Context,
+		repoID string,
+		name string,
+	) (domain.Repository, error)
 }
 
 type projectUsecase struct {
@@ -98,4 +112,37 @@ func (u *projectUsecase) TouchProjectActivity(
 	if err := u.projects.Save(ctx, *project); err != nil {
 		slog.ErrorContext(ctx, "project: touch activity: save failed", "projectID", project.ID, "err", err)
 	}
+}
+
+// RenameRepo sets a repository's display name and refreshes its generated
+// avatar. The label + color are derived from the name and surface only as the
+// fallback avatar (when the repo has no custom icon/emoji), but must still track
+// the name so a renamed repo's letter badge is correct. Returns the updated
+// Repository, or apperr.ErrNotFound when the id is unknown.
+//
+// The row is loaded and saved whole precisely so the fields a rename must NOT
+// disturb travel through untouched. Repository.PathSlug is the load-bearing one:
+// it is the repo's on-disk identity, seeded once at import, and every managed
+// worktree already lives under it. Assigning it here would fork the repo's tree
+// in two — new workspaces under the new name, the existing ones stranded under
+// the old — and blind the sibling scan that rejects case-only path clashes.
+func (u *projectUsecase) RenameRepo(
+	ctx context.Context,
+	repoID string,
+	name string,
+) (domain.Repository, error) {
+	repo, err := u.repos.FindByKey(ctx, repoID)
+	if err != nil {
+		return domain.Repository{}, fmt.Errorf("project: rename repo: %w", err)
+	}
+	if repo == nil {
+		return domain.Repository{}, fmt.Errorf("project: rename repo: id %s: %w", repoID, apperr.ErrNotFound)
+	}
+	repo.Name = name
+	repo.AvatarLabel = avatar.Label(name)
+	repo.AvatarColor = avatar.Color(name)
+	if err := u.repos.Save(ctx, *repo); err != nil {
+		return domain.Repository{}, fmt.Errorf("project: rename repo: save: %w", err)
+	}
+	return *repo, nil
 }

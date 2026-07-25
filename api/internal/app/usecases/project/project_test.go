@@ -94,6 +94,52 @@ func TestProjectUsecase_TouchProjectActivity_ProjectMissing_LogsNotPanics(t *tes
 	uc.TouchProjectActivity(ctx, "r1", time.Now())
 }
 
+func TestProjectUsecase_RenameRepo_UpdatesNameAndAvatar(t *testing.T) {
+	_, repos, uc := newProjectUsecase(t)
+	ctx := context.Background()
+
+	// Seed a repo whose generated avatar is derived from its ORIGINAL name.
+	_ = repos.Save(ctx, domain.Repository{
+		ID: "r1", ProjectID: "p1", Name: "widget", AvatarLabel: "W", AvatarColor: "avatar-slate",
+	})
+
+	got, err := uc.RenameRepo(ctx, "r1", "Renamed Repo")
+	require.NoError(t, err)
+	assert.Equal(t, "Renamed Repo", got.Name)
+	assert.Equal(t, "R", got.AvatarLabel, "the fallback avatar letter tracks the new name")
+	assert.NotEmpty(t, got.AvatarColor, "the fallback avatar color is recomputed from the new name")
+}
+
+// A rename is a LABEL change. The on-disk slug must not move with it, or every
+// worktree already derived under the old slug is stranded while new ones open a
+// second tree beside it.
+func TestProjectUsecase_RenameRepo_LeavesThePathSlugAlone(t *testing.T) {
+	_, repos, uc := newProjectUsecase(t)
+	ctx := context.Background()
+
+	_ = repos.Save(ctx, domain.Repository{
+		ID: "r1", ProjectID: "p1", Name: "widget", PathSlug: "widget",
+	})
+
+	got, err := uc.RenameRepo(ctx, "r1", "Renamed Repo")
+	require.NoError(t, err)
+	assert.Equal(t, "widget", got.PathSlug, "the on-disk identity survives the rename")
+
+	stored, err := repos.FindByKey(ctx, "r1")
+	require.NoError(t, err)
+	require.NotNil(t, stored)
+	assert.Equal(t, "widget", stored.PathSlug, "the persisted slug is not rewritten")
+	assert.Equal(t, "Renamed Repo", stored.Name)
+}
+
+func TestProjectUsecase_RenameRepo_NotFound(t *testing.T) {
+	_, _, uc := newProjectUsecase(t)
+	ctx := context.Background()
+
+	_, err := uc.RenameRepo(ctx, "missing", "Whatever")
+	assert.ErrorIs(t, err, apperr.ErrNotFound)
+}
+
 func TestProjectUsecase_TouchProjectActivity_SaveFails_LogsNotPanics(t *testing.T) {
 	projects, repos, uc := newProjectUsecase(t)
 	ctx := context.Background()

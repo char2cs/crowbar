@@ -205,6 +205,75 @@ func TestRepoImport_UnbornBranchRepo_DegradesGracefully(t *testing.T) {
 	assert.Equal(t, repoDir, home.LocalPath)
 }
 
+// TestRegression_RepoImport_HonorsSuppliedName pins the fix for the add-repo bug
+// where the user-entered repository name was silently dropped: persistRepo called
+// the importer without the POST body's Name, and the importer hard-derived the
+// name from filepath.Base(path). Import a repo whose folder base ("widget")
+// differs from the supplied name and prove the broadcast RepoDTO carries the
+// SUPPLIED name and a matching generated avatar — not the folder base.
+func TestRegression_RepoImport_HonorsSuppliedName(t *testing.T) {
+	h := newHarness(t)
+
+	parent := t.TempDir()
+	repoDir := filepath.Join(parent, "widget") // folder base is "widget"
+	gitRepoWithBranches(t, repoDir, "master")
+
+	projectsWS := h.dial("/v0/projects")
+	resp := h.raw(http.MethodPost, "/v0/projects",
+		map[string]string{"name": "P", "path": parent}, http.StatusAccepted)
+	_ = resp.Body.Close()
+	project := readUntil(t, projectsWS, func(m map[string]any) bool { return m["path"] == parent })
+	projectID, _ := project["id"].(string)
+	require.NotEmpty(t, projectID)
+
+	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
+	resp = h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
+		map[string]string{"name": "My Custom Name", "path": repoDir}, http.StatusAccepted)
+	_ = resp.Body.Close()
+
+	repo := readUntil(t, reposWS, func(m map[string]any) bool { return m["path"] == repoDir })
+	assert.Equal(t, "My Custom Name", repo["name"],
+		"the repo must be named from the POST body, not filepath.Base(path)")
+	assert.Equal(t, "M", repo["avatarLabel"],
+		"the generated avatar label is derived from the supplied name")
+}
+
+// TestRegression_RepoRename_UpdatesNameAndBroadcasts pins the new rename endpoint:
+// PATCH /v0/projects/:projectId/repos/:repoId renames an already-imported repo,
+// updating the name and its generated avatar, and broadcasts the updated RepoDTO
+// on the repos WS stream so every client's sidebar refreshes.
+func TestRegression_RepoRename_UpdatesNameAndBroadcasts(t *testing.T) {
+	h := newHarness(t)
+
+	parent := t.TempDir()
+	repoDir := filepath.Join(parent, "widget")
+	gitRepoWithBranches(t, repoDir, "master")
+
+	projectsWS := h.dial("/v0/projects")
+	resp := h.raw(http.MethodPost, "/v0/projects",
+		map[string]string{"name": "P", "path": parent}, http.StatusAccepted)
+	_ = resp.Body.Close()
+	project := readUntil(t, projectsWS, func(m map[string]any) bool { return m["path"] == parent })
+	projectID, _ := project["id"].(string)
+	require.NotEmpty(t, projectID)
+
+	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
+	resp = h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
+		map[string]string{"name": "widget", "path": repoDir}, http.StatusAccepted)
+	_ = resp.Body.Close()
+	repo := readUntil(t, reposWS, func(m map[string]any) bool { return m["path"] == repoDir })
+	repoID, _ := repo["id"].(string)
+	require.NotEmpty(t, repoID)
+
+	resp = h.raw(http.MethodPatch, "/v0/projects/"+projectID+"/repos/"+repoID,
+		map[string]string{"name": "Renamed Repo"}, http.StatusNoContent)
+	_ = resp.Body.Close()
+
+	renamed := readUntil(t, reposWS, func(m map[string]any) bool { return m["name"] == "Renamed Repo" })
+	assert.Equal(t, repoID, renamed["id"], "the rename frame is for the same repo")
+	assert.Equal(t, "R", renamed["avatarLabel"], "the generated avatar tracks the new name")
+}
+
 // collectWorkspacesUntil reads WorkspaceDTO frames off a workspaces WS,
 // accumulating the latest per branch, until done(seen) is true. Frames without
 // an id (e.g. control frames) are skipped.
@@ -269,4 +338,118 @@ func samePathResolved(t *testing.T, a string, b string) bool {
 	rb, err := filepath.EvalSymlinks(b)
 	require.NoError(t, err)
 	return ra == rb
+}
+
+// TestRegression_RepoNameCannotEscapeTheCrowbarHome pins a traversal the repo
+// rename endpoint newly opened up. The create endpoint validated only that the
+// name was non-empty; a repository with no parseable git remote falls back to
+// that name for its on-disk worktree slug, and filepath.Join CLEANS the result —
+// so a name of "../../../../tmp/pwned" derived workspace directories OUTSIDE the
+// crowbar home, where they can never be reclaimed (every removal guard refuses
+// to touch anything that is not strictly under home). The rename endpoint takes
+// the same unsanitised name and feeds it to the same fallback, so both are
+// guarded.
+func TestRegression_RepoNameCannotEscapeTheCrowbarHome(t *testing.T) {
+	h := newHarness(t)
+	imported := importProject(t, h)
+
+	escape := "../../../../" + filepath.Base(t.TempDir()) + "/pwned"
+
+	resp := h.raw(http.MethodPost, "/v0/projects/"+imported.projectID+"/repos",
+		map[string]string{"name": escape, "path": imported.repoPath},
+		http.StatusBadRequest)
+	_ = resp.Body.Close()
+
+	resp = h.raw(http.MethodPatch,
+		"/v0/projects/"+imported.projectID+"/repos/"+imported.repoID,
+		map[string]string{"name": escape}, http.StatusBadRequest)
+	_ = resp.Body.Close()
+
+	// The repo kept the name it was imported with: a refused rename changes
+	// nothing, so nothing downstream ever derives a path from the escape.
+	var repo struct {
+		Name string `json:"name"`
+	}
+	h.get("/v0/projects/"+imported.projectID+"/repos/"+imported.repoID, &repo)
+	assert.Equal(t, "demo", repo.Name)
+}
+
+// TestRegression_RepoRename_KeepsWorktreesUnderTheOriginalPathSlug pins the fix
+// for the on-disk slug tracking the DISPLAY NAME. Repository.Name doubles as the
+// worktree slug for a repo with no parseable remote, and this branch made that
+// name client-supplied twice over: the add-repo form sets it and the new PATCH
+// endpoint rewrites it. Each derivation then read whatever the name currently
+// was, so the repo's tree forked in two — new workspaces under the new slug, the
+// existing ones stranded under the old — and the sibling scan that rejects a
+// case-only path clash read an empty directory and passed unconditionally.
+//
+// The slug now comes from the repo's PATH, seeded once at import, so a repo
+// imported from .../widget keeps deriving under widget/ no matter what the user
+// calls it.
+func TestRegression_RepoRename_KeepsWorktreesUnderTheOriginalPathSlug(t *testing.T) {
+	h := newHarness(t)
+
+	parent := t.TempDir()
+	repoDir := filepath.Join(parent, "widget") // the on-disk identity
+	gitRepoWithBranches(t, repoDir, "master")
+
+	projectsWS := h.dial("/v0/projects")
+	resp := h.raw(http.MethodPost, "/v0/projects",
+		map[string]string{"name": "P", "path": parent}, http.StatusAccepted)
+	_ = resp.Body.Close()
+	project := readUntil(t, projectsWS, func(m map[string]any) bool { return m["path"] == parent })
+	projectID, _ := project["id"].(string)
+	require.NotEmpty(t, projectID)
+
+	// Imported under a display name that has nothing to do with the folder.
+	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
+	resp = h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
+		map[string]string{"name": "My Custom Name", "path": repoDir}, http.StatusAccepted)
+	_ = resp.Body.Close()
+	repo := readUntil(t, reposWS, func(m map[string]any) bool { return m["path"] == repoDir })
+	repoID, _ := repo["id"].(string)
+	require.NotEmpty(t, repoID)
+
+	slugDir := filepath.Join(h.home, "projects", projectID, "widget")
+	createWorkspaceOnBranch(t, h, projectID, repoID, "feature/before")
+	require.DirExists(t, filepath.Join(slugDir, "feature", "before", "worktree"),
+		"the import must derive under the PATH slug, not the supplied display name")
+
+	resp = h.raw(http.MethodPatch, "/v0/projects/"+projectID+"/repos/"+repoID,
+		map[string]string{"name": "Renamed Repo"}, http.StatusNoContent)
+	_ = resp.Body.Close()
+	readUntil(t, reposWS, func(m map[string]any) bool { return m["name"] == "Renamed Repo" })
+
+	createWorkspaceOnBranch(t, h, projectID, repoID, "feature/after")
+	require.DirExists(t, filepath.Join(slugDir, "feature", "after", "worktree"),
+		"a workspace created AFTER the rename must join the repo's existing tree")
+	require.NoDirExists(t, filepath.Join(h.home, "projects", projectID, "Renamed Repo"),
+		"a rename must never open a second tree for the same repo")
+	require.DirExists(t, filepath.Join(slugDir, "feature", "before", "worktree"),
+		"the pre-rename workspace must not be stranded")
+}
+
+// createWorkspaceOnBranch runs the async workspace create and returns once the
+// repo-scoped stream has delivered the resulting WorkspaceDTO — the frame's
+// arrival is the completion signal, so the worktree is on disk by the time this
+// returns.
+func createWorkspaceOnBranch(
+	t *testing.T,
+	h *harness,
+	projectID string,
+	repoID string,
+	branch string,
+) string {
+	t.Helper()
+	base := "/v0/projects/" + projectID + "/repos/" + repoID
+	workspacesWS := h.dial(base + "/workspaces")
+	resp := h.raw(http.MethodPost, base+"/workspaces",
+		map[string]string{"branch": branch}, http.StatusAccepted)
+	_ = resp.Body.Close()
+	created := readUntil(t, workspacesWS, func(m map[string]any) bool {
+		return m["branch"] == branch && m["status"] == "new"
+	})
+	id, _ := created["id"].(string)
+	require.NotEmpty(t, id, "workspace create must broadcast an id")
+	return id
 }

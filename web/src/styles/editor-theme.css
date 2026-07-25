@@ -1,11 +1,13 @@
 @import '@fontsource-variable/jetbrains-mono';
 @import '@fontsource-variable/jetbrains-mono/wght-italic.css';
-/* Static "JetBrains Mono" (non-variable) for the terminal. Variable cuts force
-   xterm.js onto its slow DOM renderer (texture-atlas misalignment); the static
-   family keeps the WebGL renderer. Weights 400/700 cover regular + bold; latin
-   + latin-ext cover the terminal's glyph needs. See resolve-font.ts. Italic cuts
-   must be imported explicitly — without them WebKit synthesizes an oblique by
-   shearing the upright glyphs (SGR 3 text in the terminal looked fake-slanted). */
+/* Static (non-variable) JetBrains Mono cuts. Weights 400/700 cover regular +
+   bold; latin + latin-ext cover the terminal's glyph needs. Italic cuts must be
+   imported explicitly — without them WebKit synthesizes an oblique by shearing
+   the upright glyphs (SGR 3 text in the terminal looked fake-slanted).
+
+   These stay bundled so "JetBrains Mono" remains selectable in Terminal
+   settings alongside the variable cut, which is the default for both the editor
+   and the terminal (see typography-defaults.ts). */
 @import '@fontsource/jetbrains-mono/latin-400.css';
 @import '@fontsource/jetbrains-mono/latin-700.css';
 @import '@fontsource/jetbrains-mono/latin-ext-400.css';

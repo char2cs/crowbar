@@ -152,22 +152,6 @@ export function isEditorContent(c: PaneContent): c is EditorContent {
   return c.type === 'editor'
 }
 
-export function isTerminalContent(c: PaneContent): c is TerminalContent {
-  return c.type === 'terminal'
-}
-
-export function isNewTabContent(c: PaneContent): c is NewTabContent {
-  return c.type === 'newTab'
-}
-
-export function isDiffContent(c: PaneContent): c is DiffContent {
-  return c.type === 'diff'
-}
-
-export function isExternalEditorContent(c: PaneContent): c is ExternalEditorContent {
-  return c.type === 'externalEditor'
-}
-
 export function isBranchReviewContent(c: PaneContent): c is BranchReviewContent {
   return c.type === 'branchReview'
 }
@@ -195,11 +179,6 @@ export function isVirtualContent(c: PaneContent): boolean {
   if (VIRTUAL_TYPES.has(c.type)) return true
   if (c.type === 'editor') return c.isVirtual
   return false
-}
-
-/** Whether this content type has editable text content with dirty tracking. */
-export function isEditableContent(c: PaneContent): c is EditorContent | DiffContent {
-  return c.type === 'editor' || c.type === 'diff'
 }
 
 /** Whether this content has text content (for search, etc.) */

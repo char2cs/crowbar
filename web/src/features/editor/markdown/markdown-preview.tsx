@@ -1,18 +1,16 @@
 import './styles.css'
-// Tauri plugins replaced with browser equivalents
-const exists = async (_path: string) => false
-const open = async (url: string) => {
-  window.open(url, '_blank')
-}
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
+import { exists } from '@/features/file-system/controllers/platform'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { hasTextContent } from '@/features/panes/types/pane-content'
+import { openExternalUrl } from '@/lib/external-open'
 import { useSettingsStore } from '@/features/settings/store'
 import { logger } from '../utils/logger'
 import { parseMarkdown } from './parser'
+import { resolvePreviewLinkPath } from './resolve-preview-link'
 
 export function MarkdownPreview() {
   const { sourceBufferPath, sourceContent } = useWorkspaceStoreContext(
@@ -36,7 +34,6 @@ export function MarkdownPreview() {
   const fontSize = useEditorSettingsStore.use.fontSize()
   const uiFontFamily = useSettingsStore((state) => state.settings.uiFontFamily)
   const handleFileSelect = useFileSystemStore((s) => s.handleFileSelect)
-  const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || ''
   const [html, setHtml] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -49,40 +46,6 @@ export function MarkdownPreview() {
     const parsedHtml = parseMarkdown(sourceContent)
     setHtml(parsedHtml)
   }, [sourceContent])
-
-  const resolvePath = useCallback(
-    (href: string, currentFilePath: string): string => {
-      const hrefWithoutAnchor = href.split('#')[0]
-
-      if (!hrefWithoutAnchor) {
-        return currentFilePath
-      }
-
-      if (hrefWithoutAnchor.startsWith('/')) {
-        if (rootFolderPath) {
-          return `${rootFolderPath}${hrefWithoutAnchor}`
-        }
-        return hrefWithoutAnchor
-      }
-
-      const currentDir = currentFilePath.substring(0, currentFilePath.lastIndexOf('/'))
-      const combined = `${currentDir}/${hrefWithoutAnchor}`
-
-      const parts = combined.split('/')
-      const resolved: string[] = []
-
-      for (const part of parts) {
-        if (part === '..') {
-          resolved.pop()
-        } else if (part !== '.' && part !== '') {
-          resolved.push(part)
-        }
-      }
-
-      return `/${resolved.join('/')}`
-    },
-    [rootFolderPath],
-  )
 
   const handleLinkClick = useCallback(
     async (e: React.MouseEvent<HTMLDivElement>) => {
@@ -115,7 +78,7 @@ export function MarkdownPreview() {
 
       if (isExternalLink) {
         try {
-          await open(href)
+          await openExternalUrl(href)
         } catch (error) {
           logger.error('MarkdownPreview', 'Failed to open external link:', error)
         }
@@ -124,28 +87,32 @@ export function MarkdownPreview() {
 
       if (!sourceBufferPath) return
 
-      const targetPath = resolvePath(href, sourceBufferPath)
+      const targetPath = resolvePreviewLinkPath(href, sourceBufferPath)
 
       try {
-        const fileExists = await exists(targetPath)
-
-        if (fileExists) {
+        // The `.md`-suffix retry is why this keeps a pre-check instead of just
+        // opening optimistically: bare markdown links ([spec](./spec)) are
+        // extension-less by convention, and the open path swallows its own
+        // failure into a toast, so a failed open cannot drive the second
+        // attempt. `exists` costs one lazy directory listing and rejects on a
+        // real daemon error rather than reporting "not there".
+        if (await exists(targetPath)) {
           await handleFileSelect?.(targetPath, false)
-        } else {
-          const withMd = targetPath.endsWith('.md') ? targetPath : `${targetPath}.md`
-          const mdExists = await exists(withMd)
-
-          if (mdExists) {
-            await handleFileSelect?.(withMd, false)
-          } else {
-            logger.warn('MarkdownPreview', `File not found: ${targetPath}`)
-          }
+          return
         }
+
+        const withMd = targetPath.endsWith('.md') ? targetPath : `${targetPath}.md`
+        if (await exists(withMd)) {
+          await handleFileSelect?.(withMd, false)
+          return
+        }
+
+        logger.warn('MarkdownPreview', `File not found: ${targetPath}`)
       } catch (error) {
         logger.error('MarkdownPreview', 'Failed to handle link:', error)
       }
     },
-    [sourceBufferPath, handleFileSelect, resolvePath],
+    [sourceBufferPath, handleFileSelect],
   )
 
   const handleWheelCapture = useCallback((event: React.WheelEvent<HTMLDivElement>) => {

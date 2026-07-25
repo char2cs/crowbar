@@ -1,19 +1,6 @@
 import type React from 'react'
 import type { CompletionItem } from 'vscode-languageserver-protocol'
 
-export interface FuzzyMatchItem {
-  text: string
-  score: number
-  indices: number[]
-}
-
-export interface FuzzyMatchRequest {
-  pattern: string
-  items: string[]
-  case_sensitive?: boolean
-  normalize?: boolean
-}
-
 export interface CompletionFilterRequest {
   pattern: string
   completions: CompletionItem[]

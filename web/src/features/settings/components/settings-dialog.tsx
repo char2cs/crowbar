@@ -1,8 +1,7 @@
 import { CaretDown, MagnifyingGlass as Search } from '@phosphor-icons/react'
 import { useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '@/features/settings/store'
-import { filterVisibleSettingsTabs } from '@/features/settings/lib/settings-tab-visibility'
-import { useAuthStore } from '@/features/window/stores/auth-store'
+import { filterSettingsTabsBySearch } from '@/features/settings/lib/settings-tab-visibility'
 import { type SettingsTab, useUIState } from '@/features/window/stores/ui-state-store'
 import { AppDialog as Dialog } from '@/components/ui/dialog'
 import {
@@ -19,6 +18,7 @@ import { EditorSettings } from './tabs/editor-settings'
 import { GitSettings } from './tabs/git-settings'
 import { FileTreeSettings } from './tabs/file-tree-settings'
 import { TerminalSettings } from './tabs/terminal-settings'
+import { ProvidersSettings } from './tabs/providers-settings'
 import { DeveloperSettings } from './tabs/developer-settings'
 import { KeybindingsSettings } from './tabs/keybindings-settings'
 
@@ -31,9 +31,6 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
   const settingsInitialTab = useUIState((s) => s.settingsInitialTab)
   const setSettingsInitialTab = useUIState((s) => s.setSettingsInitialTab)
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance')
-  const subscription = useAuthStore((state) => state.subscription)
-  const hasEnterpriseAccess = Boolean(subscription?.enterprise?.has_access)
-  const hasTeamsAccess = Boolean(subscription?.collaboration?.enabled)
 
   const clearSearch = useSettingsStore((state) => state.clearSearch)
   const searchQuery = useSettingsStore((state) => state.search.query)
@@ -42,11 +39,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
   const contentRef = useRef<HTMLDivElement>(null)
   const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false)
   const matchingTabs = searchQuery ? new Set(searchResults.map((result) => result.tab)) : null
-  const visibleTabs = filterVisibleSettingsTabs(SETTINGS_TAB_ITEMS, {
-    hasEnterpriseAccess,
-    hasTeamsAccess,
-    matchingTabs,
-  })
+  const visibleTabs = filterSettingsTabsBySearch(SETTINGS_TAB_ITEMS, matchingTabs)
   const activeTabItem =
     visibleTabs.find((tab) => tab.id === activeTab) ??
     SETTINGS_TAB_ITEMS.find((tab) => tab.id === activeTab) ??
@@ -55,18 +48,9 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
   // Sync active tab with settingsInitialTab whenever it changes (enables deep linking when dialog is already open)
   useEffect(() => {
     if (isOpen) {
-      if (settingsInitialTab === 'language') {
-        setActiveTab('editor')
-      } else if (
-        (!hasEnterpriseAccess && settingsInitialTab === 'enterprise') ||
-        (!hasTeamsAccess && settingsInitialTab === 'collaboration')
-      ) {
-        setActiveTab('appearance')
-      } else {
-        setActiveTab(settingsInitialTab)
-      }
+      setActiveTab(settingsInitialTab)
     }
-  }, [settingsInitialTab, isOpen, hasEnterpriseAccess, hasTeamsAccess])
+  }, [settingsInitialTab, isOpen])
 
   // Remember the last active tab so it persists across open/close
   const handleTabChange = (tab: SettingsTab) => {
@@ -93,6 +77,8 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
         return <GitSettings />
       case 'terminal':
         return <TerminalSettings />
+      case 'providers':
+        return <ProvidersSettings />
       case 'keybindings':
         return <KeybindingsSettings />
       case 'developer':

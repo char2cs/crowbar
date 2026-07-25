@@ -221,10 +221,13 @@ type ImportUsecase interface {
 	// icon (local icon or best-effort GitHub owner avatar), adopts each existing
 	// worktree as a Workspace (so the default/checked-out branch becomes a
 	// workspace), and imports protected-branch stubs. It returns the created
-	// Repository so the caller can broadcast its DTO (§14 Step 3).
+	// Repository so the caller can broadcast its DTO (§14 Step 3). name is the
+	// user-supplied repository name from the add-repo form; an empty name derives
+	// it from filepath.Base(repoPath).
 	ImportRepo(
 		ctx context.Context,
 		projectID string,
+		name string,
 		repoPath string,
 	) (domain.Repository, error)
 }
@@ -310,7 +313,8 @@ func (u *projectImport) importRepos(
 		return fmt.Errorf("project import: discover repos: %w", err)
 	}
 	for _, repoPath := range repoPaths {
-		if _, err := u.importOneRepo(ctx, project, repoPath); err != nil {
+		// Bulk discovery has no per-repo user name — derive each from its folder.
+		if _, err := u.importOneRepo(ctx, project, repoPath, ""); err != nil {
 			slog.WarnContext(
 				ctx, "project import: skipping repo after partial failure",
 				"repo_path", repoPath,
@@ -326,6 +330,7 @@ func (u *projectImport) importRepos(
 func (u *projectImport) ImportRepo(
 	ctx context.Context,
 	projectID string,
+	name string,
 	repoPath string,
 ) (domain.Repository, error) {
 	project, err := u.deps.Projects.FindByKey(ctx, projectID)
@@ -335,13 +340,14 @@ func (u *projectImport) ImportRepo(
 	if project == nil {
 		return domain.Repository{}, fmt.Errorf("import repo: project %q not found", projectID)
 	}
-	return u.importOneRepo(ctx, *project, repoPath)
+	return u.importOneRepo(ctx, *project, repoPath, name)
 }
 
 func (u *projectImport) importOneRepo(
 	ctx context.Context,
 	project domain.Project,
 	repoPath string,
+	suppliedName string,
 ) (domain.Repository, error) {
 	// Dedup: re-adding a folder already imported under this project is a no-op
 	// (return the existing repo), not a duplicate row. Without this, a re-add would
@@ -350,19 +356,29 @@ func (u *projectImport) importOneRepo(
 	if existing, ok := u.existingRepo(ctx, project.ID, repoPath); ok {
 		return existing, nil
 	}
-	name := filepath.Base(repoPath)
+	// The user-supplied name (add-repo form) wins; bulk discovery passes "" and
+	// falls back to the folder name.
+	name := strings.TrimSpace(suppliedName)
+	if name == "" {
+		name = filepath.Base(repoPath)
+	}
 	repoID := uuid.NewString()
 	runner := u.deps.RefRunner(repoPath)
+	remoteURL := gitRemoteURL(repoPath)
 	repo := domain.Repository{
-		ID:            repoID,
-		ProjectID:     project.ID,
-		Name:          name,
-		Path:          repoPath,
+		ID:        repoID,
+		ProjectID: project.ID,
+		Name:      name,
+		Path:      repoPath,
+		// The on-disk slug is seeded HERE, once, from the path — never from the
+		// display name above, which the rename endpoint may change at any time
+		// while every already-derived worktree stays where it is.
+		PathSlug:      worktreepath.SeedPathSlug(remoteURL, repoPath),
 		DefaultBranch: defaultbranch.Resolve(runner, defaultBranchCandidates),
 		AvatarLabel:   avatar.Label(name),
 		AvatarColor:   avatar.Color(name),
 		AvatarHasIcon: u.writeRepoIcon(ctx, project.ID, repoID, repoPath),
-		RemoteURL:     gitRemoteURL(repoPath),
+		RemoteURL:     remoteURL,
 	}
 	if err := u.deps.Repos.Save(ctx, repo); err != nil {
 		return domain.Repository{}, fmt.Errorf("project import: save repository: %w", err)

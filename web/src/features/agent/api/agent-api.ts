@@ -55,6 +55,19 @@ export interface AgentProvider {
   id: string
   displayName: string
   icon: string
+  /** The provider's CLI is installed — its spawn.cmd resolves on PATH. Install-only
+   *  (no auth probe); informational for the New-chat pick, which follows priority. */
+  connected: boolean
+  /** The provider is offered — `!disabled` in the global preference. A disabled
+   *  provider drops out of every New-chat surface. Defaults to `true`. */
+  enabled: boolean
+}
+
+/** One row of the global provider preference set: an id and whether it is disabled.
+ *  The submission order (index) defines the priority — see updateProviderPreferences. */
+export interface ProviderPreference {
+  id: string
+  disabled: boolean
 }
 
 // ── Mappers (wire → store types). Identity today, but kept explicit so a
@@ -82,9 +95,40 @@ export async function getChat(wsId: string, id: string): Promise<AgentChatDetail
   return { ...mapChat(raw), conversations: raw.conversations ?? [] }
 }
 
+// Map a wire provider into the store shape, defaulting the two enrichment flags so
+// a backend row that omits them still reads sanely: never connected (install is
+// never assumed) and enabled (a provider with no stored preference is offered —
+// spec §3.1). The backend always sends both today; the defaults are belt-and-braces.
+function mapProvider(p: AgentProvider): AgentProvider {
+  return {
+    id: p.id,
+    displayName: p.displayName,
+    icon: p.icon,
+    connected: p.connected ?? false,
+    enabled: p.enabled ?? true,
+  }
+}
+
 export async function listProviders(wsId: string): Promise<AgentProvider[]> {
   const raw = await apiFetch<AgentProvider[]>(`${agentBase(wsId)}/providers`)
-  return raw ?? []
+  return (raw ?? []).map(mapProvider)
+}
+
+// updateProviderPreferences rewrites the GLOBAL provider preference set. The body
+// is the COMPLETE ordered list of known providers — array index becomes priority,
+// `disabled` toggles enablement — PUT to the settings route (not workspace-scoped:
+// provider priority/enabled is machine-level). The response is the freshly resolved
+// list (same enrichment + order as listProviders), so the caller reconciles from
+// server truth with no second fetch.
+export async function updateProviderPreferences(
+  prefs: ProviderPreference[],
+): Promise<AgentProvider[]> {
+  const raw = await apiFetch<AgentProvider[]>(`/v0/settings/agent/providers`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providers: prefs }),
+  })
+  return (raw ?? []).map(mapProvider)
 }
 
 // ── Writes ──────────────────────────────────────────────────────────

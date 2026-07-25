@@ -22,8 +22,8 @@ const BUILTIN_THEMES: ThemeDefinition[] = [
     category: 'Dark',
   },
   {
-    id: 'terra',
-    name: 'Terra',
+    id: 'zen',
+    name: 'Zen',
     isDark: true,
     type: 'dark',
     category: 'Dark',
@@ -76,8 +76,13 @@ export class ThemeRegistry {
         ? document.documentElement.classList.contains('dark')
         : !themeId.includes('light')
 
-    if (known) {
-      this.themes.set(resolvedId, { ...known, isDark })
+    // Refresh the RESOLVED theme's dark/light flag. When an unknown id degraded
+    // to the default, `known` is undefined but the fallback theme still has to
+    // report the mode that is actually on screen — otherwise getActiveTheme()
+    // hands its caller the stale seed value from BUILTIN_THEMES.
+    const resolved = known ?? this.themes.get(resolvedId)
+    if (resolved) {
+      this.themes.set(resolvedId, { ...resolved, isDark })
     }
 
     const existing = readAppearanceBootstrapCache() ?? DEFAULT_APPEARANCE_BOOTSTRAP_CACHE

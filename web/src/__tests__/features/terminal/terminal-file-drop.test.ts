@@ -12,6 +12,6 @@ describe('formatDroppedPathsForTerminal', () => {
   })
 
   it('drops unsupported payload entries', () => {
-    expect(formatDroppedPathsForTerminal(['https://athas.dev', 'relative/path.ts'])).toBe('')
+    expect(formatDroppedPathsForTerminal(['https://example.com', 'relative/path.ts'])).toBe('')
   })
 })

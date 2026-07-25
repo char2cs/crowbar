@@ -3,42 +3,18 @@ import { ArrowLeft } from '@phosphor-icons/react'
 import { useRef, useState } from 'react'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { logger } from '@/features/editor/utils/logger'
-import { readDirectory } from '@/features/file-system/controllers/platform'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { Button } from '@/components/ui/button'
 import { Dropdown, dropdownItemClassName } from '@/components/ui/dropdown'
-import { getBaseName, getRelativePath, joinPath, normalizePath } from '@/utils/path-helpers'
+import { getBaseName, getRelativePath, normalizePath } from '@/utils/path-helpers'
+import { breadcrumbSegmentPath, loadDirectoryEntries } from './breadcrumb-directory'
 import { PathBreadcrumb } from './path-breadcrumb'
-
-interface DirectoryEntry {
-  name: string
-  path: string
-  is_dir: boolean
-}
 
 interface FilePathBreadcrumbProps {
   filePath: string
   interactive?: boolean
   className?: string
-}
-
-const loadDirectoryEntries = async (path: string) => {
-  const entries = await readDirectory(path)
-  const fileEntries: FileEntry[] = entries.map((entry: DirectoryEntry) => ({
-    name: entry.name || 'Unknown',
-    path: entry.path,
-    isDir: entry.is_dir || false,
-    children: undefined,
-  }))
-
-  fileEntries.sort((a, b) => {
-    if (a.isDir && !b.isDir) return -1
-    if (!a.isDir && b.isDir) return 1
-    return a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-  })
-
-  return fileEntries
 }
 
 export function FilePathBreadcrumb({
@@ -127,10 +103,7 @@ export function FilePathBreadcrumb({
     event.stopPropagation()
 
     if (segmentIndex === segments.length - 1) {
-      const fullPath = rootFolderPath
-        ? joinPath(rootFolderPath, ...segments.slice(0, segmentIndex + 1))
-        : segments.slice(0, segmentIndex + 1).join('/')
-      await handleNavigate(fullPath)
+      await handleNavigate(breadcrumbSegmentPath(segments, segmentIndex))
       return
     }
 
@@ -139,9 +112,7 @@ export function FilePathBreadcrumb({
       return
     }
 
-    const dirPath = rootFolderPath
-      ? joinPath(rootFolderPath, ...segments.slice(0, segmentIndex + 1))
-      : segments.slice(0, segmentIndex + 1).join('/')
+    const dirPath = breadcrumbSegmentPath(segments, segmentIndex)
 
     try {
       const items = await loadDirectoryEntries(dirPath)
