@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Clean up the settings panel by removing Athas-specific dead settings, porting the full icon theme system (6 themes), replacing the dual theme picker with a single Color Theme + Theme Mode design, fixing the modal shell bugs, and wiring sidebar position to the layout.
+**Goal:** Clean up the settings panel by removing dead settings inherited from the vendored editor, porting the full icon theme system (6 themes), replacing the dual theme picker with a single Color Theme + Theme Mode design, fixing the modal shell bugs, and wiring sidebar position to the layout.
 
 **Architecture:** Work flows from foundational (types, icon registry) → data layer (initializer, store wiring) → UI layer (tab cleanup, appearance tab rewrite, modal fixes). Each task is independently committable and leaves the app in a working state.
 
@@ -210,7 +210,7 @@ git commit -m "feat(icon-themes): replace stub registry with full implementation
 
 ---
 
-### Task 3: Port the 6 built-in icon themes from Athas
+### Task 3: Port the 6 built-in icon themes
 
 **Files:**
 - Create: `web/src/extensions/icon-themes/builtin/classic-theme.tsx`
@@ -463,7 +463,7 @@ export interface FileExplorerIconProps {
   fileName?: string
   filePath?: string
   isDirectory?: boolean
-  /** Athas alias for isDirectory */
+  /** Alias for isDirectory. */
   isDir?: boolean
   isExpanded?: boolean
   className?: string
@@ -1353,5 +1353,5 @@ No TBD, TODO, or "similar to Task N" placeholders. All code blocks are complete.
 
 - `ThemeMode` exported from `types/settings.ts` — used by name in `appearance-settings.tsx` and `settings-effects.ts`
 - `IconThemeSource` added to `types.ts` — used in `icon-theme-registry.ts`
-- `colorfulMaterialIconTheme.id` is `"colorful-material"` (not `"material"` as in the Athas source which had a bug — fixed here to avoid collision with `materialIconTheme.id`)
+- `colorfulMaterialIconTheme.id` is `"colorful-material"` (not `"material"` as in the upstream source, which collided with `materialIconTheme.id` — fixed here)
 - `getDefaultSetting("themeMode")` returns `"system"` — matches `defaultSettings.themeMode: "system"`

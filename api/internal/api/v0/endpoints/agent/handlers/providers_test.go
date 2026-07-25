@@ -9,17 +9,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers"
-	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestProviders_Success proves Providers enumerates the usecase's descriptors
-// into the {id, displayName, icon} wire shape and forwards the :wsId path
-// param to ListProviders unchanged.
+// TestProviders_Success proves the GET handler forwards the usecase's resolved,
+// enriched provider list (connected + enabled, in priority order) into the wire
+// envelope unchanged.
 func TestProviders_Success(t *testing.T) {
-	uc := &fakeAgentUsecase{providers: []engineagent.Descriptor{
-		{ID: "claude", DisplayName: "Claude", Icon: "<svg/>"},
-		{ID: "codex", DisplayName: "Codex", Icon: "<svg/>"},
+	uc := &fakeAgentUsecase{resolveProviders: []dto.AgentProviderDTO{
+		{ID: "codex", DisplayName: "Codex", Icon: "<svg/>", Connected: true, Enabled: true},
+		{ID: "claude", DisplayName: "Claude", Icon: "<svg/>", Connected: false, Enabled: false},
 	}}
 	h := handlers.New(uc)
 
@@ -30,25 +32,23 @@ func TestProviders_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var env struct {
-		Success bool `json:"success"`
-		Data    []struct {
-			ID          string `json:"id"`
-			DisplayName string `json:"displayName"`
-			Icon        string `json:"icon"`
-		} `json:"data"`
+		Success bool                   `json:"success"`
+		Data    []dto.AgentProviderDTO `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
 	assert.True(t, env.Success)
 	require.Len(t, env.Data, 2)
-	assert.Equal(t, "claude", env.Data[0].ID)
-	assert.Equal(t, "Claude", env.Data[0].DisplayName)
-	assert.Equal(t, "ws-1", uc.listProvidersWorkspace)
+	assert.Equal(t, "codex", env.Data[0].ID)
+	assert.True(t, env.Data[0].Connected)
+	assert.True(t, env.Data[0].Enabled)
+	assert.False(t, env.Data[1].Connected)
+	assert.False(t, env.Data[1].Enabled)
 }
 
-// TestProviders_UsecaseError proves a ListProviders failure surfaces as a
+// TestProviders_UsecaseError proves a ResolveProviders failure surfaces as a
 // mapped error response rather than a 200.
 func TestProviders_UsecaseError(t *testing.T) {
-	uc := &fakeAgentUsecase{providersErr: assert.AnError}
+	uc := &fakeAgentUsecase{resolveErr: assert.AnError}
 	h := handlers.New(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws-1/agent/providers", nil)
@@ -57,4 +57,64 @@ func TestProviders_UsecaseError(t *testing.T) {
 	h.Providers(ctx)
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// TestUpdateProviderPreferences_ForwardsOrderedPrefs proves the PUT handler binds
+// {providers:[{id,disabled}]} into ordered AgentProviderPreference rows (array
+// index → Priority) and echoes the resolved list the usecase returns.
+func TestUpdateProviderPreferences_ForwardsOrderedPrefs(t *testing.T) {
+	uc := &fakeAgentUsecase{replaceResult: []dto.AgentProviderDTO{
+		{ID: "codex", DisplayName: "Codex", Enabled: true},
+		{ID: "claude", DisplayName: "Claude", Enabled: false},
+	}}
+	h := handlers.New(uc)
+
+	body := []byte(`{"providers":[{"id":"codex","disabled":false},{"id":"claude","disabled":true}]}`)
+	ctx, rec := newTestContext(t, http.MethodPut, "/v0/settings/agent/providers", body)
+
+	h.UpdateProviderPreferences(ctx)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, uc.replaceCalls, 1)
+	assert.Equal(t, []domain.AgentProviderPreference{
+		{ProviderID: "codex", Priority: 0, Disabled: false},
+		{ProviderID: "claude", Priority: 1, Disabled: true},
+	}, uc.replaceCalls[0])
+
+	var env struct {
+		Success bool                   `json:"success"`
+		Data    []dto.AgentProviderDTO `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	require.Len(t, env.Data, 2)
+	assert.Equal(t, "codex", env.Data[0].ID)
+}
+
+// TestUpdateProviderPreferences_BadJSON proves a malformed body is rejected 400
+// without reaching the usecase.
+func TestUpdateProviderPreferences_BadJSON(t *testing.T) {
+	uc := &fakeAgentUsecase{}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodPut, "/v0/settings/agent/providers", []byte("{not json"))
+
+	h.UpdateProviderPreferences(ctx)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Empty(t, uc.replaceCalls)
+}
+
+// TestUpdateProviderPreferences_UnknownProvider_MapsTo400 proves an
+// apperr.ErrInvalidArgument from the usecase (an unknown provider id) surfaces as
+// a 400.
+func TestUpdateProviderPreferences_UnknownProvider_MapsTo400(t *testing.T) {
+	uc := &fakeAgentUsecase{replaceErr: apperr.ErrInvalidArgument}
+	h := handlers.New(uc)
+
+	body := []byte(`{"providers":[{"id":"nope","disabled":false}]}`)
+	ctx, rec := newTestContext(t, http.MethodPut, "/v0/settings/agent/providers", body)
+
+	h.UpdateProviderPreferences(ctx)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

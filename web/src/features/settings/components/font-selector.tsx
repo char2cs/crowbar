@@ -9,7 +9,6 @@ import {
 } from '@/features/settings/lib/font-family-resolution'
 import { useFontStore } from '@/features/settings/stores/font-store'
 import type { FontInfo } from '@/features/settings/stores/types/font'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
   SelectTrigger,
@@ -17,7 +16,6 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select'
-import { cn } from '@/utils/cn'
 
 // Bundled fonts that are always available
 const BUNDLED_FONTS: FontInfo[] = [
@@ -50,10 +48,7 @@ export const FontSelector = ({
 }: FontSelectorProps) => {
   const availableFonts = useFontStore.use.availableFonts()
   const monospaceFonts = useFontStore.use.monospaceFonts()
-  const isLoading = useFontStore.use.isLoading()
-  const error = useFontStore.use.error()
-  const { loadAvailableFonts, loadMonospaceFonts, clearError, validateFont } =
-    useFontStore.use.actions()
+  const { loadAvailableFonts, loadMonospaceFonts, validateFont } = useFontStore.use.actions()
 
   const [isCustomFontValid, setIsCustomFontValid] = useState(false)
 
@@ -94,10 +89,10 @@ export const FontSelector = ({
   }
 
   useEffect(() => {
-    if (!isLoading && value !== resolvedValue) {
+    if (value !== resolvedValue) {
       onChange(resolvedValue)
     }
-  }, [isLoading, onChange, resolvedValue, value])
+  }, [onChange, resolvedValue, value])
 
   useEffect(() => {
     if (!primaryValue || value !== resolvedValue) {
@@ -126,19 +121,6 @@ export const FontSelector = ({
 
   const handleFontChange = (fontFamily: string) => {
     onChange(fontFamily)
-    clearError()
-  }
-
-  if (isLoading) {
-    return <Skeleton className={cn('h-7 w-full rounded-md', className)} />
-  }
-
-  if (error) {
-    return (
-      <div className={cn('ui-font ui-text-sm text-error', className)}>
-        Error loading fonts: {error}
-      </div>
-    )
   }
 
   return (

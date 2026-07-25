@@ -48,6 +48,12 @@ type Usecase interface {
 		ctx context.Context,
 		in CreateChildInput,
 	) (domain.Workspace, error)
+	// CreateFromImport batch-imports branches as managed workspaces, PR-parented
+	// up to a protected/default root, creating missing ancestors (07 §import).
+	CreateFromImport(
+		ctx context.Context,
+		in ImportInput,
+	) error
 	MergeIntoParent(
 		ctx context.Context,
 		childID string,
@@ -57,6 +63,14 @@ type Usecase interface {
 		ctx context.Context,
 		childID string,
 		newParentID string,
+	) (domain.Workspace, error)
+	// RenameBranch renames a managed workspace's branch and relocates its
+	// workspace root to the directory the new name derives, so git, the
+	// filesystem and the record stay in agreement.
+	RenameBranch(
+		ctx context.Context,
+		wsID string,
+		newBranch string,
 	) (domain.Workspace, error)
 	RebaseOntoParent(
 		ctx context.Context,

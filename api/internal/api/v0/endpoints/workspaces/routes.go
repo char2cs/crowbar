@@ -31,6 +31,8 @@ func Register(
 	rg.GET("/workspaces", dispatch(h.List, wsHandle))
 	rg.GET("/workspaces/:wsId", dispatch(h.Detail, wsHandle))
 	rg.POST("/workspaces", h.Create)
+	rg.POST("/workspaces/import", h.Import)
+	rg.PATCH("/workspaces/:wsId", h.Rename)
 	rg.DELETE("/workspaces/:wsId", h.Delete)
 	rg.POST("/workspaces/:wsId/sync", h.Sync)
 	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)

@@ -51,6 +51,26 @@ func (e *engine) WorktreeRemove(
 	return gitexec.RequireSuccess("worktree remove", r)
 }
 
+// WorktreeRepair repoints the repo's administrative files at a worktree that
+// has already been relocated on disk (`git worktree repair`), fixing both the
+// registration's gitdir and the worktree's own .git link.
+//
+// Branch rename moves a workspace by renaming its whole ROOT directory in one
+// os.Rename — because the root holds the git worktree and the agent `chats`
+// tree as siblings, and those must travel together or the chat history is
+// orphaned at the old branch's path. `git worktree move` cannot express that:
+// it relocates only the worktree leaf. So the move is done by the caller and
+// git is told to catch up here.
+func (e *engine) WorktreeRepair(
+	ctx context.Context,
+	repoPath string,
+	worktreePath string,
+) error {
+	defer e.lockRepo(ctx, repoPath)()
+	r := e.exec(ctx, repoPath, "worktree", "repair", worktreePath)
+	return gitexec.RequireSuccess("worktree repair", r)
+}
+
 // WorktreePrune runs `git worktree prune`, which removes registrations for
 // worktrees whose directory is gone. It only touches dead registrations, so a
 // live worktree is never disturbed.

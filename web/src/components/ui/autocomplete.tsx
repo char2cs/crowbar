@@ -103,45 +103,6 @@ export function AutocompleteItem({
   )
 }
 
-export function AutocompleteSeparator({
-  className,
-  ...props
-}: AutocompletePrimitive.Separator.Props): React.ReactElement {
-  return (
-    <AutocompletePrimitive.Separator
-      className={cn('mx-2 my-1 h-px bg-border last:hidden', className)}
-      data-slot="autocomplete-separator"
-      {...props}
-    />
-  )
-}
-
-export function AutocompleteGroup({
-  className,
-  ...props
-}: AutocompletePrimitive.Group.Props): React.ReactElement {
-  return (
-    <AutocompletePrimitive.Group
-      className={cn('[[role=group]+&]:mt-1.5', className)}
-      data-slot="autocomplete-group"
-      {...props}
-    />
-  )
-}
-
-export function AutocompleteGroupLabel({
-  className,
-  ...props
-}: AutocompletePrimitive.GroupLabel.Props): React.ReactElement {
-  return (
-    <AutocompletePrimitive.GroupLabel
-      className={cn('px-2 py-1.5 font-medium text-muted-foreground text-xs', className)}
-      data-slot="autocomplete-group-label"
-      {...props}
-    />
-  )
-}
-
 export function AutocompleteEmpty({
   className,
   ...props
@@ -189,12 +150,6 @@ function AutocompleteClear({
       <XIcon />
     </AutocompletePrimitive.Clear>
   )
-}
-
-export function AutocompleteCollection({
-  ...props
-}: AutocompletePrimitive.Collection.Props): React.ReactElement {
-  return <AutocompletePrimitive.Collection data-slot="autocomplete-collection" {...props} />
 }
 
 function AutocompleteTrigger({

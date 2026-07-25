@@ -294,6 +294,16 @@ type Engine interface {
 		worktreePath string,
 	) error
 
+	// WorktreeRepair repoints the repo's admin files at a worktree that has
+	// already been relocated on disk (`git worktree repair`). Branch rename moves
+	// a workspace by renaming its whole root — worktree and agent chats together
+	// — then calls this so git follows.
+	WorktreeRepair(
+		ctx context.Context,
+		repoPath string,
+		worktreePath string,
+	) error
+
 	// WorktreePrune reaps worktree registrations whose on-disk directory is gone
 	// (`git worktree prune`). Used by the startup recovery sweep to clean up
 	// orphaned worktrees left behind by a crash mid-teardown (H19).

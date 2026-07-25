@@ -69,6 +69,27 @@ func (e *providerEngine) OwnerAvatarURL(
 	return avatarURL, nil
 }
 
+// OpenPullRequests returns the repo's open-PR head→base graph, or nil when the
+// provider is unavailable. Best-effort: never fails the caller.
+func (e *providerEngine) OpenPullRequests(
+	ctx context.Context,
+	repoPath string,
+) ([]providertypes.PRLink, error) {
+	res, err := e.detectFn(ctx, repoPath)
+	if err != nil || !res.Enabled {
+		return nil, nil
+	}
+	prov := e.providerFor(res.Kind)
+	if prov == nil {
+		return nil, nil
+	}
+	links, err := prov.OpenPullRequests(ctx, repoPath)
+	if err != nil {
+		return nil, nil
+	}
+	return links, nil
+}
+
 // Capability returns what the engine can do for a given repo.
 func (e *providerEngine) Capability(
 	ctx context.Context,

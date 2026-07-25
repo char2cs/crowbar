@@ -14,6 +14,7 @@ import (
 	"time"
 
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
+	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/convert"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/registry"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/server"
 )
@@ -262,7 +263,7 @@ func (m *manager) spawnAndWire(
 	m.mu.Unlock()
 
 	if cb != nil {
-		srv.OnDiagnostics(stampWsID(wsID, cb))
+		srv.OnDiagnostics(stampWorkspace(wsID, worktreePath, cb))
 	}
 
 	// Reap-and-evict: when the server process exits on its own (crash/OOM), the
@@ -284,16 +285,28 @@ func (m *manager) spawnAndWire(
 	return srv, nil
 }
 
-func stampWsID(
+func stampWorkspace(
 	wsID string,
+	worktreePath string,
 	cb func(domlsp.DiagnosticsEvent),
 ) func(domlsp.DiagnosticsEvent) {
 	return func(
 		event domlsp.DiagnosticsEvent,
 	) {
 		event.WsID = wsID
+		event.Diagnostics = relDiagnostics(worktreePath, event.Diagnostics)
 		cb(event)
 	}
+}
+
+func relDiagnostics(
+	worktreePath string,
+	diagnostics []domlsp.Diagnostic,
+) []domlsp.Diagnostic {
+	for i := range diagnostics {
+		diagnostics[i].FilePath = convert.WorkspaceRelPath(worktreePath, diagnostics[i].FilePath)
+	}
+	return diagnostics
 }
 
 func (m *manager) Acquire(

@@ -122,7 +122,7 @@ function XtermPortal({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     if (!slotEl) return
     const id = requestAnimationFrame(() => {
-      window.dispatchEvent(new CustomEvent('athas-terminal-refit', { detail: { sessionId } }))
+      window.dispatchEvent(new CustomEvent('crowbar-terminal-refit', { detail: { sessionId } }))
     })
     return () => cancelAnimationFrame(id)
   }, [slotEl, sessionId])

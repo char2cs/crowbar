@@ -6,6 +6,9 @@ export type RepoAvatarData = { url?: string; label: string; color: string }
 const sizeClasses = {
   sm: { box: 'h-4 w-4', text: 'text-[10px]', emoji: 'text-xs' },
   lg: { box: 'h-5 w-5', text: 'text-[11px]', emoji: 'text-sm' },
+  // Headline size — the New Tab surface, where the repo/branch stack is the
+  // largest type on the pane and a 20px mark reads as a stray favicon next to it.
+  xl: { box: 'h-6 w-6', text: 'text-[13px]', emoji: 'text-lg' },
 }
 
 // Icon <img> with graceful degradation: when the icon URL 404s (icon reset
@@ -52,7 +55,7 @@ export function RepoAvatar({
 }: {
   avatar: RepoAvatarData
   name: string
-  size?: 'sm' | 'lg'
+  size?: 'sm' | 'lg' | 'xl'
 }) {
   const { box, text, emoji } = sizeClasses[size]
   if (avatar.url?.startsWith('emoji:')) {

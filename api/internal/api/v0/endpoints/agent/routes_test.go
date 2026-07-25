@@ -9,10 +9,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
 func TestMain(
@@ -128,10 +128,16 @@ func (stubUsecase) PurgeChat(
 	return nil
 }
 
-func (stubUsecase) ListProviders(
+func (stubUsecase) ResolveProviders(
 	_ context.Context,
-	_ string,
-) ([]engineagent.Descriptor, error) {
+) ([]dto.AgentProviderDTO, error) {
+	return nil, nil
+}
+
+func (stubUsecase) ReplaceProviderPreferences(
+	_ context.Context,
+	_ []domain.AgentProviderPreference,
+) ([]dto.AgentProviderDTO, error) {
 	return nil, nil
 }
 
@@ -143,8 +149,9 @@ func TestRegisterMountsRoutes(
 ) {
 	r := gin.New()
 	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
+	settingsRG := r.Group("/v0")
 	wsHit := false
-	agent.Register(wsScoped, stubUsecase{}, func(c *gin.Context) {
+	agent.Register(wsScoped, settingsRG, stubUsecase{}, func(c *gin.Context) {
 		wsHit = true
 		c.Status(http.StatusOK)
 	})
@@ -165,6 +172,7 @@ func TestRegisterMountsRoutes(
 		{http.MethodPost, base + "/agent/hooks"},
 		{http.MethodGet, base + "/agent/providers"},
 		{http.MethodGet, base + "/agent/ws/chats"},
+		{http.MethodPut, "/v0/settings/agent/providers"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()

@@ -4,6 +4,7 @@
 package convert
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -95,6 +96,37 @@ func URIFromPath(
 	path string,
 ) string {
 	return "file://" + path
+}
+
+// WorkspaceRelPath expresses an absolute filesystem path relative to
+// worktreePath. Language servers answer with absolute URIs, but every path
+// Crowbar's frontend can act on is workspace-relative — editor buffers are keyed
+// that way and the files API rejects absolute paths outright (safepath) — so
+// every path leaving the LSP surface passes through here.
+//
+// A path the worktree does not contain (a standard-library or module-cache
+// source a definition can legitimately resolve to) has no relative form and is
+// returned unchanged. Its leading separator is what lets callers tell the two
+// apart and report an out-of-workspace target instead of issuing a read that
+// cannot succeed.
+func WorkspaceRelPath(
+	worktreePath string,
+	path string,
+) string {
+	if worktreePath == "" || !filepath.IsAbs(path) {
+		return path
+	}
+
+	rel, err := filepath.Rel(worktreePath, path)
+	if err != nil {
+		return path
+	}
+
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return path
+	}
+
+	return rel
 }
 
 // rangeFromLSP converts an LSP wire Range to a domain Range.

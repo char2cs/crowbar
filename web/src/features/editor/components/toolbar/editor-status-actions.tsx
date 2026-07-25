@@ -13,6 +13,8 @@ import { useCommandShortcut } from '@/features/keymaps/hooks/use-command-shortcu
 import { setSyntaxHighlightingFilePath } from '@/features/editor/extensions/builtin/syntax-highlighting'
 import { LspClient } from '@/features/editor/lsp/lsp-client'
 import { LSP_ERROR_TOAST_KEY, type LspStatus, useLspStore } from '@/features/editor/lsp/lsp-store'
+import { isMarkdownPath } from '@/features/editor/markdown/plate/is-markdown-path'
+import { MarkdownViewToggle } from '@/features/editor/markdown/plate/markdown-view-toggle'
 import type { Position } from '@/features/editor/types/editor'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import {
@@ -346,22 +348,6 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
       onToggle: () => updateSetting('autoCompletion', !settings.autoCompletion),
       disabled: false,
     },
-    {
-      id: 'git-gutter',
-      label: 'Git Gutter',
-      checked: settings.enableGitGutter,
-      shortcut: null,
-      onToggle: () => updateSetting('enableGitGutter', !settings.enableGitGutter),
-      disabled: false,
-    },
-    {
-      id: 'inline-git-blame',
-      label: 'Inline Git Blame',
-      checked: settings.enableInlineGitBlame,
-      shortcut: null,
-      onToggle: () => updateSetting('enableInlineGitBlame', !settings.enableInlineGitBlame),
-      disabled: false,
-    },
   ]
 
   return (
@@ -448,6 +434,10 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
             </div>
           </Dropdown>
         </div>
+      )}
+
+      {activeBuffer?.type === 'editor' && isMarkdownPath(activeBuffer.path) && (
+        <MarkdownViewToggle bufferId={activeBuffer.id} />
       )}
 
       <div className="relative flex items-center self-center">

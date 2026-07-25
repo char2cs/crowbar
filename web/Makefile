@@ -1,4 +1,7 @@
-.PHONY: dev build test test-coverage lint
+.PHONY: install dev build test test-coverage lint
+
+install:
+	bun install
 
 dev:
 	bun run dev

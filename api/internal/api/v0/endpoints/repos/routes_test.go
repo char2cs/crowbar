@@ -59,7 +59,7 @@ func TestRegisterMountsRoutes(
 	// hierarchical prefix to mirror the production router chain.
 	projectScoped := r.Group("/v0/projects/:projectId")
 	noopWS := func(_ *gin.Context) {}
-	repos.Register(projectScoped, stubStore{}, nil, nil, nil, func(dto.RepoDTO) {}, noopWS, ws.DualServe)
+	repos.Register(projectScoped, stubStore{}, nil, nil, nil, nil, func(dto.RepoDTO) {}, noopWS, ws.DualServe)
 
 	cases := []struct {
 		method string
@@ -67,6 +67,7 @@ func TestRegisterMountsRoutes(
 	}{
 		{http.MethodGet, "/v0/projects/p1/repos"},
 		{http.MethodGet, "/v0/projects/p1/repos/r1"},
+		{http.MethodPatch, "/v0/projects/p1/repos/r1"},
 		{http.MethodDelete, "/v0/projects/p1/repos/r1"},
 	}
 	for _, tc := range cases {

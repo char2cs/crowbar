@@ -1,5 +1,5 @@
 // web/src/features/tabs/components/tab-navigation-buttons.tsx
-import { SidebarSimple as PanelLeftClose } from '@phosphor-icons/react'
+import { SidebarToggleIcon } from '@/components/ui/sidebar-toggle-icon'
 import React from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/utils/cn'
@@ -31,7 +31,7 @@ const TabNavigationButtons = React.memo(function TabNavigationButtons({
       tooltipSide="bottom"
       aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
     >
-      <PanelLeftClose size={14} />
+      <SidebarToggleIcon size={14} />
     </Button>
   )
 })

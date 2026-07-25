@@ -4,10 +4,6 @@ import {
   terminalResize,
   terminalClose,
   terminalListen,
-  clipboardSet,
-  clipboardPaste,
-  clipboardGet,
-  clipboardClear,
   setWindowTransparency,
   setMacOSWindowAppearance,
   toggleMenuBar,
@@ -32,23 +28,9 @@ describe('crowbar-bridge', () => {
     expect(() => unlisten()).not.toThrow()
   })
 
-  it('clipboardSet stores entries in memory', async () => {
-    await clipboardSet([{ path: '/foo', is_dir: false }], 'copy')
-    const state = await clipboardGet()
-    expect(state).toEqual({ entries: [{ path: '/foo', is_dir: false }], operation: 'copy' })
-  })
-
-  it('clipboardPaste returns empty array', async () => {
-    const result = await clipboardPaste('/target')
-    expect(result).toEqual([])
-  })
-
-  it('clipboardClear nulls the clipboard', async () => {
-    await clipboardSet([{ path: '/foo', is_dir: false }], 'copy')
-    await clipboardClear()
-    const state = await clipboardGet()
-    expect(state).toBeNull()
-  })
+  // The bridge's in-memory file clipboard moved to the file-explorer clipboard
+  // store when paste stopped being a `return []` stub — its behaviour is covered
+  // by features/file-explorer/file-explorer-clipboard-store.test.ts.
 
   it('setWindowTransparency resolves without error', async () => {
     await expect(setWindowTransparency(true)).resolves.toBeUndefined()

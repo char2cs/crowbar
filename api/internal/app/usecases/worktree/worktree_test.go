@@ -37,6 +37,7 @@ type fakeWorkspace struct {
 	SyncFn             func(ctx context.Context, in workspace.SyncInput, now time.Time) (domain.Workspace, error)
 	ProvisionInPlaceFn func(id, worktreePath, forkPointSha string) (domain.Workspace, error)
 	ClearBranchFn      func(id string) (domain.Workspace, error)
+	RenameBranchFn     func(id, branch, worktreePath string) (domain.Workspace, error)
 }
 
 func (f *fakeWorkspace) Create(
@@ -112,6 +113,18 @@ func (f *fakeWorkspace) ClearBranch(
 		return f.ClearBranchFn(id)
 	}
 	return domain.Workspace{ID: id}, nil
+}
+
+func (f *fakeWorkspace) RenameBranch(
+	_ context.Context,
+	id string,
+	branch string,
+	worktreePath string,
+) (domain.Workspace, error) {
+	if f.RenameBranchFn != nil {
+		return f.RenameBranchFn(id, branch, worktreePath)
+	}
+	return domain.Workspace{ID: id, Branch: branch, WorktreePath: worktreePath}, nil
 }
 
 func (f *fakeWorkspace) Delete(
@@ -232,6 +245,15 @@ type fakeGit struct {
 	// clears.
 	addConflictUntilDetach error
 	detachCalled           bool
+
+	// branchNow is the fake repo's ACTUAL branch. It advances only when a
+	// RenameBranch call SUCCEEDS, so a test can tell "git renamed it" from "git
+	// was asked to and the call died".
+	branchNow string
+	// onBranchRenamed fires once, immediately after a successful RenameBranch.
+	// It is the client-disconnect seam: the rename tests use it to cancel the
+	// request context at the exact instant `git branch -m` has landed.
+	onBranchRenamed func()
 }
 
 func (f *fakeGit) WorktreeList(

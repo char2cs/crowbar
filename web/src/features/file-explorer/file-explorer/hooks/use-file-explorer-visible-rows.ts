@@ -2,10 +2,7 @@ import { useEffect, useMemo, type RefObject } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { fileOpenBenchmark } from '@/features/editor/utils/file-open-benchmark'
 import { FILE_TREE_DENSITY_CONFIG } from '@/features/file-explorer/lib/file-tree-density'
-import {
-  buildVisibleFileTreeRows,
-  type VisibleFileTreeRow,
-} from '@/features/file-explorer/lib/visible-file-tree-rows'
+import { buildVisibleFileTreeRows } from '@/features/file-explorer/lib/visible-file-tree-rows'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { useSettingsStore } from '@/features/settings/store'
@@ -88,5 +85,3 @@ export function useFileExplorerVisibleRows({
 
   return { visibleRows, rowVirtualizer }
 }
-
-export type VisibleRow = VisibleFileTreeRow

@@ -54,7 +54,7 @@ import { registerTreeSitterSemanticTokens } from './semantic-tokens-provider'
  *
  * DRIFT GUARD: keys here must cover every monaco language id the app's own
  * resolver (`getLanguageIdFromPath` → `toMonacoLanguageId`, i.e. the values of
- * `MONACO_LANGUAGE_BY_ATHAS_ID` in `monaco/language.ts`) can produce, except
+ * `MONACO_LANGUAGE_BY_LANGUAGE_ID` in `monaco/language.ts`) can produce, except
  * ids registered by the custom Monarch section below or deliberately excluded.
  * `language-contributions.test.ts` asserts this — if you add a language to
  * `monaco/language.ts`, that test forces you to add its loader here (or a
@@ -148,7 +148,7 @@ const contributionLoaders: Record<string, () => Promise<unknown>> = {
  *
  * NOTE — parallel source of truth: the app's own resolver
  * (`utils/language-id.ts` extension tables → `monaco/language.ts`
- * `MONACO_LANGUAGE_BY_ATHAS_ID`) independently maps paths to monaco language
+ * `MONACO_LANGUAGE_BY_LANGUAGE_ID`) independently maps paths to monaco language
  * ids for MODEL ASSIGNMENT, while this map only decides which CONTRIBUTION to
  * fetch. They must agree on the id per extension or a model gets an id whose
  * grammar never loads (silent plaintext). The drift test in

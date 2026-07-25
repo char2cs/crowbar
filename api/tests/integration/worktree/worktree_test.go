@@ -137,6 +137,39 @@ func (s *WorktreeSuite) TestWorktree_createChildAddsWorktreeOnDisk() {
 	kit.AssertWorkspaceConsistency(t, s.Env, s.imported.RepoPath, childID)
 }
 
+// TestWorktree_importCreatesWorkspacesForBranches exercises the batch import
+// endpoint end-to-end over the real daemon: POST .../workspaces/import with a
+// set of branches returns 202 and each branch arrives as a managed workspace on
+// the repo's WS stream. The fixture repo has no GitHub PRs, so this pins the
+// no-PR path (each branch forks from the default) — the PR-parenting logic is
+// unit-integration-tested against a stubbed PR graph in the worktree usecase.
+func (s *WorktreeSuite) TestWorktree_importCreatesWorkspacesForBranches() {
+	t := s.T()
+	watcher := s.Env.DialWorkspaces(t, s.imported.ProjectID, s.imported.RepoID)
+
+	resp := s.Env.POST(t, s.reposBase()+"/import", map[string]any{
+		"branches": []string{"import/alpha", "import/beta"},
+	})
+	kit.RequireStatus(t, resp, http.StatusAccepted)
+	resp.Body.Close()
+
+	seen := map[string]bool{}
+	watcher.ReadUntil(t, 20*time.Second, func(m map[string]any) bool {
+		if m["repoId"] != s.imported.RepoID {
+			return false
+		}
+		if b, ok := m["branch"].(string); ok {
+			seen[b] = true
+		}
+		return seen["import/alpha"] && seen["import/beta"]
+	})
+
+	s.Assert().True(kit.BranchExists(t, s.imported.RepoPath, "import/alpha"),
+		"import must create branch import/alpha")
+	s.Assert().True(kit.BranchExists(t, s.imported.RepoPath, "import/beta"),
+		"import must create branch import/beta")
+}
+
 // TestWorktree_mergeStrategyMerge verifies the fast-forward merge advances the parent.
 func (s *WorktreeSuite) TestWorktree_mergeStrategyMerge() {
 	t := s.T()

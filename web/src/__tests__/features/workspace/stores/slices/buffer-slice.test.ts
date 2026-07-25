@@ -5,6 +5,7 @@ import {
   createBufferSlice,
   type BufferSlice,
 } from '@/features/workspace/stores/slices/buffer-slice'
+import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 
 const { killTerminalSession } = vi.hoisted(() => ({
   killTerminalSession: vi.fn(async () => {}),
@@ -97,6 +98,23 @@ describe('buffer-slice', () => {
     })
     store.getState().bufferActions.closeBuffer(id)
     expect(store.getState().buffers).toHaveLength(0)
+  })
+
+  // M6: the markdown rich/source preference is keyed by bufferId and nothing
+  // else ever removed an entry, so `views` grew for the life of the session.
+  it('closeBuffer releases the buffer’s markdown view preference', () => {
+    const id = store.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/notes.md',
+      name: 'notes.md',
+      content: '',
+    })
+    useMarkdownViewStore.getState().setView(id, 'source')
+    expect(useMarkdownViewStore.getState().views[id]).toBe('source')
+
+    store.getState().bufferActions.closeBuffer(id)
+
+    expect(useMarkdownViewStore.getState().views).toEqual({})
   })
 
   // BUG-015: closing a terminal tab is final (terminals never enter the

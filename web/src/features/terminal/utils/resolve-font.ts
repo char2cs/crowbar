@@ -177,6 +177,39 @@ async function ensureSymbolFallbackFontLoaded(fontSize: number): Promise<void> {
   }
 }
 
+/**
+ * Render the terminal through xterm's DOM renderer rather than its WebGL one.
+ *
+ * WebGL rasterizes each glyph once into a texture atlas at whole-device-pixel
+ * dimensions (`floor(cssCharWidth * dpr)`) and blits that bitmap into every
+ * cell. On a 1x display the rounding error is ~8x larger than at 2x: measured at
+ * 14px, cells came out 6.6% narrow and only ~20% of glyph ink landed at full
+ * opacity, so stems never resolved and text read as unantialiased. The DOM
+ * renderer emits real text and lets the platform stack rasterize it — hinting,
+ * gamma-corrected blending, subpixel positioning — matching Monaco.
+ *
+ * KNOWN COST: the WebGL path also *synthesizes* ~169 glyphs as exact vectors
+ * sized to the cell (box drawing, block elements, shading, Powerline) via
+ * `tryDrawCustomChar`, independent of font. The DOM path has no equivalent and
+ * delegates them to the font, so quadrant/half blocks (U+2588-259F) fall short
+ * of the cell box and show seams — most visibly in block-element ASCII art.
+ *
+ * NOT a throughput cost. The previous default was justified by a claim of
+ * "130-180ms main-thread stalls on full-screen TUI apps like htop" under the DOM
+ * renderer. That does not reproduce. Measured in-app on a 113x59 grid, 60
+ * full-screen SGR-heavy repaints, timing each write to its render callback plus
+ * a following rAF (so a frame counts only once actually committed):
+ *
+ *     renderer   p50    p90    p99    max    mean
+ *     DOM        8ms    9ms    10ms   10ms   8.33ms
+ *     WebGL      8ms    9ms    13ms   13ms   8.30ms
+ *
+ * Identical at the median and DOM's tail is tighter. Both sit inside a 16ms
+ * frame budget. Measure before reverting this on performance grounds — and not
+ * with the FPS overlay, which is itself a rAF loop and reports its own cadence.
+ */
+const USE_DOM_RENDERER = true
+
 export async function resolveTerminalFont(
   requestedFont: string,
   fontSize: number,
@@ -184,6 +217,15 @@ export async function resolveTerminalFont(
   // Make sure the icon-glyph fallback is loaded before the terminal renders so
   // Nerd Font symbols don't get cached as tofu in the WebGL atlas.
   await ensureSymbolFallbackFontLoaded(fontSize)
+
+  if (USE_DOM_RENDERER) {
+    // No variable -> static mapping here: that existed solely to keep the WebGL
+    // glyph atlas alive, and the DOM renderer handles variable cuts natively.
+    const preferred = (await loadAndVerifyFont(requestedFont, fontSize))
+      ? requestedFont
+      : getPlatformFallback()
+    return { fontFamily: buildTerminalFontFamily(preferred), skipWebGL: true }
+  }
 
   // Prefer the static cut of a variable font so xterm can keep its WebGL
   // renderer. Only taken when the static cut is actually available.

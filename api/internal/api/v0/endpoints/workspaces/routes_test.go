@@ -72,6 +72,13 @@ func (stubHierarchy) CreateChild(
 	return domain.Workspace{}, nil
 }
 
+func (stubHierarchy) CreateFromImport(
+	_ context.Context,
+	_ worktree.ImportInput,
+) error {
+	return nil
+}
+
 func (stubHierarchy) MergeIntoParent(
 	_ context.Context,
 	_ string,
@@ -104,6 +111,14 @@ func (stubHierarchy) DeleteCascade(
 
 func (stubHierarchy) RetryProvision(
 	_ context.Context,
+	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
+func (stubHierarchy) RenameBranch(
+	_ context.Context,
+	_ string,
 	_ string,
 ) (domain.Workspace, error) {
 	return domain.Workspace{}, nil

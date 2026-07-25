@@ -361,7 +361,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
       if (!e || !m) return
       const startOffset = m.getOffsetAt(range.getStartPosition())
       e.pushUndoStop()
-      e.executeEdits('athas-api', [{ range, text, forceMoveMarkers: true }])
+      e.executeEdits('crowbar-api', [{ range, text, forceMoveMarkers: true }])
       const nextPosition = m.getPositionAt(startOffset + text.length)
       e.setSelection(
         new MonacoRange(
@@ -430,11 +430,11 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
         syncCursorAndSelection()
       },
       undo: () => {
-        editorRef.current?.trigger('athas-api', 'undo', null)
+        editorRef.current?.trigger('crowbar-api', 'undo', null)
         syncCursorAndSelection()
       },
       redo: () => {
-        editorRef.current?.trigger('athas-api', 'redo', null)
+        editorRef.current?.trigger('crowbar-api', 'redo', null)
         syncCursorAndSelection()
       },
       // Monaco's model.canUndo()/canRedo() are not public API.  Being permissive

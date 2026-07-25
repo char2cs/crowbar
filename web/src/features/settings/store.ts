@@ -48,7 +48,6 @@ export const useSettingsStore = create(
           query: '',
           results: [] as SearchResult[],
           isSearching: false,
-          selectedResultId: null,
         } as SearchState,
       },
       (set) => ({
@@ -146,13 +145,6 @@ export const useSettingsStore = create(
             state.search.query = ''
             state.search.results = []
             state.search.isSearching = false
-            state.search.selectedResultId = null
-          })
-        },
-
-        selectSearchResult: (resultId: string) => {
-          set((state) => {
-            state.search.selectedResultId = resultId
           })
         },
       }),
@@ -164,7 +156,7 @@ export { defaultSettings, getDefaultSetting }
 
 let _prefTimer: ReturnType<typeof setTimeout>
 
-const unsubscribeUIPrefs = useSettingsStore.subscribe((state) => {
+useSettingsStore.subscribe((state) => {
   clearTimeout(_prefTimer)
   _prefTimer = setTimeout(() => {
     void saveUIPreferences({
@@ -177,8 +169,3 @@ const unsubscribeUIPrefs = useSettingsStore.subscribe((state) => {
     })
   }, 300)
 })
-
-export function teardownUIPreferencesPersistence(): void {
-  clearTimeout(_prefTimer)
-  unsubscribeUIPrefs()
-}

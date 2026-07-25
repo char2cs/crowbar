@@ -5,7 +5,14 @@ import { PlaceholderRowActions } from './placeholder-row-actions'
 import { isPlaceholderWorkspace } from '@/lib/workspace/placeholder'
 import { WorkspaceInlineInput } from './workspace-inline-input'
 import { PendingCreateRow } from './pending-create-row'
-import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE, ADD_GLYPH_PATH } from './workspace-row-base'
+import {
+  ROW_BASE,
+  ROW_ACTIVE,
+  ROW_INACTIVE,
+  ADD_GLYPH_PATH,
+  ROW_SUB_ACTION,
+  ROW_SUB_ACTION_GLYPH,
+} from './workspace-row-base'
 import { useWorkspaceTreeActions, useWorkspaceTreeDrag } from './workspace-tree-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { findWorkspaceForBranch } from '@/lib/workspace/branch-workspace'
@@ -129,6 +136,15 @@ export function WorkspaceTreeItem({
               onCancel={cancelRename}
             />
           ) : (
+            // NOTE: unlike the repo header row's name, this span deliberately
+            // lets its clicks bubble. `dblclick` fires AFTER its two `click`
+            // events, so double-clicking to rename DOES navigate into the
+            // workspace first — but single-clicking a branch name is also the
+            // primary way to open it (asserted by workspace-tree-item-placeholder
+            // "still navigates into the placeholder on click"), and the two are
+            // indistinguishable at the first click without a dblclick-window
+            // timer on every row click. The repo header row has no such
+            // single-click contract on its name, so it stops the clicks there.
             <span
               className="min-w-0 flex-1 truncate font-mono text-left"
               onDoubleClick={(e) => {
@@ -158,7 +174,7 @@ export function WorkspaceTreeItem({
           {hasChildren ? (
             <button
               type="button"
-              className="shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className={ROW_SUB_ACTION}
               onClick={(e) => {
                 e.stopPropagation()
                 useSidebarStore.getState().toggleWorkspace(workspace.id)
@@ -181,7 +197,7 @@ export function WorkspaceTreeItem({
           ) : !isCreatingChild ? (
             <button
               type="button"
-              className="shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className={ROW_SUB_ACTION}
               onClick={(e) => {
                 e.stopPropagation()
                 if (isCollapsed) useSidebarStore.getState().toggleWorkspace(workspace.id)
@@ -248,7 +264,7 @@ export function WorkspaceTreeItem({
               <div className={cn(ROW_BASE, 'border-transparent text-foreground')}>
                 <svg
                   aria-hidden="true"
-                  className="size-4 shrink-0 text-foreground/30"
+                  className={cn('size-4', ROW_SUB_ACTION_GLYPH)}
                   viewBox="0 0 16 16"
                   fill="none"
                   stroke="currentColor"
@@ -276,7 +292,7 @@ export function WorkspaceTreeItem({
                 // Workspaces panel by 6px → a stray horizontal scrollbar.
                 className={cn(
                   ROW_BASE,
-                  'border-transparent text-muted-foreground/40 hover:bg-accent hover:text-muted-foreground/60',
+                  'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
                 )}
                 onClick={() => startCreating(repoId, workspace.id)}
               >

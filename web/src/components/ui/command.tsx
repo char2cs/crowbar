@@ -6,24 +6,16 @@ import type * as React from 'react'
 import { cn } from '@/lib/utils'
 import {
   Autocomplete,
-  AutocompleteCollection,
   AutocompleteEmpty,
-  AutocompleteGroup,
-  AutocompleteGroupLabel,
   AutocompleteInput,
   AutocompleteItem,
   AutocompleteList,
-  AutocompleteSeparator,
 } from '@/components/ui/autocomplete'
 
 export const CommandDialog: typeof CommandDialogPrimitive.Root = CommandDialogPrimitive.Root
 
 export const CommandDialogPortal: typeof CommandDialogPrimitive.Portal =
   CommandDialogPrimitive.Portal
-
-export const CommandCreateHandle: typeof CommandDialogPrimitive.createHandle =
-  CommandDialogPrimitive.createHandle
-
 export function CommandDialogTrigger(
   props: CommandDialogPrimitive.Trigger.Props,
 ): React.ReactElement {
@@ -194,27 +186,6 @@ export function CommandPanel({
     />
   )
 }
-
-export function CommandGroup({
-  className,
-  ...props
-}: React.ComponentProps<typeof AutocompleteGroup>): React.ReactElement {
-  return <AutocompleteGroup className={className} data-slot="command-group" {...props} />
-}
-
-export function CommandGroupLabel({
-  className,
-  ...props
-}: React.ComponentProps<typeof AutocompleteGroupLabel>): React.ReactElement {
-  return <AutocompleteGroupLabel className={className} data-slot="command-group-label" {...props} />
-}
-
-export function CommandCollection({
-  ...props
-}: React.ComponentProps<typeof AutocompleteCollection>): React.ReactElement {
-  return <AutocompleteCollection data-slot="command-collection" {...props} />
-}
-
 export function CommandItem({
   className,
   isSelected: _isSelected,
@@ -238,55 +209,6 @@ export function CommandItem({
     />
   )
 }
-
-/** Crowbar compat: header section within a command surface */
-export function CommandHeader({
-  children,
-  className,
-  onClose: _onClose,
-  showClearButton: _showClearButton,
-}: {
-  children?: React.ReactNode
-  className?: string
-  onClose?: () => void
-  showClearButton?: boolean
-}): React.ReactElement {
-  return (
-    <div className={className} data-slot="command-header">
-      {children}
-    </div>
-  )
-}
-
-export function CommandSeparator({
-  className,
-  ...props
-}: React.ComponentProps<typeof AutocompleteSeparator>): React.ReactElement {
-  return (
-    <AutocompleteSeparator
-      className={cn('my-2', className)}
-      data-slot="command-separator"
-      {...props}
-    />
-  )
-}
-
-export function CommandShortcut({
-  className,
-  ...props
-}: React.ComponentProps<'kbd'>): React.ReactElement {
-  return (
-    <kbd
-      className={cn(
-        'ms-auto font-medium font-sans text-muted-foreground/72 text-xs tracking-widest',
-        className,
-      )}
-      data-slot="command-shortcut"
-      {...props}
-    />
-  )
-}
-
 export function CommandFooter({
   className,
   ...props

@@ -120,6 +120,15 @@ func (m *mockWorkspace) ClearBranch(
 	return domain.Workspace{ID: id}, nil
 }
 
+func (m *mockWorkspace) RenameBranch(
+	_ context.Context,
+	id string,
+	branch string,
+	worktreePath string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, Branch: branch, WorktreePath: worktreePath}, nil
+}
+
 func (m *mockWorkspace) Delete(ctx context.Context, id string) error { return nil }
 func (m *mockWorkspace) List(ctx context.Context) ([]domain.Workspace, error) {
 	return nil, nil
@@ -343,6 +352,10 @@ func (g *mockGitEngine) WorktreeAdd(ctx context.Context, repoPath, worktreePath,
 }
 
 func (g *mockGitEngine) WorktreeRemove(ctx context.Context, repoPath, worktreePath string) error {
+	return nil
+}
+
+func (g *mockGitEngine) WorktreeRepair(ctx context.Context, repoPath, worktreePath string) error {
 	return nil
 }
 

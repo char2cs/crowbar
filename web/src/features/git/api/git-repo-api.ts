@@ -3,15 +3,7 @@ const tauriInvoke = async <T>(_cmd: string, _args?: unknown): Promise<T> => {
   throw new Error(`Not implemented: ${_cmd}`)
 }
 
-interface DirEntry {
-  name?: string
-  isDirectory?: boolean
-}
-
-const readDir = async (_path: string): Promise<DirEntry[]> => []
-
 const repoDiscoveryCache = new Map<string, string | null>()
-const workspaceRepoDiscoveryCache = new Map<string, { discoveredAt: number; repos: string[] }>()
 
 const NOT_REPO_PATTERNS = [
   'failed to open repository',
@@ -20,34 +12,6 @@ const NOT_REPO_PATTERNS = [
   'class=repository',
   'code=notfound',
 ]
-
-const WORKSPACE_REPO_CACHE_TTL_MS = 5 * 60_000
-const WORKSPACE_REPO_SCAN_MAX_DEPTH = 5
-const WORKSPACE_REPO_SCAN_MAX_DIRS = 1200
-const REPO_SCAN_SKIP_DIRS = new Set([
-  '.git',
-  '.svn',
-  '.hg',
-  '.bzr',
-  'node_modules',
-  '.next',
-  '.nuxt',
-  '.turbo',
-  '.yarn',
-  '.pnpm',
-  '.cache',
-  'dist',
-  'build',
-  'out',
-  'target',
-  'coverage',
-  'vendor',
-  '__pycache__',
-  '.venv',
-  'venv',
-  '.idea',
-  '.vscode',
-])
 
 function normalizePath(path: string): string {
   const unixPath = path.replace(/\\/g, '/')
@@ -77,32 +41,6 @@ function toRelativePath(from: string, to: string): string {
     return ''
   }
   return normalizedTo
-}
-
-function sortWorkspaceRepositories(repoPaths: string[], workspaceRoot: string): string[] {
-  const normalizedRoot = normalizePath(workspaceRoot)
-
-  return [...new Set(repoPaths.map((path) => normalizePath(path)))].sort((a, b) => {
-    const aIsRoot = a === normalizedRoot
-    const bIsRoot = b === normalizedRoot
-    if (aIsRoot && !bIsRoot) return -1
-    if (!aIsRoot && bIsRoot) return 1
-
-    const aIsInsideWorkspace = a.startsWith(`${normalizedRoot}/`)
-    const bIsInsideWorkspace = b.startsWith(`${normalizedRoot}/`)
-    if (aIsInsideWorkspace && !bIsInsideWorkspace) return -1
-    if (!aIsInsideWorkspace && bIsInsideWorkspace) return 1
-
-    const depthA = a.split('/').length
-    const depthB = b.split('/').length
-    if (depthA !== depthB) return depthA - depthB
-
-    return a.localeCompare(b)
-  })
-}
-
-export function normalizeRepositoryPath(path: string): string {
-  return normalizePath(path)
 }
 
 export function isNotGitRepositoryError(error: unknown): boolean {
@@ -164,92 +102,4 @@ export async function resolveRepositoryForFile(
     repoPath: discoveredRepo,
     filePath: relativePath,
   }
-}
-
-export async function discoverWorkspaceRepositories(
-  workspacePath: string,
-  options?: { force?: boolean },
-): Promise<string[]> {
-  const normalizedWorkspacePath = normalizePath(workspacePath)
-  if (!normalizedWorkspacePath) return []
-
-  const force = options?.force ?? false
-  if (!force) {
-    const cached = workspaceRepoDiscoveryCache.get(normalizedWorkspacePath)
-    if (cached && Date.now() - cached.discoveredAt < WORKSPACE_REPO_CACHE_TTL_MS) {
-      return cached.repos
-    }
-  }
-
-  const discoveredRepos = new Set<string>()
-  const visitedDirectories = new Set<string>()
-  const queue: Array<{ path: string; depth: number }> = [
-    { path: normalizedWorkspacePath, depth: 0 },
-  ]
-  let scannedDirectories = 0
-
-  while (queue.length > 0 && scannedDirectories < WORKSPACE_REPO_SCAN_MAX_DIRS) {
-    const current = queue.shift()
-    if (!current) break
-
-    const directoryPath = normalizePath(current.path)
-    if (visitedDirectories.has(directoryPath)) {
-      continue
-    }
-    visitedDirectories.add(directoryPath)
-    scannedDirectories += 1
-
-    let entries: Awaited<ReturnType<typeof readDir>>
-    try {
-      entries = await readDir(directoryPath)
-    } catch {
-      continue
-    }
-
-    const hasGitMetadata = entries.some((entry) => entry?.name === '.git')
-    if (hasGitMetadata) {
-      discoveredRepos.add(directoryPath)
-    }
-
-    if (current.depth >= WORKSPACE_REPO_SCAN_MAX_DEPTH) {
-      continue
-    }
-
-    for (const entry of entries) {
-      if (!entry?.isDirectory || !entry.name) {
-        continue
-      }
-
-      const directoryName = entry.name.toLowerCase()
-      if (REPO_SCAN_SKIP_DIRS.has(directoryName)) {
-        continue
-      }
-
-      const childPath = normalizePath(`${directoryPath}/${entry.name}`)
-
-      if (visitedDirectories.has(childPath)) {
-        continue
-      }
-
-      queue.push({ path: childPath, depth: current.depth + 1 })
-    }
-  }
-
-  // In web mode the readDir stub always returns [] so filesystem scanning finds nothing.
-  // Fall back to treating the root itself as the repo so git data can load via the HTTP API.
-  if (discoveredRepos.size === 0 && normalizedWorkspacePath) {
-    discoveredRepos.add(normalizedWorkspacePath)
-  }
-
-  const repositories = sortWorkspaceRepositories(
-    Array.from(discoveredRepos),
-    normalizedWorkspacePath,
-  )
-
-  workspaceRepoDiscoveryCache.set(normalizedWorkspacePath, {
-    discoveredAt: Date.now(),
-    repos: repositories,
-  })
-
-  return repositories
 }

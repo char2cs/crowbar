@@ -1,30 +1,67 @@
 package handlers
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // Providers handles GET .../workspaces/:wsId/agent/providers: the registered
-// agent providers (id + display name + inline SVG icon) that back the chat row
-// glyph, the New-chat rows, and the provider-switch menu. The :wsId path param is
-// only used to resolve crowbar home for on-disk descriptor overrides — the
-// provider set itself is workspace-independent (kept on the workspace group for
-// surface consistency, 00 agentic-engine spec §7.2).
+// agent providers enriched with connected (installed) + enabled (!disabled) and
+// returned in priority order (spec §3.1). The :wsId path param is retained for
+// surface compatibility but the list is workspace-independent — the resolver reads
+// crowbar home from app config, not the workspace — so every workspace yields the
+// same ordered catalog.
 func (h *Handlers) Providers(
 	ctx *gin.Context,
 ) {
-	descs, err := h.usecase.ListProviders(ctx.Request.Context(), ctx.Param("wsId"))
+	providers, err := h.usecase.ResolveProviders(ctx.Request.Context())
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
 		return
 	}
-	out := make([]dto.AgentProviderDTO, 0, len(descs))
-	for _, d := range descs {
-		out = append(out, dto.AgentProviderDTO{ID: d.ID, DisplayName: d.DisplayName, Icon: d.Icon})
+	libs.WriteQueryOK(ctx, providers)
+}
+
+// UpdateProviderPreferences handles PUT /v0/settings/agent/providers: the full
+// ordered preference set (spec §3.2). The body is the COMPLETE ordered list of
+// known providers; the array position defines the new priority. The handler
+// replaces the whole preference table (upsert submitted, delete omitted) and
+// returns the freshly resolved list so the client reconciles from server truth
+// with no second fetch. An unknown provider id is rejected 400 by the usecase
+// (apperr.ErrInvalidArgument) before any row is written.
+func (h *Handlers) UpdateProviderPreferences(
+	ctx *gin.Context,
+) {
+	var body struct {
+		Providers []struct {
+			ID       string `json:"id"`
+			Disabled bool   `json:"disabled"`
+		} `json:"providers"`
 	}
-	libs.WriteQueryOK(ctx, out)
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	prefs := make([]domain.AgentProviderPreference, len(body.Providers))
+	for i, p := range body.Providers {
+		prefs[i] = domain.AgentProviderPreference{
+			ProviderID: p.ID,
+			Priority:   i,
+			Disabled:   p.Disabled,
+		}
+	}
+
+	resolved, err := h.usecase.ReplaceProviderPreferences(ctx.Request.Context(), prefs)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+	libs.WriteQueryOK(ctx, resolved)
 }

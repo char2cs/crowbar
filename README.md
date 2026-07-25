@@ -1,109 +1,82 @@
 # Crowbar
 
-Crowbar is a self-improving agentic development platform. It orchestrates AI agents through structured development workflows, learns from human feedback over time, and progressively reduces the need for human review by encoding a developer's — or a team's — taste, philosophy, and patterns into every future agent run.
+Crowbar is a local-first desktop app for running AI coding agents against real repositories — and reviewing what they produce before it lands.
+
+Import a repo and every branch gets its own managed git worktree. Start a chat, and an agent goes to work in that worktree while you watch it in a real terminal. When it's done, you read the diff, leave comments, and decide. Your working tree is never touched.
+
+It all runs on your machine: a Go daemon, a Tauri shell, and a React frontend.
 
 ---
 
-## The Problem
+## How it works
 
-Modern AI coding tools are stateless. Every agent run starts from zero. The AI reviewer today catches the same things it caught yesterday, and misses the same things too. Human developers end up reviewing the same categories of mistakes over and over, with no mechanism for the AI to learn from that signal.
+**Workspaces.** Every protected branch gets its own locked worktree, provisioned when the repo is imported. Agents only ever work inside a worktree — so two agents can't tread on each other, and neither can touch your checkout.
 
-At scale — across multiple services, multiple contributors, multiple codebases — this compounds. There is no shared cognitive context. There is no memory of what the team has already decided. Every agent is a new hire with no onboarding.
+**Agent chats.** Pick a provider and Crowbar runs its CLI in a PTY inside the workspace. Claude Code and Codex are both supported, and you can switch between them mid-conversation without losing the thread.
 
----
+**Review.** Every branch has a review: the diff, inline comment threads, and PR status. Human review is the point of the tool, not a step bolted onto the end of it.
 
-## The Solution
-
-Crowbar introduces a **self-improving review loop**:
-
-1. A human reviews agent-generated code and leaves comments
-2. A background agent reads those comments and extrapolates generalizable principles
-3. Those principles are written to a per-project memory file
-4. Every future AI review is injected with the accumulated memory
-5. Over time, the AI reviewer starts catching what the human catches — in the human's voice
-
-The human stays in the loop. But the loop gets shorter with every iteration.
+**The rest of an IDE, where you need it.** Editor, integrated terminal, file explorer, search, LSP.
 
 ---
 
-## Core Concepts
+## Getting started
 
-### Phases
+Requires Go, [Bun](https://bun.sh), and Rust.
 
-Every project in Crowbar moves through structured phases:
+```sh
+make dev           # daemon + web + desktop, with hot reload
+make dev-desktop   # just the Tauri app
+make test          # api + web + desktop
+make pr-checks     # lint, coverage, build — what CI runs
+```
 
-- **Brainstorming** — The orchestrator agent works alongside the developer to explore ideas and shape direction
-- **Spec Writing** — The orchestrator generates a structured specification from the brainstorm
-- **Implementation** — Subagents execute the spec, each isolated in their own environment
-- **AI Review** — A reviewer agent evaluates the implementation against the memory file
-- **Human Review** — The developer reviews, comments, and closes the loop
-
-### Flow Engine
-
-Phases are defined in YAML. Every step, every agent, every prompt lives in a flow file — not in code. This means:
-
-- Flows are versioned, shareable, and distributable
-- Prompts can be iterated without touching the codebase
-- Anyone can write a new flow for a new use case
-- Improvement agents are wired into steps as first-class citizens
-
-### Memory Layer
-
-Each project maintains a memory file — a structured, human-readable record of the developer's coding philosophy, architectural decisions, recurring patterns, and explicit antipatterns. It is:
-
-- Written by the memory subagent from human review signal
-- Queried semantically at review time — only relevant entries are injected
-- Fully inspectable and editable by the developer
-- Scoped per project, with global principles promoted over time
-
-### Agent Isolation
-
-Each implementation agent runs in its own Docker container against its own Git worktree. Agents cannot affect each other's environments. Containers are spun up for the duration of a phase and torn down cleanly on completion.
-
-### Cognitive Zones
-
-Projects can be grouped into cognitive zones — scoped contexts that give the orchestrator awareness of multiple codebases simultaneously. This enables brainstorming features that span services, with the full topology of a system as context.
+Dev state is isolated by design: every `dev` target roots Crowbar at `<repo>/.crowbar` instead of `~/.crowbar`, so a dev instance never collides with an installed one.
 
 ---
 
-## Deployment Modes
+## Architecture
 
-### Local
+```
+api/       Go daemon — domain, engines (agent, git, terminal, LSP, search), HTTP + WebSocket API
+web/       React frontend
+desktop/   Tauri shell
+docker/    Self-hosted image: the same daemon, serving a prebuilt web bundle
+```
 
-A single binary runs the full Crowbar stack locally. Distributed through Quiver. Ideal for solo developers who want a local-first experience on their development machine.
-
-### Self-Hosted
-
-The Crowbar backend can be deployed on a remote server. Team members connect through the web UI with no local installation required. The project maintainer hosts one instance, controls the AI tokens, and every contributor works within the same environment — the same memory files, the same flows, the same coding philosophy.
-
-### Hosted
-
-A managed hosted tier for teams who do not want to self-host.
+The daemon is the product; the desktop app is a shell around it. That's why `make docker-up` can serve the identical thing at `localhost:3737` with no desktop app involved.
 
 ---
 
-## Who It's For
+## Where it's going
 
-- **Solo developers** who want their agents to sound like them
-- **Open source maintainers** who want contributors to work within established patterns without manual onboarding
-- **Engineering teams** who want shared agentic infrastructure without each developer managing their own AI setup
+Crowbar's thesis is that a review loop should get shorter the more you use it. The plan is a per-project memory: an agent reads the comments you leave on real reviews, extracts the principles behind them, and feeds those back into future agent runs — so the reviewer starts catching what you catch, in your voice, and you review less over time.
 
----
-
-## The Compounding Effect
-
-The longer Crowbar is used on a project, the more the memory layer reflects the real decisions made on that codebase. New contributors inherit the project's philosophy immediately. The AI reviewer catches more with every human review cycle. The human reviews less over time.
-
-This is the core thesis: **a development workflow that gets measurably better the more you use it.**
+That part isn't built yet. What's above is.
 
 ---
 
-## Relationship to Quiver
+## Distribution
 
-Crowbar is distributed through [Quiver](https://github.com/rabbytesoftware/quiver.desktop) — a multi-platform package manager built by the same author. Quiver handles installation, dependency management, and environment setup for Crowbar's local deployment. Default flow files can be distributed as Quiver packages, enabling a community-driven ecosystem of shareable workflows.
+Crowbar is distributed through [Quiver](https://github.com/rabbytesoftware/quiver.desktop), a multi-platform package manager by the same author.
 
 ---
 
 ## Naming
 
-Crowbar follows the Valve-universe naming schema established across the rabbytesoftware ecosystem. The crowbar is Gordon Freeman's iconic tool — simple, brutally effective, works in any environment, and is the first thing you reach for. That's the right metaphor for a development tool.
+Crowbar follows the Valve-universe naming schema used across the rabbytesoftware ecosystem. The crowbar is Gordon Freeman's tool — simple, brutally effective, works in any environment, and the first thing you reach for. That's the right metaphor for a development tool.
+
+---
+
+## License
+
+Crowbar is dual-licensed: **[AGPL-3.0](LICENSE)** or a **commercial license**.
+
+Use it, modify it, self-host it — freely, under the AGPL. The catch is AGPL § 13: if you
+modify Crowbar and let others interact with it over a network, you have to publish your
+changes. Running it on your own machine for your own work triggers nothing.
+
+If that doesn't work for you, a commercial license removes the copyleft obligations.
+See [LICENSING.md](LICENSING.md).
+
+Third-party components keep their own licenses; see [NOTICE.md](NOTICE.md).

@@ -435,48 +435,10 @@ export function __getBridgeInternals() {
   return { terminals, tauriTerminals, sessionBases, dropCallbacks }
 }
 
-// ── File Clipboard ────────────────────────────────────────────────────────────
-// FUTURE: Go API file operations at /api/fs/clipboard
-
-export interface ClipboardEntry {
-  path: string
-  is_dir: boolean
-}
-
-export interface FileClipboardState {
-  entries: ClipboardEntry[]
-  operation: 'copy' | 'cut'
-}
-
-export interface PastedEntry {
-  path: string
-  success: boolean
-}
-
-let _clipboard: FileClipboardState | null = null
-
-export async function clipboardSet(
-  entries: ClipboardEntry[],
-  operation: 'copy' | 'cut',
-): Promise<void> {
-  _clipboard = { entries, operation }
-  // FUTURE: POST /api/fs/clipboard/set
-}
-
-export async function clipboardPaste(_targetDirectory: string): Promise<PastedEntry[]> {
-  // FUTURE: POST /api/fs/clipboard/paste
-  return []
-}
-
-export async function clipboardGet(): Promise<FileClipboardState | null> {
-  // FUTURE: GET /api/fs/clipboard
-  return _clipboard
-}
-
-export async function clipboardClear(): Promise<void> {
-  _clipboard = null
-  // FUTURE: DELETE /api/fs/clipboard
-}
+// The file clipboard used to live here as an in-memory copy/cut store whose
+// `clipboardPaste` was a `return []` stub — Cmd+X then Cmd+V reported a
+// completed move that never happened. It now lives in the file-explorer
+// clipboard store, where paste drives the daemon's real copy/rename verbs.
 
 // ── Native Dialogs ────────────────────────────────────────────────────────────
 // FUTURE: Tauri plugin-dialog when crowbar desktop wrapper exposes it

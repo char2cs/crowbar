@@ -24,7 +24,8 @@ import TabBarItem from './tab-bar-item'
 import { sameRenderedBuffer } from './tab-bar-item-utils'
 import TabContextMenu from './tab-context-menu'
 import TabNavigationButtons from './tab-navigation-buttons'
-import TabNewButton from './tab-new-button'
+import TabAddButton from './tab-add-button'
+import CloseSplitButton from './close-split-button'
 import SortableEditorTab from './sortable-editor-tab'
 import { useBufferDisplayName } from '../hooks/use-buffer-display-name'
 import { useTabKeyboardNav } from '../hooks/use-tab-keyboard-nav'
@@ -60,7 +61,7 @@ function useRenderedPaneBuffers(paneBufferIds: string[]): PaneContent[] {
     const next: PaneContent[] = []
     for (const id of paneBufferIds) {
       const b = map.get(id)
-      if (b && b.type !== 'newTab') next.push(b)
+      if (b) next.push(b)
     }
     const p = prev.current
     if (p.length === next.length && next.every((b, i) => sameRenderedBuffer(p[i], b))) {
@@ -100,6 +101,7 @@ const TabBar = ({
   const {
     closeBuffer,
     openContent,
+    openNewTab,
     promotePreview: promotePreviewBuffer,
     setPinned,
     confirmPendingClose,
@@ -109,7 +111,7 @@ const TabBar = ({
   const paneBufferIds = pane?.bufferIds ?? []
   // Projected, rendered-field-gated subscription (see useRenderedPaneBuffers):
   // TabBar no longer re-renders on content flushes, only on tab-appearance
-  // changes. newTab buffers are already filtered out inside the hook.
+  // changes.
   const buffers = useRenderedPaneBuffers(paneBufferIds)
   const activeBufferCandidate = pane ? pane.activeBufferId : globalActiveBufferId
   const activeBufferId =
@@ -126,7 +128,10 @@ const TabBar = ({
   )
   function handleCloseOtherTabs(keepBufferId: string) {
     const { buffers: allBufs } = workspaceStore.getState()
-    const toClose = allBufs.filter((b) => b.id !== keepBufferId && !b.isPinned)
+    // isUncloseable filters out the sole New Tab a pane is holding — closing it
+    // would just respawn another (see pane-slice's removeBufferFromPane) and, in
+    // the single-pane case, strand the pane tab-less in the meantime (I2).
+    const toClose = allBufs.filter((b) => b.id !== keepBufferId && !b.isPinned && !b.isUncloseable)
     toClose.forEach((b) => {
       if (paneId) removeBufferFromPane(paneId, b.id)
       closeBuffer(b.id)
@@ -134,7 +139,12 @@ const TabBar = ({
   }
   function handleCloseAllTabs() {
     const { buffers: allBufs } = workspaceStore.getState()
-    const toClose = allBufs.filter((b) => !b.isPinned)
+    // Same isUncloseable guard as handleCloseOtherTabs (I2). NOTE: this still
+    // iterates every buffer in the WORKSPACE while only ever removing from the
+    // current pane (paneId) — a separate, pre-existing bug this fix does not
+    // attempt, since narrowing the buffer set is a larger behavior change than
+    // the uncloseable-tab regression it was found alongside.
+    const toClose = allBufs.filter((b) => !b.isPinned && !b.isUncloseable)
     toClose.forEach((b) => {
       if (paneId) removeBufferFromPane(paneId, b.id)
       closeBuffer(b.id)
@@ -144,7 +154,7 @@ const TabBar = ({
     const { buffers: allBufs } = workspaceStore.getState()
     const idx = allBufs.findIndex((b) => b.id === bufferId)
     if (idx === -1) return
-    const toClose = allBufs.slice(idx + 1).filter((b) => !b.isPinned)
+    const toClose = allBufs.slice(idx + 1).filter((b) => !b.isPinned && !b.isUncloseable)
     toClose.forEach((b) => {
       if (paneId) removeBufferFromPane(paneId, b.id)
       closeBuffer(b.id)
@@ -176,6 +186,14 @@ const TabBar = ({
   const handleTabClose = useCallback(
     (bufferId: string) => {
       const buf = workspaceStore.getState().buffers.find((b) => b.id === bufferId)
+      // The single choke point every close affordance funnels through (× button,
+      // middle-click's handleAuxClick, the context menu's single "Close", and
+      // Delete/Backspace in keyboard nav all call this via `closeTab`). A pane's
+      // sole New Tab has no close affordance at all — closing it would just
+      // respawn another (pane-slice's removeBufferFromPane) and strand the pane
+      // tab-less in between (I2) — so honour the same flag the × button's
+      // visibility already does, here too.
+      if (buf?.isUncloseable) return
       if (buf && buf.type === 'editor' && buf.isDirty) {
         setPendingClose({ type: 'single', bufferId })
         return
@@ -535,18 +553,29 @@ const TabBar = ({
                   />
                 </SortableEditorTab>
               ))}
+
+              {/* Flows immediately after the last tab and shifts as tabs
+                  open/close — NOT a SortableEditorTab, so it never joins
+                  sortedBufferIds and is never draggable. */}
+              {paneId && (
+                <TabAddButton
+                  isBottomPane={isBottomPane}
+                  onNewTab={() => {
+                    setActivePane(paneId)
+                    openNewTab(paneId)
+                  }}
+                />
+              )}
             </div>
           </SortableContext>
 
+          {/* A pane action, not a tab action — stays pinned at the right
+              edge, outside the scrolling tab container. */}
           {paneId && (
-            <TabNewButton
+            <CloseSplitButton
               isBottomPane={isBottomPane}
               disablePaneActions={disablePaneActions}
               isInSplit={isInSplit}
-              onNewTerminal={() => {
-                setActivePane(paneId)
-                openContent({ type: 'terminal' })
-              }}
               onClosePane={() => closePane(paneId)}
             />
           )}

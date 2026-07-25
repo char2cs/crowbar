@@ -27,10 +27,11 @@ import (
 // app-layer GORMStores struct but lives here so the usecases package never
 // imports its parent package (which would be an import cycle).
 type GORMStores struct {
-	Projects         store.Store[domain.Project, string]
-	Repositories     store.Store[domain.Repository, string]
-	TerminalProfiles store.Store[domain.TerminalProfile, string]
-	TerminalSessions store.Store[domain.TerminalSession, string]
+	Projects                 store.Store[domain.Project, string]
+	Repositories             store.Store[domain.Repository, string]
+	TerminalProfiles         store.Store[domain.TerminalProfile, string]
+	TerminalSessions         store.Store[domain.TerminalSession, string]
+	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
 }
 
 // Container holds every application usecase, composing the aggregate
@@ -154,6 +155,11 @@ func New(
 		engineagent.NewRegistry(),
 		engines.Terminal,
 		agentWSReader,
+		gormStores.AgentProviderPreferences,
+		crowbarHome,
+		// nil probe → the usecase defaults to engineagent.Connected, the real
+		// install probe. Only tests inject a stub to isolate from the host PATH.
+		nil,
 	)
 	return &Container{
 		Project:              projectUsecase,

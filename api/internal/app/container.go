@@ -322,10 +322,11 @@ func toUsecaseStores(
 	gormStores *GORMStores,
 ) usecases.GORMStores {
 	return usecases.GORMStores{
-		Projects:         gormStores.Projects,
-		Repositories:     gormStores.Repositories,
-		TerminalProfiles: gormStores.TerminalProfiles,
-		TerminalSessions: gormStores.TerminalSessions,
+		Projects:                 gormStores.Projects,
+		Repositories:             gormStores.Repositories,
+		TerminalProfiles:         gormStores.TerminalProfiles,
+		TerminalSessions:         gormStores.TerminalSessions,
+		AgentProviderPreferences: gormStores.AgentProviderPreferences,
 	}
 }
 

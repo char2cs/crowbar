@@ -87,5 +87,15 @@ describe('open file → real monaco model content (live-flow repro)', () => {
       manager.unmountPane(paneId)
       container.remove()
     }
-  }, 30000)
+    // 120s, not 30s. This is a CEILING on a genuinely slow operation, not a
+    // wait for state to settle — the test blocks on real promises throughout.
+    // It loads REAL monaco (a 3.6MB chunk) through the arm seam's dynamic
+    // import. Measured on this machine: ~3.3s alone on an idle box, ~15s alone
+    // under load, and it BLEW the old 30s ceiling twice when the full 339-file
+    // suite ran in parallel — reproduced deterministically by pairing it with
+    // four unrelated editor suites. CI is worse than either measurement: two
+    // cores, and `test:coverage` adds v8 instrumentation over that same monaco
+    // bundle. A ceiling this test can hit on a busy machine is a flaky gate,
+    // and a flaky gate is one people learn to re-run instead of read.
+  }, 120000)
 })

@@ -3,6 +3,7 @@ import { wsManager } from '@/lib/ws/manager'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import { listChats, getChat, listProviders } from '@/features/agent/api/agent-api'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { toast } from '@/features/window/stores/toast-store'
 
@@ -132,6 +133,16 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     // see seedChats.
     let chatWrites = 0
 
+    // ONLY THE MOST-RECENTLY ISSUED SEED MAY WRITE — the same guard `latestFetch`
+    // carries in lib/store/loadable-slice.ts, and needed here for the same reason.
+    // chatWrites protects a seed from being overtaken by a per-chat READ; nothing
+    // protected it from being overtaken by ANOTHER SEED. Two ⌘N presses issue two
+    // list reads, resolution order is not issue order, and a seed is a full REPLACE
+    // — so an older snapshot landing last reinstates the list as it was before the
+    // newer chat existed, and that chat disappears from the sidebar with nothing
+    // scheduled to bring it back.
+    let listSeq = 0
+
     // The seed is a full RECONCILE, not a merge: it runs on first load AND on every
     // reconnect, and on reconnect it is the only thing that can repair frames the
     // socket dropped while it was down. seedAgentChats therefore drops chats the
@@ -156,12 +167,22 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     // chance for that to have stopped happening. If it somehow never settles we leave the
     // list alone rather than knowingly writing stale data over fresh — the per-chat reads
     // have already put the truth in the store; only the reconcile is skipped.
-    const seedChats = async () => {
+    // `keepWorking` is threaded straight to seedAgentChats and is true for exactly one
+    // caller: the `created` reseed. That reseed rides a LIVE socket (a new chat appeared,
+    // the connection never dropped), so no turn frame was missed and clearing the working
+    // map would needlessly blank the spinner on every OTHER mid-turn chat. Initial load and
+    // reconnect leave it false — working is genuinely unknown there and must reset to idle.
+    const seedChats = async ({ keepWorking = false }: { keepWorking?: boolean } = {}) => {
+      const seq = ++listSeq
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const issuedAt = chatWrites
           const chats = await listChats(wsId)
           if (cancelled) return
+          // A NEWER seed owns the list now: it asked later, so its answer is at
+          // least as fresh as anything this one could ask for. Stand down entirely
+          // (not `continue` — retrying would only race the newer seed again).
+          if (seq !== listSeq) return
           if (chatWrites !== issuedAt) continue // overtaken in flight — this snapshot is old news
 
           const store = getOrCreateWorkspaceStore(wsId)
@@ -174,7 +195,8 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
             if (!present.has(c.id)) vanished.push(c.id)
           }
 
-          store.getState().seedAgentChats(chats)
+          if (keepWorking) store.getState().seedAgentChats(chats, { keepWorking: true })
+          else store.getState().seedAgentChats(chats)
 
           // A chat deleted during the outage never delivered its `deleted` frame, so
           // close its pane tab here exactly as that frame's handler would have.
@@ -186,14 +208,49 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       }
     }
 
+    // THE PROVIDER LIST IS LOAD-BEARING, AND IT STARTS EMPTY.
+    //
+    // `INITIAL_AGENT_CHATS_STATE.providers` is `[]`, and every provider surface
+    // reads emptiness as "there are none": Settings → Providers says "No
+    // providers available.", the sidebar drops its New chat row, the New Tab
+    // action and ⌘N do nothing. So a single lost fetch — a daemon restarting, a
+    // dev hot-reload remount, one transient socket error — used to take the whole
+    // agent UI down for the life of the workspace, silently, with nothing
+    // retrying. That is the live report this exists to answer: healthy daemon,
+    // both providers enabled on disk, empty UI.
+    //
+    // Three things make it recoverable, and they cover different failures:
+    //   RETRY   — a one-off blip is retried immediately, bounded. No timer:
+    //             a timer here would be a worse version of the next line.
+    //   RECONNECT — the daemon coming back drops and re-opens the socket, and the
+    //             {reconnected} sentinel re-drives this. That is the real backoff,
+    //             driven by the thing that actually knows the daemon is answering.
+    //   TOAST   — when every attempt fails we say so, because the alternative is
+    //             a dead UI that explains nothing.
+    let providerSeq = 0
     const seedProviders = async () => {
-      try {
-        const providers = await listProviders(wsId)
-        if (cancelled) return
-        getOrCreateWorkspaceStore(wsId).getState().setAgentProviders(providers)
-      } catch {
-        /* non-fatal */
+      const seq = ++providerSeq
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const providers = await listProviders(wsId)
+          if (cancelled) return
+          // A newer read (a reconnect reseed) already owns the list.
+          if (seq !== providerSeq) return
+          getOrCreateWorkspaceStore(wsId).getState().setAgentProviders(providers)
+          // Providers are machine-level, and the Settings dialog is global: give
+          // the global store the same answer so opening Settings from anywhere
+          // (Project Home, the projects screen) shows the real list instead of
+          // claiming the daemon has none.
+          useAgentProvidersStore.getState().setProviders(providers)
+          return
+        } catch {
+          if (cancelled || seq !== providerSeq) return
+        }
       }
+      toast.error(
+        'Could not load agent providers',
+        'Crowbar could not reach the daemon. New chats are unavailable until it answers.',
+      )
     }
 
     // Returns whether the chat actually landed in the store, so a caller that is about
@@ -329,6 +386,11 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       // reseed so pushes missed during the outage aren't lost.
       if (frame && typeof frame === 'object' && 'reconnected' in frame) {
         void seedChats()
+        // Providers too: the outage that dropped the socket is the same one that
+        // can have emptied them, and this is the app's own signal that the daemon
+        // is answering again. Without it a workspace that lost its providers
+        // stayed dead until the user reopened it.
+        void seedProviders()
         return
       }
       const ev = frame as AgentStreamEvent
@@ -357,7 +419,10 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           return
         }
         case 'created':
-          void seedChats() // new chat + ordering — reseed the whole list
+          // New chat + ordering — reseed the whole list, but KEEP working: the socket is
+          // live, so no other chat's turn state was missed and clearing it would blank
+          // every other mid-turn chat's spinner.
+          void seedChats({ keepWorking: true })
           return
         default:
           void refetchOne(ev.chatId) // title_set / session_bound

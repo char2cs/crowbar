@@ -167,23 +167,6 @@ async function formatRangeWithLsp(
 }
 
 /**
- * Check if formatting is available for a file
- */
-export function isFormattingAvailable(filePath: string, languageId?: string): boolean {
-  const formatterConfig = extensionRegistry.getFormatterForFile(filePath)
-  if (formatterConfig) return true
-
-  if (extensionRegistry.getLspServerPath(filePath)) return true
-
-  if (languageId) {
-    const langFormatterConfig = extensionRegistry.getFormatterForLanguage(languageId)
-    return langFormatterConfig !== null
-  }
-
-  return false
-}
-
-/**
  * Get workspace folder from file path
  */
 function getWorkspaceFolder(filePath: string): string | undefined {

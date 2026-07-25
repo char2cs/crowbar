@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { postProject, postRepo, postWorkspace, deleteWorkspace, apiFetch } from '@/lib/api'
+import {
+  postProject,
+  postRepo,
+  renameRepo,
+  postWorkspace,
+  deleteWorkspace,
+  apiFetch,
+} from '@/lib/api'
 
 // §3/§7: every entity mutation is hierarchical and fire-and-forget — the daemon
 // answers 202 Accepted with an EMPTY body and the real entity arrives over the
@@ -36,6 +43,16 @@ describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
     expect(url).toBe('/v0/projects/p1/repos')
     expect(init.method).toBe('POST')
     expect(JSON.parse(init.body as string)).toEqual({ name: 'crowbar', path: '/tmp/crowbar' })
+    expect(res).toBeUndefined()
+  })
+
+  test('PATCH /v0/projects/:p/repos/:r body {name} → 204, resolves undefined', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    const res = await renameRepo('p1', 'r1', 'New Name')
+    const [url, init] = lastCall()
+    expect(url).toBe('/v0/projects/p1/repos/r1')
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(init.body as string)).toEqual({ name: 'New Name' })
     expect(res).toBeUndefined()
   })
 

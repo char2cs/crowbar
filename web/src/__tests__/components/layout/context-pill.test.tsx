@@ -179,6 +179,38 @@ describe('ContextPill', () => {
   })
 })
 
+// A long branch name used to paint straight over the status icon: the text
+// column is `items-start`, so each line was shrink-to-fit, and `truncate`'s
+// `white-space: nowrap` makes a line's min-content width the WHOLE string —
+// the line sized to the full branch and `overflow: hidden` clipped nothing.
+// Pinning every line to `w-full` is what gives truncate a box to truncate
+// against. jsdom does no layout, so this asserts the classes that carry the
+// fix; the actual clipping was measured in the running app.
+describe('ContextPill overflow', () => {
+  const line = (text: string) => screen.getByText(text)
+
+  it('pins the workspace repo/branch lines to the column width', () => {
+    mockPathname = '/ide/p1/r1/ws1'
+    render(<ContextPill />)
+
+    for (const el of [line('crowbar'), line('ide-polish')]) {
+      expect(el.className).toContain('truncate')
+      expect(el.className).toContain('w-full')
+    }
+  })
+
+  it('pins the project-home lines to the column width', () => {
+    mockPathname = '/ide/p1/home'
+    useHomeWorkspaceStore.setState({ workspace: homeDTO(false) })
+    render(<ContextPill />)
+
+    for (const el of [line('Crowbar'), line('home')]) {
+      expect(el.className).toContain('truncate')
+      expect(el.className).toContain('w-full')
+    }
+  })
+})
+
 // The pill shows the ACTIVE workspace's icon, and that icon must move into its
 // loading state while an agent works — for every workspace kind.
 describe('ContextPill working overlay', () => {
@@ -220,14 +252,16 @@ describe('ContextPill working overlay', () => {
     expect(container.querySelector('.text-foreground')).not.toBeNull()
   })
 
-  it('shows the House glyph (no spinner) on an idle project home', () => {
+  it('shows the project-home mark (no spinner) on an idle project home', () => {
     mockPathname = '/ide/p1/home'
     useHomeWorkspaceStore.setState({ workspace: homeDTO(false) })
 
-    render(<ContextPill />)
+    const { container } = render(<ContextPill />)
 
     expect(screen.getByText('home')).toBeInTheDocument()
     expect(spinner()).toBeNull()
+    // Same mark the sidebar's home row leads with — the pill mirrors that row.
+    expect(container.querySelector('.lucide-library')).not.toBeNull()
   })
 
   it('spins the icon on REPO HOME (the default workspace), replacing the repo avatar', () => {

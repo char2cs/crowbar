@@ -16,6 +16,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
@@ -544,12 +545,27 @@ func (c *Container) WorkingFor(
 // rebroadcast pushes the workspace's current row to the hub so an overlay
 // transition (Begin/EndWork) is visible without waiting for the op's next
 // event. Best-effort: a missing row (already deleted) skips silently.
+//
+// A read failure here is LOGGED rather than dropped in silence, because the frame
+// it costs us is not interchangeable with the next one. Working is transported as
+// a delta and nothing repeats it: the transition that turns the spinner OFF is
+// broadcast exactly once, so a Get that fails leaves every client spinning over an
+// idle workspace until some unrelated event happens to re-broadcast the row. That
+// wedge is invisible from the outside — the daemon's own state is correct and the
+// event log is clean — and it stayed invisible precisely because this returned
+// without a word. ErrNotFound is the expected case (the op deleted its own row)
+// and is not worth a line.
 func (c *Container) rebroadcast(
 	ctx context.Context,
 	wsID string,
 ) {
 	ws, err := c.Workspace.Get(ctx, wsID)
 	if err != nil {
+		if !errors.Is(err, apperr.ErrNotFound) {
+			slog.WarnContext(ctx, "repositories: rebroadcast: get workspace "+
+				"(client overlay may be stale until the next event)",
+				"workspace_id", wsID, "err", err)
+		}
 		return
 	}
 	c.broadcastWorkspace(ctx, ws)

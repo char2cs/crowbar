@@ -1,4 +1,3 @@
-import React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ProjectHomeRow } from '@/components/layout/project-home-row'
@@ -6,16 +5,12 @@ import { useProjectStore } from '@/lib/store/projects'
 import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
 import type { WorkspaceDTO } from '@/lib/types'
 
-// @phosphor-icons/react ships pure ESM and gets its own React copy in the
-// vitest/jsdom process, causing "Cannot read properties of null (reading 'useContext')".
-// Mock it to a plain SVG stub so tests can exercise component logic without the
-// ESM singleton issue.
-vi.mock('@phosphor-icons/react', () => ({
-  House: ({ size, weight }: { size?: number; weight?: string }) =>
-    React.createElement('svg', { 'data-icon': 'house', 'data-size': size, 'data-weight': weight }),
-  FolderPlus: ({ size }: { size?: number }) =>
-    React.createElement('svg', { 'data-icon': 'folder-plus', 'data-size': size }),
-}))
+// The row's glyphs are Lucide, which is dual-published and shares the process's
+// React copy, so it needs no mock (unlike @phosphor-icons/react, whose pure-ESM
+// build picks up its own React and throws "Cannot read properties of null
+// (reading 'useContext')"). Lucide stamps `lucide-<name>` on every icon's class,
+// which is what the leading-mark assertions below query.
+const LEAD_GLYPH = '.lucide-library'
 
 const navigateMock = vi.fn()
 let mockMatch: object | null = null
@@ -114,25 +109,25 @@ describe('ProjectHomeRow working overlay', () => {
     // The real flicker spinner (self-animating SVG), theme-token colored.
     expect(container.querySelector('svg animate')).not.toBeNull()
     expect(container.querySelector('.text-foreground')).not.toBeNull()
-    // The House glyph yields to it for the duration of the turn.
-    expect(container.querySelector('[data-icon="house"]')).toBeNull()
+    // The leading mark yields to it for the duration of the turn.
+    expect(container.querySelector(LEAD_GLYPH)).toBeNull()
   })
 
-  it('renders the House glyph (no spinner) when the home workspace is idle', () => {
+  it('renders the leading mark (no spinner) when the home workspace is idle', () => {
     useHomeWorkspaceStore.setState({ workspace: homeDTO(false) })
 
     const { container } = render(<ProjectHomeRow />)
 
     expect(screen.queryByRole('status', { name: 'Loading' })).toBeNull()
-    expect(container.querySelector('[data-icon="house"]')).not.toBeNull()
+    expect(container.querySelector(LEAD_GLYPH)).not.toBeNull()
   })
 
-  it('renders the House glyph before the home workspace has been read', () => {
+  it('renders the leading mark before the home workspace has been read', () => {
     useHomeWorkspaceStore.setState({ workspace: null })
 
     const { container } = render(<ProjectHomeRow />)
 
     expect(screen.queryByRole('status', { name: 'Loading' })).toBeNull()
-    expect(container.querySelector('[data-icon="house"]')).not.toBeNull()
+    expect(container.querySelector(LEAD_GLYPH)).not.toBeNull()
   })
 })

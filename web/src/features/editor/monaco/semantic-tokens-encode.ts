@@ -21,8 +21,6 @@ export const SEMANTIC_TOKEN_TYPES = [
   'operator',
   'punctuation',
 ] as const
-export type SemanticTokenType = (typeof SEMANTIC_TOKEN_TYPES)[number]
-
 export const SEMANTIC_TOKEN_LEGEND = {
   tokenTypes: [...SEMANTIC_TOKEN_TYPES] as string[],
   tokenModifiers: [] as string[],

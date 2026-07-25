@@ -34,8 +34,30 @@ export function ProviderSwitchDropdown({
   const [isOpen, setIsOpen] = useState(false)
   const anchorRef = useRef<HTMLButtonElement>(null)
 
+  // `current` is looked up across ALL providers, disabled included: disabling a
+  // provider never touches chats already running on it, so this trigger must keep
+  // naming what the chat is actually talking to.
+  //
+  // `others` — the switch TARGETS — drops disabled providers. This menu offers a
+  // provider the same way the New-chat rows do, and switching to a disabled one
+  // would spawn the very CLI the user turned off.
   const current = providers.find((p) => p.id === currentProviderId)
-  const others = providers.filter((p) => p.id !== currentProviderId)
+  const others = providers.filter((p) => p.id !== currentProviderId && p.enabled)
+
+  // Both menu shapes below (switch targets, or the nothing-to-switch-to hint)
+  // share these, so the menu can never drift from its trigger. Dropdown's content
+  // props are a discriminated union — `items` and `children` are mutually
+  // exclusive — which is why this is a spread plus one explicit content prop
+  // rather than a single element with a conditional child.
+  const menuProps = {
+    isOpen,
+    onClose: () => setIsOpen(false),
+    anchorRef,
+    anchorSide: 'top' as const,
+    anchorAlign: 'end' as const,
+    className: 'min-w-0',
+    style: { width: SWITCHER_WIDTH_PX },
+  }
 
   return (
     <>
@@ -69,26 +91,31 @@ export function ProviderSwitchDropdown({
         </span>
         <CaretUpDown size={12} className="shrink-0 text-muted-foreground" />
       </button>
-      <Dropdown
-        isOpen={isOpen}
-        onClose={() => setIsOpen(false)}
-        anchorRef={anchorRef}
-        anchorSide="top"
-        // The trigger now sits at the right end of the status line, so the menu hangs
-        // from its RIGHT edge. (With both at SWITCHER_WIDTH_PX this is currently a
-        // no-op, but it is what keeps the menu on the column if either width changes.)
-        anchorAlign="end"
-        // min-w-0 clears the root's 240px floor; the width itself comes from style so
-        // Dropdown's width-lock does not overwrite it. See SWITCHER_WIDTH_PX.
-        className="min-w-0"
-        style={{ width: SWITCHER_WIDTH_PX }}
-        items={others.map((provider) => ({
-          id: provider.id,
-          label: provider.displayName,
-          icon: <ProviderIcon svg={provider.icon} />,
-          onClick: () => onSwitch(provider.id),
-        }))}
-      />
+      {/* menuProps carries the positioning and the shared width (anchorAlign="end"
+          keeps the menu on the trigger's column; min-w-0 clears the root's 240px
+          floor so the style width wins). See SWITCHER_WIDTH_PX. */}
+      {others.length > 0 ? (
+        <Dropdown
+          {...menuProps}
+          items={others.map((provider) => ({
+            id: provider.id,
+            label: provider.displayName,
+            icon: <ProviderIcon svg={provider.icon} />,
+            onClick: () => onSwitch(provider.id),
+          }))}
+        />
+      ) : (
+        <Dropdown {...menuProps}>
+          {/* A menu that opens onto nothing is a dead end. Say why it is empty and
+              what a second provider would buy — above all that the conversation
+              carries over, which is the part nobody would guess. Deliberately not a
+              menuitem: there is nothing here to select. */}
+          <p className="ui-font ui-text-xs px-2 py-1.5 text-muted-foreground">
+            No other provider is enabled. Turn one on in Settings to switch mid-chat — this
+            conversation&apos;s context comes with you.
+          </p>
+        </Dropdown>
+      )}
     </>
   )
 }

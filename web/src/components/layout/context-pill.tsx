@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { House } from '@phosphor-icons/react'
+import { Library } from 'lucide-react'
 import { useRouterState } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { CommandDialog, CommandDialogTrigger, CommandDialogPopup } from '@/components/ui/command'
@@ -56,9 +56,16 @@ export function ContextPill() {
         >
           {model.kind === 'workspace' ? (
             <span className="flex w-full min-w-0 items-center gap-2">
+              {/* `w-full` on each line is load-bearing, not decoration: the column
+                  is `items-start`, so a child's width is shrink-to-fit — and with
+                  `white-space: nowrap` (truncate) its min-content width IS the
+                  whole string, so it sizes to the full branch name and
+                  `overflow: hidden` clips nothing. A long branch then painted
+                  straight over the status icon. Pinning each line to the column's
+                  width gives truncate something to truncate against. */}
               <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left leading-tight">
-                <span className="truncate text-xs text-foreground/70">{model.repoName}</span>
-                <span className="truncate text-[13px] font-semibold text-foreground">
+                <span className="w-full truncate text-xs text-foreground/70">{model.repoName}</span>
+                <span className="w-full truncate text-[13px] font-semibold text-foreground">
                   {model.branchName}
                 </span>
               </span>
@@ -75,16 +82,20 @@ export function ContextPill() {
             </span>
           ) : model.kind === 'home' ? (
             <span className="flex w-full min-w-0 items-center gap-2">
+              {/* Same `w-full`-per-line rule as the workspace pill above — a long
+                  project name would otherwise run under the house icon. */}
               <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left leading-tight">
-                <span className="truncate font-mono text-xs text-foreground/70">
+                <span className="w-full truncate font-mono text-xs text-foreground/70">
                   {model.projectName}
                 </span>
-                <span className="truncate font-mono text-[13px] font-semibold text-foreground">
+                <span className="w-full truncate font-mono text-[13px] font-semibold text-foreground">
                   home
                 </span>
               </span>
               <span className="flex shrink-0 scale-110 text-foreground/70">
-                {model.working ? <WorkspaceAgentSpinner /> : <House size={14} weight="fill" />}
+                {/* Same mark as the home row's leading glyph, at Lucide's default
+                    weight like every other Lucide icon in the sidebar. */}
+                {model.working ? <WorkspaceAgentSpinner /> : <Library size={14} />}
               </span>
             </span>
           ) : (

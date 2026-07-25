@@ -62,7 +62,7 @@ export const EDITOR_CREATE_OPTIONS: monacoEditor.IStandaloneEditorConstructionOp
 }
 
 /**
- * Monaco language id for a model URI (uri → fs path → athas id → monaco id).
+ * Monaco language id for a model URI (uri → fs path → language id → monaco id).
  *
  * Also kicks off (fire-and-forget) the on-demand grammar/language-service load
  * for this path via `loadLanguageForPath` — see `language-contributions.ts`.

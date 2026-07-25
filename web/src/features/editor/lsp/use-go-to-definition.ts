@@ -6,16 +6,26 @@ import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspac
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { calculateOffsetFromContentPosition } from '@/features/editor/utils/position'
-import { readFileContent } from '@/features/file-system/controllers/file-operations'
+import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
+import { toast } from '@/features/window/stores/toast-store'
 import { logger } from '../utils/logger'
 import type { EditorCoordinateResolver } from '../view-model/view-layout'
 
+// The daemon answers with WORKSPACE-RELATIVE paths — it owns the worktree root
+// and relativizes the language server's absolute file:// URIs before replying —
+// which is the form buffers are keyed by and the files API accepts. The one
+// exception is a target the worktree does not contain (a stdlib or module-cache
+// source), which has no relative form and arrives absolute.
 interface Definition {
-  uri: string
+  filePath: string
   range: {
     start: { line: number; character: number }
     end: { line: number; character: number }
   }
+}
+
+function isOutsideWorkspace(filePath: string): boolean {
+  return /^([A-Za-z]:)?[\\/]/.test(filePath)
 }
 
 interface UseGoToDefinitionProps {
@@ -82,11 +92,21 @@ export const useGoToDefinition = ({
 
           if (definitions && definitions.length > 0) {
             const target = definitions[0]
-            const targetFilePath = target.uri.replace('file://', '')
+            const targetFilePath = target.filePath
 
             const wsRef = getActiveWorkspaceStoreRef()
             const wsStore = wsRef?.getState()
             if (!wsStore) return
+
+            // A target the workspace does not contain (a stdlib or dependency
+            // source outside the worktree) can never be read through the
+            // workspace-scoped files API, which rejects absolute paths. Say so
+            // rather than issuing a request that is guaranteed to fail.
+            if (isOutsideWorkspace(targetFilePath)) {
+              logger.info('Editor', `Definition outside workspace: ${targetFilePath}`)
+              toast.error('Definition is outside this workspace', targetFilePath)
+              return
+            }
 
             // Push current position to jump list before navigating
             const activeBufferId = wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null
@@ -94,6 +114,9 @@ export const useGoToDefinition = ({
               const editorState = useEditorStateStore.getState()
               useJumpListStore.getState().actions.pushEntry({
                 bufferId: activeBufferId,
+                // Workspace-relative paths are ambiguous across sibling
+                // worktrees — name the workspace this position belongs to.
+                workspaceId: wsStore.workspaceId,
                 filePath,
                 line: editorState.cursorPosition.line,
                 column: editorState.cursorPosition.column,
@@ -102,12 +125,25 @@ export const useGoToDefinition = ({
                 scrollLeft: editorState.scrollLeft,
               })
             }
+            // A pane renders only the buffers in its own bufferIds, so activating
+            // one it does not hold leaves it pointing at nothing and the editor
+            // goes blank. Reveal in the pane that actually holds the buffer, and
+            // attach to the active pane only when none does.
+            const reveal = (bufferId: string): void => {
+              const holdingPane = wsStore.paneActions.getPaneByBufferId(bufferId)
+              const paneId = holdingPane?.id ?? wsStore.activePaneId
+              if (!holdingPane) wsStore.paneActions.addBufferToPane(paneId, bufferId, true)
+              wsStore.paneActions.activatePaneBuffer(paneId, bufferId)
+            }
+
             const existingBuffer = wsStore.buffers.find((b) => b.path === targetFilePath)
 
             if (existingBuffer) {
-              wsStore.paneActions.activatePaneBuffer(wsStore.activePaneId, existingBuffer.id)
+              reveal(existingBuffer.id)
             } else {
-              const content = await readFileContent(targetFilePath)
+              // Read through this workspace, not whichever is active when the
+              // await settles: linked worktrees of one repo share relative paths.
+              const content = await readWorkspaceFile(wsStore.workspaceId, targetFilePath)
               const fileName = targetFilePath.split('/').pop() || 'untitled'
               const bufferId = wsStore.bufferActions.openContent({
                 type: 'editor',
@@ -115,7 +151,7 @@ export const useGoToDefinition = ({
                 name: fileName,
                 content,
               })
-              wsStore.paneActions.activatePaneBuffer(wsStore.activePaneId, bufferId)
+              reveal(bufferId)
             }
 
             // Set cursor position after buffer is ready
@@ -145,7 +181,13 @@ export const useGoToDefinition = ({
             logger.debug('Editor', 'No definition found')
           }
         } catch (error) {
+          // A silent dead end is indistinguishable from "this symbol has no
+          // definition". Log for diagnosis AND tell the user something failed.
           logger.error('Editor', 'Go to definition error:', error)
+          toast.error(
+            'Could not go to definition',
+            error instanceof Error ? error.message : undefined,
+          )
         }
       }
     },

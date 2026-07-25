@@ -16,6 +16,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
+	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
 
 // hiddenRemoteEngine wraps the REAL git engine but simulates the confirmed bug's
@@ -241,4 +242,118 @@ func TestRegression_ImportBranchTracksOriginOnReachablePath(t *testing.T) {
 		"rev-parse", "--abbrev-ref", "feature/x@{upstream}"))
 	assert.Equal(t, "origin/feature/x", upstream,
 		"origin-reachable import must ALSO track origin/feature/x — a proper review target")
+}
+
+// setupImportChainRepo builds a bare origin with main → feat/base → feat/child,
+// all pushed, then clones it. feat/base and feat/child are present only as
+// origin remote-tracking refs (no local branches, no workspaces yet).
+func setupImportChainRepo(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+
+	origin := filepath.Join(root, "origin.git")
+	gitRun(t, root, "init", "--bare", origin)
+
+	seed := filepath.Join(root, "seed")
+	require.NoError(t, os.MkdirAll(seed, 0o755))
+	gitRun(t, seed, "init")
+	gitRun(t, seed, "config", "user.email", "t@t")
+	gitRun(t, seed, "config", "user.name", "t")
+	writeFile(t, filepath.Join(seed, "f.txt"), "MAIN")
+	gitRun(t, seed, "add", "f.txt")
+	gitRun(t, seed, "commit", "-m", "main content")
+	gitRun(t, seed, "branch", "-M", "main")
+	gitRun(t, seed, "remote", "add", "origin", origin)
+	gitRun(t, seed, "push", "origin", "main")
+	gitRun(t, seed, "checkout", "-b", "feat/base")
+	writeFile(t, filepath.Join(seed, "f.txt"), "BASE")
+	gitRun(t, seed, "add", "f.txt")
+	gitRun(t, seed, "commit", "-m", "base content")
+	gitRun(t, seed, "push", "origin", "feat/base")
+	gitRun(t, seed, "checkout", "-b", "feat/child")
+	writeFile(t, filepath.Join(seed, "f.txt"), "CHILD")
+	gitRun(t, seed, "add", "f.txt")
+	gitRun(t, seed, "commit", "-m", "child content")
+	gitRun(t, seed, "push", "origin", "feat/child")
+	gitRun(t, origin, "symbolic-ref", "HEAD", "refs/heads/main")
+
+	repoPath := filepath.Join(root, "repo")
+	gitRun(t, root, "clone", origin, repoPath)
+	return repoPath
+}
+
+// TestRegression_ImportParentsPRChainCreatingMissingBase pins the production gap:
+// importing a branch whose OPEN PR targets a base branch that is NOT yet a
+// workspace must async-create that base (parented under the repo default) AND
+// parent the imported branch under it — "parent the whole tree". Before this
+// work, import forked every branch off the default with no PR parenting, so
+// feat/child landed as a root under main and feat/base was never created.
+func TestRegression_ImportParentsPRChainCreatingMissingBase(t *testing.T) {
+	repoPath := setupImportChainRepo(t)
+
+	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+
+	workspaces, quiesce := newWorkspaceRepo(t, adapters)
+	repos, err := storesqlite.NewFromDB[domain.Repository, string](adapters.GlobalView())
+	require.NoError(t, err)
+
+	repoID := "r1"
+	projectID := "p1"
+	require.NoError(t, repos.Save(context.Background(), domain.Repository{
+		ID:            repoID,
+		ProjectID:     projectID,
+		Name:          "repo",
+		Path:          repoPath,
+		RemoteURL:     "https://github.com/test/integration-repo.git",
+		DefaultBranch: "main",
+	}))
+
+	// Provider reports the open-PR graph: feat/child → feat/base → main.
+	prov := &stubProvider{prLinks: []engineprovider.PRLink{
+		{Head: "feat/child", Base: "feat/base"},
+		{Head: "feat/base", Base: "main"},
+	}}
+	uc := worktree.New(
+		workspaces,
+		enginegit.New(),
+		prov,
+		repos,
+		func() time.Time { return time.Unix(1000, 0).UTC() },
+		func() (string, error) { return t.TempDir(), nil },
+	)
+
+	// Import ONLY feat/child — its missing base must be created and parented.
+	err = uc.CreateFromImport(context.Background(), worktree.ImportInput{
+		RepoID:        repoID,
+		ProjectID:     projectID,
+		RepoPath:      repoPath,
+		RemoteURL:     "https://github.com/test/integration-repo.git",
+		DefaultBranch: "main",
+		Branches:      []string{"feat/child"},
+	})
+	require.NoError(t, err)
+	quiesce()
+
+	all, err := workspaces.List(context.Background())
+	require.NoError(t, err)
+	byBranch := map[string]domain.Workspace{}
+	for _, w := range all {
+		if w.RepoID == repoID && !w.IsDefault {
+			byBranch[w.Branch] = w
+		}
+	}
+
+	base, baseOK := byBranch["feat/base"]
+	child, childOK := byBranch["feat/child"]
+	require.True(t, baseOK, "missing PR base feat/base must be async-created as a workspace")
+	require.True(t, childOK, "imported feat/child must be created")
+	assert.Equal(t, "", base.ParentID, "feat/base's PR targets the default branch → root under repo home")
+	assert.Equal(t, base.ID, child.ParentID, "feat/child must be parented under the feat/base workspace")
+
+	// The created base carries origin/feat/base content, not a fork off main.
+	got, err := os.ReadFile(filepath.Join(base.WorktreePath, "f.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "BASE", string(got), "created base must check out origin/feat/base content")
 }

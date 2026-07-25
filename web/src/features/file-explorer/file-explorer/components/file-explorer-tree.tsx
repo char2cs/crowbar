@@ -31,6 +31,7 @@ import {
 import type { FileEntry } from '@/features/file-system/types/app'
 import { useGitStore } from '@/features/git/stores/git-store'
 import { useSettingsStore } from '@/features/settings/store'
+import { toast } from '@/features/window/stores/toast-store'
 import { isWorkspaceLockedInSidebar, useSidebarStore } from '@/lib/store/sidebar'
 import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { Button } from '@/components/ui/button'
@@ -999,9 +1000,28 @@ function FileExplorerTreeComponent({
             const sep = current.path.includes('\\') ? '\\' : '/'
             const targetDir = isDir ? current.path : current.path.split(sep).slice(0, -1).join(sep)
             if (targetDir) {
-              clipboardActions.paste(targetDir).then(() => {
-                onRefreshDirectory?.(targetDir)
-              })
+              // Paste really moves/copies now, so it can really fail (an
+              // occupied destination is a 409 on both verbs — the daemon never
+              // clobbers). Say so instead of leaving the user with a silently
+              // unfinished move, and never leave the rejection unhandled.
+              clipboardActions
+                .paste(targetDir)
+                .then((results) => {
+                  onRefreshDirectory?.(targetDir)
+                  const failed = results.filter((result) => !result.success)
+                  if (failed.length > 0) {
+                    toast.error(
+                      'Paste failed',
+                      failed.map((result) => result.destination_path).join(', '),
+                    )
+                  }
+                })
+                .catch((error: unknown) => {
+                  toast.error(
+                    'Paste failed',
+                    error instanceof Error ? error.message : String(error),
+                  )
+                })
             }
             return
           }

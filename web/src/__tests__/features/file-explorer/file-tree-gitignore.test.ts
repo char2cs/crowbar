@@ -48,7 +48,7 @@ describe('file tree gitignore rules', () => {
   // project-home workspace) fetched a non-existent file and 404'd on every load.
   it('does not synthesize a root .gitignore reference when the loaded tree has none', () => {
     const references = collectGitIgnoreFileReferences(
-      [dir('athas', 'athas'), dir('desktop', 'desktop')],
+      [dir('crowbar', 'crowbar'), dir('desktop', 'desktop')],
       '/repo',
     )
     expect(references).toEqual([])

@@ -26,6 +26,9 @@ export function useJumpNavigation() {
       currentActiveBufferId && currentActiveBuffer?.path
         ? {
             bufferId: currentActiveBufferId,
+            // The forward-stack entry this synthesises is a position in THIS
+            // workspace; without the stamp it would be unresolvable later.
+            workspaceId: wsState.workspaceId,
             filePath: currentActiveBuffer.path,
             line: editorState.cursorPosition.line,
             column: editorState.cursorPosition.column,

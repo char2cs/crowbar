@@ -21,17 +21,50 @@ import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 import { useHistoryStore } from '@/features/editor/stores/history-store'
 import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
+// Leaf module (zustand only, no Plate) — a static import here keeps the rich
+// editor's chunk out of the base bundle while still giving closeBuffer a
+// synchronous way to release the buffer's rich/source preference.
+import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 import type { WorkspaceStore } from '../workspace-store'
 import { nanoid } from 'nanoid'
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>(['externalEditor', 'terminal'])
+// 'newTab' is included alongside the always-live externalEditor/terminal:
+// a pane with no tabs falls back to showing its (evicted) New Tab, so letting
+// one be auto-evicted out from under a pane that is only holding it because
+// it has nothing else would leave that pane with NO tabs at all — the exact
+// state closing a pane's last real tab is supposed to degrade into, not skip
+// past. See openNewTab's own doc comment for the invariant this protects.
+const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>([
+  'externalEditor',
+  'terminal',
+  'newTab',
+])
 
 // ── Actions ──────────────────────────────────────────────────────────
 
 export interface BufferActions {
   openContent(spec: OpenContentSpec): string
+  /**
+   * Open (or re-focus) the pane's New Tab. A pane holds at most ONE — a second
+   * identical blank is clutter, not a feature — so this is idempotent per pane
+   * and returns the id either way.
+   *
+   * Returns `null`, minting nothing, when `paneId` names no registered pane:
+   * `addBufferToPane` would silently no-op for it, so pushing a buffer anyway
+   * would attach it to no pane (inflating `buffers` for nothing to render) and
+   * returning a fabricated id would tell the caller a New Tab now exists
+   * somewhere it does not. `string | null` is the signature that can't lie.
+   *
+   * Never changes which pane is globally active — it only ensures the target
+   * pane has a New Tab and makes it that PANE's active buffer. Moving global
+   * focus (setActivePane / activatePaneBuffer, which both move it) is left to
+   * the caller, because a caller may deliberately target a background pane
+   * (e.g. re-seeding a pane whose last real tab just closed) and must not have
+   * focus stolen out from under whatever the user is doing elsewhere.
+   */
+  openNewTab(paneId?: string): string | null
   closeBuffer(id: string): void
   renameBuffer(id: string, name: string): void
   repointAgentChatBuffer(id: string, to: { chatId: string; runnerId: string }): void
@@ -42,6 +75,35 @@ export interface BufferActions {
   reopenLastClosedBuffer(): void
   setPendingClose(pc: PendingClose | null): void
   confirmPendingClose(): void
+}
+
+/** The one shape of a New Tab placeholder buffer. Both mint sites — `openContent`'s
+ *  `newTab` spec and `openNewTab` — build the exact same literal, so it lives here
+ *  once instead of twice (drift between the two was Finding 3). */
+function makeNewTabBuffer(id: string): NewTabContent {
+  return {
+    id,
+    type: 'newTab',
+    path: '',
+    name: 'New Tab',
+    isPinned: false,
+    isPreview: false,
+    isActive: false,
+  }
+}
+
+/** The New Tab a pane is holding, if any. A pane holds at most one. */
+function findNewTabInPane(
+  buffers: PaneContent[],
+  pane: { bufferIds: string[] } | null | undefined,
+): PaneContent | undefined {
+  if (!pane) return undefined
+  const byId = new Map(buffers.map((b) => [b.id, b]))
+  for (const id of pane.bufferIds) {
+    const buf = byId.get(id)
+    if (buf?.type === 'newTab') return buf
+  }
+  return undefined
 }
 
 // ── Slice ────────────────────────────────────────────────────────────
@@ -63,6 +125,23 @@ export const createBufferSlice: StateCreator<
   // See pane-slice for why reaching `editorManager` through `api` is safe: it is
   // the non-reactive handle Object.assign'd onto the store after slice creation.
   const editorManagerOf = () => (api as unknown as WorkspaceStore).editorManager
+
+  /** A New Tab is a placeholder for "something will go here". The moment
+   *  something actually lands in `paneId` — a brand-new buffer, or an existing
+   *  one deduped into it — that placeholder has served its purpose: replace it
+   *  in place rather than leaving a blank tab sitting next to the thing it
+   *  produced. Two call sites in `openContent` share this (the brand-new-buffer
+   *  path and the dedup path that attaches an existing buffer to the active
+   *  pane) — NOT the dedup path that jumps focus to a pane elsewhere instead,
+   *  which lands nothing here and must leave `paneId`'s New Tab alone. */
+  const consumeNewTabInPane = (paneId: string): void => {
+    const staleNewTab = findNewTabInPane(get().buffers, get().paneActions.getPaneById(paneId))
+    if (!staleNewTab) return
+    get().paneActions.removeBufferFromPane(paneId, staleNewTab.id, true)
+    set((state) => {
+      state.buffers = state.buffers.filter((b) => b.id !== staleNewTab.id)
+    })
+  }
 
   return {
     buffers: [],
@@ -127,6 +206,9 @@ export const createBufferSlice: StateCreator<
               return existing.id
             }
           }
+          // Unlike the jump-path above, something lands in the active pane here —
+          // see consumeNewTabInPane's doc comment for why that consumes it first.
+          consumeNewTabInPane(get().activePaneId)
           get().paneActions.addBufferToPane(get().activePaneId, existing.id, true)
           return existing.id
         }
@@ -227,15 +309,7 @@ export const createBufferSlice: StateCreator<
             isActive: false,
           } satisfies TerminalContent
         } else if (spec.type === 'newTab') {
-          buf = {
-            id,
-            type: 'newTab',
-            path: '',
-            name: 'New Tab',
-            isPinned: false,
-            isPreview: false,
-            isActive: false,
-          } satisfies NewTabContent
+          buf = makeNewTabBuffer(id)
         } else if (spec.type === 'markdownPreview') {
           buf = {
             id,
@@ -289,11 +363,41 @@ export const createBufferSlice: StateCreator<
         set((state) => {
           state.buffers.push(buf)
         })
+        // See consumeNewTabInPane's doc comment: a brand-new buffer landing here
+        // consumes the active pane's own New Tab.
+        consumeNewTabInPane(get().activePaneId)
         get().paneActions.addBufferToPane(get().activePaneId, id, true)
         if (spec.type === 'editor' && spec.isPreview) {
           get().paneActions.setPanePreviewBuffer(get().activePaneId, id)
         }
 
+        return id
+      },
+
+      openNewTab(paneId) {
+        const targetPane = paneId ?? get().activePaneId
+        const pane = get().paneActions.getPaneById(targetPane)
+        // Finding 1: an unregistered pane can hold nothing — see this action's
+        // doc comment for why minting a buffer anyway (or lying about its id)
+        // would be worse than doing nothing.
+        if (!pane) return null
+
+        const existing = findNewTabInPane(get().buffers, pane)
+        // Both branches activate the New Tab as the TARGET PANE's own active
+        // buffer via `addBufferToPane`'s `setActive` — the same mechanism
+        // `openContent` already uses to re-surface a deduped buffer — and
+        // never via setActivePane/activatePaneBuffer, both of which also move
+        // GLOBAL focus (Finding 2). Which pane the user is looking at is the
+        // caller's decision, not this action's.
+        if (existing) {
+          get().paneActions.addBufferToPane(targetPane, existing.id, true)
+          return existing.id
+        }
+        const id = nanoid()
+        set((state) => {
+          state.buffers.push(makeNewTabBuffer(id))
+        })
+        get().paneActions.addBufferToPane(targetPane, id, true)
         return id
       },
 
@@ -360,6 +464,11 @@ export const createBufferSlice: StateCreator<
             useGitBlameStore.getState().clearBlameForFile(filePath)
           })
         }
+        // Release this buffer's markdown rich/source preference. The view store
+        // is keyed by bufferId and nothing else ever removes an entry, so
+        // without this it grows for the life of the session (no-ops when the
+        // buffer never had one).
+        useMarkdownViewStore.getState().clearView(id)
         // Free full-content history snapshots so closed buffers don't leak memory.
         // clearHistory drops up to 100 HistoryEntry objects each holding a full copy
         // of the file text — the dominant source of memory growth in long sessions.

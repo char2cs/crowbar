@@ -116,14 +116,6 @@ export async function getReview(wsId: string): Promise<ReviewState> {
   }
 }
 
-/** Branch-vs-parent multi-file diff. The backend folds this into the review
- *  read model (BranchReview.diff); there is no separate git branch-diff route,
- *  so this derives from the same GET /review payload. */
-export async function getBranchDiff(wsId: string): Promise<MultiFileDiff> {
-  const raw = await apiFetch<WireBranchReview>(reviewBase(wsId))
-  return raw.diff
-}
-
 /** One entry in the files-only branch-review summary (domain.ReviewFileSummary).
  *  It is the FULL changed-files picture for a path — committed-vs-fork-point AND
  *  working-tree — with +/- counts but NO line content. `additions`/`deletions`

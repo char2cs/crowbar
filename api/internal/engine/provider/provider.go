@@ -13,6 +13,9 @@ import (
 // PRInfo is the resolved pull-request state for a branch.
 type PRInfo = providertypes.PRInfo
 
+// PRLink is one head→base edge of the repo's open-PR graph.
+type PRLink = providertypes.PRLink
+
 // ProviderState is the full snapshot returned by a poll.
 type ProviderState = providertypes.ProviderState
 
@@ -41,6 +44,13 @@ type GitProvider interface {
 		ctx context.Context,
 		repoPath string,
 	) (string, error)
+
+	// OpenPullRequests returns the head→base graph of all OPEN PRs for the repo
+	// in a single provider call. Empty when the CLI is unavailable or none open.
+	OpenPullRequests(
+		ctx context.Context,
+		repoPath string,
+	) ([]PRLink, error)
 }
 
 // Engine wraps detect + the right provider implementation + poller.
@@ -78,6 +88,10 @@ type Engine interface {
 	// OwnerAvatarURL returns the avatar URL of the repo owner.
 	// Returns "" when the provider CLI is unavailable or the lookup fails.
 	OwnerAvatarURL(ctx context.Context, repoPath string) (string, error)
+
+	// OpenPullRequests returns the repo's open-PR head→base graph, or nil when
+	// the provider is unavailable. Best-effort: never fails the caller.
+	OpenPullRequests(ctx context.Context, repoPath string) ([]PRLink, error)
 }
 
 // New constructs the provider Engine, wiring detect + GitHub/GitLab + poller.

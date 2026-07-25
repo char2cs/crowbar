@@ -1,4 +1,5 @@
 import type { Project, Prerequisites, RepoDTO, WorkspaceDTO } from './types'
+import type { PRLink } from '@/lib/import/parent-plan'
 import { useChaosStore } from '@/lib/store/chaos'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
@@ -107,10 +108,6 @@ export function fetchProjects(): Promise<Project[]> {
   return apiFetch('/v0/projects')
 }
 
-export function fetchProject(id: string): Promise<Project> {
-  return apiFetch(`/v0/projects/${id}`)
-}
-
 // ---------------------------------------------------------------------------
 // Hierarchical READ API (§3/§7).
 // ---------------------------------------------------------------------------
@@ -158,6 +155,17 @@ export function postRepo(projectId: string, name: string, path: string): Promise
   })
 }
 
+// Rename an already-added repo. Answers 204; the updated RepoDTO (new name +
+// regenerated avatar) arrives on the repos WS stream and merges into the cache,
+// so callers do not update the sidebar store themselves.
+export function renameRepo(projectId: string, repoId: string, name: string): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
 // parentId omitted/empty = fork from the repo's default branch.
 export function postWorkspace(
   projectId: string,
@@ -172,9 +180,50 @@ export function postWorkspace(
   })
 }
 
+// Open-PR head→base graph for the import dialog's parent hint. Advisory only:
+// the import endpoint re-resolves parenting authoritatively server-side.
+export function getRepoPullRequests(projectId: string, repoId: string): Promise<PRLink[]> {
+  return apiFetch<PRLink[]>(`/v0/projects/${projectId}/repos/${repoId}/pull-requests`)
+}
+
+// Batch-import branches as managed workspaces. The daemon PR-parents each branch
+// under the workspace for its open PR's base and creates missing ancestors (the
+// whole tree). Resolves on 202-accept; created workspaces arrive on the
+// workspaces WS stream.
+export function importBranches(
+  projectId: string,
+  repoId: string,
+  branches: string[],
+): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ branches }),
+  })
+}
+
 export function deleteWorkspace(projectId: string, repoId: string, wsId: string): Promise<void> {
   return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}`, {
     method: 'DELETE',
+  })
+}
+
+// Rename a workspace's branch. The daemon renames the git branch AND relocates
+// the workspace's directory (whose path is derived from the branch name), then
+// broadcasts the updated WorkspaceDTO on the workspaces WS stream — so, as with
+// renameRepo, callers do not update the sidebar store themselves. Answers
+// synchronously: a refusal (name taken, workspace locked) arrives as a 409 with
+// a readable message while the inline editor is still on screen.
+export function renameWorkspaceBranch(
+  projectId: string,
+  repoId: string,
+  wsId: string,
+  branch: string,
+): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ branch }),
   })
 }
 

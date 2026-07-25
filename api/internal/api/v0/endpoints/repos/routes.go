@@ -20,14 +20,18 @@ func Register(
 	prov repohandlers.BranchProviderEngine,
 	wsReader repohandlers.WorkspaceReader,
 	importer repohandlers.RepoImporter,
+	renamer repohandlers.RepoRenamer,
 	broadcast func(dto.RepoDTO),
 	reposWS gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
-	h := repohandlers.NewWithDeps(store, prov, wsReader, broadcast).WithImporter(importer)
+	h := repohandlers.NewWithDeps(store, prov, wsReader, broadcast).
+		WithImporter(importer).
+		WithRenamer(renamer)
 	rg.POST("/repos", h.Create)
 	rg.GET("/repos", dispatch(h.List, reposWS))
 	rg.GET("/repos/:repoId", dispatch(h.Detail, reposWS))
+	rg.PATCH("/repos/:repoId", h.Rename)
 	rg.DELETE("/repos/:repoId", h.DeleteRepo)
 	rg.GET("/repos/:repoId/icon", h.Icon)
 	rg.PUT("/repos/:repoId/icon", h.PutIcon)
@@ -35,4 +39,5 @@ func Register(
 	rg.PUT("/repos/:repoId/icon/emoji", h.PutIconEmoji)
 	rg.PUT("/repos/:repoId/icon/github", h.PutIconGithub)
 	rg.GET("/repos/:repoId/branches", h.Branches)
+	rg.GET("/repos/:repoId/pull-requests", h.PullRequests)
 }

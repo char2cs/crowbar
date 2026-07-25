@@ -72,35 +72,38 @@ describe('resolveTerminalFont', () => {
     vi.restoreAllMocks()
   })
 
-  it('keeps WebGL by resolving a variable font to its available static cut', async () => {
-    available.add('JetBrains Mono') // static cut is available
-    const result = await resolveTerminalFont('JetBrains Mono Variable', 14)
-
-    expect(result.skipWebGL).toBe(false)
-    expect(result.fontFamily.startsWith('"JetBrains Mono",')).toBe(true)
-  })
-
-  it('falls back to the variable font (DOM renderer) when no static cut exists', async () => {
-    available.add('JetBrains Mono Variable') // only the variable cut is available
+  it('keeps a variable font as-is instead of mapping to its static cut', async () => {
+    // Both cuts available: the static-cut mapping existed only to preserve the
+    // WebGL glyph atlas, so it must no longer be applied.
+    available.add('JetBrains Mono')
+    available.add('JetBrains Mono Variable')
     const result = await resolveTerminalFont('JetBrains Mono Variable', 14)
 
     expect(result.skipWebGL).toBe(true)
     expect(result.fontFamily.startsWith('"JetBrains Mono Variable",')).toBe(true)
   })
 
-  it('keeps WebGL for a non-variable font that loads', async () => {
+  it('resolves a variable font that loads', async () => {
+    available.add('JetBrains Mono Variable')
+    const result = await resolveTerminalFont('JetBrains Mono Variable', 14)
+
+    expect(result.skipWebGL).toBe(true)
+    expect(result.fontFamily.startsWith('"JetBrains Mono Variable",')).toBe(true)
+  })
+
+  it('resolves a non-variable font that loads', async () => {
     available.add('JetBrains Mono')
     const result = await resolveTerminalFont('JetBrains Mono', 14)
 
-    expect(result.skipWebGL).toBe(false)
+    expect(result.skipWebGL).toBe(true)
     expect(result.fontFamily.startsWith('"JetBrains Mono",')).toBe(true)
   })
 
-  it('uses a WebGL-friendly platform fallback when nothing loads', async () => {
+  it('uses the platform fallback when nothing loads', async () => {
     // available stays empty
     const result = await resolveTerminalFont('Nonexistent Font Variable', 14)
 
-    expect(result.skipWebGL).toBe(false)
+    expect(result.skipWebGL).toBe(true)
     expect(result.fontFamily).toMatch(/,\s*monospace$/)
   })
 })

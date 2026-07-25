@@ -33,12 +33,16 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/google/uuid"
 
+	"github.com/char2cs/crowbar/api/internal/adapter/store"
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
@@ -127,6 +131,18 @@ type Usecase struct {
 	registry *engineagent.Registry
 	term     TerminalCommander
 	ws       WorkspaceReader
+	// providerPrefs is the global (per user/machine) priority+enabled table read by
+	// ResolveProviders and rewritten by ReplaceProviderPreferences. It is keyed by
+	// provider id; a provider with no row is enabled and ordered after every
+	// preferenced one by descriptor id.
+	providerPrefs store.Store[domain.AgentProviderPreference, string]
+	// home resolves crowbar home for the descriptor catalog. It is the app-config
+	// resolver, NOT a wsId lookup: providers are global, so provider resolution must
+	// not depend on any workspace (the global PUT has no wsId to resolve one from).
+	home func() (string, error)
+	// connected is the install probe (defaults to engineagent.Connected); injectable
+	// so provider-resolution tests never depend on the host having claude/codex.
+	connected func(cmd string) bool
 	// spawns serialises the USER-INITIATED spawn paths per chat (SpawnChat,
 	// SwitchProvider, ResumeChat). See chatGate: it is the only thing that can stop two
 	// concurrent switches putting two CLIs on one chat, and it is NEVER taken on the
@@ -147,15 +163,24 @@ func New(
 	registry *engineagent.Registry,
 	term TerminalCommander,
 	ws WorkspaceReader,
+	providerPrefs store.Store[domain.AgentProviderPreference, string],
+	home func() (string, error),
+	connected func(cmd string) bool,
 ) *Usecase {
+	if connected == nil {
+		connected = engineagent.Connected
+	}
 	return &Usecase{
-		chats:    chats,
-		runners:  runners,
-		registry: registry,
-		term:     term,
-		ws:       ws,
-		spawns:   newChatGate(),
-		turns:    newTurnWaits(),
+		chats:         chats,
+		runners:       runners,
+		registry:      registry,
+		term:          term,
+		ws:            ws,
+		providerPrefs: providerPrefs,
+		home:          home,
+		connected:     connected,
+		spawns:        newChatGate(),
+		turns:         newTurnWaits(),
 	}
 }
 
@@ -655,6 +680,11 @@ func (u *Usecase) spawnRunner(
 	resuming bool,
 	create bool,
 ) (string, error) {
+	// This is the ONE seam every vendor CLI is launched through, which makes it
+	// the only place a disabled provider can actually be stopped.
+	if err := u.requireProviderEnabled(ctx, providerID); err != nil {
+		return "", err
+	}
 	// The runner's id IS the crowbarSegmentID passed to every hook, minted here,
 	// before the process exists — so a hook fired the instant the CLI comes up can
 	// always name its runner. It is stable for the whole life of the process,
@@ -1347,6 +1377,13 @@ func (u *Usecase) moveToNewChat(
 	// Releasing it is what stops a switch on the old chat waiting for an answer that is now
 	// being written somewhere else.
 	u.turns.complete(runner.ID)
+	// And the turn must be closed on the chat itself, not just released in memory. Left open
+	// it is durable: the chat reads Working forever, and the workspace's derived overlay
+	// keeps it in the mid-turn set for the life of the daemon — a sidebar spinner running
+	// over a workspace where nothing is happening. Same reasoning as the displace path, and
+	// the same guards decide it (see closeAbandonedTurn): the runner has gone, and if a
+	// successor has already taken the chat then the turn is not ours to close.
+	u.closeAbandonedTurn(ctx, runner.CurrentChatID)
 	return nil
 }
 
@@ -1373,8 +1410,12 @@ func (u *Usecase) moveToKnownChat(
 		return fmt.Errorf("agent: ingest hook: move to known chat: %w", err)
 	}
 	// Whatever it was mid-way through on the chat it just left is over there (see
-	// moveToNewChat).
+	// moveToNewChat) — released in memory, and closed on the chat so the vacated chat
+	// cannot go on advertising a turn whose turn_stop is landing elsewhere.
 	u.turns.complete(runner.ID)
+	if runner.CurrentChatID != toChatID {
+		u.closeAbandonedTurn(ctx, runner.CurrentChatID)
+	}
 
 	// Whoever else is live on the CONVERSATION must go (invariant I3).
 	u.evictHolderOf(ctx, runner, sessionID)
@@ -1465,6 +1506,14 @@ func (u *Usecase) switchProviderLocked(
 	chatID string,
 	targetProviderID string,
 ) (string, error) {
+	// REFUSE A DISABLED TARGET BEFORE ANYTHING IS TORN DOWN. spawnRunner guards it
+	// too, but that guard fires at the END of this function — after the outgoing
+	// CLI has already been quit — so a switch that only checked there would leave
+	// the chat with no agent at all. ResumeChat enters here, so a dormant chat is
+	// held to the same rule as a fresh one.
+	if err := u.requireProviderEnabled(ctx, targetProviderID); err != nil {
+		return "", err
+	}
 	// FINISH THE TURN FIRST. The user can click Switch while the agent is mid-answer, and
 	// quitting it there costs the answer twice over: the reply in flight is never written,
 	// and — because a CLI killed mid-turn never flushes its native transcript at all — the
@@ -1901,6 +1950,27 @@ func contextInject(d *engineagent.Descriptor, resuming bool) []engineagent.Injec
 	return d.ContextInject
 }
 
+// requireProviderEnabled refuses a provider the user has switched OFF, and is
+// the guard both spawn paths consult (see ErrProviderDisabled for why reporting
+// the flag was never enough).
+//
+// A provider with NO stored row is enabled — the zero preference has
+// Disabled=false — which is exactly the default ResolveProviders reports, so the
+// enforced answer and the displayed one can never disagree.
+func (u *Usecase) requireProviderEnabled(
+	ctx context.Context,
+	providerID string,
+) error {
+	pref, err := u.providerPrefs.FindByKey(ctx, providerID)
+	if err != nil {
+		return fmt.Errorf("agent: provider preference %q: %w", providerID, err)
+	}
+	if pref != nil && pref.Disabled {
+		return fmt.Errorf("%w (%q)", ErrProviderDisabled, providerID)
+	}
+	return nil
+}
+
 // ListProviders enumerates the registered agent providers for the workspace's
 // crowbar home (embedded defaults + on-disk overrides), backing GET
 // .../agent/providers. workspaceID is only used to resolve crowbar home — the
@@ -1922,6 +1992,115 @@ func (u *Usecase) ListProviders(
 		out = append(out, *d)
 	}
 	return out, nil
+}
+
+// ResolveProviders produces the enriched, priority-ordered provider list the
+// backend owns (spec §4.4): the descriptor catalog joined with the global
+// preference table and the install probe. It takes NO wsId — providers are global,
+// so home comes from app config, never a workspace — which is what lets the global
+// PUT handler reuse it for its response.
+//
+// Order: preferenced providers first, by stored Priority; unpreferenced ones
+// (no row) appended after them, by descriptor id. A provider with no row is
+// enabled by default (the zero AgentProviderPreference has Disabled=false).
+func (u *Usecase) ResolveProviders(
+	ctx context.Context,
+) ([]dto.AgentProviderDTO, error) {
+	home, err := u.home()
+	if err != nil {
+		return nil, fmt.Errorf("agent: resolve providers: home: %w", err)
+	}
+	descs, err := engineagent.AllDescriptors(home)
+	if err != nil {
+		return nil, fmt.Errorf("agent: resolve providers: descriptors: %w", err)
+	}
+	prefs, err := u.providerPrefs.FindAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("agent: resolve providers: preferences: %w", err)
+	}
+	byID := make(map[string]domain.AgentProviderPreference, len(prefs))
+	for _, p := range prefs {
+		byID[p.ProviderID] = p
+	}
+
+	out := make([]dto.AgentProviderDTO, 0, len(descs))
+	for _, d := range descs {
+		p := byID[d.ID]
+		out = append(out, dto.AgentProviderDTO{
+			ID:          d.ID,
+			DisplayName: d.DisplayName,
+			Icon:        d.Icon,
+			Connected:   u.connected(d.Spawn.Cmd),
+			Enabled:     !p.Disabled,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		pi, oki := byID[out[i].ID]
+		pj, okj := byID[out[j].ID]
+		if oki != okj {
+			return oki // a preferenced provider sorts before an unpreferenced one
+		}
+		if oki && pi.Priority != pj.Priority {
+			return pi.Priority < pj.Priority
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+// ReplaceProviderPreferences rewrites the whole global preference table from the
+// submitted ordered set (spec §3.2): the array position becomes each provider's
+// Priority. It is a full replace — every submitted row is upserted, and any stored
+// row whose id is absent from the submission is deleted (reverting that provider to
+// its default enabled+appended state). Every id is validated against the descriptor
+// catalog first: an unknown id fails the WHOLE write with apperr.ErrInvalidArgument
+// (→ 400), so a bad submission never partially applies. It returns the freshly
+// resolved list so the client reconciles from server truth with no second fetch.
+func (u *Usecase) ReplaceProviderPreferences(
+	ctx context.Context,
+	prefs []domain.AgentProviderPreference,
+) ([]dto.AgentProviderDTO, error) {
+	home, err := u.home()
+	if err != nil {
+		return nil, fmt.Errorf("agent: replace provider preferences: home: %w", err)
+	}
+	descs, err := engineagent.AllDescriptors(home)
+	if err != nil {
+		return nil, fmt.Errorf("agent: replace provider preferences: descriptors: %w", err)
+	}
+	known := make(map[string]struct{}, len(descs))
+	for _, d := range descs {
+		known[d.ID] = struct{}{}
+	}
+	submitted := make(map[string]struct{}, len(prefs))
+	for _, p := range prefs {
+		if _, ok := known[p.ProviderID]; !ok {
+			return nil, fmt.Errorf("agent: replace provider preferences: unknown provider %q: %w",
+				p.ProviderID, apperr.ErrInvalidArgument)
+		}
+		submitted[p.ProviderID] = struct{}{}
+	}
+
+	// Delete stored rows the submission omits FIRST, so a provider dropped from the
+	// set reverts to default rather than lingering with a stale priority.
+	existing, err := u.providerPrefs.FindAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("agent: replace provider preferences: list existing: %w", err)
+	}
+	for _, e := range existing {
+		if _, ok := submitted[e.ProviderID]; ok {
+			continue
+		}
+		if err := u.providerPrefs.Delete(ctx, e.ProviderID); err != nil {
+			return nil, fmt.Errorf("agent: replace provider preferences: delete %q: %w", e.ProviderID, err)
+		}
+	}
+	for _, p := range prefs {
+		if err := u.providerPrefs.Save(ctx, p); err != nil {
+			return nil, fmt.Errorf("agent: replace provider preferences: save %q: %w", p.ProviderID, err)
+		}
+	}
+	return u.ResolveProviders(ctx)
 }
 
 // ListChats returns every AgentChat.

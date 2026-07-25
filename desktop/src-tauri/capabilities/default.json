@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default app capabilities",
-  "windows": ["main"],
+  "description": "Default app capabilities. `windows: [*]` because every Crowbar window is the same trusted bundle over the same crowbar:// protocol, differing only in which workspace it routes to — scoping to `main` denied the second window titlebar dragging, terminal creation, external links and dialogs. This capability is `local` only, so a remote-origin window would still get nothing from it; but adding a genuinely LOWER-trust local window means splitting capabilities, not narrowing this one, because it carries shell:allow-execute for the sidecar.",
+  "windows": ["*"],
   "permissions": [
     "core:default",
     {

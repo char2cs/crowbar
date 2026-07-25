@@ -12,6 +12,17 @@ type PRInfo struct {
 	TargetBranch string `json:"targetBranch"`
 }
 
+// PRLink is one edge of the repo's open-PR graph: an open PR's head branch and
+// the base it targets. Used to parent imported branches under their PR base.
+type PRLink struct {
+	Head   string `json:"head"`
+	Base   string `json:"base"`
+	Number int    `json:"number"`
+	Status string `json:"status"`
+	URL    string `json:"url"`
+	Title  string `json:"title"`
+}
+
 // ProviderState is the full snapshot returned by a poll.
 type ProviderState struct {
 	Protected bool    `json:"protected"`

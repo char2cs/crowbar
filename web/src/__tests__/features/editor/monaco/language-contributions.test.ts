@@ -5,8 +5,11 @@ import {
   __loadedLanguagesForTests,
   __loaderLanguageIdsForTests,
 } from '@/features/editor/monaco/language-contributions'
-import { MONACO_LANGUAGE_BY_ATHAS_ID, toMonacoLanguageId } from '@/features/editor/monaco/language'
-import { __resolverAthasIdsForTests } from '@/features/editor/utils/language-id'
+import {
+  MONACO_LANGUAGE_BY_LANGUAGE_ID,
+  toMonacoLanguageId,
+} from '@/features/editor/monaco/language'
+import { __resolverLanguageIdsForTests } from '@/features/editor/utils/language-id'
 
 describe('on-demand language contributions', () => {
   // Documents the "brief plaintext flash" the task brief calls out: a model
@@ -61,7 +64,7 @@ describe('on-demand language contributions', () => {
 })
 
 // The loader map and the app's own path→monaco-id resolver
-// (`MONACO_LANGUAGE_BY_ATHAS_ID`, fed through `toMonacoLanguageId` at every
+// (`MONACO_LANGUAGE_BY_LANGUAGE_ID`, fed through `toMonacoLanguageId` at every
 // model-assignment site) are parallel sources of truth. If the resolver can
 // hand a model a monaco id that no loader (and no custom Monarch registration)
 // ever registers, that language silently renders as plaintext forever. This
@@ -88,25 +91,25 @@ describe('loader map covers every monaco id the app resolver can produce', () =>
 
   it('every resolver-producible id has a loader, a Monarch registration, or a documented exclusion', () => {
     const loaderIds = new Set(__loaderLanguageIdsForTests())
-    const uncovered = [...new Set(Object.values(MONACO_LANGUAGE_BY_ATHAS_ID))].filter(
+    const uncovered = [...new Set(Object.values(MONACO_LANGUAGE_BY_LANGUAGE_ID))].filter(
       (id) => !loaderIds.has(id) && !CUSTOM_MONARCH_IDS.has(id) && !EXCLUDED_IDS.has(id),
     )
     expect(uncovered).toEqual([])
   })
 
   // KEY-side guard: the check above only covers monaco ids the map already
-  // names. But `toMonacoLanguageId` falls back to `?? languageId`, so an athas
-  // id the resolver produces that is NOT a key in the map slips through as a
+  // names. But `toMonacoLanguageId` falls back to `?? languageId`, so an id
+  // the resolver produces that is NOT a key in the map slips through as a
   // verbatim, unregistered monaco id — silent plaintext (this is exactly how
   // `.jsx`→'javascriptreact' and `.erb`→'embedded_template' regressed). Drive
-  // every athas id `getLanguageIdFromPath` can emit through `toMonacoLanguageId`
+  // every language id `getLanguageIdFromPath` can emit through `toMonacoLanguageId`
   // and assert the result is registerable.
-  it('every athas id the resolver produces maps to a registerable monaco id (no unregistered ?? fallback)', () => {
+  it('every language id the resolver produces maps to a registerable monaco id (no unregistered ?? fallback)', () => {
     const loaderIds = new Set(__loaderLanguageIdsForTests())
     const registerable = (id: string) =>
       loaderIds.has(id) || CUSTOM_MONARCH_IDS.has(id) || EXCLUDED_IDS.has(id)
-    const uncovered = [...new Set(__resolverAthasIdsForTests())]
-      .map((athasId) => ({ athasId, monacoId: toMonacoLanguageId(athasId) }))
+    const uncovered = [...new Set(__resolverLanguageIdsForTests())]
+      .map((languageId) => ({ languageId, monacoId: toMonacoLanguageId(languageId) }))
       .filter(({ monacoId }) => !registerable(monacoId))
     expect(uncovered).toEqual([])
   })

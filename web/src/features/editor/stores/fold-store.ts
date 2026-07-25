@@ -62,7 +62,7 @@ function detectDiffFoldRegions(content: string): FoldRegion[] {
   const fileStarts: number[] = []
 
   const lineCount = forEachContentLine(content, (line, lineNumber) => {
-    if (line.startsWith('\uE000ATHAS_DIFF_FILE ')) {
+    if (line.startsWith('\uE000CROWBAR_DIFF_FILE ')) {
       fileStarts.push(lineNumber)
     }
   })

@@ -348,6 +348,8 @@ type ProviderEngine struct {
 	ProtectedErr error
 	AvatarURL    string
 	AvatarURLErr error
+	PRLinks      []provider.PRLink
+	PRLinksErr   error
 }
 
 // NewProviderEngine returns an empty ProviderEngine.
@@ -370,6 +372,16 @@ func (p *ProviderEngine) OwnerAvatarURL(
 	repoPath string,
 ) (string, error) {
 	return p.AvatarURL, p.AvatarURLErr
+}
+
+func (p *ProviderEngine) OpenPullRequests(
+	ctx context.Context,
+	repoPath string,
+) ([]provider.PRLink, error) {
+	if p.PRLinksErr != nil {
+		return nil, p.PRLinksErr
+	}
+	return p.PRLinks, nil
 }
 
 // ProviderSyncWorkspaceRepo is a fake of the workspace.Workspace surface used

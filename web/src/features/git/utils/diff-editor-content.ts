@@ -2,7 +2,7 @@ import type { TokenEntry } from '@/features/panes/types/pane-content'
 import type { MultiFileDiff } from '../types/git-diff-types'
 import type { GitDiff, GitDiffLine } from '../types/git-types'
 
-const DIFF_ACCORDION_PREFIX = '\uE000ATHAS_DIFF_FILE '
+const DIFF_ACCORDION_PREFIX = '\uE000CROWBAR_DIFF_FILE '
 
 export interface DiffAccordionLineMeta {
   name: string
@@ -394,23 +394,4 @@ export function createDiffTokensForEditorContent(content: string): TokenEntry[] 
 
 export function isDiffAccordionLine(line: string): boolean {
   return line.startsWith(DIFF_ACCORDION_PREFIX)
-}
-
-export function parseDiffAccordionLine(line: string): DiffAccordionLineMeta | null {
-  if (!isDiffAccordionLine(line)) return null
-
-  try {
-    return JSON.parse(line.slice(DIFF_ACCORDION_PREFIX.length)) as DiffAccordionLineMeta
-  } catch {
-    return null
-  }
-}
-
-export function createCollapsedDiffAccordionLine(
-  meta: Omit<DiffAccordionLineMeta, 'collapsed'>,
-): string {
-  return `${DIFF_ACCORDION_PREFIX}${JSON.stringify({
-    ...meta,
-    collapsed: true,
-  } satisfies DiffAccordionLineMeta)}`
 }

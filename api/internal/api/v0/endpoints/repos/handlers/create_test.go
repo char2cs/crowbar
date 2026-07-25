@@ -146,6 +146,7 @@ func TestCreateRepo_BroadcastsRepoDTO(
 // full-import path runs in the background and returns a repo to broadcast.
 type fakeRepoImporter struct {
 	gotProjectID string
+	gotName      string
 	gotRepoPath  string
 	repo         domain.Repository
 	err          error
@@ -161,9 +162,11 @@ func newFakeRepoImporter(
 func (f *fakeRepoImporter) ImportRepo(
 	_ context.Context,
 	projectID string,
+	name string,
 	repoPath string,
 ) (domain.Repository, error) {
 	f.gotProjectID = projectID
+	f.gotName = name
 	f.gotRepoPath = repoPath
 	f.called <- struct{}{}
 	return f.repo, f.err
@@ -201,6 +204,7 @@ func TestCreateRepo_RunsFullImport(
 
 	<-imp.called
 	assert.Equal(t, "p1", imp.gotProjectID)
+	assert.Equal(t, "alpha", imp.gotName, "the POST body's name must reach the importer, not be dropped")
 	assert.Equal(t, "/tmp/repo", imp.gotRepoPath)
 }
 
@@ -410,4 +414,94 @@ func TestDeleteRepo_NotFound_4xx(
 	r.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// traversalNames is the set of repository names that must never reach a
+// filepath.Join. A repo with no parseable git remote falls back to its NAME for
+// the on-disk worktree slug, so a name carrying a path separator or a dot-only
+// component derives workspace directories OUTSIDE the crowbar home — where they
+// can never be reclaimed, because every removal guard refuses to touch anything
+// that is not under it. Before the repo became renameable the name was always
+// filepath.Base(repoPath), which cannot contain a separator.
+var traversalNames = []struct{ name, value string }{
+	{"parent traversal", "../../../../tmp/pwned"},
+	{"leading separator", "/etc/passwd"},
+	{"embedded separator", "a/b"},
+	{"windows separator", `a\b`},
+	{"dot", "."},
+	{"dot dot", ".."},
+	{"dots only", "..."},
+}
+
+func TestCreateRepo_RejectsNamesThatEscapeTheCrowbarHome(t *testing.T) {
+	for _, c := range traversalNames {
+		t.Run(c.name, func(t *testing.T) {
+			bc := newRecordingRepoBroadcaster()
+			r, h := newCreateRouterWithHandlers(&fakeStore{}, bc)
+			rec := doPost(r, "/v0/projects/p1/repos",
+				map[string]any{"id": "r1", "name": c.value, "path": "/tmp/repo"})
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assertNoBroadcast(t, h, bc)
+		})
+	}
+}
+
+// The bare create path (no importer wired) persists the row itself, so it owns
+// the same seeding duty the importer has: the on-disk PathSlug comes from the
+// repo's PATH, never from the user-supplied display name that the rename
+// endpoint can change afterwards.
+func TestCreateRepo_BareCreateSeedsPathSlugFromThePath(
+	t *testing.T,
+) {
+	bc := newRecordingRepoBroadcaster()
+	saved := make(chan domain.Repository, 1)
+	store := &fakeStore{SaveFn: func(_ context.Context, r domain.Repository) error {
+		saved <- r
+		return nil
+	}}
+	rec := doPost(newCreateRouter(store, bc), "/v0/projects/p1/repos",
+		map[string]any{"id": "r1", "name": "My Custom Name", "path": "/tmp/widget"})
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	bc.await(t)
+
+	got := <-saved
+	assert.Equal(t, "My Custom Name", got.Name, "the display name is the supplied one")
+	assert.Equal(t, "widget", got.PathSlug,
+		"the on-disk slug is seeded from filepath.Base(path), not from the name")
+}
+
+// The create path only STATS the supplied path, it never normalises it, so
+// ".../widget/.." arrives verbatim and its raw base is "..". Persisted as the
+// slug that would collapse a level out of the worktree layout without tripping
+// the escape guard (it stays under crowbar home), so the seed resolves the path
+// first and declines a leaf that is not a usable directory name.
+func TestCreateRepo_BareCreateNeverSeedsATraversalSlug(
+	t *testing.T,
+) {
+	cases := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "traversal resolved before the leaf", path: "/tmp/projects/widget/..", want: "projects"},
+		{name: "no usable leaf", path: "/..", want: ""},
+		{name: "filesystem root", path: "/", want: ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			bc := newRecordingRepoBroadcaster()
+			saved := make(chan domain.Repository, 1)
+			store := &fakeStore{SaveFn: func(_ context.Context, r domain.Repository) error {
+				saved <- r
+				return nil
+			}}
+			rec := doPost(newCreateRouter(store, bc), "/v0/projects/p1/repos",
+				map[string]any{"id": "r1", "name": "alpha", "path": c.path})
+			require.Equal(t, http.StatusAccepted, rec.Code)
+			bc.await(t)
+
+			assert.Equal(t, c.want, (<-saved).PathSlug)
+		})
+	}
 }

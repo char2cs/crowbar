@@ -1,5 +1,5 @@
 export function getFileName(path: string): string {
   return path.split('/').pop() ?? path
 }
-/** Athas alias */
+/** Alias. */
 export const getFilenameFromPath = getFileName

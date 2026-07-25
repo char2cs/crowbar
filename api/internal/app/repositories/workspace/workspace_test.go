@@ -152,6 +152,80 @@ func TestCreate_WritesPathRow(t *testing.T) {
 	assert.Equal(t, "/h/projects/p1/github.com/o/r/b", got)
 }
 
+// TestRenameBranch_UpdatesPathRow proves §3.9 write-point (b): a branch rename
+// relocates the workspace on disk, so the id→path index has to follow it. A
+// stale row is not a cosmetic drift — the delete reactor resolves the directory
+// it rm -rf's from exactly this index, so a row still naming the pre-rename
+// directory makes a later delete destroy whatever now occupies it.
+func TestRenameBranch_UpdatesPathRow(t *testing.T) {
+	ad := newAdapter(t, t.TempDir())
+	repo, pathsStore := buildRepo(t, ad)
+	ctx := context.Background()
+
+	_, err := repo.Create(ctx, workspace.CreateInput{
+		ID:           "w1",
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		Branch:       "a",
+		WorktreePath: "/h/projects/p1/github.com/o/r/a/worktree",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+
+	_, err = repo.RenameBranch(ctx, "w1", "b", "/h/projects/p1/github.com/o/r/b/worktree")
+	require.NoError(t, err)
+
+	got, err := pathsStore.Get(ctx, "w1")
+	require.NoError(t, err)
+	assert.Equal(t, "/h/projects/p1/github.com/o/r/b/worktree", got)
+}
+
+// A rename the aggregate refuses must leave the index exactly as it was: the
+// record still names the old path, and the index has to agree with it rather
+// than advertise a move that never happened.
+func TestRenameBranch_LeavesPathRowIntactWhenRecordWriteFails(t *testing.T) {
+	ad := newAdapter(t, t.TempDir())
+	repo, pathsStore := buildRepo(t, ad)
+	ctx := context.Background()
+
+	_, err := repo.Create(ctx, workspace.CreateInput{
+		ID:           "w1",
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		Branch:       "a",
+		WorktreePath: "/h/projects/p1/github.com/o/r/a/worktree",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+
+	// A half-carried rename (branch without path) is refused by the command.
+	_, err = repo.RenameBranch(ctx, "w1", "b", "")
+	require.Error(t, err)
+
+	got, err := pathsStore.Get(ctx, "w1")
+	require.NoError(t, err)
+	assert.Equal(t, "/h/projects/p1/github.com/o/r/a/worktree", got)
+}
+
+// A workspace whose index row was never written (or was already purged) has no
+// previous path to restore, so a refused rename must leave NO row rather than
+// invent one pointing at a directory the record does not claim.
+func TestRenameBranch_LeavesNoPathRowWhenThereWasNoneAndTheRecordWriteFails(t *testing.T) {
+	ad := newAdapter(t, t.TempDir())
+	repo, pathsStore := buildRepo(t, ad)
+	ctx := context.Background()
+
+	_, err := repo.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "a",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	require.NoError(t, pathsStore.Delete(ctx, "w1"))
+
+	_, err = repo.RenameBranch(ctx, "w1", "b", "")
+	require.Error(t, err)
+
+	_, getErr := pathsStore.Get(ctx, "w1")
+	assert.ErrorIs(t, getErr, wspaths.ErrNotFound)
+}
+
 func TestGet_FoldsFromLog(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()

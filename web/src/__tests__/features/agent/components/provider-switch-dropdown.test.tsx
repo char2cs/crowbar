@@ -37,9 +37,27 @@ vi.mock('framer-motion', () => {
 })
 
 const providers: AgentProvider[] = [
-  { id: 'claude', displayName: 'Claude', icon: '<svg data-p="claude"><path/></svg>' },
-  { id: 'codex', displayName: 'Codex', icon: '<svg data-p="codex"><path/></svg>' },
-  { id: 'gemini', displayName: 'Gemini', icon: '<svg data-p="gemini"><path/></svg>' },
+  {
+    id: 'claude',
+    displayName: 'Claude',
+    icon: '<svg data-p="claude"><path/></svg>',
+    connected: true,
+    enabled: true,
+  },
+  {
+    id: 'codex',
+    displayName: 'Codex',
+    icon: '<svg data-p="codex"><path/></svg>',
+    connected: true,
+    enabled: true,
+  },
+  {
+    id: 'gemini',
+    displayName: 'Gemini',
+    icon: '<svg data-p="gemini"><path/></svg>',
+    connected: true,
+    enabled: true,
+  },
 ]
 
 describe('ProviderSwitchDropdown', () => {
@@ -125,6 +143,82 @@ describe('ProviderSwitchDropdown', () => {
     fireEvent.click(screen.getByRole('button', { name: /claude/i }))
 
     expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
+  })
+
+  it('does not offer a DISABLED provider as a switch target', () => {
+    // "Disabled" means hidden entirely from every surface that OFFERS a provider
+    // — the New-chat rows and this switcher alike. Switching to a disabled
+    // provider would spawn the very CLI the user turned off.
+    const withDisabled = providers.map((p) => (p.id === 'gemini' ? { ...p, enabled: false } : p))
+    render(
+      <ProviderSwitchDropdown
+        providers={withDisabled}
+        currentProviderId="claude"
+        onSwitch={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /claude/i }))
+
+    expect(screen.queryByRole('menuitem', { name: /gemini/i })).toBeNull()
+    expect(screen.getAllByRole('menuitem')).toHaveLength(1)
+    expect(screen.getByRole('menuitem', { name: /codex/i })).toBeTruthy()
+  })
+
+  it('still names a disabled provider on the trigger when the chat is running on it', () => {
+    // Disabling never touches chats already running on that provider, so the
+    // trigger must keep naming what this chat is actually talking to — and the
+    // user must still be able to switch AWAY to an enabled one.
+    const withDisabled = providers.map((p) => (p.id === 'gemini' ? { ...p, enabled: false } : p))
+    render(
+      <ProviderSwitchDropdown
+        providers={withDisabled}
+        currentProviderId="gemini"
+        onSwitch={vi.fn()}
+      />,
+    )
+
+    const trigger = screen.getByRole('button', { name: /gemini/i })
+    expect(trigger).toBeTruthy()
+
+    fireEvent.click(trigger)
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2)
+  })
+
+  it('explains what switching buys you when no other provider is enabled', () => {
+    // An empty menu is a dead end. Say why it is empty AND what enabling a second
+    // provider would give you — including that the conversation carries over,
+    // which is the non-obvious part users would never guess.
+    const onlyClaude = providers.map((p) => (p.id === 'claude' ? p : { ...p, enabled: false }))
+    render(
+      <ProviderSwitchDropdown
+        providers={onlyClaude}
+        currentProviderId="claude"
+        onSwitch={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /claude/i }))
+
+    // Still nothing selectable — the hint must not masquerade as a switch target.
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
+    expect(screen.getByText(/no other provider is enabled/i)).toBeTruthy()
+    expect(screen.getByText(/context/i)).toBeTruthy()
+  })
+
+  it('shows no such hint when there ARE providers to switch to', () => {
+    render(
+      <ProviderSwitchDropdown
+        providers={providers}
+        currentProviderId="claude"
+        onSwitch={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /claude/i }))
+
+    expect(screen.queryByText(/no other provider is enabled/i)).toBeNull()
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2)
   })
 
   it('falls back gracefully when currentProviderId matches no provider', () => {

@@ -156,12 +156,22 @@ func extraRoutes() []string {
 	return []string{
 		"DELETE /v0/projects/:projectId",
 		"DELETE " + repo,
+		// Repo rename: the sidebar's inline repo rename, a single store write
+		// that rewrites the display name + its derived avatar and broadcasts the
+		// updated RepoDTO.
+		"PATCH " + repo,
 		"GET " + repo + "/icon",
 		"PUT " + repo + "/icon",
 		"DELETE " + repo + "/icon",
 		"PUT " + repo + "/icon/emoji",
 		"PUT " + repo + "/icon/github",
 		"GET " + repo + "/branches",
+		// File copy: the duplicate op the file tree's context menu drives,
+		// sibling of the create/rename/delete file routes the §2.4 list carries.
+		"POST " + ws + "/files/copy",
+		// Branch Review's file list: the full changed-file set of the review,
+		// read alongside the GET/PATCH .../review pair in §2.9.
+		"GET " + ws + "/review/files",
 		"POST " + ws + "/lsp/didOpen",
 		"POST " + ws + "/lsp/didChange",
 		"POST " + ws + "/lsp/didClose",
@@ -171,6 +181,10 @@ func extraRoutes() []string {
 		// placeholder ops (spec §3.3/§3.5 — free a held protected branch and
 		// re-provision it in place), the git-identity read, and the review-thread
 		// message CRUD.
+		// Branch rename: renames the workspace's branch AND relocates its
+		// workspace root to the directory the new name derives, so git, the
+		// filesystem and the record never disagree.
+		"PATCH " + ws,
 		"POST " + ws + "/rebase-onto-parent",
 		"POST " + ws + "/detach-holder",
 		"POST " + ws + "/retry-provision",
@@ -203,6 +217,15 @@ func extraRoutes() []string {
 		//   other, and it keeps answering across a /clear that moves the CLI mid-turn.
 		"POST " + ws + "/agent/chats/:id/resume",
 		"POST " + ws + "/agent/runners/:segid/rename",
+		//   stop: closing a chat TAB is not deleting the chat. The CLI is quit and
+		//   the chat left DORMANT with its bound vendor conversation intact, which
+		//   is exactly the state resume above exists to pick back up.
+		"POST " + ws + "/agent/chats/:id/stop",
+		// Provider PRIORITY + enable/disable is a GLOBAL user setting (the CLIs are
+		// machine-level, not per workspace), so its write route mounts outside the
+		// entity hierarchy beside /settings/terminal/profiles. It is the write
+		// counterpart of the workspace-scoped enriched GET .../agent/providers.
+		"PUT /v0/settings/agent/providers",
 		// Repo-home-as-workspace surface: the special non-git default workspace is
 		// navigable like a workspace but git-less, exposing its own files,
 		// terminals, and review-thread subtrees under /projects/:projectId/home
@@ -247,6 +270,11 @@ func extraRoutes() []string {
 		// running in it still has to be able to name it.
 		"POST " + home + "/agent/chats/:id/resume",
 		"POST " + home + "/agent/runners/:segid/rename",
+		// And the same close-is-not-delete stop, for the same reason: a home chat's
+		// tab closes exactly like any other chat's.
+		"POST " + home + "/agent/chats/:id/stop",
+		// The home hosts a file tree, so it hosts the file tree's duplicate op too.
+		"POST " + home + "/files/copy",
 	}
 }
 

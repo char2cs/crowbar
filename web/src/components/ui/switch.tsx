@@ -5,9 +5,9 @@ import type React from 'react'
 import { cn } from '@/lib/utils'
 
 interface SwitchProps extends SwitchPrimitive.Root.Props {
-  /** Size variant (Crowbar/Athas compat) */
+  /** Size variant. */
   size?: 'sm' | 'default'
-  /** Called when checked state changes (Crowbar/Athas compat alias for onCheckedChange) */
+  /** Called when the checked state changes; alias for `onCheckedChange`. */
   onChange?: (checked: boolean) => void
 }
 

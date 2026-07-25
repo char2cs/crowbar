@@ -23,11 +23,53 @@ interface SidebarToastOverlayProps {
   sidebarSide: 'left' | 'right'
 }
 
+type SidebarToast = ReturnType<typeof Toast.useToastManager>['toasts'][number]
+
+/** How many toasts the sidebar's narrow column shows at once. */
+const SIDEBAR_TOAST_LIMIT = 3
+
+/**
+ * A toast with `timeout: 0` opted out of auto-dismiss (`toast.show({duration: 0})`),
+ * so nothing but the condition clearing will ever remove it — ConnectionIndicator's
+ * "Backend unavailable" is the one that matters.
+ */
+function isPinned(toast: SidebarToast): boolean {
+  return toast.timeout === 0
+}
+
+/**
+ * Window the list WITHOUT ever dropping a pinned toast. base-ui inserts
+ * newest-first, so the old `toasts.slice(0, 3)` kept the three newest and
+ * discarded the rest: an outage that also produced three failure toasts evicted
+ * the only thing on screen saying the backend was down, and — being
+ * undismissable-but-also-unrenderable — nothing could bring it back.
+ *
+ * Pinned toasts are all kept; transient ones fill whatever slots are left, still
+ * newest-first, so the oldest transient is what gets dropped.
+ */
+function selectVisibleToasts(toasts: SidebarToast[]): SidebarToast[] {
+  const pinnedCount = toasts.reduce((count, toast) => count + (isPinned(toast) ? 1 : 0), 0)
+  let transientSlots = Math.max(0, SIDEBAR_TOAST_LIMIT - pinnedCount)
+
+  const visible: SidebarToast[] = []
+  for (const toast of toasts) {
+    if (isPinned(toast)) {
+      visible.push(toast)
+      continue
+    }
+    if (transientSlots > 0) {
+      transientSlots -= 1
+      visible.push(toast)
+    }
+  }
+  return visible
+}
+
 function SidebarToastItem({
   toast,
   swipeDirection,
 }: {
-  toast: ReturnType<typeof Toast.useToastManager>['toasts'][number]
+  toast: SidebarToast
   swipeDirection: ('left' | 'right' | 'down')[]
 }) {
   const Icon = toast.type ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS] : null
@@ -87,7 +129,7 @@ function SidebarToastOverlayInner({ sidebarOpen, sidebarSide }: SidebarToastOver
     sidebarSide === 'left' ? ['left', 'down'] : ['right', 'down']
 
   if (sidebarOpen) {
-    const visibleToasts = toasts.slice(0, 3)
+    const visibleToasts = selectVisibleToasts(toasts)
     return (
       <Toast.Viewport
         className="pointer-events-none absolute inset-x-0 bottom-0 z-50 flex w-full flex-col-reverse gap-2 p-2"
@@ -116,6 +158,22 @@ function SidebarToastOverlayInner({ sidebarOpen, sidebarSide }: SidebarToastOver
   )
 }
 
+/**
+ * The ONE AND ONLY viewport for `toastManager`. Do not add a second
+ * `Toast.Provider` for this manager anywhere else in the tree.
+ *
+ * `createToastManager()` is a stateless emitter — every subscribed provider
+ * builds its OWN copy of the toast list, so two providers means every toast
+ * renders twice wherever both are mounted. That's what the old root-level
+ * `<ToastProvider>` did; its `suppressToasts={ideShellMounted}` guard was a
+ * single global boolean flipped by IDEShell's own mount effect, so any
+ * remount race (HMR, route transition, unmount-after-mount ordering) left it
+ * reading false while IDEShell was up and duplicated every toast.
+ *
+ * Consequence of being the only viewport: toasts fired while IDEShell is
+ * unmounted (e.g. the /oobe route) are dropped, not queued — the manager
+ * holds no state of its own.
+ */
 export function SidebarToastOverlay({ sidebarOpen, sidebarSide }: SidebarToastOverlayProps) {
   return (
     <Toast.Provider toastManager={toastManager}>

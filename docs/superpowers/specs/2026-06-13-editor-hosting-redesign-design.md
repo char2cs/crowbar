@@ -42,7 +42,7 @@ Three new units, each independently testable, plus a React-boundary change.
 
 ### 2a. Workspace model registry — `features/editor/lib/model-registry.ts`
 
-A per-workspace singleton keyed by **file URI** (reusing the existing `athas://editor/...` URI scheme, but keyed by *file*, not `bufferId`).
+A per-workspace singleton keyed by **file URI** (reusing the existing `crowbar://editor/...` URI scheme, but keyed by *file*, not `bufferId`).
 
 - `acquire(uri, languageId, initialText): ITextModel` — creates the Monaco model once; ref-counts subsequent acquirers.
 - `release(uri)` — decrements; disposes the model when the last holder releases.

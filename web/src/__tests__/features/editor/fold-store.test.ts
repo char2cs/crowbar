@@ -23,7 +23,7 @@ describe('fold store', () => {
     const actions = useFoldStore.getState().actions
     actions.computeFoldRegions(
       'diff-editor://changes',
-      '\uE000ATHAS_DIFF_FILE a.ts\r\n+one\r\n\uE000ATHAS_DIFF_FILE b.ts\r\n+two',
+      '\uE000CROWBAR_DIFF_FILE a.ts\r\n+one\r\n\uE000CROWBAR_DIFF_FILE b.ts\r\n+two',
     )
 
     expect(actions.getFoldRegions('diff-editor://changes')).toEqual([

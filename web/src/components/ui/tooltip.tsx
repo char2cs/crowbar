@@ -26,12 +26,6 @@ export function TooltipProvider({ children }: { children: React.ReactNode }) {
   )
 }
 
-export const Tooltip = TooltipPrimitive.Root
-export const TooltipTrigger = TooltipPrimitive.Trigger
-
-// Alias so sidebar.tsx (which imports TooltipPopup) keeps working
-export const TooltipPopup = TooltipPrimitive.Content
-
 export default function TooltipCompound({
   content,
   children,

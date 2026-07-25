@@ -8,12 +8,6 @@ import { apiFetch } from '@/lib/api'
 import { wsManager } from '@/lib/ws/manager'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceBase } from '@/lib/workspace-scope-url'
-
-export interface LspError {
-  message: string
-  code?: string
-}
-
 export interface LspLocation {
   uri: string
   range: {
@@ -22,8 +16,14 @@ export interface LspLocation {
   }
 }
 
+// The daemon owns the workspace root and is the only side that knows it, so it
+// relativizes the language server's absolute `file://` URIs before answering
+// (internal/engine/lsp). A definition therefore names a WORKSPACE-RELATIVE
+// path — the same form buffers are keyed by and the files API accepts — except
+// for a target the worktree does not contain (a stdlib / module-cache source),
+// which stays absolute precisely so callers can tell it apart and say so.
 export interface Definition {
-  uri: string
+  filePath: string
   range: {
     start: { line: number; character: number }
     end: { line: number; character: number }
@@ -149,12 +149,22 @@ class LspClientImpl {
   async getHover(_filePath: string, _line: number, _character: number): Promise<null> {
     return null
   }
+  // Resolve a symbol through the daemon's textDocument/definition proxy. Errors
+  // are NOT swallowed: a wedged or failing language server must reach the caller
+  // so the editor can tell the user, rather than looking like "no definition".
   async getDefinition(
-    _filePath: string,
-    _line: number,
-    _character: number,
+    filePath: string,
+    line: number,
+    character: number,
   ): Promise<Definition[] | null> {
-    return null
+    const base = this.wsBase()
+    if (!base) return null
+    const locations = await apiFetch<Definition[] | null>(`${base}/definition`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath, position: { line, character } }),
+    })
+    return locations && locations.length > 0 ? locations : null
   }
   async getReferences(
     _filePath: string,

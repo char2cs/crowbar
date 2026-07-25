@@ -681,7 +681,6 @@ export function Dropdown(props: DropdownProps) {
                 setFocusIndex(-1)
               }}
               leftIcon={Search}
-              variant="ghost"
               className="w-full"
             />
           </div>

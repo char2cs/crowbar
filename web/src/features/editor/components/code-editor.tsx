@@ -76,11 +76,6 @@ interface CodeEditorProps {
   onPromote?: () => void
 }
 
-export interface CodeEditorRef {
-  editor: HTMLDivElement | null
-  textarea: HTMLDivElement | null
-}
-
 interface GoToLineEventDetail {
   line?: number
   column?: number

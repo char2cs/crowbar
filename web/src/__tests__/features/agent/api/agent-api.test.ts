@@ -150,6 +150,59 @@ describe('agent-api', () => {
     expect(p).toEqual([])
   })
 
+  // The enriched read carries the two new provider facts the FE now leans on:
+  // `connected` (is the CLI installed) and `enabled` (is the provider offered).
+  it('listProviders maps connected + enabled', async () => {
+    apiFetch.mockResolvedValueOnce([
+      { id: 'codex', displayName: 'Codex', icon: '<svg/>', connected: true, enabled: true },
+    ])
+    const out = await api.listProviders('w1')
+    expect(out[0]).toMatchObject({ id: 'codex', connected: true, enabled: true })
+  })
+
+  // A provider row that omits the two flags defaults to enabled (spec §3.1: a
+  // provider with no stored preference is enabled) and NOT connected (install is
+  // never assumed) — so the FE never treats an unknown provider as disabled.
+  it('listProviders defaults a missing enabled to true and connected to false', async () => {
+    apiFetch.mockResolvedValueOnce([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
+    const out = await api.listProviders('w1')
+    expect(out[0]).toMatchObject({ id: 'claude', connected: false, enabled: true })
+  })
+
+  // The global preferences write: PUTs the FULL ordered set (index = priority) to
+  // the settings route and hands back the freshly resolved list, so the caller
+  // reconciles from server truth without a second GET.
+  it('updateProviderPreferences PUTs the ordered list and returns the resolved providers', async () => {
+    apiFetch.mockResolvedValueOnce([
+      { id: 'codex', displayName: 'Codex', icon: '', connected: true, enabled: true },
+      { id: 'claude', displayName: 'Claude', icon: '', connected: true, enabled: false },
+    ])
+    const out = await api.updateProviderPreferences([
+      { id: 'codex', disabled: false },
+      { id: 'claude', disabled: true },
+    ])
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/settings/agent/providers',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          providers: [
+            { id: 'codex', disabled: false },
+            { id: 'claude', disabled: true },
+          ],
+        }),
+      }),
+    )
+    expect(out.map((p) => p.id)).toEqual(['codex', 'claude'])
+    expect(out[1].enabled).toBe(false)
+  })
+
+  it('updateProviderPreferences returns [] when the backend responds with no body', async () => {
+    apiFetch.mockResolvedValueOnce(undefined)
+    const out = await api.updateProviderPreferences([{ id: 'codex', disabled: false }])
+    expect(out).toEqual([])
+  })
+
   it('propagates apiFetch errors to the caller', async () => {
     apiFetch.mockRejectedValueOnce(new Error('boom'))
     await expect(api.listChats('w1')).rejects.toThrow('boom')

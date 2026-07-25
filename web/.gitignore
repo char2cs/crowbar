@@ -1,8 +1,11 @@
 # dependencies (bun install)
 node_modules
 
-# generated: provisioned tree-sitter parser assets (run `pnpm provision:tree-sitter`)
-public/tree-sitter/
+# tree-sitter: the runtime wasm is copied from node_modules by
+# scripts/provision-tree-sitter.mjs, so it is generated and not committed.
+# The grammars under public/tree-sitter/parsers/ ARE committed — see
+# scripts/tree-sitter-grammars.json for their upstream provenance.
+public/tree-sitter/*.wasm
 
 # output
 out

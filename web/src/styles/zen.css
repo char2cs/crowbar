@@ -1,0 +1,30 @@
+/* ── Zen theme ──────────────────────────────────────────────────────
+   Zen is the base Crowbar palette with DIFFERENT WINDOW SURFACES: a whiter
+   backdrop, translucent panes, and no chrome tint, so the native window
+   vibrancy reads through. Everything else — semantics, syntax, terminal ANSI —
+   is deliberately the shared palette from :root/.dark in theme.css.
+
+   This file therefore declares ONLY the surface tokens. It used to be a full
+   copy of the palette, which is how it stranded --muted-foreground at the
+   pre-fix values (light 0.52 / dark 0.6) that theme.css had already raised to
+   clear WCAG 1.4.11's 3:1 floor — Zen's glass is MORE transparent than
+   Crowbar's, so those numbers were even further under the floor here. Inheriting
+   makes that class of stale-snapshot drift structurally impossible; the guard in
+   __tests__/styles/zen-theme-tokens.test.ts keeps it that way.
+
+   zen.css is imported after theme.css and these selectors out-specify
+   :root/.dark, so every token listed here wins and every token omitted
+   inherits. Structural tokens (radius, --app-ui-scale, --ui-text-*,
+   --app-scrollbar-*) were already left to inherit. */
+
+[data-theme='zen']:not(.dark) {
+  --background: var(--color-white);
+  --pane-background: oklch(1 0 0 / 60%);
+  --chrome-bg: oklch(0 0 0 / 0%);
+}
+
+[data-theme='zen'].dark {
+  --background: oklch(0.19 0 0);
+  --pane-background: oklch(1 0 0 / 10%);
+  --chrome-bg: oklch(0 0 0 / 40%);
+}

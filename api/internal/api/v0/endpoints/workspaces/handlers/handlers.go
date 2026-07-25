@@ -50,6 +50,10 @@ type Hierarchy interface {
 		ctx context.Context,
 		in worktree.CreateChildInput,
 	) (domain.Workspace, error)
+	CreateFromImport(
+		ctx context.Context,
+		in worktree.ImportInput,
+	) error
 	MergeIntoParent(
 		ctx context.Context,
 		childID string,
@@ -78,6 +82,13 @@ type Hierarchy interface {
 	DetachHolder(
 		ctx context.Context,
 		wsID string,
+	) (domain.Workspace, error)
+	// RenameBranch renames a managed workspace's branch and relocates its
+	// workspace root to match.
+	RenameBranch(
+		ctx context.Context,
+		wsID string,
+		newBranch string,
 	) (domain.Workspace, error)
 }
 

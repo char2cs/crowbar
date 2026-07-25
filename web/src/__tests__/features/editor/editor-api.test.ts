@@ -143,7 +143,7 @@ describe('editor API model operations', () => {
       onChange: () => {},
     })
     useHistoryStore?.getState().actions.clearAllHistories()
-    useEditorSettingsStore?.setState({ theme: 'athas-dark' })
+    useEditorSettingsStore?.setState({ theme: 'crowbar-dark' })
     editorAPI?.setActiveEditorAdapter(null)
     vi.unstubAllGlobals()
   })

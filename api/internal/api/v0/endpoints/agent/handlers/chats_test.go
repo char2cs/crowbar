@@ -12,11 +12,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
 // TestCreate_Success proves Create reads the workspace id from the :wsId
@@ -224,10 +224,16 @@ func (configurableListGetUsecase) PurgeChat(
 	return nil
 }
 
-func (configurableListGetUsecase) ListProviders(
+func (configurableListGetUsecase) ResolveProviders(
 	_ context.Context,
-	_ string,
-) ([]engineagent.Descriptor, error) {
+) ([]dto.AgentProviderDTO, error) {
+	return nil, nil
+}
+
+func (configurableListGetUsecase) ReplaceProviderPreferences(
+	_ context.Context,
+	_ []domain.AgentProviderPreference,
+) ([]dto.AgentProviderDTO, error) {
 	return nil, nil
 }
 

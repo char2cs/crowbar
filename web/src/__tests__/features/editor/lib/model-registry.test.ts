@@ -34,8 +34,8 @@ describe('ModelRegistry', () => {
   it('creates one model per uri and reuses it on re-acquire', () => {
     const api = fakeApi()
     const r = new ModelRegistry(api)
-    const m1 = r.acquire('athas://editor/x', 'ts', 'a')
-    const m2 = r.acquire('athas://editor/x', 'ts', 'a')
+    const m1 = r.acquire('crowbar://editor/x', 'ts', 'a')
+    const m2 = r.acquire('crowbar://editor/x', 'ts', 'a')
     expect(m1).toBe(m2)
     expect(api.createModel).toHaveBeenCalledTimes(1)
   })
@@ -43,26 +43,26 @@ describe('ModelRegistry', () => {
   it('disposes the model only when the last holder releases', () => {
     const api = fakeApi()
     const r = new ModelRegistry(api)
-    const m = r.acquire('athas://editor/x', 'ts', 'a') as unknown as { disposed: boolean }
-    r.acquire('athas://editor/x', 'ts', 'a')
-    r.release('athas://editor/x')
+    const m = r.acquire('crowbar://editor/x', 'ts', 'a') as unknown as { disposed: boolean }
+    r.acquire('crowbar://editor/x', 'ts', 'a')
+    r.release('crowbar://editor/x')
     expect(m.disposed).toBe(false)
-    r.release('athas://editor/x')
+    r.release('crowbar://editor/x')
     expect(m.disposed).toBe(true)
   })
 
   it('release of unknown uri is a no-op (no throw)', () => {
     const api = fakeApi()
     const r = new ModelRegistry(api)
-    expect(() => r.release('athas://editor/none')).not.toThrow()
+    expect(() => r.release('crowbar://editor/none')).not.toThrow()
   })
 
   it('re-acquire after disposal creates a fresh model', () => {
     const api = fakeApi()
     const r = new ModelRegistry(api)
-    r.acquire('athas://editor/x', 'ts', 'a')
-    r.release('athas://editor/x')
-    r.acquire('athas://editor/x', 'ts', 'b')
+    r.acquire('crowbar://editor/x', 'ts', 'a')
+    r.release('crowbar://editor/x')
+    r.acquire('crowbar://editor/x', 'ts', 'b')
     expect(api.createModel).toHaveBeenCalledTimes(2)
   })
 })

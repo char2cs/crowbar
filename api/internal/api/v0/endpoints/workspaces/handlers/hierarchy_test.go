@@ -1,7 +1,9 @@
 package handlers_test
 
 import (
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -226,4 +228,225 @@ func TestRetryProvisionMissingWorkspace_4xx(t *testing.T) {
 		"",
 	)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// newFoldRouter builds the handler directly (rather than via newRouter) so tests
+// can reach WaitAsync: the post-merge fold runs in the detached runAsync
+// goroutine, and WaitAsync is the only sound way to assert a NEGATIVE ("the
+// non-leaf child was NOT deleted") — a sleep would pass on a fast machine for the
+// wrong reason.
+func newFoldRouter(
+	reader workspacehandlers.Reader,
+	hierarchy workspacehandlers.Hierarchy,
+	lastErrors workspacehandlers.LastErrorSetter,
+) (*gin.Engine, *workspacehandlers.Handlers) {
+	r := gin.New()
+	h := workspacehandlers.New(reader, hierarchy, &fakeRepos{}, lastErrors, fakeWork{})
+	rg := r.Group("/v0/projects/:projectId/repos/:repoId")
+	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)
+	rg.POST("/workspaces/:wsId/rebase-onto-parent", h.RebaseOntoParent)
+	return r, h
+}
+
+func mergeInto(
+	r *gin.Engine,
+	body string,
+) *httptest.ResponseRecorder {
+	return do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/child/merge-into-parent", body)
+}
+
+// TestMergeIntoParent_DeleteSourceFoldsMergedLeaf asserts the fold: a clean merge
+// with deleteSource removes the child once it is a LEAF, because at that point its
+// work lives in the parent and nothing else descends from it.
+func TestMergeIntoParent_DeleteSourceFoldsMergedLeaf(
+	t *testing.T,
+) {
+	reader := &fakeReader{
+		get: domain.Workspace{ID: "child"},
+		// Siblings under the same parent do not make "child" a non-leaf: only a
+		// workspace whose ParentID IS "child" would.
+		list: []domain.Workspace{
+			{ID: "child", ParentID: "parent"},
+			{ID: "sibling", ParentID: "parent"},
+		},
+	}
+	hierarchy := &fakeHierarchy{mergeResult: worktree.MergeResult{ParentTipSha: "abc123"}}
+	r, h := newFoldRouter(reader, hierarchy, &fakeLastErrors{})
+
+	rec := mergeInto(r, `{"strategy":"squash","deleteSource":true}`)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	h.WaitAsync()
+	assert.Equal(t, "child", hierarchy.gotDeleteID, "a merged leaf is folded away")
+}
+
+// TestMergeIntoParent_DeleteSourceKeepsNonLeaf asserts the no-silent-data-loss
+// rule: a merged child that still has descendants is KEPT, because DeleteCascade
+// would take its children's unmerged work with it.
+func TestMergeIntoParent_DeleteSourceKeepsNonLeaf(
+	t *testing.T,
+) {
+	reader := &fakeReader{
+		get: domain.Workspace{ID: "child"},
+		list: []domain.Workspace{
+			{ID: "child", ParentID: "parent"},
+			{ID: "grandchild", ParentID: "child"},
+		},
+	}
+	hierarchy := &fakeHierarchy{mergeResult: worktree.MergeResult{ParentTipSha: "abc123"}}
+	lastErrors := &fakeLastErrors{}
+	r, h := newFoldRouter(reader, hierarchy, lastErrors)
+
+	rec := mergeInto(r, `{"strategy":"squash","deleteSource":true}`)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	h.WaitAsync()
+	assert.Empty(t, hierarchy.gotDeleteID, "a child with descendants must survive the merge")
+	assert.Empty(t, lastErrors.gotMsg, "keeping a non-leaf is a no-op, not a failure")
+}
+
+// TestMergeIntoParent_DeleteSourceKeepsConflictedChild asserts a conflicted merge
+// keeps the child regardless of deleteSource: the user still has to resolve it.
+func TestMergeIntoParent_DeleteSourceKeepsConflictedChild(
+	t *testing.T,
+) {
+	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
+	hierarchy := &fakeHierarchy{mergeResult: worktree.MergeResult{ConflictsPending: true}}
+	r, h := newFoldRouter(reader, hierarchy, &fakeLastErrors{})
+
+	rec := mergeInto(r, `{"strategy":"merge","deleteSource":true}`)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	h.WaitAsync()
+	assert.Empty(t, hierarchy.gotDeleteID, "a conflicted merge leaves the child to resolve")
+}
+
+// TestMergeIntoParent_DeleteSourceWithoutFlagKeepsChild asserts the fold is opt-in:
+// a clean merge without deleteSource leaves the child alone.
+func TestMergeIntoParent_DeleteSourceWithoutFlagKeepsChild(
+	t *testing.T,
+) {
+	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
+	hierarchy := &fakeHierarchy{mergeResult: worktree.MergeResult{ParentTipSha: "abc123"}}
+	r, h := newFoldRouter(reader, hierarchy, &fakeLastErrors{})
+
+	rec := mergeInto(r, `{"strategy":"squash"}`)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	h.WaitAsync()
+	assert.Empty(t, hierarchy.gotDeleteID)
+}
+
+// TestMergeIntoParent_FoldLeafLookupFailureSurfacesLastError asserts a post-merge
+// cleanup failure is reported as such: the MERGE already succeeded, so the message
+// must not read as a failed merge.
+func TestMergeIntoParent_FoldLeafLookupFailureSurfacesLastError(
+	t *testing.T,
+) {
+	reader := &fakeReader{
+		get:     domain.Workspace{ID: "child"},
+		listErr: errors.New("the workspace index is unreadable"),
+	}
+	hierarchy := &fakeHierarchy{mergeResult: worktree.MergeResult{ParentTipSha: "abc123"}}
+	lastErrors := &fakeLastErrors{}
+	r, h := newFoldRouter(reader, hierarchy, lastErrors)
+
+	rec := mergeInto(r, `{"strategy":"squash","deleteSource":true}`)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	h.WaitAsync()
+	assert.Empty(t, hierarchy.gotDeleteID, "an unknown leaf state must not delete anything")
+	assert.Equal(t, "child", lastErrors.gotID)
+	assert.Contains(t, lastErrors.gotMsg, "merge succeeded but post-merge cleanup failed")
+}
+
+// TestMergeIntoParent_FoldDeleteFailureSurfacesLastError asserts the same for the
+// delete itself failing after a successful merge.
+func TestMergeIntoParent_FoldDeleteFailureSurfacesLastError(
+	t *testing.T,
+) {
+	reader := &fakeReader{
+		get:  domain.Workspace{ID: "child"},
+		list: []domain.Workspace{{ID: "child", ParentID: "parent"}},
+	}
+	hierarchy := &fakeHierarchy{
+		mergeResult: worktree.MergeResult{ParentTipSha: "abc123"},
+		deleteErr:   errors.New("the worktree is locked"),
+	}
+	lastErrors := &fakeLastErrors{}
+	r, h := newFoldRouter(reader, hierarchy, lastErrors)
+
+	rec := mergeInto(r, `{"strategy":"squash","deleteSource":true}`)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	h.WaitAsync()
+	assert.Equal(t, "child", lastErrors.gotID)
+	assert.Contains(t, lastErrors.gotMsg, "merge succeeded but removing the workspace failed")
+}
+
+// TestRebaseOntoParent_Returns202 asserts the fail-fast/good-path-async contract
+// for the user-initiated "finish the move": validation (the workspace exists) runs
+// synchronously, then 202 and the rebase runs in the background.
+func TestRebaseOntoParent_Returns202(
+	t *testing.T,
+) {
+	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
+	hierarchy := &fakeHierarchy{}
+	r, h := newFoldRouter(reader, hierarchy, &fakeLastErrors{})
+
+	rec := do(
+		r,
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces/child/rebase-onto-parent",
+		"",
+	)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Empty(t, rec.Body.Bytes())
+	h.WaitAsync()
+	assert.Equal(t, "child", hierarchy.gotRebaseID)
+}
+
+// TestRebaseOntoParentMissingWorkspace_4xx asserts the synchronous existence check
+// rejects an unknown workspace before any 202 or background rebase.
+func TestRebaseOntoParentMissingWorkspace_4xx(
+	t *testing.T,
+) {
+	reader := &fakeReader{getErr: apperr.ErrNotFound}
+	hierarchy := &fakeHierarchy{}
+	r, h := newFoldRouter(reader, hierarchy, &fakeLastErrors{})
+
+	rec := do(
+		r,
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces/nope/rebase-onto-parent",
+		"",
+	)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	h.WaitAsync()
+	assert.Empty(t, hierarchy.gotRebaseID, "no rebase runs for a workspace that does not exist")
+}
+
+// TestRebaseOntoParentAsyncErrorBroadcastsLastError asserts a background rebase
+// failure surfaces on the entity, not on the HTTP response (already a 202).
+func TestRebaseOntoParentAsyncErrorBroadcastsLastError(
+	t *testing.T,
+) {
+	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
+	hierarchy := &fakeHierarchy{rebaseErr: errors.New("rebase refused: the parent moved")}
+	lastErrors := &fakeLastErrors{}
+	r, h := newFoldRouter(reader, hierarchy, lastErrors)
+
+	rec := do(
+		r,
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces/child/rebase-onto-parent",
+		"",
+	)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	h.WaitAsync()
+	assert.Equal(t, "child", lastErrors.gotID)
+	assert.Contains(t, lastErrors.gotMsg, "rebase refused")
 }

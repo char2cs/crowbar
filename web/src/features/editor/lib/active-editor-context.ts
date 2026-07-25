@@ -13,7 +13,7 @@
 
 export interface ActiveEditorContext {
   paneId: string
-  uri: string // monaco model uri string (athas://editor/...)
+  uri: string // monaco model uri string (crowbar://editor/...)
   filePath: string
   // opaque handles the controller attaches; satellites may read them:
   model?: unknown // monaco ITextModel

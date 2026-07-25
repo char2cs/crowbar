@@ -12,10 +12,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
 func newTestContext(
@@ -125,9 +125,12 @@ type fakeAgentUsecase struct {
 	purgeCalls []string
 	purgeErr   error
 
-	providers              []engineagent.Descriptor
-	providersErr           error
-	listProvidersWorkspace string
+	resolveProviders []dto.AgentProviderDTO
+	resolveErr       error
+
+	replaceResult []dto.AgentProviderDTO
+	replaceErr    error
+	replaceCalls  [][]domain.AgentProviderPreference
 
 	// getChat/getChatErr configure GetChat, the call every
 	// requireChatInWorkspace scope check (Get/Switch/Rename/Handoff) makes
@@ -290,10 +293,19 @@ func (f *fakeAgentUsecase) PurgeChat(
 	return f.purgeErr
 }
 
-func (f *fakeAgentUsecase) ListProviders(
+func (f *fakeAgentUsecase) ResolveProviders(
 	_ context.Context,
-	workspaceID string,
-) ([]engineagent.Descriptor, error) {
-	f.listProvidersWorkspace = workspaceID
-	return f.providers, f.providersErr
+) ([]dto.AgentProviderDTO, error) {
+	return f.resolveProviders, f.resolveErr
+}
+
+func (f *fakeAgentUsecase) ReplaceProviderPreferences(
+	_ context.Context,
+	prefs []domain.AgentProviderPreference,
+) ([]dto.AgentProviderDTO, error) {
+	f.replaceCalls = append(f.replaceCalls, prefs)
+	if f.replaceErr != nil {
+		return nil, f.replaceErr
+	}
+	return f.replaceResult, nil
 }

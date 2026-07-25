@@ -61,18 +61,3 @@ export async function lintContent(options: LintOptions): Promise<LintResult> {
     }
   }
 }
-
-/**
- * Check if linting is available for a file
- */
-export function isLintingAvailable(filePath: string, languageId?: string): boolean {
-  const linterConfig = extensionRegistry.getLinterForFile(filePath)
-  if (linterConfig) return true
-
-  if (languageId) {
-    const langLinterConfig = extensionRegistry.getLinterForLanguage(languageId)
-    return langLinterConfig !== null
-  }
-
-  return false
-}

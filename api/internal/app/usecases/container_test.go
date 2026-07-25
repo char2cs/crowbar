@@ -72,11 +72,14 @@ func newContainerDeps(
 	require.NoError(t, err)
 	profiles, err := storesqlite.NewFromDB[domain.TerminalProfile, string](globalView)
 	require.NoError(t, err)
+	providerPrefs, err := storesqlite.NewFromDB[domain.AgentProviderPreference, string](globalView)
+	require.NoError(t, err)
 
 	gormStores := usecases.GORMStores{
-		Projects:         projects,
-		Repositories:     repoStore,
-		TerminalProfiles: profiles,
+		Projects:                 projects,
+		Repositories:             repoStore,
+		TerminalProfiles:         profiles,
+		AgentProviderPreferences: providerPrefs,
 	}
 
 	eng, err := engine.New(context.Background())

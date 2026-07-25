@@ -49,6 +49,24 @@ export default defineConfig({
         __dirname,
         './src/__tests__/__mocks__/tauri-api-core.ts',
       ),
+      // Vitest externalizes node_modules imports by default (bypassing Vite's
+      // CSS-to-JS transform), so both math-kit's and @platejs/math's own
+      // `katex/dist/katex.min.css` side-effect import hit Node's raw ESM
+      // loader and fail on the `.css` extension — see the stub file for detail.
+      // Only takes effect once the module is inlined (below): an externalized
+      // import is a raw Node `import()` that never consults this alias.
+      'katex/dist/katex.min.css': path.resolve(
+        __dirname,
+        './src/__tests__/__mocks__/katex-css-stub.ts',
+      ),
+    },
+    server: {
+      deps: {
+        // Force @platejs/math (and its nested katex copy) through Vite's own
+        // transform pipeline instead of Node's raw ESM loader, so both the
+        // CSS alias above and Vite's module resolution actually apply to it.
+        inline: [/@platejs\/math/, /katex/],
+      },
     },
     coverage: {
       provider: 'v8',

@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import './styles/theme.css';
-@import './styles/terra.css';
+@import './styles/zen.css';
 @import './styles/editor-theme.css';
 
 @custom-variant dark (&:is(.dark *));
@@ -81,6 +81,10 @@
   font-size: var(--ui-text-lg);
 }
 
+@utility ui-text-xl {
+  font-size: var(--ui-text-xl);
+}
+
 /* Allow content-pane shadow to bleed leftward into the sidebar area.
    react-resizable-panels injects overflow:hidden/auto via inline styles — override both.
    pane-container also clips; override so the shadow follows the rounded pane content shape. */
@@ -116,6 +120,7 @@
   --animate-toast-error-odd: toast-error-odd 0.28s cubic-bezier(0.5, 1, 0.89, 1);
   --animate-toast-error-even: toast-error-even 0.28s cubic-bezier(0.5, 1, 0.89, 1);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-highlight: var(--highlight);
   @keyframes toast-success-odd {
     0% {
       scale: 1;
@@ -178,4 +183,12 @@
       translate: 0 0;
     }
   }
+}
+
+:root {
+  --highlight: oklch(0.852 0.199 91.936);
+}
+
+.dark {
+  --highlight: oklch(0.852 0.199 91.936);
 }

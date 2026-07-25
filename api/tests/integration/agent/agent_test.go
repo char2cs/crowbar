@@ -166,7 +166,7 @@ func (h *harness) importRepoAndWorkspace(
 	project, err := h.app.Usecases.ProjectImport.Create(ctx, name, repoPath)
 	require.NoError(t, err, "create project")
 
-	repo, err := h.app.Usecases.ProjectImport.ImportRepo(ctx, project.ID, repoPath)
+	repo, err := h.app.Usecases.ProjectImport.ImportRepo(ctx, project.ID, "", repoPath)
 	require.NoError(t, err, "import repo")
 
 	ws, err := h.app.Usecases.Worktree.CreateChild(ctx, worktree.CreateChildInput{

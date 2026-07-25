@@ -28,7 +28,11 @@ import (
 // too. A new agent route now fails HERE rather than in the app.
 func TestHomeMountsEveryAgentRoute(t *testing.T) {
 	wsRoutes := agentSubRoutes(t, func(r *gin.Engine) {
-		agentroutes.Register(r.Group("/scope"), nil, noopWS)
+		scope := r.Group("/scope")
+		// settingsRG carries only the GLOBAL /settings/agent/providers write route,
+		// which is deliberately NOT a home capability — agentSubRoutes filters it out
+		// (it is not an /agent/... path), so home parity is unaffected by it.
+		agentroutes.Register(scope, scope, nil, noopWS)
 	}, "/scope")
 
 	homeRoutes := agentSubRoutes(t, func(r *gin.Engine) {

@@ -1,0 +1,335 @@
+/*
+ * Reading typography for the PLATE/SLATE markdown surface.
+ *
+ * This is NOT `../styles.css` — that file targets the retired HTML preview's
+ * DOM (`.markdown-preview` wrapping remark-rendered `<p>/<ul>/<pre>`), which
+ * the rich editor does not produce. Plate renders every block through a
+ * registry node component (components/ui/*-node.tsx), each carrying its own
+ * Tailwind classes and a stable `slate-<type>` class; those `slate-*` classes
+ * are the hooks used below. `styles.css` stays untouched and still owns the
+ * preview.
+ *
+ * HOW THESE RULES WIN
+ * The registry components' Tailwind utilities live in Tailwind v4's
+ * `utilities` cascade layer. This file is imported from a `.tsx` module, so
+ * it is UNLAYERED — and unlayered normal declarations outrank every layered
+ * one regardless of selector specificity. That, not specificity arithmetic,
+ * is what lets `.slate-h2 { margin: … }` here beat `mt-[1.4em] mb-1` there,
+ * and it means none of this needs `!important`. (Inline `style` still wins:
+ * Plate's list indent `margin-left` and `display: list-item` are functional,
+ * and are deliberately left alone.)
+ *
+ * Everything is scoped under `.crowbar-markdown-editor` (set by
+ * markdown-editor-pane.tsx) so it cannot leak into the rest of the app.
+ *
+ * TOKENS ONLY — no literal colours. `--md-*` below are derived from the app
+ * tokens so light and dark both follow automatically: `--foreground` flips
+ * dark-on-light to light-on-dark, so a `color-mix` wash of it is a dark wash
+ * in light mode and a light wash in dark mode.
+ */
+
+.crowbar-markdown-editor {
+  /* ~720px at the 16px body size: a 70–80 character measure, the Notion /
+     Obsidian reading column. */
+  --md-measure: 45rem;
+  /* Floor for the side gutters, so a narrow split pane degrades to padding
+     instead of overflowing. */
+  --md-gutter: 2.5rem;
+  /* Default gap under a block, in its OWN em (so a code block's gap tracks
+     its smaller type). */
+  --md-gap: 0.9em;
+  /* Centres the column: half the leftover width, never below the gutter.
+     `100%` resolves against the pane, at the element where it is USED —
+     both the editable and the frontmatter banner are full-pane-width, so
+     they line up exactly. */
+  --md-pad-inline: max(var(--md-gutter), calc((100% - var(--md-measure)) / 2));
+
+  /* Surface washes + rules, derived from --foreground (see header note). */
+  --md-wash: color-mix(in oklch, var(--foreground) 5%, transparent);
+  --md-wash-strong: color-mix(in oklch, var(--foreground) 8%, transparent);
+  --md-rule: color-mix(in oklch, var(--foreground) 12%, transparent);
+  --md-quote-bar: color-mix(in oklch, var(--foreground) 22%, transparent);
+  --md-link: var(--primary);
+}
+
+/* --primary is the SAME brand green in both themes (L 0.49), which reads as a
+   near-black smudge against the dark background — measured on the dark
+   harness, links all but vanished. Lift it toward --foreground so the hue
+   still says "brand" but the text is actually legible. Mixed in oklAb, not
+   oklch: --foreground is a neutral whose hue angle is still 0, so an oklch
+   mix interpolates 130deg -> 0deg and lands on olive. oklab scales the
+   a/b axes instead, which keeps the green. */
+.dark .crowbar-markdown-editor {
+  --md-link: color-mix(in oklab, var(--primary) 55%, var(--foreground));
+}
+
+/* ── The page ──────────────────────────────────────────────────────────── */
+
+.crowbar-markdown-editor [data-slate-editor] {
+  /* The editable itself is the scroll container AND the page, so clicking
+     anywhere in the gutter still places the caret (Notion behaviour). The
+     6rem tail keeps the last line off the bottom edge. */
+  padding: 3rem var(--md-pad-inline) 6rem;
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--foreground);
+  /* Long URLs and unbroken tokens wrap rather than widening the page; the
+     genuinely wide blocks (code, tables, math) scroll inside themselves. */
+  overflow-wrap: break-word;
+}
+
+/* The document never opens with dead space above its first line: zero the top
+   margin of the first block. Each registered node type carries its own explicit
+   `margin-block` below (h1-h6, blockquote, p, callout, code_block, table, hr,
+   equation); with drag-and-drop removed, blocks are direct children of the
+   editable, so `> :first-child` is the first block itself. */
+.crowbar-markdown-editor [data-slate-editor] > :first-child {
+  margin-top: 0;
+}
+
+/* ── Headings ──────────────────────────────────────────────────────────── */
+
+/* The registry's `headingVariants` pairs a large `mt-[1.6em]` with `mb-1`
+   (4px) — the heading collides with the text it introduces. Restated here
+   as a real pair: bottom ~0.5em of the HEADING's own size, top 3x that. */
+.crowbar-markdown-editor :is(.slate-h1, .slate-h2, .slate-h3, .slate-h4, .slate-h5, .slate-h6) {
+  margin-block: 1.5em 0.5em;
+  padding: 0;
+  color: var(--foreground);
+}
+
+.crowbar-markdown-editor .slate-h1 {
+  font-size: 2em;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.crowbar-markdown-editor .slate-h2 {
+  font-size: 1.5em;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.012em;
+}
+
+.crowbar-markdown-editor .slate-h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.crowbar-markdown-editor .slate-h4 {
+  font-size: 1.05em;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.crowbar-markdown-editor .slate-h5 {
+  font-size: 1em;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.crowbar-markdown-editor .slate-h6 {
+  font-size: 0.95em;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+
+/* ── Paragraphs + inline marks ─────────────────────────────────────────── */
+
+.crowbar-markdown-editor .slate-p {
+  margin: 0 0 var(--md-gap);
+  padding: 0;
+}
+
+.crowbar-markdown-editor [data-slate-editor] strong {
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.crowbar-markdown-editor [data-slate-editor] del,
+.crowbar-markdown-editor [data-slate-editor] s {
+  color: var(--muted-foreground);
+}
+
+.crowbar-markdown-editor .slate-a {
+  color: var(--md-link);
+  font-weight: 500;
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in oklch, var(--md-link) 40%, transparent);
+  text-underline-offset: 0.2em;
+}
+
+.crowbar-markdown-editor .slate-a:hover {
+  text-decoration-color: var(--md-link);
+}
+
+/* ── Lists ─────────────────────────────────────────────────────────────── */
+
+/* Plate models list items as TOP-LEVEL paragraphs: bulleted ones get an
+   inline `display: list-item` + `margin-left` (24px per level, ~1.5em),
+   ordered/todo ones wrap their content in an `<ol>`. Both are `.slate-p`,
+   so the paragraph gap above is far too airy for a list — tighten it. */
+.crowbar-markdown-editor .slate-p[class*='slate-listStyleType-'],
+.crowbar-markdown-editor .slate-p:has(> ol),
+.crowbar-markdown-editor .slate-p:has(> ul) {
+  margin-bottom: 0.3em;
+}
+
+.crowbar-markdown-editor [data-slate-editor] ::marker {
+  color: var(--muted-foreground);
+}
+
+/* Task lists: the checkbox is absolutely positioned in the indent gutter at
+   a fixed `top-1`, which was centred against a 1.5 line-height. Re-centre it
+   on the 1.7 line box so it sits on its text rather than above it. `li` is
+   already `list-none`, so there is no bullet behind it. */
+.crowbar-markdown-editor [data-slate-editor] [data-slot='checkbox'] {
+  top: calc((1.7em - 1em) / 2);
+}
+
+/* ── Blockquote ────────────────────────────────────────────────────────── */
+
+.crowbar-markdown-editor .slate-blockquote {
+  margin-block: 1.2em;
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 3px solid var(--md-quote-bar);
+  color: var(--muted-foreground);
+  /* The registry ships `italic`; Notion and Obsidian both set quotes in
+     roman and lean on the rule + muted colour instead. */
+  font-style: normal;
+}
+
+.crowbar-markdown-editor .slate-blockquote .slate-p {
+  margin-bottom: 0.4em;
+}
+
+/* ── Callout (GitHub `> [!NOTE]` alerts) ───────────────────────────────── */
+
+.crowbar-markdown-editor .slate-callout {
+  margin-block: 1.2em;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-md);
+  background: var(--md-wash);
+}
+
+/* ── Code ──────────────────────────────────────────────────────────────── */
+
+.crowbar-markdown-editor .slate-code {
+  padding: 0.15em 0.35em;
+  border-radius: var(--radius-sm);
+  background: var(--md-wash-strong);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+.crowbar-markdown-editor .slate-code_block {
+  margin-block: 1.2em;
+  padding: 0;
+}
+
+/* The element's only child is the code chrome (see CodeBlockElement); the
+   language/copy controls are a grandchild and are not matched. */
+.crowbar-markdown-editor .slate-code_block > div {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--md-wash);
+}
+
+.crowbar-markdown-editor .slate-code_block pre {
+  /* The registry's flat `p-8` is 32px on every side. Only the TOP needs
+     clearance — that is where the absolutely-positioned language + copy
+     controls sit (24px tall at a 4px offset). */
+  padding: 1.9rem 1rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+
+/* Mermaid renders its diagram as a sibling of the (still-mounted) source
+   `<pre>` inside that same chrome. Without padding here the diagram's own
+   bordered box sits flush against the code block's border and under the
+   language/copy controls — so the clearance moves up to this wrapper, and
+   the `<pre>` below it drops back to even padding. */
+.crowbar-markdown-editor .mermaid-code-block {
+  padding: 2rem 0.5rem 0.5rem;
+}
+
+.crowbar-markdown-editor .mermaid-code-block pre {
+  padding: 0.5rem 0.75rem;
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────── */
+
+/* `.slate-table` already carries `overflow-x-auto`, so a wide table scrolls
+   inside its own box and never widens the page. Cell padding (`px-3 py-2`)
+   and the pseudo-element borders are the registry's and are left alone. */
+.crowbar-markdown-editor .slate-table {
+  margin-block: 1.2em;
+  padding-block: 0;
+}
+
+.crowbar-markdown-editor .slate-th {
+  background: var(--md-wash);
+  font-weight: 600;
+}
+
+.crowbar-markdown-editor :is(.slate-th, .slate-td) .slate-p {
+  margin: 0;
+}
+
+/* ── Rules, math, and trailing-gap resets ──────────────────────────────── */
+
+.crowbar-markdown-editor .slate-hr {
+  margin-block: 2em;
+}
+
+.crowbar-markdown-editor .slate-hr > div {
+  padding-block: 0;
+}
+
+.crowbar-markdown-editor .slate-hr hr {
+  height: 1px;
+  border-radius: 0;
+  background: var(--md-rule);
+  background-clip: border-box;
+}
+
+.crowbar-markdown-editor .slate-equation {
+  margin-block: 1.2em;
+}
+
+/* KaTeX ships `.katex-display { margin: 1em 0 }`, which double-counts against
+   the block margin above; and a wide expression must scroll, not overflow. */
+.crowbar-markdown-editor .katex-display {
+  margin-block: 0.2em;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* A container's last block never adds a trailing gap inside it. */
+.crowbar-markdown-editor
+  :is(.slate-blockquote, .slate-callout, .slate-th, .slate-td, li)
+  > .slate-p:last-child {
+  margin-bottom: 0;
+}
+
+.crowbar-markdown-editor [data-slate-editor] [data-slate-placeholder] {
+  color: var(--muted-foreground);
+  opacity: 1;
+}
+
+/* ── Frontmatter banner ────────────────────────────────────────────────── */
+
+/* Read-only, above the scroll area. Aligned to the same reading column so it
+   reads as the document's header rather than a stray full-bleed bar; the
+   wider right inset keeps it clear of the Rich/Source toggle. */
+.crowbar-markdown-editor__frontmatter {
+  padding-left: var(--md-pad-inline);
+  padding-right: max(3.25rem, var(--md-pad-inline));
+}

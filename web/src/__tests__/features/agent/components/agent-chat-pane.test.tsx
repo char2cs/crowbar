@@ -22,6 +22,12 @@ const { getChatFn, switchProviderFn, resumeChatFn, saveReconnectFn, toastErrorFn
   }),
 )
 
+// The pane resolves its cycle chord through the keymap (so it stays rebindable);
+// pin it here rather than standing up the settings store.
+vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
+  useEffectiveChordMap: () => ({ 'agent.cycleProvider': 'mod+/' }),
+}))
+
 vi.mock('@/features/agent/api/agent-api', () => ({
   getChat: (...a: unknown[]) => getChatFn(...a),
   switchProvider: (...a: unknown[]) => switchProviderFn(...a),
@@ -93,11 +99,12 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
 }))
 
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 
 const providers: AgentProvider[] = [
-  { id: 'claude', displayName: 'Claude', icon: '<svg/>' },
-  { id: 'codex', displayName: 'Codex', icon: '<svg/>' },
+  { id: 'claude', displayName: 'Claude', icon: '<svg/>', connected: true, enabled: true },
+  { id: 'codex', displayName: 'Codex', icon: '<svg/>', connected: true, enabled: true },
 ]
 
 // ── Wire fixtures ────────────────────────────────────────────────────
@@ -160,8 +167,8 @@ function deferred<T>() {
 // chatId/runnerId back in as props. That closes the loop the feature IS — the
 // buffer is the pane's moving target, and the pane is what moves it.
 
-function seedWorkspace(chats: AgentChat[]) {
-  const store = createWorkspaceStore('w1')
+function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
+  const store = createWorkspaceStore(wsId)
   store.getState().setAgentProviders(providers)
   store.getState().seedAgentChats(chats)
   return store
@@ -169,11 +176,11 @@ function seedWorkspace(chats: AgentChat[]) {
 
 type Store = ReturnType<typeof seedWorkspace>
 
-function openBuffer(store: Store, chatId: string, runnerId: string, name = 'Chat') {
+function openBuffer(store: Store, chatId: string, runnerId: string, name = 'Chat', wsId = 'w1') {
   return store.getState().bufferActions.openContent({
     type: 'agentChat',
     chatId,
-    wsId: 'w1',
+    wsId,
     name,
     runnerId,
   })
@@ -230,6 +237,11 @@ beforeEach(() => {
   )
   useTerminalStore.setState({ sessions: new Map() })
   localStorage.clear()
+  // Every route that mounts a workspace publishes it as THE active one
+  // (WorkspaceView). The pane's window-level chord listener is gated on that,
+  // because a RETAINED workspace stays mounted (display:none + inert) with its
+  // listener still registered — see the hidden-workspace test below.
+  setActiveWorkspaceId('w1')
 })
 
 describe('AgentChatPane', () => {
@@ -991,6 +1003,138 @@ describe('AgentChatPane', () => {
       await renderPane(store, bufferId)
 
       expect(buffer(store, bufferId)?.name).toBe('Codex chat')
+    })
+  })
+
+  // ── ⌘/ cycles the provider, like ⌘-tab ───────────────────────────────
+  describe('cycle-provider chord', () => {
+    const pressCycle = async () => {
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: '/', metaKey: true }))
+      })
+    }
+
+    it('switches the chat to the next ENABLED provider', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      const bufferId = openBuffer(store, 'c1', 'r1')
+      await renderPane(store, bufferId)
+
+      await pressCycle()
+
+      // The fixture chat is on codex, the LAST enabled provider, so the cycle
+      // wraps back to the first — the ⌘-tab behaviour, not a dead end.
+      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'claude')
+    })
+
+    it('advances to the next provider, not always the first', async () => {
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
+      ])
+      const bufferId = openBuffer(store, 'c1', 'r1')
+      await renderPane(store, bufferId)
+
+      await pressCycle()
+
+      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'codex')
+    })
+
+    it('still fires when the focused child swallows the key (xterm stopPropagation)', async () => {
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
+      ])
+      const bufferId = openBuffer(store, 'c1', 'r1')
+      await renderPane(store, bufferId)
+
+      // With a chat open the focus sits in its xterm, which stopPropagations the
+      // keys it handles. A bubble-phase listener never sees the chord in the one
+      // place the command exists to work — this stands that swallower in, so the
+      // test fails if the listener ever goes back to the bubble phase.
+      const swallow = (e: Event) => e.stopPropagation()
+      document.body.addEventListener('keydown', swallow)
+      try {
+        await act(async () => {
+          document.body.dispatchEvent(
+            new KeyboardEvent('keydown', {
+              key: '/',
+              metaKey: true,
+              bubbles: true,
+              cancelable: true,
+            }),
+          )
+        })
+      } finally {
+        document.body.removeEventListener('keydown', swallow)
+      }
+
+      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'codex')
+    })
+
+    it('never offers a DISABLED provider as the next one', async () => {
+      const store = createWorkspaceStore('w1')
+      store.getState().setAgentProviders([
+        { id: 'claude', displayName: 'Claude', icon: '<svg/>', connected: true, enabled: true },
+        { id: 'codex', displayName: 'Codex', icon: '<svg/>', connected: true, enabled: false },
+      ])
+      store.getState().seedAgentChats([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      const bufferId = openBuffer(store, 'c1', 'r1')
+      await renderPane(store, bufferId)
+
+      await pressCycle()
+
+      // Only claude is enabled and the chat is already on it — nothing to cycle to.
+      expect(switchProviderFn).not.toHaveBeenCalled()
+    })
+
+    // The isVisible/isActivePane gates are read from the pane's OWN workspace
+    // store, and a workspace switch changes neither: WorkspaceHost keeps the
+    // outgoing workspace MOUNTED (display:none + inert), which hides DOM but
+    // does not unregister a window-level keydown listener. So N retained
+    // workspaces could each satisfy the guard at once — ⌘/ pressed in workspace
+    // B was swallowed by A's hidden listener, which killed B's Monaco comment
+    // toggle AND switched the provider on an invisible chat (killing that CLI
+    // and spawning another).
+    it('a HIDDEN WORKSPACE ignores the chord — only the ACTIVE workspace may switch', async () => {
+      const hidden = seedWorkspace(
+        [liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' })],
+        'w-hidden',
+      )
+      const hiddenBuffer = openBuffer(hidden, 'c1', 'r1', 'Chat', 'w-hidden')
+      const shown = seedWorkspace(
+        [liveChat({ id: 'c2', runnerId: 'r2', pty: 'pty2', provider: 'claude' })],
+        'w-shown',
+      )
+      const shownBuffer = openBuffer(shown, 'c2', 'r2', 'Chat', 'w-shown')
+
+      // Both panes are the active, visible tab of their own workspace — exactly
+      // what a retained workspace looks like the instant it goes hidden.
+      await renderPane(hidden, hiddenBuffer)
+      await renderPane(shown, shownBuffer)
+      setActiveWorkspaceId('w-shown')
+
+      await pressCycle()
+
+      expect(switchProviderFn).toHaveBeenCalledTimes(1)
+      expect(switchProviderFn).toHaveBeenCalledWith('w-shown', 'c2', 'codex')
+    })
+
+    it('a HIDDEN chat ignores the chord — a background split must not switch', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      const bufferId = openBuffer(store, 'c1', 'r1')
+      // Every chat stays mounted for keep-alive, so without the isVisible gate a
+      // hidden tab would swallow the chord and switch a chat nobody can see.
+      await act(async () => {
+        render(
+          createElement(
+            WorkspaceStoreContext.Provider,
+            { value: store },
+            createElement(PaneHost, { bufferId, isVisible: false }),
+          ),
+        )
+      })
+
+      await pressCycle()
+
+      expect(switchProviderFn).not.toHaveBeenCalled()
     })
   })
 })

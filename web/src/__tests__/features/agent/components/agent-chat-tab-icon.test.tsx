@@ -22,8 +22,20 @@ import {
 import type { AgentChat } from '@/features/agent/api/agent-api'
 
 const PROVIDERS = [
-  { id: 'claude', displayName: 'Claude', icon: '<svg data-p="claude"></svg>' },
-  { id: 'codex', displayName: 'Codex', icon: '<svg data-p="codex"></svg>' },
+  {
+    id: 'claude',
+    displayName: 'Claude',
+    icon: '<svg data-p="claude"></svg>',
+    connected: true,
+    enabled: true,
+  },
+  {
+    id: 'codex',
+    displayName: 'Codex',
+    icon: '<svg data-p="codex"></svg>',
+    connected: true,
+    enabled: true,
+  },
 ]
 
 const chat = (id: string, providerId: string): AgentChat => ({

@@ -1,11 +1,5 @@
 import type { GitDiff, GitDiffLine, GitHunk } from './git-types'
 
-export interface AddCommentAnchor {
-  filePath: string
-  side: 'old' | 'new'
-  line: number
-}
-
 export interface DiffViewerProps {
   onStageHunk?: (hunk: GitHunk) => void
   onUnstageHunk?: (hunk: GitHunk) => void
@@ -82,20 +76,4 @@ export interface MultiFileDiff {
   fileKeys?: string[]
   initiallyExpandedFileKey?: string
   isLoading?: boolean
-}
-
-export interface MultiFileDiffViewerProps {
-  multiDiff: MultiFileDiff
-  onClose: () => void
-}
-
-export interface FileDiffSummary {
-  key: string
-  fileName: string
-  filePath: string
-  status: 'added' | 'deleted' | 'modified' | 'renamed'
-  additions: number
-  deletions: number
-  shouldAutoCollapse: boolean
-  uncommitted: boolean
 }

@@ -210,8 +210,8 @@
 :root {
   /* ── Cross/UI light-mode tokens ── */
   --radius: 0.625rem;
-  --background: var(--color-white);
-  --pane-background: oklch(1 0 0 / 60%);
+  --background: oklch(0.994 0.001 106.4);
+  --pane-background: oklch(0.994 0.001 106.4);
   --foreground: var(--color-neutral-800);
   --card: var(--color-white);
   --card-foreground: var(--color-neutral-800);
@@ -226,7 +226,14 @@
   --secondary: oklch(0.753 0.054 112.4);
   --secondary-foreground: oklch(0.98 0.027 98);
   --muted: oklch(0 0 0 / 4%);
-  --muted-foreground: oklch(0.52 0 0);
+  /* Was 0.52 — rgb(105), which measured 2.82:1 against the sidebar's vibrancy
+     glass and failed WCAG 1.4.11's 3:1 floor for non-text UI. Sub-action icons
+     (settings, add, expand) read as barely-there smudges. Native vibrancy
+     lightens whatever sits on it, so a value picked against --background is
+     optimistic; this is scored against the composited glass instead.
+     0.40 -> rgb(72), 4.69:1, and still clearly below --foreground so "muted"
+     keeps meaning muted. */
+  --muted-foreground: oklch(0.4 0 0);
   --accent: oklch(0 0 0 / 4%);
   --accent-foreground: var(--color-neutral-800);
   /* Editor text-selection wash (needs real opacity, unlike the 4% --accent) */
@@ -275,13 +282,19 @@
   --git-renamed: var(--color-sky-600);
 
   /* ── Crowbar UI-layer tokens (not in Cross/UI) ── */
-  --chrome-bg: oklch(0 0 0 / 0%);
+  /* Window backdrop tint (on <body>, over the native window vibrancy). A light
+     frost — neutral-50 at 65% — so the blurred desktop reads through as light
+     glass rather than raw blur. Mirrors the dark theme's neutral-800 tint but in
+     the light direction; a dark tint here would muddy the light surfaces. Zen
+     keeps its own transparent value (see zen.css). */
+  --chrome-bg: color-mix(in oklch, var(--color-neutral-50) 45%, transparent);
 
   --app-ui-scale: 1;
   --ui-text-xs: calc(0.6875rem * var(--app-ui-scale));
   --ui-text-sm: calc(0.75rem * var(--app-ui-scale));
   --ui-text-base: calc(0.875rem * var(--app-ui-scale));
   --ui-text-lg: calc(1rem * var(--app-ui-scale));
+  --ui-text-xl: calc(1.25rem * var(--app-ui-scale));
   --app-scrollbar-size: 11px;
   --app-scrollbar-thumb: oklch(0.55 0 0 / 42%);
   --app-scrollbar-thumb-border: 3px solid transparent;
@@ -344,8 +357,8 @@
 
 .dark {
   /* ── Cross/UI dark-mode tokens ── */
-  --background: oklch(0.19 0 0);
-  --pane-background: oklch(1 0 0 / 10%);
+  --background: oklch(0.239 0.002 106.5);
+  --pane-background: oklch(0.239 0.002 106.5);
   --foreground: var(--color-neutral-100);
   --card: var(--background);
   --card-foreground: var(--color-neutral-100);
@@ -361,7 +374,10 @@
   --secondary: var(--primary);
   --secondary-foreground: oklch(0.98 0.027 98);
   --muted: oklch(1 0 0 / 4%);
-  --muted-foreground: oklch(0.6 0 0);
+  /* Was 0.6 — rgb(128), 2.65:1 against the dark sidebar, failing the same 3:1
+     floor as the light theme did. Raised to keep both themes above it.
+     0.72 -> rgb(164), ~4.2:1, still well short of --foreground. */
+  --muted-foreground: oklch(0.72 0 0);
   --accent: oklch(1 0 0 / 4%);
   --accent-foreground: var(--color-neutral-100);
   --editor-selection: oklch(0.7 0.13 235 / 0.32);
@@ -405,7 +421,13 @@
   --git-renamed: var(--color-sky-400);
 
   /* ── Crowbar UI-layer dark overrides ── */
-  --chrome-bg: oklch(0 0 0 / 40%);
+  /* Window backdrop tint (applied to <body>, behind every pane). Was a 40% black
+     wash over the native window vibrancy (the blurred desktop). Recoloured to a
+     neutral-800 (#262626) tint at 65% strength: mostly solid, with the vibrancy
+     still reading through a neutral wash rather than pure black. color-mix keeps
+     it token-driven (same pattern as --sidebar-element-*). Light carries its own
+     neutral-50 frost; Zen keeps its own 40% black wash (see zen.css). */
+  --chrome-bg: color-mix(in oklch, var(--color-neutral-800) 65%, transparent);
 
   /* ── Syntax dedicated hues — Palette A (dark) ─────────────────── */
   --syntax-keyword: #d97757;
@@ -429,4 +451,29 @@
   --syntax-markdown-link-text: #a3c585;
   --syntax-markdown-code: #a3c585;
   --syntax-markdown-list: #d97757;
+}
+
+/* The New Tab surface keys off the PANE's box, not the window: a pane's size has
+   nothing to do with the viewport, so a media query is wrong in every split.
+   `size` (not `inline-size`) because the height queries below are load-bearing. */
+.pane-cq {
+  container-type: size;
+  container-name: pane;
+}
+
+/* The surface is a SINGLE column at every pane size — actions, a rule, then
+   history. It used to go side-by-side above 700px, which reserved a fixed
+   second column for a history that usually holds one item, leaving a third of
+   the composition as dead air. One column cannot have that failure: there is no
+   second column left to be empty.
+
+   That collapses three rules to one. Stacked, history genuinely costs vertical
+   space, so a pane too short for both drops it and keeps the create actions —
+   they are what the surface is for. (The old pair split this by width because
+   the side-by-side case had a much lower floor; with one column there is only
+   this threshold.) */
+@container pane (max-height: 380px) {
+  .nt-history {
+    display: none;
+  }
 }

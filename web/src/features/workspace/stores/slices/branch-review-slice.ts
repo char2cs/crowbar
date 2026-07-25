@@ -73,12 +73,6 @@ export const INITIAL_BRANCH_REVIEW_STATE: BranchReviewState = {
   activeFileNonce: 0,
 }
 
-export interface OptimisticOp {
-  apply: () => void
-  rollback: () => void
-  commit: () => Promise<void>
-}
-
 export const createBranchReviewSlice: StateCreator<
   WorkspaceState,
   [['zustand/immer', never]],
