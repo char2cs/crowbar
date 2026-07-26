@@ -2,6 +2,7 @@ import './styles.css'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { exists } from '@/features/file-system/controllers/platform'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
@@ -12,13 +13,27 @@ import { logger } from '../utils/logger'
 import { parseMarkdown } from './parser'
 import { resolvePreviewLinkPath } from './resolve-preview-link'
 
-export function MarkdownPreview() {
+export interface MarkdownPreviewProps {
+  /**
+   * The `markdownPreview` buffer this instance renders. Also the key its scroll
+   * offset is retained under, since PaneContainer unmounts the preview whenever
+   * another tab is active in the pane. Omitted by the legacy CodeEditor host,
+   * which falls back to the active pane's buffer and keeps no scroll.
+   */
+  bufferId?: string
+}
+
+export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
   const { sourceBufferPath, sourceContent } = useWorkspaceStoreContext(
     useShallow((state) => {
+      // Prefer the buffer this instance was handed: with a split, the pane
+      // rendering the preview is not necessarily the ACTIVE pane, and reading
+      // the active pane's buffer would show another pane's file.
+      const ownBuffer = bufferId ? state.buffers.find((buffer) => buffer.id === bufferId) : null
       const activeBufferId = state.panes[state.activePaneId]?.activeBufferId ?? null
-      const activeBuffer = activeBufferId
-        ? state.buffers.find((buffer) => buffer.id === activeBufferId)
-        : null
+      const activeBuffer =
+        ownBuffer ??
+        (activeBufferId ? state.buffers.find((buffer) => buffer.id === activeBufferId) : null)
       const sourceBuffer =
         activeBuffer?.type === 'markdownPreview'
           ? (state.buffers.find((buffer) => buffer.path === activeBuffer.sourceFilePath) ??
@@ -46,6 +61,12 @@ export function MarkdownPreview() {
     const parsedHtml = parseMarkdown(sourceContent)
     setHtml(parsedHtml)
   }, [sourceContent])
+
+  // A tab switch unmounts this pane entirely (PaneContainer renders only the
+  // active buffer), so the scroll offset has to be retained outside the
+  // component. Restored once the parsed HTML is in the DOM — before that the
+  // scroll box is empty and any offset would be clamped away.
+  usePreservedScroll(containerRef, bufferId ?? null, html !== '')
 
   const handleLinkClick = useCallback(
     async (e: React.MouseEvent<HTMLDivElement>) => {
