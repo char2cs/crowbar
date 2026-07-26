@@ -420,8 +420,8 @@ async fn reveal_in_finder(path: String) -> Result<(), String> {
 
 /// Pin the native vibrancy frost to a fixed appearance so it renders per-theme.
 ///
-/// window-vibrancy 0.6.0 `apply_vibrancy` adds an NSVisualEffectView tagged
-/// NS_VIEW_TAG_BLUR_VIEW = 91376254 (window-vibrancy-0.6.0/src/macos/internal.rs:13)
+/// window-vibrancy `apply_vibrancy` adds an NSVisualEffectView tagged
+/// NS_VIEW_TAG_BLUR_VIEW = 91376254 (window-vibrancy-0.8.0/src/macos/vibrancy.rs:13)
 /// as a `Below` subview of the window contentView but never calls setAppearance:,
 /// so the frost inherits effectiveAppearance from the OS (dark in BOTH themes —
 /// the proven root cause of the light theme reading gray). Pinning the blur view
@@ -436,7 +436,7 @@ fn set_vibrancy_appearance(window: tauri::WebviewWindow, dark: bool) -> Result<(
         use objc2::msg_send;
         use objc2::runtime::{AnyClass, AnyObject, Bool};
 
-        // window-vibrancy internal.rs:13 — the tag of the NSVisualEffectView.
+        // window-vibrancy vibrancy.rs:13 — the tag of the NSVisualEffectView.
         const NS_VIEW_TAG_BLUR_VIEW: isize = 91376254;
 
         unsafe {

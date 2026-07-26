@@ -22,7 +22,12 @@ const ANSI = {
   'bright-cyan': '#5fbcc4',
   'bright-white': '#f5f5f5',
 }
-const UI = { foreground: '#f5f5f5', cursor: '#f5f5f5' }
+const UI = {
+  foreground: '#f5f5f5',
+  cursor: '#f5f5f5',
+  scrollbarThumb: '#8080806b',
+  scrollbarThumbHover: '#80808094',
+}
 
 describe('buildTerminalTheme', () => {
   it('maps ANSI palette keys onto xterm theme fields', () => {
@@ -39,6 +44,15 @@ describe('buildTerminalTheme', () => {
   it('derives a translucent selection from the cursor color', () => {
     const theme = buildTerminalTheme(ANSI, UI)
     expect(theme.selectionBackground).toBe('rgba(245, 245, 245, 0.25)')
+  })
+
+  it('carries the app scrollbar tokens onto the xterm 6 slider colours', () => {
+    // xterm 6 paints the scrollbar from the theme, not from CSS, so these are
+    // the only lever keeping the terminal's scrollbar matching the app's.
+    const theme = buildTerminalTheme(ANSI, UI)
+    expect(theme.scrollbarSliderBackground).toBe('#8080806b')
+    expect(theme.scrollbarSliderHoverBackground).toBe('#80808094')
+    expect(theme.scrollbarSliderActiveBackground).toBe('#80808094')
   })
 })
 

@@ -30,47 +30,44 @@
   height: 100% !important;
 }
 
-/* Style the terminal viewport for better appearance */
+/*
+ * Style the terminal viewport for better appearance.
+ *
+ * `background-color` is load-bearing for the glass: xterm ships
+ * `.xterm .xterm-viewport { background-color: #000 }` in its own stylesheet.
+ * Up to xterm 5.5 its Viewport overwrote that with an inline
+ * `theme.background` (our '#00000000'), so the pane showed through. xterm 6
+ * moved that inline write onto the inner `.xterm-scrollable-element` and never
+ * touches the viewport again — leaving the opaque black behind the terminal.
+ * Restoring transparency here is what keeps the terminal see-through.
+ */
 .xterm-container .xterm-viewport {
+  background-color: transparent !important;
   overflow-y: auto !important;
   overscroll-behavior: none;
 }
 
-@supports not selector(::-webkit-scrollbar) {
-  .xterm-container .xterm-viewport {
-    scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
-    scrollbar-width: thin;
-  }
+/*
+ * The scrollbar itself is no longer a native overflow scrollbar — xterm 6
+ * renders VS Code's scrollable element and paints the slider from the
+ * `scrollbarSlider*` theme colours (see use-terminal-theme.ts). Only the
+ * geometry is left to CSS; the track stays transparent over the glass.
+ */
+.xterm-container .xterm-scrollable-element > .scrollbar {
+  background-color: var(--app-scrollbar-track);
 }
 
-/* Improve scrollbar styling */
-.xterm-container .xterm-viewport::-webkit-scrollbar {
-  -webkit-appearance: none !important;
-  width: var(--app-scrollbar-size) !important;
-  height: var(--app-scrollbar-size) !important;
-  background-color: var(--app-scrollbar-track) !important;
-}
-
-.xterm-container .xterm-viewport::-webkit-scrollbar-track {
-  -webkit-appearance: none !important;
-  background-color: var(--app-scrollbar-track) !important;
-}
-
-.xterm-container .xterm-viewport::-webkit-scrollbar-corner {
-  background-color: var(--app-scrollbar-track) !important;
-}
-
-.xterm-container .xterm-viewport::-webkit-scrollbar-thumb {
-  -webkit-appearance: none !important;
-  min-height: 36px !important;
-  border: var(--app-scrollbar-thumb-border) !important;
-  border-radius: var(--app-scrollbar-radius) !important;
-  background-color: var(--app-scrollbar-thumb) !important;
-  background-clip: content-box !important;
-}
-
-.xterm-container .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background-color: var(--app-scrollbar-thumb-hover) !important;
+.xterm-container .xterm-scrollable-element > .scrollbar > .slider {
+  /*
+   * The slider's width/height are written inline in px by the scrollable
+   * element, so the app's inset-thumb look has to come from a transparent
+   * border inside that box — hence the explicit border-box. `background-clip`
+   * needs !important because xterm's injected <style> sets the slider colour
+   * with the `background` *shorthand*, which resets clip back to border-box.
+   */
+  box-sizing: border-box;
+  border: var(--app-scrollbar-thumb-border);
+  border-radius: var(--app-scrollbar-radius);
   background-clip: content-box !important;
 }
 
