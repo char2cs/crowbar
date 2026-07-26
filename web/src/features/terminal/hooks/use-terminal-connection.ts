@@ -191,7 +191,7 @@ export function useTerminalConnection({
           if (/^\s*exit\s*$/i.test(currentInputLineRef.current.trim())) {
             explicitExitRequestedRef.current = true
             currentInputLineRef.current = ''
-            write(data)
+            write(data, 'onData:exit')
             window.setTimeout(() => {
               void terminalClose(activeConnectionId).catch(() => {})
             }, 100)
@@ -205,7 +205,7 @@ export function useTerminalConnection({
           }
         }
 
-        write(data)
+        write(data, 'onData')
       }),
     )
 
@@ -367,7 +367,7 @@ export function useTerminalConnection({
     // focus-event spam that a shell would echo as garbage.
     const emitFocusReport = (seq: string) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if ((terminal as any).modes?.sendFocusMode) write(seq)
+      if ((terminal as any).modes?.sendFocusMode) write(seq, 'focus-report')
     }
     const handleWindowFocus = () => emitFocusReport('\x1b[I')
     const handleWindowBlur = () => emitFocusReport('\x1b[O')
@@ -418,7 +418,7 @@ export function useTerminalConnection({
 
     initialCommandSentForConnectionRef.current = connectionId
     const timeoutId = window.setTimeout(() => {
-      write(`${initialCommand}\n`)
+      write(`${initialCommand}\n`, 'initial-command')
     }, 300)
 
     return () => window.clearTimeout(timeoutId)
