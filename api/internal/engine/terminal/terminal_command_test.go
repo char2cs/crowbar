@@ -3,6 +3,8 @@ package terminal
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -173,6 +175,71 @@ func TestWithTerminalDefaults_InjectsTERMWhenAbsent(t *testing.T) {
 	got = withTerminalDefaults([]string{"TERM=screen"})
 	require.Contains(t, got, "TERM=screen")
 	require.NotContains(t, got, "TERM=xterm-256color")
+}
+
+// TestWithTerminalDefaults_InjectsUTF8LocaleWhenAbsent: the backfill used to stop at
+// TERM, so a CreateCommand child (every agent-chat vendor CLI) inherited launchd's
+// locale-less environment while the interactive terminal got ptyEnv()'s UTF-8 LANG.
+// A CLI that copies through pbcopy then had its UTF-8 read as Mac OS Roman —
+// __CF_USER_TEXT_ENCODING's script code 0 — putting "‚Äî" on the pasteboard for "—"
+// while the rendered screen stayed correct.
+func TestWithTerminalDefaults_InjectsUTF8LocaleWhenAbsent(t *testing.T) {
+	got := withTerminalDefaults([]string{"PATH=/usr/bin"})
+	require.Contains(t, got, "LANG="+defaultLocale(nil, runtime.GOOS))
+	// The injected value must actually be a UTF-8 locale, whatever the platform.
+	var lang string
+	for _, kv := range got {
+		if strings.HasPrefix(kv, "LANG=") {
+			lang = kv
+		}
+	}
+	require.Contains(t, lang, "UTF-8")
+}
+
+// TestRegression_CreateCommandChildGetsUTF8Locale is the end-to-end half of the
+// clipboard-mojibake fix, and the reason it is a spawn rather than another table
+// case: what broke in the field was not the decision but its DELIVERY — the child
+// process actually reading LANG out of its own environment. It spawns under a
+// launchd-minimal env (PATH and nothing else, exactly what a GUI-launched daemon
+// hands down) and has the shell report the LANG it really received.
+func TestRegression_CreateCommandChildGetsUTF8Locale(t *testing.T) {
+	e := New()
+	defer e.Shutdown()
+
+	dir := t.TempDir()
+	out := filepath.Join(dir, "lang")
+	exits := make(chan struct{}, 1)
+	_, err := e.CreateCommand(context.Background(), "ws-locale", dir,
+		[]string{"/bin/sh", "-c", "printf '%s' \"$LANG\" > \"" + out + "\""},
+		[]string{"PATH=/usr/bin:/bin"},
+		func() { exits <- struct{}{} })
+	require.NoError(t, err)
+
+	// onExit IS the signal: it fires only after reapOnDone has seen the process die,
+	// by which point the redirect above has already been flushed and closed.
+	<-exits
+
+	got, err := os.ReadFile(out)
+	require.NoError(t, err)
+	require.Contains(t, string(got), "UTF-8",
+		"a CreateCommand child inheriting no locale must still get a UTF-8 LANG; "+
+			"without it pbcopy reads the CLI's UTF-8 as Mac OS Roman and the clipboard mojibakes")
+}
+
+// TestWithTerminalDefaults_NeverOverridesCallerLocale: defaultLocale backs off if ANY
+// of LANG/LC_ALL/LC_CTYPE is set, so a user who deliberately runs a non-UTF-8 (or
+// simply a different) locale keeps it — the backfill only fills a total vacuum.
+func TestWithTerminalDefaults_NeverOverridesCallerLocale(t *testing.T) {
+	for _, set := range []string{
+		"LANG=en_GB.ISO-8859-1",
+		"LC_ALL=fr_FR.UTF-8",
+		"LC_CTYPE=de_DE.UTF-8",
+	} {
+		got := withTerminalDefaults([]string{"PATH=/usr/bin", set})
+		require.Contains(t, got, set)
+		require.NotContains(t, got, "LANG=en_US.UTF-8")
+		require.NotContains(t, got, "LANG=C.UTF-8")
+	}
 }
 
 // TestEngine_CreateCommand_MissingBinary_IsErrCommandNotFound: a vendor CLI that is

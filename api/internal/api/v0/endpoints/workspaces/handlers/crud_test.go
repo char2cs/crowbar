@@ -74,6 +74,28 @@ func TestImport_Returns202AndForwardsBranches(t *testing.T) {
 	assert.Equal(t, []string{"feat/child", "feat/base"}, hierarchy.gotImport.Branches)
 }
 
+// TestImport_DefaultBranch409 asserts the second fail-fast guard. The import
+// chain walk terminates AT the default branch, so a request naming it produced
+// no node, no workspace, and no error — while the client's optimistic row waits
+// for a workspace that is never coming. A 202 for work that is defined to do
+// nothing is a silent hang; refuse it synchronously so the caller's rejection
+// path surfaces it.
+func TestImport_DefaultBranch409(t *testing.T) {
+	hierarchy := &fakeHierarchy{}
+	repos := &fakeRepos{repo: &domain.Repository{
+		ID: "r1", ProjectID: "p1", Path: "/repo", DefaultBranch: "main",
+	}}
+	rec := do(
+		newRouter(&fakeReader{}, hierarchy, repos),
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces/import",
+		`{"branches":["feat/child","main"]}`,
+	)
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), "main")
+	assert.Empty(t, hierarchy.gotImport.Branches, "the batch must not be dispatched at all")
+}
+
 // TestImport_EmptyBranches400 asserts the fail-fast guard: an empty branch set
 // is rejected synchronously and never dispatches background work.
 func TestImport_EmptyBranches400(t *testing.T) {

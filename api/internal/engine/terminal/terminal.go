@@ -649,9 +649,9 @@ func (e *terminalEngine) CreateCommand(
 	return id, nil
 }
 
-// withTerminalDefaults appends TERM=xterm-256color / COLORTERM=truecolor only for
-// keys the caller did not already provide, matching the real terminal engine's
-// ptyEnv() seeding.
+// withTerminalDefaults appends TERM=xterm-256color / COLORTERM=truecolor and a
+// UTF-8 LANG only for keys the caller did not already provide, matching the real
+// terminal engine's ptyEnv() seeding.
 func withTerminalDefaults(env []string) []string {
 	has := func(key string) bool {
 		for _, kv := range env {
@@ -666,6 +666,25 @@ func withTerminalDefaults(env []string) []string {
 	}
 	if !has("COLORTERM") {
 		env = append(env, "COLORTERM=truecolor")
+	}
+	// The locale half of the same launchd-minimal-environment hazard ptyEnv() guards.
+	// CreateCommand callers pass os.Environ() straight through (see the agent usecase),
+	// so a GUI-launched daemon hands the vendor CLI an environment with NO locale at
+	// all — and this backfill used to stop at TERM, which is why the interactive
+	// terminal was fixed and agent chats were not.
+	//
+	// With no locale, CoreFoundation falls back to __CF_USER_TEXT_ENCODING, whose
+	// script code is 0 (Mac OS Roman) on a default macOS account. Claude Code copies
+	// via BOTH OSC 52 and a spawned pbcopy; we drop OSC 52 (finishOSC routes only
+	// codes 0/1/2, and the frontend parses only OSC 7), so pbcopy's value is what
+	// lands — and it reads the CLI's UTF-8 bytes as Mac Roman. "—" reaches the
+	// pasteboard as "‚Äî" while the SCREEN stays correct, because the render path
+	// never touches pbcopy. Every copy applies exactly one more round of it.
+	//
+	// defaultLocale returns "" the moment the caller set any of LANG/LC_ALL/LC_CTYPE,
+	// so an explicit locale is never overridden.
+	if lang := defaultLocale(env, runtime.GOOS); lang != "" {
+		env = append(env, "LANG="+lang)
 	}
 	return env
 }

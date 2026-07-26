@@ -22,8 +22,15 @@ export interface PendingRowHooks {
  * row is placed at the repo root; because the daemon decides each branch's
  * PR-parent server-side, the real WorkspaceDTO may land nested elsewhere, so a
  * row is matched on branch alone and dropped the instant its workspace appears
- * on the WS stream. A rejected request (not the async import itself) marks the
- * rows errored. Returns the store unsubscribe for callers that need it (tests).
+ * on the WS stream. A rejected request marks the rows errored AND toasts.
+ *
+ * The spinner rows depend on the daemon's contract that EVERY imported branch
+ * produces a workspace — a branch it cannot materialise arrives as a placeholder
+ * (empty localPath + heldByPath) rather than as nothing, which is what left
+ * these rows spinning forever with nothing surfaced. Failures of the async
+ * import therefore ride their own entity, not this catch.
+ *
+ * Returns the store unsubscribe for callers that need it (tests).
  */
 export function performImportBranches(
   repoId: string,
@@ -64,6 +71,10 @@ export function performImportBranches(
     unsub()
     const msg = err instanceof Error ? err.message : 'Import failed'
     temps.forEach(({ tempId }) => hooks.setError(tempId, msg))
+    // The errored row only reads "failed", in a sidebar the user may not be
+    // looking at. A refused import has to say why — the async failures ride
+    // their workspace entity (placeholder + its own toast) instead.
+    toast.error(`Couldn't import ${branches.length === 1 ? branches[0] : 'branches'}: ${msg}`)
   })
 
   return unsub

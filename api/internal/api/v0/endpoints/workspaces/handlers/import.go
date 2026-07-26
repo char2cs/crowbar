@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -43,6 +44,17 @@ func (h *Handlers) Import(c *gin.Context) {
 	if repo == nil {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
+	}
+	// The chain walk TERMINATES at the default branch, so importing it creates
+	// nothing — and a 202 for work defined to do nothing is a silent hang: the
+	// caller's optimistic row is cleared only by a workspace that never arrives.
+	// Refuse it here, on the request path, where the caller can surface it.
+	for _, b := range body.Branches {
+		if b == repo.DefaultBranch {
+			libs.WriteErr(c, http.StatusConflict, fmt.Sprintf(
+				"%s is the repository's default branch — it is already the repo's home workspace", b))
+			return
+		}
 	}
 	in := worktree.ImportInput{
 		RepoID:        repo.ID,
