@@ -1267,3 +1267,100 @@ func worktreesByBranch(
 	}
 	return byBranch
 }
+
+// BUG (create-child-from-stale-local): creating a child workspace from a parent
+// branch that is BEHIND origin AND checked out in a locked managed worktree must
+// fork the new branch from origin's fresh parent tip, NOT the stale local ref.
+//
+// The field repro, seen repeatedly: a branch created through the Crowbar UI lands
+// several commits behind origin/develop. Root cause — addWorktree fast-forwarded
+// the parent via `git fetch origin <parent>:<parent>`, which git REFUSES whenever
+// <parent> is checked out in any worktree; in Crowbar's model every protected
+// branch (the default branch included) is permanently checked out in its own
+// locked managed worktree, so that fast-forward deterministically failed, warned
+// into the daemon log where nobody saw it, and creation forked from the stale
+// local tip. The fix fetches the remote-tracking ref only (`git fetch origin
+// <parent>`, always allowed) and forks from the resolved origin/<parent>.
+//
+// This test seeds a bare origin, imports a clone at c1 (main provisioned as a
+// locked managed worktree that pins local main at c1 — it cannot be moved because
+// it is checked out), advances origin to c3 behind the clone's back, then creates
+// a child off main. Before the fix the child forks from local main (c1) and this
+// FAILS; after the fix it forks from origin/main (c3).
+func TestRegression_CreateChildForksFromOriginTipNotStaleLocal(t *testing.T) {
+	h := newHarness(t)
+
+	root := t.TempDir()
+
+	// Bare "origin" with HEAD pinned to main so default-branch resolution
+	// (symbolic-ref origin/HEAD) is deterministic on the clone.
+	origin := filepath.Join(root, "origin.git")
+	runGit(t, root, "init", "--bare", "-b", "main", origin)
+
+	// Seed clone: publish main @ c1 to origin, and keep it around to advance
+	// origin later WITHOUT touching the imported working repo.
+	seed := filepath.Join(root, "seed")
+	runGit(t, root, "clone", origin, seed)
+	runGit(t, seed, "config", "user.email", "t@t.dev")
+	runGit(t, seed, "config", "user.name", "t")
+	runGit(t, seed, "checkout", "-b", "main")
+	require.NoError(t, writeFile(seed, "README.md", "c1\n"))
+	runGit(t, seed, "add", "README.md")
+	runGit(t, seed, "commit", "-m", "c1")
+	runGit(t, seed, "push", "-u", "origin", "main")
+
+	// The working repo Crowbar imports: a clone at c1. Detached so the protected
+	// default branch provisions as its own locked managed worktree (mirrors the
+	// import flow); local main stays at c1, pinned by that checked-out worktree.
+	repoPath := filepath.Join(root, "repo")
+	runGit(t, root, "clone", origin, repoPath)
+	runGit(t, repoPath, "config", "user.email", "t@t.dev")
+	runGit(t, repoPath, "config", "user.name", "t")
+	runGit(t, repoPath, "checkout", "--detach")
+
+	projectID, repoID := createProjectAndRepo(t, h, repoPath)
+
+	// Main provisioning as a managed worktree is the import's completion signal.
+	workspacesWS := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
+	mainWS := readUntil(t, workspacesWS, func(m map[string]any) bool {
+		return m["branch"] == "main"
+	})
+	require.NotEmpty(t, mainWS["id"], "import must provision the main managed worktree")
+
+	// Advance origin/main to c3 behind the imported repo's back: local main stays
+	// at c1 (checked out, un-fast-forwardable) and the repo's origin/main
+	// remote-tracking ref stays stale until a create fetches it.
+	require.NoError(t, writeFile(seed, "README.md", "c2\n"))
+	runGit(t, seed, "add", "README.md")
+	runGit(t, seed, "commit", "-m", "c2")
+	require.NoError(t, writeFile(seed, "README.md", "c3\n"))
+	runGit(t, seed, "add", "README.md")
+	runGit(t, seed, "commit", "-m", "c3")
+	runGit(t, seed, "push", "origin", "main")
+	originTip := strings.TrimSpace(runGitOut(t, seed, "rev-parse", "HEAD"))
+
+	staleLocalTip := strings.TrimSpace(runGitOut(t, repoPath, "rev-parse", "refs/heads/main"))
+	require.NotEqual(t, originTip, staleLocalTip,
+		"precondition: local main must be stale relative to origin/main")
+
+	// Create a child off main (no parentId → parent is the repo default branch).
+	base := "/v0/projects/" + projectID + "/repos/" + repoID
+	conn := h.dial(base + "/workspaces")
+	_ = h.raw(http.MethodPost, base+"/workspaces",
+		map[string]string{"branch": "feature/from-origin-tip"}, http.StatusAccepted).Body.Close()
+	created := readUntil(t, conn, func(m map[string]any) bool {
+		return m["branch"] == "feature/from-origin-tip" && m["status"] == "new"
+	})
+	childID, _ := created["id"].(string)
+	require.NotEmpty(t, childID, "child workspace create must broadcast an id")
+
+	// Read the child worktree the provisioner recorded and check its fork point.
+	childWS, err := h.app.Repositories.Workspace.Get(t.Context(), childID)
+	require.NoError(t, err, "read back the provisioned child worktree path")
+	require.NotEmpty(t, childWS.WorktreePath, "child must carry a worktree path")
+	childHead := strings.TrimSpace(runGitOut(t, childWS.WorktreePath, "rev-parse", "HEAD"))
+
+	require.Equal(t, originTip, childHead,
+		"child of a stale, checked-out parent must fork from origin's fresh tip (%s), not the stale local ref (%s)",
+		originTip, staleLocalTip)
+}
