@@ -18,6 +18,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/char2cs/crowbar/api/internal/perf"
 )
 
 const optionalLocksOffEnv = "GIT_OPTIONAL_LOCKS=0"
@@ -77,7 +79,49 @@ func GitWithStdin(
 	})
 }
 
+// subcommandName returns the git subcommand to bucket a timing sample under,
+// skipping the leading global flags (`-c key=value`, `--git-dir=…`) some call
+// sites pass. Without the skip, one hot subcommand would split across as many
+// sample names as there are flag prefixes in front of it.
+func subcommandName(
+	args []string,
+) string {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "-c" {
+			i++
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		return a
+	}
+	return "unknown"
+}
+
+// run wraps every git invocation in the package — Git, GitWithEnv and
+// GitWithStdin all funnel through it — so a single measurement point covers the
+// whole subprocess surface. While the perf ring is disarmed this costs one
+// atomic load and delegates untouched.
 func run(
+	ctx context.Context,
+	dir string,
+	extraEnv []string,
+	stdin string,
+	hasStdin bool,
+	args ...string,
+) Result {
+	if !perf.Enabled() {
+		return runInner(ctx, dir, extraEnv, stdin, hasStdin, args...)
+	}
+	start := time.Now()
+	r := runInner(ctx, dir, extraEnv, stdin, hasStdin, args...)
+	perf.Record("git."+subcommandName(args), time.Since(start))
+	return r
+}
+
+func runInner(
 	ctx context.Context,
 	dir string,
 	extraEnv []string,
