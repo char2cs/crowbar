@@ -4,6 +4,7 @@ package git
 
 import (
 	"context"
+	"io"
 
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -492,6 +493,55 @@ type Engine interface {
 		ref string,
 		dirty []string,
 	) ([]gitdomain.ReviewFileSummary, error)
+
+	// ReviewFilePatch streams ONE file's unified patch into w and reports the
+	// number of patch lines written and whether the patch was cut short. It is
+	// the content half of the windowed review API: the outline gives the client
+	// the shape of every file, and this fills in one file at a time, so a
+	// million-line branch diff is never materialised anywhere — not in git's
+	// output, not in the daemon, not in the response.
+	//
+	// path addresses the file by its NEW name. maxLines <= 0 means unlimited;
+	// a positive cap always cuts on a hunk boundary, so what reaches the client
+	// is a patch its parser can read rather than a half-hunk it would render as
+	// garbage. A path with no changes is an empty patch, not an error.
+	ReviewFilePatch(
+		ctx context.Context,
+		repoPath string,
+		ref string,
+		path string,
+		maxLines int,
+		w io.Writer,
+	) (int, bool, error)
+
+	// ReviewOutline returns the hunk geometry of ReviewFiles' file set against
+	// ref: per file the `@@` shapes of its diff and no content at all. The diff
+	// is streamed and discarded as it is read, so the result is O(hunks) where
+	// DiffAgainstRef is O(lines) — it describes a million-line diff in about a
+	// megabyte, which is what lets the client reserve scroll space per file
+	// before fetching a single patch.
+	ReviewOutline(
+		ctx context.Context,
+		repoPath string,
+		ref string,
+	) ([]gitdomain.FileOutline, error)
+
+	// ReviewSearch finds query in the CONTENT of the diff against ref and
+	// returns the file and line number of each match, plus whether opts.Limit
+	// cut the results short. It is the server-side replacement for find-in-diff:
+	// once the client only ever holds a window of the patch, it has nothing left
+	// to search locally.
+	//
+	// The diff is streamed and matched a line at a time and the scan stops the
+	// moment the limit fills, so the cost is bounded by the hits asked for
+	// rather than by the size of the diff.
+	ReviewSearch(
+		ctx context.Context,
+		repoPath string,
+		ref string,
+		query string,
+		opts gitdomain.SearchOpts,
+	) ([]gitdomain.SearchHit, bool, error)
 }
 
 // WorktreeEntry is a single worktree from `git worktree list`. Prunable is true

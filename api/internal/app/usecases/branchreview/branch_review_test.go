@@ -3,6 +3,7 @@ package branchreview_test
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -214,8 +215,13 @@ type mockGitEngine struct {
 	RangeDiffFn      func(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error)
 	DiffAgainstRefFn func(ctx context.Context, repoPath, ref string) (gitdomain.MultiFileDiff, error)
 	ReviewFilesFn    func(ctx context.Context, repoPath, ref string, dirty []string) ([]gitdomain.ReviewFileSummary, error)
-	MergeBaseFn      func(ctx context.Context, repoPath, a, b string) (string, error)
-	StatusFn         func(ctx context.Context, repoPath string) (gitdomain.GitStatus, error)
+	//nolint:lll // one field per stub method; wrapping the signature hides which method it stands in for.
+	ReviewFilePatchFn func(ctx context.Context, repoPath, ref, path string, maxLines int, w io.Writer) (int, bool, error)
+	ReviewOutlineFn   func(ctx context.Context, repoPath, ref string) ([]gitdomain.FileOutline, error)
+	//nolint:lll // one field per stub method; wrapping the signature hides which method it stands in for.
+	ReviewSearchFn func(ctx context.Context, repoPath, ref, query string, opts gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error)
+	MergeBaseFn    func(ctx context.Context, repoPath, a, b string) (string, error)
+	StatusFn       func(ctx context.Context, repoPath string) (gitdomain.GitStatus, error)
 }
 
 func (g *mockGitEngine) RangeDiff(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error) {
@@ -241,6 +247,39 @@ func (g *mockGitEngine) ReviewFiles(
 		return g.ReviewFilesFn(ctx, repoPath, ref, dirty)
 	}
 	return nil, nil
+}
+
+func (g *mockGitEngine) ReviewFilePatch(
+	ctx context.Context,
+	repoPath, ref, path string,
+	maxLines int,
+	w io.Writer,
+) (int, bool, error) {
+	if g.ReviewFilePatchFn != nil {
+		return g.ReviewFilePatchFn(ctx, repoPath, ref, path, maxLines, w)
+	}
+	return 0, false, nil
+}
+
+func (g *mockGitEngine) ReviewOutline(
+	ctx context.Context,
+	repoPath, ref string,
+) ([]gitdomain.FileOutline, error) {
+	if g.ReviewOutlineFn != nil {
+		return g.ReviewOutlineFn(ctx, repoPath, ref)
+	}
+	return nil, nil
+}
+
+func (g *mockGitEngine) ReviewSearch(
+	ctx context.Context,
+	repoPath, ref, query string,
+	opts gitdomain.SearchOpts,
+) ([]gitdomain.SearchHit, bool, error) {
+	if g.ReviewSearchFn != nil {
+		return g.ReviewSearchFn(ctx, repoPath, ref, query, opts)
+	}
+	return nil, false, nil
 }
 
 func (g *mockGitEngine) Status(ctx context.Context, repoPath string) (gitdomain.GitStatus, error) {
