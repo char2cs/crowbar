@@ -37,27 +37,6 @@ func TestBranchReview_Get_MissingWorkspace_IsNotFound(t *testing.T) {
 	require.ErrorIs(t, err, apperr.ErrNotFound)
 }
 
-func TestBranchReview_Get_InternalGitError_IsNotNotFound(t *testing.T) {
-	ctx := context.Background()
-
-	ws := domain.Workspace{ID: "ws1", RepoID: "repo1", Branch: "feature", WorktreePath: "/wt"}
-	wsMock := &mockWorkspace{
-		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
-	}
-	repoStore := mocks.NewRepositoryStore()
-	_ = repoStore.Save(ctx, domain.Repository{ID: "repo1", DefaultBranch: "main"})
-	gitEng := &mockGitEngine{
-		DiffAgainstRefFn: func(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
-			return gitdomain.MultiFileDiff{}, errors.New("git: not a repository")
-		},
-	}
-	uc := newTestUsecase(wsMock, &mockReviewThread{}, repoStore, gitEng)
-
-	_, err := uc.Get(ctx, "ws1")
-	require.Error(t, err)
-	assert.NotErrorIs(t, err, apperr.ErrNotFound)
-}
-
 // --- local workspace mock ---
 
 type mockWorkspace struct {
@@ -505,121 +484,6 @@ func noopThreads() *mockReviewThread {
 
 // --- Task 4: BranchReviewUsecase.Get tests ---
 
-func TestBranchReview_Get_RootUsesDefaultBranch(t *testing.T) {
-	ctx := context.Background()
-
-	ws := domain.Workspace{
-		ID:            "ws1",
-		RepoID:        "repo1",
-		Branch:        "feature",
-		WorktreePath:  "/wt/feature",
-		MergeStrategy: gitdomain.MergeStrategyMerge,
-	}
-	repo := domain.Repository{ID: "repo1", DefaultBranch: "main"}
-	expectedDiff := gitdomain.MultiFileDiff{Files: []gitdomain.FileDiff{{FilePath: "foo.go"}}}
-	expectedThreads := []domain.ReviewThread{{ID: "t1"}}
-
-	wsMock := &mockWorkspace{
-		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
-			if id == "ws1" {
-				return ws, nil
-			}
-			return domain.Workspace{}, errors.New("not found")
-		},
-	}
-	repoStore := mocks.NewRepositoryStore()
-	_ = repoStore.Save(ctx, repo)
-
-	threads := &mockReviewThread{
-		ListByWorkspaceFn: func(_ context.Context, _ string) ([]domain.ReviewThread, error) {
-			return expectedThreads, nil
-		},
-	}
-	var gotMergeBase string
-	var gotDiffRef string
-	gitEng := &mockGitEngine{
-		// Model a repo with no origin remote: the origin/<base> attempt fails, so
-		// the review falls back to the local default branch ref.
-		MergeBaseFn: func(_ context.Context, _, a, _ string) (string, error) {
-			if strings.HasPrefix(a, "origin/") {
-				return "", errors.New("unknown revision")
-			}
-			gotMergeBase = a
-			return "abc123", nil
-		},
-		DiffAgainstRefFn: func(_ context.Context, _, ref string) (gitdomain.MultiFileDiff, error) {
-			gotDiffRef = ref
-			return expectedDiff, nil
-		},
-	}
-
-	uc := newTestUsecase(wsMock, threads, repoStore, gitEng)
-
-	review, err := uc.Get(ctx, "ws1")
-
-	require.NoError(t, err)
-	assert.Equal(t, "main", gotMergeBase, "MergeBase must be called with the default branch as base")
-	assert.Equal(t, "abc123", gotDiffRef, "DiffAgainstRef must receive the SHA returned by MergeBase")
-	assert.Equal(t, expectedDiff, review.Diff)
-	assert.Equal(t, expectedThreads, review.Threads)
-	assert.Equal(t, gitdomain.MergeStrategyMerge, review.MergeStrategy)
-	assert.Empty(t, review.Description)
-}
-
-func TestBranchReview_Get_ChildUsesParentBranch(t *testing.T) {
-	ctx := context.Background()
-
-	child := domain.Workspace{
-		ID:           "child",
-		RepoID:       "repo1",
-		Branch:       "feat/child",
-		WorktreePath: "/wt/child",
-		ParentID:     "parent",
-	}
-	parent := domain.Workspace{
-		ID:     "parent",
-		Branch: "develop",
-	}
-
-	wsMock := &mockWorkspace{
-		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
-			switch id {
-			case "child":
-				return child, nil
-			case "parent":
-				return parent, nil
-			}
-			return domain.Workspace{}, errors.New("not found")
-		},
-	}
-	repoStore := mocks.NewRepositoryStore()
-	var gotMergeBase string
-	var gotDiffRef string
-	gitEng := &mockGitEngine{
-		// Model a repo with no origin remote: the origin/<base> attempt fails, so
-		// the review falls back to the local parent branch ref.
-		MergeBaseFn: func(_ context.Context, _, a, _ string) (string, error) {
-			if strings.HasPrefix(a, "origin/") {
-				return "", errors.New("unknown revision")
-			}
-			gotMergeBase = a
-			return "fork123", nil
-		},
-		DiffAgainstRefFn: func(_ context.Context, _, ref string) (gitdomain.MultiFileDiff, error) {
-			gotDiffRef = ref
-			return gitdomain.MultiFileDiff{}, nil
-		},
-	}
-
-	uc := newTestUsecase(wsMock, noopThreads(), repoStore, gitEng)
-
-	_, err := uc.Get(ctx, "child")
-
-	require.NoError(t, err)
-	assert.Equal(t, "develop", gotMergeBase, "MergeBase must be called with the parent branch as base")
-	assert.Equal(t, "fork123", gotDiffRef, "DiffAgainstRef must receive the SHA returned by MergeBase")
-}
-
 func TestBranchReview_Get_WorkspaceNotFound(t *testing.T) {
 	ctx := context.Background()
 
@@ -637,7 +501,9 @@ func TestBranchReview_Get_WorkspaceNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "branch review: get workspace")
 }
 
-func TestBranchReview_Get_RepoNil(t *testing.T) {
+// Ref resolution moved off Get() with the diff; GetFiles is where a missing
+// repo now surfaces, since that is what resolves the base to diff against.
+func TestBranchReview_GetFiles_RepoNil(t *testing.T) {
 	ctx := context.Background()
 
 	ws := domain.Workspace{ID: "ws1", RepoID: "gone", Branch: "feat", WorktreePath: "/wt"}
@@ -648,13 +514,15 @@ func TestBranchReview_Get_RepoNil(t *testing.T) {
 
 	uc := newTestUsecase(wsMock, &mockReviewThread{}, repoStore, &mockGitEngine{})
 
-	_, err := uc.Get(ctx, "ws1")
+	_, err := uc.GetFiles(ctx, "ws1")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "branch review: resolve ref")
 }
 
-func TestBranchReview_Get_RepoStoreError(t *testing.T) {
+// Also moved with ref resolution: a repo-store failure is only reachable from
+// the path that resolves a base, which is GetFiles now, not Get.
+func TestBranchReview_GetFiles_RepoStoreError(t *testing.T) {
 	ctx := context.Background()
 
 	ws := domain.Workspace{ID: "ws1", RepoID: "r1", Branch: "feat", WorktreePath: "/wt"}
@@ -666,36 +534,10 @@ func TestBranchReview_Get_RepoStoreError(t *testing.T) {
 
 	uc := newTestUsecase(wsMock, &mockReviewThread{}, repoStore, &mockGitEngine{})
 
-	_, err := uc.Get(ctx, "ws1")
+	_, err := uc.GetFiles(ctx, "ws1")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "branch review: resolve ref")
-}
-
-func TestBranchReview_Get_DiffError(t *testing.T) {
-	ctx := context.Background()
-
-	ws := domain.Workspace{ID: "ws1", RepoID: "r1", Branch: "feat", WorktreePath: "/wt"}
-	repo := domain.Repository{ID: "r1", DefaultBranch: "main"}
-
-	wsMock := &mockWorkspace{
-		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
-	}
-	repoStore := mocks.NewRepositoryStore()
-	_ = repoStore.Save(ctx, repo)
-
-	gitEng := &mockGitEngine{
-		DiffAgainstRefFn: func(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
-			return gitdomain.MultiFileDiff{}, errors.New("git: diff failed")
-		},
-	}
-
-	uc := newTestUsecase(wsMock, &mockReviewThread{}, repoStore, gitEng)
-
-	_, err := uc.Get(ctx, "ws1")
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "branch review: diff")
 }
 
 func TestBranchReview_Get_ThreadsError(t *testing.T) {
@@ -930,7 +772,7 @@ func TestBranchReview_SetThreadResolved_ReopenError(t *testing.T) {
 	assert.Contains(t, err.Error(), "branch review: reopen")
 }
 
-func TestBranchReview_Get_ParentGetError(t *testing.T) {
+func TestBranchReview_GetFiles_ParentGetError(t *testing.T) {
 	ctx := context.Background()
 
 	child := domain.Workspace{
@@ -951,7 +793,7 @@ func TestBranchReview_Get_ParentGetError(t *testing.T) {
 
 	uc := newTestUsecase(wsMock, &mockReviewThread{}, mocks.NewRepositoryStore(), &mockGitEngine{})
 
-	_, err := uc.Get(ctx, "child")
+	_, err := uc.GetFiles(ctx, "child")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "branch review: resolve ref")
@@ -965,7 +807,7 @@ func TestBranchReview_Get_ParentGetError(t *testing.T) {
 // than failing. The fork point is a FALLBACK, not a fast-path: when the base
 // branch DOES resolve, the live merge-base is preferred (see
 // TestBranchReview_Get_PrefersLiveMergeBaseOverStaleForkPoint).
-func TestBranchReview_Get_FallsBackToForkPointSha(t *testing.T) {
+func TestBranchReview_GetFiles_FallsBackToForkPointSha(t *testing.T) {
 	ctx := context.Background()
 
 	ws := domain.Workspace{
@@ -982,15 +824,15 @@ func TestBranchReview_Get_FallsBackToForkPointSha(t *testing.T) {
 
 	var gotDiffRef string
 	gitEng := &mockGitEngine{
-		DiffAgainstRefFn: func(_ context.Context, _, ref string) (gitdomain.MultiFileDiff, error) {
+		ReviewFilesFn: func(_ context.Context, _, ref string, _ []string) ([]gitdomain.ReviewFileSummary, error) {
 			gotDiffRef = ref
-			return gitdomain.MultiFileDiff{}, nil
+			return nil, nil
 		},
 	}
 
 	uc := newTestUsecase(wsMock, noopThreads(), repoStore, gitEng)
 
-	_, err := uc.Get(ctx, "ws1")
+	_, err := uc.GetFiles(ctx, "ws1")
 
 	require.NoError(t, err)
 	assert.Equal(t, "sha123", gotDiffRef, "DiffAgainstRef must fall back to ForkPointSha when the base branch is unresolvable")
@@ -1001,7 +843,7 @@ func TestBranchReview_Get_FallsBackToForkPointSha(t *testing.T) {
 // diff against the LIVE merge-base of the base branch's current tip and HEAD, not
 // the frozen fork point — otherwise a branch rebased onto a newer base shows the
 // base branch's whole advancement as bogus additions/deletions.
-func TestBranchReview_Get_PrefersLiveMergeBaseOverStaleForkPoint(t *testing.T) {
+func TestBranchReview_GetFiles_PrefersLiveMergeBaseOverStaleForkPoint(t *testing.T) {
 	ctx := context.Background()
 
 	child := domain.Workspace{
@@ -1033,105 +875,19 @@ func TestBranchReview_Get_PrefersLiveMergeBaseOverStaleForkPoint(t *testing.T) {
 			}
 			return "live-merge-base", nil
 		},
-		DiffAgainstRefFn: func(_ context.Context, _, ref string) (gitdomain.MultiFileDiff, error) {
+		ReviewFilesFn: func(_ context.Context, _, ref string, _ []string) ([]gitdomain.ReviewFileSummary, error) {
 			gotDiffRef = ref
-			return gitdomain.MultiFileDiff{}, nil
+			return nil, nil
 		},
 	}
 
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	_, err := uc.Get(ctx, "child")
+	_, err := uc.GetFiles(ctx, "child")
 
 	require.NoError(t, err)
 	assert.Equal(t, "live-merge-base", gotDiffRef,
 		"DiffAgainstRef must receive the live merge-base, not the recorded ForkPointSha")
-}
-
-// TestBranchReview_Get_AnnotatesUncommitted verifies that files appearing in
-// git Status are marked Uncommitted=true, while others remain false.
-func TestBranchReview_Get_AnnotatesUncommitted(t *testing.T) {
-	ctx := context.Background()
-
-	ws := domain.Workspace{
-		ID:           "ws1",
-		RepoID:       "repo1",
-		Branch:       "feature",
-		WorktreePath: "/wt/feature",
-		ForkPointSha: "sha123",
-	}
-	wsMock := &mockWorkspace{
-		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
-	}
-	repoStore := mocks.NewRepositoryStore()
-
-	diff := gitdomain.MultiFileDiff{
-		Files: []gitdomain.FileDiff{
-			{FilePath: "foo.go"},
-			{FilePath: "bar.go"},
-		},
-	}
-	gitEng := &mockGitEngine{
-		DiffAgainstRefFn: func(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
-			return diff, nil
-		},
-		StatusFn: func(_ context.Context, _ string) (gitdomain.GitStatus, error) {
-			return gitdomain.GitStatus{
-				Files: []gitdomain.GitFile{
-					{Path: "foo.go", Status: gitdomain.GitFileStatusModified},
-				},
-			}, nil
-		},
-	}
-
-	uc := newTestUsecase(wsMock, noopThreads(), repoStore, gitEng)
-
-	review, err := uc.Get(ctx, "ws1")
-
-	require.NoError(t, err)
-	require.Len(t, review.Diff.Files, 2)
-	assert.True(t, review.Diff.Files[0].Uncommitted, "foo.go should be marked uncommitted")
-	assert.False(t, review.Diff.Files[1].Uncommitted, "bar.go should not be marked uncommitted")
-}
-
-// TestBranchReview_Get_StatusError_DiffStillReturned verifies that a Status
-// error is non-fatal: Get still succeeds and Uncommitted is left false.
-func TestBranchReview_Get_StatusError_DiffStillReturned(t *testing.T) {
-	ctx := context.Background()
-
-	ws := domain.Workspace{
-		ID:           "ws1",
-		RepoID:       "repo1",
-		Branch:       "feature",
-		WorktreePath: "/wt/feature",
-		ForkPointSha: "sha123",
-	}
-	wsMock := &mockWorkspace{
-		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
-	}
-	repoStore := mocks.NewRepositoryStore()
-
-	diff := gitdomain.MultiFileDiff{
-		Files: []gitdomain.FileDiff{
-			{FilePath: "foo.go"},
-		},
-	}
-	gitEng := &mockGitEngine{
-		DiffAgainstRefFn: func(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
-			return diff, nil
-		},
-		StatusFn: func(_ context.Context, _ string) (gitdomain.GitStatus, error) {
-			return gitdomain.GitStatus{}, errors.New("git: status failed")
-		},
-	}
-
-	uc := newTestUsecase(wsMock, noopThreads(), repoStore, gitEng)
-
-	review, err := uc.Get(ctx, "ws1")
-
-	require.NoError(t, err, "Status error must not propagate")
-	require.Len(t, review.Diff.Files, 1)
-	assert.False(t, review.Diff.Files[0].Uncommitted, "Uncommitted must remain false when Status errors")
 }
 
 // errRepoStore is a store.Store[domain.Repository, string] that always errors on FindByKey.
@@ -1145,3 +901,130 @@ func (s *errRepoStore) FindByKey(_ context.Context, _ string) (*domain.Repositor
 	return nil, s.err
 }
 func (s *errRepoStore) FindAll(_ context.Context) ([]domain.Repository, error) { return nil, nil }
+
+// The three tests below moved off Get() when the composite stopped carrying a
+// line-level diff. Get() no longer touches git at all — it returns description,
+// merge strategy and threads — so the behaviour they pin is now observable
+// through GetFiles, which is where the diff ref is resolved and where a git
+// failure can originate.
+
+// TestBranchReview_GetFiles_RootUsesDefaultBranch pins the base a workspace
+// with NO parent is reviewed against: the repo's default branch.
+func TestBranchReview_GetFiles_RootUsesDefaultBranch(t *testing.T) {
+	ctx := context.Background()
+
+	ws := domain.Workspace{
+		ID:            "ws1",
+		RepoID:        "repo1",
+		Branch:        "feature",
+		WorktreePath:  "/wt/feature",
+		MergeStrategy: gitdomain.MergeStrategyMerge,
+	}
+	wsMock := &mockWorkspace{
+		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
+	}
+	repoStore := mocks.NewRepositoryStore()
+	require.NoError(t, repoStore.Save(ctx, domain.Repository{ID: "repo1", DefaultBranch: "main"}))
+
+	var gotMergeBase, gotRef string
+	gitEng := &mockGitEngine{
+		MergeBaseFn: func(_ context.Context, _, a, _ string) (string, error) {
+			if strings.HasPrefix(a, "origin/") {
+				return "", errors.New("unknown revision")
+			}
+			gotMergeBase = a
+			return "abc123", nil
+		},
+		ReviewFilesFn: func(_ context.Context, _, ref string, _ []string) ([]gitdomain.ReviewFileSummary, error) {
+			gotRef = ref
+			return nil, nil
+		},
+	}
+
+	uc := newTestUsecase(wsMock, noopThreads(), repoStore, gitEng)
+
+	_, err := uc.GetFiles(ctx, "ws1")
+
+	require.NoError(t, err)
+	assert.Equal(t, "main", gotMergeBase, "MergeBase must be called with the default branch as base")
+	assert.Equal(t, "abc123", gotRef, "the review must diff against the SHA MergeBase returned")
+}
+
+// TestBranchReview_GetFiles_ChildUsesParentBranch pins the PRIMARY review case:
+// a child workspace is reviewed against its PARENT's branch, not the repo
+// default. This is the GitHub-like step — a whole branch versus what the parent
+// has — so a base that silently fell back to the default would review the wrong
+// thing while still looking entirely plausible.
+func TestBranchReview_GetFiles_ChildUsesParentBranch(t *testing.T) {
+	ctx := context.Background()
+
+	child := domain.Workspace{
+		ID:           "child",
+		RepoID:       "repo1",
+		Branch:       "feat/child",
+		WorktreePath: "/wt/child",
+		ParentID:     "parent",
+	}
+	parent := domain.Workspace{ID: "parent", Branch: "develop"}
+
+	wsMock := &mockWorkspace{
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			switch id {
+			case "child":
+				return child, nil
+			case "parent":
+				return parent, nil
+			}
+			return domain.Workspace{}, errors.New("not found")
+		},
+	}
+	repoStore := mocks.NewRepositoryStore()
+
+	var gotMergeBase, gotRef string
+	gitEng := &mockGitEngine{
+		// No origin remote: the origin/<base> probe fails, so resolution falls
+		// back to the local parent branch ref.
+		MergeBaseFn: func(_ context.Context, _, a, _ string) (string, error) {
+			if strings.HasPrefix(a, "origin/") {
+				return "", errors.New("unknown revision")
+			}
+			gotMergeBase = a
+			return "fork123", nil
+		},
+		ReviewFilesFn: func(_ context.Context, _, ref string, _ []string) ([]gitdomain.ReviewFileSummary, error) {
+			gotRef = ref
+			return nil, nil
+		},
+	}
+
+	uc := newTestUsecase(wsMock, noopThreads(), repoStore, gitEng)
+
+	_, err := uc.GetFiles(ctx, "child")
+
+	require.NoError(t, err)
+	assert.Equal(t, "develop", gotMergeBase, "MergeBase must be called with the PARENT branch as base")
+	assert.Equal(t, "fork123", gotRef, "the review must diff against the SHA MergeBase returned")
+}
+
+// TestBranchReview_GetFiles_InternalGitError_IsNotNotFound pins that a genuine
+// git failure surfaces as an internal error rather than a 404.
+func TestBranchReview_GetFiles_InternalGitError_IsNotNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	ws := domain.Workspace{ID: "ws1", RepoID: "repo1", Branch: "feature", WorktreePath: "/wt"}
+	wsMock := &mockWorkspace{
+		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
+	}
+	repoStore := mocks.NewRepositoryStore()
+	_ = repoStore.Save(ctx, domain.Repository{ID: "repo1", DefaultBranch: "main"})
+	gitEng := &mockGitEngine{
+		ReviewFilesFn: func(_ context.Context, _, _ string, _ []string) ([]gitdomain.ReviewFileSummary, error) {
+			return nil, errors.New("git: not a repository")
+		},
+	}
+	uc := newTestUsecase(wsMock, &mockReviewThread{}, repoStore, gitEng)
+
+	_, err := uc.GetFiles(ctx, "ws1")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, apperr.ErrNotFound)
+}

@@ -158,7 +158,7 @@ func BenchmarkBranchReview_Get(
 		if err != nil {
 			b.Fatalf("BranchReview.Get: %v", err)
 		}
-		if review.Diff.Files == nil && len(review.Threads) == 0 {
+		if len(review.Threads) == 0 {
 			// prevent the compiler from optimising away the call
 			b.Fatal("unexpected empty result")
 		}

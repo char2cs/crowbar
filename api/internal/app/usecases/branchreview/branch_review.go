@@ -135,16 +135,7 @@ func (u *branchReviewUsecase) Get(
 	if err != nil {
 		return domain.BranchReview{}, fmt.Errorf("branch review: get workspace: %w", asNotFound(err))
 	}
-	ref, err := u.resolveDiffRef(ctx, ws)
-	if err != nil {
-		return domain.BranchReview{}, fmt.Errorf("branch review: resolve ref: %w", err)
-	}
-	diff, err := u.git.DiffAgainstRef(ctx, ws.WorktreePath, ref)
-	if err != nil {
-		return domain.BranchReview{}, fmt.Errorf("branch review: diff: %w", err)
-	}
-	u.annotateUncommitted(ctx, ws, &diff)
-	return u.assemble(ctx, ws, diff)
+	return u.assemble(ctx, ws)
 }
 
 // resolveDiffRef returns the ref the review diffs against: the merge-base of the
@@ -218,27 +209,6 @@ func (u *branchReviewUsecase) closestToHead(
 	return best
 }
 
-// annotateUncommitted marks each diff file as uncommitted when it has a matching
-// entry in git status (staged or unstaged working-tree change). Status failures
-// are non-fatal: the diff is still returned, just without the flags.
-func (u *branchReviewUsecase) annotateUncommitted(
-	ctx context.Context,
-	ws domain.Workspace,
-	diff *gitdomain.MultiFileDiff,
-) {
-	status, err := u.git.Status(ctx, ws.WorktreePath)
-	if err != nil {
-		return
-	}
-	dirty := make(map[string]bool, len(status.Files))
-	for _, f := range status.Files {
-		dirty[f.Path] = true
-	}
-	for i := range diff.Files {
-		diff.Files[i].Uncommitted = dirty[diff.Files[i].FilePath]
-	}
-}
-
 func (u *branchReviewUsecase) resolveBase(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -263,7 +233,6 @@ func (u *branchReviewUsecase) resolveBase(
 func (u *branchReviewUsecase) assemble(
 	ctx context.Context,
 	ws domain.Workspace,
-	diff gitdomain.MultiFileDiff,
 ) (domain.BranchReview, error) {
 	threads, err := u.threads.ListByWorkspace(ctx, ws.ID)
 	if err != nil {
@@ -275,7 +244,6 @@ func (u *branchReviewUsecase) assemble(
 	return domain.BranchReview{
 		Description:   "",
 		MergeStrategy: ws.MergeStrategy,
-		Diff:          diff,
 		Threads:       threads,
 	}, nil
 }

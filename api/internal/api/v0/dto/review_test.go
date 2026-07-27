@@ -121,7 +121,6 @@ func TestBranchReviewDTOFromMapsFields(
 	got := dto.BranchReviewDTOFrom(domain.BranchReview{
 		Description:   "a review",
 		MergeStrategy: gitdomain.MergeStrategy("squash"),
-		Diff:          gitdomain.MultiFileDiff{},
 		Threads: []domain.ReviewThread{
 			{ID: "thread-1"},
 		},
@@ -140,7 +139,6 @@ func TestBranchReviewDTOFromEmptySlicesAreNonNil(
 
 	require.NotNil(t, got.Threads)
 	assert.Empty(t, got.Threads)
-	require.NotNil(t, got.Diff.Files)
 }
 
 // TestBranchReviewDTOFromHasNoConversationsKey guards the Chat-aggregate removal
