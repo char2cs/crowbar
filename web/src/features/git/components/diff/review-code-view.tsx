@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FileArchive, Image as ImageIcon } from '@phosphor-icons/react'
+import { ChatCircle, FileArchive, Image as ImageIcon } from '@phosphor-icons/react'
 import { parsePatchFiles } from '@pierre/diffs'
 import type {
   ChangeTypes,
@@ -15,8 +15,11 @@ import { getReviewPatch } from '@/features/git/api/review-window-api'
 import type { FileOutline, HunkShape } from '@/features/git/api/review-window-api'
 import { MAX_MATERIALIZED_LINES, planWindow } from '@/features/git/lib/patch-window'
 import type { GitDiff } from '@/features/git/types/git-types'
+import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import { cn } from '@/utils/cn'
 import ImageDiffViewer from './git-diff-image'
+import { toAnnotationSide, useReviewAnnotations } from './use-review-annotations'
+import type { ReviewAnnotation } from './use-review-annotations'
 
 /**
  * The windowed Branch Review surface.
@@ -313,7 +316,13 @@ function parseSingleFilePatch(patch: string, cacheKey: string): FileDiffMetadata
 
 // ── The surface ─────────────────────────────────────────────────────
 
-type CodeViewInstance = ReturnType<CodeViewHandle<undefined>['getInstance']>
+/**
+ * The payload every annotation carries.
+ *
+ * Threads are the surface's only annotation, so the renderer's `LAnnotation`
+ * type parameter IS `ReviewThread` — see `use-review-annotations.tsx`.
+ */
+type CodeViewInstance = ReturnType<CodeViewHandle<ReviewThread>['getInstance']>
 
 /** Why a file's header is showing something other than its diff. */
 type PatchState = 'truncated' | 'loading' | 'failed'
@@ -384,15 +393,21 @@ function ReviewCodeViewSurface({
     return map
   }, [entries])
 
-  const items = useMemo<CodeViewItem<undefined>[]>(
+  const annotations = useReviewAnnotations({ wsId })
+  const { annotationsByPath, threadCounts, threadsFor } = annotations
+
+  const items = useMemo<CodeViewItem<ReviewThread>[]>(
     () =>
       [...placeholders].map(([path, fileDiff]) => ({
         id: path,
         type: 'diff',
         fileDiff,
+        annotations: annotationsByPath.get(path),
         version: 0,
       })),
-    [placeholders],
+    // `initialItems` is seeded once, so this only decides which threads exist at
+    // MOUNT; the effect below carries every later change.
+    [annotationsByPath, placeholders],
   )
   const paths = useMemo(() => items.map((item) => item.id), [items])
   const signature = useMemo(() => signatureOf(paths), [paths])
@@ -404,7 +419,7 @@ function ReviewCodeViewSurface({
 
   const [patchStates, setPatchStates] = useState<Record<string, PatchState>>({})
 
-  const handleRef = useRef<CodeViewHandle<undefined> | null>(null)
+  const handleRef = useRef<CodeViewHandle<ReviewThread> | null>(null)
   const heldRef = useRef(new Map<string, HeldPatch>())
   const tokenRef = useRef(0)
   const versionRef = useRef(0)
@@ -414,10 +429,29 @@ function ReviewCodeViewSurface({
   const pathsRef = useRef(paths)
   const lineCountsRef = useRef(lineCounts)
   const activeRef = useRef(isActivePane)
+  const annotationsRef = useRef(annotationsByPath)
   placeholdersRef.current = placeholders
   pathsRef.current = paths
   lineCountsRef.current = lineCounts
   activeRef.current = isActivePane
+  annotationsRef.current = annotationsByPath
+
+  /**
+   * Republish one file's item.
+   *
+   * Every imperative update replaces the whole item, so the current annotations
+   * have to ride along on all of them — omitting them anywhere silently drops
+   * that file's threads the next time it is materialised or evicted.
+   */
+  const publishItem = useCallback((path: string, fileDiff: FileDiffMetadata) => {
+    handleRef.current?.updateItem({
+      id: path,
+      type: 'diff',
+      fileDiff,
+      annotations: annotationsRef.current.get(path),
+      version: ++versionRef.current,
+    })
+  }, [])
 
   const setPatchState = useCallback((path: string, state: PatchState | undefined) => {
     setPatchStates((prev) => {
@@ -433,23 +467,19 @@ function ReviewCodeViewSurface({
     (path: string) => {
       heldRef.current.delete(path)
       const placeholder = placeholdersRef.current.get(path)
-      if (placeholder != null) {
-        handleRef.current?.updateItem({
-          id: path,
-          type: 'diff',
-          fileDiff: placeholder,
-          version: ++versionRef.current,
-        })
-      }
+      if (placeholder != null) publishItem(path, placeholder)
       setPatchState(path, undefined)
     },
-    [setPatchState],
+    [publishItem, setPatchState],
   )
 
   const runWindowRef = useRef<() => void>(() => {})
 
   const materialize = useCallback(
-    async (path: string, maxLines?: number) => {
+    // `replan` is off only when the caller is about to move the viewport itself
+    // (see `revealThread`): re-planning against the OLD scroll position would
+    // evict the very file that is being navigated to.
+    async (path: string, maxLines?: number, replan = true) => {
       const token = ++tokenRef.current
       heldRef.current.set(path, { token, state: 'loading' })
       try {
@@ -466,12 +496,7 @@ function ReviewCodeViewSurface({
         }
 
         heldRef.current.set(path, { token, state: 'ready' })
-        handleRef.current?.updateItem({
-          id: path,
-          type: 'diff',
-          fileDiff,
-          version: ++versionRef.current,
-        })
+        publishItem(path, fileDiff)
         setPatchState(path, truncated ? 'truncated' : undefined)
       } catch {
         if (heldRef.current.get(path)?.token !== token) return
@@ -481,10 +506,10 @@ function ReviewCodeViewSurface({
         setPatchState(path, 'failed')
       } finally {
         // Materialising changed the item's height, so the window moved.
-        runWindowRef.current()
+        if (replan) runWindowRef.current()
       }
     },
-    [setPatchState, wsId],
+    [publishItem, setPatchState, wsId],
   )
 
   const runWindow = useCallback(() => {
@@ -524,6 +549,45 @@ function ReviewCodeViewSurface({
     [materialize, setPatchState],
   )
 
+  /**
+   * Scroll to a thread, materialising its file first.
+   *
+   * The order is the whole point. A file the window has not loaded is a
+   * placeholder with no lines in it, and `scrollTo({type:'line'})` against one
+   * resolves no position at all — it warns and does nothing, leaving the reader
+   * exactly where they were with no indication anything was attempted.
+   */
+  const revealThread = useCallback(
+    async (thread: ReviewThread) => {
+      const path = thread.filePath
+      if (heldRef.current.get(path)?.state !== 'ready') {
+        setPatchState(path, 'loading')
+        await materialize(path, undefined, false)
+      }
+      // `updateItem` only QUEUES a render, while `scrollTo` resolves its
+      // destination eagerly — so without flushing, the scroll is computed
+      // against the placeholder that was just replaced, finds no such line, and
+      // silently does nothing.
+      handleRef.current?.getInstance()?.render(true)
+      handleRef.current?.scrollTo({
+        type: 'line',
+        id: path,
+        lineNumber: thread.lineNumber,
+        side: toAnnotationSide(thread.side),
+        align: 'center',
+      })
+    },
+    [materialize, setPatchState],
+  )
+
+  const revealFirstThread = useCallback(
+    (path: string) => {
+      const [first] = threadsFor(path)
+      if (first != null) void revealThread(first)
+    },
+    [revealThread, threadsFor],
+  )
+
   // A changed file list remounts CodeView (see the `key` below), which discards
   // every item — so what this component believes it is holding has to go with
   // them, or the planner never fetches those paths again.
@@ -550,14 +614,31 @@ function ReviewCodeViewSurface({
       ) {
         continue
       }
+      publishItem(path, placeholder)
+    }
+  }, [placeholders, publishItem])
+
+  // Threads arrive over the WS stream at any moment, entirely independently of
+  // the diff. An item's annotations are part of the item, so a new, edited,
+  // resolved or deleted thread has to be republished onto whatever that file is
+  // currently showing — placeholder or real patch, it keeps its own geometry.
+  useEffect(() => {
+    const handle = handleRef.current
+    if (handle == null) return
+    for (const path of pathsRef.current) {
+      const current = handle.getItem(path)
+      if (current == null || current.type !== 'diff') continue
+      const next = annotationsByPath.get(path)
+      if (sameAnnotations(current.annotations, next)) continue
       handle.updateItem({
         id: path,
         type: 'diff',
-        fileDiff: placeholder,
+        fileDiff: current.fileDiff,
+        annotations: next,
         version: ++versionRef.current,
       })
     }
-  }, [placeholders])
+  }, [annotationsByPath])
 
   // The band is re-planned whenever the layout it depends on can have moved:
   // on mount, when the file list changes, and on every scroll.
@@ -570,11 +651,15 @@ function ReviewCodeViewSurface({
     return () => held.clear()
   }, [])
 
-  const options = useMemo<CodeViewOptions<undefined>>(
+  const options = useMemo<CodeViewOptions<ReviewThread>>(
     () => ({
       stickyHeaders: true,
       tokenizeMaxLineLength: REVIEW_TOKENIZE_MAX_LINE_LENGTH,
       tokenizeMaxLength: REVIEW_TOKENIZE_MAX_LENGTH,
+      // Selecting a line range is how a comment is started, and the hovered "+"
+      // is how a single-line one is. Both feed the same draft.
+      enableLineSelection: true,
+      enableGutterUtility: true,
     }),
     [],
   )
@@ -582,7 +667,7 @@ function ReviewCodeViewSurface({
   return (
     <div className={cn('flex h-full min-h-0 flex-col', className)}>
       {binaries.length > 0 ? <ReviewBinaryFiles entries={binaries} /> : null}
-      <CodeView<undefined>
+      <CodeView<ReviewThread>
         // Remounting on a changed file list is deliberate: CodeView seeds
         // `initialItems` once, and a different set of files is a different
         // document, not an update to this one.
@@ -592,19 +677,86 @@ function ReviewCodeViewSurface({
         initialItems={items}
         options={options}
         onScroll={runWindow}
+        onSelectedLinesChange={annotations.onSelectedLinesChange}
         className="min-h-0 flex-1 overflow-y-auto"
-        // The metadata slot is portalled into LIGHT dom, so app tokens apply.
-        renderHeaderMetadata={(item) => (
-          <PatchStateNotice
-            path={item.id}
-            state={patchStates[item.id]}
-            onExpand={expandTruncated}
-            onRetry={retryPatch}
-          />
-        )}
+        // Annotations and header metadata are portalled into LIGHT dom, so
+        // Tailwind and the app's CSS-var tokens apply to both.
+        //
+        // The cast narrows the library's file-or-diff annotation union: every
+        // item this surface publishes is a diff, so a file annotation (one with
+        // no side) cannot reach here.
+        renderAnnotation={(annotation) =>
+          annotations.renderAnnotation(annotation as ReviewAnnotation)
+        }
+        renderGutterUtility={annotations.renderGutterUtility}
+        renderHeaderMetadata={(item) => {
+          const count = threadCounts[item.id] ?? 0
+          const state = patchStates[item.id]
+          if (count === 0 && state == null) return null
+          return (
+            <span className="flex items-center gap-2">
+              <FileThreadCount path={item.id} count={count} onReveal={revealFirstThread} />
+              <PatchStateNotice
+                path={item.id}
+                state={state}
+                onExpand={expandTruncated}
+                onRetry={retryPatch}
+              />
+            </span>
+          )
+        }}
       />
     </div>
   )
+}
+
+/**
+ * How many review threads a file carries, on its header.
+ *
+ * The threads store is always loaded; the diff is not. A thread anchored in a
+ * file the window has left as a placeholder has no line to attach to and would
+ * otherwise be invisible — so the header says it is there, and clicking loads
+ * the file and goes to it.
+ */
+function FileThreadCount({
+  path,
+  count,
+  onReveal,
+}: {
+  path: string
+  count: number
+  onReveal: (path: string) => void
+}) {
+  if (count <= 0) return null
+  return (
+    <Button
+      variant="ghost"
+      size="xs"
+      aria-label={count === 1 ? '1 comment' : `${count} comments`}
+      onClick={() => onReveal(path)}
+    >
+      <ChatCircle />
+      {count}
+    </Button>
+  )
+}
+
+/** Value-compare two annotation lists; they are rebuilt on every thread tick. */
+function sameAnnotations(
+  a: readonly ReviewAnnotation[] | undefined,
+  b: readonly ReviewAnnotation[] | undefined,
+): boolean {
+  if (a === b) return true
+  if (a == null || b == null) return (a?.length ?? 0) === (b?.length ?? 0)
+  if (a.length !== b.length) return false
+  return a.every((annotation, i) => {
+    const other = b[i]
+    return (
+      annotation.side === other.side &&
+      annotation.lineNumber === other.lineNumber &&
+      annotation.metadata === other.metadata
+    )
+  })
 }
 
 /** Tags the CodeView's own scroll container so styling and tests can find it. */
