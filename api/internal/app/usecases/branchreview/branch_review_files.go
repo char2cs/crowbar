@@ -3,6 +3,9 @@ package branchreview
 import (
 	"context"
 	"fmt"
+	"slices"
+
+	"golang.org/x/sync/singleflight"
 
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -14,7 +17,48 @@ import (
 // untracked files (which have no diff against the fork point) still surface. The
 // payload is O(file count), so the sidebar can render the full changed-files
 // list with +N/-N badges without ever fetching the line-level branch diff.
+//
+// Concurrent calls for one workspace are single-flighted: the sidebar debounces
+// its refetch, but a burst still overlaps, and each overlapping call would
+// otherwise take the repo read lock and re-run the whole merge-base/status/diff
+// sequence. Sharing beats cancelling the loser — every caller still gets a
+// correct, current answer. This is deduplication of in-flight work ONLY, never
+// a cache: a finished flight is dropped, so the next call recomputes rather
+// than serving a stale file list.
 func (u *branchReviewUsecase) GetFiles(
+	ctx context.Context,
+	wsID string,
+) ([]gitdomain.ReviewFileSummary, error) {
+	shared := u.fileReads.DoChan(wsID, func() (any, error) {
+		return u.readFiles(context.WithoutCancel(ctx), wsID)
+	})
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res := <-shared:
+		return sharedFiles(res)
+	}
+}
+
+// sharedFiles unwraps a flight result for one waiter. The slice is cloned per
+// waiter because the flight hands the same backing array to every one of them,
+// and ReviewFileSummary is a flat value struct, so a shallow clone fully
+// isolates callers.
+func sharedFiles(
+	res singleflight.Result,
+) ([]gitdomain.ReviewFileSummary, error) {
+	if res.Err != nil {
+		return nil, res.Err
+	}
+	files, _ := res.Val.([]gitdomain.ReviewFileSummary)
+	return slices.Clone(files), nil
+}
+
+// readFiles is the shared computation behind GetFiles. It runs under a context
+// detached from cancellation: the flight is owned by whichever caller happened
+// to start it, and that caller disconnecting must not fail the waiters behind
+// it. The work stays bounded by exec.GitOpTimeout on every git invocation.
+func (u *branchReviewUsecase) readFiles(
 	ctx context.Context,
 	wsID string,
 ) ([]gitdomain.ReviewFileSummary, error) {

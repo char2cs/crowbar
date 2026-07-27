@@ -8,6 +8,7 @@ import (
 
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/google/uuid"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
@@ -76,6 +77,7 @@ type branchReviewUsecase struct {
 	repos      store.Store[domain.Repository, string]
 	git        enginegit.Engine
 	now        func() time.Time
+	fileReads  singleflight.Group
 }
 
 // New builds the branch-review usecase wiring all collaborators.
