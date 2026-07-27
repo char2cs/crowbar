@@ -61,10 +61,21 @@ itself is unusable at scale. None has yet been confirmed by measurement.
    - Non-network git has **no timeout**. Only `execNet` is bounded
      (`engine.go:105`), whose own comment documents that an unbounded
      subprocess under the mutex wedges every git operation on the clone.
-   - `lockRepoRead` is an RWMutex read lock (`engine.go:88`). Concurrent reads
-     don't block each other, but Go's RWMutex is writer-preferring: once a
-     background origin-sync fetch or a terminal-side commit is waiting, every
-     *new* read queues behind the multi-second one already in flight.
+   - `lockRepoRead` is an RWMutex read lock (`engine.go:88`), and reads hold it
+     for the whole operation. Measured at 200 files / 100k lines — a tenth of
+     target scale — hold time is **mean ~180-230ms, max ~520ms**, against the
+     100ms budget below.
+
+     Go's RWMutex is writer-preferring, so in principle a waiting writer (a
+     background origin-sync fetch, a terminal-side commit) blocks every read
+     arriving behind it, turning one long hold into a queue. **This
+     amplification is NOT measured.** `BenchmarkBranchReview_GetFiles_Contention`
+     was written to demonstrate it and does not: at 16 concurrent readers both
+     `lock.read.wait` and `lock.write.wait` are 0.0ms, because the writer
+     finishes before readers reach their acquisition. Treat starvation as a
+     documented `sync.RWMutex` property and a plausible amplifier, not as an
+     established cause. The long holds are measured and are reason enough to
+     act; the queue behaviour is not evidence we have.
 
    Causes 1 and 3 are both always-on, both scale with diff size, and both are
    live with the review pane closed. Which dominates is **not established** —
@@ -151,11 +162,42 @@ replacement.
 indefinitely. A timeout is reported as an explicit error, matching `execNet`'s
 existing classification.
 
-**`--numstat` off the hot path.** `/review/files` on a git tick runs
-`--name-status` only (O(tree)). The ± counts move behind a per-repo cache keyed
-on `(baseSHA, headSHA, worktreeDirtyHash)` and are recomputed only when that key
-changes — not on every fs event. A tick whose key is unchanged serves counts
-from cache and does zero diff work.
+**`--numstat` off the hot path — split committed from dirty.**
+
+`FileSummaries` currently runs `git diff --numstat -M -z <ref> --`, which
+diffs the ref against the **working tree**, so every tick pays a numstat over
+the entire branch diff.
+
+The obvious fix — cache it under `(baseSHA, headSHA, worktreeDirtyHash)` — does
+**not** work, and it is worth recording why: during agent churn the working tree
+changes on every tick, so that key changes on every tick too. Permanent cache
+miss, on exactly the workload the freeze was reported under. Measured on the 1M
+fixture:
+
+| query | cost | recomputed |
+|---|---|---|
+| `numstat <ref> --` (today, ref→worktree) | 2173ms | every tick |
+| `numstat <ref> HEAD --` (committed only) | 2856ms | **only on commit** |
+| `numstat <ref> -- <dirty paths>` | **87ms** | every tick |
+| `status --porcelain` | 163ms | already paid today |
+
+(Machine under load; the ratios are the point, not the absolutes.)
+
+So the split is:
+
+- **Committed part** — `git diff --numstat -M -z <ref> HEAD --`, keyed on
+  `(ref, headSHA)`. Expensive, but invalidated only by a commit or a ref move.
+- **Dirty part** — the set of dirty paths comes from `Status()`, which
+  `GetFiles` already calls; ± counts for exactly those paths come from
+  `git diff --numstat -M -z <ref> -- <paths…>`. O(dirty files), not O(branch).
+- **Merge**, with the dirty result winning per path, because a file that is both
+  committed-changed and dirty needs its true ref→worktree count, not a sum.
+
+A tick during churn then pays the restricted numstat (~87ms) instead of the full
+one (~2173ms) — a ~25× reduction on the path that actually froze.
+
+`--name-status` stays per-request (O(tree), ~51ms) so the file *set* is never
+stale.
 
 **Cancellation over queueing.** A review request superseded by a newer tick is
 cancelled through its context rather than left to complete behind the lock. The
@@ -480,12 +522,17 @@ scroll metric.
 called out in "Other diff surfaces" with a fallback and an explicit
 verify-before-delete ordering.
 
-**The ref-key cache can serve stale ± counts** if `worktreeDirtyHash` misses a
-mutation the user can see. It must be derived from something that provably
-changes on any working-tree edit (index mtime + HEAD + the status file set), not
-from a timer. A stale count in the sidebar is a visible correctness bug, so this
-is the one place in the design where correctness outranks the perf win: when in
-doubt, recompute.
+**The committed-counts cache can serve stale ± counts** if it is keyed on
+something that fails to change when the committed diff does. The key is
+`(ref, headSHA)`: a commit, amend, reset, rebase or ref move all change
+`headSHA`, and a change of base changes `ref`. Working-tree edits deliberately
+do NOT invalidate it — they are covered by the dirty-path query instead, which
+is what makes the split work at all.
+
+The failure mode to guard is a committed change that leaves `headSHA` equal,
+which should be impossible by construction. A stale count in the sidebar is a
+visible correctness bug, so this is the one place in the design where
+correctness outranks the perf win: when in doubt, recompute.
 
 **Attribution may contradict the plan.** Phase 0 could show the freeze is
 dominated by something not listed here at all. The phase order is written to be
