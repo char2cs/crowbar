@@ -241,9 +241,23 @@ renders from Layer 1, and heights sharpen when the outline lands. It is not on
 a recurring timer.
 
 **Density guard.** A file whose hunk count exceeds `MAX_OUTLINE_HUNKS_PER_FILE`
-(1000) returns a single synthetic hunk sized from its ±counts and is marked
-`isPartial`. This keeps the outline bounded on pathological diffs where hunk
-count approaches line count.
+(1000) keeps its **first 1000 hunks** and is marked `isPartial`. (This differs
+from the earlier draft, which said "a single synthetic hunk sized from its
+±counts" — keeping real leading geometry is strictly more useful and the
+implementation follows it.)
+
+**Consequence for the client:** a partial file's geometry is a **lower bound**,
+so height estimation must top it up from the Layer 1 ±counts rather than trust
+the hunk list alone. Phase 3 must handle this or a shotgun file will under-
+reserve scroll space.
+
+**Measured payload — 2× the original estimate.** On the 1M-line fixture the
+outline is **2.28 MB** across 38,604 reported hunks (39,104 present, 500 capped
+from one shotgun file). That is ~59 bytes of JSON per hunk, not the ~28 this
+spec first assumed. Still O(hunks) and still bounded, but large enough that it
+justifies keeping the outline off the first-paint path — which is what Layer 2
+already specifies — and worth revisiting if the fetch proves slow over the unix
+socket.
 
 ### Layer 3 — Patch (on demand, O(one file))
 
