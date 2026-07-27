@@ -275,6 +275,11 @@ func extraRoutes() []string {
 		"POST " + home + "/agent/chats/:id/stop",
 		// The home hosts a file tree, so it hosts the file tree's duplicate op too.
 		"POST " + home + "/files/copy",
+		// The daemon's timing-ring read/arm seam. Process-wide, not scoped to a
+		// project/repo/workspace, so it mounts top-level beside
+		// /system/prerequisites rather than inside the entity hierarchy.
+		"GET /v0/system/perf",
+		"POST /v0/system/perf",
 	}
 }
 
