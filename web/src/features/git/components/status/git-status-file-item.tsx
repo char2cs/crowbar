@@ -1,6 +1,5 @@
 import type { MouseEvent } from 'react'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
-import { useSettingsStore } from '@/features/settings/store'
 import { Badge } from '@/components/ui/badge'
 import { SIDEBAR_TREE_ICON_SIZE, SidebarTreeRow } from '@/components/ui/sidebar-tree'
 import { cn } from '@/utils/cn'
@@ -20,6 +19,13 @@ interface GitFileItemProps {
   className?: string
   repoPath?: string
   uncommitted?: boolean
+  /**
+   * Required, not defaulted: this used to be read from `useSettingsStore` here,
+   * which cost one store subscription per row in a tree that can hold hundreds.
+   * The owning list subscribes once and passes it down. Keeping it required
+   * makes a missed call site a type error rather than a silent visual change.
+   */
+  compactGitStatusBadges: boolean
 }
 
 export const GitFileItem = ({
@@ -33,8 +39,8 @@ export const GitFileItem = ({
   className,
   repoPath,
   uncommitted,
+  compactGitStatusBadges,
 }: GitFileItemProps) => {
-  const compactGitStatusBadges = useSettingsStore((state) => state.settings.compactGitStatusBadges)
   const pathParts = file.path.split('/')
   const fileName = pathParts.pop() || file.path
   const directory = pathParts.join('/')

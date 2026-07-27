@@ -1,23 +1,23 @@
 import { render } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChangedFilesTree } from '@/features/git/components/changed-files-tree'
 import type { GitDiff } from '@/features/git/types/git-types'
 
 /**
- * Scale characterisation for the sidebar changed-files tree, backing the
- * attribution phase of
+ * Scale gate for the sidebar changed-files tree, backing
  * docs/superpowers/specs/2026-07-27-diff-subsystem-at-scale-design.md.
  *
  * Cause 1 in that spec: `sidebar-carousel.tsx` mounts all four panels
  * permanently — confirmed live, all four report `display: flex` /
  * `visibility: visible`, none dormant — so `GitPanel` renders on every tab.
- * `ChangedFilesTree` is unvirtualised, so its DOM cost is O(changed files)
- * whether or not the user can see it.
+ * Before Phase 1 `ChangedFilesTree` was unvirtualised, so its DOM cost was
+ * O(changed files) whether or not the user could see it: 500 files produced
+ * 500 rows and 6,292 DOM nodes.
  *
- * These tests assert the CURRENT behaviour on purpose. They are a tripwire,
- * not an endorsement: Phase 1 virtualises this tree, at which point the
- * `rendersOneRowPerFile` expectation MUST fail and be inverted to a bounded
- * row count. A green suite after that change would mean the fix did not land.
+ * These tests asserted that defect as a tripwire until Phase 1 virtualised the
+ * tree; they now assert the TARGET behaviour — the mounted row count is bounded
+ * by the virtual window, not by the input. A regression to eager rendering
+ * fails here.
  *
  * DOM node count is used rather than wall time deliberately — it is
  * deterministic, so this is a real gate instead of a flaky timing assertion.
@@ -38,6 +38,34 @@ vi.mock('@/features/settings/store', () => {
 vi.mock('@/features/file-explorer/components/file-explorer-icon', () => ({
   FileExplorerIcon: ({ fileName }: { fileName: string }) => <span>{fileName}</span>,
 }))
+
+// jsdom has no layout engine, so every element measures 0×0 and the virtualiser
+// would collapse to its overscan alone. Give elements a sidebar-sized rect
+// before render so the window under test is the realistic one the app produces.
+// Purely geometric — no timers, no polling.
+const VIEWPORT_WIDTH = 280
+const VIEWPORT_HEIGHT = 800
+const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
+
+beforeEach(() => {
+  const rect = {
+    top: 0,
+    left: 0,
+    right: VIEWPORT_WIDTH,
+    bottom: VIEWPORT_HEIGHT,
+    width: VIEWPORT_WIDTH,
+    height: VIEWPORT_HEIGHT,
+    x: 0,
+    y: 0,
+  }
+  HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+    return { ...rect, toJSON: () => rect } as DOMRect
+  }
+})
+
+afterEach(() => {
+  HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect
+})
 
 function makeFiles(count: number): GitDiff[] {
   return Array.from({ length: count }, (_, i) => ({
@@ -61,7 +89,7 @@ function countRows(container: HTMLElement) {
 }
 
 describe('ChangedFilesTree scale characterisation', () => {
-  it('rendersOneRowPerFile — O(changed files), the defect Phase 1 removes', () => {
+  it('renders a bounded number of rows regardless of file count', () => {
     const fileCount = 500
     const { container } = render(
       <ChangedFilesTree files={makeFiles(fileCount)} repoPath="/repo" onFileOpen={() => {}} />,
@@ -69,20 +97,20 @@ describe('ChangedFilesTree scale characterisation', () => {
 
     const { fileRows, domNodes } = countRows(container)
 
-    // A characterisation test should report its measurement, not just gate on
-    // it — this number is what Phase 1 is judged against.
+    // A scale test should report its measurement, not just gate on it — this
+    // number is what Phase 1 is judged against (baseline: 500 rows / 6,292
+    // nodes / 12.6 nodes per file).
     console.info(
       `[scale] ${fileCount} files -> ${fileRows} rows, ${domNodes} DOM nodes ` +
         `(${(domNodes / fileCount).toFixed(1)} nodes/file)`,
     )
 
-    // Every file is in the DOM, regardless of viewport. This is the defect.
-    expect(fileRows).toBe(fileCount)
-    // Each row costs many nodes, so the real cost is a multiple of file count.
-    expect(domNodes).toBeGreaterThan(fileCount * 4)
+    // Bounded by the virtual window, not the input.
+    expect(fileRows).toBeLessThan(100)
+    expect(fileRows).toBeGreaterThan(0)
   })
 
-  it('scales linearly with file count — cost is not bounded by a viewport', () => {
+  it('row count does not scale with file count', () => {
     const small = render(
       <ChangedFilesTree files={makeFiles(100)} repoPath="/repo" onFileOpen={() => {}} />,
     )
@@ -93,8 +121,10 @@ describe('ChangedFilesTree scale characterisation', () => {
     const smallCount = countRows(small.container).fileRows
     const largeCount = countRows(large.container).fileRows
 
-    // 4x the files, 4x the rows. A virtualised tree would hold this ratio near
-    // 1 because both renders would be clamped to the same visible window.
-    expect(largeCount / smallCount).toBe(4)
+    expect(smallCount).toBeGreaterThan(0)
+    expect(largeCount).toBeGreaterThan(0)
+
+    // 4x the files, the same window. Was exactly 4.0 before virtualisation.
+    expect(largeCount / smallCount).toBeLessThan(1.5)
   })
 })
