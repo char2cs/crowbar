@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26.2'
           cache-dependency-path: api/go.sum
@@ -58,7 +58,7 @@ jobs:
             GOOS=$OS GOARCH=$ARCH CGO_ENABLED=0 go build \
               -o ../dist/crowbar-api-${OS}-${ARCH} ./cmd/crowbar
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: daemon-binaries
           path: dist/
@@ -83,7 +83,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26.2'
           cache-dependency-path: api/go.sum
@@ -131,7 +131,7 @@ jobs:
           DMG=$(find desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' | head -1)
           [ -s "$DMG" ] || (echo "DMG missing or empty" && exit 1)
           echo "DMG: $DMG ($(du -h "$DMG" | cut -f1))"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: desktop-macos
           path: desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
@@ -149,7 +149,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26.2'
           cache-dependency-path: api/go.sum
@@ -182,7 +182,7 @@ jobs:
           APPIMAGE=$(find desktop/src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
           [ -s "$APPIMAGE" ] || (echo "AppImage missing or empty" && exit 1)
           echo "AppImage: $APPIMAGE ($(du -h "$APPIMAGE" | cut -f1))"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: desktop-linux
           path: |
@@ -194,7 +194,7 @@ jobs:
     # All jobs must succeed — no partial pre-releases
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: release-artifacts/
           merge-multiple: true

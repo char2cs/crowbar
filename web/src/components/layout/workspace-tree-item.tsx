@@ -98,7 +98,7 @@ export function WorkspaceTreeItem({
     <div>
       <div style={{ paddingLeft: (depth + 1) * 14 }}>
         <div
-          role="button"
+          role="treeitem"
           tabIndex={0}
           data-ws-drop={!isRenaming ? workspace.id : undefined}
           aria-expanded={isPlaceholder ? showPlaceholderDetails : undefined}
@@ -236,7 +236,7 @@ export function WorkspaceTreeItem({
       </div>
 
       {showChildrenSection && (
-        <div>
+        <div role="group">
           {hasChildren &&
             expanded &&
             children.map((child) => (

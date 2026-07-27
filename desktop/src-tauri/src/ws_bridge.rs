@@ -232,7 +232,7 @@ pub async fn open_bridge<S: FrameSink>(
                 // holding the descriptor. Teardown must not depend on the peer.
                 _ = &mut cancelled => break,
                 frame = read.next() => match frame {
-                    Some(Ok(Message::Text(text))) => on_message.send(text),
+                    Some(Ok(Message::Text(text))) => on_message.send(text.to_string()),
                     Some(Ok(_)) => continue,
                     Some(Err(_)) | None => {
                         daemon_closed = true;
@@ -284,7 +284,7 @@ pub async fn ws_send(
 ) -> Result<(), String> {
     match manager.sender(&conn_id) {
         Some(tx) => tx
-            .send(Message::Text(data))
+            .send(Message::Text(data.into()))
             .map_err(|_| format!("ws connection {conn_id} is closed")),
         None => Err(format!("no open ws connection {conn_id}")),
     }

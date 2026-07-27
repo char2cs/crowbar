@@ -34,6 +34,7 @@ import { formatDroppedPathsForTerminal } from '../utils/terminal-file-drop'
 import { resolveTerminalFont } from '../utils/resolve-font'
 import { selectionTextPreservingWraps } from '../utils/selection-text'
 import { resolveKeyOverride } from '../utils/terminal-key-overrides'
+import { installInputTapeGlobal, observeInputEvents } from '../utils/input-tape'
 import { toast } from '@/features/window/stores/toast-store'
 import { TerminalSearch, type TerminalSearchOptions } from './terminal-search'
 import '@xterm/xterm/css/xterm.css'
@@ -472,7 +473,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
 
       event.preventDefault()
       event.stopPropagation()
-      writeBuffered(text)
+      writeBuffered(text, 'file-drop')
       requestAnimationFrame(() => xtermRef.current?.focus())
     },
     [writeBuffered],
@@ -545,7 +546,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         const override = resolveKeyOverride(event)
         if (override !== null) {
           event.preventDefault()
-          writeBuffered(override)
+          writeBuffered(override, 'modifier-enter-override')
           return false
         }
         // Ctrl combos (without Cmd) → xterm handles them (Ctrl+U, Ctrl+C, …).
@@ -557,6 +558,13 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
 
       if (terminal.textarea) {
         terminal.textarea.spellcheck = false
+        // Observational only: records the RAW key/input/composition events this
+        // textarea receives, so a duplicated or missing character can be traced
+        // to the event that produced it (or shown to have no event at all).
+        // Disposed with the terminal, alongside the beforeinput listener below.
+        installInputTapeGlobal()
+        // react-doctor-disable-next-line effect-needs-cleanup -- listeners live on xterm's own textarea and are torn down by `xterm.dispose()` (l.822); tracer can't follow it.
+        observeInputEvents(terminal.textarea)
         // react-doctor-disable-next-line effect-needs-cleanup -- listener lives on xterm's own textarea and is torn down by `xterm.dispose()` (l.822); tracer can't follow it.
         terminal.textarea.addEventListener('beforeinput', (event) => {
           if (event.inputType === 'insertReplacementText' || event.inputType === 'insertFromDrop') {
@@ -564,7 +572,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
             if (!text || !currentConnectionIdRef.current) return
 
             event.preventDefault()
-            writeBuffered(text)
+            writeBuffered(text, `beforeinput:${event.inputType}`)
           }
         })
       }

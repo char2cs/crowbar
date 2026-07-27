@@ -92,7 +92,8 @@ export function RepoSection({
   return (
     <div className="mb-1">
       <div
-        role="button"
+        role="treeitem"
+        aria-expanded={!isCollapsed}
         tabIndex={0}
         className={cn(
           ROW_BASE,
@@ -235,7 +236,7 @@ export function RepoSection({
         </button>
       </div>
       {!isCollapsed && (
-        <div>
+        <div role="group">
           {creatingChildOf?.repoId === repo.id &&
             creatingChildOf?.parentId === repo.defaultWorkspaceId && (
               <div style={{ paddingLeft: 14 }}>

@@ -1,7 +1,8 @@
 import './styles.css'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { exists } from '@/features/file-system/controllers/platform'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
@@ -12,13 +13,27 @@ import { logger } from '../utils/logger'
 import { parseMarkdown } from './parser'
 import { resolvePreviewLinkPath } from './resolve-preview-link'
 
-export function MarkdownPreview() {
+export interface MarkdownPreviewProps {
+  /**
+   * The `markdownPreview` buffer this instance renders. Also the key its scroll
+   * offset is retained under, since PaneContainer unmounts the preview whenever
+   * another tab is active in the pane. Omitted by the legacy CodeEditor host,
+   * which falls back to the active pane's buffer and keeps no scroll.
+   */
+  bufferId?: string
+}
+
+export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
   const { sourceBufferPath, sourceContent } = useWorkspaceStoreContext(
     useShallow((state) => {
+      // Prefer the buffer this instance was handed: with a split, the pane
+      // rendering the preview is not necessarily the ACTIVE pane, and reading
+      // the active pane's buffer would show another pane's file.
+      const ownBuffer = bufferId ? state.buffers.find((buffer) => buffer.id === bufferId) : null
       const activeBufferId = state.panes[state.activePaneId]?.activeBufferId ?? null
-      const activeBuffer = activeBufferId
-        ? state.buffers.find((buffer) => buffer.id === activeBufferId)
-        : null
+      const activeBuffer =
+        ownBuffer ??
+        (activeBufferId ? state.buffers.find((buffer) => buffer.id === activeBufferId) : null)
       const sourceBuffer =
         activeBuffer?.type === 'markdownPreview'
           ? (state.buffers.find((buffer) => buffer.path === activeBuffer.sourceFilePath) ??
@@ -34,18 +49,20 @@ export function MarkdownPreview() {
   const fontSize = useEditorSettingsStore.use.fontSize()
   const uiFontFamily = useSettingsStore((state) => state.settings.uiFontFamily)
   const handleFileSelect = useFileSystemStore((s) => s.handleFileSelect)
-  const [html, setHtml] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!sourceContent) {
-      setHtml('')
-      return
-    }
+  // Derived during render, not mirrored into state by an effect. parseMarkdown
+  // is synchronous, so state + effect only bought an extra commit — and that
+  // extra commit is precisely what this pane cannot afford: the scroll restore
+  // below gates on `html !== ''`, so publishing the HTML a commit late delayed
+  // every restore by a frame.
+  const html = useMemo(() => (sourceContent ? parseMarkdown(sourceContent) : ''), [sourceContent])
 
-    const parsedHtml = parseMarkdown(sourceContent)
-    setHtml(parsedHtml)
-  }, [sourceContent])
+  // A tab switch unmounts this pane entirely (PaneContainer renders only the
+  // active buffer), so the scroll offset has to be retained outside the
+  // component. Restored once the parsed HTML is in the DOM — before that the
+  // scroll box is empty and any offset would be clamped away.
+  usePreservedScroll(containerRef, bufferId ?? null, html !== '')
 
   const handleLinkClick = useCallback(
     async (e: React.MouseEvent<HTMLDivElement>) => {
@@ -146,7 +163,7 @@ export function MarkdownPreview() {
     >
       <div
         className="markdown-content w-full max-w-3xl"
-        // react-doctor-disable-next-line dangerous-html-sink -- `html` is the output of parseMarkdown(), which returns DOMPurify.sanitize(rawHtml) (parser.ts:217). Already flows through the existing DOMPurify usage; the rule can't trace the cross-function async setState.
+        // react-doctor-disable-next-line dangerous-html-sink -- `html` is the output of parseMarkdown(), which returns DOMPurify.sanitize(rawHtml) (parser.ts:217). Already flows through the existing DOMPurify usage; the rule can't trace the sanitizer across the useMemo into another module.
         dangerouslySetInnerHTML={{ __html: html }}
       />
     </div>

@@ -28,11 +28,23 @@ export interface TerminalTheme {
   brightMagenta: string
   brightCyan: string
   brightWhite: string
+  /*
+   * xterm 6 replaced the native-overflow viewport with VS Code's own scrollable
+   * element, so the terminal's scrollbar is no longer a `::-webkit-scrollbar`
+   * we can style in CSS — xterm writes a <style> block from these three theme
+   * colours instead. They carry the app's scrollbar tokens across that gap so
+   * the terminal keeps matching every other scrollable surface.
+   */
+  scrollbarSliderBackground: string
+  scrollbarSliderHoverBackground: string
+  scrollbarSliderActiveBackground: string
 }
 
 export interface TerminalUiTokens {
   foreground: string
   cursor: string
+  scrollbarThumb: string
+  scrollbarThumbHover: string
 }
 
 const ANSI_FALLBACK = '#808080'
@@ -63,6 +75,9 @@ export function buildTerminalTheme(
     cursorAccent: '#00000000',
     selectionBackground: withAlpha(ui.cursor, 0.25),
     selectionForeground: ui.foreground,
+    scrollbarSliderBackground: ui.scrollbarThumb,
+    scrollbarSliderHoverBackground: ui.scrollbarThumbHover,
+    scrollbarSliderActiveBackground: ui.scrollbarThumbHover,
   } as TerminalTheme
 
   const keys: TerminalAnsiKey[] = [
@@ -95,6 +110,11 @@ function readUiTokens(): TerminalUiTokens {
   return {
     foreground: resolveCssVar('--foreground') ?? (isDark ? '#f5f5f5' : '#141413'),
     cursor: resolveCssVar('--foreground') ?? (isDark ? '#f5f5f5' : '#141413'),
+    // #rrggbbaa — the app tokens are translucent by design so the glass reads
+    // through the slider. xterm's own fallback is foreground @ 20%, which is
+    // close but not the app's grey, hence resolving the real token.
+    scrollbarThumb: resolveCssVar('--app-scrollbar-thumb') ?? '#8080806b',
+    scrollbarThumbHover: resolveCssVar('--app-scrollbar-thumb-hover') ?? '#80808094',
   }
 }
 

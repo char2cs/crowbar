@@ -352,29 +352,18 @@ func siblingWorktreePaths(
 // If the requested branch is an EXISTING remote branch (see branchIsRemoteBranch),
 // it is checked out into a fresh worktree tracking origin/<branch>; the fork point
 // is the resolved tip of origin/<branch>. Otherwise the branch is created locally
-// from ParentBranch, and the fork point is the start SHA reported by
-// WorktreeAddBranch. The two paths have DIFFERENT fork-point semantics: the
-// checkout path's fork point is the remote tip (so later merge/reparent math
-// diffs against what the remote already contains), while the create path's fork
-// point is exactly where the new branch diverged from its parent.
+// forking from the parent — from ORIGIN's tip of the parent when the parent is on
+// origin (see parentStartPoint), else from the local parent ref — and the fork
+// point is the start SHA reported by WorktreeAddBranch. The two paths have
+// DIFFERENT fork-point semantics: the checkout path's fork point is the remote tip
+// (so later merge/reparent math diffs against what the remote already contains),
+// while the create path's fork point is exactly where the new branch diverged from
+// its parent (origin's tip of that parent whenever it is reachable).
 func (u *worktreeUsecase) addWorktree(
 	ctx context.Context,
 	in CreateChildInput,
 	path string,
 ) (string, error) {
-	// Fast-forward the parent branch to match origin before the child branches
-	// off it. This avoids the common scenario where the parent is stale locally
-	// and the new branch immediately diverges from what the remote already has.
-	// Best-effort: a network outage or diverged parent must not block branch
-	// creation — the user can pull the parent manually afterward.
-	if in.ParentBranch != "" { //nolint:nestif // best-effort parent fast-forward before branching; guards are load-bearing
-		if parentOnRemote, err := u.git.RemoteBranchExists(ctx, in.RepoPath, in.ParentBranch); err == nil && parentOnRemote {
-			if err := u.git.FastForwardBranch(ctx, in.RepoPath, in.ParentBranch); err != nil {
-				slog.WarnContext(ctx, "create child: could not fast-forward parent; branching from local tip",
-					"parent", in.ParentBranch, "err", err)
-			}
-		}
-	}
 	onRemote, err := u.branchIsRemoteBranch(ctx, in.RepoPath, in.Branch)
 	if err != nil {
 		return "", err
@@ -382,11 +371,66 @@ func (u *worktreeUsecase) addWorktree(
 	if onRemote {
 		return u.checkoutRemoteBranch(ctx, in, path)
 	}
-	startSha, err := u.git.WorktreeAddBranch(ctx, in.RepoPath, path, in.Branch, in.ParentBranch)
+	// Resolved only on the create path, PAST the checkout early-return above:
+	// the checkout path derives its fork point from origin/<branch> itself and
+	// would discard this — and parentStartPoint's FetchRef is a real network
+	// fetch under the contended per-clone repo lock (OriginSyncManager holds it
+	// periodically), not worth paying for a result nobody reads.
+	startPoint := u.parentStartPoint(ctx, in)
+	startSha, err := u.git.WorktreeAddBranch(ctx, in.RepoPath, path, in.Branch, startPoint)
 	if err != nil {
 		return "", fmt.Errorf("create child: worktree add: %w", err)
 	}
 	return startSha, nil
+}
+
+// parentStartPoint resolves the git start point the new local branch should fork
+// from: origin's FRESH tip of the parent when the parent exists on the `origin`
+// remote, and the local parent ref otherwise.
+//
+// The child must fork from origin's LATEST parent tip, not a stale local copy.
+// The obvious way to get there — fast-forward the local parent first, via
+// `git fetch origin <parent>:<parent>` (FastForwardBranch) — is structurally dead
+// here: git REFUSES that fetch whenever <parent> is checked out in ANY worktree,
+// and in Crowbar's model every protected branch (the default branch included) is
+// permanently checked out in its own locked managed worktree. So the fast-forward
+// deterministically failed for the most common parent, logged a best-effort
+// warning nobody saw, and creation forked the new branch from the STALE local tip
+// — the field bug that repeatedly produced branches several commits behind
+// origin/develop.
+//
+// FetchRef updates ONLY refs/remotes/origin/<parent> (`git fetch origin <parent>`),
+// which git always allows regardless of checkouts; the child then forks from the
+// resolved origin/<parent> SHA. Advancing the local parent ref (and its locked
+// worktree) is OriginSyncManager's job, never ours — so we never pass
+// --update-head-ok.
+//
+// Every step degrades to the local parent tip and warns: a no-remote/offline
+// machine, a parent not on origin, a fetch failure, or an unresolved origin ref
+// must never block branch creation (the user can pull the parent afterward).
+func (u *worktreeUsecase) parentStartPoint(
+	ctx context.Context,
+	in CreateChildInput,
+) string {
+	if in.ParentBranch == "" {
+		return in.ParentBranch
+	}
+	parentOnRemote, err := u.git.RemoteBranchExists(ctx, in.RepoPath, in.ParentBranch)
+	if err != nil || !parentOnRemote {
+		return in.ParentBranch
+	}
+	if fetchErr := u.git.FetchRef(ctx, in.RepoPath, in.ParentBranch); fetchErr != nil {
+		slog.WarnContext(ctx, "create child: could not fetch parent from origin; branching from local tip",
+			"parent", in.ParentBranch, "err", fetchErr)
+		return in.ParentBranch
+	}
+	remoteTip, rpErr := u.git.RevParse(ctx, in.RepoPath, "origin/"+in.ParentBranch)
+	if rpErr != nil {
+		slog.WarnContext(ctx, "create child: origin parent ref unresolved after fetch; branching from local tip",
+			"parent", in.ParentBranch, "err", rpErr)
+		return in.ParentBranch
+	}
+	return remoteTip
 }
 
 // branchIsRemoteBranch reports whether branch must be treated as an EXISTING
@@ -423,6 +467,13 @@ func (u *worktreeUsecase) branchIsRemoteBranch(
 // branch and adds a worktree checking it out. The fork point is the resolved
 // origin/<branch> tip. Using FastForwardBranch (rather than FetchRef) ensures
 // the worktree starts at the same commit as origin when the network is up.
+//
+// Moving the local branch ref is correct HERE — unlike parentStartPoint, which
+// must never move the parent's ref — because WorktreeAdd checks out `in.Branch`
+// ITSELF, so that local ref has to sit at origin's tip. This path CAN still hit
+// the "refusing to fetch into branch … checked out at …" refusal (the default
+// branch held by the repo's MAIN folder on a fresh import); CreateChild's
+// detach-the-holder-and-retry is what recovers it, so do not weaken that path.
 //
 // A fetch failure is BEST-EFFORT when the local remote-tracking ref
 // origin/<branch> is already present: we check the branch out from that local ref

@@ -175,6 +175,7 @@ export const FileTreeSettings = () => {
                 commitFilePatterns()
               }
             }}
+            aria-label="Hidden Files"
             placeholder="*.log, *.tmp, **/*.bak"
             rows={2}
             className={cn(
@@ -204,6 +205,7 @@ export const FileTreeSettings = () => {
                 commitDirectoryPatterns()
               }
             }}
+            aria-label="Hidden Directories"
             placeholder="node_modules, .git, build/"
             rows={2}
             className={cn(

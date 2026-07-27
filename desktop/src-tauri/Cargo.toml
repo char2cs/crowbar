@@ -27,12 +27,12 @@ tokio = { version = "1", features = ["full"] }
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.28"
 futures-util = "0.3"
 bytes = "1"
 log = "0.4"
 thiserror = "2"
-window-vibrancy = "0.6"
+window-vibrancy = "0.8"
 tauri-plugin-macos-fps = "0.1.0"
 # Dev-only: lets the Tauri MCP server drive/inspect the webview. Registered
 # behind cfg(debug_assertions) in lib.rs so it is never active in release builds.

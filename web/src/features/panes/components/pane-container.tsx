@@ -46,9 +46,10 @@ const BranchReviewPane = lazy(() =>
     default: m.BranchReviewPane,
   })),
 )
-// Rendered-preview buffers (opened by the breadcrumb eye icon). Each reads its
-// source content from the active buffer's `sourceFilePath` via the store, so no
-// props are threaded here. Lazy so the markdown parser stays out of the main chunk.
+// Rendered-preview buffers (opened by the breadcrumb eye icon). Each resolves its
+// source content from its own buffer's `sourceFilePath` via the store — markdown
+// takes the buffer id so it can also retain its scroll across the unmount a tab
+// switch causes. Lazy so the markdown parser stays out of the main chunk.
 const MarkdownPreview = lazy(() =>
   import('@/features/editor/markdown/markdown-preview').then((m) => ({
     default: m.MarkdownPreview,
@@ -516,7 +517,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         // from the active-only Suspense that calls this switch.
 
         case 'markdownPreview':
-          return <MarkdownPreview />
+          return <MarkdownPreview bufferId={buffer.id} />
 
         case 'htmlPreview':
           return <HtmlPreview />

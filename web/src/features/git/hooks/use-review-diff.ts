@@ -124,6 +124,7 @@ export function useReviewDiff(
       } catch {
         // silently ignore: the sidebar should not crash on review fetch failure
       } finally {
+        // react-doctor-disable-next-line no-loading-flag-reset-outside-finally -- FP: the reset IS in `finally`, so it already clears on rejection; the rule fires on the `!cancelled` guard, which is load-bearing. Cleanup runs synchronously when wsId/enabled change, but this run's promise settles later — so an unguarded reset would let a superseded fetch clear the flag the CURRENT fetch just set, blanking the spinner mid-load.
         if (!cancelled) setLoading(false)
       }
     }

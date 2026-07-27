@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
 export type RepoAvatarData = { url?: string; label: string; color: string }
@@ -15,27 +15,15 @@ const sizeClasses = {
 // racing the WS frame, stale URL after a daemon wipe) render the caller's
 // letter/color fallback instead of the browser's broken-image glyph. The
 // error state resets whenever the src changes (e.g. a new ?v= version).
-export function RepoAvatarImg({
-  src,
-  alt,
-  className,
-  fallback,
-}: {
+interface RepoAvatarImgProps {
   src: string
   alt: string
   className?: string
   fallback: React.ReactNode
-}) {
+}
+
+function RepoAvatarImgAttempt({ src, alt, className, fallback }: RepoAvatarImgProps) {
   const [errored, setErrored] = useState(false)
-  // Accepted (no-reset-all-state-on-prop-change): "all state" here is one boolean.
-  // The self-reset-on-src-change is this component's public contract — both
-  // callers (RepoAvatar, workspace-tree) and the covering test rerender with a
-  // new src and expect a fresh <img> attempt WITHOUT keying the element; pushing
-  // a key= onto every caller would externalize a single-field reset (task-21).
-  // react-doctor-disable-next-line no-reset-all-state-on-prop-change
-  useEffect(() => {
-    setErrored(false)
-  }, [src])
   if (errored) return <>{fallback}</>
   return (
     <img
@@ -46,6 +34,15 @@ export function RepoAvatarImg({
       onError={() => setErrored(true)}
     />
   )
+}
+
+export function RepoAvatarImg(props: RepoAvatarImgProps) {
+  // Reset-by-key, the canonical form: a new src remounts the attempt and its
+  // `errored` flag starts false again. This used to be an effect that reset the
+  // flag on [src], which showed the fallback for one render after the src
+  // changed. Keyed HERE rather than at the call sites so the self-reset stays
+  // this component's own contract — both callers just rerender with a new src.
+  return <RepoAvatarImgAttempt key={props.src} {...props} />
 }
 
 export function RepoAvatar({

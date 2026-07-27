@@ -86,19 +86,32 @@ export async function apiFetch<T>(
       continue
     }
 
-    const body = await res.json().catch(() => null)
+    // Status FIRST, body second. `fetch` resolves on 4xx/5xx, so reading the
+    // envelope before looking at the status is how an error payload gets
+    // mistaken for a result. The daemon does answer errors with the same
+    // {success,error,data} envelope, so the body is still worth reading here —
+    // deliberately, on the error path, purely to recover its `error` message.
+    //
+    // An HTTP error status is a real daemon response, not a transport failure —
+    // it is terminal (a 404 is meaningful; a 500 is a genuine server error) and
+    // must never be retried.
+    if (!res.ok) {
+      const errorBody = await res.json().catch(() => null)
+      throw new ApiError(errorBody?.error ?? `${res.status} ${res.statusText}`, res.status)
+    }
     // Success with an empty/204/202 body (e.g. WriteMutationOK with no payload, a
     // 204 No Content, or a 202 Accepted for an async hierarchical mutation): the
     // envelope check below would wrongly throw, so treat it as success returning
     // undefined.
-    if (res.ok && (res.status === 204 || res.status === 202 || body === null)) {
+    if (res.status === 204 || res.status === 202) {
       return undefined as T
     }
-    // An HTTP error status is a real daemon response, not a transport failure —
-    // it is terminal (a 404 is meaningful; a 500 is a genuine server error) and
-    // must never be retried.
-    if (!res.ok || !body?.success) {
-      throw new ApiError(body?.error ?? `${res.status} ${res.statusText}`, res.status)
+    const body = await res.json().catch(() => null)
+    if (body === null) {
+      return undefined as T
+    }
+    if (!body.success) {
+      throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status)
     }
     return body.data as T
   }

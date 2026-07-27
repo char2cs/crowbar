@@ -397,7 +397,12 @@ pub async fn terminal_send(
     window: tauri::WebviewWindow,
 ) -> Result<(), String> {
     let frame = serde_json::json!({ "data": data }).to_string();
-    enqueue(&manager, window.label(), &session_id, Message::Text(frame))
+    enqueue(
+        &manager,
+        window.label(),
+        &session_id,
+        Message::Text(frame.into()),
+    )
 }
 
 /// Resize the PTY (SIGWINCH).
@@ -410,7 +415,12 @@ pub async fn terminal_resize(
     window: tauri::WebviewWindow,
 ) -> Result<(), String> {
     let frame = serde_json::json!({ "type": "resize", "cols": cols, "rows": rows }).to_string();
-    enqueue(&manager, window.label(), &session_id, Message::Text(frame))
+    enqueue(
+        &manager,
+        window.label(),
+        &session_id,
+        Message::Text(frame.into()),
+    )
 }
 
 /// Ask the daemon to re-emit the model snapshot (post-resize convergence).
@@ -421,7 +431,12 @@ pub async fn terminal_resync(
     window: tauri::WebviewWindow,
 ) -> Result<(), String> {
     let frame = serde_json::json!({ "type": "resync" }).to_string();
-    enqueue(&manager, window.label(), &session_id, Message::Text(frame))
+    enqueue(
+        &manager,
+        window.label(),
+        &session_id,
+        Message::Text(frame.into()),
+    )
 }
 
 /// Push the host light/dark theme to the daemon so a foreground app's automatic theme
@@ -439,7 +454,12 @@ pub async fn terminal_set_theme(
 ) -> Result<(), String> {
     let frame =
         serde_json::json!({ "type": "theme", "bg": bg, "fg": fg, "dark": dark }).to_string();
-    enqueue(&manager, window.label(), &session_id, Message::Text(frame))
+    enqueue(
+        &manager,
+        window.label(),
+        &session_id,
+        Message::Text(frame.into()),
+    )
 }
 
 /// Close the WebSocket leg for a session, scoped to the calling window. The daemon-side

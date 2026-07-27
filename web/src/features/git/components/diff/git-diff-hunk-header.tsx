@@ -71,24 +71,23 @@ const DiffHunkHeader = memo(
 
     const canStage = !isInMultiFileView && rootFolderPath && filePath
 
+    // The collapse toggle is a real <button> covering the summary, and the
+    // stage control is its SIBLING. Previously the whole row was a
+    // `role="button"` with the stage button nested inside it, which takes
+    // presentational children — assistive tech lost the stage control entirely.
     return (
       <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={!isCollapsed}
         className={cn(
-          'group flex cursor-pointer items-center justify-between border-border border-b',
+          'group flex items-center justify-between border-border border-b',
           'bg-background px-3 py-1 ui-text-sm leading-5 hover:bg-muted',
         )}
-        onClick={onToggleCollapse}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onToggleCollapse()
-          }
-        }}
       >
-        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-expanded={!isCollapsed}
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+          onClick={onToggleCollapse}
+        >
           {isCollapsed ? (
             <ChevronRight className="text-muted-foreground" />
           ) : (
@@ -103,7 +102,7 @@ const DiffHunkHeader = memo(
           {headerInfo.context && (
             <span className="truncate text-muted-foreground">{headerInfo.context}</span>
           )}
-        </div>
+        </button>
 
         <div className="flex items-center gap-2">
           <div className="ui-text-sm flex items-center gap-1">

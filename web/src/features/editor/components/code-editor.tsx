@@ -548,7 +548,7 @@ const CodeEditor = ({
           {/* Main editor - absolute positioned to fill container */}
           <div className="absolute inset-0 bg-transparent">
             {showMarkdownPreview ? (
-              <MarkdownPreview />
+              <MarkdownPreview bufferId={activeBufferId ?? undefined} />
             ) : showHtmlPreview ? (
               <HtmlPreview />
             ) : showCsvPreview ? (

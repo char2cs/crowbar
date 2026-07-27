@@ -66,7 +66,13 @@ function WorkspaceTreeInner() {
     <div className="flex flex-1 flex-col overflow-hidden">
       <ProjectHomeRow />
       <ScrollArea className="flex-1">
-        <div className="pb-1">
+        {/* A real tree, declared as one. The rows were `role="button"`, which
+            takes presentational children — so every per-row control nested
+            inside them (import, add-child, expand) was stripped of its own
+            semantics for assistive tech. `treeitem` is what these rows
+            actually are, and unlike `button` it permits interactive
+            descendants. */}
+        <div role="tree" aria-label="Workspaces" className="pb-1">
           {repos.map((repo) => (
             <RepoSection
               key={repo.id}

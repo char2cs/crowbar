@@ -121,7 +121,6 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
   const [isViewMenuOpen, setIsViewMenuOpen] = useState(false)
   const [isLanguageOpen, setIsLanguageOpen] = useState(false)
   const [languageSearch, setLanguageSearch] = useState('')
-  const [isCurrentFileLspAvailable, setIsCurrentFileLspAvailable] = useState(false)
   const [isRestartingCurrent, setIsRestartingCurrent] = useState(false)
   const [busyServerKey, setBusyServerKey] = useState<string | null>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
@@ -162,14 +161,13 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
     : null
   const currentFileDisplayName = getLanguageDisplayNameOrNull(currentFileLanguageId)
 
-  useEffect(() => {
-    if (!activeBuffer?.path || currentServerEntry) {
-      setIsCurrentFileLspAvailable(false)
-      return
-    }
-
-    setIsCurrentFileLspAvailable(Boolean(extensionRegistry.getLspServerPath(activeBuffer.path)))
-  }, [activeBuffer?.path, currentServerEntry])
+  // Derived during render: getLspServerPath is a synchronous registry lookup,
+  // so mirroring it into state via an effect only meant the toolbar showed the
+  // previous file's answer for one commit after switching buffers.
+  const isCurrentFileLspAvailable =
+    !!activeBuffer?.path &&
+    !currentServerEntry &&
+    Boolean(extensionRegistry.getLspServerPath(activeBuffer.path))
 
   // Show/dismiss LSP error toast reactively.
   // The store sets lastError; this component surfaces it as a notification.
