@@ -26,6 +26,15 @@ type benchReviewHarness struct {
 	uc          branchreview.Usecase
 	wsID        string
 	featurePath string
+	// repoPath is the base-branch checkout. The scale benchmarks need it to
+	// seed content on BOTH sides of the diff — a feature-only diff is
+	// add-only, and `git diff --numstat` on add-only changes is far cheaper
+	// than on modifications, which would understate the hot path it measures.
+	repoPath string
+	// engine is the SAME instance the usecase holds. The per-repo mutex lives
+	// on the engine, so a contention benchmark that constructed its own engine
+	// would take a different lock and measure nothing.
+	engine enginegit.Engine
 }
 
 func newBenchReviewHarness(
@@ -117,11 +126,12 @@ func newBenchReviewHarness(
 	}, fixedNow)
 	require.NoError(b, err)
 
+	gitEngine := enginegit.New()
 	uc := branchreview.New(
 		workspaces,
 		threads,
 		repoStore,
-		enginegit.New(),
+		gitEngine,
 		func() time.Time { return fixedNow },
 	)
 
@@ -129,6 +139,8 @@ func newBenchReviewHarness(
 		uc:          uc,
 		wsID:        wsID,
 		featurePath: featurePath,
+		repoPath:    repoPath,
+		engine:      gitEngine,
 	}
 }
 
