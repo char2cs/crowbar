@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useImperativeHandle
+} from 'react'
 import { ChatCircle, FileArchive, Image as ImageIcon } from '@phosphor-icons/react'
 import { parsePatchFiles } from '@pierre/diffs'
 import type {
@@ -334,6 +335,19 @@ interface HeldPatch {
   state: 'loading' | 'ready' | 'failed'
 }
 
+/**
+ * Imperative surface handle.
+ *
+ * Find-in-diff lives outside this component (it queries the daemon, not the
+ * rendered window), so it needs a way in. Revealing a line is not a prop: the
+ * target file may not be materialised, and scrolling to a placeholder resolves
+ * nothing at all — so the surface has to materialise, flush, then scroll, and
+ * only it knows how.
+ */
+export interface ReviewCodeViewHandle {
+  revealLine: (path: string, lineNumber: number, side: 'old' | 'new') => void
+}
+
 export interface ReviewCodeViewProps {
   wsId: string
   /** The branch-review summary: one row per changed file, in render order. */
@@ -342,6 +356,10 @@ export interface ReviewCodeViewProps {
   outline: readonly FileOutline[]
   /** False while the pane is hidden, which suspends fetching for it. */
   isActivePane?: boolean
+  /** Imperative handle for callers that must navigate the surface from
+   *  outside it — find-in-diff resolves hits against the daemon, not the
+   *  rendered window, so it cannot reach a line any other way. */
+  surfaceRef?: React.Ref<ReviewCodeViewHandle>
   className?: string
 }
 
@@ -380,6 +398,7 @@ function ReviewCodeViewSurface({
   outline,
   isActivePane = true,
   className,
+  surfaceRef,
 }: ReviewCodeViewProps) {
   const entries = useMemo(() => partitionReviewFiles(files, outline), [files, outline])
   const binaries = useMemo(() => entries.filter((e) => e.kind !== 'diff'), [entries])
@@ -579,6 +598,32 @@ function ReviewCodeViewSurface({
     },
     [materialize, setPatchState],
   )
+
+  /** The same materialise → flush → scroll dance, addressed by line rather
+   *  than by thread, for callers outside this component (find-in-diff). */
+  const revealLine = useCallback(
+    async (path: string, lineNumber: number, side: 'old' | 'new') => {
+      if (heldRef.current.get(path)?.state !== 'ready') {
+        setPatchState(path, 'loading')
+        await materialize(path, undefined, false)
+      }
+      handleRef.current?.getInstance()?.render(true)
+      handleRef.current?.scrollTo({
+        type: 'line',
+        id: path,
+        lineNumber,
+        side: side === 'old' ? 'deletions' : 'additions',
+        align: 'center',
+      })
+    },
+    [materialize, setPatchState],
+  )
+
+  useImperativeHandle(surfaceRef, () => ({
+    revealLine: (path, lineNumber, side) => {
+      void revealLine(path, lineNumber, side)
+    },
+  }), [revealLine])
 
   const revealFirstThread = useCallback(
     (path: string) => {
