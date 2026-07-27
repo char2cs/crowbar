@@ -84,6 +84,32 @@ entropy model used to bound it. The outline payload is a non-issue on the wire;
 if anything bites in Phase 3 it will be `JSON.parse` and the ~38.6k objects the
 webview allocates, which compression does not help.
 
+### The review pane itself — measured on the real use case (2026-07-27)
+
+Everything above measures the *sidebar tick* path. The Branch Review pane —
+the GitHub-like step where a CHILD workspace's whole branch is reviewed against
+its PARENT — still loads the old composite `/review`, and Phase 3 is what
+changes that. Measured on `review-demo`, a child of the protected `main`, one
+commit ahead, working tree clean, 406 files / 1,005,251 insertions:
+
+| | value |
+|---|---|
+| `/review` composite payload | **165,808,569 B (158 MB)** |
+| per-line JSON objects in it | **1,441,452** |
+| webview RSS, peak during load | **1,162 MB** |
+| webview RSS, retained after CLOSING the review tab | **544 MB** |
+| time to render | ~10s |
+
+The retention is not incidental: `use-review-diff.ts` documents that
+`branchReview.diffCache` deliberately survives a pane close, so the whole diff
+stays resident after the user has moved on. Windowing (Phase 3) is what makes
+that a constant instead of 544 MB.
+
+Note the two paths resolve their base differently and BOTH are supported
+(`branch_review.go` → `resolveBase`): a workspace with a `ParentID` diffs
+against its **parent's branch** — the primary review case — and one without
+falls back to the repo's default branch.
+
 **Known shape for Phase 3:** the fixture's monster file is a *single*
 420k-line hunk, so no hunk fits under the default cap and the response rounds
 down to a 142-byte header-only patch with `truncated: true`. Correct by design
