@@ -110,3 +110,59 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
     dispatchEvent: () => false,
   })) as typeof window.matchMedia
 }
+
+// jsdom implements CSSStyleSheet but not CONSTRUCTABLE stylesheets: `new
+// CSSStyleSheet()` yields an object with no replace/replaceSync, and
+// `adoptedStyleSheets` is absent. @pierre/diffs' web component builds its
+// shadow root's styles that way in its constructor, so without these shims it
+// throws `sheet.replaceSync is not a function` at element-creation time.
+//
+// Measured, so the reason is precise rather than assumed: the component
+// RECOVERS — a retry renders the diff correctly and every assertion passes
+// either way. What the shim actually buys is the exit code. React surfaces the
+// throw as an unhandled error, and vitest exits 1 on that even with a fully
+// green suite, so without this CI fails on passing tests.
+//
+// Text-only shims: they store what was set so styling assertions could read it
+// back, and never parse CSS. Nothing here evaluates styles, so a real cascade
+// is neither needed nor faked.
+if (typeof CSSStyleSheet !== 'undefined') {
+  const proto = CSSStyleSheet.prototype as CSSStyleSheet & {
+    replaceSync?: (text: string) => void
+    replace?: (text: string) => Promise<CSSStyleSheet>
+    __cssText?: string
+  }
+  if (typeof proto.replaceSync !== 'function') {
+    proto.replaceSync = function replaceSync(this: typeof proto, text: string) {
+      this.__cssText = text
+    }
+  }
+  if (typeof proto.replace !== 'function') {
+    proto.replace = function replace(this: typeof proto, text: string) {
+      this.__cssText = text
+      return Promise.resolve(this as unknown as CSSStyleSheet)
+    }
+  }
+}
+if (typeof Document !== 'undefined' && !('adoptedStyleSheets' in Document.prototype)) {
+  Object.defineProperty(Document.prototype, 'adoptedStyleSheets', {
+    get() {
+      return this.__adopted ?? []
+    },
+    set(v) {
+      this.__adopted = v
+    },
+    configurable: true,
+  })
+}
+if (typeof ShadowRoot !== 'undefined' && !('adoptedStyleSheets' in ShadowRoot.prototype)) {
+  Object.defineProperty(ShadowRoot.prototype, 'adoptedStyleSheets', {
+    get() {
+      return this.__adopted ?? []
+    },
+    set(v) {
+      this.__adopted = v
+    },
+    configurable: true,
+  })
+}

@@ -34,6 +34,7 @@
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@phosphor-icons/react": "^2.1.10",
+    "@pierre/diffs": "^1.2.12",
     "@platejs/basic-nodes": "^53.0.0",
     "@platejs/callout": "^53.0.0",
     "@platejs/code-block": "^53.0.0",
