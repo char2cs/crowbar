@@ -13,13 +13,18 @@ import (
 )
 
 // reviewErrorStatus maps a usecase error to an HTTP status: a genuine
-// not-found entity yields 404, every other (internal) failure yields 500, so a
-// real git/subprocess error is never masked as a 404.
+// not-found entity yields 404, a request the usecase refused as malformed (an
+// empty patch path, an uncompilable search pattern) yields 400, and every other
+// (internal) failure yields 500, so a real git/subprocess error is never masked
+// as a 404 and a user's half-typed regex is never masked as a daemon crash.
 func reviewErrorStatus(
 	err error,
 ) int {
 	if errors.Is(err, apperr.ErrNotFound) {
 		return http.StatusNotFound
+	}
+	if errors.Is(err, apperr.ErrInvalidArgument) {
+		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError
 }

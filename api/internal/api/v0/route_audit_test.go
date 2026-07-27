@@ -172,6 +172,16 @@ func extraRoutes() []string {
 		// Branch Review's file list: the full changed-file set of the review,
 		// read alongside the GET/PATCH .../review pair in §2.9.
 		"GET " + ws + "/review/files",
+		// Branch Review's WINDOWED diff API (diff perf phase 2). /review carries
+		// the whole diff as JSON and is O(lines); these three replace it with
+		// reads no single one of which is: the outline is the hunk geometry of
+		// every file and nothing else (O(hunks)), patch streams ONE file's
+		// unified patch as text/plain, and search is the server-side
+		// find-in-diff the client can no longer do locally once it only holds a
+		// window. All three resolve the diff ref exactly as /review/files does.
+		"GET " + ws + "/review/outline",
+		"GET " + ws + "/review/patch",
+		"GET " + ws + "/review/search",
 		"POST " + ws + "/lsp/didOpen",
 		"POST " + ws + "/lsp/didChange",
 		"POST " + ws + "/lsp/didClose",

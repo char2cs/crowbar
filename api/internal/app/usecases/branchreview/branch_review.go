@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	asynxModels "github.com/char2cs/asynx/models"
@@ -46,6 +47,34 @@ type Usecase interface {
 		ctx context.Context,
 		wsID string,
 	) ([]gitdomain.ReviewFileSummary, error)
+	// GetOutline returns the hunk geometry of the workspace's branch diff: per
+	// file the `@@` shapes of its diff and no content at all. O(hunks) where Get
+	// is O(lines), so the client can lay out a million-line diff before fetching
+	// a single patch.
+	GetOutline(
+		ctx context.Context,
+		wsID string,
+	) ([]gitdomain.FileOutline, error)
+	// GetPatch streams one file's unified patch into w, returning the number of
+	// patch lines written and whether it was cut short at maxLines. maxLines <= 0
+	// means unlimited; an empty path is an invalid argument.
+	GetPatch(
+		ctx context.Context,
+		wsID string,
+		path string,
+		maxLines int,
+		w io.Writer,
+	) (int, bool, error)
+	// SearchDiff finds query in the content of the workspace's branch diff,
+	// returning one hit per matching line plus whether opts.Limit cut the results
+	// short. It is the server-side find-in-diff the client can no longer do
+	// locally once it holds only a window of the patch.
+	SearchDiff(
+		ctx context.Context,
+		wsID string,
+		query string,
+		opts gitdomain.SearchOpts,
+	) ([]gitdomain.SearchHit, bool, error)
 	// SetMergeStrategy updates the merge strategy for a workspace (09 §4).
 	SetMergeStrategy(
 		ctx context.Context,
@@ -78,6 +107,7 @@ type branchReviewUsecase struct {
 	git        enginegit.Engine
 	now        func() time.Time
 	fileReads  singleflight.Group
+	outlines   outlineCache
 }
 
 // New builds the branch-review usecase wiring all collaborators.

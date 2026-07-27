@@ -222,6 +222,7 @@ type mockGitEngine struct {
 	ReviewSearchFn func(ctx context.Context, repoPath, ref, query string, opts gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error)
 	MergeBaseFn    func(ctx context.Context, repoPath, a, b string) (string, error)
 	StatusFn       func(ctx context.Context, repoPath string) (gitdomain.GitStatus, error)
+	RevParseFn     func(ctx context.Context, repoPath, rev string) (string, error)
 }
 
 func (g *mockGitEngine) RangeDiff(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error) {
@@ -449,6 +450,9 @@ func (g *mockGitEngine) WorktreeAddBranch(ctx context.Context, repoPath, worktre
 }
 
 func (g *mockGitEngine) RevParse(ctx context.Context, repoPath, rev string) (string, error) {
+	if g.RevParseFn != nil {
+		return g.RevParseFn(ctx, repoPath, rev)
+	}
 	return "", nil
 }
 

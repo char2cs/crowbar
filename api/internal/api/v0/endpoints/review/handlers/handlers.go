@@ -5,6 +5,7 @@ package handlers
 
 import (
 	"context"
+	"io"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -24,6 +25,27 @@ type ReviewUsecase interface {
 		ctx context.Context,
 		wsID string,
 	) ([]gitdomain.ReviewFileSummary, error)
+	// GetOutline returns the hunk geometry of the workspace's branch diff.
+	GetOutline(
+		ctx context.Context,
+		wsID string,
+	) ([]gitdomain.FileOutline, error)
+	// GetPatch streams one file's unified patch into w, returning the number of
+	// patch lines written and whether it was cut short at maxLines.
+	GetPatch(
+		ctx context.Context,
+		wsID string,
+		path string,
+		maxLines int,
+		w io.Writer,
+	) (int, bool, error)
+	// SearchDiff finds query in the content of the workspace's branch diff.
+	SearchDiff(
+		ctx context.Context,
+		wsID string,
+		query string,
+		opts gitdomain.SearchOpts,
+	) ([]gitdomain.SearchHit, bool, error)
 	// SetMergeStrategy updates the merge strategy for a workspace.
 	SetMergeStrategy(
 		ctx context.Context,

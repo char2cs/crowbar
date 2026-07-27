@@ -20,5 +20,12 @@ func Register(
 	h := reviewhandlers.New(reviewUsecase)
 	rg.GET("/workspaces/:wsId/review", h.Get)
 	rg.GET("/workspaces/:wsId/review/files", h.GetFiles)
+	// The windowed diff API. /review carries the whole diff in one O(lines)
+	// payload; these three describe and serve it in pieces no one of which is —
+	// the hunk geometry of every file, one file's patch, and a server-side
+	// find-in-diff — so a million-line branch is never materialised anywhere.
+	rg.GET("/workspaces/:wsId/review/outline", h.GetOutline)
+	rg.GET("/workspaces/:wsId/review/patch", h.GetPatch)
+	rg.GET("/workspaces/:wsId/review/search", h.SearchDiff)
 	rg.PATCH("/workspaces/:wsId/review", h.SetMergeStrategy)
 }

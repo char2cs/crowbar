@@ -1,0 +1,98 @@
+package branchreview
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+)
+
+// GetOutline returns the hunk geometry of the workspace's branch diff: per
+// changed file, the `@@` shapes of its diff against the fork point and no diff
+// content whatsoever. It resolves the ref through resolveDiffRef, exactly as
+// GetFiles does, so the outline and the file list describe the same diff —
+// a different ref here would lay the review out against one diff and populate
+// it from another.
+//
+// The payload is O(hunks) where Get's read model is O(lines): it describes a
+// million-line branch in about a megabyte, which is what lets the client
+// reserve the right scroll space for every file before fetching a single
+// patch. Producing it still costs a full streamed read of the diff, so the
+// result is cached whenever the key can be made exact — see
+// cacheableOutlineKey.
+func (u *branchReviewUsecase) GetOutline(
+	ctx context.Context,
+	wsID string,
+) ([]gitdomain.FileOutline, error) {
+	ws, err := u.workspaces.Get(ctx, wsID)
+	if err != nil {
+		return nil, fmt.Errorf("branch review: get workspace: %w", asNotFound(err))
+	}
+	ref, err := u.resolveDiffRef(ctx, ws)
+	if err != nil {
+		return nil, fmt.Errorf("branch review: resolve ref: %w", err)
+	}
+	key, cacheable := u.cacheableOutlineKey(ctx, ws, ref)
+	if !cacheable {
+		return u.readOutline(ctx, ws, ref)
+	}
+	return u.outlines.get(key, func() ([]gitdomain.FileOutline, error) {
+		return u.readOutline(ctx, ws, ref)
+	})
+}
+
+func (u *branchReviewUsecase) readOutline(
+	ctx context.Context,
+	ws domain.Workspace,
+	ref string,
+) ([]gitdomain.FileOutline, error) {
+	files, err := u.git.ReviewOutline(ctx, ws.WorktreePath, ref)
+	if err != nil {
+		return nil, fmt.Errorf("branch review: review outline: %w", err)
+	}
+	return files, nil
+}
+
+// cacheableOutlineKey reports the (repoPath, ref, headSHA) key under which this
+// outline may be memoised, and whether it may be memoised at all.
+//
+// The outline is taken against the WORKING TREE, so it is only a function of
+// that key while the working tree has nothing of its own to contribute — that
+// is, while `git diff <ref> --` and `git diff <ref> <HEAD> --` are the same
+// diff of two immutable trees. A tree that has moved is therefore refused a key
+// outright rather than cached under one that cannot see the difference, and so
+// is a tree whose state could not be established: an unreadable status or an
+// unresolvable HEAD prove nothing, and a cache entry may only be written on
+// proof.
+func (u *branchReviewUsecase) cacheableOutlineKey(
+	ctx context.Context,
+	ws domain.Workspace,
+	ref string,
+) (outlineKey, bool) {
+	status, err := u.git.Status(ctx, ws.WorktreePath)
+	if err != nil || hasTrackedChanges(status) {
+		return outlineKey{}, false
+	}
+	head, err := u.git.RevParse(ctx, ws.WorktreePath, "HEAD")
+	if err != nil || head == "" {
+		return outlineKey{}, false
+	}
+	return outlineKey{repoPath: ws.WorktreePath, ref: ref, headSHA: head}, true
+}
+
+// hasTrackedChanges reports whether the working tree differs from HEAD in a way
+// the branch diff can see. Untracked files are excluded because `git diff` does
+// not report them at all: they cannot change a hunk shape, and counting them
+// would disable the cache for any repository carrying so much as a stray
+// .DS_Store.
+func hasTrackedChanges(
+	status gitdomain.GitStatus,
+) bool {
+	for _, f := range status.Files {
+		if f.Status != gitdomain.GitFileStatusUntracked {
+			return true
+		}
+	}
+	return false
+}

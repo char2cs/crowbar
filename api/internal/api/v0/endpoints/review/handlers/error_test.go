@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"testing"
 
@@ -33,14 +34,31 @@ func (e errUsecase) SetMergeStrategy(
 	return e.err
 }
 
+func (e errUsecase) GetOutline(_ context.Context, _ string) ([]gitdomain.FileOutline, error) {
+	return nil, e.err
+}
+
+func (e errUsecase) GetPatch(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ int,
+	_ io.Writer,
+) (int, bool, error) {
+	return 0, false, e.err
+}
+
+func (e errUsecase) SearchDiff(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ gitdomain.SearchOpts,
+) ([]gitdomain.SearchHit, bool, error) {
+	return nil, false, e.err
+}
+
 func newErrRouter(uc handlers.ReviewUsecase) *gin.Engine {
-	r := gin.New()
-	h := handlers.New(uc)
-	rg := r.Group("/v0")
-	rg.GET("/workspaces/:wsId/review", h.Get)
-	rg.GET("/workspaces/:wsId/review/files", h.GetFiles)
-	rg.PATCH("/workspaces/:wsId/review", h.SetMergeStrategy)
-	return r
+	return routerFor(uc)
 }
 
 func TestReviewHandlers_NotFound(
