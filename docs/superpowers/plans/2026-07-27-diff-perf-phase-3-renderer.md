@@ -122,7 +122,17 @@ Requirements:
 - `review-diff-tab.tsx` renders `ReviewCodeView`, fed by `/review/files` + `/review/outline`. It stops reading `branchReview.diffCache`.
 - `branch-review-pane.tsx` stops calling `getReview` for the diff; it keeps description/mergeStrategy/conversations if those still come from `/review`.
 - Delete: `git-diff-editor-stack.tsx`, `git-diff-editor-surface.tsx`, `git-diff-viewer.tsx`, `use-review-comment-layer.tsx`, `use-hunk-staging-zones.tsx`, `diff-search-bar.tsx`, `use-diff-search.ts`, `diff-search-context.ts`, `utils/diff-search.ts`, `diff-editor-content.ts`, `git-diff-cache.ts`, `diff-viewer-scale.ts`, `working-tree-multi-diff.ts`, `use-diff-editor-buffer.ts`, and their tests.
-- Remove `setBranchReviewDiff` / `diffCache` from the workspace store if nothing else reads them — **grep first**; the sidebar's `use-sidebar-changed-files.ts` reads `diffCache` today and must move to the summary.
+- Remove `setBranchReviewDiff` / `diffCache` from the workspace store. The full consumer map, already grepped:
+
+  | site | what it uses `diffCache` for | where it moves |
+  |---|---|---|
+  | `review-diff-tab.tsx:24` | the diff to render | `ReviewCodeView` (files + outline) |
+  | `git-panel.tsx:48-52` | file **index** for jump-to-file, via `fileKeys[i]` | index by path against the summary list — no diff needed |
+  | `use-review-diff.ts` | whole hook exists to populate/read it | delete; the sidebar needs only the summary |
+  | `use-sidebar-changed-files.ts:52,82` | prefers diff over summary while the pane is open | drop the diff branch; summary is now the single source |
+  | `branch-review-slice.ts:37,68,104-107` | the field + its equality gate | delete field, `setBranchReviewDiff`, and the `diffStatus` plumbing if unused |
+
+  `branch-review-pane.tsx:35-44` still needs `/review` for description + mergeStrategy; keep that call but stop consuming `review.diff`.
 - Backend: drop the per-line `Lines` from the `/review` composite only once nothing reads it.
 - **Live verification (mandatory, MCP):** on `review-demo`, open the pane and confirm it renders; scroll deep; open a thread; create one on a line range; resolve it; search; toggle split/unified; expand a truncated monster file. Measure webview RSS at peak and after closing the tab — the numbers to beat are 1,162 MB and 544 MB.
 
