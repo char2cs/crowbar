@@ -49,11 +49,20 @@ function isIdempotentRead(init?: RequestInit): boolean {
   return method === undefined || method === 'GET'
 }
 
-export async function apiFetch<T>(
+/** Perform a request with the shared chaos headers, transient-transport retry and
+ *  error-status handling, returning the raw `Response`.
+ *
+ *  This is the layer beneath {@link apiFetch}: every v0 route answers the
+ *  `{success,data}` envelope EXCEPT `/review/patch`, which answers text/plain
+ *  and reports truncation in a response header. That one caller needs the
+ *  Response itself — its body is not JSON and its headers carry meaning — but it
+ *  needs the retry and the error-envelope decoding just as much, so both live
+ *  here rather than being reimplemented beside it. */
+export async function apiFetchRaw(
   path: string,
   init?: RequestInit,
   retry: RetryConfig = DEFAULT_RETRY,
-): Promise<T> {
+): Promise<Response> {
   const { latency, errorRate, scenario, faults } = useChaosStore.getState()
   const chaosHeaders: Record<string, string> = {}
   if (latency > 0) chaosHeaders['X-Crowbar-Latency'] = String(latency)
@@ -99,22 +108,31 @@ export async function apiFetch<T>(
       const errorBody = await res.json().catch(() => null)
       throw new ApiError(errorBody?.error ?? `${res.status} ${res.statusText}`, res.status)
     }
-    // Success with an empty/204/202 body (e.g. WriteMutationOK with no payload, a
-    // 204 No Content, or a 202 Accepted for an async hierarchical mutation): the
-    // envelope check below would wrongly throw, so treat it as success returning
-    // undefined.
-    if (res.status === 204 || res.status === 202) {
-      return undefined as T
-    }
-    const body = await res.json().catch(() => null)
-    if (body === null) {
-      return undefined as T
-    }
-    if (!body.success) {
-      throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status)
-    }
-    return body.data as T
+    return res
   }
+}
+
+export async function apiFetch<T>(
+  path: string,
+  init?: RequestInit,
+  retry: RetryConfig = DEFAULT_RETRY,
+): Promise<T> {
+  const res = await apiFetchRaw(path, init, retry)
+  // Success with an empty/204/202 body (e.g. WriteMutationOK with no payload, a
+  // 204 No Content, or a 202 Accepted for an async hierarchical mutation): the
+  // envelope check below would wrongly throw, so treat it as success returning
+  // undefined.
+  if (res.status === 204 || res.status === 202) {
+    return undefined as T
+  }
+  const body = await res.json().catch(() => null)
+  if (body === null) {
+    return undefined as T
+  }
+  if (!body.success) {
+    throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status)
+  }
+  return body.data as T
 }
 
 export function fetchProjects(): Promise<Project[]> {
