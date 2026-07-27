@@ -691,11 +691,15 @@ func TestLockRepo_RecordsWaitAndHold(t *testing.T) {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd api && go test ./internal/engine/git/internal/exec/... -run Timing -v
+cd api && go test ./internal/engine/git/internal/exec/... -run 'TestGit_Records|TestGit_SubcommandName' -v
 cd api && go test ./internal/engine/git/... -run LockRepo -v
 ```
 
 Expected: FAIL — no samples recorded (`names` empty).
+
+Note the `-run` pattern: no test in `timing_test.go` contains the word
+"Timing", so `-run Timing` matches nothing and reports PASS with "no tests to
+run" — a green that proves nothing. Match on the actual test names.
 
 - [ ] **Step 3: Instrument the subprocess**
 
