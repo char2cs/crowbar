@@ -4,6 +4,7 @@ import {
   markEnd,
   installPerfObserver,
   perfEnabled,
+  pushPerfEntry,
   __resetPerfForTests,
 } from '@/lib/perf/instrumentation'
 
@@ -125,5 +126,75 @@ describe('perf instrumentation', () => {
     // Closing span B must never throw: the observer must not have clawed back
     // its start mark, and markEnd must tolerate a missing one regardless.
     expect(() => markEnd('terminal.echo')).not.toThrow()
+  })
+})
+
+// The 500-entry __perfLog ring floods with Event Timing entries within seconds
+// of real interaction and evicts the `measure` spans an external reader (a perf
+// capture run) actually wants. __measures is a second ring that only ever
+// receives measures, sized for a whole scenario rather than a few seconds.
+describe('measure-only ring', () => {
+  beforeEach(() => {
+    __resetPerfForTests()
+    // pushPerfEntry and the observer both self-gate on perfEnabled(); arm
+    // explicitly rather than relying on the runner's import.meta.env.DEV.
+    ;(window as { __CROWBAR_PERF__?: boolean }).__CROWBAR_PERF__ = true
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    delete (window as { __CROWBAR_PERF__?: boolean }).__CROWBAR_PERF__
+  })
+
+  // Resolves once the module's observer has mirrored `name`. Registered AFTER
+  // installPerfObserver so it fires second within one dispatch — no polling.
+  function drained(name: string): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const probe = new PerformanceObserver((list) => {
+        if (list.getEntries().some((e) => e.name === name)) {
+          probe.disconnect()
+          resolve()
+        }
+      })
+      probe.observe({ entryTypes: ['measure'] })
+    })
+  }
+
+  it('mirrors measures into window.__measures separately from __perfLog', async () => {
+    installPerfObserver()
+    const mirrored = drained('span.a')
+
+    markStart('span.a')
+    markEnd('span.a')
+    await mirrored
+
+    expect(window.__measures?.some((e) => e.name === 'span.a')).toBe(true)
+    expect(window.__perfLog?.some((e) => e.name === 'span.a')).toBe(true)
+  })
+
+  it('keeps measures when __perfLog is flooded by non-measure entries', async () => {
+    installPerfObserver()
+    const mirrored = drained('span.keeper')
+
+    markStart('span.keeper')
+    markEnd('span.keeper')
+    await mirrored
+
+    for (let i = 0; i < 1000; i++) {
+      pushPerfEntry({ name: `event:${i}`, startTime: i, duration: 1, entryType: 'event' })
+    }
+
+    // The flood evicts the span from __perfLog — that is the bug this ring exists
+    // to survive — while __measures still holds it.
+    expect(window.__perfLog?.some((e) => e.name === 'span.keeper')).toBe(false)
+    expect(window.__measures?.some((e) => e.name === 'span.keeper')).toBe(true)
+  })
+
+  it('pushPerfEntry respects the __perfLog ring cap', () => {
+    installPerfObserver()
+    for (let i = 0; i < 2000; i++) {
+      pushPerfEntry({ name: 'INP:good', startTime: i, duration: 1, entryType: 'event' })
+    }
+    expect(window.__perfLog!.length).toBeLessThanOrEqual(500)
   })
 })
