@@ -28,6 +28,35 @@ Separate program, separate scenario: `scripts/perf/gen-big-diff-fixture.sh`, not
 
 Caveats: D1–D4 measured on a *clean* worktree; the reported symptom occurs while agents churn the tree, which makes `Status()` and the working-tree diff strictly more expensive — these are a floor. D6 measured via `vite build` directly (`bun run build` runs `tsc` first, currently red on a sibling session's untracked file).
 
+### Phase 1 results (2026-07-27)
+
+| # | Metric | Baseline | After Phase 1 | Verdict |
+|---|--------|----------|---------------|---------|
+| D1 | `GetFiles` bench, 200 files / 100k lines | 489.8 ms/op | **~94 ms/op** | 5.2× — budget replaced, see below |
+| D3 | `lock.read.hold`, bench | mean 203.9ms / max 370.9ms | **mean 33ms / max 45.9ms** | ✅ under 100ms |
+| D5 | `ChangedFilesTree`, 500 files | 500 rows / 6,292 nodes | **39 rows / 502 nodes** | ✅ bounded |
+| — | `git.diff` invocations per `GetFiles` | 2 | **1** | whole-branch numstat gone |
+
+**Live, end-to-end through the real daemon, on the 1M-line / 407-file fixture workspace** (`/v0/.../review/files`, warm cache, instrumentation armed):
+
+| sample | value |
+|---|---|
+| `http.GET …/review/files` | **73.6 ms mean** (71–77ms wall) |
+| `lock.read.hold` | **22.6 ms mean, 30.5 ms max** |
+| `git.diff` | 1 call, 16.1 ms |
+| `git.merge-base` | 2 calls, 13.7 ms each |
+| `git.status` | 16.3 ms |
+| `git.rev-parse` | 12.8 ms |
+| `lock.read.wait` | 0.0 ms |
+
+Phase 0 measured the same endpoint's git work at ~440ms on this fixture (name-status 51 + numstat 345 + status 44), so this is **~6× faster at target scale**.
+
+**The result that matters:** 73.6ms at **1M lines** is *faster* than the 94ms benchmark at **100k lines**. Cost no longer tracks diff size — invariant 3 demonstrated at target scale, not merely argued. At a 4Hz tick that is a ~29% duty cycle instead of over 100%.
+
+The `<50ms` figure in the original spec was replaced rather than met; it was picked before measurement and the residue is process-spawn floor (~13ms per `git` invocation on this machine, established by `rev-parse HEAD` which does no real work). See the spec's budget-correction note.
+
+**Frontend live check:** with 407 changed files the Git panel holds **614 DOM nodes / 36 rows**; scrolling to 6000px moves the window (48 rows) while the scroll extent stays 10,704px = 446 rows × 24px. Rendering verified by screenshot: folder nesting, indentation, icons, ±badges, binary marker, 108fps.
+
 **Task-33 methodology & measurement caveats (read before trusting the Final column):**
 - **Prod-shaped rig** = `vite build` output (no react-scan, no HMR — react-scan is `import.meta.env.DEV`-gated so it is absent from a build) served by `vite preview` on :5173 to the running **dev Tauri shell** (so the MCP bridge on :9223 stays available for measurement). Confirmed live: `window.__REACT_SCAN__` absent, `@vite/client` absent. `window.__CROWBAR_PERF__=true` set post-boot so `markStart/markEnd` record (they gate at call-time).
 - **Hidden-window rAF shim.** The window was on an inactive Space the whole run (`visibilityState==="hidden"`, un-foregroundable — two Crowbar apps run; osascript name-targeting was avoided to protect the user's PRODUCTION app). `workspace.switch` and `diff.open` close their spans in a `requestAnimationFrame`, which never fires while hidden, so a `requestAnimationFrame = cb=>setTimeout(cb,0)` shim was installed. Verified `setTimeout(0)` is **not** clamped here (~0ms; backgroundThrottling:disabled), so shimmed spans are honest synchronous cost — real hardware adds paint/reflow on top, so these run slightly **low** for the paint tail.
