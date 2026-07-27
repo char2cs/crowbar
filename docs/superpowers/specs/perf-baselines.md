@@ -13,6 +13,21 @@ Scenario protocol: pinned scenarios per spec §3.3, median of 3 runs, measured i
 | M7 | entry chunk JS (gzip) | **1,666,190 B** (raw 6,461,843 B; `index-BLdLAavC.js` @ 355d003f post-Wave-0; MonacoEnvironment markers ×6) + CSS 148,831 B gzip | ≤ 840,000 B gzip; 0 Monaco markers | **1,457,918 B** (raw 5,376,825 B; MonacoEnvironment markers ×3) — Task 4 | **481,307 B gzip** (raw 1,603,914 B; `index-CoUDXiAF.js`; **0 Monaco markers, 0 modulepreload**) + CSS 33,784 B gzip. **-71% vs baseline** ✅ |
 | RD | React Doctor score | **48/100** (670 issues: Bugs 85E/92W, Perf 6E/93W, Sec 1E/6W, A11y 1E/30W, Maint 353W) | 100/100, 0 issues | | **100/100 — No issues found** ✅ |
 
+## Diff-subsystem-at-scale program — Phase 0 baselines (2026-07-27)
+
+Separate program, separate scenario: `scripts/perf/gen-big-diff-fixture.sh`, not the 60-file/12k-line scenario the M-series above uses. Full results and methodology in `perf-phase0-attribution.md`.
+
+| # | Metric | Baseline | Budget | Notes |
+|---|--------|----------|--------|-------|
+| D1 | `GetFiles` (the `/review/files` hot path) | **489.8 ms/op** at 200 files / 100k lines | < 50ms, independent of diff size | A *tenth* of target scale. Called ≤4Hz with the review pane CLOSED |
+| D2 | `git diff --numstat` vs `--name-status` (1M-line fixture) | **345ms vs 51ms** (~6.7×) | — | numstat compute is O(diff size); the code comment claiming O(file count) describes output size only |
+| D3 | `lock.read.hold`, single reader | mean **203.9ms**, max **370.9ms** | < 100ms per acquisition | |
+| D4 | `lock.read.hold`, 16 concurrent readers | mean **180.0ms**, max **522.9ms** | < 100ms per acquisition | `lock.read.wait` / `lock.write.wait` both 0.0ms — writer starvation NOT reproduced |
+| D5 | `ChangedFilesTree` DOM cost | **500 files → 500 rows, 6,292 nodes** (12.6/file) | O(viewport), not O(files) | Permanently mounted: all 4 carousel panels are `display:flex`/`visible`, confirmed live |
+| D6 | Entry chunk (gzip), pre-Shiki | **243,804 B** (raw 692,175 B) | ≤ 840,000 B | 596 KB headroom for Phase 3 |
+
+Caveats: D1–D4 measured on a *clean* worktree; the reported symptom occurs while agents churn the tree, which makes `Status()` and the working-tree diff strictly more expensive — these are a floor. D6 measured via `vite build` directly (`bun run build` runs `tsc` first, currently red on a sibling session's untracked file).
+
 **Task-33 methodology & measurement caveats (read before trusting the Final column):**
 - **Prod-shaped rig** = `vite build` output (no react-scan, no HMR — react-scan is `import.meta.env.DEV`-gated so it is absent from a build) served by `vite preview` on :5173 to the running **dev Tauri shell** (so the MCP bridge on :9223 stays available for measurement). Confirmed live: `window.__REACT_SCAN__` absent, `@vite/client` absent. `window.__CROWBAR_PERF__=true` set post-boot so `markStart/markEnd` record (they gate at call-time).
 - **Hidden-window rAF shim.** The window was on an inactive Space the whole run (`visibilityState==="hidden"`, un-foregroundable — two Crowbar apps run; osascript name-targeting was avoided to protect the user's PRODUCTION app). `workspace.switch` and `diff.open` close their spans in a `requestAnimationFrame`, which never fires while hidden, so a `requestAnimationFrame = cb=>setTimeout(cb,0)` shim was installed. Verified `setTimeout(0)` is **not** clamped here (~0ms; backgroundThrottling:disabled), so shimmed spans are honest synchronous cost — real hardware adds paint/reflow on top, so these run slightly **low** for the paint tail.

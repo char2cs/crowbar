@@ -177,11 +177,28 @@ cd web && ~/.bun/bin/bun run vitest run \
   src/__tests__/features/git/components/changed-files-tree.scale.test.tsx
 ```
 
+## Entry chunk baseline (pre-Shiki)
+
+`vite build` at `a3053446`:
+
+| | raw | gzip | budget |
+|---|---|---|---|
+| `assets/index-Bdrrbyrx.js` | 692,175 B | **243,804 B** | 840,000 B |
+
+**596 KB of gzip headroom for Shiki** — substantially more than the spec's risk
+section assumed, since the entry has shrunk well below the 481,307 B recorded at
+the end of the bare-metal program. Shiki's bundle cost is unlikely to be the
+binding constraint in Phase 3; the worker-pool and lazy-language work is still
+worth doing for runtime cost, not bundle size.
+
+Measured with `vite build` directly rather than `bun run build`, because the
+latter runs `tsc` first and a sibling session's untracked
+`sidebar-peek.test.tsx` currently fails `TS6133`. Unrelated to this work.
+
 ## Not yet measured
 
 Carried into Phase 1 rather than quietly dropped:
 
 - The in-app frozen-interval split (Q1) — needs the fixture as a live workspace.
 - Daemon RSS under load, and the JS heap curve for the review pane at 1M lines.
-- Entry chunk baseline before Shiki.
 - Writer starvation, if it can be measured without a timing hack.
