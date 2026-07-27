@@ -1,8 +1,9 @@
 // web/src/__tests__/components/layout/IDEShell.test.tsx
-import { render, screen } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import React from 'react'
 import { IDEShell } from '@/components/layout/ide-shell'
+import { useSettingsStore } from '@/features/settings/store'
 
 vi.mock('@/utils/platform', () => ({
   IS_MAC: true,
@@ -51,7 +52,13 @@ vi.mock('@/components/ui/sidebar', () => ({
 }))
 vi.mock('@/components/ui/resizable', () => ({
   ResizablePanelGroup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  ResizablePanel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  // Surfaces `id` so tests can assert each side gets its own panel identity —
+  // react-resizable-panels keys its saved layout by that id.
+  ResizablePanel: ({ children, id }: { children: React.ReactNode; id?: string }) => (
+    <div data-panel="" data-panel-id={id}>
+      {children}
+    </div>
+  ),
   ResizableHandle: (props: React.HTMLAttributes<HTMLDivElement>) => <div {...props} />,
 }))
 vi.mock('@/components/error-boundary', () => ({
@@ -91,5 +98,53 @@ describe('IDEShell', () => {
   it('renders a resize handle inside the sidebar', () => {
     render(<IDEShell />)
     expect(screen.getByTestId('sidebar-resize-handle')).toBeInTheDocument()
+  })
+
+  // Regression: moving the sidebar from one side to the other inflated it (321px
+  // on the right came back as 640px — SIDEBAR_MAX_PX — on the left). The two
+  // orderings were separate ternary branches, so React reconciled the panels
+  // POSITIONALLY: slot 0 kept its instance and its auto-generated panel id while
+  // swapping roles with slot 2, and react-resizable-panels' layout map — keyed by
+  // that id — handed the sidebar the content pane's share of the group.
+  describe('moving the sidebar to the other side', () => {
+    function setSide(side: 'left' | 'right') {
+      act(() => {
+        useSettingsStore.setState((state) => {
+          state.settings.sidebarPosition = side
+        })
+      })
+    }
+
+    function panelIds(): (string | null)[] {
+      return Array.from(document.querySelectorAll('[data-panel]')).map((el) =>
+        el.getAttribute('data-panel-id'),
+      )
+    }
+
+    afterEach(() => setSide('left'))
+
+    it('gives each side its own panel ids, so neither inherits the other side layout', () => {
+      setSide('left')
+      render(<IDEShell />)
+      expect(panelIds()).toEqual(['sidebar-left', 'content-left'])
+
+      setSide('right')
+      expect(panelIds()).toEqual(['content-right', 'sidebar-right'])
+    })
+
+    it('moves the panels rather than destroying and rebuilding their subtrees', () => {
+      setSide('left')
+      render(<IDEShell />)
+      const sidebarBefore = screen.getByTestId('sidebar-carousel')
+      const contentBefore = screen.getByTestId('outlet')
+
+      setSide('right')
+
+      // Same DOM nodes, reordered. A positional reconcile would have unmounted
+      // both subtrees — WorkspaceHost, its terminals and Monaco models included —
+      // and built fresh ones.
+      expect(screen.getByTestId('sidebar-carousel')).toBe(sidebarBefore)
+      expect(screen.getByTestId('outlet')).toBe(contentBefore)
+    })
   })
 })

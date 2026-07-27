@@ -36,7 +36,7 @@ export function SidebarProjectHeader() {
       tooltipSide="bottom"
       aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
     >
-      <SidebarToggleIcon size={16} />
+      <SidebarToggleIcon />
     </Button>
   )
 

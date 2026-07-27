@@ -98,6 +98,17 @@
   overflow: visible !important;
 }
 
+/* Flatten the pane's rounded corner and drop shadow for the duration of a pane
+   or sidebar drag. Re-rasterising a rounded, shadowed surface at a new width on
+   every frame is what makes dragging the sidebar crawl: measured 60ms/frame
+   during a drag, 26ms with these two properties removed. A 10px corner is not
+   perceptible mid-drag, and both come straight back on release.
+   `!important` because buildPaneContentStyle sets them as inline styles. */
+html[data-pane-resizing] [data-pane-content] {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
 @layer utilities {
   .scrollbar-hidden {
     scrollbar-width: none;

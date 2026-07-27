@@ -31,7 +31,7 @@ const TabNavigationButtons = React.memo(function TabNavigationButtons({
       tooltipSide="bottom"
       aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
     >
-      <SidebarToggleIcon size={14} />
+      <SidebarToggleIcon />
     </Button>
   )
 })

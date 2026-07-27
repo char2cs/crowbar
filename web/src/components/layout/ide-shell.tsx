@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect } from 'react'
+import { useRef, useEffect } from 'react'
 import { Outlet, useRouterState } from '@tanstack/react-router'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
-import type { PanelImperativeHandle, PanelSize } from 'react-resizable-panels'
+import type { PanelImperativeHandle } from 'react-resizable-panels'
 import { SidebarProjectHeader } from './sidebar-project-header'
 import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
 import { SidebarTabBar } from './sidebar-tab-bar'
@@ -22,6 +22,8 @@ import { FpsOverlay } from './fps-overlay'
 import { DetachHolderModal } from './detach-holder-modal'
 import { PlaceholderToastWatcher } from './placeholder-toast-watcher'
 import { SidebarToastOverlay } from './sidebar-toast-overlay'
+import { SidebarPeek } from './sidebar-peek'
+import { useSidebarPanel, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from './use-sidebar-panel'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import { recordWorkspaceScopeFromPath, setWorkspaceScope } from '@/lib/workspace-scope'
 import { useWorkspaceProviderStream } from '@/features/workspace/stores/hooks/use-workspace-provider-stream'
@@ -32,17 +34,9 @@ import {
   useHomeWorkspaceState,
 } from '@/features/workspace/lib/home-workspace-resolver'
 
-const SIDEBAR_MIN_PX = 250
-const SIDEBAR_MAX_PX = 640
-
-function loadSidebarWidth(): number {
-  try {
-    const stored = parseInt(localStorage.getItem('sidebar-width') ?? '', 10)
-    return Number.isFinite(stored) ? Math.max(SIDEBAR_MIN_PX, stored) : 294
-  } catch {
-    return 294
-  }
-}
+// Keyed, like the two panels it sits between, so that flipping the sidebar's
+// side reorders the group's children rather than reconciling them by position.
+const RESIZE_HANDLE = <ResizableHandle key="handle" data-testid="sidebar-resize-handle" />
 
 export function IDEShell() {
   const routerState = useRouterState()
@@ -54,8 +48,17 @@ export function IDEShell() {
   useNavigationHistory()
   const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const sidebarSide = sidebarPosition === 'right' ? 'right' : 'left'
   const sidebarPanelRef = useRef<PanelImperativeHandle | null>(null)
+  const panelGroupRef = useRef<HTMLDivElement | null>(null)
+  const {
+    sidebarOpen,
+    setSidebarOpen,
+    preferredWidth,
+    notePointerDown,
+    handleSidebarResize,
+    commitPreferredWidth,
+  } = useSidebarPanel(panelGroupRef)
 
   // §7: the TanStack /ide/:projectId/:repoId/:wsId route params are the
   // canonical source for the active project/repo/workspace — read them directly
@@ -138,28 +141,20 @@ export function IDEShell() {
     }
   }, [sidebarOpen])
 
-  function handleSidebarResize(size: PanelSize) {
-    const isCollapsed = size.asPercentage === 0
-    setSidebarOpen((prev) => (!isCollapsed !== prev ? !isCollapsed : prev))
-    if (size.inPixels > 0) {
-      try {
-        localStorage.setItem('sidebar-width', String(Math.round(size.inPixels)))
-      } catch {
-        // storage unavailable
-      }
-    }
-  }
-
+  // SidebarPeek is a wrapper, not a branch: it renders in every state and only
+  // restyles itself, so hiding the sidebar never rebuilds the subtree below it.
   const sidebarContent = (
-    <div className="relative flex h-full flex-col overflow-hidden bg-transparent select-none">
-      {!hasNavScreen && <SidebarProjectHeader />}
-      {!hasNavScreen && <ContextPill />}
-      {!hasNavScreen && <SidebarTabBar />}
-      <ErrorBoundary>
-        <SidebarCarousel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
-      </ErrorBoundary>
-      <SidebarToastOverlay sidebarOpen={sidebarOpen} sidebarSide={sidebarPosition ?? 'left'} />
-    </div>
+    <SidebarPeek hidden={!sidebarOpen} side={sidebarSide} width={preferredWidth}>
+      <div className="relative flex h-full flex-col overflow-hidden bg-transparent select-none">
+        {!hasNavScreen && <SidebarProjectHeader />}
+        {!hasNavScreen && <ContextPill />}
+        {!hasNavScreen && <SidebarTabBar />}
+        <ErrorBoundary>
+          <SidebarCarousel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
+        </ErrorBoundary>
+        <SidebarToastOverlay sidebarOpen={sidebarOpen} sidebarSide={sidebarSide} />
+      </div>
+    </SidebarPeek>
   )
 
   const contentEl = (
@@ -195,6 +190,44 @@ export function IDEShell() {
     </div>
   )
 
+  // Moving the sidebar to the other side must MOVE these panels, not renumber
+  // them. Rendered as two ordered branches of a ternary they were reconciled
+  // POSITIONALLY: the panel in slot 0 kept its instance — and, because panel ids
+  // fall back to useId, its entry in react-resizable-panels' id-keyed layout map
+  // — while swapping roles with slot 2. So the sidebar inherited the content
+  // pane's share of the group (measured: 321px on the right became 640px on the
+  // left, maxSize being the only thing that stopped it), and that inherited width
+  // was then persisted. Worse, slot 0's children changed identity, so both
+  // subtrees — WorkspaceHost, its terminals and Monaco models included — were
+  // destroyed and cold-remounted on every flip.
+  //
+  // Explicit keys make the flip a keyed reorder, which keeps each panel's React
+  // subtree alive; the side-qualified ids give each orientation its own entry in
+  // that layout map (and force the panels to re-register in their new DOM order),
+  // so neither side can inherit the other's size and the sidebar comes back at
+  // `defaultSize` — the user's remembered width.
+  const sidebarPanel = (
+    <ResizablePanel
+      key="sidebar"
+      id={`sidebar-${sidebarSide}`}
+      ref={sidebarPanelRef}
+      collapsible
+      defaultSize={preferredWidth}
+      minSize={SIDEBAR_MIN_PX}
+      maxSize={SIDEBAR_MAX_PX}
+      collapsedSize={0}
+      groupResizeBehavior="preserve-pixel-size"
+      onResize={handleSidebarResize}
+    >
+      {sidebarContent}
+    </ResizablePanel>
+  )
+  const contentPanel = (
+    <ResizablePanel key="content" id={`content-${sidebarSide}`} minSize="20%" className="min-w-0">
+      {contentEl}
+    </ResizablePanel>
+  )
+
   return (
     <SidebarProvider
       className="h-screen bg-transparent text-foreground"
@@ -202,55 +235,29 @@ export function IDEShell() {
       onOpenChange={setSidebarOpen}
     >
       <ResizablePanelGroup
+        elementRef={panelGroupRef}
         orientation="horizontal"
         className="h-full w-full"
+        // Clears the window-driven latch: the resizes that follow a pointer
+        // going down may be a separator drag, which is the one thing allowed to
+        // redefine the sidebar's remembered width. Deliberately the whole group
+        // rather than the separator — the library's drag hit target extends past
+        // that 1px element onto the adjacent panel edges.
+        onPointerDown={notePointerDown}
         onLayoutChange={() => {
           document.documentElement.setAttribute('data-pane-resizing', '1')
         }}
         onLayoutChanged={() => {
           document.documentElement.removeAttribute('data-pane-resizing')
           window.dispatchEvent(new CustomEvent('pane-resize-end'))
+          // Fires once the layout settles — after the pointer is released for a
+          // drag — which is the right moment to record the width the user chose.
+          commitPreferredWidth()
         }}
       >
-        {sidebarPosition === 'right' ? (
-          <>
-            <ResizablePanel minSize="20%" className="min-w-0">
-              {contentEl}
-            </ResizablePanel>
-            <ResizableHandle data-testid="sidebar-resize-handle" />
-            <ResizablePanel
-              ref={sidebarPanelRef}
-              collapsible
-              defaultSize={loadSidebarWidth()}
-              minSize={SIDEBAR_MIN_PX}
-              maxSize={SIDEBAR_MAX_PX}
-              collapsedSize={0}
-              groupResizeBehavior="preserve-pixel-size"
-              onResize={handleSidebarResize}
-            >
-              {sidebarContent}
-            </ResizablePanel>
-          </>
-        ) : (
-          <>
-            <ResizablePanel
-              ref={sidebarPanelRef}
-              collapsible
-              defaultSize={loadSidebarWidth()}
-              minSize={SIDEBAR_MIN_PX}
-              maxSize={SIDEBAR_MAX_PX}
-              collapsedSize={0}
-              groupResizeBehavior="preserve-pixel-size"
-              onResize={handleSidebarResize}
-            >
-              {sidebarContent}
-            </ResizablePanel>
-            <ResizableHandle data-testid="sidebar-resize-handle" />
-            <ResizablePanel minSize="20%" className="min-w-0">
-              {contentEl}
-            </ResizablePanel>
-          </>
-        )}
+        {sidebarSide === 'right'
+          ? [contentPanel, RESIZE_HANDLE, sidebarPanel]
+          : [sidebarPanel, RESIZE_HANDLE, contentPanel]}
       </ResizablePanelGroup>
       <SettingsDialog
         isOpen={isSettingsOpen}

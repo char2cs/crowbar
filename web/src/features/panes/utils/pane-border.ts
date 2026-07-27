@@ -7,14 +7,23 @@ export function isWindowEdge(
   edge: Edge,
   position: PanePosition,
   sidebarSide: 'left' | 'right',
+  sidebarOpen: boolean = true,
 ): boolean {
+  // The sidebar only shields a pane from the window frame while it is actually
+  // on screen. Collapsed, the pane IS the window edge — and asking only which
+  // SIDE the sidebar is on, never whether it is there, left a rounded corner and
+  // a border hard against the frame whenever the sidebar was hidden. That corner
+  // lands on the window's own rounded, vibrant edge, and compositing it cost
+  // ~98ms per frame in WKWebView: 8ms frames became 106ms (125fps → 9fps) for
+  // as long as the sidebar stayed hidden.
+  const shielded = (side: 'left' | 'right') => sidebarOpen && sidebarSide === side
   switch (edge) {
     case 'top':
       return false
     case 'left':
-      return position.atLeft && sidebarSide !== 'left'
+      return position.atLeft && !shielded('left')
     case 'right':
-      return position.atRight && sidebarSide !== 'right'
+      return position.atRight && !shielded('right')
     case 'bottom':
       return position.atBottom
   }
@@ -29,8 +38,9 @@ export function buildPaneContentStyle(
   position: PanePosition,
   sidebarSide: 'left' | 'right',
   showActiveBorder: boolean,
+  sidebarOpen: boolean = true,
 ): CSSProperties {
-  const we = (edge: Edge) => isWindowEdge(edge, position, sidebarSide)
+  const we = (edge: Edge) => isWindowEdge(edge, position, sidebarSide, sidebarOpen)
   // Constant width (transparent when not drawn) so toggling never shifts layout;
   // 2px matches the tab-drag ring (ring-2 ring-secondary).
   const BORDER = showActiveBorder ? '2px solid var(--secondary)' : '2px solid transparent'

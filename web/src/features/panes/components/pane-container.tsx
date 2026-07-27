@@ -9,6 +9,7 @@ import { stageHunk, unstageHunk } from '@/features/git/api/git-status-api'
 import type { GitHunk } from '@/features/git/types/git-types'
 import { useSettingsStore } from '@/features/settings/store'
 import { buildPaneContentStyle } from '../utils/pane-border'
+import { useSidebarOptional } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
 import { ROOT_PANE_POSITION, type PanePosition } from '../types/pane'
 import TabBar from '@/features/tabs/components/tab-bar'
@@ -116,9 +117,18 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   // exists when there is more than one pane on screen. With a single pane it marks the
   // only thing you could possibly be looking at, so it is pure decoration.
   const visiblePaneCount = useVisiblePaneCount()
+  // A collapsed sidebar stops shielding the pane from the window frame, so the
+  // pane has to square off that edge — see isWindowEdge.
+  const sidebarOpen = useSidebarOptional()?.open ?? true
   const paneContentStyle = useMemo(
-    () => buildPaneContentStyle(position, sidebarPosition, isActivePane && visiblePaneCount > 1),
-    [position, sidebarPosition, isActivePane, visiblePaneCount],
+    () =>
+      buildPaneContentStyle(
+        position,
+        sidebarPosition,
+        isActivePane && visiblePaneCount > 1,
+        sidebarOpen,
+      ),
+    [position, sidebarPosition, isActivePane, visiblePaneCount, sidebarOpen],
   )
 
   const [isDragOver, setIsDragOver] = useState(false)
@@ -585,9 +595,16 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         disablePaneActions={pane.id === BOTTOM_PANE_ID}
       />
       <div
+        // Hook for the drag-time flattening rule in index.css — a rounded,
+        // shadowed surface re-rasterised every frame is what makes dragging
+        // crawl.
+        data-pane-content=""
         className={cn(
           'relative z-[1] min-h-0 flex-1 overflow-hidden bg-pane-background',
-          (sidebarPosition === 'left' ? position.atLeft : position.atRight) &&
+          // Casts onto the sidebar, so it only makes sense while there is a
+          // sidebar there to catch it.
+          sidebarOpen &&
+            (sidebarPosition === 'left' ? position.atLeft : position.atRight) &&
             'shadow-[0_3px_8px_rgba(0,0,0,0.24)]',
         )}
         style={paneContentStyle}

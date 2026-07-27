@@ -1,5 +1,5 @@
 import React from 'react'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { SidebarCarousel } from '@/components/layout/sidebar-carousel'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
@@ -74,5 +74,74 @@ describe('SidebarCarousel', () => {
     expect(scrollToSpy).toHaveBeenCalledWith(
       expect.objectContaining({ left: 400, behavior: 'smooth' }),
     )
+  })
+
+  // Regression: hiding and re-showing the sidebar while the Files panel was
+  // active landed on Chats. Collapsing the panel drives the carousel's width to
+  // 0, the browser clamps scrollLeft, and the offsets that arrive while the
+  // sidebar reopens do not correspond to the width the container ends up with —
+  // reading them back through Math.round() picked a neighbouring panel and
+  // reassigned activeTab. Only a real scroll gesture may move the tab.
+  describe('activeTab is only derived from scroll offsets the user caused', () => {
+    function carousel(): HTMLElement {
+      return screen
+        .getByTestId('panel-workspaces')
+        .closest('[data-sidebar-carousel]') as HTMLElement
+    }
+
+    function setGeometry(el: HTMLElement, clientWidth: number, scrollLeft: number) {
+      Object.defineProperty(el, 'clientWidth', { value: clientWidth, configurable: true })
+      Object.defineProperty(el, 'scrollLeft', { value: scrollLeft, configurable: true })
+    }
+
+    // Select a tab and let its programmatic scroll finish, as the browser does.
+    // Without the scrollend the carousel is still mid-animation and would have
+    // ignored the scroll below for a reason that has nothing to do with gestures.
+    function selectFilesAndSettle(el: HTMLElement) {
+      act(() => {
+        useSidebarStore.setState({ activeTab: 'files' })
+      })
+      fireEvent(el, new Event('scrollend'))
+    }
+
+    it('ignores a settled scroll offset that no gesture produced', () => {
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repos/default" />)
+      const el = carousel()
+      selectFilesAndSettle(el)
+
+      // An offset that rounds to panel index 1 (Chats) — what a collapse/expand
+      // cycle leaves behind, since the offset was written for a width the
+      // container no longer has.
+      setGeometry(el, 400, 400)
+      fireEvent.scroll(el)
+
+      expect(useSidebarStore.getState().activeTab).toBe('files')
+    })
+
+    it('ignores scrolls while the sidebar is collapsed to zero width', () => {
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repos/default" />)
+      const el = carousel()
+      selectFilesAndSettle(el)
+
+      // Guards the zero-width early return: with no width there is no offset
+      // that identifies a panel, so not even an armed gesture may be read back.
+      fireEvent.wheel(el)
+      setGeometry(el, 0, 0)
+      fireEvent.scroll(el)
+
+      expect(useSidebarStore.getState().activeTab).toBe('files')
+    })
+
+    it('still follows a wheel/swipe gesture onto the neighbouring panel', () => {
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repos/default" />)
+      const el = carousel()
+      selectFilesAndSettle(el)
+
+      fireEvent.wheel(el)
+      setGeometry(el, 400, 400)
+      fireEvent.scroll(el)
+
+      expect(useSidebarStore.getState().activeTab).toBe('chats')
+    })
   })
 })
