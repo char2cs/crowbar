@@ -57,6 +57,39 @@ The `<50ms` figure in the original spec was replaced rather than met; it was pic
 
 **Frontend live check:** with 407 changed files the Git panel holds **614 DOM nodes / 36 rows**; scrolling to 6000px moves the window (48 rows) while the scroll extent stays 10,704px = 446 rows × 24px. Rendering verified by screenshot: folder nesting, indentation, icons, ±badges, binary marker, 108fps.
 
+### Phase 2 results — windowed diff API (2026-07-27)
+
+Live through the real daemon on the 1M-line / 407-file fixture workspace.
+
+| endpoint | result |
+|---|---|
+| `review/outline` | 2,283,960 B raw → **26,927 B gzipped (84.8×)**, 580 ms, 407 files / 38,604 hunks / 1 partial |
+| `review/patch`, uncapped | **13,282,412 B streamed in 127 ms** |
+| `review/patch`, `maxLines=2000` | 142 B + readable `X-Crowbar-Diff-Truncated: true` |
+| `review/patch`, ordinary file | 75,201 B in 38 ms |
+| `review/search`, literal, limit 200 | 200 hits, truncated, **44 ms** |
+| `review/search`, regex, limit 100 | 100 hits, 41 ms |
+| `review/search`, no match (full 46 MB scan) | 0 hits, 700 ms |
+| missing `path` / invalid regex | 400 |
+
+Daemon-side memory measured with `getrusage(RUSAGE_SELF)` — whole-process
+`time(1)` is meaningless here because `git diff -M -U3` *itself* peaks at
+71.3 MB on this fixture. Outline 17.7 MB RSS / 6.4 MB total alloc across 1.44M
+lines; patch 16.98 MB vs 57.25 MB buffering; search 17.7 MB, flat against both
+diff size and hit count.
+
+**Gzip beat its own pessimistic bound by 13×** — 26.9 KB against an estimated
+359 KB, because real hunk numbers are far more regular than the randomised
+entropy model used to bound it. The outline payload is a non-issue on the wire;
+if anything bites in Phase 3 it will be `JSON.parse` and the ~38.6k objects the
+webview allocates, which compression does not help.
+
+**Known shape for Phase 3:** the fixture's monster file is a *single*
+420k-line hunk, so no hunk fits under the default cap and the response rounds
+down to a 142-byte header-only patch with `truncated: true`. Correct by design
+(rounding up would return all 420k lines and defeat the cap), but the client
+must render that as "show all", not as an empty file.
+
 **Task-33 methodology & measurement caveats (read before trusting the Final column):**
 - **Prod-shaped rig** = `vite build` output (no react-scan, no HMR — react-scan is `import.meta.env.DEV`-gated so it is absent from a build) served by `vite preview` on :5173 to the running **dev Tauri shell** (so the MCP bridge on :9223 stays available for measurement). Confirmed live: `window.__REACT_SCAN__` absent, `@vite/client` absent. `window.__CROWBAR_PERF__=true` set post-boot so `markStart/markEnd` record (they gate at call-time).
 - **Hidden-window rAF shim.** The window was on an inactive Space the whole run (`visibilityState==="hidden"`, un-foregroundable — two Crowbar apps run; osascript name-targeting was avoided to protect the user's PRODUCTION app). `workspace.switch` and `diff.open` close their spans in a `requestAnimationFrame`, which never fires while hidden, so a `requestAnimationFrame = cb=>setTimeout(cb,0)` shim was installed. Verified `setTimeout(0)` is **not** clamped here (~0ms; backgroundThrottling:disabled), so shimmed spans are honest synchronous cost — real hardware adds paint/reflow on top, so these run slightly **low** for the paint tail.
