@@ -482,10 +482,15 @@ type Engine interface {
 	// per-file status + line counts, no hunk content (`git diff --name-status`
 	// + `--numstat`). Backs the sidebar's full changed-files list without ever
 	// fetching line-level diff content (Task 27).
+	//
+	// dirty is the set of paths the caller's git status reports as differing
+	// from HEAD; passing it keeps the counts off the O(diff size) path. nil
+	// means unknown and recomputes every count.
 	ReviewFiles(
 		ctx context.Context,
 		repoPath string,
 		ref string,
+		dirty []string,
 	) ([]gitdomain.ReviewFileSummary, error)
 }
 

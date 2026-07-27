@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
@@ -27,26 +26,48 @@ func (u *branchReviewUsecase) GetFiles(
 	if err != nil {
 		return nil, fmt.Errorf("branch review: resolve ref: %w", err)
 	}
-	files, err := u.git.ReviewFiles(ctx, ws.WorktreePath, ref)
+	// The status is fetched BEFORE the summary and threaded into it: its paths
+	// are what let ReviewFiles keep the +/- counts off the O(diff size) path,
+	// recomputing only what the working tree has moved and taking the rest from
+	// its committed-diff cache. This is not an extra call — it is the one
+	// mergeWorkingTree already made for the uncommitted/staged flags, moved
+	// ahead of the summary so a single status serves both.
+	status, statusErr := u.git.Status(ctx, ws.WorktreePath)
+	files, err := u.git.ReviewFiles(ctx, ws.WorktreePath, ref, dirtyPaths(status, statusErr))
 	if err != nil {
 		return nil, fmt.Errorf("branch review: review files: %w", err)
 	}
-	return u.mergeWorkingTree(ctx, ws, files), nil
+	if statusErr != nil {
+		return files, nil
+	}
+	return mergeWorkingTree(status, files), nil
+}
+
+// dirtyPaths lists every path the working-tree status reports. A status failure
+// yields nil, which tells ReviewFiles the dirty set is unknown so it recomputes
+// every count against the working tree instead of trusting a committed one.
+func dirtyPaths(
+	status gitdomain.GitStatus,
+	err error,
+) []string {
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(status.Files))
+	for _, f := range status.Files {
+		out = append(out, f.Path)
+	}
+	return out
 }
 
 // mergeWorkingTree annotates each committed/tracked summary entry with its
 // working-tree state and appends untracked files. A status failure is
 // non-fatal — the committed picture is still returned, just without the flags —
 // mirroring annotateUncommitted.
-func (u *branchReviewUsecase) mergeWorkingTree(
-	ctx context.Context,
-	ws domain.Workspace,
+func mergeWorkingTree(
+	status gitdomain.GitStatus,
 	files []gitdomain.ReviewFileSummary,
 ) []gitdomain.ReviewFileSummary {
-	status, err := u.git.Status(ctx, ws.WorktreePath)
-	if err != nil {
-		return files
-	}
 	dirty, staged := workingTreeIndex(status)
 	for i := range files {
 		files[i].Uncommitted = dirty[files[i].Path]

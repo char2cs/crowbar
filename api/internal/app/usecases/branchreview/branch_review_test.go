@@ -213,7 +213,7 @@ var _ reviewthread.ReviewThread = (*mockReviewThread)(nil)
 type mockGitEngine struct {
 	RangeDiffFn      func(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error)
 	DiffAgainstRefFn func(ctx context.Context, repoPath, ref string) (gitdomain.MultiFileDiff, error)
-	ReviewFilesFn    func(ctx context.Context, repoPath, ref string) ([]gitdomain.ReviewFileSummary, error)
+	ReviewFilesFn    func(ctx context.Context, repoPath, ref string, dirty []string) ([]gitdomain.ReviewFileSummary, error)
 	MergeBaseFn      func(ctx context.Context, repoPath, a, b string) (string, error)
 	StatusFn         func(ctx context.Context, repoPath string) (gitdomain.GitStatus, error)
 }
@@ -232,9 +232,13 @@ func (g *mockGitEngine) DiffAgainstRef(ctx context.Context, repoPath, ref string
 	return gitdomain.MultiFileDiff{}, nil
 }
 
-func (g *mockGitEngine) ReviewFiles(ctx context.Context, repoPath, ref string) ([]gitdomain.ReviewFileSummary, error) {
+func (g *mockGitEngine) ReviewFiles(
+	ctx context.Context,
+	repoPath, ref string,
+	dirty []string,
+) ([]gitdomain.ReviewFileSummary, error) {
 	if g.ReviewFilesFn != nil {
-		return g.ReviewFilesFn(ctx, repoPath, ref)
+		return g.ReviewFilesFn(ctx, repoPath, ref, dirty)
 	}
 	return nil, nil
 }
