@@ -1,5 +1,5 @@
 import './styles.css'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
@@ -49,18 +49,14 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
   const fontSize = useEditorSettingsStore.use.fontSize()
   const uiFontFamily = useSettingsStore((state) => state.settings.uiFontFamily)
   const handleFileSelect = useFileSystemStore((s) => s.handleFileSelect)
-  const [html, setHtml] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!sourceContent) {
-      setHtml('')
-      return
-    }
-
-    const parsedHtml = parseMarkdown(sourceContent)
-    setHtml(parsedHtml)
-  }, [sourceContent])
+  // Derived during render, not mirrored into state by an effect. parseMarkdown
+  // is synchronous, so state + effect only bought an extra commit — and that
+  // extra commit is precisely what this pane cannot afford: the scroll restore
+  // below gates on `html !== ''`, so publishing the HTML a commit late delayed
+  // every restore by a frame.
+  const html = useMemo(() => (sourceContent ? parseMarkdown(sourceContent) : ''), [sourceContent])
 
   // A tab switch unmounts this pane entirely (PaneContainer renders only the
   // active buffer), so the scroll offset has to be retained outside the
@@ -167,7 +163,7 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
     >
       <div
         className="markdown-content w-full max-w-3xl"
-        // react-doctor-disable-next-line dangerous-html-sink -- `html` is the output of parseMarkdown(), which returns DOMPurify.sanitize(rawHtml) (parser.ts:217). Already flows through the existing DOMPurify usage; the rule can't trace the cross-function async setState.
+        // react-doctor-disable-next-line dangerous-html-sink -- `html` is the output of parseMarkdown(), which returns DOMPurify.sanitize(rawHtml) (parser.ts:217). Already flows through the existing DOMPurify usage; the rule can't trace the sanitizer across the useMemo into another module.
         dangerouslySetInnerHTML={{ __html: html }}
       />
     </div>

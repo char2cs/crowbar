@@ -25,6 +25,7 @@ import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-hi
 // editor's chunk out of the base bundle while still giving closeBuffer a
 // synchronous way to release the buffer's rich/source preference.
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
+import { useSettingsStore } from '@/features/settings/store'
 import type { WorkspaceStore } from '../workspace-store'
 import { nanoid } from 'nanoid'
 
@@ -213,8 +214,18 @@ export const createBufferSlice: StateCreator<
           return existing.id
         }
 
-        // Auto-evict when at max tabs (before creating a new buffer)
-        if (get().buffers.length >= get().maxOpenTabs) {
+        // Auto-evict when at max tabs (before creating a new buffer).
+        //
+        // ONE cap, enforced here. `maxOpenTabs` on this slice is the engine's
+        // own budget; the user's `settings.maxOpenTabs` narrows it when they ask
+        // for fewer tabs than that. Until now the setting was enforced a second
+        // time, in the tab bar, by an effect that watched the workspace-wide
+        // buffer list and closed tabs through the pane's own close handler — so
+        // it only bit below the engine budget, and with two panes open BOTH tab
+        // bars trimmed the same shared list.
+        const settingCap = useSettingsStore.getState().settings.maxOpenTabs
+        const cap = settingCap > 0 ? Math.min(get().maxOpenTabs, settingCap) : get().maxOpenTabs
+        if (get().buffers.length >= cap) {
           const evictee = get().buffers.find(
             (b) => !b.isPinned && !AUTO_EVICTION_PROTECTED.has(b.type),
           )

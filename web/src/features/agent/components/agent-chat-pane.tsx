@@ -165,7 +165,14 @@ export function AgentChatPane({
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.activeProviderId ?? '',
   )
 
-  const [attachment, setAttachment] = useState<Attachment>({ state: 'pending' })
+  const [attachedState, setAttachment] = useState<Attachment>({ state: 'pending' })
+  // `pending` while the chat list is still in flight is DERIVED, not written by
+  // the attach effect below. Dormancy is unknowable until the list lands, so
+  // there is nothing for the machine to record — the pane simply has nothing to
+  // show yet. Keeping it out of the state means the effect's only job is
+  // spawning and attaching CLIs, and a `known` flip no longer costs an extra
+  // render to undo a value the effect had just written.
+  const attachment: Attachment = known ? attachedState : { state: 'pending' }
 
   // The two layout divs whose empty space belongs to the terminal, and the terminal's
   // own imperative handle — see focusTerminalFromEmptySpace.
@@ -384,10 +391,9 @@ export function AgentChatPane({
   //   dormant, budget spent → settle. The user drives from here (button, or a different
   //                           provider from the dropdown). No retry, no loop, ever.
   useEffect(() => {
-    if (!known) {
-      setAttachment({ state: 'pending' })
-      return
-    }
+    // Not knowable yet — `attachment` above already reads `pending` while this
+    // is false, so there is nothing to write.
+    if (!known) return
     if (!sessionId) {
       if (switchingRef.current) return // the switch's own spinner stands
       // ONLY THE VISIBLE TAB REVIVES. A dormant chat kept alive on a hidden tab must

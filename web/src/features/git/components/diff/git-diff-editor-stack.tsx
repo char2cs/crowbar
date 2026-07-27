@@ -578,7 +578,9 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
     [workspaceStore],
   )
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath)
-  const [viewMode, setViewMode] = useState<'unified' | 'split'>('unified')
+  // The mode the user PICKED. What actually renders is `viewMode` below, which
+  // can override this while a search is open.
+  const [chosenViewMode, setViewMode] = useState<'unified' | 'split'>('unified')
   const isWorkingTree = multiDiff.commitHash === 'working-tree'
   const isRefreshingRef = useRef(false)
   // The working-tree status from the last refresh — diffed against the next one
@@ -662,6 +664,12 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   const isCommitDiff = !isWorkingTree && Boolean(multiDiff.commitHash)
   // Only this pane responds to the global find flag when it is active.
   const searchOpen = isFindVisible && isActivePane && !isCommitDiff
+  // Search highlights + line reveal are wired for the unified editor only, so a
+  // diff being searched renders unified whatever the user picked. Derived, not
+  // forced into state by an effect — which used to make the override STICK,
+  // silently converting the user's split choice to unified for good the first
+  // time they searched. Now closing the search returns to their mode.
+  const viewMode: 'unified' | 'split' = searchOpen ? 'unified' : chosenViewMode
   const search = useDiffSearch({
     files: multiDiff.files,
     keyForIndex,
@@ -697,12 +705,6 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.revealNonce])
   const closeSearch = useCallback(() => setIsFindVisible(false), [setIsFindVisible])
-  // Search highlights + line reveal are wired for the unified editor only; switch
-  // away from split when the search opens so matches are actually shown.
-  useEffect(() => {
-    if (searchOpen && viewMode === 'split') setViewMode('unified')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchOpen])
 
   // Scroll-to-file: the Branch Review side panel drives this via activeFileKey/Nonce.
   const activeReviewFileKey = useWorkspaceStoreContext((s) => s.branchReview.activeFileKey)

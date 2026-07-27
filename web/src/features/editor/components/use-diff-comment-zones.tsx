@@ -146,11 +146,17 @@ export function useDiffCommentZones(params: {
   // editor is recreated for a new buffer), the zone ids in `active` belong to
   // the dead editor. Drop them so the recreated editor re-adds its zones
   // instead of skipping them as "already present", and stop orphaned observers.
+  // Expressed as the live editor's CLEANUP rather than a reaction to
+  // editorReady going false: same trigger, but it also covers unmount, and it
+  // reads as what it is — releasing the zones this editor owned.
   useEffect(() => {
-    if (editorReady) return
-    for (const az of activeRef.current.values()) az.observer.disconnect()
-    activeRef.current.clear()
-    setPortalKeys([])
+    if (!editorReady) return
+    const active = activeRef.current
+    return () => {
+      for (const az of active.values()) az.observer.disconnect()
+      active.clear()
+      setPortalKeys([])
+    }
   }, [editorReady])
 
   // Gutter "+" affordance: hover shows a "+" in the glyph margin; clicking it

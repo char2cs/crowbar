@@ -328,7 +328,12 @@ export default function AsciiCrowbar({
     sync()
 
     return () => {
-      stop()
+      // `stop()`'s body, inlined: the loop self-schedules, so teardown must
+      // cancel the pending frame or it keeps running past unmount. Inlined
+      // rather than calling stop() so the cancel is visible right here.
+      running = false
+      if (rafId) cancelAnimationFrame(rafId)
+      rafId = 0
       io?.disconnect()
       ro?.disconnect()
       if (typeof document !== 'undefined') {

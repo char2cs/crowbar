@@ -205,7 +205,6 @@ const TabBar = ({
   )
 
   const { handleSave } = useEditorAppStore.use.actions()
-  const maxOpenTabs = useSettingsStore((state) => state.settings.maxOpenTabs)
   const updateActivePath = useSidebarStore((s) => s.updateActivePath)
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
@@ -297,16 +296,11 @@ const TabBar = ({
 
   const getBufferDisplayName = useBufferDisplayName({ buffers, rootFolderPath })
 
-  useEffect(() => {
-    if (maxOpenTabs > 0 && buffers.length > maxOpenTabs) {
-      const closableBuffers = buffers.filter((b) => !b.isPinned && b.id !== activeBufferId)
-      let tabsToClose = buffers.length - maxOpenTabs
-      for (let i = 0; i < closableBuffers.length && tabsToClose > 0; i++) {
-        handleTabClose(closableBuffers[i].id)
-        tabsToClose--
-      }
-    }
-  }, [buffers, maxOpenTabs, activeBufferId, handleTabClose])
+  // The max-open-tabs cap is NOT enforced here any more. It lives in
+  // buffer-slice's openContent, next to the engine's own budget and the
+  // eviction that budget already runs — see the note there. A tab bar watching
+  // the workspace-wide buffer list and closing tabs through its own pane's
+  // handler meant every open pane raced to trim one shared list.
 
   // Auto-scroll active tab into view
   useEffect(() => {

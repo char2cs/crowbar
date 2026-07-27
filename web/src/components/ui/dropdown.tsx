@@ -389,15 +389,21 @@ export function Dropdown(props: DropdownProps) {
   const anchorAlign = isAnchorMode ? ((props as AnchorPositioning).anchorAlign ?? 'start') : 'start'
   const point = !isAnchorMode ? (props as PointPositioning).point : null
 
-  const hasItems = 'items' in props && props.items != null
-  const hasSections = 'sections' in props && props.sections != null
+  // Pull the union members out once. Depending on the whole `props` object
+  // rebuilt these callbacks on every render (props is a fresh object each
+  // time), which defeated the useCallback entirely; the specific arrays are
+  // what the bodies actually read.
+  const itemsProp = 'items' in props ? props.items : undefined
+  const sectionsProp = 'sections' in props ? props.sections : undefined
+  const hasItems = itemsProp != null
+  const hasSections = sectionsProp != null
   const hasChildren = 'children' in props && props.children != null
 
   const getAllItems = useCallback((): MenuItem[] => {
-    if (hasItems) return props.items!
-    if (hasSections) return props.sections!.flatMap((s) => s.items)
+    if (itemsProp != null) return itemsProp
+    if (sectionsProp != null) return sectionsProp.flatMap((s) => s.items)
     return []
-  }, [hasItems, hasSections, props])
+  }, [itemsProp, sectionsProp])
 
   const getFilteredItems = useCallback((): MenuItem[] => {
     const all = getAllItems()
@@ -406,17 +412,17 @@ export function Dropdown(props: DropdownProps) {
   }, [getAllItems, searchQuery])
 
   const getFilteredSections = useCallback((): DropdownSection[] => {
-    if (!hasSections) return []
-    if (!searchQuery.trim()) return props.sections!
+    if (sectionsProp == null) return []
+    if (!searchQuery.trim()) return sectionsProp
     const result: DropdownSection[] = []
-    for (const section of props.sections!) {
+    for (const section of sectionsProp) {
       const items = section.items.filter(
         (item) => !item.separator && matchesSearchQuery(searchQuery, [item.label]),
       )
       if (items.length > 0) result.push({ ...section, items })
     }
     return result
-  }, [hasSections, searchQuery, props])
+  }, [sectionsProp, searchQuery])
 
   const positionMenu = useCallback(() => {
     const menu = menuRef.current
@@ -528,13 +534,20 @@ export function Dropdown(props: DropdownProps) {
     positionMenu()
   }, [isOpen, positionMenu, searchQuery])
 
+  // The open menu's cleanup, not a reaction to `isOpen` going false: the
+  // measurements below belong to one opening of the menu, so releasing them
+  // when that opening ends is the same trigger expressed as ownership — and it
+  // now also covers unmounting while open.
   useEffect(() => {
-    if (isOpen) return
-    lockedWidthRef.current = null
-    lastMenuSizeRef.current = null
-    setIsPositioned(false)
-    if (menuRef.current && style?.width == null) {
-      menuRef.current.style.width = ''
+    if (!isOpen) return
+    const menu = menuRef.current
+    return () => {
+      lockedWidthRef.current = null
+      lastMenuSizeRef.current = null
+      setIsPositioned(false)
+      if (menu && style?.width == null) {
+        menu.style.width = ''
+      }
     }
   }, [isOpen, style?.width])
 

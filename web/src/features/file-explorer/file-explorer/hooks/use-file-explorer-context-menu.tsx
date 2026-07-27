@@ -348,6 +348,9 @@ export function useFileExplorerContextMenu({
           onClick: async () => {
             try {
               const response = await fetch(contextMenu.path)
+              // fetch resolves on 4xx/5xx, so without this an error page body
+              // would be copied to the clipboard as if it were the file.
+              if (!response.ok) return
               const content = await response.text()
               await navigator.clipboard.writeText(content)
             } catch {

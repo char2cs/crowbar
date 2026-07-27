@@ -56,13 +56,15 @@ export const TerminalSearch: React.FC<TerminalSearchProps> = ({
   }
 
   const toggleOption = (key: keyof TerminalSearchOptions) => {
-    setSearchOptions((prev) => {
-      const next = { ...prev, [key]: !prev[key] }
-      if (searchTerm) {
-        onSearch(searchTerm, next)
-      }
-      return next
-    })
+    // Compute the next options first and re-run the search OUTSIDE the setter:
+    // React may replay a state updater (it does, under StrictMode), and
+    // onSearch drives a real xterm search — running it twice per toggle moves
+    // the match cursor an extra step.
+    const next = { ...searchOptions, [key]: !searchOptions[key] }
+    setSearchOptions(next)
+    if (searchTerm) {
+      onSearch(searchTerm, next)
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
