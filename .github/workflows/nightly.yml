@@ -197,6 +197,23 @@ jobs:
         with:
           path: release-artifacts/
           merge-multiple: true
+      # Quiver addresses release assets as Crowbar_${REF}_*, where REF is the git tag it
+      # resolved. Tauri names bundles from Cargo.toml, so without this the tag and the
+      # filename disagree and every arrow.yaml would have to restate the version.
+      - name: Rename desktop bundles to the release tag
+        env:
+          TAG: nightly
+        run: |
+          cd release-artifacts
+          find . -type f -name 'Crowbar_*' | while read -r f; do
+            base=$(basename "$f")
+            suffix=${base#Crowbar_*_}
+            new="Crowbar_${TAG}_${suffix}"
+            if [ "$base" != "$new" ]; then
+              mv "$f" "$(dirname "$f")/${new}"
+              echo "renamed ${base} -> ${new}"
+            fi
+          done
       - name: Generate unified SHA256SUMS
         run: |
           cd release-artifacts
