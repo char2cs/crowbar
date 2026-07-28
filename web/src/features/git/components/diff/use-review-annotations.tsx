@@ -337,8 +337,13 @@ export function useReviewAnnotations({ wsId }: { wsId: string }): ReviewAnnotati
       getHoveredLine: (() => GetHoveredLineResult<'diff'> | undefined) | (() => unknown),
       item: CodeViewItem<ReviewThread>,
     ): ReactNode => (
+      // Filled rather than ghost. The library parks this button ON TOP of the
+      // gutter, so a transparent one let the line number read straight through
+      // the "+" — the two glyphs tangled and neither was legible. An opaque
+      // primary chip covers the number it replaces and is visible against both
+      // the added-line green and the removed-line red.
       <Button
-        variant="ghost"
+        variant="default"
         size="icon-xs"
         aria-label={`Comment on a line in ${item.id}`}
         onClick={() => {
