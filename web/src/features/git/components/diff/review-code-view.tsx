@@ -14,7 +14,7 @@ import type { CodeViewHandle } from '@pierre/diffs/react'
 import { Button } from '@/components/ui/button'
 import { getReviewPatch } from '@/features/git/api/review-window-api'
 import type { FileOutline, HunkShape } from '@/features/git/api/review-window-api'
-import { MAX_MATERIALIZED_LINES, planWindow } from '@/features/git/lib/patch-window'
+import { MAX_MATERIALIZED_LINES, PATCH_LINE_CAP, planWindow } from '@/features/git/lib/patch-window'
 import type { GitDiff } from '@/features/git/types/git-types'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import { cn } from '@/utils/cn'
@@ -171,17 +171,24 @@ export function buildPlaceholderFileDiff(
   const shapes = outline?.hunks ?? []
   const additions = countOf(file.additions)
   const deletions = countOf(file.deletions)
-  const hunks = buildPlaceholderHunks(shapes, distributeContext(shapes, deletions))
+  const hunks = trimToPatchCap(
+    buildPlaceholderHunks(shapes, distributeContext(shapes, deletions)),
+  )
 
   // A capped outline stops at the server's per-file hunk limit, so its geometry
   // is a LOWER bound on the file — sizing from it alone under-reserves by
   // however much the cap cut. Every changed line renders one unified row, so
   // the summary's ± counts are a floor the outline must be topped up to.
-  if (outline?.isPartial) {
+  const room = PATCH_LINE_CAP - sumBy(hunks, (h) => h.unifiedLineCount)
+  if (outline?.isPartial && room > 0) {
     const missingAdditions = Math.max(0, additions - sumBy(hunks, (h) => h.additionLines))
     const missingDeletions = Math.max(0, deletions - sumBy(hunks, (h) => h.deletionLines))
     if (missingAdditions + missingDeletions > 0) {
-      hunks.push(buildTailHunk(hunks, missingAdditions, missingDeletions))
+      // The tail carries the TRUE missing counts and reserves only the room
+      // left under the cap. Reserving the full amount is the over-reservation
+      // that collapses on materialisation; reserving nothing makes the
+      // scrollbar lie. See reserveAtMost for why both can be satisfied.
+      hunks.push(reserveAtMost(buildTailHunk(hunks, missingAdditions, missingDeletions), room))
     }
   }
 
@@ -216,6 +223,67 @@ function changeTypeOf(file: GitDiff): ChangeTypes {
   if (file.is_deleted) return 'deleted'
   if (file.is_renamed) return 'rename-changed'
   return 'change'
+}
+
+/**
+ * Drop whole hunks past the point where the patch request stops delivering.
+ *
+ * A placeholder used to reserve height from the file's FULL ± counts — 420,000
+ * rows for the fixture's monster — while the patch that replaces it is capped
+ * at PATCH_LINE_CAP. Materialising then shrank that item by the difference,
+ * every item below it jumped up, and the viewport ended up pointing somewhere
+ * unrelated. Repeated during one fast scroll it scrambled the position↔content
+ * mapping badly enough that scrolling back to the top still showed a file from
+ * deep in the list.
+ *
+ * Measured per item rather than in total: the monster published a fileDiff of
+ * 0 unified rows against a 420,000-row placeholder. The surface's total scroll
+ * height is a poor witness here — the renderer paginates it at
+ * SCROLL_REBASE_CONTAINER_HEIGHT (12,000,000px), so any branch past that
+ * ceiling reports the ceiling whatever its items do.
+ *
+ * Reserving what will actually be DELIVERED removes the mismatch at its source.
+ * This is the same correction the window budget needed: a file costs, and
+ * occupies, what it holds — not what its diff contains.
+ */
+function trimToPatchCap(hunks: Hunk[]): Hunk[] {
+  const kept: Hunk[] = []
+  let unified = 0
+  for (const hunk of hunks) {
+    if (unified + hunk.unifiedLineCount > PATCH_LINE_CAP) break
+    kept.push(hunk)
+    unified += hunk.unifiedLineCount
+  }
+  if (kept.length > 0) return kept
+  // Dropping is not available when the FIRST hunk already exceeds the cap: a
+  // whole-file rewrite is a single hunk, so there would be nothing left to
+  // reserve and the file would occupy no space at all. Scale it down instead.
+  const first = hunks[0]
+  return first != null ? [reserveAtMost(first, PATCH_LINE_CAP)] : []
+}
+
+/**
+ * Cap the SPACE a hunk reserves without changing what it reports containing.
+ *
+ * Height is estimated from `unifiedLineCount`/`splitLineCount`; the file
+ * header's ± label sums `additionLines`/`deletionLines`. Those are separate
+ * fields, which is what lets a file whose patch is capped reserve only the rows
+ * that will actually arrive while still telling the reader how much the file
+ * really changed. Scaling the ± counts too — an earlier version of this — made
+ * the fixture's 420,000-line monster announce itself as "+20000".
+ *
+ * A placeholder draws nothing (its `hunkContent` is empty), so the two sets of
+ * numbers describing different things costs nothing until the real patch
+ * replaces the whole record.
+ */
+function reserveAtMost(hunk: Hunk, room: number): Hunk {
+  if (hunk.unifiedLineCount <= room || room <= 0) return hunk
+  const scale = room / hunk.unifiedLineCount
+  return {
+    ...hunk,
+    unifiedLineCount: room,
+    splitLineCount: Math.max(1, Math.round(hunk.splitLineCount * scale)),
+  }
 }
 
 /** Per-hunk context-line estimate; see `buildPlaceholderFileDiff`. */
@@ -300,6 +368,29 @@ function buildTailHunk(hunks: readonly Hunk[], additions: number, deletions: num
 }
 
 // ── Patch parsing ───────────────────────────────────────────────────
+
+/**
+ * Identity for one parsed patch, as the renderer understands identity.
+ *
+ * `areDiffTargetsEqual` treats two different FileDiffMetadata objects as the
+ * SAME target when their cacheKeys match, and a same-target update keeps the
+ * cached estimated height rather than recomputing it. So the key has to change
+ * whenever the CONTENT does, not merely whenever the file does.
+ *
+ * Keying on `wsId:path` alone broke "Show all" completely. Expanding a
+ * truncated file refetches the same path uncapped, so the key was identical,
+ * so the library kept the capped item's height: the 420,000 lines were
+ * fetched, parsed and published — `getItem` reported all of them — and the
+ * file still occupied exactly the 20,000 rows it had before, showing the same
+ * truncated content. The one affordance for reading a large file whole did
+ * nothing, silently, after a 13MB download.
+ *
+ * The patch length distinguishes them and costs nothing: identical text still
+ * shares a key, which is what the highlighter cache wants.
+ */
+function patchCacheKey(wsId: string, path: string, patch: string): string {
+  return `${wsId}:${path}:${patch.length}`
+}
 
 /** Parse one file's unified patch. A header-only body yields a hunkless file
  *  rather than nothing, which is what lets the truncation banner still render. */
@@ -520,7 +611,7 @@ function ReviewCodeViewSurface({
         // flight; the eviction that dropped it already replaced the item.
         if (heldRef.current.get(path)?.token !== token) return
 
-        const fileDiff = parseSingleFilePatch(patch, `${wsId}:${path}`)
+        const fileDiff = parseSingleFilePatch(patch, patchCacheKey(wsId, path, patch))
         if (fileDiff == null) {
           heldRef.current.set(path, { token, state: 'failed' })
           setPatchState(path, truncated ? 'truncated' : 'failed')

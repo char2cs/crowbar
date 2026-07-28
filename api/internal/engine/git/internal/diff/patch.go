@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"regexp"
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
@@ -47,13 +49,26 @@ var ErrEmptyPatchPath = errors.New("diff: file patch: path is required")
 // ErrEmptyPatchPath.
 //
 // maxLines <= 0 means unlimited, and copies with no buffering at all. A
-// positive maxLines caps the output, and the cut always falls on a hunk
-// boundary: a hunk that does not fit whole within the cap is omitted entirely
-// rather than emitted half. A client parser fed a hunk header promising more
-// lines than follow produces garbage rather than an error, so a mid-hunk cut
-// would corrupt the render instead of failing it. That rounding-down is also
-// what bounds memory here — at most maxLines lines are ever held, and they are
-// lines the caller has already asked to receive.
+// positive maxLines caps the output at exactly that many lines, cutting inside
+// the final hunk and REWRITING that hunk's @@ header so its counts describe the
+// lines actually emitted. A parser fed a header promising more lines than
+// follow produces garbage rather than an error — so the header is corrected
+// rather than the hunk dropped.
+//
+// Dropping it was the original design, and it was wrong in the one shape that
+// matters most. A whole-file rewrite is a SINGLE hunk, so "omit a hunk that
+// does not fit" degenerated to "emit the file header and nothing else" for
+// every file bigger than the cap: the perf fixture's two 420,000-line monsters
+// came back as five header lines with zero hunks. The client rendered them as
+// empty — a blank region where the file should be — and, because the reserved
+// height had been sized from the file's real line count, materialising one
+// collapsed the scroll by 420,000 rows and threw every file below it upwards.
+//
+// Capping at exactly maxLines is also what lets a client reserve space
+// correctly: what it reserves for a capped file is what it will be sent.
+//
+// At most maxLines lines are ever held, and they are lines the caller asked to
+// receive, so the cap bounds this function's memory as well as its output.
 //
 // The file's header lines (`diff --git`, `index`, `---`/`+++`, `Binary files`)
 // are always written whole, so a cap smaller than the header is exceeded by it;
@@ -180,8 +195,69 @@ func (c *patchCopier) buffer(
 	if c.written+len(c.hunk) <= c.maxLines {
 		return
 	}
-	c.hunk = nil
+	c.hunk = cutHunk(c.hunk, c.maxLines-c.written)
+	c.flushHunk()
 	c.truncated = true
+}
+
+// hunkHeaderPattern matches a unified-diff hunk header, capturing the old and
+// new starts, their optional counts, and the trailing section heading. Only the
+// counts are rewritten; a start line and a heading survive a cut unchanged.
+var hunkHeaderPattern = regexp.MustCompile(`^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$`)
+
+// cutHunk trims a buffered hunk to the `room` lines that still fit and rewrites
+// its @@ header so the counts match the body that survives.
+//
+// Any prefix of a hunk body is itself a valid body — each line is independently
+// a context, addition, deletion or no-newline marker — so the only thing a cut
+// invalidates is the header's promise about how many of each follow. Recounting
+// the kept lines restores it.
+//
+// room < 2 leaves no space for a header plus even one line of body, and a
+// header this function cannot parse is one it must not rewrite; both yield
+// nothing rather than a hunk a client would render as garbage.
+func cutHunk(
+	hunk []string,
+	room int,
+) []string {
+	if len(hunk) == 0 || room < 2 {
+		return nil
+	}
+	if len(hunk) <= room {
+		return hunk
+	}
+	match := hunkHeaderPattern.FindStringSubmatch(strings.TrimRight(hunk[0], "\r\n"))
+	if match == nil {
+		return nil
+	}
+	body := hunk[1:room]
+	oldCount, newCount, changes := 0, 0, 0
+	for _, line := range body {
+		switch {
+		case strings.HasPrefix(line, "+"):
+			newCount++
+			changes++
+		case strings.HasPrefix(line, "-"):
+			oldCount++
+			changes++
+		case strings.HasPrefix(line, `\`):
+			// "\ No newline at end of file" annotates the previous line and
+			// occupies no line on either side.
+		default:
+			// Context, including the bare newline git emits for a blank line.
+			oldCount++
+			newCount++
+		}
+	}
+	// A cut can land inside a run of leading context, leaving a hunk that
+	// changes nothing. Git rejects that outright ("corrupt patch"), and it would
+	// show a reader a hunk header above lines identical on both sides, so it is
+	// worth strictly less than the space it costs.
+	if changes == 0 {
+		return nil
+	}
+	header := fmt.Sprintf("@@ -%s,%d +%s,%d @@%s\n", match[1], oldCount, match[2], newCount, match[3])
+	return append([]string{header}, body...)
 }
 
 func (c *patchCopier) flushHunk() {

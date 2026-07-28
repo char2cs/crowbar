@@ -133,11 +133,12 @@ func TestFilePatch_BinaryFile(t *testing.T) {
 	assert.NotContains(t, out, "\xff\xfe\xfd", "binary content must never reach the writer")
 }
 
-// TestFilePatch_TruncatesAtHunkBoundary is the load-bearing case: a cut that
-// lands mid-hunk would hand a client parser a hunk header promising more lines
-// than follow, which produces garbage rather than an error. The cut must fall
-// between hunks, and the result must still apply.
-func TestFilePatch_TruncatesAtHunkBoundary(t *testing.T) {
+// TestFilePatch_TruncatedPatchStaysParseable is the load-bearing case: a cut
+// that left a hunk header promising more lines than follow would hand a client
+// parser garbage rather than an error. The cut may land mid-hunk, but every
+// header it emits must describe the body that actually follows it, and the
+// result must still apply.
+func TestFilePatch_TruncatedPatchStaysParseable(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "many.txt", numberedLines(1, 200))
 	mustGit(t, dir, "add", "-A")
@@ -155,16 +156,28 @@ func TestFilePatch_TruncatesAtHunkBoundary(t *testing.T) {
 
 	out := buf.String()
 	assert.Equal(t, countLines(out), lines)
-	assert.LessOrEqual(t, lines, 30, "the cut rounds DOWN to a whole hunk, never past the cap")
+	assert.LessOrEqual(t, lines, 30, "the cut never runs past the cap")
+	assert.Greater(t, lines, 20,
+		"the cut fills the cap up to the point where the remainder changes nothing")
 	assert.True(t, strings.HasPrefix(out, "diff --git "))
 	assertEveryHunkComplete(t, out)
 	assertApplies(t, dir, base, out)
 }
 
 // TestFilePatch_TruncationWhenFirstHunkExceedsCap pins the degenerate shape the
-// perf fixture actually has: a single hunk far larger than any cap. No whole
-// hunk fits, so the only valid patch under the cap is the file header alone —
-// reported as truncated so the client knows to widen or page by hunk.
+// perf fixture actually has, and the bug that shape exposed: a single hunk far
+// larger than the cap.
+//
+// Dropping a hunk that could not fit whole meant this file — and every
+// whole-file rewrite, which is always exactly one hunk — came back as its
+// header and nothing else. The review surface rendered that as an empty file: a
+// blank region where 500 changed lines should be. Worse, it had reserved scroll
+// space from the file's real line count, so materialising the empty result
+// collapsed the scroll by the difference and threw every file below it upwards.
+//
+// The cut therefore lands INSIDE the hunk, with the @@ counts rewritten to
+// describe what survives, and the caller receives a full cap's worth of content
+// that a parser can read and git can apply.
 func TestFilePatch_TruncationWhenFirstHunkExceedsCap(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "big.txt", "seed\n")
@@ -180,9 +193,38 @@ func TestFilePatch_TruncationWhenFirstHunkExceedsCap(t *testing.T) {
 
 	out := buf.String()
 	assert.Equal(t, countLines(out), lines)
-	assert.LessOrEqual(t, lines, 10)
+	assert.Equal(t, 10, lines, "the cap is filled, not abandoned at the file header")
 	assert.True(t, strings.HasPrefix(out, "diff --git "))
-	assert.NotContains(t, out, "\n@@ ", "a hunk that cannot fit whole must not be emitted at all")
+	assert.Contains(t, out, "\n@@ ",
+		"the only hunk is larger than the cap; dropping it renders the file blank")
+	assertEveryHunkComplete(t, out)
+	assertApplies(t, dir, base, out)
+}
+
+// TestFilePatch_TruncationLeavesHeaderAloneWhenNoBodyFits covers the far end of
+// the same knob: a cap with no room for a hunk header plus even one line of
+// body. There is no valid partial hunk to emit, so the file header stands alone
+// — the one case where a client legitimately receives no content.
+func TestFilePatch_TruncationLeavesHeaderAloneWhenNoBodyFits(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "big.txt", "seed\n")
+	mustGit(t, dir, "add", "-A")
+	mustGit(t, dir, "commit", "-m", "initial")
+	base := headSHA(t, dir)
+	writeFile(t, dir, "big.txt", "seed\n"+numberedLines(1, 500))
+
+	// Four header lines (diff --git, index, ---, +++) plus one leaves no room
+	// for an @@ header AND a body line.
+	var buf bytes.Buffer
+	lines, truncated, err := diff.FilePatch(context.Background(), dir, base, "big.txt", 5, &buf)
+	require.NoError(t, err)
+	assert.True(t, truncated)
+
+	out := buf.String()
+	assert.Equal(t, countLines(out), lines)
+	assert.LessOrEqual(t, lines, 5)
+	assert.True(t, strings.HasPrefix(out, "diff --git "))
+	assert.NotContains(t, out, "\n@@ ", "a header with no room for a body must not be emitted")
 	assertEveryHunkComplete(t, out)
 }
 

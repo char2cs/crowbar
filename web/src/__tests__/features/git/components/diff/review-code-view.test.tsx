@@ -8,9 +8,13 @@ import {
   REVIEW_TOKENIZE_MAX_LINE_LENGTH,
 } from '@/features/git/components/diff/review-code-view'
 import type { FileOutline } from '@/features/git/api/review-window-api'
+import { PATCH_LINE_CAP } from '@/features/git/lib/patch-window'
 import type { GitDiff } from '@/features/git/types/git-types'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+
+/** Generous upper bound on a rendered row's height, for reservation maths. */
+const ROW_HEIGHT_UPPER_BOUND = 64
 
 /**
  * Task B of the windowed Branch Review renderer
@@ -236,8 +240,33 @@ describe('buildPlaceholderFileDiff', () => {
     const complete = buildPlaceholderFileDiff(file, { ...capped, isPartial: false })
 
     expect(partial.unifiedLineCount).toBeGreaterThan(complete.unifiedLineCount)
-    // Every changed line renders one unified row, so the ± counts are a floor.
-    expect(partial.unifiedLineCount).toBeGreaterThanOrEqual(60_000)
+    // ...but never beyond what the capped patch will actually deliver.
+    //
+    // Topping up to the full ± counts (60,000 rows here) was the original
+    // behaviour and it was the bug: the patch is capped at PATCH_LINE_CAP, so
+    // materialising collapsed the item by the difference, shoved everything
+    // below it upwards, and left the viewport pointing at an unrelated file.
+    // A placeholder must reserve what will ARRIVE.
+    expect(partial.unifiedLineCount).toBeLessThanOrEqual(PATCH_LINE_CAP)
+  })
+
+  it('reserves the capped height but still reports the file\'s TRUE ± counts', () => {
+    // The header's ± label sums additionLines/deletionLines; the reserved
+    // height comes from unifiedLineCount. Capping the reservation by scaling
+    // the ± counts too made the fixture's 420,000-line monster announce itself
+    // as "+20000" — the reader could no longer tell a huge file from a small
+    // one, on the surface whose whole job is reviewing huge files.
+    const monster: GitDiff = { ...textFile(0), additions: 420_000, deletions: 0 }
+    const oneHugeHunk: FileOutline = {
+      ...textOutline(0),
+      hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 420_000 }],
+    }
+
+    const placeholder = buildPlaceholderFileDiff(monster, oneHugeHunk)
+
+    expect(placeholder.unifiedLineCount).toBeLessThanOrEqual(PATCH_LINE_CAP)
+    const reported = placeholder.hunks.reduce((n, h) => n + h.additionLines, 0)
+    expect(reported).toBe(420_000)
   })
 })
 
@@ -339,8 +368,13 @@ describe('ReviewCodeView windowing', () => {
       expect(reservedHeight(complete.container)).toBeGreaterThan(0)
       expect(reservedHeight(partial.container)).toBeGreaterThan(0)
     })
+    // More than the outline alone describes, and bounded by the cap — the
+    // rendered counterpart of the unit assertion above.
     expect(reservedHeight(partial.container)).toBeGreaterThan(
-      reservedHeight(complete.container) * 100,
+      reservedHeight(complete.container),
+    )
+    expect(reservedHeight(partial.container)).toBeLessThanOrEqual(
+      PATCH_LINE_CAP * ROW_HEIGHT_UPPER_BOUND,
     )
   })
 
