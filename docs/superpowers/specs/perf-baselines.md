@@ -102,13 +102,31 @@ Rendering verified by screenshot at depth: `review-demo → main`, split view,
 syntax highlighting on both sides, sticky file header, binary file handled as
 its own row, 120 fps / 0 drops.
 
-**Known limitation, not fixed.** Scrolling incrementally (wheel-style) works
-correctly and cheaply — one patch request, content renders. But a scrollbar
-*jump* into the region holding the two 420,000-line files can leave a file
-header over blank space until the next scroll event arrives. The cause is
-understood: `onScroll` fires BEFORE the renderer's next pass, so the band the
-planner sees is one frame stale, and a jump produces exactly one event, so the
-correction never comes.
+**BLOCKER, not fixed — severity corrected 2026-07-28.**
+
+This was first written up as "a header over blank space until the next scroll
+event". That understated it, and the understatement came from testing with
+small synthetic scrolls. Driving the app the way a person actually does — a
+long, fast scroll — puts the surface into a **persistently wrong state**:
+
+- file headers render with blank space where their content should be;
+- the position↔content mapping is corrupted, not merely stale. After scrolling
+  back to offset 1,500 (the very top of the diff) the surface still displayed
+  `src/scattered/pkg14/file34.ts`, a file from deep in the list;
+- **it does not self-heal.** Neither small scrolls (6 × 400px) nor large ones
+  (40 × −3000px) recover it.
+
+The only recovery is remounting the surface: **close the Branch Review tab and
+reopen it**, which restores it correctly at the top.
+
+So the earlier "one frame stale band" explanation is incomplete. A stale band
+alone would be corrected by the next scroll event, and it is not. The failure
+is that the library's own layout cache and the placeholder heights diverge
+while fast scrolling materialises files underneath the viewport, and nothing
+reconciles them afterwards.
+
+Incremental wheel-speed scrolling still works correctly and cheaply (one patch
+request, content renders), which is why every earlier measurement looked clean.
 
 Three fixes were attempted and all three were reverted, because each was worse
 than the problem: deriving the band from `getRenderedItems()` alone stalled on
