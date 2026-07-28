@@ -13,6 +13,8 @@ export interface Settings {
   fontFamily: string
   editorEngine: EditorEngine
   fontSize: number
+  /** Base type size for the rich markdown editor. See lib/markdown-font-size.ts. */
+  markdownFontSize: number
   editorLineHeight: number
   tabSize: number
   wordWrap: boolean

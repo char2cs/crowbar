@@ -6,6 +6,7 @@ import {
 } from '@/features/settings/config/typography-defaults'
 import { useSettingsStore } from '@/features/settings/store'
 import { currentPlatform, IS_WINDOWS } from '@/utils/platform'
+import { normalizeMarkdownFontSize } from '../lib/markdown-font-size'
 import { getUiFontScale, normalizeUiFontSize } from '../lib/ui-font-size'
 
 // Cross-platform monospace fallback stack
@@ -76,7 +77,21 @@ export const FontStyleInjector = () => {
       '--app-ui-scale',
       `${getUiFontScale(normalizedUiFontSize)}`,
     )
-  }, [settings.fontFamily, settings.uiFontFamily, settings.uiFontSize, codeEditorFontFamily])
+
+    // Base type size for the Plate markdown surface. Read by
+    // markdown-editor.css; every other size there is `em`-relative, so this one
+    // value rescales the whole document.
+    document.documentElement.style.setProperty(
+      '--md-base-font-size',
+      `${normalizeMarkdownFontSize(settings.markdownFontSize)}px`,
+    )
+  }, [
+    settings.fontFamily,
+    settings.uiFontFamily,
+    settings.uiFontSize,
+    settings.markdownFontSize,
+    codeEditorFontFamily,
+  ])
 
   return null
 }

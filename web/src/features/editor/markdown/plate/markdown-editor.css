@@ -29,9 +29,19 @@
  */
 
 .crowbar-markdown-editor {
-  /* ~720px at the 16px body size: a 70–80 character measure, the Notion /
-     Obsidian reading column. */
-  --md-measure: 45rem;
+  /* The document's base type size, from Settings > Editor > Markdown Font Size
+     (font-style-injector.tsx sets it on <html>). The fallback is what this file
+     hardcoded before the setting existed, so an unset var renders identically.
+     Everything below is `em`, so this one value rescales the whole document. */
+  --md-base: var(--md-base-font-size, 1rem);
+  /* 45 characters-ish of measure — ~720px at the default 16px size, the Notion
+     / Obsidian reading column. Expressed against --md-base rather than a fixed
+     rem so the column tracks the type and the 70–80 character measure survives
+     the size being turned up. NOT `45em`: this token is also consumed by the
+     frontmatter banner, whose font-size differs, and `em` inside a custom
+     property resolves at the element that USES it — the two would stop lining
+     up. `45 * <px length>` resolves the same on both. */
+  --md-measure: calc(45 * var(--md-base));
   /* Floor for the side gutters, so a narrow split pane degrades to padding
      instead of overflowing. */
   --md-gutter: 2.5rem;
@@ -71,7 +81,7 @@
      6rem tail keeps the last line off the bottom edge. */
   padding: 3rem var(--md-pad-inline) 6rem;
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: var(--md-base);
   line-height: 1.7;
   color: var(--foreground);
   /* Long URLs and unbroken tokens wrap rather than widening the page; the

@@ -27,6 +27,14 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ['font', 'size', 'editor', 'typography'],
   },
   {
+    id: 'editor-markdown-font-size',
+    tab: 'editor',
+    section: 'Markdown',
+    label: 'Markdown Font Size',
+    description: 'Base text size for the rich markdown editor, in pixels',
+    keywords: ['markdown', 'md', 'font', 'size', 'text', 'typography', 'plate', 'document'],
+  },
+  {
     id: 'editor-line-height',
     tab: 'editor',
     section: 'Typography',

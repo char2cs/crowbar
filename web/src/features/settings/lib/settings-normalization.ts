@@ -6,6 +6,7 @@ import {
   DEFAULT_UI_FONT_FAMILY,
 } from '@/features/settings/config/typography-defaults'
 import { normalizeConfiguredFontFamily } from '@/features/settings/lib/font-family-resolution'
+import { normalizeMarkdownFontSize } from '@/features/settings/lib/markdown-font-size'
 import { normalizeUiFontSize } from '@/features/settings/lib/ui-font-size'
 import type { Settings } from '@/features/settings/types/settings'
 
@@ -126,6 +127,9 @@ function normalizeExternalEditor(
 export function normalizeSettings(settings: Settings): Settings {
   const normalizedSettings = { ...settings }
   normalizedSettings.uiFontSize = normalizeUiFontSize(normalizedSettings.uiFontSize)
+  normalizedSettings.markdownFontSize = normalizeMarkdownFontSize(
+    (normalizedSettings as { markdownFontSize?: unknown }).markdownFontSize,
+  )
   normalizedSettings.fontFamily = normalizeConfiguredFontFamily(
     normalizedSettings.fontFamily,
     DEFAULT_MONO_FONT_FAMILY,
@@ -186,6 +190,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
 ): Settings[K] {
   if (key === 'uiFontSize') {
     return normalizeUiFontSize(value as number) as Settings[K]
+  }
+
+  if (key === 'markdownFontSize') {
+    return normalizeMarkdownFontSize(value) as Settings[K]
   }
 
   if (key === 'fontFamily') {

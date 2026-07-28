@@ -1,3 +1,7 @@
+import {
+  MARKDOWN_FONT_SIZE_DEFAULT,
+  normalizeMarkdownFontSize,
+} from '@/features/settings/lib/markdown-font-size'
 import { normalizeUiFontSize, UI_FONT_SIZE_DEFAULT } from '@/features/settings/lib/ui-font-size'
 import {
   DEFAULT_CODE_FONT_SIZE,
@@ -16,6 +20,7 @@ export const defaultSettings: Settings = {
   fontFamily: DEFAULT_MONO_FONT_FAMILY,
   editorEngine: 'monaco',
   fontSize: DEFAULT_CODE_FONT_SIZE,
+  markdownFontSize: MARKDOWN_FONT_SIZE_DEFAULT,
   editorLineHeight: 1.4,
   tabSize: 2,
   wordWrap: false,
@@ -88,5 +93,6 @@ export function getDefaultSettingsSnapshot(): Settings {
     hiddenFilePatterns: [...defaultSettings.hiddenFilePatterns],
     hiddenDirectoryPatterns: [...defaultSettings.hiddenDirectoryPatterns],
     uiFontSize: normalizeUiFontSize(defaultSettings.uiFontSize),
+    markdownFontSize: normalizeMarkdownFontSize(defaultSettings.markdownFontSize),
   }
 }

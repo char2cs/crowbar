@@ -1,3 +1,8 @@
+import {
+  MARKDOWN_FONT_SIZE_MAX,
+  MARKDOWN_FONT_SIZE_MIN,
+  MARKDOWN_FONT_SIZE_STEP,
+} from '@/features/settings/lib/markdown-font-size'
 import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 import NumberInput from '@/components/ui/number-input'
 import Section, { SettingRow } from '../settings-section'
@@ -274,6 +279,26 @@ export const EditorSettings = () => {
             checked={settings.parameterHints}
             onChange={(checked) => updateSetting('parameterHints', checked)}
             size="sm"
+          />
+        </SettingRow>
+      </Section>
+
+      <Section title="Markdown">
+        <SettingRow
+          label="Markdown Font Size"
+          description="Base text size for the rich markdown editor, in pixels"
+          onReset={() => updateSetting('markdownFontSize', getDefaultSetting('markdownFontSize'))}
+          canReset={settings.markdownFontSize !== getDefaultSetting('markdownFontSize')}
+        >
+          <NumberInput
+            min={String(MARKDOWN_FONT_SIZE_MIN)}
+            max={String(MARKDOWN_FONT_SIZE_MAX)}
+            step={String(MARKDOWN_FONT_SIZE_STEP)}
+            value={settings.markdownFontSize}
+            onChange={(val) => updateSetting('markdownFontSize', val)}
+            className={SETTINGS_CONTROL_WIDTHS.numberCompact}
+            size="xs"
+            aria-label={`Markdown font size: ${settings.markdownFontSize} pixels`}
           />
         </SettingRow>
       </Section>
