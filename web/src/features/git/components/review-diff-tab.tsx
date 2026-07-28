@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { FileDashed, MagnifyingGlass } from '@phosphor-icons/react'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { Button } from '@/components/ui/button'
@@ -64,10 +64,42 @@ export function ReviewDiffTab({
   const { outline } = useReviewOutline(wsId ?? null, commit)
   const [searchOpen, setSearchOpen] = useState(false)
   const surfaceRef = useRef<ReviewCodeViewHandle | null>(null)
+  // Mirrored into state as well as a ref: the reveal below has to run WHEN the
+  // handle appears, and a ref assignment does not re-render. The surface is
+  // lazy, so on the path that matters most — clicking a file while the review
+  // tab is still closed — the request is raised before the handle exists.
+  const [surface, setSurface] = useState<ReviewCodeViewHandle | null>(null)
+  const attachSurface = useCallback((handle: ReviewCodeViewHandle | null) => {
+    surfaceRef.current = handle
+    setSurface(handle)
+  }, [])
 
   const handleSelectHit = useCallback((hit: SearchHit) => {
     surfaceRef.current?.revealLine(hit.path, hit.lineNumber, hit.side)
   }, [])
+
+  // The sidebar's changed-files tree asks for a file by path; the surface is
+  // the only thing that can honour it (the target may not be materialised, and
+  // scrolling to a placeholder lands near the file rather than at it).
+  //
+  // The request carries a NONCE because clicking the same file twice must
+  // reveal it again, and a path compared to itself never re-runs an effect.
+  // Gated on the handle rather than fired blind: a click that OPENS this tab
+  // raises the request before the lazy surface has mounted, so the reveal has
+  // to wait for the handle and then honour whatever is outstanding. The
+  // last-consumed nonce is what stops it re-firing on unrelated re-renders.
+  //
+  // Commit tabs opt out — the request comes from the branch review's own file
+  // list and may name a path a commit does not contain.
+  const revealPath = useWorkspaceStoreContext((s) => s.branchReview.revealFilePath)
+  const revealNonce = useWorkspaceStoreContext((s) => s.branchReview.revealFileNonce)
+  const consumedNonce = useRef(0)
+  useEffect(() => {
+    if (commit || !surface || !revealPath) return
+    if (consumedNonce.current === revealNonce) return
+    consumedNonce.current = revealNonce
+    surface.revealFile(revealPath)
+  }, [surface, revealNonce, revealPath, commit])
 
   // The summary gates first paint, not the outline. The file list is renderable
   // without geometry — heights are estimated from ± counts until the outline
@@ -144,7 +176,7 @@ export function ReviewDiffTab({
             files={files}
             outline={outline}
             isActivePane={isActivePane}
-            surfaceRef={surfaceRef}
+            surfaceRef={attachSurface}
           />
         </Suspense>
       </div>

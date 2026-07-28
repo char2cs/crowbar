@@ -439,6 +439,10 @@ interface HeldPatch {
  */
 export interface ReviewCodeViewHandle {
   revealLine: (path: string, lineNumber: number, side: 'old' | 'new') => void
+  /** Bring a whole FILE into view — what the sidebar's changed-files list asks
+   *  for. Distinct from revealLine because the caller has no line to aim at and
+   *  a file's first diff line is not line 1. */
+  revealFile: (path: string) => void
 }
 
 export interface ReviewCodeViewProps {
@@ -735,14 +739,32 @@ function ReviewCodeViewSurface({
     [materialize, setPatchState],
   )
 
+  const revealFile = useCallback(
+    async (path: string) => {
+      // Materialise first: a placeholder's reserved height is an ESTIMATE, so
+      // scrolling to it and then letting the real patch resize it would leave
+      // the reader somewhere near the file rather than at it.
+      if (heldRef.current.get(path)?.state !== 'ready') {
+        setPatchState(path, 'loading')
+        await materialize(path, undefined, false)
+      }
+      handleRef.current?.getInstance()?.render(true)
+      handleRef.current?.scrollTo({ type: 'item', id: path, align: 'start' })
+    },
+    [materialize, setPatchState],
+  )
+
   useImperativeHandle(
     surfaceRef,
     () => ({
       revealLine: (path, lineNumber, side) => {
         void revealLine(path, lineNumber, side)
       },
+      revealFile: (path) => {
+        void revealFile(path)
+      },
     }),
-    [revealLine],
+    [revealLine, revealFile],
   )
 
   const revealFirstThread = useCallback(

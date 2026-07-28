@@ -38,19 +38,17 @@ export function GitPanel() {
   const { files } = useSidebarChangedFiles(wsId)
 
   // Open the unified branch-review tab and scroll to the clicked file.
-  // fileKey must match the scheme used by ReviewDiffView:
-  //   multiDiff.fileKeys?.[index] ?? `${diff.file_path}:${index}`
-  // We look up the file index from the cached diffCache in the workspace store.
+  //
+  // By PATH. This used to resolve the file's INDEX against a whole-diff cache
+  // in the store and pass a composite `path:index` key — and when the review
+  // surface stopped loading that cache (it reads the files summary and fetches
+  // patches per file now), the lookup returned nothing and every click in this
+  // tree silently opened the tab at the top. The surface addresses files by
+  // path, so ask for one.
   const handleFileOpen = (filePath: string) => {
     openBranchReviewForActiveWorkspace()
     if (!wsId) return
-    const store = getOrCreateWorkspaceStore(wsId)
-    const diffCache = store.getState().branchReview.diffCache
-    if (!diffCache) return
-    const index = diffCache.files.findIndex((f) => f.file_path === filePath)
-    if (index === -1) return
-    const fileKey = diffCache.fileKeys?.[index] ?? `${filePath}:${index}`
-    store.getState().setBranchReviewActiveFile(fileKey)
+    getOrCreateWorkspaceStore(wsId).getState().revealBranchReviewFile(filePath)
   }
 
   const repoPath = wsId ?? undefined
