@@ -84,6 +84,41 @@ entropy model used to bound it. The outline payload is a non-issue on the wire;
 if anything bites in Phase 3 it will be `JSON.parse` and the ~38.6k objects the
 webview allocates, which compression does not help.
 
+### Phase 3 results — the windowed renderer (2026-07-27)
+
+Live, on `review-demo` (child of protected `main`, 406 files / 1,005,251
+insertions), clean app instance:
+
+| | before | after |
+|---|---|---|
+| `/review` composite payload | 165,808,569 B | **79 B** |
+| …and its per-line JSON objects | 1,441,452 | **0** (field removed) |
+| `/review` response time | 1.37 s | **1.5 ms** |
+| webview RSS, review open | 1,162 MB peak | **864 MB** (baseline 521 → +343 MB) |
+| webview RSS after scrolling 2.4M px | — | **862 MB — flat** |
+| retained after closing the tab | 544 MB | n/a (no diff is held) |
+
+Rendering verified by screenshot at depth: `review-demo → main`, split view,
+syntax highlighting on both sides, sticky file header, binary file handled as
+its own row, 120 fps / 0 drops.
+
+**Known limitation, not fixed.** Scrolling incrementally (wheel-style) works
+correctly and cheaply — one patch request, content renders. But a scrollbar
+*jump* into the region holding the two 420,000-line files can leave a file
+header over blank space until the next scroll event arrives. The cause is
+understood: `onScroll` fires BEFORE the renderer's next pass, so the band the
+planner sees is one frame stale, and a jump produces exactly one event, so the
+correction never comes.
+
+Three fixes were attempted and all three were reverted, because each was worse
+than the problem: deriving the band from `getRenderedItems()` alone stalled on
+the stale set; unioning it with the offset estimate produced a 350-file band
+where every file reports distance 0, so the budget kept an arbitrary prefix;
+and a deferred re-plan fed itself — **2,119 patch requests from a single
+scroll**, measured. The committed state is the one that is verifiably best.
+A correct fix needs a re-plan driven by the renderer's own post-draw signal
+(it exposes `onSnapshotChange`), not by scroll events.
+
 ### The review pane itself — measured on the real use case (2026-07-27)
 
 Everything above measures the *sidebar tick* path. The Branch Review pane —
