@@ -58,6 +58,13 @@ export function usePreservedScroll(
   isContentReady: boolean,
 ): void {
   const restoredKeyRef = useRef<string | null>(null)
+  // The offset still OWED to `key`: set when a restore was clamped by content
+  // too short to hold it, cleared once reached or once the user takes over.
+  // While it is non-null, every offset the element reports is one of our own
+  // clamped attempts rather than where the user is reading, so nothing is
+  // recorded. It deliberately outlives the effect that created it — see the
+  // StrictMode note on the restore effect below.
+  const pendingTargetRef = useRef<number | null>(null)
 
   // Record every scroll, and capture a final offset when this key is torn down.
   // A LAYOUT effect (not a passive one) so that on an in-place key change the
@@ -68,7 +75,10 @@ export function usePreservedScroll(
     const container = containerRef.current
     if (!container || !key) return
 
-    const handleScroll = () => rememberScroll(key, container.scrollTop)
+    const handleScroll = () => {
+      if (pendingTargetRef.current !== null) return
+      rememberScroll(key, container.scrollTop)
+    }
     container.addEventListener('scroll', handleScroll, { passive: true })
 
     return () => {
@@ -81,18 +91,78 @@ export function usePreservedScroll(
       // about to read. The scroll listener above has already banked every real
       // scroll, so skipping here loses nothing.
       if (restoredKeyRef.current !== key) return
+      // Same reasoning while a restore is still owed: the element is sitting at
+      // a clamped fraction of the offset we're trying to reach.
+      if (pendingTargetRef.current !== null) return
       // A detached node also reports 0, for the same reason.
       if (container.isConnected) rememberScroll(key, container.scrollTop)
     }
   }, [containerRef, key])
 
-  // Restore before paint so the surface never flashes at the top. Once per key:
-  // re-running it after the user has scrolled would yank them back.
+  // Restore before paint so the surface never flashes at the top. The offset is
+  // APPLIED once per key — re-applying after the user has scrolled would yank
+  // them back — but the watcher that chases a clamped restore is re-established
+  // on every run, which is what makes this survive StrictMode (setup → cleanup
+  // → setup: the first cleanup tears the watcher down, and the second setup is
+  // past the once-per-key guard, so a watcher owned by that guard would be dead
+  // on arrival and the offset would stay truncated).
   useLayoutEffect(() => {
     const container = containerRef.current
     if (!container || !key || !isContentReady) return
-    if (restoredKeyRef.current === key) return
-    restoredKeyRef.current = key
-    container.scrollTop = getPreservedScroll(key)
+
+    if (restoredKeyRef.current !== key) {
+      restoredKeyRef.current = key
+      pendingTargetRef.current = null
+
+      const target = getPreservedScroll(key)
+      container.scrollTop = target
+      // A CLAMPED assignment means the document is still shorter than the offset
+      // we're restoring into: images, embedded HTML and diagrams size themselves
+      // after the first commit, and a browser silently truncates a scrollTop
+      // beyond the current scroll range. Landing on the target (which includes
+      // the target-is-0 case) leaves nothing owed.
+      if (container.scrollTop < target) pendingTargetRef.current = target
+    }
+
+    const target = pendingTargetRef.current
+    if (target === null || typeof ResizeObserver === 'undefined') return
+
+    // Growth is observed, not polled: a ResizeObserver fires exactly when a box
+    // changes, so this costs nothing once the document settles and there is no
+    // frame budget to guess wrong. It self-terminates — reaching the target, or
+    // the content simply not growing any further, ends it.
+    let applied = container.scrollTop
+
+    // Detach the watcher but keep the target owed, so a re-run re-establishes it.
+    const detach = () => {
+      observer.disconnect()
+      container.removeEventListener('scroll', onScroll)
+    }
+    // Nothing left to chase: reached, or the user took the wheel.
+    const settle = () => {
+      pendingTargetRef.current = null
+      detach()
+    }
+
+    // Our own re-applies land exactly on `applied`; any other value is the user
+    // scrolling while the content is still loading, and chasing the old offset
+    // would yank them back mid-read.
+    const onScroll = () => {
+      if (container.scrollTop !== applied) settle()
+    }
+
+    const observer = new ResizeObserver(() => {
+      container.scrollTop = target
+      applied = container.scrollTop
+      if (applied >= target) settle()
+    })
+
+    container.addEventListener('scroll', onScroll, { passive: true })
+    // The container's own box is sized by its parent; what grows is the content
+    // inside it, so observe the children too.
+    observer.observe(container)
+    for (const child of Array.from(container.children)) observer.observe(child)
+
+    return detach
   }, [containerRef, key, isContentReady])
 }

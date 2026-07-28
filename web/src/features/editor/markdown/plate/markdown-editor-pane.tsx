@@ -8,6 +8,7 @@ import { ErrorBoundary } from '@/components/error-boundary'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
+import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { MarkdownAssetContext, type MarkdownAssetInfo } from './markdown-asset'
 import { hasTextContent } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
@@ -283,6 +284,22 @@ function MarkdownRichEditor({
     )
   }, [content, editor])
 
+  // A tab switch UNMOUNTS this pane — PaneContainer renders only the active
+  // buffer, and EditorPane keys the rich editor by buffer id — so the reading
+  // position has to live outside the component or it dies with the DOM node and
+  // the file reopens at the top. Same retention the markdown PREVIEW uses;
+  // Monaco needs none of it (its retained per-pane widget restores a per-model
+  // view state).
+  //
+  // Readiness is `content !== null`, because the document is only tall enough to
+  // scroll once it has been deserialized, and restoring into a short box clamps
+  // to 0. `initial` is derived from `content` at FIRST render, so on the way
+  // back to an already-open tab the text is in the DOM on the first commit and
+  // the restore lands immediately. The one case where content arrives later is
+  // a file being opened for the first time — which has no stored offset anyway.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  usePreservedScroll(scrollRef, bufferId, content !== null)
+
   // Flush on the app-wide flush event (save / switch-away) and on unmount, so a
   // Cmd+S or a tab switch never races a stale in-memory value.
   useEffect(() => {
@@ -306,7 +323,10 @@ function MarkdownRichEditor({
             scroll. This bounded `h-full` ancestor is the reliable scroll host;
             the editable keeps its own padding, so the reading column still
             centres and the frontmatter banner scrolls with the content. */}
-        <div className="crowbar-markdown-editor flex h-full flex-col overflow-y-auto">
+        <div
+          ref={scrollRef}
+          className="crowbar-markdown-editor flex h-full flex-col overflow-y-auto"
+        >
           {frontmatterText && <MarkdownFrontmatterBanner frontmatter={frontmatterText} />}
           {/* Two placeholder mechanisms, deliberately non-overlapping:
               BlockPlaceholderKit (markdown-plugins.ts) hints the FOCUSED empty

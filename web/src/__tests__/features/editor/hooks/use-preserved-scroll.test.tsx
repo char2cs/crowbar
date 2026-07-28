@@ -1,6 +1,6 @@
 import { act, fireEvent, render } from '@testing-library/react'
 import { StrictMode, useEffect, useRef, useState } from 'react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   clearPreservedScroll,
   usePreservedScroll,
@@ -148,5 +148,160 @@ describe('usePreservedScroll', () => {
 
     const second = render(<ScrollHost scrollKey={null} />)
     expect(second.getByTestId('scroller').scrollTop).toBe(0)
+  })
+
+  /**
+   * Content that keeps growing after the first commit — a README's images and
+   * embedded HTML sizing themselves, a diagram rendering — is the case jsdom
+   * cannot show on its own, because it has no layout and therefore never clamps
+   * anything. Both halves are modelled explicitly here: a scroll box that
+   * truncates an out-of-range `scrollTop` like a real one, and a ResizeObserver
+   * the test can fire to represent the content growing.
+   */
+  describe('content that is still growing', () => {
+    let maxScroll = 0
+    let observerCallbacks: Array<() => void> = []
+    const RealResizeObserver = globalThis.ResizeObserver
+
+    beforeEach(() => {
+      maxScroll = 0
+      observerCallbacks = []
+      class ControllableResizeObserver {
+        callback: () => void
+        constructor(callback: () => void) {
+          this.callback = callback
+        }
+        observe() {
+          if (!observerCallbacks.includes(this.callback)) observerCallbacks.push(this.callback)
+        }
+        unobserve() {}
+        disconnect() {
+          observerCallbacks = observerCallbacks.filter((c) => c !== this.callback)
+        }
+      }
+      Object.defineProperty(globalThis, 'ResizeObserver', {
+        value: ControllableResizeObserver,
+        configurable: true,
+        writable: true,
+      })
+    })
+
+    afterEach(() => {
+      Object.defineProperty(globalThis, 'ResizeObserver', {
+        value: RealResizeObserver,
+        configurable: true,
+        writable: true,
+      })
+    })
+
+    /** Fires every live observer, as the browser would once a box changed. */
+    const growContent = (newMax: number) => {
+      maxScroll = newMax
+      act(() => {
+        for (const cb of [...observerCallbacks]) cb()
+      })
+    }
+
+    function ClampingScroller({ scrollKey }: { scrollKey: string }) {
+      const ref = useRef<HTMLDivElement>(null)
+      usePreservedScroll(ref, scrollKey, true)
+      return (
+        <div
+          data-testid="scroller"
+          ref={(node) => {
+            ref.current = node
+            if (!node || Object.hasOwn(node, 'scrollTop')) return
+            let value = 0
+            Object.defineProperty(node, 'scrollTop', {
+              configurable: true,
+              get: () => value,
+              set: (next: number) => {
+                value = Math.max(0, Math.min(next, maxScroll))
+              },
+            })
+          }}
+        />
+      )
+    }
+
+    // ALWAYS under StrictMode, like the app root, and with StrictMode as the
+    // ROOT of the render — behind an intermediate component the double-invoke
+    // had not flushed by the time the assertions ran, and this suite went green
+    // against a hook that did nothing in the real app.
+    //
+    // The double-invoke is the whole point: setup → cleanup → setup means the
+    // first cleanup tears down the growth watcher, and the second setup is past
+    // the once-per-key restore guard. A watcher owned by that guard is dead on
+    // arrival, and the offset stays truncated.
+    const renderClamping = (scrollKey: string) =>
+      render(
+        <StrictMode>
+          <ClampingScroller scrollKey={scrollKey} />
+        </StrictMode>,
+      )
+
+    // Regression: restoring once, before images and embedded HTML have sized
+    // themselves, lands partway down and stays there — the offset is silently
+    // truncated to whatever fitted at that instant.
+    it('re-applies the offset as the content grows tall enough to hold it', () => {
+      maxScroll = 900
+      const first = renderClamping('buffer-a')
+      const scroller = first.getByTestId('scroller')
+      scroller.scrollTop = 600
+      fireEvent.scroll(scroller)
+      first.unmount()
+
+      // Remount with a document that has only partly rendered.
+      maxScroll = 200
+      const second = renderClamping('buffer-a')
+      expect(second.getByTestId('scroller').scrollTop).toBe(200) // clamped
+
+      growContent(900)
+      expect(second.getByTestId('scroller').scrollTop).toBe(600)
+    })
+
+    // The clamped intermediate is not a reading position: recording it would
+    // replace the real offset with a truncated one, and every later restore
+    // would inherit the smaller value.
+    it('does not record the clamped offset if the tab is switched again mid-growth', () => {
+      maxScroll = 900
+      const first = renderClamping('buffer-a')
+      const scroller = first.getByTestId('scroller')
+      scroller.scrollTop = 600
+      fireEvent.scroll(scroller)
+      first.unmount()
+
+      maxScroll = 200
+      const second = renderClamping('buffer-a')
+      expect(second.getByTestId('scroller').scrollTop).toBe(200)
+      second.unmount() // switched away again before the content finished
+
+      maxScroll = 900
+      const third = renderClamping('buffer-a')
+      expect(third.getByTestId('scroller').scrollTop).toBe(600)
+    })
+
+    it('stops chasing the offset once the user scrolls', () => {
+      maxScroll = 900
+      const first = renderClamping('buffer-a')
+      const scroller = first.getByTestId('scroller')
+      scroller.scrollTop = 600
+      fireEvent.scroll(scroller)
+      first.unmount()
+
+      maxScroll = 200
+      const second = renderClamping('buffer-a')
+      const node = second.getByTestId('scroller')
+      expect(node.scrollTop).toBe(200)
+
+      // The user takes over while the rest of the document is still loading.
+      act(() => {
+        node.scrollTop = 50
+        fireEvent.scroll(node)
+      })
+      growContent(900)
+
+      expect(node.scrollTop).toBe(50)
+    })
   })
 })
