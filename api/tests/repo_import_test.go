@@ -3,6 +3,7 @@
 package tests
 
 import (
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -163,6 +164,181 @@ func TestRepoImport_ProtectedBranchesGetManagedWorktrees(t *testing.T) {
 	// user's checkout without consent; develop is surfaced as a placeholder instead.
 	assert.Equal(t, "develop", gitCurrentBranch(t, repoDir),
 		"the repo home folder stays on develop — no silent force-detach (spec §3.4)")
+}
+
+// TestRegression_RepoImport_SameFolderCannotBeAddedToASecondProject pins the
+// one-folder-one-project rule.
+//
+// Nothing stopped a folder already imported under one project from being added
+// to another: the dedup was scoped to the target project, so a second Repository
+// row appeared over the same .git. The two can never both work — git checks a
+// branch out in one worktree at a time, so the second import claims none of the
+// protected branches its sibling already holds and lands a placeholder for each
+// one. The user gets a repository that looks imported and can manage nothing.
+//
+// The add is now refused up front, synchronously (the endpoint is 202-async, so
+// a refusal raised during the import would reach the client as a timeout), with
+// the owning project named, and no row is created.
+func TestRegression_RepoImport_SameFolderCannotBeAddedToASecondProject(t *testing.T) {
+	h := newHarness(t)
+
+	parentA := t.TempDir()
+	repoDir := filepath.Join(parentA, "shared")
+	gitRepoWithBranches(t, repoDir, "master", "main")
+
+	projectsWS := h.dial("/v0/projects")
+	projectA := createProject(t, h, projectsWS, parentA, "Alpha")
+	addRepo(t, h, h.dial("/v0/projects/"+projectA+"/repos"), projectA, repoDir)
+
+	// A second project tries to adopt the same folder.
+	projectB := createProject(t, h, projectsWS, t.TempDir(), "Beta")
+	resp := h.raw(http.MethodPost, "/v0/projects/"+projectB+"/repos",
+		map[string]string{"name": "shared", "path": repoDir}, http.StatusConflict)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	assert.Contains(t, string(body), "Alpha",
+		"the refusal must name the project that already has the folder, got %s", body)
+
+	// Nothing was created under project B. The refusal is SYNCHRONOUS — it returns
+	// before any background work is scheduled — so this read needs no barrier: had
+	// the add been accepted, the row would already exist by the time the response
+	// came back.
+	var reposB []struct {
+		Path      string `json:"path"`
+		ProjectID string `json:"projectId"`
+	}
+	h.get("/v0/projects/"+projectB+"/repos?projectId="+projectB, &reposB)
+	for _, r := range reposB {
+		assert.NotEqual(t, repoDir, r.Path,
+			"a refused add must leave no repository row behind")
+	}
+}
+
+// TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsARow
+// pins the fix for an import that produced NO locked workspace and said nothing.
+//
+// Removing a repository deletes its row but leaves its LOCKED managed worktrees
+// on disk, so re-adding the folder meets its own protected branch still checked
+// out under the crowbar home. holder.Resolve classifies any holder there as
+// HeldByManaged, and the import read that as "already represented by a managed
+// workspace — never double-provision" and returned nil. But that judgement was
+// made from the FILESYSTEM, not from this repo's rows: the worktree belongs to a
+// repo aggregate that no longer exists, so the branch produced no row for the new
+// repo and — the skip being the one silent path in provisioning — no warning
+// either. The repo imported with nothing but its home: no locked root, and
+// nothing to explain why.
+//
+// Every protected branch must yield a row. A managed holder this repo does not
+// own is a live holder like any other, so it lands as a PLACEHOLDER (spec §3.3).
+func TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsARow(t *testing.T) {
+	h := newHarness(t)
+
+	parent := t.TempDir()
+	repoDir := filepath.Join(parent, "shared")
+	// master is HEAD (so it is the home's branch); main is free for the first
+	// import to claim. Both are in the fallback protected set, which is resolved in
+	// the fixed order main → develop → master.
+	gitRepoWithBranches(t, repoDir, "master", "main")
+
+	projectsWS := h.dial("/v0/projects")
+	projectID := createProject(t, h, projectsWS, parent, "Alpha")
+	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
+	firstRepoID := addRepo(t, h, reposWS, projectID, repoDir)
+
+	first := collectWorkspacesUntil(t,
+		h.dial("/v0/projects/"+projectID+"/repos/"+firstRepoID+"/workspaces"),
+		func(seen map[string]homeWorkspaceDTO) bool {
+			_, ok := seen["main"]
+			return ok
+		})
+	orphan := first["main"]
+	require.Equal(t, "locked", orphan.Status, "the first import claims main as a locked workspace")
+	require.NotEmpty(t, orphan.LocalPath, "the first import gets a real managed worktree for main")
+
+	// Remove the repository. Its locked worktree is deliberately left on disk (the
+	// removal guard never touches a locked row), so the branch stays checked out.
+	resp := h.raw(http.MethodDelete,
+		"/v0/projects/"+projectID+"/repos/"+firstRepoID, nil, http.StatusAccepted)
+	_ = resp.Body.Close()
+	readUntil(t, reposWS, func(m map[string]any) bool {
+		return m["id"] == firstRepoID && m["status"] == "deleted"
+	})
+	require.DirExists(t, orphan.LocalPath,
+		"the locked worktree outlives the repo row — that is what makes this reachable")
+
+	// Re-add the folder. Allowed: the row that owned it is gone.
+	secondRepoID := addRepo(t, h, reposWS, projectID, repoDir, firstRepoID)
+
+	// master is resolved AFTER main, so its arrival proves main's decision is
+	// already made and broadcast — no polling, no deadline.
+	second := collectWorkspacesUntil(t,
+		h.dial("/v0/projects/"+projectID+"/repos/"+secondRepoID+"/workspaces"),
+		func(seen map[string]homeWorkspaceDTO) bool {
+			_, ok := seen["master"]
+			return ok
+		})
+
+	mainRow, ok := second["main"]
+	require.True(t, ok,
+		"a protected branch held by an orphaned managed worktree must still produce a row — "+
+			"skipping it imports the repo with no locked workspace and no warning")
+	assert.Equal(t, "locked", mainRow.Status, "the row is locked like every protected-branch row")
+	assert.False(t, mainRow.IsDefault, "it is not the repo home")
+	assert.Empty(t, mainRow.LocalPath, "it is a placeholder — the branch is checked out elsewhere")
+	assert.True(t, samePathResolved(t, orphan.LocalPath, mainRow.HeldByPath),
+		"the placeholder names the holder so it can explain itself: want %s, got %s",
+		orphan.LocalPath, mainRow.HeldByPath)
+	assert.NotEqual(t, orphan.ID, mainRow.ID, "each repo aggregate owns its own row")
+}
+
+// createProject creates a project rooted at path and returns its id once the
+// broadcast lands. projectsWS must be an already-dialled /v0/projects stream so
+// no frame is missed.
+func createProject(
+	t *testing.T,
+	h *harness,
+	projectsWS *websocket.Conn,
+	path string,
+	name string,
+) string {
+	t.Helper()
+	resp := h.raw(http.MethodPost, "/v0/projects",
+		map[string]string{"name": name, "path": path}, http.StatusAccepted)
+	_ = resp.Body.Close()
+	project := readUntil(t, projectsWS, func(m map[string]any) bool { return m["path"] == path })
+	projectID, _ := project["id"].(string)
+	require.NotEmpty(t, projectID)
+	return projectID
+}
+
+// addRepo adds repoPath to projectID and returns the new repo's id once its DTO
+// lands on the already-dialled reposWS. skip lists repo ids to ignore: a re-add
+// of a folder that was imported before sees the old row replayed in the
+// snapshot-on-subscribe burst, and matching on path alone would answer with it.
+func addRepo(
+	t *testing.T,
+	h *harness,
+	reposWS *websocket.Conn,
+	projectID string,
+	repoPath string,
+	skip ...string,
+) string {
+	t.Helper()
+	skipped := map[string]bool{}
+	for _, id := range skip {
+		skipped[id] = true
+	}
+	resp := h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
+		map[string]string{"name": filepath.Base(repoPath), "path": repoPath}, http.StatusAccepted)
+	_ = resp.Body.Close()
+	repo := readUntil(t, reposWS, func(m map[string]any) bool {
+		id, _ := m["id"].(string)
+		return m["path"] == repoPath && !skipped[id]
+	})
+	repoID, _ := repo["id"].(string)
+	require.NotEmpty(t, repoID)
+	return repoID
 }
 
 // TestRepoImport_UnbornBranchRepo_DegradesGracefully proves the git-safety

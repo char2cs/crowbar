@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	repohandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -150,6 +152,7 @@ type fakeRepoImporter struct {
 	gotRepoPath  string
 	repo         domain.Repository
 	err          error
+	importable   error
 	called       chan struct{}
 }
 
@@ -170,6 +173,17 @@ func (f *fakeRepoImporter) ImportRepo(
 	f.gotRepoPath = repoPath
 	f.called <- struct{}{}
 	return f.repo, f.err
+}
+
+// CheckRepoImportable answers the handler's synchronous pre-flight. importable
+// is the refusal this fake hands back — nil (the zero value) means "allowed", so
+// every existing case keeps its behaviour.
+func (f *fakeRepoImporter) CheckRepoImportable(
+	_ context.Context,
+	_ string,
+	_ string,
+) error {
+	return f.importable
 }
 
 // TestCreateRepo_RunsFullImport pins §14 Step 3: a valid create runs the full
@@ -236,6 +250,43 @@ func TestCreateRepo_ValidationFailsSync_4xx(
 	select {
 	case <-imp.called:
 		t.Fatal("importer must not run when synchronous validation fails")
+	default:
+	}
+}
+
+// TestCreateRepo_AlreadyImported_409 pins the one-folder-one-project rule at the
+// endpoint: a folder another project already owns is refused SYNCHRONOUSLY, with
+// the usecase's message intact, and no import is scheduled.
+//
+// Synchronous is the whole point. Create answers 202 and imports in the
+// background, where the only channel back to the client is the RepoDTO
+// broadcast — a refusal raised there is indistinguishable from a slow import,
+// so the dialog waits out its 30s timeout and reports that instead of the
+// conflict. The pre-flight turns it into an answer the user can read.
+func TestCreateRepo_AlreadyImported_409(
+	t *testing.T,
+) {
+	bc := newRecordingRepoBroadcaster()
+	imp := newFakeRepoImporter(domain.Repository{ID: "r1"})
+	imp.importable = fmt.Errorf("%w in the project %q", project.ErrRepoAlreadyImported, "Cloned")
+	r := gin.New()
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push).
+		WithStat(statRepoOK).
+		WithImporter(imp)
+	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
+
+	rec := doPost(r, "/v0/projects/p2/repos",
+		map[string]any{"name": "alpha", "path": "/tmp/repo"})
+	assert.Equal(t, http.StatusConflict, rec.Code, "a folder another project owns is a conflict, not a 500")
+	assert.Contains(t, rec.Body.String(), "Cloned",
+		"the refusal must name the project that already has the folder")
+
+	// See TestCreateRepo_ValidationFailsSync_4xx: WaitAsync is exact here because
+	// runAsync increments the WaitGroup on the request goroutine.
+	h.WaitAsync()
+	select {
+	case <-imp.called:
+		t.Fatal("a refused folder must never reach the importer")
 	default:
 	}
 }

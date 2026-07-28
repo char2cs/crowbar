@@ -57,6 +57,8 @@ import (
 //     provider-protected workspace; 04 §5, 05 §3/§4), fs.ErrExist (an fs
 //     mutation whose destination already exists, e.g. a copy landing on an
 //     existing path), enginesearch.ErrLocked,
+//     project.ErrRepoAlreadyImported (a repo folder a different project has
+//     already imported — one folder belongs to exactly one project),
 //     the worktree lock / non-leaf sentinels (ErrParentLocked,
 //     ErrWorkspaceLocked, ErrRebaseNonLeaf,
 //     ErrChildHasChildren), and the git
@@ -169,7 +171,8 @@ func isConflict(
 		errors.Is(err, fs.ErrExist) ||
 		errors.Is(err, worktree.ErrParentLocked) ||
 		errors.Is(err, worktree.ErrWorkspaceLocked) ||
-		errors.Is(err, worktree.ErrParentUnprovisioned) {
+		errors.Is(err, worktree.ErrParentUnprovisioned) ||
+		errors.Is(err, project.ErrRepoAlreadyImported) {
 		return true
 	}
 
