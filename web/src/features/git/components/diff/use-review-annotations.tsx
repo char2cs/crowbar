@@ -337,14 +337,22 @@ export function useReviewAnnotations({ wsId }: { wsId: string }): ReviewAnnotati
       getHoveredLine: (() => GetHoveredLineResult<'diff'> | undefined) | (() => unknown),
       item: CodeViewItem<ReviewThread>,
     ): ReactNode => (
-      // Filled rather than ghost. The library parks this button ON TOP of the
-      // gutter, so a transparent one let the line number read straight through
-      // the "+" — the two glyphs tangled and neither was legible. An opaque
-      // primary chip covers the number it replaces and is visible against both
-      // the added-line green and the removed-line red.
+      // Filled rather than ghost, and lifted above the gutter.
+      //
+      // The library parks this button over the gutter column, which is
+      // `position: sticky; z-index: 3` — and the wrapper it slots the button
+      // into carries no z-index of its own. So the button painted UNDER the
+      // line numbers: the number read straight through the "+", the two glyphs
+      // tangled, and the control was neither legible nor recognisable as one.
+      // Opacity alone could not fix that; what is on top has to change.
+      //
+      // z-10 clears the gutter's 3 and the annotation row's 2 while staying
+      // inside the file's own stacking context, and the filled primary chip is
+      // legible against both the added-line green and the removed-line red.
       <Button
         variant="default"
         size="icon-xs"
+        className="z-10"
         aria-label={`Comment on a line in ${item.id}`}
         onClick={() => {
           const hovered = getHoveredLine()
