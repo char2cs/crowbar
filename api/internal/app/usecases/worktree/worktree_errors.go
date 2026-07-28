@@ -62,3 +62,12 @@ var ErrRenameTargetExists = errors.New("usecases: a directory already exists for
 // not freed first: the user must detach the holder before a retry can succeed
 // (spec §3.3/§3.7).
 var ErrBranchStillHeld = errors.New("usecases: branch is still held; detach the holder first")
+
+// ErrBranchHeldByManagedWorkspace is returned by RetryProvision when the branch
+// is checked out by ANOTHER Crowbar-managed worktree — the same repo folder
+// imported under a second project, or a worktree outlasting the repo it was
+// created for. Detaching is not on offer here: freeing the branch would strand
+// the workspace that owns it, so this is not ErrBranchStillHeld's "detach the
+// holder first". The retry can only succeed once that workspace is gone.
+var ErrBranchHeldByManagedWorkspace = errors.New(
+	"usecases: branch is checked out in another Crowbar workspace")

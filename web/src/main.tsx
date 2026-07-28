@@ -13,7 +13,7 @@ import { ensureStartupAppearanceApplied } from '@/features/settings/lib/appearan
 import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initializer'
 import { initTreeCacheSubscription } from '@/features/editor/stores/tree-cache-store'
 import { initViewStoreSubscription } from '@/features/editor/stores/view-store'
-import { installPerfObserver, perfEnabled } from '@/lib/perf/instrumentation'
+import { installPerfObserver, perfEnabled, pushPerfEntry } from '@/lib/perf/instrumentation'
 import { prefetchEditorChunks } from '@/features/panes/components/prefetch-editor-chunks'
 import './index.css'
 
@@ -73,7 +73,7 @@ if (perfEnabled()) {
   void import('web-vitals').then(({ onINP }) => {
     onINP(
       (m) => {
-        window.__perfLog?.push({
+        pushPerfEntry({
           name: `INP:${m.rating}`,
           startTime: m.entries[0]?.startTime ?? 0,
           duration: m.value,

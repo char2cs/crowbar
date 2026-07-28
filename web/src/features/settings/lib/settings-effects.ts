@@ -146,9 +146,14 @@ function syncMacOSWindowAppearance(themeType: 'light' | 'dark') {
 }
 
 export function cacheFontSettings(
-  settings: Pick<Settings, 'fontFamily' | 'uiFontFamily' | 'uiFontSize'>,
+  settings: Pick<Settings, 'fontFamily' | 'uiFontFamily' | 'uiFontSize' | 'markdownFontSize'>,
 ) {
-  cacheFontsForBootstrap(settings.fontFamily, settings.uiFontFamily, settings.uiFontSize)
+  cacheFontsForBootstrap({
+    editorFontFamily: settings.fontFamily,
+    uiFontFamily: settings.uiFontFamily,
+    uiFontSize: settings.uiFontSize,
+    markdownFontSize: settings.markdownFontSize,
+  })
 }
 
 export function applySettingsSideEffects(settings: Settings) {
@@ -178,7 +183,12 @@ export function applySettingSideEffect<K extends keyof Settings>(
     void applyTheme(settings.theme)
   }
 
-  if (key === 'fontFamily' || key === 'uiFontFamily' || key === 'uiFontSize') {
+  if (
+    key === 'fontFamily' ||
+    key === 'uiFontFamily' ||
+    key === 'uiFontSize' ||
+    key === 'markdownFontSize'
+  ) {
     cacheFontSettings(getSettings())
   }
 

@@ -32,6 +32,38 @@ describe('isWindowEdge', () => {
     expect(isWindowEdge('right', { ...full, atRight: true }, 'right')).toBe(false)
     expect(isWindowEdge('right', { ...full, atRight: false }, 'left')).toBe(false)
   })
+
+  // A collapsed sidebar shields nothing: the pane is flush against the frame, so
+  // that edge has to square off. Getting this wrong left a rounded corner and a
+  // border on the window's own rounded, vibrant edge, and compositing it cost
+  // ~98ms per frame in WKWebView — 8ms frames became 106ms for as long as the
+  // sidebar stayed hidden.
+  it('treats the sidebar side as a window edge once the sidebar is collapsed', () => {
+    expect(isWindowEdge('left', { ...full, atLeft: true }, 'left', false)).toBe(true)
+    expect(isWindowEdge('right', { ...full, atRight: true }, 'right', false)).toBe(true)
+  })
+
+  it('still shields the pane while the sidebar is open', () => {
+    expect(isWindowEdge('left', { ...full, atLeft: true }, 'left', true)).toBe(false)
+    expect(isWindowEdge('right', { ...full, atRight: true }, 'right', true)).toBe(false)
+  })
+})
+
+describe('buildPaneContentStyle — collapsed sidebar', () => {
+  it('squares the corner the sidebar was covering', () => {
+    const open = buildPaneContentStyle(full, 'right', false, true)
+    expect(open.borderTopRightRadius).toBe('var(--radius-lg)')
+
+    const collapsed = buildPaneContentStyle(full, 'right', false, false)
+    expect(collapsed.borderTopRightRadius).toBe('0')
+    expect(collapsed.borderRight).toBe('none')
+  })
+
+  it('mirrors for a collapsed left sidebar', () => {
+    const collapsed = buildPaneContentStyle(full, 'left', false, false)
+    expect(collapsed.borderTopLeftRadius).toBe('0')
+    expect(collapsed.borderLeft).toBe('none')
+  })
 })
 
 describe('buildPaneContentStyle — left sidebar', () => {

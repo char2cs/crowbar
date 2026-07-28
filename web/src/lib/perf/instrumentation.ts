@@ -16,15 +16,34 @@ declare global {
   interface Window {
     __CROWBAR_PERF__?: boolean
     __perfLog?: PerfLogEntry[]
+    __measures?: PerfLogEntry[]
   }
 }
 
 const RING_CAP = 500
+// Measures are the signal; Event Timing entries are the noise that evicts them
+// from __perfLog within seconds under real interaction. External readers (perf
+// capture runs) read THIS ring, which only ever receives `measure` entries and
+// is sized for a full scenario rather than a few seconds.
+const MEASURE_RING_CAP = 2000
 let observer: PerformanceObserver | null = null
 const openMarks = new Set<string>()
 
 export function perfEnabled(): boolean {
   return Boolean(import.meta.env.DEV || window.__CROWBAR_PERF__)
+}
+
+/**
+ * Push an entry into the shared perf ring, honouring the cap. Exported so
+ * out-of-module producers (the INP reporter in main.tsx) cannot grow the ring
+ * without bound — a direct `window.__perfLog.push` did exactly that.
+ */
+export function pushPerfEntry(entry: PerfLogEntry): void {
+  if (!perfEnabled()) return
+  window.__perfLog ??= []
+  const log = window.__perfLog
+  log.push(entry)
+  if (log.length > RING_CAP) log.shift()
 }
 
 export function markStart(name: string): void {
@@ -58,6 +77,7 @@ export function markEnd(name: string): void {
 export function installPerfObserver(): void {
   if (!perfEnabled() || observer) return
   window.__perfLog ??= []
+  window.__measures ??= []
   observer = new PerformanceObserver((list) => {
     const log = window.__perfLog!
     for (const e of list.getEntries()) {
@@ -68,10 +88,21 @@ export function installPerfObserver(): void {
         entryType: e.entryType,
       })
       if (log.length > RING_CAP) log.shift()
-      // Mirrored into __perfLog — drop the native copies so the browser's
-      // own performance timeline doesn't grow unbounded for the page
-      // lifetime. Per-name only: other code's un-mirrored entries survive.
       if (e.entryType === 'measure') {
+        // Second, measure-only ring: __perfLog's 500 slots are flooded by Event
+        // Timing entries within seconds of real interaction, evicting the spans
+        // an external reader came for. This one never receives that noise.
+        const measures = window.__measures!
+        measures.push({
+          name: e.name,
+          startTime: e.startTime,
+          duration: e.duration,
+          entryType: e.entryType,
+        })
+        if (measures.length > MEASURE_RING_CAP) measures.shift()
+        // Mirrored into __perfLog — drop the native copies so the browser's
+        // own performance timeline doesn't grow unbounded for the page
+        // lifetime. Per-name only: other code's un-mirrored entries survive.
         performance.clearMeasures(e.name)
         performance.clearMarks(`${e.name}:end`)
         // clearMarks removes ALL marks of a name at once. A NEW span of the same
@@ -100,6 +131,7 @@ export function __resetPerfForTests(): void {
   observer = null
   openMarks.clear()
   delete window.__perfLog
+  delete window.__measures
   performance.clearMarks()
   performance.clearMeasures()
 }

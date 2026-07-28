@@ -39,7 +39,6 @@ type ReviewThreadDTO struct {
 type BranchReviewDTO struct {
 	Description   string            `json:"description"`
 	MergeStrategy string            `json:"mergeStrategy"`
-	Diff          MultiFileDiffDTO  `json:"diff"`
 	Threads       []ReviewThreadDTO `json:"threads"`
 }
 
@@ -102,7 +101,6 @@ func BranchReviewDTOFrom(
 	return BranchReviewDTO{
 		Description:   review.Description,
 		MergeStrategy: string(review.MergeStrategy),
-		Diff:          MultiFileDiffDTOFrom(review.Diff),
 		Threads:       ReviewThreadDTOList(review.Threads),
 	}
 }

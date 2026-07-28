@@ -2,6 +2,7 @@ package review_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -33,6 +34,7 @@ func (stubUsecase) Get(
 func (stubUsecase) GetFiles(
 	_ context.Context,
 	_ string,
+	_ string,
 ) ([]gitdomain.ReviewFileSummary, error) {
 	return nil, nil
 }
@@ -43,6 +45,35 @@ func (stubUsecase) SetMergeStrategy(
 	_ gitdomain.MergeStrategy,
 ) error {
 	return nil
+}
+
+func (stubUsecase) GetOutline(
+	_ context.Context,
+	_ string,
+	_ string,
+) ([]gitdomain.FileOutline, error) {
+	return nil, nil
+}
+
+func (stubUsecase) GetPatch(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ int,
+	_ io.Writer,
+) (int, bool, error) {
+	return 0, false, nil
+}
+
+func (stubUsecase) SearchDiff(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ gitdomain.SearchOpts,
+) ([]gitdomain.SearchHit, bool, error) {
+	return nil, false, nil
 }
 
 func TestRegisterMountsRoutes(
@@ -57,6 +88,9 @@ func TestRegisterMountsRoutes(
 	}{
 		{http.MethodGet, "/v0/workspaces/ws1/review"},
 		{http.MethodGet, "/v0/workspaces/ws1/review/files"},
+		{http.MethodGet, "/v0/workspaces/ws1/review/outline"},
+		{http.MethodGet, "/v0/workspaces/ws1/review/patch?path=a.go"},
+		{http.MethodGet, "/v0/workspaces/ws1/review/search?q=todo"},
 		{http.MethodPatch, "/v0/workspaces/ws1/review"},
 	}
 	for _, tc := range cases {

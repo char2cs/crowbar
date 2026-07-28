@@ -594,8 +594,23 @@ fn seed_hash_script(route: &str) -> Result<String, String> {
 /// including back to the root route; see `seed_hash_script`'s doc comment for why the
 /// guard is narrow rather than also matching `'#/'`.
 ///
-/// The window options must mirror tauri.conf.json's `app.windows[0]`: that config
-/// describes only the FIRST window, and a builder-made window inherits none of it.
+/// The window is built from tauri.conf.json's `app.windows[0]` with only the label
+/// changed, which is the pattern tauri's own `from_config` docs prescribe for multiple
+/// windows. That config describes only the FIRST window and a builder-made window
+/// inherits none of it, so the options were previously re-stated by hand — and the
+/// hand-written mirror was NOT equivalent, in a way that is invisible from the Rust
+/// side. `WebviewWindowBuilder::traffic_light_position` writes to the WEBVIEW
+/// attributes only (tauri-2.11.2 `webview/webview_window.rs:736`), whereas
+/// `from_config` populates the window attributes too (`WindowBuilder::from_config` →
+/// `tauri-runtime-wry` lib.rs:873). Those feed two independent macOS implementations
+/// of the same inset: wry's `WryWebViewParent` re-applies it from ITS `drawRect:`, tao
+/// re-applies it from the tao content view's. The tao view is the one that actually
+/// redraws under a webview-filled window, so a window with only the webview-side inset
+/// gets it applied once at webview creation — against a window frame height that is not
+/// yet final — and then never corrected. That is the whole bug: secondary windows'
+/// traffic lights sat at a different offset from the main window's. Deriving from the
+/// config keeps the two paths identical by construction, and any future change to the
+/// window config now reaches secondary windows for free.
 ///
 /// `async` with no `.await` in the body is deliberate, not dead ceremony: Tauri's own
 /// docs for `WebviewWindowBuilder::new` warn that on Windows, building a window from a
@@ -615,29 +630,31 @@ async fn open_window(app: tauri::AppHandle, route: String) -> Result<(), String>
     let label = format!("w{}", NEXT_WINDOW.fetch_add(1, Ordering::Relaxed));
     let seed_hash = seed_hash_script(&route)?;
 
-    let builder =
-        tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
-            .title("Crowbar")
-            .inner_size(1200.0, 800.0)
-            .resizable(true)
-            .transparent(true)
-            .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
-            .initialization_script(&seed_hash);
+    // Only the label differs. `create: false` is not set on this config entry, so the
+    // window it describes is also the one tauri made at startup and `label` MUST be
+    // overridden — two live windows cannot share one.
+    let mut config = tauri::Manager::config(&app)
+        .app
+        .windows
+        .first()
+        .cloned()
+        .ok_or_else(|| {
+            log::error!("open_window: tauri.conf.json declares no windows");
+            "no window config to clone".to_string()
+        })?;
+    config.label = label;
 
-    // Shadowed rather than reassigned through a `mut` binding: on non-macOS targets
-    // this cfg block compiles away entirely, which would leave a `mut` with no
-    // mutation left in scope and trip `unused_mut` under `-D warnings` (CI runs
-    // clippy on ubuntu-latest, not just macOS).
-    #[cfg(target_os = "macos")]
-    let builder = builder
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(12.0, 23.0));
-
-    let window = builder.build().map_err(|e| {
-        log::error!("open_window: build failed: {e}");
-        format!("open window: {e}")
-    })?;
+    let window = tauri::WebviewWindowBuilder::from_config(&app, &config)
+        .map_err(|e| {
+            log::error!("open_window: config is not a valid window: {e}");
+            format!("open window: {e}")
+        })?
+        .initialization_script(&seed_hash)
+        .build()
+        .map_err(|e| {
+            log::error!("open_window: build failed: {e}");
+            format!("open window: {e}")
+        })?;
 
     // Must hop to the main thread. `apply_vibrancy` opens with a hard
     // `MainThreadMarker::new().ok_or(Error::NotMainThread)` gate

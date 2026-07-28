@@ -13,6 +13,162 @@ Scenario protocol: pinned scenarios per spec §3.3, median of 3 runs, measured i
 | M7 | entry chunk JS (gzip) | **1,666,190 B** (raw 6,461,843 B; `index-BLdLAavC.js` @ 355d003f post-Wave-0; MonacoEnvironment markers ×6) + CSS 148,831 B gzip | ≤ 840,000 B gzip; 0 Monaco markers | **1,457,918 B** (raw 5,376,825 B; MonacoEnvironment markers ×3) — Task 4 | **481,307 B gzip** (raw 1,603,914 B; `index-CoUDXiAF.js`; **0 Monaco markers, 0 modulepreload**) + CSS 33,784 B gzip. **-71% vs baseline** ✅ |
 | RD | React Doctor score | **48/100** (670 issues: Bugs 85E/92W, Perf 6E/93W, Sec 1E/6W, A11y 1E/30W, Maint 353W) | 100/100, 0 issues | | **100/100 — No issues found** ✅ |
 
+## Diff-subsystem-at-scale program — Phase 0 baselines (2026-07-27)
+
+Separate program, separate scenario: `scripts/perf/gen-big-diff-fixture.sh`, not the 60-file/12k-line scenario the M-series above uses. Full results and methodology in `perf-phase0-attribution.md`.
+
+| # | Metric | Baseline | Budget | Notes |
+|---|--------|----------|--------|-------|
+| D1 | `GetFiles` (the `/review/files` hot path) | **489.8 ms/op** at 200 files / 100k lines | < 50ms, independent of diff size | A *tenth* of target scale. Called ≤4Hz with the review pane CLOSED |
+| D2 | `git diff --numstat` vs `--name-status` (1M-line fixture) | **345ms vs 51ms** (~6.7×) | — | numstat compute is O(diff size); the code comment claiming O(file count) describes output size only |
+| D3 | `lock.read.hold`, single reader | mean **203.9ms**, max **370.9ms** | < 100ms per acquisition | |
+| D4 | `lock.read.hold`, 16 concurrent readers | mean **180.0ms**, max **522.9ms** | < 100ms per acquisition | `lock.read.wait` / `lock.write.wait` both 0.0ms — writer starvation NOT reproduced |
+| D5 | `ChangedFilesTree` DOM cost | **500 files → 500 rows, 6,292 nodes** (12.6/file) | O(viewport), not O(files) | Permanently mounted: all 4 carousel panels are `display:flex`/`visible`, confirmed live |
+| D6 | Entry chunk (gzip), pre-Shiki | **243,804 B** (raw 692,175 B) | ≤ 840,000 B | 596 KB headroom for Phase 3 |
+
+Caveats: D1–D4 measured on a *clean* worktree; the reported symptom occurs while agents churn the tree, which makes `Status()` and the working-tree diff strictly more expensive — these are a floor. D6 measured via `vite build` directly (`bun run build` runs `tsc` first, currently red on a sibling session's untracked file).
+
+### Phase 1 results (2026-07-27)
+
+| # | Metric | Baseline | After Phase 1 | Verdict |
+|---|--------|----------|---------------|---------|
+| D1 | `GetFiles` bench, 200 files / 100k lines | 489.8 ms/op | **~94 ms/op** | 5.2× — budget replaced, see below |
+| D3 | `lock.read.hold`, bench | mean 203.9ms / max 370.9ms | **mean 33ms / max 45.9ms** | ✅ under 100ms |
+| D5 | `ChangedFilesTree`, 500 files | 500 rows / 6,292 nodes | **39 rows / 502 nodes** | ✅ bounded |
+| — | `git.diff` invocations per `GetFiles` | 2 | **1** | whole-branch numstat gone |
+
+**Live, end-to-end through the real daemon, on the 1M-line / 407-file fixture workspace** (`/v0/.../review/files`, warm cache, instrumentation armed):
+
+| sample | value |
+|---|---|
+| `http.GET …/review/files` | **73.6 ms mean** (71–77ms wall) |
+| `lock.read.hold` | **22.6 ms mean, 30.5 ms max** |
+| `git.diff` | 1 call, 16.1 ms |
+| `git.merge-base` | 2 calls, 13.7 ms each |
+| `git.status` | 16.3 ms |
+| `git.rev-parse` | 12.8 ms |
+| `lock.read.wait` | 0.0 ms |
+
+Phase 0 measured the same endpoint's git work at ~440ms on this fixture (name-status 51 + numstat 345 + status 44), so this is **~6× faster at target scale**.
+
+**The result that matters:** 73.6ms at **1M lines** is *faster* than the 94ms benchmark at **100k lines**. Cost no longer tracks diff size — invariant 3 demonstrated at target scale, not merely argued. At a 4Hz tick that is a ~29% duty cycle instead of over 100%.
+
+The `<50ms` figure in the original spec was replaced rather than met; it was picked before measurement and the residue is process-spawn floor (~13ms per `git` invocation on this machine, established by `rev-parse HEAD` which does no real work). See the spec's budget-correction note.
+
+**Frontend live check:** with 407 changed files the Git panel holds **614 DOM nodes / 36 rows**; scrolling to 6000px moves the window (48 rows) while the scroll extent stays 10,704px = 446 rows × 24px. Rendering verified by screenshot: folder nesting, indentation, icons, ±badges, binary marker, 108fps.
+
+### Phase 2 results — windowed diff API (2026-07-27)
+
+Live through the real daemon on the 1M-line / 407-file fixture workspace.
+
+| endpoint | result |
+|---|---|
+| `review/outline` | 2,283,960 B raw → **26,927 B gzipped (84.8×)**, 580 ms, 407 files / 38,604 hunks / 1 partial |
+| `review/patch`, uncapped | **13,282,412 B streamed in 127 ms** |
+| `review/patch`, `maxLines=2000` | 142 B + readable `X-Crowbar-Diff-Truncated: true` |
+| `review/patch`, ordinary file | 75,201 B in 38 ms |
+| `review/search`, literal, limit 200 | 200 hits, truncated, **44 ms** |
+| `review/search`, regex, limit 100 | 100 hits, 41 ms |
+| `review/search`, no match (full 46 MB scan) | 0 hits, 700 ms |
+| missing `path` / invalid regex | 400 |
+
+Daemon-side memory measured with `getrusage(RUSAGE_SELF)` — whole-process
+`time(1)` is meaningless here because `git diff -M -U3` *itself* peaks at
+71.3 MB on this fixture. Outline 17.7 MB RSS / 6.4 MB total alloc across 1.44M
+lines; patch 16.98 MB vs 57.25 MB buffering; search 17.7 MB, flat against both
+diff size and hit count.
+
+**Gzip beat its own pessimistic bound by 13×** — 26.9 KB against an estimated
+359 KB, because real hunk numbers are far more regular than the randomised
+entropy model used to bound it. The outline payload is a non-issue on the wire;
+if anything bites in Phase 3 it will be `JSON.parse` and the ~38.6k objects the
+webview allocates, which compression does not help.
+
+### Phase 3 results — the windowed renderer (2026-07-27)
+
+Live, on `review-demo` (child of protected `main`, 406 files / 1,005,251
+insertions), clean app instance:
+
+| | before | after |
+|---|---|---|
+| `/review` composite payload | 165,808,569 B | **79 B** |
+| …and its per-line JSON objects | 1,441,452 | **0** (field removed) |
+| `/review` response time | 1.37 s | **1.5 ms** |
+| webview RSS, review open | 1,162 MB peak | **864 MB** (baseline 521 → +343 MB) |
+| webview RSS after scrolling 2.4M px | — | **862 MB — flat** |
+| retained after closing the tab | 544 MB | n/a (no diff is held) |
+
+Rendering verified by screenshot at depth: `review-demo → main`, split view,
+syntax highlighting on both sides, sticky file header, binary file handled as
+its own row, 120 fps / 0 drops.
+
+**BLOCKER, not fixed — severity corrected 2026-07-28.**
+
+This was first written up as "a header over blank space until the next scroll
+event". That understated it, and the understatement came from testing with
+small synthetic scrolls. Driving the app the way a person actually does — a
+long, fast scroll — puts the surface into a **persistently wrong state**:
+
+- file headers render with blank space where their content should be;
+- the position↔content mapping is corrupted, not merely stale. After scrolling
+  back to offset 1,500 (the very top of the diff) the surface still displayed
+  `src/scattered/pkg14/file34.ts`, a file from deep in the list;
+- **it does not self-heal.** Neither small scrolls (6 × 400px) nor large ones
+  (40 × −3000px) recover it.
+
+The only recovery is remounting the surface: **close the Branch Review tab and
+reopen it**, which restores it correctly at the top.
+
+So the earlier "one frame stale band" explanation is incomplete. A stale band
+alone would be corrected by the next scroll event, and it is not. The failure
+is that the library's own layout cache and the placeholder heights diverge
+while fast scrolling materialises files underneath the viewport, and nothing
+reconciles them afterwards.
+
+Incremental wheel-speed scrolling still works correctly and cheaply (one patch
+request, content renders), which is why every earlier measurement looked clean.
+
+Three fixes were attempted and all three were reverted, because each was worse
+than the problem: deriving the band from `getRenderedItems()` alone stalled on
+the stale set; unioning it with the offset estimate produced a 350-file band
+where every file reports distance 0, so the budget kept an arbitrary prefix;
+and a deferred re-plan fed itself — **2,119 patch requests from a single
+scroll**, measured. The committed state is the one that is verifiably best.
+A correct fix needs a re-plan driven by the renderer's own post-draw signal
+(it exposes `onSnapshotChange`), not by scroll events.
+
+### The review pane itself — measured on the real use case (2026-07-27)
+
+Everything above measures the *sidebar tick* path. The Branch Review pane —
+the GitHub-like step where a CHILD workspace's whole branch is reviewed against
+its PARENT — still loads the old composite `/review`, and Phase 3 is what
+changes that. Measured on `review-demo`, a child of the protected `main`, one
+commit ahead, working tree clean, 406 files / 1,005,251 insertions:
+
+| | value |
+|---|---|
+| `/review` composite payload | **165,808,569 B (158 MB)** |
+| per-line JSON objects in it | **1,441,452** |
+| webview RSS, peak during load | **1,162 MB** |
+| webview RSS, retained after CLOSING the review tab | **544 MB** |
+| time to render | ~10s |
+
+The retention is not incidental: `use-review-diff.ts` documents that
+`branchReview.diffCache` deliberately survives a pane close, so the whole diff
+stays resident after the user has moved on. Windowing (Phase 3) is what makes
+that a constant instead of 544 MB.
+
+Note the two paths resolve their base differently and BOTH are supported
+(`branch_review.go` → `resolveBase`): a workspace with a `ParentID` diffs
+against its **parent's branch** — the primary review case — and one without
+falls back to the repo's default branch.
+
+**Known shape for Phase 3:** the fixture's monster file is a *single*
+420k-line hunk, so no hunk fits under the default cap and the response rounds
+down to a 142-byte header-only patch with `truncated: true`. Correct by design
+(rounding up would return all 420k lines and defeat the cap), but the client
+must render that as "show all", not as an empty file.
+
 **Task-33 methodology & measurement caveats (read before trusting the Final column):**
 - **Prod-shaped rig** = `vite build` output (no react-scan, no HMR — react-scan is `import.meta.env.DEV`-gated so it is absent from a build) served by `vite preview` on :5173 to the running **dev Tauri shell** (so the MCP bridge on :9223 stays available for measurement). Confirmed live: `window.__REACT_SCAN__` absent, `@vite/client` absent. `window.__CROWBAR_PERF__=true` set post-boot so `markStart/markEnd` record (they gate at call-time).
 - **Hidden-window rAF shim.** The window was on an inactive Space the whole run (`visibilityState==="hidden"`, un-foregroundable — two Crowbar apps run; osascript name-targeting was avoided to protect the user's PRODUCTION app). `workspace.switch` and `diff.open` close their spans in a `requestAnimationFrame`, which never fires while hidden, so a `requestAnimationFrame = cb=>setTimeout(cb,0)` shim was installed. Verified `setTimeout(0)` is **not** clamped here (~0ms; backgroundThrottling:disabled), so shimmed spans are honest synchronous cost — real hardware adds paint/reflow on top, so these run slightly **low** for the paint tail.

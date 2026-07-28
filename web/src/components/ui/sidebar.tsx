@@ -37,6 +37,17 @@ export function useSidebar(): SidebarContextProps {
   return context
 }
 
+/**
+ * The sidebar context, or null outside a provider.
+ *
+ * For consumers that merely ADJUST themselves to the sidebar rather than drive
+ * it — a pane squaring off the window edge the sidebar stopped covering, say —
+ * and so must stay renderable on their own.
+ */
+export function useSidebarOptional(): SidebarContextProps | null {
+  return React.useContext(SidebarContext)
+}
+
 export function SidebarProvider({
   defaultOpen = true,
   open: openProp,

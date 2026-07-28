@@ -67,4 +67,41 @@ describe('stripNewTabs', () => {
 
     expect(stripNewTabs(clean)).toBe(clean)
   })
+
+  it('drops a buffer whose content type this build no longer has', () => {
+    // A saved layout outlives the code that wrote it. `diff` was the old Monaco
+    // commit-diff tab; a layout written before it was retired restores into a
+    // renderer that is gone, and the tab paints blank with nothing to say it is
+    // stale rather than broken. Graceful fallback, deliberately not migration.
+    const stale = {
+      buffers: [
+        { id: 'old-1', type: 'diff', path: 'diff://commit/abc/all-files', name: 'Commit abc' },
+        { id: 'e-1', type: 'editor', path: '/a.ts', name: 'a.ts' },
+      ],
+      panes: {
+        root: { id: 'root', bufferIds: ['old-1', 'e-1'], activeBufferId: 'old-1' },
+      },
+    } as unknown as Snapshot
+
+    const out = stripNewTabs(stale)
+
+    expect(out.buffers.map((b) => b.id)).toEqual(['e-1'])
+    // The pane must not be left pointing at the id that just vanished.
+    expect(out.panes.root.bufferIds).toEqual(['e-1'])
+    expect(out.panes.root.activeBufferId).toBe('e-1')
+  })
+
+  it('keeps every type this build DOES know, including the new commit diff', () => {
+    const current = {
+      buffers: [
+        { id: 'c-1', type: 'commitDiff', wsId: 'w1', sha: 'abc1234', name: 'Commit abc1234' },
+        { id: 'br-1', type: 'branchReview', wsId: 'w1', name: 'Branch Review' },
+      ],
+      panes: {
+        root: { id: 'root', bufferIds: ['c-1', 'br-1'], activeBufferId: 'c-1' },
+      },
+    } as unknown as Snapshot
+
+    expect(stripNewTabs(current)).toBe(current)
+  })
 })

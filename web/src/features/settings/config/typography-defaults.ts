@@ -18,3 +18,8 @@ export const DEFAULT_CODE_FONT_SIZE = 14
 export const DEFAULT_UI_FONT_SIZE_OFFSET = 1
 export const DEFAULT_UI_FONT_SIZE = DEFAULT_CODE_FONT_SIZE + DEFAULT_UI_FONT_SIZE_OFFSET
 export const DEFAULT_TERMINAL_FONT_SIZE = DEFAULT_CODE_FONT_SIZE
+// The markdown document surface reads at a document size, not a code size —
+// deliberately larger than DEFAULT_CODE_FONT_SIZE and tracked separately.
+// 16 is what the `1rem` that markdown-editor.css used to hardcode resolves to
+// (nothing overrides the root font-size), so the default changes nothing.
+export const DEFAULT_MARKDOWN_FONT_SIZE = 16

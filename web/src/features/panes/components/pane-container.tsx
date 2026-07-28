@@ -5,10 +5,9 @@ import {
 } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
-import { stageHunk, unstageHunk } from '@/features/git/api/git-status-api'
-import type { GitHunk } from '@/features/git/types/git-types'
 import { useSettingsStore } from '@/features/settings/store'
 import { buildPaneContentStyle } from '../utils/pane-border'
+import { useSidebarOptional } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
 import { ROOT_PANE_POSITION, type PanePosition } from '../types/pane'
 import TabBar from '@/features/tabs/components/tab-bar'
@@ -67,7 +66,9 @@ const AgentChatPane = lazy(() =>
   })),
 )
 const EditorPane = lazy(() => import('./editor-pane').then((m) => ({ default: m.EditorPane })))
-const DiffPane = lazy(() => import('./diff-pane').then((m) => ({ default: m.DiffPane })))
+const CommitDiffPane = lazy(() =>
+  import('./commit-diff-pane').then((m) => ({ default: m.CommitDiffPane })),
+)
 import { TerminalPane } from './terminal-pane'
 
 interface PaneContainerProps {
@@ -107,7 +108,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       workspaceStore.getState().bufferActions.openContent({ type: 'terminal', ...options }),
     [workspaceStore],
   )
-  const rootFolderPath = useFileSystemStore.use.rootFolderPath?.()
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
   const isActivePane = pane.id === activePaneId
@@ -116,9 +116,18 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   // exists when there is more than one pane on screen. With a single pane it marks the
   // only thing you could possibly be looking at, so it is pure decoration.
   const visiblePaneCount = useVisiblePaneCount()
+  // A collapsed sidebar stops shielding the pane from the window frame, so the
+  // pane has to square off that edge — see isWindowEdge.
+  const sidebarOpen = useSidebarOptional()?.open ?? true
   const paneContentStyle = useMemo(
-    () => buildPaneContentStyle(position, sidebarPosition, isActivePane && visiblePaneCount > 1),
-    [position, sidebarPosition, isActivePane, visiblePaneCount],
+    () =>
+      buildPaneContentStyle(
+        position,
+        sidebarPosition,
+        isActivePane && visiblePaneCount > 1,
+        sidebarOpen,
+      ),
+    [position, sidebarPosition, isActivePane, visiblePaneCount, sidebarOpen],
   )
 
   const [isDragOver, setIsDragOver] = useState(false)
@@ -224,36 +233,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       }
     },
     [handleFileOpen, pane.id, workspaceStore],
-  )
-
-  const handleStageHunk = useCallback(
-    async (hunk: GitHunk) => {
-      if (!rootFolderPath) return
-      try {
-        const success = await stageHunk(rootFolderPath, hunk)
-        if (success) {
-          window.dispatchEvent(new CustomEvent('git-status-changed'))
-        }
-      } catch (error) {
-        console.error('Error staging hunk:', error)
-      }
-    },
-    [rootFolderPath],
-  )
-
-  const handleUnstageHunk = useCallback(
-    async (hunk: GitHunk) => {
-      if (!rootFolderPath) return
-      try {
-        const success = await unstageHunk(rootFolderPath, hunk)
-        if (success) {
-          window.dispatchEvent(new CustomEvent('git-status-changed'))
-        }
-      } catch (error) {
-        console.error('Error unstaging hunk:', error)
-      }
-    },
-    [rootFolderPath],
   )
 
   const handleExternalEditorExit = useCallback(() => {
@@ -484,14 +463,8 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
             />
           )
 
-        case 'diff':
-          return (
-            <DiffPane
-              onStageHunk={handleStageHunk}
-              onUnstageHunk={handleUnstageHunk}
-              isActivePane={isActivePane}
-            />
-          )
+        case 'commitDiff':
+          return <CommitDiffPane sha={buffer.sha} isActivePane={isActivePane} />
 
         case 'externalEditor':
           return (
@@ -537,15 +510,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           )
       }
     },
-    [
-      handleExternalEditorExit,
-      handlePromote,
-      handleStageHunk,
-      handleUnstageHunk,
-      isActivePane,
-      pane.id,
-      pane.previewBufferId,
-    ],
+    [handleExternalEditorExit, handlePromote, isActivePane, pane.id, pane.previewBufferId],
   )
 
   return (
@@ -585,9 +550,16 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         disablePaneActions={pane.id === BOTTOM_PANE_ID}
       />
       <div
+        // Hook for the drag-time flattening rule in index.css — a rounded,
+        // shadowed surface re-rasterised every frame is what makes dragging
+        // crawl.
+        data-pane-content=""
         className={cn(
           'relative z-[1] min-h-0 flex-1 overflow-hidden bg-pane-background',
-          (sidebarPosition === 'left' ? position.atLeft : position.atRight) &&
+          // Casts onto the sidebar, so it only makes sense while there is a
+          // sidebar there to catch it.
+          sidebarOpen &&
+            (sidebarPosition === 'left' ? position.atLeft : position.atRight) &&
             'shadow-[0_3px_8px_rgba(0,0,0,0.24)]',
         )}
         style={paneContentStyle}

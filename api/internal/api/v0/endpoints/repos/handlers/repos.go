@@ -127,6 +127,15 @@ type RepoImporter interface {
 		name string,
 		repoPath string,
 	) (domain.Repository, error)
+	// CheckRepoImportable reports whether repoPath may be imported under
+	// projectID — it refuses a folder another project has already added. Create
+	// runs it BEFORE the 202 so the refusal is an HTTP error the add-repo dialog
+	// can show, rather than a background failure the client waits out.
+	CheckRepoImportable(
+		ctx context.Context,
+		projectID string,
+		repoPath string,
+	) error
 }
 
 // RepoRenamer updates a repository's display name (and its derived avatar) and
@@ -328,6 +337,17 @@ func (h *Handlers) Create(
 	if _, err := h.stat(body.Path); err != nil {
 		libs.WriteErr(c, http.StatusBadRequest, "path does not exist")
 		return
+	}
+	// A folder another project already owns is refused here, synchronously: the
+	// import itself runs after the 202, where its only channel back to the client
+	// is a broadcast that never comes — the dialog would sit on a 30s wait and
+	// then blame a timeout for what is a plain, answerable conflict.
+	if h.importer != nil {
+		if err := h.importer.CheckRepoImportable(c.Request.Context(), body.ProjectID, body.Path); err != nil {
+			status, msg := libs.StatusAndMessage(err)
+			libs.WriteErr(c, status, msg)
+			return
+		}
 	}
 	libs.WriteAccepted(c)
 	h.runAsync(c.Request.Context(), func(ctx context.Context) {

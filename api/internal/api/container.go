@@ -44,6 +44,7 @@ func New(
 	router.MaxMultipartMemory = maxMultipartMemory
 	router.Use(
 		middleware.Logger(),
+		middleware.Timing(),
 		middleware.Recovery(),
 		middleware.CORS(),
 		middleware.BodyLimit(maxRequestBodyBytes),

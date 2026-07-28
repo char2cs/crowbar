@@ -21,7 +21,7 @@ type reviewFilesResponse struct {
 func (h *Handlers) GetFiles(
 	ctx *gin.Context,
 ) {
-	files, err := h.reviewUsecase.GetFiles(ctx.Request.Context(), ctx.Param("wsId"))
+	files, err := h.reviewUsecase.GetFiles(ctx.Request.Context(), ctx.Param("wsId"), scopeCommit(ctx))
 	if err != nil {
 		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
 		return

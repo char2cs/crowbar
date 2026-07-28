@@ -984,6 +984,15 @@ func (u *worktreeUsecase) RetryProvision(
 	if outcome.Kind == holder.HeldByHome || outcome.Kind == holder.HeldByExternal {
 		return domain.Workspace{}, fmt.Errorf("%w (%s at %s)", ErrBranchStillHeld, ws.Branch, outcome.HeldByPath)
 	}
+	// A managed holder is a live holder too. git will refuse to check the branch
+	// out twice, so provisioning cannot succeed — refuse with the reason instead
+	// of letting `git worktree add` fail deep in materialize. It became reachable
+	// when import stopped silently dropping a protected branch held by a managed
+	// worktree that outlived its repo row, which is exactly the row that lands here.
+	if outcome.Kind == holder.HeldByManaged {
+		return domain.Workspace{}, fmt.Errorf(
+			"%w (%s at %s)", ErrBranchHeldByManagedWorkspace, ws.Branch, outcome.HeldByPath)
+	}
 	path, err := u.deriveWorktreePath(ctx, home, ws.ProjectID, ws.RepoID, "", ws.Branch)
 	if err != nil {
 		return domain.Workspace{}, err

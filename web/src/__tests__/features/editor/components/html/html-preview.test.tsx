@@ -15,7 +15,7 @@ describe('HtmlPreview iframe sandbox', () => {
     const store = createWorkspaceStore('w1')
     // Any active buffer makes `hasSourceBuffer` true so the iframe renders.
     store.getState().bufferActions.openContent({
-      type: 'diff',
+      type: 'editor',
       path: '/repo/a.html',
       name: 'a.html',
       content: '<h1>hi</h1>',

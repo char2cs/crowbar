@@ -30,8 +30,10 @@ func TestBranchReview_GetFiles_MergesWorkingTreeState(t *testing.T) {
 	}
 
 	var gotRef string
+	var gotDirty []string
 	gitEng := &mockGitEngine{
-		ReviewFilesFn: func(_ context.Context, _, ref string) ([]gitdomain.ReviewFileSummary, error) {
+		ReviewFilesFn: func(_ context.Context, _, ref string, dirty []string) ([]gitdomain.ReviewFileSummary, error) {
+			gotDirty = dirty
 			gotRef = ref
 			return []gitdomain.ReviewFileSummary{
 				{Path: "committed.go", Status: gitdomain.GitFileStatusModified, Additions: 5, Deletions: 2},
@@ -48,10 +50,12 @@ func TestBranchReview_GetFiles_MergesWorkingTreeState(t *testing.T) {
 
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	files, err := uc.GetFiles(ctx, "ws1")
+	files, err := uc.GetFiles(ctx, "ws1", "")
 	require.NoError(t, err)
 
 	assert.Equal(t, "fork1", gotRef, "GetFiles must diff against the recorded fork point")
+	assert.Equal(t, []string{"wip.go", "scratch.txt"}, gotDirty,
+		"the status GetFiles already fetches must be threaded into ReviewFiles, not fetched twice")
 
 	byPath := make(map[string]gitdomain.ReviewFileSummary, len(files))
 	for _, f := range files {
@@ -82,8 +86,11 @@ func TestBranchReview_GetFiles_StatusFailureIsNonFatal(t *testing.T) {
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
 	}
+	sawDirty := false
+	var gotDirty []string
 	gitEng := &mockGitEngine{
-		ReviewFilesFn: func(_ context.Context, _, _ string) ([]gitdomain.ReviewFileSummary, error) {
+		ReviewFilesFn: func(_ context.Context, _, _ string, dirty []string) ([]gitdomain.ReviewFileSummary, error) {
+			sawDirty, gotDirty = true, dirty
 			return []gitdomain.ReviewFileSummary{
 				{Path: "committed.go", Status: gitdomain.GitFileStatusModified, Additions: 1},
 			}, nil
@@ -95,11 +102,14 @@ func TestBranchReview_GetFiles_StatusFailureIsNonFatal(t *testing.T) {
 
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	files, err := uc.GetFiles(ctx, "ws1")
+	files, err := uc.GetFiles(ctx, "ws1", "")
 	require.NoError(t, err, "a status failure must not fail the whole summary")
 	require.Len(t, files, 1)
 	assert.Equal(t, "committed.go", files[0].Path)
 	assert.False(t, files[0].Uncommitted)
+	require.True(t, sawDirty)
+	assert.Nil(t, gotDirty,
+		"an unknown dirty set must be nil, not empty: empty would claim a clean tree and serve cached counts")
 }
 
 func TestBranchReview_GetFiles_MissingWorkspace_IsNotFound(t *testing.T) {
@@ -112,7 +122,7 @@ func TestBranchReview_GetFiles_MissingWorkspace_IsNotFound(t *testing.T) {
 	}
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), &mockGitEngine{})
 
-	_, err := uc.GetFiles(ctx, "nope")
+	_, err := uc.GetFiles(ctx, "nope", "")
 	require.ErrorIs(t, err, apperr.ErrNotFound)
 }
 
@@ -124,13 +134,13 @@ func TestBranchReview_GetFiles_ReviewFilesError(t *testing.T) {
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
 	}
 	gitEng := &mockGitEngine{
-		ReviewFilesFn: func(_ context.Context, _, _ string) ([]gitdomain.ReviewFileSummary, error) {
+		ReviewFilesFn: func(_ context.Context, _, _ string, _ []string) ([]gitdomain.ReviewFileSummary, error) {
 			return nil, errors.New("git: not a repository")
 		},
 	}
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	_, err := uc.GetFiles(ctx, "ws1")
+	_, err := uc.GetFiles(ctx, "ws1", "")
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, apperr.ErrNotFound)
 }

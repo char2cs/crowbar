@@ -230,6 +230,18 @@ type ImportUsecase interface {
 		name string,
 		repoPath string,
 	) (domain.Repository, error)
+	// CheckRepoImportable reports whether repoPath may be imported under
+	// projectID, returning ErrRepoAlreadyImported (wrapped with the owning
+	// project's name) when another project already has that folder. ImportRepo
+	// enforces the same rule, but the add-repo endpoint answers 202 and imports
+	// in the background — a refusal raised there would reach the user as a
+	// timed-out wait for an entity that is never coming, so the endpoint runs
+	// this first and fails the request synchronously instead.
+	CheckRepoImportable(
+		ctx context.Context,
+		projectID string,
+		repoPath string,
+	) error
 }
 
 type projectImport struct {
@@ -355,6 +367,12 @@ func (u *projectImport) importOneRepo(
 	// worktrees all fail (their branches are already checked out by the first import).
 	if existing, ok := u.existingRepo(ctx, project.ID, repoPath); ok {
 		return existing, nil
+	}
+	// The same folder under a DIFFERENT project is not a dedup — it is a refusal.
+	// Bulk discovery reaches this too: importRepos logs and skips a repo that
+	// errors, which is exactly right for a folder another project already owns.
+	if err := u.CheckRepoImportable(ctx, project.ID, repoPath); err != nil {
+		return domain.Repository{}, err
 	}
 	// The user-supplied name (add-repo form) wins; bulk discovery passes "" and
 	// falls back to the folder name.
@@ -510,6 +528,55 @@ func (u *projectImport) adoptRepoHome(
 	return nil
 }
 
+// CheckRepoImportable refuses repoPath when a DIFFERENT project has already
+// imported that folder (symlink-resolving path compare, so the same repo reached
+// through a symlinked root is still caught).
+//
+// Two projects cannot share a folder: git checks a branch out in one worktree at
+// a time, so the second project's import claims nothing — every protected branch
+// its sibling already holds lands as a placeholder, and the repository sits there
+// looking imported while being unable to manage a single branch. Refusing up
+// front is the honest answer, and it names the project that has the folder so the
+// user knows where it went.
+//
+// A FindAll failure degrades to "importable", matching existingRepo: a read
+// failure must not block a legitimate import.
+func (u *projectImport) CheckRepoImportable(
+	ctx context.Context,
+	projectID string,
+	repoPath string,
+) error {
+	repos, err := u.deps.Repos.FindAll(ctx)
+	if err != nil {
+		return nil
+	}
+	for _, r := range repos {
+		if r.ProjectID == projectID || !samePath(r.Path, repoPath) {
+			continue
+		}
+		owner := u.projectName(ctx, r.ProjectID)
+		if owner == "" {
+			return ErrRepoAlreadyImported
+		}
+		return fmt.Errorf("%w in the project %q", ErrRepoAlreadyImported, owner)
+	}
+	return nil
+}
+
+// projectName resolves a project's display name for the already-imported
+// message, returning "" when it cannot be read — the refusal still stands, it
+// just loses the pointer to where the folder already lives.
+func (u *projectImport) projectName(
+	ctx context.Context,
+	projectID string,
+) string {
+	p, err := u.deps.Projects.FindByKey(ctx, projectID)
+	if err != nil || p == nil {
+		return ""
+	}
+	return p.Name
+}
+
 // existingRepo returns an already-imported repository at repoPath under projectID
 // (symlink-resolving path compare), so a re-add/re-import is a no-op. A FindAll
 // failure is treated as "not found" — proceed with the import rather than block it.
@@ -572,11 +639,26 @@ func (u *projectImport) provisionProtectedWorktrees(
 }
 
 // provisionProtectedBranchWorktree materialises one protected branch. It first
-// resolves who holds the branch (pruning dead registrations): a live holder
-// Crowbar may not seize without consent (the repo home, or an external worktree)
-// yields a PLACEHOLDER row (locked, empty WorktreePath, HeldByPath = holder);
-// an already-managed holder is skipped; a free branch gets its own managed
-// worktree. This is the SINGLE owner of placeholder creation (spec §3.2/§3.5).
+// resolves who holds the branch (pruning dead registrations): ANY live holder
+// yields a PLACEHOLDER row (locked, empty WorktreePath, HeldByPath = holder),
+// and only a free branch gets its own managed worktree. This is the SINGLE owner
+// of placeholder creation (spec §3.2/§3.5).
+//
+// A holder under the crowbar home (holder.HeldByManaged) used to be skipped as
+// "already represented by a managed workspace — never double-provision". That
+// judgement was made from the FILESYSTEM, not from this repo's rows, and it can
+// never be about THIS repo: importOneRepo returns early for an already-imported
+// folder, so the repo aggregate reaching here is always brand new and owns no
+// workspace yet. The holder is somebody else's — in practice a managed worktree
+// that outlived the repo it was created for, since removing a repository deletes
+// its row but leaves its LOCKED worktrees on disk — and a branch git will not let
+// this repo check out is held, not represented. Skipping it dropped the branch
+// with no row AND no warning (the skip was the one silent path in provisioning),
+// so re-adding such a folder produced a repo with no locked workspace and nothing
+// to explain why.
+//
+// The other way here — two projects importing one folder — is now refused
+// outright by CheckRepoImportable, so it can no longer reach this code.
 func (u *projectImport) provisionProtectedBranchWorktree(
 	ctx context.Context,
 	repo domain.Repository,
@@ -587,11 +669,7 @@ func (u *projectImport) provisionProtectedBranchWorktree(
 	if err != nil {
 		return fmt.Errorf("resolve holder for %q: %w", branch, err)
 	}
-	switch outcome.Kind { //nolint:exhaustive // holder.Free is intentionally handled by the code after the switch (free branch → provision a managed worktree)
-	case holder.HeldByManaged:
-		// Already represented by a managed workspace — never double-provision.
-		return nil
-	case holder.HeldByHome, holder.HeldByExternal:
+	if outcome.Kind != holder.Free {
 		return u.createPlaceholderWorkspace(ctx, repo, branch, outcome.HeldByPath)
 	}
 	// Free: provision the managed worktree at its human-readable derived path

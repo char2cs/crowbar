@@ -34,17 +34,22 @@ const GIT_STATUS_DEBOUNCE_MS = 250
  * failed fetch is swallowed (the sidebar keeps its fallback rather than
  * crashing). Passing a null wsId disables all fetching and returns empty.
  */
-export function useReviewFilesSummary(wsId: string | null): UseReviewFilesSummaryResult {
+export function useReviewFilesSummary(
+  wsId: string | null,
+  commit?: string,
+): UseReviewFilesSummaryResult {
   const [files, setFiles] = useState<GitDiff[]>(EMPTY_FILES)
   const [loaded, setLoaded] = useState(false)
   const filesRef = useRef<GitDiff[]>(EMPTY_FILES)
 
-  // Reset synchronously in the render where the workspace changes, so a stale
-  // summary from the previous workspace cannot paint for the new one before the
-  // effect re-runs (the same derived-state reset use-review-diff uses).
-  const [prevWs, setPrevWs] = useState<string | null>(wsId)
-  if (prevWs !== wsId) {
-    setPrevWs(wsId)
+  // Reset synchronously in the render where the SCOPE changes, so a stale
+  // summary cannot paint for the new one before the effect re-runs (the same
+  // derived-state reset use-review-diff uses). Keyed on the commit too:
+  // switching between two commit tabs never changes wsId.
+  const scopeKey = `${wsId ?? ''}\u0000${commit ?? ''}`
+  const [prevScope, setPrevScope] = useState(scopeKey)
+  if (prevScope !== scopeKey) {
+    setPrevScope(scopeKey)
     setLoaded(false)
     filesRef.current = EMPTY_FILES
     setFiles(EMPTY_FILES)
@@ -58,7 +63,7 @@ export function useReviewFilesSummary(wsId: string | null): UseReviewFilesSummar
 
     const fetchSummary = async () => {
       try {
-        const mapped = reviewFilesSummaryToChangedFiles(await getReviewFiles(wsId))
+        const mapped = reviewFilesSummaryToChangedFiles(await getReviewFiles({ wsId, commit }))
         if (cancelled) return
         if (!deepEqual(mapped, filesRef.current)) {
           filesRef.current = mapped
@@ -72,6 +77,13 @@ export function useReviewFilesSummary(wsId: string | null): UseReviewFilesSummar
     }
 
     void fetchSummary()
+
+    // A commit-scoped summary describes two immutable trees; the working tree
+    // cannot change it, so it takes no status ticks.
+    if (commit)
+      return () => {
+        cancelled = true
+      }
 
     const handler = () => {
       if (debounceTimer) clearTimeout(debounceTimer)
@@ -87,7 +99,7 @@ export function useReviewFilesSummary(wsId: string | null): UseReviewFilesSummar
       if (debounceTimer) clearTimeout(debounceTimer)
       window.removeEventListener('git-status-changed', handler)
     }
-  }, [wsId])
+  }, [wsId, commit])
 
   return { files, loaded }
 }

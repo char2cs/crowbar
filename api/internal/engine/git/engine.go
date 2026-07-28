@@ -18,6 +18,7 @@ import (
 	gitlog "github.com/char2cs/crowbar/api/internal/engine/git/internal/log"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/stash"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/status"
+	"github.com/char2cs/crowbar/api/internal/perf"
 )
 
 type (
@@ -76,8 +77,18 @@ func (e *engine) computeCommonDir(ctx context.Context, repoPath string) string {
 // network (07 §3.1).
 func (e *engine) lockRepo(ctx context.Context, repoPath string) func() {
 	mu := e.repoMutex(ctx, repoPath)
+	if !perf.Enabled() {
+		mu.Lock()
+		return mu.Unlock
+	}
+	waitStart := time.Now()
 	mu.Lock()
-	return mu.Unlock
+	perf.Record("lock.write.wait", time.Since(waitStart))
+	held := time.Now()
+	return func() {
+		perf.Record("lock.write.hold", time.Since(held))
+		mu.Unlock()
+	}
 }
 
 // lockRepoRead takes the shared read lock for repoPath's clone, for any
@@ -87,8 +98,18 @@ func (e *engine) lockRepo(ctx context.Context, repoPath string) func() {
 // fully-pre- or fully-post-mutation state, never a torn one.
 func (e *engine) lockRepoRead(ctx context.Context, repoPath string) func() {
 	mu := e.repoMutex(ctx, repoPath)
+	if !perf.Enabled() {
+		mu.RLock()
+		return mu.RUnlock
+	}
+	waitStart := time.Now()
 	mu.RLock()
-	return mu.RUnlock
+	perf.Record("lock.read.wait", time.Since(waitStart))
+	held := time.Now()
+	return func() {
+		perf.Record("lock.read.hold", time.Since(held))
+		mu.RUnlock()
+	}
 }
 
 // New returns a new Engine that shells out to the system git binary.

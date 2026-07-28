@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChangedFilesTree } from '@/features/git/components/changed-files-tree'
 import { GitFileItem } from '@/features/git/components/status/git-status-file-item'
 import type { GitDiff, GitFile } from '@/features/git/types/git-types'
@@ -34,6 +34,37 @@ vi.mock('@/features/file-explorer/components/file-explorer-icon', () => ({
     </span>
   ),
 }))
+
+// ── Layout ───────────────────────────────────────────────────────────────────
+
+// The tree is virtualised, and a virtualiser with a zero-height scroll element
+// has no window to render into — jsdom has no layout engine, so every element
+// measures 0×0 and nothing at all would mount. Give elements a sidebar-sized
+// rect before render; the fixtures here are small enough to fit in it whole, so
+// every assertion below is about tree structure, exactly as before.
+const VIEWPORT_WIDTH = 280
+const VIEWPORT_HEIGHT = 800
+const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
+
+beforeEach(() => {
+  const rect = {
+    top: 0,
+    left: 0,
+    right: VIEWPORT_WIDTH,
+    bottom: VIEWPORT_HEIGHT,
+    width: VIEWPORT_WIDTH,
+    height: VIEWPORT_HEIGHT,
+    x: 0,
+    y: 0,
+  }
+  HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+    return { ...rect, toJSON: () => rect } as DOMRect
+  }
+})
+
+afterEach(() => {
+  HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect
+})
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -158,17 +189,17 @@ const BASE_FILE: GitFile = {
 
 describe('GitFileItem uncommitted pill', () => {
   it('renders an "uncommitted" badge when uncommitted is true', () => {
-    render(<GitFileItem file={BASE_FILE} uncommitted />)
+    render(<GitFileItem file={BASE_FILE} uncommitted compactGitStatusBadges={false} />)
     expect(screen.getByText('uncommitted')).toBeInTheDocument()
   })
 
   it('does NOT render the badge when uncommitted is false', () => {
-    render(<GitFileItem file={BASE_FILE} uncommitted={false} />)
+    render(<GitFileItem file={BASE_FILE} uncommitted={false} compactGitStatusBadges={false} />)
     expect(screen.queryByText('uncommitted')).not.toBeInTheDocument()
   })
 
   it('does NOT render the badge when uncommitted prop is omitted', () => {
-    render(<GitFileItem file={BASE_FILE} />)
+    render(<GitFileItem file={BASE_FILE} compactGitStatusBadges={false} />)
     expect(screen.queryByText('uncommitted')).not.toBeInTheDocument()
   })
 })

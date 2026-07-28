@@ -6,6 +6,6 @@ import { scheduleIdleTask } from '@/features/editor/lib/idle-task'
 export function prefetchEditorChunks(): void {
   scheduleIdleTask(() => {
     void import('./editor-pane')
-    void import('./diff-pane')
+    void import('./commit-diff-pane')
   })
 }

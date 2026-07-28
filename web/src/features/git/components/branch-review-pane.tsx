@@ -25,8 +25,9 @@ export function BranchReviewPane({ wsId, isActivePane }: BranchReviewPaneProps) 
     }),
   )
 
-  // Load the composite review read model + branch diff on mount. The backend
-  // folds description, merge strategy, conversations, and diff into /review.
+  // Load the composite review read model on mount: description, merge strategy
+  // and conversations. The DIFF no longer comes from here — the surface reads
+  // /review/files + /review/outline and fetches patches per file.
   // Threads are intentionally NOT sourced here — they are seeded and kept live
   // by useWorkspaceThreadsStream (mounted in useWorkspaceEffects) so optimistic
   // writes and WS pushes are not clobbered on every pane remount.
@@ -39,7 +40,9 @@ export function BranchReviewPane({ wsId, isActivePane }: BranchReviewPaneProps) 
       a.setBranchReviewDescription(review.description)
       a.setBranchReviewMergeStrategy(review.mergeStrategy)
       a.setBranchReviewConversations(review.conversations)
-      a.setBranchReviewDiff(review.diff)
+      // Deliberately NOT storing review.diff. The pane renders from the
+      // files summary + outline now; keeping the composite's line-level diff
+      // would re-import the very payload this phase removed.
     } catch {
       store.getState().setBranchReviewDiffStatus('error')
     }

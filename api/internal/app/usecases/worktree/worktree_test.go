@@ -2237,3 +2237,39 @@ func TestDetachHolder_DetachFails_NoPartialState(t *testing.T) {
 	assert.False(t, cleared, "no ClearBranch after a failed detach")
 	assert.False(t, provisioned, "no provision after a failed detach")
 }
+
+// TestRetryProvision_HeldByManaged_ReturnsError proves a Retry while ANOTHER
+// Crowbar-managed worktree holds the branch refuses with its own sentinel rather
+// than letting `git worktree add` fail deep in materialize. It is NOT
+// ErrBranchStillHeld: detaching is not on offer, because freeing the branch
+// would strand the workspace that owns it. This became reachable when import
+// stopped silently dropping a protected branch held by a managed worktree that
+// outlived its repo row — exactly the row that lands here.
+func TestRetryProvision_HeldByManaged_ReturnsError(t *testing.T) {
+	g := &fakeGit{worktrees: []enginegit.WorktreeEntry{
+		{Path: "/tmp/crowbar-test/projects/p1/r1/develop/worktree", Branch: "develop"},
+	}}
+	provisionCalled := false
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			return domain.Workspace{
+				ID: id, RepoID: "r1", ProjectID: "p1", Branch: "develop",
+				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo",
+			}, nil
+		},
+		ProvisionInPlaceFn: func(_, _, _ string) (domain.Workspace, error) {
+			provisionCalled = true
+			return domain.Workspace{}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+
+	_, err := uc.RetryProvision(context.Background(), "ph")
+
+	require.ErrorIs(t, err, worktree.ErrBranchHeldByManagedWorkspace)
+	assert.NotErrorIs(t, err, worktree.ErrBranchStillHeld,
+		"a managed holder cannot be detached, so it must not offer that remedy")
+	assert.Contains(t, err.Error(), "/tmp/crowbar-test/projects/p1/r1/develop/worktree",
+		"the refusal names the worktree holding the branch")
+	assert.False(t, provisionCalled, "no provision while the branch is held")
+}

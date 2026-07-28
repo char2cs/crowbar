@@ -413,3 +413,53 @@ func TestMergeEligibilityFor_ParentMissing(t *testing.T) {
 	assert.False(t, got.CanMergeLocally)
 	assert.Empty(t, got.ParentBranch)
 }
+
+// TestWorkspaceUsecase_SyncWorkingTreeState_HomeSkipsGit pins the guard behind
+// the "saving a file in the project home returns 500" fix. A project's home
+// workspace is rooted at the PROJECT directory, which is deliberately not a git
+// repository, so `git` there exits 129 "Not a git repository". The summary is
+// the first step of the post-mutation resync, so that failure surfaced as a 500
+// on every home file write: the bytes landed on disk and the editor still said
+// "Failed to save file". A home workspace has no branch to diff and no index to
+// conflict — its summary is zero by definition and git is never invoked.
+func TestWorkspaceUsecase_SyncWorkingTreeState_HomeSkipsGit(t *testing.T) {
+	repo, git, _, uc := newWorkspaceUsecase(t)
+	ctx := context.Background()
+
+	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{
+			ID:           id,
+			RepoID:       "r1",
+			Kind:         domain.WorkspaceKindHome,
+			WorktreePath: "/project-root",
+		}, nil
+	}
+	summaryCalled := false
+	git.WorkingTreeSummaryFn = func(
+		_ context.Context,
+		_ string,
+		_ string,
+	) (int, int, bool, bool, error) {
+		summaryCalled = true
+		return 0, 0, false, false, errors.New("exit status 129: not a git repository")
+	}
+	var captured wsrepo.SyncInput
+	repo.SyncWorkingTreeFn = func(
+		_ context.Context,
+		in wsrepo.SyncInput,
+		_ time.Time,
+	) (domain.Workspace, error) {
+		captured = in
+		return domain.Workspace{ID: in.ID}, nil
+	}
+
+	_, err := uc.SyncWorkingTreeState(ctx, "home-1", time.Unix(1000, 0))
+
+	require.NoError(t, err, "a home workspace resync must not fail on git")
+	assert.False(t, summaryCalled, "git is never shelled out to for a non-git home")
+	assert.Equal(t, "home-1", captured.ID)
+	assert.Zero(t, captured.Added)
+	assert.Zero(t, captured.Deleted)
+	assert.False(t, captured.HasConflicts)
+	assert.False(t, captured.HasCommits)
+}

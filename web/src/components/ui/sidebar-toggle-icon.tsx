@@ -1,8 +1,7 @@
 import type React from 'react'
+import { cn } from '@/utils/cn'
 
-interface SidebarToggleIconProps extends React.SVGProps<SVGSVGElement> {
-  size?: number
-}
+type SidebarToggleIconProps = React.SVGProps<SVGSVGElement>
 
 /**
  * Sidebar-toggle glyph: a rounded panel with a left rail that carries two short
@@ -15,11 +14,19 @@ interface SidebarToggleIconProps extends React.SVGProps<SVGSVGElement> {
  * same standard UI metaphor. Stroke-based so it composes with the muted token
  * and sits consistently beside the Lucide arrows/settings in the same cluster.
  */
-export function SidebarToggleIcon({ size = 16, ...props }: SidebarToggleIconProps) {
+export function SidebarToggleIcon({ className, ...props }: SidebarToggleIconProps) {
   return (
     <svg
-      width={size}
-      height={size}
+      // Sized by CLASS, not by width/height attributes, and that is the whole
+      // point. Button sizes its icons with `[&_svg:not([class*='size-'])]`,
+      // which beats presentation attributes — so the old `size={14}` / `size={16}`
+      // props were silently ignored and the glyph took whichever size its button
+      // variant dictated: 14px in the tab bar (icon-xs), 16px in the sidebar
+      // header (icon-sm), and 16/18px respectively below the `sm` breakpoint.
+      // Same button, four sizes. Carrying a size- class opts out of that rule
+      // entirely, so the toggle is one size everywhere; callers can still
+      // override by passing their own.
+      className={cn('size-4', className)}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

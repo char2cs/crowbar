@@ -4,6 +4,7 @@ import {
   DEFAULT_UI_FONT_FAMILY,
 } from '@/features/settings/config/typography-defaults'
 import { normalizeConfiguredFontFamily } from './font-family-resolution'
+import { MARKDOWN_FONT_SIZE_DEFAULT, normalizeMarkdownFontSize } from './markdown-font-size'
 import { getUiFontScale, normalizeUiFontSize, UI_FONT_SIZE_DEFAULT } from './ui-font-size'
 
 export const APPEARANCE_BOOTSTRAP_CACHE_KEY = 'crowbar.bootstrap.appearance.v2'
@@ -25,6 +26,7 @@ export interface AppearanceBootstrapCache {
   editorFontFamily: string
   uiFontFamily: string
   uiFontSize: number
+  markdownFontSize: number
 }
 
 const DEFAULT_EDITOR_FONT = DEFAULT_MONO_FONT_FAMILY
@@ -37,6 +39,7 @@ export const DEFAULT_APPEARANCE_BOOTSTRAP_CACHE: AppearanceBootstrapCache = {
   editorFontFamily: DEFAULT_EDITOR_FONT,
   uiFontFamily: DEFAULT_UI_FONT,
   uiFontSize: UI_FONT_SIZE_DEFAULT,
+  markdownFontSize: MARKDOWN_FONT_SIZE_DEFAULT,
 }
 
 function isWindowsPlatform(): boolean {
@@ -80,6 +83,9 @@ function parseBootstrapCache(raw: unknown): AppearanceBootstrapCache | null {
       ? normalizeConfiguredFontFamily(record.uiFontFamily, DEFAULT_UI_FONT_FAMILY)
       : DEFAULT_APPEARANCE_BOOTSTRAP_CACHE.uiFontFamily
   const uiFontSize = normalizeUiFontSize(record.uiFontSize)
+  // A cache written before this key existed normalizes to the default, which is
+  // the size those users are already looking at — no migration needed.
+  const markdownFontSize = normalizeMarkdownFontSize(record.markdownFontSize)
 
   return {
     version: 1,
@@ -88,6 +94,7 @@ function parseBootstrapCache(raw: unknown): AppearanceBootstrapCache | null {
     editorFontFamily,
     uiFontFamily,
     uiFontSize,
+    markdownFontSize,
   }
 }
 
@@ -133,6 +140,10 @@ export function applyBootstrapAppearance(cache: AppearanceBootstrapCache): void 
   const normalizedUiFontSize = normalizeUiFontSize(cache.uiFontSize)
   root.style.setProperty('--app-ui-font-size', `${normalizedUiFontSize}px`)
   root.style.setProperty('--app-ui-scale', `${getUiFontScale(normalizedUiFontSize)}`)
+  root.style.setProperty(
+    '--md-base-font-size',
+    `${normalizeMarkdownFontSize(cache.markdownFontSize)}px`,
+  )
 }
 
 export function ensureStartupAppearanceApplied(): void {
@@ -143,33 +154,42 @@ export function ensureStartupAppearanceApplied(): void {
 export function cacheThemeForBootstrap(theme: ThemeDefinition): void {
   const existing = readAppearanceBootstrapCache() || DEFAULT_APPEARANCE_BOOTSTRAP_CACHE
   const next: AppearanceBootstrapCache = {
+    ...existing,
     version: 1,
     themeId: theme.id,
     themeType: theme.isDark ? 'dark' : 'light',
-    editorFontFamily: existing.editorFontFamily,
-    uiFontFamily: existing.uiFontFamily,
-    uiFontSize: existing.uiFontSize,
   }
   writeAppearanceBootstrapCache(next)
 }
 
-export function cacheFontsForBootstrap(
-  editorFontFamily: string,
-  uiFontFamily: string,
-  uiFontSize?: number,
-): void {
+/** Every field optional: an omitted one keeps whatever is already cached. */
+export interface BootstrapTypographyInput {
+  editorFontFamily?: string
+  uiFontFamily?: string
+  uiFontSize?: number
+  markdownFontSize?: number
+}
+
+export function cacheFontsForBootstrap(typography: BootstrapTypographyInput): void {
   const existing = readAppearanceBootstrapCache() || DEFAULT_APPEARANCE_BOOTSTRAP_CACHE
   const next: AppearanceBootstrapCache = {
     ...existing,
     editorFontFamily: normalizeConfiguredFontFamily(
-      editorFontFamily || existing.editorFontFamily,
+      typography.editorFontFamily || existing.editorFontFamily,
       DEFAULT_MONO_FONT_FAMILY,
     ),
     uiFontFamily: normalizeConfiguredFontFamily(
-      uiFontFamily || existing.uiFontFamily,
+      typography.uiFontFamily || existing.uiFontFamily,
       DEFAULT_UI_FONT_FAMILY,
     ),
-    uiFontSize: uiFontSize === undefined ? existing.uiFontSize : normalizeUiFontSize(uiFontSize),
+    uiFontSize:
+      typography.uiFontSize === undefined
+        ? existing.uiFontSize
+        : normalizeUiFontSize(typography.uiFontSize),
+    markdownFontSize:
+      typography.markdownFontSize === undefined
+        ? existing.markdownFontSize
+        : normalizeMarkdownFontSize(typography.markdownFontSize),
   }
   writeAppearanceBootstrapCache(next)
   // Apply immediately so font changes take effect without a reload

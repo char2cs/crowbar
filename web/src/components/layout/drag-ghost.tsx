@@ -1,4 +1,5 @@
 import { forwardRef } from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '@/utils/cn'
 
 /**
@@ -24,7 +25,12 @@ export const DragGhost = forwardRef<HTMLDivElement, DragGhostProps>(function Dra
   { label, origin, className },
   ref,
 ) {
-  return (
+  // Portalled to the body because it is positioned in raw viewport coordinates.
+  // Rendered inline it would be laid out against the nearest transformed
+  // ancestor instead — which the peeked sidebar card is, while it is on screen —
+  // so the chip drifted off the cursor and was clipped away entirely at the
+  // card's edge. See sidebar-peek.tsx.
+  return createPortal(
     <div
       ref={ref}
       data-drag-ghost=""
@@ -38,6 +44,7 @@ export const DragGhost = forwardRef<HTMLDivElement, DragGhostProps>(function Dra
       }}
     >
       {label}
-    </div>
+    </div>,
+    document.body,
   )
 })

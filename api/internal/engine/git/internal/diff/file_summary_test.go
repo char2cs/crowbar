@@ -39,7 +39,7 @@ func TestFileSummaries_FullBranchPicture(t *testing.T) {
 	writeFile(t, dir, "keep.txt", "a\nb\nc\nd\ne\nf\n")
 	writeFile(t, dir, "untracked.txt", "not\ntracked\n")
 
-	files, err := diff.FileSummaries(context.Background(), dir, fork)
+	files, err := diff.FileSummaries(context.Background(), dir, fork, dirtyPaths(t, dir))
 	require.NoError(t, err)
 
 	byPath := make(map[string]gitdomain.ReviewFileSummary, len(files))
@@ -80,7 +80,7 @@ func TestFileSummaries_CleanTree(t *testing.T) {
 	mustGit(t, dir, "commit", "-m", "initial")
 	head := headSHA(t, dir)
 
-	files, err := diff.FileSummaries(context.Background(), dir, head)
+	files, err := diff.FileSummaries(context.Background(), dir, head, dirtyPaths(t, dir))
 	require.NoError(t, err)
 	assert.Empty(t, files)
 }

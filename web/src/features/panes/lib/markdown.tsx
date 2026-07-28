@@ -1,29 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { isValidElement, useEffect, useRef, useState, type ReactNode } from 'react'
 import DOMPurify from 'dompurify'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-// react-doctor-disable-next-line prefer-dynamic-import -- only imported by comment-composer.tsx, itself already behind the `GitDiffEditorStackLazy` React.lazy() boundary (review-diff-tab.tsx). Verified via `bunx vite build`: 0 "codemirror" occurrences in the entry chunk, 3 in the git-diff-editor-stack chunk.
+import { MARKDOWN_PROSE_CLASS } from '@/features/panes/lib/markdown-prose'
 import { cn } from '@/utils/cn'
-
-/** Transparent CodeMirror theme so the editor blends into its container. */
-
-/** Shared prose styling for rendered markdown across the branch-review feature. */
-export const MARKDOWN_PROSE_CLASS =
-  'prose prose-sm prose-invert max-w-none text-sm text-foreground ' +
-  '[&_h1]:text-base [&_h1]:font-semibold [&_h1]:mb-2 [&_h1]:mt-3 ' +
-  '[&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mb-1.5 [&_h2]:mt-3 ' +
-  '[&_h3]:text-sm [&_h3]:font-medium [&_h3]:mb-1 [&_h3]:mt-2 ' +
-  '[&_p]:mb-2 [&_p]:leading-relaxed ' +
-  '[&_ul]:my-1.5 [&_ul]:pl-4 [&_li]:my-0.5 ' +
-  '[&_ol]:my-1.5 [&_ol]:pl-4 ' +
-  '[&_code]:rounded [&_code]:bg-muted/60 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_code]:font-mono ' +
-  '[&_pre]:rounded-lg [&_pre]:bg-muted/60 [&_pre]:p-3 [&_pre]:text-xs [&_pre]:overflow-x-auto ' +
-  '[&_pre_code]:bg-transparent [&_pre_code]:p-0 ' +
-  '[&_strong]:font-semibold [&_strong]:text-foreground ' +
-  '[&_em]:italic ' +
-  '[&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground ' +
-  '[&_hr]:border-border [&_hr]:my-3 ' +
-  '[&_a]:text-primary [&_a]:underline-offset-2 [&_a]:hover:underline'
 
 // ── Shiki lazy singleton ──────────────────────────────────────────────────────
 
@@ -120,34 +100,51 @@ function ShikiCodeBlock({ code, lang }: ShikiCodeProps) {
 // ── Custom react-markdown components ─────────────────────────────────────────
 
 interface CodeProps {
-  inline?: boolean
   className?: string
-  children?: React.ReactNode
+  children?: ReactNode
 }
 
-function MarkdownCode({ inline, className, children }: CodeProps) {
-  const match = /language-(\w+)/.exec(className ?? '')
-  const lang = match?.[1] ?? ''
-  const code = String(children ?? '').replace(/\n$/, '')
+/** The text a react-markdown node renders, however deeply it is wrapped. */
+function textOf(node: ReactNode): string {
+  if (typeof node === 'string') return node
+  if (typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join('')
+  if (isValidElement<{ children?: ReactNode }>(node)) return textOf(node.props.children)
+  return ''
+}
 
-  if (!inline && lang) {
-    return <ShikiCodeBlock code={code} lang={lang} />
-  }
+/**
+ * Fenced code blocks, claimed at the `pre` rather than at the `code`.
+ *
+ * The block/inline split used to be read from react-markdown's `inline` prop,
+ * which v9 REMOVED — so it arrived as `undefined`, every code span took the
+ * "not inline" branch, and every `` `path/to/file` `` in a review comment
+ * rendered as a full-width grey block. In markdown a `pre` wraps a fenced block
+ * and nothing else, so asking the `pre` is a question with an answer, and the
+ * `code` override below is left to mean only what its name says.
+ */
+function MarkdownPre({ children }: { children?: ReactNode }) {
+  const codeEl = isValidElement<CodeProps>(children) ? children : null
+  const lang = /language-(\w+)/.exec(codeEl?.props.className ?? '')?.[1] ?? ''
+  const code = textOf(codeEl ? codeEl.props.children : children).replace(/\n$/, '')
 
-  if (!inline && !lang) {
-    // Fenced block without a language tag — plain pre/code.
-    return (
-      <pre className="overflow-x-auto rounded-lg bg-muted/60 p-3 text-xs">
-        <code>{code}</code>
-      </pre>
-    )
-  }
+  if (lang) return <ShikiCodeBlock code={code} lang={lang} />
 
-  // Inline code.
+  // Fenced block without a language tag — plain pre/code.
+  return (
+    <pre className="overflow-x-auto rounded-lg bg-muted/60 p-3 text-xs">
+      <code>{code}</code>
+    </pre>
+  )
+}
+
+function MarkdownInlineCode({ children }: CodeProps) {
   return <code className="rounded bg-muted/60 px-1 py-0.5 text-xs font-mono">{children}</code>
 }
 
-const MD_COMPONENTS = { code: MarkdownCode } as Parameters<typeof ReactMarkdown>[0]['components']
+const MD_COMPONENTS = { code: MarkdownInlineCode, pre: MarkdownPre } as Parameters<
+  typeof ReactMarkdown
+>[0]['components']
 
 // ── Public component ──────────────────────────────────────────────────────────
 

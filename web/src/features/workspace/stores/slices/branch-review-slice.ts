@@ -1,7 +1,5 @@
 import type { StateCreator } from 'zustand'
-import deepEqual from 'fast-deep-equal'
 import type { WorkspaceState } from '../workspace-store.types'
-import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
 
 export type MergeStrategy = 'merge' | 'squash' | 'rebase'
 
@@ -34,21 +32,28 @@ export interface ReviewConversation {
 export interface BranchReviewState {
   description: string
   mergeStrategy: MergeStrategy
-  diffCache: MultiFileDiff | null
   diffStatus: 'idle' | 'loading' | 'loaded' | 'error'
   threads: ReviewThread[]
   conversations: ReviewConversation[]
-  activeFileKey: string | null
-  activeFileNonce: number
+  /** The changed file the review surface has been asked to scroll to, by PATH.
+   *
+   *  A path, not an index or a composite key: the surface is fed by the files
+   *  summary and addresses everything by path, and the index-based key this
+   *  replaced was resolved against a whole-diff cache that no longer exists —
+   *  so every click silently resolved to nothing. */
+  revealFilePath: string | null
+  /** Bumped on every request so clicking the SAME file twice reveals it again
+   *  (the path alone would compare equal and the effect would not re-run). */
+  revealFileNonce: number
 }
 
 export interface BranchReviewSlice {
   branchReview: BranchReviewState
   setBranchReviewDescription: (description: string) => void
   setBranchReviewMergeStrategy: (strategy: MergeStrategy) => void
-  setBranchReviewDiff: (diff: MultiFileDiff) => void
   setBranchReviewDiffStatus: (status: BranchReviewState['diffStatus']) => void
-  setBranchReviewActiveFile: (key: string | null) => void
+  /** Ask the review surface to scroll to a changed file. */
+  revealBranchReviewFile: (path: string) => void
   addReviewThread: (thread: ReviewThread) => void
   removeReviewThread: (threadId: string) => void
   addReviewMessage: (threadId: string, message: ReviewMessage) => void
@@ -65,12 +70,11 @@ export interface BranchReviewSlice {
 export const INITIAL_BRANCH_REVIEW_STATE: BranchReviewState = {
   description: '',
   mergeStrategy: 'merge',
-  diffCache: null,
   diffStatus: 'idle',
   threads: [],
   conversations: [],
-  activeFileKey: null,
-  activeFileNonce: 0,
+  revealFilePath: null,
+  revealFileNonce: 0,
 }
 
 export const createBranchReviewSlice: StateCreator<
@@ -91,32 +95,15 @@ export const createBranchReviewSlice: StateCreator<
       s.branchReview.mergeStrategy = strategy
     }),
 
-  // Identity-preserving: a git-status-changed burst can refetch the branch
-  // diff at 2-3Hz, and most of those refetches return byte-identical
-  // payloads. Skipping the write when nothing actually changed (AND a load
-  // has already completed once) keeps diffCache/branchReview referentially
-  // stable, so useShallow/React.memo consumers downstream don't re-render on
-  // every tick. Returning from an immer recipe without touching the draft
-  // yields the same top-level state reference — this is a true no-op, not
-  // just a value-equal one.
-  setBranchReviewDiff: (diff) =>
-    set((s) => {
-      if (s.branchReview.diffStatus === 'loaded' && deepEqual(s.branchReview.diffCache, diff)) {
-        return
-      }
-      s.branchReview.diffCache = diff
-      s.branchReview.diffStatus = 'loaded'
-    }),
-
   setBranchReviewDiffStatus: (status) =>
     set((s) => {
       s.branchReview.diffStatus = status
     }),
 
-  setBranchReviewActiveFile: (key) =>
+  revealBranchReviewFile: (path) =>
     set((s) => {
-      s.branchReview.activeFileKey = key
-      s.branchReview.activeFileNonce += 1
+      s.branchReview.revealFilePath = path
+      s.branchReview.revealFileNonce += 1
     }),
 
   addReviewThread: (thread) =>

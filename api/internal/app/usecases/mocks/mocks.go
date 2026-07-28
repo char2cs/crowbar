@@ -70,6 +70,9 @@ func (s *ProjectStore) FindAll(
 type RepositoryStore struct {
 	Saved   []domain.Repository
 	SaveErr error
+	// FindErr, when set, fails FindAll — the read failure that callers such as
+	// CheckRepoImportable deliberately degrade past rather than block on.
+	FindErr error
 }
 
 // NewRepositoryStore returns an empty RepositoryStore.
@@ -119,6 +122,9 @@ func (s *RepositoryStore) FindByKey(
 func (s *RepositoryStore) FindAll(
 	ctx context.Context,
 ) ([]domain.Repository, error) {
+	if s.FindErr != nil {
+		return nil, s.FindErr
+	}
 	return s.Saved, nil
 }
 

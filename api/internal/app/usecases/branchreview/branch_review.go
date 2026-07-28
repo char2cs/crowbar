@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/google/uuid"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
@@ -41,10 +43,48 @@ type Usecase interface {
 	// GetFiles returns the files-only branch-review summary for a workspace: the
 	// full changed-files picture (committed + working-tree, +N/-N counts) with no
 	// line-level content, so the sidebar never fetches the diff body (Task 27).
+	//
+	// commit scopes every windowed read below to ONE commit against its parent
+	// instead of the branch; empty means the branch diff. It is a parameter
+	// rather than a separate set of methods because the two answer the same
+	// question about a different pair of trees — the resolution differs, the
+	// payload, the caching and the client do not. See resolveScopeRef.
 	GetFiles(
 		ctx context.Context,
 		wsID string,
+		commit string,
 	) ([]gitdomain.ReviewFileSummary, error)
+	// GetOutline returns the hunk geometry of the workspace's branch diff: per
+	// file the `@@` shapes of its diff and no content at all. O(hunks) where Get
+	// is O(lines), so the client can lay out a million-line diff before fetching
+	// a single patch.
+	GetOutline(
+		ctx context.Context,
+		wsID string,
+		commit string,
+	) ([]gitdomain.FileOutline, error)
+	// GetPatch streams one file's unified patch into w, returning the number of
+	// patch lines written and whether it was cut short at maxLines. maxLines <= 0
+	// means unlimited; an empty path is an invalid argument.
+	GetPatch(
+		ctx context.Context,
+		wsID string,
+		commit string,
+		path string,
+		maxLines int,
+		w io.Writer,
+	) (int, bool, error)
+	// SearchDiff finds query in the content of the workspace's branch diff,
+	// returning one hit per matching line plus whether opts.Limit cut the results
+	// short. It is the server-side find-in-diff the client can no longer do
+	// locally once it holds only a window of the patch.
+	SearchDiff(
+		ctx context.Context,
+		wsID string,
+		commit string,
+		query string,
+		opts gitdomain.SearchOpts,
+	) ([]gitdomain.SearchHit, bool, error)
 	// SetMergeStrategy updates the merge strategy for a workspace (09 §4).
 	SetMergeStrategy(
 		ctx context.Context,
@@ -76,6 +116,8 @@ type branchReviewUsecase struct {
 	repos      store.Store[domain.Repository, string]
 	git        enginegit.Engine
 	now        func() time.Time
+	fileReads  singleflight.Group
+	outlines   outlineCache
 }
 
 // New builds the branch-review usecase wiring all collaborators.
@@ -103,16 +145,7 @@ func (u *branchReviewUsecase) Get(
 	if err != nil {
 		return domain.BranchReview{}, fmt.Errorf("branch review: get workspace: %w", asNotFound(err))
 	}
-	ref, err := u.resolveDiffRef(ctx, ws)
-	if err != nil {
-		return domain.BranchReview{}, fmt.Errorf("branch review: resolve ref: %w", err)
-	}
-	diff, err := u.git.DiffAgainstRef(ctx, ws.WorktreePath, ref)
-	if err != nil {
-		return domain.BranchReview{}, fmt.Errorf("branch review: diff: %w", err)
-	}
-	u.annotateUncommitted(ctx, ws, &diff)
-	return u.assemble(ctx, ws, diff)
+	return u.assemble(ctx, ws)
 }
 
 // resolveDiffRef returns the ref the review diffs against: the merge-base of the
@@ -186,27 +219,6 @@ func (u *branchReviewUsecase) closestToHead(
 	return best
 }
 
-// annotateUncommitted marks each diff file as uncommitted when it has a matching
-// entry in git status (staged or unstaged working-tree change). Status failures
-// are non-fatal: the diff is still returned, just without the flags.
-func (u *branchReviewUsecase) annotateUncommitted(
-	ctx context.Context,
-	ws domain.Workspace,
-	diff *gitdomain.MultiFileDiff,
-) {
-	status, err := u.git.Status(ctx, ws.WorktreePath)
-	if err != nil {
-		return
-	}
-	dirty := make(map[string]bool, len(status.Files))
-	for _, f := range status.Files {
-		dirty[f.Path] = true
-	}
-	for i := range diff.Files {
-		diff.Files[i].Uncommitted = dirty[diff.Files[i].FilePath]
-	}
-}
-
 func (u *branchReviewUsecase) resolveBase(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -231,7 +243,6 @@ func (u *branchReviewUsecase) resolveBase(
 func (u *branchReviewUsecase) assemble(
 	ctx context.Context,
 	ws domain.Workspace,
-	diff gitdomain.MultiFileDiff,
 ) (domain.BranchReview, error) {
 	threads, err := u.threads.ListByWorkspace(ctx, ws.ID)
 	if err != nil {
@@ -243,7 +254,6 @@ func (u *branchReviewUsecase) assemble(
 	return domain.BranchReview{
 		Description:   "",
 		MergeStrategy: ws.MergeStrategy,
-		Diff:          diff,
 		Threads:       threads,
 	}, nil
 }

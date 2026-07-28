@@ -261,6 +261,18 @@ func (u *workspaceUsecase) summarize(
 	ctx context.Context,
 	ws domain.Workspace,
 ) (wsrepo.SyncInput, error) {
+	// The project-level home workspace is rooted at the PROJECT directory — the
+	// folder that contains repos, which is deliberately not a git repository (its
+	// route group mounts no git surface at all). Shelling out to git there exits
+	// 129 "Not a git repository", and because the summary is the first step of the
+	// post-mutation resync, that failure propagated all the way out as a 500 on
+	// every home file write: the bytes landed on disk but the editor reported
+	// "Failed to save file" and kept the buffer dirty. A home workspace has no
+	// branch to diff and no index to conflict, so its summary is zero by
+	// definition — return it without touching git.
+	if ws.Kind == domain.WorkspaceKindHome {
+		return wsrepo.SyncInput{ID: ws.ID}, nil
+	}
 	added, deleted, hasConflicts, hasCommits, err := u.git.WorkingTreeSummary(
 		ctx,
 		ws.WorktreePath,

@@ -40,16 +40,33 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
     [],
   )
   const containerRef = useRef<HTMLDivElement>(null)
-  const isScrollingProgrammatically = useRef(false)
+  // Armed only by an actual scroll gesture over the carousel. Everything else
+  // that moves scrollLeft is reflow, not intent: the re-align below, the
+  // activeTab effect's smooth scroll, and — the one that bit — the browser
+  // clamping the offset to 0 while the sidebar collapses to zero width and then
+  // restoring it as the sidebar expands. Reading those offsets back through
+  // Math.round() picked whatever panel happened to be nearest, so hiding and
+  // showing the sidebar while on Files silently landed you on Chats.
+  const isUserGesture = useRef(false)
+  const armUserGesture = () => {
+    isUserGesture.current = true
+  }
 
-  // Re-align scroll when the container is resized (sidebar panel drag via react-resizable-panels).
-  // Each carousel panel is min-w-full, so scrollLeft must stay at tabIndex * containerWidth.
+  // Re-align scroll when the container is resized (sidebar panel drag via
+  // react-resizable-panels, sidebar collapse/expand, window resize). Each
+  // carousel panel is min-w-full, so scrollLeft must stay at
+  // tabIndex * containerWidth.
   useEffect(() => {
     const el = containerRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
+      isUserGesture.current = false
       const index = TABS.indexOf(useSidebarStore.getState().activeTab)
       if (index === -1) return
+      // A collapsed sidebar has zero width: no offset identifies a panel, and
+      // the browser has already clamped scrollLeft to 0. Leave it — the resize
+      // that reopens the sidebar re-aligns it.
+      if (el.clientWidth === 0) return
       el.scrollLeft = index * el.clientWidth
     })
     ro.observe(el)
@@ -62,25 +79,15 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
     if (!el) return
     const index = TABS.indexOf(activeTab)
     if (index === -1) return
-    isScrollingProgrammatically.current = true
+    isUserGesture.current = false
     el.scrollTo({ left: index * el.clientWidth, behavior: 'smooth' })
-
-    function onScrollEnd() {
-      isScrollingProgrammatically.current = false
-      el!.removeEventListener('scrollend', onScrollEnd)
-    }
-    el.addEventListener('scrollend', onScrollEnd)
-
-    return () => {
-      el.removeEventListener('scrollend', onScrollEnd)
-    }
   }, [activeTab])
 
-  // Sync activeTab when user swipes
+  // Sync activeTab when the user swipes
   function handleScroll() {
-    if (isScrollingProgrammatically.current) return
+    if (!isUserGesture.current) return
     const el = containerRef.current
-    if (!el) return
+    if (!el || el.clientWidth === 0) return
     const index = Math.round(el.scrollLeft / el.clientWidth)
     const tab = TABS[index]
     if (tab && tab !== useSidebarStore.getState().activeTab) {
@@ -93,6 +100,8 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
       <div
         ref={containerRef}
         onScroll={handleScroll}
+        onWheel={armUserGesture}
+        onTouchStart={armUserGesture}
         data-sidebar-carousel=""
         className="flex flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
