@@ -1,6 +1,9 @@
 package git
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // DiffLine is one line in a FileDiff's flat rendering. Changed lines carry
 // hunkId linking them to their Hunk (04 §4).
@@ -42,6 +45,33 @@ type FileDiff struct {
 	// committed (staged or unstaged). Used by the blended branch-review diff to
 	// mark files as committed vs uncommitted. Always false for commit/range diffs.
 	Uncommitted bool `json:"uncommitted"`
+}
+
+// MarshalJSON emits a FileDiff whose slice fields are always arrays.
+//
+// A binary file never enters a hunk, so its Lines is never appended to and
+// stays nil — and a nil slice marshals to `null`, not `[]`. Clients declare the
+// field as a plain array and dereference it (`diff.lines.length`), so any
+// commit touching a binary file took down the whole diff pane with "null is not
+// an object". A JSON contract that promises an array has to send one even when
+// there is nothing in it.
+//
+// Normalised here rather than at each producer so the guarantee holds for every
+// endpoint that returns a FileDiff, including ones written later — the parser
+// leaving Lines nil for a binary file is correct, it is only the wire format
+// that must not expose it.
+func (f FileDiff) MarshalJSON() ([]byte, error) {
+	// A local type sheds FileDiff's method set, so json.Marshal below cannot
+	// re-enter this function.
+	type wire FileDiff
+	out := wire(f)
+	if out.Lines == nil {
+		out.Lines = []DiffLine{}
+	}
+	if out.Hunks == nil {
+		out.Hunks = []Hunk{}
+	}
+	return json.Marshal(out)
 }
 
 // MultiFileDiff is the diff for a commit (04 §3).

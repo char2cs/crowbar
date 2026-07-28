@@ -77,10 +77,19 @@ describe('CommentComposer', () => {
     expect(screen.getByRole('button', { name: 'Comment' })).toBeEnabled()
   })
 
-  it('opts out of the code font it would otherwise inherit from the diff', () => {
-    // The annotation variant is slotted into the diff's <pre>. Without this the
-    // composer renders in SF Mono beside posted comments that are not.
+  it('carries its own opt-outs from the diff <pre> it gets slotted into', () => {
+    // Both are inherited from the diff's <pre>: the code font, and
+    // `white-space: pre` — which turns every newline between a rendered
+    // comment's tags into a visible blank line.
+    //
+    // Asserted on the composer's OWN root, not on a wrapper, because that is
+    // the whole claim: the draft variant is slotted straight into the
+    // annotation with no ReviewThreadItem above it to supply either class. The
+    // gutter button that opens that variant only mounts under real hover, which
+    // the automation bridge cannot produce, so this is the gate on it.
     const { container } = render(<CommentComposer onSubmit={vi.fn()} onCancel={vi.fn()} />)
-    expect(container.firstElementChild?.className).toContain('ui-font')
+    const root = container.firstElementChild?.className ?? ''
+    expect(root).toContain('ui-font')
+    expect(root).toContain('whitespace-normal')
   })
 })

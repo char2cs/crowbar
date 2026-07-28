@@ -1,5 +1,6 @@
 import { memo, useMemo } from 'react'
 import { useDiffData } from '../../hooks/use-git-diff-data'
+import { normalizeGitDiff, normalizeMultiFileDiff } from '../../utils/normalize-diff'
 import type { DiffViewerProps, MultiFileDiff } from '../../types/git-diff-types'
 import GitDiffEditorStack from './git-diff-editor-stack'
 import GitDiffEditorSurface from './git-diff-editor-surface'
@@ -12,12 +13,19 @@ function isMultiFileDiff(data: unknown): data is MultiFileDiff {
 const DiffViewer = memo((props: DiffViewerProps) => {
   const { diff, rawDiffData, filePath, isLoading, error } = useDiffData()
 
+  // Normalised at the single entry point both diff shapes pass through, rather
+  // than at the dozen places that dereference `lines`. See normalize-diff.ts —
+  // an opened diff tab persists its payload, so a tab from before the daemon
+  // started sending `[]` for a binary file still restores with `null` and would
+  // crash the pane it reopens into.
   const multiFileDiff = useMemo(() => {
     if (rawDiffData && isMultiFileDiff(rawDiffData)) {
-      return rawDiffData
+      return normalizeMultiFileDiff(rawDiffData)
     }
     return null
   }, [rawDiffData])
+
+  const safeDiff = useMemo(() => (diff ? normalizeGitDiff(diff) : diff), [diff])
 
   if (multiFileDiff) {
     return <GitDiffEditorStack multiDiff={multiFileDiff} isActivePane={props.isActivePane} />
@@ -39,7 +47,7 @@ const DiffViewer = memo((props: DiffViewerProps) => {
     )
   }
 
-  if (!diff || !filePath) {
+  if (!safeDiff || !filePath) {
     return (
       <div className="flex h-full items-center justify-center bg-background">
         <div className="ui-text-sm text-muted-foreground">No diff data available</div>
@@ -49,17 +57,17 @@ const DiffViewer = memo((props: DiffViewerProps) => {
 
   const fileName = filePath.split('/').pop() || filePath
 
-  if (diff.is_image) {
-    return <ImageDiffViewer diff={diff} fileName={fileName} onClose={() => {}} />
+  if (safeDiff.is_image) {
+    return <ImageDiffViewer diff={safeDiff} fileName={fileName} onClose={() => {}} />
   }
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       <GitDiffEditorSurface
         cacheKey={filePath}
-        diff={diff}
+        diff={safeDiff}
         breadcrumbProps={{
-          filePathOverride: diff.file_path || filePath,
+          filePathOverride: safeDiff.file_path || filePath,
         }}
       />
     </div>
