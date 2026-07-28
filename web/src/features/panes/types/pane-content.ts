@@ -1,6 +1,3 @@
-import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
-import type { GitDiff } from '@/features/git/types/git-types'
-
 // ── Token entry for syntax highlighting cache ───────────────────────
 
 export interface TokenEntry {
@@ -16,13 +13,31 @@ export type PaneContentType =
   | 'editor'
   | 'terminal'
   | 'newTab'
-  | 'diff'
+  | 'commitDiff'
   | 'markdownPreview'
   | 'htmlPreview'
   | 'csvPreview'
   | 'externalEditor'
   | 'branchReview'
   | 'agentChat'
+
+/** Every content type this build can render.
+ *
+ *  A saved layout outlives the code that wrote it, so the restore path checks
+ *  a persisted buffer's type against this set and drops what it no longer
+ *  knows — see stripNewTabs in persisted-layout.ts. */
+export const PANE_CONTENT_TYPES: ReadonlySet<PaneContentType> = new Set<PaneContentType>([
+  'editor',
+  'terminal',
+  'newTab',
+  'commitDiff',
+  'markdownPreview',
+  'htmlPreview',
+  'csvPreview',
+  'externalEditor',
+  'branchReview',
+  'agentChat',
+])
 
 // ── Base fields shared by every content type ────────────────────────
 
@@ -74,11 +89,14 @@ export interface NewTabContent extends PaneContentBase {
   type: 'newTab'
 }
 
-export interface DiffContent extends PaneContentBase {
-  type: 'diff'
-  content: string
-  savedContent: string
-  diffData?: GitDiff | MultiFileDiff
+/** One commit's diff, rendered on the same windowed surface as the branch
+ *  review. It carries the SHA, not the diff: the payload is fetched per file as
+ *  the viewport reaches it, so a tab costs the same whether the commit changed
+ *  three lines or a million. */
+export interface CommitDiffContent extends PaneContentBase {
+  type: 'commitDiff'
+  wsId: string
+  sha: string
 }
 
 export interface MarkdownPreviewContent extends PaneContentBase {
@@ -138,7 +156,7 @@ export type PaneContent =
   | EditorContent
   | TerminalContent
   | NewTabContent
-  | DiffContent
+  | CommitDiffContent
   | MarkdownPreviewContent
   | HtmlPreviewContent
   | CsvPreviewContent
@@ -154,6 +172,10 @@ export function isEditorContent(c: PaneContent): c is EditorContent {
 
 export function isBranchReviewContent(c: PaneContent): c is BranchReviewContent {
   return c.type === 'branchReview'
+}
+
+export function isCommitDiffContent(c: PaneContent): c is CommitDiffContent {
+  return c.type === 'commitDiff'
 }
 
 export function isAgentChatContent(c: PaneContent): c is AgentChatContent {
@@ -172,6 +194,7 @@ const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set([
   'terminal',
   'newTab',
   'branchReview',
+  'commitDiff',
   'agentChat',
 ])
 
@@ -184,15 +207,9 @@ export function isVirtualContent(c: PaneContent): boolean {
 /** Whether this content has text content (for search, etc.) */
 export function hasTextContent(
   c: PaneContent,
-): c is
-  | EditorContent
-  | DiffContent
-  | MarkdownPreviewContent
-  | HtmlPreviewContent
-  | CsvPreviewContent {
+): c is EditorContent | MarkdownPreviewContent | HtmlPreviewContent | CsvPreviewContent {
   return (
     c.type === 'editor' ||
-    c.type === 'diff' ||
     c.type === 'markdownPreview' ||
     c.type === 'htmlPreview' ||
     c.type === 'csvPreview'
@@ -227,11 +244,10 @@ export type OpenContentSpec =
     }
   | { type: 'newTab' }
   | {
-      type: 'diff'
-      path: string
+      type: 'commitDiff'
+      wsId: string
+      sha: string
       name: string
-      content: string
-      diffData?: GitDiff | MultiFileDiff
     }
   | {
       type: 'markdownPreview'

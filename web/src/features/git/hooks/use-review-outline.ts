@@ -26,16 +26,23 @@ const GIT_STATUS_DEBOUNCE_MS = 250
  *
  * Deliberately NOT part of first paint: the file list renders from the summary,
  * and heights sharpen when this lands. Passing a null wsId disables fetching.
+ *
+ * `commit` scopes the outline to one commit instead of the branch. A
+ * commit-scoped outline describes two immutable trees, so it also drops the
+ * `git-status-changed` refetch: nothing the working tree does can change it,
+ * and refetching on every keystroke in a terminal would be pure waste.
  */
-export function useReviewOutline(wsId: string | null): UseReviewOutlineResult {
+export function useReviewOutline(wsId: string | null, commit?: string): UseReviewOutlineResult {
   const [outline, setOutline] = useState<FileOutline[]>(EMPTY_OUTLINE)
   const [loaded, setLoaded] = useState(false)
 
-  // Reset synchronously in the render where the workspace changes, so a stale
-  // outline cannot describe the wrong branch for even one frame.
-  const [prevWs, setPrevWs] = useState<string | null>(wsId)
-  if (prevWs !== wsId) {
-    setPrevWs(wsId)
+  // Reset synchronously in the render where the SCOPE changes, so a stale
+  // outline cannot describe the wrong diff for even one frame. Keyed on the
+  // commit too: switching between two commit tabs never changes wsId.
+  const scopeKey = `${wsId ?? ''}\u0000${commit ?? ''}`
+  const [prevScope, setPrevScope] = useState(scopeKey)
+  if (prevScope !== scopeKey) {
+    setPrevScope(scopeKey)
     setOutline(EMPTY_OUTLINE)
     setLoaded(false)
   }
@@ -48,7 +55,7 @@ export function useReviewOutline(wsId: string | null): UseReviewOutlineResult {
 
     const fetchOutline = async () => {
       try {
-        const next = await getReviewOutline(wsId)
+        const next = await getReviewOutline({ wsId, commit })
         if (cancelled) return
         setOutline(next)
         setLoaded(true)
@@ -60,6 +67,11 @@ export function useReviewOutline(wsId: string | null): UseReviewOutlineResult {
     }
 
     void fetchOutline()
+
+    if (commit)
+      return () => {
+        cancelled = true
+      }
 
     const handler = () => {
       if (debounceTimer) clearTimeout(debounceTimer)
@@ -75,7 +87,7 @@ export function useReviewOutline(wsId: string | null): UseReviewOutlineResult {
       if (debounceTimer) clearTimeout(debounceTimer)
       window.removeEventListener('git-status-changed', handler)
     }
-  }, [wsId])
+  }, [wsId, commit])
 
   return { outline, loaded }
 }

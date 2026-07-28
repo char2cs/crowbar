@@ -385,8 +385,13 @@ function buildTailHunk(hunks: readonly Hunk[], additions: number, deletions: num
  * The patch length distinguishes them and costs nothing: identical text still
  * shares a key, which is what the highlighter cache wants.
  */
-function patchCacheKey(wsId: string, path: string, patch: string): string {
-  return `${wsId}:${path}:${patch.length}`
+function patchCacheKey(
+  wsId: string,
+  commit: string | undefined,
+  path: string,
+  patch: string,
+): string {
+  return `${wsId}:${commit ?? ''}:${path}:${patch.length}`
 }
 
 /** Parse one file's unified patch. A header-only body yields a hunkless file
@@ -442,6 +447,12 @@ export interface ReviewCodeViewProps {
   files: readonly GitDiff[]
   /** Hunk geometry for the same files. Order does not matter; it is joined by path. */
   outline: readonly FileOutline[]
+  /** Scopes every read to ONE commit instead of the workspace's branch. It is
+   *  part of the patch cache key as well as the request: the same path in the
+   *  branch diff and in a commit diff are different content, and @pierre/diffs
+   *  treats the cacheKey as the item's IDENTITY — a collision keeps the first
+   *  one's parsed body and rendered height. */
+  commit?: string
   /** False while the pane is hidden, which suspends fetching for it. */
   isActivePane?: boolean
   /** Imperative handle for callers that must navigate the surface from
@@ -482,6 +493,7 @@ function createHighlightWorker(): Worker {
 
 function ReviewCodeViewSurface({
   wsId,
+  commit,
   files,
   outline,
   isActivePane = true,
@@ -606,12 +618,12 @@ function ReviewCodeViewSurface({
       const token = ++tokenRef.current
       heldRef.current.set(path, { token, state: 'loading' })
       try {
-        const { patch, truncated } = await getReviewPatch(wsId, path, maxLines)
+        const { patch, truncated } = await getReviewPatch({ wsId, commit }, path, maxLines)
         // The path may have scrolled out of the window while the request was in
         // flight; the eviction that dropped it already replaced the item.
         if (heldRef.current.get(path)?.token !== token) return
 
-        const fileDiff = parseSingleFilePatch(patch, patchCacheKey(wsId, path, patch))
+        const fileDiff = parseSingleFilePatch(patch, patchCacheKey(wsId, commit, path, patch))
         if (fileDiff == null) {
           heldRef.current.set(path, { token, state: 'failed' })
           setPatchState(path, truncated ? 'truncated' : 'failed')
@@ -632,7 +644,7 @@ function ReviewCodeViewSurface({
         if (replan) runWindowRef.current()
       }
     },
-    [publishItem, setPatchState, wsId],
+    [publishItem, setPatchState, wsId, commit],
   )
 
   const runWindow = useCallback(() => {
@@ -1012,7 +1024,7 @@ function ReviewBinaryFile({ entry }: { entry: ReviewFileEntry }) {
       </button>
       {open ? (
         <div className="h-96 border-border/70 border-t">
-          <ImageDiffViewer diff={entry.file} fileName={entry.path} onClose={() => setOpen(false)} />
+          <ImageDiffViewer diff={entry.file} fileName={entry.path} />
         </div>
       ) : null}
     </div>

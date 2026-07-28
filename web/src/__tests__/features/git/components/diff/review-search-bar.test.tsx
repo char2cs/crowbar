@@ -129,7 +129,11 @@ describe('ReviewSearchBar — debounce', () => {
     await runDebounce()
 
     expect(searchMock).toHaveBeenCalledTimes(1)
-    expect(searchMock).toHaveBeenCalledWith('ws-1', 'todo', expect.anything())
+    expect(searchMock).toHaveBeenCalledWith(
+      { wsId: 'ws-1', commit: undefined },
+      'todo',
+      expect.anything(),
+    )
   })
 
   it('does not fire before the debounce elapses', async () => {
@@ -154,7 +158,11 @@ describe('ReviewSearchBar — debounce', () => {
     await runDebounce()
 
     expect(searchMock).toHaveBeenCalledTimes(2)
-    expect(searchMock).toHaveBeenLastCalledWith('ws-1', 'fixme', expect.anything())
+    expect(searchMock).toHaveBeenLastCalledWith(
+      { wsId: 'ws-1', commit: undefined },
+      'fixme',
+      expect.anything(),
+    )
   })
 })
 
@@ -219,7 +227,7 @@ describe('ReviewSearchBar — options', () => {
     await runDebounce()
 
     expect(searchMock).toHaveBeenCalledWith(
-      'ws-1',
+      { wsId: 'ws-1', commit: undefined },
       'todo',
       expect.objectContaining({ regex: false, caseSensitive: false }),
     )
@@ -234,7 +242,7 @@ describe('ReviewSearchBar — options', () => {
     await runDebounce()
 
     expect(searchMock).toHaveBeenLastCalledWith(
-      'ws-1',
+      { wsId: 'ws-1', commit: undefined },
       'a.*b',
       expect.objectContaining({ regex: true }),
     )
@@ -249,7 +257,7 @@ describe('ReviewSearchBar — options', () => {
     await runDebounce()
 
     expect(searchMock).toHaveBeenLastCalledWith(
-      'ws-1',
+      { wsId: 'ws-1', commit: undefined },
       'Todo',
       expect.objectContaining({ caseSensitive: true }),
     )

@@ -83,6 +83,7 @@ func (h *Handlers) streamPatch(
 	_, _, err := h.reviewUsecase.GetPatch(
 		ctx.Request.Context(),
 		ctx.Param("wsId"),
+		scopeCommit(ctx),
 		path,
 		maxLines,
 		ctx.Writer,
@@ -105,6 +106,7 @@ func (h *Handlers) bufferedPatch(
 	_, truncated, err := h.reviewUsecase.GetPatch(
 		ctx.Request.Context(),
 		ctx.Param("wsId"),
+		scopeCommit(ctx),
 		path,
 		maxLines,
 		&buf,

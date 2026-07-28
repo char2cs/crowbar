@@ -453,12 +453,8 @@ const TabBar = ({
         closeBuffer(bufferId)
         setTimeout(async () => {
           try {
-            const content = buf.type === 'editor' || buf.type === 'diff' ? buf.content : ''
-            const spec =
-              buf.type === 'diff'
-                ? ({ type: 'diff', path: buf.path, name: buf.name, content } as const)
-                : ({ type: 'editor', path: buf.path, name: buf.name, content } as const)
-            openContent(spec)
+            const content = buf.type === 'editor' ? buf.content : ''
+            openContent({ type: 'editor', path: buf.path, name: buf.name, content })
           } catch (error) {
             console.error('Failed to reload buffer:', error)
           }

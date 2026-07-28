@@ -43,9 +43,16 @@ type Usecase interface {
 	// GetFiles returns the files-only branch-review summary for a workspace: the
 	// full changed-files picture (committed + working-tree, +N/-N counts) with no
 	// line-level content, so the sidebar never fetches the diff body (Task 27).
+	//
+	// commit scopes every windowed read below to ONE commit against its parent
+	// instead of the branch; empty means the branch diff. It is a parameter
+	// rather than a separate set of methods because the two answer the same
+	// question about a different pair of trees — the resolution differs, the
+	// payload, the caching and the client do not. See resolveScopeRef.
 	GetFiles(
 		ctx context.Context,
 		wsID string,
+		commit string,
 	) ([]gitdomain.ReviewFileSummary, error)
 	// GetOutline returns the hunk geometry of the workspace's branch diff: per
 	// file the `@@` shapes of its diff and no content at all. O(hunks) where Get
@@ -54,6 +61,7 @@ type Usecase interface {
 	GetOutline(
 		ctx context.Context,
 		wsID string,
+		commit string,
 	) ([]gitdomain.FileOutline, error)
 	// GetPatch streams one file's unified patch into w, returning the number of
 	// patch lines written and whether it was cut short at maxLines. maxLines <= 0
@@ -61,6 +69,7 @@ type Usecase interface {
 	GetPatch(
 		ctx context.Context,
 		wsID string,
+		commit string,
 		path string,
 		maxLines int,
 		w io.Writer,
@@ -72,6 +81,7 @@ type Usecase interface {
 	SearchDiff(
 		ctx context.Context,
 		wsID string,
+		commit string,
 		query string,
 		opts gitdomain.SearchOpts,
 	) ([]gitdomain.SearchHit, bool, error)

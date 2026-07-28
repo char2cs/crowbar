@@ -514,7 +514,7 @@ func TestBranchReview_GetFiles_RepoNil(t *testing.T) {
 
 	uc := newTestUsecase(wsMock, &mockReviewThread{}, repoStore, &mockGitEngine{})
 
-	_, err := uc.GetFiles(ctx, "ws1")
+	_, err := uc.GetFiles(ctx, "ws1", "")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "branch review: resolve ref")
@@ -534,7 +534,7 @@ func TestBranchReview_GetFiles_RepoStoreError(t *testing.T) {
 
 	uc := newTestUsecase(wsMock, &mockReviewThread{}, repoStore, &mockGitEngine{})
 
-	_, err := uc.GetFiles(ctx, "ws1")
+	_, err := uc.GetFiles(ctx, "ws1", "")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "branch review: resolve ref")
@@ -793,7 +793,7 @@ func TestBranchReview_GetFiles_ParentGetError(t *testing.T) {
 
 	uc := newTestUsecase(wsMock, &mockReviewThread{}, mocks.NewRepositoryStore(), &mockGitEngine{})
 
-	_, err := uc.GetFiles(ctx, "child")
+	_, err := uc.GetFiles(ctx, "child", "")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "branch review: resolve ref")
@@ -832,7 +832,7 @@ func TestBranchReview_GetFiles_FallsBackToForkPointSha(t *testing.T) {
 
 	uc := newTestUsecase(wsMock, noopThreads(), repoStore, gitEng)
 
-	_, err := uc.GetFiles(ctx, "ws1")
+	_, err := uc.GetFiles(ctx, "ws1", "")
 
 	require.NoError(t, err)
 	assert.Equal(t, "sha123", gotDiffRef, "DiffAgainstRef must fall back to ForkPointSha when the base branch is unresolvable")
@@ -883,7 +883,7 @@ func TestBranchReview_GetFiles_PrefersLiveMergeBaseOverStaleForkPoint(t *testing
 
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	_, err := uc.GetFiles(ctx, "child")
+	_, err := uc.GetFiles(ctx, "child", "")
 
 	require.NoError(t, err)
 	assert.Equal(t, "live-merge-base", gotDiffRef,
@@ -943,7 +943,7 @@ func TestBranchReview_GetFiles_RootUsesDefaultBranch(t *testing.T) {
 
 	uc := newTestUsecase(wsMock, noopThreads(), repoStore, gitEng)
 
-	_, err := uc.GetFiles(ctx, "ws1")
+	_, err := uc.GetFiles(ctx, "ws1", "")
 
 	require.NoError(t, err)
 	assert.Equal(t, "main", gotMergeBase, "MergeBase must be called with the default branch as base")
@@ -999,7 +999,7 @@ func TestBranchReview_GetFiles_ChildUsesParentBranch(t *testing.T) {
 
 	uc := newTestUsecase(wsMock, noopThreads(), repoStore, gitEng)
 
-	_, err := uc.GetFiles(ctx, "child")
+	_, err := uc.GetFiles(ctx, "child", "")
 
 	require.NoError(t, err)
 	assert.Equal(t, "develop", gotMergeBase, "MergeBase must be called with the PARENT branch as base")
@@ -1024,7 +1024,7 @@ func TestBranchReview_GetFiles_InternalGitError_IsNotNotFound(t *testing.T) {
 	}
 	uc := newTestUsecase(wsMock, &mockReviewThread{}, repoStore, gitEng)
 
-	_, err := uc.GetFiles(ctx, "ws1")
+	_, err := uc.GetFiles(ctx, "ws1", "")
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, apperr.ErrNotFound)
 }

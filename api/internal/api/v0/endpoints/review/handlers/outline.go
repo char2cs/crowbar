@@ -27,7 +27,7 @@ type outlineResponse struct {
 func (h *Handlers) GetOutline(
 	ctx *gin.Context,
 ) {
-	files, err := h.reviewUsecase.GetOutline(ctx.Request.Context(), ctx.Param("wsId"))
+	files, err := h.reviewUsecase.GetOutline(ctx.Request.Context(), ctx.Param("wsId"), scopeCommit(ctx))
 	if err != nil {
 		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
 		return

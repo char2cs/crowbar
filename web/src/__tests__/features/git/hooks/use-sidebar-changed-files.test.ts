@@ -94,7 +94,7 @@ describe('useSidebarChangedFiles', () => {
 
     // The full line-level diff is NEVER fetched while the pane is closed.
     expect(mocks.getReview).not.toHaveBeenCalled()
-    expect(mocks.getReviewFiles).toHaveBeenCalledWith('ws-closed')
+    expect(mocks.getReviewFiles).toHaveBeenCalledWith({ wsId: 'ws-closed', commit: undefined })
 
     // The summary lands → the list upgrades in place, now carrying counts.
     await act(async () => {

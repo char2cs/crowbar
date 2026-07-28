@@ -102,11 +102,11 @@ func TestGetFiles_JoinsALiveFlight(t *testing.T) {
 	leaderDone := make(chan struct{})
 	go func() {
 		defer close(leaderDone)
-		_, _ = uc.GetFiles(context.Background(), "ws1")
+		_, _ = uc.GetFiles(context.Background(), "ws1", "")
 	}()
 	<-git.entered
 
-	_, err := uc.GetFiles(cancelledContext(), "ws1")
+	_, err := uc.GetFiles(cancelledContext(), "ws1", "")
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, int64(1), git.invocations.Load(),
 		"a caller arriving during a live flight must join it, not start a second computation")
@@ -143,7 +143,7 @@ func TestGetFiles_SingleFlightsConcurrentCallers(t *testing.T) {
 		go func() {
 			defer done.Done()
 			launched.Done()
-			results[i], errs[i] = uc.GetFiles(context.Background(), "ws1")
+			results[i], errs[i] = uc.GetFiles(context.Background(), "ws1", "")
 		}()
 	}
 
@@ -176,7 +176,7 @@ func TestGetFiles_SeparateWorkspacesDoNotShare(t *testing.T) {
 	for _, wsID := range []string{"ws1", "ws2"} {
 		go func() {
 			defer done.Done()
-			_, _ = uc.GetFiles(context.Background(), wsID)
+			_, _ = uc.GetFiles(context.Background(), wsID, "")
 		}()
 	}
 
@@ -206,7 +206,7 @@ func TestGetFiles_ErrorPropagatesToAllWaiters(t *testing.T) {
 		go func() {
 			defer done.Done()
 			launched.Done()
-			_, errs[i] = uc.GetFiles(context.Background(), "ws1")
+			_, errs[i] = uc.GetFiles(context.Background(), "ws1", "")
 		}()
 	}
 
@@ -236,7 +236,7 @@ func TestGetFiles_StartingCallerCancellationDoesNotAbortSharedWork(t *testing.T)
 	leaderCtx, cancelLeader := context.WithCancel(context.Background())
 	leaderErr := make(chan error, 1)
 	go func() {
-		_, err := uc.GetFiles(leaderCtx, "ws1")
+		_, err := uc.GetFiles(leaderCtx, "ws1", "")
 		leaderErr <- err
 	}()
 	<-git.entered
@@ -260,9 +260,9 @@ func TestGetFiles_NewCallAfterCompletionRecomputes(t *testing.T) {
 	git.files = []gitdomain.ReviewFileSummary{{Path: "a.go", Status: gitdomain.GitFileStatusModified}}
 	uc := newTestUsecase(workspacesByID(), noopThreads(), mocks.NewRepositoryStore(), git.engine())
 
-	_, err := uc.GetFiles(context.Background(), "ws1")
+	_, err := uc.GetFiles(context.Background(), "ws1", "")
 	require.NoError(t, err)
-	_, err = uc.GetFiles(context.Background(), "ws1")
+	_, err = uc.GetFiles(context.Background(), "ws1", "")
 	require.NoError(t, err)
 
 	assert.Equal(t, int64(2), git.invocations.Load(),

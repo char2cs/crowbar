@@ -5,8 +5,6 @@ import {
 } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
-import { stageHunk, unstageHunk } from '@/features/git/api/git-status-api'
-import type { GitHunk } from '@/features/git/types/git-types'
 import { useSettingsStore } from '@/features/settings/store'
 import { buildPaneContentStyle } from '../utils/pane-border'
 import { useSidebarOptional } from '@/components/ui/sidebar'
@@ -68,7 +66,9 @@ const AgentChatPane = lazy(() =>
   })),
 )
 const EditorPane = lazy(() => import('./editor-pane').then((m) => ({ default: m.EditorPane })))
-const DiffPane = lazy(() => import('./diff-pane').then((m) => ({ default: m.DiffPane })))
+const CommitDiffPane = lazy(() =>
+  import('./commit-diff-pane').then((m) => ({ default: m.CommitDiffPane })),
+)
 import { TerminalPane } from './terminal-pane'
 
 interface PaneContainerProps {
@@ -108,7 +108,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       workspaceStore.getState().bufferActions.openContent({ type: 'terminal', ...options }),
     [workspaceStore],
   )
-  const rootFolderPath = useFileSystemStore.use.rootFolderPath?.()
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
   const isActivePane = pane.id === activePaneId
@@ -234,36 +233,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       }
     },
     [handleFileOpen, pane.id, workspaceStore],
-  )
-
-  const handleStageHunk = useCallback(
-    async (hunk: GitHunk) => {
-      if (!rootFolderPath) return
-      try {
-        const success = await stageHunk(rootFolderPath, hunk)
-        if (success) {
-          window.dispatchEvent(new CustomEvent('git-status-changed'))
-        }
-      } catch (error) {
-        console.error('Error staging hunk:', error)
-      }
-    },
-    [rootFolderPath],
-  )
-
-  const handleUnstageHunk = useCallback(
-    async (hunk: GitHunk) => {
-      if (!rootFolderPath) return
-      try {
-        const success = await unstageHunk(rootFolderPath, hunk)
-        if (success) {
-          window.dispatchEvent(new CustomEvent('git-status-changed'))
-        }
-      } catch (error) {
-        console.error('Error unstaging hunk:', error)
-      }
-    },
-    [rootFolderPath],
   )
 
   const handleExternalEditorExit = useCallback(() => {
@@ -494,14 +463,8 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
             />
           )
 
-        case 'diff':
-          return (
-            <DiffPane
-              onStageHunk={handleStageHunk}
-              onUnstageHunk={handleUnstageHunk}
-              isActivePane={isActivePane}
-            />
-          )
+        case 'commitDiff':
+          return <CommitDiffPane sha={buffer.sha} isActivePane={isActivePane} />
 
         case 'externalEditor':
           return (
@@ -547,15 +510,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           )
       }
     },
-    [
-      handleExternalEditorExit,
-      handlePromote,
-      handleStageHunk,
-      handleUnstageHunk,
-      isActivePane,
-      pane.id,
-      pane.previewBufferId,
-    ],
+    [handleExternalEditorExit, handlePromote, isActivePane, pane.id, pane.previewBufferId],
   )
 
   return (

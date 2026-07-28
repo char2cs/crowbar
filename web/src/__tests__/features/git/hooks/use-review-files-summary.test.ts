@@ -50,7 +50,7 @@ describe('useReviewFilesSummary', () => {
     const { result } = renderHook(() => useReviewFilesSummary('ws1'))
 
     await waitFor(() => expect(result.current.loaded).toBe(true))
-    expect(mocks.getReviewFiles).toHaveBeenCalledWith('ws1')
+    expect(mocks.getReviewFiles).toHaveBeenCalledWith({ wsId: 'ws1', commit: undefined })
     expect(result.current.files).toEqual([
       {
         file_path: 'src/a.ts',

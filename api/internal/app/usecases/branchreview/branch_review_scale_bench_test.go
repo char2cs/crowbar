@@ -184,7 +184,7 @@ func BenchmarkBranchReview_GetFiles_Scale(b *testing.B) {
 
 			// Warm: the first call pays page-cache costs that would otherwise
 			// land entirely on the first measured iteration.
-			_, err := h.uc.GetFiles(ctx, h.wsID)
+			_, err := h.uc.GetFiles(ctx, h.wsID, "")
 			require.NoError(b, err)
 
 			perf.Reset()
@@ -193,7 +193,7 @@ func BenchmarkBranchReview_GetFiles_Scale(b *testing.B) {
 
 			b.ResetTimer()
 			for range b.N {
-				files, err := h.uc.GetFiles(ctx, h.wsID)
+				files, err := h.uc.GetFiles(ctx, h.wsID, "")
 				if err != nil {
 					b.Fatalf("GetFiles: %v", err)
 				}
@@ -246,7 +246,7 @@ func BenchmarkBranchReview_GetFiles_Contention(b *testing.B) {
 			h := newBenchReviewHarness(b)
 			seedScaleDiff(b, h, spec)
 
-			_, err := h.uc.GetFiles(ctx, h.wsID)
+			_, err := h.uc.GetFiles(ctx, h.wsID, "")
 			require.NoError(b, err)
 
 			perf.Reset()
@@ -262,7 +262,7 @@ func BenchmarkBranchReview_GetFiles_Contention(b *testing.B) {
 					wg.Add(1)
 					go func() {
 						defer wg.Done()
-						if _, err := h.uc.GetFiles(ctx, h.wsID); err != nil {
+						if _, err := h.uc.GetFiles(ctx, h.wsID, ""); err != nil {
 							b.Errorf("GetFiles: %v", err)
 						}
 					}()

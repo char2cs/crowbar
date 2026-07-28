@@ -1,5 +1,6 @@
 import { apiFetch } from '@/lib/api'
 import { workspaceBase } from '@/lib/workspace-scope-url'
+import type { DiffScope } from './review-window-api'
 import type { MultiFileDiff } from '../types/git-diff-types'
 import type {
   MergeStrategy,
@@ -135,8 +136,11 @@ export interface ReviewFileSummary {
  *  returns the full branch picture WITHOUT the line-level diff body that
  *  getReview carries, so it can be fetched on every git-status tick without the
  *  refetch loop that made the full diff expensive. */
-export async function getReviewFiles(wsId: string): Promise<ReviewFileSummary[]> {
-  const raw = await apiFetch<{ files: ReviewFileSummary[] }>(`${reviewBase(wsId)}/files`)
+export async function getReviewFiles(scope: DiffScope): Promise<ReviewFileSummary[]> {
+  const query = scope.commit ? `?sha=${encodeURIComponent(scope.commit)}` : ''
+  const raw = await apiFetch<{ files: ReviewFileSummary[] }>(
+    `${reviewBase(scope.wsId)}/files${query}`,
+  )
   return raw.files ?? []
 }
 

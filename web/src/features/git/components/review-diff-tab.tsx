@@ -20,6 +20,10 @@ interface ReviewDiffTabProps {
   /** Branch-review header data (branch name + base) for the shared diff header. */
   branchHeader?: { title: string; baseBranch?: string }
   isActivePane?: boolean
+  /** Scopes the whole surface to ONE commit instead of the workspace's branch. */
+  commit?: string
+  /** Shown when the scoped diff has no files. Defaults to the branch wording. */
+  emptyMessage?: string
 }
 
 function CenteredState({ children }: { children: React.ReactNode }) {
@@ -31,8 +35,14 @@ function CenteredState({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * The branch-review surface: a child workspace's whole branch against its
- * parent, the GitHub-like review step.
+ * The windowed diff surface.
+ *
+ * Its default scope is a child workspace's whole branch against its parent —
+ * the GitHub-like review step. Passing `commit` narrows every read to one
+ * commit, which is how history is read: the same layout, the same per-file
+ * fetching, the same find-in-diff, against a different pair of trees. That
+ * parameter is the whole reason there is no second diff renderer in this app
+ * any more; the Monaco stack that used to serve commit diffs is gone.
  *
  * Fed by the files summary (one row per changed file, O(files)) and the outline
  * (hunk geometry, O(hunks)) — never by the old `/review` composite, which
@@ -40,12 +50,18 @@ function CenteredState({ children }: { children: React.ReactNode }) {
  * composite was 158MB and 1,441,452 objects, cost 1,162MB of webview memory,
  * and still retained 544MB after the tab was closed. Patches are now fetched
  * per file as the viewport reaches them, so what this holds is bounded by the
- * window rather than by the size of the branch.
+ * window rather than by the size of the diff.
  */
-export function ReviewDiffTab({ onRetry, branchHeader, isActivePane }: ReviewDiffTabProps) {
+export function ReviewDiffTab({
+  onRetry,
+  branchHeader,
+  isActivePane,
+  commit,
+  emptyMessage,
+}: ReviewDiffTabProps) {
   const wsId = useWorkspaceStoreContext((s) => s.workspaceId)
-  const { files, loaded: filesLoaded } = useReviewFilesSummary(wsId ?? null)
-  const { outline } = useReviewOutline(wsId ?? null)
+  const { files, loaded: filesLoaded } = useReviewFilesSummary(wsId ?? null, commit)
+  const { outline } = useReviewOutline(wsId ?? null, commit)
   const [searchOpen, setSearchOpen] = useState(false)
   const surfaceRef = useRef<ReviewCodeViewHandle | null>(null)
 
@@ -59,7 +75,7 @@ export function ReviewDiffTab({ onRetry, branchHeader, isActivePane }: ReviewDif
   if (!filesLoaded) {
     return (
       <CenteredState>
-        <LoadingSpinner label="Loading branch diff" showLabel />
+        <LoadingSpinner label={commit ? 'Loading commit diff' : 'Loading branch diff'} showLabel />
       </CenteredState>
     )
   }
@@ -68,7 +84,9 @@ export function ReviewDiffTab({ onRetry, branchHeader, isActivePane }: ReviewDif
     return (
       <CenteredState>
         <FileDashed className="size-6" />
-        <span className="ui-text-sm">No changes between this branch and its parent.</span>
+        <span className="ui-text-sm">
+          {emptyMessage ?? 'No changes between this branch and its parent.'}
+        </span>
         <button
           type="button"
           onClick={onRetry}
@@ -111,6 +129,7 @@ export function ReviewDiffTab({ onRetry, branchHeader, isActivePane }: ReviewDif
         <Suspense fallback={null}>
           <ReviewSearchBarLazy
             wsId={wsId}
+            commit={commit}
             onSelectHit={handleSelectHit}
             onClose={() => setSearchOpen(false)}
           />
@@ -121,6 +140,7 @@ export function ReviewDiffTab({ onRetry, branchHeader, isActivePane }: ReviewDif
         <Suspense fallback={<CenteredState>{<LoadingSpinner />}</CenteredState>}>
           <ReviewCodeViewLazy
             wsId={wsId ?? ''}
+            commit={commit}
             files={files}
             outline={outline}
             isActivePane={isActivePane}

@@ -42,7 +42,7 @@ func captureSearch(
 	var gotOpts gitdomain.SearchOpts
 	uc := stubUsecase{
 		//nolint:lll // the stub mirrors the usecase signature; wrapping hides which method it stands in for.
-		searchFn: func(_ context.Context, _, q string, opts gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error) {
+		searchFn: func(_ context.Context, _, _, q string, opts gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error) {
 			gotQuery, gotOpts = q, opts
 			return nil, false, nil
 		},
@@ -108,7 +108,7 @@ func TestReviewHandlers_SearchDiff_LimitIsAlwaysBounded(t *testing.T) {
 func TestReviewHandlers_SearchDiff_TruncatedIsReported(t *testing.T) {
 	uc := stubUsecase{
 		//nolint:lll // the stub mirrors the usecase signature; wrapping hides which method it stands in for.
-		searchFn: func(_ context.Context, _, _ string, _ gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error) {
+		searchFn: func(_ context.Context, _, _, _ string, _ gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error) {
 			return []gitdomain.SearchHit{{Path: "a.go"}}, true, nil
 		},
 	}
@@ -125,7 +125,7 @@ func TestReviewHandlers_SearchDiff_TruncatedIsReported(t *testing.T) {
 func TestReviewHandlers_SearchDiff_EmptyQueryIsAnEmptyResult(t *testing.T) {
 	uc := stubUsecase{
 		//nolint:lll // the stub mirrors the usecase signature; wrapping hides which method it stands in for.
-		searchFn: func(_ context.Context, _, _ string, _ gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error) {
+		searchFn: func(_ context.Context, _, _, _ string, _ gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error) {
 			return nil, false, nil
 		},
 	}

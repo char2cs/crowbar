@@ -48,7 +48,7 @@ func TestReviewHandlers_GetPatch_StreamsIncrementallyRatherThanBuffering(t *test
 	const line = "+streamed line\n"
 	var seen []int
 	uc := stubUsecase{
-		patch: func(_ context.Context, _, _ string, _ int, w io.Writer) (int, bool, error) {
+		patch: func(_ context.Context, _, _, _ string, _ int, w io.Writer) (int, bool, error) {
 			for range lines {
 				if _, err := io.WriteString(w, line); err != nil {
 					return 0, false, err
@@ -88,7 +88,7 @@ func TestReviewHandlers_GetPatch_StillStreamsThroughTheTimingWriter(t *testing.T
 	const line = "+streamed line\n"
 	var seen []int
 	uc := stubUsecase{
-		patch: func(_ context.Context, _, _ string, _ int, w io.Writer) (int, bool, error) {
+		patch: func(_ context.Context, _, _, _ string, _ int, w io.Writer) (int, bool, error) {
 			for range lines {
 				if _, err := io.WriteString(w, line); err != nil {
 					return 0, false, err
@@ -113,7 +113,7 @@ func TestReviewHandlers_GetPatch_StillStreamsThroughTheTimingWriter(t *testing.T
 // never read it.
 func TestReviewHandlers_GetPatch_ReportsTruncationAsAReadableHeader(t *testing.T) {
 	uc := stubUsecase{
-		patch: func(_ context.Context, _, _ string, _ int, w io.Writer) (int, bool, error) {
+		patch: func(_ context.Context, _, _, _ string, _ int, w io.Writer) (int, bool, error) {
 			n, err := io.WriteString(w, "@@ -1,2 +1,2 @@\n")
 			return n, true, err
 		},
@@ -157,7 +157,7 @@ func TestReviewHandlers_GetPatch_MaxLines(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := -999
 			uc := stubUsecase{
-				patch: func(_ context.Context, _, _ string, maxLines int, _ io.Writer) (int, bool, error) {
+				patch: func(_ context.Context, _, _, _ string, maxLines int, _ io.Writer) (int, bool, error) {
 					got = maxLines
 					return 0, false, nil
 				},
@@ -176,7 +176,7 @@ func TestReviewHandlers_GetPatch_MissingPathIsBadRequest(t *testing.T) {
 	for _, query := range []string{"", "?path=", "?maxLines=10"} {
 		called := false
 		uc := stubUsecase{
-			patch: func(_ context.Context, _, _ string, _ int, _ io.Writer) (int, bool, error) {
+			patch: func(_ context.Context, _, _, _ string, _ int, _ io.Writer) (int, bool, error) {
 				called = true
 				return 0, false, nil
 			},
@@ -193,7 +193,7 @@ func TestReviewHandlers_GetPatch_MissingPathIsBadRequest(t *testing.T) {
 // empty path through still fails, and it fails as a 400 rather than a 500.
 func TestReviewHandlers_GetPatch_EngineLevelEmptyPathGuardIsA400(t *testing.T) {
 	uc := stubUsecase{
-		patch: func(_ context.Context, _, _ string, _ int, _ io.Writer) (int, bool, error) {
+		patch: func(_ context.Context, _, _, _ string, _ int, _ io.Writer) (int, bool, error) {
 			return 0, false, fmt.Errorf("branch review: patch: %w: path is required", apperr.ErrInvalidArgument)
 		},
 	}
@@ -213,7 +213,7 @@ func TestReviewHandlers_GetPatch_InvalidMaxLinesIsBadRequest(t *testing.T) {
 // envelope.
 func TestReviewHandlers_GetPatch_FailureBeforeAnyWriteIsAJSONEnvelope(t *testing.T) {
 	uc := stubUsecase{
-		patch: func(_ context.Context, _, _ string, _ int, _ io.Writer) (int, bool, error) {
+		patch: func(_ context.Context, _, _, _ string, _ int, _ io.Writer) (int, bool, error) {
 			return 0, false, errors.New("git boom")
 		},
 	}
@@ -233,7 +233,7 @@ func TestReviewHandlers_GetPatch_FailureBeforeAnyWriteIsAJSONEnvelope(t *testing
 
 func TestReviewHandlers_GetPatch_NotFoundBeforeAnyWrite(t *testing.T) {
 	uc := stubUsecase{
-		patch: func(_ context.Context, _, _ string, _ int, _ io.Writer) (int, bool, error) {
+		patch: func(_ context.Context, _, _, _ string, _ int, _ io.Writer) (int, bool, error) {
 			return 0, false, apperr.ErrNotFound
 		},
 	}
@@ -246,7 +246,7 @@ func TestReviewHandlers_GetPatch_NotFoundBeforeAnyWrite(t *testing.T) {
 // failure is recorded on the context and the stream simply stops.
 func TestReviewHandlers_GetPatch_FailureMidStreamKeepsWhatWasWritten(t *testing.T) {
 	uc := stubUsecase{
-		patch: func(_ context.Context, _, _ string, _ int, w io.Writer) (int, bool, error) {
+		patch: func(_ context.Context, _, _, _ string, _ int, w io.Writer) (int, bool, error) {
 			_, _ = io.WriteString(w, "@@ -1,1 +1,1 @@\n")
 			return 1, false, errors.New("git died")
 		},
@@ -260,7 +260,7 @@ func TestReviewHandlers_GetPatch_FailureMidStreamKeepsWhatWasWritten(t *testing.
 func TestReviewHandlers_GetPatch_ForwardsPathAndWorkspace(t *testing.T) {
 	var gotWs, gotPath string
 	uc := stubUsecase{
-		patch: func(_ context.Context, wsID, path string, _ int, _ io.Writer) (int, bool, error) {
+		patch: func(_ context.Context, wsID, _, path string, _ int, _ io.Writer) (int, bool, error) {
 			gotWs, gotPath = wsID, path
 			return 0, false, nil
 		},
@@ -282,7 +282,7 @@ func TestReviewHandlers_GetPatch_OversizedCapStreamsInsteadOfBuffering(t *testin
 	const line = "+streamed line\n"
 	var seen []int
 	uc := stubUsecase{
-		patch: func(_ context.Context, _, _ string, _ int, w io.Writer) (int, bool, error) {
+		patch: func(_ context.Context, _, _, _ string, _ int, w io.Writer) (int, bool, error) {
 			for range lines {
 				if _, err := io.WriteString(w, line); err != nil {
 					return 0, false, err
@@ -310,7 +310,7 @@ func TestReviewHandlers_GetPatch_CappedRequestBuffersToLearnTruncation(t *testin
 
 	var seen []int
 	uc := stubUsecase{
-		patch: func(_ context.Context, _, _ string, _ int, w io.Writer) (int, bool, error) {
+		patch: func(_ context.Context, _, _, _ string, _ int, w io.Writer) (int, bool, error) {
 			for range 3 {
 				if _, err := io.WriteString(w, "+x\n"); err != nil {
 					return 0, false, err

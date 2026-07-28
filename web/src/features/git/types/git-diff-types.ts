@@ -1,11 +1,4 @@
-import type { GitDiff, GitDiffLine, GitHunk } from './git-types'
-
-export interface DiffViewerProps {
-  onStageHunk?: (hunk: GitHunk) => void
-  onUnstageHunk?: (hunk: GitHunk) => void
-  /** Whether this diff's pane is active (gates the diff find bar). */
-  isActivePane?: boolean
-}
+import type { GitDiff, GitDiffLine } from './git-types'
 
 export interface DiffLineWithIndex extends GitDiffLine {
   diffIndex: number
@@ -25,40 +18,9 @@ export interface ImageContainerProps {
   zoom: number
 }
 
-export interface DiffHeaderProps {
-  fileName?: string
-  title?: string
-  diff?: GitDiff
-  viewMode?: 'unified' | 'split'
-  onViewModeChange?: (mode: 'unified' | 'split') => void
-
-  commitHash?: string
-  totalFiles?: number
-  onExpandAll?: () => void
-  onCollapseAll?: () => void
-
-  showWhitespace: boolean
-  onShowWhitespaceChange: (show: boolean) => void
-  onClose?: () => void
-  showDisplayControls?: boolean
-}
-
-export interface DiffHunkHeaderProps {
-  hunk: ParsedHunk
-  isCollapsed: boolean
-  onToggleCollapse: () => void
-  isStaged: boolean
-  filePath: string
-  onStageHunk?: (hunk: GitHunk) => void
-  onUnstageHunk?: (hunk: GitHunk) => void
-  isInMultiFileView?: boolean
-}
-
 export interface ImageDiffViewerProps {
   diff: GitDiff
   fileName: string
-  onClose: () => void
-  commitHash?: string
 }
 
 export interface MultiFileDiff {

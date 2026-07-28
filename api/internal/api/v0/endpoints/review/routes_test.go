@@ -34,6 +34,7 @@ func (stubUsecase) Get(
 func (stubUsecase) GetFiles(
 	_ context.Context,
 	_ string,
+	_ string,
 ) ([]gitdomain.ReviewFileSummary, error) {
 	return nil, nil
 }
@@ -49,12 +50,14 @@ func (stubUsecase) SetMergeStrategy(
 func (stubUsecase) GetOutline(
 	_ context.Context,
 	_ string,
+	_ string,
 ) ([]gitdomain.FileOutline, error) {
 	return nil, nil
 }
 
 func (stubUsecase) GetPatch(
 	_ context.Context,
+	_ string,
 	_ string,
 	_ string,
 	_ int,
@@ -65,6 +68,7 @@ func (stubUsecase) GetPatch(
 
 func (stubUsecase) SearchDiff(
 	_ context.Context,
+	_ string,
 	_ string,
 	_ string,
 	_ gitdomain.SearchOpts,

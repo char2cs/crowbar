@@ -6,7 +6,7 @@ import type {
   EditorContent,
   BranchReviewContent,
   AgentChatContent,
-  DiffContent,
+  CommitDiffContent,
   TerminalContent,
   NewTabContent,
   MarkdownPreviewContent,
@@ -167,8 +167,10 @@ export const createBufferSlice: StateCreator<
               (b) => b.type === 'agentChat' && (b as AgentChatContent).chatId === spec.chatId,
             )
           }
-          if (spec.type === 'diff') {
-            return get().buffers.find((b) => b.type === 'diff' && b.path === spec.path)
+          if (spec.type === 'commitDiff') {
+            return get().buffers.find(
+              (b) => b.type === 'commitDiff' && b.wsId === spec.wsId && b.sha === spec.sha,
+            )
           }
           if (spec.type === 'terminal' && spec.sessionId) {
             return get().buffers.find(
@@ -290,19 +292,20 @@ export const createBufferSlice: StateCreator<
             isPreview: false,
             isActive: false,
           } satisfies AgentChatContent
-        } else if (spec.type === 'diff') {
+        } else if (spec.type === 'commitDiff') {
           buf = {
             id,
-            type: 'diff',
-            path: spec.path,
+            type: 'commitDiff',
+            wsId: spec.wsId,
+            sha: spec.sha,
             name: spec.name,
-            content: spec.content,
-            savedContent: spec.content,
-            diffData: spec.diffData,
+            // One tab per commit per workspace: reopening the same commit
+            // focuses the tab that is already there rather than stacking another.
+            path: `commit-diff://${spec.wsId}/${spec.sha}`,
             isPinned: false,
             isPreview: false,
             isActive: false,
-          } satisfies DiffContent
+          } satisfies CommitDiffContent
         } else if (spec.type === 'terminal') {
           const terminalCount = get().buffers.filter((b) => b.type === 'terminal').length
           const sessionId = spec.sessionId ?? `terminal-tab-${Date.now()}`

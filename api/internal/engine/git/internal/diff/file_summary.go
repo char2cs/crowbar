@@ -95,6 +95,14 @@ func summaryCounts(
 	if dirty == nil {
 		return worktreeCounts(ctx, repoPath, ref)
 	}
+	// A ref naming BOTH ends is a diff of two commits, so the working tree is not
+	// in it and there is nothing for the split to split. It also cannot survive
+	// the split mechanically: the committed half appends HEAD, and
+	// `git diff <a>..<b> <head> --` is three commits, which git refuses outright
+	// with exit 129 rather than an empty result.
+	if isRangeRef(ref) {
+		return worktreeCounts(ctx, repoPath, ref)
+	}
 	head, ok := headCommit(ctx, repoPath)
 	if !ok {
 		return worktreeCounts(ctx, repoPath, ref)
@@ -114,9 +122,18 @@ func summaryCounts(
 	return mergeCounts(entries, committed, stale, fresh), nil
 }
 
+// isRangeRef reports whether ref names both ends of a diff (`a..b`) rather than
+// a single commit-ish to be diffed against the working tree.
+func isRangeRef(
+	ref string,
+) bool {
+	return strings.Contains(ref, "..")
+}
+
 // worktreeCounts is the unsplit query — correct for every entry and O(diff
 // size). It is the fallback whenever the split cannot be trusted, and the query
-// the tests' equivalence oracle reproduces.
+// the tests' equivalence oracle reproduces. Given a range ref it is not a
+// working-tree query at all; it is simply the one correct invocation.
 func worktreeCounts(
 	ctx context.Context,
 	repoPath string,

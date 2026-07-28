@@ -22,6 +22,28 @@ function reviewBase(wsId: string): string {
   return `${workspaceBase(wsId)}/review`
 }
 
+/** The query parameter that narrows a windowed read from the workspace's whole
+ *  branch to a single commit. Absent means the branch — the default and the
+ *  surface's reason for existing. */
+const SCOPE_COMMIT_PARAM = 'sha'
+
+/** Which diff a windowed read is about.
+ *
+ *  `commit` empty/undefined means the workspace's branch against its parent —
+ *  the GitHub-like review step. A commit narrows every read to that commit
+ *  against its parent, which is what lets the history surface reuse the review
+ *  surface wholesale instead of keeping a second diff renderer alive for it. */
+export interface DiffScope {
+  wsId: string
+  commit?: string
+}
+
+function scopeParams(scope: DiffScope, init?: Record<string, string>): URLSearchParams {
+  const params = new URLSearchParams(init)
+  if (scope.commit) params.set(SCOPE_COMMIT_PARAM, scope.commit)
+  return params
+}
+
 // ── Outline ─────────────────────────────────────────────────────────
 
 /** One `@@` header reduced to its four numbers (gitdomain.HunkShape).
@@ -62,8 +84,11 @@ interface WireFileOutline extends Omit<FileOutline, 'hunks'> {
 /** GET the hunk geometry of the whole branch diff — O(hunks), never O(lines).
  *  A million-line branch is described in about a megabyte, which is what lets
  *  the review surface lay out every file before fetching a single patch. */
-export async function getReviewOutline(wsId: string): Promise<FileOutline[]> {
-  const raw = await apiFetch<{ files: WireFileOutline[] }>(`${reviewBase(wsId)}/outline`)
+export async function getReviewOutline(scope: DiffScope): Promise<FileOutline[]> {
+  const query = scopeParams(scope).toString()
+  const raw = await apiFetch<{ files: WireFileOutline[] }>(
+    `${reviewBase(scope.wsId)}/outline${query ? `?${query}` : ''}`,
+  )
   return (raw.files ?? []).map((f) => ({ ...f, hunks: f.hunks ?? [] }))
 }
 
@@ -98,13 +123,13 @@ export interface ReviewPatch {
  * served by the streaming path, which reports no truncation.
  */
 export async function getReviewPatch(
-  wsId: string,
+  scope: DiffScope,
   path: string,
   maxLines?: number,
 ): Promise<ReviewPatch> {
-  const params = new URLSearchParams({ path })
+  const params = scopeParams(scope, { path })
   if (maxLines !== undefined) params.set('maxLines', String(maxLines))
-  const res = await apiFetchRaw(`${reviewBase(wsId)}/patch?${params.toString()}`)
+  const res = await apiFetchRaw(`${reviewBase(scope.wsId)}/patch?${params.toString()}`)
   const patch = await res.text()
   return { patch, truncated: res.headers.get(DIFF_TRUNCATED_HEADER) === 'true' }
 }
@@ -144,17 +169,17 @@ export interface SearchDiffResult {
  *  so it is safe to fire on every keystroke of a find box. An invalid regex is a
  *  400 and surfaces as an ApiError for the caller to render inline. */
 export async function searchReviewDiff(
-  wsId: string,
+  scope: DiffScope,
   q: string,
   opts?: SearchDiffOptions,
 ): Promise<SearchDiffResult> {
-  const params = new URLSearchParams({ q })
+  const params = scopeParams(scope, { q })
   if (opts?.regex) params.set('regex', 'true')
   // The wire parameter is `case`, not `caseSensitive`.
   if (opts?.caseSensitive) params.set('case', 'true')
   if (opts?.limit !== undefined) params.set('limit', String(opts.limit))
   const raw = await apiFetch<{ hits: SearchHit[] | null; truncated: boolean }>(
-    `${reviewBase(wsId)}/search?${params.toString()}`,
+    `${reviewBase(scope.wsId)}/search?${params.toString()}`,
   )
   return { hits: raw.hits ?? [], truncated: raw.truncated ?? false }
 }

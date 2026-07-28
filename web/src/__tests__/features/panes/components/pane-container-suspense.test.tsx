@@ -11,7 +11,7 @@ import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 // A classic controlled Suspense "resource": renders nothing until resolved,
 // then THROWS the pending promise (which React's nearest Suspense boundary
 // catches) rather than resolving asynchronously on its own. This lets the test
-// hold the lazy DiffPane in a suspended state for as long as it wants and
+// hold the lazy CommitDiffPane in a suspended state for as long as it wants and
 // resolve it on command — no timers, no sleeps.
 const { diffResource } = vi.hoisted(() => {
   function createDeferredResource<T>() {
@@ -36,15 +36,15 @@ const { diffResource } = vi.hoisted(() => {
   return { diffResource: createDeferredResource<true>() }
 })
 
-// pane-container.tsx lazy-loads `./diff-pane` (relative import). Vitest/Vite
+// pane-container.tsx lazy-loads `./commit-diff-pane` (relative import). Vitest/Vite
 // mocks key off the resolved absolute module id, so mocking the SAME file via
 // its '@/...' alias here intercepts it — the pattern already relied on by
 // branch-section.test.tsx and agent-chat-pane.test.tsx for sibling relative
 // imports. The mocked module resolves immediately; suspension is instead
 // driven by `diffResource.read()` inside the component body below, so the
 // test controls exactly when the lazy pane stops suspending.
-vi.mock('@/features/panes/components/diff-pane', () => ({
-  DiffPane: () => {
+vi.mock('@/features/panes/components/commit-diff-pane', () => ({
+  CommitDiffPane: () => {
     diffResource.read()
     return createElement('div', { 'data-testid': 'diff-pane-content' }, 'Diff Loaded')
   },
@@ -84,10 +84,10 @@ function seedStore() {
   // Opened AFTER the terminal, so openContent's addBufferToPane(..., true)
   // leaves this one — the lazy pane — as the pane's active buffer.
   const diffId = store.getState().bufferActions.openContent({
-    type: 'diff',
-    path: '/repo/file.ts',
-    name: 'file.ts',
-    content: 'diff content',
+    type: 'commitDiff',
+    wsId: 'w1',
+    sha: 'abc1234',
+    name: 'Commit abc1234',
   })
   return { store, terminalId, diffId }
 }

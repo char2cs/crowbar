@@ -55,7 +55,7 @@ func TestReviewHandlers_GetOutline(t *testing.T) {
 // null check, exactly as /review/files does.
 func TestReviewHandlers_GetOutline_EmptyIsArrayNotNull(t *testing.T) {
 	uc := stubUsecase{
-		outline: func(_ context.Context, _ string) ([]gitdomain.FileOutline, error) { return nil, nil },
+		outline: func(_ context.Context, _, _ string) ([]gitdomain.FileOutline, error) { return nil, nil },
 	}
 	rec := getOutline(routerFor(uc), "")
 

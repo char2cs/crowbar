@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/utils/cn'
 import type { ImageContainerProps, ImageDiffViewerProps } from '../../types/git-diff-types'
 import { getFileStatus, getImgSrc } from '../../utils/git-diff-helpers'
-import DiffHeader from './git-diff-header'
 
 const ZOOM_STEP = 0.25
 const MIN_ZOOM = 0.25
@@ -44,7 +43,7 @@ const ImageContainer = memo(({ label, labelColor, base64, alt, zoom }: ImageCont
 
 ImageContainer.displayName = 'ImageContainer'
 
-const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiffViewerProps) => {
+const ImageDiffViewer = memo(({ diff, fileName }: ImageDiffViewerProps) => {
   const [zoom, setZoom] = useState(1)
 
   const handleZoomIn = useCallback(() => {
@@ -60,16 +59,11 @@ const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiff
   const hasNewImage = !!diff.new_blob_base64
 
   return (
+    // No header: this renders INSIDE a review row that already names the file
+    // and carries its own controls. It used to mount the old stack's DiffHeader
+    // — filename, stats, close button and a whitespace toggle wired to a no-op —
+    // which was duplicate chrome here and the last thing keeping that file alive.
     <div className="flex h-full flex-col overflow-hidden bg-background">
-      <DiffHeader
-        fileName={fileName}
-        diff={diff}
-        showWhitespace={false}
-        onShowWhitespaceChange={() => {}}
-        commitHash={commitHash}
-        onClose={onClose}
-      />
-
       <div className="flex items-center justify-center gap-2 border-border border-b bg-card py-1">
         <Button
           onClick={handleZoomOut}

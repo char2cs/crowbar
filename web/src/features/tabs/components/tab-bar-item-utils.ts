@@ -18,8 +18,8 @@ export function sameRenderedBuffer(a: PaneContent, b: PaneContent): boolean {
   if (a.type === 'editor' && b.type === 'editor') {
     return a.isDirty === b.isDirty
   }
-  if (a.type === 'diff' && b.type === 'diff') {
-    return a.diffData === b.diffData
+  if (a.type === 'commitDiff' && b.type === 'commitDiff') {
+    return a.wsId === b.wsId && a.sha === b.sha
   }
   if (a.type === 'agentChat' && b.type === 'agentChat') {
     return a.wsId === b.wsId && a.chatId === b.chatId

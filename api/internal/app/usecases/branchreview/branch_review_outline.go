@@ -21,19 +21,23 @@ import (
 // patch. Producing it still costs a full streamed read of the diff, so the
 // result is cached whenever the key can be made exact — see
 // cacheableOutlineKey.
+//
+// commit scopes the read to one commit against its parent; empty means the
+// branch diff. See resolveScopeRef.
 func (u *branchReviewUsecase) GetOutline(
 	ctx context.Context,
 	wsID string,
+	commit string,
 ) ([]gitdomain.FileOutline, error) {
 	ws, err := u.workspaces.Get(ctx, wsID)
 	if err != nil {
 		return nil, fmt.Errorf("branch review: get workspace: %w", asNotFound(err))
 	}
-	ref, err := u.resolveDiffRef(ctx, ws)
+	ref, err := u.resolveScopeRef(ctx, ws, commit)
 	if err != nil {
 		return nil, fmt.Errorf("branch review: resolve ref: %w", err)
 	}
-	key, cacheable := u.cacheableOutlineKey(ctx, ws, ref)
+	key, cacheable := u.cacheableOutlineKey(ctx, ws, ref, commit)
 	if !cacheable {
 		return u.readOutline(ctx, ws, ref)
 	}
@@ -57,19 +61,29 @@ func (u *branchReviewUsecase) readOutline(
 // cacheableOutlineKey reports the (repoPath, ref, headSHA) key under which this
 // outline may be memoised, and whether it may be memoised at all.
 //
-// The outline is taken against the WORKING TREE, so it is only a function of
-// that key while the working tree has nothing of its own to contribute — that
-// is, while `git diff <ref> --` and `git diff <ref> <HEAD> --` are the same
-// diff of two immutable trees. A tree that has moved is therefore refused a key
-// outright rather than cached under one that cannot see the difference, and so
-// is a tree whose state could not be established: an unreadable status or an
-// unresolvable HEAD prove nothing, and a cache entry may only be written on
-// proof.
+// The branch outline is taken against the WORKING TREE, so it is only a
+// function of that key while the working tree has nothing of its own to
+// contribute — that is, while `git diff <ref> --` and `git diff <ref> <HEAD> --`
+// are the same diff of two immutable trees. A tree that has moved is therefore
+// refused a key outright rather than cached under one that cannot see the
+// difference, and so is a tree whose state could not be established: an
+// unreadable status or an unresolvable HEAD prove nothing, and a cache entry
+// may only be written on proof.
+//
+// A COMMIT-scoped read skips all of that. Its ref names both ends of the diff,
+// so it is already a function of two immutable trees and the working tree
+// cannot reach it — which means it stays cacheable in exactly the situation the
+// branch outline gives up on, a dirty tree, and that is the situation someone
+// reading history is most often in.
 func (u *branchReviewUsecase) cacheableOutlineKey(
 	ctx context.Context,
 	ws domain.Workspace,
 	ref string,
+	commit string,
 ) (outlineKey, bool) {
+	if isCommitScoped(commit) {
+		return outlineKey{repoPath: ws.WorktreePath, ref: ref}, true
+	}
 	status, err := u.git.Status(ctx, ws.WorktreePath)
 	if err != nil || hasTrackedChanges(status) {
 		return outlineKey{}, false

@@ -26,9 +26,12 @@ import (
 // ":(top,literal)" with nothing appended is a valid pathspec matching the top
 // of the tree, so an empty path would quietly turn the one query guaranteed to
 // be O(one file) into a read of the entire branch diff.
+// commit scopes the read to one commit against its parent; empty means the
+// branch diff. See resolveScopeRef.
 func (u *branchReviewUsecase) GetPatch(
 	ctx context.Context,
 	wsID string,
+	commit string,
 	path string,
 	maxLines int,
 	w io.Writer,
@@ -40,7 +43,7 @@ func (u *branchReviewUsecase) GetPatch(
 	if err != nil {
 		return 0, false, fmt.Errorf("branch review: get workspace: %w", asNotFound(err))
 	}
-	ref, err := u.resolveDiffRef(ctx, ws)
+	ref, err := u.resolveScopeRef(ctx, ws, commit)
 	if err != nil {
 		return 0, false, fmt.Errorf("branch review: resolve ref: %w", err)
 	}

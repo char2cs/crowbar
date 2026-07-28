@@ -20,9 +20,12 @@ import (
 // is streamed and matched a line at a time and the scan stops the moment the
 // limit fills, so the cost is bounded by the hits asked for rather than by the
 // size of the diff.
+// commit scopes the search to one commit against its parent; empty means the
+// branch diff. See resolveScopeRef.
 func (u *branchReviewUsecase) SearchDiff(
 	ctx context.Context,
 	wsID string,
+	commit string,
 	query string,
 	opts gitdomain.SearchOpts,
 ) ([]gitdomain.SearchHit, bool, error) {
@@ -33,7 +36,7 @@ func (u *branchReviewUsecase) SearchDiff(
 	if err != nil {
 		return nil, false, fmt.Errorf("branch review: get workspace: %w", asNotFound(err))
 	}
-	ref, err := u.resolveDiffRef(ctx, ws)
+	ref, err := u.resolveScopeRef(ctx, ws, commit)
 	if err != nil {
 		return nil, false, fmt.Errorf("branch review: resolve ref: %w", err)
 	}

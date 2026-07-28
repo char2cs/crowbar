@@ -50,7 +50,7 @@ func TestBranchReview_GetFiles_MergesWorkingTreeState(t *testing.T) {
 
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	files, err := uc.GetFiles(ctx, "ws1")
+	files, err := uc.GetFiles(ctx, "ws1", "")
 	require.NoError(t, err)
 
 	assert.Equal(t, "fork1", gotRef, "GetFiles must diff against the recorded fork point")
@@ -102,7 +102,7 @@ func TestBranchReview_GetFiles_StatusFailureIsNonFatal(t *testing.T) {
 
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	files, err := uc.GetFiles(ctx, "ws1")
+	files, err := uc.GetFiles(ctx, "ws1", "")
 	require.NoError(t, err, "a status failure must not fail the whole summary")
 	require.Len(t, files, 1)
 	assert.Equal(t, "committed.go", files[0].Path)
@@ -122,7 +122,7 @@ func TestBranchReview_GetFiles_MissingWorkspace_IsNotFound(t *testing.T) {
 	}
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), &mockGitEngine{})
 
-	_, err := uc.GetFiles(ctx, "nope")
+	_, err := uc.GetFiles(ctx, "nope", "")
 	require.ErrorIs(t, err, apperr.ErrNotFound)
 }
 
@@ -140,7 +140,7 @@ func TestBranchReview_GetFiles_ReviewFilesError(t *testing.T) {
 	}
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	_, err := uc.GetFiles(ctx, "ws1")
+	_, err := uc.GetFiles(ctx, "ws1", "")
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, apperr.ErrNotFound)
 }

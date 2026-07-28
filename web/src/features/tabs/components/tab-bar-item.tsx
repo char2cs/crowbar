@@ -15,10 +15,7 @@ import { sameRenderedBuffer } from './tab-bar-item-utils'
 import { Button } from '@/components/ui/button'
 import { CrowbarMark } from '@/components/ui/crowbar-mark'
 import { Tab } from '@/components/ui/tabs'
-import { getBaseName } from '@/utils/path-helpers'
 import { cn } from '@/utils/cn'
-import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
-import type { GitDiff } from '@/features/git/types/git-types'
 
 interface TabBarItemProps {
   buffer: PaneContent
@@ -73,18 +70,6 @@ const TabBarItem = memo(function TabBarItem({
     (e: React.KeyboardEvent) => onKeyDown(e, index),
     [onKeyDown, index],
   )
-
-  const getDiffIconName = () => {
-    if (buffer.type !== 'diff') return buffer.name
-    if (buffer.path === 'diff://working-tree/all-files') return null
-
-    const diffData = buffer.diffData
-    if (diffData && !('files' in diffData)) {
-      return getDiffFileName(diffData)
-    }
-
-    return displayName
-  }
 
   const handleAuxClick = useCallback(
     (e: React.MouseEvent) => {
@@ -143,7 +128,7 @@ const TabBarItem = memo(function TabBarItem({
             <Package className="text-muted-foreground" />
           ) : buffer.type === 'branchReview' ? (
             <GitPullRequest className="text-muted-foreground" />
-          ) : buffer.type === 'diff' && isMultiFileDiff(buffer.diffData) ? (
+          ) : buffer.type === 'commitDiff' ? (
             <GitBranch className="text-muted-foreground" />
           ) : buffer.type === 'terminal' ? (
             <Terminal className="text-muted-foreground" />
@@ -158,7 +143,7 @@ const TabBarItem = memo(function TabBarItem({
             <AgentChatTabIcon wsId={buffer.wsId} chatId={buffer.chatId} />
           ) : (
             <FileExplorerIcon
-              fileName={getDiffIconName() ?? buffer.name}
+              fileName={buffer.name}
               isDir={false}
               className={cn(
                 'text-muted-foreground',
@@ -256,15 +241,6 @@ function arePropsEqual(prev: TabBarItemProps, next: TabBarItemProps): boolean {
     prev.handleTabPin === next.handleTabPin &&
     sameRenderedBuffer(prev.buffer, next.buffer)
   )
-}
-
-function isMultiFileDiff(diffData: GitDiff | MultiFileDiff | undefined): diffData is MultiFileDiff {
-  return Boolean(diffData && 'files' in diffData)
-}
-
-function getDiffFileName(diff: GitDiff): string {
-  const filePath = diff.new_path || diff.old_path || diff.file_path || ''
-  return getBaseName(filePath, filePath || 'diff')
 }
 
 export default TabBarItem

@@ -32,7 +32,7 @@ func TestBranchReview_SearchDiff_UsesTheSameDiffRefAsGetFiles(t *testing.T) {
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
 	opts := gitdomain.SearchOpts{Regex: true, CaseSensitive: true, Limit: 25}
-	hits, truncated, err := uc.SearchDiff(ctx, "ws1", "to.o", opts)
+	hits, truncated, err := uc.SearchDiff(ctx, "ws1", "", "to.o", opts)
 	require.NoError(t, err)
 
 	assert.Equal(t, "/wt", gotRepo)
@@ -60,7 +60,7 @@ func TestBranchReview_SearchDiff_InvalidRegex_IsInvalidArgumentAndNeverReachesGi
 	}
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	_, _, err := uc.SearchDiff(ctx, "ws1", "a(b", gitdomain.SearchOpts{Regex: true})
+	_, _, err := uc.SearchDiff(ctx, "ws1", "", "a(b", gitdomain.SearchOpts{Regex: true})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	assert.False(t, called)
@@ -81,7 +81,7 @@ func TestBranchReview_SearchDiff_LiteralModeAcceptsRegexMetacharacters(t *testin
 	}
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	_, _, err := uc.SearchDiff(ctx, "ws1", "a(b", gitdomain.SearchOpts{})
+	_, _, err := uc.SearchDiff(ctx, "ws1", "", "a(b", gitdomain.SearchOpts{})
 	require.NoError(t, err)
 	assert.True(t, called)
 }
@@ -96,7 +96,7 @@ func TestBranchReview_SearchDiff_MissingWorkspace_IsNotFound(t *testing.T) {
 	}
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), &mockGitEngine{})
 
-	_, _, err := uc.SearchDiff(ctx, "missing", "todo", gitdomain.SearchOpts{Limit: 10})
+	_, _, err := uc.SearchDiff(ctx, "missing", "", "todo", gitdomain.SearchOpts{Limit: 10})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
@@ -112,7 +112,7 @@ func TestBranchReview_SearchDiff_EngineFailurePropagates(t *testing.T) {
 	}
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	_, _, err := uc.SearchDiff(ctx, "ws1", "todo", gitdomain.SearchOpts{Limit: 10})
+	_, _, err := uc.SearchDiff(ctx, "ws1", "", "todo", gitdomain.SearchOpts{Limit: 10})
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, apperr.ErrNotFound)
 	assert.NotErrorIs(t, err, apperr.ErrInvalidArgument)

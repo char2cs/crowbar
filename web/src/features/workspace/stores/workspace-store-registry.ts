@@ -43,8 +43,16 @@ export function getActiveWorkspaceId(): string | null {
 
 export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
   if (!registry.has(wsId)) {
-    const snapshot = loadFromLocalStorage(wsId)
-    const store = createWorkspaceStore(wsId, snapshot === null ? undefined : snapshot)
+    // Stripped on the way IN as well as on the way out: the save path can only
+    // filter what this build knows about, and a layout written by an older
+    // build is exactly the case that matters — a tab whose content type has
+    // since been retired restores into a renderer that no longer exists.
+    const saved = loadFromLocalStorage(wsId)
+    const snapshot =
+      saved && saved.buffers && saved.panes
+        ? { ...saved, ...stripNewTabs({ buffers: saved.buffers, panes: saved.panes }) }
+        : (saved ?? undefined)
+    const store = createWorkspaceStore(wsId, snapshot)
 
     // Subscribe to store changes and debounce persistence writes.
     // The callback runs a shallow-compare of the five persisted layout fields

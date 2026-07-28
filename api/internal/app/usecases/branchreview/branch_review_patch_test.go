@@ -32,7 +32,7 @@ func TestBranchReview_GetPatch_UsesTheSameDiffRefAsGetFiles(t *testing.T) {
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
 	var out bytes.Buffer
-	lines, truncated, err := uc.GetPatch(ctx, "ws1", "a.go", 50, &out)
+	lines, truncated, err := uc.GetPatch(ctx, "ws1", "", "a.go", 50, &out)
 	require.NoError(t, err)
 
 	assert.Equal(t, "/wt", gotRepo)
@@ -62,7 +62,7 @@ func TestBranchReview_GetPatch_EmptyPath_IsInvalidArgumentAndNeverReachesGit(t *
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
 	var out bytes.Buffer
-	_, _, err := uc.GetPatch(ctx, "ws1", "", 0, &out)
+	_, _, err := uc.GetPatch(ctx, "ws1", "", "", 0, &out)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	assert.False(t, called, "an empty path must never reach the engine")
@@ -82,7 +82,7 @@ func TestBranchReview_GetPatch_TruncationIsReported(t *testing.T) {
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
 	var out bytes.Buffer
-	lines, truncated, err := uc.GetPatch(ctx, "ws1", "a.go", 1, &out)
+	lines, truncated, err := uc.GetPatch(ctx, "ws1", "", "a.go", 1, &out)
 	require.NoError(t, err)
 	assert.Equal(t, 1, lines)
 	assert.True(t, truncated)
@@ -103,7 +103,7 @@ func TestBranchReview_GetPatch_UnlimitedMaxLinesIsForwardedVerbatim(t *testing.T
 	}
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	_, _, err := uc.GetPatch(ctx, "ws1", "a.go", 0, io.Discard)
+	_, _, err := uc.GetPatch(ctx, "ws1", "", "a.go", 0, io.Discard)
 	require.NoError(t, err)
 	assert.Equal(t, 0, gotMax)
 }
@@ -118,7 +118,7 @@ func TestBranchReview_GetPatch_MissingWorkspace_IsNotFound(t *testing.T) {
 	}
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), &mockGitEngine{})
 
-	_, _, err := uc.GetPatch(ctx, "missing", "a.go", 0, io.Discard)
+	_, _, err := uc.GetPatch(ctx, "missing", "", "a.go", 0, io.Discard)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
@@ -134,7 +134,7 @@ func TestBranchReview_GetPatch_EngineFailurePropagates(t *testing.T) {
 	}
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	_, _, err := uc.GetPatch(ctx, "ws1", "a.go", 0, io.Discard)
+	_, _, err := uc.GetPatch(ctx, "ws1", "", "a.go", 0, io.Discard)
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, apperr.ErrNotFound)
 	assert.NotErrorIs(t, err, apperr.ErrInvalidArgument)

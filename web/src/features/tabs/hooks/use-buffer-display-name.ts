@@ -1,7 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
-import { formatDiffBufferLabel } from '@/features/git/utils/diff-buffer-label'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { calculateDisplayNames } from '../utils/path-shortener'
 
@@ -115,10 +114,6 @@ export function useBufferDisplayName({ buffers, rootFolderPath }: UseBufferDispl
 
         const dirLabel = getDirectoryLabel(session?.currentDirectory || buffer.workingDirectory)
         if (dirLabel) return dirLabel
-      }
-
-      if (buffer.type === 'diff') {
-        return formatDiffBufferLabel(displayNames.get(buffer.id) || buffer.name, buffer.path)
       }
 
       return displayNames.get(buffer.id) ?? buffer.name

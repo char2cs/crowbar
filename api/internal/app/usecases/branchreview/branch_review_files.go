@@ -25,12 +25,16 @@ import (
 // correct, current answer. This is deduplication of in-flight work ONLY, never
 // a cache: a finished flight is dropped, so the next call recomputes rather
 // than serving a stale file list.
+// commit scopes the read to one commit against its parent; empty means the
+// branch diff. See resolveScopeRef. It is part of the single-flight key: two
+// callers asking about different diffs are not the same flight.
 func (u *branchReviewUsecase) GetFiles(
 	ctx context.Context,
 	wsID string,
+	commit string,
 ) ([]gitdomain.ReviewFileSummary, error) {
-	shared := u.fileReads.DoChan(wsID, func() (any, error) {
-		return u.readFiles(context.WithoutCancel(ctx), wsID)
+	shared := u.fileReads.DoChan(wsID+"\x00"+commit, func() (any, error) {
+		return u.readFiles(context.WithoutCancel(ctx), wsID, commit)
 	})
 	select {
 	case <-ctx.Done():
@@ -61,14 +65,27 @@ func sharedFiles(
 func (u *branchReviewUsecase) readFiles(
 	ctx context.Context,
 	wsID string,
+	commit string,
 ) ([]gitdomain.ReviewFileSummary, error) {
 	ws, err := u.workspaces.Get(ctx, wsID)
 	if err != nil {
 		return nil, fmt.Errorf("branch review: get workspace: %w", asNotFound(err))
 	}
-	ref, err := u.resolveDiffRef(ctx, ws)
+	ref, err := u.resolveScopeRef(ctx, ws, commit)
 	if err != nil {
 		return nil, fmt.Errorf("branch review: resolve ref: %w", err)
+	}
+	// A commit-scoped read has nothing to do with the working tree: its ref names
+	// both ends, so no file it lists is "uncommitted" and no count of its can be
+	// stale. Skipping the status is not just an optimisation — merging one in
+	// would flag files as dirty because the tree happens to be dirty NOW, in a
+	// diff of two commits that closed long ago.
+	if isCommitScoped(commit) {
+		files, err := u.git.ReviewFiles(ctx, ws.WorktreePath, ref, nil)
+		if err != nil {
+			return nil, fmt.Errorf("branch review: review files: %w", err)
+		}
+		return files, nil
 	}
 	// The status is fetched BEFORE the summary and threaded into it: its paths
 	// are what let ReviewFiles keep the +/- counts off the O(diff size) path,

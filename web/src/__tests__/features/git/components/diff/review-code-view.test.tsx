@@ -453,7 +453,11 @@ index 1111111..2222222 100644
     fireEvent.click(showAll)
 
     await waitForCode(container, 'crowbarMonsterMarker')
-    expect(mocks.getReviewPatch).toHaveBeenCalledWith('ws-1', MONSTER, 0)
+    expect(mocks.getReviewPatch).toHaveBeenCalledWith(
+      { wsId: 'ws-1', commit: undefined },
+      MONSTER,
+      0,
+    )
   })
 })
 
@@ -476,7 +480,11 @@ describe('ReviewCodeView failed patches', () => {
     fireEvent.click(retry)
 
     await waitForCode(container, markerOf(0))
-    expect(mocks.getReviewPatch).not.toHaveBeenCalledWith('ws-1', pathOf(0), 0)
+    expect(mocks.getReviewPatch).not.toHaveBeenCalledWith(
+      { wsId: 'ws-1', commit: undefined },
+      pathOf(0),
+      0,
+    )
   })
 })
 

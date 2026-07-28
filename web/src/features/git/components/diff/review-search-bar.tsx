@@ -35,6 +35,8 @@ const EMPTY_RESULT: SearchDiffResult = { hits: [], truncated: false }
 
 export interface ReviewSearchBarProps {
   wsId: string
+  /** Scopes the search to ONE commit instead of the workspace's branch. */
+  commit?: string
   /** Called with the hit the reader moved to — by clicking it, or via next/prev.
    *  The surface materialises the hit's file and scrolls to its line. */
   onSelectHit: (hit: SearchHit) => void
@@ -48,6 +50,7 @@ export interface ReviewSearchBarProps {
 
 export function ReviewSearchBar({
   wsId,
+  commit,
   onSelectHit,
   onClose,
   limit,
@@ -86,7 +89,7 @@ export function ReviewSearchBar({
 
     const timer = setTimeout(() => {
       setSearching(true)
-      searchReviewDiff(wsId, query, { regex: useRegex, caseSensitive, limit })
+      searchReviewDiff({ wsId, commit }, query, { regex: useRegex, caseSensitive, limit })
         .then((next) => {
           if (generation.current !== gen) return
           setResult(next)
@@ -107,7 +110,7 @@ export function ReviewSearchBar({
     }, SEARCH_DEBOUNCE_MS)
 
     return () => clearTimeout(timer)
-  }, [wsId, query, useRegex, caseSensitive, limit])
+  }, [wsId, commit, query, useRegex, caseSensitive, limit])
 
   const hits = result.hits
 

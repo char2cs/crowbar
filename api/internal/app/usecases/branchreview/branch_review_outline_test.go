@@ -58,9 +58,9 @@ func TestBranchReview_GetOutline_UsesTheSameDiffRefAsGetFiles(t *testing.T) {
 	}
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	files, err := uc.GetOutline(ctx, "ws1")
+	files, err := uc.GetOutline(ctx, "ws1", "")
 	require.NoError(t, err)
-	_, err = uc.GetFiles(ctx, "ws1")
+	_, err = uc.GetFiles(ctx, "ws1", "")
 	require.NoError(t, err)
 
 	assert.Equal(t, "/wt", outlineRepo)
@@ -91,15 +91,15 @@ func TestBranchReview_GetOutline_CachesACleanTreeUntilHEADMoves(t *testing.T) {
 	}
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	first, err := uc.GetOutline(ctx, "ws1")
+	first, err := uc.GetOutline(ctx, "ws1", "")
 	require.NoError(t, err)
-	second, err := uc.GetOutline(ctx, "ws1")
+	second, err := uc.GetOutline(ctx, "ws1", "")
 	require.NoError(t, err)
 	assert.Equal(t, 1, calls, "a clean tree at the same HEAD must not re-stream the diff")
 	assert.Equal(t, first, second)
 
 	head = "head2"
-	_, err = uc.GetOutline(ctx, "ws1")
+	_, err = uc.GetOutline(ctx, "ws1", "")
 	require.NoError(t, err)
 	assert.Equal(t, 2, calls, "a new commit must invalidate the entry")
 }
@@ -125,9 +125,9 @@ func TestBranchReview_GetOutline_UntrackedOnlyTreeStillCaches(t *testing.T) {
 	}
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	_, err := uc.GetOutline(ctx, "ws1")
+	_, err := uc.GetOutline(ctx, "ws1", "")
 	require.NoError(t, err)
-	_, err = uc.GetOutline(ctx, "ws1")
+	_, err = uc.GetOutline(ctx, "ws1", "")
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, calls)
@@ -154,9 +154,9 @@ func TestBranchReview_GetOutline_DirtyTreeIsNeverCached(t *testing.T) {
 	}
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	_, err := uc.GetOutline(ctx, "ws1")
+	_, err := uc.GetOutline(ctx, "ws1", "")
 	require.NoError(t, err)
-	_, err = uc.GetOutline(ctx, "ws1")
+	_, err = uc.GetOutline(ctx, "ws1", "")
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, calls, "a dirty tree must recompute")
@@ -180,9 +180,9 @@ func TestBranchReview_GetOutline_UnknownStatusIsNotCached(t *testing.T) {
 	}
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	_, err := uc.GetOutline(ctx, "ws1")
+	_, err := uc.GetOutline(ctx, "ws1", "")
 	require.NoError(t, err, "an unreadable status must not fail the outline")
-	_, err = uc.GetOutline(ctx, "ws1")
+	_, err = uc.GetOutline(ctx, "ws1", "")
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, calls)
@@ -204,11 +204,11 @@ func TestBranchReview_GetOutline_CachedSliceIsNotAliasedAcrossCallers(t *testing
 	}
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	first, err := uc.GetOutline(ctx, "ws1")
+	first, err := uc.GetOutline(ctx, "ws1", "")
 	require.NoError(t, err)
 	first[0].Path = "clobbered"
 
-	second, err := uc.GetOutline(ctx, "ws1")
+	second, err := uc.GetOutline(ctx, "ws1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "a.go", second[0].Path)
 }
@@ -223,7 +223,7 @@ func TestBranchReview_GetOutline_MissingWorkspace_IsNotFound(t *testing.T) {
 	}
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), &mockGitEngine{})
 
-	_, err := uc.GetOutline(ctx, "missing")
+	_, err := uc.GetOutline(ctx, "missing", "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
@@ -238,7 +238,7 @@ func TestBranchReview_GetOutline_EngineFailurePropagates(t *testing.T) {
 	}
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	_, err := uc.GetOutline(ctx, "ws1")
+	_, err := uc.GetOutline(ctx, "ws1", "")
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, apperr.ErrNotFound, "a git failure is a 500, not a 404")
 }
@@ -264,10 +264,10 @@ func TestBranchReview_GetOutline_FailedLoadIsNotCached(t *testing.T) {
 	}
 	uc := newTestUsecase(outlineWorkspaceMock(), noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	_, err := uc.GetOutline(ctx, "ws1")
+	_, err := uc.GetOutline(ctx, "ws1", "")
 	require.Error(t, err)
 
-	files, err := uc.GetOutline(ctx, "ws1")
+	files, err := uc.GetOutline(ctx, "ws1", "")
 	require.NoError(t, err)
 	assert.Len(t, files, 2)
 	assert.Equal(t, 2, calls)

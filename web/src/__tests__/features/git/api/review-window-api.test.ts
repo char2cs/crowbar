@@ -61,7 +61,7 @@ describe('getReviewOutline', () => {
       ],
     })
 
-    const outline = await getReviewOutline('ws-1')
+    const outline = await getReviewOutline({ wsId: 'ws-1' })
 
     expect(urlOf(fetchMock)).toContain(`${WS_BASE}/ws-1/review/outline`)
     expect(outline).toHaveLength(1)
@@ -76,7 +76,7 @@ describe('getReviewOutline', () => {
       files: [{ path: 'new.ts', oldPath: 'old.ts', hunks: [], isPartial: false, isBinary: false }],
     })
 
-    const outline = await getReviewOutline('ws-1')
+    const outline = await getReviewOutline({ wsId: 'ws-1' })
 
     expect(outline[0].oldPath).toBe('old.ts')
   })
@@ -88,7 +88,7 @@ describe('getReviewOutline', () => {
       files: [{ path: 'logo.png', hunks: null, isPartial: false, isBinary: true }],
     })
 
-    const outline = await getReviewOutline('ws-1')
+    const outline = await getReviewOutline({ wsId: 'ws-1' })
 
     expect(outline[0].hunks).toEqual([])
     expect(outline[0].isBinary).toBe(true)
@@ -97,7 +97,7 @@ describe('getReviewOutline', () => {
   it('returns [] when the payload carries no files', async () => {
     mockEnvelope({ files: null })
 
-    await expect(getReviewOutline('ws-1')).resolves.toEqual([])
+    await expect(getReviewOutline({ wsId: 'ws-1' })).resolves.toEqual([])
   })
 
   it('flags a partial outline so the caller does not treat the last hunk as the end of the file', async () => {
@@ -112,7 +112,7 @@ describe('getReviewOutline', () => {
       ],
     })
 
-    const outline = await getReviewOutline('ws-1')
+    const outline = await getReviewOutline({ wsId: 'ws-1' })
 
     expect(outline[0].isPartial).toBe(true)
   })
@@ -123,7 +123,7 @@ describe('getReviewPatch', () => {
     const patch = 'diff --git a/x.ts b/x.ts\n@@ -1 +1 @@\n-a\n+b\n'
     const fetchMock = mockText(patch)
 
-    const result = await getReviewPatch('ws-1', 'src/x.ts')
+    const result = await getReviewPatch({ wsId: 'ws-1' }, 'src/x.ts')
 
     const url = urlOf(fetchMock)
     expect(url).toContain(`${WS_BASE}/ws-1/review/patch`)
@@ -137,13 +137,16 @@ describe('getReviewPatch', () => {
     const patch = '{"success":true,"data":"not a patch"}'
     mockText(patch)
 
-    await expect(getReviewPatch('ws-1', 'a.json')).resolves.toEqual({ patch, truncated: false })
+    await expect(getReviewPatch({ wsId: 'ws-1' }, 'a.json')).resolves.toEqual({
+      patch,
+      truncated: false,
+    })
   })
 
   it('reports truncated:false when the response carries no truncation header', async () => {
     mockText('diff --git a/x b/x\n')
 
-    const result = await getReviewPatch('ws-1', 'x')
+    const result = await getReviewPatch({ wsId: 'ws-1' }, 'x')
 
     expect(result.truncated).toBe(false)
   })
@@ -154,7 +157,7 @@ describe('getReviewPatch', () => {
     expect(DIFF_TRUNCATED_HEADER).toBe('X-Crowbar-Diff-Truncated')
     mockText('diff --git a/big b/big\n', { [DIFF_TRUNCATED_HEADER]: 'true' })
 
-    const result = await getReviewPatch('ws-1', 'big.js', 20000)
+    const result = await getReviewPatch({ wsId: 'ws-1' }, 'big.js', 20000)
 
     expect(result.truncated).toBe(true)
   })
@@ -167,7 +170,7 @@ describe('getReviewPatch', () => {
       'diff --git a/monster.js b/monster.js\nindex 000..111 100644\n--- a/monster.js\n+++ b/monster.js\n'
     mockText(headerOnly, { [DIFF_TRUNCATED_HEADER]: 'true' })
 
-    const result = await getReviewPatch('ws-1', 'monster.js', 20000)
+    const result = await getReviewPatch({ wsId: 'ws-1' }, 'monster.js', 20000)
 
     expect(result).toEqual({ patch: headerOnly, truncated: true })
   })
@@ -175,7 +178,7 @@ describe('getReviewPatch', () => {
   it('omits maxLines entirely when the caller does not ask for a cap', async () => {
     const fetchMock = mockText('')
 
-    await getReviewPatch('ws-1', 'x.ts')
+    await getReviewPatch({ wsId: 'ws-1' }, 'x.ts')
 
     expect(urlOf(fetchMock)).not.toContain('maxLines')
   })
@@ -183,7 +186,7 @@ describe('getReviewPatch', () => {
   it('sends the requested cap', async () => {
     const fetchMock = mockText('')
 
-    await getReviewPatch('ws-1', 'x.ts', 500)
+    await getReviewPatch({ wsId: 'ws-1' }, 'x.ts', 500)
 
     expect(urlOf(fetchMock)).toContain('maxLines=500')
   })
@@ -193,7 +196,7 @@ describe('getReviewPatch', () => {
   it('sends maxLines=0 for an uncapped refetch and reports truncated:false', async () => {
     const fetchMock = mockText('diff --git a/big b/big\n')
 
-    const result = await getReviewPatch('ws-2', 'big.js', 0)
+    const result = await getReviewPatch({ wsId: 'ws-2' }, 'big.js', 0)
 
     expect(urlOf(fetchMock)).toContain('maxLines=0')
     expect(result.truncated).toBe(false)
@@ -202,7 +205,7 @@ describe('getReviewPatch', () => {
   it('encodes a path with spaces and slashes', async () => {
     const fetchMock = mockText('')
 
-    await getReviewPatch('ws-1', 'src/a b/c&d.ts')
+    await getReviewPatch({ wsId: 'ws-1' }, 'src/a b/c&d.ts')
 
     const url = urlOf(fetchMock)
     expect(url).toContain('path=src%2Fa+b%2Fc%26d.ts')
@@ -223,7 +226,7 @@ describe('getReviewPatch', () => {
       ),
     )
 
-    const err = await getReviewPatch('ws-1', 'x.ts').catch((e: unknown) => e)
+    const err = await getReviewPatch({ wsId: 'ws-1' }, 'x.ts').catch((e: unknown) => e)
 
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).status).toBe(400)
@@ -238,7 +241,7 @@ describe('searchReviewDiff', () => {
       truncated: true,
     })
 
-    const result = await searchReviewDiff('ws-1', 'todo')
+    const result = await searchReviewDiff({ wsId: 'ws-1' }, 'todo')
 
     const url = urlOf(fetchMock)
     expect(url).toContain(`${WS_BASE}/ws-1/review/search`)
@@ -252,13 +255,16 @@ describe('searchReviewDiff', () => {
   it('returns [] when the daemon answers no hits', async () => {
     mockEnvelope({ hits: null, truncated: false })
 
-    await expect(searchReviewDiff('ws-1', 'zzz')).resolves.toEqual({ hits: [], truncated: false })
+    await expect(searchReviewDiff({ wsId: 'ws-1' }, 'zzz')).resolves.toEqual({
+      hits: [],
+      truncated: false,
+    })
   })
 
   it('sends no option parameters when none are asked for', async () => {
     const fetchMock = mockEnvelope({ hits: [], truncated: false })
 
-    await searchReviewDiff('ws-1', 'todo')
+    await searchReviewDiff({ wsId: 'ws-1' }, 'todo')
 
     const url = urlOf(fetchMock)
     expect(url).not.toContain('regex=')
@@ -270,7 +276,7 @@ describe('searchReviewDiff', () => {
   it('maps caseSensitive onto the wire parameter `case`', async () => {
     const fetchMock = mockEnvelope({ hits: [], truncated: false })
 
-    await searchReviewDiff('ws-1', 'Todo', { caseSensitive: true })
+    await searchReviewDiff({ wsId: 'ws-1' }, 'Todo', { caseSensitive: true })
 
     const url = urlOf(fetchMock)
     expect(url).toContain('case=true')
@@ -280,7 +286,7 @@ describe('searchReviewDiff', () => {
   it('sends regex and limit', async () => {
     const fetchMock = mockEnvelope({ hits: [], truncated: false })
 
-    await searchReviewDiff('ws-3', 'a.*b', { regex: true, limit: 50 })
+    await searchReviewDiff({ wsId: 'ws-3' }, 'a.*b', { regex: true, limit: 50 })
 
     const url = urlOf(fetchMock)
     expect(url).toContain('regex=true')
@@ -293,7 +299,7 @@ describe('searchReviewDiff', () => {
   it('encodes the query rather than letting it break the URL', async () => {
     const fetchMock = mockEnvelope({ hits: [], truncated: false })
 
-    await searchReviewDiff('ws-1', 'a&b=c d')
+    await searchReviewDiff({ wsId: 'ws-1' }, 'a&b=c d')
 
     expect(urlOf(fetchMock)).toContain('q=a%26b%3Dc+d')
   })
@@ -309,7 +315,9 @@ describe('searchReviewDiff', () => {
       })),
     )
 
-    const err = await searchReviewDiff('ws-1', 'a(b', { regex: true }).catch((e: unknown) => e)
+    const err = await searchReviewDiff({ wsId: 'ws-1' }, 'a(b', { regex: true }).catch(
+      (e: unknown) => e,
+    )
 
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).status).toBe(400)
@@ -319,8 +327,48 @@ describe('searchReviewDiff', () => {
   it('sends an empty q rather than skipping the request when the find box is empty', async () => {
     const fetchMock = mockEnvelope({ hits: [], truncated: false })
 
-    await searchReviewDiff('ws-1', '')
+    await searchReviewDiff({ wsId: 'ws-1' }, '')
 
     expect(urlOf(fetchMock)).toContain('q=')
+  })
+})
+
+// A commit scope is what lets the history surface reuse the review surface
+// instead of keeping a second diff renderer alive for it. If the parameter
+// silently failed to travel, every route would quietly answer the BRANCH — a
+// plausible-looking diff of the wrong thing, which is the worst kind of wrong.
+describe('commit scope', () => {
+  it('omits the sha entirely when the scope is the branch', async () => {
+    const fetchMock = mockEnvelope({ files: [] })
+
+    await getReviewOutline({ wsId: 'ws-1' })
+
+    expect(urlOf(fetchMock)).not.toContain('sha=')
+  })
+
+  it('sends the sha on outline, patch and search', async () => {
+    const outlineMock = mockEnvelope({ files: [] })
+    await getReviewOutline({ wsId: 'ws-1', commit: 'abc1234' })
+    expect(urlOf(outlineMock)).toContain('sha=abc1234')
+
+    const patchMock = mockText('diff --git a/a.ts b/a.ts\n')
+    await getReviewPatch({ wsId: 'ws-1', commit: 'abc1234' }, 'a.ts')
+    expect(urlOf(patchMock)).toContain('sha=abc1234')
+    expect(urlOf(patchMock)).toContain('path=a.ts')
+
+    const searchMock = mockEnvelope({ hits: [], truncated: false })
+    await searchReviewDiff({ wsId: 'ws-1', commit: 'abc1234' }, 'todo')
+    expect(urlOf(searchMock)).toContain('sha=abc1234')
+    expect(urlOf(searchMock)).toContain('q=todo')
+  })
+
+  it('treats an empty commit as no scope at all', async () => {
+    // `''` is what a caller threading an optional prop through produces; it must
+    // mean the branch, not a request for the commit named "".
+    const fetchMock = mockEnvelope({ files: [] })
+
+    await getReviewOutline({ wsId: 'ws-1', commit: '' })
+
+    expect(urlOf(fetchMock)).not.toContain('sha=')
   })
 })
