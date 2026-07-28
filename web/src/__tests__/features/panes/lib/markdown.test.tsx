@@ -74,11 +74,27 @@ describe('MarkdownPreview', () => {
     expect(shikiEl?.textContent).toContain('const x = 1')
   })
 
-  it('renders inline code without shiki', () => {
-    render(<MarkdownPreview>{'Use `console.log()` here'}</MarkdownPreview>)
-    const inlineCode = document.querySelector('code')
+  it('renders inline code INLINE, not as a block', () => {
+    // Regression: the block/inline split read react-markdown's `inline` prop,
+    // which v9 removed. It arrived `undefined`, so every code span took the
+    // "not inline" branch and a `path/to/file` mid-sentence rendered as a
+    // full-width grey block. Asserting only that a <code> exists does not catch
+    // that — <pre><code> satisfies it too — so this asserts the absence of the
+    // block and that the span stayed inside its paragraph.
+    const { container } = render(<MarkdownPreview>{'Use `console.log()` here'}</MarkdownPreview>)
+    const inlineCode = container.querySelector('code')
     expect(inlineCode).not.toBeNull()
     expect(inlineCode?.textContent).toContain('console.log()')
+    expect(container.querySelector('pre')).toBeNull()
+    expect(inlineCode?.closest('p')).not.toBeNull()
+  })
+
+  it('gives list items a visible marker', () => {
+    // Tailwind's preflight sets `list-style: none` on every list, so without an
+    // explicit marker a two-item list read as one paragraph with odd spacing.
+    const { container } = render(<MarkdownPreview>{'- one\n- two'}</MarkdownPreview>)
+    expect(container.querySelectorAll('li')).toHaveLength(2)
+    expect(container.firstElementChild?.className).toContain('[&_ul]:list-disc')
   })
 
   it('renders a fenced block without a language tag as plain code', () => {

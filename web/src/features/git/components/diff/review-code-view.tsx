@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useImperativeHandle
-} from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useImperativeHandle } from 'react'
 import { ChatCircle, FileArchive, Image as ImageIcon } from '@phosphor-icons/react'
 import { parsePatchFiles } from '@pierre/diffs'
 import type {
@@ -171,9 +170,7 @@ export function buildPlaceholderFileDiff(
   const shapes = outline?.hunks ?? []
   const additions = countOf(file.additions)
   const deletions = countOf(file.deletions)
-  const hunks = trimToPatchCap(
-    buildPlaceholderHunks(shapes, distributeContext(shapes, deletions)),
-  )
+  const hunks = trimToPatchCap(buildPlaceholderHunks(shapes, distributeContext(shapes, deletions)))
 
   // A capped outline stops at the server's per-file hunk limit, so its geometry
   // is a LOWER bound on the file — sizing from it alone under-reserves by
@@ -567,24 +564,27 @@ function ReviewCodeViewSurface({
     })
   }, [])
 
-  const setPatchState = useCallback((path: string, state: PatchState | undefined) => {
-    let changed = false
-    setPatchStates((prev) => {
-      if (prev[path] === state) return prev
-      changed = true
-      const next = { ...prev }
-      if (state == null) delete next[path]
-      else next[path] = state
-      return next
-    })
-    // The notice ("Diff truncated / Show all", "Retry") renders through
-    // renderHeaderMetadata, and the library CACHES a file's header HTML — a
-    // React state change alone never repaints it, so the notice could never
-    // appear. Republishing with a bumped version invalidates that cache.
-    if (!changed) return
-    const current = publishedRef.current.get(path) ?? placeholdersRef.current.get(path)
-    if (current != null) publishItem(path, current)
-  }, [publishItem])
+  const setPatchState = useCallback(
+    (path: string, state: PatchState | undefined) => {
+      let changed = false
+      setPatchStates((prev) => {
+        if (prev[path] === state) return prev
+        changed = true
+        const next = { ...prev }
+        if (state == null) delete next[path]
+        else next[path] = state
+        return next
+      })
+      // The notice ("Diff truncated / Show all", "Retry") renders through
+      // renderHeaderMetadata, and the library CACHES a file's header HTML — a
+      // React state change alone never repaints it, so the notice could never
+      // appear. Republishing with a bumped version invalidates that cache.
+      if (!changed) return
+      const current = publishedRef.current.get(path) ?? placeholdersRef.current.get(path)
+      if (current != null) publishItem(path, current)
+    },
+    [publishItem],
+  )
 
   const evictPath = useCallback(
     (path: string) => {
@@ -723,11 +723,15 @@ function ReviewCodeViewSurface({
     [materialize, setPatchState],
   )
 
-  useImperativeHandle(surfaceRef, () => ({
-    revealLine: (path, lineNumber, side) => {
-      void revealLine(path, lineNumber, side)
-    },
-  }), [revealLine])
+  useImperativeHandle(
+    surfaceRef,
+    () => ({
+      revealLine: (path, lineNumber, side) => {
+        void revealLine(path, lineNumber, side)
+      },
+    }),
+    [revealLine],
+  )
 
   const revealFirstThread = useCallback(
     (path: string) => {

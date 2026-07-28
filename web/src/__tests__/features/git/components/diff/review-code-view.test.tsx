@@ -250,7 +250,7 @@ describe('buildPlaceholderFileDiff', () => {
     expect(partial.unifiedLineCount).toBeLessThanOrEqual(PATCH_LINE_CAP)
   })
 
-  it('reserves the capped height but still reports the file\'s TRUE ± counts', () => {
+  it("reserves the capped height but still reports the file's TRUE ± counts", () => {
     // The header's ± label sums additionLines/deletionLines; the reserved
     // height comes from unifiedLineCount. Capping the reservation by scaling
     // the ± counts too made the fixture's 420,000-line monster announce itself
@@ -370,9 +370,7 @@ describe('ReviewCodeView windowing', () => {
     })
     // More than the outline alone describes, and bounded by the cap — the
     // rendered counterpart of the unit assertion above.
-    expect(reservedHeight(partial.container)).toBeGreaterThan(
-      reservedHeight(complete.container),
-    )
+    expect(reservedHeight(partial.container)).toBeGreaterThan(reservedHeight(complete.container))
     expect(reservedHeight(partial.container)).toBeLessThanOrEqual(
       PATCH_LINE_CAP * ROW_HEIGHT_UPPER_BOUND,
     )

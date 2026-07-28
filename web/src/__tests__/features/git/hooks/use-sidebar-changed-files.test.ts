@@ -132,5 +132,4 @@ describe('useSidebarChangedFiles', () => {
     // Only the working-tree file counts as uncommitted.
     expect(result.current.uncommittedCount).toBe(1)
   })
-
 })

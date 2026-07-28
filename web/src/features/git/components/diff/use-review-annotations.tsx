@@ -294,12 +294,11 @@ export function useReviewAnnotations({ wsId }: { wsId: string }): ReviewAnnotati
       const thread = annotationToThread(annotation)
       if (isDraftThread(thread)) {
         return (
-          // ui-font, like ReviewThreadItem. An annotation is slotted into the
-          // diff's <pre>, so anything rendered here inherits the CODE font
-          // unless it opts out — which left the composer's title, tabs, input
-          // and buttons in monospace while the posted comments beside them were
-          // not. Prose in a review is prose, whatever it is anchored to.
-          <div className="ui-font max-w-xl py-2">
+          // The font opt-out this slot needs (an annotation is parented by the
+          // diff's <pre>, so it inherits the CODE font) lives on CommentComposer
+          // itself — it is a property of the composer, not of this one call
+          // site, and the other two call sites need it just as much.
+          <div className="max-w-xl py-2">
             <CommentComposer
               title={composerTitle(thread)}
               submitLabel="Comment"
