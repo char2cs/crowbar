@@ -36,6 +36,19 @@ export const MAX_MATERIALIZED_FILES = 40
  */
 export const MAX_MATERIALIZED_LINES = 60_000
 
+/**
+ * The server's default per-file patch cap, mirrored here for budgeting.
+ *
+ * A file's ± count is what the diff CONTAINS; this is what a materialised file
+ * actually COSTS, because the patch request is capped and the rest is never
+ * fetched. Budgeting on the former made a single huge file unrenderable: the
+ * fixture's 420,000-line monster measured as seven times the entire line
+ * budget, so it was dropped from every plan and the reader was left staring at
+ * blank space — no content, no notice, no way to ask for the rest. Nothing is
+ * gained by refusing to fetch a file whose real cost is bounded.
+ */
+export const PATCH_LINE_CAP = 20_000
+
 export interface WindowInput {
   /** Inclusive index range of the files the virtualiser currently has on screen. */
   visible: { first: number; last: number }
@@ -195,7 +208,8 @@ function applyBudgets(
 }
 
 function linesOf(c: Candidate, lineCounts: Readonly<Record<string, number>>): number {
-  return lineCounts[c.path] ?? 0
+  // Capped: the fetch is capped, so this is what will be held. See PATCH_LINE_CAP.
+  return Math.min(lineCounts[c.path] ?? 0, PATCH_LINE_CAP)
 }
 
 /** Nearest the viewport first, so the consumer's first request is the one on screen. */

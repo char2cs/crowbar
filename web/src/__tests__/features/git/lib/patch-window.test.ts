@@ -214,48 +214,57 @@ describe('planWindow — MAX_MATERIALIZED_FILES', () => {
 
 describe('planWindow — MAX_MATERIALIZED_LINES', () => {
   it('bites even when the file count is far under MAX_MATERIALIZED_FILES', () => {
-    const paths = ['big.ts', 'other.ts']
+    const paths = ['a.ts', 'b.ts', 'c.ts', 'd.ts']
     const plan = planWindow({
       visible: { first: 0, last: 0 },
-      total: 2,
+      total: 4,
       materialized: paths,
       paths,
-      lineCounts: { 'big.ts': 50_000, 'other.ts': 20_000 },
+      // 4 x 20k = 80k, over the 60k budget, on only four files. Each sits AT
+      // the patch cap, so these are true held costs rather than +/- counts the
+      // fetch would never actually pull.
+      lineCounts: uniformCounts(paths, 20_000),
     })
 
     expect(paths.length).toBeLessThan(MAX_MATERIALIZED_FILES)
-    expect(plan.evict).toEqual(['other.ts'])
+    expect(plan.evict).toEqual(['d.ts'])
   })
 
   // Evicting under the line budget is only correct if the very next plan does
   // not immediately propose fetching the same file back.
   it('does not re-propose a file the line budget cannot afford', () => {
-    const paths = ['big.ts', 'other.ts']
-    const lineCounts = { 'big.ts': 50_000, 'other.ts': 20_000 }
+    const paths = ['a.ts', 'b.ts', 'c.ts', 'd.ts']
+    const lineCounts = uniformCounts(paths, 20_000)
 
+    // Everything already held and the budget already full: the next frame must
+    // converge, proposing nothing new rather than trading files back and forth.
     const plan = planWindow({
       visible: { first: 0, last: 0 },
-      total: 2,
-      materialized: ['big.ts'],
+      total: paths.length,
+      materialized: ['a.ts', 'b.ts', 'c.ts'],
       paths,
       lineCounts,
     })
 
-    expect(plan).toEqual({ fetch: [], evict: [] })
+    expect(plan.fetch).toEqual([])
   })
 
   it('counts a not-yet-fetched file against the budget before fetching it', () => {
-    const paths = ['a.ts', 'b.ts', 'c.ts']
+    const paths = ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts']
     const plan = planWindow({
       visible: { first: 0, last: 0 },
-      total: 3,
+      total: paths.length,
       materialized: [],
       paths,
-      lineCounts: { 'a.ts': 40_000, 'b.ts': 30_000, 'c.ts': 30_000 },
+      // Each at the patch cap, so five would be 100k against a 60k budget:
+      // the not-yet-fetched lookahead files must be counted BEFORE fetching,
+      // or the budget is only ever discovered after it has been blown.
+      lineCounts: uniformCounts(paths, 20_000),
     })
 
-    // a.ts is visible and always fetched; only one of the lookahead files fits.
-    expect(plan.fetch).toEqual(['a.ts'])
+    // The visible file is always fetched; the lookahead is trimmed to fit.
+    expect(plan.fetch[0]).toBe('a.ts')
+    expect(plan.fetch.length).toBeLessThan(paths.length)
     expect(plan.evict).toEqual([])
   })
 })
@@ -322,5 +331,53 @@ describe('planWindow — purity', () => {
     expect(materialized).toEqual(paths)
     expect(paths).toEqual(makePaths(60))
     expect(lineCounts).toEqual(uniformCounts(makePaths(60), 100))
+  })
+})
+
+describe('planWindow — a file larger than the entire budget', () => {
+  // Found live, not in a test. The fixture's 420,000-line monster measured as
+  // seven times MAX_MATERIALIZED_LINES, so every plan dropped it and the reader
+  // scrolling onto it saw blank space: no content, no notice, no way to ask for
+  // the rest. The budget must count what a file COSTS once fetched — the patch
+  // request is capped — not what its diff contains.
+  it('still fetches a visible file whose ± count dwarfs MAX_MATERIALIZED_LINES', () => {
+    const paths = ['monster.ts', 'next.ts']
+    const plan = planWindow({
+      visible: { first: 0, last: 0 },
+      total: paths.length,
+      materialized: [],
+      paths,
+      lineCounts: { 'monster.ts': 420_000, 'next.ts': 1_000 },
+    })
+
+    expect(plan.fetch).toContain('monster.ts')
+  })
+
+  it('never evicts that file while it is on screen', () => {
+    const paths = ['monster.ts']
+    const plan = planWindow({
+      visible: { first: 0, last: 0 },
+      total: 1,
+      materialized: ['monster.ts'],
+      paths,
+      lineCounts: { 'monster.ts': 420_000 },
+    })
+
+    expect(plan.evict).toEqual([])
+  })
+
+  it('budgets it at the capped cost, so it does not starve its neighbours', () => {
+    // Two monsters plus small files: if each counted as 420k, nothing else
+    // would ever be fetched alongside them.
+    const paths = ['m1.ts', 'm2.ts', 's1.ts', 's2.ts']
+    const plan = planWindow({
+      visible: { first: 0, last: 1 },
+      total: paths.length,
+      materialized: [],
+      paths,
+      lineCounts: { 'm1.ts': 420_000, 'm2.ts': 420_000, 's1.ts': 500, 's2.ts': 500 },
+    })
+
+    expect(plan.fetch).toEqual(expect.arrayContaining(['m1.ts', 'm2.ts', 's1.ts', 's2.ts']))
   })
 })

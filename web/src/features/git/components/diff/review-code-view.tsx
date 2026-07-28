@@ -462,7 +462,11 @@ function ReviewCodeViewSurface({
    * have to ride along on all of them — omitting them anywhere silently drops
    * that file's threads the next time it is materialised or evicted.
    */
+  /** The last fileDiff published per path, so a header repaint can reuse it. */
+  const publishedRef = useRef(new Map<string, FileDiffMetadata>())
+
   const publishItem = useCallback((path: string, fileDiff: FileDiffMetadata) => {
+    publishedRef.current.set(path, fileDiff)
     handleRef.current?.updateItem({
       id: path,
       type: 'diff',
@@ -473,14 +477,23 @@ function ReviewCodeViewSurface({
   }, [])
 
   const setPatchState = useCallback((path: string, state: PatchState | undefined) => {
+    let changed = false
     setPatchStates((prev) => {
       if (prev[path] === state) return prev
+      changed = true
       const next = { ...prev }
       if (state == null) delete next[path]
       else next[path] = state
       return next
     })
-  }, [])
+    // The notice ("Diff truncated / Show all", "Retry") renders through
+    // renderHeaderMetadata, and the library CACHES a file's header HTML — a
+    // React state change alone never repaints it, so the notice could never
+    // appear. Republishing with a bumped version invalidates that cache.
+    if (!changed) return
+    const current = publishedRef.current.get(path) ?? placeholdersRef.current.get(path)
+    if (current != null) publishItem(path, current)
+  }, [publishItem])
 
   const evictPath = useCallback(
     (path: string) => {
