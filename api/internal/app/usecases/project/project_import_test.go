@@ -1359,3 +1359,75 @@ func TestImportRepo_SeedsPathSlugFromThePathNotTheSuppliedName(t *testing.T) {
 		managed.WorktreePath,
 		"the managed worktree hangs off the path slug, not off the display name")
 }
+
+// CheckRepoImportable is the synchronous refusal the add-repo endpoint runs
+// before its 202. Its end-to-end behaviour is covered by the integration suite,
+// but those tests are build-tagged and so invisible to the unit coverage gate —
+// these exercise the branches directly.
+
+func TestCheckRepoImportable_NoRepos(t *testing.T) {
+	_, _, _, _, _, uc := newImport(t)
+
+	require.NoError(t, uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA"),
+		"an empty store cannot conflict with anything")
+}
+
+func TestCheckRepoImportable_SameProjectIsNotAConflict(t *testing.T) {
+	_, repos, _, _, _, uc := newImport(t)
+	repos.Saved = []domain.Repository{{ID: "r1", ProjectID: "proj-1", Path: "/repoA"}}
+
+	// Re-adding a folder the SAME project already has is a dedup (importOneRepo
+	// returns the existing row), never a refusal.
+	require.NoError(t, uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA"))
+}
+
+func TestCheckRepoImportable_DifferentPathIsNotAConflict(t *testing.T) {
+	_, repos, _, _, _, uc := newImport(t)
+	repos.Saved = []domain.Repository{{ID: "r1", ProjectID: "proj-2", Path: "/repoB"}}
+
+	require.NoError(t, uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA"))
+}
+
+func TestCheckRepoImportable_OtherProjectRefusedAndNamed(t *testing.T) {
+	projects, repos, _, _, _, uc := newImport(t)
+	projects.Saved = []domain.Project{{ID: "proj-2", Name: "Other Project"}}
+	repos.Saved = []domain.Repository{{ID: "r1", ProjectID: "proj-2", Path: "/repoA"}}
+
+	err := uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA")
+
+	require.ErrorIs(t, err, project.ErrRepoAlreadyImported)
+	assert.Contains(t, err.Error(), "Other Project",
+		"the refusal names the project holding the folder, so the user knows where it went")
+}
+
+func TestCheckRepoImportable_OtherProjectUnnamedStillRefused(t *testing.T) {
+	_, repos, _, _, _, uc := newImport(t)
+	// The owning project row is absent, so its name cannot be resolved. The
+	// refusal still stands — it just loses the pointer to where the folder lives.
+	repos.Saved = []domain.Repository{{ID: "r1", ProjectID: "proj-2", Path: "/repoA"}}
+
+	err := uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA")
+
+	require.ErrorIs(t, err, project.ErrRepoAlreadyImported)
+	assert.NotContains(t, err.Error(), "in the project")
+}
+
+func TestCheckRepoImportable_ProjectLookupErrorStillRefuses(t *testing.T) {
+	projects, repos, _, _, _, uc := newImport(t)
+	projects.FindErr = errors.New("boom")
+	repos.Saved = []domain.Repository{{ID: "r1", ProjectID: "proj-2", Path: "/repoA"}}
+
+	err := uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA")
+
+	require.ErrorIs(t, err, project.ErrRepoAlreadyImported)
+	assert.NotContains(t, err.Error(), "in the project")
+}
+
+func TestCheckRepoImportable_RepoReadErrorDoesNotBlock(t *testing.T) {
+	_, repos, _, _, _, uc := newImport(t)
+	repos.FindErr = errors.New("boom")
+
+	// A read failure must not block a legitimate import — same degradation as
+	// existingRepo.
+	require.NoError(t, uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA"))
+}
