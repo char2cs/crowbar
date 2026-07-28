@@ -495,6 +495,7 @@ function createHighlightWorker(): Worker {
   })
 }
 
+// react-doctor-disable-next-line no-giant-component -- accepted: this is one windowed-diff controller, not a page with sections. The length is memos + refs + imperative patch fetching that all feed a SINGLE <CodeView> child (the JSX return is ~40 lines), so the rule's prescribed remedy — "pull each section into its own component" — has nothing to pull; the only honest split is a hook, and the band planner is under an open rework (see the fast-scroll blocker in docs/superpowers/specs/perf-baselines.md), which is where that extraction belongs.
 function ReviewCodeViewSurface({
   wsId,
   commit,

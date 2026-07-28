@@ -240,8 +240,13 @@ export function ReviewSearchBar({
 
       {hits.length > 0 && (
         <ul className="max-h-64 overflow-y-auto">
+          {/* Keyed on path:side:line, which identifies a hit on its own — the
+              scanner records at most ONE hit per line (diff/search.go `record`
+              returns early on no match, then appends once). No index tiebreaker
+              is needed, so the key stays stable when a new query replaces the
+              list. */}
           {hits.map((h, index) => (
-            <li key={`${h.path}:${h.side}:${h.lineNumber}:${index}`}>
+            <li key={`${h.path}:${h.side}:${h.lineNumber}`}>
               <button
                 type="button"
                 aria-current={index === activeIndex ? true : undefined}
