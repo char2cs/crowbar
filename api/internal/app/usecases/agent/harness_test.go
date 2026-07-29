@@ -24,9 +24,22 @@ import (
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
-// mustJSON marshals m to raw JSON bytes for IngestHook's rawPayload argument.
+// mustJSON encodes one vendor hook payload. Every payload in this package is a hook
+// payload, so it stamps the field every real hook of a real conversation carries and
+// no test should have to remember: the transcript it belongs to.
+//
+// That is not decoration. Verified against codex 0.146.0, transcript_path is present
+// on a fresh start, on a resume, and on every turn hook in between — and NULL on the
+// internal session codex runs to write its memories, which is the only thing
+// separating that session from the user typing /new (see the codex descriptor's
+// require_payload_fields, and TestOwnsConversation_CodexInternalMemorySession). A
+// payload with no transcript is therefore a MEANINGFUL payload here, not a shorthand,
+// and a test that wants one says so by setting transcript_path to nil itself.
 func mustJSON(t *testing.T, m map[string]any) []byte {
 	t.Helper()
+	if _, set := m["transcript_path"]; !set {
+		m["transcript_path"] = "/rollouts/transcript.jsonl"
+	}
 	b, err := json.Marshal(m)
 	require.NoError(t, err)
 	return b
@@ -455,6 +468,11 @@ func (f testFixture) spawn(t *testing.T, provider string) (chatID, runnerID stri
 // it is now in. This is the ONLY way a conversation change ever reaches Crowbar —
 // nothing inspects terminal input — so every /clear, /new and /resume in these tests
 // is expressed exactly as the real CLI expresses it.
+//
+// transcript_path is part of "exactly": every real hook of a real conversation
+// carries the rollout/transcript it belongs to (verified against codex 0.146.0 on a
+// fresh start, on a resume, and on the internal memory session that DOESN'T have one
+// — see the codex descriptor's require_payload_fields). mustJSON stamps it.
 func (f testFixture) announce(t *testing.T, runnerID, sessionID string) {
 	t.Helper()
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "", "session_start",

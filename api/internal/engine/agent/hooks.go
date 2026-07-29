@@ -29,6 +29,30 @@ type CanonicalEvent struct {
 	Raw       map[string]any
 }
 
+// OwnsConversation reports whether a hook payload describes the CLI's OWN
+// user-facing conversation — the only kind Crowbar hosts. When it does not, the
+// name of the first field that gave it away is returned for the log line.
+//
+// The rule is entirely the descriptor's (hooks.require_payload_fields): the engine
+// only checks that what the provider declared as always-present actually is.
+// Nothing here knows what a transcript is, and no provider vocabulary is
+// interpreted — which is what keeps the alternative out of Go, where it would have
+// to be a list of one CLI's internal-session model names.
+//
+// "Present" means a NON-EMPTY STRING, and it has to: the payload this exists to
+// reject spells its absent transcript as an explicit JSON `null`
+// (`"transcript_path": null`), which decodes to a map entry that IS there. A
+// presence-only check — `_, ok := payload[field]` — would therefore pass it and
+// silently undo the fix, so reaching through extract is load-bearing, not incidental.
+func (d *Descriptor) OwnsConversation(payload map[string]any) (string, bool) {
+	for _, field := range d.Hooks.RequirePayloadFields {
+		if extract(payload, field) == "" {
+			return field, false
+		}
+	}
+	return "", true
+}
+
 func (d *Descriptor) MapHook(canonical string, payload map[string]any) (CanonicalEvent, error) {
 	fields, ok := d.Hooks.Events[canonical]
 	if !ok {

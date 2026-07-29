@@ -70,6 +70,33 @@ type ArgSpec struct {
 type HookSpec struct {
 	Format string                       `yaml:"format"`
 	Events map[string]map[string]string `yaml:"events"`
+	// RequirePayloadFields names payload paths that EVERY hook of the CLI's own
+	// user-facing conversation carries. A payload missing any of them is not a
+	// conversation Crowbar hosts and is DROPPED before the reducer ever sees it.
+	//
+	// It exists because a CLI's hooks are not only its user's. A modern CLI runs
+	// work of its own through the very hook commands Crowbar injected — same
+	// process, same config — and those runs look, to a hook listener, exactly like
+	// the user opening a new conversation. Verified live against codex 0.146.0 with
+	// `[features] memories = true`: its Memory Writing Agent runs as an INTERNAL
+	// session that fires SessionStart / UserPromptSubmit / Stop / SessionEnd with a
+	// fresh session id and `source: startup` — byte-identical to a real /new — so
+	// nothing in the move vocabulary can tell them apart (which is exactly why
+	// Decide must not try; see reducer.go).
+	//
+	// What DOES tell them apart is that they are not conversations at all: they have
+	// no rollout on disk (`transcript_path: null`). That is the right thing to test
+	// rather than a convenient one — a session with no transcript is a session
+	// Crowbar cannot resume and cannot hand off, so hosting it was never possible.
+	//
+	// The guard is per-PAYLOAD, not per-event, and it has to be: dropping only the
+	// announcement would leave the internal session's user_prompt and turn_stop to
+	// route by the runner's placement into the USER'S chat — the consolidation
+	// prompt landing in their ledger as something they said, and its title derived
+	// from it.
+	//
+	// A provider that names nothing here keeps exactly its previous behaviour.
+	RequirePayloadFields []string `yaml:"require_payload_fields"`
 }
 
 // InjectStep is one declarative injection verb, e.g. `- pass_arg: {arg: --settings, value: x}`.

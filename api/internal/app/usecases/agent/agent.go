@@ -1121,6 +1121,25 @@ func (u *Usecase) IngestHook(
 		return nil
 	}
 
+	// A hook that reached us through this CLI's hooks is not automatically ABOUT this
+	// CLI's conversation. A provider runs work of its own — codex 0.146's memory
+	// consolidation is the one that bit us — as an internal session in the same
+	// process, and it fires the same injected hook commands, with a session id nobody
+	// has seen and a source label indistinguishable from the user typing /new. Left
+	// alone it took the chat: the announcement minted a phantom chat and moved the
+	// runner into it, then the internal session's own prompt was titled and filed as
+	// the user's, while the CLI on screen never left the conversation the user was in.
+	//
+	// Dropped, never failed: this is a hook, and a hook must never break the vendor
+	// CLI's turn (spec §4.7). The provider decides what qualifies
+	// (hooks.require_payload_fields); a provider that declares nothing is unaffected.
+	if field, ok := descriptor.OwnsConversation(payload); !ok {
+		slog.DebugContext(ctx, "agent: ingest hook: dropping a hook that is not this CLI's own conversation",
+			"missing_field", field, "event", canonicalEvent,
+			"provider", runner.ProviderID, "runner_id", runnerID)
+		return nil
+	}
+
 	ev, _ := descriptor.MapHook(canonicalEvent, payload)
 
 	switch ev.Kind {
