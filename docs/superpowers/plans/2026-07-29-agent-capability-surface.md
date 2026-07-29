@@ -2182,6 +2182,57 @@ Record, in the commit message or a note appended to the spec, whether the agents
 
 ---
 
+### Task 9b: Retire the shell titling path, and approve Crowbar's tools server-wide
+
+**Files:**
+- Modify: `api/internal/core/config/default.yaml`, `config.go`, `api/internal/app/usecases/agent/agent.go`
+- Modify: `api/internal/engine/agent/descriptors/codex.yaml`
+- Delete: the `rename` subcommand in `api/cmd/crowbar/chat.go` (+ its tests)
+- Modify: `api/internal/api/v0/endpoints/agent/routes.go`, `endpoints/home/routes.go`, `route_audit_test.go`, `endpoints/agent/handlers/chats.go`, `handlers/handlers.go`, and the three stubs
+- Modify: `api/cmd/crowbar/scope_roundtrip_test.go`
+
+**Two decisions taken by the user, 2026-07-29:**
+
+1. **Codex approves Crowbar's tools server-wide.** Revert the per-tool key to `mcp_servers.crowbar.default_tools_approval_mode="approve"`. An agent acting on real state without a per-call modal *is* the point of this surface, and a server-wide default removes the per-tool line every future tool would otherwise need — a line whose omission stalls that tool on a modal nobody can answer. Update the guard test to assert the server-wide key.
+
+2. **The MCP tool is the only titling path.** `title_instruction` and `set_chat_title` were competing: on an ambiguous prompt claude read the tool list and then titled the chat with the shell command instead, which is what made Task 9's compliance measurement unreadable. Retire the shell path entirely.
+
+**Interfaces:**
+- Consumes: `set_chat_title` (Task 5), which already calls `(*Usecase).RenameByRunner` directly.
+- Produces: nothing new. `RenameByRunner` **stays** on the usecase — the MCP tool is its only caller now.
+
+- [ ] **Step 1: Delete the prompt and its plumbing**
+
+Remove `title_instruction` from `config/default.yaml` and `TitleInstruction` from `config.go`. In `agent.go`, drop the title branch from `composeContext` and the `injectTitle` parameter threaded through `spawnRunner` and its three call sites. Keep `composeContext`'s preamble/conversation logic and its table test, minus the title cases.
+
+- [ ] **Step 2: Delete the shell command and its route**
+
+Remove the `rename` subcommand from `chat.go`. The `chat` parent command has no other subcommand, so remove it from `newRootCmd` too. Then walk the Task 6 route checklist in reverse for `POST .../agent/runners/:segid/rename`: the `wsScoped` mount, the `/home` mount, the `route_audit_test.go` declarations, `Handlers.RenameByRunner`, the `AgentUsecase` interface method, and the three stubs.
+
+`(*Usecase).RenameByRunner` itself stays — `set_chat_title` calls it.
+
+- [ ] **Step 3: Keep the empty-repo guard alive**
+
+`scope_roundtrip_test.go` currently proves the scope-flag plumbing through `crowbar chat rename` — that a project-home workspace's empty repo id cannot swallow the next token. That bug class still applies to `crowbar hook`, so **retarget the test to `hook` rather than deleting it.** Losing this guard would silently reopen the bug the `--repo=` form exists to prevent.
+
+- [ ] **Step 4: Verify**
+
+```bash
+cd api && go test ./internal/... 2>&1 | grep -v '^ok' | head -30
+go test -tags noEmbed ./cmd/crowbar/... -v 2>&1 | tail -20
+go test -tags integration ./internal/api/... 2>&1 | tail -10
+```
+
+Confirm no `title_instruction`, no `chat rename`, and no `runners/:segid/rename` remain: `rg -n 'title_instruction|TitleInstruction|chat rename|segid/rename' api/ | grep -v '\.superpowers'` should return nothing outside docs.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git commit -m "feat(agent): the MCP tool is the only titling path"
+```
+
+---
+
 # Phase 1 — Review threads
 
 ---
