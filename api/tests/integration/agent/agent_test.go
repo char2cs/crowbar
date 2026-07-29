@@ -55,6 +55,11 @@ type harness struct {
 	// synchronisation primitive: a vendor CLI announcing itself is an event, and
 	// awaitHook blocks on it instead of re-sampling the read model on a timer.
 	hooks *hookBarrier
+	// mcp records — and fires on — every MCP message a vendor CLI's own MCP client
+	// relays into the daemon. It is both a second wakeup source and the only
+	// evidence that separates the TOOL surface from the `crowbar chat rename`
+	// fallback, which produces an identical title (see mcpBarrier).
+	mcp *mcpBarrier
 	// trusted records which providers have already answered a trust dialog in this
 	// harness's repo. See firstOfProvider: only the FIRST CLI of a provider is shown
 	// one, so it is the only one a test may block on.
@@ -91,6 +96,11 @@ func newHarness(t *testing.T) *harness {
 	// (the reducer's committed outcome, the ledger turn on disk) are all readable.
 	hooks := newHookBarrier()
 	router.Use(hooks.middleware())
+	// Installed BEFORE Register for the same reason, and it additionally has to see
+	// the request BODY on the way IN — the handler consumes it — so it snapshots and
+	// restores it rather than reading it after the fact.
+	mcp := newMCPBarrier()
+	router.Use(mcp.middleware())
 	apiContainer := v0.New(appContainer, eng)
 	apiContainer.Register(router.Group("/v0"))
 
@@ -111,7 +121,7 @@ func newHarness(t *testing.T) *harness {
 		appContainer.Close()
 	})
 
-	return &harness{home: home, app: appContainer, eng: eng, hooks: hooks, trusted: map[string]bool{}}
+	return &harness{home: home, app: appContainer, eng: eng, hooks: hooks, mcp: mcp, trusted: map[string]bool{}}
 }
 
 // buildCrowbarBinary compiles a real ./cmd/crowbar binary so the daemon's
