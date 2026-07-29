@@ -94,6 +94,52 @@ config_injection:
   - pass_arg:
       arg: "-c"
       value: 'mcp_servers.crowbar.args=["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}"]'
+  # codex starts an MCP server with a SCRUBBED environment — a fixed allowlist
+  # (HOME, PATH, LANG, TMPDIR, USER, TERM, PWD, SHELL …) and nothing else. Verified
+  # against 0.146.0 by registering a server that dumps its own env: CROWBAR_HOME did
+  # not survive, and neither did an arbitrary sentinel var. `env_vars` extends that
+  # allowlist with named vars taken from the PARENT's environment, and the same probe
+  # confirms CROWBAR_HOME then arrives intact.
+  #
+  # Losing it is not cosmetic. CROWBAR_HOME is the ONLY thing that selects which
+  # daemon socket a `crowbar` subprocess dials (transports.SocketPath: an override
+  # home hashes to $TMPDIR/crowbar-<hash>.sock, an unset one means
+  # ~/.crowbar/crowbar.sock). Without it a codex relay walks past the daemon that
+  # spawned it and dials the DEFAULT one — so a dev instance's agent talks to the
+  # user's production Crowbar, renaming chats in the wrong place, and an integration
+  # test's agent talks to whatever is installed. That is how this was found: the
+  # relay came back "daemon returned HTTP 404", which is the production daemon
+  # answering a route it does not have.
+  #
+  # Forwarding rather than injecting a literal value is deliberate — an UNSET
+  # CROWBAR_HOME must stay unset in the child, because that is what selects the
+  # default home, which is exactly what the daemon itself resolved. claude needs none
+  # of this: it hands its MCP servers the full environment.
+  #
+  # TMPDIR matters just as much for an override home (it is half the socket path) and
+  # is already in codex's default allowlist, so it needs no entry here.
+  - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.env_vars=["CROWBAR_HOME"]' }
+  # Without this, codex STOPS on every single Crowbar tool call and waits for a human:
+  #
+  #   Allow the crowbar MCP server to run tool "set_chat_title"?
+  #   › 1. Allow  2. Allow for this session  3. Always allow  4. Cancel
+  #
+  # Observed live on 0.146.0 — the model called crowbar.set_chat_title correctly and
+  # then sat on that modal until the test's backstop expired. `on-request` is codex's
+  # approval policy for the SHELL; MCP tool calls are gated separately and default to
+  # prompting, so the tool surface is unusable in a Crowbar pane until this is set.
+  #
+  # It is scoped to mcp_servers.crowbar and nothing else: the user's OWN MCP servers
+  # keep their prompts exactly as they configured them. What is being auto-approved is
+  # Crowbar's own daemon, reached over Crowbar's own socket, authenticated with a token
+  # Crowbar minted for this runner and scoped by Crowbar's own resolver — the user
+  # already consented to all of it by opening an agent chat in this workspace. It also
+  # restores parity with claude, which prompts for none of this under
+  # --permission-mode auto.
+  #
+  # The value is one of prompt | writes | approve (codex rejects anything else at
+  # config-load time, which is what proves the spelling here).
+  - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.default_tools_approval_mode="approve"' }
 hooks:
   format: json
   events:

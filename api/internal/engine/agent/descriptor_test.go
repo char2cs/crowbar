@@ -172,6 +172,38 @@ func TestCodexDescriptor_MCPConfigValuesAreParseable(t *testing.T) {
 	require.Equal(t, wantMCPArgs("R"), args)
 }
 
+// codex hands an MCP server a SCRUBBED environment — a fixed allowlist and nothing
+// else — so the descriptor must name CROWBAR_HOME for forwarding or the relay dials
+// the wrong daemon entirely (see the codex.yaml comment for the live probe and the
+// 404 it produced). This asserts the forwarding LIST, not an injected value: a
+// literal would turn an unset CROWBAR_HOME into a set one and send the relay to a
+// home the daemon never used.
+func TestCodexDescriptor_ForwardsCrowbarHomeToTheMCPServer(t *testing.T) {
+	var forwarded []string
+	raw := configRHS(t, mcpSpawnPlan(t, "codex", "R").Argv, "mcp_servers.crowbar.env_vars=")
+	require.NoError(t, json.Unmarshal([]byte(raw), &forwarded), "malformed env_vars value: %s", raw)
+	require.Equal(t, []string{"CROWBAR_HOME"}, forwarded)
+}
+
+// codex gates MCP tool calls behind a HUMAN approval modal, separately from the
+// --ask-for-approval policy that governs the shell, and its default is to prompt. A
+// Crowbar pane has nobody to answer that modal on the agent's behalf, so without
+// this override the whole tool surface stalls on its first call (observed live on
+// 0.146.0). The value must be one of codex's three modes — it rejects anything else
+// at config-load time — and it must stay scoped to Crowbar's own server so the
+// user's other MCP servers keep prompting.
+func TestCodexDescriptor_AutoApprovesOnlyItsOwnMCPServer(t *testing.T) {
+	argv := mcpSpawnPlan(t, "codex", "R").Argv
+
+	var mode string
+	raw := configRHS(t, argv, "mcp_servers.crowbar.default_tools_approval_mode=")
+	require.NoError(t, json.Unmarshal([]byte(raw), &mode), "malformed approval mode value: %s", raw)
+	require.Equal(t, "approve", mode)
+
+	require.NotContains(t, strings.Join(argv, " "), "mcp_servers.default_tools_approval_mode",
+		"the approval override must name crowbar's server, never every MCP server the user has configured")
+}
+
 // The empty-repo case is why scope travels as discrete array elements rather than
 // through {scope_flags}: a project-home workspace has no repo id. Each element
 // reaches `crowbar mcp` as its own argument, so the empty id arrives as an empty
