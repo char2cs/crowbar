@@ -219,7 +219,7 @@ func TestSpawnChat_InjectsTheCapabilityPreamble(
 
 	doc := argAfter(t, f.term.calls[0].argv, "--append-system-prompt")
 	assert.Contains(t, doc, "Crowbar workspace")
-	assert.Contains(t, doc, "crowbar review tools")
+	assert.Contains(t, doc, "prefer them over shell equivalents")
 }
 
 // TestSpawnChat_Codex_InjectsTheCapabilityPreamble is codex's counterpart: it ships
@@ -233,14 +233,77 @@ func TestSpawnChat_Codex_InjectsTheCapabilityPreamble(
 	f.spawn(t, "codex")
 
 	argv := f.term.calls[0].argv
-	assert.Contains(t, configValue(t, argv, "developer_instructions="), "crowbar review tools")
+	assert.Contains(t, configValue(t, argv, "developer_instructions="), "Crowbar workspace")
 
 	for i, a := range argv {
 		if i > 0 && argv[i-1] == "-c" {
 			continue
 		}
-		assert.NotContains(t, a, "crowbar review tools",
+		assert.NotContains(t, a, "Crowbar workspace",
 			"the preamble must not be injected as a codex positional arg")
+	}
+}
+
+// TestComposeContext_DeliveryIsDecidedWithoutThePreamble pins the rule the test below
+// exercises end to end, at the one place it can be stated exactly.
+//
+// Delivery must be decided by the title instruction and the handoff ALONE. The
+// preamble is standing orientation, not something that happened, so it may join the
+// document but never cause it — and the decision has to read the TEXT rather than
+// count the pieces, because a user who blanks title_instruction in their own
+// config.yaml leaves an untitled chat holding an empty instruction. Counting pieces
+// would call that a document and deliver it, which on codex means a "while you were
+// away" pointer about nothing.
+func TestComposeContext_DeliveryIsDecidedWithoutThePreamble(
+	t *testing.T,
+) {
+	cases := []struct {
+		name             string
+		preamble         string
+		titleInstruction string
+		conversation     string
+		wantDeliver      bool
+		wantDocument     string
+	}{{
+		name:         "preamble alone, and the same shape a blanked title_instruction leaves on an untitled chat",
+		preamble:     "PREAMBLE",
+		wantDeliver:  false,
+		wantDocument: "PREAMBLE",
+	}, {
+		name:             "an untitled chat with a real title instruction",
+		preamble:         "PREAMBLE",
+		titleInstruction: "TITLE",
+		wantDeliver:      true,
+		wantDocument:     "PREAMBLE\n\nTITLE",
+	}, {
+		name:         "a titled chat taking a handoff",
+		preamble:     "PREAMBLE",
+		conversation: "HANDOFF",
+		wantDeliver:  true,
+		wantDocument: "PREAMBLE\n\nHANDOFF",
+	}, {
+		name:             "both, with the preamble leading",
+		preamble:         "PREAMBLE",
+		titleInstruction: "TITLE",
+		conversation:     "HANDOFF",
+		wantDeliver:      true,
+		wantDocument:     "PREAMBLE\n\nTITLE\n\nHANDOFF",
+	}, {
+		name:             "no preamble configured at all",
+		titleInstruction: "TITLE",
+		wantDeliver:      true,
+		wantDocument:     "TITLE",
+	}, {
+		name:        "nothing to say",
+		wantDeliver: false,
+	}}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			document, deliver := agentusecase.ComposeContext(tc.preamble, tc.titleInstruction, tc.conversation)
+			assert.Equal(t, tc.wantDeliver, deliver)
+			assert.Equal(t, tc.wantDocument, document)
+		})
 	}
 }
 

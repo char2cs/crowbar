@@ -26,10 +26,18 @@ func TestGetPrompts_FromEmbeddedDefaults(t *testing.T) {
 	assert.Contains(t, p.HandoffWrapper, "{conversation}")
 
 	// The capability preamble is a DIRECTIVE, not a tool list: registering the MCP
-	// server puts the tools in the model's list, but a model asked to review a branch
-	// still reaches for gh unless it is told which surface Crowbar expects.
-	assert.Contains(t, p.CapabilitiesInstruction, "crowbar review tools")
-	assert.Contains(t, p.CapabilitiesInstruction, "gh pr review")
+	// server puts the tools in the model's list, but nothing tells it to reach for them
+	// over the shell equivalents it already knows.
+	assert.Contains(t, p.CapabilitiesInstruction, "Crowbar workspace")
+	assert.Contains(t, p.CapabilitiesInstruction, "prefer them over shell equivalents")
+
+	// And it must name no capability that is not registered. The only tool on the
+	// surface at this phase is set_chat_title, so the text stays generic: a directive
+	// pointing at an absent tool family, while forbidding the fallback the model would
+	// otherwise reach for, is worse than no directive at all. The review directive
+	// lands with the review tools.
+	assert.NotContains(t, p.CapabilitiesInstruction, "review")
+	assert.NotContains(t, p.CapabilitiesInstruction, "gh pr")
 }
 
 func TestGetPrompts_UserConfigOverlays(t *testing.T) {

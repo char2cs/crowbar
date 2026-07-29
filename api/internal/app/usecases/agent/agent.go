@@ -821,35 +821,18 @@ func (u *Usecase) spawnRunner(
 	// would dump the whole handed-off exchange into the chat for the user to scroll
 	// past. An agent reads files.
 	tctx.ContextPointer = engineagent.Expand(config.GetPrompts().HandoffPointer, tctx)
-	// Compose the single {context} document: title instruction (only while the chat
-	// has no title — a chat switched before it was ever titled would otherwise never
-	// get one) followed by the handed-off conversation.
-	var parts []string
+	// The title instruction rides only while the chat has no title — a chat switched
+	// before it was ever titled would otherwise never get one.
+	var titleInstruction string
 	if injectTitle {
-		parts = append(parts, engineagent.Expand(config.GetPrompts().TitleInstruction, tctx))
+		titleInstruction = engineagent.Expand(config.GetPrompts().TitleInstruction, tctx)
 	}
-	if conversation != "" {
-		parts = append(parts, conversation)
-	}
-
-	// WHETHER the document is delivered is decided HERE, before the capability
-	// preamble joins it, and that ordering is load-bearing. The preamble is standing
-	// orientation rather than something that HAPPENED, so it must never be the only
-	// reason a CLI is injected at all: a resumed provider's channel need not be a
-	// silent one — a resumed codex can be reached ONLY through a user message (see
-	// codex.yaml) — and reopening a closed tab resumes the same provider with nothing
-	// recorded in between. A preamble that flipped this gate would open every reopened
-	// codex chat with a "while you were away" pointer about nothing that happened, and
-	// codex answers its opening user message on sight.
-	inject := len(parts) > 0
-
-	// The preamble LEADS the document: it says which tools this CLI has and when to
-	// prefer them, and a model should read that before it reads a handoff it is
-	// explicitly told not to act on.
-	if capabilities := config.GetPrompts().CapabilitiesInstruction; capabilities != "" {
-		parts = append([]string{engineagent.Expand(capabilities, tctx)}, parts...)
-	}
-	tctx.Context = strings.Join(parts, "\n\n")
+	document, inject := composeContext(
+		engineagent.Expand(config.GetPrompts().CapabilitiesInstruction, tctx),
+		titleInstruction,
+		conversation,
+	)
+	tctx.Context = document
 
 	steps := extraSteps
 	if inject {
@@ -860,7 +843,15 @@ func (u *Usecase) spawnRunner(
 	// resume channel is a user message (codex) fires its user-prompt hook with this
 	// exact text the moment it starts, and that echo must never be recorded as a
 	// ledger turn — that is what made handoffs nest inside themselves.
-	u.registry.SetInjectedContext(runnerID, tctx.Context, tctx.ContextPointer)
+	//
+	// Only when something was ACTUALLY injected. contextInject is the sole channel for
+	// both the document and the pointer, so an un-injected spawn has nothing that can
+	// echo — and since the capability preamble makes tctx.Context non-empty on every
+	// spawn, registering unconditionally would leave a guard behind for text no CLI
+	// was ever given.
+	if inject {
+		u.registry.SetInjectedContext(runnerID, tctx.Context, tctx.ContextPointer)
+	}
 
 	plan, err := engineagent.BuildSpawnPlan(descriptor, tctx, os.Environ(), steps)
 	if err != nil {
@@ -2027,6 +2018,47 @@ func (u *Usecase) assembleConversation(
 		return "", nil
 	}
 	return strings.ReplaceAll(wrapper, "{conversation}", string(blob)), nil
+}
+
+// composeContext builds the ONE {context} document a spawning CLI is given, and
+// reports separately whether that document must be DELIVERED at all.
+//
+// One document, not one per concern, because a provider may only have a single such
+// channel — codex delivers preamble, title and handoff through the same
+// developer_instructions key, so two independent injections would collide and the
+// second would silently win.
+//
+// The two answers are separate, and that is the whole point of this function. The
+// capability PREAMBLE is standing orientation rather than something that HAPPENED, so
+// it must never be the reason a CLI is injected at all: a resumed provider's channel
+// need not be a silent one — a resumed codex can be reached ONLY through a user
+// message (see codex.yaml) — and reopening a closed tab resumes the same provider
+// with nothing recorded in between. A preamble that decided delivery would therefore
+// open every reopened codex chat with a "while you were away" pointer about nothing
+// that happened, and codex answers its opening user message on sight.
+//
+// So delivery is decided by the title instruction and the handoff ALONE, and it is
+// decided from the joined TEXT rather than from a count of the pieces: a user who
+// blanks title_instruction in their own config.yaml leaves an untitled chat with an
+// empty instruction, and counting pieces would read that as a document to deliver —
+// reopening the very regression this split exists to close.
+//
+// The preamble LEADS the document it joins: it says which tools this CLI has and when
+// to prefer them, and a model should read that before it reads a handoff it is
+// explicitly told not to act on.
+func composeContext(preamble, titleInstruction, conversation string) (string, bool) {
+	var parts []string
+	if titleInstruction != "" {
+		parts = append(parts, titleInstruction)
+	}
+	if conversation != "" {
+		parts = append(parts, conversation)
+	}
+	deliver := len(parts) > 0
+	if preamble != "" {
+		parts = append([]string{preamble}, parts...)
+	}
+	return strings.Join(parts, "\n\n"), deliver
 }
 
 // contextInject picks the descriptor channel that carries the {context} document:

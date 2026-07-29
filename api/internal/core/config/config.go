@@ -25,6 +25,11 @@ type Prompts struct {
 	// importantly, WHEN to prefer them. Tool descriptions alone do not override a
 	// model's prior — asked to "review this branch" it reaches for gh or writes
 	// prose — so this is a directive, not a capability list.
+	//
+	// It must never name a capability that is not registered. A directive pointing at
+	// an absent tool family, while forbidding the fallback the model would otherwise
+	// reach for, is worse than no directive at all — so the text stays generic until
+	// the tools it would name actually exist.
 	CapabilitiesInstruction string `yaml:"capabilities_instruction"`
 	TitleInstruction        string `yaml:"title_instruction"`
 	// HandoffWrapper wraps the WHOLE conversation for a provider joining the chat

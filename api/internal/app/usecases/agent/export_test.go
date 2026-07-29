@@ -10,3 +10,13 @@ package agent
 // the turn is still running"), and a negative can only be proven against a moment the
 // test knows the switch has actually reached.
 const WaitingForTurnLog = waitingForTurnLog
+
+// ComposeContext exposes the {context} composition rule to this package's (external)
+// tests. It is not production surface: this file is compiled only under `go test`.
+//
+// The rule is reached directly rather than through a spawn because two of its three
+// inputs come from the process-wide config singleton, and config.Get MEMOISES on
+// first use — so a spawn-level test could not present a blanked title_instruction
+// without depending on which test in the binary ran first. A decision rule tested
+// through a memoised global is a test that passes for the wrong reason.
+var ComposeContext = composeContext

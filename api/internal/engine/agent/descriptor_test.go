@@ -210,7 +210,10 @@ func TestDescriptors_MCPArgsSurviveAnEmptyRepoID(t *testing.T) {
 func TestClaudeDescriptor_MCPConfigIsNeverFollowedByAPositional(t *testing.T) {
 	d, err := agent.ResolveDescriptor(t.TempDir(), "claude")
 	require.NoError(t, err)
-	// A handoff/resume step of exactly the shape SwitchProvider appends.
+	// A bare-positional pass_arg — the shape codex's resume_context_inject declares,
+	// and the shape any extra step is free to take. claude's own resume steps happen to
+	// lead with --resume, so this is the hazard's general form rather than a live path
+	// today; the point is that the descriptor must not depend on that accident.
 	extra := []agent.InjectStep{{Verb: "pass_arg", Args: map[string]any{"positional": "sid-native"}}}
 	plan, err := agent.BuildSpawnPlan(d, agent.TemplateCtx{
 		Tmp: t.TempDir(), Cwd: t.TempDir(), CrowbarHook: "/usr/local/bin/crowbar",
