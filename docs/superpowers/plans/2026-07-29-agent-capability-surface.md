@@ -1789,9 +1789,8 @@ func newMCPCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			post := func(path string, body any) ([]byte, error) {
-				_, raw, err := client.PostJSON(context.Background(), path, body)
-				return raw, err
+			post := func(path string, body any) (int, []byte, error) {
+				return client.PostJSON(context.Background(), path, body)
 			}
 			return runMCPRelay(os.Stdin, os.Stdout, post, segment, project, repo, workspace, token)
 		},
@@ -1831,11 +1830,21 @@ func runMCPRelay(
 			continue
 		}
 
-		raw, err := post(path, map[string]any{"token": token, "rpc": json.RawMessage(line)})
+		status, raw, err := post(path, map[string]any{"token": token, "rpc": json.RawMessage(line)})
 		if err != nil {
 			// The session must survive a daemon blip: report it as a JSON-RPC error
 			// against the id the client sent, and keep serving.
 			writeLine(writer, transportError(line, err))
+			continue
+		}
+		// A non-2xx is an APPLICATION error (bad request, tool surface not
+		// configured, a stale binary hitting a route that 404s). PostJSON returns
+		// err == nil for those, and the body carries no rpc — which is
+		// indistinguishable from the 204 silence below. Answering it with silence
+		// hangs the client forever on a request it is entitled to a reply for, so
+		// it must become a JSON-RPC error like any other failure.
+		if status < 200 || status > 299 {
+			writeLine(writer, transportError(line, fmt.Errorf("daemon returned HTTP %d: %s", status, raw)))
 			continue
 		}
 
@@ -1845,8 +1854,8 @@ func runMCPRelay(
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(raw, &env); err != nil || len(env.Data.RPC) == 0 {
-			// No rpc in the envelope means the daemon answered 204: it was a
-			// notification and JSON-RPC says we stay silent.
+			// A 2xx with no rpc is the daemon's 204: it was a notification, and
+			// JSON-RPC says we stay silent.
 			continue
 		}
 		writeLine(writer, env.Data.RPC)
