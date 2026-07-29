@@ -15,9 +15,13 @@ type fakeTools struct {
 	called     string
 	calledArgs string
 	err        error
+	empty      bool
 }
 
 func (f *fakeTools) Tools() []mcp.Tool {
+	if f.empty {
+		return nil
+	}
 	return []mcp.Tool{{
 		Name:        "set_chat_title",
 		Description: "Set this chat's title.",
@@ -134,10 +138,19 @@ func TestServer_MalformedJSONIsParseError(t *testing.T) {
 	var resp mcp.Response
 	require.NoError(t, json.Unmarshal(out, &resp))
 	require.Equal(t, mcp.CodeParseError, resp.Error.Code)
+	require.Contains(t, string(out), `"id":null`)
 }
 
 func TestServer_PingReturnsEmptyResult(t *testing.T) {
 	out, _ := srv(&fakeTools{}).Handle(context.Background(),
 		[]byte(`{"jsonrpc":"2.0","id":6,"method":"ping"}`))
 	require.JSONEq(t, `{"jsonrpc":"2.0","id":6,"result":{}}`, string(out))
+}
+
+// tools/list must never emit `"tools":null` — a ToolSet with no tools yet is an
+// empty array. A null there is a wire shape some clients reject outright.
+func TestServer_ToolsListEmitsAnArrayWhenThereAreNoTools(t *testing.T) {
+	out, _ := srv(&fakeTools{empty: true}).Handle(context.Background(),
+		[]byte(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`))
+	require.Contains(t, string(out), `"tools":[]`)
 }

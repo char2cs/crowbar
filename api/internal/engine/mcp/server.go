@@ -45,7 +45,13 @@ func (s *Server) Handle(ctx context.Context, raw []byte) ([]byte, bool) {
 		return marshal(s.result(req.ID, struct{}{})), true
 
 	case "tools/list":
-		return marshal(s.result(req.ID, toolsListResult{Tools: s.tools.Tools()})), true
+		tools := s.tools.Tools()
+		// Normalize nil to an empty array: a ToolSet returning nil still emits
+		// "tools":[] not "tools":null. Clients may reject the latter outright.
+		if tools == nil {
+			tools = []Tool{}
+		}
+		return marshal(s.result(req.ID, toolsListResult{Tools: tools})), true
 
 	case "tools/call":
 		var p callToolParams
