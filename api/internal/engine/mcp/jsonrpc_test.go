@@ -40,3 +40,9 @@ func TestNewResult_OmitsErrorField(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"jsonrpc":"2.0","id":1,"result":{"ok":"yes"}}`, string(b))
 }
+
+func TestRequest_ExplicitNullIDIsANotification(t *testing.T) {
+	var req mcp.Request
+	require.NoError(t, json.Unmarshal([]byte(`{"jsonrpc":"2.0","id":null,"method":"notifications/initialized"}`), &req))
+	require.True(t, req.IsNotification())
+}

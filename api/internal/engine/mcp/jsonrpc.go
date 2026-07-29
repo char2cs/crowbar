@@ -9,7 +9,10 @@
 // every tool decision to a ToolSet.
 package mcp
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // JSON-RPC 2.0 error codes (the -32000..-32099 server range is left alone).
 const (
@@ -56,7 +59,7 @@ func NewError(id json.RawMessage, code int, message string) Response {
 func NewResult(id json.RawMessage, result any) (Response, error) {
 	raw, err := json.Marshal(result)
 	if err != nil {
-		return Response{}, err
+		return Response{}, fmt.Errorf("mcp: marshal result: %w", err)
 	}
 	return Response{JSONRPC: "2.0", ID: id, Result: raw}, nil
 }
