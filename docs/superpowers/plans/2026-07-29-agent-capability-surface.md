@@ -2050,9 +2050,10 @@ In `api/internal/core/config/default.yaml`, add under `prompts:`:
 
 ```yaml
     capabilities_instruction: |
-      You are running inside a Crowbar workspace, and Crowbar's own tools are available to you (they appear as crowbar tools in your tool list).
-      Code review happens in Crowbar, not on GitHub: when you review a branch or are asked about review comments, use the crowbar review tools. Post findings as anchored review threads rather than as prose in this chat, and do not use `gh pr review`.
+      You are running inside a Crowbar workspace. Crowbar's own tools are available in your tool list; prefer them over shell equivalents for anything they cover, and call them rather than describing what you would do.
 ```
+
+**The preamble must never name a capability that is not registered yet.** A directive that points at an absent tool family — and forbids the fallback the model would otherwise reach for — is worse than no directive at all. At this phase the only registered tool is `set_chat_title`, so the text stays generic. Task 13 extends it once the review tools exist, and adds the test that keeps the two honest.
 
 In `api/internal/core/config/config.go`, add to the prompts struct beside `TitleInstruction`:
 
@@ -2685,6 +2686,37 @@ Expected: FAIL.
 - [ ] **Step 3: Implement**
 
 Both tools must first `Get` the thread and check `c.CanSee(thread.WsID)`, returning `ErrOutOfScope` otherwise — a thread id is not itself an authorization.
+
+- [ ] **Step 3b: Extend the capability preamble, now that the review tools exist**
+
+The review surface is complete as of this task, so `capabilities_instruction` in `api/internal/core/config/default.yaml` can finally carry the directive that was held back in Task 8:
+
+```yaml
+    capabilities_instruction: |
+      You are running inside a Crowbar workspace. Crowbar's own tools are available in your tool list; prefer them over shell equivalents for anything they cover, and call them rather than describing what you would do.
+      Code review happens in Crowbar, not on GitHub: when you review a branch or are asked about review comments, use the crowbar review tools. Post findings as anchored review threads rather than as prose in this chat, and do not use `gh pr review`.
+```
+
+Then add the test that keeps the prompt and the registry honest — a preamble naming an absent tool family, while forbidding the fallback, is worse than no preamble:
+
+```go
+// The preamble is a DIRECTIVE, so it must never name a capability the agent does
+// not actually have. Every `x_y`-shaped token in it has to be a registered tool.
+func TestCapabilitiesPreamble_OnlyNamesRegisteredTools(t *testing.T) {
+	ts := reviewToolsOn(t, &spyThreads{})
+	registered := map[string]bool{}
+	for _, tool := range ts.Tools() {
+		registered[tool.Name] = true
+	}
+
+	preamble := config.GetPrompts().CapabilitiesInstruction
+	require.NotEmpty(t, preamble)
+	for _, word := range regexp.MustCompile(`\b[a-z]+(?:_[a-z]+)+\b`).FindAllString(preamble, -1) {
+		require.True(t, registered[word],
+			"the preamble names %q, which is not a registered tool", word)
+	}
+}
+```
 
 - [ ] **Step 4: Run tests**
 
