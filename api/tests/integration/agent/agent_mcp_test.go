@@ -36,13 +36,20 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// wantTitle is the title the driven agent is asked to set. It is deliberately NOT
-// a substring of the prompt that asks for it: the UserPromptSubmit hook derives a
-// title from that prompt's first line the instant it is submitted (deriveTitle in
-// internal/app/usecases/agent/agent.go), so an assertion loose enough to match the
-// derived title would pass without the tool surface being reached at all. Exact
-// equality against a two-word Title-Case string can only be satisfied by
-// set_chat_title upgrading the derived title under agent precedence.
+// wantTitle is the title the driven agent is asked to set, and every assertion on it
+// is EXACT EQUALITY rather than containment. That is not stylistic.
+//
+// The chat is already titled by the time the tool could be called: the
+// UserPromptSubmit hook derives a title from the prompt's first line the instant it
+// is submitted (deriveTitle in internal/app/usecases/agent/agent.go), and this string
+// appears verbatim inside that prompt. What makes the two distinguishable is not the
+// string but the SHAPE — deriveTitle takes the whole first line, truncated at 60
+// runes, so the derived title is the sentence that asks for the rename, never the two
+// words being asked for. A `Contains` assertion would match that derived title and
+// pass with the tool surface untouched; equality can only be satisfied by
+// set_chat_title upgrading it under agent precedence.
+//
+// So the safeguard is the comparison operator. Keep it.
 const wantTitle = "Widget Refactor"
 
 // titlePrompt is the one turn each provider test spends. It names the tool, and it
@@ -190,17 +197,24 @@ func snapshotBody(
 	return raw
 }
 
-// awaitToolTitle blocks until chatID carries want, OR until the driven turn is over
-// — whichever comes first — and leaves the verdict to the caller's assertions.
+// awaitToolTitle blocks until chatID carries want, OR until the turn driven after
+// priorTurns is over — whichever comes first — and leaves the verdict to the caller's
+// assertions.
 //
 // Both arms are real signals, and the second one is what turns a refusal into a
 // diagnosis. The tool call is dispatched SYNCHRONOUSLY inside the model's turn (the
 // relay holds the JSON-RPC reply until the daemon has answered, and RenameByRunner
 // is durable before that reply is written), so a provider that reached the tool has
 // necessarily written the title BEFORE its turn_stop hook lands. The converse is
-// therefore sound: an assistant turn in the ledger with the title still unset means
+// therefore sound: a NEW assistant turn in the ledger with the title still unset means
 // the agent finished and did not call the tool. Waiting past that point could only
 // wait out the whole backstop for something that is never coming.
+//
+// priorTurns is what makes that second arm mean "the turn I drove is over" rather than
+// "this chat has ever spoken", and it must be sampled by the caller BEFORE the driving
+// write — a baseline taken in here would already include the turn being waited for on
+// any chat with history. Pass assistantTurnCount's value from before drive();
+// on a freshly spawned chat that is 0, and the arm reduces to the obvious check.
 func awaitToolTitle(
 	t *testing.T,
 	h *harness,
@@ -208,6 +222,7 @@ func awaitToolTitle(
 	chatID string,
 	provider string,
 	want string,
+	priorTurns int,
 	termSessID string,
 	tap *kit.PTYTap,
 ) {
@@ -222,7 +237,7 @@ func awaitToolTitle(
 			if title == want {
 				return title, true
 			}
-			if len(assistantReplies(readLedgerTurns(t, h, wsID, chatID), provider)) > 0 {
+			if assistantTurnCount(t, h, wsID, chatID, provider) > priorTurns {
 				return title, true
 			}
 			// A dead CLI can satisfy neither arm, so it must be a hard failure here
@@ -230,6 +245,20 @@ func awaitToolTitle(
 			requireCLIAlive(t, h, tap, termSessID, provider, "while it was being asked to title its chat")
 			return title, false
 		}, h.hooks.sig, h.mcp.sig)
+}
+
+// assistantTurnCount reports how many turns provider has finished in this chat, read
+// off the ledger on disk. Sampled before driving, it is the baseline that lets a wait
+// distinguish the turn it drove from every turn before it.
+func assistantTurnCount(
+	t *testing.T,
+	h *harness,
+	wsID string,
+	chatID string,
+	provider string,
+) int {
+	t.Helper()
+	return len(assistantReplies(readLedgerTurns(t, h, wsID, chatID), provider))
 }
 
 func chatTitle(
@@ -283,8 +312,9 @@ func TestMCP_ClaudeTitlesItsChatThroughTheToolSurface(t *testing.T) {
 	diagnoseOnFailure(t, h, tap, "claude")
 	t.Logf("spawned claude: chat=%s runner=%s workspace=%s home=%s", chatID, runnerID, wsID, h.home)
 
+	priorTurns := assistantTurnCount(t, h, wsID, chatID, "claude")
 	drive(t, h, tap, termSessID, titlePrompt)
-	awaitToolTitle(t, h, wsID, chatID, "claude", wantTitle, termSessID, tap)
+	awaitToolTitle(t, h, wsID, chatID, "claude", wantTitle, priorTurns, termSessID, tap)
 
 	require.True(t, h.mcp.calledTool("set_chat_title"),
 		"claude never called set_chat_title through the crowbar MCP surface. Either the inline --mcp-config "+
@@ -307,8 +337,9 @@ func TestMCP_CodexTitlesItsChatThroughTheToolSurface(t *testing.T) {
 	diagnoseOnFailure(t, h, tap, "codex")
 	t.Logf("spawned codex: chat=%s runner=%s workspace=%s home=%s", chatID, runnerID, wsID, h.home)
 
+	priorTurns := assistantTurnCount(t, h, wsID, chatID, "codex")
 	drive(t, h, tap, termSessID, titlePrompt)
-	awaitToolTitle(t, h, wsID, chatID, "codex", wantTitle, termSessID, tap)
+	awaitToolTitle(t, h, wsID, chatID, "codex", wantTitle, priorTurns, termSessID, tap)
 
 	require.True(t, h.mcp.calledTool("set_chat_title"),
 		"codex never called set_chat_title through the crowbar MCP surface. Either the -c mcp_servers.crowbar.* "+

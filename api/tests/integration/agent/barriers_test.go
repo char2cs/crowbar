@@ -293,6 +293,13 @@ func settleCLI(
 // awaitComposer blocks until claude has painted its interactive FOOTER — the proof
 // that its REPL has mounted and therefore has the keyboard. See claudeReadyNeedle
 // for why nothing weaker will do, and settleCLI for the two states that need it.
+//
+// It is CLAUDE-ONLY, and it says so out loud rather than trusting its caller. The
+// needle it waits for is claude's footer and nothing else, so handing it any other
+// provider would wait for text that CLI never paints — a hang until the backstop,
+// reported as "the CLI never became ready", which is the most misleading failure this
+// suite can produce. A future codex caller needs codex's own ready needle, not this
+// function, and this is where that has to be noticed.
 func awaitComposer(
 	t *testing.T,
 	h *harness,
@@ -302,6 +309,11 @@ func awaitComposer(
 	when string,
 ) {
 	t.Helper()
+	if provider != "claude" {
+		t.Fatalf("awaitComposer: only claude's composer needle (%q) is known; %q needs its own "+
+			"ready needle rather than this wait, which would hang until the backstop",
+			claudeReadyNeedle, provider)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), backstop)
 	defer cancel()
 	kit.Await(t, ctx, provider+" to paint its composer (ready for input)",
