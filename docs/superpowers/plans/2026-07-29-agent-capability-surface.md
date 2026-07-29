@@ -204,10 +204,14 @@ type RPCError struct {
 }
 
 type Response struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *RPCError       `json:"error,omitempty"`
+	JSONRPC string `json:"jsonrpc"`
+	// No omitempty: JSON-RPC 2.0 requires id to be PRESENT and null when the
+	// request's id could not be determined (a parse error). With omitempty a nil
+	// RawMessage drops the member entirely, which is a protocol violation. A nil
+	// RawMessage marshals to `null` on its own, so dropping the tag is the fix.
+	ID     json.RawMessage `json:"id"`
+	Result json.RawMessage `json:"result,omitempty"`
+	Error  *RPCError       `json:"error,omitempty"`
 }
 
 func NewError(id json.RawMessage, code int, message string) Response {
@@ -217,11 +221,13 @@ func NewError(id json.RawMessage, code int, message string) Response {
 func NewResult(id json.RawMessage, result any) (Response, error) {
 	raw, err := json.Marshal(result)
 	if err != nil {
-		return Response{}, err
+		return Response{}, fmt.Errorf("mcp: marshal result: %w", err)
 	}
 	return Response{JSONRPC: "2.0", ID: id, Result: raw}, nil
 }
 ```
+
+(imports: `encoding/json`, `fmt`)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -390,6 +396,18 @@ func TestServer_MalformedJSONIsParseError(t *testing.T) {
 	var resp mcp.Response
 	require.NoError(t, json.Unmarshal(out, &resp))
 	require.Equal(t, mcp.CodeParseError, resp.Error.Code)
+	// JSON-RPC 2.0: when the request's id cannot be determined, id MUST be
+	// present and null. Asserting on the raw bytes because an absent member and
+	// an explicit null both decode to a nil RawMessage.
+	require.Contains(t, string(out), `"id":null`)
+}
+
+// tools/list must never emit `"tools":null` — a ToolSet with no tools yet is an
+// empty array. A null there is a wire shape some clients reject outright.
+func TestServer_ToolsListEmitsAnArrayWhenThereAreNoTools(t *testing.T) {
+	out, _ := srv(&fakeTools{empty: true}).Handle(context.Background(),
+		[]byte(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`))
+	require.Contains(t, string(out), `"tools":[]`)
 }
 
 func TestServer_PingReturnsEmptyResult(t *testing.T) {
@@ -709,6 +727,12 @@ func (m *TokenMinter) Mint(runnerID string) string {
 // Verify is constant-time in the comparison so a caller cannot probe the token
 // byte by byte.
 func (m *TokenMinter) Verify(runnerID, token string) bool {
+	// An empty runner id names no runner, so it must never authenticate — without
+	// this guard Mint("") and Verify("", …) agree with each other and an unset
+	// --segment flag would silently pass the check.
+	if runnerID == "" || token == "" {
+		return false
+	}
 	got, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
 		return false
