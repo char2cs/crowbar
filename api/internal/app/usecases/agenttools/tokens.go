@@ -43,6 +43,21 @@ func (m *TokenMinter) Mint(runnerID string) string {
 	return base64.RawURLEncoding.EncodeToString(m.sign(runnerID))
 }
 
+// String redacts the secret so no formatted print can leak it.
+//
+// The minter is held by the agent usecase, and any %v/%+v of a struct that
+// reaches it — a debug log, a panic dump, an error built from a whole
+// dependency graph — would otherwise render the raw HMAC key as bytes. GoString
+// covers %#v for the same reason.
+func (m *TokenMinter) String() string {
+	return "agenttools.TokenMinter{secret:REDACTED}"
+}
+
+// GoString redacts the secret under %#v. See String.
+func (m *TokenMinter) GoString() string {
+	return m.String()
+}
+
 // Verify is constant-time in the comparison so a caller cannot probe the token
 // byte by byte.
 func (m *TokenMinter) Verify(runnerID, token string) bool {

@@ -121,6 +121,14 @@ func (stubUsecase) RenameByRunner(
 	return nil
 }
 
+func (stubUsecase) DispatchMCP(
+	_ context.Context,
+	_, _ string,
+	_ []byte,
+) ([]byte, bool, error) {
+	return []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`), true, nil
+}
+
 func (stubUsecase) PurgeChat(
 	_ context.Context,
 	_ string,
@@ -169,6 +177,7 @@ func TestRegisterMountsRoutes(
 		{http.MethodGet, base + "/agent/chats/c1/handoff"},
 		{http.MethodDelete, base + "/agent/chats/c1"},
 		{http.MethodPost, base + "/agent/runners/seg-1/rename"},
+		{http.MethodPost, base + "/agent/runners/seg-1/mcp"},
 		{http.MethodPost, base + "/agent/hooks"},
 		{http.MethodGet, base + "/agent/providers"},
 		{http.MethodGet, base + "/agent/ws/chats"},

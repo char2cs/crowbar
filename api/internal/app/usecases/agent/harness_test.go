@@ -19,6 +19,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
@@ -408,6 +409,47 @@ type testFixture struct {
 	// the host or a real PATH.
 	providerPrefs store.Store[domain.AgentProviderPreference, string]
 	connected     map[string]bool
+	// minter is the SAME token minter the usecase's MCP seam verifies against, so
+	// a test can mint the token a spawned runner would have been handed.
+	minter *agenttools.TokenMinter
+}
+
+// fixtureChatReader adapts the chat EventStore into agenttools.ChatReader, whose
+// Get is the store's GetChat under a shorter name.
+type fixtureChatReader struct {
+	chats agentchat.EventStore
+}
+
+func (r fixtureChatReader) Get(
+	ctx context.Context,
+	chatID string,
+) (domain.AgentChat, error) {
+	return r.chats.GetChat(ctx, chatID)
+}
+
+func (r fixtureChatReader) ListByWorkspace(
+	ctx context.Context,
+	wsID string,
+) ([]domain.AgentChat, error) {
+	return r.chats.ListByWorkspace(ctx, wsID)
+}
+
+// fixtureWorkspaceLister answers for the single workspace the fixture spawns
+// into ("ws1"): a plain child workspace, so the resolver's visibility set is
+// exactly itself.
+type fixtureWorkspaceLister struct{}
+
+func (fixtureWorkspaceLister) Get(
+	_ context.Context,
+	wsID string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: wsID, ProjectID: "p1", RepoID: "r1"}, nil
+}
+
+func (fixtureWorkspaceLister) List(
+	_ context.Context,
+) ([]domain.Workspace, error) {
+	return []domain.Workspace{{ID: "ws1", ProjectID: "p1", RepoID: "r1"}}, nil
 }
 
 // setPrefs saves global provider preferences into the fixture's real store, so a
@@ -670,7 +712,20 @@ func newFixtureUsing(
 	connected := map[string]bool{}
 	homeFn := func() (string, error) { return home, nil }
 	probe := func(cmd string) bool { return connected[cmd] }
-	u := agentusecase.New(usedChats, usedRunners, reg, term, ws, providerPrefs, homeFn, probe)
+	// The tool surface is wired over the SAME real stores the rest of the fixture
+	// reads, so an MCP tool call lands in the aggregates every other test asserts
+	// on. Only the workspace lister is a fake: these tests own no workspace
+	// repository, and the resolver only needs the caller's workspace to exist.
+	minter, err := agenttools.NewTokenMinter()
+	require.NoError(t, err)
+	resolver := agenttools.NewResolver(
+		minter,
+		usedRunners,
+		fixtureChatReader{chats: usedChats},
+		fixtureWorkspaceLister{},
+	)
+	u := agentusecase.New(usedChats, usedRunners, reg, term, ws, providerPrefs, homeFn, probe,
+		minter, agenttools.Deps{Resolver: resolver})
 	f := testFixture{
 		ctx:           context.Background(),
 		usecase:       u,
@@ -684,6 +739,7 @@ func newFixtureUsing(
 		registry:      reg,
 		providerPrefs: providerPrefs,
 		connected:     connected,
+		minter:        minter,
 	}
 	return f, realChats, realRunners
 }

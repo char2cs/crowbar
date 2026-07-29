@@ -15,6 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -35,7 +36,7 @@ func newProviderServer(
 	homeFn := func() (string, error) { return home, nil }
 	probe := func(cmd string) bool { return cmd == "codex" }
 
-	uc := agentusecase.New(nil, nil, nil, nil, nil, prefs, homeFn, probe)
+	uc := agentusecase.New(nil, nil, nil, nil, nil, prefs, homeFn, probe, nil, agenttools.Deps{})
 
 	r := gin.New()
 	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")

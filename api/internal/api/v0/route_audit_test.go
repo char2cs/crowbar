@@ -166,6 +166,19 @@ func extraRoutes() []string {
 		"PUT " + repo + "/icon/emoji",
 		"PUT " + repo + "/icon/github",
 		"GET " + repo + "/branches",
+		// Two routes that shipped without ever being declared here — the exact
+		// drift this audit exists to catch, caught late because the audit is
+		// behind the `integration` build tag and so does not run in the default
+		// `go test ./...` sweep.
+		//
+		//   pull-requests: the repo's open PR list, read by the sidebar beside
+		//   the branch list above.
+		//   workspaces/import: adopting an EXISTING branch as a workspace, the
+		//   sibling of POST .../workspaces (which creates a new branch). It is
+		//   repo-scoped, not workspace-scoped: there is no :wsId until it
+		//   returns.
+		"GET " + repo + "/pull-requests",
+		"POST " + repo + "/workspaces/import",
 		// File copy: the duplicate op the file tree's context menu drives,
 		// sibling of the create/rename/delete file routes the §2.4 list carries.
 		"POST " + ws + "/files/copy",
@@ -227,6 +240,12 @@ func extraRoutes() []string {
 		//   other, and it keeps answering across a /clear that moves the CLI mid-turn.
 		"POST " + ws + "/agent/chats/:id/resume",
 		"POST " + ws + "/agent/runners/:segid/rename",
+		//   runners/:segid/mcp: the agent's own tool surface, spoken as MCP. Keyed by
+		//   RUNNER for the same reason rename is, plus one that only applies here —
+		//   this is the route the agent's process itself calls, so its authority has
+		//   to come from the per-boot token bound to that runner and never from a URL
+		//   the agent is free to compose.
+		"POST " + ws + "/agent/runners/:segid/mcp",
 		//   stop: closing a chat TAB is not deleting the chat. The CLI is quit and
 		//   the chat left DORMANT with its bound vendor conversation intact, which
 		//   is exactly the state resume above exists to pick back up.
@@ -280,6 +299,9 @@ func extraRoutes() []string {
 		// running in it still has to be able to name it.
 		"POST " + home + "/agent/chats/:id/resume",
 		"POST " + home + "/agent/runners/:segid/rename",
+		// An agent in a home chat has the same tools as one anywhere else, so the
+		// MCP seam is mounted here too.
+		"POST " + home + "/agent/runners/:segid/mcp",
 		// And the same close-is-not-delete stop, for the same reason: a home chat's
 		// tab closes exactly like any other chat's.
 		"POST " + home + "/agent/chats/:id/stop",

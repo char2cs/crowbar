@@ -46,7 +46,7 @@ type RPCError struct {
 }
 
 type Response struct {
-	JSONRPC string          `json:"jsonrpc"`
+	JSONRPC string `json:"jsonrpc"`
 	// No omitempty: JSON-RPC 2.0 requires id to be PRESENT and null when the
 	// request's id could not be determined (a parse error). With omitempty a nil
 	// RawMessage drops the member entirely, which is a protocol violation. A nil

@@ -7,6 +7,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/git"
@@ -149,6 +150,14 @@ func New(
 		repos:       gormStores.Repositories,
 		crowbarHome: crowbarHome,
 	}
+	agentMinter, err := agenttools.NewTokenMinter()
+	if err != nil {
+		return nil, fmt.Errorf("usecases: new container: %w", err)
+	}
+	agentToolDeps, err := newAgentToolDeps(agentMinter, repos)
+	if err != nil {
+		return nil, fmt.Errorf("usecases: new container: %w", err)
+	}
 	agentUsecase := agent.New(
 		repos.AgentChat,
 		repos.AgentRunner,
@@ -160,6 +169,8 @@ func New(
 		// nil probe → the usecase defaults to engineagent.Connected, the real
 		// install probe. Only tests inject a stub to isolate from the host PATH.
 		nil,
+		agentMinter,
+		agentToolDeps,
 	)
 	return &Container{
 		Project:              projectUsecase,
@@ -176,6 +187,67 @@ func New(
 		Agent:                agentUsecase,
 		AgentWorkspaceReader: agentWSReader,
 	}, nil
+}
+
+// newAgentToolDeps assembles the production agent capability surface and REFUSES
+// to return a partial one.
+//
+// agenttools registers no tool whose dependency is missing, which is the right
+// default for the package but a terrible one to discover in production: a daemon
+// wired with a nil port would boot clean, serve chats normally, and hand every
+// agent an empty tool list with nothing anywhere reporting why. Checking here
+// turns that silent degradation into a failed start.
+func newAgentToolDeps(
+	minter *agenttools.TokenMinter,
+	repos *repositories.Container,
+) (agenttools.Deps, error) {
+	switch {
+	case minter == nil:
+		return agenttools.Deps{}, fmt.Errorf("wire agent tools: no token minter")
+	case repos.AgentRunner == nil:
+		return agenttools.Deps{}, fmt.Errorf("wire agent tools: no runner store")
+	case repos.AgentChat == nil:
+		return agenttools.Deps{}, fmt.Errorf("wire agent tools: no chat store")
+	case repos.Workspace == nil:
+		return agenttools.Deps{}, fmt.Errorf("wire agent tools: no workspace store")
+	}
+	return agenttools.Deps{
+		Resolver: agenttools.NewResolver(
+			minter,
+			repos.AgentRunner,
+			agentChatReader{chats: repos.AgentChat},
+			repos.Workspace,
+		),
+	}, nil
+}
+
+// chatGetter is the minimal chat-read surface agentChatReader adapts.
+type chatGetter interface {
+	GetChat(ctx context.Context, id string) (domain.AgentChat, error)
+	ListByWorkspace(ctx context.Context, wsID string) ([]domain.AgentChat, error)
+}
+
+// agentChatReader adapts the chat repository into agenttools.ChatReader. Only
+// the name differs: the repository says GetChat because it also serves runners,
+// while the tool surface's port is a plain Get.
+type agentChatReader struct {
+	chats chatGetter
+}
+
+// Get implements agenttools.ChatReader.
+func (r agentChatReader) Get(
+	ctx context.Context,
+	chatID string,
+) (domain.AgentChat, error) {
+	return r.chats.GetChat(ctx, chatID)
+}
+
+// ListByWorkspace implements agenttools.ChatReader.
+func (r agentChatReader) ListByWorkspace(
+	ctx context.Context,
+	wsID string,
+) ([]domain.AgentChat, error) {
+	return r.chats.ListByWorkspace(ctx, wsID)
 }
 
 // workspaceGetter is the minimal workspace-read surface agentWorkspaceReader

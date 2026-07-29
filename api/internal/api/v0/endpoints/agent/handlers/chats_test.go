@@ -217,6 +217,14 @@ func (configurableListGetUsecase) RenameByRunner(
 	return nil
 }
 
+func (configurableListGetUsecase) DispatchMCP(
+	_ context.Context,
+	_, _ string,
+	_ []byte,
+) ([]byte, bool, error) {
+	return nil, false, nil
+}
+
 func (configurableListGetUsecase) PurgeChat(
 	_ context.Context,
 	_ string,

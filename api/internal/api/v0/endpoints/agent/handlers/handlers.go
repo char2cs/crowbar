@@ -115,6 +115,20 @@ type AgentUsecase interface {
 		runnerID, title, source string,
 	) error
 
+	// DispatchMCP runs one MCP JSON-RPC message for the runner named by runnerID,
+	// authenticated by token. It is the single seam onto the agent tool surface —
+	// the handler carries bytes and decides nothing — and the message is passed
+	// through raw because the JSON-RPC framing is the engine's business.
+	//
+	// The bool reports whether a reply should be sent: a JSON-RPC notification is
+	// answered with silence.
+	DispatchMCP(
+		ctx context.Context,
+		runnerID string,
+		token string,
+		message []byte,
+	) ([]byte, bool, error)
+
 	// PurgeChat hard-deletes chatID via asynx Forget, then best-effort kills the
 	// vendor CLI that was pointed at it. The chat is fully erased — gone from every
 	// read, including a direct GetChat by id — the instant this returns.

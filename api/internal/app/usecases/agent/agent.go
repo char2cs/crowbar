@@ -46,11 +46,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/core/config"
+	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
+	enginemcp "github.com/char2cs/crowbar/api/internal/engine/mcp"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
@@ -151,12 +154,29 @@ type Usecase struct {
 	// turns is the in-flight-turn registry a provider switch BLOCKS on, so it never quits
 	// a CLI mid-answer. See turnWaits.
 	turns *turnWaits
+	// tools is the agent-facing capability surface DispatchMCP builds a per-call
+	// ToolSet from. Its Chats port is always this usecase (set in New), so the one
+	// dependency a caller can get wrong is the Resolver — and DispatchMCP refuses
+	// to serve without it rather than quietly advertising an empty tool list.
+	tools agenttools.Deps
+	// minter issues the per-runner token an MCP call is authenticated by. It is
+	// held here because the spawn path is what hands a runner its token, and a
+	// runner's token must be minted by the same secret DispatchMCP verifies
+	// against.
+	minter *agenttools.TokenMinter
 }
 
 // New builds a Usecase over the two aggregates and the engine seams. registry is
 // no longer a placement index — it holds only the per-spawn injected-context echo
 // guard (see engineagent.Registry); every placement question is answered by the
 // runner aggregate.
+//
+// minter and tools are the agent capability surface DispatchMCP serves. Both are
+// optional: a Usecase built without them still runs chats, and DispatchMCP fails
+// loudly instead of serving a tool-less agent. tools.Chats is deliberately NOT a
+// caller's responsibility — the usecase IS the ChatRenamer, so New fills it in
+// and no caller can drop the chat tools by forgetting to hand the usecase back
+// to itself.
 func New(
 	chats agentchat.EventStore,
 	runners agentrunner.EventStore,
@@ -166,11 +186,13 @@ func New(
 	providerPrefs store.Store[domain.AgentProviderPreference, string],
 	home func() (string, error),
 	connected func(cmd string) bool,
+	minter *agenttools.TokenMinter,
+	tools agenttools.Deps,
 ) *Usecase {
 	if connected == nil {
 		connected = engineagent.Connected
 	}
-	return &Usecase{
+	u := &Usecase{
 		chats:         chats,
 		runners:       runners,
 		registry:      registry,
@@ -181,7 +203,11 @@ func New(
 		connected:     connected,
 		spawns:        newChatGate(),
 		turns:         newTurnWaits(),
+		tools:         tools,
+		minter:        minter,
 	}
+	u.tools.Chats = u
+	return u
 }
 
 // SpawnChat creates a fresh AgentChat and starts a runner on it, launching the
@@ -267,6 +293,33 @@ func (u *Usecase) RenameByRunner(
 		return nil
 	}
 	return u.RenameChat(ctx, runner.CurrentChatID, title, source)
+}
+
+// DispatchMCP runs one MCP message on behalf of the runner named by runnerID.
+//
+// It is the ONLY entry point to the agent tool surface, which is what keeps
+// authorization in one place: the relay process that carries these bytes never
+// decides anything, and the ToolSet is constructed around this caller's
+// credentials so no tool handler is reachable without a successful Resolve.
+//
+// The ToolSet is built PER CALL rather than cached per runner because the
+// credentials are what the tools close over — a cached set would outlive the
+// runner it was minted for.
+//
+// The bool reports whether a reply should be sent: a JSON-RPC notification is
+// answered with silence.
+func (u *Usecase) DispatchMCP(
+	ctx context.Context,
+	runnerID, token string,
+	message []byte,
+) ([]byte, bool, error) {
+	if u.minter == nil || u.tools.Resolver == nil {
+		return nil, false, fmt.Errorf("agent: dispatch mcp: tool surface not configured")
+	}
+	tools := agenttools.NewToolSet(u.tools, runnerID, token)
+	server := enginemcp.NewServer("crowbar", metadata.GetVersion(), tools)
+	out, send := server.Handle(ctx, message)
+	return out, send, nil
 }
 
 // PurgeChat hard-deletes chatID via asynx Forget: the aggregate's event log AND

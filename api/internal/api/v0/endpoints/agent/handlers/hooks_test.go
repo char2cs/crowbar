@@ -122,6 +122,11 @@ type fakeAgentUsecase struct {
 	renameByRunnerCalls []renameByRunnerCall
 	renameByRunnerErr   error
 
+	dispatchMCPCalls []dispatchMCPCall
+	dispatchMCPOut   []byte
+	dispatchMCPSend  bool
+	dispatchMCPErr   error
+
 	purgeCalls []string
 	purgeErr   error
 
@@ -167,6 +172,12 @@ type renameByRunnerCall struct {
 	runnerID string
 	title    string
 	source   string
+}
+
+type dispatchMCPCall struct {
+	runnerID string
+	token    string
+	message  []byte
 }
 
 func (f *fakeAgentUsecase) SpawnChat(
@@ -283,6 +294,22 @@ func (f *fakeAgentUsecase) RenameByRunner(
 ) error {
 	f.renameByRunnerCalls = append(f.renameByRunnerCalls, renameByRunnerCall{runnerID: runnerID, title: title, source: source})
 	return f.renameByRunnerErr
+}
+
+func (f *fakeAgentUsecase) DispatchMCP(
+	_ context.Context,
+	runnerID, token string,
+	message []byte,
+) ([]byte, bool, error) {
+	f.dispatchMCPCalls = append(f.dispatchMCPCalls, dispatchMCPCall{
+		runnerID: runnerID,
+		token:    token,
+		message:  message,
+	})
+	if f.dispatchMCPErr != nil {
+		return nil, false, f.dispatchMCPErr
+	}
+	return f.dispatchMCPOut, f.dispatchMCPSend, nil
 }
 
 func (f *fakeAgentUsecase) PurgeChat(

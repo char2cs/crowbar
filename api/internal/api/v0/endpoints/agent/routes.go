@@ -27,6 +27,10 @@ import (
 // never carry a chat id baked in at spawn — the exact staleness a /clear or
 // /resume moving the runner between chats used to produce.
 //
+// .../agent/runners/:segid/mcp is runner-keyed for the same reason and one more:
+// it is the transport for the agent's OWN tool calls, so its authority must come
+// from the runner's per-boot token rather than from a URL the agent composes.
+//
 // settingsRG is the top-level /v0 group. Provider PRIORITY + enable/disable is a
 // GLOBAL user setting (per user/machine, not per workspace — the CLIs are
 // machine-level), so its write route mounts there at /settings/agent/providers,
@@ -51,6 +55,7 @@ func Register(
 	wsScoped.GET("/agent/chats/:id/handoff", h.Handoff)
 	wsScoped.DELETE("/agent/chats/:id", h.Delete)
 	wsScoped.POST("/agent/runners/:segid/rename", h.RenameByRunner)
+	wsScoped.POST("/agent/runners/:segid/mcp", h.MCP)
 	wsScoped.POST("/agent/hooks", h.Hooks)
 	wsScoped.GET("/agent/providers", h.Providers)
 	wsScoped.GET("/agent/ws/chats", wsHandle)
