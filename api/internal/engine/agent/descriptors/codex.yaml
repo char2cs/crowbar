@@ -76,6 +76,29 @@ config_injection:
       value: 'hooks.Stop=[{hooks=[{type="command",command="{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"}]}]'
 hooks:
   format: json
+  # codex's hooks are not only its user's. With `[features] memories = true` its
+  # Memory Writing Agent runs as an INTERNAL session inside the SAME codex process,
+  # so it inherits the `-c hooks.*` above and fires the full lifecycle at Crowbar —
+  # SessionStart, UserPromptSubmit, Stop, SessionEnd — on a session the user never
+  # opened. Captured live from codex 0.146.0, alongside the real session's hooks:
+  #
+  #   real:     session_id 019fafae-f27f…  source startup  transcript_path <rollout>
+  #             cwd <worktree>             model gpt-5.6-sol    permission_mode default
+  #   internal: session_id 019fafaf-4f2c…  source startup  transcript_path NULL
+  #             cwd ~/.codex/memories      model gpt-5.6-terra  permission_mode bypassPermissions
+  #
+  # `source` is IDENTICAL, so no move label can separate them (see reducer.go, which
+  # must never branch on that vocabulary anyway). What separates them is that the
+  # internal one is not a conversation: transcript_path is null, because it has no
+  # rollout — and a session with no rollout is one codex itself cannot resume, so it
+  # was never something Crowbar could host. Requiring the transcript therefore drops
+  # every hook of every internal session codex runs, present and future, without
+  # Crowbar having to enumerate them.
+  #
+  # NOT the other three columns. cwd would work today but needs symlink- and
+  # case-exact path comparison against the worktree to be safe, and model and
+  # permission_mode are a user's to configure — `consolidation_model` is a config key.
+  require_payload_fields: [transcript_path]
   events:
     session_start: { session_id: session_id }
     user_prompt:   { message: prompt }
