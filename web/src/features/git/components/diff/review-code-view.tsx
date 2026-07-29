@@ -10,6 +10,7 @@ import type {
 } from '@pierre/diffs'
 import { CodeView, WorkerPoolContextProvider } from '@pierre/diffs/react'
 import type { CodeViewHandle } from '@pierre/diffs/react'
+import HighlightWorker from '@pierre/diffs/worker/worker.js?worker'
 import { Button } from '@/components/ui/button'
 import { getReviewPatch } from '@/features/git/api/review-window-api'
 import type { FileOutline, HunkShape } from '@/features/git/api/review-window-api'
@@ -467,18 +468,42 @@ export interface ReviewCodeViewProps {
 }
 
 /**
- * Whether this environment can run the highlighting pool at all.
+ * Whether a highlighting worker can actually be BUILT in this environment.
  *
- * Without it the provider still constructs a pool, every `workerFactory()` call
- * throws, and the library reports that as an UNHANDLED REJECTION rather than as
- * the main-thread fallback it actually performs — green tests, exit code 1.
- * Skipping the provider leaves the pool context undefined, which CodeView
- * already treats as "highlight inline".
+ * `typeof Worker !== 'undefined'` used to be the test, and it is not one — it is
+ * true in precisely the case that breaks. If the constructor then throws (a CSP
+ * that forbids workers; an engine refusing a module worker served from the
+ * app's custom scheme) the pool is already installed, every `workerFactory()`
+ * call throws, the library turns that into unhandled rejections, and the
+ * surface renders NOTHING. Not unhighlighted text — nothing at all, silently.
+ *
+ * So build one and throw it away. Highlighting is an optimisation; being able
+ * to READ the diff is not. Skipping the provider leaves the pool context
+ * undefined, which CodeView already treats as "highlight inline".
+ *
+ * This catches only a SYNCHRONOUS failure. A worker that loads and then never
+ * answers is the build-time hazard above, gated by verify-worker-bundles.mjs.
  */
-const WORKERS_SUPPORTED = typeof Worker !== 'undefined'
+let workerPoolUsable: boolean | undefined
+function canUseWorkerPool(): boolean {
+  if (workerPoolUsable !== undefined) return workerPoolUsable
+  if (typeof Worker === 'undefined') {
+    workerPoolUsable = false
+    return workerPoolUsable
+  }
+  try {
+    // The chunk this fetches is the one the pool is about to fetch anyway, so
+    // the probe costs a cache hit rather than a second download.
+    createHighlightWorker().terminate()
+    workerPoolUsable = true
+  } catch {
+    workerPoolUsable = false
+  }
+  return workerPoolUsable
+}
 
 export function ReviewCodeView(props: ReviewCodeViewProps) {
-  if (!WORKERS_SUPPORTED) return <ReviewCodeViewSurface {...props} />
+  if (!canUseWorkerPool()) return <ReviewCodeViewSurface {...props} />
   return (
     <WorkerPoolContextProvider
       poolOptions={{ workerFactory: createHighlightWorker, poolSize: HIGHLIGHT_POOL_SIZE }}
@@ -489,10 +514,30 @@ export function ReviewCodeView(props: ReviewCodeViewProps) {
   )
 }
 
+/**
+ * Build the pool's worker.
+ *
+ * `?worker` names the package's worker module as the worker ENTRY, which is the
+ * whole point: the previous form was a local one-line module that imported it
+ * only for its side effects, and `@pierre/diffs` declares
+ * `"sideEffects": ["dist/components/web-components.js"]` — every other file in
+ * the package, worker.js included, is advertised as side-effect free. A
+ * production bundler is therefore entitled to drop that import, and it did: the
+ * emitted worker chunk was 0 BYTES.
+ *
+ * Nothing failed loudly. An empty worker script loads fine, installs no message
+ * handler, and answers none of the pool's requests — so every highlight stayed
+ * pending forever and CodeView rendered no rows at all. The review pane went
+ * blank in packaged builds while dev, which serves the module unbundled and
+ * runs the import, stayed perfect.
+ *
+ * Naming the real module as the entry removes the failure structurally: an
+ * entry is not a side effect to be proven, it is the thing being emitted, so
+ * there is nothing left to shake away. `scripts/verify-worker-bundles.mjs` runs
+ * as `postbuild` and fails the build if a worker chunk is ever empty again.
+ */
 function createHighlightWorker(): Worker {
-  return new Worker(new URL('../../lib/diffs-highlight-worker.ts', import.meta.url), {
-    type: 'module',
-  })
+  return new HighlightWorker()
 }
 
 // react-doctor-disable-next-line no-giant-component -- accepted: this is one windowed-diff controller, not a page with sections. The length is memos + refs + imperative patch fetching that all feed a SINGLE <CodeView> child (the JSX return is ~40 lines), so the rule's prescribed remedy — "pull each section into its own component" — has nothing to pull; the only honest split is a hook, and the band planner is under an open rework (see the fast-scroll blocker in docs/superpowers/specs/perf-baselines.md), which is where that extraction belongs.
