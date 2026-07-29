@@ -224,8 +224,12 @@ func TestSpawnChat_InjectsTheCapabilityPreamble(
 
 // TestSpawnChat_Codex_InjectsTheCapabilityPreamble is codex's counterpart: it ships
 // no --append-system-prompt, so the preamble rides the same silent
-// developer_instructions channel the title instruction and handoff use. It must
-// never arrive as a positional, which IS codex's opening user message.
+// developer_instructions channel a handoff uses. It must never arrive as a
+// positional, which IS codex's opening user message.
+//
+// Together with TestResumeChat_GaplessRevive_SendsNoUserMessage below this pins the
+// whole delivery rule: a FRESH spawn is injected even when it has no handoff to
+// carry (the preamble is the point), a gapless RESUME is not injected at all.
 func TestSpawnChat_Codex_InjectsTheCapabilityPreamble(
 	t *testing.T,
 ) {
@@ -244,65 +248,44 @@ func TestSpawnChat_Codex_InjectsTheCapabilityPreamble(
 	}
 }
 
-// TestComposeContext_DeliveryIsDecidedWithoutThePreamble pins the rule the test below
-// exercises end to end, at the one place it can be stated exactly.
+// TestComposeContext_PreambleLeadsAndAbsentHalvesLeaveNoGap pins the {context}
+// document's shape at the one place it can be stated exactly.
 //
-// Delivery must be decided by the title instruction and the handoff ALONE. The
-// preamble is standing orientation, not something that happened, so it may join the
-// document but never cause it — and the decision has to read the TEXT rather than
-// count the pieces, because a user who blanks title_instruction in their own
-// config.yaml leaves an untitled chat holding an empty instruction. Counting pieces
-// would call that a document and deliver it, which on codex means a "while you were
-// away" pointer about nothing.
-func TestComposeContext_DeliveryIsDecidedWithoutThePreamble(
+// The preamble LEADS: it says which tools this CLI has and when to prefer them, and a
+// model should read that before a handoff it is explicitly told not to act on. Either
+// half can be missing — a user may blank capabilities_instruction in their own
+// config.yaml, and a brand-new chat has no conversation — and a missing half must
+// leave no stray blank line, which a model reads as a section that was meant to be
+// there.
+func TestComposeContext_PreambleLeadsAndAbsentHalvesLeaveNoGap(
 	t *testing.T,
 ) {
 	cases := []struct {
-		name             string
-		preamble         string
-		titleInstruction string
-		conversation     string
-		wantDeliver      bool
-		wantDocument     string
+		name         string
+		preamble     string
+		conversation string
+		wantDocument string
 	}{{
-		name:         "preamble alone, and the same shape a blanked title_instruction leaves on an untitled chat",
+		name:         "a fresh chat has only the preamble",
 		preamble:     "PREAMBLE",
-		wantDeliver:  false,
 		wantDocument: "PREAMBLE",
 	}, {
-		name:             "an untitled chat with a real title instruction",
-		preamble:         "PREAMBLE",
-		titleInstruction: "TITLE",
-		wantDeliver:      true,
-		wantDocument:     "PREAMBLE\n\nTITLE",
-	}, {
-		name:         "a titled chat taking a handoff",
+		name:         "a chat taking a handoff, with the preamble leading",
 		preamble:     "PREAMBLE",
 		conversation: "HANDOFF",
-		wantDeliver:  true,
 		wantDocument: "PREAMBLE\n\nHANDOFF",
 	}, {
-		name:             "both, with the preamble leading",
-		preamble:         "PREAMBLE",
-		titleInstruction: "TITLE",
-		conversation:     "HANDOFF",
-		wantDeliver:      true,
-		wantDocument:     "PREAMBLE\n\nTITLE\n\nHANDOFF",
+		name:         "capabilities_instruction blanked in the user's own config.yaml",
+		conversation: "HANDOFF",
+		wantDocument: "HANDOFF",
 	}, {
-		name:             "no preamble configured at all",
-		titleInstruction: "TITLE",
-		wantDeliver:      true,
-		wantDocument:     "TITLE",
-	}, {
-		name:        "nothing to say",
-		wantDeliver: false,
+		name: "nothing to say",
 	}}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			document, deliver := agentusecase.ComposeContext(tc.preamble, tc.titleInstruction, tc.conversation)
-			assert.Equal(t, tc.wantDeliver, deliver)
-			assert.Equal(t, tc.wantDocument, document)
+			assert.Equal(t, tc.wantDocument,
+				agentusecase.ComposeContext(tc.preamble, tc.conversation))
 		})
 	}
 }

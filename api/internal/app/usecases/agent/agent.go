@@ -222,7 +222,7 @@ func (u *Usecase) SpawnChat(
 	chatID = uuid.NewString()
 	defer u.spawns.lock(chatID)()
 
-	runnerID, err = u.spawnRunner(ctx, chatID, workspaceID, providerID, nil, "", "", true, false, true)
+	runnerID, err = u.spawnRunner(ctx, chatID, workspaceID, providerID, nil, "", "", false, true)
 	if err != nil {
 		return "", "", err
 	}
@@ -271,10 +271,10 @@ func (u *Usecase) RenameChat(
 // RenameByRunner resolves runnerID to the chat it is placed on RIGHT NOW and
 // applies RenameChat to it — the same runnerID → runner → CurrentChatID
 // resolution IngestHook uses for every hook (see its doc comment). It is what
-// the `crowbar chat rename --segment <segid>` CLI calls: the chat id is never
-// baked into the agent's spawn-time instruction, so a CLI that has since moved
-// to a different chat (a /clear or /resume issued inside it) can never rename
-// the chat it used to be on.
+// the agent's own set_chat_title tool calls, and its ONLY caller: the agent is
+// never told a chat id, so a CLI that has since moved to a different chat (a
+// /clear or /resume issued inside it) can never rename the chat it used to be
+// on.
 //
 // A displaced runner (CurrentChatID == "" — Crowbar has taken it off its chat
 // and is killing it, but the process has not yet died) has nowhere to write
@@ -725,11 +725,11 @@ func (u *Usecase) mintRunnerToken(runnerID string) string {
 //
 // conversation is the already-wrapped handoff document (the full ledger for a
 // provider new to this chat, the gap only for one resumed into its own session, ""
-// for a brand-new chat); injectTitle asks for the title instruction. Both are
-// composed into the ONE {context} document the descriptor injects, because a
-// provider may only have a single such channel — codex delivers title and handoff
-// through the same developer_instructions key, so injecting them separately would
-// have the second silently overwrite the first.
+// for a brand-new chat). It is composed with the capability preamble into the ONE
+// {context} document the descriptor injects, because a provider may only have a
+// single such channel — codex delivers both through the same
+// developer_instructions key, so injecting them separately would have the second
+// silently overwrite the first.
 //
 // resuming selects WHICH descriptor channel carries that document: ContextInject
 // for a fresh session, ResumeContextInject for one resumed via session.resume. The
@@ -744,7 +744,6 @@ func (u *Usecase) spawnRunner(
 	extraSteps []engineagent.InjectStep,
 	conversation string,
 	ledgerCut string,
-	injectTitle bool,
 	resuming bool,
 	create bool,
 ) (string, error) {
@@ -821,18 +820,29 @@ func (u *Usecase) spawnRunner(
 	// would dump the whole handed-off exchange into the chat for the user to scroll
 	// past. An agent reads files.
 	tctx.ContextPointer = engineagent.Expand(config.GetPrompts().HandoffPointer, tctx)
-	// The title instruction rides only while the chat has no title — a chat switched
-	// before it was ever titled would otherwise never get one.
-	var titleInstruction string
-	if injectTitle {
-		titleInstruction = engineagent.Expand(config.GetPrompts().TitleInstruction, tctx)
-	}
-	document, inject := composeContext(
+	tctx.Context = composeContext(
 		engineagent.Expand(config.GetPrompts().CapabilitiesInstruction, tctx),
-		titleInstruction,
 		conversation,
 	)
-	tctx.Context = document
+	// WHETHER to deliver that document at all, which is a separate question from what
+	// it says.
+	//
+	// A handoff is something that HAPPENED and is always worth delivering. The
+	// capability preamble is standing orientation, so it may only drive delivery down a
+	// SILENT channel: a fresh spawn's ContextInject is a config key or a flag, but a
+	// resume's ResumeContextInject can be a USER MESSAGE — a resumed codex can be
+	// reached no other way (see codex.yaml) — and reopening a closed tab resumes a
+	// provider with nothing recorded in between. Letting the preamble deliver there
+	// would open every revived codex chat with a "while you were away" pointer about
+	// nothing, and codex answers its opening message on sight.
+	//
+	// The cost is that a provider whose resume channel IS silent (claude's is a flag)
+	// also loses the preamble on a gapless revive. That is deliberate over the
+	// alternative: whether a resume channel speaks out loud is the DESCRIPTOR's
+	// knowledge, and inventing a "this channel is silent" field to recover one
+	// directive would put a provider's manners in this package. Its tools are still
+	// registered on that spawn either way — only the directive is missing.
+	inject := conversation != "" || !resuming
 
 	steps := extraSteps
 	if inject {
@@ -1679,7 +1689,7 @@ func (u *Usecase) switchProviderLocked(
 	// context; order is irrelevant for claude's flag pair.
 	return u.spawnRunner(
 		ctx, chatID, chat.WorkspaceID, targetProviderID,
-		resumeSteps, conversation, ledgerCut, chat.Title == "", resuming, false,
+		resumeSteps, conversation, ledgerCut, resuming, false,
 	)
 }
 
@@ -2020,45 +2030,32 @@ func (u *Usecase) assembleConversation(
 	return strings.ReplaceAll(wrapper, "{conversation}", string(blob)), nil
 }
 
-// composeContext builds the ONE {context} document a spawning CLI is given, and
-// reports separately whether that document must be DELIVERED at all.
+// composeContext builds the ONE {context} document a spawning CLI is given.
 //
 // One document, not one per concern, because a provider may only have a single such
-// channel — codex delivers preamble, title and handoff through the same
+// channel — codex delivers preamble and handoff through the same
 // developer_instructions key, so two independent injections would collide and the
 // second would silently win.
-//
-// The two answers are separate, and that is the whole point of this function. The
-// capability PREAMBLE is standing orientation rather than something that HAPPENED, so
-// it must never be the reason a CLI is injected at all: a resumed provider's channel
-// need not be a silent one — a resumed codex can be reached ONLY through a user
-// message (see codex.yaml) — and reopening a closed tab resumes the same provider
-// with nothing recorded in between. A preamble that decided delivery would therefore
-// open every reopened codex chat with a "while you were away" pointer about nothing
-// that happened, and codex answers its opening user message on sight.
-//
-// So delivery is decided by the title instruction and the handoff ALONE, and it is
-// decided from the joined TEXT rather than from a count of the pieces: a user who
-// blanks title_instruction in their own config.yaml leaves an untitled chat with an
-// empty instruction, and counting pieces would read that as a document to deliver —
-// reopening the very regression this split exists to close.
 //
 // The preamble LEADS the document it joins: it says which tools this CLI has and when
 // to prefer them, and a model should read that before it reads a handoff it is
 // explicitly told not to act on.
-func composeContext(preamble, titleInstruction, conversation string) (string, bool) {
-	var parts []string
-	if titleInstruction != "" {
-		parts = append(parts, titleInstruction)
+//
+// Either half may be empty — a user can blank capabilities_instruction in their own
+// config.yaml, and a brand-new chat has no conversation — so the pieces are joined
+// rather than formatted, and an absent one leaves no stray blank line for a model to
+// read as a missing section. WHETHER the result is delivered is spawnRunner's
+// decision, not this function's: it turns on whether the CLI is being resumed, which
+// nothing in the text can say.
+func composeContext(preamble, conversation string) string {
+	parts := make([]string, 0, 2)
+	if preamble != "" {
+		parts = append(parts, preamble)
 	}
 	if conversation != "" {
 		parts = append(parts, conversation)
 	}
-	deliver := len(parts) > 0
-	if preamble != "" {
-		parts = append([]string{preamble}, parts...)
-	}
-	return strings.Join(parts, "\n\n"), deliver
+	return strings.Join(parts, "\n\n")
 }
 
 // contextInject picks the descriptor channel that carries the {context} document:

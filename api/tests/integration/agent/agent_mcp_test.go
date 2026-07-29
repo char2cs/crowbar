@@ -52,24 +52,26 @@ import (
 // So the safeguard is the comparison operator. Keep it.
 const wantTitle = "Widget Refactor"
 
-// titlePrompt is the one turn each provider test spends. It names the tool, and it
-// forbids the shell, because a Crowbar chat gives an agent TWO ways to set a title
-// and this test is about exactly one of them.
+// titlePrompt is the one turn each provider test spends. It names the tool and
+// forbids the shell, and it stays that explicit even though the shell path it was
+// written against no longer exists.
 //
 // The vaguer form ("use your crowbar tool …") was tried first and is not a weaker
 // version of this one — it measures something else. Claude 2.1.220 answered it by
-// running `crowbar chat rename` in a shell: config.yaml's title_instruction is in
+// running `crowbar chat rename` in a shell: config.yaml's title_instruction was in
 // its context telling it to do precisely that, so the model was not ignoring an
 // instruction, it was following the other one. The chat ended up correctly titled
 // "Widget Refactor" WITHOUT the tool ever being called — which is the whole reason
 // mcpBarrier exists, and why an assertion on the title alone would have passed on a
 // tool surface that had never been reached.
 //
-// So the prompt is explicit. What is under test here is whether a real CLI can
-// register the server from injected config and drive a call all the way through the
-// relay, the route, the token check and the resolver — not which of two competing
-// channels a model prefers when told to pick for itself. That preference is a real
-// finding and it belongs in the Phase 0 write-up, not smuggled into this assertion.
+// That finding is what retired the shell path: title_instruction and the `crowbar
+// chat rename` subcommand are both gone, and set_chat_title is the only titling
+// channel an agent has. The prompt stays explicit anyway, because what is under test
+// here is whether a real CLI can register the server from injected config and drive a
+// call through the relay, the route, the token check and the resolver — not what a
+// model reaches for when left to choose. Leaving the choice in would put a
+// preference measurement inside a transport test.
 const titlePrompt = "Call your set_chat_title tool with the title: Widget Refactor. " +
 	"Use the tool itself and run no shell command."
 
@@ -89,14 +91,15 @@ func (c mcpCall) String() string {
 // mcpBarrier observes every MCP message the daemon serves, and it is this file's
 // answer to a false positive the title assertion cannot see on its own.
 //
-// A chat gets its title from THREE channels, and two of them land the identical
-// string: config.yaml's title_instruction tells the agent to run `crowbar chat
-// rename --segment <segid> <title>` as a shell command, and set_chat_title reaches
-// the same RenameByRunner through the tool surface. So "the title is Widget
-// Refactor" proves an agent did as it was asked — not that the MCP server was ever
-// registered, started, or called. Recording the relayed traffic is the only
-// server-side evidence that separates them, which is why this exists rather than
-// the test simply reading the title back.
+// A title on the chat is not evidence the tool ran. It never was: a shell command
+// Crowbar used to ask the agent to retype landed the identical string through the
+// identical RenameByRunner, and that is what this barrier was built to separate. The
+// shell path is gone now, but the gap it exposed is not — deriveTitle sets a title
+// from the first user prompt, a user or the FE can set one, and any future channel
+// will land the same field. So "the title is Widget Refactor" proves an agent did as
+// it was asked; only the relayed traffic proves the MCP server was registered,
+// started and called. Which is why this exists rather than the test simply reading
+// the title back.
 //
 // It is also a wakeup source. The tool call is NOT a hook, so hookBarrier cannot
 // see it: an await keyed only on hooks would sleep through the tool call and

@@ -21,15 +21,16 @@ import (
 // agentChatDef's Filter (container.go) — the resulting route is
 // .../workspaces/:wsId/agent/ws/chats.
 //
-// .../agent/runners/:segid/rename is keyed by the RUNNER, not the chat: it
-// resolves runnerID → runner → CurrentChatID at call time (RenameByRunner), so
-// the `crowbar chat rename --segment <segid>` CLI a spawned agent invokes can
-// never carry a chat id baked in at spawn — the exact staleness a /clear or
-// /resume moving the runner between chats used to produce.
+// .../agent/runners/:segid/mcp is keyed by the RUNNER, not the chat, for two
+// reasons. It resolves runnerID → runner → CurrentChatID at call time, so nothing
+// an agent is told at spawn can go stale when a /clear or /resume moves its CLI
+// between chats. And it is the transport for the agent's OWN tool calls, so its
+// authority must come from the runner's per-boot token rather than from a URL the
+// agent composes.
 //
-// .../agent/runners/:segid/mcp is runner-keyed for the same reason and one more:
-// it is the transport for the agent's OWN tool calls, so its authority must come
-// from the runner's per-boot token rather than from a URL the agent composes.
+// It is the only runner-keyed write left: the agent's titling path was a sibling
+// route the vendor CLI shelled out to, and it is gone — titling is a tool on this
+// MCP surface now, so there is nothing for an agent to retype.
 //
 // settingsRG is the top-level /v0 group. Provider PRIORITY + enable/disable is a
 // GLOBAL user setting (per user/machine, not per workspace — the CLIs are
@@ -54,7 +55,6 @@ func Register(
 	wsScoped.POST("/agent/chats/:id/rename", h.Rename)
 	wsScoped.GET("/agent/chats/:id/handoff", h.Handoff)
 	wsScoped.DELETE("/agent/chats/:id", h.Delete)
-	wsScoped.POST("/agent/runners/:segid/rename", h.RenameByRunner)
 	wsScoped.POST("/agent/runners/:segid/mcp", h.MCP)
 	wsScoped.POST("/agent/hooks", h.Hooks)
 	wsScoped.GET("/agent/providers", h.Providers)

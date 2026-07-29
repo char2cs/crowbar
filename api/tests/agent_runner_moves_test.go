@@ -693,18 +693,24 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 // TestRegression_RenameResolvesChatAtCallTime pins the fix for an agent titling the
 // WRONG chat.
 //
-// A spawned agent is told to name its own conversation by running
-// `crowbar chat rename`. The obvious way to wire that is to bake the chat id into the
-// instruction at spawn time — and it is wrong, because the CLI can MOVE. A /clear puts
-// the same live process on a different chat; the id in its system prompt is now the id
-// of a chat it has walked out of. The agent then dutifully titles the chat it LEFT,
-// overwriting a title that belongs to a conversation it is no longer having, while the
-// chat it IS having stays untitled.
+// An agent names its own conversation. The obvious way to wire that is to hand it the
+// chat id at spawn time — and it is wrong, because the CLI can MOVE. A /clear puts the
+// same live process on a different chat; the id it was given is now the id of a chat it
+// has walked out of. The agent then dutifully titles the chat it LEFT, overwriting a
+// title that belongs to a conversation it is no longer having, while the chat it IS
+// having stays untitled.
 //
-// So the callback is keyed by the RUNNER (.../agent/runners/:segid/rename) — the one
-// id that is stable for the whole life of the process — and the chat is resolved from
-// the runner's durable placement AT CALL TIME. There is no chat id to go stale,
-// because the agent is never told one.
+// So titling is keyed by the RUNNER — the one id that is stable for the whole life of
+// the process — and the chat is resolved from the runner's durable placement AT CALL
+// TIME. There is no chat id to go stale, because the agent is never told one.
+//
+// It is driven here through RenameByRunner rather than over HTTP because that is now
+// the whole path: the runner-keyed rename ROUTE is gone with the shell command that was
+// its only caller, and the agent's set_chat_title tool calls this method directly after
+// the MCP resolver has turned its per-boot token into a runner. Reaching the tool over
+// /agent/runners/:segid/mcp instead would need that token, which is minted inside the
+// daemon and deliberately not published — so the transport is skipped and the property
+// the regression is about (runner → CURRENT chat, resolved late) is exercised whole.
 func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -724,12 +730,11 @@ func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
 	require.NotEmpty(t, chatC)
 	require.NotEqual(t, chatA, chatC)
 
-	// The agent titles itself. This is exactly what `crowbar chat rename --segment
-	// <segid>` posts: the RUNNER's id, and a title. No chat id — it does not have one.
+	// The agent titles itself. This is exactly what set_chat_title passes: the
+	// RUNNER's id, and a title. No chat id — it does not have one.
 	const title = "Titled after the clear"
-	resp := h.raw(http.MethodPost, base+"/agent/runners/"+runner+"/rename?source=agent",
-		map[string]string{"title": title}, http.StatusAccepted)
-	_ = resp.Body.Close()
+	require.NoError(t, h.app.Usecases.Agent.RenameByRunner(
+		context.Background(), runner, title, "agent"))
 
 	frames.awaitChat(chatC, "title_set")
 	h.Quiesce()

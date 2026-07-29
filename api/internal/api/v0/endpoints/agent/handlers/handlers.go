@@ -103,18 +103,6 @@ type AgentUsecase interface {
 		chatID, title, source string,
 	) error
 
-	// RenameByRunner resolves runnerID to the chat it is placed on RIGHT NOW and
-	// applies the same user>agent>derived precedence RenameChat does (see
-	// (*agent.Usecase).RenameByRunner). It is what the `crowbar chat rename
-	// --segment <segid>` CLI calls: the chat id is never baked into the agent's
-	// spawn-time instruction, so a CLI that has since moved to a different chat
-	// (a /clear or /resume issued inside it) can never rename the chat it used
-	// to be on.
-	RenameByRunner(
-		ctx context.Context,
-		runnerID, title, source string,
-	) error
-
 	// DispatchMCP runs one MCP JSON-RPC message for the runner named by runnerID,
 	// authenticated by token. It is the single seam onto the agent tool surface —
 	// the handler carries bytes and decides nothing — and the message is passed

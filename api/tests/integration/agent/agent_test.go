@@ -57,8 +57,8 @@ type harness struct {
 	hooks *hookBarrier
 	// mcp records — and fires on — every MCP message a vendor CLI's own MCP client
 	// relays into the daemon. It is both a second wakeup source and the only
-	// evidence that separates the TOOL surface from the `crowbar chat rename`
-	// fallback, which produces an identical title (see mcpBarrier).
+	// evidence that the TOOL surface was reached at all: every other titling
+	// channel lands the identical field (see mcpBarrier).
 	mcp *mcpBarrier
 	// trusted records which providers have already answered a trust dialog in this
 	// harness's repo. See firstOfProvider: only the FIRST CLI of a provider is shown

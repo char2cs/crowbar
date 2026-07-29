@@ -228,23 +228,23 @@ func extraRoutes() []string {
 		"POST " + ws + "/agent/hooks",
 		"GET " + ws + "/agent/providers",
 		"GET " + ws + "/agent/ws/chats",
-		// The runner model added these two and never declared them here, which is
-		// exactly the drift this audit exists to catch — it caught them.
-		//
-		//   resume: a chat whose CLI is gone is not gone. Its ledger and its provider
-		//   conversation both outlive the process, so a dormant chat can be handed a
-		//   NEW runner that picks the conversation back up.
-		//   runners/:segid/rename: the title path the AGENT itself calls (`crowbar chat
-		//   rename`), keyed by RUNNER because the CLI knows which process it is and
-		//   never which chat it currently sits on — the runner is what maps one to the
-		//   other, and it keeps answering across a /clear that moves the CLI mid-turn.
+		// The runner model added resume and never declared it here, which is exactly
+		// the drift this audit exists to catch — it caught it. A chat whose CLI is gone
+		// is not gone: its ledger and its provider conversation both outlive the
+		// process, so a dormant chat can be handed a NEW runner that picks the
+		// conversation back up.
 		"POST " + ws + "/agent/chats/:id/resume",
-		"POST " + ws + "/agent/runners/:segid/rename",
 		//   runners/:segid/mcp: the agent's own tool surface, spoken as MCP. Keyed by
-		//   RUNNER for the same reason rename is, plus one that only applies here —
-		//   this is the route the agent's process itself calls, so its authority has
-		//   to come from the per-boot token bound to that runner and never from a URL
-		//   the agent is free to compose.
+		//   RUNNER because the CLI knows which process it is and never which chat it
+		//   currently sits on — the runner is what maps one to the other, and it keeps
+		//   answering across a /clear that moves the CLI mid-turn. Plus one reason that
+		//   applies only here: this is the route the agent's process itself calls, so
+		//   its authority has to come from the per-boot token bound to that runner and
+		//   never from a URL the agent is free to compose.
+		//
+		//   Its runner-keyed sibling, .../runners/:segid/rename, is deliberately GONE.
+		//   It existed for a shell command the agent was asked to retype; titling is a
+		//   tool on this MCP surface now, and a second path competed with it.
 		"POST " + ws + "/agent/runners/:segid/mcp",
 		//   stop: closing a chat TAB is not deleting the chat. The CLI is quit and
 		//   the chat left DORMANT with its bound vendor conversation intact, which
@@ -294,13 +294,12 @@ func extraRoutes() []string {
 		"GET " + home + "/agent/providers",
 		"GET " + home + "/agent/ws/chats",
 		// The repo home hosts chats like any workspace, so it gets the runner model's
-		// two new routes too — same pair, same reasons as the ws block above. A chat in
-		// the home is still a chat: its CLI can die and be resumed, and the agent
-		// running in it still has to be able to name it.
+		// resume too — same reason as the ws block above. A chat in the home is still a
+		// chat: its CLI can die and be resumed.
 		"POST " + home + "/agent/chats/:id/resume",
-		"POST " + home + "/agent/runners/:segid/rename",
 		// An agent in a home chat has the same tools as one anywhere else, so the
-		// MCP seam is mounted here too.
+		// MCP seam is mounted here too — and, like the ws block, WITHOUT the retired
+		// runner-keyed rename route beside it.
 		"POST " + home + "/agent/runners/:segid/mcp",
 		// And the same close-is-not-delete stop, for the same reason: a home chat's
 		// tab closes exactly like any other chat's.

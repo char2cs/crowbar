@@ -190,25 +190,30 @@ func TestCodexDescriptor_ForwardsCrowbarHomeToTheMCPServer(t *testing.T) {
 // Crowbar pane has nobody to answer that modal on the agent's behalf, so without an
 // override the whole tool surface stalls on its first call (observed live on 0.146.0).
 //
-// The override must be PER TOOL. A server-wide default_tools_approval_mode cannot
-// reach the user's own MCP servers and so is not a leak — but it would hand
-// auto-approval to every tool a later phase registers, with nobody deciding. The
-// negative assertion is the load-bearing half of this test: it fails the moment
-// somebody reaches for the broader key, which is exactly when the question "should
-// THIS tool be auto-approved?" has to be asked again.
-func TestCodexDescriptor_AutoApprovesOneNamedToolAndNoMore(t *testing.T) {
+// The override is SERVER-WIDE by owner decision (2026-07-29): an agent that acts on
+// real state without stopping for a per-call modal is what this surface is for, so
+// every tool Crowbar registers is auto-approved by intent. It is also the only form
+// that does not rot — the per-tool key it replaced needed a new line per tool, and an
+// omitted line silently stalls that tool on the modal above forever.
+//
+// What the negative assertions still guard is SCOPE. The key must remain a field of
+// crowbar's own server config: a global `mcp_servers.default_tools_approval_mode`
+// (which codex rejects outright) or an `mcp_servers.tools.` form would reach the
+// user's own MCP servers, which Crowbar has no business auto-approving.
+func TestCodexDescriptor_AutoApprovesItsOwnServerWideAndNoOther(t *testing.T) {
 	argv := mcpSpawnPlan(t, "codex", "R").Argv
 
 	var mode string
-	raw := configRHS(t, argv, "mcp_servers.crowbar.tools.set_chat_title.approval_mode=")
+	raw := configRHS(t, argv, "mcp_servers.crowbar.default_tools_approval_mode=")
 	require.NoError(t, json.Unmarshal([]byte(raw), &mode), "malformed approval mode value: %s", raw)
 	require.Equal(t, "approve", mode)
 
-	joined := strings.Join(argv, " ")
-	require.NotContains(t, joined, "default_tools_approval_mode",
-		"approval must be granted one named tool at a time, never as a server-wide default: a new tool "+
-			"would inherit it silently, and the tools this surface is growing include ones that mutate real state")
-	require.NotContains(t, joined, "mcp_servers.tools.",
+	for _, a := range argv {
+		require.False(t, strings.HasPrefix(a, "mcp_servers.default_tools_approval_mode"),
+			"the default must be scoped to crowbar's server; the global key is rejected by codex and would "+
+				"reach every MCP server the user has configured")
+	}
+	require.NotContains(t, strings.Join(argv, " "), "mcp_servers.tools.",
 		"the override must name crowbar's server, never every MCP server the user has configured")
 }
 

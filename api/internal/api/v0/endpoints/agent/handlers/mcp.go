@@ -20,7 +20,7 @@ import (
 // it does not understand would corrupt a protocol revision it was not written
 // for.
 //
-// Like RenameByRunner and Hooks it is runner-keyed and so makes NO
+// Like Hooks it is runner-keyed and so makes NO
 // requireChatInWorkspace check: the caller is authenticated by (:segid, token)
 // and its entire scope is derived from the runner, never from the URL. The path
 // ids exist only because every in-PTY callback builds a workspace-nested agent

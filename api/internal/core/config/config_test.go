@@ -17,13 +17,22 @@ func TestGetPrompts_FromEmbeddedDefaults(t *testing.T) {
 	t.Cleanup(resetForTesting)
 
 	p := GetPrompts()
-	// {scope_flags} — NOT a literal --project/--repo/--workspace triple. The agent
-	// retypes this command line and the shell word-splits it, so an empty repo id
-	// (every project-home workspace) must render as NO --repo flag at all rather
-	// than a bare `--repo `, which the shell drops and pflag then backfills from the
-	// next token. See engine/agent.TemplateCtx.ScopeFlags.
-	assert.Contains(t, p.TitleInstruction, "chat rename {scope_flags} --segment {segid}")
 	assert.Contains(t, p.HandoffWrapper, "{conversation}")
+	assert.Contains(t, p.HandoffResumeWrapper, "{conversation}")
+	assert.Contains(t, p.HandoffPointer, "{ledger_dir}")
+
+	// No prompt may ask the agent to run a `crowbar` command. Titling used to be
+	// exactly that, and it COMPETED with the set_chat_title tool: handed both, a
+	// model would read the tool list and then type the shell command instead. Every
+	// capability is a tool now; prompts carry context only.
+	for name, text := range map[string]string{
+		"capabilities_instruction": p.CapabilitiesInstruction,
+		"handoff_wrapper":          p.HandoffWrapper,
+		"handoff_resume_wrapper":   p.HandoffResumeWrapper,
+		"handoff_pointer":          p.HandoffPointer,
+	} {
+		assert.NotContains(t, text, "{crowbar}", "%s must not ask the agent to shell out", name)
+	}
 
 	// The capability preamble is a DIRECTIVE, not a tool list: registering the MCP
 	// server puts the tools in the model's list, but nothing tells it to reach for them
@@ -53,5 +62,5 @@ func TestGetPrompts_UserConfigOverlays(t *testing.T) {
 	p := GetPrompts()
 	assert.Equal(t, "CUSTOM {conversation}", p.HandoffWrapper)
 	// absent field keeps the embedded default
-	assert.Contains(t, p.TitleInstruction, "chat rename {scope_flags} --segment {segid}")
+	assert.Contains(t, p.HandoffPointer, "{ledger_dir}")
 }

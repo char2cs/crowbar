@@ -128,13 +128,6 @@ func (stubUsecase) RenameChat(
 	return nil
 }
 
-func (stubUsecase) RenameByRunner(
-	_ context.Context,
-	_, _, _ string,
-) error {
-	return nil
-}
-
 func (s stubUsecase) DispatchMCP(
 	_ context.Context,
 	runnerID, token string,
@@ -193,7 +186,6 @@ func TestRegisterMountsRoutes(
 		{http.MethodPost, base + "/agent/chats/c1/rename"},
 		{http.MethodGet, base + "/agent/chats/c1/handoff"},
 		{http.MethodDelete, base + "/agent/chats/c1"},
-		{http.MethodPost, base + "/agent/runners/seg-1/rename"},
 		{http.MethodPost, base + "/agent/runners/seg-1/mcp"},
 		{http.MethodPost, base + "/agent/hooks"},
 		{http.MethodGet, base + "/agent/providers"},

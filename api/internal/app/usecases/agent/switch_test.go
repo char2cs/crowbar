@@ -343,14 +343,20 @@ func TestResumeChat_RevivesLastProviderIntoItsOwnConversation(t *testing.T) {
 	assert.Equal(t, "sid-claude-native", argAfter(t, argv, "--resume"),
 		"revive must resume the CLI's own conversation, not start a blank one")
 
-	// Nothing happened while it was gone, so it is handed NO conversation at all — its
-	// own session already holds every turn. (The chat is still untitled, so the title
-	// instruction rides along; that is the only thing in the document.)
-	doc := argAfter(t, argv, "--append-system-prompt")
-	assert.NotContains(t, doc, "WHILE YOU WERE AWAY",
-		"a revive with an empty gap must hand over no conversation")
-	assert.NotContains(t, doc, "HANDED-OFF CONTEXT",
-		"a revived provider must never be re-fed the conversation it already has")
+	// Nothing happened while it was gone, so it is handed no {context} document AT
+	// ALL — not an empty one, and not a bare capability preamble. Its own session
+	// already holds every turn, and a resume channel is allowed to be a USER MESSAGE
+	// (codex's is), so a document with nothing in it that HAPPENED must not be
+	// delivered. That rule is provider-independent, which is why claude's silent
+	// --append-system-prompt channel is left off here too.
+	for _, a := range argv {
+		assert.NotEqual(t, "--append-system-prompt", a,
+			"a revive with an empty gap has nothing to say and must inject nothing")
+		assert.NotContains(t, a, "WHILE YOU WERE AWAY",
+			"a revive with an empty gap must hand over no conversation")
+		assert.NotContains(t, a, "HANDED-OFF CONTEXT",
+			"a revived provider must never be re-fed the conversation it already has")
+	}
 }
 
 // TestResumeChat_LiveChat_IsNoop: reviving a chat whose CLI is alive must never tear

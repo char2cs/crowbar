@@ -12,8 +12,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/core/config"
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
@@ -95,8 +93,8 @@ func parseThroughCobra(t *testing.T, argv []string) parsedCallback {
 		require.NoError(t, err)
 		return v
 	}
-	// segment is only bound on commands that carry a runner id (hook, chat
-	// rename); handoff dump has no such flag, so it is read optionally.
+	// segment is only bound on commands that carry a runner id (hook, mcp);
+	// handoff dump has no such flag, so it is read optionally.
 	segment := ""
 	if target.Flags().Lookup("segment") != nil {
 		segment = get("segment")
@@ -238,30 +236,41 @@ func TestHookCallbackRoundTrip_WorkspaceScopedControl(t *testing.T) {
 	}
 }
 
-// TestChatRenameRoundTrip_ProjectHomeHasNoRepo covers the agent auto-title
-// callback. Its command line lives in core/config's title_instruction (the LLM
-// retypes it verbatim), so it goes through the same shell + pflag chain — and,
-// unlike the plain scopedAgentPath unit tests, it carries a --segment flag
-// followed by a positional (the title), which is exactly what a swallowed
-// --repo value shifts out of alignment.
-func TestChatRenameRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
+// TestHookRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo keeps the empty-repo
+// guard alive at the one position the shipped descriptor templates do not reach:
+// {scope_flags} in the MIDDLE of the command line, with a flag AND a positional
+// still to come after it.
+//
+// The descriptor hook templates above render {scope_flags} last, so a swallowed
+// --repo value there runs off the end of the argv. Mid-line it eats a REAL token and
+// shifts everything after it — `--repo --segment SEG` parses as repo="--segment"
+// with SEG left as a stray positional, blowing `hook`'s ExactArgs(1). That is the
+// exact shape the retired title instruction had (it put the scope flags before
+// --segment and the title), and it is the shape any future callback template can
+// take again, so the guard outlives the command it was written against: `hook`
+// carries the identical --segment + positional plumbing.
+func TestHookRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo(t *testing.T) {
 	ctx := engineagent.TemplateCtx{
 		CrowbarHook: argvDumper(t),
 		Segid:       "SEG-1",
+		Provider:    "claude",
 		ProjectID:   "PROJ",
-		RepoID:      "",
+		RepoID:      "", // ← project-home: WorktreeDir resolves no repo
 		WorkspaceID: "WS",
 	}
-	// The instruction is prose wrapping one command line; the agent runs that line.
-	command := renameCommandLine(t, engineagent.Expand(titleInstruction(t), ctx))
+	command := engineagent.Expand(
+		"{crowbar} hook {scope_flags} --segment {segid} --provider {provider} session_start", ctx,
+	)
 
 	got := parseThroughCobra(t, argvThroughShell(t, command))
 
-	require.Equal(t, "", got.repo)
-	require.Equal(t, "SEG-1", got.segment, "the chat id is never baked in — the runner is resolved at call time")
-	require.Equal(t, []string{"<title>"}, got.args, "chat rename takes exactly the title; the chat id comes from --segment")
-	require.Equal(t, "/v0/projects/PROJ/home/agent/runners/SEG-1/rename?source=agent",
-		scopedAgentPath(got.project, got.repo, got.workspace, "/runners/"+got.segment+"/rename?source=agent"))
+	require.Equal(t, "", got.repo,
+		"an empty repo id rendered mid-line must parse as empty, not swallow the following flag")
+	require.Equal(t, "SEG-1", got.segment)
+	require.Equal(t, []string{"session_start"}, got.args,
+		"the positional after the scope flags must stay the event name")
+	require.Equal(t, "/v0/projects/PROJ/home/agent/hooks",
+		scopedAgentPath(got.project, got.repo, got.workspace, "/hooks"))
 }
 
 // TestHandoffDumpRoundTrip_ProjectHomeHasNoRepo covers the third callback. It has
@@ -284,29 +293,4 @@ func TestHandoffDumpRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 	require.Equal(t, []string{"chat-1"}, got.args)
 	require.Equal(t, "/v0/projects/PROJ/home/agent/chats/chat-1/handoff",
 		scopedAgentPath(got.project, got.repo, got.workspace, "/chats/"+got.args[0]+"/handoff"))
-}
-
-// titleInstruction returns the shipped default title_instruction prompt through
-// the SAME accessor production uses, rather than restating it — so a regression in
-// core/config's default.yaml fails here. CROWBAR_HOME is pointed at an empty temp
-// dir so the developer's own ~/.crowbar/config.yaml cannot overlay the default.
-func titleInstruction(t *testing.T) string {
-	t.Helper()
-	t.Setenv(metadata.HomeEnvVar, t.TempDir())
-	instruction := config.GetPrompts().TitleInstruction
-	require.NotEmpty(t, instruction)
-	return instruction
-}
-
-// renameCommandLine plucks the single `chat rename …` command line out of the
-// title instruction's surrounding prose — the line the agent is told to run.
-func renameCommandLine(t *testing.T, instruction string) string {
-	t.Helper()
-	for _, line := range strings.Split(instruction, "\n") {
-		if strings.Contains(line, "chat rename") {
-			return strings.TrimSpace(line)
-		}
-	}
-	t.Fatalf("no `chat rename` line in title instruction:\n%s", instruction)
-	return ""
 }
