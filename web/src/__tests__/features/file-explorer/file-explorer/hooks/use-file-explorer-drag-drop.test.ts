@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { MockInstance } from 'vitest'
 import { useFileExplorerDragDrop } from '@/features/file-explorer/file-explorer/hooks/use-file-explorer-drag-drop'
 import type { FileEntry } from '@/features/file-system/types/app'
 
@@ -19,8 +20,12 @@ const mouseEvent = (type: string, x = 50, y = 50) =>
   new MouseEvent(type, { clientX: x, clientY: y, bubbles: true })
 
 describe('useFileExplorerDragDrop — stable listener subscription (H13)', () => {
-  let addSpy: ReturnType<typeof vi.spyOn>
-  let removeSpy: ReturnType<typeof vi.spyOn>
+  // Spelled out rather than `ReturnType<typeof vi.spyOn>`: vi.spyOn is
+  // overloaded, so bare ReturnType resolves the generic to its constraint and
+  // yields Mock<Procedure> — whose mock.calls is any[], which makes the
+  // `([type]) => …` destructures below implicit-any errors under Vitest 4.
+  let addSpy: MockInstance<typeof document.addEventListener>
+  let removeSpy: MockInstance<typeof document.removeEventListener>
 
   beforeEach(() => {
     addSpy = vi.spyOn(document, 'addEventListener')

@@ -15,7 +15,12 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "types": ["vite/client", "vitest/globals"],
+    // "node" is explicit since Vitest 4: v3's type entrypoint pulled @types/node
+    // in transitively, so `process`, `node:*` imports and the `NodeJS` namespace
+    // resolved for free. v4 dropped that, and with an explicit `types` array
+    // nothing else re-adds it — src/utils/platform.ts and every
+    // `NodeJS.Timeout` annotation stop compiling without this.
+    "types": ["vite/client", "vitest/globals", "node"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]

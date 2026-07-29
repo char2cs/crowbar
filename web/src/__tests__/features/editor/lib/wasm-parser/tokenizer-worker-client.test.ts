@@ -49,9 +49,15 @@ describe('TokenizerWorkerClient', () => {
   beforeEach(() => {
     workerMock = makeWorkerMock()
     // Replace global Worker so TokenizerWorkerClient uses our mock.
+    // The implementation must be a `function`, not an arrow: Vitest 4 routes
+    // `new`-calls through `Reflect.construct`, which rejects a non-constructible
+    // arrow with "is not a constructor". Returning an object from a construct
+    // call overrides `this`, so `new Worker(...)` still yields workerMock.
     vi.stubGlobal(
       'Worker',
-      vi.fn(() => workerMock),
+      vi.fn(function () {
+        return workerMock
+      }),
     )
     vi.useFakeTimers()
   })
