@@ -156,7 +156,7 @@ func New(
 	}
 	agentToolDeps, err := newAgentToolDeps(agentMinter, repos)
 	if err != nil {
-		return nil, fmt.Errorf("usecases: new container: %w", err)
+		return nil, err
 	}
 	agentUsecase := agent.New(
 		repos.AgentChat,
@@ -203,13 +203,13 @@ func newAgentToolDeps(
 ) (agenttools.Deps, error) {
 	switch {
 	case minter == nil:
-		return agenttools.Deps{}, fmt.Errorf("wire agent tools: no token minter")
+		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no token minter")
 	case repos.AgentRunner == nil:
-		return agenttools.Deps{}, fmt.Errorf("wire agent tools: no runner store")
+		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no runner store")
 	case repos.AgentChat == nil:
-		return agenttools.Deps{}, fmt.Errorf("wire agent tools: no chat store")
+		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no chat store")
 	case repos.Workspace == nil:
-		return agenttools.Deps{}, fmt.Errorf("wire agent tools: no workspace store")
+		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no workspace store")
 	}
 	return agenttools.Deps{
 		Resolver: agenttools.NewResolver(

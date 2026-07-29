@@ -149,6 +149,20 @@ func TestResolve_ToleratesParentCycle(t *testing.T) {
 	require.ElementsMatch(t, []string{"x", "y"}, visibleIDs(c))
 }
 
+// TestResolve_NilMinterFailsClosed proves a resolver built without a minter
+// refuses every caller instead of panicking inside Verify. A misconfiguration
+// must deny, not crash the daemon on the first tool call an agent makes — and it
+// must certainly not be mistaken for "no authentication required".
+func TestResolve_NilMinterFailsClosed(t *testing.T) {
+	r := agenttools.NewResolver(nil,
+		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubWorkspaces{all: tree()})
+
+	_, err := r.Resolve(context.Background(), "RUN", "any-token")
+	require.ErrorIs(t, err, agenttools.ErrUnauthorized)
+}
+
 func apperrNotFound() error { return errNotFoundForTest }
 
 var errNotFoundForTest = errors.New("not found")

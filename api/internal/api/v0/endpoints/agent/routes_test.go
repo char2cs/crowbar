@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -22,7 +23,20 @@ func TestMain(
 	m.Run()
 }
 
-type stubUsecase struct{}
+// dispatchRecord captures what the MCP route actually handed the usecase, so a
+// test can assert on the URL→handler binding rather than on a param map it set
+// itself.
+type dispatchRecord struct {
+	runnerID string
+	token    string
+	message  []byte
+}
+
+// stubUsecase is a VALUE receiver stub throughout, so recording goes through a
+// pointer field rather than through the receiver.
+type stubUsecase struct {
+	dispatch *dispatchRecord
+}
 
 func (stubUsecase) SpawnChat(
 	_ context.Context,
@@ -121,11 +135,14 @@ func (stubUsecase) RenameByRunner(
 	return nil
 }
 
-func (stubUsecase) DispatchMCP(
+func (s stubUsecase) DispatchMCP(
 	_ context.Context,
-	_, _ string,
-	_ []byte,
+	runnerID, token string,
+	message []byte,
 ) ([]byte, bool, error) {
+	if s.dispatch != nil {
+		*s.dispatch = dispatchRecord{runnerID: runnerID, token: token, message: message}
+	}
 	return []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`), true, nil
 }
 
@@ -193,4 +210,36 @@ func TestRegisterMountsRoutes(
 		assert.NotEqual(t, http.StatusNotFound, rec.Code, tc.path)
 	}
 	assert.True(t, wsHit, "GET .../agent/ws/chats must delegate to the supplied handler")
+}
+
+// TestRegisterBindsMCPSegIDFromTheURL closes the gap every other MCP test leaves
+// open: they set gin's param map by hand, so the route's :segid and the
+// handler's ctx.Param("segid") could disagree and still pass. Only a request
+// through the REAL router proves the two names are the same name.
+//
+// The consequence of a mismatch is an empty runner id, which the token check
+// then refuses — availability, not an authorization hole — but it would take
+// down every agent's tools with nothing else catching it.
+func TestRegisterBindsMCPSegIDFromTheURL(
+	t *testing.T,
+) {
+	got := &dispatchRecord{}
+	r := gin.New()
+	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
+	settingsRG := r.Group("/v0")
+	agent.Register(wsScoped, settingsRG, stubUsecase{dispatch: got}, func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	const path = "/v0/projects/p1/repos/r1/workspaces/w1/agent/runners/seg-42/mcp"
+	req := httptest.NewRequest(http.MethodPost, path,
+		strings.NewReader(`{"token":"TOK","rpc":{"jsonrpc":"2.0","id":1,"method":"ping"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "seg-42", got.runnerID, "the handler must read the URL's :segid")
+	assert.Equal(t, "TOK", got.token)
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":1,"method":"ping"}`, string(got.message))
 }

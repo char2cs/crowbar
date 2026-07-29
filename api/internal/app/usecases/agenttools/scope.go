@@ -91,6 +91,13 @@ func NewResolver(
 // the chat it was on, dying but not yet reaped — and must not resolve to
 // anything.
 func (r *Resolver) Resolve(ctx context.Context, runnerID, token string) (Caller, error) {
+	// A resolver with no minter can authenticate nobody, so it must refuse
+	// everybody. Without this it would instead panic inside Verify — and a
+	// misconfiguration must fail CLOSED, never crash the daemon on the first
+	// unauthenticated call an agent makes.
+	if r.minter == nil {
+		return Caller{}, fmt.Errorf("agenttools: resolve: no token minter: %w", ErrUnauthorized)
+	}
 	if runnerID == "" || !r.minter.Verify(runnerID, token) {
 		return Caller{}, ErrUnauthorized
 	}

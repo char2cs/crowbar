@@ -106,19 +106,25 @@ func TestMCP_BadJSONIs400(
 	assert.Empty(t, uc.dispatchMCPCalls)
 }
 
-// TestMCP_UnknownRunner404s proves a DispatchMCP failure surfaces through the
-// shared error mapping rather than as a 200 envelope: an unknown or exited
-// runner is agentrunner.ErrNotFound, exactly as on the other runner-keyed
-// route.
-func TestMCP_UnknownRunner404s(
+// TestMCP_MapsUsecaseErrorsThroughStatusAndMessage proves the handler defers
+// status selection to the shared mapper rather than hardcoding 500, using
+// agentrunner.ErrNotFound as a stand-in for any mapped sentinel.
+//
+// Note what this does NOT claim. An unknown or exited runner does not reach here
+// as an error at all: DispatchMCP returns only nil or the surface-not-configured
+// failure, and an unresolvable runner is caught inside the ToolSet, coming back
+// as a 200 whose JSON-RPC result carries isError. A tool failure is data for the
+// model, not an HTTP fault. This test exists for the day DispatchMCP grows a
+// mapped error, so that error does not silently become a 500.
+func TestMCP_MapsUsecaseErrorsThroughStatusAndMessage(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{dispatchMCPErr: agentrunner.ErrNotFound}
 	h := handlers.New(uc)
 
 	body := []byte(`{"token":"TOK","rpc":{"jsonrpc":"2.0","id":1,"method":"ping"}}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/missing/mcp", body)
-	ctx.Params = gin.Params{{Key: "segid", Value: "missing"}}
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/seg-1/mcp", body)
+	ctx.Params = gin.Params{{Key: "segid", Value: "seg-1"}}
 
 	h.MCP(ctx)
 

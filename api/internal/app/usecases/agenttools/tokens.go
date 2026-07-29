@@ -49,12 +49,18 @@ func (m *TokenMinter) Mint(runnerID string) string {
 // reaches it — a debug log, a panic dump, an error built from a whole
 // dependency graph — would otherwise render the raw HMAC key as bytes. GoString
 // covers %#v for the same reason.
-func (m *TokenMinter) String() string {
+//
+// The receiver is a VALUE, not a pointer, and that is load-bearing: a
+// pointer-receiver String does not apply to a COPY of the minter, so printing a
+// dereferenced or passed-by-value TokenMinter would fall back to the default
+// struct formatter and print the raw key. A value receiver redacts both forms,
+// because the method set of *TokenMinter includes it too.
+func (m TokenMinter) String() string {
 	return "agenttools.TokenMinter{secret:REDACTED}"
 }
 
 // GoString redacts the secret under %#v. See String.
-func (m *TokenMinter) GoString() string {
+func (m TokenMinter) GoString() string {
 	return m.String()
 }
 
