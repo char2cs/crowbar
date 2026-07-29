@@ -697,6 +697,21 @@ func deriveTitle(prompt string) string {
 	return ""
 }
 
+// mintRunnerToken issues the credential runnerID's in-PTY `crowbar mcp` relay
+// authenticates with.
+//
+// A Usecase built WITHOUT a minter is legal (the tool surface is optional — see
+// New), and such a runner must still spawn: chats are the product, tools are an
+// addition to it. It carries an empty token instead, which Verify rejects
+// unconditionally, so the tool surface fails closed rather than the chat failing to
+// open.
+func (u *Usecase) mintRunnerToken(runnerID string) string {
+	if u.minter == nil {
+		return ""
+	}
+	return u.minter.Mint(runnerID)
+}
+
 // spawnRunner is the single spawn seam: it launches providerID's vendor CLI in a
 // PTY and records the runner that results, pointed at chatID. Every path that
 // starts a CLI goes through it — SpawnChat (create=true, minting the chat too),
@@ -788,6 +803,11 @@ func (u *Usecase) spawnRunner(
 		Cwd:         worktree,
 		CrowbarHook: u.crowbarHookPath(crowbarHome),
 		Segid:       runnerID,
+		// The credential the descriptors hand `crowbar mcp` so this runner's tool
+		// calls can be attributed to it. Minted here because this is where the
+		// runner id is born, and by the SAME minter DispatchMCP verifies against —
+		// a token minted anywhere else would authenticate nothing.
+		RunnerToken: u.mintRunnerToken(runnerID),
 		Provider:    providerID,
 		ProjectID:   projectID,
 		RepoID:      repoID,
@@ -811,10 +831,28 @@ func (u *Usecase) spawnRunner(
 	if conversation != "" {
 		parts = append(parts, conversation)
 	}
+
+	// WHETHER the document is delivered is decided HERE, before the capability
+	// preamble joins it, and that ordering is load-bearing. The preamble is standing
+	// orientation rather than something that HAPPENED, so it must never be the only
+	// reason a CLI is injected at all: a resumed provider's channel need not be a
+	// silent one — a resumed codex can be reached ONLY through a user message (see
+	// codex.yaml) — and reopening a closed tab resumes the same provider with nothing
+	// recorded in between. A preamble that flipped this gate would open every reopened
+	// codex chat with a "while you were away" pointer about nothing that happened, and
+	// codex answers its opening user message on sight.
+	inject := len(parts) > 0
+
+	// The preamble LEADS the document: it says which tools this CLI has and when to
+	// prefer them, and a model should read that before it reads a handoff it is
+	// explicitly told not to act on.
+	if capabilities := config.GetPrompts().CapabilitiesInstruction; capabilities != "" {
+		parts = append([]string{engineagent.Expand(capabilities, tctx)}, parts...)
+	}
 	tctx.Context = strings.Join(parts, "\n\n")
 
 	steps := extraSteps
-	if tctx.Context != "" {
+	if inject {
 		steps = append(steps, contextInject(descriptor, resuming)...)
 	}
 

@@ -21,7 +21,12 @@ var (
 // Prompts holds Crowbar's agent-facing prompt templates. Placeholders
 // ({crowbar}, {segid}, {conversation}) are expanded by Crowbar at injection time.
 type Prompts struct {
-	TitleInstruction string `yaml:"title_instruction"`
+	// CapabilitiesInstruction tells a model that Crowbar's tools exist and, more
+	// importantly, WHEN to prefer them. Tool descriptions alone do not override a
+	// model's prior — asked to "review this branch" it reaches for gh or writes
+	// prose — so this is a directive, not a capability list.
+	CapabilitiesInstruction string `yaml:"capabilities_instruction"`
+	TitleInstruction        string `yaml:"title_instruction"`
 	// HandoffWrapper wraps the WHOLE conversation for a provider joining the chat
 	// fresh (it has no session of its own to resume, so it has no history).
 	HandoffWrapper string `yaml:"handoff_wrapper"`

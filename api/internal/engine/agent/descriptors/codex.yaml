@@ -74,6 +74,26 @@ config_injection:
   - pass_arg:
       arg: "-c"
       value: 'hooks.Stop=[{hooks=[{type="command",command="{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"}]}]'
+  # The Crowbar tool surface, injected through the same session-layer -c channel
+  # the hooks above use: nothing is written to disk and ~/.codex is untouched,
+  # which is the law this descriptor is built on. Verified against codex 0.139.0
+  # via `codex mcp list -c mcp_servers.…` — the server registers enabled.
+  #
+  # codex does NOT defer MCP tool schemas, so every tool costs context on every
+  # turn here. Keep the surface small.
+  #
+  # Scope travels as discrete array elements, never {scope_flags}: each element
+  # reaches the process as its own argument, so a project-home workspace's empty
+  # repo id arrives as an empty string instead of swallowing the next token the
+  # way a flat shell string would (see TemplateCtx.ScopeFlags).
+  #
+  # The token is a SEPARATE credential from the segment id, not a reuse of it: the
+  # agent owns this process and can read its own argv, so a segment id alone would
+  # let an agent that learned a sibling's id assume that sibling's scope.
+  - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.command="{crowbar}"' }
+  - pass_arg:
+      arg: "-c"
+      value: 'mcp_servers.crowbar.args=["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}"]'
 hooks:
   format: json
   events:

@@ -1,5 +1,8 @@
 config:
   prompts:
+    capabilities_instruction: |
+      You are running inside a Crowbar workspace, and Crowbar's own tools are available to you (they appear as crowbar tools in your tool list).
+      Code review happens in Crowbar, not on GitHub: when you review a branch or are asked about review comments, use the crowbar review tools. Post findings as anchored review threads rather than as prose in this chat, and do not use `gh pr review`.
     title_instruction: |
       Give this conversation a short title, once, by running exactly this command (replace the placeholder with a concise 2-5 word Title-Case title of the task):
       {crowbar} chat rename {scope_flags} --segment {segid} "<title>"

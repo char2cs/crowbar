@@ -21,6 +21,15 @@ func TestExpand_ReplacesKnownTokens(t *testing.T) {
 			agent.TemplateCtx{CrowbarHook: "/bin/crowbar", Segid: "seg1"}))
 }
 
+// {runner_token} is what an in-PTY `crowbar mcp` relay authenticates with. It is a
+// token of its own rather than a reuse of {segid} because the agent controls the
+// process holding the segment id and can read its own argv: a segment id alone
+// would let an agent that learned a sibling's id assume that sibling's scope.
+func TestExpand_RunnerToken(t *testing.T) {
+	got := agent.Expand("tok={runner_token}", agent.TemplateCtx{RunnerToken: "abc123"})
+	require.Equal(t, "tok=abc123", got)
+}
+
 func TestExpand_ReplacesScopeTokens(t *testing.T) {
 	ctx := agent.TemplateCtx{ProjectID: "p1", RepoID: "r1", WorkspaceID: "w1"}
 	require.Equal(t,

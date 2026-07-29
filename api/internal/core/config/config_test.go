@@ -24,6 +24,12 @@ func TestGetPrompts_FromEmbeddedDefaults(t *testing.T) {
 	// next token. See engine/agent.TemplateCtx.ScopeFlags.
 	assert.Contains(t, p.TitleInstruction, "chat rename {scope_flags} --segment {segid}")
 	assert.Contains(t, p.HandoffWrapper, "{conversation}")
+
+	// The capability preamble is a DIRECTIVE, not a tool list: registering the MCP
+	// server puts the tools in the model's list, but a model asked to review a branch
+	// still reaches for gh unless it is told which surface Crowbar expects.
+	assert.Contains(t, p.CapabilitiesInstruction, "crowbar review tools")
+	assert.Contains(t, p.CapabilitiesInstruction, "gh pr review")
 }
 
 func TestGetPrompts_UserConfigOverlays(t *testing.T) {

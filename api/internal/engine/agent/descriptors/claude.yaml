@@ -33,6 +33,31 @@ config_injection:
           "Stop":[{"hooks":[{"type":"command",
             "command":"{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"}]}]
         }}
+  # The Crowbar tool surface. --mcp-config takes a JSON STRING, so nothing is
+  # written to disk and the user's own MCP servers are untouched (verified
+  # against claude 2.1.220: the tools arrive as mcp__crowbar__*, and claude
+  # DEFERS their schemas until first use).
+  #
+  # Scope travels as discrete array elements, never {scope_flags}: each element
+  # reaches the process as its own argument, so a project-home workspace's empty
+  # repo id arrives as an empty string instead of swallowing the next token the
+  # way a flat shell string would (see TemplateCtx.ScopeFlags).
+  #
+  # The token is a SEPARATE credential from the segment id, not a reuse of it: the
+  # agent owns this process and can read its own argv, so a segment id alone would
+  # let an agent that learned a sibling's id assume that sibling's scope.
+  #
+  # IT MUST NOT BE THE LAST STEP HERE, and that is why --settings follows it rather
+  # than precedes it. `--mcp-config <configs...>` is VARIADIC — it keeps eating
+  # tokens until it meets a dash-prefixed one — so any bare positional after it is
+  # swallowed as an extra config. Observed on 2.1.220: `claude --mcp-config '<json>'
+  # mcp list` dies with "MCP config file not found: /private/tmp/mcp", having taken
+  # the subcommand as two more config paths. BuildSpawnPlan appends session/handoff
+  # steps AFTER this list, and those can be positionals (a resumed session's id),
+  # so the only durable defence is to guarantee a flag immediately follows the JSON.
+  - pass_arg:
+      arg: "--mcp-config"
+      value: '{"mcpServers":{"crowbar":{"command":"{crowbar}","args":["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}"]}}}'
   - pass_arg: { arg: "--settings", value: "{tmp}/settings.json" }
 hooks:
   format: json

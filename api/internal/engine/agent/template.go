@@ -30,10 +30,16 @@ type TemplateCtx struct {
 	Cwd            string
 	CrowbarHook    string
 	Segid          string
-	Provider       string
-	ProjectID      string
-	RepoID         string
-	WorkspaceID    string
+	// RunnerToken authenticates this runner's MCP calls back into the daemon. The
+	// segment id alone cannot: the agent controls the process holding it and can
+	// read its own argv, so an agent that learned a sibling's segment could
+	// otherwise assume that sibling's scope. Minted per daemon boot; runners never
+	// outlive a boot, so it needs no persistence and revokes itself.
+	RunnerToken string
+	Provider    string
+	ProjectID   string
+	RepoID      string
+	WorkspaceID string
 }
 
 // ScopeFlags renders the project/repo/workspace scope as the CLI flag list every
@@ -79,6 +85,7 @@ func Expand(s string, ctx TemplateCtx) string {
 		"{crowbar_hook}", ctx.CrowbarHook,
 		"{crowbar}", ctx.CrowbarHook, // same binary as {crowbar_hook}; friendlier for non-hook commands
 		"{segid}", ctx.Segid,
+		"{runner_token}", ctx.RunnerToken,
 		"{provider}", ctx.Provider,
 		"{project_id}", ctx.ProjectID,
 		"{repo_id}", ctx.RepoID,
