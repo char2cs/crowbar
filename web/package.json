@@ -13,6 +13,7 @@
     "dev:mock": "vite --mode mock",
     "prebuild": "node scripts/provision-tree-sitter.mjs",
     "build": "tsc && vite build",
+    "postbuild": "node scripts/verify-worker-bundles.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
