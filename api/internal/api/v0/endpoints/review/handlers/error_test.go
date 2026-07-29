@@ -59,6 +59,13 @@ func (e errUsecase) SearchDiff(
 	return nil, false, e.err
 }
 
+func (e errUsecase) GetBase(
+	_ context.Context,
+	_ string,
+) (string, error) {
+	return "", e.err
+}
+
 func newErrRouter(uc handlers.ReviewUsecase) *gin.Engine {
 	return routerFor(uc)
 }

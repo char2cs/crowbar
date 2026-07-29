@@ -112,6 +112,13 @@ func (s stubUsecase) SearchDiff(
 	}, false, nil
 }
 
+func (stubUsecase) GetBase(
+	_ context.Context,
+	_ string,
+) (string, error) {
+	return "main", nil
+}
+
 func routerFor(uc handlers.ReviewUsecase) *gin.Engine {
 	r := gin.New()
 	h := handlers.New(uc)
