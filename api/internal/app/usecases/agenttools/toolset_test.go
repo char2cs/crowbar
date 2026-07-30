@@ -64,9 +64,16 @@ func TestToolSet_AdvertisesSetChatTitle(t *testing.T) {
 
 // Global constraint: codex does not defer tool schemas, so every tool costs
 // context on every codex turn.
+//
+// Exactly 8, not "at most 8". A LessOrEqual here is a guard that cannot fail
+// for the reason it exists: it passes just as happily on a fixture that wires
+// five tools as on one that wires all eight — which is precisely how a
+// 5-of-8 toolsetOn hid for three tasks while this test stayed green, silently
+// narrowing every other guard built on the same fixture to the tools that
+// happened to remain.
 func TestToolSet_RespectsToolCeiling(t *testing.T) {
 	ts, _ := toolsetOn(t, &spyRenamer{})
-	require.LessOrEqual(t, len(ts.Tools()), 8)
+	require.Len(t, ts.Tools(), 8)
 }
 
 // No tool may take a scope argument — authority comes from the runner, never

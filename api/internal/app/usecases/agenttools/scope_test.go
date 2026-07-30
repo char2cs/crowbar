@@ -202,8 +202,21 @@ func TestResolve_KeepsTheCallersOwnWorkspaceEvenWhenDeleted(t *testing.T) {
 	require.True(t, c.CanSee("ws-a"))
 }
 
-// A cycle in ParentID must not hang the walk.
-func TestResolve_ToleratesParentCycle(t *testing.T) {
+// TestResolve_AParentCycleCannotHangTheWalk is about TERMINATION, not policy —
+// read the assertion with that in mind before changing either.
+//
+// With x.ParentID == y and y.ParentID == x, x's downward walk reaches y, which
+// is also x's own parent. That is NOT sanctioned upward visibility and must
+// never be read as such. It is unreachable state: Create only ever sets a
+// ParentID on a brand-new id, which nothing can be an ancestor of, and Reparent
+// refuses both a self-parent and moving a workspace that HAS children — which is
+// what closing any cycle would require. A tree like the one below therefore
+// comes from direct DB corruption and nothing else.
+//
+// What is pinned here is only that the seen set makes the walk RETURN on such a
+// tree instead of spinning forever. TestResolve_NeverSeesUpwards above is where
+// the actual upward-visibility policy is asserted.
+func TestResolve_AParentCycleCannotHangTheWalk(t *testing.T) {
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	cyc := []domain.Workspace{

@@ -982,11 +982,17 @@ func TestResolveReviewThread_RejectedCallBroadcastsNothing(t *testing.T) {
 var toolNamePattern = regexp.MustCompile(`\b[a-z]+(?:_[a-z]+)+\b`)
 
 func TestCapabilitiesPreamble_OnlyNamesRegisteredTools(t *testing.T) {
-	ts := reviewToolsOn(t, &spyThreads{})
+	// toolsetOn, not reviewToolsOn: the registered set must be the WHOLE surface.
+	// reviewToolsOn wires three tools, so the first preamble to name (say)
+	// post_review_comment would fail this test claiming a registered tool "is not
+	// a registered tool" — a guard that fires on the correct change and stays
+	// silent on the wrong one.
+	ts, _ := toolsetOn(t, &spyRenamer{})
 	registered := map[string]bool{}
 	for _, tool := range ts.Tools() {
 		registered[tool.Name] = true
 	}
+	require.Len(t, registered, 8, "the preamble must be checked against the whole surface")
 
 	preamble := config.GetPrompts().CapabilitiesInstruction
 	require.NotEmpty(t, preamble)
