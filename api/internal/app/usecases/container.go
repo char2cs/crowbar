@@ -78,6 +78,7 @@ func New(
 	gormStores GORMStores,
 	engines *engine.Container,
 	crowbarHome func() (string, error),
+	threadBroadcast agenttools.ThreadBroadcast,
 ) (*Container, error) {
 	projectUsecase := project.New(
 		gormStores.Projects,
@@ -154,7 +155,7 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("usecases: new container: %w", err)
 	}
-	agentToolDeps, err := newAgentToolDeps(agentMinter, repos, branchReview)
+	agentToolDeps, err := newAgentToolDeps(agentMinter, repos, branchReview, threadBroadcast)
 	if err != nil {
 		return nil, err
 	}
@@ -203,10 +204,15 @@ func New(
 // the thread port, so the same repository is handed to Threads and ThreadWrites.
 // The Idempotency map is built HERE, once, because it must outlive the per-request
 // ToolSet for a retried post_review_comment to be recognized as a retry.
+//
+// threadBroadcast is injected from the app layer rather than derived here: fanning
+// a thread out needs the wire DTO, and a usecase must not import the api layer's
+// wire types. See agenttools.ThreadBroadcast.
 func newAgentToolDeps(
 	minter *agenttools.TokenMinter,
 	repos *repositories.Container,
 	review agenttools.ReviewReader,
+	threadBroadcast agenttools.ThreadBroadcast,
 ) (agenttools.Deps, error) {
 	switch {
 	case minter == nil:
@@ -221,6 +227,8 @@ func newAgentToolDeps(
 		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no review thread store")
 	case review == nil:
 		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no branch review usecase")
+	case threadBroadcast == nil:
+		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no thread broadcaster")
 	}
 	return agenttools.Deps{
 		Resolver: agenttools.NewResolver(
@@ -229,10 +237,11 @@ func newAgentToolDeps(
 			agentChatReader{chats: repos.AgentChat},
 			repos.Workspace,
 		),
-		Review:       review,
-		Threads:      repos.ReviewThread,
-		ThreadWrites: repos.ReviewThread,
-		Idempotency:  agenttools.NewIdempotency(),
+		Review:          review,
+		Threads:         repos.ReviewThread,
+		ThreadWrites:    repos.ReviewThread,
+		Idempotency:     agenttools.NewIdempotency(),
+		ThreadBroadcast: threadBroadcast,
 	}, nil
 }
 

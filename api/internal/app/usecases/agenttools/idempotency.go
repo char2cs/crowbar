@@ -2,11 +2,11 @@ package agenttools
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // Idempotency remembers which review thread each (workspace, key) pair already
@@ -23,9 +23,14 @@ import (
 // The keys are scoped by workspace id so two agents reviewing two branches
 // cannot collide on the same obvious key ("nil-deref-in-auth") and have the
 // second finding silently swallowed as a retry of the first.
+//
+// It caches the whole opened aggregate rather than just its id so a retry can be
+// answered with the anchor that was actually STORED. A retry that reuses a key but
+// changes the lines wrote nothing, and answering it from its own arguments would
+// report a post at a location no thread is anchored to.
 type Idempotency struct {
 	mu     sync.Mutex
-	opened map[idempotencyRef]string
+	opened map[idempotencyRef]domain.ReviewThread
 }
 
 type idempotencyRef struct {
@@ -35,12 +40,16 @@ type idempotencyRef struct {
 
 // NewIdempotency builds the per-daemon dedup map. The container calls it once.
 func NewIdempotency() *Idempotency {
-	return &Idempotency{opened: map[idempotencyRef]string{}}
+	return &Idempotency{opened: map[idempotencyRef]domain.ReviewThread{}}
 }
 
-// OpenOnce opens in through writer and returns the new thread's id, unless a
-// previous call carrying the same key for the same workspace already opened one —
-// in which case it returns THAT thread's id and writes nothing.
+// OpenOnce opens in through writer and returns the new thread, unless a previous
+// call carrying the same key for the same workspace already opened one — in which
+// case it returns THAT thread and writes nothing.
+//
+// The bool reports whether this call performed the write. A caller that announces
+// new threads to connected clients needs it: re-announcing on a dedup hit would
+// emit a frame for a thread every client already has.
 //
 // An empty key means the caller asked for no deduplication, so the write happens
 // unguarded.
@@ -56,35 +65,29 @@ func (i *Idempotency) OpenOnce(
 	key string,
 	in reviewthread.OpenInput,
 	now time.Time,
-) (string, error) {
+) (domain.ReviewThread, bool, error) {
 	if key == "" {
-		return openThread(ctx, writer, in, now)
+		thread, err := writer.Open(ctx, in, now)
+		if err != nil {
+			return domain.ReviewThread{}, false, err
+		}
+		return thread, true, nil
 	}
 	ref := idempotencyRef{wsID: in.WsID, key: key}
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	if id, ok := i.opened[ref]; ok {
-		return id, nil
+	if thread, ok := i.opened[ref]; ok {
+		return thread, false, nil
 	}
-	id, err := openThread(ctx, writer, in, now)
-	if err != nil {
-		return "", err
-	}
-	i.opened[ref] = id
-	return id, nil
-}
-
-func openThread(
-	ctx context.Context,
-	writer ThreadWriter,
-	in reviewthread.OpenInput,
-	now time.Time,
-) (string, error) {
 	thread, err := writer.Open(ctx, in, now)
+	// A FAILED write is deliberately not recorded: the retry this key exists for
+	// must still reach the store, rather than be answered with a thread that was
+	// never opened.
 	if err != nil {
-		return "", fmt.Errorf("agenttools: open review thread: %w", err)
+		return domain.ReviewThread{}, false, err
 	}
-	return thread.ID, nil
+	i.opened[ref] = thread
+	return thread, true, nil
 }

@@ -15,12 +15,14 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/realtime"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/engine/provider"
@@ -119,7 +121,7 @@ func New(
 	// worktrees and per-entity storages land under the same root.
 	crowbarHome := adapters.CrowbarHome()
 	homeFunc := func() (string, error) { return crowbarHome, nil }
-	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines, homeFunc)
+	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines, homeFunc, agentThreadBroadcast(h))
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
 	}
@@ -316,6 +318,36 @@ func reapAgentChatFiles(
 		agent.RemoveUnderHome(ctx, home, filepath.Join(chatsDir, chatID))
 		return nil
 	}
+}
+
+// agentThreadBroadcast adapts the hub into the agenttools.ThreadBroadcast seam:
+// when an agent posts a review comment, the resulting thread has to reach a review
+// pane that is already open, exactly as an HTTP-authored comment does.
+//
+// The conversion lives HERE, in the app layer, because it is the DTO boundary. The
+// review-thread repository does not fan out (its store.BroadcastFunc is a no-op)
+// and it cannot: the frame is built from domain.ReviewThread, which carries WsID but
+// no project or repo id, while the /threads stream filters on all three. Only a
+// caller holding the resolved workspace can supply them, so the aggregate crosses
+// the usecase boundary and the DTO is assembled at the layer that owns wire types.
+//
+// This does NOT double-broadcast alongside the thread handler's own push: both end
+// at the same ws.Broadcaster, but the agent path never runs the handler, and the
+// handler's path never runs this.
+func agentThreadBroadcast(
+	h threadBroadcaster,
+) agenttools.ThreadBroadcast {
+	return func(thread domain.ReviewThread, projectID, repoID string) {
+		h.BroadcastThread(dto.ThreadDTOFrom(thread, projectID, repoID))
+	}
+}
+
+// threadBroadcaster is the one hub method agentThreadBroadcast needs, narrowed to
+// it so nothing else about the hub is in scope here. *hub.Hub satisfies it.
+type threadBroadcaster interface {
+	BroadcastThread(
+		t dto.ThreadDTO,
+	)
 }
 
 func toUsecaseStores(

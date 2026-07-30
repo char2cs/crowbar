@@ -21,6 +21,10 @@ type Deps struct {
 	// is a dependency rather than something a tool creates for itself because it
 	// must outlive the per-request ToolSet — see Idempotency.
 	Idempotency *Idempotency
+	// ThreadBroadcast fans an agent-written review thread out to connected
+	// clients. Without it an agent's finding is stored but invisible to a user
+	// watching the review pane — see ThreadBroadcast.
+	ThreadBroadcast ThreadBroadcast
 }
 
 type toolDef struct {

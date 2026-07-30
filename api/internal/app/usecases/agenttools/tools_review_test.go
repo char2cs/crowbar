@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,6 +91,9 @@ func (s *stubThreadWriter) Open(
 		EndLine:   in.EndLine,
 		Side:      in.Side,
 		Status:    domain.ReviewThreadStatusOpen,
+		Messages: []domain.ReviewMessage{{
+			ID: in.MessageID, Author: in.Author, IsAgent: in.IsAgent, Body: in.Body, CreatedAt: now,
+		}},
 		CreatedAt: now,
 	}, nil
 }
@@ -110,6 +114,26 @@ func (s *stubThreadWriter) Resolve(_ context.Context, _ string) (domain.ReviewTh
 	return domain.ReviewThread{}, nil
 }
 
+// spyThreadBroadcast is the ThreadBroadcast test double. Fan-out is the only thing
+// that puts an agent's finding in front of a user who is already looking at the
+// review pane, so every test that stores a comment also checks the frame, and every
+// test that rejects one checks that no frame was emitted.
+type spyThreadBroadcast struct {
+	frames []broadcastFrame
+}
+
+type broadcastFrame struct {
+	thread    domain.ReviewThread
+	projectID string
+	repoID    string
+}
+
+func (s *spyThreadBroadcast) fn() agenttools.ThreadBroadcast {
+	return func(thread domain.ReviewThread, projectID, repoID string) {
+		s.frames = append(s.frames, broadcastFrame{thread: thread, projectID: projectID, repoID: repoID})
+	}
+}
+
 // callerProviderID is the provider the fixture's runner is on. post_review_comment
 // attributes findings to it, so the tests can prove the author came from the
 // runner rather than from a constant.
@@ -124,22 +148,70 @@ func reviewToolsetOn(
 	review agenttools.ReviewReader,
 ) (*agenttools.ToolSet, string) {
 	t.Helper()
-	ts, _, tok := reviewToolsetWithWriter(t, "ws-a", threads, review, &stubThreadWriter{}, agenttools.NewIdempotency())
-	return ts, tok
+	m, err := agenttools.NewTokenMinter()
+	require.NoError(t, err)
+	res := agenttools.NewResolver(m,
+		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubWorkspaces{all: tree()})
+	tok := m.Mint("RUN")
+	deps := agenttools.Deps{
+		Resolver:        res,
+		Threads:         threads,
+		Review:          review,
+		ThreadWrites:    &stubThreadWriter{},
+		Idempotency:     agenttools.NewIdempotency(),
+		ThreadBroadcast: (&spyThreadBroadcast{}).fn(),
+	}
+	return agenttools.NewToolSet(deps, "RUN", tok), tok
 }
 
-// reviewToolsetWithWriter is the write-surface fixture: it resolves the caller to
-// callerWs and returns the ToolSet together with the writer it will post through.
-// The Idempotency is a parameter so two ToolSets can be built over ONE dedup map,
-// which is what a retry looks like in production (a ToolSet is per request).
-func reviewToolsetWithWriter(
+// postFixture is the post_review_comment write surface: one caller plus every
+// double it writes through, so a test can assert on the store, the fan-out and the
+// outline reader together.
+type postFixture struct {
+	ts        *agenttools.ToolSet
+	writer    *stubThreadWriter
+	review    *stubReviewReader
+	broadcast *spyThreadBroadcast
+	idem      *agenttools.Idempotency
+}
+
+// postOn builds a fresh fixture whose caller resolves to callerWs and whose review
+// contains outline.
+func postOn(
 	t *testing.T,
 	callerWs string,
-	threads agenttools.ThreadReader,
-	review agenttools.ReviewReader,
+	outline []gitdomain.FileOutline,
+) *postFixture {
+	t.Helper()
+	return newPostFixture(
+		t, callerWs, outline,
+		&stubThreadWriter{}, agenttools.NewIdempotency(), &spyThreadBroadcast{},
+	)
+}
+
+// retryOn builds a SECOND fixture sharing this one's store, dedup map and
+// broadcaster. That is the production shape of a retry: a ToolSet is built per MCP
+// request, so the original call and its retry are served by different ToolSets over
+// the same long-lived dependencies.
+func (f *postFixture) retryOn(
+	t *testing.T,
+	callerWs string,
+	outline []gitdomain.FileOutline,
+) *postFixture {
+	t.Helper()
+	return newPostFixture(t, callerWs, outline, f.writer, f.idem, f.broadcast)
+}
+
+func newPostFixture(
+	t *testing.T,
+	callerWs string,
+	outline []gitdomain.FileOutline,
 	writer *stubThreadWriter,
 	idem *agenttools.Idempotency,
-) (*agenttools.ToolSet, *stubThreadWriter, string) {
+	broadcast *spyThreadBroadcast,
+) *postFixture {
 	t.Helper()
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
@@ -152,21 +224,40 @@ func reviewToolsetWithWriter(
 		}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
-	tok := m.Mint("RUN")
+	review := &stubReviewReader{outline: outline}
 	deps := agenttools.Deps{
-		Resolver:     res,
-		Threads:      threads,
-		Review:       review,
-		ThreadWrites: writer,
-		Idempotency:  idem,
+		Resolver:        res,
+		Threads:         &stubThreadReader{},
+		Review:          review,
+		ThreadWrites:    writer,
+		Idempotency:     idem,
+		ThreadBroadcast: broadcast.fn(),
 	}
-	return agenttools.NewToolSet(deps, "RUN", tok), writer, tok
+	return &postFixture{
+		ts:        agenttools.NewToolSet(deps, "RUN", m.Mint("RUN")),
+		writer:    writer,
+		review:    review,
+		broadcast: broadcast,
+		idem:      idem,
+	}
+}
+
+func (f *postFixture) post(args string) (string, error) {
+	return f.ts.Call(context.Background(), "post_review_comment", json.RawMessage(args))
 }
 
 // outlineWithHunk is the smallest review a post can anchor into: one file, one
 // hunk.
 func outlineWithHunk(path string, hunk gitdomain.HunkShape) []gitdomain.FileOutline {
 	return []gitdomain.FileOutline{{Path: path, Hunks: []gitdomain.HunkShape{hunk}}}
+}
+
+// authHunk is the fixture hunk every anchor test measures against: on the right it
+// covers lines 40..49 inclusive.
+func authHunk() []gitdomain.FileOutline {
+	return outlineWithHunk("src/auth.go", gitdomain.HunkShape{
+		OldStart: 40, OldLines: 10, NewStart: 40, NewLines: 10,
+	})
 }
 
 func TestListReviewThreads_DefaultsToUnresolvedOnly(t *testing.T) {
@@ -244,21 +335,15 @@ func TestReviewTools_OnlyReadTheCallersOwnWorkspace(t *testing.T) {
 }
 
 func TestPostReviewComment_AnchorsAndMarksItselfAsAgent(t *testing.T) {
-	review := &stubReviewReader{
-		outline: outlineWithHunk("src/auth.go", gitdomain.HunkShape{
-			OldStart: 40, OldLines: 10, NewStart: 40, NewLines: 10,
-		}),
-	}
-	ts, writer, _ := reviewToolsetWithWriter(
-		t, "ws-a", &stubThreadReader{}, review, &stubThreadWriter{}, agenttools.NewIdempotency())
+	f := postOn(t, "ws-a", authHunk())
 
-	out, err := ts.Call(context.Background(), "post_review_comment", json.RawMessage(
-		`{"filePath":"src/auth.go","startLine":42,"endLine":44,"side":"right","body":"This leaks the token."}`))
+	out, err := f.post(
+		`{"filePath":"src/auth.go","startLine":42,"endLine":44,"side":"right","body":"This leaks the token."}`)
 	require.NoError(t, err)
 	require.Contains(t, out, "thread-1")
 
-	require.Len(t, writer.opens, 1)
-	got := writer.opens[0]
+	require.Len(t, f.writer.opens, 1)
+	got := f.writer.opens[0]
 	// The caller's OWN workspace, resolved from its runner — never an argument.
 	require.Equal(t, "ws-a", got.WsID)
 	require.Equal(t, "src/auth.go", got.FilePath)
@@ -270,64 +355,175 @@ func TestPostReviewComment_AnchorsAndMarksItselfAsAgent(t *testing.T) {
 	require.Equal(t, domain.ReviewSideRight, got.Side)
 	require.Equal(t, "This leaks the token.", got.Body)
 	require.True(t, got.IsAgent, "an agent-written finding must be marked as one")
-	require.NotEmpty(t, got.Author, "an unattributed comment renders as a blank name in the review UI")
+	require.NotEmpty(t, got.Author, "an unattributed comment renders as a blank name")
 	require.Equal(t, callerProviderID, got.Author, "the author must come from the caller's runner provider")
 	require.NotEmpty(t, got.ID)
 	require.NotEmpty(t, got.MessageID)
 	require.NotEqual(t, got.ID, got.MessageID)
 }
 
+// TestPostReviewComment_ValidatesAgainstTheCallersOwnReview is the scoping property
+// for the WRITE tool: the outline an anchor is checked against must be the caller's
+// own workspace's diff. Validating against another workspace's geometry would accept
+// anchors that float on the diff the comment is actually attached to.
+func TestPostReviewComment_ValidatesAgainstTheCallersOwnReview(t *testing.T) {
+	f := postOn(t, "ws-a", authHunk())
+
+	_, err := f.post(`{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"x"}`)
+	require.NoError(t, err)
+	require.Equal(t, "ws-a", f.review.lastWsID,
+		"the outline must be read from the caller's own workspace, never another")
+
+	forbidden := []string{"wsId", "wsID", "workspaceId", "workspace_id"}
+	for _, tool := range f.ts.Tools() {
+		if tool.Name != "post_review_comment" {
+			continue
+		}
+		for _, bad := range forbidden {
+			require.NotContains(t, string(tool.InputSchema), bad,
+				"post_review_comment exposes %s; scope must never be an argument", bad)
+		}
+	}
+}
+
+// TestPostReviewComment_BroadcastsSoAnOpenReviewPaneSeesIt is the point of the whole
+// tool: the review-thread repository does not fan out, and the agent write bypasses
+// the HTTP handler that normally pushes the frame, so without an explicit broadcast a
+// posted finding is stored and INVISIBLE until the user remounts the pane.
+func TestPostReviewComment_BroadcastsSoAnOpenReviewPaneSeesIt(t *testing.T) {
+	f := postOn(t, "ws-a", authHunk())
+
+	_, err := f.post(`{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak"}`)
+	require.NoError(t, err)
+
+	require.Len(t, f.broadcast.frames, 1, "a stored finding must reach connected clients")
+	frame := f.broadcast.frames[0]
+	require.Equal(t, "thread-1", frame.thread.ID)
+	require.Equal(t, "ws-a", frame.thread.WsID)
+	// The /threads stream filters on projectId AND repoId as well as wsId, so a frame
+	// missing either is delivered to nobody.
+	require.Equal(t, "P", frame.projectID)
+	require.Equal(t, "R", frame.repoID)
+	require.NotEmpty(t, frame.thread.Messages, "the frame must carry the finding itself")
+	require.True(t, frame.thread.Messages[0].IsAgent)
+}
+
+func TestPostReviewComment_ARejectedAnchorBroadcastsNothing(t *testing.T) {
+	f := postOn(t, "ws-a", authHunk())
+
+	_, err := f.post(`{"filePath":"src/auth.go","startLine":200,"endLine":200,"side":"right","body":"nope"}`)
+	require.Error(t, err)
+	require.Empty(t, f.broadcast.frames, "a rejected anchor must not announce a thread that does not exist")
+}
+
+// A dedup hit wrote nothing, so it must not announce anything either: a second frame
+// would make every client re-render a thread it already has.
+func TestPostReviewComment_ARetryBroadcastsOnlyOnce(t *testing.T) {
+	args := `{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak","idempotencyKey":"k"}`
+	first := postOn(t, "ws-a", authHunk())
+	_, err := first.post(args)
+	require.NoError(t, err)
+
+	_, err = first.retryOn(t, "ws-a", authHunk()).post(args)
+	require.NoError(t, err)
+
+	require.Len(t, first.writer.opens, 1)
+	require.Len(t, first.broadcast.frames, 1, "a retry that wrote nothing must not emit a frame")
+}
+
 // The whole correctness risk: an anchor outside any hunk floats off the diff, so
 // the user sees a finding with no code beside it. The assertion that matters is
 // that NOTHING was written, not that an error came back.
 func TestPostReviewComment_RejectsAnAnchorOutsideAnyHunk(t *testing.T) {
-	review := &stubReviewReader{
-		outline: outlineWithHunk("src/auth.go", gitdomain.HunkShape{
-			OldStart: 40, OldLines: 10, NewStart: 40, NewLines: 10,
-		}),
-	}
-	ts, writer, _ := reviewToolsetWithWriter(
-		t, "ws-a", &stubThreadReader{}, review, &stubThreadWriter{}, agenttools.NewIdempotency())
+	f := postOn(t, "ws-a", authHunk())
 
-	_, err := ts.Call(context.Background(), "post_review_comment", json.RawMessage(
-		`{"filePath":"src/auth.go","startLine":200,"endLine":200,"side":"right","body":"nope"}`))
+	_, err := f.post(`{"filePath":"src/auth.go","startLine":200,"endLine":200,"side":"right","body":"nope"}`)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "get_review_scope")
-	require.Empty(t, writer.opens, "a rejected anchor must never reach the thread store")
+	require.Empty(t, f.writer.opens, "a rejected anchor must never reach the thread store")
+}
+
+// TestPostReviewComment_AnchorEdgesAreInclusive pins the off-by-one directly. The
+// fixture hunk starts at 40 and spans 10 lines, so it covers 40..49 INCLUSIVE:
+// widening either comparison by one accepts a line that renders outside the hunk.
+func TestPostReviewComment_AnchorEdgesAreInclusive(t *testing.T) {
+	cases := []struct {
+		name     string
+		line     int
+		accepted bool
+	}{
+		{"one line before the hunk", 39, false},
+		{"the hunk's first line", 40, true},
+		{"the hunk's last line", 49, true},
+		{"one line past the hunk", 50, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := postOn(t, "ws-a", authHunk())
+			_, err := f.post(fmt.Sprintf(
+				`{"filePath":"src/auth.go","startLine":%d,"endLine":%d,"side":"right","body":"x"}`,
+				tc.line, tc.line))
+			if !tc.accepted {
+				require.Error(t, err, "line %d is outside the 40-49 hunk", tc.line)
+				require.Empty(t, f.writer.opens)
+				return
+			}
+			require.NoError(t, err, "line %d is inside the 40-49 hunk", tc.line)
+			require.Len(t, f.writer.opens, 1)
+		})
+	}
+}
+
+// The same two edges for a RANGE: a range may touch both ends of the hunk but not
+// cross either.
+func TestPostReviewComment_AnchorRangeEdgesAreInclusive(t *testing.T) {
+	cases := []struct {
+		name       string
+		start, end int
+		accepted   bool
+	}{
+		{"exactly the hunk", 40, 49, true},
+		{"starts one line early", 39, 49, false},
+		{"ends one line late", 40, 50, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := postOn(t, "ws-a", authHunk())
+			_, err := f.post(fmt.Sprintf(
+				`{"filePath":"src/auth.go","startLine":%d,"endLine":%d,"side":"right","body":"x"}`,
+				tc.start, tc.end))
+			if !tc.accepted {
+				require.Error(t, err)
+				require.Empty(t, f.writer.opens)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, f.writer.opens, 1)
+		})
+	}
 }
 
 // A range that starts inside the hunk but runs past its end is still floating for
 // most of its length, so it is rejected whole rather than silently clamped.
 func TestPostReviewComment_RejectsARangeThatOverrunsTheHunk(t *testing.T) {
-	review := &stubReviewReader{
-		outline: outlineWithHunk("src/auth.go", gitdomain.HunkShape{
-			OldStart: 40, OldLines: 10, NewStart: 40, NewLines: 10,
-		}),
-	}
-	ts, writer, _ := reviewToolsetWithWriter(
-		t, "ws-a", &stubThreadReader{}, review, &stubThreadWriter{}, agenttools.NewIdempotency())
+	f := postOn(t, "ws-a", authHunk())
 
-	_, err := ts.Call(context.Background(), "post_review_comment", json.RawMessage(
-		`{"filePath":"src/auth.go","startLine":48,"endLine":60,"side":"right","body":"nope"}`))
+	_, err := f.post(`{"filePath":"src/auth.go","startLine":48,"endLine":60,"side":"right","body":"nope"}`)
 	require.Error(t, err)
-	require.Empty(t, writer.opens)
+	require.Empty(t, f.writer.opens)
 }
 
 func TestPostReviewComment_RejectsAnUnknownFile(t *testing.T) {
-	review := &stubReviewReader{
-		outline: outlineWithHunk("src/auth.go", gitdomain.HunkShape{
-			OldStart: 1, OldLines: 100, NewStart: 1, NewLines: 100,
-		}),
-	}
-	ts, writer, _ := reviewToolsetWithWriter(
-		t, "ws-a", &stubThreadReader{}, review, &stubThreadWriter{}, agenttools.NewIdempotency())
+	f := postOn(t, "ws-a", outlineWithHunk("src/auth.go", gitdomain.HunkShape{
+		OldStart: 1, OldLines: 100, NewStart: 1, NewLines: 100,
+	}))
 
-	_, err := ts.Call(context.Background(), "post_review_comment", json.RawMessage(
-		`{"filePath":"src/untouched.go","startLine":5,"endLine":5,"side":"right","body":"nope"}`))
+	_, err := f.post(`{"filePath":"src/untouched.go","startLine":5,"endLine":5,"side":"right","body":"nope"}`)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "src/untouched.go")
 	require.Contains(t, err.Error(), "get_review_scope")
-	require.Empty(t, writer.opens, "a file outside the review must never reach the thread store")
+	require.Empty(t, f.writer.opens, "a file outside the review must never reach the thread store")
+	require.Empty(t, f.broadcast.frames)
 }
 
 // The two numberings diverge by every insertion above them. The hunk here makes
@@ -335,189 +531,195 @@ func TestPostReviewComment_RejectsAnUnknownFile(t *testing.T) {
 // an implementation that read the wrong pair of the hunk's four numbers fails both
 // halves of this test.
 func TestPostReviewComment_LeftSideAnchorsAgainstOldLineNumbers(t *testing.T) {
-	outline := outlineWithHunk("src/auth.go", gitdomain.HunkShape{
+	skewed := outlineWithHunk("src/auth.go", gitdomain.HunkShape{
 		OldStart: 10, OldLines: 5, NewStart: 100, NewLines: 20,
 	})
+	f := postOn(t, "ws-a", skewed)
 
-	ts, writer, _ := reviewToolsetWithWriter(
-		t, "ws-a", &stubThreadReader{}, &stubReviewReader{outline: outline},
-		&stubThreadWriter{}, agenttools.NewIdempotency())
-	_, err := ts.Call(context.Background(), "post_review_comment", json.RawMessage(
-		`{"filePath":"src/auth.go","startLine":12,"endLine":12,"side":"left","body":"removed too much"}`))
+	_, err := f.post(`{"filePath":"src/auth.go","startLine":12,"endLine":12,"side":"left","body":"removed too much"}`)
 	require.NoError(t, err, "line 12 is inside the hunk's OLD range")
-	require.Len(t, writer.opens, 1)
-	require.Equal(t, domain.ReviewSideLeft, writer.opens[0].Side)
+	require.Len(t, f.writer.opens, 1)
+	require.Equal(t, domain.ReviewSideLeft, f.writer.opens[0].Side)
 
-	_, err = ts.Call(context.Background(), "post_review_comment", json.RawMessage(
-		`{"filePath":"src/auth.go","startLine":12,"endLine":12,"side":"right","body":"wrong side"}`))
+	_, err = f.post(`{"filePath":"src/auth.go","startLine":12,"endLine":12,"side":"right","body":"wrong side"}`)
 	require.Error(t, err, "line 12 is outside the hunk's NEW range")
-	require.Len(t, writer.opens, 1, "the rejected post must not have been written")
+	require.Len(t, f.writer.opens, 1, "the rejected post must not have been written")
 
-	_, err = ts.Call(context.Background(), "post_review_comment", json.RawMessage(
-		`{"filePath":"src/auth.go","startLine":105,"endLine":105,"side":"left","body":"wrong side"}`))
+	_, err = f.post(`{"filePath":"src/auth.go","startLine":105,"endLine":105,"side":"left","body":"wrong side"}`)
 	require.Error(t, err, "line 105 is outside the hunk's OLD range")
-	require.Len(t, writer.opens, 1)
+	require.Len(t, f.writer.opens, 1)
 
-	_, err = ts.Call(context.Background(), "post_review_comment", json.RawMessage(
-		`{"filePath":"src/auth.go","startLine":105,"endLine":105,"side":"right","body":"added badly"}`))
+	_, err = f.post(`{"filePath":"src/auth.go","startLine":105,"endLine":105,"side":"right","body":"added badly"}`)
 	require.NoError(t, err, "line 105 is inside the hunk's NEW range")
-	require.Len(t, writer.opens, 2)
-	require.Equal(t, domain.ReviewSideRight, writer.opens[1].Side)
+	require.Len(t, f.writer.opens, 2)
+	require.Equal(t, domain.ReviewSideRight, f.writer.opens[1].Side)
+}
+
+// The left side's edges come off a DIFFERENT pair of numbers, so they need their own
+// boundary case: this hunk covers 10..14 on the left.
+func TestPostReviewComment_LeftSideEdgesAreInclusive(t *testing.T) {
+	skewed := outlineWithHunk("src/auth.go", gitdomain.HunkShape{
+		OldStart: 10, OldLines: 5, NewStart: 100, NewLines: 20,
+	})
+	for line, accepted := range map[int]bool{9: false, 10: true, 14: true, 15: false} {
+		f := postOn(t, "ws-a", skewed)
+		_, err := f.post(fmt.Sprintf(
+			`{"filePath":"src/auth.go","startLine":%d,"endLine":%d,"side":"left","body":"x"}`, line, line))
+		if !accepted {
+			require.Error(t, err, "left line %d is outside the 10-14 old range", line)
+			require.Empty(t, f.writer.opens)
+			continue
+		}
+		require.NoError(t, err, "left line %d is inside the 10-14 old range", line)
+		require.Len(t, f.writer.opens, 1)
+	}
 }
 
 // A rename is addressed by either of its names, so a model that read the file
 // under its old path can still anchor to it.
 func TestPostReviewComment_AcceptsARenamedFileUnderEitherPath(t *testing.T) {
-	review := &stubReviewReader{outline: []gitdomain.FileOutline{{
+	f := postOn(t, "ws-a", []gitdomain.FileOutline{{
 		Path:    "src/new_name.go",
 		OldPath: "src/old_name.go",
 		Hunks:   []gitdomain.HunkShape{{OldStart: 1, OldLines: 20, NewStart: 1, NewLines: 20}},
-	}}}
-	ts, writer, _ := reviewToolsetWithWriter(
-		t, "ws-a", &stubThreadReader{}, review, &stubThreadWriter{}, agenttools.NewIdempotency())
+	}})
 
-	_, err := ts.Call(context.Background(), "post_review_comment", json.RawMessage(
-		`{"filePath":"src/old_name.go","startLine":3,"endLine":3,"side":"right","body":"here"}`))
+	_, err := f.post(`{"filePath":"src/old_name.go","startLine":3,"endLine":3,"side":"right","body":"here"}`)
 	require.NoError(t, err)
-	require.Len(t, writer.opens, 1)
+	require.Len(t, f.writer.opens, 1)
 }
 
 // A binary file has no hunks at all, so there is no line for a comment to sit on.
 func TestPostReviewComment_RejectsABinaryFile(t *testing.T) {
-	review := &stubReviewReader{outline: []gitdomain.FileOutline{
-		{Path: "assets/logo.png", IsBinary: true},
-	}}
-	ts, writer, _ := reviewToolsetWithWriter(
-		t, "ws-a", &stubThreadReader{}, review, &stubThreadWriter{}, agenttools.NewIdempotency())
+	f := postOn(t, "ws-a", []gitdomain.FileOutline{{Path: "assets/logo.png", IsBinary: true}})
 
-	_, err := ts.Call(context.Background(), "post_review_comment", json.RawMessage(
-		`{"filePath":"assets/logo.png","startLine":1,"endLine":1,"side":"right","body":"nope"}`))
+	_, err := f.post(`{"filePath":"assets/logo.png","startLine":1,"endLine":1,"side":"right","body":"nope"}`)
 	require.Error(t, err)
-	require.Empty(t, writer.opens)
+	require.Empty(t, f.writer.opens)
+}
+
+// A hunk whose side is ABSENT (`@@ -1,2 +0,0 @@` gives that side start 0, span 0)
+// covers no lines, so nothing may anchor to it.
+func TestPostReviewComment_RejectsAnAnchorOnAnAbsentSide(t *testing.T) {
+	f := postOn(t, "ws-a", outlineWithHunk("src/gone.go", gitdomain.HunkShape{
+		OldStart: 1, OldLines: 2, NewStart: 0, NewLines: 0,
+	}))
+
+	_, err := f.post(`{"filePath":"src/gone.go","startLine":1,"endLine":1,"side":"right","body":"nope"}`)
+	require.Error(t, err)
+	require.Empty(t, f.writer.opens)
 }
 
 // The retry a dropped MCP response produces arrives on a NEW ToolSet, which is why
-// the dedup map is a dependency rather than ToolSet state — two ToolSets over one
-// Idempotency is exactly the production shape.
+// the dedup map is a dependency rather than ToolSet state.
 func TestPostReviewComment_IdempotencyKeyCollapsesARetry(t *testing.T) {
-	outline := outlineWithHunk("src/auth.go", gitdomain.HunkShape{
-		OldStart: 40, OldLines: 10, NewStart: 40, NewLines: 10,
-	})
-	writer := &stubThreadWriter{}
-	idem := agenttools.NewIdempotency()
-	args := json.RawMessage(
-		`{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak","idempotencyKey":"leak-in-auth"}`)
-
-	first, _, _ := reviewToolsetWithWriter(
-		t, "ws-a", &stubThreadReader{}, &stubReviewReader{outline: outline}, writer, idem)
-	out1, err := first.Call(context.Background(), "post_review_comment", args)
+	args := `{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak","idempotencyKey":"leak-in-auth"}`
+	first := postOn(t, "ws-a", authHunk())
+	out1, err := first.post(args)
 	require.NoError(t, err)
 
-	second, _, _ := reviewToolsetWithWriter(
-		t, "ws-a", &stubThreadReader{}, &stubReviewReader{outline: outline}, writer, idem)
-	out2, err := second.Call(context.Background(), "post_review_comment", args)
+	out2, err := first.retryOn(t, "ws-a", authHunk()).post(args)
 	require.NoError(t, err)
 
-	require.Len(t, writer.opens, 1, "a retry with the same key must open exactly one thread")
+	require.Len(t, first.writer.opens, 1, "a retry with the same key must open exactly one thread")
 	require.Contains(t, out1, "thread-1")
 	require.Contains(t, out2, "thread-1", "the retry must report the thread the first call opened")
 }
 
+// A retry that reuses a key but moves the lines wrote nothing, so it must be
+// answered with the anchor that IS stored — echoing its own arguments would report a
+// comment at a location no thread is anchored to.
+func TestPostReviewComment_ARetryReportsTheStoredAnchorNotItsArguments(t *testing.T) {
+	first := postOn(t, "ws-a", authHunk())
+	_, err := first.post(
+		`{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak","idempotencyKey":"k"}`)
+	require.NoError(t, err)
+
+	out, err := first.retryOn(t, "ws-a", authHunk()).post(
+		`{"filePath":"src/auth.go","startLine":47,"endLine":48,"side":"right","body":"leak","idempotencyKey":"k"}`)
+	require.NoError(t, err)
+
+	require.Len(t, first.writer.opens, 1)
+	require.Contains(t, out, "42-42", "the reply must describe the thread that exists")
+	require.NotContains(t, out, "47-48", "reporting the unstored arguments would be a lie")
+}
+
 func TestPostReviewComment_DifferentKeysOpenDifferentThreads(t *testing.T) {
-	outline := outlineWithHunk("src/auth.go", gitdomain.HunkShape{
-		OldStart: 40, OldLines: 10, NewStart: 40, NewLines: 10,
-	})
-	writer := &stubThreadWriter{}
-	ts, _, _ := reviewToolsetWithWriter(
-		t, "ws-a", &stubThreadReader{}, &stubReviewReader{outline: outline},
-		writer, agenttools.NewIdempotency())
+	f := postOn(t, "ws-a", authHunk())
 
-	_, err := ts.Call(context.Background(), "post_review_comment", json.RawMessage(
-		`{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"one","idempotencyKey":"finding-a"}`))
+	_, err := f.post(
+		`{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"one","idempotencyKey":"finding-a"}`)
 	require.NoError(t, err)
-	_, err = ts.Call(context.Background(), "post_review_comment", json.RawMessage(
-		`{"filePath":"src/auth.go","startLine":43,"endLine":43,"side":"right","body":"two","idempotencyKey":"finding-b"}`))
+	_, err = f.post(
+		`{"filePath":"src/auth.go","startLine":43,"endLine":43,"side":"right","body":"two","idempotencyKey":"finding-b"}`)
 	require.NoError(t, err)
 
-	require.Len(t, writer.opens, 2)
+	require.Len(t, f.writer.opens, 2)
+	require.Len(t, f.broadcast.frames, 2)
 }
 
 // Keys are scoped by workspace: two agents reviewing two branches will invent the
 // same obvious key, and the second finding must not be swallowed as a retry of the
 // first. ws-a and ws-a1 are sibling review surfaces in the fixture tree.
 func TestPostReviewComment_SameKeyInTwoWorkspacesDoesNotCollide(t *testing.T) {
-	outline := outlineWithHunk("src/auth.go", gitdomain.HunkShape{
-		OldStart: 40, OldLines: 10, NewStart: 40, NewLines: 10,
-	})
-	writer := &stubThreadWriter{}
-	idem := agenttools.NewIdempotency()
-	args := json.RawMessage(
-		`{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak","idempotencyKey":"leak-in-auth"}`)
-
-	onA, _, _ := reviewToolsetWithWriter(
-		t, "ws-a", &stubThreadReader{}, &stubReviewReader{outline: outline}, writer, idem)
-	_, err := onA.Call(context.Background(), "post_review_comment", args)
+	args := `{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak","idempotencyKey":"leak-in-auth"}`
+	onA := postOn(t, "ws-a", authHunk())
+	_, err := onA.post(args)
 	require.NoError(t, err)
 
-	onA1, _, _ := reviewToolsetWithWriter(
-		t, "ws-a1", &stubThreadReader{}, &stubReviewReader{outline: outline}, writer, idem)
-	_, err = onA1.Call(context.Background(), "post_review_comment", args)
+	_, err = onA.retryOn(t, "ws-a1", authHunk()).post(args)
 	require.NoError(t, err)
 
-	require.Len(t, writer.opens, 2, "the same key in a different workspace is a different finding")
-	require.Equal(t, "ws-a", writer.opens[0].WsID)
-	require.Equal(t, "ws-a1", writer.opens[1].WsID)
+	require.Len(t, onA.writer.opens, 2, "the same key in a different workspace is a different finding")
+	require.Equal(t, "ws-a", onA.writer.opens[0].WsID)
+	require.Equal(t, "ws-a1", onA.writer.opens[1].WsID)
 }
 
 // No key means no dedup: a model that omits it gets a thread per call.
 func TestPostReviewComment_WithoutAKeyEveryCallOpensAThread(t *testing.T) {
-	outline := outlineWithHunk("src/auth.go", gitdomain.HunkShape{
-		OldStart: 40, OldLines: 10, NewStart: 40, NewLines: 10,
-	})
-	writer := &stubThreadWriter{}
-	ts, _, _ := reviewToolsetWithWriter(
-		t, "ws-a", &stubThreadReader{}, &stubReviewReader{outline: outline},
-		writer, agenttools.NewIdempotency())
-	args := json.RawMessage(
-		`{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak"}`)
+	f := postOn(t, "ws-a", authHunk())
+	args := `{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak"}`
 
-	_, err := ts.Call(context.Background(), "post_review_comment", args)
+	_, err := f.post(args)
 	require.NoError(t, err)
-	_, err = ts.Call(context.Background(), "post_review_comment", args)
+	_, err = f.post(args)
 	require.NoError(t, err)
 
-	require.Len(t, writer.opens, 2)
+	require.Len(t, f.writer.opens, 2)
+	require.Len(t, f.broadcast.frames, 2)
 }
 
 // A failed write must not be remembered as done, or the retry the key exists for
 // would return success having stored nothing.
 func TestPostReviewComment_AFailedWriteIsNotRemembered(t *testing.T) {
-	outline := outlineWithHunk("src/auth.go", gitdomain.HunkShape{
-		OldStart: 40, OldLines: 10, NewStart: 40, NewLines: 10,
-	})
-	writer := &stubThreadWriter{err: errNotFoundForTest}
-	idem := agenttools.NewIdempotency()
-	args := json.RawMessage(
-		`{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak","idempotencyKey":"k"}`)
+	args := `{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak","idempotencyKey":"k"}`
+	f := postOn(t, "ws-a", authHunk())
+	f.writer.err = errNotFoundForTest
 
-	ts, _, _ := reviewToolsetWithWriter(
-		t, "ws-a", &stubThreadReader{}, &stubReviewReader{outline: outline}, writer, idem)
-	_, err := ts.Call(context.Background(), "post_review_comment", args)
+	_, err := f.post(args)
 	require.Error(t, err)
+	require.Empty(t, f.broadcast.frames, "nothing was stored, so nothing may be announced")
 
-	writer.err = nil
-	retry, _, _ := reviewToolsetWithWriter(
-		t, "ws-a", &stubThreadReader{}, &stubReviewReader{outline: outline}, writer, idem)
-	out, err := retry.Call(context.Background(), "post_review_comment", args)
+	f.writer.err = nil
+	out, err := f.retryOn(t, "ws-a", authHunk()).post(args)
 	require.NoError(t, err)
 	require.Contains(t, out, "thread-1")
-	require.Len(t, writer.opens, 1)
+	require.Len(t, f.writer.opens, 1)
+	require.Len(t, f.broadcast.frames, 1)
+}
+
+// The store error must not be double-prefixed with the package name on its way to
+// the model.
+func TestPostReviewComment_ErrorNamesThePackageOnce(t *testing.T) {
+	f := postOn(t, "ws-a", authHunk())
+	f.writer.err = errNotFoundForTest
+
+	_, err := f.post(`{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak"}`)
+	require.Error(t, err)
+	require.Equal(t, 1, strings.Count(err.Error(), "agenttools:"), "got %q", err.Error())
 }
 
 func TestPostReviewComment_RejectsBadArguments(t *testing.T) {
-	outline := outlineWithHunk("src/auth.go", gitdomain.HunkShape{
-		OldStart: 40, OldLines: 10, NewStart: 40, NewLines: 10,
-	})
 	cases := map[string]string{
 		"unknown side":  `{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"middle","body":"x"}`,
 		"missing side":  `{"filePath":"src/auth.go","startLine":42,"endLine":42,"body":"x"}`,
@@ -528,28 +730,38 @@ func TestPostReviewComment_RejectsBadArguments(t *testing.T) {
 	}
 	for name, args := range cases {
 		t.Run(name, func(t *testing.T) {
-			ts, writer, _ := reviewToolsetWithWriter(
-				t, "ws-a", &stubThreadReader{}, &stubReviewReader{outline: outline},
-				&stubThreadWriter{}, agenttools.NewIdempotency())
-			_, err := ts.Call(context.Background(), "post_review_comment", json.RawMessage(args))
+			f := postOn(t, "ws-a", authHunk())
+			_, err := f.post(args)
 			require.Error(t, err)
-			require.Empty(t, writer.opens)
+			require.Empty(t, f.writer.opens)
+			require.Empty(t, f.broadcast.frames)
 		})
 	}
 }
 
 // post_review_comment is the first WRITE tool, so its fail-closed wiring is worth
-// asserting directly: with no outline reader it cannot validate an anchor, and with
-// no dedup map a retry would duplicate a finding. Either way it must not exist.
+// asserting directly: with no outline reader it cannot validate an anchor, with no
+// dedup map a retry would duplicate a finding, and with no broadcaster the finding
+// never reaches the pane the user is watching. Any of those and it must not exist.
 func TestPostReviewComment_NotAdvertisedWithoutItsDependencies(t *testing.T) {
-	outline := outlineWithHunk("a.go", gitdomain.HunkShape{NewStart: 1, NewLines: 2})
-	cases := map[string]agenttools.Deps{
-		"no review reader": {Review: nil, ThreadWrites: &stubThreadWriter{}, Idempotency: agenttools.NewIdempotency()},
-		"no thread writer": {Review: &stubReviewReader{outline: outline}, ThreadWrites: nil, Idempotency: agenttools.NewIdempotency()},
-		"no dedup map":     {Review: &stubReviewReader{outline: outline}, ThreadWrites: &stubThreadWriter{}, Idempotency: nil},
+	full := func() agenttools.Deps {
+		return agenttools.Deps{
+			Review:          &stubReviewReader{outline: authHunk()},
+			ThreadWrites:    &stubThreadWriter{},
+			Idempotency:     agenttools.NewIdempotency(),
+			ThreadBroadcast: (&spyThreadBroadcast{}).fn(),
+		}
 	}
-	for name, deps := range cases {
+	cases := map[string]func(*agenttools.Deps){
+		"no review reader": func(d *agenttools.Deps) { d.Review = nil },
+		"no thread writer": func(d *agenttools.Deps) { d.ThreadWrites = nil },
+		"no dedup map":     func(d *agenttools.Deps) { d.Idempotency = nil },
+		"no broadcaster":   func(d *agenttools.Deps) { d.ThreadBroadcast = nil },
+	}
+	for name, drop := range cases {
 		t.Run(name, func(t *testing.T) {
+			deps := full()
+			drop(&deps)
 			m, err := agenttools.NewTokenMinter()
 			require.NoError(t, err)
 			deps.Resolver = agenttools.NewResolver(m,

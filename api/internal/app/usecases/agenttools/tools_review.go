@@ -30,6 +30,26 @@ type ThreadReader interface {
 	Get(ctx context.Context, id string) (domain.ReviewThread, error)
 }
 
+// ThreadBroadcast announces a newly written review thread to connected clients.
+//
+// It exists because the review-thread repository does NOT fan out: its
+// store.BroadcastFunc is wired to a no-op, and the only producer of /threads
+// WebSocket frames is the HTTP handler pushing a DTO it built from the request
+// path. An agent write bypasses that handler entirely, so without this port a
+// posted finding is durably stored and completely invisible until the user
+// remounts the review pane — which defeats the point of the tool.
+//
+// It takes the DOMAIN aggregate plus the owning project and repo ids, never a
+// wire DTO: the /threads stream filters on projectId, repoId and wsId, and the
+// aggregate carries only WsID, so the ids have to come from the caller's resolved
+// workspace. Converting to the DTO is the wiring layer's job — a usecase must not
+// import the api layer's wire types.
+type ThreadBroadcast func(
+	thread domain.ReviewThread,
+	projectID string,
+	repoID string,
+)
+
 // ThreadWriter is the write half of the review-thread port: opening a thread,
 // replying to one, and resolving it. Task 12 is the first to implement and call
 // it; it is declared here so Deps.ThreadWrites has a stable shape across both
@@ -53,11 +73,13 @@ type ThreadWriter interface {
 // own dependencies: a nil port means the tool that needs it is simply not
 // advertised.
 //
-// post_review_comment needs three of them. Review is not optional for it — a
-// comment is only posted after its anchor is checked against the diff geometry,
-// so with no outline reader the tool must not exist at all rather than write
-// unvalidated anchors. Idempotency is not optional either: without it a retried
-// post would silently duplicate a finding.
+// post_review_comment needs four of them, and not one is optional. Review: a
+// comment is only posted after its anchor is checked against the diff geometry, so
+// with no outline reader the tool must not exist at all rather than write
+// unvalidated anchors. Idempotency: without it a retried post silently duplicates
+// a finding. ThreadBroadcast: without it the comment never reaches an open review
+// pane, and a tool whose whole purpose is to put a finding in front of the user
+// is worse than absent if it writes somewhere the user is not looking.
 func reviewTools(deps Deps) []toolDef {
 	var out []toolDef
 	if deps.Threads != nil {
@@ -66,10 +88,17 @@ func reviewTools(deps Deps) []toolDef {
 	if deps.Review != nil {
 		out = append(out, getReviewScopeTool(deps))
 	}
-	if deps.Review != nil && deps.ThreadWrites != nil && deps.Idempotency != nil {
+	if canPostReviewComment(deps) {
 		out = append(out, postReviewCommentTool(deps))
 	}
 	return out
+}
+
+func canPostReviewComment(deps Deps) bool {
+	return deps.Review != nil &&
+		deps.ThreadWrites != nil &&
+		deps.Idempotency != nil &&
+		deps.ThreadBroadcast != nil
 }
 
 func listReviewThreadsTool(deps Deps) toolDef {
@@ -200,9 +229,13 @@ func postReviewComment(
 	if strings.TrimSpace(in.Body) == "" {
 		return "", fmt.Errorf("agenttools: post_review_comment: body must not be empty")
 	}
-	// commit="" is the whole branch scope, the same diff get_review_scope reports
-	// and the same one the review UI renders — so an anchor accepted here is an
-	// anchor the user will actually see code beside.
+	// commit="" is the whole BRANCH scope — the same diff get_review_scope reports,
+	// and the widest one, so an anchor accepted here is in the branch diff. A user
+	// viewing a single commit (the review routes take ?sha=) sees narrower geometry,
+	// so a branch-valid anchor can still fall outside the view they happen to be on.
+	// c.Workspace.ID is the caller's OWN workspace, resolved from its runner: the
+	// anchor is checked against the diff the comment will be attached to, never
+	// another workspace's.
 	outline, err := deps.Review.GetOutline(ctx, c.Workspace.ID, "")
 	if err != nil {
 		return "", fmt.Errorf("agenttools: post_review_comment: outline: %w", err)
@@ -210,7 +243,7 @@ func postReviewComment(
 	if err := validateAnchor(outline, in.FilePath, in.StartLine, in.EndLine, side); err != nil {
 		return "", err
 	}
-	id, err := deps.Idempotency.OpenOnce(
+	thread, created, err := deps.Idempotency.OpenOnce(
 		ctx,
 		deps.ThreadWrites,
 		in.IdempotencyKey,
@@ -220,9 +253,17 @@ func postReviewComment(
 	if err != nil {
 		return "", fmt.Errorf("agenttools: post_review_comment: %w", err)
 	}
+	// Only a real write is announced. A dedup hit changed nothing, so a frame for it
+	// would tell every connected client to re-render a thread it already has.
+	if created {
+		deps.ThreadBroadcast(thread.NormalizedMessages(), c.Workspace.ProjectID, c.Workspace.RepoID)
+	}
+	// The anchor is read back off the STORED thread, not off the arguments: a retry
+	// that reuses a key with different lines wrote nothing, and echoing its own
+	// arguments would report a comment at a location no thread is anchored to.
 	return fmt.Sprintf(
 		"Posted review comment %s on %s:%d-%d (%s side).",
-		id, in.FilePath, in.StartLine, in.EndLine, side,
+		thread.ID, thread.FilePath, thread.StartLine, thread.EndLine, thread.Side,
 	), nil
 }
 
@@ -253,10 +294,16 @@ func openInputFor(
 	}
 }
 
-// authorOf attributes the finding to the vendor CLI that reported it, so the
-// review UI can label it beside the user's own comments. A runner with no
-// provider recorded still gets a non-empty author, because a blank one renders as
-// an unnamed speaker in the thread.
+// authorOf attributes the finding to the vendor CLI that reported it.
+//
+// Where it is actually read today is the AGENT-facing view: renderThreads prints
+// "<author> (agent)", so a second agent addressing review comments can tell which
+// CLI left which finding. The review UI currently labels every isAgent message
+// "Agent" and discards the author, so this does not yet reach the user's eye —
+// storing it is what makes attributing them possible without a data migration.
+//
+// A runner with no provider recorded still gets a non-empty author, because a
+// blank one renders as an unnamed speaker.
 func authorOf(c Caller) string {
 	if c.ProviderID == "" {
 		return "agent"
@@ -299,6 +346,9 @@ func checkAnchorRange(start, end int) error {
 // A file matches on either path because a rename carries both: Path is the new
 // name the review addresses it by, OldPath the name it had on the base side.
 //
+// A binary file is rejected by the hunk loop finding nothing to match: git emits no
+// `@@` headers for one, so its Hunks slice is empty.
+//
 // A file whose outline is partial (its hunk count ran past the collection cap) can
 // still refuse a legitimate anchor past the cap. That is the safe direction: the
 // model is told to re-read the scope, rather than the user being shown a comment
@@ -328,6 +378,11 @@ func validateAnchor(
 	)
 }
 
+// anchorInAnyHunk requires the WHOLE range to fall inside one hunk. lo+span-1 is
+// the hunk's last line, so a hunk at NewStart 40 spanning 10 lines covers 40..49
+// inclusive: 39 and 50 are outside it. A side that is absent (`@@ -1,2 +0,0 @@`
+// gives span 0) has an empty range and matches nothing, since checkAnchorRange has
+// already established start <= end.
 func anchorInAnyHunk(
 	hunks []gitdomain.HunkShape,
 	start, end int,
@@ -338,7 +393,7 @@ func anchorInAnyHunk(
 		if side == domain.ReviewSideLeft {
 			lo, span = h.OldStart, h.OldLines
 		}
-		if span > 0 && start >= lo && end <= lo+span-1 {
+		if start >= lo && end <= lo+span-1 {
 			return true
 		}
 	}

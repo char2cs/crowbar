@@ -92,7 +92,7 @@ func newContainerDeps(
 func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
 
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
 	require.NoError(t, err)
 
 	assert.NotNil(t, c.Project)
@@ -121,12 +121,12 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 // running daemon's Deps carries.
 func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
 	require.NoError(t, err)
 
 	minter, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
-	deps, err := usecases.NewAgentToolDepsForTest(minter, repos, c.BranchReview)
+	deps, err := usecases.NewAgentToolDepsForTest(minter, repos, c.BranchReview, noopThreadBroadcast)
 	require.NoError(t, err)
 	deps.Chats = c.Agent
 
@@ -147,17 +147,26 @@ func TestContainer_AgentToolDeps_RefusesAPartialSurface(t *testing.T) {
 	repos, _, _ := newContainerDeps(t)
 	minter, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
+	review := stubReviewReaderForContainer{}
 
-	_, err = usecases.NewAgentToolDepsForTest(minter, repos, nil)
-	require.Error(t, err)
+	_, err = usecases.NewAgentToolDepsForTest(minter, repos, nil, noopThreadBroadcast)
+	require.Error(t, err, "no review reader")
 
-	_, err = usecases.NewAgentToolDepsForTest(nil, repos, stubReviewReaderForContainer{})
-	require.Error(t, err)
+	_, err = usecases.NewAgentToolDepsForTest(minter, repos, review, nil)
+	require.Error(t, err, "no thread broadcaster")
+
+	_, err = usecases.NewAgentToolDepsForTest(nil, repos, review, noopThreadBroadcast)
+	require.Error(t, err, "no token minter")
 
 	bare := &repositories.Container{}
-	_, err = usecases.NewAgentToolDepsForTest(minter, bare, stubReviewReaderForContainer{})
-	require.Error(t, err)
+	_, err = usecases.NewAgentToolDepsForTest(minter, bare, review, noopThreadBroadcast)
+	require.Error(t, err, "no repository stores")
 }
+
+// noopThreadBroadcast stands in for the app layer's hub adapter. These tests build
+// the usecases container without the api layer, and what the fan-out DOES is proved
+// in the agenttools package; here it only has to be non-nil so the wiring is complete.
+func noopThreadBroadcast(_ domain.ReviewThread, _, _ string) {}
 
 type stubReviewReaderForContainer struct{}
 
@@ -186,7 +195,7 @@ func (stubReviewReaderForContainer) GetOutline(
 
 func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
 	require.NoError(t, err)
 
 	dir := t.TempDir()
@@ -205,7 +214,7 @@ func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 
 func TestContainer_Import_ResolvesDefaultBranchViaRealGit(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
 	require.NoError(t, err)
 
 	root := t.TempDir()
