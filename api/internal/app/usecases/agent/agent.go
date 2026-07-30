@@ -553,10 +553,33 @@ func (u *Usecase) displace(
 // the turn's CLI is gone (dead, or displaced and dying) and no successor has taken the chat
 // over, so the turn_stop hook that would have closed it is never coming.
 //
-// The guards are all "is there still someone whose turn this is?": a chat somebody else is
-// now on (a provider switch spawns the incoming CLI before the outgoing one has fallen
-// over) keeps ITS turn; a chat that no longer exists is not written to at all; and a chat
-// that is not Working has nothing to close.
+// The guard here is the one thing only THIS layer knows: "is there still someone whose turn
+// this is?" — a chat somebody else is now on (a provider switch spawns the incoming CLI
+// before the outgoing one has fallen over) keeps ITS turn. An empty chatID means NOWHERE — a
+// runner that is already displaced — and nowhere is never written to.
+//
+// IT DOES NOT ASK WHETHER THE CHAT IS WORKING, and that omission is the fix for a wedge that
+// shipped. It used to, reading domain.AgentChat.Working via GetChat and returning early when
+// it said idle — but GetChat serves the READ MODEL, which an ASYNCHRONOUS projection folds,
+// while the turn that opened is durable in the event log the instant StartTurn returns. So
+// the guard was a read-then-act against state that lags the truth it decides on: the outgoing
+// CLI's last prompt lands microseconds before the displace, the projection has not caught up,
+// the guard reads a stale false, and the turn is closed by NOTHING — the chat spins forever,
+// and the workspace's whole overlay spins with it. Measured at roughly 1 displace in 7 on an
+// idle machine, and it is not self-healing: only the user resuming that chat and completing
+// another turn ever clears it.
+//
+// The question was not wrong, only asked in the wrong place. It is now asked inside the
+// command (commands.StopTurn.Validate), which asynx evaluates against the authoritative fold
+// of the event log and commits atomically with the append at that same version — so an idle
+// chat still emits no event, and a turn opening concurrently collides on the version and is
+// re-validated by the OCC retry. There is no window left to lose, because there is no longer
+// a gap between the question and the act.
+//
+// ErrValidation is therefore ordinary and expected: it is the command saying "there is
+// nothing here to close", or "this chat is gone" (PurgeChat Forgets the chat before retiring
+// its runners) — the same benign signal displace already reads it as for an already-exited
+// runner.
 //
 // KNOWN ASYMMETRY, deliberately not fixed. On the SWITCH path this closes the outgoing CLI's
 // turn (the chat is momentarily empty when we run). On the EVICTION path it does not: the
@@ -568,9 +591,6 @@ func (u *Usecase) displace(
 // would mean asserting "the evicted CLI is not working" about a process that is still alive
 // and that we have merely asked to leave — a liveness claim, which is precisely what this
 // model refuses to make. A visible spinner that resolves beats an invented fact.
-//
-// An empty chatID means NOWHERE — a runner that is already displaced — and nowhere is never
-// looked up.
 func (u *Usecase) closeAbandonedTurn(
 	ctx context.Context,
 	chatID string,
@@ -580,16 +600,6 @@ func (u *Usecase) closeAbandonedTurn(
 	}
 	if _, err := u.runners.LiveRunnerForChat(ctx, chatID); err == nil {
 		return // someone else is on this chat now: its turn is not ours to close
-	}
-	chat, err := u.chats.GetChat(ctx, chatID)
-	if err != nil {
-		if !errors.Is(err, agentchat.ErrNotFound) {
-			slog.WarnContext(ctx, "agent: close abandoned turn: get chat", "chat_id", chatID, "err", err)
-		}
-		return
-	}
-	if !chat.Working {
-		return
 	}
 	// AbandonTurn, not StopTurn: the CLI is GONE, so it will never restate the level of
 	// async work it last reported outstanding, and a plain StopTurn would leave that
@@ -601,9 +611,11 @@ func (u *Usecase) closeAbandonedTurn(
 	// chat: measured against claude 2.1.212, a SIGKILL mid-background-work sends no
 	// SessionEnd and no final Stop — the last word is a turn_stop reporting work still
 	// running, and in an event-sourced aggregate that word outlives the restart.
-	if _, err := u.chats.AbandonTurn(ctx, chat.ID, time.Now()); err != nil {
-		slog.WarnContext(ctx, "agent: close abandoned turn: abandon turn", "chat_id", chatID, "err", err)
+	_, err := u.chats.AbandonTurn(ctx, chatID, time.Now())
+	if err == nil || errors.Is(err, asynxModels.ErrValidation) {
+		return
 	}
+	slog.WarnContext(ctx, "agent: close abandoned turn: abandon turn", "chat_id", chatID, "err", err)
 }
 
 // ReconcileRunnersOnBoot runs ONCE at startup. A PTY does not survive a daemon restart, so
