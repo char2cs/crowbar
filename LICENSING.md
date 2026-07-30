@@ -1,50 +1,52 @@
 # Licensing
 
-Crowbar is dual-licensed. You may use it under **either** of the following, at your option.
+Crowbar is free software under the [GNU Affero General Public License v3.0](LICENSE).
+That is the only licence it is offered under.
 
-SPDX: `AGPL-3.0-only OR LicenseRef-Commercial`
+SPDX: `AGPL-3.0-only`
 
 ---
 
-## 1. Open source — GNU AGPL v3.0
-
-The default. Crowbar is free software under the [GNU Affero General Public License v3.0](LICENSE).
+## What the AGPL gives you
 
 Use it, study it, modify it, and redistribute it freely — provided that anything you
 distribute, **or make available to others over a network**, is itself released under the
 AGPL with complete corresponding source.
 
-That network clause (AGPL § 13) is the part people miss. If you modify Crowbar and let
-anyone else interact with it remotely — a hosted instance, an internal service, a product
-built on top — you must offer them the source of your modified version.
+## The network clause (AGPL § 13)
 
-Running Crowbar privately, on your own machine, for your own work, triggers none of this.
+That clause is the part people miss. If you modify Crowbar and let anyone else interact
+with it remotely — a hosted instance, an internal service, a product built on top — you
+must offer those users the complete corresponding source of your modified version, under
+the same licence.
 
-## 2. Commercial license
-
-If the AGPL doesn't suit you, a commercial license is available. It grants the same rights
-without the copyleft obligations — no requirement to publish your modifications, and no
-source-disclosure duty for network users.
-
-You need a commercial license if you want to:
-
-- ship Crowbar, or a derivative of it, inside a closed-source product;
-- run a modified Crowbar as a hosted or internal network service without releasing your changes;
-- or otherwise distribute it without complying with the AGPL.
-
-Contact **[mateourru@gmail.com](mailto:mateourru@gmail.com)** to arrange one.
+The obligation attaches to *modifying* Crowbar and *letting others reach it over a
+network*. Running Crowbar privately, on your own machine, for your own work, triggers
+none of it. Neither does deploying an unmodified copy, though you still have to pass the
+licence along.
 
 ---
 
 ## Contributing
 
-Crowbar's copyright is held by a single author, which is what makes the dual license above
-possible: only the copyright holder may offer the software under terms other than the AGPL.
+Contributions are accepted under AGPL-3.0-only. By opening a pull request you are
+licensing your contribution to the project, and to everyone downstream, under that
+licence — the same terms as the rest of the tree.
 
-Accepting outside contributions without a Contributor License Agreement would forfeit that
-ability, because contributors would retain copyright in their own work and the project could
-no longer be relicensed as a whole. Any contribution process must therefore include a CLA
-assigning the necessary rights.
+You keep the copyright in your own work. No copyright assignment is asked for and no
+Contributor License Agreement is required, because nothing in the project depends on
+being able to relicense contributions later.
+
+---
+
+## History
+
+Crowbar is AGPL-3.0-only. The commercial option that was previously offered alongside
+the AGPL was retired on 2026-07-30. That is permanent rather than provisional: the
+Rust-native client is being built on GPL-3.0 components, which AGPL § 13 expressly
+permits combining with, and which are not ours to relicense.
+
+---
 
 ## Third-party components
 

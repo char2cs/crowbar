@@ -1,8 +1,7 @@
 # Third-Party Notices
 
-Crowbar itself is dual-licensed under [AGPL-3.0](LICENSE) or a commercial license
-(see [LICENSING.md](LICENSING.md)). It redistributes the third-party components below,
-each under its own license.
+Crowbar itself is licensed under [AGPL-3.0-only](LICENSE) (see [LICENSING.md](LICENSING.md)).
+It redistributes the third-party components below, each under its own license.
 
 Runtime dependencies installed from package registries (npm, Go modules, crates.io)
 are governed by the licenses shipped with those packages and are not restated here.

@@ -149,9 +149,9 @@ Crowbar follows the Valve-universe naming schema used across the rabbytesoftware
 
 ## License
 
-Crowbar is dual-licensed: [**AGPL-3.0**](LICENSE) or a **commercial license**.
+Crowbar is [**AGPL-3.0-only**](LICENSE).
 
-Use it, modify it, self-host it — freely, under the AGPL. The catch is AGPL § 13: if you modify Crowbar and let others interact with it over a network, you have to publish your changes. Running it on your own machine for your own work triggers nothing. If that does not work for you, a commercial license removes the copyleft obligations — see [LICENSING.md](LICENSING.md).
+Use it, modify it, self-host it — freely. The catch is AGPL § 13: if you modify Crowbar and let others interact with it over a network, you have to publish your changes. Running it on your own machine for your own work triggers nothing. See [LICENSING.md](LICENSING.md).
 
 Third-party components keep their own licenses; see [NOTICE.md](NOTICE.md).
 

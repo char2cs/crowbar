@@ -2,7 +2,7 @@
   "name": "crowbar-web",
   "version": "0.0.0",
   "private": true,
-  "license": "AGPL-3.0-only OR LicenseRef-Commercial",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "provision:tree-sitter": "node scripts/provision-tree-sitter.mjs",

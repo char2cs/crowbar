@@ -7,7 +7,7 @@ This document details the technical architecture, stack decisions, and implement
 ## Repository Structure
 
 ```
-char2cs/crowbar                  # Main monorepo (FSL-1.1-MIT)
+char2cs/crowbar                  # Main monorepo (AGPL-3.0-only)
 ├── api/                         # Go backend
 ├── web/                         # React frontend
 ├── flows/                       # Default YAML flow definitions
@@ -325,4 +325,4 @@ The data model is multi-tenancy ready from day one:
 
 ## License
 
-FSL-1.1-MIT — free for personal and non-commercial use. Commercial use requires a license. Converts to MIT after 2 years. See LICENSE.
+AGPL-3.0-only. Free to use, modify, and self-host; modifications made available to others over a network must be published under the same licence (AGPL § 13). See LICENSE and LICENSING.md.

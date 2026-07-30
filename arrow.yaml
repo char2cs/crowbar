@@ -22,7 +22,7 @@ metadata:
     own managed git worktree, Claude Code and Codex are interchangeable mid-conversation, and
     the diff review — inline comment threads and PR status — lives in the same window as the
     agent that wrote the code.
-  license: "AGPL-3.0-only OR LicenseRef-Commercial"
+  license: "AGPL-3.0-only"
   url: "https://github.com/char2cs/crowbar"
   maintainers:
     - name: char2cs

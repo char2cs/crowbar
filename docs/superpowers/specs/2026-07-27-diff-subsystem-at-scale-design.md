@@ -118,7 +118,7 @@ worse.
 ## Approach
 
 Adopt **`@pierre/diffs`** (`diffs.com`, v1.2.12, Apache-2.0 — compatible with
-Crowbar's AGPL-3.0 side) as the sole diff renderer, and feed it through a
+Crowbar's AGPL-3.0-only licence) as the sole diff renderer, and feed it through a
 **windowed data path** that never materializes the whole diff.
 
 `@pierre/diffs` alone does not meet the bar: its `CodeViewItem` carries a fully

@@ -3,6 +3,7 @@ name = "crowbar-desktop"
 version = "0.0.0"
 description = "Crowbar Desktop"
 authors = ["Rabbyte Software"]
+license = "AGPL-3.0-only"
 edition = "2021"
 rust-version = "1.85"
 
