@@ -18,20 +18,35 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// stubThreadReader is the ThreadReader test double: it hands back a fixed
-// list and records the wsID it was last asked for, which is how the
-// caller-scoping tests prove a tool cannot be steered at another workspace.
+// stubThreadReader is the ThreadReader test double. It records the wsID it was
+// last asked for, which is how the caller-scoping tests prove a tool cannot be
+// steered at another workspace, and every id Get was asked for, which is how the
+// threadId tests prove a thread outside the caller's workspace is not merely
+// refused but never read.
+//
+// ListByWorkspace FILTERS by WsID rather than handing back the whole fixture,
+// because that is the one property the threadId path leans on: it looks a thread
+// up in the caller's own list, so a stub that ignored wsID would hand it a
+// sibling's thread and the scope test would pass for the wrong reason.
 type stubThreadReader struct {
 	list     []domain.ReviewThread
 	lastWsID string
+	gets     []string
 }
 
 func (s *stubThreadReader) ListByWorkspace(_ context.Context, wsID string) ([]domain.ReviewThread, error) {
 	s.lastWsID = wsID
-	return s.list, nil
+	out := make([]domain.ReviewThread, 0, len(s.list))
+	for _, t := range s.list {
+		if t.WsID == wsID {
+			out = append(out, t)
+		}
+	}
+	return out, nil
 }
 
 func (s *stubThreadReader) Get(_ context.Context, id string) (domain.ReviewThread, error) {
+	s.gets = append(s.gets, id)
 	for _, t := range s.list {
 		if t.ID == id {
 			return t, nil

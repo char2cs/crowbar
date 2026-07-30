@@ -138,6 +138,7 @@ func listReviewThreadsTool(deps Deps) toolDef {
 		schema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
+				"threadId":{"type":"string","description":"Render just this one thread, with every message it has. Use it when a listing said replies were not shown. Ids come from this tool's own listing."},
 				"includeResolved":{"type":"boolean","description":"Include already-resolved threads. Defaults to false (unresolved only)."},
 				"offset":{"type":"integer","minimum":0,"description":"Index of the first thread to return. Defaults to 0; the reply says what to pass next."},
 				"limit":{"type":"integer","minimum":1,"description":"How many threads to return. Defaults to 20, capped at 50."}
@@ -151,18 +152,20 @@ func listReviewThreadsTool(deps Deps) toolDef {
 }
 
 type listReviewThreadsArgs struct {
-	IncludeResolved bool `json:"includeResolved"`
-	Offset          int  `json:"offset"`
-	Limit           int  `json:"limit"`
+	ThreadID        string `json:"threadId"`
+	IncludeResolved bool   `json:"includeResolved"`
+	Offset          int    `json:"offset"`
+	Limit           int    `json:"limit"`
 }
 
-// listReviewThreads renders ONE page of the caller's review threads.
+// listReviewThreads renders ONE page of the caller's review threads, or — when
+// threadId names one of them — that single thread with every message.
 //
-// offset and limit are the only arguments a model can widen anything with, and
-// neither reaches past the caller: the query below is still keyed on
-// c.Workspace.ID alone, so a page is a slice of what the caller could already
-// see, never a way to see more of it. Paging must not become a scope argument by
-// the back door.
+// threadId, offset and limit are the only arguments a model can widen anything
+// with, and none reaches past the caller: the query below is still keyed on
+// c.Workspace.ID alone, so every answer is a slice of what the caller could
+// already see, never a way to see more of it. Neither paging nor naming a thread
+// may become a scope argument by the back door.
 //
 // The whole list is fetched and then sliced rather than pushed into the store's
 // query, because filtering resolved threads out happens in Go — pushing an
@@ -185,6 +188,25 @@ func listReviewThreads(
 	if err != nil {
 		return "", fmt.Errorf("agenttools: list_review_threads: %w", err)
 	}
+	// A FILTER over the list the tool would have rendered anyway, deliberately not
+	// a lookup by id.
+	//
+	// Threads.Get would be the shorter route and is what reply_to_review_thread
+	// uses, but it is a route that READS a row before deciding whether the caller
+	// may have it — an id names a thread in SOME workspace, so a bug or a later
+	// edit in the check that follows leaks a foreign thread. Filtering the
+	// caller's own list cannot: a thread outside c.Workspace.ID is not in the
+	// slice, so it is not merely refused, it is never read at all. The narrowing
+	// this costs is that a DESCENDANT workspace's thread — which the caller may
+	// reply to — is not readable in full here; what list_review_threads shows has
+	// always been the caller's own workspace, and threadId does not change that.
+	//
+	// It runs BEFORE the resolved filter: a named thread is rendered whatever its
+	// state, because a model that just resolved a thread and wants to re-read it
+	// should not have to also know to pass includeResolved.
+	if in.ThreadID != "" {
+		return oneReviewThread(threads, in.ThreadID)
+	}
 	if !in.IncludeResolved {
 		threads = unresolvedThreads(threads)
 	}
@@ -201,6 +223,35 @@ func listReviewThreads(
 		return note, nil
 	}
 	return note + renderThreads(threads[w.start:w.end]), nil
+}
+
+// oneReviewThread renders the named thread in full, or refuses.
+//
+// The refusal deliberately reads the same for a thread that does not exist and a
+// thread that exists in somebody else's workspace, because those two are the same
+// answer here: neither is in this caller's review. Distinguishing them would turn
+// the argument into an existence oracle over every review thread on the machine,
+// and would tell a model something it has no move to act on either way.
+//
+// The lead line states the message count for the same reason every other note
+// does: a rendered thread and a COMPLETE rendered thread are the same bytes to a
+// model unless the output says which it is holding.
+func oneReviewThread(
+	threads []domain.ReviewThread,
+	threadID string,
+) (string, error) {
+	for _, t := range threads {
+		if t.ID != threadID {
+			continue
+		}
+		return fmt.Sprintf(
+			"Showing thread %s in full: %d messages.\n", t.ID, len(t.Messages),
+		) + renderThread(t), nil
+	}
+	return "", fmt.Errorf(
+		"agenttools: list_review_threads: no review thread %q on this branch; "+
+			"call list_review_threads without threadId for the ids", threadID,
+	)
 }
 
 func unresolvedThreads(threads []domain.ReviewThread) []domain.ReviewThread {

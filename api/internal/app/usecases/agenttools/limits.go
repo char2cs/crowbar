@@ -61,6 +61,40 @@ const (
 	// and that is exactly the review where an agent needs the tool to stay usable.
 	defaultScopeFiles = 100
 	maxScopeFiles     = 300
+
+	// maxMessageBodyChars and maxTurnBodyChars cap ONE free-text body — a review
+	// message and a chat turn respectively.
+	//
+	// The count caps above bound how many ROWS a page has; without these, they
+	// bound nothing that matters, because every row carries an arbitrarily long
+	// agent-written markdown body. A full list_review_threads page is 20 threads ×
+	// up to maxThreadMessages bodies = 80 bodies, and at the several hundred
+	// characters a real finding runs to that page was 12-20k tokens — three to five
+	// times the budget the row counts were derived from.
+	//
+	// So each number is the SAME 16 KB page budget divided by that tool's own
+	// worst-case body count: 16384/80 ≈ 200 for a review message, 16384/20 ≈ 800
+	// for a chat turn. The two differ by 4× because the surfaces do: a chat turn is
+	// model prose and there are twenty of them, a review message is one point in an
+	// argument and there can be eighty.
+	//
+	// 200 characters is about one full sentence, which is deliberately a HEADLINE
+	// rather than a whole finding. What makes that acceptable is that a review
+	// message is never the only copy of what it says: the anchor row names the file
+	// and lines, so an agent that needs more reads the code. Sizing the cap to hold
+	// a whole finding instead would mean sizing the page to 80 whole findings, which
+	// is the unbounded result this file exists to remove.
+	//
+	// Characters are counted in RUNES, not bytes: cutting a body mid-UTF-8-sequence
+	// would emit a replacement character into tool output that a model reads as
+	// content.
+	maxMessageBodyChars = 200
+	maxTurnBodyChars    = 800
+
+	// allThreadMessages is the message cap for the single-thread view — none. It is
+	// spelled rather than passed as a bare 0 because 0 read literally is "render no
+	// messages", the exact opposite of what that view is for.
+	allThreadMessages = 0
 )
 
 // window is the slice of a list one tool call renders, plus the total it was cut

@@ -4,6 +4,10 @@ package agenttools
 // renderer itself.
 var RenderThreadsForTest = renderThreads
 
+// RenderThreadForTest exposes renderThread — the single-thread view — for the
+// same reason RenderThreadsForTest exposes the list view.
+var RenderThreadForTest = renderThread
+
 // RenderWorkspacesForTest exposes renderWorkspaces for tests without exporting
 // the renderer itself.
 var RenderWorkspacesForTest = renderWorkspaces
@@ -31,4 +35,6 @@ const (
 	MaxChatLogTurnsForTest     = maxChatLogTurns
 	DefaultScopeFilesForTest   = defaultScopeFiles
 	MaxScopeFilesForTest       = maxScopeFiles
+	MaxMessageBodyCharsForTest = maxMessageBodyChars
+	MaxTurnBodyCharsForTest    = maxTurnBodyChars
 )
