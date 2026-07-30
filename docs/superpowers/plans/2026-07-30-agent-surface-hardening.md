@@ -61,6 +61,20 @@ Preferred shape: give `branchreview` an exported method that returns base **and*
 
 Keep `GetBase` on the interface; the agent surface may use the combined call.
 
+### Task A2b: Stop paying the xcrun shim on every git call
+
+**Measured in A1: `/usr/bin/git` is the xcrun shim and costs 11.37ms against 4.46ms for the real binary — ~2.5×.** At ~9 spawns per `get_review_scope` that is ~62ms of a ~116ms call spent before git starts, and it applies to **every git operation in the daemon**, not just the agent surface.
+
+Resolve the git binary once and exec it directly. `binpath.Resolve` already exists in the tree for exactly this class of problem (it is why a launchd-started daemon can find `claude`/`codex`), so this is applying an existing pattern, not inventing one.
+
+This touches every git caller, so treat it with care:
+- Resolve **once** (daemon start or first use), not per call. Cache it.
+- Fall back to `git` on PATH if resolution finds nothing — a machine without Xcode CLT, a Linux box, or a git installed somewhere unusual must keep working. Never fail a git call because resolution failed.
+- The resolved path must not be baked into anything persisted.
+- Re-run A1's benchmark and report the delta.
+
+This is the largest single win available and it benefits the whole app. Do it as its own commit so it can be reverted independently of the agent-surface work.
+
 ### Task A3: `list_workspaces` — one scan, not V
 
 `tools_context.go:79` calls `ChatReads.ListByWorkspace` per visible workspace, and each is a full table scan plus a JSON unmarshal per row. Hoist a single `ListChats()` outside the loop and bucket by `WorkspaceID` in Go. That is local to the tool and needs no repository change.
