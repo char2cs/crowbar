@@ -188,16 +188,18 @@ type GitEngine struct {
 	WorktreeListFn func(repoPath string) ([]gitengine.WorktreeEntry, error)
 
 	// Protected-branch managed-worktree provisioning fakes (project import).
-	Detached               []string          // worktree paths detached to HEAD
-	CheckedOut             []WorktreeAddCall // (path, branch) re-attach calls
-	WorktreeAdds           []WorktreeAddCall // (path, branch) worktrees materialised
-	WorktreeRemoves        []string          // worktree paths force-removed
-	FetchedRefs            []string          // branches fetched from origin (FetchRef)
-	FastForwardedBranches  []string          // branches fast-forwarded from origin (FastForwardBranch)
-	RemoteBranches         map[string]bool   // branch -> exists on origin live (default false)
-	RemoteTrackingBranches map[string]bool   // branch -> local refs/remotes/origin/<branch> present (default false)
-	RevParseShas           map[string]string // rev -> sha (default "")
-	DetachErr              error             // forces DetachWorktree to fail
+	Detached     []string          // worktree paths detached to HEAD
+	CheckedOut   []WorktreeAddCall // (path, branch) re-attach calls
+	WorktreeAdds []WorktreeAddCall // (path, branch) worktrees materialised, by EITHER add
+	//nolint:lll // the trailing note is the point: this log is the -B subset of WorktreeAdds.
+	WorktreeAddAtRefs      []WorktreeAddAtRefCall // the subset added AT a start ref (`git worktree add -B`)
+	WorktreeRemoves        []string               // worktree paths force-removed
+	FetchedRefs            []string               // branches fetched from origin (FetchRef)
+	FastForwardedBranches  []string               // branches fast-forwarded from origin (FastForwardBranch)
+	RemoteBranches         map[string]bool        // branch -> exists on origin live (default false)
+	RemoteTrackingBranches map[string]bool        // branch -> local refs/remotes/origin/<branch> present (default false)
+	RevParseShas           map[string]string      // rev -> sha (default "")
+	DetachErr              error                  // forces DetachWorktree to fail
 	// WorktreeAddErrByBranch forces WorktreeAdd to fail for specific branches.
 	WorktreeAddErrByBranch map[string]error
 	// Pruned records repo paths WorktreePrune was called on.
@@ -207,12 +209,25 @@ type GitEngine struct {
 	DeadRegistrations map[string]string
 	// FastForwardErr forces FastForwardBranch to fail (best-effort FF path).
 	FastForwardErr error
+	// UpstreamsSet records branches linked to origin/<branch> via SetUpstream.
+	UpstreamsSet []string
+	// SetUpstreamErr forces SetUpstream to fail (best-effort tracking path).
+	SetUpstreamErr error
 }
 
 // WorktreeAddCall records a fake WorktreeAdd invocation.
 type WorktreeAddCall struct {
 	Path   string
 	Branch string
+}
+
+// WorktreeAddAtRefCall records a `git worktree add -B <branch> <startRef>`, so a
+// test can assert the checkout started at ORIGIN's ref rather than at whatever
+// the local branch pointed to.
+type WorktreeAddAtRefCall struct {
+	Path     string
+	Branch   string
+	StartRef string
 }
 
 // NewGitEngine returns an empty GitEngine.
@@ -317,6 +332,42 @@ func (g *GitEngine) WorktreeAdd(
 	}
 	g.WorktreeAdds = append(g.WorktreeAdds, WorktreeAddCall{Path: worktreePath, Branch: branch})
 	return nil
+}
+
+// WorktreeAddAtRef records into the SAME WorktreeAdds log as WorktreeAdd and
+// honours the same per-branch error map: to a caller asserting "which branches
+// got a worktree, and where", the two are one outcome — only the start point
+// differs. Keeping them in one log is what lets the existing provisioning tests
+// stay agnostic about which of the two the production path chose.
+// SetUpstream records the branches linked back to origin/<branch>, so a test can
+// assert the tracking info `git worktree add -B` does not create itself was set.
+func (g *GitEngine) SetUpstream(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) error {
+	g.UpstreamsSet = append(g.UpstreamsSet, branch)
+	return g.SetUpstreamErr
+}
+
+func (g *GitEngine) WorktreeAddAtRef(
+	ctx context.Context,
+	repoPath string,
+	worktreePath string,
+	branch string,
+	startRef string,
+) (string, error) {
+	if err := g.WorktreeAddErrByBranch[branch]; err != nil {
+		return "", err
+	}
+	g.WorktreeAdds = append(g.WorktreeAdds, WorktreeAddCall{Path: worktreePath, Branch: branch})
+	g.WorktreeAddAtRefs = append(g.WorktreeAddAtRefs, WorktreeAddAtRefCall{
+		Path: worktreePath, Branch: branch, StartRef: startRef,
+	})
+	if sha, ok := g.RevParseShas[startRef]; ok {
+		return sha, nil
+	}
+	return "", nil
 }
 
 func (g *GitEngine) WorktreeRemove(

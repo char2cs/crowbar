@@ -145,12 +145,30 @@ type WorkSignal interface {
 // worktree hierarchy usecase, the repository store, the workspace error sink
 // that surfaces async-mutation failures on the entity, and the work signal
 // that drives the entity's Working overlay around async mutations.
+// RemoteRefs is the narrow git surface Import uses to refuse a branch that is
+// not on the remote synchronously, on the request path, instead of letting the
+// batch fail in the background where it has no entity to report through.
+type RemoteRefs interface {
+	// FetchPrune refreshes refs/remotes/origin/* so the check below is made
+	// against the remote as it is now, not as the clone last heard it.
+	FetchPrune(
+		ctx context.Context,
+		repoPath string,
+	) error
+	RemoteTrackingBranchExists(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) (bool, error)
+}
+
 type Handlers struct {
 	reader     Reader
 	hierarchy  Hierarchy
 	repos      Repos
 	lastErrors LastErrorSetter
 	working    WorkSignal
+	remote     RemoteRefs
 	// async tracks the detached runAsync ops so callers can block on their real
 	// completion instead of guessing with a sleep (see runAsync / WaitAsync).
 	async sync.WaitGroup
@@ -173,4 +191,16 @@ func New(
 		lastErrors: lastErrors,
 		working:    working,
 	}
+}
+
+// WithRemoteRefs wires the git surface Import validates branches against. A nil
+// arg leaves that validation off, which degrades to the pre-existing behaviour:
+// the batch runs and reports per-branch outcomes as placeholder rows.
+func (h *Handlers) WithRemoteRefs(
+	remote RemoteRefs,
+) *Handlers {
+	if remote != nil {
+		h.remote = remote
+	}
+	return h
 }

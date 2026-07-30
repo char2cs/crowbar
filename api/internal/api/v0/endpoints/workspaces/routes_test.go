@@ -179,6 +179,7 @@ func TestRegisterMountsRoutes(
 		stubRepos{},
 		stubLastErrors{},
 		stubWork{},
+		nil,
 		func(_ *gin.Context) { wsHit = true },
 		passthrough,
 	)

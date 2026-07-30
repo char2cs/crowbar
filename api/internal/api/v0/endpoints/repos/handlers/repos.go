@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -102,6 +103,14 @@ type WorkspaceReader interface {
 	List(ctx context.Context) ([]domain.Workspace, error)
 }
 
+// RemoteRefresher is the narrow git surface the Branches handler uses to make
+// its listing reflect the remote as it is now rather than as the clone last
+// heard it. It goes through the git engine (not a bare shell-out) so the fetch
+// takes the same per-clone lock every other git operation does.
+type RemoteRefresher interface {
+	FetchPrune(ctx context.Context, repoPath string) error
+}
+
 // BranchEntry is one item in the GET /v0/projects/:projectId/repos/:repoId/branches response.
 type BranchEntry struct {
 	Name         string `json:"name"`
@@ -157,6 +166,7 @@ type Handlers struct {
 	store       Store
 	provider    BranchProviderEngine
 	wsReader    WorkspaceReader
+	remote      RemoteRefresher
 	importer    RepoImporter
 	renamer     RepoRenamer
 	crowbarHome func() (string, error)
@@ -204,6 +214,19 @@ func NewWithDeps(
 		broadcast:   broadcast,
 		stat:        os.Stat,
 	}
+}
+
+// WithRemoteRefresher wires the git surface the Branches handler uses to
+// refresh origin before listing. A nil arg leaves the handler serving the
+// clone's cached remote-tracking refs (tests, and any wiring without a git
+// engine).
+func (h *Handlers) WithRemoteRefresher(
+	remote RemoteRefresher,
+) *Handlers {
+	if remote != nil {
+		h.remote = remote
+	}
+	return h
 }
 
 // WithImporter wires the full repo-import usecase that Create runs in the
@@ -767,11 +790,26 @@ func githubSlugFromURL(
 
 // Branches handles GET /v0/projects/:projectId/repos/:repoId/branches. Returns all remote branches
 // annotated with isProtected and hasWorkspace fields.
+//
+// It refreshes the remote-tracking refs FIRST. `git branch -r` reads only what
+// the clone already knows, and no other part of the daemon does a full fetch on
+// its own (OriginSyncManager refreshes a single subscribed protected branch;
+// Fetch is the user's Git-panel button) — so this list used to report the remote
+// as it stood at clone time: a teammate's branch pushed since the repo was
+// imported never appeared in the import picker, and a branch deleted on the
+// remote was offered forever. The refresh is best-effort: an offline machine
+// still gets the cached list rather than an error.
 func (h *Handlers) Branches(c *gin.Context) {
 	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil || repo == nil {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
+	}
+	if h.remote != nil {
+		if fErr := h.remote.FetchPrune(c.Request.Context(), repo.Path); fErr != nil {
+			slog.WarnContext(c.Request.Context(), "branches: could not refresh origin; listing cached remote-tracking refs",
+				"repo", repo.Name, "err", fErr)
+		}
 	}
 
 	// List remote branches via git branch -r
@@ -857,19 +895,27 @@ func (h *Handlers) PullRequests(c *gin.Context) {
 	libs.WriteQueryOK(c, links)
 }
 
-// parseRemoteBranches strips the "origin/" prefix from git branch -r output
-// and skips HEAD pointer lines.
+// parseRemoteBranches strips the "origin/" prefix from git branch -r output and
+// skips HEAD pointer lines.
+//
+// Only `origin/` refs are kept. `git branch -r` lists EVERY remote, and the old
+// cut-at-the-first-slash rule turned an `upstream/x` into a plain `x` the picker
+// offered as importable — a branch the import then resolved against `origin/x`,
+// which may be a different branch or none at all.
 func parseRemoteBranches(out string) []string {
 	var result []string
+	seen := map[string]bool{}
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.Contains(line, "->") {
 			continue
 		}
-		if idx := strings.Index(line, "/"); idx >= 0 {
-			line = line[idx+1:]
+		name, ok := strings.CutPrefix(line, "origin/")
+		if !ok || name == "" || seen[name] {
+			continue
 		}
-		result = append(result, line)
+		seen[name] = true
+		result = append(result, name)
 	}
 	return result
 }

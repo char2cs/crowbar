@@ -670,21 +670,62 @@ func TestImport_NoProtectedBranches_DefaultBranchLockedManagedWorktree(t *testin
 	assert.NotEqual(t, "/repoA", mainWs.WorktreePath, "the default branch gets a managed worktree, not the repo folder")
 }
 
-func TestImport_RemoteProtectedBranch_FetchedAndForkPointRecorded(t *testing.T) {
-	// A protected branch that exists on origin is fetched before being checked out
-	// into its managed worktree, and its fork point is recorded from RevParse.
+func TestImport_RemoteProtectedBranch_CheckedOutAtOriginRefAndForkPointRecorded(t *testing.T) {
+	// A protected branch that exists on origin is refreshed and then checked out
+	// AT origin/<branch> into its managed worktree, with the fork point recorded
+	// as the SHA that checkout resolved.
+	//
+	// The regression: it used to fast-forward via `git fetch origin <b>:<b>` and
+	// then check out the LOCAL ref. git rejects that fetch as non-fast-forward
+	// whenever the adopted folder's local <b> has diverged, and the rejection was
+	// only warned about — so the locked branch-tree root every imported branch
+	// nests under and diffs against sat on the user's stale commits.
 	_, _, ws, git, prov, uc := newImport(t)
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "feature", Head: "h1"}}
 	prov.Protected = []string{"release"}
-	git.RemoteBranches = map[string]bool{"release": true}
-	// Fork point is resolved via refs/heads/<branch> (not the bare name) to avoid
-	// tag-name precedence in git rev-parse.
-	git.RevParseShas = map[string]string{"refs/heads/release": "deadbeef"}
+	git.RemoteTrackingBranches = map[string]bool{"release": true}
+	git.RevParseShas = map[string]string{"origin/release": "deadbeef"}
 
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
 
-	assert.Contains(t, git.FastForwardedBranches, "release", "a remote protected branch is fast-forwarded before checkout")
+	assert.Contains(t, git.FetchedRefs, "release",
+		"a remote protected branch's origin ref is refreshed before checkout")
+	assert.NotContains(t, git.FastForwardedBranches, "release",
+		"the local branch ref must NOT be moved by a fetch git refuses when it is checked out")
+	require.Len(t, git.WorktreeAddAtRefs, 1,
+		"a branch on origin must be checked out AT origin's ref, not at the local ref")
+	assert.Equal(t, "release", git.WorktreeAddAtRefs[0].Branch)
+	assert.Equal(t, "origin/release", git.WorktreeAddAtRefs[0].StartRef)
+
+	var release *domain.Workspace
+	for i := range ws.Created {
+		if ws.Created[i].Branch == "release" {
+			release = &ws.Created[i]
+		}
+	}
+	require.NotNil(t, release)
+	assert.Equal(t, "deadbeef", release.ForkPointSha,
+		"the fork point is the commit the checkout actually landed on")
+	assert.Contains(t, git.UpstreamsSet, "release",
+		"`git worktree add -B <sha>` sets no tracking info, so the upstream must be set explicitly "+
+			"or `git pull` in the locked worktree has nothing to merge with")
+}
+
+// TestImport_LocalOnlyProtectedBranch_ChecksOutLocalRef proves the other half of
+// the decision: with no origin/<branch> there is no remote content to prefer, so
+// the branch still provisions from its local ref rather than being skipped.
+func TestImport_LocalOnlyProtectedBranch_ChecksOutLocalRef(t *testing.T) {
+	_, _, ws, git, prov, uc := newImport(t)
+	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "feature", Head: "h1"}}
+	prov.Protected = []string{"release"}
+	// No RemoteTrackingBranches entry: origin/release does not resolve.
+	git.RevParseShas = map[string]string{"refs/heads/release": "localsha"}
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+
+	assert.Empty(t, git.WorktreeAddAtRefs, "no origin ref to start at")
 	require.Len(t, git.WorktreeAdds, 1)
 	assert.Equal(t, "release", git.WorktreeAdds[0].Branch)
 
@@ -695,7 +736,7 @@ func TestImport_RemoteProtectedBranch_FetchedAndForkPointRecorded(t *testing.T) 
 		}
 	}
 	require.NotNil(t, release)
-	assert.Equal(t, "deadbeef", release.ForkPointSha, "managed worktree records the resolved fork point")
+	assert.Equal(t, "localsha", release.ForkPointSha)
 }
 
 func TestImport_LocalOnlyProtectedBranch_NotFetched(t *testing.T) {

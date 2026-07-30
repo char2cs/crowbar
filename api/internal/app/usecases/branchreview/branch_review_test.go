@@ -315,6 +315,8 @@ func (g *mockGitEngine) Fetch(ctx context.Context, repoPath string) error { retu
 
 func (g *mockGitEngine) FetchRef(ctx context.Context, repoPath, branch string) error { return nil }
 
+func (g *mockGitEngine) FetchPrune(ctx context.Context, repoPath string) error { return nil }
+
 func (g *mockGitEngine) FastForwardBranch(ctx context.Context, repoPath, branch string) error {
 	return nil
 }
@@ -425,6 +427,11 @@ func (g *mockGitEngine) MergeBase(ctx context.Context, repoPath, a, b string) (s
 }
 
 func (g *mockGitEngine) WorktreeAddBranch(ctx context.Context, repoPath, worktreePath, branch, startPoint string) (string, error) {
+	return "", nil
+}
+
+//nolint:lll // stub signature; wrapping it hides which interface method it stands in for.
+func (g *mockGitEngine) WorktreeAddAtRef(ctx context.Context, repoPath, worktreePath, branch, startRef string) (string, error) {
 	return "", nil
 }
 

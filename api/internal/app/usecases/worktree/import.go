@@ -78,10 +78,14 @@ func (u *worktreeUsecase) CreateFromImport(ctx context.Context, in ImportInput) 
 	base := u.prBaseGraph(ctx, in.RepoPath)
 
 	// 2. Existing non-default workspaces: branch → id (matches hasWorkspace).
-	existing, err := u.existingBranchWorkspaces(ctx, in.RepoID)
-	if err != nil {
-		return err
-	}
+	// Best-effort, like the PR graph: this map only decides PARENTING and where
+	// a chain walk terminates, and aborting here produced the one outcome the
+	// client cannot recover from — a 202'd batch with no row for any branch, so
+	// every optimistic import row spins forever with nothing surfaced (the async
+	// error rides runAsync's blank workspace id, which broadcastLastError drops).
+	// Degrading to an empty map imports everything flat instead, which the
+	// PR-poll reparent then corrects.
+	existing := u.existingBranchWorkspaces(ctx, in.RepoID)
 
 	// 3. Global creation order, parents-before-children, deduped.
 	order := creationOrder(in.Branches, in.DefaultBranch, base, existing)
@@ -127,22 +131,28 @@ func (u *worktreeUsecase) prBaseGraph(ctx context.Context, repoPath string) map[
 // existingBranchWorkspaces maps branch → workspace id for the repo's MANAGED
 // workspaces. The default workspace is excluded because it is the adopted repo
 // folder, not a branch Crowbar owns — the same rule the import branch list uses
-// for hasWorkspace.
+// for hasWorkspace. Every protected branch — the default branch included — DOES
+// appear here: repo import gives each one its own locked managed worktree, and
+// those are exactly the parents resolveImportParent nests imports under.
+//
+// A read failure yields an empty map, never an error: see CreateFromImport.
 func (u *worktreeUsecase) existingBranchWorkspaces(
 	ctx context.Context,
 	repoID string,
-) (map[string]string, error) {
+) map[string]string {
+	existing := map[string]string{}
 	all, err := u.workspaces.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("import: list workspaces: %w", err)
+		slog.WarnContext(ctx, "import: workspace list unavailable; importing without existing-parent resolution",
+			"err", err)
+		return existing
 	}
-	existing := map[string]string{}
 	for _, w := range all {
 		if w.RepoID == repoID && !w.IsDefault && w.Status != domain.WorkspaceStatusDeleted {
 			existing[w.Branch] = w.ID
 		}
 	}
-	return existing, nil
+	return existing
 }
 
 // creationOrder flattens every requested branch's chain into one deduped,
@@ -166,23 +176,39 @@ func creationOrder(
 }
 
 // resolveImportParent picks the parent for branch: the workspace for its open
-// PR's base when that base already exists or was just created in this batch,
-// otherwise the repo default branch (an empty ParentID parents it under the repo
-// home). An unresolvable base — a PR-base cycle — falls back to the default too.
+// PR's base when one can be resolved, and the repo's DEFAULT BRANCH workspace
+// otherwise. Only when even that workspace is missing does it fall back to an
+// empty ParentID, which parents the branch under the repo home.
+//
+// The default branch used to be short-circuited to that empty ParentID before
+// the lookup ever ran — so a PR targeting develop/main, which is the shape of
+// almost every PR, landed its branch at the REPO ROOT as a sibling of the very
+// branch it is based on. The lookup would have succeeded: repo import gives
+// every protected branch (and, when the provider reports none, the resolved
+// default branch) its own locked managed workspace, and existingBranchWorkspaces
+// excludes only the repo home. A branch with NO PR resolves the same way — its
+// base is the default branch by definition, so it nests there too.
 func resolveImportParent(
 	branch string,
 	defaultBranch string,
 	base, existing, created map[string]string,
 ) (parentID, parentBranch string) {
 	parentBranch = base[branch]
-	if parentBranch == "" || parentBranch == defaultBranch {
-		return "", defaultBranch
+	if parentBranch == "" {
+		parentBranch = defaultBranch
 	}
 	if id, ok := existing[parentBranch]; ok {
 		return id, parentBranch
 	}
 	if id, ok := created[parentBranch]; ok {
 		return id, parentBranch
+	}
+	// An unresolvable PR base (a cycle, or a base branch nobody imported) still
+	// belongs under the default branch's workspace when there is one.
+	if parentBranch != defaultBranch {
+		if id, ok := existing[defaultBranch]; ok {
+			return id, defaultBranch
+		}
 	}
 	return "", defaultBranch
 }

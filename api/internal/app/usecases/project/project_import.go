@@ -112,9 +112,35 @@ type ImportGitEngine interface {
 		repoPath string,
 		branch string,
 	) (bool, error)
-	// FastForwardBranch fetches origin/<branch> and fast-forwards the local
-	// branch ref to match, so the worktree checked out from it starts up to date.
-	FastForwardBranch(
+	// FetchRef refreshes refs/remotes/origin/<branch>. Unlike a fetch that also
+	// moves the local branch ref, git never refuses it — not even when the
+	// branch is checked out somewhere.
+	FetchRef(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) error
+	// RemoteTrackingBranchExists reports whether origin/<branch> resolves
+	// locally — "is there remote content to check out?".
+	RemoteTrackingBranchExists(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) (bool, error)
+	// WorktreeAddAtRef checks branch out into a new worktree with the branch ref
+	// RESET to startRef, so the worktree holds the REMOTE branch even when a
+	// diverged local branch of the same name exists.
+	WorktreeAddAtRef(
+		ctx context.Context,
+		repoPath string,
+		worktreePath string,
+		branch string,
+		startRef string,
+	) (string, error)
+	// SetUpstream links branch to origin/<branch>. Required after
+	// WorktreeAddAtRef, which starts from a SHA and so sets no tracking info of
+	// its own — without it `git pull` in the worktree has nothing to merge with.
+	SetUpstream(
 		ctx context.Context,
 		repoPath string,
 		branch string,
@@ -738,22 +764,37 @@ func (u *projectImport) createPlaceholderWorkspace(
 }
 
 // addProtectedWorktree checks branch out into a fresh worktree at path and
-// returns the branch tip SHA (the workspace's fork point). The parent fetch is
-// BEST-EFFORT (matching addWorktree): a refused fetch (a dead reg still
-// "holding" the branch, or an offline remote) must NOT skip the branch — branch
-// from the local tip instead (spec §3.2). WorktreeAdd already prunes-and-retries
-// the stale "already used by worktree" conflict internally.
+// returns the branch tip SHA (the workspace's fork point).
+//
+// A branch that is on origin is checked out AT origin's ref (`git worktree add
+// -B`), so the locked worktree holds the REMOTE branch. It previously
+// fast-forwarded via `git fetch origin <b>:<b>` and then checked out the local
+// ref — which git rejects as non-fast-forward whenever the adopted folder's
+// local <b> has diverged, leaving the locked branch-tree root sitting on the
+// user's stale commits. That root is what every imported branch nests under and
+// diffs against, so one diverged local default branch skewed the whole repo.
+// See worktree.checkoutRemoteBranch for the full reasoning.
+//
+// The LOCAL remote-tracking ref is consulted FIRST, and the network fetch runs
+// only when it says there is a remote branch to refresh. Order matters for cost,
+// not just correctness: this runs for every protected branch of every repo
+// import, and an unconditional `git fetch` would put a network round-trip under
+// the per-clone lock even for repos that have no remote at all (where it can
+// only ever fail). Checking the ref first is a local, sub-millisecond read.
+//
+// The fetch is BEST-EFFORT (matching addWorktree): an offline remote or a
+// refused fetch must NOT skip the branch — the worktree is still created at the
+// local origin/<b>, losing only the freshest commits. A branch with no
+// origin/<b> at all checks out from the local ref, which is the only content
+// there is.
 func (u *projectImport) addProtectedWorktree(
 	ctx context.Context,
 	repo domain.Repository,
 	branch string,
 	path string,
 ) (string, error) {
-	if exists, err := u.deps.Git.RemoteBranchExists(ctx, repo.Path, branch); err == nil && exists {
-		if err := u.deps.Git.FastForwardBranch(ctx, repo.Path, branch); err != nil {
-			slog.WarnContext(ctx, "project import: could not fast-forward protected branch; branching from local tip",
-				"repo", repo.Name, "branch", branch, "error", err)
-		}
+	if onRemote, trErr := u.deps.Git.RemoteTrackingBranchExists(ctx, repo.Path, branch); trErr == nil && onRemote {
+		return u.addProtectedWorktreeFromOrigin(ctx, repo, branch, path)
 	}
 	if err := u.deps.Git.WorktreeAdd(ctx, repo.Path, path, branch); err != nil {
 		return "", fmt.Errorf("add worktree for protected branch %q: %w", branch, err)
@@ -763,6 +804,39 @@ func (u *projectImport) addProtectedWorktree(
 	sha, err := u.deps.Git.RevParse(ctx, repo.Path, "refs/heads/"+branch)
 	if err != nil {
 		return "", nil // fork point is non-essential; the worktree is valid
+	}
+	return sha, nil
+}
+
+// addProtectedWorktreeFromOrigin refreshes origin/<branch> and checks the branch
+// out AT that ref, returning the SHA the checkout resolved — which is therefore
+// by construction the commit the worktree holds.
+//
+// It then sets the upstream EXPLICITLY. `git worktree add -B <branch> <sha>`
+// resolves a SHA, so unlike the plain `git worktree add <path> <branch>` it
+// replaced, it does not DWIM a tracking branch from origin/<branch>. Without
+// this, a protected branch the clone never had locally — anything but the branch
+// `git clone` checked out — lands with no upstream, and `git pull` in its locked
+// worktree fails with "There is no tracking information for the current branch."
+// Best-effort: the content is already correct, so a failure here must never fail
+// the import.
+func (u *projectImport) addProtectedWorktreeFromOrigin(
+	ctx context.Context,
+	repo domain.Repository,
+	branch string,
+	path string,
+) (string, error) {
+	if err := u.deps.Git.FetchRef(ctx, repo.Path, branch); err != nil {
+		slog.WarnContext(ctx, "project import: could not refresh origin branch; using the local remote-tracking ref",
+			"repo", repo.Name, "branch", branch, "error", err)
+	}
+	sha, err := u.deps.Git.WorktreeAddAtRef(ctx, repo.Path, path, branch, "origin/"+branch)
+	if err != nil {
+		return "", fmt.Errorf("add worktree for protected branch %q: %w", branch, err)
+	}
+	if err := u.deps.Git.SetUpstream(ctx, repo.Path, branch); err != nil {
+		slog.WarnContext(ctx, "project import: could not set upstream on protected branch; pull/ahead-behind may not work",
+			"repo", repo.Name, "branch", branch, "error", err)
 	}
 	return sha, nil
 }

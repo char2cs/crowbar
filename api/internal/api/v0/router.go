@@ -87,6 +87,7 @@ func (c *Container) Register(
 		c.app.Repositories.Workspace,
 		c.app.Usecases.ProjectImport,
 		c.app.Usecases.Project,
+		c.eng.Git,
 		c.app.Hub.BroadcastRepo,
 		c.repos.Handle,
 		ws.DualServe,
@@ -126,6 +127,7 @@ func (c *Container) Register(
 		c.app.GORM.Repositories,
 		c.app.Repositories.Workspace,
 		c.app.Repositories,
+		c.eng.Git,
 		c.workspaces.Handle,
 		ws.DualServe,
 	)

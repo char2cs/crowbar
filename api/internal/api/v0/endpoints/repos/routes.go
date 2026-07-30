@@ -21,13 +21,15 @@ func Register(
 	wsReader repohandlers.WorkspaceReader,
 	importer repohandlers.RepoImporter,
 	renamer repohandlers.RepoRenamer,
+	remote repohandlers.RemoteRefresher,
 	broadcast func(dto.RepoDTO),
 	reposWS gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
 	h := repohandlers.NewWithDeps(store, prov, wsReader, broadcast).
 		WithImporter(importer).
-		WithRenamer(renamer)
+		WithRenamer(renamer).
+		WithRemoteRefresher(remote)
 	rg.POST("/repos", h.Create)
 	rg.GET("/repos", dispatch(h.List, reposWS))
 	rg.GET("/repos/:repoId", dispatch(h.Detail, reposWS))

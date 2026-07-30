@@ -128,9 +128,18 @@ var _ Engine = (*engine)(nil)
 // stalls the subprocess for the OS retransmission timeout (~15 min observed
 // in production) while the per-repo mutex is held, wedging every git
 // operation on that clone until the kernel gives up.
+//
+// netListRefreshTimeout bounds the whole-remote refresh that a branch LISTING
+// runs before answering. It is far tighter than netTransferTimeout because a
+// user is sitting in front of a modal waiting for it, and because its failure
+// is cheap: the listing degrades to the clone's cached remote-tracking refs,
+// and the import that follows re-fetches the one branch it needs under the full
+// transfer budget anyway. A slow remote should make the list slightly stale, not
+// make the dialog look hung for three minutes.
 var (
-	netTransferTimeout = 3 * time.Minute
-	netQueryTimeout    = 30 * time.Second
+	netTransferTimeout    = 3 * time.Minute
+	netQueryTimeout       = 30 * time.Second
+	netListRefreshTimeout = 45 * time.Second
 )
 
 // execNet runs a network git command under timeout and reports a
@@ -427,6 +436,24 @@ func (e *engine) FetchRef(
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.execNet(ctx, "fetch ref", netTransferTimeout, repoPath, "fetch", "origin", branch)
+}
+
+// FetchPrune refreshes ALL of refs/remotes/origin/* and drops the tracking refs
+// whose remote branch is gone (`git fetch --prune origin`).
+//
+// This is what makes a remote-branch LISTING truthful. Nothing else in the
+// daemon does a full fetch on its own: OriginSyncManager refreshes only the one
+// subscribed protected branch, and Fetch is the user's Git-panel button. Without
+// it, a branch list read from `git branch -r` reports the remote as it stood at
+// clone time — missing every branch pushed since, and still offering branches
+// deleted since. It touches no local branch ref, so it is safe to run behind a
+// read endpoint.
+func (e *engine) FetchPrune(
+	ctx context.Context,
+	repoPath string,
+) error {
+	defer e.lockRepo(ctx, repoPath)()
+	return e.execNet(ctx, "fetch prune", netListRefreshTimeout, repoPath, "fetch", "--prune", "origin")
 }
 
 // FastForwardBranch fetches origin/<branch> and fast-forwards the local branch
