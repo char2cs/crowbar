@@ -12,30 +12,44 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// stubChatsByWorkspace answers ListByWorkspace per workspace id, unlike
-// stubChats (which always returns the same fixed list regardless of id) — it
-// is what list_workspaces' tests need to prove each workspace's chats are
-// folded in separately rather than one list applied to every workspace.
+// stubChatsByWorkspace holds the fixture keyed by owning workspace and hands
+// list_workspaces the flat whole-table read the real store gives it, stamping
+// each chat with the workspace its fixture key names. Keying the fixture by
+// workspace is what lets a test prove chats are bucketed to the right workspace
+// — and that chats of a workspace the caller cannot see are dropped rather than
+// rendered.
+//
+// calls counts the reads: the point of A3 is that a caller seeing V workspaces
+// makes ONE, so a count is the only assertion that can fail if the loop ever
+// comes back.
 type stubChatsByWorkspace struct {
-	byWS map[string][]domain.AgentChat
+	byWS  map[string][]domain.AgentChat
+	calls int
 }
 
-func (s stubChatsByWorkspace) Get(context.Context, string) (domain.AgentChat, error) {
+func (s *stubChatsByWorkspace) Get(context.Context, string) (domain.AgentChat, error) {
 	return domain.AgentChat{}, nil
 }
 
-func (s stubChatsByWorkspace) ListByWorkspace(
+func (s *stubChatsByWorkspace) ListChats(
 	_ context.Context,
-	wsID string,
 ) ([]domain.AgentChat, error) {
-	return s.byWS[wsID], nil
+	s.calls++
+	var out []domain.AgentChat
+	for wsID, chats := range s.byWS {
+		for _, chat := range chats {
+			chat.WorkspaceID = wsID
+			out = append(out, chat)
+		}
+	}
+	return out, nil
 }
 
 func listWorkspacesToolsOn(
 	t *testing.T,
 	callerWs string,
 	byWS map[string][]domain.AgentChat,
-) *agenttools.ToolSet {
+) (*agenttools.ToolSet, *stubChatsByWorkspace) {
 	t.Helper()
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
@@ -43,9 +57,10 @@ func listWorkspacesToolsOn(
 		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
+	chats := &stubChatsByWorkspace{byWS: byWS}
 	return agenttools.NewToolSet(agenttools.Deps{
-		Resolver: res, ChatReads: stubChatsByWorkspace{byWS: byWS},
-	}, "RUN", m.Mint("RUN"))
+		Resolver: res, ChatReads: chats,
+	}, "RUN", m.Mint("RUN")), chats
 }
 
 // workspaceHeaders extracts the unindented header lines renderWorkspaces emits
@@ -65,7 +80,7 @@ func workspaceHeaders(out string) []string {
 }
 
 func TestListWorkspaces_ListsOnlyTheVisibleSetAndMarksSelf(t *testing.T) {
-	ts := listWorkspacesToolsOn(t, "ws-a", nil)
+	ts, _ := listWorkspacesToolsOn(t, "ws-a", nil)
 
 	out, err := ts.Call(context.Background(), "list_workspaces", json.RawMessage(`{}`))
 	require.NoError(t, err)
@@ -78,7 +93,7 @@ func TestListWorkspaces_IncludesEachWorkspacesChats(t *testing.T) {
 		"ws-a":  {{ID: "c1", Title: "Fix Auth Bug"}},
 		"ws-a1": {{ID: "c2", Title: "Refactor Parser"}},
 	}
-	ts := listWorkspacesToolsOn(t, "ws-a", byWS)
+	ts, _ := listWorkspacesToolsOn(t, "ws-a", byWS)
 
 	out, err := ts.Call(context.Background(), "list_workspaces", json.RawMessage(`{}`))
 	require.NoError(t, err)
@@ -89,10 +104,46 @@ func TestListWorkspaces_IncludesEachWorkspacesChats(t *testing.T) {
 	require.Contains(t, out, "Refactor Parser")
 }
 
+// The chat table is read ONCE however many workspaces the caller can see: the
+// store's per-workspace read is a full scan filtered in Go, so a read per
+// visible workspace decoded the whole table V times over. ws-a sees itself and
+// ws-a1, so a per-workspace loop would show up here as 2.
+func TestListWorkspaces_ReadsTheChatTableOnce(t *testing.T) {
+	byWS := map[string][]domain.AgentChat{
+		"ws-a":  {{ID: "c1", Title: "Fix Auth Bug"}},
+		"ws-a1": {{ID: "c2", Title: "Refactor Parser"}},
+	}
+	ts, chats := listWorkspacesToolsOn(t, "ws-a", byWS)
+
+	_, err := ts.Call(context.Background(), "list_workspaces", json.RawMessage(`{}`))
+	require.NoError(t, err)
+
+	require.Equal(t, 1, chats.calls)
+}
+
+// Reading the WHOLE chat table and bucketing in Go must not widen what the tool
+// renders: a sibling's chats are now in the slice the tool holds, and only the
+// visibility filter keeps them out of the output. ws-b is a sibling of ws-a, so
+// neither its header nor its chat may appear.
+func TestListWorkspaces_DropsChatsOfWorkspacesTheCallerCannotSee(t *testing.T) {
+	byWS := map[string][]domain.AgentChat{
+		"ws-a": {{ID: "c1", Title: "Fix Auth Bug"}},
+		"ws-b": {{ID: "secret-chat", Title: "Siblings Private Work"}},
+	}
+	ts, _ := listWorkspacesToolsOn(t, "ws-a", byWS)
+
+	out, err := ts.Call(context.Background(), "list_workspaces", json.RawMessage(`{}`))
+	require.NoError(t, err)
+
+	require.Contains(t, out, "c1")
+	require.NotContains(t, out, "secret-chat")
+	require.NotContains(t, out, "Siblings Private Work")
+}
+
 // Visibility is downward only: a caller on ws-a1 must never see ws-a (its
 // parent) or repo-default (its grandparent), only ws-a1 itself.
 func TestListWorkspaces_NeverListsAnAncestor(t *testing.T) {
-	ts := listWorkspacesToolsOn(t, "ws-a1", nil)
+	ts, _ := listWorkspacesToolsOn(t, "ws-a1", nil)
 
 	out, err := ts.Call(context.Background(), "list_workspaces", json.RawMessage(`{}`))
 	require.NoError(t, err)

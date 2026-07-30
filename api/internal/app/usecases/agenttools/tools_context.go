@@ -70,20 +70,49 @@ func listWorkspacesTool(deps Deps) toolDef {
 // giving chats their own tool, to stay under the ceiling. c.Visible is the
 // resolver's own downward-only computation — there is no argument here a model
 // could widen it with.
+//
+// The chats arrive in ONE read and are bucketed in Go. Asking the store per
+// visible workspace looked cheap and was not: ListByWorkspace is itself a full
+// scan of agent_chats_read plus a json.Unmarshal of every row, filtered in Go
+// afterwards, so a caller seeing V workspaces read and decoded the entire chat
+// table V times to render it once.
 func listWorkspaces(
 	ctx context.Context,
 	deps Deps,
 	c Caller,
 ) (string, error) {
-	chats := make(map[string][]domain.AgentChat, len(c.Visible))
-	for _, w := range c.Visible {
-		cs, err := deps.ChatReads.ListByWorkspace(ctx, w.ID)
-		if err != nil {
-			return "", fmt.Errorf("agenttools: list_workspaces: %w", err)
-		}
-		chats[w.ID] = cs
+	all, err := deps.ChatReads.ListChats(ctx)
+	if err != nil {
+		return "", fmt.Errorf("agenttools: list_workspaces: %w", err)
 	}
-	return renderWorkspaces(c.Workspace, c.Visible, chats), nil
+	return renderWorkspaces(c.Workspace, c.Visible, chatsByWorkspace(all, c.Visible)), nil
+}
+
+// chatsByWorkspace buckets one whole-table chat read by owning workspace,
+// keeping ONLY the workspaces in visible.
+//
+// The visible ids are seeded first and the membership test is what filters:
+// every workspace the caller can see gets an entry (so one with no chats still
+// renders as itself rather than vanishing), and a chat whose workspace is not
+// among them is dropped rather than bucketed. That filter is the same authority
+// boundary the per-workspace query used to enforce implicitly by never asking
+// about anything else — moving the read out of the loop must not move the
+// boundary with it.
+func chatsByWorkspace(
+	all []domain.AgentChat,
+	visible []domain.Workspace,
+) map[string][]domain.AgentChat {
+	out := make(map[string][]domain.AgentChat, len(visible))
+	for _, w := range visible {
+		out[w.ID] = nil
+	}
+	for _, chat := range all {
+		if _, ok := out[chat.WorkspaceID]; !ok {
+			continue
+		}
+		out[chat.WorkspaceID] = append(out[chat.WorkspaceID], chat)
+	}
+	return out
 }
 
 func getChatLogTool(deps Deps) toolDef {

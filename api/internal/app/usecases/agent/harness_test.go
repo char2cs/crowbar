@@ -429,11 +429,10 @@ func (r fixtureChatReader) Get(
 	return r.chats.GetChat(ctx, chatID)
 }
 
-func (r fixtureChatReader) ListByWorkspace(
+func (r fixtureChatReader) ListChats(
 	ctx context.Context,
-	wsID string,
 ) ([]domain.AgentChat, error) {
-	return r.chats.ListByWorkspace(ctx, wsID)
+	return r.chats.ListChats(ctx)
 }
 
 // fixtureWorkspaceLister answers for the single workspace the fixture spawns

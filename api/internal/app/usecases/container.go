@@ -283,7 +283,7 @@ func newAgentToolDeps(
 // chatGetter is the minimal chat-read surface agentChatReader adapts.
 type chatGetter interface {
 	GetChat(ctx context.Context, id string) (domain.AgentChat, error)
-	ListByWorkspace(ctx context.Context, wsID string) ([]domain.AgentChat, error)
+	ListChats(ctx context.Context) ([]domain.AgentChat, error)
 }
 
 // agentChatReader adapts the chat repository into agenttools.ChatReader. Only
@@ -301,12 +301,11 @@ func (r agentChatReader) Get(
 	return r.chats.GetChat(ctx, chatID)
 }
 
-// ListByWorkspace implements agenttools.ChatReader.
-func (r agentChatReader) ListByWorkspace(
+// ListChats implements agenttools.ChatReader.
+func (r agentChatReader) ListChats(
 	ctx context.Context,
-	wsID string,
 ) ([]domain.AgentChat, error) {
-	return r.chats.ListByWorkspace(ctx, wsID)
+	return r.chats.ListChats(ctx)
 }
 
 // workspaceGetter is the minimal workspace-read surface agentWorkspaceReader

@@ -23,11 +23,26 @@ type RunnerReader interface {
 	Get(ctx context.Context, runnerID string) (domain.AgentRunner, error)
 }
 
-// ChatReader is the narrow read port the resolver, and the chat-facing tools
-// built on top of it, need from the chat store.
-type ChatReader interface {
+// ChatGetter is the single-chat read port: one chat looked up by id. It is
+// declared separately from ChatReader because the resolver authenticates and
+// never enumerates — handing it the listing half would give the authority path a
+// capability it has no use for.
+type ChatGetter interface {
 	Get(ctx context.Context, chatID string) (domain.AgentChat, error)
-	ListByWorkspace(ctx context.Context, wsID string) ([]domain.AgentChat, error)
+}
+
+// ChatReader is the read port the chat-facing tools need from the chat store:
+// one chat by id, plus every chat in ONE read.
+//
+// It lists the whole table rather than one workspace's chats because
+// list_workspaces folds in the chats of every workspace it can see, and the
+// store's own ListByWorkspace is a full scan filtered in Go — so asking it once
+// per visible workspace read the same table, and unmarshalled every row of it,
+// V times over to answer a single question. Bucketing one read by WorkspaceID
+// costs one pass instead.
+type ChatReader interface {
+	ChatGetter
+	ListChats(ctx context.Context) ([]domain.AgentChat, error)
 }
 
 // WorkspaceLister is the narrow read port the resolver needs from the
@@ -70,7 +85,7 @@ func (c Caller) CanSee(wsID string) bool {
 type Resolver struct {
 	minter     *TokenMinter
 	runners    RunnerReader
-	chats      ChatReader
+	chats      ChatGetter
 	workspaces WorkspaceLister
 }
 
@@ -79,7 +94,7 @@ type Resolver struct {
 func NewResolver(
 	minter *TokenMinter,
 	runners RunnerReader,
-	chats ChatReader,
+	chats ChatGetter,
 	workspaces WorkspaceLister,
 ) *Resolver {
 	return &Resolver{minter: minter, runners: runners, chats: chats, workspaces: workspaces}

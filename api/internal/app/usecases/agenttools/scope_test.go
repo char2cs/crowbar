@@ -24,7 +24,7 @@ type stubChats struct {
 }
 
 func (s stubChats) Get(context.Context, string) (domain.AgentChat, error) { return s.c, nil }
-func (s stubChats) ListByWorkspace(context.Context, string) ([]domain.AgentChat, error) {
+func (s stubChats) ListChats(context.Context) ([]domain.AgentChat, error) {
 	return s.list, nil
 }
 

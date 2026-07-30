@@ -122,10 +122,16 @@ func (c *countingReconciler) OnOpen(
 
 // countingChats adapts the chat repository to agenttools.ChatReader — the same
 // name-only adaptation the production container does — and counts both reads.
+//
+// byWs survives Task A3 even though the tool surface no longer calls
+// ListByWorkspace: the whole claim of A3 is that V per-workspace reads became
+// one whole-table read, and a counter that only exists on the winning side
+// cannot show the losing one going to zero.
 type countingChats struct {
 	chats agentchat.EventStore
 	gets  atomic.Int64
 	byWs  atomic.Int64
+	lists atomic.Int64
 }
 
 func (c *countingChats) Get(
@@ -144,9 +150,17 @@ func (c *countingChats) ListByWorkspace(
 	return c.chats.ListByWorkspace(ctx, wsID)
 }
 
+func (c *countingChats) ListChats(
+	ctx context.Context,
+) ([]domain.AgentChat, error) {
+	c.lists.Add(1)
+	return c.chats.ListChats(ctx)
+}
+
 func (c *countingChats) reset() {
 	c.gets.Store(0)
 	c.byWs.Store(0)
+	c.lists.Store(0)
 }
 
 // queryCounter counts SELECTs and rows materialised on one GORM handle. It is
@@ -622,6 +636,7 @@ type perfCounts struct {
 	wsGet      int
 	wsList     int
 	chatByWs   int
+	chatList   int
 	chatGet    int
 	onOpen     int
 	sqlQueries int
@@ -642,7 +657,7 @@ func (c perfCounts) log(
 ) {
 	b.Helper()
 	b.Logf("%s: wall=%.1fms/call git=%.1f spawns (%.1fms) locks=%.1f "+
-		"ws.Get=%.1f ws.List=%.1f chat.ListByWorkspace=%.1f chat.Get=%.1f "+
+		"ws.Get=%.1f ws.List=%.1f chat.ListByWorkspace=%.1f chat.ListChats=%.1f chat.Get=%.1f "+
 		"reconcile.OnOpen=%.1f chatSQL.queries=%.1f chatSQL.rows=%.1f",
 		label,
 		float64(c.wall.Microseconds())/1000/float64(c.calls),
@@ -652,6 +667,7 @@ func (c perfCounts) log(
 		c.perCall(c.wsGet),
 		c.perCall(c.wsList),
 		c.perCall(c.chatByWs),
+		c.perCall(c.chatList),
 		c.perCall(c.chatGet),
 		c.perCall(c.onOpen),
 		c.perCall(c.sqlQueries),
@@ -774,6 +790,7 @@ func collect(
 	out.wsGet = int(s.workspaces.gets.Load())
 	out.wsList = int(s.workspaces.lists.Load())
 	out.chatByWs = int(s.chats.byWs.Load())
+	out.chatList = int(s.chats.lists.Load())
 	out.chatGet = int(s.chats.gets.Load())
 	out.onOpen = int(s.reconciler.opens.Load())
 	out.sqlQueries = int(s.chatQueries.queries.Load())
