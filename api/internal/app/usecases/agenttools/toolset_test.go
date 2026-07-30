@@ -38,14 +38,15 @@ func toolsetOn(t *testing.T, renamer agenttools.ChatRenamer) (*agenttools.ToolSe
 	// out here silently narrows both guards to the tools that happen to remain,
 	// which is how they were vacuous before.
 	deps := agenttools.Deps{
-		Resolver:     res,
-		Chats:        renamer,
-		Threads:      &stubThreadReader{},
-		Review:       &stubReviewReader{},
-		ThreadWrites: &stubThreadWriter{},
-		Idempotency:  agenttools.NewIdempotency(),
-		ChatReads:    stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
-		ChatLogs:     &stubChatLogs{},
+		Resolver:        res,
+		Chats:           renamer,
+		Threads:         &stubThreadReader{},
+		Review:          &stubReviewReader{},
+		ThreadWrites:    &stubThreadWriter{},
+		Idempotency:     agenttools.NewIdempotency(),
+		ChatReads:       stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		ChatLogs:        &stubChatLogs{},
+		ThreadBroadcast: (&spyThreadBroadcast{}).fn(),
 	}
 	return agenttools.NewToolSet(deps, "RUN", tok), tok
 }

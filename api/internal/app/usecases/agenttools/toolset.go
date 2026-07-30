@@ -35,6 +35,12 @@ type Deps struct {
 	// c.CanSee — see getChatLog — so a nil ChatLogs simply means the tool that
 	// would read it does not exist.
 	ChatLogs ChatLogReader
+	// Metrics counts calls and failures per tool. Unlike every port above, a nil
+	// Metrics must NOT suppress a tool's registration — losing observability is
+	// never a reason to lose capability — so it is read only through
+	// Metrics.Record, which is safe to call on a nil receiver, and it is
+	// deliberately absent from newAgentToolDeps's non-nil checks.
+	Metrics *Metrics
 }
 
 type toolDef struct {
@@ -70,7 +76,20 @@ func (t *ToolSet) Tools() []mcp.Tool {
 	return out
 }
 
-func (t *ToolSet) Call(ctx context.Context, name string, args json.RawMessage) (string, error) {
+// Call resolves the caller, then dispatches name to its handler.
+//
+// Every attempt is recorded against the literal name the caller asked for —
+// including the ones that never reach a handler — via a single deferred
+// Record covering every return path. That attribution is deliberate: Resolve
+// runs before name is checked against t.defs, so at the point a resolve
+// failure returns, name has not been validated as a real tool. Counting it
+// anyway, rather than folding every pre-dispatch rejection into one generic
+// bucket, is what lets an unauthorized or out-of-scope attempt at a SPECIFIC
+// tool be told apart from one aimed at another — the whole point of this
+// counter is to surface exactly that kind of attempt.
+func (t *ToolSet) Call(ctx context.Context, name string, args json.RawMessage) (result string, err error) {
+	defer func() { t.deps.Metrics.Record(name, err == nil) }()
+
 	caller, err := t.deps.Resolver.Resolve(ctx, t.runnerID, t.token)
 	if err != nil {
 		return "", err

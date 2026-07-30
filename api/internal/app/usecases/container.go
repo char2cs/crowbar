@@ -214,6 +214,11 @@ func New(
 // (agent.Usecase.ReadChatLog), which does not exist yet at this point in
 // construction — the exact chicken-and-egg agent.New already resolves for
 // Deps.Chats by assigning the usecase to itself once built. See its doc comment.
+//
+// Metrics is wired here too but, unlike every port above, is deliberately
+// ABSENT from the refusal switch: agenttools.Metrics is the one fail-OPEN
+// dependency in Deps — losing the call counters is never a reason to fail
+// daemon startup or narrow the tool surface, so there is nothing to refuse.
 func newAgentToolDeps(
 	minter *agenttools.TokenMinter,
 	repos *repositories.Container,
@@ -250,6 +255,7 @@ func newAgentToolDeps(
 		Idempotency:     agenttools.NewIdempotency(),
 		ThreadBroadcast: threadBroadcast,
 		ChatReads:       chatReader,
+		Metrics:         agenttools.NewMetrics(),
 	}, nil
 }
 
