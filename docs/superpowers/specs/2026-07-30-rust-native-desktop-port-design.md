@@ -203,11 +203,11 @@ bar honest and what keeps worker-agent context small enough to be reliable.
                    ▼
              crowbar-core          ── NO gpui. EVER. (D2)
                    │
-                   ▼
-             crowbar-state         ── Entity<T> + event graph
-                   │
-                   ▼
-              crowbar-ui           ── Theme + primitives
+        ┌──────────┴──────────┐
+        ▼                     ▼
+  crowbar-state          crowbar-ui   ── Theme + primitives
+  Entity<T> + events           │
+        └──────────┬──────────┘
                    │
      ┌─────────┬───┴───┬──────────┬──────────┐
      ▼         ▼       ▼          ▼          ▼
@@ -219,6 +219,14 @@ bar honest and what keeps worker-agent context small enough to be reliable.
    crowbar-driver  ── taps state + element tree, injects input,
                       speaks MCP over stdio. Feature-gated.
 ```
+
+> **Corrected 2026-07-30 (Phase 0).** This graph originally drew a chain
+> `core → state → ui`. That contradicted §4.2's table, which is the operative
+> one, and it was wrong on the merits: it would make every UI primitive link the
+> store layer, put `crowbar-ui` out of reach of isolated testing, and invert the
+> direction `CLAUDE.md` already mandates ("Stores must not import from
+> `components/`"). `ui` and `state` are **siblings on `core`**; the leaf view
+> crates depend on both.
 
 ### 4.2 Crate contracts
 

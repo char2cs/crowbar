@@ -123,6 +123,44 @@ Not vendored: upstream's third skill `gpui-component-dev` — it is a contributo
 workflow for adding components *to* `gpui-component`, which we are consuming, not
 contributing to.
 
+### 0.1 — `native/` Cargo workspace scaffold ✅
+
+13 crates per §4.2 (12 under `crates/` + `oracle`), `edition = "2024"`,
+`resolver = "3"`, `rust-version = "1.96.0"`, `license = "AGPL-3.0-only"`.
+
+**Orchestrator verification.** I re-ran all four gates myself — `cargo build
+--workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo
+test --workspace` (26 binaries), `./scripts/check-invariants.sh` — all exit 0,
+zero warnings.
+
+Then, because a checker that only ever prints `ok` is worthless, I **broke it
+three ways and confirmed each is caught**:
+
+| Violation introduced | Result |
+|---|---|
+| `gpui` path dep appended to `crowbar-core/Cargo.toml` | `FAIL rule 1 (§4.3, D2)` |
+| `#![forbid(unsafe_code)]` deleted from `crowbar-terminal` | `FAIL rule 2 (§4.3)` |
+| `unsafe { }` with no `# Safety` in `crowbar-platform` | `FAIL rule 3 (§4.2, §12)` |
+
+Tree restored clean after each. The worker had done the same, independently —
+this is a second, orchestrator-run confirmation, not a repeat of its word.
+
+Two checks are **stronger than the spec asks**: rule 1 also greps
+`crowbar-core/src` for `gpui::` (not just the manifest), and rule 2 asserts
+`crowbar-platform` positively carries `deny(unsafe_op_in_unsafe_fn)` rather than
+merely lacking the forbid.
+
+> **§4.3 rule 3 — token sealing — is NOT yet enforced.** It cannot be: it is a
+> property of `crowbar-ui`'s type definitions, and `crowbar-ui` is an empty
+> crate. This is the one anti-reward-hacking guard §6.1 calls "strictly
+> stronger" than the oracle, and it does not exist yet. **It must land with the
+> first line of `crowbar-ui`, in Phase 2, before any component work is
+> dispatched** — not after. Tracked here so it cannot be quietly skipped.
+
+Known limit, stated in the script's own header: rule 3 is a line scanner, not a
+parser. Block comments and string literals containing `unsafe {` produce false
+*positives*. It fails loud rather than silent, which is the right direction.
+
 ### 0.10 — AX spike ✅ · **VERDICT: THIN. Dropped, per §10.4. Do not revisit.**
 
 §10.4 said: spend one hour, and if the tree is thin, "drop it and never revisit."
@@ -206,7 +244,7 @@ Owner column: `W` = dispatched worker, `O` = orchestrator-only.
 
 | # | Item | Spec | Owner | Status |
 |---|---|---|---|---|
-| 0.1 | `native/` workspace scaffold, 14 crates per §4.2 with the §4.3 compiler-enforced rules | §4.2 §4.3 §4.4 | W | todo |
+| 0.1 | `native/` workspace scaffold, 13 crates per §4.2 with the §4.3 compiler-enforced rules | §4.2 §4.3 §4.4 | W | **done** |
 | 0.2 | Vendor + pin `gpui` at a SHA under `native/vendor/gpui/` | §10.5 | W | todo |
 | 0.3 | `gpui` + `gpui-component` skills into `.claude/skills/` | §16 | W | **done** |
 | 0.4 | Both apps launch against one daemon on a shared `CROWBAR_HOME` | §0 §9.1 | O | todo — gated on 0.1 + 0.2 |
