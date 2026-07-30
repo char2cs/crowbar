@@ -19,7 +19,7 @@ Recorded because a cold session will otherwise rediscover them the hard way.
 | `rustc` / `cargo` | **1.96.0**, installed but **NOT on the default PATH**. Every shell needs `export PATH="$HOME/.cargo/bin:$PATH"`. |
 | rustup toolchains | `stable` (active), `1.85`, `1.88` |
 | Installed targets | `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu` |
-| `cargo-llvm-cov` | **not installed** — required by §12. Install before the first coverage gate. |
+| `cargo-llvm-cov` | installed 2026-07-30 (the §12 gate tool). |
 | `cargo-nextest` | not installed |
 | Go | 1.26.2 (`/opt/homebrew/bin/go`) |
 | `bun` | `~/.bun/bin/bun`, also off the default PATH |
@@ -138,11 +138,127 @@ Owner column: `W` = dispatched worker, `O` = orchestrator-only.
 | 0.9 | Zed extractability audit — `fuzzy`, `picker`, `util`, `theme` | §10.6 | W | todo |
 | 0.10 | AX spike, timeboxed 1h: `ZED_EXPERIMENTAL_A11Y=1` + an AX tree dump | §10.4 | W | todo |
 | 0.11 | `cargo tree -i zlog`, for the record | §15 | O | todo — gated on 0.2 |
-| 0.12 | Relicense to AGPL-3.0-only: `LICENSING.md`, `LICENSE`, SPDX, manifests | §15 | W | todo |
+| 0.12 | Relicense to AGPL-3.0-only: `LICENSING.md`, `LICENSE`, SPDX, manifests | §15 | W | **done** |
 
 **Phase 0 exit condition:** every row above is `done` or written to
 `native/oracle/blocked/`, and `cargo clippy --workspace -- -D warnings` is clean
 from `native/`.
+
+---
+
+## Orchestrator findings — these change how Phase 1 and Phase 2 must be run
+
+Produced by reading the actual Phase 1 gate component and its live CSS, before
+dispatching any Phase 1 work. Every one of these would otherwise have been
+discovered by a worker mid-item, or worse, not discovered.
+
+### F1 — `tree-row.tsx` alone is not a gate. It is 45 lines and renders nothing.
+
+Spec §16 picks `components/ui/tree-row.tsx` for the Phase 1 gate "because it
+exercises text, icons, padding, selection state and truncation in one small
+component." It does not. It is a bare `<button>` wrapper that takes `children`;
+the text, icons and truncation all live at its call sites.
+
+Gating on `TreeRow` in isolation would converge on *padding-left and a border
+radius* and prove nothing — precisely the "the gate could pass while telling us
+nothing" failure §8.1 warns about.
+
+It has exactly two real consumers:
+
+| Consumer | Where | Adds |
+|---|---|---|
+| `SidebarTreeRow` | `components/ui/sidebar-tree.tsx` | `.file-tree-item` wrapper, indent guides, `h-6 gap-1.5 border px-1.5 py-1` |
+| `FileExplorerTreeItem` | `features/file-explorer/file-explorer/components/` | the icon + label + status content |
+
+**The Phase 1 gate target is `SidebarTreeRow` as rendered by a real consumer**
+(git changed-files or git status), not `TreeRow`. Same component, same size,
+but it actually exercises what §16 claims.
+
+### F2 — every visible background on a tree row is painted by a `::before`, and a pseudo-element cannot carry `data-oracle-id`
+
+`features/file-explorer/styles/file-explorer-tree.css`:
+
+```css
+.file-tree-item::before            { position:absolute; inset:0; z-index:0;
+                                     border-radius:2px; background:transparent }
+.file-tree-item:hover::before      { background: var(--file-tree-hover-bg) }
+.file-tree-item[data-active=true]::before { background: var(--accent) }
+```
+
+while the button itself is pinned `background-color: transparent !important` in
+**every** state, hover and selected included.
+
+This is a real hole in the D8 anchored-geometry design: §8.1 has both apps tag
+semantic anchors, and **a pseudo-element has no DOM node to tag**. Row
+background — hover, active, selection — is the single most visually obvious
+thing about a tree row, and it is exactly the thing the oracle as specified
+cannot see.
+
+**Resolution (mine, for the Phase 1 extractor):** anchors may be declared
+*pseudo-backed*. For those the React-side extractor reads
+`getComputedStyle(el, '::before')` — which does return the pseudo's
+`background-color` and `border-radius` — and synthesises bounds from the host's
+padding box, valid here because the rule is `position:absolute; inset:0`.
+The alternative, injecting a real `<div>` under an oracle build flag, is worse:
+it changes the app under test. Do not take it.
+
+### F3 — `TreeRow`'s own Tailwind classes are dead. Porting from the class list produces a wrong component.
+
+Inside `.file-tree-container` the cascade overrides nearly all of them:
+
+| `tree-row.tsx` says | What actually renders |
+|---|---|
+| `rounded-md` (6px) | `border-radius: 2px !important` |
+| `hover:bg-muted` | **dead** — `.file-tree-row:hover { background: transparent !important }` |
+| `active && bg-accent/20` | **dead** — the `::before` paints full `var(--accent)` |
+| `border-none` | `border: 1px solid transparent !important` |
+
+A worker who ports `tree-row.tsx` by reading its `className` — the obvious thing
+to do, and what a careful engineer would do in any normal codebase — produces a
+component that is wrong in four ways and *looks* faithful.
+
+**This generalises past §6.3.** It is not only transitions and `backdrop-filter`
+that must be re-implemented rather than translated: **no value may be taken from
+a class list at all.** Everything is measured off the running app. This is the
+strongest argument yet for the oracle gating from the very first component, and
+it goes in every Phase 2+ worker brief.
+
+### F4 — `color-mix(in srgb, …)` is load-bearing and needs an exact implementation
+
+Four distinct uses in this one file, in two different modes:
+
+- `color-mix(in srgb, var(--accent) 68%, transparent)` — mix with `transparent`
+- `color-mix(in srgb, var(--accent) 42%, var(--border))` — mix of two opaque colours
+
+Premultiplied-alpha sRGB mixing. A small pure function, no `gpui` types →
+**`crowbar-core`**, where the ≥98% gate applies. Not an ad-hoc helper in
+`crowbar-ui`.
+
+### F5 — the design-token count is 274 *declarations* but ~180 *tokens*
+
+§3.3's 274 counts declaration lines, which double-counts every token that has a
+light and a dark value. Measured in `styles/theme.css`:
+
+| | |
+|---|---|
+| Declaration lines | 254 |
+| **Distinct names** | **180** |
+| Declared twice (`:root` **and** `.dark`) | 74 |
+| Declared once (theme-invariant) | 106 |
+
+So §6.1's `Theme` struct is **~180 fields of which 74 vary by theme**, not 274
+fields. Different shape, roughly half the surface. Plus 21 further custom
+properties declared outside the three theme files — of which only ~7 need
+porting (`--animate-toast-*` ×4, `--file-tree-guide-icon-offset`,
+`--file-tree-hover-bg`, `--tree-guide-color`); the rest are `--md-*` (Plate,
+stays webview per §5.3) and Monaco vars (replaced per §5.2).
+
+### F6 — `features/file-explorer/file-explorer/` is the real module; the outer `components/` is a 2-file shim
+
+19 files nested vs 2 outer, and `features/file-explorer/components/file-explorer-tree.tsx`
+carries a comment pointing at "the real module under `file-explorer/file-explorer/`".
+Every test imports the nested path. Port the nested one; do not be misled by the
+shorter path.
 
 ---
 
