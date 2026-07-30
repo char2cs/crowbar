@@ -753,17 +753,21 @@ type spyThreads struct {
 func (s *spyThreads) Get(context.Context, string) (domain.ReviewThread, error) {
 	return s.thread, nil
 }
+
 func (s *spyThreads) ListByWorkspace(context.Context, string) ([]domain.ReviewThread, error) {
 	return []domain.ReviewThread{s.thread}, nil
 }
+
 func (s *spyThreads) Open(_ context.Context, in reviewthread.OpenInput, _ time.Time) (domain.ReviewThread, error) {
 	s.opened = append(s.opened, in)
 	return domain.ReviewThread{ID: "new-thread", WsID: in.WsID}, nil
 }
+
 func (s *spyThreads) Reply(_ context.Context, id, _, _ string, _ bool, _ string, _ time.Time) (domain.ReviewThread, error) {
 	s.replied = append(s.replied, id)
 	return s.thread, nil
 }
+
 func (s *spyThreads) Resolve(_ context.Context, id string) (domain.ReviewThread, error) {
 	s.resolved = append(s.resolved, id)
 	return s.thread, nil
