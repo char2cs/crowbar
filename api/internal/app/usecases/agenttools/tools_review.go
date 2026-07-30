@@ -243,7 +243,7 @@ func postReviewComment(
 	if err := validateAnchor(outline, in.FilePath, in.StartLine, in.EndLine, side); err != nil {
 		return "", err
 	}
-	thread, created, err := deps.Idempotency.OpenOnce(
+	out, err := deps.Idempotency.openOnce(
 		ctx,
 		deps.ThreadWrites,
 		in.IdempotencyKey,
@@ -253,17 +253,19 @@ func postReviewComment(
 	if err != nil {
 		return "", fmt.Errorf("agenttools: post_review_comment: %w", err)
 	}
-	// Only a real write is announced. A dedup hit changed nothing, so a frame for it
-	// would tell every connected client to re-render a thread it already has.
-	if created {
-		deps.ThreadBroadcast(thread.NormalizedMessages(), c.Workspace.ProjectID, c.Workspace.RepoID)
+	// Only a real write is announced, and it is announced with the aggregate the store
+	// just returned. A dedup hit changed nothing, so a frame for it would tell every
+	// connected client to re-render a thread it already has.
+	if out.created {
+		deps.ThreadBroadcast(out.fresh.NormalizedMessages(), c.Workspace.ProjectID, c.Workspace.RepoID)
 	}
 	// The anchor is read back off the STORED thread, not off the arguments: a retry
 	// that reuses a key with different lines wrote nothing, and echoing its own
 	// arguments would report a comment at a location no thread is anchored to.
+	stored := out.stored
 	return fmt.Sprintf(
 		"Posted review comment %s on %s:%d-%d (%s side).",
-		thread.ID, thread.FilePath, thread.StartLine, thread.EndLine, thread.Side,
+		stored.ID, stored.FilePath, stored.StartLine, stored.EndLine, stored.Side,
 	), nil
 }
 

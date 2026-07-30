@@ -24,13 +24,13 @@ import (
 // cannot collide on the same obvious key ("nil-deref-in-auth") and have the
 // second finding silently swallowed as a retry of the first.
 //
-// It caches the whole opened aggregate rather than just its id so a retry can be
-// answered with the anchor that was actually STORED. A retry that reuses a key but
-// changes the lines wrote nothing, and answering it from its own arguments would
-// report a post at a location no thread is anchored to.
+// It caches each thread's ANCHOR, not the thread, so a retry can be answered with
+// the location that was actually STORED: a retry that reuses a key but changes the
+// lines wrote nothing, and answering it from its own arguments would report a post
+// at a location no thread is anchored to.
 type Idempotency struct {
 	mu     sync.Mutex
-	opened map[idempotencyRef]domain.ReviewThread
+	opened map[idempotencyRef]openedThread
 }
 
 type idempotencyRef struct {
@@ -38,18 +38,41 @@ type idempotencyRef struct {
 	key  string
 }
 
-// NewIdempotency builds the per-daemon dedup map. The container calls it once.
-func NewIdempotency() *Idempotency {
-	return &Idempotency{opened: map[idempotencyRef]domain.ReviewThread{}}
+// openedThread is the cached value: only the fields a retry's reply consumes.
+//
+// The thread's MESSAGES are deliberately not retained. Nothing reads them — the
+// broadcast fires only for a genuine write and carries the fresh aggregate from the
+// store, never a cache entry — and this map is unbounded and lives as long as the
+// process, so holding user-authored review bodies in it would be retention with no
+// consumer.
+type openedThread struct {
+	ID        string
+	FilePath  string
+	StartLine int
+	EndLine   int
+	Side      domain.ReviewSide
 }
 
-// OpenOnce opens in through writer and returns the new thread, unless a previous
-// call carrying the same key for the same workspace already opened one — in which
-// case it returns THAT thread and writes nothing.
+// openOutcome is what one OpenOnce attempt produced.
 //
-// The bool reports whether this call performed the write. A caller that announces
-// new threads to connected clients needs it: re-announcing on a dedup hit would
-// emit a frame for a thread every client already has.
+// fresh is separate from stored, and set only when created is true, so "the full
+// aggregate exists only when THIS call wrote it" is a fact about the type rather
+// than a comment: a caller cannot reach for a whole thread on a dedup hit, because
+// on a dedup hit there is not one to reach for.
+type openOutcome struct {
+	stored  openedThread
+	fresh   domain.ReviewThread
+	created bool
+}
+
+// NewIdempotency builds the per-daemon dedup map. The container calls it once.
+func NewIdempotency() *Idempotency {
+	return &Idempotency{opened: map[idempotencyRef]openedThread{}}
+}
+
+// openOnce opens in through writer, unless a previous call carrying the same key for
+// the same workspace already opened a thread — in which case it returns THAT
+// thread's anchor and writes nothing.
 //
 // An empty key means the caller asked for no deduplication, so the write happens
 // unguarded.
@@ -59,35 +82,54 @@ func NewIdempotency() *Idempotency {
 // both write, which is the exact duplicate the key exists to prevent. That
 // serializes keyed posts against each other, which is irrelevant at the rate an
 // agent posts findings and is worth the guarantee.
-func (i *Idempotency) OpenOnce(
+func (i *Idempotency) openOnce(
 	ctx context.Context,
 	writer ThreadWriter,
 	key string,
 	in reviewthread.OpenInput,
 	now time.Time,
-) (domain.ReviewThread, bool, error) {
+) (openOutcome, error) {
 	if key == "" {
-		thread, err := writer.Open(ctx, in, now)
-		if err != nil {
-			return domain.ReviewThread{}, false, err
-		}
-		return thread, true, nil
+		return open(ctx, writer, in, now)
 	}
 	ref := idempotencyRef{wsID: in.WsID, key: key}
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	if thread, ok := i.opened[ref]; ok {
-		return thread, false, nil
+	if stored, ok := i.opened[ref]; ok {
+		return openOutcome{stored: stored}, nil
 	}
-	thread, err := writer.Open(ctx, in, now)
+	out, err := open(ctx, writer, in, now)
 	// A FAILED write is deliberately not recorded: the retry this key exists for
 	// must still reach the store, rather than be answered with a thread that was
 	// never opened.
 	if err != nil {
-		return domain.ReviewThread{}, false, err
+		return openOutcome{}, err
 	}
-	i.opened[ref] = thread
-	return thread, true, nil
+	i.opened[ref] = out.stored
+	return out, nil
+}
+
+func open(
+	ctx context.Context,
+	writer ThreadWriter,
+	in reviewthread.OpenInput,
+	now time.Time,
+) (openOutcome, error) {
+	thread, err := writer.Open(ctx, in, now)
+	if err != nil {
+		return openOutcome{}, err
+	}
+	return openOutcome{
+		stored: openedThread{
+			ID:        thread.ID,
+			FilePath:  thread.FilePath,
+			StartLine: thread.StartLine,
+			EndLine:   thread.EndLine,
+			Side:      thread.Side,
+		},
+		fresh:   thread,
+		created: true,
+	}, nil
 }
