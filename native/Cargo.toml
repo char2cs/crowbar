@@ -1,0 +1,49 @@
+# Crowbar Rust-native GPUI port — workspace root.
+#
+# Spec: docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md
+# Queue: native/QUEUE.md
+#
+# `gpui` and `gpui-component` are deliberately ABSENT. They are vendored and
+# pinned by a separate item (0.2, spec §10.5) and wired in at merge. Do not add
+# them here speculatively.
+
+[workspace]
+resolver = "3"
+members = ["crates/*", "oracle"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96.0"
+license = "AGPL-3.0-only"
+publish = false
+
+[workspace.dependencies]
+# Internal crates. The dependency edges in §4.2 are enforced by which of these
+# each member actually lists — adding an edge that §4.2 does not permit is a
+# spec violation, not a style question.
+crowbar-proto = { path = "crates/crowbar-proto", version = "0.1.0" }
+crowbar-client = { path = "crates/crowbar-client", version = "0.1.0" }
+crowbar-core = { path = "crates/crowbar-core", version = "0.1.0" }
+crowbar-ui = { path = "crates/crowbar-ui", version = "0.1.0" }
+crowbar-state = { path = "crates/crowbar-state", version = "0.1.0" }
+crowbar-terminal = { path = "crates/crowbar-terminal", version = "0.1.0" }
+crowbar-editor = { path = "crates/crowbar-editor", version = "0.1.0" }
+crowbar-diff = { path = "crates/crowbar-diff", version = "0.1.0" }
+crowbar-webview = { path = "crates/crowbar-webview", version = "0.1.0" }
+crowbar-platform = { path = "crates/crowbar-platform", version = "0.1.0" }
+crowbar-driver = { path = "crates/crowbar-driver", version = "0.1.0" }
+
+# External.
+objc2 = "0.6"
+serde = { version = "1", features = ["derive"] }
+
+# §4.3 rule 4. Every member carries `[lints] workspace = true`; the per-test
+# exemptions live in `clippy.toml` so no crate needs `#[allow]` noise.
+[workspace.lints.clippy]
+pedantic = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"

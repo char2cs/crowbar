@@ -1,0 +1,26 @@
+[package]
+name = "crowbar-driver"
+description = "element-tree extractor, input injector and MCP stdio server — feature-gated, never shipped by default"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# §4.2: depends on everything. It taps state and the element tree, so it sees
+# the whole graph.
+[dependencies]
+crowbar-proto.workspace = true
+crowbar-client.workspace = true
+crowbar-core.workspace = true
+crowbar-ui.workspace = true
+crowbar-state.workspace = true
+crowbar-terminal.workspace = true
+crowbar-editor.workspace = true
+crowbar-diff.workspace = true
+crowbar-webview.workspace = true
+crowbar-platform.workspace = true
+# gpui arrives transitively through crowbar-ui once item 0.2 lands.
+
+[lints]
+workspace = true

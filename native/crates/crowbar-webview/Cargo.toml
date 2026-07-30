@@ -1,0 +1,17 @@
+[package]
+name = "crowbar-webview"
+description = "webview panes and windows"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+crowbar-ui.workspace = true
+crowbar-state.workspace = true
+# `gpui-wry` (§10.1) goes here once item 0.2 has pinned the gpui SHA it builds
+# against; gpui itself arrives transitively through crowbar-ui.
+
+[lints]
+workspace = true

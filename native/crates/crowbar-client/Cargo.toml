@@ -1,0 +1,16 @@
+[package]
+name = "crowbar-client"
+description = "unix-socket HTTP + WebSocket transport to the Crowbar daemon, with reconnect and backoff"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# §4.2: `proto` only (plus the transport crates named in §10.1 — `reqwest` with
+# the unix connector and `tungstenite` — when the transport actually lands).
+[dependencies]
+crowbar-proto.workspace = true
+
+[lints]
+workspace = true

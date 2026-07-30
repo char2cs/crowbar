@@ -1,0 +1,13 @@
+# Pinned toolchain for the native port.
+#
+# NOTE: this pin may have to move to match whatever toolchain the vendored
+# `gpui` requires (item 0.2, spec §10.5). If gpui's own `rust-toolchain.toml`
+# names a different channel, that one wins and this file follows it.
+#
+# `llvm-tools-preview` is not optional: `cargo llvm-cov` is the §12 coverage
+# gate and will not run without it.
+
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy", "llvm-tools-preview"]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]

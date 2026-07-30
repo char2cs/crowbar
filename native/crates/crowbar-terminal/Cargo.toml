@@ -1,0 +1,16 @@
+[package]
+name = "crowbar-terminal"
+description = "GPU text-grid renderer over the daemon's VT screen model"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+crowbar-ui.workspace = true
+crowbar-state.workspace = true
+# gpui arrives transitively through crowbar-ui once item 0.2 lands.
+
+[lints]
+workspace = true

@@ -1,0 +1,16 @@
+[package]
+name = "crowbar-proto"
+description = "serde DTOs, generated from the Go daemon's handlers (spec §9.2)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# §4.2: `serde` only. Nothing else may ever be added here — this crate is
+# generated output and must stay trivially reviewable.
+[dependencies]
+serde.workspace = true
+
+[lints]
+workspace = true

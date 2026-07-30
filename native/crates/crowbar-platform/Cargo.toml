@@ -1,0 +1,16 @@
+[package]
+name = "crowbar-platform"
+description = "THE ONLY unsafe crate: macOS vibrancy, NSWindow, reveal-in-Finder, open_window, diagnostics_export"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# §4.2: `objc2`, macOS only. Version tracks desktop/src-tauri/Cargo.toml so the
+# port of the existing vibrancy code is a move, not a rewrite.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+
+[lints]
+workspace = true

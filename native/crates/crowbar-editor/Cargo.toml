@@ -1,0 +1,18 @@
+[package]
+name = "crowbar-editor"
+description = "editor integration, buffers and retained editors"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+crowbar-ui.workspace = true
+crowbar-state.workspace = true
+crowbar-core.workspace = true
+# gpui-component's `input` module (§10.1) is wrapped by crowbar-ui, so gpui
+# arrives transitively once item 0.2 lands.
+
+[lints]
+workspace = true

@@ -1,0 +1,5 @@
+# Build output only.
+/target
+
+# NOTHING here may hide vendored sources. `vendor/gpui/` and `vendor/zed/` are
+# committed on purpose (spec §10.5) — do not add `vendor/` to this file.
