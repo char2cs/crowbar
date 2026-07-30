@@ -204,7 +204,7 @@ type stubReviewReaderForContainer struct{}
 
 func (stubReviewReaderForContainer) GetScope(
 	_ context.Context,
-	_ string,
+	_ domain.Workspace,
 ) (gitdomain.ReviewScope, error) {
 	return gitdomain.ReviewScope{}, nil
 }

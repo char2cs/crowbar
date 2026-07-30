@@ -52,8 +52,8 @@ type stubReviewReader struct {
 	scopeCalls int
 }
 
-func (s *stubReviewReader) GetScope(_ context.Context, wsID string) (gitdomain.ReviewScope, error) {
-	s.lastWsID = wsID
+func (s *stubReviewReader) GetScope(_ context.Context, ws domain.Workspace) (gitdomain.ReviewScope, error) {
+	s.lastWsID = ws.ID
 	s.scopeCalls++
 	return gitdomain.ReviewScope{Base: s.base, Files: s.files}, nil
 }

@@ -81,11 +81,15 @@ func listWorkspaces(
 	deps Deps,
 	c Caller,
 ) (string, error) {
+	visible, err := c.Visible()
+	if err != nil {
+		return "", fmt.Errorf("agenttools: list_workspaces: %w", err)
+	}
 	all, err := deps.ChatReads.ListChats(ctx)
 	if err != nil {
 		return "", fmt.Errorf("agenttools: list_workspaces: %w", err)
 	}
-	return renderWorkspaces(c.Workspace, c.Visible, chatsByWorkspace(all, c.Visible)), nil
+	return renderWorkspaces(c.Workspace, visible, chatsByWorkspace(all, visible)), nil
 }
 
 // chatsByWorkspace buckets one whole-table chat read by owning workspace,

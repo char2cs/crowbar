@@ -21,6 +21,20 @@ type mergeBaseCall struct {
 	b string
 }
 
+// scopeFixtureChild is the workspace under review. GetScope takes the resolved
+// aggregate rather than an id (it is the caller's already-folded workspace), so
+// the fixture's child is named here and handed to both the workspace mock and
+// the calls under test.
+func scopeFixtureChild() domain.Workspace {
+	return domain.Workspace{
+		ID:           "child",
+		RepoID:       "repo1",
+		Branch:       "feat/child",
+		WorktreePath: "/wt/child",
+		ParentID:     "parent",
+	}
+}
+
 // newScopeFixture wires a child->parent workspace pair over a MergeBase stub
 // whose answers are supplied per test, recording every call. Every subcommand
 // here is a real subprocess in production and costs about the same whatever it
@@ -31,13 +45,7 @@ func newScopeFixture(
 ) (*mockWorkspace, *mockGitEngine, *[]mergeBaseCall) {
 	t.Helper()
 
-	child := domain.Workspace{
-		ID:           "child",
-		RepoID:       "repo1",
-		Branch:       "feat/child",
-		WorktreePath: "/wt/child",
-		ParentID:     "parent",
-	}
+	child := scopeFixtureChild()
 	parent := domain.Workspace{ID: "parent", Branch: "develop"}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
@@ -84,7 +92,7 @@ func TestGetScope_ResolvesTheDiffRefOnce(
 	wsMock, gitEng, calls := newScopeFixture(t, inSyncMergeBase)
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	scope, err := uc.GetScope(context.Background(), "child")
+	scope, err := uc.GetScope(context.Background(), scopeFixtureChild())
 	require.NoError(t, err)
 	assert.Equal(t, "base-sha", scope.Base)
 
@@ -127,7 +135,7 @@ func TestGetScope_ReportsTheRefItsFilesWereDiffedFrom(
 	}
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	scope, err := uc.GetScope(context.Background(), "child")
+	scope, err := uc.GetScope(context.Background(), scopeFixtureChild())
 	require.NoError(t, err)
 	assert.Equal(t, diffedRef, scope.Base)
 	require.Len(t, scope.Files, 1)
@@ -147,7 +155,7 @@ func TestResolveDiffRef_IdenticalCandidatesSkipTheComparison(
 	wsMock, gitEng, calls := newScopeFixture(t, inSyncMergeBase)
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	scope, err := uc.GetScope(context.Background(), "child")
+	scope, err := uc.GetScope(context.Background(), scopeFixtureChild())
 	require.NoError(t, err)
 	assert.Equal(t, "base-sha", scope.Base)
 
@@ -178,7 +186,7 @@ func TestResolveDiffRef_DivergentCandidatesStillCompare(
 	})
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), gitEng)
 
-	scope, err := uc.GetScope(context.Background(), "child")
+	scope, err := uc.GetScope(context.Background(), scopeFixtureChild())
 	require.NoError(t, err)
 
 	assert.Equal(t, "local-base", scope.Base,
@@ -202,7 +210,7 @@ func TestGetScope_AgreesWithGetBaseAndGetFiles(
 	uc, ws, wantRef := newDivergedWorkspaceFixture(t)
 	ctx := context.Background()
 
-	scope, err := uc.GetScope(ctx, ws.ID)
+	scope, err := uc.GetScope(ctx, ws)
 	require.NoError(t, err)
 
 	base, err := uc.GetBase(ctx, ws.ID)

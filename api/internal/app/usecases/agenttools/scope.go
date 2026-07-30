@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -54,28 +55,88 @@ type WorkspaceLister interface {
 }
 
 // Caller is an authenticated agent and everything it is allowed to reach.
-// Visible always contains the caller's own workspace.
 //
 // ProviderID names the vendor CLI behind this caller (its runner's provider). It
 // is carried here so anything an agent WRITES can be attributed to the agent that
 // wrote it — a review comment with no author renders as a blank name beside the
 // user's own comments in the review UI.
+//
+// The visible set is reached through Visible and CanSee, never as a field,
+// because it is loaded LAZILY: computing it is a full workspace-table scan plus a
+// JSON unmarshal per row, and most tools never look at it — set_chat_title needs
+// no workspace tree at all, and the review tools need a single membership answer.
+// A copy of a Caller shares the same set, so the load happens at most once per
+// resolved caller however many times it is passed by value.
 type Caller struct {
 	RunnerID   string
 	ChatID     string
 	ProviderID string
 	Workspace  domain.Workspace
-	Visible    []domain.Workspace
+	visible    *visibleSet
+}
+
+// Visible returns every workspace this caller may act on, always including its
+// own, loading the set on first use.
+//
+// It returns an error rather than an empty slice when the set cannot be loaded,
+// because to list_workspaces those two are opposite answers: "you can see
+// nothing" is a statement a model will act on, and reporting it for what is
+// really a failed read would tell an agent its siblings do not exist.
+func (c Caller) Visible() ([]domain.Workspace, error) {
+	if c.visible == nil {
+		return nil, fmt.Errorf("agenttools: visible: caller carries no visibility set: %w", ErrUnauthorized)
+	}
+	return c.visible.get()
 }
 
 // CanSee reports whether wsID is one of the workspaces this caller may act on.
+//
+// A set that could not be loaded DENIES. This is the authority check every
+// cross-workspace tool funnels through — reading another chat's log, replying to
+// or resolving another workspace's review thread — so the failure direction is
+// not a style choice: treating an unreadable workspace tree as "no restriction"
+// would hand an agent every workspace on the machine at the exact moment the
+// daemon lost the ability to tell them apart.
 func (c Caller) CanSee(wsID string) bool {
-	for _, w := range c.Visible {
+	all, err := c.Visible()
+	if err != nil {
+		return false
+	}
+	for _, w := range all {
 		if w.ID == wsID {
 			return true
 		}
 	}
 	return false
+}
+
+// visibleSet is one caller's downward visibility, computed at most once and only
+// if something asks.
+//
+// The mutex is not defensive: a Caller is passed by value into a tool handler
+// while the pointer to this set is shared with every copy, and nothing stops a
+// handler from consulting it off more than one goroutine — a broadcast fan-out
+// or a future concurrent tool would do exactly that. The error is memoised
+// alongside the set so a caller cannot see a different visible set at two points
+// in the same tool call: a check that passes and a later one that fails is
+// harder to reason about than either outcome consistently.
+type visibleSet struct {
+	mu     sync.Mutex
+	load   func() ([]domain.Workspace, error)
+	loaded bool
+	all    []domain.Workspace
+	err    error
+}
+
+func (v *visibleSet) get() ([]domain.Workspace, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.loaded {
+		return v.all, v.err
+	}
+	v.loaded = true
+	v.all, v.err = v.load()
+	return v.all, v.err
 }
 
 // Resolver is the authority model: given an authenticated runner, it decides
@@ -133,17 +194,38 @@ func (r *Resolver) Resolve(ctx context.Context, runnerID, token string) (Caller,
 	if err != nil {
 		return Caller{}, fmt.Errorf("agenttools: get caller workspace: %w", errors.Join(ErrUnauthorized, err))
 	}
-	all, err := r.workspaces.List(ctx)
-	if err != nil {
-		return Caller{}, fmt.Errorf("agenttools: list workspaces: %w", err)
-	}
 	return Caller{
 		RunnerID:   runnerID,
 		ChatID:     runner.CurrentChatID,
 		ProviderID: runner.ProviderID,
 		Workspace:  ws,
-		Visible:    visibleFrom(ws, all),
+		visible:    &visibleSet{load: r.visibleLoader(ctx, ws)},
 	}, nil
+}
+
+// visibleLoader defers the workspace-tree read until a tool actually needs it.
+//
+// Resolve runs on EVERY MCP call, and the read it used to do here is a full
+// table scan with a JSON unmarshal per row — paid by set_chat_title, which never
+// looks at a workspace other than its own, as much as by list_workspaces, which
+// is the only tool that wants the whole tree.
+//
+// It closes over Resolve's context deliberately: ToolSet.Call hands the same
+// context to Resolve and to the tool handler it dispatches, so the deferred read
+// runs under the request that asked for it and is cancelled with it. Binding the
+// context here rather than taking one per call is what keeps CanSee's signature
+// free of a context it would only ever be given the same value of.
+func (r *Resolver) visibleLoader(
+	ctx context.Context,
+	ws domain.Workspace,
+) func() ([]domain.Workspace, error) {
+	return func() ([]domain.Workspace, error) {
+		all, err := r.workspaces.List(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("agenttools: list workspaces: %w", err)
+		}
+		return visibleFrom(ws, all), nil
+	}
 }
 
 // visibleFrom applies the three-tier rule and is downward only by

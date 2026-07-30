@@ -34,7 +34,7 @@ func (u *branchReviewUsecase) GetFiles(
 	wsID string,
 	commit string,
 ) ([]gitdomain.ReviewFileSummary, error) {
-	scope, err := u.scopeOf(ctx, wsID, commit)
+	scope, err := u.scopeOf(ctx, wsID, commit, domain.Workspace{})
 	if err != nil {
 		return nil, err
 	}
@@ -47,21 +47,30 @@ func (u *branchReviewUsecase) GetFiles(
 // the pair costs exactly what the file list alone used to, and shares its
 // flight: a sidebar refresh and an agent asking what it is reviewing now
 // collapse into one sequence of git calls instead of two.
+//
+// ws is the caller's already-resolved workspace and saves the second fold of the
+// same aggregate — see the interface doc for why that is worth a signature that
+// differs from every sibling method's.
 func (u *branchReviewUsecase) GetScope(
 	ctx context.Context,
-	wsID string,
+	ws domain.Workspace,
 ) (gitdomain.ReviewScope, error) {
-	return u.scopeOf(ctx, wsID, "")
+	return u.scopeOf(ctx, ws.ID, "", ws)
 }
 
-// scopeOf is the single-flighted read behind both GetFiles and GetScope.
+// scopeOf is the single-flighted read behind both GetFiles and GetScope. known
+// is the caller's already-resolved workspace, or the zero value when the caller
+// holds only an id; either way the resolution happens INSIDE the flight, so
+// concurrent readers of the same workspace still share one workspace read rather
+// than each folding the aggregate before they meet.
 func (u *branchReviewUsecase) scopeOf(
 	ctx context.Context,
 	wsID string,
 	commit string,
+	known domain.Workspace,
 ) (gitdomain.ReviewScope, error) {
 	shared := u.fileReads.DoChan(wsID+"\x00"+commit, func() (any, error) {
-		return u.readScope(context.WithoutCancel(ctx), wsID, commit)
+		return u.readScope(context.WithoutCancel(ctx), wsID, commit, known)
 	})
 	select {
 	case <-ctx.Done():
@@ -94,10 +103,11 @@ func (u *branchReviewUsecase) readScope(
 	ctx context.Context,
 	wsID string,
 	commit string,
+	known domain.Workspace,
 ) (gitdomain.ReviewScope, error) {
-	ws, err := u.workspaces.Get(ctx, wsID)
+	ws, err := u.workspaceFor(ctx, wsID, known)
 	if err != nil {
-		return gitdomain.ReviewScope{}, fmt.Errorf("branch review: get workspace: %w", asNotFound(err))
+		return gitdomain.ReviewScope{}, err
 	}
 	ref, err := u.resolveScopeRef(ctx, ws, commit)
 	if err != nil {
@@ -108,6 +118,28 @@ func (u *branchReviewUsecase) readScope(
 		return gitdomain.ReviewScope{}, err
 	}
 	return gitdomain.ReviewScope{Base: ref, Files: files}, nil
+}
+
+// workspaceFor returns the workspace to read the scope of, folding it from the
+// event log only when the caller did not already hold it.
+//
+// The id guard is what makes handing an aggregate in safe: known is only trusted
+// when it IS the workspace being asked about, so a caller that passes the wrong
+// one — or the zero value — falls through to the real read instead of silently
+// producing another workspace's review.
+func (u *branchReviewUsecase) workspaceFor(
+	ctx context.Context,
+	wsID string,
+	known domain.Workspace,
+) (domain.Workspace, error) {
+	if known.ID != "" && known.ID == wsID {
+		return known, nil
+	}
+	ws, err := u.workspaces.Get(ctx, wsID)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("branch review: get workspace: %w", asNotFound(err))
+	}
+	return ws, nil
 }
 
 // filesForRef reads the changed-file summary of an ALREADY-resolved ref, so the

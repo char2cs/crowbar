@@ -61,9 +61,17 @@ type Usecase interface {
 	// answer one question — what does this review cover — and each resolution is
 	// up to three git subprocesses. See gitdomain.ReviewScope for why the pair
 	// belongs together on correctness grounds as well as cost.
+	//
+	// It takes the ALREADY-RESOLVED workspace rather than its id, unlike every
+	// other method here, because its only caller is the agent tool surface and
+	// that caller has just folded the same aggregate to authenticate: workspace
+	// Get replays the whole event log and fires a background reconcile, so a
+	// second read of a workspace resolved microseconds earlier pays both again to
+	// learn nothing. Callers holding only an id want GetFiles, which resolves for
+	// itself and shares this one's flight.
 	GetScope(
 		ctx context.Context,
-		wsID string,
+		ws domain.Workspace,
 	) (gitdomain.ReviewScope, error)
 	// GetOutline returns the hunk geometry of the workspace's branch diff: per
 	// file the `@@` shapes of its diff and no content at all. O(hunks) where Get

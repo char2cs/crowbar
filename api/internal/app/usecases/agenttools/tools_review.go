@@ -22,8 +22,13 @@ import (
 // Scope is one method rather than a base getter beside a file getter because the
 // two were resolving the same ref independently, at up to three git subprocesses
 // each, to serve a single tool call. See gitdomain.ReviewScope.
+//
+// It takes the caller's resolved workspace, not its id: the Resolver has already
+// folded that aggregate to authenticate the call, and re-reading it replays the
+// event log and fires a second background reconcile for an answer the tool is
+// already holding.
 type ReviewReader interface {
-	GetScope(ctx context.Context, wsID string) (gitdomain.ReviewScope, error)
+	GetScope(ctx context.Context, ws domain.Workspace) (gitdomain.ReviewScope, error)
 	GetOutline(ctx context.Context, wsID, commit string) ([]gitdomain.FileOutline, error)
 }
 
@@ -183,7 +188,7 @@ func getReviewScopeTool(deps Deps) toolDef {
 			// parent — and it reports the ref and the files from a single
 			// resolution, so the file list it renders is guaranteed to be the diff
 			// of the base it names.
-			scope, err := deps.Review.GetScope(ctx, c.Workspace.ID)
+			scope, err := deps.Review.GetScope(ctx, c.Workspace)
 			if err != nil {
 				return "", fmt.Errorf("agenttools: get_review_scope: %w", err)
 			}
@@ -460,9 +465,13 @@ func resolveReviewThread(
 // can belong to a different repo when the caller sits at "home" — the /threads
 // stream filters on projectId and repoId as well as wsId, so a frame carrying
 // the caller's own repo would reach nobody's stream for a cross-repo write.
-// wsID is already confirmed present in c.Visible by the CanSee check that ran
-// before every call site, so the lookup below always finds it; the fallback to
-// c.Workspace only guards a future call site that skips that check.
+// wsID is already confirmed present in the visible set by the CanSee check that
+// ran before every call site, so the lookup below always finds it — and the set
+// is already loaded and memoised by that same check, which is why the load error
+// is discarded here rather than failing the broadcast: a caller that reached this
+// function loaded it successfully. The fallback to c.Workspace guards both a
+// future call site that skips the check and the impossible-today error case,
+// which broadcasts to the caller's own project/repo rather than not at all.
 func broadcastThreadWrite(
 	deps Deps,
 	c Caller,
@@ -470,7 +479,8 @@ func broadcastThreadWrite(
 	thread domain.ReviewThread,
 ) {
 	ws := c.Workspace
-	for _, w := range c.Visible {
+	visible, _ := c.Visible()
+	for _, w := range visible {
 		if w.ID == wsID {
 			ws = w
 			break

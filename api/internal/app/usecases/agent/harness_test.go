@@ -465,7 +465,7 @@ type fixtureReviewReader struct{}
 
 func (fixtureReviewReader) GetScope(
 	context.Context,
-	string,
+	domain.Workspace,
 ) (gitdomain.ReviewScope, error) {
 	return gitdomain.ReviewScope{}, nil
 }

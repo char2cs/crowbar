@@ -71,8 +71,9 @@ func resolverOn(t *testing.T, callerWs string) (*agenttools.Resolver, *agenttool
 }
 
 func visibleIDs(c agenttools.Caller) []string {
-	out := make([]string, 0, len(c.Visible))
-	for _, w := range c.Visible {
+	all, _ := c.Visible()
+	out := make([]string, 0, len(all))
+	for _, w := range all {
 		out = append(out, w.ID)
 	}
 	return out
