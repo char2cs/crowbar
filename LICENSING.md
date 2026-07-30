@@ -33,9 +33,13 @@ Contributions are accepted under AGPL-3.0-only. By opening a pull request you ar
 licensing your contribution to the project, and to everyone downstream, under that
 licence — the same terms as the rest of the tree.
 
-You keep the copyright in your own work. No copyright assignment is asked for and no
-Contributor License Agreement is required, because nothing in the project depends on
-being able to relicense contributions later.
+You keep the copyright in your own work; no copyright assignment is asked for.
+
+The project previously stated that a Contributor License Agreement would be required, on
+the grounds that outside contributions would otherwise forfeit the ability to relicense
+the tree. That rationale no longer applies — relicensing is permanently off the table
+either way. Whether any contribution agreement is used for other reasons is an open
+question and is not settled here.
 
 ---
 
