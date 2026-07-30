@@ -1,0 +1,18 @@
+[package]
+name = "crowbar-state"
+description = "Entity<T> stores, the event graph and subscription wiring"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+crowbar-core.workspace = true
+crowbar-client.workspace = true
+# gpui goes here (§4.2) once item 0.2 has vendored and pinned it. The §12 gate
+# for this crate is `#[gpui::test]` on a seeded TestDispatcher, so `gpui`'s
+# `test-support` feature will be a dev-dependency at the same time.
+
+[lints]
+workspace = true

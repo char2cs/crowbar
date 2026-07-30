@@ -1,0 +1,16 @@
+[package]
+name = "crowbar-ui"
+description = "the Crowbar design system: Theme, sealed token newtypes, primitives"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+crowbar-core.workspace = true
+# gpui + gpui-component go here (§4.2) once item 0.2 has vendored and pinned
+# them under native/vendor/gpui/. Do not add them before then.
+
+[lints]
+workspace = true

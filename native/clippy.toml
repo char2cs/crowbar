@@ -1,0 +1,7 @@
+# Test code is exempt from the §4.3 rule-4 denials. This is configured centrally
+# so that no test file ever needs a per-file `#[allow(clippy::unwrap_used)]`,
+# which would be indistinguishable from an agent silencing the lint in shipping
+# code.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

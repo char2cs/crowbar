@@ -1,0 +1,31 @@
+[package]
+name = "crowbar-app"
+description = "the Crowbar native binary: window and menu wiring, panes, routing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+crowbar-proto.workspace = true
+crowbar-client.workspace = true
+crowbar-core.workspace = true
+crowbar-ui.workspace = true
+crowbar-state.workspace = true
+crowbar-terminal.workspace = true
+crowbar-editor.workspace = true
+crowbar-diff.workspace = true
+crowbar-webview.workspace = true
+crowbar-platform.workspace = true
+crowbar-driver = { workspace = true, optional = true }
+# gpui arrives transitively through crowbar-ui once item 0.2 lands.
+
+# §10.4: the driver is in-process and behind `--features driver`. A default
+# build must not link it.
+[features]
+default = []
+driver = ["dep:crowbar-driver"]
+
+[lints]
+workspace = true

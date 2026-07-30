@@ -1,0 +1,18 @@
+[package]
+name = "crowbar-core"
+description = "all Crowbar domain logic: git model, diff algebra, keymap resolution, settings schema, file-tree model, workspace scoping, review threads"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# §4.3 rule 1, D2: this crate MUST NOT depend on gpui. Not now, not ever, not
+# transitively. `scripts/check-invariants.sh` greps this file. If a piece of
+# logic seems to need gpui, it is not logic — split it.
+[dependencies]
+crowbar-proto.workspace = true
+crowbar-client.workspace = true
+
+[lints]
+workspace = true

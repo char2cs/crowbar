@@ -1,0 +1,15 @@
+[package]
+name = "oracle"
+description = "the parity differ: two JSON snapshots in, ranked deltas out"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# §4.2: no dependencies. Not on the rest of the workspace, and not on gpui. The
+# oracle judges the app; it must not be able to import the thing it judges.
+[dependencies]
+
+[lints]
+workspace = true
