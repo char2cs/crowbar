@@ -87,15 +87,33 @@ func InvalidateGit() {
 // mistaken for one. A caller whose repo directory was deleted sees its real
 // error, unretried.
 func RecoverGit() bool {
-	p := gitPath.Load()
-	if p == nil || !filepath.IsAbs(*p) || isExecutableFile(*p) {
+	stale := gitPath.Load()
+	if !vanished(stale) {
 		return false
 	}
 	gitResolveMu.Lock()
 	defer gitResolveMu.Unlock()
+	// An update lands once, but every git call in flight against the old path
+	// fails at the same instant and arrives here together. Pointer identity says
+	// whether one of them already did the work: only a resolution ever stores,
+	// so a changed pointer means the sweep is done and this caller can just read
+	// the verdict instead of repeating a full PATH lookup and dir walk.
+	if current := gitPath.Load(); current != stale {
+		return *current != *stale
+	}
 	resolved := resolveGit(Resolve(gitName), developerDirs())
 	gitPath.Store(&resolved)
-	return resolved != *p
+	return resolved != *stale
+}
+
+// vanished reports whether a cached resolution has stopped naming an executable
+// file. A bare name is never treated as vanished: it is what an unresolvable git
+// falls back to, it can never stat as a file, and recovering on it would
+// re-resolve on every failed call for the life of the process.
+func vanished(
+	p *string,
+) bool {
+	return p != nil && filepath.IsAbs(*p) && !isExecutableFile(*p)
 }
 
 func resolveGit(

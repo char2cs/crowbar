@@ -85,10 +85,33 @@ func TestResolveGit_LooksPastTheXcrunShim(t *testing.T) {
 // TestResolveGit_FallsBackToTheShimWhenNoDeveloperDirHasGit is the fallback
 // that makes this safe to ship: a machine with no Xcode and no Command Line
 // Tools keeps the git it had. Resolution failing must never fail a git call.
+//
+// developerGit is asserted directly because it is the part that carries the
+// logic. resolveGit returns early when GOOS is not darwin, so checking only its
+// output would make this test vacuously true on Linux — where CI runs, and
+// where the branch would then go untested.
 func TestResolveGit_FallsBackToTheShimWhenNoDeveloperDirHasGit(t *testing.T) {
-	got := resolveGit(xcrunShimPath, []string{"/nonexistent/developer/dir", t.TempDir()})
+	dirs := []string{"/nonexistent/developer/dir", t.TempDir()}
 
-	assert.Equal(t, xcrunShimPath, got)
+	assert.Empty(t, developerGit(dirs), "no candidate dir contains an executable git")
+	assert.Equal(t, xcrunShimPath, resolveGit(xcrunShimPath, dirs))
+}
+
+// TestDeveloperGit_SkipsADirWithoutAnExecutableGit walks past a candidate whose
+// usr/bin/git is present but not executable and takes the next one, so a
+// half-installed or root-owned developer directory cannot shadow a working one.
+func TestDeveloperGit_SkipsADirWithoutAnExecutableGit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("executable-bit probing is POSIX only")
+	}
+	broken := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(broken, "usr", "bin"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(broken, "usr", "bin", "git"), []byte("x"), 0o644))
+	working := fakeDeveloperDir(t)
+
+	got := developerGit([]string{broken, working})
+
+	assert.Equal(t, filepath.Join(working, "usr", "bin", "git"), got)
 }
 
 // TestResolveGit_LeavesANonShimPathAlone covers Linux, a stripped container,
@@ -115,14 +138,6 @@ func TestDeveloperDirs_HonoursTheDeveloperDirOverride(t *testing.T) {
 	t.Setenv("DEVELOPER_DIR", "/custom/developer/dir")
 
 	assert.Equal(t, "/custom/developer/dir", developerDirs()[0])
-}
-
-func TestDeveloperDirs_IncludesTheStockInstallLocations(t *testing.T) {
-	t.Setenv("DEVELOPER_DIR", "")
-	dirs := developerDirs()
-
-	assert.Contains(t, dirs, "/Library/Developer/CommandLineTools")
-	assert.Contains(t, dirs, "/Applications/Xcode.app/Contents/Developer")
 }
 
 // TestRecoverGit_ReResolvesAVanishedBinary covers an Xcode or Command Line

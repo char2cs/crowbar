@@ -62,6 +62,13 @@ func GitStream(
 // binary. Nothing survives a failed attempt to retry around: the subprocess did
 // not start, so no stdout byte can have reached a consumer, and the abandoned
 // context is cancelled here rather than by the caller.
+//
+// Its error is a sound never-started signal in a way the buffered path's is not,
+// and needs no equivalent of that path's cmd.Process check. Only two things can
+// fail here, StdoutPipe and Start, and both are strictly pre-exec: os/exec's
+// Start returns nil the moment StartProcess succeeds, and every step it takes
+// afterwards is infallible. A non-nil error therefore means no process exists,
+// so the retry cannot re-run a command that already did its work.
 func startStream(
 	ctx context.Context,
 	bin string,

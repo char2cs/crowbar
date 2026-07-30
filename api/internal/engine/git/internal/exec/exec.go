@@ -188,9 +188,18 @@ func runInner(
 	return classifyTimeout(bctx.Err(), ctx.Err(), r)
 }
 
-// execGit reports whether the subprocess started alongside its result. A
-// command that never started has no ProcessState, and that is the only signal
-// that separates "this binary could not be exec'd" from "git ran and said no".
+// execGit reports whether the subprocess started alongside its result, which is
+// what gates the single retry in runInner.
+//
+// The predicate is cmd.Process, deliberately NOT cmd.ProcessState. ProcessState
+// reads like the natural choice and is wrong in the one way that matters here:
+// os/exec sets c.Process only on a successful StartProcess, but Wait assigns
+// c.ProcessState from c.Process.Wait(), which leaves it NIL whenever that wait
+// itself fails. A git command that had already run to completion — and
+// committed, or created a worktree — would then be reported as never-started
+// and retried, running the mutation a second time. c.Process is the fact the
+// retry actually needs: a process object exists if and only if the fork/exec
+// succeeded, whatever happened afterwards.
 func execGit(
 	ctx context.Context,
 	bin string,
@@ -227,7 +236,7 @@ func execGit(
 	if r.ExitCode != 0 && r.Stderr == "" && runErr != nil {
 		r.Stderr = runErr.Error()
 	}
-	return r, cmd.ProcessState != nil
+	return r, cmd.Process != nil
 }
 
 // boundedContext applies GitOpTimeout to an invocation the caller left

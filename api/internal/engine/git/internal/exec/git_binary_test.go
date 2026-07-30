@@ -22,16 +22,27 @@ func trimNewline(
 	return strings.TrimRight(s, "\r\n")
 }
 
-// writeStubGit is a script that answers any argv with one fixed line, so a test
-// can tell which file was exec'd from the output alone.
+// writeStubGit is a stand-in git that runs script whatever argv it is handed, so
+// a test can tell from the output — or from a side effect the script leaves
+// behind — which file was exec'd and how often.
 func writeStubGit(
 	t *testing.T,
-	output string,
+	script string,
 ) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "git")
-	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\nprintf '%s' '"+output+"'\n"), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"+script+"\n"), 0o755))
 	return path
+}
+
+func readFile(
+	t *testing.T,
+	path string,
+) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return string(data)
 }
 
 // vanishedResolver models the exact production sequence for a git binary that
@@ -134,10 +145,36 @@ func TestGit_MissingWorkingDirectoryIsNotAMissingBinary(t *testing.T) {
 	assert.Equal(t, 0, exec.Git(context.Background(), good, "rev-parse", "HEAD").ExitCode)
 }
 
+// TestGit_ACommandThatRanIsNeverRunTwice is the guard on the retry, and the
+// reason its predicate is cmd.Process rather than cmd.ProcessState. Retrying is
+// only ever safe for an invocation that did not start; re-running one that did
+// would run a `commit` or a `worktree add` a second time. The stub records every
+// execution and exits non-zero, and the resolver offers a recovery on every
+// failure — so a retry gated on anything but "no process exists" shows up here
+// as two recorded runs.
+func TestGit_ACommandThatRanIsNeverRunTwice(t *testing.T) {
+	ledger := filepath.Join(t.TempDir(), "runs")
+	stub := writeStubGit(t, "echo ran >> "+ledger+"\nexit 3\n")
+	var recovers atomic.Int64
+	defer exec.SetGitResolverForTest(
+		func() string { return stub },
+		func() bool {
+			recovers.Add(1)
+			return true
+		},
+	)()
+
+	r := exec.Git(context.Background(), t.TempDir(), "commit", "-m", "x")
+
+	require.Equal(t, 3, r.ExitCode)
+	assert.Zero(t, recovers.Load(), "a command that ran must never reach the resolver")
+	assert.Equal(t, "ran", trimNewline(readFile(t, ledger)), "the command must have run exactly once")
+}
+
 // TestGit_UsesTheResolvedBinary proves the seam is actually wired: point it at
 // a stand-in and the stand-in is what runs.
 func TestGit_UsesTheResolvedBinary(t *testing.T) {
-	stub := writeStubGit(t, "stub-git-ran\n")
+	stub := writeStubGit(t, "echo stub-git-ran")
 	defer exec.SetGitResolverForTest(
 		func() string { return stub },
 		func() bool { return false },
