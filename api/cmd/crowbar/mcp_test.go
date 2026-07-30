@@ -132,4 +132,48 @@ func TestRelay_NonSuccessStatusBecomesAnRPCError(t *testing.T) {
 	require.Contains(t, resp.Error.Message, "500")
 }
 
+// A notification whose POST FAILS must still be answered with silence.
+// TestRelay_WritesNothingForANotification above covers only the 200 path, so the
+// error path shipped untested — and it is the one that matters most, because
+// notifications/initialized is sent during the handshake, the likeliest moment
+// for a transient daemon failure. JSON-RPC 2.0 forbids any response to a
+// notification; an unsolicited {"id":null,"error":…} is not a courtesy.
+func TestRelay_WritesNothingWhenANotificationsPostFails(t *testing.T) {
+	var out bytes.Buffer
+	post := func(string, any) (int, []byte, error) { return 0, nil, errBoom }
+	in := strings.NewReader(`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n")
+
+	require.NoError(t, runMCPRelay(in, &out, post, "SEG", "P", "R", "W", "TOK"))
+	require.Empty(t, out.String(), "a notification gets no reply, not even an error")
+}
+
+// The same holds for the OTHER failure site: a non-2xx is an application error,
+// but a notification is still not entitled to hear about it.
+func TestRelay_WritesNothingWhenANotificationGetsANonSuccessStatus(t *testing.T) {
+	var out bytes.Buffer
+	post := func(string, any) (int, []byte, error) {
+		return 500, []byte(`{"success":false,"error":"tool surface not configured"}`), nil
+	}
+	in := strings.NewReader(`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n")
+
+	require.NoError(t, runMCPRelay(in, &out, post, "SEG", "P", "R", "W", "TOK"))
+	require.Empty(t, out.String())
+}
+
+// The counterpart, and the reason the silence above is decided by PARSING rather
+// than by "no id field found": a line too malformed to parse is not a
+// notification — its id could not be DETERMINED, which is exactly the case
+// JSON-RPC 2.0 allows "id":null for. Swallowing it would hang a client that is
+// waiting for a reply it is entitled to.
+func TestRelay_MalformedLineStillGetsANullIDError(t *testing.T) {
+	var out bytes.Buffer
+	post := func(string, any) (int, []byte, error) { return 0, nil, errBoom }
+	in := strings.NewReader(`{"jsonrpc":"2.0","id` + "\n")
+
+	require.NoError(t, runMCPRelay(in, &out, post, "SEG", "P", "R", "W", "TOK"))
+	require.JSONEq(t,
+		`{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"crowbar daemon unreachable: daemon down"}}`,
+		strings.TrimSpace(out.String()))
+}
+
 var errBoom = errors.New("daemon down")

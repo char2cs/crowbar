@@ -88,7 +88,7 @@ func relayLine(
 	if err != nil {
 		// A daemon blip must not end the session: report it against the
 		// request's own id and keep serving the next line.
-		writeLine(writer, transportError(line, err))
+		writeTransportError(writer, line, err)
 		return
 	}
 	if status < 200 || status > 299 {
@@ -98,7 +98,7 @@ func relayLine(
 		// be indistinguishable from the 204 silence below — answering an
 		// application error with silence hangs the client forever on a
 		// request it is entitled to a reply for, so it becomes an error too.
-		writeLine(writer, transportError(line, fmt.Errorf("daemon returned HTTP %d: %s", status, raw)))
+		writeTransportError(writer, line, fmt.Errorf("daemon returned HTTP %d: %s", status, raw))
 		return
 	}
 
@@ -144,17 +144,39 @@ func reportBrokenStdout(err error) {
 	})
 }
 
+// writeTransportError reports cause against line's id, and writes NOTHING when
+// line is a notification. Split out so both failure sites in relayLine share one
+// answer to "does this message deserve a reply at all" — see transportError.
+func writeTransportError(w *bufio.Writer, line string, cause error) {
+	if payload := transportError(line, cause); payload != nil {
+		writeLine(w, payload)
+	}
+}
+
 // transportError turns a daemon-reachability failure into a JSON-RPC error
 // echoing the request's id, so the client can match the failure to its call.
-// A line too malformed to carry an id gets "id":null, which JSON-RPC allows.
+//
+// It returns nil — no reply at all — for a NOTIFICATION: a line that parsed
+// cleanly and carried no id. JSON-RPC 2.0 forbids any response to a
+// notification, and permits "id":null only for a request whose id could not be
+// DETERMINED, which is the different case of a line too malformed to parse.
+// Telling those apart is the whole reason the unmarshal error is inspected
+// rather than discarded.
+//
+// The distinction is not academic: notifications/initialized is a notification
+// sent during the handshake, which is the likeliest moment for a transient
+// daemon failure, and answering it produced an unsolicited {"id":null,"error":…}
+// on stdout that the client never asked for.
 func transportError(line string, cause error) []byte {
 	var request struct {
 		ID json.RawMessage `json:"id"`
 	}
-	_ = json.Unmarshal([]byte(line), &request)
-	id := request.ID
-	if len(id) == 0 {
-		id = json.RawMessage("null")
+	id := json.RawMessage("null")
+	if err := json.Unmarshal([]byte(line), &request); err == nil {
+		if len(request.ID) == 0 {
+			return nil
+		}
+		id = request.ID
 	}
 	return []byte(fmt.Sprintf(
 		`{"jsonrpc":"2.0","id":%s,"error":{"code":-32603,"message":%q}}`,
