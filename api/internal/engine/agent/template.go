@@ -30,11 +30,13 @@ type TemplateCtx struct {
 	Cwd            string
 	CrowbarHook    string
 	Segid          string
-	// RunnerToken authenticates this runner's MCP calls back into the daemon. The
-	// segment id alone cannot: the agent controls the process holding it and can
-	// read its own argv, so an agent that learned a sibling's segment could
-	// otherwise assume that sibling's scope. Minted per daemon boot; runners never
-	// outlive a boot, so it needs no persistence and revokes itself.
+	// RunnerToken binds this runner's MCP calls to the runner they claim to come
+	// from. The segment id cannot: it is published on the chats API, so a call
+	// naming one proves nothing. What the token buys is that acting as a sibling
+	// cannot happen by ACCIDENT, and that the relay carrying these bytes has
+	// nothing to authorize itself with. It is not containment against an agent
+	// with a shell — see agenttools.TokenMinter for why. Minted per daemon boot;
+	// runners never outlive a boot, so it needs no persistence and revokes itself.
 	RunnerToken string
 	Provider    string
 	ProjectID   string

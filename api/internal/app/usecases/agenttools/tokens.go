@@ -15,13 +15,32 @@ import (
 	"fmt"
 )
 
-// TokenMinter issues and verifies the per-runner token that authenticates an MCP
-// call back into the daemon.
+// TokenMinter issues and verifies the per-runner token that binds an MCP call
+// back into the daemon to the runner it claims to come from.
 //
-// The segment (runner) id alone is not an authenticator: the agent controls the
-// process that holds it and can read its own argv, so an agent that learned a
-// sibling's id could otherwise assume that sibling's scope. The token binds a
-// caller to the runner it was minted for.
+// What it is for. A runner id is not a credential — it is published on the chats
+// API (dto.AgentChatDTO.LiveRunnerID) and it appears in argv. Requiring a token
+// alongside it means a call must name a runner AND carry the thing minted for
+// that runner, which
+//
+//   - stops a runner from acting as a sibling BY ACCIDENT — a copied command
+//     line, a stale flag, a relay pointed at the wrong segment. These are the
+//     realistic failures, and they fail closed instead of quietly succeeding
+//     against someone else's workspace;
+//   - keeps the relay unable to SELF-AUTHORIZE. `crowbar mcp` decides nothing:
+//     it forwards bytes, and the daemon re-derives every caller from a
+//     (runnerID, token) pair it minted itself. Authorization lives in exactly
+//     one place because the transport has nothing to assert with.
+//
+// What it is NOT. It is not a containment boundary against an agent with a
+// shell. The token rides in argv exactly as the id does, and on macOS
+// `ps -Ao pid,args` shows full argv for every process of the same user — so an
+// agent that can read a sibling's id can read its token by the same means. Nor
+// is that the shortest path: the daemon's own HTTP surface has no
+// authentication at all, so an agent with shell access can
+// `curl --unix-socket` the full REST API and do strictly more than these tools
+// permit. The MCP surface grants an adversarial agent no capability it did not
+// already have; it grants a well-behaved one a scoped, attributable way to act.
 //
 // The secret is per-DAEMON-BOOT and never persisted. That is sound because a
 // runner's PTY is a child of the daemon: when the daemon dies every runner dies

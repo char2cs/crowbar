@@ -96,9 +96,16 @@ config_injection:
   # repo id arrives as an empty string instead of swallowing the next token the
   # way a flat shell string would (see TemplateCtx.ScopeFlags).
   #
-  # The token is a SEPARATE credential from the segment id, not a reuse of it: the
-  # agent owns this process and can read its own argv, so a segment id alone would
-  # let an agent that learned a sibling's id assume that sibling's scope.
+  # The token is a SEPARATE credential from the segment id, not a reuse of it. The
+  # segment id is not secret — it is published on the chats API — so requiring a
+  # token beside it is what stops a copied command line or a mis-pointed relay
+  # acting as another runner by accident, and what keeps this relay unable to
+  # authorize itself: it forwards bytes, the daemon decides.
+  #
+  # It is NOT containment against an agent with a shell. The token sits in argv
+  # exactly as the id does and `ps` shows argv to the same user, and the daemon
+  # socket has no authentication at all — so shell access already reaches more
+  # than these tools do. See agenttools.TokenMinter.
   - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.command="{crowbar}"' }
   - pass_arg:
       arg: "-c"

@@ -124,11 +124,23 @@ One new template variable is required: `{runner_token}` (§7).
 
 ### 7.1 Runner token
 
-The segment id alone is a bearer token protected by nothing but unguessability. The agent controls the process that holds it and can read its own argv; nothing prevents `crowbar mcp --segment <other>` once another id is known.
+The segment id is not a credential. It is published on the chats API (`AgentChatDTO.LiveRunnerID`) and it appears in argv, so `crowbar mcp --segment <other>` is nothing but a typo away.
 
 Therefore: **the daemon mints a per-runner token at spawn**, bound to that runner id, stored with the runner record, and revoked when the runner exits. It is exposed to the descriptor as `{runner_token}` on `TemplateCtx` and travels in the relay's argv beside `--segment`. Every tool call validates `(segment, token)` against a live runner, and a call naming a dead or mismatched runner is rejected.
 
-This is not optional hardening deferred to later. It must land before any mutating tool ships.
+**What this buys, stated honestly.** Two things:
+
+1. **Cross-runner action cannot happen by accident.** A copied command line, a stale flag, a relay pointed at the wrong segment — each fails closed rather than quietly succeeding against another workspace.
+2. **The relay cannot self-authorize.** `crowbar mcp` decides nothing; the daemon re-derives every caller from a pair it minted itself, which is what keeps authorization in exactly one place.
+
+**What it does not buy.** It is not a containment boundary against an agent with a shell:
+
+- the token rides in argv exactly as the id does, and on macOS `ps -Ao pid,args` shows full argv for every same-UID process — so it is learned by the same means the id is;
+- more to the point, the daemon's HTTP surface has **no authentication at all**. An agent with shell access can `curl --unix-socket` the full REST API and do strictly more than these eight tools allow.
+
+So the MCP surface grants an adversarial agent no capability it did not already have. It grants a well-behaved one a scoped, attributable way to act. Real containment would mean authenticating the daemon socket itself — a separate problem, not one a per-runner token can solve.
+
+The token is still not optional hardening to defer: without it, cross-runner action is a routine accident rather than an attack.
 
 ### 7.2 Scope resolution
 
