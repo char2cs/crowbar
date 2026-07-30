@@ -31,7 +31,18 @@ func toolsetOn(t *testing.T, renamer agenttools.ChatRenamer) (*agenttools.ToolSe
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	tok := m.Mint("RUN")
-	return agenttools.NewToolSet(agenttools.Deps{Resolver: res, Chats: renamer}, "RUN", tok), tok
+	// Threads and Review are wired here too (with empty-returning stubs) so the
+	// shared toolset fixture always advertises every registered tool group —
+	// which is what makes TestToolSet_RespectsToolCeiling and
+	// TestToolSet_NoToolAcceptsAScopeArgument below guard the whole surface
+	// rather than just set_chat_title.
+	deps := agenttools.Deps{
+		Resolver: res,
+		Chats:    renamer,
+		Threads:  &stubThreadReader{},
+		Review:   &stubReviewReader{},
+	}
+	return agenttools.NewToolSet(deps, "RUN", tok), tok
 }
 
 func TestToolSet_AdvertisesSetChatTitle(t *testing.T) {

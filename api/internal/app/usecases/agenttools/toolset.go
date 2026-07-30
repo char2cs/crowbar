@@ -12,8 +12,11 @@ import (
 // phases extend this struct; a nil dependency simply means the tools that need
 // it are not registered.
 type Deps struct {
-	Resolver *Resolver
-	Chats    ChatRenamer
+	Resolver     *Resolver
+	Chats        ChatRenamer
+	Review       ReviewReader
+	Threads      ThreadReader
+	ThreadWrites ThreadWriter
 }
 
 type toolDef struct {
@@ -36,6 +39,7 @@ type ToolSet struct {
 func NewToolSet(deps Deps, runnerID, token string) *ToolSet {
 	ts := &ToolSet{deps: deps, runnerID: runnerID, token: token}
 	ts.defs = append(ts.defs, chatTools(deps)...)
+	ts.defs = append(ts.defs, reviewTools(deps)...)
 	return ts
 }
 
