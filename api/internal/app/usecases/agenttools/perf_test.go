@@ -831,8 +831,12 @@ var perfReviewSpecs = []perfDiffSpec{
 }
 
 // BenchmarkPerf_GetReviewScope measures the tool an agent calls before every
-// review: GetBase followed by GetFiles(""), each resolving the same diff ref
-// independently.
+// review.
+//
+// The baseline it was written against was GetBase followed by GetFiles(""),
+// each resolving the same diff ref independently: 9 warm spawns, 6 of them
+// merge-base, of which 4 were byte-identical duplicates and 2 compared a sha
+// with itself. Task A2 collapsed that to a single GetScope resolution.
 func BenchmarkPerf_GetReviewScope(
 	b *testing.B,
 ) {

@@ -220,7 +220,7 @@ func New(
 // agent an empty tool list with nothing anywhere reporting why. Checking here
 // turns that silent degradation into a failed start.
 // The review ports need no adapter: branchreview.Usecase already has
-// GetBase/GetFiles/GetOutline with agenttools.ReviewReader's exact signatures, and
+// GetScope/GetOutline with agenttools.ReviewReader's exact signatures, and
 // reviewthread.ReviewThread already satisfies BOTH the read and the write half of
 // the thread port, so the same repository is handed to Threads and ThreadWrites.
 // The Idempotency map is built HERE, once, because it must outlive the per-request

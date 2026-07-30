@@ -202,19 +202,11 @@ func noopThreadBroadcast(_ domain.ReviewThread, _, _ string) {}
 
 type stubReviewReaderForContainer struct{}
 
-func (stubReviewReaderForContainer) GetBase(
+func (stubReviewReaderForContainer) GetScope(
 	_ context.Context,
 	_ string,
-) (string, error) {
-	return "", nil
-}
-
-func (stubReviewReaderForContainer) GetFiles(
-	_ context.Context,
-	_ string,
-	_ string,
-) ([]gitdomain.ReviewFileSummary, error) {
-	return nil, nil
+) (gitdomain.ReviewScope, error) {
+	return gitdomain.ReviewScope{}, nil
 }
 
 func (stubReviewReaderForContainer) GetOutline(

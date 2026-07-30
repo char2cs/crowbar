@@ -41,23 +41,21 @@ func (s *stubThreadReader) Get(_ context.Context, id string) (domain.ReviewThrea
 }
 
 // stubReviewReader is the ReviewReader test double, recording the wsID each
-// method was last asked for. outline is what GetOutline hands back, which is the
-// diff geometry post_review_comment validates every anchor against.
+// method was last asked for and how many times the scope was resolved. outline
+// is what GetOutline hands back, which is the diff geometry post_review_comment
+// validates every anchor against.
 type stubReviewReader struct {
-	base     string
-	files    []gitdomain.ReviewFileSummary
-	outline  []gitdomain.FileOutline
-	lastWsID string
+	base       string
+	files      []gitdomain.ReviewFileSummary
+	outline    []gitdomain.FileOutline
+	lastWsID   string
+	scopeCalls int
 }
 
-func (s *stubReviewReader) GetBase(_ context.Context, wsID string) (string, error) {
+func (s *stubReviewReader) GetScope(_ context.Context, wsID string) (gitdomain.ReviewScope, error) {
 	s.lastWsID = wsID
-	return s.base, nil
-}
-
-func (s *stubReviewReader) GetFiles(_ context.Context, wsID, _ string) ([]gitdomain.ReviewFileSummary, error) {
-	s.lastWsID = wsID
-	return s.files, nil
+	s.scopeCalls++
+	return gitdomain.ReviewScope{Base: s.base, Files: s.files}, nil
 }
 
 func (s *stubReviewReader) GetOutline(_ context.Context, wsID, _ string) ([]gitdomain.FileOutline, error) {
@@ -306,6 +304,9 @@ func TestGetReviewScope_ReportsBaseAndChangedFiles(t *testing.T) {
 	require.Contains(t, out, "src/new.go")
 	require.Contains(t, out, "+40")
 	require.Contains(t, out, "-0")
+	require.Equal(t, 1, stub.scopeCalls,
+		"one tool call must resolve the review scope once: the base ref and the file "+
+			"list come out of the same resolution, which is several git subprocesses")
 }
 
 // TestReviewTools_OnlyReadTheCallersOwnWorkspace is the security property: both

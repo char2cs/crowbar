@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
@@ -33,48 +34,90 @@ func (u *branchReviewUsecase) GetFiles(
 	wsID string,
 	commit string,
 ) ([]gitdomain.ReviewFileSummary, error) {
-	shared := u.fileReads.DoChan(wsID+"\x00"+commit, func() (any, error) {
-		return u.readFiles(context.WithoutCancel(ctx), wsID, commit)
-	})
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case res := <-shared:
-		return sharedFiles(res)
+	scope, err := u.scopeOf(ctx, wsID, commit)
+	if err != nil {
+		return nil, err
 	}
+	return scope.Files, nil
 }
 
-// sharedFiles unwraps a flight result for one waiter. The slice is cloned per
-// waiter because the flight hands the same backing array to every one of them,
-// and ReviewFileSummary is a flat value struct, so a shallow clone fully
-// isolates callers.
-func sharedFiles(
-	res singleflight.Result,
-) ([]gitdomain.ReviewFileSummary, error) {
-	if res.Err != nil {
-		return nil, res.Err
-	}
-	files, _ := res.Val.([]gitdomain.ReviewFileSummary)
-	return slices.Clone(files), nil
+// GetScope returns the ref the review diffs against AND the files that differ
+// from it, resolved once. It is the same read GetFiles performs — the ref was
+// always computed on the way to the file list, it was simply thrown away — so
+// the pair costs exactly what the file list alone used to, and shares its
+// flight: a sidebar refresh and an agent asking what it is reviewing now
+// collapse into one sequence of git calls instead of two.
+func (u *branchReviewUsecase) GetScope(
+	ctx context.Context,
+	wsID string,
+) (gitdomain.ReviewScope, error) {
+	return u.scopeOf(ctx, wsID, "")
 }
 
-// readFiles is the shared computation behind GetFiles. It runs under a context
-// detached from cancellation: the flight is owned by whichever caller happened
-// to start it, and that caller disconnecting must not fail the waiters behind
-// it. The work stays bounded by exec.GitOpTimeout on every git invocation.
-func (u *branchReviewUsecase) readFiles(
+// scopeOf is the single-flighted read behind both GetFiles and GetScope.
+func (u *branchReviewUsecase) scopeOf(
 	ctx context.Context,
 	wsID string,
 	commit string,
-) ([]gitdomain.ReviewFileSummary, error) {
+) (gitdomain.ReviewScope, error) {
+	shared := u.fileReads.DoChan(wsID+"\x00"+commit, func() (any, error) {
+		return u.readScope(context.WithoutCancel(ctx), wsID, commit)
+	})
+	select {
+	case <-ctx.Done():
+		return gitdomain.ReviewScope{}, ctx.Err()
+	case res := <-shared:
+		return sharedScope(res)
+	}
+}
+
+// sharedScope unwraps a flight result for one waiter. The file slice is cloned
+// per waiter because the flight hands the same backing array to every one of
+// them, and ReviewFileSummary is a flat value struct, so a shallow clone fully
+// isolates callers. Base is a string and needs no such care.
+func sharedScope(
+	res singleflight.Result,
+) (gitdomain.ReviewScope, error) {
+	if res.Err != nil {
+		return gitdomain.ReviewScope{}, res.Err
+	}
+	scope, _ := res.Val.(gitdomain.ReviewScope)
+	scope.Files = slices.Clone(scope.Files)
+	return scope, nil
+}
+
+// readScope is the shared computation behind the flight. It runs under a context
+// detached from cancellation: the flight is owned by whichever caller happened
+// to start it, and that caller disconnecting must not fail the waiters behind
+// it. The work stays bounded by exec.GitOpTimeout on every git invocation.
+func (u *branchReviewUsecase) readScope(
+	ctx context.Context,
+	wsID string,
+	commit string,
+) (gitdomain.ReviewScope, error) {
 	ws, err := u.workspaces.Get(ctx, wsID)
 	if err != nil {
-		return nil, fmt.Errorf("branch review: get workspace: %w", asNotFound(err))
+		return gitdomain.ReviewScope{}, fmt.Errorf("branch review: get workspace: %w", asNotFound(err))
 	}
 	ref, err := u.resolveScopeRef(ctx, ws, commit)
 	if err != nil {
-		return nil, fmt.Errorf("branch review: resolve ref: %w", err)
+		return gitdomain.ReviewScope{}, fmt.Errorf("branch review: resolve ref: %w", err)
 	}
+	files, err := u.filesForRef(ctx, ws, ref, commit)
+	if err != nil {
+		return gitdomain.ReviewScope{}, err
+	}
+	return gitdomain.ReviewScope{Base: ref, Files: files}, nil
+}
+
+// filesForRef reads the changed-file summary of an ALREADY-resolved ref, so the
+// resolution can be reused by whoever also wants the ref itself.
+func (u *branchReviewUsecase) filesForRef(
+	ctx context.Context,
+	ws domain.Workspace,
+	ref string,
+	commit string,
+) ([]gitdomain.ReviewFileSummary, error) {
 	// A commit-scoped read has nothing to do with the working tree: its ref names
 	// both ends, so no file it lists is "uncommitted" and no count of its can be
 	// stale. Skipping the status is not just an optimisation — merging one in

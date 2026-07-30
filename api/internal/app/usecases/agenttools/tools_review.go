@@ -14,12 +14,16 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// ReviewReader is the narrow read port the review-scope tool needs from the
-// branch-review usecase: the ref a review diffs against, the file-level change
-// summary, and (Task 12) the hunk geometry of that same diff.
+// ReviewReader is the narrow read port the review tools need from the
+// branch-review usecase: the scope of a review — the ref it diffs against
+// together with the file-level change summary — and (Task 12) the hunk geometry
+// of that same diff.
+//
+// Scope is one method rather than a base getter beside a file getter because the
+// two were resolving the same ref independently, at up to three git subprocesses
+// each, to serve a single tool call. See gitdomain.ReviewScope.
 type ReviewReader interface {
-	GetBase(ctx context.Context, wsID string) (string, error)
-	GetFiles(ctx context.Context, wsID, commit string) ([]gitdomain.ReviewFileSummary, error)
+	GetScope(ctx context.Context, wsID string) (gitdomain.ReviewScope, error)
 	GetOutline(ctx context.Context, wsID, commit string) ([]gitdomain.FileOutline, error)
 }
 
@@ -175,17 +179,15 @@ func getReviewScopeTool(deps Deps) toolDef {
 			"additionalProperties":false
 		}`),
 		run: func(ctx context.Context, c Caller, _ json.RawMessage) (string, error) {
-			// commit="" means the whole branch scope, not one commit against its
-			// parent — see ReviewReader.GetFiles.
-			base, err := deps.Review.GetBase(ctx, c.Workspace.ID)
+			// GetScope is the whole BRANCH scope, never one commit against its
+			// parent — and it reports the ref and the files from a single
+			// resolution, so the file list it renders is guaranteed to be the diff
+			// of the base it names.
+			scope, err := deps.Review.GetScope(ctx, c.Workspace.ID)
 			if err != nil {
-				return "", fmt.Errorf("agenttools: get_review_scope: base: %w", err)
+				return "", fmt.Errorf("agenttools: get_review_scope: %w", err)
 			}
-			files, err := deps.Review.GetFiles(ctx, c.Workspace.ID, "")
-			if err != nil {
-				return "", fmt.Errorf("agenttools: get_review_scope: files: %w", err)
-			}
-			return renderScope(base, files), nil
+			return renderScope(scope.Base, scope.Files), nil
 		},
 	}
 }

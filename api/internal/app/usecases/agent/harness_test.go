@@ -464,14 +464,11 @@ func (fixtureWorkspaceLister) List(
 // meaningful guard on New's own internal wiring (see that test's doc comment).
 type fixtureReviewReader struct{}
 
-func (fixtureReviewReader) GetBase(context.Context, string) (string, error) { return "", nil }
-
-func (fixtureReviewReader) GetFiles(
+func (fixtureReviewReader) GetScope(
 	context.Context,
 	string,
-	string,
-) ([]gitdomain.ReviewFileSummary, error) {
-	return nil, nil
+) (gitdomain.ReviewScope, error) {
+	return gitdomain.ReviewScope{}, nil
 }
 
 func (fixtureReviewReader) GetOutline(
