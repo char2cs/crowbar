@@ -73,6 +73,26 @@ jobs:
         run: cd api && go vet -tags noEmbed ./...
       - name: Race-detected unit tests
         run: cd api && go test -tags noEmbed -race ./...
+      - name: Integration-tagged tests (black-box suite + route audit)
+        run: |
+          cd api
+          # The step above passes no -tags integration, so it silently compiles
+          # AWAY everything behind that tag: the whole api/tests black-box suite
+          # — including every TestRegression_*, which this project's conventions
+          # make mandatory for a backend bug — and internal/api/v0's route audit,
+          # which is why two routes once drifted with nothing to catch them.
+          #
+          # Scope is deliberately ./tests and not ./tests/..., and the difference
+          # is not an oversight:
+          #   - tests/integration/agent spawns the REAL claude/codex binaries and
+          #     makes PAID model calls. It can never run in CI.
+          #   - the other tests/integration/* packages are a slower acceptance
+          #     tier that is not green at baseline (crash's
+          #     TestCrash_DeleteMidCascade_BootSweepReaps fails intermittently on
+          #     an untouched tree). Gating merges on a known-flaky suite trains
+          #     people to re-run CI, which is worse than not running it here.
+          # Both are run by hand; this step is the fast, hermetic part (~1 min).
+          go test -tags "integration noEmbed" -count=1 ./tests ./internal/api/...
       - name: Test coverage (≥92%)
         run: |
           cd api
