@@ -7,8 +7,8 @@ metadata:
   description: Local, single-user agentic development platform.
   author: char2cs
   url: https://char2cs.net
-  # Dual-licensed: AGPL-3.0 by default, or a commercial license. See LICENSING.md.
-  license: AGPL-3.0-only OR LicenseRef-Commercial
+  # AGPL-3.0-only. See LICENSING.md.
+  license: AGPL-3.0-only
   copyright: Copyright 2026 Mateo Urrutia
 
 paths:
