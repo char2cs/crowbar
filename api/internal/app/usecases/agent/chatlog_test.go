@@ -10,9 +10,15 @@ import (
 // TestReadChatLog_RendersTheLedger guards agent.Usecase.ReadChatLog — the
 // production agenttools.ChatLogReader get_chat_log calls once a chat's
 // workspace has already cleared the caller's CanSee check. Unlike
-// AssembleHandoff it returns the RAW conversation with no preamble/footer
+// AssembleHandoff it carries the RAW conversation with no preamble/footer
 // wrapper: get_chat_log hands prose straight to a model, not an injected
 // spawn-time context document.
+//
+// It reports TURNS, not finished text, because get_chat_log caps what it returns
+// and states how many turns it dropped — a count that can only be taken where
+// turns are still separate values. The speaker attribution still has to be the
+// ledger's own ("assistant (<provider>)"), since that is the wording every chat
+// log Crowbar has produced already uses.
 func TestReadChatLog_RendersTheLedger(t *testing.T) {
 	f := newFixture(t)
 
@@ -22,7 +28,9 @@ func TestReadChatLog_RendersTheLedger(t *testing.T) {
 
 	out, err := f.usecase.ReadChatLog(f.ctx, chatID)
 	require.NoError(t, err)
-	assert.Contains(t, out, "assistant (claude): done thing")
+	require.Len(t, out, 1)
+	assert.Equal(t, "assistant (claude)", out[0].Speaker)
+	assert.Equal(t, "done thing", out[0].Body)
 }
 
 // An unspoken chat's ledger is empty. ReadChatLog itself returns "" (not an

@@ -18,3 +18,17 @@ var RenderWorkspacesForTest = renderWorkspaces
 // rendered text therefore cannot fail when the filter goes — which is exactly
 // what happened, and why the assertion has to reach the map.
 var ChatsByWorkspaceForTest = chatsByWorkspace
+
+// The result caps, exposed so the bounding tests build fixtures FROM the
+// production numbers rather than from copies of them. A test that hardcoded 20
+// would keep passing against a cap someone had since changed to 200, which is
+// the one way a bounding test can go quiet without anyone noticing.
+const (
+	DefaultThreadPageForTest   = defaultThreadPage
+	MaxThreadPageForTest       = maxThreadPage
+	MaxThreadMessagesForTest   = maxThreadMessages
+	DefaultChatLogTurnsForTest = defaultChatLogTurns
+	MaxChatLogTurnsForTest     = maxChatLogTurns
+	DefaultScopeFilesForTest   = defaultScopeFiles
+	MaxScopeFilesForTest       = maxScopeFiles
+)

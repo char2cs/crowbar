@@ -8,13 +8,33 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
+// ChatTurn is one recorded conversation turn: the speaker it is attributed to
+// ("user", "assistant (claude)") and what was said.
+//
+// Speaker is already rendered rather than a role/provider pair because the
+// attribution wording is the ledger's — it is what has been written into every
+// chat log Crowbar has ever produced — and re-deriving it here would be a second
+// place for that wording to drift from the first.
+type ChatTurn struct {
+	Speaker string
+	Body    string
+}
+
 // ChatLogReader is the narrow read port get_chat_log needs from the agent
-// usecase: the rendered ledger for one chat. It is consulted only AFTER the
+// usecase: one chat's conversation, as turns. It is consulted only AFTER the
 // tool has confirmed the chat's workspace is in the caller's visible set — a
 // chat id is not itself an authorization, so nothing here does its own scope
 // check.
+//
+// It hands back TURNS rather than the finished text because get_chat_log caps
+// what it returns, and turns can only be counted where they are still countable.
+// The rendering joins turns with a blank line, and a turn's body is free-form
+// model prose that contains blank lines routinely, so a tool splitting the
+// finished text back apart would miscount — and then report a turn count that is
+// not true. Telling a model "20 of 63 turns" when neither number is real is the
+// exact failure a visible truncation notice exists to prevent.
 type ChatLogReader interface {
-	ReadChatLog(ctx context.Context, chatID string) (string, error)
+	ReadChatLog(ctx context.Context, chatID string) ([]ChatTurn, error)
 }
 
 // NoChatTurnsText is what get_chat_log renders for a chat that has not spoken
@@ -126,7 +146,9 @@ func getChatLogTool(deps Deps) toolDef {
 		schema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
-				"chatId":{"type":"string","description":"The chat to read. Get chat ids from list_workspaces."}
+				"chatId":{"type":"string","description":"The chat to read. Get chat ids from list_workspaces."},
+				"offset":{"type":"integer","minimum":0,"description":"How many of the newest turns to skip, paging BACKWARDS into older history. Defaults to 0, the latest turn; the reply says what to pass next."},
+				"limit":{"type":"integer","minimum":1,"description":"How many turns to return. Defaults to 20, capped at 50."}
 			},
 			"required":["chatId"],
 			"additionalProperties":false
@@ -139,6 +161,8 @@ func getChatLogTool(deps Deps) toolDef {
 
 type getChatLogArgs struct {
 	ChatID string `json:"chatId"`
+	Offset int    `json:"offset"`
+	Limit  int    `json:"limit"`
 }
 
 // getChatLog is the whole point of the scope model made concrete: a chat id
@@ -147,6 +171,11 @@ type getChatLogArgs struct {
 // workspace is checked against c.Visible, and only once it passes does
 // ChatLogs.ReadChatLog — the thing that actually touches disk — get called.
 // A rejection here must never reach ChatLogs at all.
+//
+// offset and limit page the RENDERING only. They cannot reach a chat the CanSee
+// check above did not already admit, which is what keeps pagination from
+// becoming a scope argument: the id is authorized first, the window is applied
+// second, and no ordering of those two lets a page escape the visible set.
 func getChatLog(
 	ctx context.Context,
 	deps Deps,
@@ -164,17 +193,22 @@ func getChatLog(
 	if !c.CanSee(chat.WorkspaceID) {
 		return "", fmt.Errorf("agenttools: get_chat_log: %w", ErrOutOfScope)
 	}
-	out, err := deps.ChatLogs.ReadChatLog(ctx, in.ChatID)
+	turns, err := deps.ChatLogs.ReadChatLog(ctx, in.ChatID)
 	if err != nil {
 		return "", fmt.Errorf("agenttools: get_chat_log: %w", err)
 	}
 	// Rendering the empty case is THIS function's job, and only this one's. A
-	// chat with nothing recorded yet comes back as "" — the production reader
-	// (agent.Usecase.ReadChatLog) deliberately returns the empty string rather
-	// than wording of its own, so the phrasing lives in exactly one place instead
-	// of drifting between two. Any other ChatLogReader gets the same treatment.
-	if out == "" {
-		out = NoChatTurnsText
+	// chat with nothing recorded yet comes back with no turns — the production
+	// reader (agent.Usecase.ReadChatLog) deliberately returns them rather than
+	// wording of its own, so the phrasing lives in exactly one place instead of
+	// drifting between two. Any other ChatLogReader gets the same treatment.
+	if len(turns) == 0 {
+		return NoChatTurnsText, nil
 	}
-	return out, nil
+	w := recentWindow(len(turns), in.Offset, in.Limit, defaultChatLogTurns, maxChatLogTurns)
+	note := recentNote("turns", "get_chat_log", w)
+	if w.empty() {
+		return note, nil
+	}
+	return note + renderChatLog(turns[w.start:w.end]), nil
 }

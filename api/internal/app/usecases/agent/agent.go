@@ -296,39 +296,51 @@ func (u *Usecase) RenameByRunner(
 	return u.RenameChat(ctx, runner.CurrentChatID, title, source)
 }
 
-// ReadChatLog renders chatID's whole ledger for the get_chat_log tool. It is
-// this usecase's implementation of agenttools.ChatLogReader — see New's doc
-// comment for why tools.ChatLogs is filled in there rather than by a caller:
+// ReadChatLog returns chatID's whole ledger as turns for the get_chat_log tool.
+// It is this usecase's implementation of agenttools.ChatLogReader — see New's
+// doc comment for why tools.ChatLogs is filled in there rather than by a caller:
 // the ledger lives behind this package's own storage, so the usecase IS the
 // reader, the same way it is its own ChatRenamer.
+//
+// Turns, not rendered text: get_chat_log CAPS what it hands a model and states
+// how many turns it left out, and a count taken from re-split text would be
+// wrong (a turn's body contains blank lines, which is what the rendering
+// separates turns with). Rendering the window it keeps is the tool's job; this
+// method's is to report what there is. The whole ledger is returned rather than
+// a pre-cut window because the cap and its wording belong with the other two
+// caps on the tool surface, not spread across the usecases behind them.
 //
 // Scope is NOT checked here: get_chat_log's tool handler already confirmed
 // chatID's workspace is in the caller's visible set before this is ever
 // called (a chat id is not itself an authorization), so this method trusts
 // its caller the same way openLedger's other callers do.
 //
-// An empty ledger — a chat that has not spoken yet — is returned as "", not an
-// error. Turning that into agenttools.NoChatTurnsText is the TOOL's job
+// An empty ledger — a chat that has not spoken yet — is returned as no turns,
+// not an error. Turning that into agenttools.NoChatTurnsText is the TOOL's job
 // (getChatLog), not this method's: get_chat_log is the only caller today, and
 // duplicating that normalization here would just be a second place the exact
 // wording could drift from the tool's.
 func (u *Usecase) ReadChatLog(
 	ctx context.Context,
 	chatID string,
-) (string, error) {
+) ([]agenttools.ChatTurn, error) {
 	chat, err := u.chats.GetChat(ctx, chatID)
 	if err != nil {
-		return "", fmt.Errorf("agent: read chat log: chat: %w", err)
+		return nil, fmt.Errorf("agent: read chat log: chat: %w", err)
 	}
 	led, err := u.openLedger(ctx, chat)
 	if err != nil {
-		return "", fmt.Errorf("agent: read chat log: %w", err)
+		return nil, fmt.Errorf("agent: read chat log: %w", err)
 	}
-	blob, err := led.RenderConversation()
+	turns, err := led.Turns()
 	if err != nil {
-		return "", fmt.Errorf("agent: read chat log: render: %w", err)
+		return nil, fmt.Errorf("agent: read chat log: turns: %w", err)
 	}
-	return string(blob), nil
+	out := make([]agenttools.ChatTurn, 0, len(turns))
+	for _, t := range turns {
+		out = append(out, agenttools.ChatTurn{Speaker: t.Speaker(), Body: t.Text})
+	}
+	return out, nil
 }
 
 // DispatchMCP runs one MCP message on behalf of the runner named by runnerID.

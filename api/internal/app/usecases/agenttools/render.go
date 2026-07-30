@@ -29,7 +29,20 @@ func renderThreads(threads []domain.ReviewThread) string {
 		}
 		fmt.Fprintf(&b, "%s  %s:%d-%d  %s  %s  %d\n",
 			t.ID, t.FilePath, t.StartLine, t.EndLine, t.Side, state, len(t.Messages))
-		for _, m := range t.Messages {
+		// The anchor row above always reports the thread's TRUE message count,
+		// which is what makes the elision below checkable: a model can see that
+		// the count and the rendered rows disagree, and the note says why.
+		shown, elided := cappedMessages(t.Messages)
+		if elided > 0 {
+			// At the message indent, but deliberately not in "author: body" shape
+			// — the one form a message row can take — so this line is not
+			// something a body could ever forge, and not something a model could
+			// mistake for a message either.
+			fmt.Fprintf(&b,
+				"    ... %d middle replies not shown (root + %d most recent below); the full thread is in Crowbar's review pane\n",
+				elided, maxThreadMessages-1)
+		}
+		for _, m := range shown {
 			author := m.Author
 			// branchreview.Reply hardcodes "" for a human reply (see its doc
 			// comment) — only an agent message ever carries its own non-empty
@@ -59,6 +72,45 @@ func renderThreads(threads []domain.ReviewThread) string {
 			// like a human message.
 			fmt.Fprintf(&b, "    %s: %s\n", author, strings.ReplaceAll(m.Body, "\n", "\n      "))
 		}
+	}
+	return b.String()
+}
+
+// cappedMessages keeps the root plus the most recent replies of one thread and
+// reports how many it dropped from the middle.
+//
+// The root is kept unconditionally because it IS the finding — the thing the
+// user wrote and the reason the thread exists — and a thread rendered without it
+// reads as a conversation about nothing. The newest replies are kept because
+// they are the thread's current state, which is what an agent deciding whether
+// the finding is still open actually needs. The middle is what an argument is
+// least damaged by losing, so the middle is what goes.
+func cappedMessages(
+	messages []domain.ReviewMessage,
+) ([]domain.ReviewMessage, int) {
+	if len(messages) <= maxThreadMessages {
+		return messages, 0
+	}
+	tail := messages[len(messages)-(maxThreadMessages-1):]
+	kept := make([]domain.ReviewMessage, 0, maxThreadMessages)
+	kept = append(kept, messages[0])
+	kept = append(kept, tail...)
+	return kept, len(messages) - len(kept)
+}
+
+// renderChatLog reproduces the ledger's own plain-text conversation rendering —
+// "<speaker>: <text>" separated by a blank line — from the turns the port hands
+// back.
+//
+// The rendering moved here when ChatLogReader started returning turns rather
+// than finished text (see ChatTurn), and it produces the same bytes it did as
+// ledger output: this is the format a receiving model has been reading since
+// get_chat_log existed, and the cap was not a reason to also change how a turn
+// looks.
+func renderChatLog(turns []ChatTurn) string {
+	var b strings.Builder
+	for _, t := range turns {
+		fmt.Fprintf(&b, "%s: %s\n\n", t.Speaker, t.Body)
 	}
 	return b.String()
 }
@@ -101,11 +153,29 @@ func renderWorkspaces(
 	return b.String()
 }
 
-func renderScope(base string, files []gitdomain.ReviewFileSummary) string {
+// renderScope reports the base ref and the page of changed files it was handed.
+//
+// note carries whatever get_review_scope's pagination has to say and is emitted
+// FIRST, above the base line: a model reads top-down and may stop reading a long
+// file list early, so a truncation statement placed under the rows it qualifies
+// is a statement that arrives too late to change what the model concludes. It is
+// empty when there is nothing to say.
+func renderScope(
+	base string,
+	files []gitdomain.ReviewFileSummary,
+	note string,
+) string {
 	var b strings.Builder
+	b.WriteString(note)
 	fmt.Fprintf(&b, "This review covers everything on this branch since %s.\n", base)
-	if len(files) == 0 {
+	// "No changed files." is the answer for a branch with nothing on it. An empty
+	// PAGE — a caller that paged past the last file — is a different answer, and
+	// note has already given it; repeating this line there would tell a model the
+	// branch is clean when it is only looking past the end.
+	if len(files) == 0 && note == "" {
 		b.WriteString("No changed files.\n")
+	}
+	if len(files) == 0 {
 		return b.String()
 	}
 	b.WriteString("status  +adds  -dels  path\n")

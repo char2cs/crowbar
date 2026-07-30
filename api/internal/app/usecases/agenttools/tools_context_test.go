@@ -3,6 +3,7 @@ package agenttools_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -186,13 +187,30 @@ func TestListWorkspaces_NeverListsAnAncestor(t *testing.T) {
 }
 
 type stubChatLogs struct {
-	log  string
-	read []string
+	turns []agenttools.ChatTurn
+	read  []string
 }
 
-func (s *stubChatLogs) ReadChatLog(_ context.Context, chatID string) (string, error) {
+func (s *stubChatLogs) ReadChatLog(
+	_ context.Context,
+	chatID string,
+) ([]agenttools.ChatTurn, error) {
 	s.read = append(s.read, chatID)
-	return s.log, nil
+	return s.turns, nil
+}
+
+// chatTurns builds n turns whose bodies carry their own 1-based number, so a
+// test can name the exact turn it expects at each end of a window instead of
+// merely counting lines.
+func chatTurns(n int) []agenttools.ChatTurn {
+	out := make([]agenttools.ChatTurn, 0, n)
+	for i := 1; i <= n; i++ {
+		out = append(out, agenttools.ChatTurn{
+			Speaker: "user",
+			Body:    fmt.Sprintf("turn-%d", i),
+		})
+	}
+	return out
 }
 
 // chatLogToolsOn builds a ToolSet on ws-a whose ChatReader resolves the named
@@ -215,7 +233,10 @@ func chatLogToolsOn(
 }
 
 func TestGetChatLog_ReturnsTheLedgerRendering(t *testing.T) {
-	logs := &stubChatLogs{log: "user: hello\n\nassistant (claude): hi\n"}
+	logs := &stubChatLogs{turns: []agenttools.ChatTurn{
+		{Speaker: "user", Body: "hello"},
+		{Speaker: "assistant (claude)", Body: "hi"},
+	}}
 	ts := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a1"}, logs)
 
 	out, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
@@ -227,7 +248,7 @@ func TestGetChatLog_ReturnsTheLedgerRendering(t *testing.T) {
 // A chat id is not an authorization: the chat's workspace must be visible.
 // ws-b is a sibling, so it is not.
 func TestGetChatLog_RejectsAChatOutsideTheCallersScope(t *testing.T) {
-	logs := &stubChatLogs{log: "secret"}
+	logs := &stubChatLogs{turns: []agenttools.ChatTurn{{Speaker: "user", Body: "secret"}}}
 	ts := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-b"}, logs)
 
 	_, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
@@ -236,7 +257,7 @@ func TestGetChatLog_RejectsAChatOutsideTheCallersScope(t *testing.T) {
 }
 
 func TestGetChatLog_RejectsAChatOnAnAncestorWorkspace(t *testing.T) {
-	logs := &stubChatLogs{log: "secret"}
+	logs := &stubChatLogs{turns: []agenttools.ChatTurn{{Speaker: "user", Body: "secret"}}}
 	ts := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "repo-default"}, logs)
 
 	_, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
@@ -247,7 +268,7 @@ func TestGetChatLog_RejectsAChatOnAnAncestorWorkspace(t *testing.T) {
 // An empty ledger is a normal state — a chat that has not spoken yet — and must
 // read as such rather than as a failure the model tries to work around.
 func TestGetChatLog_EmptyLedgerIsExplicitNotAnError(t *testing.T) {
-	logs := &stubChatLogs{log: ""}
+	logs := &stubChatLogs{}
 	ts := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a"}, logs)
 
 	out, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
