@@ -261,3 +261,52 @@ Step 4 is the product thesis. The MCP bridge cannot inject xterm keystrokes, so 
 - **codex does not defer tool schemas.** Every tool costs context on every codex turn. The surface is capped at roughly eight; the first merge if it bites is `resolve_review_thread` into `reply_to_review_thread(threadId, body?, resolve?)`.
 - **Compliance is unproven.** Agents already ignore `title_instruction`. Phase 0 exists to measure this before the rest is built, and decision 6 ensures a non-compliant agent degrades output rather than breaking a workflow.
 - **codex's skills channel was never conclusively ruled out** (§3.1). Decision 3 makes it moot, but the claim should not be repeated as settled fact.
+
+## 15. Live verification (2026-07-30)
+
+§12's manual Tauri test was run end to end against `make dev-desktop` on branch `feature/crowbar-skill`
+(tip `5a9d1a50`). Full transcript, tool calls and screenshots: `.superpowers/sdd/2026-07-29-agent-capability-surface/task-18-report.md`.
+
+**Result: PASS for both providers.** With the Branch Review pane mounted and visible in a split pane, a
+human comment left through the UI on `cart.js:22` was read and answered by a real agent, and the reply
+appeared **in the review pane, live, with no reload and no remount** — attributed as agent-authored
+(`Agent` + the `agent` badge). Proven by a `MutationObserver` that recorded the row entering the DOM, and
+by `performance.getEntriesByType('navigation').length === 1` for the whole session.
+
+| provider | tools called | rejections | live pane update |
+|---|---|---|---|
+| claude 2.1.220 (Opus 5, 1M) | `list_review_threads` → `get_review_scope` → `reply_to_review_thread` | 0 | yes |
+| codex 0.146.x (gpt-5.6-sol) | `list_review_threads` → `reply_to_review_thread` | 0 | yes |
+
+Both models reached for the tools unprompted; neither substituted `gh` or chat prose. Zero non-2xx
+responses on `/agent/runners/:segid/mcp` across the run.
+
+### What this confirms beyond the Go suite
+
+- **The Task 12 broadcast seam is the live path.** The daemon logged no `POST …/threads/:id/replies` for
+  either agent reply — the agent path never touches the HTTP handler whose `h.push` used to be the only
+  producer of `/threads` frames. The pane never unmounted and no reconnect re-seed fired, so the update
+  can only have come from the `ThreadBroadcast` callback.
+- **codex's `env_vars=["CROWBAR_HOME"]` passthrough works in situ.** This run had `CROWBAR_HOME` overridden
+  to a dev home *while a production daemon was live on the default socket* — exactly the configuration the
+  scrubbing bug broke. codex's relay reached the dev daemon.
+- **`default_tools_approval_mode="approve"` holds for tools codex had never called.** No modal, no stall;
+  the whole codex turn took ~20s.
+
+### Differences from the design worth recording
+
+- §12 step 3 says *"type «answer the review threads»"*. The wording used was
+  *"There is a review comment on this branch. Read it and reply to it."* — no tool named, no hint that a
+  review surface exists beyond the words "review comment". Both models found the tools from that alone.
+- §12 notes a human must drive the CLI because the MCP bridge cannot inject xterm keystrokes. It does not
+  have to be a human: the PTY can be driven programmatically over the terminal WebSocket
+  (`…/terminals/:sessionId/ws`, `{"type":"input","data":…}`), which is the same mechanism
+  `barriers_test.go` uses via `Terminal.Write`. The run was fully automated.
+- Neither model called `set_chat_title` on a task-shaped prompt, though both are proven to call it when the
+  chat needs a title (Tasks 9/9b). Nothing broke — decision 6 holds — but it is the first datapoint
+  suggesting the titling tool competes with whatever else the turn is about, and it is the sort of thing
+  §12's per-tool counters exist to measure.
+- `get_review_scope` cost 112ms against a one-file, one-hunk diff — 40×–400× every other call in the run.
+  It is the only tool that computes the outline, and the one to watch as diffs grow.
+
+No production code was changed by this verification, and no defect was found.
