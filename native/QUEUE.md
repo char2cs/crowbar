@@ -344,8 +344,54 @@ shorter path.
 ## Phase 1 — THE GATE (not started)
 
 Build `crowbar-driver` (extract + inject + MCP over stdio) and the
-anchored-geometry differ. Prove convergence on `components/ui/tree-row.tsx`
-across the full §8.3 matrix.
+anchored-geometry differ, then converge on one row across the full §8.3 matrix.
+
+### The gate target, made concrete
+
+Per **F1**, `tree-row.tsx` in isolation is not a gate. The target is
+`SidebarTreeRow` as rendered by **`features/git/components/status/git-status-file-item.tsx`**.
+Same small surface, but it actually exercises what §16 asked for:
+
+| §16 wanted | Where it comes from |
+|---|---|
+| text | filename span + directory span |
+| icons | `FileExplorerIcon`, `SIDEBAR_TREE_ICON_SIZE` = 14 |
+| padding | `depth` → `baseIndent 10 + depth × 14` |
+| selection state | `.file-tree-item[data-active]::before` (pseudo-backed, see F2) |
+| truncation | **both** spans `truncate`, negotiating against each other |
+
+The truncation is the genuinely hard part and the reason this is the right
+target. When a directory is shown the filename is `shrink-0 basis-auto
+max-w-[45%]` and the directory is `flex-1 truncate`; when it is not, the
+filename is `flex-1`. That is a flexbox negotiation whose outcome depends on
+`min-width: 0` propagating correctly through three nested flex containers. If
+GPUI's taffy layout disagrees with Blink anywhere, this row is where it shows.
+
+### Anchor set — 9 anchors on one row
+
+| Anchor id | Element | What it proves |
+|---|---|---|
+| `git-row-item` | `.file-tree-item` | outer bounds; **pseudo-backed** bg for hover + active |
+| `git-row-button` | the `TreeRow` button | border, 2px radius, full-width stretch |
+| `git-row-icon` | `FileExplorerIcon` | 14px box, `text-muted-foreground` |
+| `git-row-name` | filename span | text, `text-foreground`, truncation point |
+| `git-row-dir` | directory span | text, `text-muted-foreground/80`, truncation point |
+| `git-row-badge` | `Badge variant=warning size=sm` | a nested primitive inside the row |
+| `git-row-added` | `+N` span | `text-git-added` |
+| `git-row-deleted` | `-N` span | `text-git-deleted` |
+| `git-row-guide-<n>` | one per indent level | absolute positioning off a CSS var |
+
+Note the z-order the row depends on: `::before` at `z-0`, the button at `z-2`
+(`.file-tree-row`), and every content child explicitly `relative z-1`. Three
+layers, and the background is the one that is not a DOM node.
+
+### Exit condition
+
+All 9 anchors converge across ≥3 viewport widths × light/dark × 3 content
+lengths × {empty, loading, error, hover, focus, selected}. Convergence on
+`git-row-name`/`git-row-dir` must hold at the **overflowing** content length,
+where truncation actually engages — a pass that only covers short content is
+not a pass.
 
 > **STOP.** If Phase 1 does not converge, the spec is void. Report honestly and
 > do not proceed to Phase 2. The implementation plan is written only after
