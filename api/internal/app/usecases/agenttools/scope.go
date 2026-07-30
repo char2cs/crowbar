@@ -133,16 +133,31 @@ func (r *Resolver) Resolve(ctx context.Context, runnerID, token string) (Caller,
 
 // visibleFrom applies the three-tier rule and is downward only by
 // construction: none of its branches ever consult a workspace's ancestors.
+//
+// It drops deleted workspaces first, so all three branches inherit the filter.
+// WorkspaceLister.List returns the residual rows of workspaces the user has
+// already deleted, and every other consumer of that list skips them (the
+// branch-taken checks in the workspaces handler and in worktree, and merge
+// eligibility). Without this the tool surface would be the one place that does
+// not: list_workspaces would advertise workspaces the user's own sidebar no
+// longer shows, and the tools reached through CanSee would act on them.
+//
+// The caller's own workspace is kept regardless, because Caller.Visible always
+// containing it is an invariant the tools rely on — a runner whose workspace is
+// mid-delete must still resolve to itself rather than to nothing.
 func visibleFrom(caller domain.Workspace, all []domain.Workspace) []domain.Workspace {
+	live := filter(all, func(w domain.Workspace) bool {
+		return w.ID == caller.ID || w.Status != domain.WorkspaceStatusDeleted
+	})
 	switch {
 	case caller.Kind == domain.WorkspaceKindHome:
-		return filter(all, func(w domain.Workspace) bool { return w.ProjectID == caller.ProjectID })
+		return filter(live, func(w domain.Workspace) bool { return w.ProjectID == caller.ProjectID })
 	case caller.IsDefault:
-		return filter(all, func(w domain.Workspace) bool {
+		return filter(live, func(w domain.Workspace) bool {
 			return w.ProjectID == caller.ProjectID && w.RepoID == caller.RepoID
 		})
 	default:
-		return descendants(caller, all)
+		return descendants(caller, live)
 	}
 }
 

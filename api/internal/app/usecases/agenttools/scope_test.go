@@ -131,6 +131,77 @@ func TestResolve_RejectsDisplacedRunner(t *testing.T) {
 	require.ErrorIs(t, err, agenttools.ErrUnauthorized)
 }
 
+// TestResolve_NeverSeesDeletedWorkspaces covers all three visibility branches,
+// because the bug was in none of them individually and in all of them at once:
+// WorkspaceLister.List hands back the residual rows of workspaces the user has
+// already deleted, five other consumers of that list filter them, and the tool
+// surface did not. The symptom is list_workspaces advertising workspaces the
+// user's own sidebar no longer shows — and every other tool then willing to act
+// on them, because CanSee is computed from the same set.
+func TestResolve_NeverSeesDeletedWorkspaces(t *testing.T) {
+	deletedTree := func() []domain.Workspace {
+		all := tree()
+		for i := range all {
+			// One in each branch's reach: a descendant of ws-a, a sibling under
+			// the repo default, and a workspace in another repo of the project.
+			switch all[i].ID {
+			case "ws-a1", "ws-b", "other-repo-ws":
+				all[i].Status = domain.WorkspaceStatusDeleted
+			}
+		}
+		return all
+	}
+
+	for _, tc := range []struct {
+		name   string
+		caller string
+		want   []string
+	}{
+		{"git workspace", "ws-a", []string{"ws-a"}},
+		{"repo default", "repo-default", []string{"repo-default", "ws-a"}},
+		{"project home", "home", []string{"home", "repo-default", "ws-a"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := agenttools.NewTokenMinter()
+			require.NoError(t, err)
+			r := agenttools.NewResolver(m,
+				stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: tc.caller}},
+				stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: tc.caller}},
+				stubWorkspaces{all: deletedTree()})
+
+			c, err := r.Resolve(context.Background(), "RUN", m.Mint("RUN"))
+			require.NoError(t, err)
+			require.ElementsMatch(t, tc.want, visibleIDs(c))
+			require.False(t, c.CanSee("ws-a1"))
+			require.False(t, c.CanSee("ws-b"))
+			require.False(t, c.CanSee("other-repo-ws"))
+		})
+	}
+}
+
+// The caller's OWN workspace survives the filter even mid-delete: Caller.Visible
+// always containing it is an invariant every tool reads through CanSee, so a
+// runner whose workspace is being reaped must still resolve to itself rather
+// than to an empty set that makes its own chat unreachable.
+func TestResolve_KeepsTheCallersOwnWorkspaceEvenWhenDeleted(t *testing.T) {
+	all := tree()
+	for i := range all {
+		if all[i].ID == "ws-a" {
+			all[i].Status = domain.WorkspaceStatusDeleted
+		}
+	}
+	m, err := agenttools.NewTokenMinter()
+	require.NoError(t, err)
+	r := agenttools.NewResolver(m,
+		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubWorkspaces{all: all})
+
+	c, err := r.Resolve(context.Background(), "RUN", m.Mint("RUN"))
+	require.NoError(t, err)
+	require.True(t, c.CanSee("ws-a"))
+}
+
 // A cycle in ParentID must not hang the walk.
 func TestResolve_ToleratesParentCycle(t *testing.T) {
 	m, err := agenttools.NewTokenMinter()
