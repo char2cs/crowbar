@@ -2,13 +2,13 @@ export PATH := $(HOME)/.bun/bin:$(HOME)/.cargo/bin:$(HOME)/.rustup/toolchains/st
 export RUSTUP_HOME := $(HOME)/.rustup
 export CARGO_HOME := $(HOME)/.cargo
 
-.PHONY: dev dev-api dev-web dev-desktop dev-bundle web-install build test test-coverage lint pr-checks ci docker-up docker-down
+.PHONY: dev dev-api dev-web dev-desktop dev-bundle seed web-install build test test-coverage lint pr-checks ci docker-up docker-down
 
 # Dev isolation: every dev target roots Crowbar state (projects, store, socket,
 # logs) at <this workspace>/.crowbar instead of ~/.crowbar, so a dev instance
 # never collides with the production app. Scoped to dev targets only — tests
 # pin the ~/.crowbar default and must run without the override.
-dev dev-api dev-web dev-desktop dev-bundle: export CROWBAR_HOME ?= $(CURDIR)/.crowbar
+dev dev-api dev-web dev-desktop dev-bundle seed: export CROWBAR_HOME ?= $(CURDIR)/.crowbar
 
 # Parallel dev: starts all three subsystems
 dev:
@@ -25,6 +25,15 @@ dev-web:
 # to already exist. Kept as a prerequisite so a fresh checkout just works.
 dev-desktop: web-install
 	$(MAKE) -C desktop dev
+
+# Fills the RUNNING dev daemon with a throwaway repo, project, repo, feature
+# workspace with a real diff, and review threads — so a new workspace does not
+# start with ten minutes of import dialogs. Idempotent; safe to re-run.
+# HOST defaults to the desktop sidecar's unix socket; pass
+# HOST=tcp://127.0.0.1:3737 for the `make dev-api` flow.
+HOST ?= unix://
+seed:
+	@cd api && go run -tags noEmbed ./cmd/crowbar-seed --host $(HOST)
 
 web-install:
 	$(MAKE) -C web install
