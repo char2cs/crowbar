@@ -121,10 +121,40 @@ func TestListWorkspaces_ReadsTheChatTableOnce(t *testing.T) {
 	require.Equal(t, 1, chats.calls)
 }
 
-// Reading the WHOLE chat table and bucketing in Go must not widen what the tool
-// renders: a sibling's chats are now in the slice the tool holds, and only the
-// visibility filter keeps them out of the output. ws-b is a sibling of ws-a, so
-// neither its header nor its chat may appear.
+// chatsByWorkspace's membership filter is asserted HERE, on the map it returns,
+// because it is unobservable from list_workspaces' rendered text:
+// renderWorkspaces walks the visible slice and looks each id up, so a bucket for
+// an invisible workspace is simply never reached and the output is byte-
+// identical with the filter deleted. The tool-level test below was written as
+// this filter's guard and passed with the filter removed; the filter is defence
+// in depth behind renderWorkspaces, and defence in depth still has to be
+// something a test can break.
+//
+// The expected map is asserted whole, not probed key by key: an extra "ws-b"
+// bucket is the failure being guarded against, and only an exact comparison
+// notices a key that should not exist. The nil "ws-a1" entry is the other half —
+// every visible workspace is seeded so one with no chats still renders as itself
+// rather than vanishing.
+func TestChatsByWorkspace_DropsChatsOfWorkspacesTheCallerCannotSee(t *testing.T) {
+	all := []domain.AgentChat{
+		{ID: "c1", WorkspaceID: "ws-a", Title: "Fix Auth Bug"},
+		{ID: "secret-chat", WorkspaceID: "ws-b", Title: "Siblings Private Work"},
+	}
+	visible := []domain.Workspace{{ID: "ws-a"}, {ID: "ws-a1"}}
+
+	got := agenttools.ChatsByWorkspaceForTest(all, visible)
+
+	require.Equal(t, map[string][]domain.AgentChat{
+		"ws-a":  {{ID: "c1", WorkspaceID: "ws-a", Title: "Fix Auth Bug"}},
+		"ws-a1": nil,
+	}, got, "a chat whose workspace is not visible must not be bucketed at all")
+}
+
+// This is the OUTER boundary — renderWorkspaces iterating the visible set — not
+// the bucketing filter, which is guarded by the test above. Both layers matter:
+// this one is what actually keeps a sibling's chats out of the bytes an agent
+// reads, and it must keep holding even if the bucketing ever changes shape.
+// ws-b is a sibling of ws-a, so neither its header nor its chat may appear.
 func TestListWorkspaces_DropsChatsOfWorkspacesTheCallerCannotSee(t *testing.T) {
 	byWS := map[string][]domain.AgentChat{
 		"ws-a": {{ID: "c1", Title: "Fix Auth Bug"}},
