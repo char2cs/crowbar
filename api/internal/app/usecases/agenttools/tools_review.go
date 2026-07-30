@@ -86,11 +86,13 @@ type ThreadWriter interface {
 // pane, and a tool whose whole purpose is to put a finding in front of the user
 // is worse than absent if it writes somewhere the user is not looking.
 //
-// reply_to_review_thread and resolve_review_thread need only a thread reader (to
-// look up which workspace a thread belongs to before writing) and the writer
-// itself; ThreadBroadcast is best-effort for these two rather than a
-// registration gate, since they mutate a thread that is already visible
-// somewhere rather than creating one that would otherwise never be seen at all.
+// reply_to_review_thread and resolve_review_thread need a thread reader (to look
+// up which workspace a thread belongs to before writing), the writer, and
+// ThreadBroadcast for the same reason post_review_comment does: an agent's
+// reply or resolution bypasses the HTTP handler that normally pushes a /threads
+// frame, so without a broadcaster the write is stored and silently invisible to
+// an open review pane. A tool that only sometimes updates what the user is
+// looking at is worse than one that plainly does not exist.
 func reviewTools(deps Deps) []toolDef {
 	var out []toolDef
 	if deps.Threads != nil {
@@ -117,7 +119,7 @@ func canPostReviewComment(deps Deps) bool {
 }
 
 func canWriteReviewThread(deps Deps) bool {
-	return deps.Threads != nil && deps.ThreadWrites != nil
+	return deps.Threads != nil && deps.ThreadWrites != nil && deps.ThreadBroadcast != nil
 }
 
 func listReviewThreadsTool(deps Deps) toolDef {
@@ -444,12 +446,11 @@ func resolveReviewThread(
 // broadcastThreadWrite fans a reply or resolution out the same way
 // post_review_comment fans out a new thread: the review-thread store does not
 // broadcast on its own, so without this an agent's write is durably stored and
-// invisible until the user remounts the review pane.
-//
-// It is a no-op when deps.ThreadBroadcast is nil rather than a registration
-// gate the way canPostReviewComment's is: a reply or resolve mutates a thread
-// that is already visible somewhere, so losing the live update costs a stale
-// render, not the total invisibility a never-broadcast NEW thread would have.
+// invisible until the user remounts the review pane. canWriteReviewThread
+// requires ThreadBroadcast to be non-nil before either tool is even registered,
+// so — unlike a defensive nil check — calling it unconditionally here is the
+// correct behavior: a reply or resolve that could not fan out must not exist as
+// a tool at all, exactly like post_review_comment.
 //
 // The frame carries wsID's own project and repo, not the caller's: the thread
 // this call just wrote to can be on a descendant or ancestor workspace of the
@@ -466,9 +467,6 @@ func broadcastThreadWrite(
 	wsID string,
 	thread domain.ReviewThread,
 ) {
-	if deps.ThreadBroadcast == nil {
-		return
-	}
 	ws := c.Workspace
 	for _, w := range c.Visible {
 		if w.ID == wsID {

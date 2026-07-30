@@ -741,10 +741,6 @@ func TestPostReviewComment_RejectsBadArguments(t *testing.T) {
 	}
 }
 
-// post_review_comment is the first WRITE tool, so its fail-closed wiring is worth
-// asserting directly: with no outline reader it cannot validate an anchor, with no
-// dedup map a retry would duplicate a finding, and with no broadcaster the finding
-// never reaches the pane the user is watching. Any of those and it must not exist.
 // spyThreads records every write so a test can assert a rejected call never
 // reached the store. thread is what Get returns.
 type spyThreads struct {
@@ -775,6 +771,13 @@ func (s *spyThreads) Resolve(_ context.Context, id string) (domain.ReviewThread,
 
 // reviewToolsOn builds a ToolSet whose caller sits on ws-a (so it sees ws-a and
 // ws-a1, and NOT repo-default, ws-b or other-repo-ws).
+//
+// It wires a broadcaster (discarded here, not asserted on) because
+// canWriteReviewThread now requires ThreadBroadcast to be non-nil before
+// reply_to_review_thread/resolve_review_thread are even registered — the brief's
+// original fixture omitted it, which is what let a reply that failed to fan out
+// still count as "done". Tests that need to assert on the fan-out itself use
+// newReplyResolveFixture below instead.
 func reviewToolsOn(t *testing.T, threads *spyThreads) *agenttools.ToolSet {
 	t.Helper()
 	m, err := agenttools.NewTokenMinter()
@@ -784,7 +787,10 @@ func reviewToolsOn(t *testing.T, threads *spyThreads) *agenttools.ToolSet {
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	return agenttools.NewToolSet(agenttools.Deps{
-		Resolver: res, Threads: threads, ThreadWrites: threads,
+		Resolver:        res,
+		Threads:         threads,
+		ThreadWrites:    threads,
+		ThreadBroadcast: (&spyThreadBroadcast{}).fn(),
 	}, "RUN", m.Mint("RUN"))
 }
 
@@ -797,6 +803,19 @@ func TestReplyToReviewThread_AppendsAsAgent(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, out, "t1")
 	require.Equal(t, []string{"t1"}, spy.replied)
+}
+
+// A blank body is rejected before the thread is ever looked up, mirroring
+// post_review_comment's own blank-body case: an empty reply is not a finding a
+// user should ever see land in their review pane.
+func TestReplyToReviewThread_RejectsABlankBody(t *testing.T) {
+	spy := &spyThreads{thread: domain.ReviewThread{ID: "t1", WsID: "ws-a"}}
+	ts := reviewToolsOn(t, spy)
+
+	_, err := ts.Call(context.Background(), "reply_to_review_thread",
+		json.RawMessage(`{"threadId":"t1","body":"   "}`))
+	require.Error(t, err)
+	require.Empty(t, spy.replied, "a blank reply must never reach the store")
 }
 
 // The scope hole to close: a thread id names a thread in SOME workspace, so the
@@ -956,6 +975,12 @@ func TestResolveReviewThread_RejectedCallBroadcastsNothing(t *testing.T) {
 
 // The preamble is a DIRECTIVE, so it must never name a capability the agent does
 // not actually have. Every `x_y`-shaped token in it has to be a registered tool.
+// toolNamePattern matches `x_y`-shaped tokens: lowercase words joined by
+// underscores, which is the shape of every tool name on the surface (and of
+// nothing else the preamble's prose uses — ordinary hyphen/underscore-free
+// words like "crowbar" or "review" never match).
+var toolNamePattern = regexp.MustCompile(`\b[a-z]+(?:_[a-z]+)+\b`)
+
 func TestCapabilitiesPreamble_OnlyNamesRegisteredTools(t *testing.T) {
 	ts := reviewToolsOn(t, &spyThreads{})
 	registered := map[string]bool{}
@@ -965,12 +990,24 @@ func TestCapabilitiesPreamble_OnlyNamesRegisteredTools(t *testing.T) {
 
 	preamble := config.GetPrompts().CapabilitiesInstruction
 	require.NotEmpty(t, preamble)
-	for _, word := range regexp.MustCompile(`\b[a-z]+(?:_[a-z]+)+\b`).FindAllString(preamble, -1) {
+	for _, word := range toolNamePattern.FindAllString(preamble, -1) {
 		require.True(t, registered[word],
 			"the preamble names %q, which is not a registered tool", word)
 	}
+
+	// The scan above is a tripwire: today the preamble names no tools, so its loop
+	// body never runs. Prove the matcher itself works, or a future preamble naming a
+	// nonexistent tool would sail past a test that only ever passed vacuously.
+	require.Equal(t,
+		[]string{"delete_review_thread"},
+		toolNamePattern.FindAllString("use delete_review_thread and the crowbar review tools", -1),
+		"the tool-name matcher must catch a tool-shaped token and ignore ordinary prose")
 }
 
+// post_review_comment is the first WRITE tool, so its fail-closed wiring is worth
+// asserting directly: with no outline reader it cannot validate an anchor, with no
+// dedup map a retry would duplicate a finding, and with no broadcaster the finding
+// never reaches the pane the user is watching. Any of those and it must not exist.
 func TestPostReviewComment_NotAdvertisedWithoutItsDependencies(t *testing.T) {
 	full := func() agenttools.Deps {
 		return agenttools.Deps{
