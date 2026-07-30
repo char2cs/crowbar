@@ -137,6 +137,68 @@ func TestToolSet_RecordsSuccessfulCalls(t *testing.T) {
 	require.Equal(t, 0, stat.Failures)
 }
 
+// TestToolSet_FoldsUnknownToolNamesIntoOneBucket bounds the counter map. The
+// name reaches Record straight off the wire, before it is checked against the
+// registered tools, and the caller is a MODEL — so a hallucinating agent could
+// otherwise add one map entry per invented name and grow it for the whole life
+// of the daemon. Every unregistered name lands in a single bucket; the real
+// tools keep their own attribution.
+func TestToolSet_FoldsUnknownToolNamesIntoOneBucket(t *testing.T) {
+	metrics := agenttools.NewMetrics()
+	minter, err := agenttools.NewTokenMinter()
+	require.NoError(t, err)
+	res := agenttools.NewResolver(minter,
+		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubWorkspaces{all: tree()})
+
+	ts := agenttools.NewToolSet(agenttools.Deps{
+		Resolver: res,
+		Chats:    &spyRenamer{},
+		Metrics:  metrics,
+	}, "RUN", minter.Mint("RUN"))
+
+	for _, invented := range []string{"rm_rf", "list_secrets", "get_review_scop", "🙂"} {
+		_, err := ts.Call(context.Background(), invented, json.RawMessage(`{}`))
+		require.Error(t, err)
+	}
+	_, err = ts.Call(context.Background(), "set_chat_title", json.RawMessage(`{"title":"x"}`))
+	require.NoError(t, err)
+
+	snap := metrics.Snapshot()
+	require.Equal(t, agenttools.ToolStat{Calls: 4, Failures: 4}, snap[agenttools.UnknownToolMetric])
+	require.Equal(t, agenttools.ToolStat{Calls: 1, Failures: 0}, snap["set_chat_title"])
+	require.Len(t, snap, 2, "four invented names must not add four keys to the counter map")
+}
+
+// A name is folded by whether THIS ToolSet registered it, not by a hardcoded
+// list: a tool suppressed because its dependency is missing is genuinely not a
+// tool this caller has, so an attempt at it is not something to attribute
+// per-name either.
+func TestToolSet_FoldsAToolThisSetDidNotRegister(t *testing.T) {
+	metrics := agenttools.NewMetrics()
+	minter, err := agenttools.NewTokenMinter()
+	require.NoError(t, err)
+	res := agenttools.NewResolver(minter,
+		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubWorkspaces{all: tree()})
+
+	// Chats only: list_review_threads is a real tool name, but not on this set.
+	ts := agenttools.NewToolSet(agenttools.Deps{
+		Resolver: res,
+		Chats:    &spyRenamer{},
+		Metrics:  metrics,
+	}, "RUN", minter.Mint("RUN"))
+
+	_, err = ts.Call(context.Background(), "list_review_threads", json.RawMessage(`{}`))
+	require.Error(t, err)
+
+	snap := metrics.Snapshot()
+	require.Equal(t, agenttools.ToolStat{Calls: 1, Failures: 1}, snap[agenttools.UnknownToolMetric])
+	require.NotContains(t, snap, "list_review_threads")
+}
+
 // TestToolSet_NilMetricsStillRegistersAllEightTools is the fail-open guard:
 // every other Deps port suppresses its tool group when nil, but Metrics must
 // not — losing the call counters is never a reason to lose a capability. The
