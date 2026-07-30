@@ -40,6 +40,36 @@ native app only has to derive the same socket path.
 | Socket | `$TMPDIR/crowbar-6d4f21ce150add3c.sock` |
 | Present? | no — no daemon has run against this worktree yet |
 
+### 0.4 harness — one daemon, both apps. **No code required.**
+
+Worked out by reading `desktop/src-tauri/src/sidecar/mod.rs`. The rule:
+
+> **The Tauri app owns the daemon. The native app is just another unix-socket
+> client on the same path.** Start Crowbar-React first and leave it open.
+
+That works because the socket path is a *pure function of `CROWBAR_HOME`*, both
+apps set the same `CROWBAR_HOME` (`Makefile:11`, `desktop/Makefile:12`), and
+`crowbar-client` connects directly to the socket with no proxy (§9.1).
+
+> **Do NOT start a daemon manually first and then launch the Tauri app.** It
+> looks like the tidier arrangement and it is a trap. `spawn()` has no
+> attach-to-existing path — it unconditionally launches
+> `crowbar-api serve --host unix://<path>`. Its comment at
+> `sidecar/mod.rs:194` is explicit that the daemon "refuses to clobber one with
+> a live daemon still behind it", so the app's child dies on bind — but
+> `wait_for_health` then probes the socket and finds *your* daemon healthy, so
+> the app reports success while its supervisor sits in a budgeted respawn loop
+> against a socket it can never take. Symptom: everything works, with a daemon
+> respawn storm in the log.
+
+Two consequences worth knowing:
+
+- Closing the Tauri window kills the daemon (there is a window-close kill path),
+  which drops the native app's connection. Expected; not a native-app bug.
+- `desktop/scripts/fetch-sidecar.sh` **builds the Go daemon from this worktree's
+  source** despite its name. So daemon changes (0.6, 0.7) reach the harness on
+  the next `make dev-desktop`, with no separate step.
+
 ### Socket-path contract — `crowbar-client` must reproduce this exactly
 
 `api/internal/core/gateway/transports/socket.go:117`. With `CROWBAR_HOME` set:
