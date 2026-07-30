@@ -116,9 +116,10 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 // asserts the PRODUCTION Deps, built by the real newAgentToolDeps over the real
 // repositories, advertises the complete surface by name.
 //
-// Chats is filled in the way production fills it: agent.New assigns the usecase to
-// itself as the ChatRenamer (see its doc comment), so c.Agent is the exact value the
-// running daemon's Deps carries.
+// Chats and ChatLogs are filled in the way production fills them: agent.New
+// assigns the usecase to itself as both the ChatRenamer and the ChatLogReader
+// (see its doc comment), so c.Agent is the exact value the running daemon's
+// Deps carries for either port.
 func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
 	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
@@ -129,6 +130,7 @@ func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 	deps, err := usecases.NewAgentToolDepsForTest(minter, repos, c.BranchReview, noopThreadBroadcast)
 	require.NoError(t, err)
 	deps.Chats = c.Agent
+	deps.ChatLogs = c.Agent
 
 	names := []string{}
 	for _, tool := range agenttools.NewToolSet(deps, "RUN", minter.Mint("RUN")).Tools() {
@@ -141,6 +143,8 @@ func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 		"post_review_comment",
 		"reply_to_review_thread",
 		"resolve_review_thread",
+		"list_workspaces",
+		"get_chat_log",
 	}, names, "the production agent tool surface is incomplete — a port is unwired in newAgentToolDeps")
 }
 

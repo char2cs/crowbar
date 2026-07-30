@@ -25,6 +25,16 @@ type Deps struct {
 	// clients. Without it an agent's finding is stored but invisible to a user
 	// watching the review pane — see ThreadBroadcast.
 	ThreadBroadcast ThreadBroadcast
+	// ChatReads is the read port list_workspaces and get_chat_log use to list a
+	// workspace's chats and to resolve a chat id to the workspace it belongs to.
+	// It reuses ChatReader — the same interface the Resolver already needs from
+	// the chat store — rather than declaring a second, near-identical one.
+	ChatReads ChatReader
+	// ChatLogs is the read port get_chat_log calls to render another chat's
+	// ledger. It is consulted only once the chat's workspace has already passed
+	// c.CanSee — see getChatLog — so a nil ChatLogs simply means the tool that
+	// would read it does not exist.
+	ChatLogs ChatLogReader
 }
 
 type toolDef struct {
@@ -48,6 +58,7 @@ func NewToolSet(deps Deps, runnerID, token string) *ToolSet {
 	ts := &ToolSet{deps: deps, runnerID: runnerID, token: token}
 	ts.defs = append(ts.defs, chatTools(deps)...)
 	ts.defs = append(ts.defs, reviewTools(deps)...)
+	ts.defs = append(ts.defs, contextTools(deps)...)
 	return ts
 }
 

@@ -173,10 +173,10 @@ type Usecase struct {
 //
 // minter and tools are the agent capability surface DispatchMCP serves. Both are
 // optional: a Usecase built without them still runs chats, and DispatchMCP fails
-// loudly instead of serving a tool-less agent. tools.Chats is deliberately NOT a
-// caller's responsibility — the usecase IS the ChatRenamer, so New fills it in
-// and no caller can drop the chat tools by forgetting to hand the usecase back
-// to itself.
+// loudly instead of serving a tool-less agent. tools.Chats and tools.ChatLogs are
+// deliberately NOT a caller's responsibility — the usecase IS the ChatRenamer AND
+// the ChatLogReader (see ReadChatLog), so New fills both in and no caller can drop
+// either tool by forgetting to hand the usecase back to itself.
 func New(
 	chats agentchat.EventStore,
 	runners agentrunner.EventStore,
@@ -207,6 +207,7 @@ func New(
 		minter:        minter,
 	}
 	u.tools.Chats = u
+	u.tools.ChatLogs = u
 	return u
 }
 
@@ -293,6 +294,42 @@ func (u *Usecase) RenameByRunner(
 		return nil
 	}
 	return u.RenameChat(ctx, runner.CurrentChatID, title, source)
+}
+
+// ReadChatLog renders chatID's whole ledger for the get_chat_log tool. It is
+// this usecase's implementation of agenttools.ChatLogReader — see New's doc
+// comment for why tools.ChatLogs is filled in there rather than by a caller:
+// the ledger lives behind this package's own storage, so the usecase IS the
+// reader, the same way it is its own ChatRenamer.
+//
+// Scope is NOT checked here: get_chat_log's tool handler already confirmed
+// chatID's workspace is in the caller's visible set before this is ever
+// called (a chat id is not itself an authorization), so this method trusts
+// its caller the same way openLedger's other callers do.
+//
+// An empty ledger — a chat that has not spoken yet — renders as
+// agenttools.NoChatTurnsText rather than empty text or an error: a model
+// handed an error would try to work around a failure that is not one.
+func (u *Usecase) ReadChatLog(
+	ctx context.Context,
+	chatID string,
+) (string, error) {
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: read chat log: chat: %w", err)
+	}
+	led, err := u.openLedger(ctx, chat)
+	if err != nil {
+		return "", fmt.Errorf("agent: read chat log: %w", err)
+	}
+	blob, err := led.RenderConversation()
+	if err != nil {
+		return "", fmt.Errorf("agent: read chat log: render: %w", err)
+	}
+	if len(blob) == 0 {
+		return agenttools.NoChatTurnsText, nil
+	}
+	return string(blob), nil
 }
 
 // DispatchMCP runs one MCP message on behalf of the runner named by runnerID.

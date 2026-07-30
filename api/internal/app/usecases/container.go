@@ -208,6 +208,12 @@ func New(
 // threadBroadcast is injected from the app layer rather than derived here: fanning
 // a thread out needs the wire DTO, and a usecase must not import the api layer's
 // wire types. See agenttools.ThreadBroadcast.
+//
+// ChatLogs is deliberately NOT set here, unlike ChatReads: get_chat_log's ledger
+// read (agenttools.ChatLogReader) is implemented on *agent.Usecase itself
+// (agent.Usecase.ReadChatLog), which does not exist yet at this point in
+// construction — the exact chicken-and-egg agent.New already resolves for
+// Deps.Chats by assigning the usecase to itself once built. See its doc comment.
 func newAgentToolDeps(
 	minter *agenttools.TokenMinter,
 	repos *repositories.Container,
@@ -230,11 +236,12 @@ func newAgentToolDeps(
 	case threadBroadcast == nil:
 		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no thread broadcaster")
 	}
+	chatReader := agentChatReader{chats: repos.AgentChat}
 	return agenttools.Deps{
 		Resolver: agenttools.NewResolver(
 			minter,
 			repos.AgentRunner,
-			agentChatReader{chats: repos.AgentChat},
+			chatReader,
 			repos.Workspace,
 		),
 		Review:          review,
@@ -242,6 +249,7 @@ func newAgentToolDeps(
 		ThreadWrites:    repos.ReviewThread,
 		Idempotency:     agenttools.NewIdempotency(),
 		ThreadBroadcast: threadBroadcast,
+		ChatReads:       chatReader,
 	}, nil
 }
 

@@ -30,10 +30,58 @@ func renderThreads(threads []domain.ReviewThread) string {
 			t.ID, t.FilePath, t.StartLine, t.EndLine, t.Side, state, len(t.Messages))
 		for _, m := range t.Messages {
 			author := m.Author
+			// branchreview.Reply hardcodes "" for a human reply (see its doc
+			// comment) — only an agent message ever carries its own non-empty
+			// author (authorOf never returns ""). A blank author is therefore
+			// always the user, and defaulting it here is what keeps a thread
+			// with a human, an agent, and a second human distinguishable: without
+			// this every human line prints "    : ..." and a model cannot tell
+			// which blank-prefixed line is whose.
+			if author == "" && !m.IsAgent {
+				author = "user"
+			}
 			if m.IsAgent {
 				author += " (agent)"
 			}
 			fmt.Fprintf(&b, "    %s: %s\n", author, m.Body)
+		}
+	}
+	return b.String()
+}
+
+// renderWorkspaces emits one unindented header line per visible workspace — a
+// leading "* " marks the caller's own — followed by that workspace's chats,
+// each indented on its own line so a chat's title (free text a user typed)
+// can never be mistaken for another workspace's header.
+//
+// visible is rendered in the order given: it is c.Visible, the resolver's own
+// downward-only computation, so whatever order that walk produced is preserved
+// rather than re-sorted here.
+func renderWorkspaces(
+	caller domain.Workspace,
+	visible []domain.Workspace,
+	chats map[string][]domain.AgentChat,
+) string {
+	if len(visible) == 0 {
+		return "No visible workspaces."
+	}
+	var b strings.Builder
+	for _, w := range visible {
+		if w.ID == caller.ID {
+			b.WriteString("* ")
+		}
+		b.WriteString(w.ID)
+		b.WriteString("\n")
+		for _, chat := range chats[w.ID] {
+			title := chat.Title
+			if title == "" {
+				title = "(untitled)"
+			}
+			// A title is short Title-Case prose (see set_chat_title), but it is
+			// still user-typed text — stripping a stray newline keeps one chat
+			// from rendering as a second, fake workspace header.
+			title = strings.ReplaceAll(title, "\n", " ")
+			fmt.Fprintf(&b, "    %s  %s\n", chat.ID, title)
 		}
 	}
 	return b.String()
