@@ -33,6 +33,7 @@ package agenttools_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -163,6 +164,21 @@ func (c *countingChats) reset() {
 	c.lists.Store(0)
 }
 
+// perfRenamer is the ChatRenamer set_chat_title writes through. It does nothing
+// on purpose: the tool is measured for the cost of GETTING to a handler — the
+// resolve every MCP call pays — and a real rename would put an unrelated write
+// inside that window.
+type perfRenamer struct{}
+
+func (perfRenamer) RenameByRunner(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+) error {
+	return nil
+}
+
 // queryCounter counts SELECTs and rows materialised on one GORM handle. It is
 // registered on the chat read model because ListByWorkspace filters in Go after
 // reading every row: the call count alone says how often the table was touched,
@@ -252,6 +268,7 @@ func newPerfStack(
 	tools := agenttools.NewToolSet(agenttools.Deps{
 		Resolver:  agenttools.NewResolver(minter, runners, chats, workspaces),
 		Review:    review,
+		Chats:     perfRenamer{},
 		ChatReads: chats,
 		Metrics:   agenttools.NewMetrics(),
 	}, perfRunnerID, minter.Mint(perfRunnerID))
@@ -712,9 +729,10 @@ func callTool(
 	b *testing.B,
 	s *perfStack,
 	name string,
+	args json.RawMessage,
 ) string {
 	b.Helper()
-	out, err := s.tools.Call(context.Background(), name, nil)
+	out, err := s.tools.Call(context.Background(), name, args)
 	require.NoError(b, err)
 	require.NotEmpty(b, out)
 	return out
@@ -729,12 +747,13 @@ func measureCold(
 	b *testing.B,
 	s *perfStack,
 	name string,
+	args json.RawMessage,
 ) perfCounts {
 	b.Helper()
 	s.resetCounters()
 	perf.SetEnabled(true)
 	start := time.Now()
-	callTool(b, s, name)
+	callTool(b, s, name, args)
 	elapsed := time.Since(start)
 	perf.SetEnabled(false)
 	return collect(s, elapsed, 1)
@@ -746,15 +765,16 @@ func measureWarm(
 	b *testing.B,
 	s *perfStack,
 	name string,
+	args json.RawMessage,
 ) perfCounts {
 	b.Helper()
-	callTool(b, s, name)
+	callTool(b, s, name, args)
 	s.resetCounters()
 	perf.SetEnabled(true)
 	b.ResetTimer()
 	start := time.Now()
 	for range b.N {
-		callTool(b, s, name)
+		callTool(b, s, name, args)
 	}
 	elapsed := time.Since(start)
 	b.StopTimer()
@@ -811,7 +831,7 @@ func logGitArgv(
 	b.Helper()
 	trace := filepath.Join(b.TempDir(), "git-trace.log")
 	b.Setenv("GIT_TRACE", trace)
-	callTool(b, s, name)
+	callTool(b, s, name, nil)
 	b.Setenv("GIT_TRACE", "0")
 
 	data, err := os.ReadFile(trace)
@@ -864,8 +884,8 @@ func BenchmarkPerf_GetReviewScope(
 			seedReviewWorkspace(b, s)
 			b.Logf("fixture: %d files, %d hunks", spec.files, spec.totalHunks())
 
-			cold := measureCold(b, s, "get_review_scope")
-			warm := measureWarm(b, s, "get_review_scope")
+			cold := measureCold(b, s, "get_review_scope", nil)
+			warm := measureWarm(b, s, "get_review_scope", nil)
 			cold.log(b, "cold")
 			warm.log(b, "warm")
 			logGitArgv(b, s, "get_review_scope")
@@ -897,8 +917,42 @@ func BenchmarkPerf_ListWorkspaces(
 			seedContextTree(b, s, shape.workspaces, shape.chatsPer)
 			b.Logf("fixture: %d workspaces, %d chats each", shape.workspaces, shape.chatsPer)
 
-			cold := measureCold(b, s, "list_workspaces")
-			warm := measureWarm(b, s, "list_workspaces")
+			cold := measureCold(b, s, "list_workspaces", nil)
+			warm := measureWarm(b, s, "list_workspaces", nil)
+			cold.log(b, "cold")
+			warm.log(b, "warm")
+		})
+	}
+}
+
+// BenchmarkPerf_SetChatTitle measures what an MCP call costs when the tool it
+// names needs NOTHING but the caller's own runner.
+//
+// It is here because the other two benchmarks cannot show the cost this one
+// isolates. get_review_scope spends ~50ms in five git subprocesses, which buries
+// anything measured in microseconds; list_workspaces genuinely wants the
+// workspace tree, so reading it there is work, not waste. set_chat_title renames
+// the chat its runner is on and never looks at another workspace — so every
+// microsecond it spends on the workspace tree is pure overhead, paid on every
+// call an agent makes, and it is the only place that overhead is visible on its
+// own.
+//
+// It runs over perfContextShapes because the overhead is O(workspaces): the read
+// it used to pay was a full scan of the workspace table with a JSON unmarshal per
+// row, so the shape with twelve workspaces and the shape with one are the two
+// ends of the same line.
+func BenchmarkPerf_SetChatTitle(
+	b *testing.B,
+) {
+	args := json.RawMessage(`{"title":"Perf Fixture Title"}`)
+	for _, shape := range perfContextShapes {
+		b.Run(shape.name, func(b *testing.B) {
+			s := newPerfStack(b)
+			seedContextTree(b, s, shape.workspaces, shape.chatsPer)
+			b.Logf("fixture: %d workspaces, %d chats each", shape.workspaces, shape.chatsPer)
+
+			cold := measureCold(b, s, "set_chat_title", args)
+			warm := measureWarm(b, s, "set_chat_title", args)
 			cold.log(b, "cold")
 			warm.log(b, "warm")
 		})
