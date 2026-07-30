@@ -565,9 +565,10 @@ func (u *Usecase) displace(
 // the guard was a read-then-act against state that lags the truth it decides on: the outgoing
 // CLI's last prompt lands microseconds before the displace, the projection has not caught up,
 // the guard reads a stale false, and the turn is closed by NOTHING — the chat spins forever,
-// and the workspace's whole overlay spins with it. Measured at roughly 1 displace in 7 on an
-// idle machine, and it is not self-healing: only the user resuming that chat and completing
-// another turn ever clears it.
+// and the workspace's whole overlay spins with it. It is not self-healing: only the user
+// resuming that chat and completing another turn ever clears it. Measured in test at roughly
+// 1 displace in 7 on an idle machine — the production rate is unknown and depends on how the
+// projection is scheduled against the teardown, but one loss is one chat wedged for good.
 //
 // The question was not wrong, only asked in the wrong place. It is now asked inside the
 // command (commands.StopTurn.Validate), which asynx evaluates against the authoritative fold

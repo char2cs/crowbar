@@ -310,11 +310,45 @@ func (f *fakeWorkspace) AgentChatsDir(
 // mutation/read to fail, exercising the usecase's error-wrap guard clauses without
 // a fault-injecting database. A nil field delegates to the real store, so only the
 // targeted call fails.
+//
+// It also RECORDS the chat ids AbandonTurn was called with. Recording, not faulting, is
+// what that one needs: closeAbandonedTurn is best-effort and swallows every error it gets,
+// so a fault there would be invisible to the test — the only observable fact is whether
+// the call happened at all, and for which id.
 type fakeChatStore struct {
 	agentchat.EventStore
 	failGetChat   error
 	failCreate    error
 	failListChats error
+
+	mu           sync.Mutex
+	abandonedIDs []string
+}
+
+func (s *fakeChatStore) AbandonTurn(
+	ctx context.Context,
+	chatID string,
+	now time.Time,
+) (domain.AgentChat, error) {
+	s.mu.Lock()
+	s.abandonedIDs = append(s.abandonedIDs, chatID)
+	s.mu.Unlock()
+	return s.EventStore.AbandonTurn(ctx, chatID, now)
+}
+
+// abandonTurnIDs returns every chat id AbandonTurn has been asked to close.
+func (s *fakeChatStore) abandonTurnIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string{}, s.abandonedIDs...)
+}
+
+// forget drops what has been recorded so far, so a test can assert on ONE step of a
+// scenario without the setup's own calls counting against it.
+func (s *fakeChatStore) forget() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.abandonedIDs = nil
 }
 
 func (s *fakeChatStore) GetChat(ctx context.Context, id string) (domain.AgentChat, error) {
@@ -338,7 +372,9 @@ func (s *fakeChatStore) ListChats(ctx context.Context) ([]domain.AgentChat, erro
 	return s.EventStore.ListChats(ctx)
 }
 
-// fakeRunnerStore is the same fault-injecting wrapper for the runner aggregate.
+// fakeRunnerStore is the same fault-injecting wrapper for the runner aggregate, and
+// records the chat ids LiveRunnerForChat was asked about (see fakeChatStore for why
+// recording rather than faulting).
 type fakeRunnerStore struct {
 	agentrunner.EventStore
 	failStart      error
@@ -349,6 +385,33 @@ type fakeRunnerStore struct {
 	// them. Real signals, never a sleep: the goroutines hand off to each other.
 	afterMove  func()
 	afterStart func()
+
+	mu         sync.Mutex
+	lookedUpAt []string
+}
+
+func (s *fakeRunnerStore) LiveRunnerForChat(
+	ctx context.Context,
+	chatID string,
+) (domain.AgentRunner, error) {
+	s.mu.Lock()
+	s.lookedUpAt = append(s.lookedUpAt, chatID)
+	s.mu.Unlock()
+	return s.EventStore.LiveRunnerForChat(ctx, chatID)
+}
+
+// liveRunnerForChatIDs returns every chat id the live-runner query has been asked about.
+func (s *fakeRunnerStore) liveRunnerForChatIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string{}, s.lookedUpAt...)
+}
+
+// forget drops what has been recorded so far — see fakeChatStore.forget.
+func (s *fakeRunnerStore) forget() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lookedUpAt = nil
 }
 
 func (s *fakeRunnerStore) ForgetChat(ctx context.Context, chatID string) error {

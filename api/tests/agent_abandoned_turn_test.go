@@ -25,9 +25,10 @@ import (
 // will never send the turn_stop.
 //
 // WHAT THIS TEST IS, AND IS NOT. It does not reproduce the losing interleaving, and it
-// cannot: measured, 120 rounds of this exact shape against the broken code — with and
-// without CPU saturation — never failed once, because the HTTP request boundary between
-// the hook and the stop always gives the projection time to fold. The lost race lives in
+// cannot. An earlier draft went further than this one to try: it fired the stop with the
+// prompt's projection deliberately un-quiesced, and measured against the broken code, 120
+// rounds of THAT shape — with and without CPU saturation — never failed once, because even
+// then the HTTP request boundary gives the projection time to fold. The lost race lives in
 // a window microseconds wide, so pinning it needs an injection point INSIDE the teardown,
 // which is where the deterministic guards for it are: TestSwitchProvider_MidTurn_Closes-
 // TheOutgoingTurn and TestRegression_AbortedSwitchMidTurn_DoesNotLeaveTheChatSpinning-
@@ -45,10 +46,13 @@ import (
 // user reported: one chat with an orphaned turn lights the spinner on the whole workspace.
 // Both REST read paths are checked, so a refetch cannot disagree with the live frame.
 //
+// The Quiesce after the prompt is there to make the working=true line below a real
+// PRECONDITION rather than a hopeful one — and it is a second, stronger reason this test
+// cannot reproduce the loss: it settles the very projection whose lag was the bug, before
+// the stop is ever issued. Both reasons are stated because neither alone would be honest.
+//
 // No timing anywhere: every step blocks on a real signal (the HTTP response, then
-// Quiesce). The hook is deliberately NOT quiesced before the stop — production does not
-// quiesce either, and a Quiesce there would settle the projection and paper over the
-// shape this is modelling.
+// Quiesce).
 func TestRegression_ChatStoppedMidTurn_SpunTheWorkspaceForever(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)

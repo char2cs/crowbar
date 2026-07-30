@@ -383,6 +383,49 @@ func TestRegression_HookFromADisplacedRunner_NeverTouchesTheChatModel(t *testing
 		"a hook from a runner that is placed nowhere must resolve to nowhere, without a lookup")
 }
 
+// TestRegression_ExitOfADisplacedRunner_AsksNeitherAggregateAboutNowhere
+//
+// closeAbandonedTurn's `chatID == ""` check is now the ONLY thing standing between a
+// displaced runner and both aggregates, and this pins it.
+//
+// It did not used to be alone. The function read the chat through GetChat, whose store
+// has its OWN "" guard (agentchat store.GetChat refuses an empty id rather than missing
+// and replaying the entire event log to heal it). Closing the read-then-act race deleted
+// that call, so the backstop went with it — and neither remaining call catches "" by
+// itself: LiveRunnerForChat("") returns ErrNotFound, which is exactly the "nobody is on
+// this chat" answer that FALLS THROUGH to the abandon, and AbandonTurn("") would then
+// hand an empty aggregate id to asynx.
+//
+// This is the ordinary end of every switched-out, evicted and purged CLI: displaced
+// first, dying slowly, and reaching reconcileRunnerExit later with CurrentChatID = "".
+// The recorders are the probe — an id reaching either store at all is the failure, and
+// nothing else can observe it, because closeAbandonedTurn is best-effort and swallows
+// whatever either store returns.
+func TestRegression_ExitOfADisplacedRunner_AsksNeitherAggregateAboutNowhere(t *testing.T) {
+	f, cs, rs := newFaultFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	term := f.runner(t, runnerID).TerminalSession
+	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID)) // displaces + kills; the CLI still dies slowly
+	f.wait()
+	require.Empty(t, f.runner(t, runnerID).CurrentChatID, "precondition: the runner is placed nowhere")
+
+	// The purge's own teardown legitimately consulted both stores about a REAL chat id.
+	// Only what the exit does is under test.
+	cs.forget()
+	rs.forget()
+
+	// And now the SIGTERM'd CLI finally falls over.
+	f.term.exit(t, term)
+	f.wait()
+
+	assert.Empty(t, rs.liveRunnerForChatIDs(),
+		"nowhere is not a chat: the live-runner query must not be asked about it — its ErrNotFound "+
+			"reads as 'nobody is on this chat' and would fall straight through to the abandon")
+	assert.Empty(t, cs.abandonTurnIDs(),
+		"nowhere is not a chat: no turn may be abandoned on an empty aggregate id")
+}
+
 // mustLive reads the chat's live runner, failing the test if the chat is dormant.
 func mustLive(t *testing.T, f testFixture, chatID string) domain.AgentRunner {
 	t.Helper()
