@@ -34,8 +34,8 @@ type Prompts struct {
 	//
 	// It must never name a capability that is not registered. A directive pointing at
 	// an absent tool family, while forbidding the fallback the model would otherwise
-	// reach for, is worse than no directive at all — so the text stays generic until
-	// the tools it would name actually exist.
+	// reach for, is worse than no directive at all — so the review-tools directive
+	// was held back until the review tools it names actually existed (Task 13).
 	CapabilitiesInstruction string `yaml:"capabilities_instruction"`
 	// HandoffWrapper wraps the WHOLE conversation for a provider joining the chat
 	// fresh (it has no session of its own to resume, so it has no history).

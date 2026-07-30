@@ -40,13 +40,13 @@ func TestGetPrompts_FromEmbeddedDefaults(t *testing.T) {
 	assert.Contains(t, p.CapabilitiesInstruction, "Crowbar workspace")
 	assert.Contains(t, p.CapabilitiesInstruction, "prefer them over shell equivalents")
 
-	// And it must name no capability that is not registered. The only tool on the
-	// surface at this phase is set_chat_title, so the text stays generic: a directive
-	// pointing at an absent tool family, while forbidding the fallback the model would
-	// otherwise reach for, is worse than no directive at all. The review directive
-	// lands with the review tools.
-	assert.NotContains(t, p.CapabilitiesInstruction, "review")
-	assert.NotContains(t, p.CapabilitiesInstruction, "gh pr")
+	// The review tools now exist (Task 13), so the preamble carries the directive
+	// that was held back until they did: prefer Crowbar's own review surface over
+	// `gh pr`, and post findings as anchored threads rather than chat prose.
+	// TestCapabilitiesPreamble_OnlyNamesRegisteredTools (agenttools package) is the
+	// tripwire that keeps this claim honest against the actual tool registry.
+	assert.Contains(t, p.CapabilitiesInstruction, "review")
+	assert.Contains(t, p.CapabilitiesInstruction, "gh pr")
 }
 
 func TestGetPrompts_UserConfigOverlays(t *testing.T) {

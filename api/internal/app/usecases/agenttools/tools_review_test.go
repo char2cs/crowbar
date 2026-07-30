@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
+	"github.com/char2cs/crowbar/api/internal/core/config"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -743,6 +745,232 @@ func TestPostReviewComment_RejectsBadArguments(t *testing.T) {
 // asserting directly: with no outline reader it cannot validate an anchor, with no
 // dedup map a retry would duplicate a finding, and with no broadcaster the finding
 // never reaches the pane the user is watching. Any of those and it must not exist.
+// spyThreads records every write so a test can assert a rejected call never
+// reached the store. thread is what Get returns.
+type spyThreads struct {
+	thread   domain.ReviewThread
+	opened   []reviewthread.OpenInput
+	replied  []string
+	resolved []string
+}
+
+func (s *spyThreads) Get(context.Context, string) (domain.ReviewThread, error) {
+	return s.thread, nil
+}
+func (s *spyThreads) ListByWorkspace(context.Context, string) ([]domain.ReviewThread, error) {
+	return []domain.ReviewThread{s.thread}, nil
+}
+func (s *spyThreads) Open(_ context.Context, in reviewthread.OpenInput, _ time.Time) (domain.ReviewThread, error) {
+	s.opened = append(s.opened, in)
+	return domain.ReviewThread{ID: "new-thread", WsID: in.WsID}, nil
+}
+func (s *spyThreads) Reply(_ context.Context, id, _, _ string, _ bool, _ string, _ time.Time) (domain.ReviewThread, error) {
+	s.replied = append(s.replied, id)
+	return s.thread, nil
+}
+func (s *spyThreads) Resolve(_ context.Context, id string) (domain.ReviewThread, error) {
+	s.resolved = append(s.resolved, id)
+	return s.thread, nil
+}
+
+// reviewToolsOn builds a ToolSet whose caller sits on ws-a (so it sees ws-a and
+// ws-a1, and NOT repo-default, ws-b or other-repo-ws).
+func reviewToolsOn(t *testing.T, threads *spyThreads) *agenttools.ToolSet {
+	t.Helper()
+	m, err := agenttools.NewTokenMinter()
+	require.NoError(t, err)
+	res := agenttools.NewResolver(m,
+		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubWorkspaces{all: tree()})
+	return agenttools.NewToolSet(agenttools.Deps{
+		Resolver: res, Threads: threads, ThreadWrites: threads,
+	}, "RUN", m.Mint("RUN"))
+}
+
+func TestReplyToReviewThread_AppendsAsAgent(t *testing.T) {
+	spy := &spyThreads{thread: domain.ReviewThread{ID: "t1", WsID: "ws-a"}}
+	ts := reviewToolsOn(t, spy)
+
+	out, err := ts.Call(context.Background(), "reply_to_review_thread",
+		json.RawMessage(`{"threadId":"t1","body":"Bounded the loop."}`))
+	require.NoError(t, err)
+	require.Contains(t, out, "t1")
+	require.Equal(t, []string{"t1"}, spy.replied)
+}
+
+// The scope hole to close: a thread id names a thread in SOME workspace, so the
+// id itself is not an authorization. ws-b is a sibling the caller cannot see.
+func TestReplyToReviewThread_RejectsAThreadOutsideTheCallersScope(t *testing.T) {
+	spy := &spyThreads{thread: domain.ReviewThread{ID: "t9", WsID: "ws-b"}}
+	ts := reviewToolsOn(t, spy)
+
+	_, err := ts.Call(context.Background(), "reply_to_review_thread",
+		json.RawMessage(`{"threadId":"t9","body":"should not land"}`))
+	require.ErrorIs(t, err, agenttools.ErrOutOfScope)
+	require.Empty(t, spy.replied, "an out-of-scope reply must never reach the store")
+}
+
+// An ANCESTOR is out of scope too — visibility is downward only.
+func TestReplyToReviewThread_RejectsAThreadOnAnAncestorWorkspace(t *testing.T) {
+	spy := &spyThreads{thread: domain.ReviewThread{ID: "t0", WsID: "repo-default"}}
+	ts := reviewToolsOn(t, spy)
+
+	_, err := ts.Call(context.Background(), "reply_to_review_thread",
+		json.RawMessage(`{"threadId":"t0","body":"upward is forbidden"}`))
+	require.ErrorIs(t, err, agenttools.ErrOutOfScope)
+	require.Empty(t, spy.replied)
+}
+
+// A DESCENDANT is in scope.
+func TestReplyToReviewThread_AllowsAThreadOnADescendantWorkspace(t *testing.T) {
+	spy := &spyThreads{thread: domain.ReviewThread{ID: "t2", WsID: "ws-a1"}}
+	ts := reviewToolsOn(t, spy)
+
+	_, err := ts.Call(context.Background(), "reply_to_review_thread",
+		json.RawMessage(`{"threadId":"t2","body":"ok"}`))
+	require.NoError(t, err)
+	require.Equal(t, []string{"t2"}, spy.replied)
+}
+
+func TestResolveReviewThread_Resolves(t *testing.T) {
+	spy := &spyThreads{thread: domain.ReviewThread{ID: "t1", WsID: "ws-a"}}
+	ts := reviewToolsOn(t, spy)
+
+	_, err := ts.Call(context.Background(), "resolve_review_thread",
+		json.RawMessage(`{"threadId":"t1"}`))
+	require.NoError(t, err)
+	require.Equal(t, []string{"t1"}, spy.resolved)
+}
+
+func TestResolveReviewThread_RejectsAThreadOutsideTheCallersScope(t *testing.T) {
+	spy := &spyThreads{thread: domain.ReviewThread{ID: "t9", WsID: "other-repo-ws"}}
+	ts := reviewToolsOn(t, spy)
+
+	_, err := ts.Call(context.Background(), "resolve_review_thread",
+		json.RawMessage(`{"threadId":"t9"}`))
+	require.ErrorIs(t, err, agenttools.ErrOutOfScope)
+	require.Empty(t, spy.resolved, "an out-of-scope resolve must never reach the store")
+}
+
+// replyResolveFixture is reviewToolsOn's fixture PLUS a wired broadcaster: the
+// brief's own reviewToolsOn leaves ThreadBroadcast nil (registration must not
+// depend on it — see canWriteReviewThread), so the fan-out tests need their own
+// fixture that supplies one and exposes it for assertions.
+type replyResolveFixture struct {
+	ts        *agenttools.ToolSet
+	threads   *spyThreads
+	broadcast *spyThreadBroadcast
+}
+
+func newReplyResolveFixture(t *testing.T, callerWs string, thread domain.ReviewThread) *replyResolveFixture {
+	t.Helper()
+	m, err := agenttools.NewTokenMinter()
+	require.NoError(t, err)
+	res := agenttools.NewResolver(m,
+		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
+		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: callerWs}},
+		stubWorkspaces{all: tree()})
+	threads := &spyThreads{thread: thread}
+	broadcast := &spyThreadBroadcast{}
+	deps := agenttools.Deps{
+		Resolver:        res,
+		Threads:         threads,
+		ThreadWrites:    threads,
+		ThreadBroadcast: broadcast.fn(),
+	}
+	return &replyResolveFixture{
+		ts:        agenttools.NewToolSet(deps, "RUN", m.Mint("RUN")),
+		threads:   threads,
+		broadcast: broadcast,
+	}
+}
+
+// TestReplyToReviewThread_BroadcastsSoAnOpenReviewPaneSeesIt models
+// TestPostReviewComment_BroadcastsSoAnOpenReviewPaneSeesIt: the review-thread
+// store does not fan out on its own, and an agent's reply bypasses the HTTP
+// handler that normally pushes a frame, so without an explicit broadcast the
+// reply is stored and invisible until the user remounts the pane.
+func TestReplyToReviewThread_BroadcastsSoAnOpenReviewPaneSeesIt(t *testing.T) {
+	f := newReplyResolveFixture(t, "ws-a", domain.ReviewThread{ID: "t1", WsID: "ws-a"})
+
+	_, err := f.ts.Call(context.Background(), "reply_to_review_thread",
+		json.RawMessage(`{"threadId":"t1","body":"Bounded the loop."}`))
+	require.NoError(t, err)
+
+	require.Len(t, f.broadcast.frames, 1, "a stored reply must reach connected clients")
+	frame := f.broadcast.frames[0]
+	require.Equal(t, "t1", frame.thread.ID)
+	require.Equal(t, "P", frame.projectID)
+	require.Equal(t, "R", frame.repoID)
+}
+
+// TestReplyToReviewThread_BroadcastsUnderTheThreadsOwnWorkspace is the case
+// TestPostReviewComment's fixtures cannot exercise: post_review_comment only ever
+// writes to the caller's OWN workspace, so its ids and the written thread's ids
+// always coincide. reply/resolve can write to any workspace CanSee allows, and a
+// caller at "home" sees other-repo-ws — a DIFFERENT repo from its own (home has
+// no repo at all). Broadcasting under the caller's own (empty) repo would
+// deliver the frame to nobody's /threads stream.
+func TestReplyToReviewThread_BroadcastsUnderTheThreadsOwnWorkspace(t *testing.T) {
+	f := newReplyResolveFixture(t, "home", domain.ReviewThread{ID: "t9", WsID: "other-repo-ws"})
+
+	_, err := f.ts.Call(context.Background(), "reply_to_review_thread",
+		json.RawMessage(`{"threadId":"t9","body":"ok"}`))
+	require.NoError(t, err)
+
+	require.Len(t, f.broadcast.frames, 1)
+	require.Equal(t, "R2", f.broadcast.frames[0].repoID,
+		"the frame must carry the THREAD's own repo, not the home caller's (empty) one")
+}
+
+func TestReplyToReviewThread_RejectedCallBroadcastsNothing(t *testing.T) {
+	f := newReplyResolveFixture(t, "ws-a", domain.ReviewThread{ID: "t9", WsID: "ws-b"})
+
+	_, err := f.ts.Call(context.Background(), "reply_to_review_thread",
+		json.RawMessage(`{"threadId":"t9","body":"should not land"}`))
+	require.ErrorIs(t, err, agenttools.ErrOutOfScope)
+	require.Empty(t, f.broadcast.frames, "an out-of-scope reply must not announce a thread the caller cannot see")
+}
+
+func TestResolveReviewThread_BroadcastsSoAnOpenReviewPaneSeesIt(t *testing.T) {
+	f := newReplyResolveFixture(t, "ws-a", domain.ReviewThread{ID: "t1", WsID: "ws-a"})
+
+	_, err := f.ts.Call(context.Background(), "resolve_review_thread", json.RawMessage(`{"threadId":"t1"}`))
+	require.NoError(t, err)
+
+	require.Len(t, f.broadcast.frames, 1, "a resolve must reach connected clients")
+	frame := f.broadcast.frames[0]
+	require.Equal(t, "t1", frame.thread.ID)
+	require.Equal(t, "P", frame.projectID)
+	require.Equal(t, "R", frame.repoID)
+}
+
+func TestResolveReviewThread_RejectedCallBroadcastsNothing(t *testing.T) {
+	f := newReplyResolveFixture(t, "ws-a", domain.ReviewThread{ID: "t9", WsID: "other-repo-ws"})
+
+	_, err := f.ts.Call(context.Background(), "resolve_review_thread", json.RawMessage(`{"threadId":"t9"}`))
+	require.ErrorIs(t, err, agenttools.ErrOutOfScope)
+	require.Empty(t, f.broadcast.frames, "an out-of-scope resolve must not announce a thread the caller cannot see")
+}
+
+// The preamble is a DIRECTIVE, so it must never name a capability the agent does
+// not actually have. Every `x_y`-shaped token in it has to be a registered tool.
+func TestCapabilitiesPreamble_OnlyNamesRegisteredTools(t *testing.T) {
+	ts := reviewToolsOn(t, &spyThreads{})
+	registered := map[string]bool{}
+	for _, tool := range ts.Tools() {
+		registered[tool.Name] = true
+	}
+
+	preamble := config.GetPrompts().CapabilitiesInstruction
+	require.NotEmpty(t, preamble)
+	for _, word := range regexp.MustCompile(`\b[a-z]+(?:_[a-z]+)+\b`).FindAllString(preamble, -1) {
+		require.True(t, registered[word],
+			"the preamble names %q, which is not a registered tool", word)
+	}
+}
+
 func TestPostReviewComment_NotAdvertisedWithoutItsDependencies(t *testing.T) {
 	full := func() agenttools.Deps {
 		return agenttools.Deps{

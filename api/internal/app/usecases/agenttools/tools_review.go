@@ -23,8 +23,13 @@ type ReviewReader interface {
 	GetOutline(ctx context.Context, wsID, commit string) ([]gitdomain.FileOutline, error)
 }
 
-// ThreadReader is the narrow read port list_review_threads needs from the
-// review-thread store.
+// ThreadReader is the narrow read port the review tools need from the
+// review-thread store: ListByWorkspace for list_review_threads, and Get for
+// reply_to_review_thread and resolve_review_thread — both of which must look a
+// thread up before writing to it, to learn which workspace it actually belongs
+// to. A thread id names a thread in SOME workspace; it is not itself an
+// authorization, so the WsID that Get returns is what CanSee is checked
+// against, never the id argument on its own.
 type ThreadReader interface {
 	ListByWorkspace(ctx context.Context, wsID string) ([]domain.ReviewThread, error)
 	Get(ctx context.Context, id string) (domain.ReviewThread, error)
@@ -80,6 +85,12 @@ type ThreadWriter interface {
 // a finding. ThreadBroadcast: without it the comment never reaches an open review
 // pane, and a tool whose whole purpose is to put a finding in front of the user
 // is worse than absent if it writes somewhere the user is not looking.
+//
+// reply_to_review_thread and resolve_review_thread need only a thread reader (to
+// look up which workspace a thread belongs to before writing) and the writer
+// itself; ThreadBroadcast is best-effort for these two rather than a
+// registration gate, since they mutate a thread that is already visible
+// somewhere rather than creating one that would otherwise never be seen at all.
 func reviewTools(deps Deps) []toolDef {
 	var out []toolDef
 	if deps.Threads != nil {
@@ -91,6 +102,10 @@ func reviewTools(deps Deps) []toolDef {
 	if canPostReviewComment(deps) {
 		out = append(out, postReviewCommentTool(deps))
 	}
+	if canWriteReviewThread(deps) {
+		out = append(out, replyToReviewThreadTool(deps))
+		out = append(out, resolveReviewThreadTool(deps))
+	}
 	return out
 }
 
@@ -99,6 +114,10 @@ func canPostReviewComment(deps Deps) bool {
 		deps.ThreadWrites != nil &&
 		deps.Idempotency != nil &&
 		deps.ThreadBroadcast != nil
+}
+
+func canWriteReviewThread(deps Deps) bool {
+	return deps.Threads != nil && deps.ThreadWrites != nil
 }
 
 func listReviewThreadsTool(deps Deps) toolDef {
@@ -311,6 +330,153 @@ func authorOf(c Caller) string {
 		return "agent"
 	}
 	return c.ProviderID
+}
+
+func replyToReviewThreadTool(deps Deps) toolDef {
+	return toolDef{
+		name:        "reply_to_review_thread",
+		description: "Reply to an existing review thread. Get thread ids from list_review_threads.",
+		schema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"threadId":{"type":"string","description":"The thread to reply to. Get ids from list_review_threads."},
+				"body":{"type":"string","description":"The reply, in markdown."}
+			},
+			"required":["threadId","body"],
+			"additionalProperties":false
+		}`),
+		run: func(ctx context.Context, c Caller, args json.RawMessage) (string, error) {
+			return replyToReviewThread(ctx, deps, c, args)
+		},
+	}
+}
+
+type replyToReviewThreadArgs struct {
+	ThreadID string `json:"threadId"`
+	Body     string `json:"body"`
+}
+
+// replyToReviewThread looks the thread up before writing to it: a thread id
+// names a thread in SOME workspace, so the id by itself authorizes nothing. Only
+// once the thread's actual WsID is known and confirmed visible to the caller
+// does the reply reach the store — a rejection here must never call
+// deps.ThreadWrites.Reply at all.
+func replyToReviewThread(
+	ctx context.Context,
+	deps Deps,
+	c Caller,
+	args json.RawMessage,
+) (string, error) {
+	var in replyToReviewThreadArgs
+	if err := decode(args, &in); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(in.Body) == "" {
+		return "", fmt.Errorf("agenttools: reply_to_review_thread: body must not be empty")
+	}
+	thread, err := deps.Threads.Get(ctx, in.ThreadID)
+	if err != nil {
+		return "", fmt.Errorf("agenttools: reply_to_review_thread: %w", err)
+	}
+	if !c.CanSee(thread.WsID) {
+		return "", fmt.Errorf("agenttools: reply_to_review_thread: %w", ErrOutOfScope)
+	}
+	updated, err := deps.ThreadWrites.Reply(
+		ctx, in.ThreadID, uuid.NewString(), authorOf(c), true, in.Body, time.Now(),
+	)
+	if err != nil {
+		return "", fmt.Errorf("agenttools: reply_to_review_thread: %w", err)
+	}
+	broadcastThreadWrite(deps, c, thread.WsID, updated)
+	return fmt.Sprintf("Replied to review thread %s.", in.ThreadID), nil
+}
+
+func resolveReviewThreadTool(deps Deps) toolDef {
+	return toolDef{
+		name:        "resolve_review_thread",
+		description: "Mark a review thread resolved. Only resolve a thread whose finding you have actually addressed.",
+		schema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"threadId":{"type":"string","description":"The thread to resolve. Get ids from list_review_threads."}
+			},
+			"required":["threadId"],
+			"additionalProperties":false
+		}`),
+		run: func(ctx context.Context, c Caller, args json.RawMessage) (string, error) {
+			return resolveReviewThread(ctx, deps, c, args)
+		},
+	}
+}
+
+type resolveReviewThreadArgs struct {
+	ThreadID string `json:"threadId"`
+}
+
+// resolveReviewThread carries the same scope check as replyToReviewThread, and
+// for the same reason: the thread id alone says nothing about who may act on it,
+// only the thread's own WsID does.
+func resolveReviewThread(
+	ctx context.Context,
+	deps Deps,
+	c Caller,
+	args json.RawMessage,
+) (string, error) {
+	var in resolveReviewThreadArgs
+	if err := decode(args, &in); err != nil {
+		return "", err
+	}
+	thread, err := deps.Threads.Get(ctx, in.ThreadID)
+	if err != nil {
+		return "", fmt.Errorf("agenttools: resolve_review_thread: %w", err)
+	}
+	if !c.CanSee(thread.WsID) {
+		return "", fmt.Errorf("agenttools: resolve_review_thread: %w", ErrOutOfScope)
+	}
+	updated, err := deps.ThreadWrites.Resolve(ctx, in.ThreadID)
+	if err != nil {
+		return "", fmt.Errorf("agenttools: resolve_review_thread: %w", err)
+	}
+	broadcastThreadWrite(deps, c, thread.WsID, updated)
+	return fmt.Sprintf("Resolved review thread %s.", in.ThreadID), nil
+}
+
+// broadcastThreadWrite fans a reply or resolution out the same way
+// post_review_comment fans out a new thread: the review-thread store does not
+// broadcast on its own, so without this an agent's write is durably stored and
+// invisible until the user remounts the review pane.
+//
+// It is a no-op when deps.ThreadBroadcast is nil rather than a registration
+// gate the way canPostReviewComment's is: a reply or resolve mutates a thread
+// that is already visible somewhere, so losing the live update costs a stale
+// render, not the total invisibility a never-broadcast NEW thread would have.
+//
+// The frame carries wsID's own project and repo, not the caller's: the thread
+// this call just wrote to can be on a descendant or ancestor workspace of the
+// caller's own (that is the whole point of the CanSee check above), and those
+// can belong to a different repo when the caller sits at "home" — the /threads
+// stream filters on projectId and repoId as well as wsId, so a frame carrying
+// the caller's own repo would reach nobody's stream for a cross-repo write.
+// wsID is already confirmed present in c.Visible by the CanSee check that ran
+// before every call site, so the lookup below always finds it; the fallback to
+// c.Workspace only guards a future call site that skips that check.
+func broadcastThreadWrite(
+	deps Deps,
+	c Caller,
+	wsID string,
+	thread domain.ReviewThread,
+) {
+	if deps.ThreadBroadcast == nil {
+		return
+	}
+	ws := c.Workspace
+	for _, w := range c.Visible {
+		if w.ID == wsID {
+			ws = w
+			break
+		}
+	}
+	deps.ThreadBroadcast(thread.NormalizedMessages(), ws.ProjectID, ws.RepoID)
 }
 
 func parseSide(side string) (domain.ReviewSide, error) {

@@ -139,6 +139,8 @@ func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 		"list_review_threads",
 		"get_review_scope",
 		"post_review_comment",
+		"reply_to_review_thread",
+		"resolve_review_thread",
 	}, names, "the production agent tool surface is incomplete — a port is unwired in newAgentToolDeps")
 }
 

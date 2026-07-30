@@ -2,6 +2,7 @@ config:
   prompts:
     capabilities_instruction: |
       You are running inside a Crowbar workspace. Crowbar's own tools are available in your tool list; prefer them over shell equivalents for anything they cover, and call them rather than describing what you would do.
+      Code review happens in Crowbar, not on GitHub: when you review a branch or are asked about review comments, use the crowbar review tools. Post findings as anchored review threads rather than as prose in this chat, and do not use `gh pr review`.
     handoff_wrapper: |
       === HANDED-OFF CONTEXT (Crowbar) ===
       This conversation was held with another assistant before you joined it. It is
