@@ -93,6 +93,55 @@ Not vendored: upstream's third skill `gpui-component-dev` — it is a contributo
 workflow for adding components *to* `gpui-component`, which we are consuming, not
 contributing to.
 
+### 0.10 — AX spike ✅ · **VERDICT: THIN. Dropped, per §10.4. Do not revisit.**
+
+§10.4 said: spend one hour, and if the tree is thin, "drop it and never revisit."
+It is thin. Two disqualifying facts, both read from GPUI source on `main`:
+
+1. **The AX tree is opt-in per element, not the element tree.** A node appears
+   only if it has *both* a `GlobalElementId` (`.id()` set on it *and* its whole
+   ancestor chain) *and* a non-`None` `a11y_role()`. `_accessibility.rs` states
+   it outright: "nodes with no role are not reported." Zed itself annotates
+   roughly ten files' worth — button, icon_button, dropdown_menu, keybinding,
+   input_field, number_field. Annotating every element of *our* app is the same
+   labour as writing the extractor, for a strictly worse data model.
+2. **No colour, at all.** AccessKit's node model has no colour concept and the
+   GPUI integration writes none. Our oracle diffs geometry **and colour**
+   (§8.1). This alone ends it.
+
+The planned feature-gated in-process driver (D7) stands unchanged.
+
+**Two things worth stealing for `crowbar-driver`, and they are worth a lot:**
+
+- **The identity scheme.** `NodeId` is derived deterministically from
+  `GlobalElementId::accesskit_node_id()` — the composed path of ancestor ids.
+  Stable across frames and across runs *by construction*. That is exactly the
+  anchor identity a cross-app differ needs, and it is a solved problem we can
+  copy rather than invent.
+- **`Window::debug_a11y_tree_json()`** (`window/a11y/debug.rs`, 330 lines,
+  `main` only — we get it because 0.2 vendors from `main`). Retains the last
+  `TreeUpdate` and serialises on demand, **in-process, with no AX permission**.
+  Under `debug_assertions` it additionally records per node the `Render` view
+  type name, the originating `ElementId`, whether the node was synthetic, and
+  the **`#[track_caller]` source location of the constructing element**. That
+  last field is direct precedent for anchoring a UI node back to source. Use
+  this module as the template for the extractor's serialisation layer.
+
+Also observed, and useful: `ZED_EXPERIMENTAL_A11Y` **is** honoured by stable
+1.6.3 (the binary links `accesskit 0.24.0` / `accesskit_macos 0.26.0` and carries
+the tree-builder's log strings) — it is not a `main`-only flag. And `open -na`
+does **not** pass environment through; launch `Contents/MacOS/zed` directly.
+
+> **Not completed, stated plainly:** the live AX dump was never produced. Both
+> Zed *and* the TextEdit control returned `kAXErrorAPIDisabled (-25211)` with
+> `AXIsProcessTrusted() = false` — a macOS TCC permission wall, not an empty
+> tree, and the control run is what proves the difference. Finishing it needs a
+> human to add a bundle under System Settings → Privacy & Security →
+> Accessibility. **I did not ask for that**, because the verdict does not depend
+> on it: opt-in annotation and absent colour disqualify the approach whatever
+> the live tree looks like. Every point-by-point answer above is source-read,
+> not observed, and is labelled as such.
+
 ## In flight
 
 Wave 1 — dispatched 2026-07-30. Ten workers, disjoint owned paths, one worktree
@@ -136,7 +185,7 @@ Owner column: `W` = dispatched worker, `O` = orchestrator-only.
 | 0.7 | Loopback TCP listener for webview panes, `127.0.0.1` only, authed | §9.4 | W | todo |
 | 0.8 | Decide `.app` bundling: `cargo-packager` vs hand-rolled | §14 | W | todo |
 | 0.9 | Zed extractability audit — `fuzzy`, `picker`, `util`, `theme` | §10.6 | W | todo |
-| 0.10 | AX spike, timeboxed 1h: `ZED_EXPERIMENTAL_A11Y=1` + an AX tree dump | §10.4 | W | todo |
+| 0.10 | AX spike, timeboxed 1h: `ZED_EXPERIMENTAL_A11Y=1` + an AX tree dump | §10.4 | W | **done — THIN, dropped** |
 | 0.11 | `cargo tree -i zlog`, for the record | §15 | O | todo — gated on 0.2 |
 | 0.12 | Relicense to AGPL-3.0-only: `LICENSING.md`, `LICENSE`, SPDX, manifests | §15 | W | **done** |
 
