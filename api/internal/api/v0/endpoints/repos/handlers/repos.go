@@ -63,7 +63,7 @@ func repoAvatar(name string) (label, color string) {
 // gitRemoteURL returns the origin remote URL for the repo at path, or "".
 func gitRemoteURL(path string) string {
 	//nolint:gosec // G204: fixed git subcommand; path is a daemon-managed repo path, not shell-interpreted or attacker-controlled.
-	out, err := exec.Command("git", "-C", path, "remote", "get-url", "origin").Output()
+	out, err := exec.Command(binpath.Git(), "-C", path, "remote", "get-url", "origin").Output()
 	if err != nil {
 		return ""
 	}
@@ -568,7 +568,7 @@ func gitDefaultBranch(
 	path string,
 ) string {
 	//nolint:gosec // G204: fixed git subcommand; path is a daemon-managed repo path, not shell-interpreted or attacker-controlled.
-	out, err := exec.Command("git", "-C", path, "symbolic-ref", "HEAD", "--short").Output()
+	out, err := exec.Command(binpath.Git(), "-C", path, "symbolic-ref", "HEAD", "--short").Output()
 	if err != nil {
 		return ""
 	}
@@ -727,7 +727,7 @@ func githubAvatarURL(
 	repoPath string,
 ) string {
 	//nolint:gosec // G204: fixed git subcommand; repoPath is a daemon-managed repo path, not shell-interpreted or attacker-controlled.
-	raw, err := exec.CommandContext(ctx, "git", "-C", repoPath, "remote", "get-url", "origin").Output()
+	raw, err := exec.CommandContext(ctx, binpath.Git(), "-C", repoPath, "remote", "get-url", "origin").Output()
 	if err != nil {
 		return ""
 	}

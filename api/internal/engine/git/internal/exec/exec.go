@@ -20,10 +20,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/perf"
 )
 
 const optionalLocksOffEnv = "GIT_OPTIONAL_LOCKS=0"
+
+// gitBin and recoverGit are the package's only view of which binary a git
+// invocation exec's. They are variables so the tests can drive the
+// vanished-binary recovery path without depending on what is installed on the
+// machine running them; production always holds the binpath pair.
+//
+// Nothing else about an invocation changes: same argv, same environment, same
+// working directory. Only the file that gets exec'd differs, and only to skip
+// the macOS shim in front of it.
+var (
+	gitBin     = binpath.Git
+	recoverGit = binpath.RecoverGit
+)
 
 // GitOpTimeout bounds every non-network git subprocess whose caller did not
 // bound it already. Only the network commands were ever bounded (engine.go's
@@ -151,6 +165,11 @@ func run(
 	return r
 }
 
+// runInner runs the invocation once and, only when the subprocess never
+// started, gives the resolver a chance to notice its cached binary has gone and
+// runs it again. The retry is safe precisely because the first attempt never
+// started: no bytes were produced, nothing was mutated, and the command cannot
+// have been half-applied.
 func runInner(
 	ctx context.Context,
 	dir string,
@@ -161,8 +180,28 @@ func runInner(
 ) Result {
 	bctx, cancel := boundedContext(ctx)
 	defer cancel()
+
+	r, started := execGit(bctx, gitBin(), dir, extraEnv, stdin, hasStdin, args)
+	if !started && recoverGit() {
+		r, _ = execGit(bctx, gitBin(), dir, extraEnv, stdin, hasStdin, args)
+	}
+	return classifyTimeout(bctx.Err(), ctx.Err(), r)
+}
+
+// execGit reports whether the subprocess started alongside its result. A
+// command that never started has no ProcessState, and that is the only signal
+// that separates "this binary could not be exec'd" from "git ran and said no".
+func execGit(
+	ctx context.Context,
+	bin string,
+	dir string,
+	extraEnv []string,
+	stdin string,
+	hasStdin bool,
+	args []string,
+) (Result, bool) {
 	//nolint:gosec // G204: running git with caller-supplied args is the purpose of this package.
-	cmd := exec.CommandContext(bctx, "git", args...)
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
 	cmd.Env = gitEnv(extraEnv)
 	cmd.WaitDelay = waitDelay
@@ -188,7 +227,7 @@ func runInner(
 	if r.ExitCode != 0 && r.Stderr == "" && runErr != nil {
 		r.Stderr = runErr.Error()
 	}
-	return classifyTimeout(bctx.Err(), ctx.Err(), r)
+	return r, cmd.ProcessState != nil
 }
 
 // boundedContext applies GitOpTimeout to an invocation the caller left

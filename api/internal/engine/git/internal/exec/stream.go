@@ -48,9 +48,29 @@ func GitStream(
 	dir string,
 	args ...string,
 ) (io.ReadCloser, func() error, error) {
+	s, err := startStream(ctx, gitBin(), dir, args)
+	if err != nil && recoverGit() {
+		s, err = startStream(ctx, gitBin(), dir, args)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	return s, s.wait, nil
+}
+
+// startStream is retried as a whole when the resolver recovers a vanished
+// binary. Nothing survives a failed attempt to retry around: the subprocess did
+// not start, so no stdout byte can have reached a consumer, and the abandoned
+// context is cancelled here rather than by the caller.
+func startStream(
+	ctx context.Context,
+	bin string,
+	dir string,
+	args []string,
+) (*gitStream, error) {
 	sctx, cancel := context.WithCancel(ctx)
 	//nolint:gosec // G204: running git with caller-supplied args is the purpose of this package.
-	cmd := exec.CommandContext(sctx, "git", args...)
+	cmd := exec.CommandContext(sctx, bin, args...)
 	cmd.Dir = dir
 	cmd.Env = gitEnv(nil)
 	cmd.WaitDelay = waitDelay
@@ -61,16 +81,16 @@ func GitStream(
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
-		return nil, nil, fmt.Errorf("git %s: stdout pipe: %w", s.op, err)
+		return nil, fmt.Errorf("git %s: stdout pipe: %w", s.op, err)
 	}
 	s.stdout = stdout
 
 	s.started = time.Now()
 	if startErr := cmd.Start(); startErr != nil {
 		cancel()
-		return nil, nil, fmt.Errorf("git %s: %w", s.op, startErr)
+		return nil, fmt.Errorf("git %s: %w", s.op, startErr)
 	}
-	return s, s.wait, nil
+	return s, nil
 }
 
 type gitStream struct {

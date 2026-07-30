@@ -126,7 +126,7 @@ func ownerAvatarURL(
 	repoPath string,
 ) string {
 	//nolint:gosec // G204: fixed git subcommand; repoPath is an internal repo root, not user-controlled shell input.
-	raw, err := exec.CommandContext(ctx, "git", "-C", repoPath, "remote", "get-url", "origin").Output()
+	raw, err := exec.CommandContext(ctx, binpath.Git(), "-C", repoPath, "remote", "get-url", "origin").Output()
 	if err != nil {
 		return ""
 	}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/defaultbranch"
+	"github.com/char2cs/crowbar/api/internal/core/binpath"
 )
 
 func nowFunc() time.Time {
@@ -19,9 +20,9 @@ func newRefRunner(
 		args ...string,
 	) (string, bool) {
 		full := append([]string{"-C", repoPath}, args...)
-		// #nosec G204 -- the binary is the constant "git"; only sub-command
+		// #nosec G204 -- the binary is git, resolved by binpath; only sub-command
 		// arguments vary, all internally constructed by defaultbranch.Resolve.
-		out, err := exec.Command("git", full...).Output()
+		out, err := exec.Command(binpath.Git(), full...).Output()
 		if err != nil {
 			return "", false
 		}
