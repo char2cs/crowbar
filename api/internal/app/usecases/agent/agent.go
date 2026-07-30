@@ -307,9 +307,11 @@ func (u *Usecase) RenameByRunner(
 // called (a chat id is not itself an authorization), so this method trusts
 // its caller the same way openLedger's other callers do.
 //
-// An empty ledger — a chat that has not spoken yet — renders as
-// agenttools.NoChatTurnsText rather than empty text or an error: a model
-// handed an error would try to work around a failure that is not one.
+// An empty ledger — a chat that has not spoken yet — is returned as "", not an
+// error. Turning that into agenttools.NoChatTurnsText is the TOOL's job
+// (getChatLog), not this method's: get_chat_log is the only caller today, and
+// duplicating that normalization here would just be a second place the exact
+// wording could drift from the tool's.
 func (u *Usecase) ReadChatLog(
 	ctx context.Context,
 	chatID string,
@@ -325,9 +327,6 @@ func (u *Usecase) ReadChatLog(
 	blob, err := led.RenderConversation()
 	if err != nil {
 		return "", fmt.Errorf("agent: read chat log: render: %w", err)
-	}
-	if len(blob) == 0 {
-		return agenttools.NoChatTurnsText, nil
 	}
 	return string(blob), nil
 }

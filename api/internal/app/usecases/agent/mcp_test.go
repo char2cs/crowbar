@@ -63,11 +63,20 @@ func TestDispatchMCP_InitializeAnnouncesCrowbar(
 	assert.Equal(t, "crowbar", res.ServerInfo.Name)
 }
 
-// TestDispatchMCP_ListsTheChatTools proves the usecase wires itself in as the
-// tool surface's ChatRenamer. agenttools registers nothing for a nil dependency,
-// so a seam that failed to do this would still answer tools/list — with an empty
-// array, and an agent that silently has no tools is the failure mode worth a
-// test of its own.
+// TestDispatchMCP_ListsTheChatTools proves the usecase wires itself in as BOTH
+// the tool surface's ChatRenamer (Deps.Chats) and its ChatLogReader
+// (Deps.ChatLogs). agenttools registers nothing for a nil dependency, so a
+// build that failed to make either self-assignment would still answer
+// tools/list successfully — just with set_chat_title or get_chat_log quietly
+// missing — and nothing else would ever notice.
+//
+// This asserts the FULL 8-name production surface, not merely Contains, and it
+// does so against a REAL *agent.Usecase built through the real agent.New (via
+// newFixture → newFixtureUsing), never a Deps struct a test hand-assembles and
+// then patches — the latter can only prove the surface WOULD be complete if
+// New's own self-assignment ran, not that it actually did. That distinction is
+// exactly what a deleted `u.tools.Chats = u` or `u.tools.ChatLogs = u` needs to
+// be caught by something.
 func TestDispatchMCP_ListsTheChatTools(
 	t *testing.T,
 ) {
@@ -90,7 +99,16 @@ func TestDispatchMCP_ListsTheChatTools(
 	for _, tool := range res.Tools {
 		names = append(names, tool.Name)
 	}
-	assert.Contains(t, names, "set_chat_title")
+	assert.ElementsMatch(t, []string{
+		"set_chat_title",
+		"list_review_threads",
+		"get_review_scope",
+		"post_review_comment",
+		"reply_to_review_thread",
+		"resolve_review_thread",
+		"list_workspaces",
+		"get_chat_log",
+	}, names, "a real *agent.Usecase must advertise the complete production tool surface")
 }
 
 // TestDispatchMCP_ToolCallRenamesTheCallersChat is the end-to-end proof of the

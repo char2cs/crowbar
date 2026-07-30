@@ -18,10 +18,12 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
@@ -452,6 +454,76 @@ func (fixtureWorkspaceLister) List(
 	return []domain.Workspace{{ID: "ws1", ProjectID: "p1", RepoID: "r1"}}, nil
 }
 
+// fixtureReviewReader, fixtureThreadReader and fixtureThreadWriter exist only
+// so DispatchMCP's tool surface registers post_review_comment,
+// list_review_threads, get_review_scope, reply_to_review_thread and
+// resolve_review_thread — none of these tests CALL a review tool, so every
+// method here is an empty-returning stand-in. What matters is that the ports
+// are non-nil: the full 8-tool surface has to come from a REAL *agent.Usecase
+// built through agent.New for TestDispatchMCP_ListsTheChatTools to be a
+// meaningful guard on New's own internal wiring (see that test's doc comment).
+type fixtureReviewReader struct{}
+
+func (fixtureReviewReader) GetBase(context.Context, string) (string, error) { return "", nil }
+
+func (fixtureReviewReader) GetFiles(
+	context.Context,
+	string,
+	string,
+) ([]gitdomain.ReviewFileSummary, error) {
+	return nil, nil
+}
+
+func (fixtureReviewReader) GetOutline(
+	context.Context,
+	string,
+	string,
+) ([]gitdomain.FileOutline, error) {
+	return nil, nil
+}
+
+type fixtureThreadReader struct{}
+
+func (fixtureThreadReader) ListByWorkspace(context.Context, string) ([]domain.ReviewThread, error) {
+	return nil, nil
+}
+
+func (fixtureThreadReader) Get(context.Context, string) (domain.ReviewThread, error) {
+	return domain.ReviewThread{}, nil
+}
+
+type fixtureThreadWriter struct{}
+
+func (fixtureThreadWriter) Open(
+	context.Context,
+	reviewthread.OpenInput,
+	time.Time,
+) (domain.ReviewThread, error) {
+	return domain.ReviewThread{}, nil
+}
+
+func (fixtureThreadWriter) Reply(
+	context.Context,
+	string,
+	string,
+	string,
+	bool,
+	string,
+	time.Time,
+) (domain.ReviewThread, error) {
+	return domain.ReviewThread{}, nil
+}
+
+func (fixtureThreadWriter) Resolve(context.Context, string) (domain.ReviewThread, error) {
+	return domain.ReviewThread{}, nil
+}
+
+// noopThreadBroadcast stands in for the app layer's hub fan-out. These tests
+// never call a write tool, so nothing ever observes a broadcast; it only needs
+// to be non-nil so canWriteReviewThread and canPostReviewComment register their
+// tools.
+func noopThreadBroadcast(domain.ReviewThread, string, string) {}
+
 // setPrefs saves global provider preferences into the fixture's real store, so a
 // following ResolveProviders reads them back.
 func (f testFixture) setPrefs(
@@ -716,16 +788,37 @@ func newFixtureUsing(
 	// reads, so an MCP tool call lands in the aggregates every other test asserts
 	// on. Only the workspace lister is a fake: these tests own no workspace
 	// repository, and the resolver only needs the caller's workspace to exist.
+	//
+	// Every port that CAN be supplied here is, so the usecase this fixture builds
+	// advertises the complete production tool surface — the same reason
+	// agenttools' own toolsetOn fixture wires every port with stubs (see its doc
+	// comment): a port left out here would silently narrow
+	// TestDispatchMCP_ListsTheChatTools back to a vacuous guard.
+	//
+	// Chats and ChatLogs are NOT set in this Deps literal: both are self-assigned
+	// by agent.New once u exists (see its doc comment), the same chicken-and-egg
+	// every caller of New faces, so wiring them here would just be re-doing what
+	// New itself is responsible for — which is exactly the wiring
+	// TestDispatchMCP_ListsTheChatTools exists to guard.
 	minter, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
+	chatReader := fixtureChatReader{chats: usedChats}
 	resolver := agenttools.NewResolver(
 		minter,
 		usedRunners,
-		fixtureChatReader{chats: usedChats},
+		chatReader,
 		fixtureWorkspaceLister{},
 	)
 	u := agentusecase.New(usedChats, usedRunners, reg, term, ws, providerPrefs, homeFn, probe,
-		minter, agenttools.Deps{Resolver: resolver})
+		minter, agenttools.Deps{
+			Resolver:        resolver,
+			ChatReads:       chatReader,
+			Review:          fixtureReviewReader{},
+			Threads:         fixtureThreadReader{},
+			ThreadWrites:    fixtureThreadWriter{},
+			Idempotency:     agenttools.NewIdempotency(),
+			ThreadBroadcast: noopThreadBroadcast,
+		})
 	f := testFixture{
 		ctx:           context.Background(),
 		usecase:       u,

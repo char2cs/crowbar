@@ -5,8 +5,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 )
 
 // TestReadChatLog_RendersTheLedger guards agent.Usecase.ReadChatLog — the
@@ -27,16 +25,20 @@ func TestReadChatLog_RendersTheLedger(t *testing.T) {
 	assert.Contains(t, out, "assistant (claude): done thing")
 }
 
-// An unspoken chat's ledger is empty, and that is a NORMAL state — not an
-// error and not blank text a model would read as a broken tool.
-func TestReadChatLog_EmptyLedgerReadsAsNoTurns(t *testing.T) {
+// An unspoken chat's ledger is empty. ReadChatLog itself returns "" (not an
+// error) rather than agenttools.NoChatTurnsText: turning that into explicit
+// "no turns" prose is getChatLog's job (the tool layer), the single place that
+// normalization lives, since get_chat_log is ReadChatLog's only caller today —
+// see TestGetChatLog_EmptyLedgerIsExplicitNotAnError in the agenttools package
+// for the tool-layer half of this contract.
+func TestReadChatLog_EmptyLedgerReturnsEmptyNotAnError(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, _ := f.spawn(t, "claude")
 
 	out, err := f.usecase.ReadChatLog(f.ctx, chatID)
 	require.NoError(t, err)
-	assert.Equal(t, agenttools.NoChatTurnsText, out)
+	assert.Empty(t, out)
 }
 
 func TestReadChatLog_UnknownChat_ReturnsWrappedError(t *testing.T) {
