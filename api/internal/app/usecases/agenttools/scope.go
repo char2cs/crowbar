@@ -40,11 +40,17 @@ type WorkspaceLister interface {
 
 // Caller is an authenticated agent and everything it is allowed to reach.
 // Visible always contains the caller's own workspace.
+//
+// ProviderID names the vendor CLI behind this caller (its runner's provider). It
+// is carried here so anything an agent WRITES can be attributed to the agent that
+// wrote it — a review comment with no author renders as a blank name beside the
+// user's own comments in the review UI.
 type Caller struct {
-	RunnerID  string
-	ChatID    string
-	Workspace domain.Workspace
-	Visible   []domain.Workspace
+	RunnerID   string
+	ChatID     string
+	ProviderID string
+	Workspace  domain.Workspace
+	Visible    []domain.Workspace
 }
 
 // CanSee reports whether wsID is one of the workspaces this caller may act on.
@@ -117,10 +123,11 @@ func (r *Resolver) Resolve(ctx context.Context, runnerID, token string) (Caller,
 		return Caller{}, fmt.Errorf("agenttools: list workspaces: %w", err)
 	}
 	return Caller{
-		RunnerID:  runnerID,
-		ChatID:    runner.CurrentChatID,
-		Workspace: ws,
-		Visible:   visibleFrom(ws, all),
+		RunnerID:   runnerID,
+		ChatID:     runner.CurrentChatID,
+		ProviderID: runner.ProviderID,
+		Workspace:  ws,
+		Visible:    visibleFrom(ws, all),
 	}, nil
 }
 

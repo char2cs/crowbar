@@ -31,16 +31,19 @@ func toolsetOn(t *testing.T, renamer agenttools.ChatRenamer) (*agenttools.ToolSe
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	tok := m.Mint("RUN")
-	// Threads and Review are wired here too (with empty-returning stubs) so the
-	// shared toolset fixture always advertises every registered tool group —
-	// which is what makes TestToolSet_RespectsToolCeiling and
-	// TestToolSet_NoToolAcceptsAScopeArgument below guard the whole surface
-	// rather than just set_chat_title.
+	// EVERY port is wired here (with empty-returning stubs) so the shared toolset
+	// fixture always advertises every registered tool group — which is what makes
+	// TestToolSet_RespectsToolCeiling and TestToolSet_NoToolAcceptsAScopeArgument
+	// below guard the whole surface rather than just set_chat_title. A port left
+	// out here silently narrows both guards to the tools that happen to remain,
+	// which is how they were vacuous before.
 	deps := agenttools.Deps{
-		Resolver: res,
-		Chats:    renamer,
-		Threads:  &stubThreadReader{},
-		Review:   &stubReviewReader{},
+		Resolver:     res,
+		Chats:        renamer,
+		Threads:      &stubThreadReader{},
+		Review:       &stubReviewReader{},
+		ThreadWrites: &stubThreadWriter{},
+		Idempotency:  agenttools.NewIdempotency(),
 	}
 	return agenttools.NewToolSet(deps, "RUN", tok), tok
 }

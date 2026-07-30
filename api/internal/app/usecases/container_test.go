@@ -20,6 +20,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -104,6 +105,83 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	assert.NotNil(t, c.Worktree)
 	assert.NotNil(t, c.BranchReview)
 	assert.NotNil(t, c.Agent)
+}
+
+// TestContainer_AgentToolDepsWireEveryToolGroup is the wiring guard.
+//
+// agenttools registers no tool whose port is nil, so a group the container forgets
+// to hand a dependency to simply does not exist — and the only symptom in a running
+// daemon is an agent with fewer tools than it should have, which nothing logs and no
+// unit test in agenttools can see (its own fixtures supply their own deps). This
+// asserts the PRODUCTION Deps, built by the real newAgentToolDeps over the real
+// repositories, advertises the complete surface by name.
+//
+// Chats is filled in the way production fills it: agent.New assigns the usecase to
+// itself as the ChatRenamer (see its doc comment), so c.Agent is the exact value the
+// running daemon's Deps carries.
+func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
+	repos, gormStores, eng := newContainerDeps(t)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
+	require.NoError(t, err)
+
+	minter, err := agenttools.NewTokenMinter()
+	require.NoError(t, err)
+	deps, err := usecases.NewAgentToolDepsForTest(minter, repos, c.BranchReview)
+	require.NoError(t, err)
+	deps.Chats = c.Agent
+
+	names := []string{}
+	for _, tool := range agenttools.NewToolSet(deps, "RUN", minter.Mint("RUN")).Tools() {
+		names = append(names, tool.Name)
+	}
+	require.ElementsMatch(t, []string{
+		"set_chat_title",
+		"list_review_threads",
+		"get_review_scope",
+		"post_review_comment",
+	}, names, "the production agent tool surface is incomplete — a port is unwired in newAgentToolDeps")
+}
+
+// A missing port is a failed start, not a silently narrowed tool list.
+func TestContainer_AgentToolDeps_RefusesAPartialSurface(t *testing.T) {
+	repos, _, _ := newContainerDeps(t)
+	minter, err := agenttools.NewTokenMinter()
+	require.NoError(t, err)
+
+	_, err = usecases.NewAgentToolDepsForTest(minter, repos, nil)
+	require.Error(t, err)
+
+	_, err = usecases.NewAgentToolDepsForTest(nil, repos, stubReviewReaderForContainer{})
+	require.Error(t, err)
+
+	bare := &repositories.Container{}
+	_, err = usecases.NewAgentToolDepsForTest(minter, bare, stubReviewReaderForContainer{})
+	require.Error(t, err)
+}
+
+type stubReviewReaderForContainer struct{}
+
+func (stubReviewReaderForContainer) GetBase(
+	_ context.Context,
+	_ string,
+) (string, error) {
+	return "", nil
+}
+
+func (stubReviewReaderForContainer) GetFiles(
+	_ context.Context,
+	_ string,
+	_ string,
+) ([]gitdomain.ReviewFileSummary, error) {
+	return nil, nil
+}
+
+func (stubReviewReaderForContainer) GetOutline(
+	_ context.Context,
+	_ string,
+	_ string,
+) ([]gitdomain.FileOutline, error) {
+	return nil, nil
 }
 
 func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {

@@ -154,7 +154,7 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("usecases: new container: %w", err)
 	}
-	agentToolDeps, err := newAgentToolDeps(agentMinter, repos)
+	agentToolDeps, err := newAgentToolDeps(agentMinter, repos, branchReview)
 	if err != nil {
 		return nil, err
 	}
@@ -197,9 +197,16 @@ func New(
 // wired with a nil port would boot clean, serve chats normally, and hand every
 // agent an empty tool list with nothing anywhere reporting why. Checking here
 // turns that silent degradation into a failed start.
+// The review ports need no adapter: branchreview.Usecase already has
+// GetBase/GetFiles/GetOutline with agenttools.ReviewReader's exact signatures, and
+// reviewthread.ReviewThread already satisfies BOTH the read and the write half of
+// the thread port, so the same repository is handed to Threads and ThreadWrites.
+// The Idempotency map is built HERE, once, because it must outlive the per-request
+// ToolSet for a retried post_review_comment to be recognized as a retry.
 func newAgentToolDeps(
 	minter *agenttools.TokenMinter,
 	repos *repositories.Container,
+	review agenttools.ReviewReader,
 ) (agenttools.Deps, error) {
 	switch {
 	case minter == nil:
@@ -210,6 +217,10 @@ func newAgentToolDeps(
 		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no chat store")
 	case repos.Workspace == nil:
 		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no workspace store")
+	case repos.ReviewThread == nil:
+		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no review thread store")
+	case review == nil:
+		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no branch review usecase")
 	}
 	return agenttools.Deps{
 		Resolver: agenttools.NewResolver(
@@ -218,6 +229,10 @@ func newAgentToolDeps(
 			agentChatReader{chats: repos.AgentChat},
 			repos.Workspace,
 		),
+		Review:       review,
+		Threads:      repos.ReviewThread,
+		ThreadWrites: repos.ReviewThread,
+		Idempotency:  agenttools.NewIdempotency(),
 	}, nil
 }
 

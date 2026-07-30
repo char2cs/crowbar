@@ -17,6 +17,10 @@ type Deps struct {
 	Review       ReviewReader
 	Threads      ThreadReader
 	ThreadWrites ThreadWriter
+	// Idempotency is the per-daemon retry guard the write tools dedup through. It
+	// is a dependency rather than something a tool creates for itself because it
+	// must outlive the per-request ToolSet — see Idempotency.
+	Idempotency *Idempotency
 }
 
 type toolDef struct {
