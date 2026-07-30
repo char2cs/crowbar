@@ -1,7 +1,9 @@
 package app_test
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -77,6 +79,42 @@ func TestApp_Shutdown_HappyPath_DrainsCleanly(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, c.Shutdown(context.Background()))
+}
+
+// TestApp_Shutdown_LogsAgentToolUsage proves the agent tool counters are actually
+// READ somewhere. They were recorded into an instance buried in agenttools.Deps
+// with no accessor, no route and no log, so the number the design made a day-one
+// requirement ("compliance is a number rather than an impression") was
+// unobtainable in a running daemon — the counters may as well not have existed.
+//
+// Shutdown is the only read, so this is the only place it can be observed.
+func TestApp_Shutdown_LogsAgentToolUsage(t *testing.T) {
+	ctx := context.Background()
+	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+
+	c, err := app.New(ctx, newEng(t), adapters)
+	require.NoError(t, err)
+
+	// One call through DispatchMCP, the daemon's only entry to the tool surface.
+	// It is REJECTED (forged token) and still counted, which is deliberate: a
+	// rejected attempt at a named tool is the most interesting thing this counter
+	// can report.
+	_, _, err = c.Usecases.Agent.DispatchMCP(ctx, "RUN", "forged-token", []byte(
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"set_chat_title","arguments":{"title":"x"}}}`))
+	require.NoError(t, err)
+
+	var logged bytes.Buffer
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	t.Cleanup(func() { slog.SetDefault(restore) })
+
+	require.NoError(t, c.Shutdown(context.Background()))
+
+	require.Contains(t, logged.String(), "agent tool usage")
+	require.Contains(t, logged.String(), "set_chat_title=1/1",
+		"the summary must carry the per-tool call and failure counts, not just say it ran")
 }
 
 // TestApp_Shutdown_GateRefusesNewWorkOnceDraining pins the property that makes the drain

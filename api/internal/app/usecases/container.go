@@ -64,6 +64,26 @@ type Container struct {
 	// into repositories.New itself: the reader is built from repos.Workspace,
 	// which does not exist until repositories.New returns.
 	AgentWorkspaceReader agent.WorkspaceReader
+
+	// agentToolMetrics is the SAME *agenttools.Metrics instance the agent tool
+	// surface records through — held here only so AgentToolMetrics can read it
+	// back out. It is buried inside agenttools.Deps otherwise, which is a
+	// write-only counter: nothing in the daemon could reach the numbers.
+	agentToolMetrics *agenttools.Metrics
+}
+
+// AgentToolMetrics reports how many times each agent tool was called and how
+// many of those calls failed, over this daemon's lifetime.
+//
+// It exists because a counter nothing can read answers nothing: instrumenting
+// this surface was a day-one requirement precisely so "do agents actually use
+// these tools?" is settled by a number rather than an impression. The daemon
+// logs the summary at shutdown (see app.Container.Shutdown).
+//
+// Deliberately NOT an HTTP route: these are a daemon-lifetime diagnostic, not a
+// resource, and nothing in the product consumes them.
+func (c *Container) AgentToolMetrics() map[string]agenttools.ToolStat {
+	return c.agentToolMetrics.Snapshot()
 }
 
 // New builds the usecases container. It takes the aggregate repositories, the
@@ -187,6 +207,7 @@ func New(
 		TerminalMeta:         terminalMeta,
 		Agent:                agentUsecase,
 		AgentWorkspaceReader: agentWSReader,
+		agentToolMetrics:     agentToolDeps.Metrics,
 	}, nil
 }
 

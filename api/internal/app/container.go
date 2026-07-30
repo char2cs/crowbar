@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -207,6 +208,10 @@ func New(
 func (c *Container) Shutdown(
 	ctx context.Context,
 ) error {
+	// FIRST, before anything below can be cut short by ctx: this is the only
+	// moment the agent tool counters are ever read.
+	c.logAgentToolUsage()
+
 	c.quiesceTerminal(ctx)
 
 	drain := c.Repositories.Drain()
@@ -236,6 +241,42 @@ func (c *Container) Shutdown(
 		c.axAgentRunner.Shutdown(ctx),
 		c.axAgentChat.Shutdown(ctx),
 	)
+}
+
+// logAgentToolUsage emits the one and only read of the agent capability
+// surface's call counters, as a single line at shutdown:
+//
+//	agent tool usage this boot  tools="post_review_comment=7/1 set_chat_title=3/0"
+//
+// (tool=calls/failures, sorted, so consecutive boots diff cleanly.)
+//
+// The counters exist to settle whether agents actually USE these tools — the
+// shell command this surface replaces is known to be ignored by real models —
+// and a counter nothing reads settles nothing. Shutdown is the right and only
+// place: the numbers are cumulative over a daemon's lifetime, so this is the
+// moment they are complete. A boot that saw no tool call logs nothing rather
+// than an empty line.
+//
+// Deliberately not an HTTP route. This is a diagnostic about the daemon, not a
+// resource of the product, and nothing in the UI consumes it.
+func (c *Container) logAgentToolUsage() {
+	if c.Usecases == nil {
+		return
+	}
+	stats := c.Usecases.AgentToolMetrics()
+	if len(stats) == 0 {
+		return
+	}
+	names := make([]string, 0, len(stats))
+	for name := range stats {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, fmt.Sprintf("%s=%d/%d", name, stats[name].Calls, stats[name].Failures))
+	}
+	slog.Info("agent tool usage this boot (tool=calls/failures)", "tools", strings.Join(parts, " "))
 }
 
 // quiesceTerminal runs Shutdown's step 1 — kill the PTYs, join their exit callbacks

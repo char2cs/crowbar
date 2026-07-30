@@ -148,6 +148,32 @@ func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 	}, names, "the production agent tool surface is incomplete — a port is unwired in newAgentToolDeps")
 }
 
+// TestContainer_AgentToolMetricsAreReadableFromTheContainer closes the loop the
+// counters were missing: they were recorded into an instance buried inside
+// agenttools.Deps, which nothing outside the tool surface could reach, so the
+// number instrumentation exists to produce was unobtainable in a running daemon.
+//
+// The stimulus goes through DispatchMCP — the daemon's only entry point to the
+// tool surface — rather than through a Metrics the test made itself, because the
+// whole failure mode being guarded is an accessor wired to a DIFFERENT instance
+// than production records through. A forged token is fine as the stimulus: a
+// rejected call is counted too, and it is the datum this counter most exists for.
+func TestContainer_AgentToolMetricsAreReadableFromTheContainer(t *testing.T) {
+	repos, gormStores, eng := newContainerDeps(t)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	require.NoError(t, err)
+
+	require.Empty(t, c.AgentToolMetrics(), "a daemon that has served no tool call has nothing to report")
+
+	_, _, err = c.Agent.DispatchMCP(context.Background(), "RUN", "forged-token", []byte(
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"set_chat_title","arguments":{"title":"x"}}}`))
+	require.NoError(t, err, "a rejected tool call is an RPC-level error, not a dispatch failure")
+
+	require.Equal(t,
+		map[string]agenttools.ToolStat{"set_chat_title": {Calls: 1, Failures: 1}},
+		c.AgentToolMetrics())
+}
+
 // A missing port is a failed start, not a silently narrowed tool list.
 func TestContainer_AgentToolDeps_RefusesAPartialSurface(t *testing.T) {
 	repos, _, _ := newContainerDeps(t)
