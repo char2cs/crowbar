@@ -33,6 +33,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
+	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -75,17 +78,87 @@ const wantTitle = "Widget Refactor"
 const titlePrompt = "Call your set_chat_title tool with the title: Widget Refactor. " +
 	"Use the tool itself and run no shell command."
 
-// mcpCall is one JSON-RPC message a vendor CLI's MCP client relayed to the daemon.
+// mcpCall is one JSON-RPC message a vendor CLI's MCP client relayed to the daemon,
+// together with what the daemon answered it.
+//
+// Args and Reply are recorded for tools/call only, and they are what turn "the
+// agent called the tool" into a DIAGNOSIS. A review tool can REFUSE a call — an
+// anchor outside every changed hunk is rejected rather than stored — and the refusal
+// rides back as an ordinary result carrying isError, so it is completely invisible in
+// the request alone. Without the arguments there is no way to say which lines the
+// model chose; without the reply there is no way to quote the sentence it was handed
+// and had to recover from.
 type mcpCall struct {
-	Method string
-	Tool   string
+	Method  string
+	Tool    string
+	Args    string
+	Reply   string
+	IsError bool
 }
 
 func (c mcpCall) String() string {
 	if c.Tool == "" {
 		return c.Method
 	}
-	return c.Method + "(" + c.Tool + ")"
+	out := c.Method + "(" + c.Tool + " " + c.Args + ")"
+	if c.IsError {
+		return out + " -> REFUSED: " + c.Reply
+	}
+	if c.Reply == "" {
+		return out
+	}
+	return out + " -> " + c.Reply
+}
+
+// mcpToolReply is the tool result the daemon answers a tools/call with, nested in
+// the API's standard envelope: {data:{rpc:{result:{content,isError}}}}. A tool
+// FAILURE is not a JSON-RPC error — engine/mcp sends it back as a successful result
+// with isError set, because a model is meant to read it and try again — so the flag
+// is the only thing that distinguishes a stored comment from a rejected one.
+type mcpToolReply struct {
+	Data struct {
+		RPC struct {
+			Result struct {
+				Content []mcpTextContent `json:"content"`
+				IsError bool             `json:"isError"`
+			} `json:"result"`
+		} `json:"rpc"`
+	} `json:"data"`
+}
+
+type mcpTextContent struct {
+	Text string `json:"text"`
+}
+
+func (r mcpToolReply) text() string {
+	parts := make([]string, 0, len(r.Data.RPC.Result.Content))
+	for _, c := range r.Data.RPC.Result.Content {
+		parts = append(parts, c.Text)
+	}
+	return strings.Join(parts, " ")
+}
+
+// responseTap tees a gin response body so the barrier can read what the daemon
+// answered while the CLI still receives it byte for byte. gin's writer is
+// write-through — the bytes are gone to the socket the moment the handler writes
+// them — so an observer that only runs after ctx.Next() has nothing left to read.
+type responseTap struct {
+	gin.ResponseWriter
+	body *bytes.Buffer
+}
+
+func (w *responseTap) Write(
+	p []byte,
+) (int, error) {
+	w.body.Write(p)
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *responseTap) WriteString(
+	s string,
+) (int, error) {
+	w.body.WriteString(s)
+	return w.ResponseWriter.WriteString(s)
 }
 
 // mcpBarrier observes every MCP message the daemon serves, and it is this file's
@@ -131,19 +204,26 @@ func (b *mcpBarrier) observe(
 		ctx.Next()
 		return
 	}
-	b.record(snapshotBody(ctx))
+	at := b.record(snapshotBody(ctx))
+	tap := &responseTap{ResponseWriter: ctx.Writer, body: &bytes.Buffer{}}
+	ctx.Writer = tap
 	ctx.Next()
+	b.recordReply(at, tap.body.Bytes())
 	b.sig.Fire()
 }
 
+// record appends the request and returns where it landed, so the reply that comes
+// back after ctx.Next() can be attached to the call it answers rather than to
+// whatever a concurrently served runner happened to send in the meantime.
 func (b *mcpBarrier) record(
 	raw []byte,
-) {
+) int {
 	var body struct {
 		RPC struct {
 			Method string `json:"method"`
 			Params struct {
-				Name string `json:"name"`
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
 			} `json:"params"`
 		} `json:"rpc"`
 	}
@@ -153,7 +233,37 @@ func (b *mcpBarrier) record(
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.calls = append(b.calls, mcpCall{Method: body.RPC.Method, Tool: body.RPC.Params.Name})
+	b.calls = append(b.calls, mcpCall{
+		Method: body.RPC.Method,
+		Tool:   body.RPC.Params.Name,
+		Args:   string(body.RPC.Params.Arguments),
+	})
+	return len(b.calls) - 1
+}
+
+// recordReply attaches the daemon's answer to the call recorded at index at.
+//
+// Only a tools/call reply is kept. An initialize or tools/list body is the entire
+// schema catalogue of every crowbar tool, and dumping that into a failure message
+// would bury the one line that explains the failure.
+func (b *mcpBarrier) recordReply(
+	at int,
+	raw []byte,
+) {
+	var reply mcpToolReply
+	// A notification is answered with a bare 204 and no body at all, so a decode
+	// failure here is ordinary rather than exceptional: there is simply no result to
+	// attach.
+	if json.Unmarshal(raw, &reply) != nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if at < 0 || at >= len(b.calls) || b.calls[at].Method != "tools/call" {
+		return
+	}
+	b.calls[at].Reply = reply.text()
+	b.calls[at].IsError = reply.Data.RPC.Result.IsError
 }
 
 // calledTool reports whether any relayed message was a tools/call for name.
@@ -230,24 +340,61 @@ func awaitToolTitle(
 	tap *kit.PTYTap,
 ) {
 	t.Helper()
+	awaitToolEffect(
+		t, h, wsID, chatID, provider, termSessID, tap, priorTurns,
+		provider+" to title its chat "+want+" through the crowbar tool surface",
+		"while it was being asked to title its chat",
+		func() bool { return chatTitle(t, h, chatID) == want },
+	)
+}
+
+// awaitToolEffect is awaitToolTitle's rule generalised to any tool: it blocks until
+// effect holds — the thing a tool was supposed to DO having happened — or until the
+// turn driven after priorTurns is over, whichever comes first, and leaves the verdict
+// to the caller's assertions.
+//
+// The two-armed shape is what turns a refusal into a diagnosis rather than a timeout,
+// and it is sound for every tool on this surface for the same reason it is sound for
+// a title: the call is dispatched SYNCHRONOUSLY inside the model's turn — the relay
+// holds the JSON-RPC reply until the daemon has answered, and every write is durable
+// before that reply is written — so an agent that reached the tool has necessarily
+// produced the effect BEFORE its turn_stop hook lands. A new assistant turn with the
+// effect still absent therefore means the agent finished and did not call the tool
+// (or called it and was refused), and waiting past that point could only wait out the
+// whole backstop for something that is never coming.
+//
+// priorTurns must be sampled by the CALLER before the driving write; see
+// awaitToolTitle's comment for why a baseline taken in here would be useless.
+func awaitToolEffect(
+	t *testing.T,
+	h *harness,
+	wsID string,
+	chatID string,
+	provider string,
+	termSessID string,
+	tap *kit.PTYTap,
+	priorTurns int,
+	what string,
+	when string,
+	effect func() bool,
+) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), backstop)
 	defer cancel()
 
-	kit.Await(t, ctx, provider+" to title its chat "+want+" through the crowbar tool surface",
-		func() (string, bool) {
-			h.app.Repositories.WaitQuiescent()
-			title := chatTitle(t, h, chatID)
-			if title == want {
-				return title, true
-			}
-			if assistantTurnCount(t, h, wsID, chatID, provider) > priorTurns {
-				return title, true
-			}
-			// A dead CLI can satisfy neither arm, so it must be a hard failure here
-			// rather than a backstop expiry five minutes later.
-			requireCLIAlive(t, h, tap, termSessID, provider, "while it was being asked to title its chat")
-			return title, false
-		}, h.hooks.sig, h.mcp.sig)
+	kit.Await(t, ctx, what, func() (bool, bool) {
+		h.app.Repositories.WaitQuiescent()
+		if effect() {
+			return true, true
+		}
+		if assistantTurnCount(t, h, wsID, chatID, provider) > priorTurns {
+			return false, true
+		}
+		// A dead CLI can satisfy neither arm, so it must be a hard failure here
+		// rather than a backstop expiry five minutes later.
+		requireCLIAlive(t, h, tap, termSessID, provider, when)
+		return false, false
+	}, h.hooks.sig, h.mcp.sig)
 }
 
 // assistantTurnCount reports how many turns provider has finished in this chat, read
@@ -386,4 +533,370 @@ func TestMCP_ForgedTokenIsRejected(t *testing.T) {
 	h.app.Repositories.WaitQuiescent()
 	require.Equal(t, before, chatTitle(t, h, chatID),
 		"a refused call must write nothing: the chat's title must be exactly what it was before")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1's gate: a real model answering and leaving real review threads.
+//
+// Everything above this line is about the TRANSPORT — that a vendor CLI can be
+// handed a server it will register and reach. The two tests below are about the
+// PRODUCT: given a real diff and a real review comment, a real claude must answer
+// that comment as a thread reply and report its own findings as anchored threads,
+// rather than as prose in a chat nobody is reviewing in.
+//
+// Neither prompt names a tool, and that is the point. titlePrompt above deliberately
+// does ("call your set_chat_title tool") because what it measures is registration, and
+// leaving the choice in would have put a preference measurement inside a transport
+// test. Here the choice IS the measurement: the capability preamble
+// (config/default.yaml's capabilities_instruction) tells the model that code review
+// happens in Crowbar and to post findings as anchored threads, and these two tests are
+// the only thing that can say whether a real model actually obeys that over the shell
+// and chat-prose habits it already has.
+// ---------------------------------------------------------------------------
+
+// reviewFile is the one file the review fixture puts in the branch diff.
+const reviewFile = "billing.js"
+
+// reviewFileBase is the file as the BASE branch has it: correct, and long enough that
+// the branch's one-line change produces a hunk covering only part of it.
+//
+// That length is load-bearing. post_review_comment validates an anchor against the
+// review's hunk geometry, so a fixture whose whole file is one hunk would accept any
+// line the model named and prove nothing about whether a real model can pick an anchor
+// the surface accepts. Here the hunk is `@@ -31,7 +31,7 @@` — right-side lines 31..37
+// — so an anchor on the defect is accepted and an anchor at, say, the top of the file
+// is refused.
+const reviewFileBase = `// Order helpers used by the billing report.
+
+function orderTotal(order) {
+  let total = 0;
+  for (const line of order.lines) {
+    total += line.quantity * line.unitPrice;
+  }
+  return total;
+}
+
+function formatAmount(cents) {
+  return "$" + (cents / 100).toFixed(2);
+}
+
+function reportLines(orders) {
+  const out = [];
+  for (const order of orders) {
+    out.push({
+      id: order.id,
+      total: formatAmount(orderTotal(order)),
+    });
+  }
+  return out;
+}
+
+function averageOrderValue(orders) {
+  if (orders.length === 0) {
+    return 0;
+  }
+  let total = 0;
+  for (const order of orders) {
+    total += orderTotal(order);
+  }
+  return total / orders.length;
+}
+
+module.exports = { orderTotal, formatAmount, reportLines, averageOrderValue };
+`
+
+// correctDivisor and buggyDivisor are the branch's entire change: an average divided
+// by one fewer than the number of things averaged.
+//
+// The defect has to be unmistakable, because the second test asserts that the agent
+// posts A FINDING and a model asked to review clean code has nothing honest to report
+// — a refusal to invent one would look identical to a refusal to use the tool. This
+// one is wrong arithmetically for every input and divides by zero for a single order,
+// so any reviewer flags it, and it is one line so the hunk stays small.
+const (
+	correctDivisor = "  return total / orders.length;"
+	buggyDivisor   = "  return total / (orders.length - 1);"
+)
+
+// userThreadBody is the review comment the first test asks the agent to answer. It is
+// a QUESTION, so the only way to address it is to say something back — an agent that
+// merely fixed the code would leave the thread unanswered.
+const userThreadBody = "Why does this divide by `orders.length - 1`? With exactly one order " +
+	"that divides by zero. Was it deliberate?"
+
+// reviewReplyPrompt and reviewFindingPrompt name no tool and no mechanism. See the
+// banner above: whether the model reaches for the review surface unprompted is the
+// thing under test.
+const (
+	reviewReplyPrompt   = "There is a review comment on this branch. Read it and reply to it."
+	reviewFindingPrompt = "Review this branch and post any finding as a review comment."
+)
+
+// reviewFixture builds the workspace both Phase 1 tests review: a managed child
+// worktree whose branch carries one committed, plainly defective change against its
+// base. It returns the workspace and the right-side line the defect sits on.
+//
+// It ASSERTS the fixture before any model call is spent on it. A fixture that silently
+// stopped producing a diff — a base file edited out from under buggyVariant, a
+// CreateChild that forked from the wrong ref — would leave the agent nothing to review
+// and nothing it could legally anchor to, and the test would then report a model that
+// "declined to post a finding" when in truth there was none to make. Proving the diff
+// and its geometry up front means a failure downstream is a statement about the agent.
+func reviewFixture(
+	t *testing.T,
+	h *harness,
+	name string,
+) (string, int) {
+	t.Helper()
+
+	repoPath := kit.InitRepoWithFile(t, reviewFile, reviewFileBase)
+	_, _, wsID := h.importRepoAndWorkspace(t, name, repoPath)
+
+	ws, err := h.app.Repositories.Workspace.Get(context.Background(), wsID)
+	require.NoError(t, err, "resolve the fixture workspace's worktree")
+	branchContent := buggyVariant(t)
+	kit.CommitFile(t, ws.WorktreePath, reviewFile, branchContent, "average orders over the wrong divisor")
+
+	require.Contains(t, changedFiles(t, h, wsID), reviewFile,
+		"the fixture's committed change must appear in the branch review, or the agent has nothing to review")
+	line := defectLine(t, branchContent)
+	requireAnchorable(t, h, wsID, reviewFile, line)
+	return wsID, line
+}
+
+// buggyVariant returns the base file with the fixture's one deliberate defect
+// introduced, and fails if the line it rewrites is not there: a silent no-op would
+// leave the branch identical to its base.
+func buggyVariant(
+	t *testing.T,
+) string {
+	t.Helper()
+	out := strings.Replace(reviewFileBase, correctDivisor, buggyDivisor, 1)
+	require.NotEqual(t, reviewFileBase, out,
+		"the fixture's base file no longer contains %q, so the branch would carry no change at all", correctDivisor)
+	return out
+}
+
+// defectLine reports the 1-based line the defect sits on, computed from the content
+// rather than written down — the anchor the fixture proves valid and the anchor the
+// user's thread is left on must both follow the file if it is ever edited.
+func defectLine(
+	t *testing.T,
+	content string,
+) int {
+	t.Helper()
+	for i, line := range strings.Split(content, "\n") {
+		if strings.Contains(line, buggyDivisor) {
+			return i + 1
+		}
+	}
+	t.Fatalf("the fixture's branch content does not contain %q", buggyDivisor)
+	return 0
+}
+
+// requireAnchorable proves that line is inside a right-side hunk of the workspace's
+// branch diff, so post_review_comment would accept an anchor there. It is the fixture
+// half of the anchor contract: with it established, a refused anchor can only be a line
+// the MODEL chose, which is a finding about the tool's usability rather than about the
+// fixture.
+func requireAnchorable(
+	t *testing.T,
+	h *harness,
+	wsID string,
+	path string,
+	line int,
+) {
+	t.Helper()
+	outline, err := h.app.Usecases.BranchReview.GetOutline(context.Background(), wsID, "")
+	require.NoError(t, err, "read the review's hunk geometry for workspace %s", wsID)
+	for _, f := range outline {
+		if f.Path == path && hunkCovers(f.Hunks, line) {
+			t.Logf("fixture geometry: %s hunks=%+v, defect on right-side line %d", path, f.Hunks, line)
+			return
+		}
+	}
+	t.Fatalf("line %d of %s is in no changed hunk of this review, so no anchored comment could ever be "+
+		"posted there; outline observed: %+v", line, path, outline)
+}
+
+func hunkCovers(
+	hunks []gitdomain.HunkShape,
+	line int,
+) bool {
+	for _, h := range hunks {
+		if line >= h.NewStart && line <= h.NewStart+h.NewLines-1 {
+			return true
+		}
+	}
+	return false
+}
+
+// openUserThread leaves the review comment the agent is asked to answer, through the
+// SAME usecase the review pane's thread endpoint calls — so what the agent finds is
+// shaped exactly like a user's comment, down to the empty author a human message
+// carries (BranchReview.OpenThread records none).
+func openUserThread(
+	t *testing.T,
+	h *harness,
+	wsID string,
+	line int,
+) string {
+	t.Helper()
+	thread, err := h.app.Usecases.BranchReview.OpenThread(context.Background(), branchreview.OpenThreadInput{
+		WsID:       wsID,
+		FilePath:   reviewFile,
+		LineNumber: line,
+		Side:       domain.ReviewSideRight,
+		Body:       userThreadBody,
+	})
+	require.NoError(t, err, "open the user's review thread")
+	return thread.ID
+}
+
+// readThread reads a thread back by id. It goes through the repository's Get, which
+// folds the aggregate from the event log rather than reading the projected read model,
+// so it is current the instant the tool's write returned.
+func readThread(
+	t *testing.T,
+	h *harness,
+	threadID string,
+) domain.ReviewThread {
+	t.Helper()
+	thread, err := h.app.Repositories.ReviewThread.Get(context.Background(), threadID)
+	require.NoError(t, err, "read review thread %s back", threadID)
+	return thread
+}
+
+// agentThreads lists the workspace's review threads an AGENT opened — the ones whose
+// first message is the agent's own finding, as opposed to a user comment an agent later
+// replied to.
+func agentThreads(
+	t *testing.T,
+	h *harness,
+	wsID string,
+) []domain.ReviewThread {
+	t.Helper()
+	threads, err := h.app.Repositories.ReviewThread.ListByWorkspace(context.Background(), wsID)
+	require.NoError(t, err, "list the review threads on workspace %s", wsID)
+	out := make([]domain.ReviewThread, 0, len(threads))
+	for _, thread := range threads {
+		if len(thread.Messages) > 0 && thread.Messages[0].IsAgent {
+			out = append(out, thread)
+		}
+	}
+	return out
+}
+
+// changedFiles is the review's changed-file list, read through the same usecase
+// get_review_scope reports to the agent.
+func changedFiles(
+	t *testing.T,
+	h *harness,
+	wsID string,
+) []string {
+	t.Helper()
+	files, err := h.app.Usecases.BranchReview.GetFiles(context.Background(), wsID, "")
+	require.NoError(t, err, "read the review's changed files for workspace %s", wsID)
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		out = append(out, f.Path)
+	}
+	return out
+}
+
+// TestMCP_ClaudeAnswersAReviewThread is the product thesis end to end: a real claude,
+// given a real diff and a real review comment, must answer that comment where the
+// comment lives.
+//
+// The assertion is deliberately in three parts, and the first one is the one that
+// matters. A thread with two messages says an agent replied; only h.mcp's record of the
+// relayed tools/call says it replied THROUGH THE TOOL. Task 9 learned that the hard
+// way — claude titled a chat correctly by running a shell command, so a state-only
+// assertion passed on a tool surface that had never been reached — and a reply is
+// exactly as forgeable: nothing stops a model from editing the review database's own
+// files, or from claiming in chat that it answered.
+func TestMCP_ClaudeAnswersAReviewThread(t *testing.T) {
+	requireCLI(t, "claude")
+	h := newHarness(t)
+
+	wsID, line := reviewFixture(t, h, "mcp-review-reply")
+	threadID := openUserThread(t, h, wsID, line)
+
+	chatID, runnerID, termSessID, tap := spawnReady(t, h, wsID, "claude")
+	diagnoseOnFailure(t, h, tap, "claude")
+	t.Logf("spawned claude: chat=%s runner=%s workspace=%s thread=%s home=%s",
+		chatID, runnerID, wsID, threadID, h.home)
+
+	priorTurns := assistantTurnCount(t, h, wsID, chatID, "claude")
+	drive(t, h, tap, termSessID, reviewReplyPrompt)
+	awaitToolEffect(
+		t, h, wsID, chatID, "claude", termSessID, tap, priorTurns,
+		"claude to answer review thread "+threadID+" through the crowbar tool surface",
+		"while it was being asked to answer a review comment",
+		func() bool { return len(readThread(t, h, threadID).Messages) > 1 },
+	)
+
+	require.True(t, h.mcp.calledTool("reply_to_review_thread"),
+		"claude never called reply_to_review_thread. It either answered in chat prose instead of in the review, "+
+			"or reached the thread by some other means — MCP traffic observed: %s", h.mcp.observed())
+	thread := readThread(t, h, threadID)
+	require.Len(t, thread.Messages, 2,
+		"the user's thread must now carry exactly two messages: the comment and the agent's answer")
+	require.True(t, thread.Messages[1].IsAgent,
+		"the answer must be recorded as the AGENT's, or the review UI attributes it to the user")
+
+	t.Logf("MCP traffic observed: %s", h.mcp.observed())
+	t.Logf("agent's answer: %s", thread.Messages[1].Body)
+}
+
+// TestMCP_ClaudePostsAFindingAsAnAnchoredThread is the other half of the thesis: an
+// agent's OWN review findings must land as anchored threads in Crowbar's review, not as
+// prose in the chat.
+//
+// It is also the only test that exercises the anchor contract against a real model.
+// The fixture has already proved (requireAnchorable) that the defect's line is inside a
+// changed hunk, so every anchor the surface refuses here is a line the model chose for
+// itself — and the refusal text it received is recorded on the MCP traffic log, because
+// whether a real model can satisfy these rules from get_review_scope alone is precisely
+// what Phase 1 is meant to find out.
+func TestMCP_ClaudePostsAFindingAsAnAnchoredThread(t *testing.T) {
+	requireCLI(t, "claude")
+	h := newHarness(t)
+
+	wsID, _ := reviewFixture(t, h, "mcp-review-post")
+
+	chatID, runnerID, termSessID, tap := spawnReady(t, h, wsID, "claude")
+	diagnoseOnFailure(t, h, tap, "claude")
+	t.Logf("spawned claude: chat=%s runner=%s workspace=%s home=%s", chatID, runnerID, wsID, h.home)
+
+	priorTurns := assistantTurnCount(t, h, wsID, chatID, "claude")
+	drive(t, h, tap, termSessID, reviewFindingPrompt)
+	awaitToolEffect(
+		t, h, wsID, chatID, "claude", termSessID, tap, priorTurns,
+		"claude to post a finding as an anchored review thread",
+		"while it was being asked to review the branch",
+		func() bool { return len(agentThreads(t, h, wsID)) > 0 },
+	)
+
+	require.True(t, h.mcp.calledTool("post_review_comment"),
+		"claude never called post_review_comment. It either wrote its findings as chat prose, or reviewed "+
+			"nothing at all — MCP traffic observed: %s", h.mcp.observed())
+	threads := agentThreads(t, h, wsID)
+	require.NotEmpty(t, threads,
+		"post_review_comment was called but no agent thread exists on the workspace, so every call was "+
+			"REFUSED — MCP traffic observed: %s", h.mcp.observed())
+
+	// Every stored thread, not merely one: an anchor on a file outside the review is
+	// refused before the store is touched, so this also asserts that the validation
+	// which produced these threads did its job.
+	changed := changedFiles(t, h, wsID)
+	for _, thread := range threads {
+		require.Contains(t, changed, thread.FilePath,
+			"the agent anchored a finding to %s, which is not in this review's changed files %v",
+			thread.FilePath, changed)
+		t.Logf("agent finding: %s:%d-%d (%s side): %s",
+			thread.FilePath, thread.StartLine, thread.EndLine, thread.Side, thread.Messages[0].Body)
+	}
+
+	t.Logf("MCP traffic observed: %s", h.mcp.observed())
 }
