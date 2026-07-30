@@ -12,6 +12,7 @@
  * both identically because they duck-type the event by name.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { MockInstance } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
 import React from 'react'
 import { PaneSash } from '@/features/panes/components/pane-sash'
@@ -87,7 +88,11 @@ function fireDragEnd(clientX = 200) {
 // ---------------------------------------------------------------------------
 
 describe('PaneSash unmount-mid-drag cleanup', () => {
-  let removeEventListenerSpy: ReturnType<typeof vi.spyOn>
+  // Spelled out rather than `ReturnType<typeof vi.spyOn>`: vi.spyOn is
+  // overloaded, so bare ReturnType resolves the generic to its constraint and
+  // yields Mock<Procedure> — whose mock.calls is any[], which makes the
+  // `([type]) => …` destructures below implicit-any errors under Vitest 4.
+  let removeEventListenerSpy: MockInstance<typeof window.removeEventListener>
 
   beforeEach(() => {
     // Ensure data-pane-resizing is not set from a previous test.
