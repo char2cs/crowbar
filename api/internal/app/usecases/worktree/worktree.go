@@ -404,14 +404,14 @@ func (u *worktreeUsecase) addWorktree(
 // resolved origin/<parent> SHA. We never pass --update-head-ok, so the parent's
 // local ref and its locked worktree are left exactly where they were.
 //
-// Nothing advances them automatically — not this, and not OriginSyncManager,
-// which likewise only FetchRefs (it exists to un-stale the ahead/behind display,
-// not to move the branch). A locked root's working tree therefore sits at
-// whatever commit it was provisioned at until the user fetches/pulls it. That is
-// deliberate and mostly invisible, because everything DERIVED from the parent
-// already resolves through origin/<parent>: children fork from the SHA above,
-// and resolveDiffBase prefers origin/<base> over the local ref. Only the files
-// on disk in the locked worktree go stale.
+// Creating a child never moves the parent. The one thing that does is
+// OriginSyncManager.advanceLockedRoot, and only when the user OPENS the locked
+// root — never on an interval tick, and never from here. Between opens a locked
+// root's working tree sits at whatever commit it was last advanced to, which is
+// deliberate and mostly invisible: everything DERIVED from the parent already
+// resolves through origin/<parent> — children fork from the SHA above, and
+// resolveDiffBase prefers origin/<base> over the local ref — so only the files
+// on disk in that worktree go stale.
 //
 // Every step degrades to the local parent tip and warns: a no-remote/offline
 // machine, a parent not on origin, a fetch failure, or an unresolved origin ref
