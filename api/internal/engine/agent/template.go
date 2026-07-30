@@ -10,9 +10,11 @@ type TemplateCtx struct {
 	Tmp string
 	ID  string
 	// Context is the single document Crowbar injects into a spawning CLI: the
-	// chat-title instruction, the handed-off conversation, or both, composed by
-	// the agent usecase. One document (not one per concern) because a provider
-	// may only have ONE such channel — codex delivers both through the same
+	// capability preamble (config.yaml's capabilities_instruction — the directive
+	// that Crowbar's own tools exist and are preferred over their shell
+	// equivalents), the handed-off conversation, or both, composed by the agent
+	// usecase. One document (not one per concern) because a provider may only have
+	// ONE such channel — codex delivers both through the same
 	// `developer_instructions` key, so two independent injections would collide.
 	Context string
 	// LedgerDir is where the conversation already lives: one file per turn, named

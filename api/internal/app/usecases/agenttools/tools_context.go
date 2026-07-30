@@ -135,10 +135,11 @@ func getChatLog(
 	if err != nil {
 		return "", fmt.Errorf("agenttools: get_chat_log: %w", err)
 	}
-	// Any ChatLogReader may hand back empty text for a chat with nothing
-	// recorded yet — not only the production one, which already renders
-	// NoChatTurnsText itself. Normalizing here too means the port's contract
-	// holds regardless of which implementation answers it.
+	// Rendering the empty case is THIS function's job, and only this one's. A
+	// chat with nothing recorded yet comes back as "" — the production reader
+	// (agent.Usecase.ReadChatLog) deliberately returns the empty string rather
+	// than wording of its own, so the phrasing lives in exactly one place instead
+	// of drifting between two. Any other ChatLogReader gets the same treatment.
 	if out == "" {
 		out = NoChatTurnsText
 	}
