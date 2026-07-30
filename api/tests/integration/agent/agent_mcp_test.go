@@ -900,3 +900,71 @@ func TestMCP_ClaudePostsAFindingAsAnAnchoredThread(t *testing.T) {
 
 	t.Logf("MCP traffic observed: %s", h.mcp.observed())
 }
+
+// taskPrompt is a plain unit of work. It says nothing about titles, nothing about
+// tools, and nothing about Crowbar — which is the entire point.
+//
+// The two titling tests above measure TRANSPORT: they name the tool, so they prove a
+// real CLI can register the server from injected config and drive a call through the
+// relay, the route, the token check and the resolver. They deliberately leave no
+// choice to the model. This measures the choice.
+//
+// It exists because retiring title_instruction removed the shell command AND the
+// request to title along with it. set_chat_title stayed registered, but a tool
+// description states a capability, not an expectation — so neither provider titled a
+// chat at all, and every test still passed, because every test told the model to
+// title. The preamble now asks. This is what checks the asking works.
+const taskPrompt = "Read README.md and tell me in one sentence what this repository is."
+
+// spontaneousTitling drives one task-shaped turn and asserts the agent titled the
+// chat without being asked to.
+//
+// The assertion is on the MCP traffic, not on the title text. A chat is ALREADY
+// titled by the time the tool could be called — the UserPromptSubmit hook derives one
+// from the prompt's first line — so a non-empty title proves nothing. Only a
+// tools/call for set_chat_title distinguishes "the agent chose to title this" from
+// "the daemon derived a title on its own".
+func spontaneousTitling(
+	t *testing.T,
+	provider string,
+) {
+	t.Helper()
+	requireCLI(t, provider)
+	h := newHarness(t)
+
+	repoPath := kit.InitRepo(t)
+	_, _, wsID := h.importRepoAndWorkspace(t, "mcp-spontaneous-"+provider, repoPath)
+
+	chatID, runnerID, termSessID, tap := spawnReady(t, h, wsID, provider)
+	diagnoseOnFailure(t, h, tap, provider)
+	t.Logf("spawned %s: chat=%s runner=%s workspace=%s", provider, chatID, runnerID, wsID)
+
+	derived := chatTitle(t, h, chatID)
+	priorTurns := assistantTurnCount(t, h, wsID, chatID, provider)
+	drive(t, h, tap, termSessID, taskPrompt)
+
+	awaitToolEffect(t, h, wsID, chatID, provider, termSessID, tap, priorTurns,
+		provider+" to title its own chat unprompted",
+		"while it worked on a task that never mentioned titling",
+		func() bool { return h.mcp.calledTool("set_chat_title") })
+
+	require.True(t, h.mcp.calledTool("set_chat_title"),
+		"%s finished a turn without titling its chat. The capability preamble asks for a title and "+
+			"set_chat_title is registered, so either the ask is not reaching the model or it declined "+
+			"it — MCP traffic observed: %s", provider, h.mcp.observed())
+
+	got := chatTitle(t, h, chatID)
+	require.NotEqual(t, derived, got,
+		"set_chat_title was called but the title is unchanged from the one the daemon derived at "+
+			"prompt submission, so the call did not take effect")
+	t.Logf("%s titled its chat unprompted: %q (was %q). MCP traffic: %s",
+		provider, got, derived, h.mcp.observed())
+}
+
+func TestMCP_ClaudeTitlesItsChatWithoutBeingAsked(t *testing.T) {
+	spontaneousTitling(t, "claude")
+}
+
+func TestMCP_CodexTitlesItsChatWithoutBeingAsked(t *testing.T) {
+	spontaneousTitling(t, "codex")
+}

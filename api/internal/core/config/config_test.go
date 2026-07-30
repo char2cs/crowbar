@@ -40,6 +40,19 @@ func TestGetPrompts_FromEmbeddedDefaults(t *testing.T) {
 	assert.Contains(t, p.CapabilitiesInstruction, "Crowbar workspace")
 	assert.Contains(t, p.CapabilitiesInstruction, "prefer them over shell equivalents")
 
+	// Titling must be ASKED FOR, not merely made possible. Retiring the old
+	// title_instruction removed the shell command AND the request along with it,
+	// leaving set_chat_title registered but nothing telling a model to call it —
+	// so neither provider titled a chat at all. A tool description states a
+	// capability; only the preamble states an expectation, and titling is
+	// proactive work unrelated to whatever the user actually asked for, so it
+	// does not happen unless something asks.
+	//
+	// It names the TOOL, never a shell command, which is what keeps it from
+	// re-creating the competition that retiring title_instruction removed.
+	assert.Contains(t, p.CapabilitiesInstruction, "set_chat_title")
+	assert.NotContains(t, p.CapabilitiesInstruction, "chat rename")
+
 	// The review tools now exist (Task 13), so the preamble carries the directive
 	// that was held back until they did: prefer Crowbar's own review surface over
 	// `gh pr`, and post findings as anchored threads rather than chat prose.

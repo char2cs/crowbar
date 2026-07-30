@@ -238,6 +238,13 @@ func TestSpawnChat_InjectsTheCapabilityPreamble(
 	doc := argAfter(t, f.term.calls[0].argv, "--append-system-prompt")
 	assert.Contains(t, doc, "Crowbar workspace")
 	assert.Contains(t, doc, "prefer them over shell equivalents")
+
+	// The titling ASK, not just the titling tool. Retiring title_instruction took
+	// the request away with the shell command, and set_chat_title then went
+	// uncalled on both providers: a tool description says what a tool does, only
+	// this says a title is wanted. Titling is proactive work unrelated to the
+	// user's actual request, so nothing happens unless something asks.
+	assert.Contains(t, doc, "set_chat_title")
 }
 
 // TestSpawnChat_Codex_InjectsTheCapabilityPreamble is codex's counterpart: it ships
@@ -255,7 +262,9 @@ func TestSpawnChat_Codex_InjectsTheCapabilityPreamble(
 	f.spawn(t, "codex")
 
 	argv := f.term.calls[0].argv
-	assert.Contains(t, configValue(t, argv, "developer_instructions="), "Crowbar workspace")
+	devInstructions := configValue(t, argv, "developer_instructions=")
+	assert.Contains(t, devInstructions, "Crowbar workspace")
+	assert.Contains(t, devInstructions, "set_chat_title")
 
 	for i, a := range argv {
 		if i > 0 && argv[i-1] == "-c" {

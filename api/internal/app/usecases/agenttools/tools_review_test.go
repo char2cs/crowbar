@@ -1001,9 +1001,10 @@ func TestCapabilitiesPreamble_OnlyNamesRegisteredTools(t *testing.T) {
 			"the preamble names %q, which is not a registered tool", word)
 	}
 
-	// The scan above is a tripwire: today the preamble names no tools, so its loop
-	// body never runs. Prove the matcher itself works, or a future preamble naming a
-	// nonexistent tool would sail past a test that only ever passed vacuously.
+	// The scan above now has real work to do — the preamble names set_chat_title,
+	// so the loop body runs. Keep proving the matcher independently anyway: if a
+	// future preamble stopped naming any tool, the scan would go quiet and this
+	// assertion is what stops it passing vacuously again.
 	require.Equal(t,
 		[]string{"delete_review_thread"},
 		toolNamePattern.FindAllString("use delete_review_thread and the crowbar review tools", -1),
