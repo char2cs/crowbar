@@ -918,33 +918,31 @@ does **not** pass environment through; launch `Contents/MacOS/zed` directly.
 
 ## In flight
 
-Wave 1 was ten workers, dispatched 2026-07-30, disjoint owned paths, one git
-worktree each. Nine have returned, been verified by me, and merged. **One
-remains, and Phase 0 now hangs entirely on it.**
+**Phase 0 is closed.** All twelve items done and merged, each verified by my own
+run rather than a worker's report.
 
-| Item | Branch | Owned paths | State |
+### Phase 1 wave 1 — dispatched 2026-07-30
+
+The contract they all implement is **`native/oracle/ANCHORS.md` v1**, written
+before any of them so three independent implementations cannot quietly diverge.
+
+| Item | Branch | Owns | Notes |
 |---|---|---|---|
-| **0.2 vendor gpui** | `native/0.2-vendor-gpui` | `native/vendor/**` | **in flight — the critical path** |
+| **P1.1** React extractor | `native/p1.1-react-extractor` | the 9 `data-oracle-id` tags + `web/src/lib/oracle/**` | must be injectable via `execute_js`; `git-row-item` is pseudo-backed |
+| **P1.2** GPUI extractor | `native/p1.2-gpui-extractor` | `crowbar-driver/**` | **the riskiest item — front-loaded deliberately.** Carries the STOP-GATE note. |
+| **P1.3** oracle differ | `native/p1.3-oracle-differ` | `native/oracle/src/**` | ≥98% hard gate; refuses mismatched `state` |
+| **P1.4** sealed tokens | `native/p1.4-sealed-tokens` | `crowbar-ui/**`, `check-invariants.sh` | §6.1 sealing **+ rule 4**; `color_mix` into `crowbar-core` |
 
-**0.2 was re-briefed mid-flight.** After 0.9 finished, I sent the worker three
-findings that change its solution space and asked it to report on **both**
-configurations rather than only the vendored-subtree one:
+Every brief carries the worker contract: do not run the oracle, do not touch
+`native/oracle/corpus/`, do not modify tests you implement against, do not edit
+`native/vendor/**`.
 
-1. `gpui` **is** a released crate (`0.2.2`, Apache-2.0 OR MIT) — its brief and
-   §10.5 both said otherwise.
-2. A git-rev pin drags Zed's **10 global `[patch.crates-io]` forks** into our
-   workspace root, because `[patch]` is workspace-wide.
-3. The two sources **cannot be mixed** — cargo refuses with a lockfile package
-   collision if vendored support crates coexist with repo-sourced `gpui`.
+**Not yet dispatched, and deliberately so:** the native `SidebarTreeRow` itself.
+It needs P1.4's tokens to exist first, or it will be written against literals
+that rule 4 then rejects.
 
-Expected answer shape: does the chosen `gpui-component` pin compile against
-`0.2.2`? If yes, Config 1 wins outright. If no, we need Config 2's real cost
-(the exact patch set, and which of those forks actually *build* rather than
-merely resolve) written down before accepting it.
-
-Everything still open depends on this: **0.4**'s native half needs a
-`crowbar-app` that can open a socket, and the whole of Phase 1 needs a
-compiling GPUI.
+**Mine alone, after all four land:** the convergence run across the §8.3 matrix.
+That is the gate, and it is not delegable.
 
 ## Blocked — needs a user decision
 
