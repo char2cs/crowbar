@@ -1973,6 +1973,62 @@ Phase 2 is authorised. Three things carry forward: two-span truncation as a
 Phase 2 component, `hover` re-run as a real observation once unlocked, and the
 §17 RSS soak once a real workload exists.
 
+## Phase 2 — in progress
+
+### ✅ P2.1 `dropdown-menu` — merged, and it set the pattern
+
+Branch `native/p2.1-dropdown-menu` @ `3395a7b5`. 650 tests (+44), clippy clean,
+**7 `ok` lines** with rule 6 now covering **66** gpui tests.
+
+**Phase 1 did not regress.** The refactor rewrote `row_surface.rs` and
+`row_layout.rs` — the gate's own code — so I regenerated the native side of all
+six archived hover cells with the new binary and diffed against the **untouched
+archived references**: 6/6 PASS, Σ excess still splitting 1.51 at 600 against
+1.73 at 800/1100.
+
+**`web/` stayed a reference.** The worker added a 21-line comment block, caught
+it itself against the attributes-only rule, and reverted it. I verified
+independently rather than accepting that: stripping `data-oracle-id` attributes
+**and all whitespace** leaves both touched files byte-identical to `1cc71ff6`.
+The only non-attribute additions are two prettier re-wraps, forced because even a
+one-character id pushes those lines past `printWidth: 100`.
+
+**Surfaces now self-register.** `build.rs` discovers `src/surfaces/*.rs` and
+generates the module list plus a sorted `ALL`. Rust cannot find a module nobody
+declared — `inventory`/`linkme` still need a `mod` line — so a build script is
+the only way to make "adding a surface is adding a file" literally true. Five
+`match cell.surface` sites are gone. **This is what unblocks `resizable` and
+`sidebar-carousel` running in parallel.**
+
+Costs the worker stated rather than hid: the module list is generated, so
+`git grep 'mod dropdown_menu'` finds nothing; registry order is filename-sorted,
+so the default surface is named by path in `row_surface.rs`; and nine `Cell`
+fields are still the two Phase 1 surfaces' options, left alone because moving
+them would rewrite the archived gate's evidence.
+
+**`native/MAPPING.md`** is the durable §6.2 output — append-only, one section per
+component. Every "compiles to" came from running the app's own `index.css`
+through its own Tailwind, not from reading class names; three numbers are not
+Tailwind's stock values. Eight traps recorded, of which the sharpest:
+
+- **`ring-1` is a box-shadow, not a border.** A `.border_1()` port reports
+  `border.w: 1` against `0` — the one field compared *exactly* — on every cell.
+- Declaring a menu row `line_sized` invents an 8px delta (28 vs 20).
+- An `overflow` label with spaces **wraps**, and a wrapped run is uncomparable:
+  the DOM sums client rects, gpui shapes one line. The fixture's long string is
+  one unbreakable token.
+
+**Carried forward, flagged by the worker rather than papered over:**
+
+1. `hover == focus` on this surface is a **reading, not a measurement** —
+   `dropdown-menu.tsx` has no `hover:` rule at all, and both flags map to the
+   focus paint assuming base-ui's roving focus follows the pointer. It chose the
+   falsifiable option over marking `hover` unmodelled. **Mine to confirm live.**
+2. The `overflow` content cell **has no reference** — menu labels come from call
+   sites and only attributes may be added. Same shape as Phase 1's `git-row-dir`.
+3. `selected` needs a tick row, which the comment menu lacks, so a bare
+   `--flags selected` renders resting. The caption says so per cell.
+
 ## In flight
 
 **Phase 0 is closed.** All twelve items done and merged, each verified by my own
