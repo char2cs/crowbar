@@ -115,9 +115,9 @@ pub fn emit(
     // other's root — which would offset every bound by a constant *and* pass
     // the differ's surface check.
     let snapshot = Snapshot::build(
-        cell.surface.name(),
+        cell.surface.name,
         state_of(cell),
-        cell.surface.root(),
+        cell.surface.root,
         &fold_text_halves(anchors.records()),
     )
     .map_err(|err| err.to_string())?;
@@ -148,7 +148,8 @@ pub fn report(outcome: &Result<PathBuf, String>) {
 #[cfg(test)]
 mod tests {
     use super::state_of;
-    use crate::row_surface::{Cell, Surface};
+    use crate::row_surface::Cell;
+    use crate::surface::Surface;
 
     fn a_cell(args: &[&str]) -> Cell {
         Cell::parse(args.iter().map(|arg| (*arg).to_owned())).expect("well-formed")
@@ -156,15 +157,36 @@ mod tests {
 
     /// Each surface's root is the contract's, not a local invention: an
     /// extractor that picked a different root would offset every anchor by a
-    /// constant, and one that reused the *other* surface's root would produce a
+    /// constant, and one that reused *another* surface's root would produce a
     /// snapshot with no root at all.
     #[test]
     fn each_surface_names_its_own_root_anchor() {
-        assert_eq!(Surface::GitStatusRow.root(), "git-row-item");
-        assert_eq!(Surface::FileTreeRow.root(), "file-row-item");
-        assert_eq!(Surface::GitStatusRow.name(), "git-status-row");
-        assert_eq!(Surface::FileTreeRow.name(), "file-tree-row");
-        assert_ne!(Surface::GitStatusRow.root(), Surface::FileTreeRow.root());
+        let root = |name: &str| Surface::parse(name).expect("registered").root;
+
+        assert_eq!(root("git-status-row"), "git-row-item");
+        assert_eq!(root("file-tree-row"), "file-row-item");
+        assert_eq!(root("dropdown-menu"), "menu-popup");
+
+        // And the snapshot's `surface` field is the word the command line takes,
+        // so a run cannot claim a name the differ has never seen.
+        for name in Surface::names() {
+            assert_eq!(Surface::parse(name).expect("registered").name, name);
+        }
+    }
+
+    /// The name and the root travel together off the **same** cell, so a
+    /// snapshot cannot claim to be one surface while being anchored to another's
+    /// root — which would offset every bound by a constant *and* pass the
+    /// differ's surface check.
+    #[test]
+    fn the_cells_surface_carries_both_halves() {
+        let git = a_cell(&[]);
+        let menu = a_cell(&["--surface", "dropdown-menu"]);
+
+        assert_eq!(git.surface.name, "git-status-row");
+        assert_eq!(git.surface.root, "git-row-item");
+        assert_eq!(menu.surface.name, "dropdown-menu");
+        assert_eq!(menu.surface.root, "menu-popup");
     }
 
     /// `SurfaceState` sorts and deduplicates, so two spellings of the same cell

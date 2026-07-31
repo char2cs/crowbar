@@ -15,6 +15,12 @@
 //!   and lives inside `.file-tree-container`, so hover, selection **and** focus
 //!   all paint something on it.
 //!
+//! The first Phase 2 component is [`dropdown_menu`], which is where the pattern
+//! the rest of Phase 2 follows is set: one module per surface, its anchor ids and
+//! its two declaration lists written down as data, its visual state a parameter,
+//! and every Tailwind class translated against the app's own compiled CSS rather
+//! than against the class name.
+//!
 //! Two conventions the rest of the components should follow:
 //!
 //! * **Visual state is a parameter, never a `.hover(…)` refinement.** See
@@ -27,16 +33,23 @@
 mod anchor;
 mod sidebar_tree;
 
-// The two gate surfaces are public **modules** as well as flattened exports.
-// They each carry an `ID_ITEM`, an `ID_NAME`, a `CONTENT_SIZED` and a
-// `guide_id`, and those cannot all be flattened into one namespace — nor should
-// they be: `git_status_row::ID_ITEM` and `file_tree_row::ID_ITEM` are different
-// anchors on different surfaces, and code that names one should have to say
-// which.
+// Every measurable surface is a public **module**. They each carry an
+// `ID_ITEM`/`ID_POPUP`, a `CONTENT_SIZED` and a `LINE_SIZED`, and those cannot
+// all be flattened into one namespace — nor should they be:
+// `git_status_row::ID_ITEM` and `file_tree_row::ID_ITEM` are different anchors
+// on different surfaces, and code that names one should have to say which.
+//
+// `dropdown_menu` is flattened not at all, deliberately: every one of its public
+// names would collide with something (`ID_ITEM`, `CONTENT_SIZED`, `LINE_SIZED`,
+// `ICON_SIZE`, `label`), and the collisions are the *point* — a `CONTENT_SIZED`
+// that silently meant the git row's would be a declaration applied to the wrong
+// surface, which is precisely the mistake `ANCHORS.md` v1.6 warns about.
+pub mod dropdown_menu;
 pub mod file_tree_row;
 pub mod git_status_row;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
+pub use dropdown_menu::DropdownMenu;
 // `GitStatus` and its vocabulary are flattened because nothing on the other
 // surface is called that: the git status row's filename is pinned at
 // `text-foreground` and never takes a status colour.
