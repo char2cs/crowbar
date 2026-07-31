@@ -7,6 +7,21 @@ Everything under `native/vendor/` is third-party source, vendored verbatim excep
 for the mechanical manifest edits listed under [Deviations](#deviations-from-upstream).
 Do not hand-edit it; re-run the vendoring steps in [How to re-pin](#how-to-re-pin).
 
+**The short version.** Two configurations were evaluated end to end:
+
+| | result |
+|---|---|
+| **crates.io** — `gpui = "0.2.2"` + the published `gpui_*` support crates | ❌ `gpui-component` @ `88f102d1` fails with **338 errors across 75 files**. Nine months of API drift. |
+| **vendored subtree** — this directory, de-inherited manifests, `path` deps | ✅ builds; `--locked` release binary on `aarch64-apple-darwin`. |
+
+The crates.io route is genuinely the better shape if it ever works, so it is
+re-checked at every re-pin (step 8). It does not work today.
+
+The commonly-cited cost of the git route — being forced to adopt Zed's
+`[patch.crates-io]` fork set, livekit and all — **does not apply to a
+consumer** and was verified not to have happened here: see
+[Zed's `[patch.crates-io]` costs us nothing](#zeds-patchcrates-io-costs-us-nothing--verified).
+
 ---
 
 ## The pins
@@ -26,20 +41,51 @@ when this was vendored. Its `Cargo.lock` resolves every `zed-industries/zed` git
 dependency to `1a246efd…`, so that is the `gpui` revision the pair was tested
 against upstream — it was **not** chosen independently.
 
-### Why not crates.io
+### Why not crates.io — measured, not assumed
 
-Both crates *are* published, and both published releases are stale relative to
-what actually works together:
+**Correction to spec §10.5: `gpui` *is* a released crate.** `gpui` 0.2.2 is on
+crates.io (published 2025-10-22, ~178k downloads) and it is self-contained: the
+support crates ship alongside it under renamed packages — `gpui_collections`,
+`gpui-macros`, `gpui_http_client`, `gpui_media`, `gpui_refineable`,
+`gpui_sum_tree`, `gpui_util`, `gpui_util_macros`, all at ^0.2.2. So
+`gpui = "0.2.2"` is a real, available, and in principle *stronger* pin than a
+vendored subtree, with far less machinery. It was evaluated properly rather
+than dismissed.
 
-* `gpui` 0.2.2 on crates.io was published **2025-10-22**; the git tree at
-  `1a246efd…` is also called 0.2.2 but is nine months newer and has a different
-  feature set (crates.io's `test-support` pulls `rand` and `util/test-support`;
-  the git one does not, and the whole platform layer has since been split out
-  into `gpui_platform` / `gpui_macos` / `gpui_linux` / `gpui_windows` / `gpui_web`).
-* `gpui-component` 0.5.2 on crates.io was published **2026-02-05**, ~6 months
-  behind `main`, and pins a correspondingly older `gpui`.
+**It does not work.** `gpui-component` @ `88f102d1` compiled against crates.io
+`gpui` 0.2.2 fails with **338 errors across 75 of its source files**:
 
-So the spec's premise holds in substance: the usable `gpui` is the git one.
+```
+$ cargo check -p gpui-component     # gpui = "0.2.2", gpui_macros = { version = "0.2.2", package = "gpui-macros" }
+error: could not compile `gpui-component` (lib) due to 338 previous errors; 6 warnings emitted
+```
+
+| errors | code | class |
+|---:|---|---|
+| 139 | E0599 | method not found — `Pixels::as_f32` alone accounts for **86** call sites; `role()` (the accessibility API) 29 more; then `flex_grow_1`, `inset`, `top_center`, `min_size_full`, `container_query`, `on_aux_click`, `is_middle_click` |
+| 56 | E0308 | mismatched types |
+| 54 | E0061 | wrong arity — 41 of them "takes 1 argument but 2 were supplied"; signatures moved |
+| 39 | E0277 | unsatisfied trait bounds, mostly `ElementId` and `SliderState` |
+| 33 | E0432/E0433 | unresolved imports from `gpui` — `Anchor` (12), `Role`/`Role::*` (16) |
+| 13 | E0560/E0609/E0026/E0521 | struct fields renamed or removed; two lifetime regressions |
+
+This is nine months of API drift, not a handful of shims: the whole platform
+layer has since been split out of `gpui` into `gpui_platform` / `gpui_macos` /
+`gpui_linux` / `gpui_windows` / `gpui_web`, so `gpui_platform::application()` —
+the entry point every `gpui-component` example uses — does not exist at 0.2.2 at
+all. The crates.io release also still carries `macos-blade` and pulls
+`blade-graphics` + `cosmic-text` unconditionally; the git tree renders through
+Metal in `gpui_macos`.
+
+`gpui-component` 0.5.2 on crates.io (published 2026-02-05, ~6 months behind
+`main`) is the other half of the same trap — taking it would pin us to a
+correspondingly older `gpui` and forfeit half a year of the widget set we chose
+this library for.
+
+So the spec's *conclusion* holds even though its premise is wrong: the usable
+`gpui` is the git one. Re-test this at every re-pin — if upstream ever
+publishes a `gpui` release contemporaneous with a `gpui-component` release,
+crates.io becomes strictly better than this directory and it should be deleted.
 
 ---
 
@@ -390,6 +436,10 @@ Notes on those choices:
   `runtime_shaders` on (the setting used here, and the one `gpui-component`'s
   own workspace uses) the shader source is stitched into the binary and
   compiled by the Metal runtime at startup. Keep it on.
+  (On this machine the Metal toolchain *is* installed — `xcrun -f metal`
+  resolves — so a `cannot execute tool 'metal'` failure here would not be a
+  missing 688 MB component and you should look elsewhere. `runtime_shaders`
+  makes the question moot for CI, which is the point of keeping it on.)
 * No Homebrew packages needed.
 
 **Linux** (not built here — this is the list the manifests imply, unverified):
@@ -456,8 +506,31 @@ Three further edits, each load-bearing:
   paths no longer resolved in the flattened layout. It is a wasm demo; nothing
   depends on it.
 
-`LICENSE-APACHE` / `LICENSE-GPL` were symlinks into the Zed repo root; they were
-resolved into real files so each vendored crate carries its own licence text.
+### How Zed licences its source — and what that forced here
+
+Zed carries **no per-file licence headers**. Licensing is per-crate: a
+`license = "…"` key in each `Cargo.toml`, plus a `LICENSE-APACHE` and/or
+`LICENSE-GPL` in the crate directory that is a **symlink to the repo root**.
+
+A plain `cp -R` therefore leaves a dangling link and no licence text at all. The
+copy here dereferences (`shutil.copytree(..., symlinks=False)`, i.e. `cp -RL`),
+so:
+
+```
+$ find native/vendor -type l | wc -l          # 0 symlinks
+$ find native/vendor -name 'LICENSE*' | wc -l # 31 real files
+$ head -2 native/vendor/zed-deps/ztracing/LICENSE-GPL
+GNU GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
+```
+
+Because the `license` key is the only per-crate signal, it is also the *only*
+thing to read for provenance — and reading it is what turned up the GPL crates
+above. In particular `path` is **GPL-3.0-or-later**, not Apache-2.0; so are
+`zlog`, `ztracing` and `ztracing_macro`. `gpui`, `collections`, `refineable`
+and `util` are Apache-2.0. (Note also that crates.io's `gpui` 0.2.2 is dual
+`Apache-2.0 OR MIT`, while the git tree at `1a246efd…` declares plain
+`Apache-2.0` — another small divergence between the two sources.)
 
 ### After every re-vendor, this must hold
 
@@ -481,14 +554,60 @@ or dev-only on macOS) are:
 | `proptest` | `proptest-rs/proptest` | `3dca198a8fef1b32e3a66f1e1897c955b4dc5b5b` |
 | `xim` | `zed-industries/xim-rs.git` | `16f35a2c881b815a2b6cdfd6687988e84f8447d8` |
 
-### What was deliberately *not* carried over
+### Zed's `[patch.crates-io]` costs us nothing — verified
 
-Zed's root `[patch.crates-io]` forks `async-task`, `async-process`, `calloop`,
-`notify`, `windows-capture` and the livekit stack. None were applied, and the
-build below proves none are needed for `gpui` + `gpui-component`. Do not add
-them casually — Zed's `calloop` patch has **no rev at all**, so importing that
-table wholesale would reintroduce exactly the floating ref this vendoring exists
-to eliminate.
+Zed's root manifest carries a `[patch.crates-io]` block with ten forks:
+`async-process`, `async-task`, `windows-capture`, `calloop`, `livekit`,
+`libwebrtc`, `webrtc-sys`, `notify`, `notify-types`, and (via
+`[workspace.dependencies]`) the `font-kit` / `scap` pair.
+
+There is a live worry that pinning `gpui` from Zed drags that whole table into
+the consuming workspace, so that a build touching only the UI ends up fetching
+livekit, libyuv and the livekit protocol submodule. **That is not what happens
+to a consumer.** Cargo honours `[patch]` only from the *top-level workspace
+manifest*; a dependency's own `[patch]` table is ignored. The observation that
+livekit gets fetched is what you see when you build *inside* Zed's checkout,
+where Zed's manifest **is** the workspace root.
+
+Audited against our committed `Cargo.lock`:
+
+| crate Zed patches | where ours resolves from |
+|---|---|
+| `async-process` | crates.io (upstream) |
+| `async-task` | crates.io (upstream) |
+| `windows-capture` | crates.io (upstream) |
+| `calloop` | crates.io (upstream) |
+| `notify` | crates.io (upstream) |
+| `notify-types` | crates.io (upstream) |
+| `livekit` | **absent from the lock** |
+| `libwebrtc` | **absent from the lock** |
+| `webrtc-sys` | **absent from the lock** |
+| `libyuv` | **absent from the lock** |
+
+Zero patch entries adopted, zero webrtc, and the six that do appear come from
+upstream crates.io rather than Zed's forks. The only git sources in the entire
+lock are the five listed above, all rev-pinned, all optional / dev / non-macOS.
+
+Do **not** import Zed's `[patch]` table "for parity". Beyond the webrtc weight,
+its `calloop` entry has **no rev at all** — copying it would reintroduce exactly
+the floating ref this vendoring exists to eliminate.
+
+### The one-source rule
+
+If a workspace vendors copies of Zed's shared support crates *and also* sources
+`gpui` from a Zed checkout, Cargo refuses outright:
+
+```
+error: package collision in the lockfile: packages collections v0.1.0 (…/vendor/collections)
+and collections v0.1.0 (…/zed/crates/collections) are different, but only one can be
+written to lockfile unambiguously
+```
+
+Whatever supplies `gpui` must also supply `collections`, `gpui_util`,
+`refineable`, `gpui_macros` and the rest. This tree does: every one of the 29
+comes from `native/vendor/`, nothing points at a Zed checkout, which is why the
+`--locked` build below is clean. Keep it that way — do not add a second source
+for any of these names.
 
 ---
 
@@ -609,3 +728,11 @@ the installed skills and this vendored source are describing the same code.
 7. `cargo build --release -p gpui-vendor-probe` from `native/vendor/`, then
    build the real app. If the probe compiles but the app does not, the break is
    in our code, not the pin.
+
+8. **Re-test the crates.io route while you are here.** Point a scratch copy of
+   `gpui-component` at `gpui = "<latest published>"` +
+   `gpui_macros = { version = "<same>", package = "gpui-macros" }` and
+   `cargo check`. Today that is 338 errors (see
+   [Why not crates.io](#why-not-cratesio--measured-not-assumed)); the day it is
+   zero, delete this whole directory and take the published crates instead. Do
+   not skip this step on the assumption that the answer is still no.
