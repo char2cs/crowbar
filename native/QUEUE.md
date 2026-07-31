@@ -280,13 +280,35 @@ P=$(lsof -nP -iTCP:5173 -sTCP:LISTEN -t | head -1)
 lsof -a -p "$P" -d cwd -Fn | grep ^n | cut -c2-      # MUST be <this worktree>/web
 ```
 
+> **CORRECTION (2026-07-30). My first diagnosis of this was wrong, and the real
+> cause is worse.** I attributed it to a worker's `--strictPort` taking the port.
+> It is not that. **The repo's own `beforeDevCommand` runs `pkill -f vite`:**
+>
+> ```json
+> "beforeDevCommand": "pkill -f vite 2>/dev/null; sleep 0.5; cd ../web && npm run dev -- --port 5173"
+> ```
+>
+> — `desktop/src-tauri/tauri.conf.json:9`, verified in **this** worktree and in
+> `feature/crowbar-skill`'s. It is committed, so every Crowbar worktree has it.
+>
+> **Consequence: any Crowbar dev instance starting up kills every other Vite on
+> the machine** — the orchestrator's reference app and every worker's dev server
+> alike. Whoever starts last wins; everyone else's window keeps rendering
+> whatever it had loaded, served by nothing, or silently re-attaches elsewhere.
+>
+> That is the real reason my reference app died twice. The pre-flight check below
+> is still exactly right and still mandatory — I just had the mechanism wrong,
+> and a wrong mechanism leads to the wrong mitigation. **Re-check the asset
+> origin before every parity run, and expect it to have been killed rather than
+> merely contended.**
+
 #### What happened, because it will happen again
 
 Workers run in isolated **git worktrees**, which isolates *files*. It does not
-isolate *ports*. The P1.1 worker legitimately needed a live React app to run its
-extractor against, so it started
-`vite --port 5173 --strictPort` from its own worktree — and took the port
-globally.
+isolate *ports* — and, per the correction above, it does not protect a dev
+server from being `pkill`ed by an unrelated app start either. The P1.1 worker
+legitimately needed a live React app to run its extractor against and started
+one from its own worktree.
 
 My reference app's `beforeDevCommand` then failed to bind 5173, `tauri dev`
 reported a non-zero exit, and `make dev-desktop` died. **But the Tauri window
@@ -1032,7 +1054,7 @@ before any of them so three independent implementations cannot quietly diverge.
 
 | Item | Branch | Owns | Notes |
 |---|---|---|---|
-| **P1.1** React extractor | `native/p1.1-react-extractor` | the 9 `data-oracle-id` tags + `web/src/lib/oracle/**` | **in flight** · sent the v1.1 delta |
+| **P1.1** React extractor | `native/p1.1-react-extractor` | the 9 `data-oracle-id` tags + `web/src/lib/oracle/**` | merged `49ba348f` · live snapshot from the real WKWebView |
 | **P1.2** GPUI extractor | `native/p1.2-gpui-extractor` | `crowbar-driver/**` | merged `03fb0732` · **STOP-GATE risk retired** · my clippy pass green; tests + coverage still running |
 | **P1.3** oracle differ | `native/p1.3-oracle-differ` | `native/oracle/src/**` | ✅ **done** — merged `5fcec61c`, gates re-run by me |
 | **P1.4** sealed tokens | `native/p1.4-sealed-tokens` | `crowbar-ui/**`, `check-invariants.sh` | ✅ **done** — merged `60823648`, rule 4 adversarially re-tested by me |
@@ -1272,6 +1294,50 @@ that must be re-implemented rather than translated: **no value may be taken from
 a class list at all.** Everything is measured off the running app. This is the
 strongest argument yet for the oracle gating from the very first component, and
 it goes in every Phase 2+ worker brief.
+
+> **CORRECTION (2026-07-30) — and the irony is not lost on me. The table above
+> does not describe the gate target.** I read the CSS, generalised from it, and
+> put the wrong numbers into P1.5's brief. The React extractor then *measured*
+> the live element and found:
+>
+> | Property | I said | Measured on the gate target |
+> |---|---|---|
+> | `git-row-button` radius | `2px !important` | **8px** (Tailwind `rounded-md`) |
+> | `git-row-button` border | `1px solid transparent !important` | **width 0** |
+>
+> **Why:** those `!important` rules are scoped to
+> `.file-tree-container .file-tree-item button`, and the **git status panel's
+> rows are not inside `.file-tree-container`** — verified directly,
+> `row.closest('.file-tree-container')` is `null`. The 2px/1px treatment is real,
+> but only in the *file explorer* tree. Same component, two cascades, and I
+> generalised from the wrong one.
+>
+> The transparency conclusion survives, by a different route: Tailwind
+> `bg-transparent` plus the *unscoped* `.file-tree-row:hover`.
+>
+> So F3's own lesson applied to F3: **I took values from a stylesheet instead of
+> measuring, and was wrong in exactly the way F3 warns about.** The correction
+> was sent to P1.5 mid-flight, together with the instruction to treat no number
+> in its brief as authoritative and let the side-by-side supply the real values.
+
+### F3b — the gate target does not currently exercise the two-span truncation
+
+`git-row-dir` **never renders in the live app.** The only call site of
+`GitFileItem` (`changed-files-tree.tsx:222`) passes `showDirectory={false}`.
+
+That matters because "the filename and directory spans truncate against each
+other through three nested flex containers" was **my stated reason for choosing
+this component as the gate target** (F1). The layout exists in the code and is
+worth getting right, but the app does not produce it today, so the gate as it
+stands exercises single-span truncation only — which `git-row-name` *does* still
+exercise: measured `text_width: 476.49` in a 154.73px box, `clipped: true`.
+
+**Not yet decided, and it is mine to decide before the convergence run:** either
+(a) accept single-span truncation for the Phase 1 gate and record the reduced
+scope honestly, or (b) drive the fixture through a surface that sets
+`showDirectory`, or (c) add the two-span case to the corpus later as a Phase 2
+component. **Do not quietly let (a) happen by default** — that is how a gate
+ends up proving less than it claims.
 
 ### F4 — `color-mix(in srgb, …)` is load-bearing and needs an exact implementation
 

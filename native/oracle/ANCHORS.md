@@ -1,3 +1,16 @@
+# The anchor snapshot contract — v1.3
+
+> **v1.3 — 2026-07-30.** Three fixes from the **React extractor** (P1.1) meeting
+> the live DOM. One of them is a place where the contract as written would have
+> made the two sides disagree on *exactly* the cases the field exists to catch.
+> `schema` stays **1**.
+>
+> | # | Problem | Fix |
+> |---|---|---|
+> | 1 | **§3 told the DOM side to compute `clipped` as `scrollWidth > clientWidth`. That cannot work.** Both are **rounded integers**, so a 100.4px string in a 100px box reports a whole pixel of overflow that never paints an ellipsis. | `clipped` is computed from the **fractional** `text_width` against the content-box width, with a 0.5px epsilon; `scrollWidth`/`clientWidth` only as a fallback where there is no text node. The GPUI side already does the fractional comparison — had this stayed, the two would have disagreed on precisely the sub-pixel cases `clipped` was added to catch. |
+> | 2 | `border.color` is junk when `border.w == 0` — computed style returns the *inherited text colour*, so a zero-width border reports a fully saturated colour. | **`border.color` is compared only when `w > 0`.** Extractors may emit whatever their engine gives; the differ ignores it below that threshold. |
+> | 3 | v1.1 fixed the `theme` *vocabulary* but not how to **detect** it. This app sets `data-theme="crowbar"` **and** `class="dark"`. Reading the attribute first yields `"crowbar"`, which is out of vocabulary and refuses every comparison. | **Detection order:** the `dark`/`light` class on the root element → `data-theme` *only if* its value is literally `dark` or `light` → `color-scheme` → background luminance. The luminance fallback is what rescues a *named* theme; defaulting to `light` would be silent poison. |
+
 # The anchor snapshot contract — v1.2
 
 > **v1.2 — 2026-07-30.** Five rulings, all raised by the **GPUI extractor**
