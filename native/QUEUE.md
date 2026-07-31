@@ -868,11 +868,21 @@ up in `blocked/hover-and-focus-need-an-unlocked-screen.md`. The screen is locked
 (`CGSSessionScreenIsLocked = 1`), so no app can be active: `:hover` gets no real
 pointer input and `:focus` fails because `document.hasFocus()` is `false`.
 
-> **The `focus` trap, worth reading before anyone re-runs this.** `btn.focus()`
-> sets `document.activeElement === btn` — but `btn.matches(':focus')` is
-> **false**. A driver asserting on `activeElement`, the obvious choice, would
-> report `focus` converged against an app painting no focus ring. Assert on
-> `matches(':focus')`.
+> **Two traps that each make a naive focus driver report a false result.**
+> First, `btn.focus()` sets `document.activeElement === btn` while
+> `btn.matches(':focus')` stays **false** — a driver asserting on
+> `activeElement`, the obvious choice, would report focus converged against an
+> app painting no focus ring. Second, the rule is **`:focus-visible`**, not
+> `:focus`, so `.focus()` would paint nothing *even with the screen unlocked*.
+> Focus must be driven by keyboard and confirmed with `matches(':focus-visible')`.
+
+A CSSOM pre-check survives the lock, and both states resolve to exactly the
+values the native app already paints: hover `color(srgb 1 1 1 / 0.0272)` → `7` →
+`#ffffff07`, focus border `0.0516` → `13` → `#ffffff0d`. `--accent` is
+`#ffffff0a`, independently the confirmed `selected` value — the three states are
+one token family and the native side has all three right. **This is not a
+converged cell**; it tests the stylesheet, not the paint. It does narrow the
+residual to whether *geometry* shifts under those states.
 
 **`empty`/`loading`/`error` are vacuous on both gate surfaces**, and that is the
 honest close rather than a skip: they are *container* states. A tree can be

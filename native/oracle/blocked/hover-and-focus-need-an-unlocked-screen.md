@@ -61,6 +61,43 @@ WebKit gates it on the document being focused, and `document.hasFocus()` is
 `focus` as converged, from an app painting no focus ring at all. The check that
 catches it is `matches(':focus')`, never `activeElement`.
 
+## A pre-check that survives the lock — and what it found
+
+Observing the paint needs an active app. Reading what the stylesheet *declares*
+does not. So while the gate measurement waits, I resolved the two rules through
+the CSSOM on the live page. **This is not a substitute for the gate cell** — it
+tests the stylesheet, not the paint, and it is recorded as a pre-check precisely
+so nobody later mistakes it for a converged run.
+
+It was worth doing. Both land exactly on the values the native app already paints:
+
+| state | reference rule | resolves to | ×255 | native |
+|---|---|---|---|---|
+| hover | `.file-tree-item:hover::before { background: var(--file-tree-hover-bg) }`<br>`--file-tree-hover-bg: color-mix(in srgb, var(--accent) 68%, transparent)` | `color(srgb 1 1 1 / 0.0272)` | 6.94 → **7** | `#ffffff07` ✓ |
+| focus | `.file-tree-container .file-tree-item button:focus-visible { border-color: color-mix(in srgb, var(--accent) 42%, var(--border)) }` | `color(srgb 1 1 1 / 0.0516)` | 13.16 → **13** | `#ffffff0d` ✓ |
+
+`--accent` is `oklch(1 0 0 / 4%)` = `#ffffff0a`, which is independently the
+`selected` value already confirmed by observation. The three states are one token
+family, and the native side has all three right.
+
+What remains genuinely unverified is therefore narrower than "hover and focus":
+it is whether **geometry** shifts under those states, and whether anything else
+on the row changes that the colour check cannot see.
+
+### `:focus-visible`, not `:focus` — this changes the recipe
+
+The focus rule is `:focus-visible`. That is a stricter matcher than `:focus`: it
+fires on keyboard interaction, and a programmatic `btn.focus()` on a non-text
+element generally does **not** satisfy the UA heuristic.
+
+So the plan of "call `.focus()` and capture" would have failed **even with the
+screen unlocked**, painting nothing and looking like a native-side defect. Focus
+has to be driven the way a user reaches it — `Tab`, or the tree's own arrow-key
+navigation — and then confirmed with `btn.matches(':focus-visible')`.
+
+That is two independent reasons the naive focus driver reports a false result,
+and only one of them is the locked screen.
+
 ## Why this does not void the Phase 1 gate
 
 The STOP gate asks whether the driver and the anchored-geometry oracle *converge*
