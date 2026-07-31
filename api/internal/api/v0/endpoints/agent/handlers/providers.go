@@ -37,10 +37,24 @@ func (h *Handlers) Providers(
 func (h *Handlers) UpdateProviderPreferences(
 	ctx *gin.Context,
 ) {
+	// Both flags arrive NEGATIVELY, matching what the row stores rather than what
+	// the switch shows: a missing field decodes to false, which is the same
+	// default an absent DB row carries.
+	//
+	// That is NOT the same as "an omitted field is harmless". This is a
+	// full-replace PUT — the body is the complete preference set and every row is
+	// rewritten from it — so a submitted provider whose mcpDisabled is omitted has
+	// false WRITTEN over whatever the user chose, in the permissive direction: the
+	// tool surface comes back on. Every client must therefore send both flags for
+	// every provider on every write, whatever it is actually changing. The
+	// frontend does exactly one thing about this and it is load-bearing: a single
+	// commit() builds the whole flags table for every write path (see
+	// providers-settings.tsx).
 	var body struct {
 		Providers []struct {
-			ID       string `json:"id"`
-			Disabled bool   `json:"disabled"`
+			ID          string `json:"id"`
+			Disabled    bool   `json:"disabled"`
+			MCPDisabled bool   `json:"mcpDisabled"`
 		} `json:"providers"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
@@ -51,9 +65,10 @@ func (h *Handlers) UpdateProviderPreferences(
 	prefs := make([]domain.AgentProviderPreference, len(body.Providers))
 	for i, p := range body.Providers {
 		prefs[i] = domain.AgentProviderPreference{
-			ProviderID: p.ID,
-			Priority:   i,
-			Disabled:   p.Disabled,
+			ProviderID:  p.ID,
+			Priority:    i,
+			Disabled:    p.Disabled,
+			MCPDisabled: p.MCPDisabled,
 		}
 	}
 

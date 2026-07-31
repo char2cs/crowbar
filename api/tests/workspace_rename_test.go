@@ -153,6 +153,12 @@ func TestRegression_RenameWorkspaceBranch_DeleteDoesNotDestroyTheReusedDirectory
 
 	var out map[string]any
 	h.patch(repoBase+"/workspaces/"+renamedID, map[string]string{"branch": "renamed"}, &out)
+	// Join the rename's reactors before anything depends on the branch it FREED.
+	// The reuse below is legal only because "testing" is no longer taken, and the
+	// duplicate-branch guard (ErrBranchWorkspaceExists → 409) answers from a
+	// projection that settles asynchronously: race it and the create is rejected
+	// for a branch nothing holds any more.
+	h.QuiesceReactors()
 	after := renamedWorkspace(t, h, imported, renamedID)
 	require.Equal(t, "renamed", after.Branch)
 

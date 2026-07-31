@@ -54,6 +54,31 @@ type Usecase interface {
 		wsID string,
 		commit string,
 	) ([]gitdomain.ReviewFileSummary, error)
+	// GetScope returns the ref this workspace's review diffs against, the
+	// changed-file summary of that same diff, and its hunk geometry, from ONE ref
+	// resolution.
+	//
+	// It exists because GetBase followed by GetFiles resolves the ref twice to
+	// answer one question — what does this review cover — and each resolution is
+	// up to three git subprocesses. See gitdomain.ReviewScope for why the parts
+	// belong together on correctness grounds as well as cost.
+	//
+	// The geometry is the same outline GetOutline serves, through the same cache
+	// and the same key, so an anchor checked against one is checked against the
+	// other: a scope that reported ranges its own validator would then refuse
+	// would be worse than reporting none.
+	//
+	// It takes the ALREADY-RESOLVED workspace rather than its id, unlike every
+	// other method here, because its only caller is the agent tool surface and
+	// that caller has just folded the same aggregate to authenticate: workspace
+	// Get replays the whole event log and fires a background reconcile, so a
+	// second read of a workspace resolved microseconds earlier pays both again to
+	// learn nothing. Callers holding only an id want GetFiles, which resolves for
+	// itself and shares this one's flight.
+	GetScope(
+		ctx context.Context,
+		ws domain.Workspace,
+	) (gitdomain.ReviewScope, error)
 	// GetOutline returns the hunk geometry of the workspace's branch diff: per
 	// file the `@@` shapes of its diff and no content at all. O(hunks) where Get
 	// is O(lines), so the client can lay out a million-line diff before fetching
@@ -201,6 +226,13 @@ func (u *branchReviewUsecase) mergeBaseWithBase(
 // best is an ancestor of mb, so mb sits closer to HEAD and wins. Divergent
 // candidates (neither an ancestor of the other, a broken local/origin base) keep
 // the first, origin-derived candidate.
+//
+// Identical candidates are answered without asking git. merge-base(X, X) is X by
+// definition, so the comparison can only re-elect the candidate already held —
+// and origin/<base> and <base> point at the same commit whenever the base branch
+// is in sync with its remote, which is the ordinary state of a branch nobody has
+// pushed to since the last fetch. That common case was spending a whole
+// subprocess to compare a sha with itself.
 func (u *branchReviewUsecase) closestToHead(
 	ctx context.Context,
 	worktreePath string,
@@ -211,6 +243,9 @@ func (u *branchReviewUsecase) closestToHead(
 	}
 	best := bases[0]
 	for _, mb := range bases[1:] {
+		if mb == best {
+			continue
+		}
 		common, err := u.git.MergeBase(ctx, worktreePath, best, mb)
 		if err == nil && common == best {
 			best = mb
@@ -293,7 +328,13 @@ func (u *branchReviewUsecase) Reply(
 	threadID string,
 	body string,
 ) (domain.ReviewThread, error) {
-	thread, err := u.threads.Reply(ctx, threadID, uuid.NewString(), "", false, body, u.now())
+	// No ProviderID or ChatID: this is the human/UI path, and a person has neither
+	// a vendor CLI behind them nor an originating agent conversation.
+	thread, err := u.threads.Reply(ctx, reviewthread.ReplyInput{
+		ID:        threadID,
+		MessageID: uuid.NewString(),
+		Body:      body,
+	}, u.now())
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("branch review: reply: %w", asNotFound(err))
 	}

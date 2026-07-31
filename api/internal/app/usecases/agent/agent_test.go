@@ -220,9 +220,10 @@ func TestSpawnChat_CreatesChatAndRunner_AndSpawnsTheCLI(t *testing.T) {
 	assert.Equal(t, "ws1", call.workspaceID)
 	assert.Equal(t, f.ws.worktree, call.cwd)
 	assert.Equal(t, "claude", filepath.Base(call.argv[0]))
-	// A fresh SpawnChat injects the title instruction via the descriptor's
-	// system_prompt_inject mechanism; it must be present, not the raw ledger handoff
-	// (there is none yet for a brand-new chat).
+	// A fresh SpawnChat injects the capability preamble via the descriptor's
+	// context_inject mechanism (claude.yaml maps it to --append-system-prompt); it
+	// must be present, not the raw ledger handoff (there is none yet for a
+	// brand-new chat).
 	assert.Contains(t, call.argv, "--append-system-prompt")
 }
 

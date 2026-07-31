@@ -32,7 +32,25 @@ type Descriptor struct {
 		Resume *ArgSpec `yaml:"resume"`
 	} `yaml:"session"`
 	ConfigInjection []InjectStep `yaml:"config_injection"`
-	Hooks           HookSpec     `yaml:"hooks"`
+	// MCPInject registers Crowbar's own tool surface with this CLI, and is a
+	// SEPARATE list from ConfigInjection because it is the one group of steps that
+	// is conditional: the user can switch the tool surface off per provider
+	// (AgentProviderPreference.MCPDisabled) while the CLI still spawns and its
+	// hooks still fire.
+	//
+	// Naming the group is the only mechanism that can express that. Filtering
+	// ConfigInjection by template token was the obvious alternative and is wrong:
+	// {runner_token} appears in exactly one of codex's four MCP steps, so
+	// mcp_servers.crowbar.command, .env_vars and .default_tools_approval_mode
+	// would all survive the filter and register a server with no arguments — a
+	// half-configured tool surface, which is worse than either state the switch
+	// is meant to choose between.
+	//
+	// Validate does NOT require it. A descriptor that declares none simply
+	// registers no tools, which is the correct reading for a third-party CLI
+	// Crowbar has no MCP wiring for.
+	MCPInject []InjectStep `yaml:"mcp_injection"`
+	Hooks     HookSpec     `yaml:"hooks"`
 	// ContextInject delivers Crowbar's {context} document — the chat-title
 	// instruction and/or the handed-off conversation, composed by the usecase —
 	// to a CLI starting a FRESH provider session. Every provider must deliver it

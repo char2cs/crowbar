@@ -19,6 +19,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/defaultbranch"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/holder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
@@ -817,7 +818,7 @@ func (u *projectImport) validateImportPath(
 // gitRemoteURL returns the origin remote URL for the repo at path, or ""
 // on any failure so callers can fall back gracefully.
 func gitRemoteURL(repoPath string) string {
-	out, err := exec.Command("git", "-C", repoPath, "remote", "get-url", "origin").Output() //nolint:gosec // G204: fixed git subcommand; only the repo dir is variable, passed as -C <path> (no shell)
+	out, err := exec.Command(binpath.Git(), "-C", repoPath, "remote", "get-url", "origin").Output() //nolint:gosec // G204: fixed git subcommand; only the repo dir is variable, passed as -C <path> (no shell)
 	if err != nil {
 		return ""
 	}

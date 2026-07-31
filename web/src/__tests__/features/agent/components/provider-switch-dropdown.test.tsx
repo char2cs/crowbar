@@ -43,6 +43,7 @@ const providers: AgentProvider[] = [
     icon: '<svg data-p="claude"><path/></svg>',
     connected: true,
     enabled: true,
+    mcpEnabled: true,
   },
   {
     id: 'codex',
@@ -50,6 +51,7 @@ const providers: AgentProvider[] = [
     icon: '<svg data-p="codex"><path/></svg>',
     connected: true,
     enabled: true,
+    mcpEnabled: true,
   },
   {
     id: 'gemini',
@@ -57,6 +59,7 @@ const providers: AgentProvider[] = [
     icon: '<svg data-p="gemini"><path/></svg>',
     connected: true,
     enabled: true,
+    mcpEnabled: true,
   },
 ]
 

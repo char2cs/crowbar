@@ -40,6 +40,36 @@ interface AgentProvidersState {
 let latestLoad = 0
 
 /**
+ * THE WRITE GENERATION. Bumped once per preference WRITE, at the moment the
+ * write is issued, and read by everything that publishes a provider list.
+ *
+ * It exists because sequencing writes against writes is only half the problem.
+ * A GET is a snapshot of the server BEFORE the PUT it overlaps, so a read issued
+ * first and answered second re-installs the pre-write list — the switch the user
+ * just moved visibly flips back, and the next write PUTs that stale flag. The
+ * mount refetch and the workspace-stream reseed are both such reads.
+ *
+ * A READ therefore never bumps this; it captures the value it started under and
+ * publishes only if nothing has been written since. That direction is the whole
+ * design: a read that bumped would invalidate the in-flight write it raced and
+ * then install its own stale answer, which is the same bug with the roles
+ * swapped.
+ */
+let providerWrites = 0
+
+/** Claim a generation for a write about to be issued. */
+export const beginProviderWrite = (): number => ++providerWrites
+
+/** The generation a read is starting under; pair with isLatestProviderWrite. */
+export const providerWriteGeneration = (): number => providerWrites
+
+/**
+ * Whether `seq` is still current — for a write, that it has not been superseded;
+ * for a read, that no write has been issued since it asked.
+ */
+export const isLatestProviderWrite = (seq: number): boolean => seq === providerWrites
+
+/**
  * The GLOBAL provider list. Providers are machine-level, but the frontend's only
  * copy used to live inside the per-WORKSPACE store — so every surface that is
  * not workspace-scoped (the Settings dialog, most of all) had to guess. With no
@@ -59,6 +89,9 @@ export const useAgentProvidersStore = create<AgentProvidersState>((set, get) => 
 
   load: async (wsId) => {
     const seq = ++latestLoad
+    // The write generation this read is a snapshot of. Anything written after
+    // this line describes a server this answer has not seen.
+    const writes = providerWriteGeneration()
     // Only a load with no settled answer behind it may show a spinner. `ready`
     // is settled even when the list is EMPTY — "the daemon has none" is an
     // answer — so a refresh keeps showing what it says instead of strobing
@@ -67,6 +100,16 @@ export const useAgentProvidersStore = create<AgentProvidersState>((set, get) => 
     try {
       const providers = await listProviders(wsId)
       if (seq !== latestLoad) return null
+      // A write landed while this was in flight. Its own optimistic state — and
+      // the response it reconciles from — are newer than this snapshot, so
+      // publishing here would undo it in front of the user: the switch they just
+      // moved flips back, and the next write PUTs the flag this list carries.
+      // The status still settles: we did reach the daemon, and leaving it on
+      // `loading` would strand the tab's spinner.
+      if (!isLatestProviderWrite(writes)) {
+        set({ status: 'ready' })
+        return null
+      }
       set({ providers, status: 'ready' })
       return providers
     } catch {

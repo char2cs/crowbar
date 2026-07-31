@@ -161,12 +161,20 @@ type HandoffDTO struct {
 // enabled). The list is returned in priority order — priority is implicit in the
 // array position, preferenced providers first in saved order, unpreferenced ones
 // appended by descriptor id.
+//
+// MCPEnabled is whether Crowbar registers its own tool surface with this
+// provider, and it is a SEPARATE axis from Enabled: a provider with the tools
+// switched off still spawns, still fires its hooks and still holds a normal
+// chat — only the tools are gone. Like Enabled it is the positive reading of a
+// negatively stored flag (see AgentProviderPreference for why the DB stores the
+// negative), so a provider with no row reports true.
 type AgentProviderDTO struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"displayName"`
 	Icon        string `json:"icon"`
 	Connected   bool   `json:"connected"`
 	Enabled     bool   `json:"enabled"`
+	MCPEnabled  bool   `json:"mcpEnabled"`
 }
 
 // AgentChatEvent is the wire frame pushed on the agent-chat lifecycle WebSocket

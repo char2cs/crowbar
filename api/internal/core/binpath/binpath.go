@@ -50,9 +50,16 @@ func resolve(
 	}
 	for _, dir := range dirs {
 		candidate := filepath.Join(dir, name)
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+		if isExecutableFile(candidate) {
 			return candidate
 		}
 	}
 	return name
+}
+
+func isExecutableFile(
+	path string,
+) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
 }

@@ -149,7 +149,14 @@ describe('agent-chats-slice', () => {
     s.getState().setAgentChatWorking('c1', false)
     expect(s.getState().agentChats.working.c1).toBe(false)
     s.getState().setAgentProviders([
-      { id: 'claude', displayName: 'Claude', icon: '<svg/>', connected: true, enabled: true },
+      {
+        id: 'claude',
+        displayName: 'Claude',
+        icon: '<svg/>',
+        connected: true,
+        enabled: true,
+        mcpEnabled: true,
+      },
     ])
     expect(s.getState().agentChats.providers).toHaveLength(1)
     s.getState().setActiveAgentChatId('c1')
@@ -313,6 +320,7 @@ describe('agent-chats-slice', () => {
       icon: '',
       connected: true,
       enabled,
+      mcpEnabled: true,
     })
     const s = {
       agentChats: {
@@ -326,7 +334,14 @@ describe('agent-chats-slice', () => {
     const s = {
       agentChats: {
         providers: [
-          { id: 'codex', displayName: 'Codex', icon: '', connected: true, enabled: false },
+          {
+            id: 'codex',
+            displayName: 'Codex',
+            icon: '',
+            connected: true,
+            enabled: false,
+            mcpEnabled: true,
+          },
         ],
       },
     } as unknown as WorkspaceState

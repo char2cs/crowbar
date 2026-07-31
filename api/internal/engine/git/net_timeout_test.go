@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
@@ -20,6 +21,11 @@ import (
 // else to the real git, simulating a remote whose TCP connection has gone
 // dead — the observed production failure where a stalled fetch held the
 // per-repo mutex for the OS retransmission timeout (~15 min).
+//
+// The invalidation is what makes the PATH shim bite. The git binary is
+// resolved once per process and cached, so a PATH change made after some
+// earlier test in this package already ran git would otherwise be invisible
+// and the real git would run — passing in isolation and failing in the suite.
 func installStallingGit(
 	t *testing.T,
 ) {
@@ -34,6 +40,8 @@ func installStallingGit(
 	)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755))
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	binpath.InvalidateGit()
+	t.Cleanup(binpath.InvalidateGit)
 }
 
 // Both tests below drive a deliberately STALLING git against a real repo, and both

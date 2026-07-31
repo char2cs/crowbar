@@ -20,6 +20,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -91,7 +92,7 @@ func newContainerDeps(
 func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
 
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
 	require.NoError(t, err)
 
 	assert.NotNil(t, c.Project)
@@ -106,9 +107,119 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	assert.NotNil(t, c.Agent)
 }
 
+// TestContainer_AgentToolDepsWireEveryToolGroup is the wiring guard.
+//
+// agenttools registers no tool whose port is nil, so a group the container forgets
+// to hand a dependency to simply does not exist — and the only symptom in a running
+// daemon is an agent with fewer tools than it should have, which nothing logs and no
+// unit test in agenttools can see (its own fixtures supply their own deps). This
+// asserts the PRODUCTION Deps, built by the real newAgentToolDeps over the real
+// repositories, advertises the complete surface by name.
+//
+// Chats and ChatLogs are filled in the way production fills them: agent.New
+// assigns the usecase to itself as both the ChatRenamer and the ChatLogReader
+// (see its doc comment), so c.Agent is the exact value the running daemon's
+// Deps carries for either port.
+func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
+	repos, gormStores, eng := newContainerDeps(t)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	require.NoError(t, err)
+
+	minter, err := agenttools.NewTokenMinter()
+	require.NoError(t, err)
+	deps, err := usecases.NewAgentToolDepsForTest(minter, repos, c.BranchReview, noopThreadBroadcast)
+	require.NoError(t, err)
+	deps.Chats = c.Agent
+	deps.ChatLogs = c.Agent
+
+	names := []string{}
+	for _, tool := range agenttools.NewToolSet(deps, "RUN", minter.Mint("RUN")).Tools() {
+		names = append(names, tool.Name)
+	}
+	require.ElementsMatch(t, []string{
+		"set_chat_title",
+		"list_review_threads",
+		"get_review_scope",
+		"post_review_comment",
+		"reply_to_review_thread",
+		"resolve_review_thread",
+		"list_workspaces",
+		"get_chat_log",
+	}, names, "the production agent tool surface is incomplete — a port is unwired in newAgentToolDeps")
+}
+
+// TestContainer_AgentToolMetricsAreReadableFromTheContainer closes the loop the
+// counters were missing: they were recorded into an instance buried inside
+// agenttools.Deps, which nothing outside the tool surface could reach, so the
+// number instrumentation exists to produce was unobtainable in a running daemon.
+//
+// The stimulus goes through DispatchMCP — the daemon's only entry point to the
+// tool surface — rather than through a Metrics the test made itself, because the
+// whole failure mode being guarded is an accessor wired to a DIFFERENT instance
+// than production records through. A forged token is fine as the stimulus: a
+// rejected call is counted too, and it is the datum this counter most exists for.
+func TestContainer_AgentToolMetricsAreReadableFromTheContainer(t *testing.T) {
+	repos, gormStores, eng := newContainerDeps(t)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	require.NoError(t, err)
+
+	require.Empty(t, c.AgentToolMetrics(), "a daemon that has served no tool call has nothing to report")
+
+	_, _, err = c.Agent.DispatchMCP(context.Background(), "RUN", "forged-token", []byte(
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"set_chat_title","arguments":{"title":"x"}}}`))
+	require.NoError(t, err, "a rejected tool call is an RPC-level error, not a dispatch failure")
+
+	require.Equal(t,
+		map[string]agenttools.ToolStat{"set_chat_title": {Calls: 1, Failures: 1}},
+		c.AgentToolMetrics())
+}
+
+// A missing port is a failed start, not a silently narrowed tool list.
+func TestContainer_AgentToolDeps_RefusesAPartialSurface(t *testing.T) {
+	repos, _, _ := newContainerDeps(t)
+	minter, err := agenttools.NewTokenMinter()
+	require.NoError(t, err)
+	review := stubReviewReaderForContainer{}
+
+	_, err = usecases.NewAgentToolDepsForTest(minter, repos, nil, noopThreadBroadcast)
+	require.Error(t, err, "no review reader")
+
+	_, err = usecases.NewAgentToolDepsForTest(minter, repos, review, nil)
+	require.Error(t, err, "no thread broadcaster")
+
+	_, err = usecases.NewAgentToolDepsForTest(nil, repos, review, noopThreadBroadcast)
+	require.Error(t, err, "no token minter")
+
+	bare := &repositories.Container{}
+	_, err = usecases.NewAgentToolDepsForTest(minter, bare, review, noopThreadBroadcast)
+	require.Error(t, err, "no repository stores")
+}
+
+// noopThreadBroadcast stands in for the app layer's hub adapter. These tests build
+// the usecases container without the api layer, and what the fan-out DOES is proved
+// in the agenttools package; here it only has to be non-nil so the wiring is complete.
+func noopThreadBroadcast(_ domain.ReviewThread, _, _ string) {}
+
+type stubReviewReaderForContainer struct{}
+
+func (stubReviewReaderForContainer) GetScope(
+	_ context.Context,
+	_ domain.Workspace,
+) (gitdomain.ReviewScope, error) {
+	return gitdomain.ReviewScope{}, nil
+}
+
+func (stubReviewReaderForContainer) GetOutline(
+	_ context.Context,
+	_ string,
+	_ string,
+) ([]gitdomain.FileOutline, error) {
+	return nil, nil
+}
+
 func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
 	require.NoError(t, err)
 
 	dir := t.TempDir()
@@ -127,7 +238,7 @@ func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 
 func TestContainer_Import_ResolvesDefaultBranchViaRealGit(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
 	require.NoError(t, err)
 
 	root := t.TempDir()

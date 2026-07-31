@@ -150,23 +150,39 @@ describe('agent-api', () => {
     expect(p).toEqual([])
   })
 
-  // The enriched read carries the two new provider facts the FE now leans on:
-  // `connected` (is the CLI installed) and `enabled` (is the provider offered).
-  it('listProviders maps connected + enabled', async () => {
+  // The enriched read carries the three provider facts the FE leans on:
+  // `connected` (is the CLI installed), `enabled` (is the provider offered) and
+  // `mcpEnabled` (may its agent use Crowbar's own tools).
+  it('listProviders maps connected + enabled + mcpEnabled', async () => {
     apiFetch.mockResolvedValueOnce([
-      { id: 'codex', displayName: 'Codex', icon: '<svg/>', connected: true, enabled: true },
+      {
+        id: 'codex',
+        displayName: 'Codex',
+        icon: '<svg/>',
+        connected: true,
+        enabled: true,
+        mcpEnabled: false,
+      },
     ])
     const out = await api.listProviders('w1')
-    expect(out[0]).toMatchObject({ id: 'codex', connected: true, enabled: true })
+    expect(out[0]).toMatchObject({ id: 'codex', connected: true, enabled: true, mcpEnabled: false })
   })
 
-  // A provider row that omits the two flags defaults to enabled (spec §3.1: a
-  // provider with no stored preference is enabled) and NOT connected (install is
-  // never assumed) — so the FE never treats an unknown provider as disabled.
-  it('listProviders defaults a missing enabled to true and connected to false', async () => {
+  // A provider row that omits the flags defaults to enabled (spec §3.1: a
+  // provider with no stored preference is enabled), NOT connected (install is
+  // never assumed), and with its tool surface ON — so the FE never treats an
+  // unknown provider as disabled, and never silently strips Crowbar's tools from
+  // a daemon whose payload predates the field. The backend stores the NEGATIVE
+  // (mcpDisabled), so absent means on.
+  it('listProviders defaults missing enabled + mcpEnabled to true and connected to false', async () => {
     apiFetch.mockResolvedValueOnce([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
     const out = await api.listProviders('w1')
-    expect(out[0]).toMatchObject({ id: 'claude', connected: false, enabled: true })
+    expect(out[0]).toMatchObject({
+      id: 'claude',
+      connected: false,
+      enabled: true,
+      mcpEnabled: true,
+    })
   })
 
   // The global preferences write: PUTs the FULL ordered set (index = priority) to
@@ -178,8 +194,8 @@ describe('agent-api', () => {
       { id: 'claude', displayName: 'Claude', icon: '', connected: true, enabled: false },
     ])
     const out = await api.updateProviderPreferences([
-      { id: 'codex', disabled: false },
-      { id: 'claude', disabled: true },
+      { id: 'codex', disabled: false, mcpDisabled: true },
+      { id: 'claude', disabled: true, mcpDisabled: false },
     ])
     expect(apiFetch).toHaveBeenCalledWith(
       '/v0/settings/agent/providers',
@@ -187,8 +203,8 @@ describe('agent-api', () => {
         method: 'PUT',
         body: JSON.stringify({
           providers: [
-            { id: 'codex', disabled: false },
-            { id: 'claude', disabled: true },
+            { id: 'codex', disabled: false, mcpDisabled: true },
+            { id: 'claude', disabled: true, mcpDisabled: false },
           ],
         }),
       }),
@@ -199,7 +215,9 @@ describe('agent-api', () => {
 
   it('updateProviderPreferences returns [] when the backend responds with no body', async () => {
     apiFetch.mockResolvedValueOnce(undefined)
-    const out = await api.updateProviderPreferences([{ id: 'codex', disabled: false }])
+    const out = await api.updateProviderPreferences([
+      { id: 'codex', disabled: false, mcpDisabled: false },
+    ])
     expect(out).toEqual([])
   })
 

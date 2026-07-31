@@ -17,11 +17,15 @@ import (
 // what records the death: it Exits the runner AND closes the turn the CLI abandoned
 // (nothing else will — the turn_stop hook died with the process). But that callback
 // runs on the terminal engine's REAP goroutine, and the shutdown sequence used to
-// close the DBs without ever waiting for it. The race was lost in production:
+// close the DBs without ever waiting for it. The race was lost in production, and it
+// announced itself in the log as the reap path failing against a store already gone:
 //
-//	WARN agent: close abandoned turn: get chat … err="sql: database is closed"
+//	WARN agent: close abandoned turn: … err="sql: database is closed"
 //
-// and losing it is worse than a lost log line, because the two writes fall on
+// (that line read "get chat" when it was captured; closeAbandonedTurn no longer reads
+// the chat at all — the surviving warning is "abandon turn". The failure is the same.)
+//
+// Losing it is worse than a lost log line, because the two writes fall on
 // opposite sides of the close: the runner's Exit COMMITS (its live row is gone),
 // while the turn is NOT closed. The chat is left Working — and on the next boot,
 // ReconcileRunnersOnBoot finds NO live runner row for that chat, so it has nothing to

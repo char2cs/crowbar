@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -116,55 +117,81 @@ func TestGetFiles_JoinsALiveFlight(t *testing.T) {
 	assert.Equal(t, int64(1), git.invocations.Load())
 }
 
-// TestGetFiles_SingleFlightsConcurrentCallers exercises the real shape: a burst
-// of N concurrent callers for one workspace. The assertion is a bound rather
-// than "exactly one" because the moment a caller registers on the flight is not
-// observable from outside singleflight — a caller can lose the race between
-// being launched and reaching the registry, and asserting == 1 here flakes
-// (confirmed at -count=5). TestGetFiles_JoinsALiveFlight pins the exact-one
-// case on a signal that IS observable; this test pins that a burst collapses
-// and that every caller gets the same correct answer.
+// TestGetFiles_SingleFlightsConcurrentCallers scales TestGetFiles_JoinsALiveFlight
+// from one joiner to N-1 and asserts the exact count, not a bound.
+//
+// It used to launch a burst of goroutines and assert only `invocations <
+// callers`, because "the caller has reached the flight registry" was thought to
+// be unobservable. It is observable, and this file already names the signal:
+// scopeOf calls DoChan — which registers under the group's lock before it
+// returns — BEFORE the select that observes ctx.Done(), so a caller handed an
+// already-cancelled context cannot return until it has provably attached. The
+// return IS the barrier.
+//
+// The old shape flaked because launched.Done() fires BEFORE GetFiles, so
+// launched.Wait() proved only that the goroutines had been scheduled. Releasing
+// the leader then deleted the key, and every caller not yet inside started a
+// fresh flight — 8 invocations under enough CPU contention. Attaching each
+// joiner one at a time on a real barrier removes the race rather than widening
+// the tolerance for it.
 func TestGetFiles_SingleFlightsConcurrentCallers(t *testing.T) {
 	const callers = 8
 
 	git := newBlockingGit(callers)
+	// Park only the leader. Should dedup ever break, the stray invocation
+	// returns immediately and is counted, rather than parking and deadlocking
+	// the test it was meant to fail.
+	git.parkLimit = 1
 	git.files = []gitdomain.ReviewFileSummary{
 		{Path: "a.go", Status: gitdomain.GitFileStatusModified, Additions: 3, Deletions: 1},
 		{Path: "b.go", Status: gitdomain.GitFileStatusAdded, Additions: 7},
 	}
 	uc := newTestUsecase(workspacesByID(), noopThreads(), mocks.NewRepositoryStore(), git.engine())
 
-	results := make([][]gitdomain.ReviewFileSummary, callers)
-	errs := make([]error, callers)
-	var launched, done sync.WaitGroup
-	launched.Add(callers)
-	done.Add(callers)
-	for i := range callers {
-		go func() {
-			defer done.Done()
-			launched.Done()
-			results[i], errs[i] = uc.GetFiles(context.Background(), "ws1", "")
-		}()
-	}
-
-	launched.Wait()
+	var leaderFiles []gitdomain.ReviewFileSummary
+	var leaderErr error
+	leaderDone := make(chan struct{})
+	go func() {
+		defer close(leaderDone)
+		leaderFiles, leaderErr = uc.GetFiles(context.Background(), "ws1", "")
+	}()
 	<-git.entered
-	close(git.release)
-	done.Wait()
 
-	invocations := git.invocations.Load()
-	assert.Positive(t, invocations)
-	assert.Less(t, invocations, int64(callers),
-		"a burst of concurrent callers for one workspace must collapse into shared computations")
-	for i := range callers {
-		require.NoError(t, errs[i])
-		assert.Equal(t, git.files, results[i], "every caller must receive the same correct answer")
+	for range callers - 1 {
+		_, err := uc.GetFiles(cancelledContext(), "ws1", "")
+		require.ErrorIs(t, err, context.Canceled)
+		assert.Equal(t, int64(1), git.invocations.Load(),
+			"every caller arriving during a live flight must join it, not start another")
 	}
 
-	// Waiters must not alias one mutable slice: one caller editing its result
-	// would otherwise silently corrupt every other caller's.
-	results[0][0].Additions = 9999
-	assert.Equal(t, 3, results[1][0].Additions, "waiters must not share one backing array")
+	close(git.release)
+	<-leaderDone
+
+	require.NoError(t, leaderErr)
+	assert.Equal(t, git.files, leaderFiles, "the leader must still receive the correct answer")
+	assert.Equal(t, int64(1), git.invocations.Load(),
+		"a burst of callers for one workspace must collapse into exactly one computation")
+}
+
+// TestSharedScope_ClonesPerWaiter replaces the aliasing assertion the burst test
+// used to carry. Waiters must not alias one mutable slice — one caller editing
+// its result would silently corrupt every other caller's — but that property
+// belongs to sharedScope's slices.Clone, which is a pure function. Two calls on
+// one flight result prove it without racing anything.
+func TestSharedScope_ClonesPerWaiter(t *testing.T) {
+	files := []gitdomain.ReviewFileSummary{
+		{Path: "a.go", Status: gitdomain.GitFileStatusModified, Additions: 3, Deletions: 1},
+	}
+	first, err := branchreview.SharedScope("base-sha", files)
+	require.NoError(t, err)
+	second, err := branchreview.SharedScope("base-sha", files)
+	require.NoError(t, err)
+
+	first.Files[0].Additions = 9999
+
+	assert.Equal(t, 3, second.Files[0].Additions, "waiters must not share one backing array")
+	assert.Equal(t, 3, files[0].Additions, "the flight's own slice must not be mutable through a waiter")
+	assert.Equal(t, "base-sha", second.Base)
 }
 
 func TestGetFiles_SeparateWorkspacesDoNotShare(t *testing.T) {

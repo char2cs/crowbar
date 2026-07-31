@@ -1,18 +1,22 @@
 //go:build integration
 
-// This file closes Task 8's e2e gap for the chat-title feature: neither
-// agent_test.go nor agent_gaps_test.go ever drives the REAL `crowbar chat
-// rename` binary or a REAL `user_prompt` hook POST against the running daemon
-// and reads a title back — internal/app/usecases/agent/rename_test.go's
-// TestRenameChat_Precedence and TestIngestHook_UserPrompt_SetsDerivedTitle
-// already prove RenameChat's precedence rules and deriveTitle's wiring at the
-// usecase level, in-process, with a fakeCommander standing in for the real
-// vendor CLI. What has never been proven is the OS-process boundary: that the
-// actual compiled `crowbar` binary — the exact one a real agent would exec
-// following its injected title_instruction, and the exact one a real vendor
-// CLI's hook config shells out to on every prompt — reaches this package's
-// real unix-socket daemon and the title lands, read back through
+// This file closes the e2e gap for the DERIVED half of chat titling: neither
+// agent_test.go nor agent_gaps_test.go ever drives a REAL `user_prompt` hook POST
+// against the running daemon and reads a title back —
+// internal/app/usecases/agent/rename_test.go's TestRenameChat_Precedence and
+// TestIngestHook_UserPrompt_SetsDerivedTitle already prove RenameChat's precedence
+// rules and deriveTitle's wiring at the usecase level, in-process, with a
+// fakeCommander standing in for the real vendor CLI. What only this file proves is
+// the OS-process boundary: that the actual compiled `crowbar` binary — the exact one
+// a real vendor CLI's hook config shells out to on every prompt — reaches this
+// package's real unix-socket daemon and the title lands, read back through
 // Usecases.Agent.GetChat exactly as the API layer would.
+//
+// It used to cover an AGENT-driven half too, by exec'ing `crowbar chat rename`. That
+// subcommand is gone: titling is the set_chat_title MCP tool now, and the shell path
+// COMPETED with it — handed both, a model would read the tool list and then type the
+// command instead, which is what made the tool's compliance unmeasurable.
+// agent_mcp_test.go covers the tool against a real CLI.
 package agent_test
 
 import (
@@ -94,54 +98,6 @@ func settleTitle(
 	h *harness,
 ) {
 	h.app.Repositories.WaitQuiescent()
-}
-
-// TestAgent_CrowbarChatRename_SetsTitle proves the agent-facing command path:
-// invoking the REAL `crowbar chat rename` binary — an OS subprocess, not an
-// in-process usecase call — against the running daemon updates the
-// AgentChat's title with agent precedence (source=agent), read back through
-// Usecases.Agent.GetChat exactly as the API/FE layer would. This is the exact
-// binary + argv (`crowbar chat rename <chatid> "<title>"`) a real agent would
-// run after reading its injected title_instruction
-// (TestSpawnChat_InjectsTitleInstruction in
-// internal/app/usecases/agent/rename_test.go already proves that instruction
-// text names this exact subcommand), and the exact command cmd/crowbar/chat.go's
-// runChatRename posts to POST /v0/agent/chats/:id/rename?source=agent.
-//
-// Note runChatRename's RunE always exits 0, swallowing any daemon-reported
-// error to stderr only (cmd/crowbar/chat.go: "Run by the agent — must never
-// break its turn"), and ipc.Client.PostJSON itself never surfaces a non-2xx
-// status as a Go error either — so a clean subprocess exit here is NOT proof
-// the rename actually landed. The real assertion is the bounded read-back
-// below through GetChat.
-func TestAgent_CrowbarChatRename_SetsTitle(t *testing.T) {
-	requireCLI(t, "claude")
-	h := newHarness(t)
-	ctx := context.Background()
-
-	projectID, repoID, wsID, chatID, runnerID := mustSpawnChat(t, h, "claude")
-
-	crowbar := crowbarBinPath(t)
-	const wantTitle = "Fix The Auth Flow"
-	// `chat rename --segment <segid> <title>` — the argv the real binary now takes, and
-	// the chat id is deliberately NOT in it. The agent is never told which chat it is on:
-	// a /clear or /resume moves its CLI, and an id baked into its spawn-time instruction
-	// would then name a chat it has walked out of. It names its RUNNER, and the daemon
-	// resolves runner → its CURRENT chat at call time (cmd/crowbar/chat.go's ExactArgs(1);
-	// POST .../agent/runners/:segid/rename).
-	out, err := exec.Command(crowbar, "chat", "rename",
-		"--segment", runnerID,
-		"--project", projectID, "--repo", repoID, "--workspace", wsID,
-		wantTitle).CombinedOutput()
-	require.NoError(t, err, "exec crowbar chat rename: %s", out)
-	t.Logf("crowbar chat rename output: %q", out)
-
-	settleTitle(h)
-
-	chat, err := h.app.Usecases.Agent.GetChat(ctx, chatID)
-	require.NoError(t, err)
-	require.Equal(t, wantTitle, chat.Title,
-		"AgentChat.Title must equal the title the real crowbar chat rename binary posted")
 }
 
 // TestAgent_FirstPrompt_DerivesTitle proves the derived-title fallback end to

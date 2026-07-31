@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,12 +16,14 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/realtime"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/engine/provider"
@@ -119,7 +122,7 @@ func New(
 	// worktrees and per-entity storages land under the same root.
 	crowbarHome := adapters.CrowbarHome()
 	homeFunc := func() (string, error) { return crowbarHome, nil }
-	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines, homeFunc)
+	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines, homeFunc, agentThreadBroadcast(h))
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
 	}
@@ -205,6 +208,10 @@ func New(
 func (c *Container) Shutdown(
 	ctx context.Context,
 ) error {
+	// FIRST, before anything below can be cut short by ctx: this is the only
+	// moment the agent tool counters are ever read.
+	c.logAgentToolUsage()
+
 	c.quiesceTerminal(ctx)
 
 	drain := c.Repositories.Drain()
@@ -234,6 +241,42 @@ func (c *Container) Shutdown(
 		c.axAgentRunner.Shutdown(ctx),
 		c.axAgentChat.Shutdown(ctx),
 	)
+}
+
+// logAgentToolUsage emits the one and only read of the agent capability
+// surface's call counters, as a single line at shutdown:
+//
+//	agent tool usage this boot  tools="post_review_comment=7/1 set_chat_title=3/0"
+//
+// (tool=calls/failures, sorted, so consecutive boots diff cleanly.)
+//
+// The counters exist to settle whether agents actually USE these tools — the
+// shell command this surface replaces is known to be ignored by real models —
+// and a counter nothing reads settles nothing. Shutdown is the right and only
+// place: the numbers are cumulative over a daemon's lifetime, so this is the
+// moment they are complete. A boot that saw no tool call logs nothing rather
+// than an empty line.
+//
+// Deliberately not an HTTP route. This is a diagnostic about the daemon, not a
+// resource of the product, and nothing in the UI consumes it.
+func (c *Container) logAgentToolUsage() {
+	if c.Usecases == nil {
+		return
+	}
+	stats := c.Usecases.AgentToolMetrics()
+	if len(stats) == 0 {
+		return
+	}
+	names := make([]string, 0, len(stats))
+	for name := range stats {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, fmt.Sprintf("%s=%d/%d", name, stats[name].Calls, stats[name].Failures))
+	}
+	slog.Info("agent tool usage this boot (tool=calls/failures)", "tools", strings.Join(parts, " "))
 }
 
 // quiesceTerminal runs Shutdown's step 1 — kill the PTYs, join their exit callbacks
@@ -316,6 +359,36 @@ func reapAgentChatFiles(
 		agent.RemoveUnderHome(ctx, home, filepath.Join(chatsDir, chatID))
 		return nil
 	}
+}
+
+// agentThreadBroadcast adapts the hub into the agenttools.ThreadBroadcast seam:
+// when an agent posts a review comment, the resulting thread has to reach a review
+// pane that is already open, exactly as an HTTP-authored comment does.
+//
+// The conversion lives HERE, in the app layer, because it is the DTO boundary. The
+// review-thread repository does not fan out (its store.BroadcastFunc is a no-op)
+// and it cannot: the frame is built from domain.ReviewThread, which carries WsID but
+// no project or repo id, while the /threads stream filters on all three. Only a
+// caller holding the resolved workspace can supply them, so the aggregate crosses
+// the usecase boundary and the DTO is assembled at the layer that owns wire types.
+//
+// This does NOT double-broadcast alongside the thread handler's own push: both end
+// at the same ws.Broadcaster, but the agent path never runs the handler, and the
+// handler's path never runs this.
+func agentThreadBroadcast(
+	h threadBroadcaster,
+) agenttools.ThreadBroadcast {
+	return func(thread domain.ReviewThread, projectID, repoID string) {
+		h.BroadcastThread(dto.ThreadDTOFrom(thread, projectID, repoID))
+	}
+}
+
+// threadBroadcaster is the one hub method agentThreadBroadcast needs, narrowed to
+// it so nothing else about the hub is in scope here. *hub.Hub satisfies it.
+type threadBroadcaster interface {
+	BroadcastThread(
+		t dto.ThreadDTO,
+	)
 }
 
 func toUsecaseStores(

@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	repohandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers"
+	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -216,9 +217,17 @@ func writeFakeExe(t *testing.T, dir, name, script string) {
 }
 
 // withFakePath prepends dir to PATH for the duration of the test.
+//
+// The git binary is resolved once per process and cached, so the stub only
+// takes effect if the cached resolution is dropped alongside the PATH change —
+// otherwise the real git runs against a repo path that does not exist and the
+// stub is never consulted. gh needs no equivalent: binpath.Resolve is a fresh
+// lookup every call.
 func withFakePath(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	binpath.InvalidateGit()
+	t.Cleanup(binpath.InvalidateGit)
 }
 
 func TestFetchGithubAvatarBytes_NoOrigin_ReturnsNilNoError(t *testing.T) {

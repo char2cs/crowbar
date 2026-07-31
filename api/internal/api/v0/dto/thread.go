@@ -7,15 +7,23 @@ import (
 )
 
 // ThreadReplyDTO is the wire shape of a reply on a review thread (00 §5.5): its
-// id, the parent thread, the body, the author, the agent flag, and the creation
-// timestamp.
+// id, the parent thread, the body, the author, the agent flag, the optional
+// agent attribution, and the creation timestamp.
+//
+// ProviderID and ChatID name the vendor CLI that wrote the reply and the chat it
+// came out of, so the review UI can show which agent said what and offer a way
+// back to that conversation. Both are omitempty and both are absent for a human
+// reply and for every agent reply predating attribution — a client must fall back
+// to its generic agent rendering rather than treating an empty id as a provider.
 type ThreadReplyDTO struct {
-	ID        string    `json:"id"`
-	ThreadID  string    `json:"threadId"`
-	Body      string    `json:"body"`
-	Author    string    `json:"author"`
-	IsAgent   bool      `json:"isAgent"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID         string    `json:"id"`
+	ThreadID   string    `json:"threadId"`
+	Body       string    `json:"body"`
+	Author     string    `json:"author"`
+	IsAgent    bool      `json:"isAgent"`
+	ProviderID string    `json:"providerId,omitempty"`
+	ChatID     string    `json:"chatId,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // ThreadDTO is the wire shape of a workspace-scoped review thread (00 §5.5): the
@@ -27,6 +35,12 @@ type ThreadReplyDTO struct {
 // the client can target the root for edit by the same /messages/:messageId route
 // that addresses replies. Deleted marks a tombstone frame broadcast after a
 // thread is forgotten, so subscribed clients can drop it from their store.
+//
+// ProviderID and ChatID belong to the ROOT message, alongside its body, author
+// and agent flag — the root is flattened onto the thread rather than appearing in
+// Replies, so without them here an agent-opened thread would render attributed on
+// every reply and anonymous on the finding itself. They carry the same meaning
+// and the same absent-by-default contract as ThreadReplyDTO's.
 type ThreadDTO struct {
 	ID          string           `json:"id"`
 	ProjectID   string           `json:"projectId"`
@@ -41,6 +55,8 @@ type ThreadDTO struct {
 	Body        string           `json:"body"`
 	Author      string           `json:"author"`
 	IsAgent     bool             `json:"isAgent"`
+	ProviderID  string           `json:"providerId,omitempty"`
+	ChatID      string           `json:"chatId,omitempty"`
 	Resolved    bool             `json:"resolved"`
 	CreatedAt   time.Time        `json:"createdAt"`
 	Replies     []ThreadReplyDTO `json:"replies"`
@@ -58,28 +74,7 @@ func ThreadDTOFrom(
 	projectID string,
 	repoID string,
 ) ThreadDTO {
-	rootMessageID := ""
-	body := ""
-	author := ""
-	rootIsAgent := false
-	replies := make([]ThreadReplyDTO, 0, len(rt.Messages))
-	for i, msg := range rt.Messages {
-		if i == 0 {
-			rootMessageID = msg.ID
-			body = msg.Body
-			author = msg.Author
-			rootIsAgent = msg.IsAgent
-			continue
-		}
-		replies = append(replies, ThreadReplyDTO{
-			ID:        msg.ID,
-			ThreadID:  rt.ID,
-			Body:      msg.Body,
-			Author:    msg.Author,
-			IsAgent:   msg.IsAgent,
-			CreatedAt: msg.CreatedAt,
-		})
-	}
+	root := rootMessage(rt)
 	return ThreadDTO{
 		ID:          rt.ID,
 		ProjectID:   projectID,
@@ -90,14 +85,52 @@ func ThreadDTOFrom(
 		StartLine:   rt.StartLine,
 		EndLine:     rt.EndLine,
 		Side:        string(rt.Side),
-		MessageID:   rootMessageID,
-		Body:        body,
-		Author:      author,
-		IsAgent:     rootIsAgent,
+		MessageID:   root.ID,
+		Body:        root.Body,
+		Author:      root.Author,
+		IsAgent:     root.IsAgent,
+		ProviderID:  root.ProviderID,
+		ChatID:      root.ChatID,
 		Resolved:    rt.IsResolved(),
 		CreatedAt:   rt.CreatedAt,
-		Replies:     replies,
+		Replies:     threadReplies(rt),
 	}
+}
+
+// rootMessage is the thread's first message, or the zero message when it has
+// none — which flattens to the empty root fields a message-less thread has always
+// serialised, rather than panicking on an empty aggregate.
+func rootMessage(
+	rt domain.ReviewThread,
+) domain.ReviewMessage {
+	if len(rt.Messages) == 0 {
+		return domain.ReviewMessage{}
+	}
+	return rt.Messages[0]
+}
+
+// threadReplies converts every message AFTER the root, in order, always
+// returning a non-nil slice so the envelope carries [] rather than null.
+func threadReplies(
+	rt domain.ReviewThread,
+) []ThreadReplyDTO {
+	out := make([]ThreadReplyDTO, 0, len(rt.Messages))
+	for i, msg := range rt.Messages {
+		if i == 0 {
+			continue
+		}
+		out = append(out, ThreadReplyDTO{
+			ID:         msg.ID,
+			ThreadID:   rt.ID,
+			Body:       msg.Body,
+			Author:     msg.Author,
+			IsAgent:    msg.IsAgent,
+			ProviderID: msg.ProviderID,
+			ChatID:     msg.ChatID,
+			CreatedAt:  msg.CreatedAt,
+		})
+	}
+	return out
 }
 
 // ThreadDTOList converts a slice of ReviewThread aggregates into wire ThreadDTOs

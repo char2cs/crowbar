@@ -33,6 +33,7 @@ const CLAUDE: AgentProvider = {
   icon: '<svg></svg>',
   connected: true,
   enabled: true,
+  mcpEnabled: true,
 }
 
 beforeEach(() => {

@@ -88,12 +88,19 @@ describe('settings search index', () => {
       },
     )
 
-    it('covers both controls the tab exposes', () => {
+    it('covers every control the tab exposes', () => {
       const records = settingsSearchIndex.filter((r) => r.tab === 'providers')
       expect(records.map((r) => r.id).sort()).toEqual([
         'providers-enabled',
         'providers-priority-order',
+        'providers-tools',
       ])
+    })
+
+    // The one control whose own name is deliberately NOT the term of art: the row
+    // says "Tools", so someone who knows it as MCP can only arrive by keyword.
+    it.each(['tools', 'mcp'])('"%s" narrows to the Providers tab', (query) => {
+      expect([...tabsMatching(query)]).toContain('providers')
     })
   })
 

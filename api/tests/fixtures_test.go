@@ -181,6 +181,18 @@ func importWritableWorkspace(
 	childID, _ := created["id"].(string)
 	require.NotEmpty(t, childID, "child workspace create must broadcast an id")
 
+	// The frame above came off the HUB projection; the store/list read model is an
+	// INDEPENDENT projection that settles out of band (see
+	// repositories.Container.WaitQuiescent). Observing the frame therefore says
+	// nothing about whether the row is listable yet, so without this barrier the
+	// fixture hands back an id the list may not know — and the loser shows up as
+	// "imported workspace missing from list", or, when it is the DAEMON that reads
+	// the list (DeleteCascade indexes it by id and returns ErrNotFound), as a
+	// broadcast that never carries status "deleted" at all. Quiesce is the
+	// deterministic read-your-writes barrier: every projection folded, no polling
+	// and no timeout. macOS wins this race; Linux loses it roughly 7 times in 10.
+	h.Quiesce()
+
 	imported.workspaceID = childID
 	return imported
 }

@@ -234,16 +234,7 @@ func settleCLI(
 		// machinery below: that arm may finish on "the runner is already bound", which is
 		// a sound proof of being past a MODAL and no proof at all of being ready for a
 		// KEYSTROKE (claude binds at boot, before the UI exists). See claudeReadyNeedle.
-		ctx, cancel := context.WithTimeout(context.Background(), backstop)
-		defer cancel()
-		kit.Await(t, ctx, provider+" to paint its composer (ready for input)",
-			func() (bool, bool) {
-				if tap.Contains(claudeReadyNeedle) {
-					return true, true
-				}
-				requireCLIAlive(t, h, tap, termSessID, provider, "while coming back up on --resume")
-				return false, false
-			}, tap.Signal())
+		awaitComposer(t, h, tap, termSessID, provider, "while coming back up on --resume")
 		return
 	}
 	if needle == "" {
@@ -277,6 +268,62 @@ func settleCLI(
 			t.Fatalf("settleCLI: acknowledge %s's %q: %v", provider, needle, err)
 		}
 	}
+	if provider != "claude" {
+		return
+	}
+	// ANSWERING claude's trust dialog is not the same as being ready for a keystroke,
+	// and this is the second place the claudeReadyNeedle trap bites. Acknowledging the
+	// dialog makes claude REMOUNT — it tears down the dialog and brings up the REPL —
+	// and Ink drains whatever is already in the tty when the new UI takes the keyboard.
+	// A prompt written into that gap is DISCARDED, leaving a fully booted claude with an
+	// EMPTY composer, which looks exactly like one that is thinking; drive() then waits
+	// out its whole backstop for an echo that can never come.
+	//
+	// Verified against 2.1.220 on a bare pty, both ways round: typing straight after the
+	// acknowledging Enter never echoes (claude does not even repaint), while waiting for
+	// the footer first echoes the full prompt. Only claude is affected — a fresh codex
+	// answered the same way echoes in 0.02s, which is why this is provider-scoped rather
+	// than applied to every CLI.
+	//
+	// No test hit this before because every existing claude driver crosses
+	// awaitSessionBound first, and that wait happens to outlast the remount.
+	awaitComposer(t, h, tap, termSessID, provider, "while mounting its composer")
+}
+
+// awaitComposer blocks until claude has painted its interactive FOOTER — the proof
+// that its REPL has mounted and therefore has the keyboard. See claudeReadyNeedle
+// for why nothing weaker will do, and settleCLI for the two states that need it.
+//
+// It is CLAUDE-ONLY, and it says so out loud rather than trusting its caller. The
+// needle it waits for is claude's footer and nothing else, so handing it any other
+// provider would wait for text that CLI never paints — a hang until the backstop,
+// reported as "the CLI never became ready", which is the most misleading failure this
+// suite can produce. A future codex caller needs codex's own ready needle, not this
+// function, and this is where that has to be noticed.
+func awaitComposer(
+	t *testing.T,
+	h *harness,
+	tap *kit.PTYTap,
+	termSessID string,
+	provider string,
+	when string,
+) {
+	t.Helper()
+	if provider != "claude" {
+		t.Fatalf("awaitComposer: only claude's composer needle (%q) is known; %q needs its own "+
+			"ready needle rather than this wait, which would hang until the backstop",
+			claudeReadyNeedle, provider)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), backstop)
+	defer cancel()
+	kit.Await(t, ctx, provider+" to paint its composer (ready for input)",
+		func() (bool, bool) {
+			if tap.Contains(claudeReadyNeedle) {
+				return true, true
+			}
+			requireCLIAlive(t, h, tap, termSessID, provider, when)
+			return false, false
+		}, tap.Signal())
 }
 
 // requireCLIAlive fails the test — immediately, and with the screen the CLI died on —
