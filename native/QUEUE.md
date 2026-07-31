@@ -25,6 +25,9 @@ Recorded because a cold session will otherwise rediscover them the hard way.
 | `bun` | `~/.bun/bin/bun`, also off the default PATH |
 | Zed | `/Applications/Zed.app` present (stable channel) — used by the §10.4 AX spike |
 | Network | reachable |
+| `go build` of a **main** package | fails with `error obtaining VCS status: exit status 128` — Go's buildvcs stamping walks up and finds the parent repo's working tree. **Always pass `-buildvcs=false`.** Pre-existing and environmental; reproduces on a pristine checkout at this path. |
+| `go build ./...` untagged | fails at `cmd/crowbar/web_embed.go`: `pattern all:web/dist: no matching files found`. Needs `make embed-web` first, or the repo's canonical `-tags noEmbed`. Also pre-existing. |
+| Vendored gpui build cost | ~455 crates, **6m41s** cold release, **1.2 GB** of `target/`. Budget for it. |
 | Running daemon | a `crowbar-api` from the **`feature/crowbar-skill` worktree** is live on a temp socket. It is **not** this port's daemon; do not reuse it for parity runs. |
 
 ### The shared `CROWBAR_HOME` for parity runs (item 0.4)
@@ -512,6 +515,72 @@ under my own run.
 > Rust client that trusted the store names would key `workspace-hierarchy`
 > wrongly and silently lose hierarchy on every repo with more than one
 > workspace.
+
+#### Wire contract — what `crowbar-client` must implement
+
+```
+GET /v0/settings/ui?scope=<scope>
+  200 {"success":true,"data":{...}}     # {} when nothing stored — NEVER 404
+  400 bad or missing scope
+
+PUT /v0/settings/ui?scope=<scope>       Content-Type: application/json
+  body: a JSON object, stored verbatim, replaces wholesale
+  200 {"success":true,"data":{...}}     # echoes what was stored
+  400 non-object body (array/scalar/null/malformed/empty) or bad scope
+  413 body > 262144 bytes
+  500 store failure
+```
+
+`scope` ∈ `global` | `repo:<repoId>` | `workspace:<workspaceId>`. Ids are 1–64
+chars of `[A-Za-z0-9._-]`; the whole scope string ≤ 128. Anything else is `400`
+on **both** verbs.
+
+Evidence for the three-way split, from `web/src/lib/persistence/`:
+`ui-preferences.ts` and `sidebar-ui.ts` both `db.put(…, 'global')`;
+`workspace-hierarchy.ts` keys on `repoId`; only `workspace-layout.ts` keys on
+`workspaceId`.
+
+#### The 256 KiB cap is load-bearing architecture, not a round number
+
+I verified the reasoning behind it because it encodes a real constraint.
+`WorkspaceLayout.buffers` is `PaneContent[]`, and in
+`features/panes/types/pane-content.ts`:
+
+```ts
+export interface EditorContent extends PaneContentBase {
+  content: string        // full file text
+  savedContent: string   // ...and a second full copy
+```
+
+plus `TokenEntry[]`, a syntax-highlighting cache. **Every open editor tab
+persists two complete copies of its file, plus tokens.** That is why today's
+persisted layout blob reaches megabytes.
+
+The cap is deliberately set *below* what that blob reaches. So the native client
+**cannot** port `workspace-layout` as-is — it is forced to persist *references*
+(path, cursor, scroll, pinned/preview flags) and let the daemon own file
+content, which is the correct architecture and the one D6 implies anyway.
+Treat a `413` here as the design working, not as a limit to raise.
+
+Real payloads for the other three stores are tiny (`UIPreferences` is 6 scalars,
+`SidebarUI` two id lists, `WorkspaceHierarchy` `{wsId,parentId}` pairs), so the
+cap is ~25× the largest realistic value for them.
+
+#### Concurrency — the mutex is not decorative
+
+Per-scope `sync.Map` of mutexes. GORM's `Save` emits `UPDATE …` and only falls
+back to a separate `INSERT` when it matches zero rows, so **two first-writes to
+a fresh scope can both see zero rows and both insert.** Removing the mutex makes
+`TestPutUI_SameScopeWritesAreSerialised` fail with observed overlap 4. Distinct
+scopes never contend — proven by a rendezvous test that deadlocks if they shared
+a lock.
+
+#### Known gap, deliberately left
+
+Nothing reaps `workspace:<id>` scopes when a workspace is deleted. Rows are a
+few hundred bytes and orphans are inert. `DELETE /v0/settings/ui` is the obvious
+follow-up if the cascade should reap them — **not** done, and recorded rather
+than silently skipped.
 
 > **Pre-existing red gate, verified by me at HEAD — not inherited from 0.6.**
 > `TestRouteAudit_AllSpecRoutesRegistered` (build tag `integration`) fails on a
