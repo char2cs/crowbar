@@ -280,7 +280,7 @@ the differ will never confirm or deny them — **say so in any report**.
 
 | React / Tailwind | gpui | Note |
 |---|---|---|
-| the `::after` hit strip, at rest and on hover | a `.absolute()` child, `bg` only when hovered | no DOM node, and §3's pseudo shortcut is invalid here. **This is the whole of the component's hover state** |
+| the `::after` hit strip, at rest and on hover | a `.absolute()` child, `bg` only when hovered | no DOM node, and §3's pseudo shortcut is invalid here. **This is the whole of the component's hover state.** Unanchored means untestable through the oracle, so its layout was measured once by hand — temporary anchor, read back, removed: horizontal `x 75.5, 6×160` against a separator at `x 78, 1×160`; vertical `y 57, 600×6` against `y 60, 600×1`. The numbers are in `hit_strip`'s doc comment, because no gate would notice if they stopped being true |
 | `focus-visible:ring-1 ring-ring` | a `BoxShadow` inserted via `Styled::style` | §6: shadows are not representable. **This is the whole of the component's focus state** |
 | `z-10` on the grip | nothing | §6 excludes paint order |
 

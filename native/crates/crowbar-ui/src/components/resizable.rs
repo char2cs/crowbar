@@ -543,6 +543,18 @@ impl ResizablePanelGroup {
     /// takes no room in the flex layout. Painted for fidelity and **not anchored**
     /// — `HandleState::hovered` says why, and `native/MAPPING.md` records it as the
     /// one thing on this surface the differ cannot be shown.
+    ///
+    /// Because it is unanchored it is also **untestable through the oracle**, so
+    /// its layout was measured once by hand — a temporary anchor, read back, and
+    /// removed — rather than left as an assumption:
+    ///
+    /// | group | separator | strip | |
+    /// |---|---|---|---|
+    /// | horizontal | `x 78, 1×160` | `x 75.5, 6×160` | centred on the separator's centre, 78.5 |
+    /// | vertical | `y 60, 600×1` | `y 57, 600×6` | centred on the separator's **top edge**, 60 — the half-pixel [`HIT_TOP`] describes |
+    ///
+    /// Recorded here because there is no gate that would notice if it stopped
+    /// being true.
     fn hit_strip(theme: &Theme, orientation: Orientation, state: HandleState) -> Div {
         let element = div().absolute();
         let element = match orientation {
