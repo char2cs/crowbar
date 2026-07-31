@@ -278,6 +278,26 @@ func aerospaceWindows(binary: String, pid: Int32) -> [(id: Int, workspace: Strin
     }
 }
 
+/// Make the app frontmost *and* its window key.
+///
+/// `NSRunningApplication.activate` is not enough, and its return value says so
+/// only by lying: it returned `true` while `document.hasFocus()` in the target
+/// webview stayed `false`. A window that is not key defeats far more than it
+/// looks like it should — `:focus` does not match there even when
+/// `document.activeElement` is the element you focused, so a `focus` capture
+/// taken in that state silently measures the wrong thing.
+///
+/// Under a tiling window manager the WM owns focus as well as placement, so ask
+/// it first and keep `activate` as the fallback for a machine without one. The
+/// caller should still confirm with `document.hasFocus()`: neither route
+/// reports failure.
+func focusWindow(pid: Int32, windowID: Int) {
+    if let binary = aerospaceBinary() {
+        runTool(binary, ["focus", "--window-id", String(windowID)])
+    }
+    NSRunningApplication(processIdentifier: pid)?.activate(options: [])
+}
+
 /// Wait until the window is really where it was asked to go.
 ///
 /// AeroSpace moves windows through the Accessibility API, which is asynchronous
@@ -336,6 +356,23 @@ case "activate":
     // the same origin, so "the window at (262,122)" is not a unique thing to
     // point at. Activating by pid makes the intended app frontmost, and the
     // caller confirms it landed by checking that its own page recorded the move.
+    // ITS `true` IS NOT A PROMISE THE WINDOW IS KEY.
+    //
+    // Observed directly: this printed `-> true` while `document.hasFocus()` in
+    // the target webview was `false`, and stayed false across repeated calls.
+    // Activation makes the *application* frontmost; under a tiling window
+    // manager the WM decides which window is key, and it had focused something
+    // else. Only `aerospace focus --window-id` fixed it.
+    //
+    // That gap is worth more than it looks. A window that is not key does not
+    // match `:focus` at all — `document.activeElement` is still the element you
+    // focused, `:focus-visible` is quietly false, and a `focus` capture taken
+    // there measures a resting row while claiming to be a focused one. `place`
+    // and `point` therefore go through `focusWindow`, which asks the WM first.
+    // This command is left as the thin wrapper it always was, for callers that
+    // want exactly `NSRunningApplication.activate` and nothing else.
+    //
+    // Whichever you use, confirm on the page with `document.hasFocus()`.
     guard args.count == 3, let pid = Int32(args[2]) else {
         fail("usage: refdrive.swift activate <pid>")
     }
@@ -343,7 +380,7 @@ case "activate":
         fail("no running application with pid \(pid)")
     }
     let ok = app.activate(options: [])
-    print("activate pid=\(pid) -> \(ok) (bundle=\(app.bundleIdentifier ?? "?"))")
+    print("activate pid=\(pid) -> \(ok) (bundle=\(app.bundleIdentifier ?? "?")) — `true` does not mean the window is key; check document.hasFocus()")
 
 case "hoverpid":
     // Last resort for a machine whose screen is locked.
@@ -444,7 +481,7 @@ case "point":
     }
     // Frontmost first: an inactive app is not sent mouse-moved at all, so the
     // tracking-area event would be generated and discarded.
-    NSRunningApplication(processIdentifier: pid)?.activate(options: [])
+    focusWindow(pid: pid, windowID: before.id)
     movePointer(to: CGPoint(x: x, y: y))
     guard let binary = aerospaceBinary() else {
         fail("""
@@ -638,7 +675,7 @@ case "place":
     // Frontmost as well as visible. `hover` needs the app active — see
     // `activate` — and having placed the window it is a footgun to leave that
     // to a separate step the caller may forget.
-    NSRunningApplication(processIdentifier: pid)?.activate(options: [])
+    focusWindow(pid: pid, windowID: landed.id)
     print("place pid=\(pid) workspace=\(workspace) -> id=\(landed.id) \(landed.frame)")
 
 default:
