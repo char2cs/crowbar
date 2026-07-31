@@ -1,3 +1,43 @@
+# The anchor snapshot contract — v1.5
+
+> **v1.5 — 2026-07-31. `content_sized`, and why it is a correction rather than a
+> loosened tolerance.** Measured on the live gate pair, not inferred.
+>
+> **The observation.** GPUI `ceil()`s a text run's max-content width
+> (`elements/text.rs`: `size.width = size.width.max(line_size.width).ceil()`)
+> where Blink keeps fractional LayoutUnits. On the gate row both content-sized
+> boxes came out **exactly** `ceil(reference)` — `74.11 → 75`, `11.16 → 12`.
+>
+> **Why not just widen the tolerance.** The error is strictly one-directional —
+> `ceil` can only make native wider — so a symmetric tolerance spends half its
+> slack on an error that cannot occur. And it is not actionable: if the engine
+> ceils, it **cannot produce** a fractional content width, so "is native within
+> ±0.5 of Blink's fraction" asks a question the engine is incapable of answering
+> correctly.
+>
+> **The new field.** An anchor may carry `"content_sized": true`. For those,
+> `bounds.w` compares against **`ceil(reference.w)`**, with the normal ±0.5
+> around it — so a genuine sub-pixel width error is *still caught*, which is
+> exactly what a looser tolerance would have given away.
+>
+> **It is DECLARED, never detected.** Detection is a heuristic on both sides
+> (`width: auto` and not-a-stretched-flex-item in the DOM; `width: None` plus a
+> text child in GPUI — both falsifiable by flex-grow). Two extractors each
+> guessing is the silent divergence this file exists to prevent, and a mis-guess
+> is invisible: it opens a blind spot or invents a delta and announces neither.
+> Content-sizing is a property of the *component*, which already authors its own
+> anchors on both sides, so it is an authored argument
+> (`anchor_content_sized(…)` / `data-oracle-content-sized`).
+>
+> **The knock-on allowance, and why it needs no tree.** The ceil excess is
+> **absorbed, not propagated**: measured, the flexible sibling shrank by exactly
+> the summed excess (−1.73 against +0.89 +0.84) and the trailing group's right
+> edge was **identical on both sides**. So the layout conserves the total. Every
+> other geometry field in the same snapshot therefore gets an extra allowance of
+> **Σ(ceil excess) over the anchors declared `content_sized` in that snapshot** —
+> a single global scalar computed from the anchor list, needing **no flow order
+> and no tree**, which keeps §1's rejection of tree-diffing intact.
+
 # The anchor snapshot contract — v1.3
 
 > **v1.3 — 2026-07-30.** Three fixes from the **React extractor** (P1.1) meeting
