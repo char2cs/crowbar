@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -13,14 +15,28 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// createRequest is the POST .../workspaces body: the new branch name and an
-// optional parent workspace id. The repository to fork is taken from the
-// :projectId/:repoId path params, not the body. When parentId is empty the new
-// workspace forks from the repository's default branch; otherwise it forks from
-// the parent workspace's branch.
+// errFoldersUnavailable is what a create into a folder answers when the folder
+// usecase was never wired: the request is well-formed and the destination may
+// well exist, so it is a server fault rather than the caller's. Mirrors the
+// PATCH handler's nil-placer response.
+var errFoldersUnavailable = errors.New("workspace placement unavailable")
+
+// createRequest is the POST .../workspaces body: the new branch name, an
+// optional parent workspace id, and an optional sidebar folder to file the new
+// row into. The repository to fork is taken from the :projectId/:repoId path
+// params, not the body. When parentId is empty the new workspace forks from the
+// repository's default branch; otherwise it forks from the parent workspace's
+// branch.
+//
+// folderId is never a fork parent. A folder has no branch, so a create started
+// on a folder row sends the folder here and NO parentId — it is filed under the
+// folder while forking from the repo's default branch. A create started on a
+// workspace row sends the reverse: a parentId and no folderId, because a forked
+// row inherits its placement through its fork ancestor.
 type createRequest struct {
 	Branch   string `json:"branch"`
 	ParentID string `json:"parentId"`
+	FolderID string `json:"folderId"`
 }
 
 // Create handles
@@ -46,6 +62,16 @@ func (h *Handlers) Create(
 	}
 	if body.Branch == "" {
 		libs.WriteErr(c, http.StatusBadRequest, "branch is required")
+		return
+	}
+	// Only a fork ROOT is filed under a folder: a forked child renders beneath
+	// its parent, so a folder named alongside a parent would never be drawn and
+	// the caller would be told it landed somewhere it did not. The placement
+	// endpoint refuses the same pairing; a create that quietly accepted it would
+	// be the one way into a state PATCH cannot produce.
+	if body.ParentID != "" && body.FolderID != "" {
+		libs.WriteErr(c, http.StatusBadRequest,
+			"a workspace with a parent is placed by its parent, not by a folder")
 		return
 	}
 	in, err := h.buildCreateInput(c.Request.Context(), repoID, body)
@@ -139,6 +165,13 @@ func (h *Handlers) buildCreateInput(
 			return worktree.CreateChildInput{}, err
 		}
 	}
+	if err := h.checkFolder(ctx, repo, body.FolderID); err != nil {
+		return worktree.CreateChildInput{}, err
+	}
+	slot, err := h.nextSlot(ctx, repo, body)
+	if err != nil {
+		return worktree.CreateChildInput{}, err
+	}
 	return worktree.CreateChildInput{
 		RepoID:       repo.ID,
 		ProjectID:    repo.ProjectID,
@@ -147,7 +180,67 @@ func (h *Handlers) buildCreateInput(
 		Branch:       body.Branch,
 		ParentID:     body.ParentID,
 		ParentBranch: parentBranch,
+		FolderID:     body.FolderID,
+		Order:        slot,
 	}, nil
+}
+
+// nextSlot resolves the index the new row joins its level at.
+//
+// The level is the fork parent when there is one and the folder otherwise,
+// because that is the rule the tree renders by: a forked child appears under its
+// parent, so it is ordered among its fork siblings and its folder is inert.
+//
+// A row left holding the zero value is not merely unordered — folders and
+// fork-root workspaces share one sibling space, so it collides with whatever
+// already holds slot 0 and the new branch surfaces at the TOP of the level. That
+// only bites once something has been dragged (before that every row ties at zero
+// and the arrival tiebreak happens to be right), which is what let it through.
+//
+// With no folder usecase wired there is no level to count, and ordering is a
+// nicety rather than the point of the request: fall back to zero rather than
+// refusing a create that is otherwise fine.
+func (h *Handlers) nextSlot(
+	ctx context.Context,
+	repo *domain.Repository,
+	body createRequest,
+) (int, error) {
+	if h.placer == nil {
+		return 0, nil
+	}
+	container := body.ParentID
+	if container == "" {
+		container = body.FolderID
+	}
+	return h.placer.NextSlot(ctx, repo.ProjectID, repo.ID, container)
+}
+
+// checkFolder refuses a destination folder the repo does not have, so a create
+// cannot file a row under something nothing will ever render — the same refusal
+// a parentId that resolves to nothing already gets. The repo's folder list is
+// scoped to (project, repo), so a folder belonging to another repo is absent
+// from it and is refused by the same check.
+func (h *Handlers) checkFolder(
+	ctx context.Context,
+	repo *domain.Repository,
+	folderID string,
+) error {
+	if folderID == "" {
+		return nil
+	}
+	if h.placer == nil {
+		return errFoldersUnavailable
+	}
+	folders, err := h.placer.ListInRepo(ctx, repo.ProjectID, repo.ID)
+	if err != nil {
+		return err
+	}
+	for _, f := range folders {
+		if f.ID == folderID {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: folder %q is not in this repo", apperr.ErrNotFound, folderID)
 }
 
 func (h *Handlers) resolveParentBranch(

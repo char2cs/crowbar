@@ -32,7 +32,17 @@ vi.mock('@/lib/api', async (importOriginal) => {
   return { ...actual, renameRepo: vi.fn(() => Promise.resolve()) }
 })
 
+vi.mock('@/lib/api/sidebar-placement', () => ({
+  placeWorkspace: vi.fn(() => Promise.resolve()),
+  placeFolder: vi.fn(() => Promise.resolve()),
+  placeRepo: vi.fn(() => Promise.resolve()),
+  placeProject: vi.fn(() => Promise.resolve()),
+  createFolder: vi.fn(() => Promise.resolve({ id: 'new-folder' })),
+  deleteFolder: vi.fn(() => Promise.resolve()),
+}))
+
 import { WorkspaceTree } from '@/components/layout/workspace-tree'
+import { placeFolder } from '@/lib/api/sidebar-placement'
 import { idle } from '@/lib/loadable'
 import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
@@ -50,7 +60,7 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
 })
 
 beforeEach(() => {
-  navigateFn.mockClear()
+  vi.clearAllMocks()
   useWorkspaceListStore.setState({ data: idle() })
   useHomeWorkspaceStore.setState({ workspace: null })
   useSidebarStore.setState({ repos: [repo()] })
@@ -114,5 +124,68 @@ describe('repo name: click opens, double-click renames', () => {
     await user.dblClick(screen.getByText('feature/x'))
 
     expect(screen.getByDisplayValue('feature/x')).toBeInTheDocument()
+  })
+})
+
+/**
+ * A folder answers the same two gestures, through the same editor.
+ *
+ * It has to: grouping rows makes a folder named for you, so the name is
+ * something you say afterwards or never. A folder holds no branch and no
+ * worktree, so committing one is a PATCH that moves nothing on disk — and, like
+ * every other rename in this tree, the row is left alone until the stream says
+ * the daemon took it.
+ */
+describe('folder name: click folds, double-click renames', () => {
+  beforeEach(() => {
+    useSidebarStore.setState({
+      repos: [repo({ folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', order: 0 }] })],
+    })
+  })
+
+  it('opens the rename editor when the folder name is double-clicked', async () => {
+    const user = userEvent.setup()
+    render(<WorkspaceTree />)
+
+    await user.dblClick(screen.getByText('spikes'))
+
+    expect(screen.getByDisplayValue('spikes')).toBeInTheDocument()
+  })
+
+  // The same accepted cost the repo row pins above: both clicks reach the row,
+  // so a folder folds and unfolds on its way to the editor and lands back where
+  // it started. Nothing is held open waiting to find out.
+  it('leaves the folder open as it was, with the editor up', async () => {
+    const user = userEvent.setup()
+    render(<WorkspaceTree />)
+
+    await user.dblClick(screen.getByText('spikes'))
+
+    expect(useSidebarStore.getState().collapsedWorkspaces.has('f1')).toBe(false)
+    expect(screen.getByDisplayValue('spikes')).toBeInTheDocument()
+  })
+
+  it('sends the new name on Enter', async () => {
+    const user = userEvent.setup()
+    render(<WorkspaceTree />)
+
+    await user.dblClick(screen.getByText('spikes'))
+    // The editor opens with the name selected, so typing replaces it.
+    await user.keyboard('experiments{Enter}')
+
+    expect(placeFolder).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'f1', { name: 'experiments' })
+    // Not relabelled here: the FolderDTO is what renames the row.
+    expect(screen.getByText('spikes')).toBeInTheDocument()
+  })
+
+  it('sends nothing on Escape', async () => {
+    const user = userEvent.setup()
+    render(<WorkspaceTree />)
+
+    await user.dblClick(screen.getByText('spikes'))
+    await user.keyboard('experiments{Escape}')
+
+    expect(placeFolder).not.toHaveBeenCalled()
+    expect(screen.getByText('spikes')).toBeInTheDocument()
   })
 })

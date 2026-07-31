@@ -1,4 +1,4 @@
-import type { Project, Prerequisites, RepoDTO, WorkspaceDTO } from './types'
+import type { FolderDTO, Project, Prerequisites, RepoDTO, WorkspaceDTO } from './types'
 import type { PRLink } from '@/lib/import/parent-plan'
 import { useChaosStore } from '@/lib/store/chaos'
 
@@ -151,6 +151,12 @@ export function fetchWorkspaces(projectId: string, repoId: string): Promise<Work
   return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces`)
 }
 
+/** One repo's sidebar folders, in sidebar order. The seed half of the folders
+ *  stream — a WebSocket upgrade on this same path gets the live frames. */
+export function fetchFolders(projectId: string, repoId: string): Promise<FolderDTO[]> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/folders`)
+}
+
 export function fetchWorkspace(
   projectId: string,
   repoId: string,
@@ -197,17 +203,37 @@ export function renameRepo(projectId: string, repoId: string, name: string): Pro
   })
 }
 
-// parentId omitted/empty = fork from the repo's default branch.
+/**
+ * Where a new workspace goes, in the two independent senses the sidebar has.
+ *
+ * `parentId` is the FORK parent — the workspace whose branch the new one is cut
+ * from, and the edge a later rebase acts on. `folderId` is placement only: which
+ * sidebar folder the row is filed under, moving nothing on disk. They are
+ * separate fields so a folder can never be mistaken for a fork parent, and a
+ * create carries one or the other: a row started on a folder forks from the
+ * repo's default branch (no parentId), and a row started on a workspace inherits
+ * its placement through that fork ancestor (no folderId).
+ */
+export interface WorkspacePlacement {
+  parentId?: string
+  folderId?: string
+}
+
+// Both fields omitted = fork from the repo's default branch, at the repo root.
 export function postWorkspace(
   projectId: string,
   repoId: string,
   branch: string,
-  parentId?: string,
+  placement: WorkspacePlacement = {},
 ): Promise<void> {
   return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ branch, ...(parentId ? { parentId } : {}) }),
+    body: JSON.stringify({
+      branch,
+      ...(placement.parentId ? { parentId: placement.parentId } : {}),
+      ...(placement.folderId ? { folderId: placement.folderId } : {}),
+    }),
   })
 }
 
@@ -237,6 +263,14 @@ export function deleteWorkspace(projectId: string, repoId: string, wsId: string)
   return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}`, {
     method: 'DELETE',
   })
+}
+
+// Remove a repository from the project, worktrees and all. The removed RepoDTO
+// and its workspaces' tombstones arrive on the entity streams; nothing here
+// writes the sidebar tree. This is the one removal the sidebar asks the user to
+// confirm — everything under the repo goes with it.
+export function deleteRepo(projectId: string, repoId: string): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}`, { method: 'DELETE' })
 }
 
 // Rename a workspace's branch. The daemon renames the git branch AND relocates

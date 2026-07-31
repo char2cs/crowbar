@@ -57,7 +57,7 @@ describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
   })
 
   test('POST .../workspaces body {branch, parentId?} → 202, resolves undefined', async () => {
-    const res = await postWorkspace('p1', 'r1', 'feature/x', 'parent-id')
+    const res = await postWorkspace('p1', 'r1', 'feature/x', { parentId: 'parent-id' })
     const [url, init] = lastCall()
     expect(url).toBe('/v0/projects/p1/repos/r1/workspaces')
     expect(init.method).toBe('POST')
@@ -69,6 +69,16 @@ describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
     await postWorkspace('p1', 'r1', 'develop')
     const [, init] = lastCall()
     expect(JSON.parse(init.body as string)).toEqual({ branch: 'develop' })
+  })
+
+  // A folder is placement, not lineage: it goes out as folderId and the fork
+  // parent is left off entirely, so the daemon falls back to the repo's default
+  // branch. Sending the folder as parentId is a create that cannot resolve what
+  // to fork from.
+  test('postWorkspace sends a folder as folderId, never as parentId', async () => {
+    await postWorkspace('p1', 'r1', 'feature/x', { folderId: 'f-rev' })
+    const [, init] = lastCall()
+    expect(JSON.parse(init.body as string)).toEqual({ branch: 'feature/x', folderId: 'f-rev' })
   })
 
   test('DELETE .../workspaces/:w → 202, resolves undefined', async () => {

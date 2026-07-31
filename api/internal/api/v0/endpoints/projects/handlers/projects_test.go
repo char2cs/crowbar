@@ -29,10 +29,15 @@ func TestMain(
 }
 
 type fakeReader struct {
-	list    []domain.Project
-	listErr error
-	get     domain.Project
-	getErr  error
+	list       []domain.Project
+	listErr    error
+	get        domain.Project
+	getErr     error
+	reordered  domain.Project
+	reorderErr error
+	// reorderTo records the index the last Reorder call asked for, so a test can
+	// assert the handler passed the body's order through untouched.
+	reorderTo int
 }
 
 func (f *fakeReader) List(
@@ -46,6 +51,15 @@ func (f *fakeReader) Get(
 	_ string,
 ) (domain.Project, error) {
 	return f.get, f.getErr
+}
+
+func (f *fakeReader) Reorder(
+	_ context.Context,
+	_ string,
+	order int,
+) (domain.Project, error) {
+	f.reorderTo = order
+	return f.reordered, f.reorderErr
 }
 
 type fakeImporter struct {
@@ -174,6 +188,7 @@ func newRouterWithHandlers(
 	rg.GET("/projects", h.List)
 	rg.POST("/projects", h.Import)
 	rg.GET("/projects/:projectId", h.Detail)
+	rg.PATCH("/projects/:projectId", h.Patch)
 	rg.DELETE("/projects/:projectId", h.Delete)
 	return r, h
 }
@@ -449,4 +464,73 @@ func TestDeleteProject_UsecaseError_NoBroadcast(
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	assertNoBroadcast(t, h, bc)
+}
+
+// The reorder densifies the whole list, so every project has to reach the
+// client: told only about the row that was dragged, a client holds stale orders
+// for the rest until the next reconnect.
+func TestPatch_ReordersAndBroadcastsTheWholeList(t *testing.T) {
+	reader := &fakeReader{
+		reordered: domain.Project{ID: "p2", Order: 0},
+		list: []domain.Project{
+			{ID: "p2", Order: 0},
+			{ID: "p1", Order: 1},
+		},
+	}
+	bc := newRecordingBroadcaster()
+	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p2", `{"order":0}`)
+
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, 0, reader.reorderTo)
+	first := <-bc.ch
+	second := <-bc.ch
+	assert.Equal(t, "p2", first.ID)
+	assert.Equal(t, "p1", second.ID)
+	assert.Equal(t, 1, second.Order, "the shifted row's new order reaches the client")
+}
+
+func TestPatch_MissingOrderIs400(t *testing.T) {
+	reader := &fakeReader{}
+	r := newRouter(reader, &fakeImporter{})
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{}`)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestPatch_MalformedBodyIs400(t *testing.T) {
+	r := newRouter(&fakeReader{}, &fakeImporter{})
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{`)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestPatch_UnknownProjectIs404(t *testing.T) {
+	reader := &fakeReader{reorderErr: apperr.ErrNotFound}
+	bc := newRecordingBroadcaster()
+	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+
+	rec := do(r, http.MethodPatch, "/v0/projects/missing", `{"order":0}`)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Empty(t, bc.ch, "a refused reorder broadcasts nothing")
+}
+
+// The reorder already committed; a list that then fails must not turn a
+// successful write into an error response. The client re-reads on reconnect.
+func TestPatch_ListFailureAfterTheWriteStillAnswers204(t *testing.T) {
+	reader := &fakeReader{
+		reordered: domain.Project{ID: "p1"},
+		listErr:   errors.New("read model down"),
+	}
+	bc := newRecordingBroadcaster()
+	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"order":0}`)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Empty(t, bc.ch)
 }

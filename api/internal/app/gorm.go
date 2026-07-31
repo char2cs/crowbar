@@ -11,9 +11,14 @@ import (
 )
 
 // GORMStores holds the plain-CRUD repositories backed by the shared GORM DB.
+//
+// Folders is typed as the wider ScopedStore because every folder read in a
+// request path is repo-scoped: the sidebar wants one repo's rows, and a
+// whole-table FindAll would grow with the install rather than with the request.
 type GORMStores struct {
 	Projects                 store.Store[domain.Project, string]
-	Repositories             store.Store[domain.Repository, string]
+	Repositories             store.ScopedStore[domain.Repository, string]
+	Folders                  store.ScopedStore[domain.Folder, string]
 	TerminalProfiles         store.Store[domain.TerminalProfile, string]
 	TerminalSessions         store.Store[domain.TerminalSession, string]
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
@@ -30,6 +35,10 @@ func newGORMStores(
 	if err != nil {
 		return nil, fmt.Errorf("app: repository store: %w", err)
 	}
+	folders, err := storesqlite.NewFromDB[domain.Folder, string](db)
+	if err != nil {
+		return nil, fmt.Errorf("app: folder store: %w", err)
+	}
 	profiles, err := storesqlite.NewFromDB[domain.TerminalProfile, string](db)
 	if err != nil {
 		return nil, fmt.Errorf("app: terminal profile store: %w", err)
@@ -45,6 +54,7 @@ func newGORMStores(
 	return &GORMStores{
 		Projects:                 projects,
 		Repositories:             repos,
+		Folders:                  folders,
 		TerminalProfiles:         profiles,
 		TerminalSessions:         sessions,
 		AgentProviderPreferences: providerPrefs,

@@ -44,7 +44,7 @@ func (errProjectStore) FindAll(
 // errRepoStore is a repository store whose FindAll always fails, exercising the
 // snapshot's degrade-to-nil path.
 type errRepoStore struct {
-	store.Store[domain.Repository, string]
+	store.ScopedStore[domain.Repository, string]
 }
 
 func (errRepoStore) FindAll(
@@ -317,4 +317,40 @@ func TestLSPSnapshot_ScopedToWorkspaceRepo(t *testing.T) {
 func TestGitSnapshot_UnknownWorkspaceScope_ReturnsNil(t *testing.T) {
 	a := newAppForSnapshot(t)
 	assert.Nil(t, gitSnapshot(a)("does-not-exist"))
+}
+
+// TestFolderSnapshot proves the Folders snapshot-on-subscribe (03 §1a) returns
+// the repo's folders in SIDEBAR ORDER as wire DTOs — the same converter the REST
+// list handler goes through, which is what makes the two incapable of
+// disagreeing. Folders in a sibling repo are excluded.
+func TestFolderSnapshot(t *testing.T) {
+	a := newAppForSnapshot(t)
+	ctx := context.Background()
+	require.NoError(t, a.GORM.Folders.Save(ctx, domain.Folder{
+		ID: "f2", ProjectID: "p1", RepoID: "r1", Name: "second", Order: 1,
+	}))
+	require.NoError(t, a.GORM.Folders.Save(ctx, domain.Folder{
+		ID: "f1", ProjectID: "p1", RepoID: "r1", Name: "first", Order: 0,
+	}))
+	require.NoError(t, a.GORM.Folders.Save(ctx, domain.Folder{
+		ID: "f3", ProjectID: "p1", RepoID: "r2", Name: "elsewhere",
+	}))
+
+	got := folderSnapshot(a)("p1/r1")
+	require.Len(t, got, 2, "a sibling repo's folders must be excluded")
+	assert.Equal(t, "f1", got[0].ID, "the snapshot is ordered, not insertion-ordered")
+	assert.Equal(t, "f2", got[1].ID)
+}
+
+// A project-level subscription carries no repo, and folders are repo-scoped:
+// answering it would mean scanning every repo in the install for a client that
+// asked for none of them.
+func TestFolderSnapshot_ProjectScopeReturnsNil(t *testing.T) {
+	a := newAppForSnapshot(t)
+	require.NoError(t, a.GORM.Folders.Save(context.Background(), domain.Folder{
+		ID: "f1", ProjectID: "p1", RepoID: "r1",
+	}))
+
+	assert.Nil(t, folderSnapshot(a)("p1"))
+	assert.Nil(t, folderSnapshot(a)(""))
 }

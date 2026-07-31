@@ -3,6 +3,7 @@ package dto_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -178,6 +179,38 @@ func TestWorkspaceDTOList(
 	require.Len(t, got, 2)
 	assert.Equal(t, "w1", got[0].ID)
 	assert.Equal(t, "w2", got[1].ID)
+}
+
+// The list is ordered by the converter itself, which is what makes the REST list
+// and the WS snapshot — the two callers — incapable of disagreeing about the
+// sidebar order. Rows a user has never dragged all carry order 0, so the
+// created-at tiebreak is what stops them jittering between requests.
+func TestWorkspaceDTOList_OrdersByIndexThenCreatedAt(
+	t *testing.T,
+) {
+	got := dto.WorkspaceDTOList([]domain.Workspace{
+		{ID: "c", Order: 2, CreatedAt: time.Unix(1, 0).UTC()},
+		{ID: "b", CreatedAt: time.Unix(3, 0).UTC()},
+		{ID: "a", CreatedAt: time.Unix(2, 0).UTC()},
+	}, noElig)
+	require.Len(t, got, 3)
+	assert.Equal(t, []string{"a", "b", "c"}, []string{got[0].ID, got[1].ID, got[2].ID})
+	assert.Equal(t, 2, got[2].Order, "the order reaches the wire")
+}
+
+// TestWorkspaceDTOFrom_MapsSidebarPlacement pins that the folder edge and the
+// dense index survive the conversion, and that the folder is NEVER confused with
+// the fork parent — three git paths resolve ParentID back to a workspace.
+func TestWorkspaceDTOFrom_MapsSidebarPlacement(
+	t *testing.T,
+) {
+	got := dto.WorkspaceDTOFrom(domain.Workspace{
+		ID: "w1", ParentID: "", FolderID: "f1", Order: 4,
+	}, workspace.MergeEligibility{})
+
+	assert.Equal(t, "f1", got.FolderID)
+	assert.Equal(t, 4, got.Order)
+	assert.Empty(t, got.ParentID, "a folder id must never leak into the fork lineage")
 }
 
 // TestWorkspaceDTOList_AppliesEligFn pins that the per-row eligibility resolver

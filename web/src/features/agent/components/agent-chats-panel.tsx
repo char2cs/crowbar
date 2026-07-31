@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useStore } from 'zustand'
 import { cn } from '@/lib/utils'
-import { DragGhost } from '@/components/layout/drag-ghost'
+import { DragGhost, DragGhostChip } from '@/components/layout/drag-ghost'
 import { AGENT_CHAT_ROW_HEIGHT } from './agent-chat-drop-geometry'
 import { useAgentChatListVirtualizer } from './use-agent-chat-list-virtualizer'
 import { useAgentChatListDrag } from './use-agent-chat-list-drag'
@@ -298,11 +298,12 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
       <TrashFooter dropRef={trashRef} dragging={draggingId !== null} isOver={isOverTrash} />
 
       {draggingChat && (
-        <DragGhost
-          ref={ghostRef}
-          label={draggingChat.title || 'Untitled chat'}
-          origin={ghostOriginRef.current}
-        />
+        <DragGhost ref={ghostRef} origin={ghostOriginRef.current}>
+          {/* A chip rather than a clone of the row: this list is windowed, so
+              the row a drag started from may not be in the DOM by the time the
+              ghost mounts. */}
+          <DragGhostChip label={draggingChat.title || 'Untitled chat'} />
+        </DragGhost>
       )}
     </div>
   )
@@ -352,8 +353,8 @@ function NewChatRow({ provider, onClick }: { provider: AgentProvider; onClick: (
         dangerouslySetInnerHTML={{ __html: provider.icon }}
       />
       {/* text-left counters the <button>'s UA text-align:center (same fix as
-          project-switcher-panel's "Import project" and workspace-tree's "New"
-          rows). Without it the label centers in the flex-1 span. */}
+          workspace-tree's "Import project" and "New" rows). Without it the
+          label centers in the flex-1 span. */}
       <span className="min-w-0 flex-1 truncate text-left">New chat</span>
       <svg
         aria-hidden="true"
@@ -371,7 +372,7 @@ function NewChatRow({ provider, onClick }: { provider: AgentProvider; onClick: (
   )
 }
 
-// Mirrors components/layout/workspace-tree-footer.tsx: always mounted (so the
+// Always mounted (so the
 // list doesn't resize on drag start), slid in with a max-height transition.
 // dropRef points at the drop target so the drag can hit-test it by rect (it sits
 // outside the windowed scroll container that the geometry resolver covers).

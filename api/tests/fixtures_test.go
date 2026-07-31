@@ -130,7 +130,7 @@ func createProjectAndRepo(
 	t *testing.T,
 	h *harness,
 	repoPath string,
-) (projectID string, repoID string) {
+) (projectID, repoID string) {
 	t.Helper()
 	projectsWS := h.dial("/v0/projects")
 	resp := h.raw(http.MethodPost, "/v0/projects",
@@ -211,6 +211,10 @@ type workspaceDTO struct {
 	ProjectID       string `json:"projectId"`
 	Branch          string `json:"branch"`
 	ParentID        string `json:"parentId"`
+	ForkPointSha    string `json:"forkPointSha"`
+	FolderID        string `json:"folderId"`
+	Order           int    `json:"order"`
+	IsDefault       bool   `json:"isDefault"`
 	Status          string `json:"status"`
 	Working         bool   `json:"working"`
 	LastError       string `json:"lastError"`

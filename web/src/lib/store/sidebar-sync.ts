@@ -1,7 +1,5 @@
-import { getAllEntities } from '@/lib/persistence/entity-cache'
-import { buildScopedRepoTree, type RepoDTO, type WorkspaceDTO } from '@/lib/store/build-repo-tree'
+import { readVisibleRepoTree } from '@/lib/store/project-visibility'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useProjectStore } from '@/lib/store/projects'
 
 /**
  * Rebuild the sidebar repo tree directly from the entity cache and push it into
@@ -10,14 +8,10 @@ import { useProjectStore } from '@/lib/store/projects'
  * un-collapsed read: callers that just wrote a DTO to the cache use it to
  * guarantee the new repo/workspace is in the sidebar BEFORE they navigate into
  * it, so the /ide route guard doesn't treat it as unknown and bounce.
+ *
+ * Scoped to the VISIBLE projects (active + expanded), like every other read of
+ * the cross-project entity cache — see lib/store/project-visibility.ts.
  */
 export async function syncSidebarFromCache(): Promise<void> {
-  const [repos, workspaces] = await Promise.all([
-    getAllEntities<RepoDTO>('crowbar_repos'),
-    getAllEntities<WorkspaceDTO>('crowbar_workspaces'),
-  ])
-  // Scope to the active project: the entity cache is cross-project but the
-  // sidebar only shows the active one (see build-repo-tree / workspace-list).
-  const tree = buildScopedRepoTree(repos, workspaces, useProjectStore.getState().activeProjectId)
-  useSidebarStore.getState().setRepos(tree)
+  useSidebarStore.getState().setRepos(await readVisibleRepoTree())
 }

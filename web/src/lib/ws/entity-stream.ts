@@ -15,6 +15,18 @@ import { isReconnectSentinel, type EntityFrame } from './types'
 // before the first push arrives. On the reconnect sentinel ({reconnected:true})
 // re-run seed() — a full GET reseed — because frames missed during the outage
 // can never be recovered from a single DTO merge (§6 / Open-Q4).
+/**
+ * What a given `onChange` call is reporting. A consumer that only needs "the
+ * cache moved" can ignore it; one that maintains a derived tree uses it to
+ * merge a single entity by id instead of rebuilding everything — a seed is a
+ * whole-scope replacement (and can prune), a frame is exactly one entity.
+ */
+export type EntityChange =
+  /** A full GET seed (startup or reconnect reseed) has committed. */
+  | { kind: 'seed' }
+  /** One live DTO frame has committed; `frame.status === 'deleted'` is a tombstone. */
+  | { kind: 'frame'; frame: EntityFrame }
+
 export interface SubscribeEntityStreamOptions<T> {
   /** Hierarchical WS endpoint, e.g. '/v0/projects/:p/repos/:r/workspaces'. */
   endpoint: string
@@ -22,8 +34,9 @@ export interface SubscribeEntityStreamOptions<T> {
   store: EntityStoreName
   /** One-time GET that returns the full current set for this scope. */
   seed: () => Promise<T[]>
-  /** Called after every cache mutation (seed batch, upsert, remove). */
-  onChange?: () => void
+  /** Called after every cache mutation (seed batch, upsert, remove), with what
+   *  changed so the caller can merge incrementally rather than rebuild. */
+  onChange?: (change: EntityChange) => void
   /**
    * Predicate marking which CACHED entities this seed is authoritative over —
    * only matching entities absent from the fresh seed are pruned as ghosts.
@@ -105,7 +118,7 @@ export function subscribeEntityStream<T extends { id: string; status?: string }>
     applyChain = applyChain
       .then(() => applySeed(generation))
       .then(() => {
-        if (!disposed) onChange?.()
+        if (!disposed) onChange?.({ kind: 'seed' })
       })
       // A rejection (a failed seed() GET, an IDB error) must NOT poison the chain:
       // .then on a rejected promise skips every subsequent step, which would
@@ -135,7 +148,7 @@ export function subscribeEntityStream<T extends { id: string; status?: string }>
     applyChain = applyChain
       .then(() => applyFrame(frame))
       .then(() => {
-        if (!disposed) onChange?.()
+        if (!disposed) onChange?.({ kind: 'frame', frame })
       })
       // Absorb a failed frame apply so it can't poison the chain and freeze all
       // later frames + reseeds for the session (see runSeed). Ordering is still

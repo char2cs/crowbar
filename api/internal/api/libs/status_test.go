@@ -14,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
@@ -107,6 +108,26 @@ func TestStatusAndMessageMapping(t *testing.T) {
 			name:   "app workspace locked",
 			err:    apperr.ErrLocked,
 			status: http.StatusConflict,
+		},
+		{
+			name:   "folder cycle",
+			err:    folder.ErrFolderCycle,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "folder cross repo",
+			err:    folder.ErrFolderCrossRepo,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "folder splits a fork chain",
+			err:    folder.ErrForkChainSplit,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "folder name required",
+			err:    folder.ErrFolderNameRequired,
+			status: http.StatusBadRequest,
 		},
 		{
 			name:   "git conflict",
@@ -269,4 +290,28 @@ func TestStatusAndMessage_CommandNotFoundIs424(t *testing.T) {
 
 	assert.Equal(t, http.StatusFailedDependency, status)
 	assert.Contains(t, msg, "claude")
+}
+
+// Every sentinel below reaches this mapper WRAPPED — the folder usecase always
+// annotates with the ids involved — so a chain that only matched the bare value
+// would fall through to a generic 500 in production while the table above stayed
+// green.
+func TestStatusAndMessage_WrappedFolderSentinels(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{"cycle", folder.ErrFolderCycle, http.StatusConflict},
+		{"cross repo", folder.ErrFolderCrossRepo, http.StatusConflict},
+		{"fork chain split", folder.ErrForkChainSplit, http.StatusConflict},
+		{"name required", folder.ErrFolderNameRequired, http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			status, msg := libs.StatusAndMessage(fmt.Errorf("folder: move f1: %w", tc.err))
+			assert.Equal(t, tc.status, status)
+			assert.Contains(t, msg, "f1")
+		})
+	}
 }

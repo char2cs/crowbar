@@ -180,6 +180,8 @@ func TestRegisterMountsRoutes(
 		stubLastErrors{},
 		stubWork{},
 		nil,
+		nil,
+		nil,
 		func(_ *gin.Context) { wsHit = true },
 		passthrough,
 	)
@@ -191,6 +193,7 @@ func TestRegisterMountsRoutes(
 		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces"},
 		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/abc"},
 		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces"},
+		{http.MethodPatch, "/v0/projects/p1/repos/r1/workspaces/abc"},
 		{http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/abc"},
 		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/merge-into-parent"},
 		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/reparent"},

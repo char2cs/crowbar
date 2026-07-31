@@ -274,6 +274,91 @@ test('applyWorkspaceDTO ignores a workspace for an unknown repo', () => {
   expect(ids).not.toContain('ws-x')
 })
 
+// applyWorkspaceDTO is now the ONLY path a live workspace frame takes (the
+// whole-tree rebuild it used to trigger is reserved for seeds), so everything a
+// rebuild used to fix up has to happen here.
+test('applyWorkspaceDTO never adds the default workspace as a tree row', () => {
+  useSidebarStore
+    .getState()
+    .applyWorkspaceDTO(dto('ws-default', 'crowbar', { isDefault: true, branch: 'develop' }))
+  const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
+  expect(repo.workspaces.map((w) => w.id)).not.toContain('ws-default')
+})
+
+test('applyWorkspaceDTO lifts the default workspace onto the repo header', () => {
+  // The repo avatar's agent spinner and the lock gating read defaultWorking /
+  // defaultWorkspaceStatus. Dropping the frame here froze both at page-load value.
+  useSidebarStore.getState().applyWorkspaceDTO(
+    dto('ws-default', 'crowbar', {
+      isDefault: true,
+      branch: 'develop',
+      working: true,
+      status: 'locked',
+    }),
+  )
+  const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
+  expect(repo.defaultWorkspaceId).toBe('ws-default')
+  expect(repo.defaultBranch).toBe('develop')
+  expect(repo.defaultWorking).toBe(true)
+  expect(repo.defaultWorkspaceStatus).toBe('locked')
+
+  useSidebarStore
+    .getState()
+    .applyWorkspaceDTO(
+      dto('ws-default', 'crowbar', { isDefault: true, branch: 'develop', working: false }),
+    )
+  expect(useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!.defaultWorking).toBe(
+    false,
+  )
+})
+
+// A frame is merged with {...w, ...ws}, so a field the daemon CLEARED has to
+// arrive as an explicit undefined/'' or the stale value survives forever. The
+// whole-tree rebuild that every frame used to trigger hid this; incremental
+// merge is the only path now.
+test('applyWorkspaceDTO clears a parentId the daemon dropped (reparent to root)', () => {
+  useSidebarStore.getState().applyWorkspaceDTO(dto('ws3', 'crowbar', { parentId: '' }))
+  const ws = useSidebarStore
+    .getState()
+    .repos.flatMap((r) => r.workspaces)
+    .find((w) => w.id === 'ws3')!
+  expect(ws.parentId).toBeUndefined()
+})
+
+test('applyWorkspaceDTO clears parentBranch and prUrl the daemon dropped', () => {
+  useSidebarStore
+    .getState()
+    .applyWorkspaceDTO(
+      dto('ws3', 'crowbar', { parentBranch: 'develop', prUrl: 'https://example.com/pr/1' }),
+    )
+  useSidebarStore.getState().applyWorkspaceDTO(dto('ws3', 'crowbar'))
+  const ws = useSidebarStore
+    .getState()
+    .repos.flatMap((r) => r.workspaces)
+    .find((w) => w.id === 'ws3')!
+  expect(ws.parentBranch).toBeUndefined()
+  expect(ws.prUrl).toBeUndefined()
+})
+
+test('applyWorkspaceDTO keeps the tree identity when a frame changes nothing', () => {
+  // A reconnect reseed or a duplicate push must not hand out a new repos array:
+  // every sidebar subscriber re-derives on identity, so a no-op frame would
+  // still cost a render pass across the whole tree.
+  const first = dto('ws3', 'crowbar', { status: 'pr-open', branch: 'feature/app-design' })
+  useSidebarStore.getState().applyWorkspaceDTO(first)
+  const after = useSidebarStore.getState().repos
+  useSidebarStore.getState().applyWorkspaceDTO({ ...first })
+  expect(useSidebarStore.getState().repos).toBe(after)
+})
+
+test('applyWorkspaceDTO keeps the tree identity when a default frame changes nothing', () => {
+  const frame = dto('ws-default', 'crowbar', { isDefault: true, branch: 'develop' })
+  useSidebarStore.getState().applyWorkspaceDTO(frame)
+  const after = useSidebarStore.getState().repos
+  useSidebarStore.getState().applyWorkspaceDTO({ ...frame })
+  expect(useSidebarStore.getState().repos).toBe(after)
+})
+
 import { loadSidebarUI } from '@/lib/persistence/sidebar-ui'
 import { IDBFactory } from 'fake-indexeddb'
 import { resetDB } from '@/lib/persistence/idb'

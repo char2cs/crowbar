@@ -8,7 +8,7 @@ describe('PendingCreateRow', () => {
       <PendingCreateRow
         tempId="t1"
         pending={{ repoId: 'r1', parentId: 'd1', branch: 'feature/x' }}
-        paddingLeft={14}
+        indent={14}
         onClear={() => {}}
       />,
     )
@@ -24,7 +24,7 @@ describe('PendingCreateRow', () => {
       <PendingCreateRow
         tempId="t1"
         pending={{ repoId: 'r1', parentId: 'd1', branch: 'feature/x', error: 'boom' }}
-        paddingLeft={14}
+        indent={14}
         onClear={onClear}
       />,
     )

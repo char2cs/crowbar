@@ -27,5 +27,6 @@ func Register(
 	rg.GET("/projects", dispatch(h.List, projectsWS))
 	rg.POST("/projects", h.Import)
 	rg.GET("/projects/:projectId", dispatch(h.Detail, projectsWS))
+	rg.PATCH("/projects/:projectId", h.Patch)
 	rg.DELETE("/projects/:projectId", h.Delete)
 }

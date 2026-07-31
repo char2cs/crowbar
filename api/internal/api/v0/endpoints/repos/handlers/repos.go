@@ -23,6 +23,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -147,13 +148,14 @@ type RepoImporter interface {
 	) error
 }
 
-// RepoRenamer updates a repository's display name (and its derived avatar) and
-// returns the updated repo so the handler can broadcast the new RepoDTO.
-type RepoRenamer interface {
-	RenameRepo(
+// RepoUpdater applies a partial repository update — display name (and its
+// derived avatar), sidebar order, owning project — and returns the updated repo
+// so the handler can broadcast the new RepoDTO.
+type RepoUpdater interface {
+	UpdateRepo(
 		ctx context.Context,
 		repoID string,
-		name string,
+		in project.RepoUpdate,
 	) (domain.Repository, error)
 }
 
@@ -168,7 +170,7 @@ type Handlers struct {
 	wsReader    WorkspaceReader
 	remote      RemoteRefresher
 	importer    RepoImporter
-	renamer     RepoRenamer
+	updater     RepoUpdater
 	crowbarHome func() (string, error)
 	fetchAvatar AvatarBytesFetcher
 	broadcast   func(dto.RepoDTO)
@@ -242,14 +244,15 @@ func (h *Handlers) WithImporter(
 	return h
 }
 
-// WithRenamer wires the repo-rename usecase that the Rename handler calls to
-// update a repo's name and derived avatar. A nil arg leaves rename unavailable
-// (the handler answers 500), matching the bare-handler fallback of WithImporter.
-func (h *Handlers) WithRenamer(
-	renamer RepoRenamer,
+// WithUpdater wires the repo-update usecase the Patch handler calls to change a
+// repo's name, sidebar order or owning project. A nil arg leaves the PATCH
+// unavailable (the handler answers 500), matching the bare-handler fallback of
+// WithImporter.
+func (h *Handlers) WithUpdater(
+	updater RepoUpdater,
 ) *Handlers {
-	if renamer != nil {
-		h.renamer = renamer
+	if updater != nil {
+		h.updater = updater
 	}
 	return h
 }
@@ -292,7 +295,17 @@ func (h *Handlers) List(
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	repos = filterByProject(repos, c.Query("projectId"))
+	// The route is hierarchical, so the project is a PATH parameter. Reading it
+	// from the query string (as this did) meant the filter never ran: the value
+	// was always empty, `filterByProject` returned everything, and every project
+	// listed every repo in the install. One project hides it completely — the
+	// unfiltered answer and the correct one are the same list — which is why it
+	// survived until a second project existed.
+	projectID := c.Param("projectId")
+	if projectID == "" {
+		projectID = c.Query("projectId")
+	}
+	repos = filterByProject(repos, projectID)
 	libs.WriteQueryOK(c, dto.RepoDTOList(repos))
 }
 
@@ -470,9 +483,13 @@ func pathSlug(
 	return leaf
 }
 
-// renameRequest is the PATCH .../repos/:repoId body.
-type renameRequest struct {
-	Name string `json:"name"`
+// patchRequest is the PATCH .../repos/:repoId body. Every field is optional and
+// a nil field is left as it is, so a rename, a sidebar reorder and a move to
+// another project are the same endpoint.
+type patchRequest struct {
+	Name      *string `json:"name"`
+	ProjectID *string `json:"projectId"`
+	Order     *int    `json:"order"`
 }
 
 // unsafeRepoNameMessage is the 400 both name-taking endpoints answer with.
@@ -501,42 +518,106 @@ func safeRepoName(
 	return strings.Trim(name, ".") != ""
 }
 
-// Rename handles PATCH /v0/projects/:projectId/repos/:repoId. It updates the
-// repository's display name (and its derived label/color avatar), then delivers
-// the updated repo as a RepoDTO on the repos WebSocket stream so every client's
-// sidebar refreshes. Validation is synchronous (name present); the rename itself
-// is a single store write, so unlike Create it runs inline and answers 204 — the
-// updated avatar rides the broadcast, not this response (the FE apiFetch throws
+// Patch handles PATCH /v0/projects/:projectId/repos/:repoId: rename, sidebar
+// reorder, and move to another project. It delivers the updated repo as a
+// RepoDTO on the repos WebSocket stream so every client's sidebar refreshes.
+//
+// Validation is synchronous, and so is the write: none of the three is a git
+// operation, so unlike Create this runs inline and answers 204 — the updated
+// avatar and order ride the broadcast, not this response (the FE apiFetch throws
 // on any non-enveloped 200 body, matching the icon mutations).
-func (h *Handlers) Rename(
+//
+// A project move carries the repo's workspaces with it, so every one of them is
+// re-broadcast by the workspace hub projection on its way through; the client
+// needs no second fetch to find them again under the new project.
+func (h *Handlers) Patch(
 	c *gin.Context,
 ) {
-	if h.renamer == nil {
-		libs.WriteErr(c, http.StatusInternalServerError, "rename unavailable")
+	if h.updater == nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "repo update unavailable")
 		return
 	}
-	var body renameRequest
+	var body patchRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	name := strings.TrimSpace(body.Name)
-	if name == "" {
-		libs.WriteErr(c, http.StatusBadRequest, "name is required")
+	update, ok := h.bindRepoUpdate(c, body)
+	if !ok {
 		return
 	}
-	if !safeRepoName(name) {
-		libs.WriteErr(c, http.StatusBadRequest, unsafeRepoNameMessage)
-		return
-	}
-	repo, err := h.renamer.RenameRepo(c.Request.Context(), c.Param("repoId"), name)
+	repo, err := h.updater.UpdateRepo(c.Request.Context(), c.Param("repoId"), update)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
 		return
 	}
+	h.relocateEntityDir(c, c.Param("projectId"), repo)
 	h.broadcast(dto.RepoDTOFrom(repo))
 	c.Status(http.StatusNoContent)
+}
+
+// relocateEntityDir follows a repo that changed projects with its entity
+// directory — the icon store, keyed by <home>/projects/<projectId>/<repoId>.
+// Left behind, the icon would 404 from under the new path and the old directory
+// would outlive every way of reaching it.
+//
+// Worktrees are NOT relocated and do not need to be: their paths were derived
+// once and are stored absolute in both the record and the id↔path index, so they
+// keep resolving from where they are. Only newly derived paths land under the new
+// project.
+//
+// Best-effort: a failed rename costs the custom icon (the repo falls back to its
+// generated avatar) and is logged. It must not fail an otherwise-committed move.
+func (h *Handlers) relocateEntityDir(
+	c *gin.Context,
+	fromProjectID string,
+	repo domain.Repository,
+) {
+	if repo.ProjectID == fromProjectID {
+		return
+	}
+	home, err := h.crowbarHome()
+	if err != nil || home == "" {
+		return
+	}
+	from := repoDir(home, fromProjectID, repo.ID)
+	to := repoDir(home, repo.ProjectID, repo.ID)
+	if mkErr := os.MkdirAll(filepath.Dir(to), 0o755); mkErr != nil { //nolint:gosec // G301: 0o755 matches the perm the daemon already creates its own project directories with.
+		slog.WarnContext(c.Request.Context(), "repo move: could not create the destination project dir",
+			"repo", repo.ID, "to", to, "err", mkErr)
+		return
+	}
+	if rnErr := os.Rename(from, to); rnErr != nil && !os.IsNotExist(rnErr) {
+		slog.WarnContext(c.Request.Context(), "repo move: could not relocate the entity dir; the repo falls back to its generated avatar",
+			"repo", repo.ID, "from", from, "to", to, "err", rnErr)
+	}
+}
+
+// bindRepoUpdate validates the PATCH body into a project.RepoUpdate, writing the
+// 400 and returning ok=false on any rejection. The name rules are the SAME ones
+// create enforces, and for the same reason: a repo with no parseable remote falls
+// back to its name for the on-disk worktree slug, so a separator or a dot-only
+// component would derive worktrees outside the crowbar home.
+func (h *Handlers) bindRepoUpdate(
+	c *gin.Context,
+	body patchRequest,
+) (project.RepoUpdate, bool) {
+	update := project.RepoUpdate{ProjectID: body.ProjectID, Order: body.Order}
+	if body.Name == nil {
+		return update, true
+	}
+	name := strings.TrimSpace(*body.Name)
+	if name == "" {
+		libs.WriteErr(c, http.StatusBadRequest, "name is required")
+		return project.RepoUpdate{}, false
+	}
+	if !safeRepoName(name) {
+		libs.WriteErr(c, http.StatusBadRequest, unsafeRepoNameMessage)
+		return project.RepoUpdate{}, false
+	}
+	update.Name = &name
+	return update, true
 }
 
 // DeleteRepo handles DELETE /v0/projects/:projectId/repos/:repoId. It validates

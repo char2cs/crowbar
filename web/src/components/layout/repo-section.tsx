@@ -6,28 +6,37 @@ import {
   ROW_ACTIVE,
   ROW_INACTIVE,
   ADD_GLYPH_PATH,
+  ROW_INDENT_STEP,
   ROW_SUB_ACTION,
-  ROW_SUB_ACTION_GLYPH,
+  ROW_NEST_TARGET,
 } from './workspace-row-base'
+import { dropRowProps } from './drop-target-dom'
 import { WorkspaceInlineInput } from './workspace-inline-input'
-import { findWorkspaceForBranch } from '@/lib/workspace/branch-workspace'
-import { WorkspaceTreeItem } from './workspace-tree-item'
+import { CollapseSection } from './collapse-section'
+import { FoldAwayButton } from './fold-away-button'
+import { InlineCreateRow } from './inline-create-row'
+import { HeldRows, SidebarNode } from './sidebar-tree-node'
+import { useKeptRows } from './use-kept-rows'
+import { foldAwayRows, toggleRepoKeepingRows } from './row-selection'
 import { PendingCreateRow } from './pending-create-row'
 import { RepoIconPopover } from './repo-icon-popover'
 import { RepoImportDialog } from './repo-import-dialog'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import type { WorkspaceTreeNode } from './workspace-tree-utils'
-import type { PendingCreate } from './workspace-tree-context'
+import { type Repo } from '@/lib/store/sidebar'
+import { useSidebarSelectionStore } from '@/lib/store/sidebar-selection'
+import type { SidebarRepoTree } from './workspace-tree-utils'
+import {
+  useWorkspaceTreeActions,
+  useWorkspaceTreeDrag,
+  type PendingCreate,
+} from './workspace-tree-context'
 import { renameRepo } from '@/lib/api'
 import { toast } from '@/features/window/stores/toast-store'
 
 interface RepoSectionProps {
   repo: Repo
-  /** Root nodes of this repo's workspace tree (already built by the parent). */
-  roots: WorkspaceTreeNode[]
+  /** This repo's rows and the lookups over them (built once by the parent). */
+  tree: SidebarRepoTree
   isCollapsed: boolean
-  isRepoDragOver: boolean
-  collapsedRepos: Set<string>
   activeWorkspaceId: string
   onWorkspaceClick: (wsId: string, projectId: string, repoId: string) => void
   /**
@@ -52,10 +61,8 @@ interface RepoSectionProps {
  */
 export function RepoSection({
   repo,
-  roots,
+  tree,
   isCollapsed,
-  isRepoDragOver,
-  collapsedRepos,
   activeWorkspaceId,
   onWorkspaceClick,
   renamingRepoId,
@@ -75,6 +82,14 @@ export function RepoSection({
   }, [onWorkspaceClick, repo.defaultWorkspaceId, repo.id, repo.projectId])
 
   const [importOpen, setImportOpen] = useState(false)
+  const { onPointerDownDrag } = useWorkspaceTreeActions()
+  const { draggingIds, dropTarget } = useWorkspaceTreeDrag()
+  const dropMode = dropTarget?.id === repo.id ? dropTarget.mode : null
+  const roots = tree.roots
+  // The escape hatch the repo header lacked: a folded repo can hold rows too,
+  // and it is the row that marks the state, not the rows it is holding.
+  const held = useKeptRows(repo.id, tree, isCollapsed, roots.length > 0)
+  const toggle = () => toggleRepoKeepingRows(repo.id, tree.index, activeWorkspaceId)
 
   // react-doctor-disable-next-line js-combine-iterations -- pendingCreates is the whole tree's in-flight create operations (bounded by concurrent UI actions, realistically 0-2 at once); a single-pass rewrite here would cost JSX readability for no measurable gain.
   const pendingCreateRows = Array.from(pendingCreates.entries())
@@ -84,7 +99,7 @@ export function RepoSection({
         key={tempId}
         tempId={tempId}
         pending={pending}
-        paddingLeft={14}
+        indent={ROW_INDENT_STEP}
         onClear={clearPendingCreate}
       />
     ))
@@ -94,20 +109,41 @@ export function RepoSection({
       <div
         role="treeitem"
         aria-expanded={!isCollapsed}
-        tabIndex={0}
+        // One tab stop for the whole tree; the roving 0 is set in
+        // use-tree-keyboard.ts.
+        tabIndex={-1}
         className={cn(
           ROW_BASE,
           'group',
           activeWorkspaceId !== '' && activeWorkspaceId === repo.defaultWorkspaceId
             ? ROW_ACTIVE
             : ROW_INACTIVE,
-          isRepoDragOver && 'ring-1 ring-ring',
+          draggingIds.has(repo.id) && 'opacity-40',
+          dropMode === 'into' && ROW_NEST_TARGET,
         )}
-        data-repo-drop={repo.id}
+        // `repoId` is the repo's own id: the same-repo rule compares a
+        // workspace's scope against the target's, and the repo header IS that
+        // scope, so without it every drop onto it would be refused.
+        {...dropRowProps({
+          kind: 'repo',
+          id: repo.id,
+          repoId: repo.id,
+          parentId: repo.projectId ?? '',
+          label: repo.name,
+          expanded: !isCollapsed,
+          hasChildren: roots.length > 0,
+        })}
         aria-label={`Open ${repo.name}`}
+        onPointerDown={(e) =>
+          onPointerDownDrag({ kind: 'repo', id: repo.id, parentId: repo.projectId ?? '' }, e)
+        }
         onClick={() => {
           // Clicks inside the inline rename editor must not navigate.
           if (renamingRepoId === repo.id) return
+          // A repo row is its own destination and never joins a multiselection,
+          // but opening one is still a plain click, and a plain click is what
+          // clears the lit rows. The keep set is untouched.
+          useSidebarSelectionStore.getState().clearSelected()
           openRepoHome()
         }}
         onKeyDown={(e) => {
@@ -180,6 +216,7 @@ export function RepoSection({
           aria-label="Import branches"
           title="Import branches"
           className={ROW_SUB_ACTION}
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation()
             setImportOpen(true)
@@ -193,9 +230,10 @@ export function RepoSection({
             type="button"
             aria-label="Add child workspace"
             className={ROW_SUB_ACTION}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation()
-              if (collapsedRepos.has(repo.id)) useSidebarStore.getState().toggleRepo(repo.id)
+              if (isCollapsed) toggle()
               startCreating(repo.id, repo.defaultWorkspaceId!)
             }}
           >
@@ -213,13 +251,18 @@ export function RepoSection({
           </button>
         )}
 
+        {held.holding && (
+          <FoldAwayButton label={repo.name} onFold={() => foldAwayRows(repo.id, tree.index)} />
+        )}
+
         <button
           type="button"
           aria-label={isCollapsed ? 'Expand repo' : 'Collapse repo'}
           className={ROW_SUB_ACTION}
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation()
-            useSidebarStore.getState().toggleRepo(repo.id)
+            toggle()
           }}
         >
           <svg
@@ -235,49 +278,46 @@ export function RepoSection({
           </svg>
         </button>
       </div>
-      {!isCollapsed && (
-        <div role="group">
-          {creatingChildOf?.repoId === repo.id &&
-            creatingChildOf?.parentId === repo.defaultWorkspaceId && (
-              <div style={{ paddingLeft: 14 }}>
-                <div className={cn(ROW_BASE, 'border-transparent text-foreground')}>
-                  <svg
-                    aria-hidden="true"
-                    className={cn('size-4', ROW_SUB_ACTION_GLYPH)}
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  >
-                    <path d={ADD_GLYPH_PATH} />
-                  </svg>
-                  <WorkspaceInlineInput
-                    onConfirm={confirmCreate}
-                    onCancel={cancelCreate}
-                    resolveExisting={(b) => findWorkspaceForBranch(repo, b)}
-                    onOpenExisting={(wsId) => {
-                      cancelCreate()
-                      if (repo.projectId) onWorkspaceClick(wsId, repo.projectId, repo.id)
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          {pendingCreateRows}
-          {roots.map((node) => (
-            <WorkspaceTreeItem
-              key={node.workspace.id}
-              node={node}
-              depth={0}
-              repoId={repo.id}
-              projectId={repo.projectId ?? ''}
-              activeWorkspaceId={activeWorkspaceId}
-              onWorkspaceClick={onWorkspaceClick}
+
+      {/* What a folded repo is still showing, outside the box that closes. */}
+      <HeldRows
+        ids={held.roots}
+        depth={0}
+        repoId={repo.id}
+        projectId={repo.projectId ?? ''}
+        activeWorkspaceId={activeWorkspaceId}
+        onWorkspaceClick={onWorkspaceClick}
+        tree={tree}
+      />
+
+      <CollapseSection open={!isCollapsed} role="group">
+        {creatingChildOf?.repoId === repo.id &&
+          creatingChildOf?.parentId === repo.defaultWorkspaceId && (
+            <InlineCreateRow
+              indent={ROW_INDENT_STEP}
+              repo={repo}
+              onConfirm={confirmCreate}
+              onCancel={cancelCreate}
+              onOpenExisting={(wsId) => {
+                cancelCreate()
+                if (repo.projectId) onWorkspaceClick(wsId, repo.projectId, repo.id)
+              }}
             />
-          ))}
-        </div>
-      )}
+          )}
+        {pendingCreateRows}
+        {roots.map((node) => (
+          <SidebarNode
+            key={node.id}
+            node={node}
+            depth={0}
+            repoId={repo.id}
+            projectId={repo.projectId ?? ''}
+            activeWorkspaceId={activeWorkspaceId}
+            onWorkspaceClick={onWorkspaceClick}
+            tree={tree}
+          />
+        ))}
+      </CollapseSection>
       <RepoImportDialog
         projectId={repo.projectId ?? ''}
         repoId={repo.id}

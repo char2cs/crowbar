@@ -155,11 +155,26 @@ func extraRoutes() []string {
 	const home = "/v0/projects/:projectId/home"
 	return []string{
 		"DELETE /v0/projects/:projectId",
+		// Project reorder: the sidebar's manual project order, a single store
+		// write that densifies the list and broadcasts every row it shifted.
+		"PATCH /v0/projects/:projectId",
 		"DELETE " + repo,
-		// Repo rename: the sidebar's inline repo rename, a single store write
-		// that rewrites the display name + its derived avatar and broadcasts the
-		// updated RepoDTO.
+		// Repo patch: the sidebar's inline repo rename, its manual order within a
+		// project, and its move BETWEEN projects — one partial-update endpoint,
+		// because a drag can do more than one of them at once. It rewrites the
+		// display name + its derived avatar and broadcasts the updated RepoDTO.
 		"PATCH " + repo,
+		// Folder CRUD: the sidebar's organisation layer (folders are repo-scoped
+		// and hold no worktree). The list GET dual-serves the Folders WS stream.
+		"GET " + repo + "/folders",
+		"POST " + repo + "/folders",
+		"PATCH " + repo + "/folders/:folderId",
+		"DELETE " + repo + "/folders/:folderId",
+		// The repo's open-PR head->base graph, the import dialog's parent hint.
+		"GET " + repo + "/pull-requests",
+		// Batch branch import: adopts a set of remote branches as managed
+		// workspaces in one call, PR-parented up to a protected root.
+		"POST " + repo + "/workspaces/import",
 		"GET " + repo + "/icon",
 		"PUT " + repo + "/icon",
 		"DELETE " + repo + "/icon",

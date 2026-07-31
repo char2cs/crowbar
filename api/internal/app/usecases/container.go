@@ -9,6 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/git"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/discover"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
@@ -28,7 +29,8 @@ import (
 // imports its parent package (which would be an import cycle).
 type GORMStores struct {
 	Projects                 store.Store[domain.Project, string]
-	Repositories             store.Store[domain.Repository, string]
+	Repositories             store.ScopedStore[domain.Repository, string]
+	Folders                  store.ScopedStore[domain.Folder, string]
 	TerminalProfiles         store.Store[domain.TerminalProfile, string]
 	TerminalSessions         store.Store[domain.TerminalSession, string]
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
@@ -40,6 +42,7 @@ type Container struct {
 	Project       project.Usecase
 	ProjectImport project.ImportUsecase
 	ProjectDelete project.DeleteUsecase
+	Folder        folder.Usecase
 	Workspace     workspace.Usecase
 	File          file.Usecase
 	Git           git.Usecase
@@ -81,6 +84,11 @@ func New(
 	projectUsecase := project.New(
 		gormStores.Projects,
 		gormStores.Repositories,
+		repos.Workspace,
+	)
+	folderUsecase := folder.New(
+		gormStores.Folders,
+		repos.Workspace,
 	)
 	workspaceUsecase := workspace.New(
 		repos.Workspace,
@@ -110,17 +118,7 @@ func New(
 		repos.Workspace,
 		engines.Provider,
 	)
-	projectImport := project.NewImport(project.ImportDeps{
-		Projects:    gormStores.Projects,
-		Repos:       gormStores.Repositories,
-		Workspaces:  repos.Workspace,
-		Git:         engines.Git,
-		Provider:    engines.Provider,
-		Discover:    discover.Repos,
-		RefRunner:   newRefRunner,
-		Now:         nowFunc,
-		CrowbarHome: crowbarHome,
-	})
+	projectImport := newProjectImport(repos, gormStores, engines, crowbarHome)
 	projectDelete := project.NewDelete(project.DeleteDeps{
 		Projects:    gormStores.Projects,
 		Repos:       gormStores.Repositories,
@@ -165,6 +163,7 @@ func New(
 		Project:              projectUsecase,
 		ProjectImport:        projectImport,
 		ProjectDelete:        projectDelete,
+		Folder:               folderUsecase,
 		Workspace:            workspaceUsecase,
 		File:                 fileUsecase,
 		Git:                  gitUsecase,
@@ -176,6 +175,28 @@ func New(
 		Agent:                agentUsecase,
 		AgentWorkspaceReader: agentWSReader,
 	}, nil
+}
+
+// newProjectImport assembles the project-import usecase's dependency set. It is
+// split out of New only to keep that constructor within its length budget; the
+// wiring is otherwise unchanged.
+func newProjectImport(
+	repos *repositories.Container,
+	gormStores GORMStores,
+	engines *engine.Container,
+	crowbarHome func() (string, error),
+) project.ImportUsecase {
+	return project.NewImport(project.ImportDeps{
+		Projects:    gormStores.Projects,
+		Repos:       gormStores.Repositories,
+		Workspaces:  repos.Workspace,
+		Git:         engines.Git,
+		Provider:    engines.Provider,
+		Discover:    discover.Repos,
+		RefRunner:   newRefRunner,
+		Now:         nowFunc,
+		CrowbarHome: crowbarHome,
+	})
 }
 
 // workspaceGetter is the minimal workspace-read surface agentWorkspaceReader

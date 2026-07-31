@@ -27,13 +27,19 @@ const actions = {
   >(),
   clearPendingCreate: vi.fn(),
 }
-const drag = { draggingWs: null, hoverTargetId: null, movingWsId: null }
+const drag = {
+  draggingWs: null,
+  draggingIds: new Set<string>(),
+  dropTarget: null,
+  movingIds: new Set<string>(),
+}
 
 vi.mock('@/components/layout/workspace-tree-context', () => ({
   useWorkspaceTreeActions: () => actions,
   useWorkspaceTreeDrag: () => drag,
 }))
 
+import { EMPTY_REPO_TREE } from '@/components/layout/workspace-tree-utils'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { WorkspaceTreeItem } from '@/components/layout/workspace-tree-item'
 
@@ -60,6 +66,8 @@ beforeEach(() => {
 })
 
 const placeholderNode = {
+  kind: 'workspace',
+  id: 'ws-ph',
   workspace: {
     id: 'ws-ph',
     branch: 'develop',
@@ -70,6 +78,8 @@ const placeholderNode = {
 }
 
 const normalNode = {
+  kind: 'workspace',
+  id: 'ws-n',
   workspace: { id: 'ws-n', branch: 'feature/x', status: 'new' },
   children: [],
 }
@@ -83,6 +93,7 @@ function renderItem(node: unknown, activeWorkspaceId = '', onWorkspaceClick = vi
       projectId="p1"
       activeWorkspaceId={activeWorkspaceId}
       onWorkspaceClick={onWorkspaceClick}
+      tree={EMPTY_REPO_TREE}
     />,
   )
   return onWorkspaceClick

@@ -37,6 +37,14 @@ func (stubReader) Get(
 	return domain.Project{}, nil
 }
 
+func (stubReader) Reorder(
+	_ context.Context,
+	_ string,
+	_ int,
+) (domain.Project, error) {
+	return domain.Project{}, nil
+}
+
 type stubImporter struct{}
 
 func (stubImporter) Import(
@@ -84,6 +92,7 @@ func TestRegisterMountsRoutes(
 		path   string
 	}{
 		{http.MethodGet, "/v0/projects"},
+		{http.MethodPatch, "/v0/projects/p1"},
 		{http.MethodPost, "/v0/projects"},
 		{http.MethodGet, "/v0/projects/abc"},
 		{http.MethodDelete, "/v0/projects/abc"},

@@ -1,7 +1,12 @@
 import { create } from 'zustand'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
-import type { WorkspaceDTO } from '@/lib/types'
-import { toSidebarWorkspace } from '@/lib/store/build-repo-tree'
+import type { FolderDTO, WorkspaceDTO } from '@/lib/types'
+import {
+  sortReposByOrder,
+  toSidebarFolder,
+  toSidebarStatus,
+  toSidebarWorkspace,
+} from '@/lib/store/build-repo-tree'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 
 // §5 7-value status union (drops the old 'agent-running' overlay — an agent in
@@ -16,10 +21,42 @@ export type WorkspaceStatus =
   | 'pr-open'
   | 'pr-closed'
 
+/**
+ * A sidebar grouping folder. Purely a tree edge: it holds no worktree and no
+ * branch, which is why a workspace joins one through its own `folderId` rather
+ * than through `parentId` (that field stays the FORK parent — putting a folder
+ * id in it silently breaks merge eligibility and the diff base).
+ *
+ * Typed here ahead of the backend that emits it (plan wave 1/2), so every
+ * consumer tolerates its absence: a repo with no folders simply has none.
+ */
+export interface Folder {
+  id: string
+  repoId: string
+  /** Owning folder id, or undefined/'' for a folder that sits at the repo root. */
+  parentId?: string
+  name: string
+  order: number
+}
+
+/**
+ * Stable empty folder list. Same rule as EMPTY_PROJECTS (lib/store/projects.ts):
+ * a fresh `[]` per call makes a Zustand snapshot compare unstable and React
+ * eventually throws "Maximum update depth exceeded" somewhere unrelated.
+ * Read-only by convention — consumers only map/find/filter it.
+ */
+export const EMPTY_FOLDERS: Folder[] = []
+
 export interface Workspace {
   id: string
   branch: string
   parentId?: string
+  /** Owning sidebar folder (see `Folder`); absent when the workspace sits at the
+   *  repo root. Backend-supplied; older frames simply omit it. */
+  folderId?: string
+  /** Sibling sort key within its level. Backend-supplied and dense; older frames
+   *  omit it, in which case consumers fall back to arrival order. */
+  order?: number
   status?: WorkspaceStatus
   added?: number
   deleted?: number
@@ -48,11 +85,18 @@ export interface Repo {
   id: string
   /** Owning project — used to derive the active project from a workspace route. */
   projectId?: string
+  /** Dense index within its project's section. Backend-supplied; older frames
+   *  omit it, in which case the repo sorts after the ordered ones in arrival
+   *  order (the same rule buildSidebarTree applies to a workspace's). */
+  order?: number
   name: string
   avatarLabel: string
   avatarColor: string
   avatarURL?: string
   workspaces: Workspace[]
+  /** Grouping folders declared inside this repo. Optional: the backend that
+   *  emits them lands in parallel, and an older frame carries none. */
+  folders?: Folder[]
   /** Real id of the IsDefault workspace (the imported repo folder); the repo
    *  header opens it and the context pill labels it "default". Its branch is
    *  exposed as `defaultBranch` (below) so create-input validation can reserve
@@ -77,10 +121,75 @@ export interface Repo {
 
 export type SidebarTab = 'workspaces' | 'chats' | 'files' | 'git'
 
+/** A workspace row's new placement. Absent fields are left alone. */
+export interface WorkspacePlacementWrite {
+  id: string
+  /** Sidebar folder, '' for the repo root. */
+  folderId?: string
+  /** Fork parent — only a drop that actually moves the fork edge sets this. */
+  parentId?: string
+  order?: number
+}
+
+/** A folder row's new placement. */
+export interface FolderPlacementWrite {
+  id: string
+  /** A workspace id, another folder id, or '' for the repo root. */
+  parentId?: string
+  order?: number
+}
+
+/**
+ * A repo's owning project and its index within that project's section.
+ *
+ * Both, never just the array position: the sidebar re-sorts by `order` whenever
+ * a repo arrives on the entity stream, so an optimistic move that only
+ * re-spliced the array would be undone by the next frame.
+ */
+export interface RepoPlacementWrite {
+  id: string
+  projectId: string
+  order: number
+}
+
+/**
+ * Everything one drop moves, as a single unit.
+ *
+ * A drop is optimistic, so the paint has to land before the request does —
+ * including the siblings a move displaces, or the tree renumbers itself a frame
+ * late and the row visibly jumps twice. Bundling them means a refusal snaps the
+ * whole move back at once rather than un-picking it row by row.
+ */
+export interface SidebarPlacement {
+  workspaces?: readonly WorkspacePlacementWrite[]
+  folders?: readonly FolderPlacementWrite[]
+  /** The destination project's repos, in their new order. */
+  repos?: readonly RepoPlacementWrite[]
+}
+
 interface SidebarState {
+  /**
+   * Every repo of every VISIBLE project (see lib/store/project-visibility.ts) —
+   * no longer just the active project's. Each carries its own `projectId`.
+   */
   repos: Repo[]
   collapsedRepos: Set<string>
   collapsedWorkspaces: Set<string>
+  /**
+   * Projects the user has explicitly folded away. Same polarity as
+   * `collapsedRepos`/`collapsedWorkspaces` above: unknown means OPEN.
+   *
+   * Showing every project at once is the feature — a fresh install must render
+   * the whole sidebar, not a column of closed rows — so the default cannot be
+   * "collapsed". Collapse is how the cost is bought back rather than avoided: a
+   * project's repo + workspace WebSocket streams are subscribed only while it
+   * is visible (see lib/store/project-visibility.ts), so folding one away is a
+   * real teardown, not just a tidier list.
+   *
+   * The ACTIVE project stays visible regardless of this set — the app needs its
+   * repo scope whether or not the row is folded.
+   */
+  collapsedProjects: Set<string>
   /** Persisted active tab so re-mounts don't reset it. */
   activeTab: SidebarTab
   addWorkspace: (repoId: string, wsId: string, branch: string, parentId?: string) => void
@@ -90,8 +199,15 @@ interface SidebarState {
   // daemon; the renamed WorkspaceDTO returns via applyWorkspaceDTO. A local
   // relabel is what made rename look like it worked while changing nothing.
   reparentWorkspace: (wsId: string, newParentId: string | undefined) => void
+  /**
+   * Apply a whole drop's worth of placement at once — see {@link SidebarPlacement}.
+   * Paired with {@link capturePlacement}, which reads the same fields back
+   * beforehand so a refusal is one call to undo.
+   */
+  applyPlacement: (placement: SidebarPlacement) => void
   toggleRepo: (repoId: string) => void
   toggleWorkspace: (wsId: string) => void
+  toggleProject: (projectId: string) => void
   setActiveTab: (tab: SidebarTab) => void
   setRepos: (repos: Repo[]) => void
   /**
@@ -109,6 +225,15 @@ interface SidebarState {
    * backend owns the deletion set and emits one tombstone per removed id.
    */
   applyWorkspaceDTO: (dto: WorkspaceDTO) => void
+  /**
+   * §6 WS-driven folder upsert, the folder half of {@link applyWorkspaceDTO}:
+   * merge a complete FolderDTO into its repo by id, or remove it when the frame
+   * is a `status: 'deleted'` tombstone. Deleting a folder reparents its children
+   * rather than cascading (a folder holds no worktrees), and the daemon emits
+   * their moved DTOs on their own streams — so this only ever touches the one
+   * row the frame names.
+   */
+  applyFolderDTO: (dto: FolderDTO) => void
 }
 
 /**
@@ -143,6 +268,20 @@ function collectDeletedIds(allWorkspaces: Workspace[], wsId: string): Set<string
 }
 
 /**
+ * Whether merging `incoming` (freshly built from a DTO) into `existing` would
+ * change anything. Both applyWorkspaceDTO and applyFolderDTO merge with
+ * `{...row, ...incoming}`, so only the keys `incoming` actually carries can move
+ * the result — comparing those is enough, and it is what lets a no-op frame skip
+ * the re-render.
+ */
+function isSameRow<T extends object>(existing: T, incoming: T): boolean {
+  for (const key of Object.keys(incoming) as Array<keyof T>) {
+    if (existing[key] !== incoming[key]) return false
+  }
+  return true
+}
+
+/**
  * Whether `wsId` is a locked (protected-branch) workspace. Locked worktrees
  * refuse every daemon write (409 "workspace locked"), so mutation UI gates on
  * this. Checks BOTH id spaces a workspace can live in: the repo's tree rows
@@ -159,6 +298,79 @@ export function isWorkspaceLockedInSidebar(repos: Repo[], wsId: string | null): 
     if (ws) return ws.status === 'locked'
   }
   return false
+}
+
+/**
+ * Read back exactly the fields a placement is about to overwrite, so the drop
+ * that fired it can be undone in one call. The shape returned is the same
+ * `SidebarPlacement` — an undo is just the previous placement re-applied.
+ *
+ * Repos come back in their CURRENT array order, which is what carries their
+ * index within a project's section.
+ */
+export function capturePlacement(repos: Repo[], placement: SidebarPlacement): SidebarPlacement {
+  const out: SidebarPlacement = {}
+
+  if (placement.workspaces?.length) {
+    const wanted = new Map(placement.workspaces.map((w) => [w.id, w]))
+    const workspaces: WorkspacePlacementWrite[] = []
+    for (const repo of repos) {
+      for (const ws of repo.workspaces) {
+        const patch = wanted.get(ws.id)
+        if (!patch) continue
+        workspaces.push({
+          id: ws.id,
+          ...(patch.folderId !== undefined && { folderId: ws.folderId ?? '' }),
+          ...(patch.parentId !== undefined && { parentId: ws.parentId ?? '' }),
+          ...(patch.order !== undefined && { order: ws.order ?? 0 }),
+        })
+      }
+    }
+    out.workspaces = workspaces
+  }
+
+  if (placement.folders?.length) {
+    const wanted = new Map(placement.folders.map((f) => [f.id, f]))
+    const folders: FolderPlacementWrite[] = []
+    for (const repo of repos) {
+      for (const folder of repo.folders ?? EMPTY_FOLDERS) {
+        const patch = wanted.get(folder.id)
+        if (!patch) continue
+        folders.push({
+          id: folder.id,
+          ...(patch.parentId !== undefined && { parentId: folder.parentId ?? '' }),
+          ...(patch.order !== undefined && { order: folder.order }),
+        })
+      }
+    }
+    out.folders = folders
+  }
+
+  if (placement.repos?.length) {
+    const wanted = new Set(placement.repos.map((r) => r.id))
+    const current: RepoPlacementWrite[] = []
+    for (const repo of repos) {
+      if (wanted.has(repo.id)) {
+        current.push({ id: repo.id, projectId: repo.projectId ?? '', order: repo.order ?? 0 })
+      }
+    }
+    out.repos = current
+  }
+
+  return out
+}
+
+/** Merge one row's placement patch, leaving absent fields untouched. */
+function withPlacement<T extends { order?: number }>(
+  row: T,
+  patch: { parentId?: string; folderId?: string; order?: number },
+): T {
+  return {
+    ...row,
+    ...(patch.folderId !== undefined && { folderId: patch.folderId }),
+    ...(patch.parentId !== undefined && { parentId: patch.parentId }),
+    ...(patch.order !== undefined && { order: patch.order }),
+  }
 }
 
 /**
@@ -211,6 +423,7 @@ export function getInitialState() {
     repos: [],
     collapsedRepos: new Set<string>(),
     collapsedWorkspaces: new Set<string>(),
+    collapsedProjects: new Set<string>(),
     activeTab: 'workspaces' as SidebarTab,
   }
 }
@@ -286,11 +499,63 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
       }
     }),
 
+  applyPlacement: (placement) =>
+    set((s) => {
+      let repos = s.repos
+
+      if (placement.workspaces?.length || placement.folders?.length) {
+        const wsPatch = new Map((placement.workspaces ?? []).map((w) => [w.id, w]))
+        const folderPatch = new Map((placement.folders ?? []).map((f) => [f.id, f]))
+        repos = repos.map((repo) => {
+          const workspaces = repo.workspaces.map((w) => {
+            const patch = wsPatch.get(w.id)
+            return patch ? withPlacement(w, patch) : w
+          })
+          const folders = repo.folders?.map((f) => {
+            const patch = folderPatch.get(f.id)
+            return patch ? withPlacement(f, patch) : f
+          })
+          const workspacesChanged = workspaces.some((w, i) => w !== repo.workspaces[i])
+          const foldersChanged = folders?.some((f, i) => f !== repo.folders?.[i]) ?? false
+          if (!workspacesChanged && !foldersChanged) return repo
+          return { ...repo, workspaces, ...(folders ? { folders } : {}) }
+        })
+      }
+
+      if (placement.repos?.length) {
+        // The flat `repos` array carries each repo's index within its project —
+        // the sidebar buckets by `projectId` and keeps array order inside a
+        // bucket — so a reorder is a re-splice of the destination's members.
+        // Where the bucket lands in the flat array is irrelevant: group order
+        // comes from the project list, not from here.
+        //
+        // `order` is written alongside the splice, not derived from it. The
+        // array is re-sorted by that field whenever a repo arrives on the
+        // entity stream, so a move that only changed positions would survive
+        // exactly until the next frame.
+        const at = new Map(placement.repos.map((r, i) => [r.id, i]))
+        const patch = new Map(placement.repos.map((r) => [r.id, r]))
+        const moved: Repo[] = []
+        const untouched: Repo[] = []
+        for (const repo of repos) {
+          const write = patch.get(repo.id)
+          if (!write) untouched.push(repo)
+          else if (repo.projectId === write.projectId && repo.order === write.order)
+            moved.push(repo)
+          else moved.push({ ...repo, projectId: write.projectId, order: write.order })
+        }
+        moved.sort((a, b) => at.get(a.id)! - at.get(b.id)!)
+        repos = [...untouched, ...moved]
+      }
+
+      return repos === s.repos ? s : { repos }
+    }),
+
   toggleRepo: (repoId) =>
     set((s) => {
       const next = new Set(s.collapsedRepos)
       next.has(repoId) ? next.delete(repoId) : next.add(repoId)
-      void saveSidebarUI([...next], [...s.collapsedWorkspaces])
+      void saveSidebarUI([...next], [...s.collapsedWorkspaces], [...s.collapsedProjects])
       return { collapsedRepos: next }
     }),
 
@@ -298,8 +563,16 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
     set((s) => {
       const next = new Set(s.collapsedWorkspaces)
       next.has(wsId) ? next.delete(wsId) : next.add(wsId)
-      void saveSidebarUI([...s.collapsedRepos], [...next])
+      void saveSidebarUI([...s.collapsedRepos], [...next], [...s.collapsedProjects])
       return { collapsedWorkspaces: next }
+    }),
+
+  toggleProject: (projectId) =>
+    set((s) => {
+      const next = new Set(s.collapsedProjects)
+      next.has(projectId) ? next.delete(projectId) : next.add(projectId)
+      void saveSidebarUI([...s.collapsedRepos], [...s.collapsedWorkspaces], [...next])
+      return { collapsedProjects: next }
     }),
 
   setActiveTab: (tab) => set({ activeTab: tab }),
@@ -313,6 +586,7 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
     set((s) => {
       recordRepoScopes(incoming)
       let changed = false
+      let resort = false
       const next = [...s.repos]
       const byId = new Map(next.map((r, i) => [r.id, i]))
       for (const repo of incoming) {
@@ -321,6 +595,11 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
           byId.set(repo.id, next.length)
           next.push(repo)
           changed = true
+          // A repo arriving on the entity stream carries the index the user
+          // dragged it to, and appending it would put it last regardless — a
+          // reorder that looked like it worked, then quietly came undone on the
+          // next frame. Placing it is a re-sort of the level it joins.
+          resort = true
           continue
         }
         const existing = next[idx]
@@ -331,7 +610,8 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
           changed = true
         }
       }
-      return changed ? { repos: next } : s
+      if (!changed) return s
+      return { repos: resort ? sortReposByOrder(next) : next }
     }),
 
   applyWorkspaceDTO: (dto) =>
@@ -351,26 +631,97 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
         return changed ? { repos } : s
       }
 
-      // The default (main-worktree) workspace is never a tree row — it is
+      const repoIdx = s.repos.findIndex((r) => r.id === dto.repoId)
+      // The repo isn't in the tree yet (its RepoDTO seed hasn't landed, or the
+      // repo belongs to a project that is not visible): drop the frame — the
+      // per-repo seed/stream will deliver this workspace once the repo exists.
+      if (repoIdx === -1) return s
+      const repo = s.repos[repoIdx]
+
+      // The default (main-worktree) workspace is never a tree ROW — it is
       // surfaced on the repo header via Repo.defaultWorkspaceId (see
-      // toSidebarRepo). Skip it here so a stray live frame can't reintroduce it.
-      if (dto.isDefault) return s
+      // toSidebarRepo). Never insert it as a row, but DO lift its live overlays
+      // onto the header, exactly as toSidebarRepo does when the tree is rebuilt
+      // wholesale: the repo avatar's agent spinner (defaultWorking) and the
+      // lock gating (defaultWorkspaceStatus) read from there, and this is now
+      // the only path a live frame takes.
+      if (dto.isDefault) {
+        const next: Repo = {
+          ...repo,
+          defaultWorkspaceId: dto.id,
+          defaultBranch: dto.branch,
+          defaultWorking: dto.working,
+          defaultWorkspaceStatus: toSidebarStatus(dto),
+        }
+        if (
+          repo.defaultWorkspaceId === next.defaultWorkspaceId &&
+          repo.defaultBranch === next.defaultBranch &&
+          repo.defaultWorking === next.defaultWorking &&
+          repo.defaultWorkspaceStatus === next.defaultWorkspaceStatus
+        ) {
+          return s
+        }
+        const repos = [...s.repos]
+        repos[repoIdx] = next
+        return { repos }
+      }
 
       const ws = toSidebarWorkspace(dto)
-      const repoIdx = s.repos.findIndex((r) => r.id === dto.repoId)
-      // The repo isn't in the tree yet (its RepoDTO seed hasn't landed): drop
-      // the frame — the per-repo seed/stream will deliver this workspace once
-      // the repo exists.
-      if (repoIdx === -1) return s
-
-      const repo = s.repos[repoIdx]
       const existingIdx = repo.workspaces.findIndex((w) => w.id === dto.id)
+      // A frame that changes nothing (a reconnect reseed, a duplicate push)
+      // must not hand out a new `repos` array: every sidebar subscriber
+      // re-derives on identity, so a no-op frame would still cost a render
+      // pass across the whole tree.
+      if (existingIdx !== -1 && isSameRow(repo.workspaces[existingIdx], ws)) return s
       const workspaces =
         existingIdx === -1
           ? [...repo.workspaces, ws]
           : repo.workspaces.map((w, i) => (i === existingIdx ? { ...w, ...ws } : w))
       const repos = [...s.repos]
       repos[repoIdx] = { ...repo, workspaces }
+      return { repos }
+    }),
+
+  applyFolderDTO: (dto) =>
+    set((s) => {
+      // A tombstone removes the folder from whichever repo holds it. Its
+      // children are NOT removed with it: the daemon reparents them and emits
+      // their own frames, so cascading here would blank rows the backend kept.
+      if (dto.status === 'deleted') {
+        let changed = false
+        const repos = s.repos.map((r) => {
+          if (!r.folders?.some((f) => f.id === dto.id)) return r
+          changed = true
+          return { ...r, folders: r.folders.filter((f) => f.id !== dto.id) }
+        })
+        return changed ? { repos } : s
+      }
+
+      const repoIdx = s.repos.findIndex((r) => r.id === dto.repoId)
+      // The repo isn't in the tree yet (its RepoDTO seed hasn't landed, or it
+      // belongs to a project that is not visible): drop the frame — the folders
+      // seed will deliver this folder once the repo exists.
+      if (repoIdx === -1) return s
+      const repo = s.repos[repoIdx]
+
+      const folder = toSidebarFolder(dto)
+      const existing = repo.folders ?? EMPTY_FOLDERS
+      const existingIdx = existing.findIndex((f) => f.id === dto.id)
+      // A frame that changes nothing (a reconnect reseed, a duplicate push) must
+      // not hand out a new `repos` array: every sidebar subscriber re-derives on
+      // identity, so a no-op frame would still cost a render pass across the
+      // whole tree.
+      if (existingIdx !== -1 && isSameRow(existing[existingIdx], folder)) return s
+      // Merged, never replaced: this is one folder's frame, not the repo's set.
+      // Appending is enough for placement — folders and workspaces share one
+      // sibling space that buildSidebarTree sorts by `order`, so array position
+      // carries nothing.
+      const folders =
+        existingIdx === -1
+          ? [...existing, folder]
+          : existing.map((f, i) => (i === existingIdx ? { ...f, ...folder } : f))
+      const repos = [...s.repos]
+      repos[repoIdx] = { ...repo, folders }
       return { repos }
     }),
 }))

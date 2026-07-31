@@ -102,6 +102,11 @@
   --color-git-modified-staged: var(--git-modified-staged);
   --color-git-untracked: var(--git-untracked);
   --color-git-renamed: var(--git-renamed);
+  --color-sidebar-count-added: var(--sidebar-count-added);
+  --color-sidebar-count-deleted: var(--sidebar-count-deleted);
+  --color-sidebar-drop-line: var(--sidebar-drop-line);
+  --color-sidebar-drop-nest: var(--sidebar-drop-nest);
+  --color-sidebar-drop-nest-edge: var(--sidebar-drop-nest-edge);
   --font-editor: var(--editor-font-family);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
@@ -117,6 +122,19 @@
   --animate-toast-error-odd: toast-error-odd 0.28s cubic-bezier(0.5, 1, 0.89, 1);
   --animate-toast-error-even: toast-error-even 0.28s cubic-bezier(0.5, 1, 0.89, 1);
   --animate-label-in: label-in 140ms cubic-bezier(0, 0, 0.2, 1) both;
+  /* A row action that is out of the flow at rest and appears on hover/focus.
+     `display` is what gives the branch name back the button's 24px box and the
+     row's 6px gap, and `display` cannot transition — so the fade rides a
+     keyframe, which starts the moment the element becomes displayed. Short
+     enough to read as the row responding rather than as a thing arriving. */
+  --animate-row-action-in: row-action-in 120ms ease;
+  /* The hairline draining along a held row in the removal tray. ONE animation
+     for the whole eight seconds — the alternative is a timer re-rendering a
+     countdown thirty times a second to move a bar the compositor can move on
+     its own. `forwards` so the drained state survives the last frame; `linear`
+     because the bar IS the clock and an eased one would misreport how much of
+     it is left. */
+  --animate-tray-drain: tray-drain 8s linear forwards;
   @keyframes skeleton {
     to {
       background-position: -200% 0;
@@ -193,6 +211,22 @@
     }
     100% {
       translate: 0 0;
+    }
+  }
+  @keyframes row-action-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes tray-drain {
+    from {
+      transform: scaleX(1);
+    }
+    to {
+      transform: scaleX(0);
     }
   }
   @keyframes label-in {
@@ -280,6 +314,32 @@
   --git-untracked: var(--color-lime-600);
   --git-deleted: var(--destructive);
   --git-renamed: var(--color-sky-600);
+
+  /* The +/- figures on a sidebar row's second line. NOT --git-added/--git-deleted:
+     those resolve to emerald-500/red-500, which lose contrast against the raised
+     active surface the second line only ever appears on. The pale pair reads
+     there; on the light theme it is taken down to 60% so it reads against a light
+     surface for the same reason. */
+  --sidebar-count-added: color-mix(in srgb, var(--color-green-300) 60%, black);
+  --sidebar-count-deleted: color-mix(in srgb, var(--color-red-300) 60%, black);
+
+  /* The two drag-and-drop marks on a sidebar row: the hairline that says
+     "between these rows" and the fill that says "inside this one".
+
+     Built on --secondary rather than --primary. --primary is the app's most
+     emphatic surface (the active pane ring, the count badge); a drop mark is a
+     transient hint that has to read over a row already wearing its own hover or
+     active treatment without competing with either. The line takes a share of
+     --foreground on top so it stays legible where --secondary and the sidebar
+     glass are close in lightness.
+
+     Declared ONCE. Every theme class lands on the same <html> element as :root,
+     so the mix resolves against whichever --secondary/--foreground won the
+     cascade — unlike --sidebar-count-* above, which needs a per-theme value
+     because its formula differs between light and dark. */
+  --sidebar-drop-line: color-mix(in oklch, var(--secondary) 55%, var(--foreground));
+  --sidebar-drop-nest: color-mix(in oklch, var(--secondary) 30%, transparent);
+  --sidebar-drop-nest-edge: color-mix(in oklch, var(--secondary) 65%, transparent);
 
   /* ── Crowbar UI-layer tokens (not in Cross/UI) ── */
   /* Window backdrop tint (on <body>, over the native window vibrancy). A light
@@ -419,6 +479,10 @@
   --git-untracked: var(--color-lime-400);
   --git-deleted: var(--destructive);
   --git-renamed: var(--color-sky-400);
+
+  /* Full strength here — see the light-theme note. */
+  --sidebar-count-added: var(--color-green-300);
+  --sidebar-count-deleted: var(--color-red-300);
 
   /* ── Crowbar UI-layer dark overrides ── */
   /* Window backdrop tint (applied to <body>, behind every pane). Was a 40% black

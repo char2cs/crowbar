@@ -125,6 +125,23 @@ func (m *MockWorkspace) RenameBranch(
 	return domain.Workspace{ID: id, Branch: branch, WorktreePath: worktreePath}, nil
 }
 
+func (m *MockWorkspace) SetPlacement(
+	_ context.Context,
+	id string,
+	folderID string,
+	order int,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, FolderID: folderID, Order: order}, nil
+}
+
+func (m *MockWorkspace) SetProject(
+	_ context.Context,
+	id string,
+	projectID string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, ProjectID: projectID}, nil
+}
+
 func (m *MockWorkspace) SetParentFromPR(
 	ctx context.Context,
 	id string,

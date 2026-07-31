@@ -463,4 +463,28 @@ describe('hydrateSidebar', () => {
     expect(collapsedWorkspaces.has('ws3')).toBe(true)
     expect(collapsedWorkspaces.has('ws1')).toBe(true)
   })
+
+  it('restores collapsedProjects from IDB', async () => {
+    await saveSidebarUI([], [], ['p2', 'p3'])
+    await hydrateSidebar()
+    const { collapsedProjects } = useSidebarStore.getState()
+    expect(collapsedProjects.has('p2')).toBe(true)
+    expect(collapsedProjects.has('p3')).toBe(true)
+  })
+
+  it('replays a record written before projects were collapsible as "all open"', async () => {
+    useSidebarStore.setState({ collapsedProjects: new Set(['stale']) })
+    const db = await getDB()
+    // A record with no collapsedProjects key at all — either a build that
+    // predates collapsible projects, or one that wrote the old inverted
+    // `expandedProjects`. Both replay as "nothing collapsed", which is the
+    // product default: a fresh install shows every project open.
+    await db.put(
+      'sidebar-ui',
+      { collapsedRepos: ['crowbar'], expandedProjects: ['p9'], updatedAt: Date.now() } as never,
+      'global',
+    )
+    await hydrateSidebar()
+    expect(useSidebarStore.getState().collapsedProjects.size).toBe(0)
+  })
 })

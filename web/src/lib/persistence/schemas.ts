@@ -5,7 +5,7 @@ import type {
   ReviewThread,
   MergeStrategy,
 } from '@/features/workspace/stores/slices/branch-review-slice'
-import type { ProjectDTO, RepoDTO, WorkspaceDTO, ThreadDTO } from '@/lib/types'
+import type { ProjectDTO, RepoDTO, WorkspaceDTO, ThreadDTO, FolderDTO } from '@/lib/types'
 
 export interface BranchReviewPersistedState {
   wsId: string
@@ -51,6 +51,16 @@ export interface UIPreferences {
 export interface SidebarUI {
   collapsedRepos: string[]
   collapsedWorkspaces?: string[]
+  /**
+   * Projects the user has folded away — same polarity as the two lists above,
+   * so an absent value replays as "everything open", which is the product
+   * default (see `collapsedProjects` in lib/store/sidebar.ts).
+   *
+   * A record written by an earlier build carries `expandedProjects` instead.
+   * It is simply ignored: pre-production, a stale layout falls back gracefully
+   * and is rewritten on the next toggle. No migration code.
+   */
+  collapsedProjects?: string[]
   updatedAt: number
 }
 
@@ -105,4 +115,8 @@ export interface CrowbarDB extends DBSchema {
   crowbar_repos: { key: string; value: RepoDTO }
   crowbar_workspaces: { key: string; value: WorkspaceDTO }
   crowbar_threads: { key: string; value: ThreadDTO }
+  // Sidebar grouping folders (v8). A new object store only exists if the DB is
+  // opened at a version that ran its upgrade, so adding one is a version bump —
+  // see idb.ts.
+  crowbar_folders: { key: string; value: FolderDTO }
 }

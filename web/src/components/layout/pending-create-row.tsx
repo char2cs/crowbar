@@ -1,13 +1,13 @@
 import { cn } from '@/lib/utils'
-import { ROW_BASE } from './workspace-row-base'
+import { ROW_BASE, ROW_INDENT_TRANSITION } from './workspace-row-base'
 import { WorkspaceAgentSpinner } from './workspace-branch-icon'
 import type { PendingCreate } from './workspace-tree-context'
 
 interface PendingCreateRowProps {
   tempId: string
   pending: PendingCreate
-  /** Left padding (px) so the optimistic row sits at its parent's tree depth. */
-  paddingLeft: number
+  /** Indent (px) so the optimistic row sits at its parent's tree depth. */
+  indent: number
   onClear: (tempId: string) => void
 }
 
@@ -19,9 +19,9 @@ interface PendingCreateRowProps {
  * workspace-tree-item), so every create shows its loading animation regardless
  * of where it forks from.
  */
-export function PendingCreateRow({ tempId, pending, paddingLeft, onClear }: PendingCreateRowProps) {
+export function PendingCreateRow({ tempId, pending, indent, onClear }: PendingCreateRowProps) {
   return (
-    <div style={{ paddingLeft }}>
+    <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: indent }}>
       <div className={cn(ROW_BASE, 'border-transparent opacity-60 pointer-events-none')}>
         {pending.error ? (
           <>

@@ -173,6 +173,14 @@ func (f *fakeWorkspace) SetParentFromPR(_ context.Context, _, _ string) (domain.
 	return domain.Workspace{}, nil
 }
 
+func (f *fakeWorkspace) SetPlacement(_ context.Context, id, folderID string, order int) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, FolderID: folderID, Order: order}, nil
+}
+
+func (f *fakeWorkspace) SetProject(_ context.Context, id, projectID string) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, ProjectID: projectID}, nil
+}
+
 func (f *fakeWorkspace) SetLastError(_ context.Context, _, _ string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }

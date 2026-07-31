@@ -3,7 +3,7 @@
  *
  * These are the parts the rest of the sidebar reaches into from the outside and
  * that nothing else asserted: the drag-and-drop system finds the row by its
- * `data-repo-drop` attribute and rings it from `hoverTargetId`, the keyboard
+ * `data-repo-drop` attribute and rings it from the resolved drop, the keyboard
  * path only fires when the row ITSELF is the event target, the rename guard has
  * to keep a click off the navigation, and the repo-root create/pending rows sit
  * at one indent step (14px). Behaviour-preserving refactors of the row must
@@ -43,8 +43,9 @@ const actions = vi.hoisted(() => ({
 }))
 const drag = vi.hoisted(() => ({
   draggingWs: null,
-  hoverTargetId: null as string | null,
-  movingWsId: null,
+  draggingIds: new Set<string>(),
+  dropTarget: null as { kind: string; id: string; mode: string } | null,
+  movingIds: new Set<string>(),
 }))
 
 vi.mock('@/components/layout/workspace-tree-context', () => ({
@@ -85,34 +86,41 @@ beforeEach(() => {
   router.pathname = ''
   actions.creatingChildOf = null
   actions.pendingCreates = new Map()
-  drag.hoverTargetId = null
+  drag.dropTarget = null
   useWorkspaceListStore.setState({ data: idle() })
   useHomeWorkspaceStore.setState({ workspace: null })
   useSidebarStore.setState({ repos: [repo()], collapsedRepos: new Set<string>() })
 })
 
 describe('repo header row: drag-and-drop surface', () => {
-  // findDropTarget() in workspace-tree-context walks elementsFromPoint looking
-  // for exactly this attribute — drop it and every drop onto a repo is a no-op.
+  // findDrop() in drop-target-dom walks elementsFromPoint looking for exactly
+  // this attribute — drop it and every drop onto a repo is a no-op.
   it('carries data-repo-drop so the drop-target scan can find it', () => {
     render(<WorkspaceTree />)
 
     expect(screen.getByLabelText('Open crowbar')).toHaveAttribute('data-repo-drop', 'r1')
   })
 
-  it('rings the row while the drag hovers repo:<id>', () => {
-    drag.hoverTargetId = 'repo:r1'
+  // The same-repo rule compares a workspace's scope against the target's, so a
+  // repo header with no scope of its own refuses every drop onto it.
+  it('publishes its own id as the drop scope', () => {
     render(<WorkspaceTree />)
 
-    expect(screen.getByLabelText('Open crowbar').className).toContain('ring-1')
-    expect(screen.getByLabelText('Open crowbar').className).toContain('ring-ring')
+    expect(screen.getByLabelText('Open crowbar')).toHaveAttribute('data-drop-repo', 'r1')
   })
 
-  it('does not ring the row when another repo is the hover target', () => {
-    drag.hoverTargetId = 'repo:r2'
+  it('fills the row while a drop would land INSIDE it', () => {
+    drag.dropTarget = { kind: 'repo', id: 'r1', mode: 'into' }
     render(<WorkspaceTree />)
 
-    expect(screen.getByLabelText('Open crowbar').className).not.toContain('ring-1 ring-ring')
+    expect(screen.getByLabelText('Open crowbar').className).toContain('bg-sidebar-drop-nest')
+  })
+
+  it('does not fill the row when another repo is the drop target', () => {
+    drag.dropTarget = { kind: 'repo', id: 'r2', mode: 'into' }
+    render(<WorkspaceTree />)
+
+    expect(screen.getByLabelText('Open crowbar').className).not.toContain('bg-sidebar-drop-nest')
   })
 })
 
@@ -197,14 +205,19 @@ describe('repo header row: row chrome', () => {
   })
 })
 
+// A row's indent is `margin-inline-start` rather than padding, because it MOVES:
+// a row kept through a collapse is re-drawn one step under whatever is holding
+// it, and the transition needs a property on the box that shifts.
 describe('repo-root create rows: indentation', () => {
   it('indents the inline create input one step (14px) under the repo header', () => {
     actions.creatingChildOf = { repoId: 'r1', parentId: 'w-default' }
     render(<WorkspaceTree />)
 
-    const input = screen.getByPlaceholderText('branch-name')
-    // input → WorkspaceInlineInput wrapper → ROW_BASE row → padded container
-    expect(input.parentElement?.parentElement?.parentElement).toHaveStyle({ paddingLeft: '14px' })
+    const input = screen.getByPlaceholderText('branch-name, or name/ for a folder')
+    // input → WorkspaceInlineInput wrapper → ROW_BASE row → indented container
+    expect(input.parentElement?.parentElement?.parentElement).toHaveStyle({
+      marginInlineStart: '14px',
+    })
   })
 
   it('indents an in-flight pending create row one step (14px)', () => {
@@ -214,8 +227,8 @@ describe('repo-root create rows: indentation', () => {
     render(<WorkspaceTree />)
 
     const label = screen.getByText('feature/pending')
-    // label → ROW_BASE row → padded container
-    expect(label.parentElement?.parentElement).toHaveStyle({ paddingLeft: '14px' })
+    // label → ROW_BASE row → indented container
+    expect(label.parentElement?.parentElement).toHaveStyle({ marginInlineStart: '14px' })
   })
 
   it('does not render a pending create belonging to another repo', () => {
@@ -236,6 +249,6 @@ describe('repo-root create rows: indentation', () => {
     // It belongs under the ws1 row (rendered by WorkspaceTreeItem), not at the
     // repo root — the repo-root filter is `parentId === defaultWorkspaceId`.
     const label = screen.queryByText('feature/nested')
-    expect(label?.parentElement?.parentElement).not.toHaveStyle({ paddingLeft: '14px' })
+    expect(label?.parentElement?.parentElement).not.toHaveStyle({ marginInlineStart: '14px' })
   })
 })

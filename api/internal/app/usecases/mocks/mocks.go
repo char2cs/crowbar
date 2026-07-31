@@ -27,12 +27,21 @@ func NewProjectStore() *ProjectStore {
 	return &ProjectStore{}
 }
 
+// Save UPSERTS by id, mirroring the real GORM store: re-saving a row replaces
+// it rather than shadowing it with a duplicate the reads would then have to pick
+// between. Anything that renumbers a list writes the same row more than once.
 func (s *ProjectStore) Save(
 	ctx context.Context,
 	item domain.Project,
 ) error {
 	if s.SaveErr != nil {
 		return s.SaveErr
+	}
+	for i := range s.Saved {
+		if s.Saved[i].ID == item.ID {
+			s.Saved[i] = item
+			return nil
+		}
 	}
 	s.Saved = append(s.Saved, item)
 	return nil
@@ -80,12 +89,21 @@ func NewRepositoryStore() *RepositoryStore {
 	return &RepositoryStore{}
 }
 
+// Save UPSERTS by id, mirroring the real GORM store: re-saving a row replaces
+// it rather than shadowing it with a duplicate the reads would then have to pick
+// between. Anything that renumbers a list writes the same row more than once.
 func (s *RepositoryStore) Save(
 	ctx context.Context,
 	item domain.Repository,
 ) error {
 	if s.SaveErr != nil {
 		return s.SaveErr
+	}
+	for i := range s.Saved {
+		if s.Saved[i].ID == item.ID {
+			s.Saved[i] = item
+			return nil
+		}
 	}
 	s.Saved = append(s.Saved, item)
 	return nil
@@ -126,6 +144,186 @@ func (s *RepositoryStore) FindAll(
 		return nil, s.FindErr
 	}
 	return s.Saved, nil
+}
+
+// FindWhere mirrors the real store's prototype-scoped query: it matches on the
+// non-zero fields of match, which for the repository table is the ProjectID the
+// sidebar reorder narrows by.
+func (s *RepositoryStore) FindWhere(
+	ctx context.Context,
+	match domain.Repository,
+) ([]domain.Repository, error) {
+	if s.FindErr != nil {
+		return nil, s.FindErr
+	}
+	rows := make([]domain.Repository, 0, len(s.Saved))
+	for _, r := range s.Saved {
+		if match.ProjectID != "" && r.ProjectID != match.ProjectID {
+			continue
+		}
+		if match.ID != "" && r.ID != match.ID {
+			continue
+		}
+		rows = append(rows, r)
+	}
+	return rows, nil
+}
+
+// WorkspacePlacements is a fake project.WorkspaceRelocator and folder.Workspaces:
+// it holds the workspace rows a repo or folder move has to carry along, and
+// records the placement writes made against them.
+type WorkspacePlacements struct {
+	Rows    []domain.Workspace
+	ListErr error
+	SetErr  error
+}
+
+// NewWorkspacePlacements returns an empty WorkspacePlacements.
+func NewWorkspacePlacements() *WorkspacePlacements {
+	return &WorkspacePlacements{}
+}
+
+func (s *WorkspacePlacements) ListInRepo(
+	ctx context.Context,
+	projectID string,
+	repoID string,
+) ([]domain.Workspace, error) {
+	if s.ListErr != nil {
+		return nil, s.ListErr
+	}
+	rows := make([]domain.Workspace, 0, len(s.Rows))
+	for _, w := range s.Rows {
+		if w.ProjectID == projectID && w.RepoID == repoID {
+			rows = append(rows, w)
+		}
+	}
+	return rows, nil
+}
+
+func (s *WorkspacePlacements) SetPlacement(
+	ctx context.Context,
+	id string,
+	folderID string,
+	order int,
+) (domain.Workspace, error) {
+	if s.SetErr != nil {
+		return domain.Workspace{}, s.SetErr
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == id {
+			s.Rows[i].FolderID = folderID
+			s.Rows[i].Order = order
+			return s.Rows[i], nil
+		}
+	}
+	return domain.Workspace{}, nil
+}
+
+func (s *WorkspacePlacements) SetProject(
+	ctx context.Context,
+	id string,
+	projectID string,
+) (domain.Workspace, error) {
+	if s.SetErr != nil {
+		return domain.Workspace{}, s.SetErr
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == id {
+			s.Rows[i].ProjectID = projectID
+			return s.Rows[i], nil
+		}
+	}
+	return domain.Workspace{}, nil
+}
+
+// FolderStore is a fake folder.Store backed by an in-memory slice.
+//
+// FindErr and FindByKeyErr are separate so a test can fail ONE read: the
+// cross-repo classification path resolves a single row by key after the
+// repo-scoped list has already succeeded, and collapsing the two would make that
+// branch unreachable.
+type FolderStore struct {
+	Rows         []domain.Folder
+	SaveErr      error
+	FindErr      error
+	FindByKeyErr error
+}
+
+// NewFolderStore returns an empty FolderStore.
+func NewFolderStore() *FolderStore {
+	return &FolderStore{}
+}
+
+func (s *FolderStore) FindByKey(
+	ctx context.Context,
+	id string,
+) (*domain.Folder, error) {
+	if s.FindByKeyErr != nil {
+		return nil, s.FindByKeyErr
+	}
+	if s.FindErr != nil {
+		return nil, s.FindErr
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == id {
+			row := s.Rows[i]
+			return &row, nil
+		}
+	}
+	return nil, nil
+}
+
+// FindWhere mirrors the real store's prototype-scoped query over the fields the
+// folder usecase actually narrows by.
+func (s *FolderStore) FindWhere(
+	ctx context.Context,
+	match domain.Folder,
+) ([]domain.Folder, error) {
+	if s.FindErr != nil {
+		return nil, s.FindErr
+	}
+	rows := make([]domain.Folder, 0, len(s.Rows))
+	for _, f := range s.Rows {
+		if match.ProjectID != "" && f.ProjectID != match.ProjectID {
+			continue
+		}
+		if match.RepoID != "" && f.RepoID != match.RepoID {
+			continue
+		}
+		rows = append(rows, f)
+	}
+	return rows, nil
+}
+
+func (s *FolderStore) Save(
+	ctx context.Context,
+	folder domain.Folder,
+) error {
+	if s.SaveErr != nil {
+		return s.SaveErr
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == folder.ID {
+			s.Rows[i] = folder
+			return nil
+		}
+	}
+	s.Rows = append(s.Rows, folder)
+	return nil
+}
+
+func (s *FolderStore) Delete(
+	ctx context.Context,
+	id string,
+) error {
+	kept := s.Rows[:0]
+	for _, f := range s.Rows {
+		if f.ID != id {
+			kept = append(kept, f)
+		}
+	}
+	s.Rows = kept
+	return nil
 }
 
 // WorkspaceRepo is a fake of the subset of workspace.Workspace used on import.

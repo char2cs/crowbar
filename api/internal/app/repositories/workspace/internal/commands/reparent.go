@@ -49,6 +49,12 @@ func (c Reparent) EmitEvent(
 	ws.ParentID = c.ParentID
 	ws.ForkPointSha = c.ForkPointSha
 	ws.LastActivity = c.Now
+	// A reparent gives the workspace a fork parent, and a workspace with a fork
+	// parent renders UNDER that parent — it inherits its folder from its fork
+	// ancestor. Leaving a stale FolderID behind would be a row claiming two
+	// places at once, which is exactly the fork-chain split the folder guards
+	// refuse. Validate requires a non-empty ParentID, so this always applies.
+	ws.FolderID = ""
 	// A reparent always lands the branch on a clean worktree (integrated, or
 	// moved-with-a-predicted-conflict — never a stuck rebase). Drop any stale
 	// pr-conflicts status from a previous attempt back to a non-conflict base,

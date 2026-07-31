@@ -14,8 +14,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ListGetter is the read surface the projects handlers need: list every project
-// and fetch one by id.
+// ListGetter is the read surface the projects handlers need — list every
+// project, fetch one by id — plus the one write that is not an import or a
+// delete: the sidebar reorder.
 type ListGetter interface {
 	List(
 		ctx context.Context,
@@ -23,6 +24,11 @@ type ListGetter interface {
 	Get(
 		ctx context.Context,
 		id string,
+	) (domain.Project, error)
+	Reorder(
+		ctx context.Context,
+		projectID string,
+		order int,
 	) (domain.Project, error)
 }
 
@@ -126,6 +132,56 @@ func (h *Handlers) Detail(
 		return
 	}
 	libs.WriteQueryOK(c, dto.ProjectDTOFrom(project))
+}
+
+// patchRequest is the PATCH /v0/projects/:projectId body: the project's new
+// index in the sidebar.
+type patchRequest struct {
+	Order *int `json:"order"`
+}
+
+// Patch handles PATCH /v0/projects/:projectId. Reordering is the only project
+// field a user edits from the sidebar, and unlike an import it is a single store
+// write, so it runs inline and answers 204 — the new order rides the Projects WS
+// stream, not this response.
+//
+// The reorder densifies the whole list, so every project it shifts is broadcast
+// too: a client told only about the row that was dragged would hold stale orders
+// for the rest until the next reconnect.
+func (h *Handlers) Patch(
+	c *gin.Context,
+) {
+	var body patchRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Order == nil {
+		libs.WriteErr(c, http.StatusBadRequest, "order is required")
+		return
+	}
+	if _, err := h.reader.Reorder(c.Request.Context(), c.Param("projectId"), *body.Order); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
+	}
+	h.broadcastAll(c.Request.Context())
+	c.Status(http.StatusNoContent)
+}
+
+// broadcastAll re-delivers every project after a reorder. The list is a handful
+// of rows and the reorder already read all of them, so re-broadcasting the set
+// is cheaper than tracking which ones the densify happened to shift.
+func (h *Handlers) broadcastAll(
+	ctx context.Context,
+) {
+	rows, err := h.reader.List(ctx)
+	if err != nil {
+		return
+	}
+	for _, row := range rows {
+		h.broadcast(dto.ProjectDTOFrom(row))
+	}
 }
 
 // Import handles POST /v0/projects. It validates the request synchronously (body

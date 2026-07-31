@@ -33,15 +33,16 @@ func newCapturingSubscriber() *capturingSubscriber {
 	}
 }
 
-func (s *capturingSubscriber) PushProject(_ dto.ProjectDTO)                       {}
-func (s *capturingSubscriber) PushRepo(_ dto.RepoDTO)                             {}
-func (s *capturingSubscriber) PushWorkspace(_ dto.WorkspaceDTO)                   {}
-func (s *capturingSubscriber) PushThread(_ dto.ThreadDTO)                         {}
-func (s *capturingSubscriber) PushTerminalSession(_ dto.TerminalSessionDTO)       {}
-func (s *capturingSubscriber) PushFile(e domain.FileChangeEvent)                  { s.files <- e }
-func (s *capturingSubscriber) PushAgentChat(_ string, _ string, _ string, _ bool) {}
+func (s *capturingSubscriber) PushProject(_ dto.ProjectDTO)                 {}
+func (s *capturingSubscriber) PushRepo(_ dto.RepoDTO)                       {}
+func (s *capturingSubscriber) PushFolder(_ dto.FolderDTO)                   {}
+func (s *capturingSubscriber) PushWorkspace(_ dto.WorkspaceDTO)             {}
+func (s *capturingSubscriber) PushThread(_ dto.ThreadDTO)                   {}
+func (s *capturingSubscriber) PushTerminalSession(_ dto.TerminalSessionDTO) {}
+func (s *capturingSubscriber) PushFile(e domain.FileChangeEvent)            { s.files <- e }
+func (s *capturingSubscriber) PushAgentChat(_, _, _ string, _ bool)         {}
 
-func (s *capturingSubscriber) PushAgentRunner(_ string, _ string, _ string, _ string) {}
+func (s *capturingSubscriber) PushAgentRunner(_, _, _, _ string) {}
 
 func (s *capturingSubscriber) PushGit(
 	wsID string,

@@ -61,4 +61,24 @@ type Workspace struct {
 	// signal from which the frontend reconstructs the placeholder reason; a
 	// successful Retry clears it. Empty on every healthy workspace (00 §4, spec §4).
 	HeldByPath string `json:"heldByPath,omitempty"`
+	// FolderID is the sidebar Folder this workspace has been filed under, or ""
+	// for the repo root. It is DELIBERATELY not ParentID: that field is the fork
+	// lineage, and three things resolve it back to a workspace (merge
+	// eligibility, the diff base, the reparent leaf guard), so a folder id in
+	// there is a silent corruption rather than an error.
+	//
+	// It is meaningful only on a FORK ROOT (ParentID == ""). A workspace with a
+	// fork parent renders under that parent and inherits its folder from its fork
+	// ancestor, so filing one away separately would split the fork chain —
+	// refused server-side, and cleared by Reparent. Old persisted records without
+	// this field replay as "" (the read model is a JSON blob), exactly as Kind
+	// documents above.
+	FolderID string `json:"folderId,omitempty"`
+	// Order is this row's dense index within its sibling space — the fork
+	// parent's children, or the folder/repo root it is filed under. Folders share
+	// that space, so both kinds sort on this one field. Rows a user has never
+	// ordered all carry 0 and fall back to the CreatedAt tiebreak, which is
+	// creation order; the first drag at a level renumbers it densely from
+	// whatever was on screen.
+	Order int `json:"order"`
 }

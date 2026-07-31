@@ -23,6 +23,7 @@ import { DetachHolderModal } from './detach-holder-modal'
 import { PlaceholderToastWatcher } from './placeholder-toast-watcher'
 import { SidebarToastOverlay } from './sidebar-toast-overlay'
 import { SidebarPeek } from './sidebar-peek'
+import { EditorRemovalOverlay } from './editor-removal-overlay'
 import { useSidebarPanel, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from './use-sidebar-panel'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import { recordWorkspaceScopeFromPath, setWorkspaceScope } from '@/lib/workspace-scope'
@@ -157,8 +158,14 @@ export function IDEShell() {
     </SidebarPeek>
   )
 
+  // The pane is the sidebar's removal target: a row dragged onto it leaves.
+  // Declared here, on the whole content pane, so the gesture has the biggest
+  // target in the window rather than a strip at the bottom of the sidebar the
+  // user has to travel to — and so what a workspace IS (an editor full of work)
+  // is what you drop it onto to be rid of it.
   const contentEl = (
-    <div className="relative z-[1] flex h-full min-w-0 flex-col bg-transparent">
+    <div data-pane-drop="" className="relative z-[1] flex h-full min-w-0 flex-col bg-transparent">
+      <EditorRemovalOverlay />
       <ErrorBoundary>
         {/* WorkspaceHost stays mounted for the whole IDE session — including on
             the project-home route. Unmounting the host on every home visit

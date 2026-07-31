@@ -5,6 +5,7 @@ import {
   renameWorkspaceBranch,
   importBranches,
 } from '@/lib/api'
+import { placeFolder } from '@/lib/api/sidebar-placement'
 import { toast } from '@/features/window/stores/toast-store'
 import type { PendingCreate } from './workspace-tree-context'
 
@@ -105,7 +106,7 @@ export async function performCreateWorkspace(
     return
   }
   try {
-    await postWorkspace(projectId, repoId, branch, parentId)
+    await postWorkspace(projectId, repoId, branch, { parentId })
   } catch (err) {
     console.error('Failed to create workspace:', err)
   }
@@ -134,6 +135,44 @@ export async function performRenameWorkspaceBranch(wsId: string, branch: string)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to rename branch')
   }
+}
+
+/**
+ * Fire a folder rename.
+ *
+ * A folder holds no branch and no worktree, so renaming one moves nothing on
+ * disk: it is the same PATCH that files a folder somewhere else, carrying the
+ * one field that changed. Like the branch rename there is no optimistic write —
+ * the updated FolderDTO arrives on the stream, and relabelling the row here
+ * would only mean showing a name the daemon may not have taken.
+ */
+export async function performRenameFolder(folderId: string, name: string): Promise<void> {
+  const repo = useSidebarStore
+    .getState()
+    .repos.find((r) => r.folders?.some((f) => f.id === folderId))
+  const folder = repo?.folders?.find((f) => f.id === folderId)
+  if (!repo?.projectId || !folder) return
+  if (folder.name === name) return
+  try {
+    await placeFolder(repo.projectId, repo.id, folderId, { name })
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to rename folder')
+  }
+}
+
+/**
+ * Rename whatever row `rowId` names.
+ *
+ * The sidebar has ONE rename gesture and one inline editor, so it needs one
+ * place that knows a folder is not a branch. The id answers that on its own —
+ * the two id spaces never overlap — which keeps the row itself from having to
+ * carry a second, parallel rename path just to reach a different endpoint.
+ */
+export function performRenameRow(rowId: string, name: string): Promise<void> {
+  const isFolder = useSidebarStore
+    .getState()
+    .repos.some((r) => r.folders?.some((f) => f.id === rowId))
+  return isFolder ? performRenameFolder(rowId, name) : performRenameWorkspaceBranch(rowId, name)
 }
 
 /**

@@ -14,6 +14,7 @@ import (
 type fakeSubscriber struct {
 	projects    []dto.ProjectDTO
 	repos       []dto.RepoDTO
+	folders     []dto.FolderDTO
 	workspaces  []dto.WorkspaceDTO
 	threads     []dto.ThreadDTO
 	terminals   []dto.TerminalSessionDTO
@@ -47,6 +48,12 @@ func (f *fakeSubscriber) PushRepo(
 	r dto.RepoDTO,
 ) {
 	f.repos = append(f.repos, r)
+}
+
+func (f *fakeSubscriber) PushFolder(
+	fd dto.FolderDTO,
+) {
+	f.folders = append(f.folders, fd)
 }
 
 func (f *fakeSubscriber) PushWorkspace(
@@ -131,6 +138,20 @@ func TestHub_BroadcastRepo_FansOut(t *testing.T) {
 	assert.Len(t, a.repos, 1)
 	assert.Len(t, b.repos, 1)
 	assert.Equal(t, "r1", a.repos[0].ID)
+}
+
+func TestHub_BroadcastFolder_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	h.BroadcastFolder(dto.FolderDTO{ID: "f1", RepoID: "r1", ProjectID: "p1"})
+
+	assert.Len(t, a.folders, 1)
+	assert.Len(t, b.folders, 1)
+	assert.Equal(t, "f1", a.folders[0].ID)
 }
 
 func TestHub_BroadcastWorkspace_FansOut(t *testing.T) {

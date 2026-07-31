@@ -27,6 +27,11 @@ type Repository struct {
 	AvatarVersion int64  `json:"avatarVersion,omitempty"`
 	AvatarEmoji   string `json:"avatarEmoji,omitempty"`
 	RemoteURL     string `json:"remoteUrl,omitempty"`
+	// Order is the repository's dense index within its project's sidebar section.
+	// AutoMigrate adds the column; rows written before it existed default to 0 and
+	// fall back to the id tiebreak, which the first reorder replaces with a dense
+	// sequence.
+	Order int `json:"order"`
 }
 
 func (Repository) TableName() string {

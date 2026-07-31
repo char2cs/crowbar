@@ -1,14 +1,17 @@
 /**
- * The Project Home row's two trailing actions are 24x24 icon-only controls with
- * no visible label, so a tooltip is the ONLY way a sighted mouse user learns
- * what they do. They were rewritten as raw <button>s carrying the bare
+ * The Project Home row's trailing action is a 24x24 icon-only control with no
+ * visible label, so a tooltip is the ONLY way a sighted mouse user learns what
+ * it does. It was once rewritten as a raw <button> carrying the bare
  * ROW_SUB_ACTION class string, which dropped the tooltip and side-stepped the
- * `@/components/ui/*` primitive rule. `aria-label` survived, so this is purely a
- * sighted-discoverability regression.
+ * `@/components/ui/*` primitive rule. `aria-label` survived, so that was purely
+ * a sighted-discoverability regression.
  *
  * jsdom has no layout engine, so density is asserted on the class contract (the
  * shared ROW_SUB_ACTION chrome plus a fixed size-6 = 24px box) rather than on a
  * measured rect.
+ *
+ * "Switch project" used to sit beside it. It is gone: the sidebar now holds a
+ * row per project, so the panel it pushed had nothing left to show.
  */
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -20,6 +23,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
   useMatch: () => null,
+}))
+
+// The row joins the tree's drag system (it is a drop target for repos and a
+// drag subject itself), so it reads both halves of the tree context. Driven
+// directly here: these tests render the row on its own, with no provider.
+const drag = vi.hoisted(() => ({
+  draggingWs: null,
+  draggingIds: new Set<string>(),
+  dropTarget: null as { kind: string; id: string; mode: string } | null,
+  movingIds: new Set<string>(),
+}))
+const actions = vi.hoisted(() => ({ onPointerDownDrag: vi.fn() }))
+
+vi.mock('@/components/layout/workspace-tree-context', () => ({
+  useWorkspaceTreeActions: () => actions,
+  useWorkspaceTreeDrag: () => drag,
 }))
 
 import { ProjectHomeRow } from '@/components/layout/project-home-row'
@@ -34,12 +53,14 @@ beforeEach(() => {
   useHomeWorkspaceStore.setState({ workspace: null })
 })
 
-const ACTIONS = ['Import repository', 'Switch project'] as const
+const renderRow = () => render(<ProjectHomeRow project={{ id: 'p1', name: 'home' }} isCollapsed />)
+
+const ACTIONS = ['Import repository'] as const
 
 describe('ProjectHomeRow trailing actions', () => {
   it.each(ACTIONS)('names %s in a tooltip on hover', async (label) => {
     const user = userEvent.setup()
-    render(<ProjectHomeRow />)
+    renderRow()
 
     await user.hover(screen.getByRole('button', { name: label }))
 
@@ -48,13 +69,13 @@ describe('ProjectHomeRow trailing actions', () => {
   })
 
   it.each(ACTIONS)('routes %s through the shared Button primitive', (label) => {
-    render(<ProjectHomeRow />)
+    renderRow()
 
     expect(screen.getByRole('button', { name: label })).toHaveAttribute('data-slot', 'button')
   })
 
   it.each(ACTIONS)('keeps %s on the shared row sub-action chrome', (label) => {
-    render(<ProjectHomeRow />)
+    renderRow()
 
     const button = screen.getByRole('button', { name: label })
     for (const chromeClass of ROW_SUB_ACTION.trim().split(/\s+/)) {
@@ -63,7 +84,7 @@ describe('ProjectHomeRow trailing actions', () => {
   })
 
   it.each(ACTIONS)('keeps %s a 24px box around a 12px glyph', (label) => {
-    render(<ProjectHomeRow />)
+    renderRow()
 
     const button = screen.getByRole('button', { name: label })
     const classes = button.className.split(/\s+/)
@@ -83,7 +104,7 @@ describe('ProjectHomeRow trailing actions', () => {
   // Lucide's default 2, i.e. 1.0px in a 12px box. The default is the house weight,
   // so the correct value for these is no override at all.
   it.each(ACTIONS)('leaves %s at Lucide default weight', (label) => {
-    render(<ProjectHomeRow />)
+    renderRow()
 
     const svg = screen.getByRole('button', { name: label }).querySelector('svg')
     const stroke = Number(svg?.getAttribute('stroke-width'))

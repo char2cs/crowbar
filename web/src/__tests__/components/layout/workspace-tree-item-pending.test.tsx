@@ -26,13 +26,19 @@ const actions = {
   >(),
   clearPendingCreate: vi.fn(),
 }
-const drag = { draggingWs: null, hoverTargetId: null, movingWsId: null }
+const drag = {
+  draggingWs: null,
+  draggingIds: new Set<string>(),
+  dropTarget: null,
+  movingIds: new Set<string>(),
+}
 
 vi.mock('@/components/layout/workspace-tree-context', () => ({
   useWorkspaceTreeActions: () => actions,
   useWorkspaceTreeDrag: () => drag,
 }))
 
+import { EMPTY_REPO_TREE } from '@/components/layout/workspace-tree-utils'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { WorkspaceTreeItem } from '@/components/layout/workspace-tree-item'
 
@@ -45,6 +51,8 @@ beforeEach(() => {
 })
 
 const leafNode = {
+  kind: 'workspace',
+  id: 'ws-leaf',
   workspace: { id: 'ws-leaf', branch: 'feature/leaf' },
   children: [],
 }
@@ -58,6 +66,7 @@ function renderItem() {
       projectId="p1"
       activeWorkspaceId=""
       onWorkspaceClick={() => {}}
+      tree={EMPTY_REPO_TREE}
     />,
   )
 }

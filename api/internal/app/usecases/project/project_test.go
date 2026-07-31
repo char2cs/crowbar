@@ -23,11 +23,31 @@ func newProjectUsecase(
 	project.Usecase,
 ) {
 	t.Helper()
-	projects := mocks.NewProjectStore()
-	repos := mocks.NewRepositoryStore()
-	uc := project.New(projects, repos)
+	projects, repos, _, uc := newProjectUsecaseWithWorkspaces(t)
 	return projects, repos, uc
 }
+
+// newProjectUsecaseWithWorkspaces additionally exposes the workspace relocator,
+// for the tests that assert a repo move carries its workspaces across.
+func newProjectUsecaseWithWorkspaces(
+	t *testing.T,
+) (
+	*mocks.ProjectStore,
+	*mocks.RepositoryStore,
+	*mocks.WorkspacePlacements,
+	project.Usecase,
+) {
+	t.Helper()
+	projects := mocks.NewProjectStore()
+	repos := mocks.NewRepositoryStore()
+	workspaces := mocks.NewWorkspacePlacements()
+	uc := project.New(projects, repos, workspaces)
+	return projects, repos, workspaces, uc
+}
+
+// name and index are pointer literals for the partial RepoUpdate fields.
+func name(v string) *string { return &v }
+func index(v int) *int      { return &v }
 
 func TestProjectUsecase_List(t *testing.T) {
 	projects, _, uc := newProjectUsecase(t)
@@ -94,7 +114,7 @@ func TestProjectUsecase_TouchProjectActivity_ProjectMissing_LogsNotPanics(t *tes
 	uc.TouchProjectActivity(ctx, "r1", time.Now())
 }
 
-func TestProjectUsecase_RenameRepo_UpdatesNameAndAvatar(t *testing.T) {
+func TestProjectUsecase_UpdateRepo_UpdatesNameAndAvatar(t *testing.T) {
 	_, repos, uc := newProjectUsecase(t)
 	ctx := context.Background()
 
@@ -103,7 +123,7 @@ func TestProjectUsecase_RenameRepo_UpdatesNameAndAvatar(t *testing.T) {
 		ID: "r1", ProjectID: "p1", Name: "widget", AvatarLabel: "W", AvatarColor: "avatar-slate",
 	})
 
-	got, err := uc.RenameRepo(ctx, "r1", "Renamed Repo")
+	got, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("Renamed Repo")})
 	require.NoError(t, err)
 	assert.Equal(t, "Renamed Repo", got.Name)
 	assert.Equal(t, "R", got.AvatarLabel, "the fallback avatar letter tracks the new name")
@@ -113,7 +133,7 @@ func TestProjectUsecase_RenameRepo_UpdatesNameAndAvatar(t *testing.T) {
 // A rename is a LABEL change. The on-disk slug must not move with it, or every
 // worktree already derived under the old slug is stranded while new ones open a
 // second tree beside it.
-func TestProjectUsecase_RenameRepo_LeavesThePathSlugAlone(t *testing.T) {
+func TestProjectUsecase_UpdateRepo_LeavesThePathSlugAlone(t *testing.T) {
 	_, repos, uc := newProjectUsecase(t)
 	ctx := context.Background()
 
@@ -121,7 +141,7 @@ func TestProjectUsecase_RenameRepo_LeavesThePathSlugAlone(t *testing.T) {
 		ID: "r1", ProjectID: "p1", Name: "widget", PathSlug: "widget",
 	})
 
-	got, err := uc.RenameRepo(ctx, "r1", "Renamed Repo")
+	got, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("Renamed Repo")})
 	require.NoError(t, err)
 	assert.Equal(t, "widget", got.PathSlug, "the on-disk identity survives the rename")
 
@@ -132,11 +152,11 @@ func TestProjectUsecase_RenameRepo_LeavesThePathSlugAlone(t *testing.T) {
 	assert.Equal(t, "Renamed Repo", stored.Name)
 }
 
-func TestProjectUsecase_RenameRepo_NotFound(t *testing.T) {
+func TestProjectUsecase_UpdateRepo_NotFound(t *testing.T) {
 	_, _, uc := newProjectUsecase(t)
 	ctx := context.Background()
 
-	_, err := uc.RenameRepo(ctx, "missing", "Whatever")
+	_, err := uc.UpdateRepo(ctx, "missing", project.RepoUpdate{Name: name("Whatever")})
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
 

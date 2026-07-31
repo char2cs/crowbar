@@ -32,6 +32,14 @@ type CreateChildInput struct {
 	Branch       string
 	ParentID     string
 	ParentBranch string
+	// FolderID is the sidebar folder the new row is filed under. It travels
+	// alongside ParentID rather than through it: ParentID is the fork parent
+	// (what a later rebase acts on) and this is where the row is shown, so a
+	// create inside a folder still forks from the branch it should.
+	FolderID string
+	// Order is the row's slot among its siblings, computed by the caller against
+	// the level the row is joining. See commands.CreateWorkspace.
+	Order int
 	// ForceLocked overrides the provider-driven locked check and marks the
 	// workspace locked regardless of whether the branch is protected. Useful
 	// when the caller knows the workspace should be immutable (e.g. the repo's
@@ -165,6 +173,8 @@ func (u *worktreeUsecase) CreateChild(
 			ProjectID: in.ProjectID,
 			Branch:    in.Branch,
 			ParentID:  in.ParentID,
+			FolderID:  in.FolderID,
+			Order:     in.Order,
 			Protected: in.ForceLocked,
 		}, u.now())
 	}
@@ -234,6 +244,8 @@ func (u *worktreeUsecase) CreateChild(
 		WorktreePath: path,
 		ForkPointSha: startSha,
 		ParentID:     in.ParentID,
+		FolderID:     in.FolderID,
+		Order:        in.Order,
 		Protected:    locked || in.ForceLocked,
 	}, u.now())
 	if err != nil { //nolint:nestif // orphan worktree+branch cleanup after a failed row create; flattening risks the rollback ordering
@@ -583,6 +595,8 @@ func (u *worktreeUsecase) adoptMainWorktree(
 		WorktreePath: in.RepoPath,
 		ForkPointSha: startSha,
 		ParentID:     in.ParentID,
+		FolderID:     in.FolderID,
+		Order:        in.Order,
 		Protected:    locked || in.ForceLocked,
 		// The adopted main worktree IS the repo's default workspace. Marking it
 		// keeps IsDefault reliable for the one-managed-workspace-per-branch guard,

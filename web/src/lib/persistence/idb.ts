@@ -3,10 +3,86 @@ import type { IDBPDatabase } from 'idb'
 import type { CrowbarDB } from './schemas'
 
 let _db: IDBPDatabase<CrowbarDB> | null = null
+// The IN-FLIGHT open, not just the settled one. Callers arrive together at
+// startup, and memoizing only the resolved handle lets every one of them start
+// its own `openDB` — which deadlocks the moment an open has to change the
+// version, because a second connection at the old version blocks the upgrade
+// and the upgrade holds the second open. One open, awaited by everyone.
+let _opening: Promise<IDBPDatabase<CrowbarDB>> | null = null
 
 export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
   if (_db) return _db
-  _db = await openDB<CrowbarDB>('crowbar', 7, {
+  _opening ??= healEntityStores(openDatabase())
+  try {
+    _db = await _opening
+    return _db
+  } finally {
+    _opening = null
+  }
+}
+
+/**
+ * Create any entity store the database is missing, by reopening one version up.
+ *
+ * An object store can only be created inside an `upgrade`, so a database that
+ * reached the current version without running the branch that adds a store
+ * never gets it — and it cannot get it later, because the version no longer
+ * changes. Every entity-cache call is best-effort, so the result is not an
+ * error but an empty list forever: the feature backed by that store silently
+ * does nothing, with a green typecheck and a green test suite.
+ *
+ * That skew is reachable whenever more than one build runs against this origin
+ * — several checkouts and an installed app share one bundle id, so an older
+ * build holding the database open is enough to strand a newer one's upgrade.
+ *
+ * Healing beats wiping here: the entity stores are re-seedable from GET, but
+ * the rest of the database (editor state, layout, chat history) is not, so
+ * `deleteDatabase` would cost the user real work to repair a cache. Creating
+ * just what is missing costs nothing and leaves everything else untouched.
+ */
+async function healEntityStores(
+  opening: Promise<IDBPDatabase<CrowbarDB>>,
+): Promise<IDBPDatabase<CrowbarDB>> {
+  const db = await opening
+  const missing = ENTITY_STORES.filter((name) => !db.objectStoreNames.contains(name))
+  if (missing.length === 0) return db
+  const next = db.version + 1
+  db.close()
+  return openDB<CrowbarDB>('crowbar', next, {
+    upgrade(upgraded) {
+      // Only the absentees, each guarded: this runs with the real oldVersion, so
+      // replaying the version chain above would collide with what already exists.
+      for (const name of missing) {
+        if (!upgraded.objectStoreNames.contains(name)) {
+          upgraded.createObjectStore(name, { keyPath: 'id' })
+        }
+      }
+    },
+  })
+}
+
+/**
+ * Open at the declared version, or as-is when the database is already NEWER.
+ *
+ * Asking for a version below the one on disk is not a no-op — it throws
+ * `VersionError`, and since every cache call is best-effort the app does not
+ * crash, it just quietly loses its whole local cache. A newer database is
+ * ordinary here: this origin is shared by every build carrying the same bundle
+ * id, so running an older checkout after a newer one is a normal Tuesday, and
+ * so is a user rolling a release back. The stores are additive, so an older
+ * build reading a newer database finds everything it knows about.
+ */
+async function openDatabase(): Promise<IDBPDatabase<CrowbarDB>> {
+  try {
+    return await openDeclared()
+  } catch (err) {
+    if (!(err instanceof DOMException) || err.name !== 'VersionError') throw err
+    return openDB<CrowbarDB>('crowbar')
+  }
+}
+
+async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
+  return openDB<CrowbarDB>('crowbar', 8, {
     upgrade(db, oldVersion) {
       if (oldVersion < 1) {
         db.createObjectStore('workspace-layout', { keyPath: 'workspaceId' })
@@ -58,14 +134,22 @@ export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
           db.createObjectStore(name, { keyPath: 'id' })
         }
       }
+      if (oldVersion < 8) {
+        // Sidebar grouping folders. This needs its own version: an object store
+        // is only created inside an upgrade, so an existing install opened at
+        // v7 would simply not have it — and every entity-cache write is
+        // best-effort, so the miss would be silent at runtime rather than loud
+        // at compile time (an empty folder list forever).
+        db.createObjectStore('crowbar_folders', { keyPath: 'id' })
+      }
     },
   })
-  return _db
 }
 
 /** Only for testing — resets the module-level singleton so tests get a fresh database. */
 export function resetDB(): void {
   _db = null
+  _opening = null
 }
 
 // ---------------------------------------------------------------------------
@@ -84,9 +168,10 @@ const ENTITY_STORES = [
   'crowbar_repos',
   'crowbar_workspaces',
   'crowbar_threads',
+  'crowbar_folders',
 ] as const
 
-/** Clears the four crowbar_* entity stores. Best-effort: IDB failures no-op. */
+/** Clears every crowbar_* entity store. Best-effort: IDB failures no-op. */
 export async function wipeEntityCache(): Promise<void> {
   try {
     const db = await getDB()

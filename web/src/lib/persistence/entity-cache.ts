@@ -13,6 +13,7 @@ export type EntityStoreName =
   | 'crowbar_repos'
   | 'crowbar_workspaces'
   | 'crowbar_threads'
+  | 'crowbar_folders'
 
 export async function upsertEntity<T extends { id: string }>(
   store: EntityStoreName,

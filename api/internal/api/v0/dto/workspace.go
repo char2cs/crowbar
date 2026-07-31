@@ -1,6 +1,10 @@
 package dto
 
 import (
+	"slices"
+	"strings"
+	"time"
+
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -40,6 +44,18 @@ type WorkspaceDTO struct {
 	// an imported one is not). The client reconstructs the "checked out
 	// elsewhere" reason from it; absent on healthy workspaces.
 	HeldByPath string `json:"heldByPath,omitempty"`
+	// FolderID is the sidebar folder this workspace is filed under, set only on a
+	// fork root; a forked child inherits its folder from its fork ancestor and
+	// renders under it. Never a fork parent — that is ParentID.
+	FolderID string `json:"folderId,omitempty"`
+	// Order is the row's dense index within its sibling space, which it shares
+	// with the folders at that level.
+	Order int `json:"order"`
+	// CreatedAt is carried so a client can reproduce the server's ordering
+	// exactly. Order alone is not enough: rows a user has never dragged all hold
+	// 0, and without this tiebreak a client merging its cache would show them in
+	// whatever order the map happened to yield, reshuffling on every frame.
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // WorkspaceDTOFrom converts a domain Workspace into its wire DTO, populating the
@@ -74,6 +90,9 @@ func WorkspaceDTOFrom(
 		PRTargetBranch:  w.PRTargetBranch,
 		LocalPath:       w.WorktreePath,
 		HeldByPath:      w.HeldByPath,
+		FolderID:        w.FolderID,
+		Order:           w.Order,
+		CreatedAt:       w.CreatedAt,
 	}
 }
 
@@ -92,10 +111,16 @@ func effectiveStatus(base domain.WorkspaceStatus, mergeConflicts bool) domain.Wo
 	return base
 }
 
-// WorkspaceDTOList converts a slice of domain Workspaces into wire DTOs,
-// resolving each row's merge eligibility through eligFn (typically a closure
-// over MergeEligibilityFor bound to the same sibling slice). It returns a
-// non-nil empty slice when the input is empty so the envelope carries [].
+// WorkspaceDTOList converts a slice of domain Workspaces into wire DTOs in
+// sidebar order, resolving each row's merge eligibility through eligFn
+// (typically a closure over MergeEligibilityFor bound to the same sibling
+// slice). It returns a non-nil empty slice when the input is empty so the
+// envelope carries [].
+//
+// The sort lives HERE, in the converter both the REST list handler and the WS
+// snapshot go through, because those are the two answers to the same question
+// and a client that got different orders from them would watch its sidebar
+// reshuffle on every reconnect.
 func WorkspaceDTOList(
 	workspaces []domain.Workspace,
 	eligFn func(domain.Workspace) workspace.MergeEligibility,
@@ -104,5 +129,25 @@ func WorkspaceDTOList(
 	for _, w := range workspaces {
 		dtos = append(dtos, WorkspaceDTOFrom(w, eligFn(w)))
 	}
+	slices.SortFunc(dtos, compareWorkspaceDTOs)
 	return dtos
+}
+
+// compareWorkspaceDTOs orders workspaces by their dense sibling index, then by
+// creation time, then by id. Order is only meaningful within one sibling space,
+// so the flat list is every level's sequence interleaved; the client groups by
+// parent and reads each group in this order. The created-at tiebreak is what
+// keeps a level nobody has dragged yet — every row still holding 0 — in creation
+// order rather than jittering.
+func compareWorkspaceDTOs(
+	a WorkspaceDTO,
+	b WorkspaceDTO,
+) int {
+	if a.Order != b.Order {
+		return a.Order - b.Order
+	}
+	if !a.CreatedAt.Equal(b.CreatedAt) {
+		return a.CreatedAt.Compare(b.CreatedAt)
+	}
+	return strings.Compare(a.ID, b.ID)
 }
