@@ -29,9 +29,28 @@ export function Checkbox({
         'relative inline-flex size-4.5 shrink-0 items-center justify-center rounded-[.25rem] border border-input bg-background not-dark:bg-clip-padding shadow-xs/5 outline-none ring-ring transition-shadow before:pointer-events-none before:absolute before:inset-0 before:rounded-[3px] not-data-disabled:not-data-checked:not-aria-invalid:before:shadow-[0_1px_--theme(--color-black/4%)] focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-background aria-invalid:border-destructive/36 focus-visible:aria-invalid:border-destructive/64 focus-visible:aria-invalid:ring-destructive/48 data-disabled:cursor-not-allowed data-disabled:opacity-64 sm:size-4 dark:not-data-checked:bg-input/32 dark:aria-invalid:ring-destructive/24 dark:not-data-disabled:not-data-checked:not-aria-invalid:before:shadow-[0_-1px_--theme(--color-white/6%)] [[data-disabled],[data-checked],[aria-invalid]]:shadow-none',
         className,
       )}
+      data-oracle-id="checkbox"
       data-slot="checkbox"
       {...props}
     >
+      {/*
+       * The indicator deliberately carries **no `data-oracle-id`**.
+       *
+       * `data-unchecked:hidden` is `display: none`, and the two oracle
+       * extractors do different things with that. base-ui keeps this element
+       * mounted, so `extract.ts` finds it and emits an anchor whose
+       * `getBoundingClientRect()` is all zeros — which §4's root-relative
+       * arithmetic turns into the *viewport* origin expressed against the box.
+       * `native/oracle/ANCHORS.md` §6 says the GPUI side has no anchor at all
+       * in that case ("prepaint never arrives and the anchor is simply
+       * absent").
+       *
+       * Anchoring it would therefore put a structural delta on the **resting**
+       * cell — the default one — caused by the contract rather than by the
+       * port. The green fill and the tick are painted by both sides and
+       * measured by neither. See `native/mapping/checkbox.md` §6.2 and
+       * `crowbar_ui::components::checkbox`.
+       */}
       <CheckboxPrimitive.Indicator
         className="absolute -inset-px flex items-center justify-center rounded-[.25rem] text-primary-foreground data-unchecked:hidden data-checked:bg-primary data-indeterminate:text-foreground"
         data-slot="checkbox-indicator"
