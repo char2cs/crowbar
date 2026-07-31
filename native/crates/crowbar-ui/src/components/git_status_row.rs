@@ -68,9 +68,36 @@ const LINE_HEIGHT: f32 = 1.35;
 
 /// The badge's `sm:text-[.625rem]` — an arbitrary Tailwind value with no token
 /// behind it. `--ui-text-xs` is 0.6875rem and is a different number.
+///
+/// See [`BADGE_HEIGHT`] for why the `sm:` half of the pair is the right one.
 const BADGE_TEXT: f32 = 0.625;
 
 /// `sm:h-4` / `sm:min-w-4` on `Badge size="sm"`, in rems.
+///
+/// **The `sm:` variant, deliberately, and this was contested.** Compiling the
+/// app's own `index.css` through its own Tailwind gives
+///
+/// ```text
+/// .sm\:h-4            { @media (width >= 40rem) { height: calc(var(--spacing) * 4) } }
+/// .sm\:text-\[\.625rem\] { @media (width >= 40rem) { font-size: .625rem } }
+/// ```
+///
+/// — a plain **viewport** media query at 640px. Nothing in this app redefines
+/// `--breakpoint-sm` (it is Tailwind's stock `40rem`), so every window wider
+/// than 640px gets these values and the narrow `h-5` / `text-xs` pair is
+/// unreachable in a real Crowbar window.
+///
+/// Both variants have been measured live off the *same* React row, which is
+/// what settled it: one reference capture reports the badge at 74.11×16 with a
+/// 10px face, another at 87.33×20 with a 12px face. The badge's `text_width`
+/// between the two is 66.11 → 79.33, exactly ×1.2 — which is 12/10 to four
+/// decimal places — and the filename span absorbs exactly the 13.22px the badge
+/// gained. That is the breakpoint being crossed, not a component difference:
+/// **the second capture was taken in a webview narrower than 640px.**
+///
+/// A snapshot to compare against this therefore has to come from a reference
+/// window ≥ 640px wide. Matching the narrow numbers here would converge the
+/// gate on a reference the real app never renders.
 const BADGE_HEIGHT: f32 = 1.0;
 
 /// `px-[calc(--spacing(1)-1px)]` — 4px minus the 1px border, in pixels because
@@ -88,6 +115,11 @@ const BADGE_TINT_DARK: f32 = 16.0;
 
 /// `text-muted-foreground/80` on the directory span.
 const DIRECTORY_ALPHA: f32 = 80.0;
+
+/// The badge's only string. Named rather than inlined because the anchor
+/// records it and the element paints it, and those two have to be the same
+/// `&str` or the snapshot describes something that is not on screen.
+pub const BADGE_LABEL: &str = "uncommitted";
 
 /// Whether a `dark:` Tailwind variant is in force.
 ///
@@ -403,7 +435,11 @@ impl GitStatusRow {
             .ml_auto();
 
         if self.trailing.uncommitted {
-            group = group.child(anchors.boxed(ID_BADGE.into(), Self::badge(theme)));
+            group = group.child(anchors.boxed_text(
+                ID_BADGE.into(),
+                Self::badge(theme),
+                SharedString::new_static(BADGE_LABEL),
+            ));
         }
         if self.trailing.has_counts() {
             group = group.child(self.counts(theme, anchors));
@@ -411,10 +447,12 @@ impl GitStatusRow {
         group
     }
 
-    /// `<Badge variant="warning" size="sm">uncommitted</Badge>`.
+    /// `<Badge variant="warning" size="sm">uncommitted</Badge>`, without its
+    /// label: the caller hands the string to [`AnchorSink::boxed_text`] so that
+    /// the box and the run it contains reach the snapshot as one anchor.
     ///
-    /// At the `sm:` breakpoint, which is a **viewport** query and therefore in
-    /// force for any window wider than 640px — i.e. always, in the real app.
+    /// At the `sm:` breakpoint — see [`BADGE_HEIGHT`], which records the
+    /// measurement that settles which variant this is.
     fn badge(theme: &Theme) -> Div {
         let tint = if is_dark(theme) {
             BADGE_TINT_DARK
@@ -437,7 +475,6 @@ impl GitStatusRow {
             .text_color(theme.warning_foreground)
             .font_weight(FontWeight::MEDIUM)
             .whitespace_nowrap()
-            .child(SharedString::new_static("uncommitted"))
     }
 
     /// `+n` and `-n`, each rendered only when it is non-zero.

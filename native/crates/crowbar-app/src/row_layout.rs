@@ -17,33 +17,16 @@
 use crowbar_driver::{AnchorRegistry, RawAnchor};
 use crowbar_ui::Theme;
 use crowbar_ui::components::{
-    AnchorSink, BASE_INDENT, GUIDE_END_INSET, GUIDE_WIDTH, ICON_SIZE, INDENT_SIZE, ROW_HEIGHT,
-    guide_id, leading_padding,
+    BASE_INDENT, GUIDE_END_INSET, GUIDE_WIDTH, ICON_SIZE, INDENT_SIZE, ROW_HEIGHT, guide_id,
+    leading_padding,
 };
 use gpui::{
-    AnyElement, Context, Div, IntoElement, ParentElement as _, Pixels, Render, SharedString,
-    Styled as _, TestAppContext, Window, div, px, size,
+    Context, IntoElement, ParentElement as _, Pixels, Render, Styled as _, TestAppContext, Window,
+    div, px, size,
 };
 
+use crate::driver_anchors::{DriverAnchors, fold_text_halves};
 use crate::row_surface::Cell;
-
-/// The extractor, as an [`AnchorSink`]. The same wiring `row_snapshot.rs` uses
-/// in a driver build, restated here so the test does not depend on the feature.
-struct Anchors;
-
-impl AnchorSink for Anchors {
-    fn root(&self, id: SharedString, element: Div) -> AnyElement {
-        crowbar_driver::anchor_root(id, element).into_any_element()
-    }
-
-    fn boxed(&self, id: SharedString, element: Div) -> AnyElement {
-        crowbar_driver::anchor(id, element).into_any_element()
-    }
-
-    fn text(&self, id: SharedString, content: SharedString) -> AnyElement {
-        crowbar_driver::anchor_text(id, content).into_any_element()
-    }
-}
 
 struct Surface(Cell);
 
@@ -59,18 +42,19 @@ impl Render for Surface {
             .child(
                 div()
                     .w(self.0.width_px())
-                    .child(self.0.row().render(&theme, &Anchors)),
+                    .child(self.0.row().render(&theme, &DriverAnchors)),
             )
     }
 }
 
 /// Lays the cell out in a real window and hands back what the extractor
-/// recorded.
+/// recorded — folded, so what these assertions see is what a snapshot would
+/// carry.
 fn measure(cx: &mut TestAppContext, cell: Cell) -> Vec<RawAnchor> {
     let anchors: AnchorRegistry = cx.update(crowbar_driver::install);
     let _window = cx.open_window(size(px(1200.0), px(400.0)), |_, _| Surface(cell));
     cx.run_until_parked();
-    anchors.records()
+    fold_text_halves(anchors.records())
 }
 
 fn find(records: &[RawAnchor], id: &str) -> RawAnchor {
@@ -500,4 +484,47 @@ fn the_theme_changes_the_palette_and_not_the_layout(cx: &mut TestAppContext) {
             .expect("paints text")
             .color,
     );
+}
+
+/// **The badge is a painted box *containing* text, and the snapshot has to say
+/// both.** `ANCHORS.md` §3 puts the text group alongside `bg`/`radius`/`border`
+/// rather than instead of them, and the DOM extractor emits both halves for it.
+/// Emitting only the box cost five `FieldPresence` deltas on one anchor in the
+/// first gate run.
+#[gpui::test]
+fn the_badge_anchor_carries_its_box_and_its_text(cx: &mut TestAppContext) {
+    let badge = find(&measure(cx, Cell::default()), "git-row-badge");
+
+    // The box half.
+    assert!(matches!(badge.background, crowbar_driver::Paint::Solid(_)));
+    assert_eq!(badge.radius, px(4.0));
+    assert_eq!(badge.border_width, px(1.0));
+    assert!(badge.visible);
+
+    // The text half, on the same record.
+    let text = badge.text.expect("the badge paints its label");
+    assert_eq!(text.content, crowbar_ui::components::BADGE_LABEL);
+    assert!(text.width > px(0.0));
+    assert!(!text.clipped, "the badge is shrink-to-fit and nowrap");
+    assert_eq!(text.font.family, "CalSansUI");
+    assert!((text.font.weight - 500.0).abs() < f32::EPSILON);
+}
+
+/// The counts are content, and content is what the two sides have to share.
+/// `--deleted 0` omits the anchor exactly as `deletions > 0` gates the span in
+/// the React original — which is the shape the live reference row is in.
+#[gpui::test]
+fn the_counts_flags_drive_the_trailing_anchors(cx: &mut TestAppContext) {
+    let records = measure(cx, a_cell(&["--added", "1", "--deleted", "0"]));
+    let seen = ids(&records);
+
+    assert!(!seen.contains(&"git-row-deleted".to_owned()));
+    assert_eq!(
+        find(&records, "git-row-added")
+            .text
+            .expect("paints text")
+            .content,
+        "+1",
+    );
+    assert!(seen.contains(&"git-row-badge".to_owned()));
 }
