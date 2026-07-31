@@ -28,12 +28,13 @@
 //! not listed as unsafe because they are not: the marker is the proof.
 
 use std::cell::RefCell;
+use std::time::Duration;
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject};
 use objc2::{AnyThread as _, DefinedClass as _, MainThreadMarker, define_class, msg_send, sel};
 use objc2_app_kit::{NSControlStateValueOff, NSControlStateValueOn, NSMenu, NSMenuItem};
-use objc2_foundation::{NSPoint, NSString};
+use objc2_foundation::{NSPoint, NSRunLoop, NSRunLoopCommonModes, NSString, NSTimer};
 
 use super::{MenuError, MenuItem, ScreenPoint, Selection};
 
@@ -84,6 +85,13 @@ define_class!(
         #[unsafe(method(crowbarNativeMenuItemChosen:))]
         fn chosen(&self, sender: &NSMenuItem) {
             self.ivars().record(sender.tag());
+        }
+
+        #[unsafe(method(crowbarNativeMenuCancel:))]
+        fn cancel_from_timer(&self, _timer: &NSTimer) {
+            // Already on the main thread — a run-loop timer fires on the thread
+            // whose run loop it was added to — so this cannot be the refusal.
+            let _ = cancel();
         }
     }
 );
@@ -279,8 +287,74 @@ pub(super) fn cancel() -> Result<bool, MenuError> {
     }
 }
 
+/// Arms a run-loop timer that will call [`cancel`] after `after`.
+///
+/// # Why a run-loop timer and not a queued block
+///
+/// This is the second thing that had to be learned the hard way, and it is the
+/// reason this function exists at all. `GPUI`'s foreground executor schedules
+/// through `dispatch_async` onto the main queue, so [`show`] runs *inside* a
+/// main-queue block — and `libdispatch` will not begin draining another
+/// main-queue block while one is already on the stack, even though the menu's
+/// nested run loop is spinning. A `dispatch_after` scheduled to close the menu
+/// therefore never runs until the menu has closed by itself, which is exactly
+/// backwards. **Verified by sampling the process**: the main thread sits in
+/// `_dispatch_main_queue_drain → … → popUpMenuPositioningItem:` and the queued
+/// cancel never arrives.
+///
+/// A run-loop timer is not queued on the main queue and is not subject to that
+/// guard. Added to `NSRunLoopCommonModes`, which `AppKit` extends with
+/// `NSEventTrackingRunLoopMode`, it fires in the very loop the menu is tracking
+/// in.
+///
+/// # Safety
+///
+/// Two `unsafe` calls, both on the main thread — [`MainThreadMarker`] is
+/// obtained first and an off-main call returns before either is reached:
+///
+/// * **`+[NSTimer timerWithTimeInterval:target:selector:userInfo:repeats:]`** is
+///   `unsafe` on the target, the selector and the user info. The target is a
+///   `MenuTarget`, which implements `crowbarNativeMenuCancel:` — the runtime is
+///   asked whether it does by
+///   `the_target_answers_the_selector_the_timer_is_pointed_at`. The selector's
+///   one argument is the timer, which is the signature `NSTimer` documents and
+///   the signature `define_class!` registers. `userInfo` is `None`, so there is
+///   no third object whose type could be wrong.
+/// * **`-[NSRunLoop addTimer:forMode:]`** is `unsafe` because a run loop must be
+///   fed from its own thread. This is the **main** run loop and this call is on
+///   the main thread, which is the whole of the obligation.
+///
+/// The lifetime that matters: `NSTimer` **retains its target**, and the run loop
+/// retains the timer until it fires, so the `Retained<MenuTarget>` created here
+/// may be — and is — dropped immediately. A non-repeating timer invalidates
+/// itself after firing, which releases both.
+///
+/// # Errors
+///
+/// [`MenuError::OffMainThread`]; nothing is armed.
+pub(super) fn cancel_after(after: Duration) -> Result<(), MenuError> {
+    if MainThreadMarker::new().is_none() {
+        return Err(MenuError::OffMainThread);
+    }
+
+    let target = MenuTarget::new();
+    unsafe {
+        let timer = NSTimer::timerWithTimeInterval_target_selector_userInfo_repeats(
+            after.as_secs_f64(),
+            &target,
+            sel!(crowbarNativeMenuCancel:),
+            None,
+            false,
+        );
+        NSRunLoop::mainRunLoop().addTimer_forMode(&timer, NSRunLoopCommonModes);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use objc2::runtime::AnyClass;
     use objc2::{ClassType as _, sel};
 
@@ -307,6 +381,29 @@ mod tests {
         // argument. If the registered method were ever written without its
         // colon, the row would be pointed at a selector nothing implements.
         assert!(!class.responds_to(sel!(crowbarNativeMenuItemChosen)));
+    }
+
+    /// The same question for the timer's selector, and it is a sharper one: a
+    /// misspelling there does not merely do nothing, it raises
+    /// `NSInvalidArgumentException` inside the run loop when the timer fires,
+    /// which is a crash in a frame no Rust code appears in.
+    #[test]
+    fn the_target_answers_the_selector_the_timer_is_pointed_at() {
+        let class: &AnyClass = MenuTarget::class();
+
+        assert!(class.responds_to(sel!(crowbarNativeMenuCancel:)));
+        assert!(!class.responds_to(sel!(crowbarNativeMenuCancel)));
+    }
+
+    /// Arming the timer from off the main thread is a refusal, not an
+    /// `addTimer:forMode:` on a run loop belonging to another thread.
+    #[test]
+    fn a_timer_armed_off_the_main_thread_is_refused() {
+        let outcome = std::thread::spawn(|| super::cancel_after(Duration::from_millis(1)))
+            .join()
+            .expect("the spawned thread did not panic");
+
+        assert_eq!(outcome, Err(super::MenuError::OffMainThread));
     }
 
     /// Nothing is tracking until something shows a menu, so a cancel that no

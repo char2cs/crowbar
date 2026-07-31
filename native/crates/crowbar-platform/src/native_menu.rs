@@ -485,6 +485,39 @@ pub fn cancel_tracking() -> Result<bool, MenuError> {
     }
 }
 
+/// Arms a timer that will [`cancel_tracking`] after `after`.
+///
+/// Call it **before** [`ContextMenu::show_at`], on the main thread; the timer
+/// fires inside the tracking loop the menu is about to enter. It applies to
+/// whatever menu is up when it fires, and to nothing at all if none is.
+///
+/// # Why this is not just a `spawn` and a sleep
+///
+/// Because that does not work, and the way it fails is silent. `GPUI`'s
+/// foreground executor schedules onto the **main dispatch queue**, so a menu
+/// shown from a `GPUI` task is being shown from inside a main-queue block —
+/// and `libdispatch` will not start another main-queue block while one is on
+/// the stack, however long the nested run loop spins. The cancel simply waits
+/// until the menu has closed on its own. A run-loop timer in
+/// `NSRunLoopCommonModes` is not on that queue and is not subject to the guard,
+/// which is why this lives here rather than at the call site.
+///
+/// # Errors
+///
+/// [`MenuError::OffMainThread`] off the main thread; [`MenuError::Unsupported`]
+/// on a platform with no implementation. In both cases nothing is armed.
+pub fn cancel_tracking_after(after: std::time::Duration) -> Result<(), MenuError> {
+    #[cfg(target_os = "macos")]
+    {
+        appkit::cancel_after(after)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = after;
+        Err(MenuError::Unsupported)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ContextMenu, MenuError, MenuItem, ScreenPoint, Selection, cancel_tracking};

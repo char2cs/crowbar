@@ -481,3 +481,64 @@ Things learned here that are **not** about `resizable`.
 | gpui has no transform | `rotate-*`, `translate-*`, `scale-*` are unportable. A translate by a percentage of lengths the component authors can be resolved by hand exactly; one against a runtime-measured length cannot |
 | taffy rounds layout to whole logical pixels | which is DPR-independent and bounded by 0.5, so §5's tolerance covers it — but it is *tight* on any box whose used size is a fraction. Worth choosing matrix widths that avoid half-pixel shares |
 | `ANCHORS.md` §3's pseudo-backed shortcut is narrower than it reads | it is valid only for `inset: 0`, and there is no mechanism for anything else. A pseudo positioned any other way is simply not anchorable today |
+
+---
+
+# `native-menu` (P2.14)
+
+`web/src/components/ui/dropdown-menu.tsx` → **`AppKit`**, via
+`crates/crowbar-platform/src/native_menu.rs`.
+
+**This entry is the shape of an exception, and that is why it is here.** Every
+other section above is a Tailwind construct becoming a gpui one. This one is a
+component leaving the table: the user's ruling is that Crowbar's dropdown menus
+are native rather than simulated, so a *context* menu is now an `NSMenu` and
+there is no class list to compile, no token to read and nothing for the differ to
+compare.
+
+`crowbar-ui`'s `dropdown_menu` (P2.1) **stays**. It is the right answer for a
+menu that must carry Crowbar's tokens or live inside a pane — an `NSMenu` takes
+the system's appearance, not `theme.css`'s. What moved is the *context* menu.
+
+## 1. What maps
+
+| `dropdown-menu.tsx` | `AppKit` | Oracle |
+|---|---|---|
+| `menu-item` | `NSMenuItem` with a target and an action | **absent.** No anchor can reach an OS-drawn window |
+| `menu-separator` | `+[NSMenuItem separatorItem]` | absent |
+| `menu-checkbox-item` | `-setState:NSControlStateValueOn` | absent |
+| `data-disabled` | `-setEnabled:NO`, **and no action at all** | absent |
+| `menu-sub-trigger` + `menu-sub-popup` | `-setSubmenu:` | absent |
+| `menu-popup`'s `w-(--anchor-width)` / `min-w-*` | **gone.** `AppKit` sizes a menu to its rows | absent |
+
+## 2. What does not map, and what happens to it
+
+| `dropdown-menu.tsx` | Why | What it becomes |
+|---|---|---|
+| `menu-radio-item` | `AppKit` has no radio primitive; a radio group is a set of ticks the *application* keeps exclusive | an item with `checked`, exclusivity owned by the caller |
+| `menu-label` | a section header is not a `NSMenu` concept | a disabled item |
+| `menu-shortcut` | a key equivalent belongs to the responder chain, not to the row's text | not ported |
+| `inset` | `AppKit` lays out its own tick gutter | not ported |
+| `focus:bg-accent` | which row is highlighted is decided inside the tracking loop | **`AppKit`'s**, and deliberately unreachable |
+
+## 3. Traps
+
+| Trap | |
+|---|---|
+| **A queued `dispatch_async` cannot close a menu that a queued block opened.** | `GPUI`'s foreground executor schedules onto the **main dispatch queue**, so a menu shown from a `GPUI` task is shown from inside a main-queue block — and `libdispatch` will not begin another main-queue block while one is on the stack, however long the nested run loop spins. Verified by sampling: the main thread sits in `_dispatch_main_queue_drain → … → popUpMenuPositioningItem:` and the queued cancel never arrives. Use a run-loop timer in `NSRunLoopCommonModes` (`cancel_tracking_after`), which is not on that queue |
+| **`-[NSMenuItem setTarget:]` stores the target weakly.** | So the target must be kept alive across the whole `popUpMenuPositioningItem:` call. It is: `show` holds the `Retained<MenuTarget>` on its own stack frame for the duration |
+| **A misspelled action selector compiles and does nothing.** | `AppKit` never fires an action its target does not answer, so every row is silently inert. Ask the runtime instead — `AnyClass::responds_to` — which is what `the_target_answers_the_selector_the_rows_are_pointed_at` does |
+| **A misspelled *timer* selector is worse.** | It raises `NSInvalidArgumentException` inside the run loop, in a frame no Rust code appears in |
+| **`Default` on a selection type is a trap.** | Zero is a valid `NSMenuItem` tag, so a derived `Default` reports the menu's first row as chosen by a user who never opened it. The sentinel has to be negative and written out |
+| **`popUpMenuPositioningItem:atLocation:inView:` blocks.** | It runs its own event-tracking loop and returns when tracking ends. Calling it from inside a `GPUI` event handler holds the app borrowed for as long as a user holds the menu open |
+| **`AppKit` screen coordinates are y-**up**, from the bottom of the primary display.** | GPUI's global space is y-down from the top. The flip is `ScreenPoint::from_top_left`, and it lives in `crowbar-platform` because the convention is a fact about `AppKit` |
+
+## 4. What this surface cannot show the differ
+
+**Everything.** That is the decision, not a gap in it. `--surface native-menu`
+has no anchored-geometry gate: its root anchor is the *plate* the menu is opened
+from, and the popup itself is an OS window no extractor can see. The surface's
+own module docs carry the 16-line judgement checklist that replaces the differ,
+and one of those lines — `--open launch --dismiss-after` — is the only one that
+runs without a human, because synthetic pointer and keyboard events are denied
+on this project's machines.

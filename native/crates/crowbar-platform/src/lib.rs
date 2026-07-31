@@ -47,4 +47,7 @@
 
 pub mod native_menu;
 
-pub use native_menu::{ContextMenu, MenuError, MenuItem, ScreenPoint, Selection, cancel_tracking};
+pub use native_menu::{
+    ContextMenu, MenuError, MenuItem, ScreenPoint, Selection, cancel_tracking,
+    cancel_tracking_after,
+};
