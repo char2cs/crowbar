@@ -18,7 +18,16 @@
 //!   not". Ignoring it silently is how that stays invisible; a new field is
 //!   supposed to reach the contract first, with a version bump.
 //!
-//! No `f64` in this module is ever converted with a lossy `as` cast. The two
+//! Two further refusals are the contract's, not this module's taste:
+//!
+//! - **`state` is a closed vocabulary** (v1.1). It is compared exactly one layer
+//!   up, so a value outside the vocabulary does not produce a delta — it makes
+//!   *every* comparison refuse. Caught here, it names the field and the value.
+//! - **A missing `bg` is named, not shrugged at** (§6, v1.2). The one legitimate
+//!   way it goes missing is a gradient fill, which v1 cannot represent, and the
+//!   contract requires a loud failure over a plausible substitute.
+//!
+//! No `f64` in this module is ever converted with a lossy `as` cast. The three
 //! integer-valued fields (`schema`, `state.width`, `font.weight`) go through
 //! [`u32_from_whole`], which is exact or returns `None`.
 
@@ -30,6 +39,22 @@ use crate::tolerance::within;
 
 /// The only schema version this build understands.
 pub const SCHEMA_V1: u32 = 1;
+
+/// `state.theme`, v1.1. Lowercase, no synonyms.
+pub const THEMES: [&str; 2] = ["light", "dark"];
+
+/// `state.content`, v1.1 — the §8.3 content-length buckets.
+pub const CONTENT_LENGTHS: [&str; 3] = ["short", "normal", "overflow"];
+
+/// `state.flags`, v1.1. `flags` is a **subset** of this, and the resting state
+/// is the empty list rather than `["empty"]` (v1.2 ruling 1).
+pub const FLAGS: [&str; 6] = ["empty", "loading", "error", "hover", "focus", "selected"];
+
+/// The `font.weight` range, v1.1 ruling 7: the **CSS** range, 1–1000, not
+/// 100–900. A legitimate variable-font weight must not fail to *load*; our own
+/// tokens stay on the 100s, but that is a token convention and not a schema
+/// rule, and a loader that conflated the two would reject a valid snapshot.
+const WEIGHT_RANGE: std::ops::RangeInclusive<f64> = 1.0..=1000.0;
 
 /// A rectangle in logical px, relative to the snapshot's `root` anchor (§4).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -49,7 +74,7 @@ pub struct Bounds {
 pub struct Font {
     /// Size in logical px.
     pub size: f64,
-    /// Numeric weight, 100–900.
+    /// Numeric weight, 1–1000 (v1.1 ruling 7 — the CSS range, not 100–900).
     pub weight: u32,
     /// Resolved *first* family, not the whole stack.
     pub family: String,
@@ -105,15 +130,26 @@ pub struct Anchor {
 /// extractors listing `["selected","hover"]` and `["hover","selected"]` are in
 /// the same cell, and refusing on that would be a false alarm that trains
 /// people to ignore the refusal.
+///
+/// # The vocabulary is closed, and a value outside it is a refusal (v1.1)
+///
+/// [`THEMES`], [`CONTENT_LENGTHS`] and [`FLAGS`] are the whole of it, lowercase
+/// and without synonyms. v1.1 ruling 3 says the vocabulary is the part that
+/// matters most: `state` is compared *exactly*, so one side emitting `"Dark"`
+/// or `"crowbar"` makes **every** comparison refuse — with a message about
+/// matrix cells that sends a reader looking at the wrong thing entirely. Caught
+/// here instead, it names the field and the offending value, and it is a load
+/// error rather than a delta because a snapshot outside the vocabulary is not a
+/// snapshot of a cell the matrix has.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct State {
     /// Viewport width in logical px. Whole pixels only.
     pub width: u32,
-    /// `"light"` / `"dark"`. Compared exactly; never interpreted.
+    /// One of [`THEMES`]. Compared exactly; never interpreted.
     pub theme: String,
-    /// Content-length bucket — short / long / overflowing. Compared exactly.
+    /// One of [`CONTENT_LENGTHS`]. Compared exactly.
     pub content: String,
-    /// Interaction flags, sorted, no duplicates.
+    /// A subset of [`FLAGS`], sorted, no duplicates.
     pub flags: Vec<String>,
 }
 
@@ -333,6 +369,16 @@ pub enum LoadErrorKind {
     },
     /// The same flag twice in `state.flags`.
     DuplicateFlag(String),
+    /// A `state` value outside the closed v1.1 vocabulary.
+    NotInVocabulary {
+        /// The offending value.
+        value: String,
+        /// What the vocabulary permits, comma-separated.
+        allowed: String,
+    },
+    /// An anchor emitted no `bg` (§3 requires one; §6 says a gradient fill is
+    /// why).
+    MissingBackground(String),
 }
 
 impl fmt::Display for LoadErrorKind {
@@ -374,6 +420,22 @@ impl fmt::Display for LoadErrorKind {
                  offset every anchor by a constant and drown the real deltas"
             ),
             Self::DuplicateFlag(flag) => write!(f, "flag `{flag}` is listed twice"),
+            Self::NotInVocabulary { value, allowed } => write!(
+                f,
+                "`{value}` is not in the v1 vocabulary (permitted: {allowed}). ANCHORS.md fixes \
+                 `state` to a closed, lowercase vocabulary because it is compared exactly — one \
+                 side emitting a synonym would make every comparison refuse, and a value outside \
+                 the vocabulary is a refusal here rather than a delta"
+            ),
+            Self::MissingBackground(id) => write!(
+                f,
+                "anchor `{id}` emitted no `bg`, which §3 requires on every anchor. §6 is where \
+                 this normally comes from: an element with a gradient or pattern fill is not \
+                 representable in v1, and the extractor is required to emit no `bg` at all — not \
+                 `null`, not `#00000000` — so the document is rejected by name. A plausible \
+                 substitute would compare as a real delta and send a reader hunting the wrong \
+                 thing"
+            ),
         }
     }
 }
@@ -535,6 +597,30 @@ fn bool_at(parent: &Value, path: &Path, key: &str) -> Result<bool, LoadError> {
     }
 }
 
+/// A string that must be one of a closed set (v1.1).
+fn in_vocabulary(value: String, path: &Path, allowed: &[&str]) -> Result<String, LoadError> {
+    if allowed.contains(&value.as_str()) {
+        return Ok(value);
+    }
+    Err(LoadError {
+        path: path.0.clone(),
+        kind: LoadErrorKind::NotInVocabulary {
+            value,
+            allowed: allowed.join(", "),
+        },
+    })
+}
+
+fn vocabulary_at(
+    parent: &Value,
+    path: &Path,
+    key: &str,
+    allowed: &[&str],
+) -> Result<String, LoadError> {
+    let raw = non_empty_string_at(parent, path, key)?;
+    in_vocabulary(raw, &path.child(key), allowed)
+}
+
 fn color_at(parent: &Value, path: &Path, key: &str) -> Result<Color, LoadError> {
     let raw = string_at(parent, path, key)?;
     Color::parse(&raw).map_err(|e| LoadError {
@@ -559,8 +645,8 @@ fn state_at(parent: &Value, path: &Path) -> Result<State, LoadError> {
         0.0..=f64::from(u32::MAX),
         "a viewport width is a non-negative whole number of logical pixels",
     )?;
-    let theme = non_empty_string_at(value, &p, "theme")?;
-    let content = non_empty_string_at(value, &p, "content")?;
+    let theme = vocabulary_at(value, &p, "theme", &THEMES)?;
+    let content = vocabulary_at(value, &p, "content", &CONTENT_LENGTHS)?;
 
     let flags_path = p.child("flags");
     let flags_value = required(value, &p, "flags")?;
@@ -569,7 +655,11 @@ fn state_at(parent: &Value, path: &Path) -> Result<State, LoadError> {
     };
     let mut flags: Vec<String> = Vec::with_capacity(items.len());
     for (i, item) in items.iter().enumerate() {
-        let flag = string_of(item, &flags_path.index(i))?;
+        let flag = in_vocabulary(
+            string_of(item, &flags_path.index(i))?,
+            &flags_path.index(i),
+            &FLAGS,
+        )?;
         if flags.contains(&flag) {
             return Err(LoadError {
                 path: flags_path.index(i).0,
@@ -615,8 +705,8 @@ fn font_at(parent: &Value, path: &Path) -> Result<Option<Font>, LoadError> {
             value,
             &p,
             "weight",
-            100.0..=900.0,
-            "ANCHORS.md §3 defines `weight` as numeric 100-900",
+            WEIGHT_RANGE,
+            "ANCHORS.md v1.1 accepts the CSS weight range, 1-1000",
         )?,
         family: non_empty_string_at(value, &p, "family")?,
         line_height: non_negative_at(value, &p, "line_height", "a line height cannot be negative")?,
@@ -654,8 +744,22 @@ fn anchor_at(value: &Value, path: &Path) -> Result<Anchor, LoadError> {
         ],
     )?;
 
+    let id = non_empty_string_at(value, path, "id")?;
+
+    // §3 requires `bg` on every anchor, and §6 (v1.2 ruling 4) says the one way
+    // it legitimately goes missing is a gradient or pattern fill, which v1
+    // cannot represent. Named rather than reported as a generic missing field:
+    // `anchors[7].bg: required by ANCHORS.md §2-§3, but absent` gives a reader
+    // an index into a file, where what they need is the anchor and the reason.
+    if value.get("bg").is_none() {
+        return Err(LoadError {
+            path: path.child("bg").0,
+            kind: LoadErrorKind::MissingBackground(id),
+        });
+    }
+
     Ok(Anchor {
-        id: non_empty_string_at(value, path, "id")?,
+        id,
         bounds: bounds_at(value, path)?,
         fg: if value.get("fg").is_none() {
             None
@@ -807,8 +911,8 @@ mod tests {
             }
         ));
         let e = err_of(
-            r#"{"schema":1,"surface":"s","state":{"width":1,"theme":"d",
-                           "content":"c","flags":[]},"root":"r","anchors":[],"extra":1}"#,
+            r#"{"schema":1,"surface":"s","state":{"width":1,"theme":"dark",
+                           "content":"short","flags":[]},"root":"r","anchors":[],"extra":1}"#,
         );
         assert_eq!(e.path, "extra");
         assert!(matches!(e.kind, LoadErrorKind::UnknownKey { .. }));
@@ -855,10 +959,98 @@ mod tests {
                 "should have rejected {to}"
             );
         }
-        let e =
-            err_of(&MINIMAL.replace(r#""flags": ["selected", "hover"]"#, r#""flags": ["a","a"]"#));
-        assert_eq!(e.kind, LoadErrorKind::DuplicateFlag("a".to_owned()));
+        let e = err_of(&MINIMAL.replace(
+            r#""flags": ["selected", "hover"]"#,
+            r#""flags": ["hover","hover"]"#,
+        ));
+        assert_eq!(e.kind, LoadErrorKind::DuplicateFlag("hover".to_owned()));
         assert_eq!(e.path, "state.flags[1]");
+    }
+
+    /// v1.1 ruling 3. A value outside the vocabulary is a **refusal**, not a
+    /// delta and not a value the differ tries to interpret — one side emitting
+    /// `"Dark"` or a named theme like `"crowbar"` would otherwise make every
+    /// single comparison refuse with a message about matrix cells.
+    #[test]
+    fn enforces_the_closed_state_vocabulary() {
+        let cases: &[(&str, &str, &str, &str)] = &[
+            (
+                "theme casing",
+                r#""theme": "dark""#,
+                r#""theme": "Dark""#,
+                "state.theme",
+            ),
+            (
+                "a named theme, which is what this app's `data-theme` actually says",
+                r#""theme": "dark""#,
+                r#""theme": "crowbar""#,
+                "state.theme",
+            ),
+            (
+                "a content bucket that is not one of the three",
+                r#""content": "overflow""#,
+                r#""content": "long""#,
+                "state.content",
+            ),
+            (
+                "a flag nobody defined",
+                r#""flags": ["selected", "hover"]"#,
+                r#""flags": ["selected", "pressed"]"#,
+                "state.flags[1]",
+            ),
+        ];
+        for (what, from, to, path) in cases {
+            let e = err_of(&MINIMAL.replace(from, to));
+            assert_eq!(&e.path, path, "case: {what}");
+            assert!(
+                matches!(e.kind, LoadErrorKind::NotInVocabulary { .. }),
+                "case {what}: {:?}",
+                e.kind
+            );
+        }
+
+        // Every permitted value loads, so the vocabulary is a gate and not a
+        // second, narrower set that happens to include the fixtures.
+        for theme in THEMES {
+            for content in CONTENT_LENGTHS {
+                let json = MINIMAL
+                    .replace(r#""theme": "dark""#, &format!(r#""theme": "{theme}""#))
+                    .replace(
+                        r#""content": "overflow""#,
+                        &format!(r#""content": "{content}""#),
+                    );
+                assert!(
+                    Snapshot::from_json(&json).is_ok(),
+                    "{theme}/{content} must load"
+                );
+            }
+        }
+        for flag in FLAGS {
+            let json = MINIMAL.replace(
+                r#""flags": ["selected", "hover"]"#,
+                &format!(r#""flags": ["{flag}"]"#),
+            );
+            assert!(Snapshot::from_json(&json).is_ok(), "flag {flag} must load");
+        }
+    }
+
+    /// §6 / v1.2 ruling 4: a gradient fill means **no `bg` at all**, and the
+    /// differ rejects the document by name rather than defaulting.
+    #[test]
+    fn an_anchor_without_a_bg_is_rejected_by_name() {
+        let json = with_anchor(
+            r#"{"id":"git-row-badge","bounds":{"x":0,"y":0,"w":1,"h":1},"visible":true}"#,
+        )
+        .replace(r#""root":"a""#, r#""root":"git-row-badge""#);
+        let e = err_of(&json);
+        assert_eq!(
+            e.kind,
+            LoadErrorKind::MissingBackground("git-row-badge".to_owned())
+        );
+        assert_eq!(e.path, "anchors[0].bg");
+        let rendered = e.to_string();
+        assert!(rendered.contains("git-row-badge"), "{rendered}");
+        assert!(rendered.contains("gradient"), "{rendered}");
     }
 
     #[test]
@@ -873,8 +1065,8 @@ mod tests {
 
     #[test]
     fn rejects_a_malformed_anchors_list() {
-        let json = r#"{"schema":1,"surface":"s","state":{"width":1,"theme":"d",
-                       "content":"c","flags":[]},"root":"r","anchors":{}}"#;
+        let json = r#"{"schema":1,"surface":"s","state":{"width":1,"theme":"dark",
+                       "content":"short","flags":[]},"root":"r","anchors":{}}"#;
         let e = err_of(json);
         assert_eq!(e.path, "anchors");
         assert!(matches!(e.kind, LoadErrorKind::WrongType { .. }));
@@ -882,8 +1074,8 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_anchor_ids() {
-        let json = r##"{"schema":1,"surface":"s","state":{"width":1,"theme":"d",
-          "content":"c","flags":[]},"root":"a","anchors":[
+        let json = r##"{"schema":1,"surface":"s","state":{"width":1,"theme":"dark",
+          "content":"short","flags":[]},"root":"a","anchors":[
           {"id":"a","bounds":{"x":0,"y":0,"w":1,"h":1},"bg":"#00000000","visible":true},
           {"id":"a","bounds":{"x":0,"y":0,"w":1,"h":1},"bg":"#00000000","visible":true}]}"##;
         let e = err_of(json);
@@ -953,9 +1145,9 @@ mod tests {
             r##"{"id":"a","bounds":{"x":0,"y":0,"w":1,"h":1},"bg":"#00000000","visible":true,
                 "font":{"size":-1,"weight":400,"family":"Inter","line_height":1}}"##,
             r##"{"id":"a","bounds":{"x":0,"y":0,"w":1,"h":1},"bg":"#00000000","visible":true,
-                "font":{"size":13,"weight":50,"family":"Inter","line_height":1}}"##,
+                "font":{"size":13,"weight":0,"family":"Inter","line_height":1}}"##,
             r##"{"id":"a","bounds":{"x":0,"y":0,"w":1,"h":1},"bg":"#00000000","visible":true,
-                "font":{"size":13,"weight":1000,"family":"Inter","line_height":1}}"##,
+                "font":{"size":13,"weight":1001,"family":"Inter","line_height":1}}"##,
             r##"{"id":"a","bounds":{"x":0,"y":0,"w":1,"h":1},"bg":"#00000000","visible":true,
                 "font":{"size":13,"weight":450.5,"family":"Inter","line_height":1}}"##,
             r##"{"id":"a","bounds":{"x":0,"y":0,"w":1,"h":1},"bg":"#00000000","visible":true,
@@ -981,6 +1173,40 @@ mod tests {
             assert!(
                 Snapshot::from_json(&json).is_err(),
                 "should have rejected the anchor {anchor}"
+            );
+        }
+    }
+
+    /// v1.1 ruling 7. The **CSS** range, so a legitimate variable-font weight
+    /// does not fail to load; our own tokens staying on the 100s is a token
+    /// convention, not a schema rule.
+    #[test]
+    fn font_weight_accepts_the_whole_css_range() {
+        for weight in [1_u32, 50, 100, 450, 900, 1000] {
+            let json = with_anchor(&format!(
+                r##"{{"id":"a","bounds":{{"x":0,"y":0,"w":1,"h":1}},"bg":"#00000000",
+                     "visible":true,
+                     "font":{{"size":13,"weight":{weight},"family":"Inter","line_height":1}}}}"##
+            ));
+            let snap = Snapshot::from_json(&json).expect("a CSS-range weight must load");
+            assert_eq!(
+                snap.anchor("a")
+                    .and_then(|a| a.font.as_ref())
+                    .map(|f| f.weight),
+                Some(weight)
+            );
+        }
+        for weight in ["0", "1001", "-1"] {
+            let json = with_anchor(&format!(
+                r##"{{"id":"a","bounds":{{"x":0,"y":0,"w":1,"h":1}},"bg":"#00000000",
+                     "visible":true,
+                     "font":{{"size":13,"weight":{weight},"family":"Inter","line_height":1}}}}"##
+            ));
+            let e = err_of(&json);
+            assert!(
+                matches!(e.kind, LoadErrorKind::OutOfRange { .. }),
+                "weight {weight}: {:?}",
+                e.kind
             );
         }
     }
@@ -1050,6 +1276,11 @@ mod tests {
                 y: 2.0,
             },
             LoadErrorKind::DuplicateFlag("f".to_owned()),
+            LoadErrorKind::NotInVocabulary {
+                value: "Dark".to_owned(),
+                allowed: "light, dark".to_owned(),
+            },
+            LoadErrorKind::MissingBackground("git-row-badge".to_owned()),
         ];
         for k in kinds {
             assert!(!k.to_string().is_empty(), "{k:?} rendered empty");

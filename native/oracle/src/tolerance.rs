@@ -14,11 +14,12 @@
 //!
 //! # What is deliberately not here
 //!
-//! `fg`/`bg`/`border.color` RGB, `font.weight`, `text`, `clipped` and `visible`
-//! are **exact** in §5. They have no field in this struct and no knob, because
-//! a knob for them would only ever be used to make a failing gate pass. Alpha
-//! is the one colour component with a tolerance, and it has one because 8-bit
-//! rounding is a real engine difference rather than a defect.
+//! `fg`/`bg`/`border.color` RGB, `font.weight`, `text`, `clipped`, `visible`
+//! and — since v1.1 — `border.w` are **exact** in §5. They have no field in this
+//! struct and no knob, because a knob for them would only ever be used to make a
+//! failing gate pass. Alpha is the one colour component with a tolerance, and it
+//! has one because 8-bit rounding is a real engine difference rather than a
+//! defect.
 
 /// The numeric slack the differ allows, per field family.
 ///
@@ -48,21 +49,13 @@ pub struct Tolerances {
     /// Alpha on any colour field, in 1/255 units. §5: **±1** for rounding.
     /// RGB has no equivalent because §5 makes it exact.
     pub alpha: u8,
-    /// `radius`, in logical px.
+    /// `radius`, in logical px. §5: **±0.5** *(v1.1)*.
     ///
-    /// **Not in §5.** ANCHORS.md defines `radius` as a field but gives it no
-    /// tolerance. Defaulted to the same ±0.5 as `bounds` because it is the same
-    /// kind of quantity, and given its own field so that decision is visible
-    /// and revisable rather than buried. Flagged to the contract owner.
+    /// v1 defined `radius` as a field and gave it no tolerance; v1.1 ruling 1
+    /// closed that with ±0.5, the same as `bounds`, because it is the same kind
+    /// of quantity. `border.w` was ruled the other way in the same breath and
+    /// so has no field here at all — see the module docs.
     pub radius_px: f64,
-    /// `border.w`, in logical px.
-    ///
-    /// **Not in §5**, same as `radius_px`. Note that ±0.5 is proportionally
-    /// enormous here: it forgives a 1.0px border rendered at 1.5px, a 50%
-    /// error that is plainly visible. It is set this way only to match the
-    /// other px fields; tightening it needs no ceremony under §5 and probably
-    /// should happen once Phase 1 has a measurement.
-    pub border_width_px: f64,
 }
 
 impl Tolerances {
@@ -74,7 +67,6 @@ impl Tolerances {
         line_height_px: 0.5,
         alpha: 1,
         radius_px: 0.5,
-        border_width_px: 0.5,
     };
 }
 
@@ -114,7 +106,6 @@ mod tests {
         assert!(exactly(t.line_height_px, 0.5));
         assert_eq!(t.alpha, 1);
         assert!(exactly(t.radius_px, 0.5));
-        assert!(exactly(t.border_width_px, 0.5));
         assert_eq!(Tolerances::default(), Tolerances::V1);
     }
 
