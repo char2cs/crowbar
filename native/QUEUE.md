@@ -2114,8 +2114,25 @@ was narrowed, and no number was touched.
   surface. Same shape on `sidebar-carousel` (`--height` capped 640) — there I met
   it from the other side by shrinking the **reference** window to 640, which is
   free because height is not a §8.3 axis. That trick does not work at 160.
-- **`dropdown-menu`** — still needs a loaded review thread to reach its only
-  usable menu.
+- **`dropdown-menu` — no menu exists anywhere in the reachable app.** I searched
+  for this rather than assuming: `[aria-haspopup]` is **0** across the entire
+  document on the IDE route (all four carousel panels are in the DOM even when
+  scrolled out, so the search covered them), **0** after clicking `Open review`,
+  and **0** on `#/settings`. There is no "more/⋯" button either.
+
+  The anchors live in the shared `web/src/components/ui/dropdown-menu.tsx`
+  primitive, so *any* open menu would carry them — the problem is that this
+  fixture workspace renders none. It needs **review-comment data**: a comment on
+  a diff line, which produces the review-thread menu P2.1 nominated.
+
+  **Do not create that by adding a file to the fixture repo.** The git status
+  panel is the Phase 1 `git-status-row` fixture — 11 rows, and the archived
+  reference captures assume exactly that content. A new file adds a row and makes
+  those references unreproducible. The comment has to come from review data, not
+  from a working-tree change.
+
+  This is fixture work and it is mine, not a user decision, so it stays here
+  rather than in `blocked/`.
 
 Every component is built, gated and unit-tested. **None has a single parity
 run**, and a green build is not the bar. All three workers independently
