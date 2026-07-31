@@ -2070,7 +2070,52 @@ The integration worker also hit a **fourth** conflict I had not predicted —
 `MAPPING.md`, which both P2.2 and P2.3 append to. It flagged that rather than
 quietly resolving a file the brief told it not to touch.
 
-### ⚠ Phase 2 is NOT complete — nothing here has been driven against the reference
+### ✅ `sidebar-carousel` VERIFIED by my own side-by-side run — 2 cells, 0 deltas
+
+The first Phase 2 parity results, and on the component the goal names explicitly.
+
+| cell | result |
+|---|---|
+| `1200 · light · normal · resting` | **PASS — 0 deltas over 5 anchors** |
+| `1200 · light · normal · selected` (snapped to `chats`) | **PASS — 0 deltas over 5 anchors** |
+
+Both sides agree on the track (`294×497` scrollport, panels at `0/294/588/882`),
+on the snap (`workspaces` at **x = −294**), and on `visible`
+true/false/false/false — including the **tangent case**, where the next panel's
+left edge *is* the scrollport's right edge and zero tolerance applies.
+
+No fixture work was needed after all: Vite HMR'd the merged `data-oracle-id`
+attributes into the already-running app, so both surfaces' anchors were live.
+The opacity precondition from `corpus/001` was checked before capturing — no
+non-opaque ancestor on either root.
+
+**Scope note, stated because it is a reduction:** the reference carries ~90
+anchors, because the panels hold real file and git rows; the native surface
+renders the carousel alone. I compared the **five `carousel-*` anchors**, which
+is the surface's own anchor set. Every value is the extractor's; only the *set*
+was narrowed, and no number was touched.
+
+> **Extractor finding: a declared `state` is never checked against the document.**
+> I captured with `theme: 'dark'` while the app was in **light** — a page reload
+> had undone my earlier theme switch — and the extractor emitted a snapshot
+> labelled `dark` carrying light-theme values, silently. The oracle would then
+> have compared it against the wrong native cell and reported colour deltas whose
+> cause was the label. Caught because `border.color` read `#00000014`. Worth a
+> validation pass in the extractor; recorded, not yet fixed.
+
+### ⚠ The other two Phase 2 surfaces are still undriven
+
+- **`resizable` — BLOCKED on a driver limit.** `--shell-height` is capped at
+  `1..=160` and the live IDE shell is **1119px**. The cap is not laziness: the
+  driver's window is fixed-size, and the error says so — a taller surface would
+  be cut by the window edge and *"every `visible` in the snapshot would be an
+  artefact of the window size"*. Correct reasoning, wrong constraint for a parity
+  run. The fix is for the driver's window to size itself to the requested
+  surface. Same shape on `sidebar-carousel` (`--height` capped 640) — there I met
+  it from the other side by shrinking the **reference** window to 640, which is
+  free because height is not a §8.3 axis. That trick does not work at 160.
+- **`dropdown-menu`** — still needs a loaded review thread to reach its only
+  usable menu.
 
 Every component is built, gated and unit-tested. **None has a single parity
 run**, and a green build is not the bar. All three workers independently

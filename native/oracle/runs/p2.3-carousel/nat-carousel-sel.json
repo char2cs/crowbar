@@ -1,0 +1,95 @@
+{
+  "schema": 1,
+  "surface": "sidebar-carousel",
+  "state": {
+    "width": 1200,
+    "theme": "light",
+    "content": "normal",
+    "flags": [
+      "selected"
+    ]
+  },
+  "root": "carousel-scrollport",
+  "anchors": [
+    {
+      "id": "carousel-scrollport",
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 294.0,
+        "h": 497.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "carousel-panel-workspaces",
+      "bounds": {
+        "x": -294.0,
+        "y": 0.0,
+        "w": 294.0,
+        "h": 497.0
+      },
+      "bg": "#00000000",
+      "visible": false,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "carousel-panel-chats",
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 294.0,
+        "h": 497.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "carousel-panel-files",
+      "bounds": {
+        "x": 294.0,
+        "y": 0.0,
+        "w": 294.0,
+        "h": 497.0
+      },
+      "bg": "#00000000",
+      "visible": false,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "carousel-panel-git",
+      "bounds": {
+        "x": 588.0,
+        "y": 0.0,
+        "w": 294.0,
+        "h": 497.0
+      },
+      "bg": "#00000000",
+      "visible": false,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    }
+  ]
+}
