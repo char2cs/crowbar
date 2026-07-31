@@ -1116,6 +1116,34 @@ answer:**
 Reference app restored afterwards: 1200×800, dark, injected style and classes
 removed, `web/` clean.
 
+### ⛔ The MCP bridge port is a SINGLE GLOBAL RESOURCE — and a sibling session can take it
+
+Cost me a parity run, so it is written down.
+
+`tauri_plugin_mcp_bridge::init()` takes **no port argument** — `9223` is baked
+into the plugin (`desktop/src-tauri/src/lib.rs:848`). Changing it means editing
+the reference app, which is out of scope and would change the thing being
+measured. So **exactly one Crowbar dev app on this machine can be driven at a
+time**, whichever bound the port first.
+
+Mid-session my app died and a **sibling session's** app (`feature/crowbar-skill`
+worktree) took `9223`. `driver_session` reports `connected: true` and answers
+normally — it is simply attached to somebody else's app. Always confirm
+ownership before driving:
+
+```bash
+p=$(lsof -nP -iTCP:9223 -sTCP:LISTEN | awk 'NR==2{print $2}')
+lsof -a -p $p -d cwd -Fn | grep '^n' | sed 's/^n//'   # must be THIS worktree
+```
+
+**And the repo's own `beforeDevCommand` is `pkill -f vite`.** Any sibling
+starting Crowbar dev kills my Vite on 5273, after which my app boots to
+*"Waiting for your frontend dev server…"* forever. Restart it with
+`bun run vite --port 5273 --strictPort` from `web/`.
+
+Both hazards are silent: the first drives the wrong app, the second hangs the
+right one. Neither announces itself.
+
 ### ▶ How to bring up the reference app — **do not use `make dev-desktop`**
 
 `make dev-desktop` is wrong for this work, for two reasons that only show up when
