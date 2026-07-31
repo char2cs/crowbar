@@ -68,8 +68,9 @@ fn main() -> ExitCode {
 
     for flag in cell.unmodelled_flags() {
         eprintln!(
-            "crowbar-app: the git status row has no `{}` state in the React original — \
-             this cell renders the resting row, so a comparison of it proves nothing.",
+            "crowbar-app: {} has no `{}` state in the React original — this cell renders \
+             the resting row, so a comparison of it proves nothing.",
+            cell.surface.name(),
             flag.name(),
         );
     }

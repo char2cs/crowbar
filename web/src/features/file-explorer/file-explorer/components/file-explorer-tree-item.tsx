@@ -118,7 +118,14 @@ function FileExplorerTreeItemComponent({
   const densityConfig = FILE_TREE_DENSITY_CONFIG[density]
   const gitStatusDecoration = getGitStatusDecoration(file)
   const guideLevels = Array.from({ length: depth }, (_, level) => level)
-  const renderTreeGuides = () => (
+  /**
+   * `oracleAnchors` is false in the inline-editing branch: that branch renders a
+   * different row (an `<Input>` where the button is), and tagging it would put a
+   * second `file-row-item` in the document under a shape the native surface does
+   * not model. The extractor takes the first match for its root, so the two
+   * would be indistinguishable.
+   */
+  const renderTreeGuides = (oracleAnchors: boolean) => (
     <div className="file-tree-guides">
       {guideLevels.map((level) => {
         const target = guideTargets[level]
@@ -128,6 +135,7 @@ function FileExplorerTreeItemComponent({
           <span
             key={level}
             className="file-tree-guide"
+            data-oracle-id={oracleAnchors ? `file-row-guide-${level}` : undefined}
             data-file-path={target?.path}
             data-is-dir={target?.isDir}
             data-path={target?.path}
@@ -167,7 +175,7 @@ function FileExplorerTreeItemComponent({
   if (file.isEditing || file.isRenaming) {
     return (
       <div className="file-tree-item w-full" data-depth={depth}>
-        {renderTreeGuides()}
+        {renderTreeGuides(false)}
         <div
           className={cn(
             'file-tree-row flex w-full items-center rounded-md',
@@ -208,14 +216,29 @@ function FileExplorerTreeItemComponent({
   }
 
   return (
+    /*
+      The `file-tree-row` oracle surface — `native/oracle/ANCHORS.md`. Every
+      anchor below is an inert marker: no styling, no behaviour, and no
+      conditional rendering hangs off one. They ship in production by design,
+      exactly as the git status row's do.
+
+      This row is the surface the §8.3 **state** axis is measured on, and the
+      reason is right here on the next line: `data-active` is set from `isActive`
+      on every render, so `.file-tree-item[data-active='true']::before` really
+      paints `var(--accent)`. `SidebarTreeRow` takes an `active` prop that
+      neither live consumer passes, which makes the same attribute dead on the
+      git status row and every `selected` cell of its matrix vacuous.
+    */
     <div
       className="file-tree-item w-full"
       data-active={isActive ? 'true' : undefined}
       data-depth={depth}
+      data-oracle-id="file-row-item"
     >
-      {renderTreeGuides()}
+      {renderTreeGuides(true)}
       <TreeRow
         id={rowId}
+        data-oracle-id="file-row-button"
         role="treeitem"
         aria-level={depth + 1}
         aria-selected={isActive}
@@ -247,13 +270,38 @@ function FileExplorerTreeItemComponent({
           isExpanded={isExpanded}
           isSymlink={file.isSymlink}
           className="relative z-1 shrink-0 text-muted-foreground"
+          data-oracle-id="file-row-icon"
         />
         <span className="relative z-1 flex min-w-0 items-baseline gap-1.5">
+          {/*
+            `data-oracle-content-sized` (ANCHORS.md v1.5): this span is a flex
+            item with `flex: 0 1 auto` and no basis, so while the row has room
+            its used width *is* its max-content width — the fraction this engine
+            keeps and GPUI `ceil()`s. It stays correct in the `overflow` cell
+            too: there the width is what the icon and the whole-pixel paddings
+            leave, so the reference is an integer and `ceil` of it is itself.
+
+            `data-oracle-line-sized` (v1.6): a blockified flex item holding one
+            line with no authored height, so its border box is its line box.
+            **The line box here is 20px, not the git row's 18.9.** `GitFileItem`
+            authors `leading-[1.35]`; this row authors nothing, so it inherits
+            `.text-sm`'s `calc(1.25 / 0.875)` — 14px text on a 20px line.
+
+            The button is deliberately *not* line-sized even though it paints
+            text: `h-6` authors its box at 24px around that same 20px line.
+
+            The same two declarations are on the GPUI side in `crowbar-ui`'s
+            `file_tree_row::{CONTENT_SIZED, LINE_SIZED}`. A declaration on one
+            side only is a `FieldPresence` delta that forgives nothing.
+          */}
           <span
             className={cn(
               'select-none truncate whitespace-nowrap',
               gitStatusDecoration?.colorClassName,
             )}
+            data-oracle-id="file-row-name"
+            data-oracle-content-sized="true"
+            data-oracle-line-sized="true"
           >
             {renderHighlightedLabel(displayName ?? file.name, searchQuery)}
           </span>

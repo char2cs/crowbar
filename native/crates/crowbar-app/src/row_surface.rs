@@ -1,4 +1,20 @@
-//! The Phase 1 gate surface: one [`GitStatusRow`] in one §8.3 matrix cell.
+//! A Phase 1 gate surface — one row, in one §8.3 matrix cell.
+//!
+//! Two surfaces live behind `--surface`, and they divide the matrix between
+//! them:
+//!
+//! | `--surface` | What it measures | Why |
+//! |---|---|---|
+//! | `git-status-row` (default) | the **geometry** axis | its filename and directory truncate against each other through three nested flex containers |
+//! | `file-tree-row` | the **state** axis | it is the row that actually enters `hover`, `selected` and `focus` |
+//!
+//! The split is not tidiness. `SidebarTreeRow` takes an `active` prop that
+//! neither live consumer passes, so `data-active` never fires on the git status
+//! row: every `selected` cell of its matrix compares a resting row against a
+//! resting row and converges while proving nothing. The file explorer row sets
+//! `data-active` from `isActive` on every render **and** sits inside
+//! `.file-tree-container`, which brings the scoped `:focus-visible` border rule
+//! into play as well.
 //!
 //! The whole point of this module is that the matrix cell is **data on the
 //! command line**, not an interaction to be synthesised. `--flags hover` paints
@@ -10,7 +26,7 @@
 //! while proving nothing.
 //!
 //! ```text
-//! crowbar-app --width 320 --theme dark --content overflow --flags hover,selected
+//! crowbar-app --surface file-tree-row --width 294 --theme dark --flags selected
 //! ```
 //!
 //! Every option has a default, so a bare `cargo run -p crowbar-app` renders a
@@ -34,12 +50,13 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::components::{
-    AnchorSink, Breakpoint, ContentLength, GitStatusRow, RowState, TrailingContent,
+    AnchorSink, Breakpoint, ContentLength, FileTreeRow, GitStatusRow, RowState, TrailingContent,
+    file_tree_row, git_status_row,
 };
 use crowbar_ui::{Appearance, Theme};
 use gpui::{
-    Context, IntoElement, ParentElement as _, Pixels, Render, SharedString, Size, Styled as _,
-    Window, div, px, relative, size,
+    AnyElement, Context, IntoElement, ParentElement as _, Pixels, Render, SharedString, Size,
+    Styled as _, Window, div, px, relative, size,
 };
 
 /// The horizontal inset the surface is drawn at inside the window.
@@ -57,8 +74,83 @@ const INSET_X_WHOLE: u16 = 24;
 /// The vertical inset. See [`INSET_X`].
 pub const INSET_Y: f32 = 16.0;
 
-/// The surface's name in a snapshot.
-pub const SURFACE: &str = "git-status-row";
+/// Which row is under measurement.
+///
+/// A closed set on purpose: the name reaches the snapshot's `surface` field and
+/// the root anchor reaches its `root`, and the differ refuses to compare two
+/// snapshots that disagree on either. A free-form string here would let a typo
+/// become a silent refusal three steps later.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Surface {
+    /// One row of the git status panel — the geometry gate.
+    ///
+    /// The default, because it is the row the Phase 1 gate is measured on and a
+    /// command line written before `--surface` existed must keep rendering what
+    /// it rendered.
+    #[default]
+    GitStatusRow,
+    /// One row of the file explorer tree — the state gate.
+    FileTreeRow,
+}
+
+impl Surface {
+    /// The surface's name in a snapshot's `surface` field.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::GitStatusRow => "git-status-row",
+            Self::FileTreeRow => "file-tree-row",
+        }
+    }
+
+    /// The anchor every other bound on this surface is reported relative to
+    /// (`native/oracle/ANCHORS.md` §4).
+    ///
+    /// Only the snapshot path reads it, and that path is
+    /// `#[cfg(any(feature = "driver", test))]` — so in a plain shipping build
+    /// this is genuinely dead, exactly as `row_snapshot.rs` as a whole is. It
+    /// lives here rather than there because it is a fact about the surface, and
+    /// putting the two halves of `--surface` in two places is how they come to
+    /// disagree.
+    #[cfg_attr(not(any(feature = "driver", test)), allow(dead_code))]
+    #[must_use]
+    pub const fn root(self) -> &'static str {
+        match self {
+            Self::GitStatusRow => git_status_row::ID_ITEM,
+            Self::FileTreeRow => file_tree_row::ID_ITEM,
+        }
+    }
+
+    /// Whether this surface's React original has no such state to compare
+    /// against, so the cell **cannot fail**.
+    ///
+    /// Per surface rather than per flag, because the answer genuinely differs
+    /// and that difference is the reason the second surface exists. Neither
+    /// original has a `loading` or an `error` rendering of the row itself. Only
+    /// the git row has an `empty`: its trailing badge and counts are optional,
+    /// where a file explorer row always paints an icon and a name and has no
+    /// content to remove.
+    #[must_use]
+    pub const fn unmodelled(self, flag: StateFlag) -> bool {
+        match self {
+            Self::GitStatusRow => matches!(flag, StateFlag::Loading | StateFlag::Error),
+            Self::FileTreeRow => matches!(
+                flag,
+                StateFlag::Empty | StateFlag::Loading | StateFlag::Error
+            ),
+        }
+    }
+
+    fn parse(raw: &str) -> Result<Self, ParseError> {
+        match raw {
+            "git-status-row" => Ok(Self::GitStatusRow),
+            "file-tree-row" => Ok(Self::FileTreeRow),
+            other => Err(ParseError::Rejected(format!(
+                "--surface takes git-status-row or file-tree-row, not {other}"
+            ))),
+        }
+    }
+}
 
 /// The default `--viewport-width`, in logical px.
 ///
@@ -83,18 +175,36 @@ pub enum ParseError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StateFlag {
     /// The row has nothing on its trailing edge: no badge, no counts.
+    /// Modelled on `git-status-row` only — see [`Surface::unmodelled`].
     Empty,
-    /// **No original.** See [`StateFlag::unmodelled`].
+    /// **No original, on either surface.** See [`Surface::unmodelled`].
     Loading,
-    /// **No original.** See [`StateFlag::unmodelled`].
+    /// **No original, on either surface.** See [`Surface::unmodelled`].
     Error,
     /// The pointer is over the row.
     Hover,
-    /// The row holds keyboard focus.
+    /// The row holds keyboard focus. Paints a border on `file-tree-row` and
+    /// nothing at all on `git-status-row`, whose `:focus-visible` rule is
+    /// scoped to a container it is not inside.
     Focus,
-    /// `data-active='true'`.
+    /// `data-active='true'`. **Only `file-tree-row` really enters this**: the
+    /// git status row's `active` prop is passed by no live consumer.
     Selected,
 }
+
+/// The §8.3 state vocabulary in full, in `ANCHORS.md` v1.1's order.
+///
+/// Written down so the usage can say, per surface, which of them are real —
+/// and so that adding a seventh flag without deciding what each surface does
+/// with it is a compile error rather than a quietly missing line.
+pub const ALL_FLAGS: [StateFlag; 6] = [
+    StateFlag::Empty,
+    StateFlag::Loading,
+    StateFlag::Error,
+    StateFlag::Hover,
+    StateFlag::Focus,
+    StateFlag::Selected,
+];
 
 impl StateFlag {
     /// Its name in the snapshot's `state.flags`.
@@ -108,18 +218,6 @@ impl StateFlag {
             Self::Focus => "focus",
             Self::Selected => "selected",
         }
-    }
-
-    /// Whether the React original has no state to compare against.
-    ///
-    /// `GitFileItem` has no loading and no error rendering — not a gap in this
-    /// port, a gap in the thing being ported. Driving those cells renders the
-    /// resting row on both sides, so they compare equal and **prove nothing**.
-    /// Said out loud on stderr rather than quietly rendered, because a matrix
-    /// cell that cannot fail is the cheapest possible fake convergence.
-    #[must_use]
-    pub const fn unmodelled(self) -> bool {
-        matches!(self, Self::Loading | Self::Error)
     }
 
     fn parse(word: &str) -> Option<Self> {
@@ -139,6 +237,8 @@ impl StateFlag {
 /// has no word for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cell {
+    /// Which row is under measurement.
+    pub surface: Surface,
     /// Surface width in logical pixels — the width the row is given, not the
     /// window's.
     pub width: u16,
@@ -184,6 +284,7 @@ pub struct Cell {
 impl Default for Cell {
     fn default() -> Self {
         Self {
+            surface: Surface::GitStatusRow,
             width: 320,
             // Comfortably above Tailwind's 640px `sm` breakpoint, so every
             // invocation written before `--viewport-width` existed keeps
@@ -218,14 +319,14 @@ impl Cell {
         self.flags.contains(&flag)
     }
 
-    /// The flags whose cells cannot fail, because the original has no such
-    /// state to disagree with.
+    /// The flags whose cells cannot fail, because **this surface's** original
+    /// has no such state to disagree with.
     #[must_use]
     pub fn unmodelled_flags(&self) -> Vec<StateFlag> {
         self.flags
             .iter()
             .copied()
-            .filter(|flag| flag.unmodelled())
+            .filter(|flag| self.surface.unmodelled(*flag))
             .collect()
     }
 
@@ -239,7 +340,22 @@ impl Cell {
         }
     }
 
-    /// The row this cell describes.
+    /// The file explorer row this cell describes.
+    ///
+    /// The `empty` flag is deliberately not consulted: this row has no optional
+    /// content to remove, which is why [`Surface::unmodelled`] calls the flag
+    /// out on stderr instead of quietly rendering something for it.
+    #[must_use]
+    pub fn file_row(&self) -> FileTreeRow {
+        let mut row = FileTreeRow::fixture(self.content);
+        row.depth = self.depth;
+        row.previous_depth = self.previous_depth;
+        row.next_depth = self.next_depth;
+        row.state = self.row_state();
+        row
+    }
+
+    /// The git status row this cell describes.
     #[must_use]
     pub fn row(&self) -> GitStatusRow {
         let mut row = GitStatusRow::fixture(self.content);
@@ -317,18 +433,25 @@ impl Cell {
         } else {
             names.join(",")
         };
-        // The viewport is named alongside the surface, not instead of it: they
-        // are different quantities and a caption that showed only one is how a
-        // reader concludes the badge changed size for no reason.
+        // The viewport is named alongside the surface width, not instead of it:
+        // they are different quantities and a caption that showed only one is
+        // how a reader concludes the badge changed size for no reason.
         let mut out = format!(
-            "{SURFACE} · {}px in a {}px viewport · {theme} · {content} · flags {flags} · depth {}",
-            self.width, self.viewport_width, self.depth,
+            "{} · {}px in a {}px viewport · {theme} · {content} · flags {flags} · depth {}",
+            self.surface.name(),
+            self.width,
+            self.viewport_width,
+            self.depth,
         );
-        if !self.show_directory {
-            out.push_str(" · no-directory");
-        }
-        if !self.show_file_icon {
-            out.push_str(" · no-icon");
+        // The three row parameters the file explorer row has no prop for, so
+        // they are only worth naming on the surface that honours them.
+        if self.surface == Surface::GitStatusRow {
+            if !self.show_directory {
+                out.push_str(" · no-directory");
+            }
+            if !self.show_file_icon {
+                out.push_str(" · no-icon");
+            }
         }
         out
     }
@@ -348,6 +471,7 @@ impl Cell {
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
+                "--surface" => cell.surface = Surface::parse(&value(&mut args, &arg)?)?,
                 "--width" => cell.width = parse_u16(&value(&mut args, &arg)?)?,
                 "--viewport-width" => cell.viewport_width = parse_u16(&value(&mut args, &arg)?)?,
                 "--theme" => cell.appearance = parse_appearance(&value(&mut args, &arg)?)?,
@@ -453,10 +577,15 @@ fn parse_flags(raw: &str) -> Result<Vec<StateFlag>, ParseError> {
 #[must_use]
 pub fn usage() -> String {
     let mut out = String::from(
-        "crowbar-app — the Phase 1 gate surface: one git-status row in one matrix cell.\n\n\
+        "crowbar-app — a Phase 1 gate surface: one row in one matrix cell.\n\n\
          Options (all optional; the defaults are one cell):\n",
     );
     for (option, description) in [
+        (
+            "--surface <name>",
+            "git-status-row (geometry) or file-tree-row (state) \
+             [git-status-row]",
+        ),
         ("--width <px>", "surface width, logical px [320]"),
         (
             "--viewport-width <px>",
@@ -475,13 +604,32 @@ pub fn usage() -> String {
         ("--depth <n>", "indent level [2]"),
         ("--prev-depth <n>", "depth of the row above [= --depth]"),
         ("--next-depth <n>", "depth of the row below [= --depth]"),
-        ("--added <n>", "diffStats.additions; 0 omits the span [12]"),
-        ("--deleted <n>", "diffStats.deletions; 0 omits the span [3]"),
-        ("--no-directory", "showDirectory = false"),
-        ("--no-icon", "showFileIcon = false"),
-        ("--compact", "compactGitStatusBadges = true"),
+        (
+            "--added <n>",
+            "git-status-row: diffStats.additions; 0 omits the span [12]",
+        ),
+        (
+            "--deleted <n>",
+            "git-status-row: diffStats.deletions; 0 omits the span [3]",
+        ),
+        ("--no-directory", "git-status-row: showDirectory = false"),
+        ("--no-icon", "git-status-row: showFileIcon = false"),
+        ("--compact", "git-status-row: compactGitStatusBadges = true"),
     ] {
         let _ = writeln!(out, "  {option:<32}{description}");
+    }
+    out.push_str(
+        "\nWhich flags each surface really has (the rest render the resting row\n\
+         and are reported on stderr, because a cell that cannot fail is the\n\
+         cheapest possible fake convergence):\n",
+    );
+    for surface in [Surface::GitStatusRow, Surface::FileTreeRow] {
+        let modelled: Vec<&str> = ALL_FLAGS
+            .iter()
+            .filter(|flag| !surface.unmodelled(**flag))
+            .map(|flag| flag.name())
+            .collect();
+        let _ = writeln!(out, "  {:<32}{}", surface.name(), modelled.join(", "));
     }
     out.push_str(
         "\nA driver build (--features driver) additionally honours\n  \
@@ -523,10 +671,23 @@ impl RowSurface {
     }
 }
 
+/// The one place `--surface` becomes an element tree.
+///
+/// A free function over the cell rather than a method on [`RowSurface`], because
+/// `row_layout.rs` renders the same dispatch under `cargo test` without a
+/// `RowSurface` — and two spellings of "which row does this cell mean" is
+/// exactly the duplication that lets the measured tree drift from the drawn one.
+#[must_use]
+pub fn render_row(cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+    match cell.surface {
+        Surface::GitStatusRow => cell.row().render(theme, anchors),
+        Surface::FileTreeRow => cell.file_row().render(theme, anchors),
+    }
+}
+
 impl Render for RowSurface {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.cell.theme();
-        let row = self.cell.row();
 
         div()
             .size_full()
@@ -537,7 +698,7 @@ impl Render for RowSurface {
             .child(
                 div()
                     .w(self.cell.width_px())
-                    .child(row.render(&theme, self.anchors.as_ref())),
+                    .child(render_row(&self.cell, &theme, self.anchors.as_ref())),
             )
             // Outside the root anchor, so it cannot reach the snapshot: every
             // bound is reported relative to `git-row-item`.
@@ -555,8 +716,8 @@ impl Render for RowSurface {
 #[cfg(test)]
 mod tests {
     use super::{
-        Cell, DEFAULT_VIEWPORT_WIDTH, INSET_X, INSET_X_WHOLE, ParseError, RowSurface, StateFlag,
-        usage,
+        ALL_FLAGS, Cell, DEFAULT_VIEWPORT_WIDTH, INSET_X, INSET_X_WHOLE, ParseError, RowSurface,
+        StateFlag, Surface, usage,
     };
     use crowbar_ui::Appearance;
     use crowbar_ui::components::{BREAKPOINT_SM, Breakpoint, ContentLength};
@@ -717,6 +878,9 @@ mod tests {
     fn the_usage_names_every_option() {
         let usage = usage();
         for option in [
+            "--surface",
+            "git-status-row",
+            "file-tree-row",
             "--width",
             "--viewport-width",
             "--theme",
@@ -773,8 +937,136 @@ mod tests {
             StateFlag::Focus,
             StateFlag::Selected,
         ] {
-            assert!(!flag.unmodelled(), "{} has an original", flag.name());
+            assert!(
+                !Surface::GitStatusRow.unmodelled(flag),
+                "{} has an original on the git row",
+                flag.name(),
+            );
         }
+    }
+
+    /// **Which flags each surface really has**, stated as data because the
+    /// difference between the two is the reason the second surface exists.
+    ///
+    /// Neither original has a `loading` or an `error` rendering of the row —
+    /// that is a gap in the thing being ported, not in the port. `empty` is the
+    /// one that differs: the git row's trailing badge and counts are optional,
+    /// where a file explorer row always paints an icon and a name and has no
+    /// content to remove. Driving an unmodelled cell renders the resting row on
+    /// both sides, so it compares equal and proves nothing — which is why the
+    /// binary says so on stderr rather than rendering it quietly.
+    #[test]
+    fn the_two_surfaces_model_different_flags() {
+        let modelled = |surface: Surface| {
+            ALL_FLAGS
+                .iter()
+                .copied()
+                .filter(|flag| !surface.unmodelled(*flag))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            modelled(Surface::GitStatusRow),
+            vec![
+                StateFlag::Empty,
+                StateFlag::Hover,
+                StateFlag::Focus,
+                StateFlag::Selected,
+            ],
+        );
+        assert_eq!(
+            modelled(Surface::FileTreeRow),
+            vec![StateFlag::Hover, StateFlag::Focus, StateFlag::Selected],
+        );
+
+        // The two the *contract* has and neither app does.
+        for surface in [Surface::GitStatusRow, Surface::FileTreeRow] {
+            assert!(surface.unmodelled(StateFlag::Loading));
+            assert!(surface.unmodelled(StateFlag::Error));
+        }
+
+        // And the filter follows the cell's surface, not a constant.
+        let git = parse(&["--flags", "empty"]).expect("well-formed");
+        let file = parse(&["--surface", "file-tree-row", "--flags", "empty"])
+            .expect("well-formed");
+        assert_eq!(git.unmodelled_flags(), vec![]);
+        assert_eq!(file.unmodelled_flags(), vec![StateFlag::Empty]);
+    }
+
+    /// The selector, its default, and the two facts a snapshot carries off it.
+    ///
+    /// The default has to stay `git-status-row`: every invocation written before
+    /// `--surface` existed must keep rendering the row it rendered, and the
+    /// archived gate runs are evidence taken at that default.
+    #[test]
+    fn the_surface_selector_defaults_to_the_geometry_gate() {
+        assert_eq!(Cell::default().surface, Surface::GitStatusRow);
+        assert_eq!(parse(&[]).expect("well-formed").surface, Surface::GitStatusRow);
+        assert_eq!(
+            parse(&["--surface", "file-tree-row"])
+                .expect("well-formed")
+                .surface,
+            Surface::FileTreeRow,
+        );
+        assert_eq!(
+            parse(&["--surface", "git-status-row"])
+                .expect("well-formed")
+                .surface,
+            Surface::GitStatusRow,
+        );
+
+        // The vocabulary is closed, and the complaint names what was wanted.
+        let Err(ParseError::Rejected(complaint)) = parse(&["--surface", "file-row"]) else {
+            panic!("`file-row` is not a surface");
+        };
+        assert!(complaint.contains("file-tree-row"), "{complaint}");
+        assert!(matches!(parse(&["--surface"]), Err(ParseError::Rejected(_))));
+    }
+
+    /// The state axis reaches the file explorer row, which is the whole point of
+    /// the second surface — and the fixture strings are shared with the first,
+    /// so the same `--content` means the same name on both.
+    #[test]
+    fn the_file_tree_cell_carries_the_state_and_shares_the_fixture() {
+        let cell = parse(&[
+            "--surface",
+            "file-tree-row",
+            "--content",
+            "overflow",
+            "--flags",
+            "selected",
+            "--depth",
+            "3",
+        ])
+        .expect("well-formed");
+        let row = cell.file_row();
+
+        assert!(row.state.selected);
+        assert!(!row.state.hovered);
+        assert_eq!(row.depth, 3);
+        assert_eq!(row.previous_depth, 3);
+        assert_eq!(row.next_depth, 3);
+        assert_eq!(row.name, cell.row().parts().0);
+    }
+
+    /// The caption names the surface, because a run's stderr is the only record
+    /// of which of the two produced a snapshot.
+    #[test]
+    fn the_caption_names_the_surface() {
+        assert!(
+            parse(&["--surface", "file-tree-row"])
+                .expect("well-formed")
+                .describe()
+                .contains("file-tree-row"),
+        );
+        assert!(parse(&[]).expect("well-formed").describe().contains("git-status-row"));
+
+        // The three git-only row parameters are not announced on a surface that
+        // has no prop for them.
+        let file = parse(&["--surface", "file-tree-row", "--no-directory", "--no-icon"])
+            .expect("well-formed");
+        assert!(!file.describe().contains("no-directory"), "{}", file.describe());
+        assert!(!file.describe().contains("no-icon"), "{}", file.describe());
     }
 
     /// The vocabulary is `ANCHORS.md` v1.1's, lowercase, no synonyms — one side

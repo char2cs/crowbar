@@ -20,10 +20,7 @@ use crowbar_ui::Appearance;
 use crowbar_ui::components::ContentLength;
 
 use crate::driver_anchors::fold_text_halves;
-use crate::row_surface::{Cell, SURFACE, StateFlag};
-
-/// The anchor id everything else is reported relative to.
-const ROOT: &str = crowbar_ui::components::ID_ITEM;
+use crate::row_surface::{Cell, StateFlag};
 
 /// Where an emitted snapshot goes.
 pub enum Destination {
@@ -111,10 +108,14 @@ pub fn emit(
     // Built from the folded records rather than through `AnchorRegistry::snapshot`,
     // because the fold has to happen between "what prepaint recorded" and "what
     // the contract describes". See `fold_text_halves`.
+    // Both the name and the root come off the cell's own `--surface`, so a
+    // snapshot cannot claim to be one surface while being anchored to the
+    // other's root — which would offset every bound by a constant *and* pass
+    // the differ's surface check.
     let snapshot = Snapshot::build(
-        SURFACE,
+        cell.surface.name(),
         state_of(cell),
-        ROOT,
+        cell.surface.root(),
         &fold_text_halves(anchors.records()),
     )
     .map_err(|err| err.to_string())?;
@@ -144,18 +145,24 @@ pub fn report(outcome: &Result<PathBuf, String>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{ROOT, state_of};
-    use crate::row_surface::Cell;
+    use super::state_of;
+    use crate::row_surface::{Cell, Surface};
 
     fn a_cell(args: &[&str]) -> Cell {
         Cell::parse(args.iter().map(|arg| (*arg).to_owned())).expect("well-formed")
     }
 
-    /// The root is the contract's, not a local invention: an extractor that
-    /// picked a different root would offset every anchor by a constant.
+    /// Each surface's root is the contract's, not a local invention: an
+    /// extractor that picked a different root would offset every anchor by a
+    /// constant, and one that reused the *other* surface's root would produce a
+    /// snapshot with no root at all.
     #[test]
-    fn the_root_is_the_contracts_root_anchor() {
-        assert_eq!(ROOT, "git-row-item");
+    fn each_surface_names_its_own_root_anchor() {
+        assert_eq!(Surface::GitStatusRow.root(), "git-row-item");
+        assert_eq!(Surface::FileTreeRow.root(), "file-row-item");
+        assert_eq!(Surface::GitStatusRow.name(), "git-status-row");
+        assert_eq!(Surface::FileTreeRow.name(), "file-tree-row");
+        assert_ne!(Surface::GitStatusRow.root(), Surface::FileTreeRow.root());
     }
 
     /// `SurfaceState` sorts and deduplicates, so two spellings of the same cell

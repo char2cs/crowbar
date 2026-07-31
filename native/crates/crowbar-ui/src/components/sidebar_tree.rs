@@ -240,10 +240,26 @@ pub fn row_button(theme: &Theme, depth: u16) -> Div {
 /// pseudo-element shortcut in `native/oracle/ANCHORS.md` §3.
 #[must_use]
 pub fn guide(theme: &Theme, level: u16, previous_depth: u16, next_depth: u16) -> Div {
-    let inset = guide_inset(level, previous_depth, next_depth);
+    guide_at(
+        theme,
+        guide_left(level, theme.file_tree_guide_icon_offset.value()),
+        guide_inset(level, previous_depth, next_depth),
+    )
+}
+
+/// The same guide, at a `left` its caller worked out.
+///
+/// Extracted from [`guide`] rather than duplicated because the file explorer
+/// row draws the identical element at a **different indent step** —
+/// `settings.fileTreeIndentSize` defaults to 16 where the sidebar tree's
+/// [`INDENT_SIZE`] is 14 — so the element is shared and only the arithmetic
+/// differs. [`guide`] is unchanged in behaviour: it is this, with the two
+/// numbers it always passed.
+#[must_use]
+pub fn guide_at(theme: &Theme, left: Pixels, inset: GuideInset) -> Div {
     div()
         .absolute()
-        .left(guide_left(level, theme.file_tree_guide_icon_offset.value()))
+        .left(left)
         .top(inset.top)
         .bottom(inset.bottom)
         .w(GUIDE_WIDTH)

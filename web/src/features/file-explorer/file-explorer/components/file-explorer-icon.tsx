@@ -11,6 +11,13 @@ interface FileExplorerIconProps {
   isSymlink?: boolean
   size?: number
   className?: string
+  /**
+   * Oracle anchor id — see `native/oracle/ANCHORS.md`. Threaded as a prop rather
+   * than set from outside because the painted node is chosen in here (icon
+   * theme, Phosphor fallback, symlink wrapper) and callers cannot reach it.
+   * Inert: a marker attribute, no styling and no behaviour.
+   */
+  'data-oracle-id'?: string
 }
 
 export function FileExplorerIcon({
@@ -20,6 +27,7 @@ export function FileExplorerIcon({
   isSymlink = false,
   size = 14,
   className = 'text-muted-foreground',
+  'data-oracle-id': oracleId,
 }: FileExplorerIconProps) {
   const iconThemeValue = useSettingsStore((s) => s.settings.iconTheme)
   const iconTheme = iconThemeRegistry.getTheme(iconThemeValue)
@@ -29,10 +37,10 @@ export function FileExplorerIcon({
     const iconProps = { size, className, weight: 'duotone' } as const
     if (isDir) {
       const FolderIcon = isExpanded ? FolderOpen : Folder
-      const folderNode = <FolderIcon {...iconProps} />
+      const folderNode = <FolderIcon {...iconProps} data-oracle-id={oracleId} />
       if (!isSymlink) return folderNode
     } else {
-      const fileNode = <File {...iconProps} />
+      const fileNode = <File {...iconProps} data-oracle-id={oracleId} />
       if (!isSymlink) return fileNode
     }
     // Symlink: wrap with badge
@@ -46,7 +54,9 @@ export function FileExplorerIcon({
       <File {...iconProps} />
     )
     return (
-      <span className="relative inline-block">
+      // The anchor goes on the wrapper, not the base icon: the wrapper is the
+      // box the row lays out, and the badge hangs outside the icon's own bounds.
+      <span className="relative inline-block" data-oracle-id={oracleId}>
         {baseIcon}
         <svg
           width="8"
@@ -77,20 +87,32 @@ export function FileExplorerIcon({
       })
     : null
 
+  // A symlink wraps the icon, so the anchor moves to the wrapper: it is the box
+  // the row lays out. `undefined` on the inner node keeps the id unique.
+  const innerOracleId = isSymlink ? undefined : oracleId
+
   const renderIcon = () => {
     if (iconResult.component) {
       if (isValidElement(iconResult.component)) {
-        return cloneElement(iconResult.component, { className } as React.Attributes & {
+        return cloneElement(iconResult.component, {
+          className,
+          'data-oracle-id': innerOracleId,
+        } as React.Attributes & {
           className: string
         })
       }
-      return <span className={className}>{iconResult.component}</span>
+      return (
+        <span className={className} data-oracle-id={innerOracleId}>
+          {iconResult.component}
+        </span>
+      )
     }
 
     if (sanitizedSvg) {
       return (
         <span
           className={className}
+          data-oracle-id={innerOracleId}
           style={{
             width: `${size}px`,
             height: `${size}px`,
@@ -105,14 +127,23 @@ export function FileExplorerIcon({
     // Final fallback: Phosphor icon
     if (isDir) {
       const FolderIcon = isExpanded ? FolderOpen : Folder
-      return <FolderIcon size={size} className={className} weight="duotone" />
+      return (
+        <FolderIcon
+          size={size}
+          className={className}
+          weight="duotone"
+          data-oracle-id={innerOracleId}
+        />
+      )
     }
-    return <File size={size} className={className} weight="duotone" />
+    return (
+      <File size={size} className={className} weight="duotone" data-oracle-id={innerOracleId} />
+    )
   }
 
   if (isSymlink) {
     return (
-      <span className="relative inline-block">
+      <span className="relative inline-block" data-oracle-id={oracleId}>
         {renderIcon()}
         <svg
           width="8"
