@@ -88,6 +88,31 @@ pub struct Surface {
     /// `Cell` can stay `Eq`: `f32` is not, and a window height with a fractional
     /// part is not a thing anyone needs.
     pub min_window_height: u16,
+    /// Whether this surface's original **fills its window**, so that the surface
+    /// width and the viewport width are one quantity (P2.12).
+    ///
+    /// The width counterpart of [`Self::min_window_height`], and the declaration
+    /// that decides the driver's **horizontal inset**: a full-bleed surface is
+    /// drawn flush with the window's left edge, an ordinary one at
+    /// [`crate::row_surface::INSET_X`]. See that constant for why the inset is
+    /// non-zero in the ordinary case and what a full-bleed surface gives up by
+    /// dropping it.
+    ///
+    /// Declared by the surface rather than passed on the command line for the
+    /// same reason `min_window_height` is: it is a fact about the thing being
+    /// ported, not a choice a caller makes per run. `resizable`'s reference is
+    /// the IDE shell root in `web/src/components/layout/ide-shell.tsx` — measured
+    /// live at `innerWidth` 1200 with a 1200×800 `resize-group` — so its surface
+    /// width *is* its viewport width, and a caller who could get that wrong is a
+    /// caller who can emit a cell that compares against nothing.
+    ///
+    /// **What it is not.** It is not "this surface is always drawn at the
+    /// viewport width": `--width` still moves independently, and driving
+    /// `resizable` at 600px in an 800px viewport is a legitimate synthetic cell
+    /// that measures the same flex division at another width. What the flag says
+    /// is that the surface takes **no horizontal inset**, so a cell that does set
+    /// the two equal is drawable rather than refused.
+    pub full_bleed: bool,
     /// This surface's own options, as `(spelling, description)`, for `--help`.
     ///
     /// A function rather than a `&'static [_]` because a vocabulary is sometimes

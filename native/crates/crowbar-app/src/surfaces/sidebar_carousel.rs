@@ -65,6 +65,11 @@ pub static SURFACE: Surface = Surface {
     // `--height` past it takes the window with it, so this is only what the
     // window is when the cell asks for less.
     min_window_height: 700,
+    // The sidebar column, which is 294px of a much wider window — and the one
+    // surface whose panels are *meant* to sit outside their scrollport, so the
+    // window it is measured in has to be wider than the surface rather than
+    // equal to it.
+    full_bleed: false,
     options,
     params: || Box::new(Params::default()),
 };

@@ -48,6 +48,9 @@ pub static SURFACE: Surface = Surface {
     // and the whole answer here: this surface drives no height (see
     // `driven_height`), because a popup's height is its rows'.
     min_window_height: 220,
+    // A popup floated over the page by Floating UI, whose width is its own
+    // content's and never the viewport's.
+    full_bleed: false,
     options,
     params: || Box::new(Params::default()),
 };

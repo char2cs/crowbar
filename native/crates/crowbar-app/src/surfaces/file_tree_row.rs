@@ -33,6 +33,10 @@ pub static SURFACE: Surface = Surface {
     // One row and a caption, and — because this surface drives no height (see
     // `driven_height`) — the number its window still is, exactly.
     min_window_height: 72,
+    // A row inside the file explorer's 294px sidebar, never the window itself.
+    // The inset it therefore keeps is the geometry its archived gate runs were
+    // taken at.
+    full_bleed: false,
     options,
     params: || Box::new(Params),
 };
