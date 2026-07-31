@@ -2774,6 +2774,10 @@ mod window {
         assert!(complaint.contains("artefact"), "{complaint}");
         assert!(complaint.contains("400"), "{complaint}");
         assert!(complaint.contains("1135"), "{complaint}");
+        // And the number to act on: the tallest surface this window *would*
+        // have held, which is the window less the inset the surface starts at.
+        // Without it a reader has to bisect `--shell-height` by hand.
+        assert!(complaint.contains("384"), "{complaint}");
         assert!(!refused.exists(), "a refused emit wrote {refused:?}");
     }
 

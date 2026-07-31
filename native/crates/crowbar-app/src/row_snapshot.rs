@@ -23,7 +23,7 @@ use crowbar_ui::components::ContentLength;
 use gpui::{Pixels, Size, px};
 
 use crate::driver_anchors::fold_text_halves;
-use crate::row_surface::{Cell, RowSurface, StateFlag};
+use crate::row_surface::{Cell, INSET_Y, RowSurface, StateFlag};
 
 /// Where an emitted snapshot goes.
 pub enum Destination {
@@ -148,12 +148,18 @@ fn cut_by_the_window(records: &[RawAnchor], cell: &Cell, viewport: Size<Pixels>)
         if bottom <= viewport.height + EDGE_TOLERANCE {
             continue;
         }
+        // The tallest surface this window could have held: the surface starts at
+        // `INSET_Y`, so everything below that is what is left. Named because a
+        // refusal that only says "too tall" leaves the reader to bisect, and
+        // this number is the one they would have arrived at.
+        let holds = f32::from(viewport.height) - INSET_Y;
         return Some(format!(
             "`{}` reaches {}px down the window but its drawable area is only {}px tall, so the \
              surface is cut at the window edge and every `visible` in this snapshot would be an \
              artefact of the window size rather than a fact about the port. This cell asked for a \
-             {}px window; the platform granted {}px — on macOS a window is constrained to its \
-             display, so this cell needs a taller display. Nothing was written.",
+             {}px window and the platform granted {}px — on macOS a window is constrained to its \
+             display, so this cell needs a taller one. This window holds a surface up to {holds}px \
+             tall. Nothing was written.",
             record.id,
             f32::from(bottom),
             f32::from(viewport.height),
