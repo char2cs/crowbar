@@ -954,6 +954,41 @@ parity gate — churning its types would perturb the thing being measured.
 `element.rs`, 94.43%). Still over the bar, so not a violation and not treated as
 one, but it is drift in the wrong direction on the crate that carries the gate.
 
+### §17 lint bars — verified adversarially, not just read
+
+`[workspace.lints.clippy]` denies `pedantic`, `unwrap_used`, `expect_used`,
+`panic`, `todo`, `unimplemented`, and **all 13 members opt in** with a `[lints]`
+section carrying `workspace = true`.
+
+Config looking right is not verification, so I tested it: a temporary
+`v.unwrap()` plus a `&Vec<u8>` argument in non-test `crowbar-core` produced
+`error: used \`unwrap()\` on an \`Option\` value`, plus pedantic's `must_use`
+and missing-`# Panics` errors, exit **101**. Reverted immediately; tree clean.
+
+> A grep that looked for the dotted form `lints.workspace = true` reported **0
+> crates** and nearly became a "the entire lint policy is unenforced" finding.
+> The manifests use the `[lints]` section form. Check for the section, not the
+> dotted key.
+
+### ❌ §17 leak detection is NOT on — dispatched as P1.12
+
+Spec §17: *"No leaks. gpui leak-detection on in every test."*
+
+`grep -rn 'assert_no_new_leaks\|leak_detector_snapshot' native/crates/` returns
+**zero hits**, against 11 `#[gpui::test]` tests in `crowbar-driver/src/element.rs`
+and `crowbar-app/src/row_layout.rs`. The vendored gpui exposes the mechanism —
+`leak_detector_snapshot()` / `assert_no_new_leaks()` in `app.rs:906-926`, backed
+by `LeakDetector` in `app/entity_map.rs` — and we call neither.
+
+So this condition was never met; it had simply never been checked. The worker is
+told that a helper each test must remember to call is the design that rots, and
+that if it finds a **real** leak it must report it rather than snapshot around
+it — a "no NEW leaks" assertion taken after the leak has already happened is a
+green light over a red condition.
+
+The other half of that §17 line — the RSS soak against the React app on the same
+workload — is still outstanding and is mine to run, not a worker's.
+
 ### ▶ How to bring up the reference app — **do not use `make dev-desktop`**
 
 `make dev-desktop` is wrong for this work, for two reasons that only show up when
