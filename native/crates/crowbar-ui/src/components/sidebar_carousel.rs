@@ -285,10 +285,7 @@ impl SidebarCarousel {
             .into_iter()
             .map(|tab| anchors.boxed(AnchorId::from(tab.anchor()), self.panel(tab)))
             .collect();
-        anchors.root(
-            AnchorId::from(ID_SCROLLPORT),
-            scrollport().children(panels),
-        )
+        anchors.root(AnchorId::from(ID_SCROLLPORT), scrollport().children(panels))
     }
 
     /// One panel: `min-w-full [scroll-snap-align:start] flex flex-col
