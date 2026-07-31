@@ -5,6 +5,7 @@ import { ProviderIcon } from '@/features/agent/components/provider-icon'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/utils/cn'
+import { PROVIDER_COLUMN_CELL } from './provider-columns'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
 
 interface SortableProviderRowProps {
@@ -63,40 +64,48 @@ export function SortableProviderRow({
         {provider.displayName}
       </Label>
 
-      <span
-        data-testid={`provider-connected-${provider.id}`}
-        data-connected={provider.connected ? 'true' : 'false'}
-        aria-label={connectedLabel}
-        title={connectedLabel}
-        className={cn(
-          'size-2 shrink-0 rounded-full',
-          provider.connected ? 'bg-success' : 'border border-muted-foreground/50 bg-transparent',
-        )}
-      />
+      {/* THE THREE CONTROL COLUMNS. Each control sits in the shared
+          PROVIDER_COLUMN_CELL box that ProviderColumnHeader labels — same string,
+          so the label above a control cannot drift off it. */}
+      <span className={PROVIDER_COLUMN_CELL}>
+        <span
+          data-testid={`provider-connected-${provider.id}`}
+          data-connected={provider.connected ? 'true' : 'false'}
+          aria-label={connectedLabel}
+          title={connectedLabel}
+          className={cn(
+            'size-2 shrink-0 rounded-full',
+            provider.connected ? 'bg-success' : 'border border-muted-foreground/50 bg-transparent',
+          )}
+        />
+      </span>
 
       {/* Crowbar's own tools, not the provider. A row with this off still opens
           chats and still runs the CLI — the agent just cannot read the workspace
-          or leave review comments through Crowbar. */}
-      <span aria-hidden="true" className="ui-font ui-text-xs shrink-0 text-muted-foreground">
-        Tools
+          or leave review comments through Crowbar. The row no longer spells that
+          out inline: the header names the column once, and the intro paragraph
+          above the list carries what the one word cannot. */}
+      <span className={PROVIDER_COLUMN_CELL}>
+        <Switch
+          data-testid={`provider-tools-toggle-${provider.id}`}
+          aria-label={`Let ${provider.displayName} use Crowbar's tools`}
+          title={`Let ${provider.displayName} use Crowbar's tools`}
+          checked={provider.mcpEnabled}
+          onChange={(checked) => onToggleTools(provider.id, checked)}
+          size="sm"
+        />
       </span>
-      <Switch
-        data-testid={`provider-tools-toggle-${provider.id}`}
-        aria-label={`Let ${provider.displayName} use Crowbar's tools`}
-        title={`Let ${provider.displayName} use Crowbar's tools`}
-        checked={provider.mcpEnabled}
-        onChange={(checked) => onToggleTools(provider.id, checked)}
-        size="sm"
-      />
 
-      <Switch
-        data-testid={`provider-toggle-${provider.id}`}
-        aria-label={`Enable ${provider.displayName}`}
-        title={`Offer ${provider.displayName} when starting a chat`}
-        checked={provider.enabled}
-        onChange={(checked) => onToggle(provider.id, checked)}
-        size="sm"
-      />
+      <span className={PROVIDER_COLUMN_CELL}>
+        <Switch
+          data-testid={`provider-toggle-${provider.id}`}
+          aria-label={`Enable ${provider.displayName}`}
+          title={`Offer ${provider.displayName} when starting a chat`}
+          checked={provider.enabled}
+          onChange={(checked) => onToggle(provider.id, checked)}
+          size="sm"
+        />
+      </span>
     </div>
   )
 }

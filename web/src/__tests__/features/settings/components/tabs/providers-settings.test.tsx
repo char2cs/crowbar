@@ -12,7 +12,7 @@
  * drag is NOT driven here (brittle in jsdom) — the reorder→payload mapping is
  * unit-tested in provider-preferences.test.ts.
  */
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -41,6 +41,7 @@ if (typeof window.PointerEvent !== 'function') {
 }
 
 import { ProvidersSettings } from '@/features/settings/components/tabs/providers-settings'
+import { PROVIDER_COLUMN_CELL } from '@/features/settings/components/tabs/provider-columns'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import {
   destroyWorkspaceStore,
@@ -176,6 +177,132 @@ describe('ProvidersSettings', () => {
     // The heading and intro explain the group even when nothing is installed.
     expect(screen.getByRole('heading', { name: 'Providers' })).toBeInTheDocument()
     expect(screen.getByText(/agentic CLIs Crowbar runs your chats on/i)).toBeInTheDocument()
+  })
+
+  // ── The column header ───────────────────────────────────────────────
+  // The row ends in a dot and two switches. Two unlabelled switches side by side
+  // is a guessing game, and the row could only ever afford one inline word
+  // ("Tools") — repeated on every row, with the other switch still anonymous.
+  // The columns are titled once, above the list, like a table header.
+  describe('the column header', () => {
+    /** The three trailing control cells of a row, in render order. */
+    const rowColumns = (id: string) => [
+      screen.getByTestId(`provider-connected-${id}`).parentElement,
+      screen.getByTestId(`provider-tools-toggle-${id}`).parentElement,
+      screen.getByTestId(`provider-toggle-${id}`).parentElement,
+    ]
+
+    /** The `w-*` token an element carries — the thing that has to match. */
+    const widthClass = (el: Element | null | undefined) =>
+      el?.className.split(/\s+/).find((c) => /^w-/.test(c))
+
+    it('titles each control column above the list', () => {
+      seedProviders([
+        provider('codex', 'Codex', true, true),
+        provider('claude', 'Claude', true, true),
+      ])
+      render(<ProvidersSettings />)
+
+      const header = screen.getByTestId('provider-columns-header')
+      expect(within(header).getByText('Installed')).toBeInTheDocument()
+      expect(within(header).getByText('Tools')).toBeInTheDocument()
+      expect(within(header).getByText('Enabled')).toBeInTheDocument()
+    })
+
+    // THE POINT OF THE HEADER: the word "Tools" used to be printed on every row
+    // because that was the only legend the row could carry. With a titled column
+    // it is noise — and two rows meant two copies of it.
+    it('retires the per-row Tools caption now the column is titled', () => {
+      seedProviders([
+        provider('codex', 'Codex', true, true),
+        provider('claude', 'Claude', true, true),
+      ])
+      render(<ProvidersSettings />)
+
+      const captions = screen.getAllByText('Tools')
+      expect(captions).toHaveLength(1)
+      expect(captions[0]).toBe(
+        within(screen.getByTestId('provider-columns-header')).getByText('Tools'),
+      )
+    })
+
+    // ALIGNMENT, STRUCTURALLY. `Switch` is `w-[calc(var(--thumb-size)*2-2px)]`
+    // and `--thumb-size` drops from `--spacing(5)` to `--spacing(4)` at `sm:`, so
+    // the switch is ~38px on a narrow settings pane and ~30px on a wide one. A
+    // header label with its own hardcoded width would sit off-centre at one of
+    // those. Header and row must therefore render the SAME column box — asserted
+    // here against each other, not against a copy of the expected value, so
+    // hardcoding a width into either side fails this test.
+    it('lays the header labels out in the same column box as the row controls', () => {
+      seedProviders([provider('codex', 'Codex', true, true)])
+      render(<ProvidersSettings />)
+
+      const header = screen.getByTestId('provider-columns-header')
+      const labels = ['Installed', 'Tools', 'Enabled'].map((t) => within(header).getByText(t))
+      const cells = rowColumns('codex')
+
+      labels.forEach((label, i) => {
+        expect(widthClass(label)).toBeDefined()
+        expect(widthClass(label)).toBe(widthClass(cells[i]))
+        // …and both come from the one shared definition, rather than two
+        // literals that happen to agree today.
+        expect(label.className).toContain(PROVIDER_COLUMN_CELL)
+        expect(cells[i]?.className).toContain(PROVIDER_COLUMN_CELL)
+      })
+    })
+
+    // Presentational only. Every control already carries its own aria-label
+    // ("Let X use Crowbar's tools", "Enable X", "Installed"/"Not installed"); a
+    // header in the accessibility tree would announce each column twice.
+    it('stays out of the accessibility tree without weakening the per-switch labels', () => {
+      seedProviders([provider('codex', 'Codex', true, true)])
+      render(<ProvidersSettings />)
+
+      expect(screen.getByTestId('provider-columns-header')).toHaveAttribute('aria-hidden', 'true')
+      expect(screen.getByLabelText("Let Codex use Crowbar's tools")).toBeInTheDocument()
+      expect(screen.getByLabelText('Enable Codex')).toBeInTheDocument()
+      expect(screen.getByTestId('provider-connected-codex')).toHaveAttribute(
+        'aria-label',
+        'Installed',
+      )
+    })
+
+    // A header titles columns that exist. None of these three states has a
+    // single row under it, and a legend floating over a spinner or an error is
+    // just furniture.
+    it('does not appear over the empty state', () => {
+      seedProviders([])
+      render(<ProvidersSettings />)
+
+      expect(screen.getByText('No providers available.')).toBeInTheDocument()
+      expect(screen.queryByTestId('provider-columns-header')).toBeNull()
+    })
+
+    it('does not appear while the first fetch is in flight', () => {
+      act(() => {
+        setActiveWorkspaceStoreRef(store())
+        setActiveWorkspaceId('w1')
+      })
+      listProvidersFn.mockReturnValue(deferred<AgentProvider[]>().promise)
+
+      render(<ProvidersSettings />)
+
+      expect(screen.getByTestId('providers-loading')).toBeInTheDocument()
+      expect(screen.queryByTestId('provider-columns-header')).toBeNull()
+    })
+
+    it('does not appear when the list could not be loaded', async () => {
+      act(() => {
+        setActiveWorkspaceStoreRef(store())
+        setActiveWorkspaceId('w1')
+      })
+      listProvidersFn.mockRejectedValue(new Error('daemon is down'))
+
+      render(<ProvidersSettings />)
+
+      await waitFor(() => expect(screen.getByTestId('providers-unavailable')).toBeInTheDocument())
+      expect(screen.queryByTestId('provider-columns-header')).toBeNull()
+    })
   })
 
   // ── The tab is GLOBAL; the workspace store is not ───────────────────

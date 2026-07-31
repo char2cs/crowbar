@@ -24,6 +24,7 @@ import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-stor
 import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 import { toast } from '@/features/window/stores/toast-store'
 import Section from '../settings-section'
+import { ProviderColumnHeader } from './provider-columns'
 import { SortableProviderRow } from './sortable-provider-row'
 import {
   applyProviderPreferences,
@@ -215,15 +216,20 @@ export const ProvidersSettings = () => {
           </p>
         ) : (
           <>
-            {/* The connected dot and the two switches have no legend of their own
-                — this line is it. It says what the Tools switch actually costs an
-                agent, because the row can only afford the word "Tools". */}
+            {/* WHAT THE HEADER CANNOT SAY. The column titles now name each
+                control, so this line no longer has to describe the dot. What a
+                one-word header still cannot convey is the CONSEQUENCE of turning
+                Tools off — that the agent keeps running and only loses its way
+                into Crowbar — and that is what is left here. */}
             <p className="ui-font ui-text-sm px-1 pb-1 text-muted-foreground">
-              Drag to set which provider a new chat opens first. A filled dot means the CLI is
-              installed; turn a provider off to hide it from every New chat surface. Tools lets that
-              provider's agent use Crowbar itself — reading your workspaces and leaving review
-              comments; turn it off and the agent still runs, with no way in.
+              Drag to set which provider a new chat opens first, and turn one off to hide it from
+              every New chat surface. Tools lets that provider's agent use Crowbar itself — reading
+              your workspaces and leaving review comments; turn it off and the agent still runs,
+              with no way in.
             </p>
+            {/* Only over a real list: the loading, unavailable and empty states
+                have no columns to title. */}
+            <ProviderColumnHeader />
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
