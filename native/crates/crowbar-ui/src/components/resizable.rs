@@ -675,9 +675,10 @@ mod tests {
         assert_eq!(HIT_LEFT, px(0.5 - 3.0));
         assert_eq!(HIT_LEFT, px(-2.5));
         // Centred on the separator's own centre: −2.5 + 3 = 0.5.
-        assert_eq!(
-            f32::from(HIT_LEFT) + f32::from(HIT_THICKNESS) / 2.0,
-            f32::from(HANDLE_THICKNESS) / 2.0,
+        let centre = f32::from(HIT_LEFT) + f32::from(HIT_THICKNESS) / 2.0;
+        assert!(
+            (centre - f32::from(HANDLE_THICKNESS) / 2.0).abs() < f32::EPSILON,
+            "{centre}",
         );
 
         // 0px (`left-0`'s block-axis counterpart is `inset-y-0`'s `top: 0`) − 3px.
@@ -807,11 +808,24 @@ mod tests {
 
         // The percentages the library's layout engine writes always sum to 100,
         // so a fixture whose pair did not would be describing a layout the
-        // reference cannot produce.
-        assert!((SIDEBAR_GROW + CONTENT_GROW - 100.0).abs() < 0.001);
+        // reference cannot produce. Read off the fixture rather than off the
+        // constants, so the assertion is about the picture and not about two
+        // numbers a compiler could fold.
+        let grows: Vec<f32> = group
+            .entries
+            .iter()
+            .filter_map(|entry| match entry {
+                GroupEntry::Panel(panel) => Some(panel.grow),
+                GroupEntry::Handle(_) => None,
+            })
+            .collect();
+        assert_eq!(grows.len(), 2);
+        assert!((grows.iter().sum::<f32>() - 100.0).abs() < 0.001, "{grows:?}");
         // And the sidebar is the smaller of the two, which is the shape the
         // remembered 294px default has in any window the shell opens at.
-        assert!(SIDEBAR_GROW < CONTENT_GROW);
+        assert!(grows[0] < grows[1], "{grows:?}");
+        assert!((grows[0] - SIDEBAR_GROW).abs() < f32::EPSILON);
+        assert!((grows[1] - CONTENT_GROW).abs() < f32::EPSILON);
 
         // The live separator has no grip and is at rest.
         let GroupEntry::Handle(handle) = &group.entries[1] else {

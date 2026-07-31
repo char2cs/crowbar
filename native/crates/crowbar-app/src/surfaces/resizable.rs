@@ -46,9 +46,7 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::resizable::{
-    DEFAULT_SHELL_HEIGHT, GroupEntry, Orientation, ResizablePanelGroup,
-};
+use crowbar_ui::components::resizable::{GroupEntry, Orientation, ResizablePanelGroup};
 use crowbar_ui::components::{AnchorSink, resizable};
 use gpui::{AnyElement, px};
 
@@ -113,31 +111,22 @@ impl Default for Params {
         Self {
             orientation: Orientation::Horizontal,
             grow: vec![resizable::SIDEBAR_GROW, resizable::CONTENT_GROW],
-            shell_height: shell_height_default(),
+            shell_height: DEFAULT_SHELL_HEIGHT_PX,
             with_handle: false,
         }
     }
 }
 
-/// [`DEFAULT_SHELL_HEIGHT`] as the whole number of pixels the command line works
-/// in.
+/// `--shell-height`'s default, as the whole number of pixels the command line
+/// works in.
 ///
-/// Derived from the component's own constant rather than restated, so the two
-/// cannot drift into different defaults; `the_default_shell_height_is_the_components`
-/// pins the round trip.
-fn shell_height_default() -> u16 {
-    // Saturating rather than `as`: the constant is 160.0 and a cast that wrapped
-    // would be a silent zero-height surface.
-    let raw = f32::from(DEFAULT_SHELL_HEIGHT);
-    if raw <= 0.0 {
-        0
-    } else if raw >= f32::from(u16::MAX) {
-        u16::MAX
-    } else {
-        // `raw` is finite, non-negative and below `u16::MAX` here.
-        raw as u16
-    }
-}
+/// A `u16` here and a `Pixels` in the component, because the two layers work in
+/// different types and `Cell` has to stay `Eq`. Restating it is the risk a
+/// second spelling always is, so `the_default_shell_height_is_the_components`
+/// pins the round trip in the one direction that has no cast in it:
+/// `px(f32::from(DEFAULT_SHELL_HEIGHT_PX))` must equal the component's
+/// `resizable::DEFAULT_SHELL_HEIGHT`.
+pub const DEFAULT_SHELL_HEIGHT_PX: u16 = 160;
 
 impl Params {
     /// The group this cell describes.
@@ -316,8 +305,8 @@ fn options() -> Vec<(String, String)> {
         (
             "--shell-height <px>".to_owned(),
             format!(
-                "the box the group's height:100% resolves against, 1..={MAX_SHELL_HEIGHT} [{}]",
-                shell_height_default(),
+                "the box the group's height:100% resolves against, \
+                 1..={MAX_SHELL_HEIGHT} [{DEFAULT_SHELL_HEIGHT_PX}]",
             ),
         ),
         (
@@ -331,7 +320,7 @@ fn options() -> Vec<(String, String)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_SHELL_HEIGHT, PANEL_COUNT, Params, SURFACE, options, shell_height_default};
+    use super::{DEFAULT_SHELL_HEIGHT_PX, MAX_SHELL_HEIGHT, PANEL_COUNT, Params, SURFACE, options};
     use crate::row_surface::{Cell, ParseError};
     use crowbar_ui::components::resizable::{
         CONTENT_GROW, DEFAULT_SHELL_HEIGHT, GroupEntry, Handle, Orientation, Panel, SIDEBAR_GROW,
@@ -382,7 +371,7 @@ mod tests {
 
         assert_eq!(bag.orientation, Orientation::Horizontal);
         assert_eq!(bag.grow, vec![SIDEBAR_GROW, CONTENT_GROW]);
-        assert_eq!(bag.shell_height, shell_height_default());
+        assert_eq!(bag.shell_height, DEFAULT_SHELL_HEIGHT_PX);
         assert!(!bag.with_handle);
 
         let group = bag.group(&cell(&[]));
@@ -395,8 +384,8 @@ mod tests {
     /// two cannot drift into different pictures.
     #[test]
     fn the_default_shell_height_is_the_components() {
-        assert_eq!(px(f32::from(shell_height_default())), DEFAULT_SHELL_HEIGHT);
-        assert!(shell_height_default() <= MAX_SHELL_HEIGHT);
+        assert_eq!(px(f32::from(DEFAULT_SHELL_HEIGHT_PX)), DEFAULT_SHELL_HEIGHT);
+        const { assert!(DEFAULT_SHELL_HEIGHT_PX <= MAX_SHELL_HEIGHT) }
     }
 
     /// `--grow` reaches the panels **in DOM order**, and leaves everything else
@@ -420,8 +409,8 @@ mod tests {
     /// is no panel state on this component at all.
     #[test]
     fn the_interaction_flags_reach_only_the_separator() {
-        assert_eq!(handle(&cell(&[])).state.hovered, false);
-        assert_eq!(handle(&cell(&[])).state.focused, false);
+        assert!(!handle(&cell(&[])).state.hovered);
+        assert!(!handle(&cell(&[])).state.focused);
 
         let hovered = handle(&cell(&["--flags", "hover"]));
         assert!(hovered.state.hovered);
