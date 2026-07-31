@@ -2659,18 +2659,41 @@ already chosen.
 `Theme`, token newtypes, **primitives over `gpui-component`**"*.
 
 **Audit, 2026-07-31.** Only **1 of 27** ported components imports
-`gpui_component`. Against the named list that is **2 real violations**:
+`gpui_component` — and P3.15 measured that the one hit (`spinner.rs`) is **two
+doc comments**, so the true count was **0**. P3.15 is the first port that
+actually satisfies §6.2.
 
-| ported | should have been |
+#### ‼️ The element-seam survey — §6.2 and §17.1 collide on 7 widgets
+
+`AnchorSink`'s methods take a `gpui::Div` — **an element `crowbar-ui` holds**.
+So a wrapped widget can only be measured if the vendor lets the caller supply an
+*element*; a `StyleRefinement` seam is not enough, because every box is then
+built inside the vendor's own `render` and never passes through this crate.
+
+I surveyed all of `vendor/gpui-component/src` myself for `impl ParentElement` and
+for `pub fn child|children|content|panel|item…`:
+
+| **element seam → measurable** | **style-only → NOT measurable by wrapping** |
 |---|---|
-| `resizable` | a wrapper over `gpui-component`'s `resizable` |
-| `switch` | a wrapper over `gpui-component`'s `switch` |
+| popover · dialog · sheet · sidebar · resizable · tree · table · form · title_bar · dock | **select · combobox · slider · switch · virtual_list · native_menu · focus_trap** |
 
-Both converge at **0 deltas**, and the stated purpose — confining the upgrade
-surface to one crate — is met either way, since a hand-built component does not
-depend on `gpui-component` at all. **Recorded as a deviation rather than
-rewritten**; rework buys no parity. Reversible if the upgrade-surface argument
-matters more than it appears to.
+**A widget is wrappable-and-measurable exactly when it lets the caller supply an
+element, not merely a style.** Apply that test before starting any wrap item.
+
+For the right-hand column, §6.2 ("wrap it") and §17.1 ("every anchor converges")
+cannot both be satisfied by the obvious means. Wrapping a `div()` around such a
+widget yields one extra layer whose bounds merely *coincide* with the real box —
+it would compare a single box and read as converged, which is the fake
+convergence ANCHORS.md exists to refuse. **P3.16 is a spike on a third path**
+(gpui's `inspector` feature, which may expose post-paint bounds for elements we
+do not own). Until it reports, no style-only widget should be started.
+
+#### This retires one of the two recorded "violations"
+
+| ported | verdict, corrected |
+|---|---|
+| `resizable` | **a genuine deviation** — it *has* an element seam (`impl ParentElement` + 2 child fns), so it could have been wrapped. Rework is possible; it converges at 0 deltas, so rework buys no parity. |
+| `switch` | **not a violation.** `switch` is style-only. Hand-building it was the *only* way to obtain anchors at all — the same finding as above, seen from the other side. |
 
 The other 25 are **not** on the named list (`button`, `badge`, `avatar`,
 `checkbox`, `input`, `label`, `kbd`, `separator`, `skeleton`, `spinner`, `tabs`,
@@ -2732,6 +2755,46 @@ denominator was wrong in both directions at once: too large by 26, and the
 progress number correspondingly too small.
 
 ## In flight
+
+### Wave 4 (P3.15–P3.18) — dispatched 2026-07-31
+
+| Item | Branch | State |
+|---|---|---|
+| **P3.15** wrap `popover` + `select` | `native/p3-wrap-popover-select` @ `04ca276d` | ⏸ **HELD, not merged** — gates green by my own run, but I cannot capture it yet (see P3.17) |
+| **P3.16** gpui `inspector` spike | `native/p3.16-inspector-spike` | in flight — gates the 7 style-only widgets |
+| **P3.17** two-frame capture | `native/p3.17-two-frame-capture` | in flight — **blocks P3.15's verification** |
+| **P3.18** `oracleSurfaceScope` for popover/select/carousel | `native/p3.18-surface-scope-popover` | in flight — removes a hand step from the evidence chain |
+
+#### P3.15 — held deliberately, and why
+
+My own run on `04ca276d`: clippy `-D warnings` exit 0 · **1170 passed / 0 failed**
+(baseline 1136) · 7 invariant `ok`s · rule 6 covering 239 `#[gpui::test]`s · all
+six touched `.rs` files rustfmt-clean · no forbidden path touched · React edits
+are strictly `data-oracle-*` additions with every `className` byte-identical.
+
+**But no convergence verdict is recorded, because I could not take one.** The
+binary emits from `on_next_frame`, which reads frame 1, and `popover`'s bounds
+are not set until `on_prepaint` on frame 2 — so the only geometry that exists is
+from the worker's *own* test. That is precisely the evidence I do not bank.
+P3.15 merges after P3.17 lands and I capture it myself.
+
+**Correction to my own briefing:** I told the worker an archived parity run
+existed for `callout-node` (P3.14) and told this one that `select` was a
+directory. Both wrong; both caught by the worker. `select` is `src/select.rs`.
+
+#### `popover-title` is unexercised, not verified
+
+`LINE_SIZED = [popover-title]` is declared and is *true* by reading
+(`text-lg leading-none`, no padding, no authored height). But the only reachable
+popover in the live app (`repo-icon-popover`) has **no title** — it holds an
+avatar and three buttons — so `popover-title` appears in neither the raw capture
+nor the reference. The forgiveness is untested. Not wrong; unexercised, and it
+stays labelled that way until a call site with a title is reachable.
+
+The other three `PopoverContent` call sites sit behind a git panel or inside
+Plate, so **1 of 4 is reachable**.
+
+---
 
 **Phase 0 is closed.** All twelve items done and merged, each verified by my own
 run rather than a worker's report.
