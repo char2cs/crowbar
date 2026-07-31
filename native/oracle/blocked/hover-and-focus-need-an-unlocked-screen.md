@@ -225,3 +225,73 @@ origin — three windows sat at exactly `(262,122) 1200×800`. "The window at th
 coordinates" is not a unique thing to point at. Confirm the target by matching
 the process's `cwd` **and** `CROWBAR_HOME` to this worktree before driving it,
 and confirm the pointer landed by checking that *this* page recorded the move.
+
+---
+
+## RESOLVED 2026-07-31 — both flags are now REAL OBSERVATIONS
+
+Superseded. Kept in full, unedited above, because the reasoning that turned out
+to be **wrong** is the most useful part of this file.
+
+Both cells were captured from the live reference with the screen unlocked, and
+diffed by me:
+
+| cell | result |
+|---|---|
+| `git-status-row · 1714 · dark · short · hover` | **PASS — 0 deltas over 8 anchors** |
+| `git-status-row · 1714 · dark · short · focus` | **PASS — 0 deltas over 8 anchors** |
+
+`hover` is no longer the v1.7-era *construction*. The reference's real `:hover`
+state, entered from a genuine mouse-moved event, converges exactly with
+`--flags hover`.
+
+### Three things above are wrong, and each cost real time
+
+1. **"The tool works; what fails is delivery."** It did not work.
+   `CGPreflightPostEventAccess()` is **false** on this machine: every
+   `CGEventPost` and `CGEventPostToPid` was discarded silently, with no error and
+   no failed return. Nothing synthetic ever reached the app — including the
+   titlebar drag, whose failure I misattributed to a dead grab point (
+   `elementFromPoint` returns the drag region at 940 of 966 sampled points,
+   including the one tried).
+
+2. **"`hoverCount: 22` proves hover works."** It proves nothing. That is the
+   stale chain under wherever a human last left the mouse, and **it does not
+   change when the cursor is warped**. I read a live-looking number and stopped
+   asking. The correct check is that the chain *contains the intended row*, after
+   clearing it to zero first.
+
+3. **The window was never misplaced.** **AeroSpace**, a tiling WM, parks
+   non-visible workspaces' windows at the bottom-right. The tell sat in my own
+   data for hours: four *unrelated* processes — production Crowbar, the GPUI
+   `crowbar-app`, and two dev builds — all at exactly `(1723, 1137)`. No app
+   misplaces itself onto another app's pixel. `set-position` being absent from
+   the capabilities was true and irrelevant.
+
+### What actually works, needing no permission
+
+Warp the cursor (ungated), then have the WM toggle the window fullscreen and
+back. The frame change makes AppKit rebuild tracking areas and deliver a **real**
+mouse-moved at the cursor's true position — nothing is synthesised. Controlled:
+cursor on row 2 hovers row 2, cursor on row 4 hovers row 4.
+
+### Two further retractions, both the worker's own
+
+- **`NSRunningApplication.activate` returns `true` while the window stays
+  non-key.** Activation makes the *application* frontmost; under a tiling WM the
+  *WM* chooses the key window. A non-key window fails `:focus-visible` while
+  `document.activeElement` still reports the button — so a focus capture taken
+  there measures a **resting** row while declaring itself focused. That defect
+  was caught by re-running, not by reading.
+- **`:focus-visible` does not unconditionally match a programmatic `.focus()` in
+  WebKit.** It matched only while the page had received no real user interaction;
+  once genuine mouse moves arrived, WebKit correctly classified the modality as
+  pointer and suppressed it. The deterministic driver is
+  `btn.focus({ focusVisible: true })`.
+
+### And the reference paints nothing for focus
+
+With `:focus-visible` matching, computed `outline` is `none` on both the button
+and the row, `box-shadow: none`, no ring. `focus` being pixel-identical to
+resting is the reference's real behaviour, not a schema gap — which is what the
+0-delta focus cell above actually confirms.
