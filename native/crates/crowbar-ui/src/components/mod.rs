@@ -70,6 +70,18 @@ pub mod button;
 // nowhere. `search_toggle_icons::WEIGHT` would collide with `kbd::WEIGHT` and
 // `label::WEIGHT` outright, and `sidebar_toggle_icon::EXTENT` reads as a number
 // belonging to no component at all without its module in front of it.
+// The two P3.9 toggles are unflattened for the same reason as the rest, and one
+// further one: they are the first pair whose `selected` state is real, and each
+// answers "what does `selected` move here" differently — `switch::Switch` moves
+// a background *and* a thumb offset, `checkbox::Checkbox` moves one background
+// and only in the dark table. `checkbox::Checked` is a three-valued enum where
+// `switch`'s equivalent is a `bool`, and a bare `Checked` would say which
+// component's vocabulary it is nowhere. Their `CONTENT_SIZED`/`LINE_SIZED` and
+// `BORDER_WIDTH` would collide outright — `switch::BORDER_WIDTH` is 0 and
+// `checkbox::BORDER_WIDTH` is 1, which is the border trap and its mirror sitting
+// one module apart, and a bare `BORDER_WIDTH` meaning either of them is the
+// mistake `ANCHORS.md` v1.6 warns about.
+pub mod checkbox;
 pub mod crowbar_mark;
 pub mod crowbar_wordmark;
 pub mod dropdown_menu;
@@ -115,6 +127,8 @@ pub mod spinner;
 // that silently meant another surface's is the mistake `ANCHORS.md` v1.6 warns
 // about.
 pub mod sidebar_carousel;
+// `switch` — see the note above `checkbox`.
+pub mod switch;
 // `tabs` is unflattened for the third time and the same reason: its
 // `Orientation`, `Variant`, `Panel`, `Tab`, `CONTENT_SIZED` and `LINE_SIZED`
 // would each collide with another surface's, and a declaration list that

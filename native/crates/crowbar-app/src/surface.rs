@@ -459,6 +459,7 @@ mod tests {
                 "avatar",
                 "badge",
                 "button",
+                "checkbox",
                 "crowbar-mark",
                 "crowbar-wordmark",
                 "dropdown-menu",
@@ -477,6 +478,7 @@ mod tests {
                 "sidebar-toggle-icon",
                 "skeleton",
                 "spinner",
+                "switch",
                 "tabs",
             ],
         );
