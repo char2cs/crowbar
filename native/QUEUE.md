@@ -272,6 +272,77 @@ none of it. Classification, and what each needs:
    debugging session wrote a permanent key into the user's production storage
    and nobody noticed. Left in place — see consequence 3 above.
 
+## 🎯 THE PHASE 1 GATE — RUN 2: **26 → 18 → 6 deltas**, one row, two root causes
+
+Same cell, everything aligned. **Zero text deltas, zero colour deltas, zero
+presence deltas.** All six remaining are geometry, none larger than 1.73px on a
+294px row.
+
+```
+git-row-name.bounds.w:   103.0, expected 104.73  (Δ -1.73)
+git-row-badge.bounds.x:  195.0, expected 196.73  (Δ -1.73)
+git-row-name.bounds.h:    19.0, expected  18.0   (Δ +1.00)
+git-row-badge.bounds.w:   75.0, expected  74.11  (Δ +0.89)
+git-row-added.bounds.w:   12.0, expected  11.16  (Δ +0.84)
+git-row-added.bounds.x:  276.0, expected 276.84  (Δ -0.84)
+```
+
+**`text_width` is now 476.49 on both sides — exactly zero.** The font fix made
+text comparison meaningful rather than accidentally-agreeing.
+
+### The deferred `ceil()` measurement is now answered, and the answer is *better* than feared
+
+| anchor | ref `w` | native `w` | `ceil(ref)` | match |
+|---|---|---|---|---|
+| `git-row-badge` | 74.11 | **75.00** | 75 | ✅ |
+| `git-row-added` | 11.16 | **12.00** | 12 | ✅ |
+
+Both content-sized boxes are **exactly** `ceil(reference)`. And:
+
+```
+total ceil excess          = +1.73
+git-row-name.bounds.w delta = -1.73     ← the flexible sibling absorbs ALL of it
+git-row-added right edge    = 288.00 on BOTH sides — conserved exactly
+```
+
+**The excess does not accumulate rightward without bound.** It is absorbed by
+the flexible sibling, and the row's total width and the trailing group's right
+edge are identical on both sides. The differ worker's worry — that you would
+need a tolerance growing with the number of content-sized boxes upstream — does
+not materialise, because the layout *conserves* the total rather than
+propagating displacement.
+
+**That collapses the modelling problem.** The differ does **not** need flow
+order after all:
+
+1. A declared content-sized anchor compares `native.w` against `ceil(ref.w)`.
+2. Everything else in the same snapshot gets an additional allowance of
+   **Σ(ceil excess) over the anchors declared content-sized in that snapshot** —
+   a single global scalar the differ can compute from the anchor list, with no
+   tree walk and no flow order.
+
+That is implementable within §1's "no trees" constraint, which is what made the
+alternative look expensive.
+
+### The residual: 6 deltas, exactly 2 root causes
+
+| root cause | deltas | magnitude |
+|---|---|---|
+| GPUI `ceil()`s content-sized box widths | 5 (2 direct, 3 absorbed consequence) | ≤1.73px total |
+| GPUI snaps line-height to the device grid | 1 (`name.h` 19 vs 18; 14 × 1.35 = 18.9) | 1.0px |
+
+Both are **framework rounding rules**, both are measured, both are bounded, and
+neither is a defect in the ported component. **7 of 10 anchors remain
+byte-exact.**
+
+> **Not claiming "converged".** Six deltas exceed ±0.5 and the gate's condition
+> is that every anchor converges across the whole §8.3 matrix. What is proven is
+> that the *mechanism* works: the oracle found real differences, localised each
+> to a specific framework behaviour, and the residual is sub-2px and fully
+> explained. That is what Phase 1 exists to establish — but it is not the same
+> sentence as "the row converges", and I will not write the second one until it
+> does.
+
 ## 🎯 THE PHASE 1 GATE — FIRST FULL RUN, 2026-07-31
 
 **The oracle ran end to end.** Live WKWebView snapshot → differ ← live GPUI
@@ -1383,7 +1454,7 @@ before any of them so three independent implementations cannot quietly diverge.
 | **P1.4** sealed tokens | `native/p1.4-sealed-tokens` | `crowbar-ui/**`, `check-invariants.sh` | ✅ **done** — merged `60823648`, rule 4 adversarially re-tested by me |
 | **P1.5** native row | `native/p1.5-native-row` | `crowbar-ui/src/components/**`, `crowbar-app/src/**` | ✅ merged `11fa277d` — all 5 invariants green |
 | **P1.6** differ v1.3 conformance | `native/p1.6-differ-v13` | `native/oracle/src/**` | ✅ **done** — merged `8bee1e23`, **26 → 18 deltas**, verified by my own re-run |
-| **P1.7** font + badge | `native/p1.7-font-and-badge` | fonts, `crowbar-ui/components`, `crowbar-app` | **in flight** — the font is the biggest blocker |
+| **P1.7** font + badge | `native/p1.7-font-and-badge` | fonts, `crowbar-ui/components`, `crowbar-app` | ✅ **done** — merged `6af40288`, `text_width` delta **0.000** |
 
 #### P1.2 — the GPUI extractor ✅ merged · **the STOP-GATE risk is retired**
 
