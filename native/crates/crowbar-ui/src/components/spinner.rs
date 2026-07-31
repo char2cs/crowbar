@@ -47,33 +47,108 @@
 //! the instant is *chosen*, and the captured `transform` is recorded as
 //! `matrix(1, 0, 0, 1, 0, 0)`.
 //!
-//! # The port does not rotate, and that is deliberate
+//! # The port **does** rotate, and the two questions separate cleanly
 //!
-//! [`Spinner::render`] paints a static box. Rotating it would put the **native**
-//! side's bounds in flight too, and two snapshots taken at two unrelated
-//! instants of the same 1s loop would disagree by up to 6.63px with nothing
-//! wrong on either side. A snapshot is one instant (`ANCHORS.md` §6); the one
-//! instant both sides can name is `t = 0`.
+//! An earlier draft of this module painted a static box and disclosed it as a
+//! visual gap. Disclosing it was right; shipping it was not — §17's deliverable
+//! is that a user cannot tell the two apps apart, and a spinner that does not
+//! spin fails that at a glance, on the one component whose entire purpose is
+//! motion. Two different things were being conflated:
 //!
-//! It is a real visual gap in the same family as `skeleton`'s unswept sheen —
-//! stated plainly rather than hidden — and unlike that one it is a gap the
-//! oracle *can* see, which is why the rest instant is a rule here and a note
-//! there.
+//! * **what the app does** — it must turn, or the port has shipped a broken
+//!   spinner;
+//! * **what the harness measures** — one instant, and both sides must name the
+//!   same one.
 //!
-//! # The glyph is an empty box, and its colour is uncomparable
+//! They separate for free, and for two independent reasons:
 //!
-//! The same call every component since `git_status_row` has made about icons:
-//! the arc is an SVG a library draws, there is no native equivalent, and drawing
-//! a substitute would put a shape on screen for the oracle to converge on.
+//! 1. **`CROWBAR_ROW_SNAPSHOT` emits the *first frame* and quits**, and gpui's
+//!    `AnimationElement` stamps `start = Instant::now()` on its first
+//!    `request_layout`. So the native capture is at `delta ≈ 0` **by
+//!    construction**, with no pinning code and no special case. Measured rather
+//!    than assumed: `row_layout::spinner` asserts the first frame's delta is
+//!    below 1e-3 of a turn.
+//! 2. **gpui's rotation is a paint-time transform and does not touch layout.**
+//!    `Svg::with_transformation`'s own doc says so, and `Window::paint_path`
+//!    tessellates into the scene without going near taffy — so the driver, which
+//!    records *layout* bounds at prepaint, reports the same 16 × 16 at **every**
+//!    delta. The native side is immune to its own rotation where `WebKit` is not,
+//!    because `getBoundingClientRect()` returns the *transformed* box.
 //!
-//! The consequence here is sharper than usual. The `<svg>` has **no text
-//! nodes**, so the React extractor emits no `fg` for it — `oracleOwnText`
-//! returns `""` and the whole text group is skipped. `stroke="currentColor"` is
-//! the only colour the glyph has, and **no field in the contract records it**.
-//! The reference confirms it: the anchor carries `bounds`, `bg`, `visible`,
-//! `radius` and `border` and nothing else.
+//! Point 2 is the asymmetry worth carrying forward: pinning the **reference** at
+//! `currentTime = 0` is still necessary, and pinning the native side is not
+//! merely unnecessary but impossible to get wrong. `row_layout::spinner` proves
+//! it by stepping frames and asserting the recorded box never moves.
+//!
+//! # The glyph is lucide's own arc, and its colour is uncomparable
+//!
+//! This is the one place the port departs from the "icons are empty boxes" rule
+//! `git_status_row` set, and the departure is narrow. That rule exists because a
+//! call site *chooses* the icon, so drawing a substitute would put a shape on
+//! screen for the oracle to converge on. **`Spinner`'s glyph is not a
+//! choice** — `Loader2Icon` is hardcoded in `spinner.tsx`, it is the whole
+//! component, and there is nothing for a call site to vary. So it is drawn, from
+//! lucide's own path data rather than by eye: see [`GLYPH_SWEEP_DEGREES`].
+//!
+//! Nothing about it reaches the oracle. It is painted by
+//! [`Window::paint_path`](gpui::Window::paint_path) on an **unanchored** child,
+//! so the anchor's `bg`, `radius` and `border.w` are untouched — the same
+//! standing `resizable`'s hit strip and `button`'s `::before` overlay have.
+//!
+//! The colour is sharper still. The `<svg>` has **no text nodes**, so the React
+//! extractor emits no `fg` for it — `oracleOwnText` returns `""` and the whole
+//! text group is skipped. `stroke="currentColor"` is the only colour the glyph
+//! has, and **no field in the contract records it**; the port reads
+//! `Window::text_style().color`, which is gpui's `currentColor`, and neither
+//! side can be checked against the other. The reference confirms the shape of
+//! the hole: the anchor carries `bounds`, `bg`, `visible`, `radius` and `border`
+//! and nothing else.
+//!
+//! ## What is **not** verified: the pixels
+//!
+//! Everything above the paint call is tested — [`arc_path`] builds at every call
+//! site's size and at eight instants round the turn, its bounds are the right
+//! fraction of the box, a quarter turn moves its vertices and a whole turn
+//! returns them, and `row_layout::spinner` proves frames are scheduled and the
+//! recorded box does not move. The one link left is `Window::paint_path` itself,
+//! and it could not be checked here. **Both routes are blocked, and each was
+//! tried rather than assumed:**
+//!
+//! * `Window::render_to_image` exists under `test-support` but returns
+//!   *"no `HeadlessRenderer` configured"* — `TestAppContext` passes no renderer
+//!   factory, and the Metal one is behind `gpui_macos`'s own `cfg(test)`, which
+//!   this workspace cannot reach and `native/vendor/**` may not be edited to
+//!   expose;
+//! * `screencapture` is denied Screen Recording for this process
+//!   (*"could not create image from rect"*), so the running binary cannot be
+//!   photographed either.
+//!
+//! Stated as a gap rather than glossed: the arc is drawn by one unconditional
+//! call on a path proved to exist, in a colour the surface sets deliberately
+//! (see `surfaces/spinner.rs`), and a human running `crowbar-app --surface
+//! spinner` closes it in a second.
+//!
+//! ## One stated difference, flagged rather than worked around
+//!
+//! Under **reduced motion the two disagree**, and it is the app that is right.
+//! `gpui`'s `AnimationElement` renders a repeating animation at `delta 0.0` and
+//! schedules no frames when `App::reduce_motion` is set — a blanket policy. The
+//! web app's own rule is not blanket: measured in the running app's CSSOM, it is
+//!
+//! ```text
+//! :not(.animate-spin, [data-essential-motion], [data-essential-motion] *) { animation-duration: 0.01ms !important; … }
+//! ```
+//!
+//! — `.animate-spin` is **exempted by name**, which is a deliberate product
+//! decision that a loading indicator is essential motion. Honouring it on the
+//! native side needs a hand-written animation element, because `reduce_motion`
+//! is consulted inside gpui's and there is no hook. Recorded here and in
+//! `native/mapping/spinner.md` rather than silently diverging.
 
-use gpui::{AnyElement, Div, Pixels, Styled as _, div, px};
+use gpui::{
+    Animation, AnimationExt as _, AnyElement, Div, IntoElement as _, ParentElement as _, Path,
+    PathBuilder, Pixels, Point, SharedString, Styled as _, canvas, div, linear, point, px,
+};
 use std::time::Duration;
 
 use super::anchor::{AnchorId, AnchorSink};
@@ -117,6 +192,38 @@ pub const SIZE_4_5: Pixels = px(18.0);
 /// from. It is carried because it is the length of the window in which a
 /// capture of this surface is wrong: see the module docs.
 pub const PERIOD: Duration = Duration::from_secs(1);
+
+/// lucide `loader-circle`'s viewBox side, in its own units.
+///
+/// Every glyph constant below is a **ratio to this**, so the arc scales with
+/// whatever box a call site pins rather than carrying a second set of numbers.
+pub const GLYPH_VIEWBOX: f32 = 24.0;
+
+/// The arc's radius, in [`GLYPH_VIEWBOX`] units — lucide's `a9 9`.
+pub const GLYPH_RADIUS: f32 = 9.0;
+
+/// The arc's stroke width, in [`GLYPH_VIEWBOX`] units — lucide's
+/// `stroke-width="2"`.
+pub const GLYPH_STROKE: f32 = 2.0;
+
+/// How far round the circle the arc runs, in degrees.
+///
+/// **Derived from lucide's path data rather than judged by eye.**
+/// `loader-circle` is `M21 12a9 9 0 1 1-6.219-8.56` in a 24×24 viewBox: the
+/// centre is `(12, 12)`, so the start `(21, 12)` is `(9, 0)` from it — angle 0,
+/// three o'clock — and the end `(14.781, 3.44)` is `(2.781, -8.56)`, whose
+/// radius is 9.000 and whose angle in screen coordinates is **287.998°**. The
+/// `large-arc-flag` is `1`, which selects the major arc, so the sweep is 288 and
+/// not 72. Reproducing it: `9·cos 288° = 2.781`, `9·sin 288° = -8.560`.
+pub const GLYPH_SWEEP_DEGREES: f32 = 288.0;
+
+/// The `with_animation` element id the turn runs under.
+///
+/// A constant, exactly as `gpui_component::Spinner` uses `"circle"` for its own.
+/// Two spinners under one identified ancestor therefore **share** an animation
+/// clock and turn in phase, which is a nuisance at worst and never a panic; no
+/// surface in this port renders two.
+const TURN_ELEMENT_ID: &str = "spinner-turn";
 
 /// The largest a rotating square's bounding box gets, as a multiple of its side.
 ///
@@ -251,8 +358,10 @@ impl Spinner {
     /// How far the *reference's* `bounds` can travel from this box while the
     /// animation runs, in logical px.
     ///
-    /// Not a property of what the port paints — the port does not rotate — but
-    /// of what a mis-timed capture of the original would record. See the module
+    /// **Not a property of what the driver records.** gpui rotates at paint
+    /// time, so the native `bounds` are the layout box at every delta; this is
+    /// what a mis-timed capture of the *original* would record, because `WebKit`'s
+    /// `getBoundingClientRect()` returns the transformed box. See the module
     /// docs; on the captured 16px cell it is 6.63.
     #[must_use]
     pub fn rotation_excursion(self) -> Pixels {
@@ -265,25 +374,116 @@ impl Spinner {
     /// — `spinner.tsx` carries no `border` class, which is `kbd`'s side of the
     /// trap rather than `badge`'s — and an `<svg>` has no background of its own.
     /// The reference agrees: `bg #00000000`, `radius 0`, `border.w 0`.
+    ///
+    /// **This is the anchored box, so nothing painted may land on it.** The arc
+    /// goes on an unanchored child; see [`Spinner::turning_arc`].
     fn shell(self) -> Div {
         let extent = self.size();
         div().flex_shrink_0().w(extent).h(extent)
     }
 
+    /// The turn, as gpui sees it: one [`PERIOD`], repeating, **linear**.
+    ///
+    /// Public so the layout harness can drive this exact configuration and read
+    /// the deltas back — the first-frame instant the whole capture rests on is a
+    /// property of these three settings, and a test that built its own animation
+    /// would be measuring something else. `linear` and not
+    /// `gpui_component::Spinner`'s `ease_in_out`: the CSS says
+    /// `animation: spin 1s linear infinite`, and an eased turn is a visibly
+    /// different motion.
+    #[must_use]
+    pub fn turn() -> Animation {
+        Animation::new(PERIOD).repeat().with_easing(linear)
+    }
+
+    /// lucide's arc, turning once per [`PERIOD`], on an **unanchored** child.
+    ///
+    /// The child fills the anchored box and carries no id, so the extractor
+    /// never sees it and the anchor's `bg`/`radius`/`border` stay the
+    /// reference's. `Window::paint_path` tessellates into the scene and does not
+    /// touch taffy, so the recorded *layout* bounds are the same at every delta
+    /// — the property the module docs' point 2 turns on, and the one
+    /// `row_layout::spinner` steps frames to prove.
+    ///
+    /// The colour is `Window::text_style().color` — gpui's `currentColor`, and
+    /// the exact counterpart of the `stroke="currentColor"` the SVG carries.
+    /// Read at paint time rather than passed in, so a host's `text-*` token
+    /// reaches it the way the DOM's does.
+    fn turning_arc(self) -> AnyElement {
+        let extent = self.size();
+        div()
+            .size_full()
+            .with_animation(
+                SharedString::new_static(TURN_ELEMENT_ID),
+                Self::turn(),
+                move |element, delta| element.child(arc(extent, delta)),
+            )
+            .into_any_element()
+    }
+
     /// The element, with its one anchor.
     pub fn render(self, anchors: &dyn AnchorSink) -> AnyElement {
-        anchors.boxed(AnchorId::from(ID_SPINNER), self.shell())
+        let shell = self.shell();
+        // A zero-area box has nothing to draw in, and a radius-0 arc is a
+        // degenerate tessellation rather than an invisible one.
+        if self.size() <= px(0.0) {
+            return anchors.boxed(AnchorId::from(ID_SPINNER), shell);
+        }
+        anchors.boxed(AnchorId::from(ID_SPINNER), shell.child(self.turning_arc()))
     }
+}
+
+/// One frame of the arc, as an element.
+fn arc(extent: Pixels, turn: f32) -> impl gpui::IntoElement {
+    canvas(
+        |_, _, _| (),
+        move |bounds, (), window, _| {
+            if let Some(path) = arc_path(extent, bounds.center(), turn) {
+                window.paint_path(path, window.text_style().color);
+            }
+        },
+    )
+}
+
+/// lucide's geometry, rotated by `turn` of a full circle and centred on `centre`.
+///
+/// Built centred on the origin so the rotation is about the arc's own centre,
+/// then translated onto the box — `PathBuilder::rotate` rotates about the origin
+/// and `translate` chains after it, which is the order the two calls appear in.
+///
+/// `None` only where lyon refuses to tessellate. Split out from [`arc`] so that
+/// **a failure to build is a test failure rather than an invisible spinner**:
+/// swallowing it at the paint site is right (nothing can be done in `paint`) and
+/// would otherwise be indistinguishable from the static box this component used
+/// to draw.
+fn arc_path(extent: Pixels, centre: Point<Pixels>, turn: f32) -> Option<Path<Pixels>> {
+    let scale = f32::from(extent) / GLYPH_VIEWBOX;
+    let radius = GLYPH_RADIUS * scale;
+    let sweep = GLYPH_SWEEP_DEGREES.to_radians();
+
+    let mut builder = PathBuilder::stroke(px(GLYPH_STROKE * scale));
+    builder.move_to(point(px(radius), px(0.0)));
+    builder.arc_to(
+        point(px(radius), px(radius)),
+        px(0.0),
+        // `large-arc-flag`, `sweep-flag` — lucide's `0 1 1`.
+        true,
+        true,
+        point(px(radius * sweep.cos()), px(radius * sweep.sin())),
+    );
+    builder.rotate(turn * 360.0);
+    builder.translate(centre);
+    builder.build().ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        ALL_CALL_SITES, CallSite, Extent, ID_SPINNER, INTRINSIC_SIZE, MAX_ROTATED_EXTENT, PERIOD,
-        SIZE_3, SIZE_4, SIZE_4_5, Spinner,
+        ALL_CALL_SITES, CallSite, Extent, GLYPH_RADIUS, GLYPH_STROKE, GLYPH_VIEWBOX, ID_SPINNER,
+        INTRINSIC_SIZE, MAX_ROTATED_EXTENT, PERIOD, SIZE_3, SIZE_4, SIZE_4_5, Spinner,
     };
     use crate::components::git_status_row::{BREAKPOINT_SM, Breakpoint};
-    use gpui::px;
+    use gpui::{point, px};
 
     /// Neither declaration is made, and each for its own reason — see the
     /// constants.
@@ -400,6 +600,83 @@ mod tests {
         assert_eq!(fixture.breakpoint, Breakpoint::Sm);
         assert_eq!(fixture.size(), px(16.0));
         assert_eq!(ID_SPINNER, "spinner");
+    }
+
+    /// **The arc is really drawn**, at every call site's size and all the way
+    /// round the turn.
+    ///
+    /// `arc` swallows a tessellation failure, because there is nothing a `paint`
+    /// callback can do about one — and a swallowed failure looks exactly like
+    /// the static box this component used to paint, which is the defect the
+    /// coordinator sent this change back for. So the build is asserted here.
+    ///
+    /// The bounds are checked too, and they are the control: a path that built
+    /// but collapsed to a point would pass an `is_some()` on its own.
+    #[test]
+    fn the_arc_builds_at_every_size_and_every_instant() {
+        let centre = point(px(50.0), px(50.0));
+        for call_site in ALL_CALL_SITES {
+            let extent = call_site.extent(Breakpoint::Sm);
+            for step in 0..8_u8 {
+                let turn = f32::from(step) / 8.0;
+                let path = super::arc_path(extent, centre, turn)
+                    .unwrap_or_else(|| panic!("{} at {turn}", call_site.name()));
+                assert!(!path.vertices.is_empty(), "{}", call_site.name());
+
+                // lucide's arc is r = 9/24 of the box, stroked 2/24 wide, so its
+                // nominal extent is 2r + stroke = 20/24 of the box on each axis.
+                //
+                // The range rather than an equality, on both sides and for two
+                // different reasons: a 288° arc is missing a 72° notch, so one
+                // axis can fall short of the full diameter at some instants;
+                // and lyon's stroke tessellation overshoots the nominal box by
+                // its join tolerance — measured at **20.013 against 20** on the
+                // 24px cell, so 5% is generous and still rejects a path built at
+                // the wrong scale, which is what this bound is for.
+                let full = f32::from(extent) * (2.0 * GLYPH_RADIUS + GLYPH_STROKE) / GLYPH_VIEWBOX;
+                let width = f32::from(path.bounds.size.width);
+                let height = f32::from(path.bounds.size.height);
+                assert!(
+                    width > full * 0.5 && width <= full * 1.05,
+                    "{} at {turn}: width {width} against {full}",
+                    call_site.name(),
+                );
+                assert!(
+                    height > full * 0.5 && height <= full * 1.05,
+                    "{} at {turn}: height {height} against {full}",
+                    call_site.name(),
+                );
+            }
+        }
+    }
+
+    /// The turn is a **whole** circle, so the arc at delta 0 and the arc at
+    /// delta 1 are the same picture — which is what makes a repeating animation
+    /// seamless, and what makes "the first frame" and "the reference's
+    /// `currentTime = 0`" the same instant.
+    #[test]
+    fn a_whole_turn_returns_the_arc_to_where_it_started() {
+        let centre = point(px(8.0), px(8.0));
+        let extent = Spinner::fixture().size();
+        let start = super::arc_path(extent, centre, 0.0).expect("builds");
+        let full = super::arc_path(extent, centre, 1.0).expect("builds");
+        let quarter = super::arc_path(extent, centre, 0.25).expect("builds");
+
+        assert_eq!(start.vertices.len(), full.vertices.len());
+        for (a, b) in start.vertices.iter().zip(full.vertices.iter()) {
+            assert!((f32::from(a.xy_position.x - b.xy_position.x)).abs() < 0.01);
+            assert!((f32::from(a.xy_position.y - b.xy_position.y)).abs() < 0.01);
+        }
+        // The control: a quarter turn is a *different* picture, so the
+        // assertion above is about the period rather than about a static path.
+        assert!(
+            start
+                .vertices
+                .iter()
+                .zip(quarter.vertices.iter())
+                .any(|(a, b)| (f32::from(a.xy_position.x - b.xy_position.x)).abs() > 0.5),
+            "a quarter turn must move the arc",
+        );
     }
 
     /// The vocabulary is closed and its words are unique.
