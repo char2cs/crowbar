@@ -298,6 +298,35 @@ bunx @tauri-apps/cli dev \
 The empty `beforeDevCommand` is the courtesy half; the distinct port is the
 isolation half. Both are needed.
 
+> **Enumerate your own app instances before launching another one.** A stale
+> Tauri instance keeps its window *and its daemon supervisor*, and that
+> supervisor keeps trying to spawn a daemon on the same socket. Launching a
+> second app then produces:
+>
+> ```
+> ERROR crowbar daemon terminated (code=Some(1))          ← ×4
+> ERROR crowbar daemon died 3 times within 600s; giving up until the next app launch
+> INFO  crowbar daemon is ready on …6d4f21ce150add3c.sock (pid 18741)
+> ```
+>
+> — a respawn storm ending in "giving up", *immediately followed by* "ready".
+> Both lines are true: one daemon did win the socket, and the supervisor has
+> permanently stopped covering it for this run.
+>
+> This looks identical to the start-a-daemon-by-hand trap above and is **not the
+> same bug**. Here nobody started a daemon manually; I simply had an old app of
+> my own still alive. Killing it then took the winning daemon down with it (the
+> window-close kill path), leaving the new app running against nothing.
+>
+> **Check first**, and attribute by working directory rather than by pid, since
+> other sessions' apps look identical in `pgrep`:
+>
+> ```sh
+> for p in $(pgrep -f crowbar-desktop); do
+>   lsof -a -p $p -d cwd -Fn | grep ^n | cut -c2-
+> done
+> ```
+
 **Verified live 2026-07-31:** 5273 serves from my worktree while another
 session's instance keeps 5173 and its own daemon (`crowbar-2978a066…`)
 untouched. Two Crowbars, two daemons, no interference.
