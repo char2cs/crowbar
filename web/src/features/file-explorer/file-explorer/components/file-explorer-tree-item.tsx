@@ -124,6 +124,15 @@ function FileExplorerTreeItemComponent({
    * second `file-row-item` in the document under a shape the native surface does
    * not model. The extractor takes the first match for its root, so the two
    * would be indistinguishable.
+   *
+   * **That branch is not anchor-free, though, and cannot be made so.** The
+   * `<Input>` it renders carries the `input` surface's own `input-control` /
+   * `input` anchors. They harm nothing today — an editing row is a *sibling* of
+   * every `file-row-item` and `extractSnapshot` walks only downwards from its
+   * root — but they are why the editing cell can never simply be tagged into
+   * `file-tree-row`. The full reasoning, and why ANCHORS.md v1.8's declared
+   * scope is not available to this surface, is in
+   * `native/mapping/file-tree-row.md`.
    */
   const renderTreeGuides = (oracleAnchors: boolean) => (
     <div className="file-tree-guides">
