@@ -272,6 +272,49 @@ none of it. Classification, and what each needs:
    debugging session wrote a permanent key into the user's production storage
    and nobody noticed. Left in place — see consequence 3 above.
 
+## ⚠ OPEN: `state.width` is ambiguous, and the badge proved it is load-bearing
+
+**This already produced one wrong comparison and it will produce more.**
+
+`state.width` is documented only as "integer, logical px". §8.3 asks for "≥3
+**viewport** widths". But on the native side there is no meaningful viewport —
+the app renders one row — and P1.5's `--width` sets the **surface** width. So
+the two sides have been putting different quantities in the same field.
+
+**How it bit.** My first archived reference recorded `state.width: 294` — the
+surface width — while the badge's appearance was actually governed by the
+**viewport** width, which nothing recorded. The webview happened to be at
+**569px**, below Tailwind's 640px `sm:` breakpoint, so the reference rendered
+the narrow badge variant (h20 / 12px) while the native side implemented the wide
+one (h16 / 10px). The differ dutifully reported four geometry deltas that were
+**neither side's fault**. Re-capturing at 1100px made them vanish with no code
+change at all.
+
+**Why it recurs.** The §8.3 matrix wants ≥3 viewport widths. Any set that
+straddles 640px flips the reference's badge variant — and the native app,
+having no viewport concept, **cannot follow**. Every such cell would compare a
+narrow-variant reference against a wide-variant native and report deltas that
+mean nothing.
+
+**Decision: `state.width` is the VIEWPORT width**, matching §8.3's own wording,
+because it is the quantity that drives breakpoint-dependent styling and it is
+the one that silently differed. The **surface** width is a separate input.
+
+**What that requires:** the native app must accept a viewport width and size its
+window to it, so breakpoint-dependent styling resolves the same way on both
+sides — `--viewport-width` alongside the existing `--width`. Until it does, the
+three-widths axis of the matrix cannot be run honestly, and **any width cell
+that straddles 640px is untrustworthy**.
+
+**Not yet dispatched** — P1.8 currently owns `crowbar-app/src/**`, and a second
+worker there would collide. It goes out when P1.8 lands.
+
+> An unrelated confirmation from the same investigation, worth keeping: toggling
+> the root `dark` class gives badge background alpha **0.16 dark / 0.08 light**,
+> which is exactly the `warning.mix(16 dark / 8 light, TRANSPARENT)` P1.4's
+> generator emitted. The light/dark token tables are independently corroborated
+> against the live DOM.
+
 ## 🎯 THE PHASE 1 GATE — RUN 2: **26 → 18 → 6 deltas**, one row, two root causes
 
 Same cell, everything aligned. **Zero text deltas, zero colour deltas, zero
