@@ -1,4 +1,4 @@
-# The anchor snapshot contract — v1.8
+# The anchor snapshot contract — v1.9
 
 > ## ‼️ CORRECTION: the reference engine is **WebKit**, not Blink
 >
@@ -298,6 +298,31 @@ states is meaningless and would be the easiest possible way to fake convergence.
 | `visible` | Actually painted: not `display:none`, not `visibility:hidden`, **zero opacity on the element or any ancestor** *(v1.7)*, non-zero area, not fully clipped by an ancestor. | yes |
 | `radius` | Corner radius px. Single value; if corners differ, emit the top-left and note it. | no |
 | `border` | Width px + colour. | no |
+
+### A snapshot has no way to say *when* it was taken *(v1.9 — a stated hole, not a rule)*
+
+Found by P3.2 while porting `tabs`, and recorded because it is a way a run can
+be wrong that nothing currently catches.
+
+`tab-indicator` is animated: `transition-[width,translate] duration-200
+ease-in-out`. So for 200ms after the active tab changes, the reference's
+`bounds.x`, `bounds.y` **and** `bounds.w` are interpolated. (`height` is not in
+the transition list and does not animate.)
+
+**A capture taken inside that window is indistinguishable from a port bug.** The
+snapshot records a box; it does not record that the box was in flight. The
+differ then reports three deltas on an anchor whose port is correct.
+
+**No rule is added yet, deliberately.** The honest fixes are all worse than the
+problem today: a settling wait the extractor cannot know the duration of, a
+`transitionend` handshake that changes what a capture *is*, or a per-anchor
+"animating" flag that every surface would have to declare truthfully. The
+existing practice — capture at rest, and say so — costs nothing and has not yet
+failed.
+
+**What to do meanwhile:** capture animated surfaces at rest, and when a delta
+appears only on `x`/`y`/`w` of an animated anchor, suspect the instant before
+suspecting the port. P3.2's reference was taken at rest and converged 0/6.
 
 ### Which anchors a snapshot contains *(v1.8)*
 

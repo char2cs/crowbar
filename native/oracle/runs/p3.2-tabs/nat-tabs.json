@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "surface": "tabs",
+  "state": {
+    "width": 1714,
+    "theme": "dark",
+    "content": "normal",
+    "flags": []
+  },
+  "root": "tabs",
+  "anchors": [
+    {
+      "id": "tabs",
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 278.0,
+        "h": 36.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "tabs-list",
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 278.0,
+        "h": 36.0
+      },
+      "bg": "#f5f5f51c",
+      "visible": true,
+      "radius": 10.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "tabs-tab-workspaces",
+      "bounds": {
+        "x": 2.0,
+        "y": 2.0,
+        "w": 90.0,
+        "h": 32.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 8.0,
+      "border": {
+        "w": 1.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "tab-indicator",
+      "bounds": {
+        "x": 2.0,
+        "y": 2.0,
+        "w": 90.0,
+        "h": 32.0
+      },
+      "bg": "#1f1f1eff",
+      "visible": true,
+      "radius": 10.0,
+      "border": {
+        "w": 1.0,
+        "color": "#1f1f1eff"
+      }
+    },
+    {
+      "id": "tabs-tab-chats",
+      "bounds": {
+        "x": 94.0,
+        "y": 2.0,
+        "w": 90.0,
+        "h": 32.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 8.0,
+      "border": {
+        "w": 1.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "tabs-tab-files",
+      "bounds": {
+        "x": 186.0,
+        "y": 2.0,
+        "w": 90.0,
+        "h": 32.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 8.0,
+      "border": {
+        "w": 1.0,
+        "color": "#00000000"
+      }
+    }
+  ]
+}

@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "surface": "tabs",
+  "state": {
+    "width": 1714,
+    "theme": "dark",
+    "content": "normal",
+    "flags": []
+  },
+  "root": "tabs",
+  "anchors": [
+    {
+      "id": "tabs",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 278,
+        "h": 36
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0,
+      "border": {
+        "w": 0,
+        "color": "#ffffff0f"
+      }
+    },
+    {
+      "id": "tabs-list",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 278,
+        "h": 36
+      },
+      "bg": "#f5f5f51c",
+      "visible": true,
+      "radius": 10,
+      "border": {
+        "w": 0,
+        "color": "#ffffff0f"
+      }
+    },
+    {
+      "id": "tabs-tab-workspaces",
+      "bounds": {
+        "x": 2,
+        "y": 2,
+        "w": 90,
+        "h": 32
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 8,
+      "border": {
+        "w": 1,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "tabs-tab-chats",
+      "bounds": {
+        "x": 94,
+        "y": 2,
+        "w": 90,
+        "h": 32
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 8,
+      "border": {
+        "w": 1,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "tabs-tab-files",
+      "bounds": {
+        "x": 186,
+        "y": 2,
+        "w": 90,
+        "h": 32
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 8,
+      "border": {
+        "w": 1,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "tab-indicator",
+      "bounds": {
+        "x": 2,
+        "y": 2,
+        "w": 90,
+        "h": 32
+      },
+      "bg": "#1f1f1eff",
+      "visible": true,
+      "radius": 10,
+      "border": {
+        "w": 1,
+        "color": "#1f1f1eff"
+      }
+    }
+  ]
+}
