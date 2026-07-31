@@ -382,10 +382,15 @@ mod tests {
     /// `build.rs` sorts by module name, so the registry order is stable across
     /// machines — which is what makes `--help`'s output diffable.
     #[test]
-    fn the_registry_is_sorted_and_holds_the_three_surfaces() {
+    fn the_registry_is_sorted_and_holds_every_surface() {
         assert_eq!(
             Surface::names(),
-            ["dropdown-menu", "file-tree-row", "git-status-row"],
+            [
+                "dropdown-menu",
+                "file-tree-row",
+                "git-status-row",
+                "sidebar-carousel",
+            ],
         );
     }
 
