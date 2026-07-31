@@ -813,6 +813,18 @@ func (u *Usecase) spawnRunner(
 	if err := u.requireProviderEnabled(ctx, providerID); err != nil {
 		return "", err
 	}
+	// WHETHER to register Crowbar's own tool surface with this CLI — a per-provider
+	// switch, and a SEPARATE one from whether the provider is enabled at all: a CLI
+	// spawned with its tools off still comes up, still fires its hooks and still
+	// holds a normal chat.
+	//
+	// Read here, beside the enabled check and before any of this function's IO, so
+	// a preference the daemon cannot read fails the spawn without having created a
+	// tmp dir or a process to unwind.
+	mcpOn, err := u.providerMCPEnabled(ctx, providerID)
+	if err != nil {
+		return "", err
+	}
 	// The runner's id IS the crowbarSegmentID passed to every hook, minted here,
 	// before the process exists — so a hook fired the instant the CLI comes up can
 	// always name its runner. It is stable for the whole life of the process,
@@ -838,6 +850,12 @@ func (u *Usecase) spawnRunner(
 	if err != nil {
 		return "", fmt.Errorf("agent: spawn runner: resolve descriptor: %w", err)
 	}
+	// The tool surface is switched off by rendering a descriptor that does not
+	// declare one, rather than by filtering steps at the injection site: WHERE
+	// those steps land is the descriptor's business (claude's --mcp-config is
+	// variadic and needs the --settings pair immediately behind it), and this
+	// function has no business knowing that.
+	descriptor = withMCPInject(descriptor, mcpOn)
 
 	// Under the workspace's chats dir (always beneath crowbar home), keyed by the RUNNER —
 	// id + provider — and NOT by the chat. The chat pointer is erasable (Displace clears it
@@ -2131,6 +2149,27 @@ func contextInject(d *engineagent.Descriptor, resuming bool) []engineagent.Injec
 	return d.ContextInject
 }
 
+// withMCPInject returns the descriptor a spawn should render: the provider's own
+// when its tool surface is switched on, or a copy with mcp_injection emptied when
+// it is not.
+//
+// It COPIES rather than clearing the field in place. ResolveDescriptor may hand
+// back a descriptor other spawns share, and a switch that emptied it would turn
+// one chat's preference into every later chat's — the exact class of bug a
+// per-provider toggle must not have. The copy is shallow because only that one
+// slice header is replaced; nothing here mutates through the others.
+func withMCPInject(
+	d *engineagent.Descriptor,
+	on bool,
+) *engineagent.Descriptor {
+	if on {
+		return d
+	}
+	stripped := *d
+	stripped.MCPInject = nil
+	return &stripped
+}
+
 // requireProviderEnabled refuses a provider the user has switched OFF, and is
 // the guard both spawn paths consult (see ErrProviderDisabled for why reporting
 // the flag was never enough).
@@ -2150,6 +2189,32 @@ func (u *Usecase) requireProviderEnabled(
 		return fmt.Errorf("%w (%q)", ErrProviderDisabled, providerID)
 	}
 	return nil
+}
+
+// providerMCPEnabled reports whether Crowbar's tool surface should be registered
+// with this provider, and mirrors requireProviderEnabled: same store, same
+// "no row means the default", same negative column so a freshly migrated table
+// does not silently switch every provider's tools off.
+//
+// It ANSWERS rather than refuses, which is the whole difference between the two
+// switches. Disabling a provider stops the spawn; disabling its tools does not —
+// the CLI comes up, its hooks fire and the chat behaves normally, it simply has
+// no Crowbar tools. A guard that returned an error here would have made the
+// weaker switch the stronger one.
+//
+// A read failure fails the spawn rather than defaulting either way. It is not
+// reachable in practice — requireProviderEnabled has already read the same row
+// off the same store a few lines earlier — but guessing at a preference the user
+// set is worse than saying the daemon could not read it.
+func (u *Usecase) providerMCPEnabled(
+	ctx context.Context,
+	providerID string,
+) (bool, error) {
+	pref, err := u.providerPrefs.FindByKey(ctx, providerID)
+	if err != nil {
+		return false, fmt.Errorf("agent: provider mcp preference %q: %w", providerID, err)
+	}
+	return pref == nil || !pref.MCPDisabled, nil
 }
 
 // ListProviders enumerates the registered agent providers for the workspace's
@@ -2213,6 +2278,7 @@ func (u *Usecase) ResolveProviders(
 			Icon:        d.Icon,
 			Connected:   u.connected(d.Spawn.Cmd),
 			Enabled:     !p.Disabled,
+			MCPEnabled:  !p.MCPDisabled,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {

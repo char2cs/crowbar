@@ -65,6 +65,73 @@ func TestResolveDescriptor_EmbeddedCodexValid(t *testing.T) {
 // mcpSpawnPlan renders providerID's whole spawn plan the way the daemon does, so
 // every assertion below reads the argv a real CLI would actually receive rather
 // than the descriptor's unexpanded source.
+//
+// Both shipped descriptors declare their MCP registration as a NAMED step group,
+// which is the whole mechanism the per-provider tool-surface switch turns: a
+// group can be dropped whole, and only a group can. codex is why — {runner_token}
+// templates only one of its four MCP overrides, so any scheme that filtered
+// templated steps would leave three behind and register a server with no
+// arguments.
+func TestDescriptors_DeclareTheirMCPRegistrationAsANamedGroup(t *testing.T) {
+	claude, err := agent.ResolveDescriptor(t.TempDir(), "claude")
+	require.NoError(t, err)
+	require.Len(t, claude.MCPInject, 1)
+	require.Equal(t, "--mcp-config", claude.MCPInject[0].Args["arg"])
+
+	codex, err := agent.ResolveDescriptor(t.TempDir(), "codex")
+	require.NoError(t, err)
+	require.Len(t, codex.MCPInject, 4)
+	for _, step := range codex.MCPInject {
+		require.Equal(t, "-c", step.Args["arg"])
+		require.Contains(t, step.Args["value"], "mcp_servers.crowbar.")
+	}
+
+	// Nothing MCP may be left in config_injection, or the switch would leave a
+	// partial registration behind on exactly the provider it matters most for.
+	for _, d := range []*agent.Descriptor{claude, codex} {
+		for _, step := range d.ConfigInjection {
+			for _, v := range step.Args {
+				require.NotContains(t, asText(v), "mcp",
+					"%s still registers MCP from config_injection, which the switch cannot reach", d.ID)
+			}
+		}
+	}
+}
+
+func asText(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+// A third-party descriptor that declares no mcp_injection must LOAD and must
+// simply register no tools. Requiring the field would make Crowbar's own MCP
+// wiring a condition of being a provider at all.
+func TestDescriptor_MCPInjectIsOptional(t *testing.T) {
+	const minimal = `id: minimal
+spawn:
+  cmd: minimal
+  interactive_required: true
+hooks:
+  format: json
+  events:
+    session_start: { session_id: session_id }
+    turn_stop: { message: last_assistant_message }
+`
+	d, err := agent.LoadDescriptor([]byte(minimal))
+	require.NoError(t, err)
+	require.Empty(t, d.MCPInject)
+
+	plan, err := agent.BuildSpawnPlan(d, agent.TemplateCtx{
+		Tmp: t.TempDir(), Cwd: t.TempDir(), Segid: "SEG", RunnerToken: "TOK",
+	}, nil, nil)
+	require.NoError(t, err)
+	t.Cleanup(plan.Cleanup)
+	require.Empty(t, plan.Argv)
+}
+
+// The descriptor is handed over with its mcp_injection intact, which is the
+// MCP-ENABLED case — the only one these assertions are about. The disabled case
+// is asserted where the switch actually lives, in the usecase.
 func mcpSpawnPlan(t *testing.T, providerID, repoID string) *agent.SpawnPlan {
 	t.Helper()
 	d, err := agent.ResolveDescriptor(t.TempDir(), providerID)
@@ -251,7 +318,8 @@ func TestDescriptors_MCPArgsSurviveAnEmptyRepoID(t *testing.T) {
 // BuildSpawnPlan appends the session/handoff steps AFTER config_injection, and
 // those can be positionals (a resumed session's id), so the descriptor has to
 // guarantee a FLAG follows the JSON no matter what a caller adds. Here that is
-// --settings, which is why it is ordered after --mcp-config and not before.
+// --settings, which is why mcp_injection renders ahead of config_injection and
+// not behind it.
 func TestClaudeDescriptor_MCPConfigIsNeverFollowedByAPositional(t *testing.T) {
 	d, err := agent.ResolveDescriptor(t.TempDir(), "claude")
 	require.NoError(t, err)

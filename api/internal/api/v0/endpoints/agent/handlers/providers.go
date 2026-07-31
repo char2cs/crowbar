@@ -37,10 +37,15 @@ func (h *Handlers) Providers(
 func (h *Handlers) UpdateProviderPreferences(
 	ctx *gin.Context,
 ) {
+	// Both flags arrive NEGATIVELY, matching what the row stores rather than what
+	// the switch shows, so an omitted field means the default in the same
+	// direction the DB does: a client that predates mcpDisabled submits nothing
+	// for it and every provider keeps its tool surface.
 	var body struct {
 		Providers []struct {
-			ID       string `json:"id"`
-			Disabled bool   `json:"disabled"`
+			ID          string `json:"id"`
+			Disabled    bool   `json:"disabled"`
+			MCPDisabled bool   `json:"mcpDisabled"`
 		} `json:"providers"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
@@ -51,9 +56,10 @@ func (h *Handlers) UpdateProviderPreferences(
 	prefs := make([]domain.AgentProviderPreference, len(body.Providers))
 	for i, p := range body.Providers {
 		prefs[i] = domain.AgentProviderPreference{
-			ProviderID: p.ID,
-			Priority:   i,
-			Disabled:   p.Disabled,
+			ProviderID:  p.ID,
+			Priority:    i,
+			Disabled:    p.Disabled,
+			MCPDisabled: p.MCPDisabled,
 		}
 	}
 

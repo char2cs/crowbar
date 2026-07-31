@@ -83,29 +83,46 @@ config_injection:
   - pass_arg:
       arg: "-c"
       value: 'hooks.Stop=[{hooks=[{type="command",command="{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"}]}]'
-  # The Crowbar tool surface, injected through the same session-layer -c channel
-  # the hooks above use: nothing is written to disk and ~/.codex is untouched,
-  # which is the law this descriptor is built on. Verified against codex 0.139.0
-  # via `codex mcp list -c mcp_servers.…` — the server registers enabled.
-  #
-  # codex does NOT defer MCP tool schemas, so every tool costs context on every
-  # turn here. Keep the surface small.
-  #
-  # Scope travels as discrete array elements, never {scope_flags}: each element
-  # reaches the process as its own argument, so a project-home workspace's empty
-  # repo id arrives as an empty string instead of swallowing the next token the
-  # way a flat shell string would (see TemplateCtx.ScopeFlags).
-  #
-  # The token is a SEPARATE credential from the segment id, not a reuse of it. The
-  # segment id is not secret — it is published on the chats API — so requiring a
-  # token beside it is what stops a copied command line or a mis-pointed relay
-  # acting as another runner by accident, and what keeps this relay unable to
-  # authorize itself: it forwards bytes, the daemon decides.
-  #
-  # It is NOT containment against an agent with a shell. The token sits in argv
-  # exactly as the id does and `ps` shows argv to the same user, and the daemon
-  # socket has no authentication at all — so shell access already reaches more
-  # than these tools do. See agenttools.TokenMinter.
+hooks:
+  format: json
+  events:
+    session_start: { session_id: session_id }
+    user_prompt:   { message: prompt }
+    turn_stop:     { session_id: session_id, message: last_assistant_message }
+# The Crowbar tool surface, injected through the same session-layer -c channel
+# the hooks above use: nothing is written to disk and ~/.codex is untouched,
+# which is the law this descriptor is built on. Verified against codex 0.139.0
+# via `codex mcp list -c mcp_servers.…` — the server registers enabled.
+#
+# It lives in its own step list because the user can switch the tool surface off
+# for this provider without disabling the provider: everything in
+# config_injection above still runs, so the CLI spawns and its hooks still fire,
+# and only these steps are skipped. See Descriptor.MCPInject.
+#
+# Only ONE of these four steps carries {runner_token}, which is why the switch
+# had to be a named group rather than a filter over templated steps: dropping the
+# templated ones alone would leave .command, .env_vars and
+# .default_tools_approval_mode behind, registering a server with no arguments.
+#
+# codex does NOT defer MCP tool schemas, so every tool costs context on every
+# turn here. Keep the surface small.
+#
+# Scope travels as discrete array elements, never {scope_flags}: each element
+# reaches the process as its own argument, so a project-home workspace's empty
+# repo id arrives as an empty string instead of swallowing the next token the
+# way a flat shell string would (see TemplateCtx.ScopeFlags).
+#
+# The token is a SEPARATE credential from the segment id, not a reuse of it. The
+# segment id is not secret — it is published on the chats API — so requiring a
+# token beside it is what stops a copied command line or a mis-pointed relay
+# acting as another runner by accident, and what keeps this relay unable to
+# authorize itself: it forwards bytes, the daemon decides.
+#
+# It is NOT containment against an agent with a shell. The token sits in argv
+# exactly as the id does and `ps` shows argv to the same user, and the daemon
+# socket has no authentication at all — so shell access already reaches more
+# than these tools do. See agenttools.TokenMinter.
+mcp_injection:
   - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.command="{crowbar}"' }
   - pass_arg:
       arg: "-c"
@@ -192,12 +209,6 @@ config_injection:
   - pass_arg:
       arg: "-c"
       value: 'mcp_servers.crowbar.default_tools_approval_mode="approve"'
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    user_prompt:   { message: prompt }
-    turn_stop:     { session_id: session_id, message: last_assistant_message }
 # codex ships no --append-system-prompt (the upstream request for it is closed
 # unimplemented) and its positional [PROMPT] IS the user's first message — passing
 # the handoff there is what made codex answer the handoff on sight instead of

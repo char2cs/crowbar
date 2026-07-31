@@ -16,9 +16,16 @@ type SpawnPlan struct {
 	Cleanup func()
 }
 
-// BuildSpawnPlan renders a descriptor's spawn.args + config_injection (+ any
-// extraSteps such as session/handoff args) into a concrete argv/env/cwd, writing
-// any hook-config files under ctx.Tmp. baseEnv is the process env to start from.
+// BuildSpawnPlan renders a descriptor's spawn.args + mcp_injection +
+// config_injection (+ any extraSteps such as session/handoff args) into a
+// concrete argv/env/cwd, writing any hook-config files under ctx.Tmp. baseEnv is
+// the process env to start from.
+//
+// It renders whatever MCPInject the descriptor it is HANDED declares. Whether
+// this provider's tool surface should be registered at all is a user preference,
+// so the decision is the usecase's and arrives here as a descriptor with the
+// field already emptied — the engine has no access to a preference table and
+// should not grow one.
 func BuildSpawnPlan(d *Descriptor, ctx TemplateCtx, baseEnv []string, extraSteps []InjectStep) (*SpawnPlan, error) {
 	env := clearEnv(baseEnv, d.Spawn.Env.Clear)
 	plan := &SpawnPlan{
@@ -31,7 +38,14 @@ func BuildSpawnPlan(d *Descriptor, ctx TemplateCtx, baseEnv []string, extraSteps
 	for _, a := range d.Spawn.Args {
 		plan.Argv = append(plan.Argv, Expand(a, ctx))
 	}
-	steps := append([]InjectStep{}, d.ConfigInjection...)
+	// mcp_injection BEFORE config_injection, so a descriptor can guarantee with its
+	// own steps what follows its MCP registration. claude's --mcp-config is
+	// variadic and swallows any bare positional after it (see claude.yaml), and
+	// what stops that is the --settings pair sitting immediately behind it in
+	// config_injection. Rendering the MCP steps after config_injection instead
+	// would put the JSON one token away from a resumed session's id.
+	steps := append([]InjectStep{}, d.MCPInject...)
+	steps = append(steps, d.ConfigInjection...)
 	steps = append(steps, extraSteps...)
 	for _, st := range steps {
 		if err := runStep(st, ctx, plan); err != nil {

@@ -33,39 +33,47 @@ config_injection:
           "Stop":[{"hooks":[{"type":"command",
             "command":"{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"}]}]
         }}
-  # The Crowbar tool surface. --mcp-config takes a JSON STRING, so nothing is
-  # written to disk and the user's own MCP servers are untouched (verified
-  # against claude 2.1.220: the tools arrive as mcp__crowbar__*, and claude
-  # DEFERS their schemas until first use).
-  #
-  # Scope travels as discrete array elements, never {scope_flags}: each element
-  # reaches the process as its own argument, so a project-home workspace's empty
-  # repo id arrives as an empty string instead of swallowing the next token the
-  # way a flat shell string would (see TemplateCtx.ScopeFlags).
-  #
-  # The token is a SEPARATE credential from the segment id, not a reuse of it. The
-  # segment id is not secret — it is published on the chats API — so requiring a
-  # token beside it is what stops a copied command line or a mis-pointed relay
-  # acting as another runner by accident, and what keeps this relay unable to
-  # authorize itself: it forwards bytes, the daemon decides.
-  #
-  # It is NOT containment against an agent with a shell. The token sits in argv
-  # exactly as the id does and `ps` shows argv to the same user, and the daemon
-  # socket has no authentication at all — so shell access already reaches more
-  # than these tools do. See agenttools.TokenMinter.
-  #
-  # IT MUST NOT BE THE LAST STEP HERE, and that is why --settings follows it rather
-  # than precedes it. `--mcp-config <configs...>` is VARIADIC — it keeps eating
-  # tokens until it meets a dash-prefixed one — so any bare positional after it is
-  # swallowed as an extra config. Observed on 2.1.220: `claude --mcp-config '<json>'
-  # mcp list` dies with "MCP config file not found: /private/tmp/mcp", having taken
-  # the subcommand as two more config paths. BuildSpawnPlan appends session/handoff
-  # steps AFTER this list, and those can be positionals (a resumed session's id),
-  # so the only durable defence is to guarantee a flag immediately follows the JSON.
+  - pass_arg: { arg: "--settings", value: "{tmp}/settings.json" }
+# The Crowbar tool surface. --mcp-config takes a JSON STRING, so nothing is
+# written to disk and the user's own MCP servers are untouched (verified
+# against claude 2.1.220: the tools arrive as mcp__crowbar__*, and claude
+# DEFERS their schemas until first use).
+#
+# It lives in its own step list because the user can switch the tool surface off
+# for this provider without disabling the provider: everything in
+# config_injection above still runs, so the CLI spawns and its hooks still fire,
+# and only these steps are skipped. See Descriptor.MCPInject.
+#
+# Scope travels as discrete array elements, never {scope_flags}: each element
+# reaches the process as its own argument, so a project-home workspace's empty
+# repo id arrives as an empty string instead of swallowing the next token the
+# way a flat shell string would (see TemplateCtx.ScopeFlags).
+#
+# The token is a SEPARATE credential from the segment id, not a reuse of it. The
+# segment id is not secret — it is published on the chats API — so requiring a
+# token beside it is what stops a copied command line or a mis-pointed relay
+# acting as another runner by accident, and what keeps this relay unable to
+# authorize itself: it forwards bytes, the daemon decides.
+#
+# It is NOT containment against an agent with a shell. The token sits in argv
+# exactly as the id does and `ps` shows argv to the same user, and the daemon
+# socket has no authentication at all — so shell access already reaches more
+# than these tools do. See agenttools.TokenMinter.
+#
+# A BARE POSITIONAL MUST NEVER IMMEDIATELY FOLLOW THE JSON. `--mcp-config
+# <configs...>` is VARIADIC — it keeps eating tokens until it meets a
+# dash-prefixed one — so a positional after it is swallowed as an extra config.
+# Observed on 2.1.220: `claude --mcp-config '<json>' mcp list` dies with "MCP
+# config file not found: /private/tmp/mcp", having taken the subcommand as two
+# more config paths. This list is rendered BEFORE the session/handoff steps, and
+# those can be positionals (a resumed session's id), so what guarantees the rule
+# today is that claude's own resume and context channels are both flags. That is
+# not self-evident from here, so it is pinned by a test rather than by trust —
+# see TestSpawnChat_Claude_MCPConfigIsNeverFollowedByAPositional.
+mcp_injection:
   - pass_arg:
       arg: "--mcp-config"
       value: '{"mcpServers":{"crowbar":{"command":"{crowbar}","args":["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}"]}}}'
-  - pass_arg: { arg: "--settings", value: "{tmp}/settings.json" }
 hooks:
   format: json
   events:
