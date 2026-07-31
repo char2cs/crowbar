@@ -209,6 +209,7 @@ export function IDEShell() {
   const sidebarPanel = (
     <ResizablePanel
       key="sidebar"
+      data-oracle-id="resize-panel-sidebar"
       id={`sidebar-${sidebarSide}`}
       ref={sidebarPanelRef}
       collapsible
@@ -223,7 +224,13 @@ export function IDEShell() {
     </ResizablePanel>
   )
   const contentPanel = (
-    <ResizablePanel key="content" id={`content-${sidebarSide}`} minSize="20%" className="min-w-0">
+    <ResizablePanel
+      key="content"
+      data-oracle-id="resize-panel-content"
+      id={`content-${sidebarSide}`}
+      minSize="20%"
+      className="min-w-0"
+    >
       {contentEl}
     </ResizablePanel>
   )

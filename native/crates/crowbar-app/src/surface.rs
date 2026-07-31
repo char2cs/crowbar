@@ -381,6 +381,13 @@ mod tests {
 
     /// `build.rs` sorts by module name, so the registry order is stable across
     /// machines — which is what makes `--help`'s output diffable.
+    ///
+    /// **This is the one assertion a new surface has to touch**, and it is
+    /// deliberately not "adding a file is enough": the whole value of it is that
+    /// the generated list is *enumerated by hand* somewhere, so a surface that
+    /// appeared or vanished by accident — a stray `.rs` under `src/surfaces/`, a
+    /// `build.rs` that stopped globbing — fails here rather than being noticed
+    /// when a matrix run comes back with nothing to compare.
     #[test]
     fn the_registry_is_sorted_and_holds_every_surface() {
         assert_eq!(
@@ -389,6 +396,7 @@ mod tests {
                 "dropdown-menu",
                 "file-tree-row",
                 "git-status-row",
+                "resizable",
                 "sidebar-carousel",
             ],
         );

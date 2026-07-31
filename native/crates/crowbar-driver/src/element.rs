@@ -21,7 +21,7 @@
 //!   `NotifyGlobalObservers` effect; `try_global` does not, and the interior
 //!   `RefCell` is enough to record through.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use crowbar_ui::gpui::{
@@ -30,16 +30,26 @@ use crowbar_ui::gpui::{
     StyledText, TextStyle, Window, px,
 };
 
-use crate::record::{self, RawAnchor, TextInput};
+use crate::record::{self, Opacity, RawAnchor, TextInput};
 use crate::schema::{Snapshot, SnapshotError, SurfaceState};
 
-/// Everything the anchors in one window recorded during the current frame.
+/// Everything the anchors in one window recorded during the current frame,
+/// plus the opacity in force at the point `prepaint` has reached.
 ///
 /// A cheap handle: cloning it shares the same records, which is what lets an
 /// anchor deep in the tree and the caller that serialises the snapshot both
 /// hold one.
+///
+/// The opacity chain lives here rather than in the elements because gpui gives
+/// an element no way to see its ancestors — see the crate docs' `visible`
+/// bullet. `prepaint` descends in tree order, so an [`AnchoredBox`] that pushes
+/// its own opacity before prepainting its child and restores it afterwards
+/// reconstructs exactly the part of the chain the driver can see.
 #[derive(Clone, Default)]
-pub struct AnchorRegistry(Rc<RefCell<Vec<RawAnchor>>>);
+pub struct AnchorRegistry {
+    records: Rc<RefCell<Vec<RawAnchor>>>,
+    opacity: Rc<Cell<Opacity>>,
+}
 
 impl Global for AnchorRegistry {}
 
@@ -65,15 +75,42 @@ impl AnchorRegistry {
     ///
     /// [`anchor_root`] calls this as it enters `prepaint`, which is what makes
     /// a snapshot one frame rather than an accumulation of them.
+    ///
+    /// The opacity chain is **not** reset with it. A translucent ancestor above
+    /// the root anchor is not in the snapshot, but it is still an ancestor, and
+    /// `visible` is a statement about what a user sees rather than about which
+    /// rows the differ happens to read.
     pub fn clear(&self) {
-        self.0.borrow_mut().clear();
+        self.records.borrow_mut().clear();
     }
 
     /// The anchors recorded in the current frame, in the order `prepaint`
     /// reached them.
     #[must_use]
     pub fn records(&self) -> Vec<RawAnchor> {
-        self.0.borrow().clone()
+        self.records.borrow().clone()
+    }
+
+    /// The opacity in force where `prepaint` currently is.
+    fn opacity(&self) -> Opacity {
+        self.opacity.get()
+    }
+
+    /// Descends into an element whose own declared opacity is `declared`,
+    /// returning the chain to hand back to [`AnchorRegistry::leave`].
+    ///
+    /// Restoring rather than popping a stack, so that a subtree gpui prepaints
+    /// twice in one frame — which it may — cannot leave the chain deeper than
+    /// it found it.
+    fn enter(&self, declared: Option<f32>) -> Opacity {
+        let previous = self.opacity.get();
+        self.opacity.set(previous.under(declared));
+        previous
+    }
+
+    /// Undoes one [`AnchorRegistry::enter`].
+    fn leave(&self, previous: Opacity) {
+        self.opacity.set(previous);
     }
 
     /// Builds a v1 snapshot from what has been recorded.
@@ -88,7 +125,7 @@ impl AnchorRegistry {
         state: SurfaceState,
         root: &str,
     ) -> Result<Snapshot, SnapshotError> {
-        Snapshot::build(surface, state, root, self.0.borrow().as_slice())
+        Snapshot::build(surface, state, root, self.records.borrow().as_slice())
     }
 
     /// Records one anchor, replacing any earlier record with the same id.
@@ -97,7 +134,7 @@ impl AnchorRegistry {
     /// subtree more than once in a frame; two rows for one id would make the
     /// snapshot depend on which one the differ happened to read.
     fn record(&self, raw: RawAnchor) {
-        let mut records = self.0.borrow_mut();
+        let mut records = self.records.borrow_mut();
         if let Some(existing) = records.iter_mut().find(|record| record.id == raw.id) {
             *existing = raw;
         } else {
@@ -318,10 +355,15 @@ impl Element for AnchoredBox {
         window: &mut Window,
         cx: &mut App,
     ) {
-        if let Some(registry) = registry(cx) {
+        // `enter` **before** recording, so that this element's own opacity
+        // counts against its own `visible` and not only its children's — which
+        // is what `oracleIsVisible` does when it tests `el` before walking up
+        // from `el.parentElement`.
+        let descent = registry(cx).map(|registry| {
             if self.resets {
                 registry.clear();
             }
+            let previous = registry.enter(self.style.opacity);
             registry.record(RawAnchor {
                 // The component's claims, folded onto the style's facts. See
                 // `record::box_facts`.
@@ -333,11 +375,17 @@ impl Element for AnchoredBox {
                     window.content_mask().bounds,
                     &self.style,
                     window.rem_size(),
+                    registry.opacity(),
                 )
             });
-        }
+            (registry, previous)
+        });
 
         let _focus = self.child.prepaint(window, cx);
+
+        if let Some((registry, previous)) = descent {
+            registry.leave(previous);
+        }
     }
 
     fn paint(
@@ -423,6 +471,9 @@ impl Element for AnchoredText {
                 shaped_width,
                 content_sized: self.declared.content_sized,
                 line_sized: self.declared.line_sized,
+                // A `StyledText` has no opacity of its own to fold in, so this
+                // run is exactly as opaque as the box that holds it.
+                opacity: registry.opacity(),
             }));
         }
 
@@ -579,6 +630,60 @@ mod tests {
                     .flex_col()
                     .child(anchor("twice", div().w(px(40.0)).h(px(10.0))))
                     .child(anchor("twice", div().w(px(60.0)).h(px(20.0)))),
+            )
+        }
+    }
+
+    /// `corpus/001`'s sequence, in the smallest tree that carries it: a layer
+    /// at `opacity-0` holding a box anchor, a text anchor and a nested anchor
+    /// two levels down, plus a sibling outside the layer that must stay
+    /// visible.
+    ///
+    /// The layer is the **root anchor** rather than an unanchored ancestor of
+    /// it, which is the placement the crate docs' `visible` bullet requires and
+    /// costs nothing: opacity changes no geometry, and every bound in a
+    /// snapshot is relative to the root either way.
+    struct TranslucentSurface {
+        opacity: f32,
+    }
+
+    impl Render for TranslucentSurface {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div().flex().flex_col().child(anchor_root(
+                "root",
+                div()
+                    .opacity(self.opacity)
+                    .child(anchor(
+                        "panel",
+                        div()
+                            .w(px(40.0))
+                            .h(px(10.0))
+                            .child(anchor("nested", div().w(px(20.0)).h(px(5.0)))),
+                    ))
+                    .child(anchor_text("label", "carousel")),
+            ))
+        }
+    }
+
+    /// The other half of the same question: a *sibling* of the transparent
+    /// layer is untouched by it, so the chain has to be restored on the way
+    /// back up and not merely accumulated on the way down.
+    struct SiblingSurface;
+
+    impl Render for SiblingSurface {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            anchor_root(
+                "root",
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(anchor(
+                        "hidden-layer",
+                        div()
+                            .opacity(0.0)
+                            .child(anchor("under-layer", div().w(px(40.0)).h(px(10.0)))),
+                    ))
+                    .child(anchor("sibling", div().w(px(40.0)).h(px(10.0)))),
             )
         }
     }
@@ -765,6 +870,78 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_eq!(records[1].id, "twice");
         assert_eq!(records[1].bounds.size, size(px(60.0), px(20.0)));
+    }
+
+    /// `corpus/001`, driven: **every** anchor under a zero-opacity layer
+    /// reports `visible: false`, the way `oracleIsVisible` has reported it all
+    /// along.
+    ///
+    /// The control is the same tree at `opacity(1.0)`, in the same test: without
+    /// it, "every anchor is invisible" would also pass on a driver that had
+    /// broken `visible` outright, which is the shape of vacuous guard this
+    /// codebase has produced before.
+    #[gpui::test]
+    fn every_anchor_under_a_zero_opacity_layer_is_invisible(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
+        let anchors = cx.update(install);
+        let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| TranslucentSurface {
+            opacity: 0.0,
+        });
+        cx.run_until_parked();
+
+        let records = anchors.records();
+
+        assert_eq!(
+            records.iter().map(|r| r.id.as_ref()).collect::<Vec<_>>(),
+            ["root", "panel", "nested", "label"],
+        );
+        for record in &records {
+            assert!(!record.visible, "{}", record.id);
+            // Nothing else moved: the boxes are still laid out and measured.
+            assert!(record.bounds.size.width > px(0.0), "{}", record.id);
+        }
+    }
+
+    /// The control for the test above, and the one that makes it non-vacuous:
+    /// the identical tree at full opacity reports every anchor visible.
+    #[gpui::test]
+    fn the_same_tree_at_full_opacity_is_visible_throughout(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
+        let anchors = cx.update(install);
+        let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| TranslucentSurface {
+            opacity: 1.0,
+        });
+        cx.run_until_parked();
+
+        for record in &anchors.records() {
+            assert!(record.visible, "{}", record.id);
+        }
+    }
+
+    /// The chain is restored on the way back up: a sibling of a transparent
+    /// layer is visible, and so is the root above both. A driver that only ever
+    /// accumulated would report the sibling invisible and pass every assertion
+    /// in the two tests above.
+    #[gpui::test]
+    fn a_sibling_of_a_transparent_layer_keeps_its_own_opacity(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
+        let anchors = cx.update(install);
+        let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| SiblingSurface);
+        cx.run_until_parked();
+
+        let records = anchors.records();
+        let visible = |id: &str| {
+            records
+                .iter()
+                .find(|record| record.id == id)
+                .unwrap_or_else(|| panic!("{id} was recorded"))
+                .visible
+        };
+
+        assert!(visible("root"));
+        assert!(!visible("hidden-layer"));
+        assert!(!visible("under-layer"));
+        assert!(visible("sibling"));
     }
 
     /// `shape_line` is single-line only, so a string with a newline in it takes
