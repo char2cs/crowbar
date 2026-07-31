@@ -1,0 +1,2 @@
+# `verify-theme.py` imports `gen-theme.py`; Python caches the import.
+__pycache__/

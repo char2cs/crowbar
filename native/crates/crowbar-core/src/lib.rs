@@ -13,6 +13,8 @@
 //! here appears to need `gpui`, it is not logic — split the rendering half out
 //! into `crowbar-ui` or `crowbar-state` and leave the decision here.
 
+pub mod color;
+
 #[cfg(test)]
 mod tests {
     /// Proves the `clippy.toml` test exemptions from §4.3 rule 4 are actually
