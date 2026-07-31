@@ -10,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/singleflight"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
@@ -183,11 +182,9 @@ func TestSharedScope_ClonesPerWaiter(t *testing.T) {
 	files := []gitdomain.ReviewFileSummary{
 		{Path: "a.go", Status: gitdomain.GitFileStatusModified, Additions: 3, Deletions: 1},
 	}
-	res := singleflight.Result{Val: gitdomain.ReviewScope{Base: "base-sha", Files: files}}
-
-	first, err := branchreview.SharedScope(res)
+	first, err := branchreview.SharedScope("base-sha", files)
 	require.NoError(t, err)
-	second, err := branchreview.SharedScope(res)
+	second, err := branchreview.SharedScope("base-sha", files)
 	require.NoError(t, err)
 
 	first.Files[0].Additions = 9999

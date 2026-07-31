@@ -87,6 +87,13 @@ func TestBoundedTools_TheCapsAreTheNumbersTheBudgetWasComputedFrom(t *testing.T)
 	require.Equal(t, 50, agenttools.MaxChatLogTurnsForTest)
 	require.Equal(t, 100, agenttools.DefaultScopeFilesForTest)
 	require.Equal(t, 300, agenttools.MaxScopeFilesForTest)
+	// The geometry caps are the same budget again, on the one part of a scope
+	// reply whose size follows the DIFF rather than the file count: ~12 characters
+	// a range, so 300 of them is ~3.6 KB — about what the file rows themselves
+	// cost. Six per file per side is a file's working set; past that the file is
+	// one to open rather than to anchor from a listing.
+	require.Equal(t, 6, agenttools.MaxScopeRangesPerFileForTest)
+	require.Equal(t, 300, agenttools.MaxScopeRangesForTest)
 	// The body caps are the same 16 KB page budget divided by each tool's
 	// worst-case body count: 16384/(20 threads × 4 messages) for a review message,
 	// 16384/(20 turns) for a chat turn. Raising either without re-deriving it is

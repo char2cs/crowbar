@@ -67,10 +67,16 @@ type stubReviewReader struct {
 	scopeCalls int
 }
 
+// GetScope hands back the SAME outline GetOutline does, because the real one
+// does: branchreview loads the scope's geometry through the very cache entry
+// GetOutline serves, off one resolved ref. A stub with a separate geometry field
+// would let get_review_scope advertise ranges post_review_comment refuses — the
+// one failure the two-in-one shape exists to make impossible — and no test here
+// could see it.
 func (s *stubReviewReader) GetScope(_ context.Context, ws domain.Workspace) (gitdomain.ReviewScope, error) {
 	s.lastWsID = ws.ID
 	s.scopeCalls++
-	return gitdomain.ReviewScope{Base: s.base, Files: s.files}, nil
+	return gitdomain.ReviewScope{Base: s.base, Files: s.files, Outline: s.outline}, nil
 }
 
 func (s *stubReviewReader) GetOutline(_ context.Context, wsID, _ string) ([]gitdomain.FileOutline, error) {

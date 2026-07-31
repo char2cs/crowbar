@@ -38,6 +38,22 @@ func (u *branchReviewUsecase) GetOutline(
 		return nil, fmt.Errorf("branch review: resolve ref: %w", err)
 	}
 	key, cacheable := u.cacheableOutlineKey(ctx, ws, ref, commit)
+	return u.outlineWithKey(ctx, ws, ref, key, cacheable)
+}
+
+// outlineWithKey is the read behind both GetOutline and GetScope's geometry:
+// given an already-resolved ref and whatever cache key its caller could prove,
+// it serves the memoised outline or streams a fresh one. It is factored out so
+// the two callers cannot drift into computing the same geometry two different
+// ways — they must agree, or an anchor validated against one would be refused
+// against the other.
+func (u *branchReviewUsecase) outlineWithKey(
+	ctx context.Context,
+	ws domain.Workspace,
+	ref string,
+	key outlineKey,
+	cacheable bool,
+) ([]gitdomain.FileOutline, error) {
 	if !cacheable {
 		return u.readOutline(ctx, ws, ref)
 	}
@@ -85,7 +101,26 @@ func (u *branchReviewUsecase) cacheableOutlineKey(
 		return outlineKey{repoPath: ws.WorktreePath, ref: ref}, true
 	}
 	status, err := u.git.Status(ctx, ws.WorktreePath)
-	if err != nil || hasTrackedChanges(status) {
+	if err != nil {
+		return outlineKey{}, false
+	}
+	return u.branchOutlineKey(ctx, ws, ref, !hasTrackedChanges(status))
+}
+
+// branchOutlineKey is the second half of cacheableOutlineKey, split out for the
+// caller that has ALREADY established the working tree's state — GetScope, whose
+// file list is read from a status it took on the way — so that fact does not
+// cost a second `git status` to re-learn.
+//
+// treeClean is a precondition, not a hint: a tree that has moved is refused a key
+// outright rather than cached under one that cannot see the difference.
+func (u *branchReviewUsecase) branchOutlineKey(
+	ctx context.Context,
+	ws domain.Workspace,
+	ref string,
+	treeClean bool,
+) (outlineKey, bool) {
+	if !treeClean {
 		return outlineKey{}, false
 	}
 	head, err := u.git.RevParse(ctx, ws.WorktreePath, "HEAD")

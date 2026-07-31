@@ -28,13 +28,15 @@ var ChatsByWorkspaceForTest = chatsByWorkspace
 // would keep passing against a cap someone had since changed to 200, which is
 // the one way a bounding test can go quiet without anyone noticing.
 const (
-	DefaultThreadPageForTest   = defaultThreadPage
-	MaxThreadPageForTest       = maxThreadPage
-	MaxThreadMessagesForTest   = maxThreadMessages
-	DefaultChatLogTurnsForTest = defaultChatLogTurns
-	MaxChatLogTurnsForTest     = maxChatLogTurns
-	DefaultScopeFilesForTest   = defaultScopeFiles
-	MaxScopeFilesForTest       = maxScopeFiles
-	MaxMessageBodyCharsForTest = maxMessageBodyChars
-	MaxTurnBodyCharsForTest    = maxTurnBodyChars
+	DefaultThreadPageForTest     = defaultThreadPage
+	MaxThreadPageForTest         = maxThreadPage
+	MaxThreadMessagesForTest     = maxThreadMessages
+	DefaultChatLogTurnsForTest   = defaultChatLogTurns
+	MaxChatLogTurnsForTest       = maxChatLogTurns
+	DefaultScopeFilesForTest     = defaultScopeFiles
+	MaxScopeFilesForTest         = maxScopeFiles
+	MaxScopeRangesPerFileForTest = maxScopeRangesPerFile
+	MaxScopeRangesForTest        = maxScopeRanges
+	MaxMessageBodyCharsForTest   = maxMessageBodyChars
+	MaxTurnBodyCharsForTest      = maxTurnBodyChars
 )

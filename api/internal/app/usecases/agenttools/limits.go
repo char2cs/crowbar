@@ -62,6 +62,33 @@ const (
 	defaultScopeFiles = 100
 	maxScopeFiles     = 300
 
+	// maxScopeRangesPerFile and maxScopeRanges bound the changed line ranges
+	// get_review_scope reports beside its files.
+	//
+	// The ranges are what make the file list anchorable: post_review_comment
+	// requires an anchor to sit inside ONE changed range, so a scope naming only
+	// paths leaves a model to guess line numbers and be refused. They are also the
+	// one part of that reply whose size is driven by the DIFF rather than by the
+	// file count — a file rewritten line by line contributes up to
+	// MaxOutlineHunksPerFile (1000) ranges on each side — so both a per-file and a
+	// per-page bound are needed. One without the other leaves a hole: a per-file
+	// cap alone still lets 300 files × 2 sides blow the page, and a page cap alone
+	// lets the first file spend all of it.
+	//
+	// 6 per file per side is the working set of a file a human reads top-down; past
+	// that the file is one to open rather than to anchor from a listing, and the
+	// row says how many it did not print. 300 for the page is drawn against the same
+	// 16 KB budget as every cap above: a range renders as about twelve characters
+	// ("1234-1245, "), so 300 of them is ~3.6 KB — roughly what 100 file rows
+	// already cost, and a quarter of the page.
+	//
+	// A page that runs out says which files it stopped at and what offset fetches
+	// their ranges, exactly as the row cap says what it dropped: geometry that is
+	// silently absent reads as "this file has no changed lines", which is the one
+	// conclusion that would stop a model commenting on it at all.
+	maxScopeRangesPerFile = 6
+	maxScopeRanges        = 300
+
 	// maxMessageBodyChars and maxTurnBodyChars cap ONE free-text body — a review
 	// message and a chat turn respectively.
 	//

@@ -54,13 +54,19 @@ type Usecase interface {
 		wsID string,
 		commit string,
 	) ([]gitdomain.ReviewFileSummary, error)
-	// GetScope returns the ref this workspace's review diffs against together
-	// with the changed-file summary of that same diff, from ONE ref resolution.
+	// GetScope returns the ref this workspace's review diffs against, the
+	// changed-file summary of that same diff, and its hunk geometry, from ONE ref
+	// resolution.
 	//
 	// It exists because GetBase followed by GetFiles resolves the ref twice to
 	// answer one question — what does this review cover — and each resolution is
-	// up to three git subprocesses. See gitdomain.ReviewScope for why the pair
-	// belongs together on correctness grounds as well as cost.
+	// up to three git subprocesses. See gitdomain.ReviewScope for why the parts
+	// belong together on correctness grounds as well as cost.
+	//
+	// The geometry is the same outline GetOutline serves, through the same cache
+	// and the same key, so an anchor checked against one is checked against the
+	// other: a scope that reported ranges its own validator would then refuse
+	// would be worse than reporting none.
 	//
 	// It takes the ALREADY-RESOLVED workspace rather than its id, unlike every
 	// other method here, because its only caller is the agent tool surface and
