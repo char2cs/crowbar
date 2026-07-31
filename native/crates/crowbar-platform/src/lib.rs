@@ -30,3 +30,21 @@
 //! `#![deny(unsafe_op_in_unsafe_fn)]` so that an `unsafe fn` body does not get
 //! an implicit unsafe block for free — each operation must still be spelled
 //! out and justified.
+//!
+//! # What is here now
+//!
+//! [`native_menu`] — a real macOS context menu (`NSMenu`), item P2.14. Crowbar's
+//! dropdown menus are native rather than simulated, which is a product ruling
+//! with a consequence for this port: a `NSMenu` cannot be anchor-diffed against
+//! a DOM popup, so it leaves the strict-parity gate and becomes a platform
+//! surface. Read that module's docs before adding to it; the main-thread rule
+//! and the coordinate space are both stated there.
+//!
+//! It does **not** supersede `crowbar_ui::components::dropdown_menu`. A GPUI-drawn
+//! popup is still the right answer for anything that must carry Crowbar's design
+//! tokens or live inside a pane — an `NSMenu` takes the system's appearance, not
+//! `theme.css`'s.
+
+pub mod native_menu;
+
+pub use native_menu::{ContextMenu, MenuError, MenuItem, ScreenPoint, Selection, cancel_tracking};
