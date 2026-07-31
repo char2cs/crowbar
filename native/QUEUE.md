@@ -70,6 +70,71 @@ Two consequences worth knowing:
   source** despite its name. So daemon changes (0.6, 0.7) reach the harness on
   the next `make dev-desktop`, with no separate step.
 
+### 0.4 status — React half **verified live**, native half blocked on 0.2
+
+Observed, not inferred. `make dev-desktop` built and launched; the daemon log
+shows `crowbar daemon is ready on …crowbar-6d4f21ce150add3c.sock (pid 62909)`,
+the daemon binary is the one built from **this** worktree, and `.crowbar/`
+now holds `bin/ logs/ state/`. `GET /v0/health` over the socket returns
+`{"pid":62909,"status":"ok"}`.
+
+The native half cannot be proven until `crowbar-app` can open a socket, which
+needs 0.2. **0.4 stays open.**
+
+> **Driving the app: the MCP bridge is on port 9224, not 9223.** The log line is
+> `MCP Bridge plugin initialized for 'Crowbar' (software.rabbyte.crowbar) on
+> 0.0.0.0:9224`. `driver_session` defaults to **9223**, and on this machine 9223
+> is a *different* Crowbar instance from another worktree — it connects happily
+> and every `execute_js` then times out after 7s against the wrong window.
+> Always pass `port: 9224` (and read the real port out of the log first). Also
+> note the bridge binds `0.0.0.0`, not loopback — dev-only, but the opposite of
+> what 0.7 is required to do.
+
+### Client-side persistence defeats `CROWBAR_HOME` isolation — hard evidence for D6
+
+Chasing a 404 loop in the reference app turned up something worth more than the
+bug. The app, against a **completely fresh** `CROWBAR_HOME`, was polling
+`/v0/projects/835f0a4b-…/home` every 30s. The daemon has **zero** projects
+(`GET /v0/projects` → `[]`) and that id appears nowhere in its `view.db`.
+
+Where it came from, confirmed by reading it out of the running webview:
+
+```
+localStorage['crowbar.activeProject']
+  = {"state":{"activeProjectId":"835f0a4b-9618-4bea-b4b8-d4468939840f"},"version":0}
+```
+
+A zustand-persist payload — **from the user's production Crowbar.**
+
+`/Applications/Crowbar.app` and the dev build share the bundle identifier
+`software.rabbyte.crowbar`, and WKWebView keys its storage container on bundle
+id. So `~/Library/WebKit/software.rabbyte.crowbar/` is **one container shared by
+dev and production**, and I confirmed the dev run wrote into it (files under it
+are newer than the launch). The `Makefile` carefully isolates every byte of
+*daemon* state per worktree, and then the webview reaches straight around that
+isolation into production's client state.
+
+**Three consequences:**
+
+1. **This is the strongest argument for D6 in the codebase.** A stale persisted
+   `activeProjectId` is never reconciled against the daemon's real project list,
+   so the app chases a project that does not exist, forever, silently. The
+   native client has no client-side persistence and cannot do this.
+2. **§9.3's migration list is incomplete.** It names 7 read-through caches and 4
+   IndexedDB stores. It does not mention **`localStorage` at all** — which holds
+   **130 keys** here: the whole `crowbar:settings:*` surface (real user
+   settings: fonts, theme, terminal, editor), `crowbar.activeProject`,
+   `crowbar.bootstrap.appearance.v2`, `crowbar:cache-version`, and a long tail
+   of `crowbar:terminal-reconnect:<uuid>` entries that appear never to be
+   reaped. These need the same treatment as the four IndexedDB stores — decide
+   per key: daemon-side via `/v0/settings/ui`, or deleted.
+3. **Do NOT clear this storage to make the dev app tidy.** It is the user's
+   production state. The 404 loop is cosmetic (the app renders OOBE correctly);
+   wiping the container to silence it would destroy real settings.
+
+The app itself is **fine**: `location.href` is `#/oobe`, rendering "The IDE where
+agents do the heavy lifting", which is exactly right for a home with no projects.
+
 ### Socket-path contract — `crowbar-client` must reproduce this exactly
 
 `api/internal/core/gateway/transports/socket.go:117`. With `CROWBAR_HOME` set:
@@ -161,6 +226,76 @@ Known limit, stated in the script's own header: rule 3 is a line scanner, not a
 parser. Block comments and string literals containing `unsafe {` produce false
 *positives*. It fails loud rather than silent, which is the right direction.
 
+### 0.8 — `.app` bundling ✅ · **DECIDED: `cargo-packager`, pinned to `0.11.8`, driven by our own script.**
+
+Not chosen on impressions. The worker installed it and **actually built** a
+universal, signed `Crowbar.app` + DMG with a universal sidecar, then inspected
+the result: both Mach-Os `x86_64 arm64`, sidecar signed separately with the
+hardened runtime (inside-out order), `codesign --verify --deep --strict` valid
+and explicitly validating the nested sidecar, `Info.plist` carrying
+`CFBundleIconName` for the Liquid Glass icon. Criterion 1 demonstrated.
+
+Why it wins:
+
+- Its signing path **is literally** `docs/macos-code-signing.md`'s:
+  `codesign --options runtime --timestamp` → `notarytool submit` →
+  `stapler staple`. **5 of the 6 CI secrets are read from identical env vars.**
+- macOS DMG naming is **byte-identical to Tauri's** (`Crowbar_{v}_universal.dmg`),
+  so `arrow.yaml` and the workflow rename step need no change.
+- ~110 lines to maintain vs ~300 hand-rolled, and we keep AppImage/deb for free.
+- Same lineage we already ship — `cargo-bundle → Tauri Programme → CrabNebula`.
+  The risk is not new; it is the risk we already carry via `tauri-bundler`.
+
+**Zed is the prior art and it argues against hand-rolling.** Zed does *not*
+hand-roll: `script/bundle-mac` installs a **Zed-owned fork of `cargo-bundle`**,
+and that fork has been *archived since 2025-03-25* while Zed still installs from
+it. Their answer to bundler risk was freeze-it-and-own-the-fork — exactly the
+escape hatch we keep. Zed also does not ship universal at all (separate
+`Zed-x86_64.dmg` / `Zed-aarch64.dmg`, no `lipo`), so their 340 lines are
+*less* than our requirement, and the script is welded to Zed-specific machinery.
+Not liftable.
+
+`cargo-bundle` upstream was evaluated and **rejected on evidence**: grepping its
+`src/` for `codesign|notarytool|stapler|lipo|universal` returns zero hits outside
+`hdiutil`. It is the hand-rolled option with a helper.
+
+**Maintenance risk, stated honestly rather than waved away:** no release since
+2025-11-27, no commit since 2026-03-21, and its own docs still say "public
+preview". It is *slowing badly, not dead* — CrabNebula staff still answer issues,
+though a fix promised 2026-04-24 has not shipped. Mitigated by pinning `0.11.8`,
+keeping the driving logic in **our** script, and the MIT/Apache-2.0 licence: the
+~1k lines of `package/{app,dmg}` + `codesign/macos.rs` are vendorable into
+`native/tools/` the day we need them. Not eliminated.
+
+**Five traps found by running it, all of which would have cost real time:**
+
+1. `--config` **replaces**, it does not deep-merge like Tauri's. The current
+   script's jq-overlay idiom must become jq-merge-into-a-full-temp-config.
+2. `CFBundleVersion` defaults to a UTC **timestamp**, not the version. Must be
+   overridden via `infoPlistPath`.
+3. **The empty-secret trap survives.** `try_sign` does
+   `env::var_os("APPLE_CERTIFICATE")` with no emptiness guard, so an unset CI
+   secret expanding to `""` yields `Some("")` and still calls `setup_keychain("")`
+   — the exact failure `build-macos-dmg.sh:60-66` exists to prevent. **Carry
+   that `unset APPLE_*` block over verbatim.**
+4. `create-dmg` is **downloaded at package time** from raw.githubusercontent.
+   Its Finder AppleScript fails headless (`AppleEvent timed out -1712`) unless
+   `CI=true`. GitHub Actions sets it; a local release build does not.
+5. `APPLE_SIGNING_IDENTITY` is the one secret not read from env — it goes
+   through config. The existing script already injects it that way.
+
+**Linux artifact names differ** (`crowbar_0.5.0_x86_64.AppImage` vs Tauri's
+`Crowbar_0.5.0_amd64.AppImage`), breaking `arrow.yaml:107`. The worker could not
+tell from the spec whether Linux stays in scope; **it does** — §14 says GPUI
+requires Vulkan and the *React build* is the fallback for machines without it,
+which means the native app still ships Linux artifacts for machines with it. So
+this rename must be handled.
+
+Also settled, cleanly: **there is no updater to lose.** Zero hits for
+`TAURI_SIGNING`, `createUpdaterArtifacts`, `latest.json`, `plugin-updater` or
+`checkUpdate` anywhere, and zero `updater` in `Cargo.lock`. Updates go through
+Quiver re-downloading the DMG. Dropping Tauri costs nothing here.
+
 ### 0.10 — AX spike ✅ · **VERDICT: THIN. Dropped, per §10.4. Do not revisit.**
 
 §10.4 said: spend one hour, and if the tree is thin, "drop it and never revisit."
@@ -247,11 +382,11 @@ Owner column: `W` = dispatched worker, `O` = orchestrator-only.
 | 0.1 | `native/` workspace scaffold, 13 crates per §4.2 with the §4.3 compiler-enforced rules | §4.2 §4.3 §4.4 | W | **done** |
 | 0.2 | Vendor + pin `gpui` at a SHA under `native/vendor/gpui/` | §10.5 | W | todo |
 | 0.3 | `gpui` + `gpui-component` skills into `.claude/skills/` | §16 | W | **done** |
-| 0.4 | Both apps launch against one daemon on a shared `CROWBAR_HOME` | §0 §9.1 | O | todo — gated on 0.1 + 0.2 |
+| 0.4 | Both apps launch against one daemon on a shared `CROWBAR_HOME` | §0 §9.1 | O | React half **verified live**; native half gated on 0.2 |
 | 0.5 | DTO generator: Go handlers → `crowbar-proto` + regenerated `web/` types | §9.2 | W | todo |
 | 0.6 | `GET`/`PUT` `/v0/settings/ui` in the daemon — the ONE daemon exception | §9.3 | W | todo |
 | 0.7 | Loopback TCP listener for webview panes, `127.0.0.1` only, authed | §9.4 | W | todo |
-| 0.8 | Decide `.app` bundling: `cargo-packager` vs hand-rolled | §14 | W | todo |
+| 0.8 | Decide `.app` bundling: `cargo-packager` vs hand-rolled | §14 | W | **done — cargo-packager 0.11.8** |
 | 0.9 | Zed extractability audit — `fuzzy`, `picker`, `util`, `theme` | §10.6 | W | todo |
 | 0.10 | AX spike, timeboxed 1h: `ZED_EXPERIMENTAL_A11Y=1` + an AX tree dump | §10.4 | W | **done — THIN, dropped** |
 | 0.11 | `cargo tree -i zlog`, for the record | §15 | O | todo — gated on 0.2 |
