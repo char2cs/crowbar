@@ -55,13 +55,18 @@ export function Button({
       <>
         {children}
         {loading && (
-          <Spinner className="pointer-events-none absolute" data-slot="button-loading-indicator" />
+          <Spinner
+            className="pointer-events-none absolute"
+            data-oracle-id="button-loading-indicator"
+            data-slot="button-loading-indicator"
+          />
         )}
       </>
     ),
     className: cn(buttonVariants({ className, size, variant }), active && 'bg-accent/20'),
     'aria-disabled': loading || undefined,
     'data-loading': loading ? '' : undefined,
+    'data-oracle-id': 'button',
     'data-slot': 'button',
     disabled: isDisabled,
     type: typeValue,
