@@ -270,6 +270,91 @@ none of it. Classification, and what each needs:
    debugging session wrote a permanent key into the user's production storage
    and nobody noticed. Left in place — see consequence 3 above.
 
+## 🎯 THE PHASE 1 GATE — FIRST FULL RUN, 2026-07-31
+
+**The oracle ran end to end.** Live WKWebView snapshot → differ ← live GPUI
+snapshot, same matrix cell (`294 · dark · overflow · no flags · depth 4`),
+26 ranked deltas. Snapshots archived at `native/oracle/runs/`.
+
+**The mechanism works.** That was the question Phase 1 exists to answer.
+
+### 7 of 10 anchors converged **byte-exactly** — not "within tolerance", identical
+
+| anchor | reference | native |
+|---|---|---|
+| `git-row-item` | 294×24 @(0,0) | 294×24 @(0,0) |
+| `git-row-guide-0..3` | 7×24 @ x=14,28,42,56 | 7×24 @ x=14,28,42,56 |
+| `git-row-button` | 294×24 @(0,0) r8 | 294×24 @(0,0) r8 |
+| `git-row-icon` | 14×14 @(66,5) | 14×14 @(66,5) |
+
+The row box, every indent guide, the button and the icon land on the same pixel.
+The indent arithmetic, the guide geometry and the flex chain all reproduce
+exactly. **`git-row-button` radius 8 / border 0 matches on both sides**, which
+also closes my earlier stylesheet-reading error for good.
+
+### The 26 deltas, triaged — none of them says "the approach does not work"
+
+**8 are a bug in the differ, not the app.** Every `border.color` mismatch is on
+an anchor whose `border.w` is **0**, where the DOM returns inherited text
+colour. **ANCHORS v1.3 already rules that colour is compared only when `w > 0`
+— the differ predates v1.3 and does not implement it.** Mine to fix; 8 deltas
+disappear with it.
+
+**5 are the contract gap P1.5 predicted I would hit first.** `git-row-badge` is
+a painted box *containing* text. The React side emits it as a text anchor
+(`text`, `fg`, `font`, `text_width`, `clipped`); the native side emits a box.
+**v1 has no anchor that is both.** Contract change, not a component fix.
+
+**4 are my own fixture mismatch.** The native row renders `+12`/`-3`; the
+reference row renders `+1` and has no deletions. So `git-row-deleted` is
+"present natively, absent in reference", `git-row-added.text` is `+12` vs `+1`,
+and its width and x cascade from that. **My harness, not the component** — the
+two sides must render the same content.
+
+**1 is the decided scope reduction.** `git-row-dir` present natively, absent in
+the reference — `showDirectory={false}`, already decided and recorded above.
+
+**That leaves 8 genuine component deltas**, all understood:
+
+| delta | cause |
+|---|---|
+| `git-row-badge` h 16 vs **20**, and x/y/w | the Badge's `sm:` breakpoint — native implemented the ≥640px variant, the reference is rendering the narrow one |
+| `git-row-name.bounds.w` 39.5 vs 91.52, `text_width` 424.05 vs 476.49 | **the font is not loaded** — see below |
+| `git-row-name.bounds.h` 19 vs 18 | GPUI snaps line-height to the device grid (14 × 1.35 = 18.9 → 19.0) |
+
+### The font is the single biggest blocker, and it is an asset problem
+
+`CalSansUI` ships **only as WOFF2** (`web/public/fonts/CalSansUI.woff2`, plus
+`CalSans-Regular.woff2` — verified, there is no TTF or OTF anywhere in the
+repo). GPUI hands the bytes to CoreText, which rejects them:
+
+```
+crowbar-app: font: CalSansUI rejected (parse error)
+```
+
+The row still *declares* `font_family("CalSansUI")`, so `font.family` compares
+**equal on both sides while the shaping face is silently a fallback**. That is
+the worst kind of agreement: the field that would reveal the problem is the one
+field that matches.
+
+**Until a non-WOFF2 CalSansUI exists, every `text_width` and every
+content-sized `bounds.w` is measuring the wrong typeface.** There is an escape
+hatch (`CROWBAR_ROW_FONT=<path to TTF/OTF>`), verified working with a system
+TTF.
+
+### One measured difference that exceeds tolerance and is not fixable app-side
+
+GPUI **`ceil()`s a text run's max-content width** — `elements/text.rs`:
+`size.width = size.width.max(line_size.width).ceil()`. Blink keeps LayoutUnit
+fractions. Measured on a live pair: `git-row-added` has `text_width 20.355` and
+`bounds.w 21.0` — **Δ 0.645, against a ±0.5 tolerance.**
+
+It is systematic, it is in the framework, and it hits every content-sized box.
+**Not yet resolved.** The options are a modelled comparison (mark content-sized
+anchors and compare against `ceil(reference)`) or a looser `bounds.w` tolerance
+— and §5 makes loosening a recordable act requiring a stated loss. I am not
+loosening it silently.
+
 ### ✅ The reference half of the gate is proven, end to end, by me — 2026-07-31
 
 Not a worker's claim. I brought up an isolated reference app, verified its asset
