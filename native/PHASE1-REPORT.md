@@ -165,3 +165,78 @@ predicted `#ffffff07`, and the live observation measured `#ffffff07`.
 **Unchanged by this addendum:** the gate still proves the mechanism on
 single-span truncation only, `git-row-dir` still never renders in the product,
 and §17's RSS soak is still outstanding.
+
+---
+
+## §17 status, measured 2026-07-31 — 3 of 9 met
+
+Re-measured rather than recalled, because the coverage numbers had not been
+taken since the crates grew.
+
+| # | condition | status |
+|---|---|---|
+| 1 | every §5.1 anchor converges across the §8.3 matrix | **partial** — 9 surfaces verified, ~66 primitives + 36 layout files remain |
+| 2 | every §5.2 surface judged against Zed | **not started** — editor, diff, terminal are behind the state model |
+| 3 | both coverage numbers met and reported separately | ✅ **MET** |
+| 4 | zero `unsafe` outside `crowbar-platform`, every block proved | ✅ **MET** |
+| 5 | zero `unwrap`/`expect`/`todo!` outside tests | ✅ **MET** |
+| 6 | leak soak shows no RSS growth vs React on one workload | **half** — detection armed; the soak has no workload until Phase 4 |
+| 7 | `blocked/` empty, or every item a listed user decision | **5 items**, listed below |
+| 8 | terminal conformance suite green | **not started** |
+| 9 | a user cannot tell the two apps apart | **not close** |
+
+### Condition 3 — both numbers, never blended
+
+| crate | lines | missed | line % |
+|---|---|---|---|
+| `crowbar-proto` | 6 | 0 | 100.00% |
+| `crowbar-client` | 277 | 1 | 99.64% |
+| `crowbar-core` | 148 | 0 | 100.00% |
+| `crowbar-driver` | 1491 | 26 | 98.26% |
+
+**Oracle-corpus coverage, separately:** `oracle` 2815 lines, 0 missed,
+**100.00%**.
+
+Two caveats that must travel with those numbers rather than being dropped:
+
+- **`crowbar-proto`'s 100% is structurally vacuous.** `rustc` excludes
+  `#[automatically_derived]` items from instrumentation, so `llvm-cov` sees one
+  file and six lines against 24 files, 1828 lines and 133 declarations. It would
+  read 100% with every DTO test deleted. The **259 round-trip tests** are the
+  real assurance.
+- **`crowbar-diff-logic` does not exist.** §17 names it; it is a Phase 4+ crate,
+  so there is nothing to measure yet — not a pass, an absence.
+
+### Condition 4 — verified, not asserted
+
+Rule 2 (14 crate roots) and rule 3 (`# Safety` on every `unsafe`) both pass, and
+rule 3 is **not vacuous**: removing one `# Safety` heading from
+`crowbar-platform`'s AppKit code fails the build. Mutation-tested by me.
+
+### Condition 5 — verified adversarially
+
+An injected `unwrap()` in non-test `crowbar-core` is a hard error, exit 101,
+alongside pedantic's `must_use` and missing-`# Panics`.
+
+### Condition 6 — the half that is done, and why the other half cannot start
+
+Leak detection is armed on **all 142** `#[gpui::test]` tests and gated by rule 6,
+with the gap it closes proved by mutation: the identical leak **fails** with the
+guard and **passes green** without it.
+
+The RSS soak has no workload. `crowbar-app`'s `main` parses one matrix cell,
+renders one surface and exits — no workspace, no daemon connection, no
+navigation. §17 asks for no growth *"on the same workload"*, and there is no
+workload on the native side to hold against React. Measuring the harness's own
+RSS and calling it a soak would be a manufactured green. It unblocks at Phase 4.
+
+### Condition 7 — the blocked list
+
+| item | needs |
+|---|---|
+| `s13-native-menus-accepted-delta.md` | **decided by the user**; the spec edit to §13/§5.1 is still owed |
+| `resizable-needs-a-taller-display.md` | superseded — the surface is now verified; kept for the two wrong diagnoses it records |
+| `hover-and-focus-need-an-unlocked-screen.md` | resolved — both are real observations now; kept for the same reason |
+| `cla-policy.md` | a user decision: CLA, DCO, or nothing |
+| `route-audit-red-at-head.md` | a user decision: two undeclared routes in `api/`, out of scope for this port |
+| `vendored-crates-without-a-licence.md` | a user decision: confirm two Zed crates' licence, or accept both candidates are compatible |
