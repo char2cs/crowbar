@@ -1067,6 +1067,55 @@ in the *generated* code, so `regen-proto.sh` drops that module and prints why on
 every run — and **fails** rather than drops if a real DTO ever grows an untyped
 field, because dropping would then take a live type with it.
 
+### ✅ P1.13 — the hover cell converges across all three axes
+
+Six cells, every one **0 deltas**, with exactly the forgivenesses the resting
+cells already earn:
+
+| cell | anchors | note |
+|---|---|---|
+| 800 · dark · short | 8 | |
+| 800 · dark · normal | 10 | |
+| 800 · dark · overflow | 10 | truncation engaged, `clipped: true` |
+| 800 · **light** · short | 8 | `#00000007` both sides |
+| **600** · dark · short | 8 | pre-`sm:` badge; Σ ceil excess **1.51** px |
+| **1100** · dark · short | 8 | Σ ceil excess **1.73** px |
+
+The Σ excess splitting 1.51/1.73 at the badge breakpoint is the same signature
+the resting matrix produced — independent evidence the width axis is doing real
+work rather than three cells that happen to agree.
+
+**This is a construction, not an observation, and it is sound because it is
+exhaustive.** Real `:hover` cannot be delivered while the screen is locked, so
+the state was forced with a class carrying the byte-identical declaration from
+`.file-tree-item:hover::before`. Forcing one rule is only equivalent to hovering
+if that rule is *all* hover does, so I proved it: of **127** hover rules carrying
+declarations, with **0** unresolvable selectors, exactly **two** apply anywhere
+in the git row subtree —
+
+- `.file-tree-item:hover::before { background-color: var(--file-tree-hover-bg) }`
+- `.file-tree-row:hover { background-color: transparent !important }` — a
+  **no-op**, because the button is already `#00000000` at rest
+
+Nothing else `:hover` can reach. What this does **not** establish is that WebKit
+applies `:hover` on real pointer input — bedrock CSS behaviour, not a Crowbar
+parity risk, but not an observation either.
+
+**Two instrument bugs, either of which would have produced a confident wrong
+answer:**
+
+1. The first enumeration was **unsound**: 40 of 45 "applicable" hits were bare
+   `&:hover` from nested CSS with empty declaration blocks, because the walker
+   never resolved `&` against its parent chain. An exhaustion argument cannot
+   rest on a scanner known to be broken. Fixed by substituting `:is(parent)`.
+2. The first capture reported **`visible: false` on every anchor**. The row was
+   on-screen by `checkVisibility()`, but `oracleIsVisible` clips against
+   ancestors with non-visible overflow, and the git panel was scrolled out of the
+   sidebar's scroll-snap carousel. Scrolling it in fixed it.
+
+Reference app restored afterwards: 1200×800, dark, injected style and classes
+removed, `web/` clean.
+
 ### ▶ How to bring up the reference app — **do not use `make dev-desktop`**
 
 `make dev-desktop` is wrong for this work, for two reasons that only show up when
