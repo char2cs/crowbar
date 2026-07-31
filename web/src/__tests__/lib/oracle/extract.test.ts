@@ -14,6 +14,8 @@ import {
   oracleNormalizeState,
   oracleRelativeBounds,
   oracleResolveLineHeight,
+  oracleSelectDeclaredAnchors,
+  oracleSurfaceScope,
 } from '@/lib/oracle/extract'
 
 // jsdom has no layout engine, so every geometry test below stubs the rects it
@@ -1126,6 +1128,208 @@ describe('the v1.7 unanchored-opacity precondition', () => {
   })
 })
 
+// ── surface scope: a capture holds the surface's own anchors (P2.11) ─────────
+//
+// The live defect, in the shape it was hit in. `resizable`'s root anchor is
+// `resize-group` — the IDE shell's own group — so the walk reached the whole
+// sidebar through it: the carousel, the file rows and ten git rows, 81 anchors
+// with repeated ids against the native surface's four. The differ refused it by
+// name (`anchor id 'git-row-item' appears twice`) and was right to. The fixture
+// below is that tree, small enough to read and with the two properties that
+// matter kept intact: a *foreign* anchored subtree under the root, and repeated
+// ids inside it.
+
+/**
+ * The IDE shell's group with the sidebar carousel — and two file rows and two
+ * git rows — living inside its sidebar panel.
+ *
+ * `omit` drops one anchor the surface declares; `duplicate` renders a second
+ * element carrying a declared id. Both are how the two refusals are reached
+ * without hand-writing a second fixture.
+ */
+function mountShell(options?: { omit?: string; duplicate?: string }) {
+  document.documentElement.className = 'light'
+  const omit = options?.omit
+  const duplicate = options?.duplicate
+  const anchor = (id: string) => (id === omit ? '' : ` data-oracle-id="${id}"`)
+  const twin = (id: string) =>
+    duplicate === id ? `<div data-oracle-id="${id}" data-twin="true"></div>` : ''
+
+  document.body.innerHTML = `
+    <div id="group"${anchor('resize-group')}>
+      <div id="sidebar"${anchor('resize-panel-sidebar')}>
+        <div id="scrollport"${anchor('carousel-scrollport')}>
+          <div${anchor('carousel-panel-workspaces')}></div>
+          <div${anchor('carousel-panel-chats')}></div>
+          <div${anchor('carousel-panel-files')}>
+            <div data-oracle-id="file-row-item"><span data-oracle-id="file-row-name"></span></div>
+            <div data-oracle-id="file-row-item"><span data-oracle-id="file-row-name"></span></div>
+          </div>
+          <div${anchor('carousel-panel-git')}>
+            <div data-oracle-id="git-row-item"><span data-oracle-id="git-row-name"></span></div>
+            <div data-oracle-id="git-row-item"><span data-oracle-id="git-row-name"></span></div>
+          </div>
+          ${twin('carousel-panel-git')}
+        </div>
+      </div>
+      <div id="handle"${anchor('resize-handle')}></div>
+      <div id="content"${anchor('resize-panel-content')}></div>
+      ${twin('resize-panel-content')}
+    </div>`
+
+  const at = (id: string) => document.getElementById(id) as HTMLElement
+  stubRect(at('group'), { left: 0, top: 0, width: 1000, height: 600 })
+  stubRect(at('sidebar'), { left: 0, top: 0, width: 300, height: 600 })
+  stubRect(at('scrollport'), { left: 0, top: 0, width: 300, height: 600 })
+  stubRect(at('handle'), { left: 300, top: 0, width: 1, height: 600 })
+  stubRect(at('content'), { left: 301, top: 0, width: 699, height: 600 })
+
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(
+    ((_el: Element, pseudo?: string | null) =>
+      ({
+        ...BASE_STYLE,
+        ...(pseudo ? { content: 'none' } : {}),
+      }) as unknown as CSSStyleDeclaration) as typeof window.getComputedStyle,
+  )
+}
+
+const RESIZABLE_ANCHORS = [
+  'resize-group',
+  'resize-panel-sidebar',
+  'resize-handle',
+  'resize-panel-content',
+]
+
+describe('a surface captures its own anchors, not everything under its root', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+    document.documentElement.className = ''
+  })
+
+  it('keeps only the declared anchors when the root contains a foreign subtree', () => {
+    mountShell()
+    const snapshot = extractSnapshot({ surface: 'resizable' })
+
+    expect(snapshot.anchors.map((a) => a.id)).toEqual(RESIZABLE_ANCHORS)
+    // Geometry is untouched by the narrowing: the same elements, measured by
+    // the same code, relative to the same root.
+    expect(snapshot.anchors[0].bounds).toEqual({ x: 0, y: 0, w: 1000, h: 600 })
+    expect(snapshot.anchors[2].bounds).toEqual({ x: 300, y: 0, w: 1, h: 600 })
+
+    // And the control, without which the assertion above proves only that some
+    // reduction happened. The identical tree, captured as a surface that
+    // declares nothing, still walks the whole subtree — including the repeated
+    // ids that made the live capture unusable.
+    const unscoped = extractSnapshot({ surface: 'ide-shell', root: 'resize-group' })
+    const ids = unscoped.anchors.map((a) => a.id)
+
+    expect(ids.length).toBeGreaterThan(RESIZABLE_ANCHORS.length)
+    expect(ids.filter((id) => id === 'git-row-item')).toHaveLength(2)
+    expect(ids).toContain('carousel-scrollport')
+  })
+
+  it('does not care that the foreign subtree repeats ids — it is not the surface', () => {
+    // The `resizable` capture above succeeded with two `git-row-item`s and two
+    // `file-row-item`s in the document. Ambiguity is only ambiguity among the
+    // anchors being compared; refusing on a foreign one would make the surface
+    // uncapturable for a reason that has nothing to do with it.
+    mountShell()
+    expect(document.querySelectorAll('[data-oracle-id="git-row-item"]')).toHaveLength(2)
+    expect(extractSnapshot({ surface: 'resizable' }).anchors).toHaveLength(4)
+  })
+
+  it('scopes one tree two ways, by surface — the carousel inside the same shell', () => {
+    // The same document, captured as the surface *inside* it. This is the list
+    // `native/oracle/runs/p2.3-carousel` holds, which was reached by hand
+    // filtering the walk's output to the `carousel-*` ids; it now falls out of
+    // the declaration, so a re-capture reproduces those archived pairs rather
+    // than depending on whoever runs it repeating the filter.
+    mountShell()
+    const snapshot = extractSnapshot({ surface: 'sidebar-carousel' })
+
+    expect(snapshot.root).toBe('carousel-scrollport')
+    expect(snapshot.anchors.map((a) => a.id)).toEqual([
+      'carousel-scrollport',
+      'carousel-panel-workspaces',
+      'carousel-panel-chats',
+      'carousel-panel-files',
+      'carousel-panel-git',
+    ])
+  })
+
+  it('refuses a capture missing an anchor the surface declares', () => {
+    // The failure mode a filter introduces and the reason this one refuses: a
+    // capture that is quietly smaller than the surface still compares, and
+    // proves less every time it shrinks.
+    mountShell({ omit: 'resize-handle' })
+
+    let snapshot: OracleSnapshot | undefined
+    expect(() => {
+      snapshot = extractSnapshot({ surface: 'resizable' })
+    }).toThrow(/declares the anchor\(s\) resize-handle, and the document has none/)
+    // Not "three anchors instead of four" — nothing at all.
+    expect(snapshot).toBeUndefined()
+  })
+
+  it('refuses two elements carrying one declared id, rather than picking the first', () => {
+    mountShell({ duplicate: 'resize-panel-content' })
+
+    let snapshot: OracleSnapshot | undefined
+    expect(() => {
+      snapshot = extractSnapshot({ surface: 'resizable' })
+    }).toThrow(/more than one element carrying the declared anchor id\(s\) resize-panel-content ×2/)
+    expect(snapshot).toBeUndefined()
+
+    // The differ's own words for why, on the surface that hit it: this is the
+    // refusal moved to the point of capture, where the tree is still in front
+    // of whoever caused it.
+    mountShell({ duplicate: 'carousel-panel-git' })
+    expect(() => extractSnapshot({ surface: 'sidebar-carousel' })).toThrow(
+      /no way to say which of them it compared/,
+    )
+  })
+
+  it('refuses a declaration that cannot be satisfied — an id declared twice', () => {
+    // Reached through the helper rather than the table, which has no such
+    // entry: without this the second copy would report as *missing* however the
+    // document is built, and the message would send a reader to the DOM.
+    expect(() =>
+      oracleSelectDeclaredAnchors([], 'resizable', ['resize-group', 'resize-group']),
+    ).toThrow(/declares the anchor "resize-group" twice/)
+  })
+
+  it('pins the root as part of the set, so two captures cannot disagree on it', () => {
+    mountShell()
+    expect(() => extractSnapshot({ surface: 'resizable', root: 'resize-panel-sidebar' })).toThrow(
+      /is rooted on "resize-group", not on "resize-panel-sidebar"/,
+    )
+  })
+
+  it('leaves a surface that declares nothing exactly as it was', () => {
+    // The 63 archived `git-status-row` / `file-tree-row` pairs were captured on
+    // this path and have to keep comparing byte-for-byte. `git-status-row`
+    // declares no set — its anchors are a function of the cell, not of the
+    // surface (`git-row-guide-{n}` per depth level, `git-row-dir` only when the
+    // fixture has one) — so the walk hands the loop the identical array.
+    expect(oracleSurfaceScope('git-status-row')).toBeNull()
+    expect(oracleSurfaceScope('file-tree-row')).toBeNull()
+
+    mountRow('dark')
+    const snapshot = extractSnapshot({ surface: 'git-status-row', state: { theme: 'dark' } })
+
+    expect(snapshot.anchors.map((a) => a.id)).toEqual([
+      'git-row-item',
+      'git-row-guide-0',
+      'git-row-button',
+      'git-row-name',
+      'git-row-badge',
+    ])
+    expect(snapshot.anchors[0].bounds).toEqual({ x: 0, y: 0, w: 320, h: 24 })
+    expect(snapshot.anchors[0].bg).toBe('#ff000080')
+  })
+})
+
 // ── injectability ────────────────────────────────────────────────────────────
 
 describe('extractSnapshotSource', () => {
@@ -1185,6 +1389,20 @@ describe('extractSnapshotSource', () => {
     const emitted = JSON.parse((0, eval)(extractSnapshotSource(PROBE)) as string)
 
     expect(emitted).toEqual(JSON.parse(JSON.stringify(extractSnapshot(PROBE))))
+  })
+
+  it('carries the surface scope into the injected script, where the capture happens', () => {
+    // The `resizable` capture only ever happens through this path — a live IDE
+    // shell over an `execute_js` bridge. A scope helper left out of
+    // `ORACLE_RUNTIME` would be a `ReferenceError` in the page and green in
+    // every module-path test above, so this asserts the *narrowed* list rather
+    // than merely that something came back.
+    mountShell()
+    const options = { surface: 'resizable' }
+    const emitted = JSON.parse((0, eval)(extractSnapshotSource(options)) as string)
+
+    expect(emitted.anchors.map((a: { id: string }) => a.id)).toEqual(RESIZABLE_ANCHORS)
+    expect(emitted).toEqual(JSON.parse(JSON.stringify(extractSnapshot(options))))
   })
 
   it('still produces a snapshot through the injected script when the label agrees', () => {
