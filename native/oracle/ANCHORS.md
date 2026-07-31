@@ -56,6 +56,40 @@
 > leave it as a visible known difference.** `line-height: 1.35` is used
 > app-wide, so this fires at most font sizes, and a gate that always shows the
 > same deltas trains a reader to skip them.
+>
+> ### ⚠ "Has text" does **not** mean "is line-sized" — declaring wrongly *creates* deltas
+>
+> I got this wrong first time and it would have done real damage. When
+> dispatching the implementation I listed `git-row-badge` among the line-sized
+> anchors because it paints text. **It is not.** `Badge size="sm"` carries
+> `h-5 sm:h-4`, so its border box is **authored** at 20/16px around a 13.33px
+> line box. The archived pair proves it:
+>
+> ```
+> reference  badge  bounds.h 16     font.line_height 13.33
+> native     badge  bounds.h 16.0   font.line_height 13.50
+> ```
+>
+> Both engines already agree at **16**. Declaring it `line_sized` would have
+> compared 16 against 13.33 and **manufactured a 2.67px delta on the one
+> trailing anchor where nothing was wrong.**
+>
+> **The test is whether the box height is *derived from* the line box, not
+> whether the element contains text.** A bare span qualifies; a box with an
+> authored height does not. On the gate row that is
+> `git-row-name`, `git-row-dir`, `git-row-added`, `git-row-deleted` — and **not**
+> the badge. The implementation pins this with a live layout test asserting each
+> declared box's height equals its own line height *and* that the badge's differs
+> by more than 0.5px, so the list is a measurement rather than an opinion.
+>
+> ### The rule is asymmetric, deliberately
+>
+> It compares the **native** box against the **reference's** `font.line_height`,
+> which assumes the native side quantises within ±0.5 of L. GPUI's `pixel_snap`
+> always does. **WebKit's floor does not** — 18 against 18.9 is 0.9 out. So the
+> rule is **not symmetric under swapping the two snapshots**, and it is correct
+> only while "native" is the GPUI side. If that ever inverts, this rule inverts
+> with it.
 
 # The anchor snapshot contract — v1.5
 
