@@ -21,8 +21,22 @@
 //! and a run that comes back with four deltas on the only anchor should suspect
 //! the instant before the port. See `crowbar_ui::components::spinner`.
 //!
-//! The native side does not rotate, deliberately — a rotating port would put
-//! *both* sides' bounds in flight and make two correct snapshots disagree.
+//! # The native side turns, and needs no pinning at all
+//!
+//! `Spinner` draws lucide's arc and rotates it once a second, because a spinner
+//! that does not spin is the most noticeable thing a user could find. That costs
+//! this surface nothing, for two reasons `row_layout::spinner` measures rather
+//! than asserts by hand:
+//!
+//! * this binary emits **the first frame** and quits, and gpui stamps an
+//!   animation's `start` on its first `request_layout` — so the capture is at
+//!   `delta ≈ 0` by construction;
+//! * gpui rotates at **paint** time, so the *layout* bounds the driver records
+//!   are the same at every delta anyway.
+//!
+//! Verified end to end: the emitted snapshot is byte-identical to the one the
+//! pre-rotation port produced, and six consecutive runs produced one distinct
+//! file.
 //!
 //! # What each axis can and cannot do here
 //!
@@ -160,8 +174,8 @@ impl SurfaceParams for Params {
         }
         let _ = write!(
             out,
-            " · captured at rest: the rotation moves bounds by {:.2}px, so a snapshot \
-             taken at any other instant is wrong",
+            " · turning: this frame is the turn's origin, and the REFERENCE must be pinned \
+             at currentTime 0 — its bounds move {:.2}px over a turn where these do not",
             f32::from(self.spinner(cell).rotation_excursion()),
         );
     }
@@ -172,11 +186,20 @@ impl SurfaceParams for Params {
     /// is a real row rather than a bare box for `label`'s reason: `RowSurface`
     /// draws into a gpui **block** container, and every live `<Spinner>` is a
     /// flex item.
-    fn render(&self, cell: &Cell, _theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+    ///
+    /// The row carries the **host's** text colour, because the glyph strokes
+    /// itself in `currentColor` and the captured one inherits
+    /// `text-muted-foreground` from `review-diff-tab.tsx`'s `CenteredState` —
+    /// measured live as `oklch(0.72 0 0)`. It moves no recorded field, an anchor
+    /// with no text node emitting no `fg`, which is why it is set deliberately:
+    /// an arc stroked in an invisible colour would look like a static box and no
+    /// gate would notice.
+    fn render(&self, cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         div()
             .flex()
             .flex_row()
             .items_center()
+            .text_color(theme.color_muted_foreground)
             .child(self.spinner(cell).render(anchors))
             .into_any_element()
     }

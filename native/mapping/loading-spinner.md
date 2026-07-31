@@ -38,6 +38,11 @@ would have moved with the rotation.
 The reference was nonetheless captured with the animation pinned at
 `currentTime = 0`, for the one anchor that needs it.
 
+**The native glyph turns** — see `native/mapping/spinner.md` §0 — and this
+surface pays nothing for it. gpui rotates at paint time, so none of the three
+recorded boxes moves, and the emitted snapshot is byte-identical to the one the
+pre-rotation port produced.
+
 ## 1. Values
 
 | React / Tailwind | Compiles to | gpui / `crowbar-ui` | Oracle |

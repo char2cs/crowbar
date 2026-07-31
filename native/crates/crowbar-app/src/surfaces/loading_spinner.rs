@@ -148,23 +148,35 @@ impl SurfaceParams for Params {
             );
         }
         out.push_str(
-            " · captured at rest: the nested spinner anchor is animated and the other two \
-             are not",
+            " · the nested spinner turns; the REFERENCE's copy of that one anchor must be \
+             pinned at currentTime 0, and the other two are unmoved at any instant",
         );
     }
 
     /// The spinner, inside the centred column every live call site puts it in.
     ///
     /// `CenteredState` in `review-diff-tab.tsx` is `flex h-full flex-col
-    /// items-center justify-center`, and the `items-center` is what makes the
-    /// wrapper shrink to its content — which is why the reference's wrapper is
-    /// 138 wide rather than the pane's. The column carries no anchor.
+    /// items-center justify-center gap-2 text-center text-muted-foreground`, and
+    /// the `items-center` is what makes the wrapper shrink to its content —
+    /// which is why the reference's wrapper is 138 wide rather than the pane's.
+    /// The column carries no anchor.
+    ///
+    /// **`text-muted-foreground` is load-bearing and is the host's, not the
+    /// component's.** The glyph strokes itself in `currentColor`, so this is
+    /// where its colour comes from — measured on the live element as
+    /// `oklch(0.72 0 0)`, the muted token. It moves no recorded field (the glyph
+    /// paints no text node, so no `fg` is emitted, and the caption sets its own
+    /// colour), which is exactly why it has to be set deliberately rather than
+    /// left to whatever gpui's default happens to be: a spinner stroked in an
+    /// invisible colour would look like the static box this port used to draw
+    /// and no gate would notice.
     fn render(&self, cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         div()
             .flex()
             .flex_col()
             .items_center()
             .justify_center()
+            .text_color(theme.color_muted_foreground)
             .child(self.loading_spinner(cell).render(theme, anchors))
             .into_any_element()
     }

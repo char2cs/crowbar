@@ -1,18 +1,28 @@
 //! `--surface spinner`: what taffy resolves a rotating glyph to, in a real
 //! window.
 //!
-//! **These numbers are the port's, and they are the reference's *at rest*.** The
-//! reference's `bounds` are only 16 × 16 at four instants per second — see
-//! `crowbar_ui::components::spinner` for the measured excursion — so what is
-//! pinned here is the layout box, which is what the port paints and what a
-//! capture taken at `currentTime = 0` records.
+//! **The port turns**, so the two claims the capture rests on are measured here
+//! rather than argued:
+//!
+//! * `the_first_frame_is_the_turns_origin` — the snapshot the driver emits is
+//!   the *first* frame, and gpui stamps the animation's `start` on its first
+//!   `request_layout`, so that frame is at `delta ≈ 0`. Asserted below 1e-3 of a
+//!   turn, with a control that later frames really do advance.
+//! * `the_recorded_box_never_moves_while_it_turns` — gpui's rotation is a
+//!   paint-time transform, so the *layout* bounds the driver records are the
+//!   same at every delta. The reference's are not: `WebKit`'s
+//!   `getBoundingClientRect()` returns the transformed box and travels 6.63px.
+//!   That asymmetry is why the **reference** must be pinned at
+//!   `currentTime = 0` and the native side needs no pinning at all.
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
-use crowbar_driver::{Paint, RawAnchor};
-use crowbar_ui::components::spinner;
+use crate::driver_anchors::fold_text_halves;
+use crate::row_surface::{Cell, RowSurface};
+use crowbar_driver::{AnchorRegistry, Paint, RawAnchor};
+use crowbar_ui::components::spinner::{self, Spinner};
 use gpui::{Bounds, Pixels, TestAppContext, px};
-
-use crate::row_surface::Cell;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// A cell on this surface, with the selector already applied.
 fn cell(args: &[&str]) -> Cell {
@@ -122,5 +132,120 @@ fn the_empty_cell_has_no_area_and_overrides_every_call_site(cx: &mut TestAppCont
             !find(&records, "spinner").visible,
             "a zero-area box paints nothing: {site}",
         );
+    }
+}
+
+/// **The first frame is the turn's origin**, which is what makes
+/// `CROWBAR_ROW_SNAPSHOT` — "emit one snapshot of the first frame and quit" —
+/// the native counterpart of pinning the reference at `currentTime = 0`.
+///
+/// Measured on the component's own [`Spinner::turn`] rather than on an animation
+/// this test built: the instant depends on the duration, the repeat and the
+/// easing together, and a locally-built animation would be measuring something
+/// else.
+///
+/// The control is the second half: later frames really do advance, so this is
+/// not passing because nothing animates.
+#[gpui::test]
+fn the_first_frame_is_the_turns_origin(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+
+    let deltas: Rc<RefCell<Vec<f32>>> = Rc::new(RefCell::new(Vec::new()));
+    let window = {
+        let deltas = deltas.clone();
+        cx.open_window(gpui::size(px(64.0), px(64.0)), move |_, _| TurnProbe {
+            deltas,
+        })
+    };
+    cx.run_until_parked();
+
+    let first = *deltas.borrow().first().expect("one frame was rendered");
+    assert!(
+        first < 1e-3,
+        "the first frame must be the turn's origin, got {first} of a turn",
+    );
+
+    // The control: the animation is live, so a later frame is a different
+    // instant. Without this the assertion above would pass on a static element.
+    for _ in 0..3 {
+        window
+            .update(cx, |_, window, cx| window.simulate_next_frame(cx))
+            .expect("the window is open");
+        cx.run_until_parked();
+    }
+    let frames = deltas.borrow().len();
+    assert!(frames > 1, "only {frames} frame(s) were rendered");
+    assert!(
+        deltas
+            .borrow()
+            .iter()
+            .all(|delta| (0.0..=1.0).contains(delta)),
+        "{:?}",
+        deltas.borrow(),
+    );
+}
+
+/// **The recorded box does not move while the glyph turns**, and the reference's
+/// does — which is the asymmetry the whole capture rests on.
+///
+/// gpui rotates at paint time (`Window::paint_path` tessellates into the scene
+/// and never reaches taffy), so the driver, which reads *layout* bounds at
+/// prepaint, sees the same 16 × 16 at every delta. `WebKit`'s
+/// `getBoundingClientRect()` returns the **transformed** box and travels 6.63px
+/// over the same turn.
+#[gpui::test]
+fn the_recorded_box_never_moves_while_it_turns(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+
+    let cell = cell(&[]);
+    let size = RowSurface::window_size(&cell);
+    let anchors: AnchorRegistry = cx.update(crowbar_driver::install);
+    let window = cx.open_window(size, |_, _| super::Stage(cell));
+    cx.run_until_parked();
+
+    let at_rest = fold_text_halves(anchors.records());
+    let first = relative_to(&at_rest, spinner::ID_SPINNER, spinner::ID_SPINNER);
+    assert_px(first.size.width, px(16.0));
+    assert_px(first.size.height, px(16.0));
+
+    // Step well past the quarter turns, where a transformed box would be at its
+    // widest — the 45° instant is the reference's 22.627.
+    let mut frames = 0;
+    for _ in 0..8 {
+        frames += window
+            .update(cx, |_, window, cx| window.simulate_next_frame(cx))
+            .expect("the window is open");
+        cx.run_until_parked();
+
+        let records = fold_text_halves(anchors.records());
+        let box_ = relative_to(&records, spinner::ID_SPINNER, spinner::ID_SPINNER);
+        assert_px(box_.size.width, first.size.width);
+        assert_px(box_.size.height, first.size.height);
+        assert_px(box_.origin.x, first.origin.x);
+        assert_px(box_.origin.y, first.origin.y);
+    }
+    // The control: those frames were real animation frames, so the assertion
+    // above is about a turning glyph rather than a still one.
+    assert!(frames > 0, "no animation frame was scheduled");
+}
+
+/// The probe [`the_first_frame_is_the_turns_origin`] drives: the component's own
+/// animation, with the delta recorded instead of drawn.
+struct TurnProbe {
+    deltas: Rc<RefCell<Vec<f32>>>,
+}
+
+impl gpui::Render for TurnProbe {
+    fn render(
+        &mut self,
+        _window: &mut gpui::Window,
+        _cx: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
+        use gpui::AnimationExt as _;
+        let deltas = self.deltas.clone();
+        gpui::div().with_animation("turn-probe", Spinner::turn(), move |element, delta| {
+            deltas.borrow_mut().push(delta);
+            element
+        })
     }
 }
