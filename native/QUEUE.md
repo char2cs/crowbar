@@ -2223,25 +2223,61 @@ post-change binary and byte-comparing against archived snapshots —
   of drawable height, so 1119 needs a taller display — the driver now says so
   with the exact number instead of clipping silently. A parity run is reachable
   by shrinking the **reference** window, as done for the carousel.
-- **`dropdown-menu` — no menu exists anywhere in the reachable app.** I searched
-  for this rather than assuming: `[aria-haspopup]` is **0** across the entire
-  document on the IDE route (all four carousel panels are in the DOM even when
-  scrolled out, so the search covered them), **0** after clicking `Open review`,
-  and **0** on `#/settings`. There is no "more/⋯" button either.
+- **`dropdown-menu` — a menu is now REACHABLE (P2.8), and it cost no code and no
+  fixture damage.** A review thread was created straight through the daemon's
+  HTTP API over its unix socket — threads are a workspace-scoped endpoint
+  (`api/.../endpoints/threads/routes.go`), not part of `/review`, and the
+  `crowbar` CLI has no review command. Data-only: the thread lives under
+  `.crowbar/`, which is gitignored, so **nothing was committed**.
 
-  The anchors live in the shared `web/src/components/ui/dropdown-menu.tsx`
-  primitive, so *any* open menu would carry them — the problem is that this
-  fixture workspace renders none. It needs **review-comment data**: a comment on
-  a diff line, which produces the review-thread menu P2.1 nominated.
+  ```bash
+  S=$TMPDIR/crowbar-6d4f21ce150add3c.sock
+  B="http://localhost/v0/projects/<proj>/repos/<repo>/workspaces/<ws>"
+  curl --unix-socket $S -X POST "$B/threads" -H 'Content-Type: application/json' \
+    -d '{"filePath":"src/a/a.ts","line":2,"startLine":2,"endLine":2,"side":"new",
+         "author":"char2cs","isAgent":false,"body":"Fixture thread."}'
+  ```
 
-  **Do not create that by adding a file to the fixture repo.** The git status
-  panel is the Phase 1 `git-status-row` fixture — 11 rows, and the archived
-  reference captures assume exactly that content. A new file adds a row and makes
-  those references unreproducible. The comment has to come from review data, not
-  from a working-tree change.
+  Three things guessing would have got wrong: **`side` must be `"new"`**, not the
+  Go constant's `left`/`right` — the DTO passes it through verbatim and the
+  frontend types it `'old' | 'new'`; the anchor **must be a line the diff
+  actually renders** (`src/a/a.ts:2` is the added line of the only hunk); and
+  `author` must match `GET .../identity` to enable the edit item.
 
-  This is fixture work and it is mine, not a user decision, so it stays here
-  rather than in `blocked/`.
+  **No working-tree change was needed** — `resolveDiffRef` with an empty commit
+  scope diffs the merge-base against the working tree, so the six already-dirty
+  fixture files *are* the review's content. **Fixture verified intact**: 11
+  `git-row-item`, same labels, same per-anchor counts, HEAD unchanged. Durability
+  was checked by cold-booting a throwaway daemon against a *copy* of the state —
+  it served the thread from the on-disk projection, so an app restart will not
+  lose it.
+
+  `[aria-haspopup="menu"]` is now **1**; open, it yields `menu-popup`,
+  `menu-item-edit`, `menu-item-copy`, `menu-separator`, `menu-item-delete`.
+
+  > **But only 2 of the primitive's 10 anchors are reachable this way.**
+  > `dropdown-menu.tsx` spreads `{...props}` **after** its own `data-oracle-id`,
+  > so a call site's per-item id **shadows** the primitive's generic `menu-item`.
+  > This fixture exercises `menu-popup` and `menu-separator` from the primitive;
+  > `menu-item`, `menu-label`, `menu-sub-trigger`, `menu-sub-popup`,
+  > `menu-checkbox-item`/`-indicator`, `menu-radio-item`/`-indicator` stay
+  > unreachable. A parity run here cannot prove the primitive's own `menu-item`.
+
+  > **Correction to my own earlier sweep.** I reported `#/settings` as a dead
+  > end. `settings-dialog.tsx:104` has a `DropdownMenuTrigger` classed
+  > `hidden … max-[720px]:inline-flex` — my window was **855px** wide, so it was
+  > correctly hidden and my "0 menus anywhere" was a result of the viewport I
+  > happened to be at, not of the app. Source-level observation, not yet driven.
+
+  Also measured: the trigger is `opacity-0` until hovered or open, so its
+  **closed** state has an invisible trigger under v1.7; opening sets both trigger
+  and popup to opacity 1.
+
+  Environment note: **`webview_interact` is broken against this app** —
+  `window.__MCP__.resolveRef` is undefined; drive clicks by dispatching the
+  pointer sequence through `webview_execute_js`. base-ui also does not open
+  within the same `execute_js` call — `aria-expanded` stays `false` until a
+  following call.
 
 Every component is built, gated and unit-tested. **None has a single parity
 run**, and a green build is not the bar. All three workers independently
