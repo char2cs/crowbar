@@ -290,6 +290,13 @@ func extraRoutes() []string {
 		// /system/prerequisites rather than inside the entity hierarchy.
 		"GET /v0/system/perf",
 		"POST /v0/system/perf",
+		// The client's UI state, held daemon-side so a client with no local
+		// persistence recovers its layout on boot. Addressed by an explicit
+		// ?scope= key ("global", "repo:<id>", "workspace:<id>") rather than by
+		// path position, so it mounts top-level beside the other /settings/*
+		// groups instead of forking into three entity-nested routes.
+		"GET /v0/settings/ui",
+		"PUT /v0/settings/ui",
 	}
 }
 

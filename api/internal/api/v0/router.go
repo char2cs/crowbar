@@ -15,6 +15,7 @@ import (
 	reposPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search"
+	settingsPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/settings"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/system"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads"
@@ -52,6 +53,12 @@ func (c *Container) Register(
 	// Top-level, non-entity-scoped routes stay on rg (outside /projects).
 	health.Register(rg)
 	system.Register(rg)
+	// The client's own UI state (pane layout, sidebar collapse, editor
+	// preferences, workspace hierarchy), keyed by an explicit ?scope= and stored
+	// as opaque JSON in the global view.db. It mounts top-level beside
+	// /settings/terminal/profiles and /settings/agent/providers because the scope
+	// is a query key, not a path position — see settings.Register.
+	settingsPkg.Register(rg, c.app.GORM.UISettings)
 
 	projects := rg.Group("/projects")
 	projectScoped := projects.Group("/:projectId")
