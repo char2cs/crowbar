@@ -60,6 +60,7 @@ export const GitFileItem = ({
           isDir={false}
           className="relative z-1 shrink-0 text-muted-foreground"
           size={SIDEBAR_TREE_ICON_SIZE}
+          data-oracle-id="git-row-icon"
         />
       )}
       <div
@@ -72,18 +73,22 @@ export const GitFileItem = ({
             showDirectory ? 'shrink-0 basis-auto max-w-[45%]' : 'flex-1',
             'text-foreground',
           )}
+          data-oracle-id="git-row-name"
         >
           {fileName}
         </span>
         {showDirectory && directory && (
-          <span className="ui-text-sm min-w-0 flex-1 truncate leading-[1.35] text-muted-foreground/80">
+          <span
+            className="ui-text-sm min-w-0 flex-1 truncate leading-[1.35] text-muted-foreground/80"
+            data-oracle-id="git-row-dir"
+          >
             {directory}
           </span>
         )}
       </div>
       <div className="relative z-1 ml-auto flex shrink-0 items-center gap-1.5">
         {uncommitted && (
-          <Badge variant="warning" size="sm">
+          <Badge variant="warning" size="sm" data-oracle-id="git-row-badge">
             uncommitted
           </Badge>
         )}
@@ -95,10 +100,14 @@ export const GitFileItem = ({
             )}
           >
             {diffStats.additions > 0 && (
-              <span className="text-git-added">+{diffStats.additions}</span>
+              <span className="text-git-added" data-oracle-id="git-row-added">
+                +{diffStats.additions}
+              </span>
             )}
             {diffStats.deletions > 0 && (
-              <span className="text-git-deleted">-{diffStats.deletions}</span>
+              <span className="text-git-deleted" data-oracle-id="git-row-deleted">
+                -{diffStats.deletions}
+              </span>
             )}
           </div>
         )}

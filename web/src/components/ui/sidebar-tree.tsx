@@ -34,6 +34,7 @@ function TreeGuides({ depth, baseIndent, indentSize, previousDepth, nextDepth }:
         <span
           key={level}
           className="file-tree-guide"
+          data-oracle-id={`git-row-guide-${level}`}
           style={{
             left: `calc(${baseIndent + level * indentSize}px + var(--file-tree-guide-icon-offset, 7px))`,
             top: previousDepth <= level ? '4px' : '0',
@@ -56,7 +57,13 @@ type SidebarTreeRowProps = React.ComponentPropsWithoutRef<'button'> & {
   containerClassName?: string
 }
 
-/** A {@link TreeRow} wrapped with the indent guides used by the sidebar trees. */
+/**
+ * A {@link TreeRow} wrapped with the indent guides used by the sidebar trees.
+ *
+ * Carries the `data-oracle-id` anchors for the row container, the row button and
+ * each indent guide — see `native/oracle/ANCHORS.md`. They are inert markers with
+ * no styling or behaviour attached and ship in production by design.
+ */
 export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>(
   function SidebarTreeRow(
     {
@@ -78,6 +85,7 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
         className={cn('file-tree-item w-full', containerClassName)}
         data-active={active ? 'true' : undefined}
         data-depth={depth}
+        data-oracle-id="git-row-item"
       >
         <TreeGuides
           depth={depth}
@@ -92,6 +100,7 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
           indentSize={indentSize}
           baseIndent={baseIndent}
           className={cn('h-6 gap-1.5 border border-transparent px-1.5 py-1', className)}
+          data-oracle-id="git-row-button"
           {...props}
         >
           {children}

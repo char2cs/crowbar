@@ -13,6 +13,12 @@ export interface FileExplorerIconProps {
   isExpanded?: boolean
   className?: string
   size?: number
+  /**
+   * Oracle anchor id — see `native/oracle/ANCHORS.md`. Threaded as a prop rather
+   * than set from outside because the painted node is chosen in here and callers
+   * cannot reach it. Inert: a marker attribute, no styling or behaviour.
+   */
+  'data-oracle-id'?: string
 }
 
 export function FileExplorerIcon({
@@ -22,6 +28,7 @@ export function FileExplorerIcon({
   isExpanded = false,
   className,
   size = 16,
+  'data-oracle-id': oracleId,
 }: FileExplorerIconProps) {
   const iconThemeId = useSettingsStore((state) => state.settings.iconTheme)
 
@@ -44,12 +51,12 @@ export function FileExplorerIcon({
   } as const
 
   if (!iconResult) {
-    return <FileText className={className} size={size} />
+    return <FileText className={className} size={size} data-oracle-id={oracleId} />
   }
 
   if (iconResult.component) {
     return (
-      <span className={className} style={iconSpanStyle}>
+      <span className={className} style={iconSpanStyle} data-oracle-id={oracleId}>
         {iconResult.component}
       </span>
     )
@@ -63,10 +70,11 @@ export function FileExplorerIcon({
       <span
         className={className}
         style={iconSpanStyle}
+        data-oracle-id={oracleId}
         dangerouslySetInnerHTML={{ __html: sanitizedSvg }}
       />
     )
   }
 
-  return <FileText className={className} size={size} />
+  return <FileText className={className} size={size} data-oracle-id={oracleId} />
 }
