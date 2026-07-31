@@ -698,7 +698,8 @@ mod file_tree_row {
     use crowbar_driver::{Paint, RawAnchor};
     use crowbar_ui::Theme;
     use crowbar_ui::components::{
-        GUIDE_END_INSET, GUIDE_WIDTH, ICON_SIZE, ROW_HEIGHT, RowState, file_tree_row,
+        ALL_GIT_STATUSES, GUIDE_END_INSET, GUIDE_WIDTH, GitStatus, ICON_SIZE, ROW_HEIGHT, RowState,
+        file_tree_row,
     };
     use gpui::{Bounds, Pixels, TestAppContext, px};
 
@@ -1051,5 +1052,143 @@ mod file_tree_row {
             find(&light_selected, "file-row-item").background,
             Paint::Solid(Theme::LIGHT.accent.value()),
         );
+    }
+
+    /// **The delta this item exists for, measured.**
+    ///
+    /// Driving both apps into `file-tree-row · dark · short · selected` left one
+    /// field disagreeing: `file-row-name.fg`, `#f5f5f5ff` against the
+    /// reference's `#fe9a00ff`. The reference fixture's `a.ts` is modified and
+    /// the React name span carries `text-git-modified`; this port painted every
+    /// filename on the inherited foreground. Six statuses, six tokens, and the
+    /// resting row unchanged.
+    #[gpui::test]
+    fn every_git_status_paints_the_name_its_own_token(cx: &mut TestAppContext) {
+        let theme = Theme::DARK;
+        let fg = |records: &[RawAnchor]| {
+            find(records, "file-row-name")
+                .text
+                .expect("the name paints text")
+                .color
+        };
+
+        // The default is untouched, and so is the word for it.
+        assert_eq!(fg(&measure(cx, cell(&[]))), theme.foreground.value());
+        assert_eq!(
+            fg(&measure(cx, cell(&["--git-status", "none"]))),
+            theme.foreground.value(),
+        );
+
+        for status in ALL_GIT_STATUSES {
+            let records = measure(cx, cell(&["--git-status", status.name()]));
+            assert_eq!(
+                fg(&records),
+                status.color(&theme).value(),
+                "{}",
+                status.name(),
+            );
+            assert_ne!(fg(&records), theme.foreground.value(), "{}", status.name());
+        }
+
+        // Two statuses, two colours: the axis is real, not one flag with one
+        // paint. `modified` is the amber the oracle measured.
+        assert_ne!(
+            fg(&measure(cx, cell(&["--git-status", "modified"]))),
+            fg(&measure(cx, cell(&["--git-status", "deleted"]))),
+        );
+        assert_eq!(
+            fg(&measure(cx, cell(&["--git-status", "modified"]))),
+            GitStatus::Modified.color(&theme).value(),
+        );
+
+        // And it follows the token table, so the same status in the other theme
+        // is a different paint rather than a literal baked into the row.
+        assert_ne!(
+            fg(&measure(
+                cx,
+                cell(&["--theme", "light", "--git-status", "untracked"])
+            )),
+            fg(&measure(
+                cx,
+                cell(&["--theme", "dark", "--git-status", "untracked"])
+            )),
+        );
+    }
+
+    /// The status moves the name's colour and **nothing else**.
+    ///
+    /// Not the icon — the React icon keeps `text-muted-foreground`, and the
+    /// class is on neither it nor the label wrapper — not the wrapper's
+    /// background, not the button's border, and not the anchor set: the status
+    /// letter is rendered but deliberately unanchored, because the React span
+    /// carries no `data-oracle-id` and an anchor the reference cannot produce is
+    /// a `FieldPresence` delta.
+    #[gpui::test]
+    fn the_status_leaves_the_icon_the_chrome_and_the_anchor_set_alone(cx: &mut TestAppContext) {
+        let plain = measure(cx, cell(&[]));
+        let modified = measure(cx, cell(&["--git-status", "modified"]));
+
+        assert_eq!(ids(&plain), ids(&modified));
+        for id in [
+            "file-row-item",
+            "file-row-button",
+            "file-row-icon",
+            "file-row-guide-0",
+        ] {
+            assert_eq!(at(&plain, id), at(&modified, id), "{id}");
+        }
+        // The name starts in the same place. Its *width* is allowed to move and
+        // does at this cell's content length — see
+        // `the_status_letter_takes_room_from_a_clamped_name`, which is the whole
+        // reason the letter is rendered rather than skipped as "unanchored".
+        assert_eq!(
+            at(&plain, "file-row-name").origin,
+            at(&modified, "file-row-name").origin,
+        );
+        assert_eq!(
+            find(&plain, "file-row-item").background,
+            find(&modified, "file-row-item").background,
+        );
+        assert_eq!(
+            find(&plain, "file-row-button").border_color,
+            find(&modified, "file-row-button").border_color,
+        );
+        // The icon is an empty box on this side by design (see `icon()`), so
+        // "the icon is not coloured" is a claim about the React class, which is
+        // on the name span alone. What is checkable here is that the icon anchor
+        // paints no text of its own to have been recoloured.
+        assert!(find(&modified, "file-row-icon").text.is_none());
+    }
+
+    /// The status letter is unanchored but **not weightless**.
+    ///
+    /// It is a flex sibling of the name inside the `gap-1.5` label group, so
+    /// wherever the name is clamped rather than content-sized it gets six pixels
+    /// of gap and one glyph less room. Leaving it out — which is what "unanchored
+    /// so it does not matter" would have meant — hands the native name all of
+    /// that back and puts a width delta on `file-row-name` in the one cell
+    /// truncation is measured in.
+    #[gpui::test]
+    fn the_status_letter_takes_room_from_a_clamped_name(cx: &mut TestAppContext) {
+        let width = |records: &[RawAnchor]| at(records, "file-row-name").size.width;
+
+        let clamped = width(&measure(cx, cell(&["--content", "overflow"])));
+        let clamped_with_letter = width(&measure(
+            cx,
+            cell(&["--content", "overflow", "--git-status", "modified"]),
+        ));
+        assert!(
+            clamped_with_letter < clamped,
+            "{clamped_with_letter:?} should be narrower than {clamped:?}",
+        );
+
+        // And where the name is content-sized it is unmoved, which is why the
+        // `short` cell converged on everything except the colour.
+        let content_sized = width(&measure(cx, cell(&["--content", "short"])));
+        let content_sized_with_letter = width(&measure(
+            cx,
+            cell(&["--content", "short", "--git-status", "modified"]),
+        ));
+        assert_px(content_sized_with_letter, content_sized);
     }
 }

@@ -37,7 +37,10 @@ pub mod file_tree_row;
 pub mod git_status_row;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
-pub use file_tree_row::FileTreeRow;
+// `GitStatus` and its vocabulary are flattened because nothing on the other
+// surface is called that: the git status row's filename is pinned at
+// `text-foreground` and never takes a status colour.
+pub use file_tree_row::{ALL_GIT_STATUSES, FileTreeRow, GitStatus};
 pub use git_status_row::{
     BADGE_LABEL, BREAKPOINT_SM, Breakpoint, CONTENT_SIZED, ContentLength, GitStatusRow, ID_ADDED,
     ID_BADGE, ID_BUTTON, ID_DELETED, ID_DIR, ID_ICON, ID_ITEM, ID_NAME, LINE_SIZED,
