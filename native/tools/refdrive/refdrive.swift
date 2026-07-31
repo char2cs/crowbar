@@ -53,6 +53,25 @@
 // See `wm` for the diagnosis and `place` for the fix; both say more about their
 // own limits at their implementation below.
 //
+// SYNTHETIC EVENTS ARE DENIED HERE, AND THE DENIAL IS SILENT
+//
+// The second surprise, and the one that invalidates the obvious reading of a
+// `:hover` check. Posting a CGEvent — `post(tap:)` or `postToPid` — requires
+// the post-events privilege. This process does not have it
+// (`CGPreflightPostEventAccess()` is false), and macOS drops the events without
+// an error: the call returns void, nothing throws, nothing arrives. The same
+// goes for synthetic keystrokes.
+//
+// Meanwhile `document.querySelectorAll(':hover')` keeps answering with twenty
+// or so elements, because WebKit's hover chain persists from wherever a human
+// last left the mouse. Its *length* is not evidence of anything. Warping the
+// cursor onto a different element does not change it. The only check worth
+// making is whether the element you aimed at matches `:hover`.
+//
+// `point` is the way in: warp the cursor (ungated), then change the window's
+// shape and put it back, which makes AppKit deliver a real mouse-moved at the
+// cursor. See it for the detail and its limits.
+//
 // USAGE
 //   swift refdrive.swift windows                 list on-screen Crowbar windows
 //   swift refdrive.swift wm                      who owns window placement, and
@@ -62,8 +81,16 @@
 //   swift refdrive.swift place <pid> [workspace] put that app's window alone on
 //                                                a visible workspace, and prove
 //                                                it landed on the screen
+//   swift refdrive.swift point <pid> <sx> <sy>   move the pointer there AND make
+//                                                the page recompute `:hover`
+//                                                from it — what `hover` cannot
+//                                                do without Accessibility
 //   swift refdrive.swift activate <pid>          make that app frontmost first
 //   swift refdrive.swift hover <screenX> <screenY>
+//                                                warp only; the mouseMoved it
+//                                                posts is dropped on a machine
+//                                                without the post-events
+//                                                privilege — prefer `point`
 //   swift refdrive.swift park                    move the cursor far away, so
 //                                                nothing is hovered (the
 //                                                `resting` capture needs this —
@@ -257,7 +284,7 @@ func waitUntilOnScreen(pid: Int32, deadline: TimeInterval = 5) -> (id: Int, fram
 
 let args = CommandLine.arguments
 guard args.count >= 2 else {
-    fail("usage: refdrive.swift windows | wm | place <pid> [workspace] | activate <pid> | hover <x> <y> | hoverpid <pid> <x> <y> | park")
+    fail("usage: refdrive.swift windows | wm | place <pid> [workspace] | point <pid> <x> <y> | activate <pid> | hover <x> <y> | hoverpid <pid> <x> <y> | park")
 }
 
 switch args[1] {
@@ -334,6 +361,109 @@ case "park":
     // the cursor is somewhere real rather than clamped from an off-screen point.
     movePointer(to: CGPoint(x: 2, y: 2))
     print("parked at 2,2")
+
+case "point":
+    // Put the pointer somewhere AND make the page believe it — which `hover`,
+    // on this machine, does not.
+    //
+    // WHY `hover` IS NOT ENOUGH, AND WHY THAT WAS INVISIBLE
+    //
+    // `hover` does two things: warp the cursor, then post a mouseMoved so
+    // WebKit recomputes `:hover`. Only the first half works here. Posting a
+    // synthetic CGEvent needs the post-events privilege, and this process does
+    // not have it — `CGPreflightPostEventAccess()` is false, as is
+    // `AXIsProcessTrusted()`. macOS drops such events **silently**: `post` and
+    // `postToPid` both return void, both "succeed", and nothing arrives. Every
+    // keystroke synthesised the same way is dropped too.
+    //
+    // The failure is disguised because `document.querySelectorAll(':hover')`
+    // keeps returning a plausible 20-odd elements — the chain under wherever a
+    // human last left the mouse. It is stale, and reading it as proof that
+    // hover works is the trap: the chain does not change when the cursor is
+    // warped onto a different element. The check that does not lie is whether
+    // the *intended* element matches `:hover`, which is what the caller must
+    // assert after calling this.
+    //
+    // WHAT DOES WORK
+    //
+    // `CGWarpMouseCursorPosition` is not gated, so the cursor really does move
+    // (the app agrees: Tauri's `cursorPosition()` reports the warped point). It
+    // is documented not to generate an event, which is the whole problem —
+    // WebKit only re-hit-tests when an event arrives.
+    //
+    // An event does arrive when the *window* changes shape under a stationary
+    // cursor: AppKit rebuilds the view's tracking areas and delivers a real
+    // mouseMoved at the cursor's true position. Nobody needs permission for
+    // that, because nobody is synthesising anything — the window server is
+    // reporting a fact. So this warps, then asks AeroSpace to toggle the window
+    // fullscreen and back, which changes the frame twice and puts it back
+    // exactly where it was.
+    //
+    // LIMITS
+    //
+    //   - It needs AeroSpace. Without a window manager there is no ungated way
+    //     to change the frame from outside the app, and the honest answer
+    //     becomes "grant Accessibility" — see the message this prints.
+    //   - The frame excursion is real. A resize relays out the page, and any
+    //     scroll position not owned by application state snaps back: a
+    //     carousel scrolled by assigning `scrollLeft` returns to panel 0, while
+    //     one switched with the app's own tab control survives. Drive the app,
+    //     not its scroll offsets, before calling this.
+    //   - It reports where it put the cursor. It CANNOT tell you what ended up
+    //     hovered — the window may have moved, the row may have scrolled.
+    //     Assert on the page that the element you meant matches `:hover`.
+    guard args.count == 5, let pid = Int32(args[2]),
+          let x = Double(args[3]), let y = Double(args[4])
+    else {
+        fail("usage: refdrive.swift point <pid> <screenX> <screenY>")
+    }
+    guard let before = windowFrames(pid: pid).first(where: { displayUnion().contains($0.frame) }) else {
+        fail("pid \(pid) has no window on the screen — run `place \(pid)` first")
+    }
+    // Frontmost first: an inactive app is not sent mouse-moved at all, so the
+    // tracking-area event would be generated and discarded.
+    NSRunningApplication(processIdentifier: pid)?.activate(options: [])
+    movePointer(to: CGPoint(x: x, y: y))
+    guard let binary = aerospaceBinary() else {
+        fail("""
+            cursor warped to \(x),\(y) but nothing can make the app read it.
+            Synthetic events are denied to this process \
+            (CGPreflightPostEventAccess=\(CGPreflightPostEventAccess())), and without \
+            AeroSpace there is no way to change the window frame from outside \
+            the app either. To drive real pointer input directly, the user must \
+            grant Accessibility (System Settings -> Privacy & Security -> \
+            Accessibility) to the application responsible for this process — for \
+            an agent session that is the GUI app at the root of the process \
+            tree, not `swift` and not this script.
+            """)
+    }
+    // `on` then `off` rather than a single move: fullscreen is the one frame
+    // change AeroSpace will make and then perfectly undo, so the window ends up
+    // byte-identical to where it started and the caller's screen coordinates
+    // stay valid. `--no-outer-gaps` makes the excursion bigger than the 5px
+    // gaps, so the frame genuinely changes even when the window already fills
+    // its workspace.
+    let windowID = String(before.id)
+    runTool(binary, ["fullscreen", "on", "--window-id", windowID, "--no-outer-gaps"])
+    runTool(binary, ["fullscreen", "off", "--window-id", windowID])
+    // Block on the frame coming back, for the same reason `place` does: the CLI
+    // returns before the AX write lands, and a caller that measured geometry
+    // against a half-restored window would compute the wrong screen point next
+    // time.
+    let until = Date().addingTimeInterval(5)
+    var restored = false
+    repeat {
+        if windowFrames(pid: pid).contains(where: { $0.id == before.id && $0.frame == before.frame }) {
+            restored = true
+            break
+        }
+        usleep(50_000)
+    } while Date() < until
+    guard restored else {
+        let now = windowFrames(pid: pid).first(where: { $0.id == before.id })?.frame
+        fail("window \(before.id) did not return to \(before.frame) after the nudge (now \(now.map(String.init(describing:)) ?? "gone"))")
+    }
+    print("point pid=\(pid) at \(x),\(y) — frame \(before.frame) restored; verify :hover on the page")
 
 case "wm":
     // Diagnosis, not action — run this before believing anything about where a
@@ -490,5 +620,5 @@ case "place":
     print("place pid=\(pid) workspace=\(workspace) -> id=\(landed.id) \(landed.frame)")
 
 default:
-    fail("unknown command \(args[1]) — expected windows, wm, place, activate, hover, hoverpid or park")
+    fail("unknown command \(args[1]) — expected windows, wm, place, point, activate, hover, hoverpid or park")
 }
