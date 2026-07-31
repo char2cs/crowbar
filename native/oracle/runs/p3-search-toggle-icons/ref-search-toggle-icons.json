@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "surface": "search-toggle-icons",
+  "state": {
+    "width": 1714,
+    "theme": "dark",
+    "content": "normal",
+    "flags": []
+  },
+  "root": "search-toggle-icon",
+  "anchors": [
+    {
+      "id": "search-toggle-icon",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 14.48,
+        "h": 15
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0,
+      "border": {
+        "w": 0,
+        "color": "#ffffff0f"
+      },
+      "content_sized": true,
+      "line_sized": true,
+      "fg": "#a4a4a4ff",
+      "text": "Aa",
+      "text_width": 14.48,
+      "clipped": false,
+      "font": {
+        "size": 11,
+        "weight": 600,
+        "family": "CalSansUI",
+        "line_height": 15.71
+      }
+    }
+  ]
+}

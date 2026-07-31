@@ -1,0 +1,74 @@
+{
+  "schema": 1,
+  "surface": "loading-spinner",
+  "state": {
+    "width": 1714,
+    "theme": "dark",
+    "content": "normal",
+    "flags": []
+  },
+  "root": "loading-spinner",
+  "anchors": [
+    {
+      "id": "loading-spinner",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 138,
+        "h": 18
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0,
+      "border": {
+        "w": 0,
+        "color": "#ffffff0f"
+      },
+      "content_sized": true
+    },
+    {
+      "id": "spinner",
+      "bounds": {
+        "x": 0,
+        "y": 1,
+        "w": 16,
+        "h": 16
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0,
+      "border": {
+        "w": 0,
+        "color": "#ffffff0f"
+      }
+    },
+    {
+      "id": "loading-spinner-label",
+      "bounds": {
+        "x": 22,
+        "y": 0,
+        "w": 116,
+        "h": 18
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0,
+      "border": {
+        "w": 0,
+        "color": "#ffffff0f"
+      },
+      "content_sized": true,
+      "line_sized": true,
+      "fg": "#a4a4a4ff",
+      "text": "Loading commit diff",
+      "text_width": 115.99,
+      "clipped": false,
+      "font": {
+        "size": 12,
+        "weight": 400,
+        "family": "CalSansUI",
+        "line_height": 18
+      }
+    }
+  ]
+}

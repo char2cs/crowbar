@@ -1,4 +1,4 @@
-# The anchor snapshot contract — v1.9
+# The anchor snapshot contract — v1.10
 
 > ## ‼️ CORRECTION: the reference engine is **WebKit**, not Blink
 >
@@ -298,6 +298,33 @@ states is meaningless and would be the easiest possible way to fake convergence.
 | `visible` | Actually painted: not `display:none`, not `visibility:hidden`, **zero opacity on the element or any ancestor** *(v1.7)*, non-zero area, not fully clipped by an ancestor. | yes |
 | `radius` | Corner radius px. Single value; if corners differ, emit the top-left and note it. | no |
 | `border` | Width px + colour. | no |
+
+### An intrinsic aspect ratio quantises differently on each side *(v1.10 — a measured bound, not a rule)*
+
+Found by P3.8 porting `crowbar-wordmark`, the port's first element sized by an
+SVG's **intrinsic ratio** rather than by an authored box.
+
+`148px` wide at the asset's ratio is exactly `37.5717…`. Neither engine can say
+that:
+
+| | resolves to |
+|---|---|
+| WebKit | floors into **1/64ths** → `37.5625` |
+| taffy (GPUI) | snaps to the **device grid** → `37.5000` |
+
+Measured on the live pair: reference `37.56`, native `37.50`, **Δ 0.06** — inside
+±0.5, and the cell **passes**.
+
+**The bound is `1/(2·dpr) + 1/64`.** At DPR 2 that is `0.266`, comfortable. **At
+DPR 1 it is `0.516` — just over the tolerance.** So a machine with a non-Retina
+display could fail this cell with nothing wrong on either side.
+
+**No rule is added.** Every existing forgiveness — v1.5's `ceil`, v1.6's line box
+— was written *after* a real cell failed and could name exactly which anchors it
+applied to. This one has not failed, and inventing an allowance for a case nobody
+has hit is how a differ quietly stops differing. It is recorded so that when a
+DPR-1 run does fail, the cause is one grep away rather than a week of bisecting a
+"port defect" that is not one.
 
 ### A snapshot has no way to say *when* it was taken *(v1.9 — a stated hole, not a rule)*
 

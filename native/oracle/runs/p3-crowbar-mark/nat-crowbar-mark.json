@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "surface": "crowbar-mark",
+  "state": {
+    "width": 1714,
+    "theme": "dark",
+    "content": "normal",
+    "flags": []
+  },
+  "root": "crowbar-mark",
+  "anchors": [
+    {
+      "id": "crowbar-mark",
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 18.0,
+        "h": 18.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    }
+  ]
+}
