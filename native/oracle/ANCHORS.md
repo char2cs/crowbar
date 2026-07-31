@@ -299,6 +299,53 @@ states is meaningless and would be the easiest possible way to fake convergence.
 | `radius` | Corner radius px. Single value; if corners differ, emit the top-left and note it. | no |
 | `border` | Width px + colour. | no |
 
+### Which anchors a snapshot contains *(v1.8)*
+
+Until now §2 said what `surface` and `root` **name** and never said which anchors
+a snapshot **contains**. Both extractors have to agree on that or the differ is
+comparing different things, and they did not.
+
+**DECIDED:** a snapshot contains **exactly the surface's own anchors, each at
+most once**. An anchor beneath the root that belongs to *another* surface is not
+part of this one, and the two extractors must agree, per surface, on that set.
+
+The native side satisfied this structurally all along — a
+`crates/crowbar-app/src/surfaces/*.rs` renders its own anchors and nothing else.
+The React side did not: `extractSnapshot` walked **every** `data-oracle-id`
+beneath the root. For a leaf surface that is the same thing. For a surface whose
+root *contains* other anchored subtrees it is not.
+
+`resizable` is the case that exposed it. Its root is `resize-group` — the IDE
+shell root — so a capture swallowed the entire sidebar: carousel, file rows, ten
+git rows. **81 anchors with `git-row-item` repeated ten times**, against the
+native surface's 4. The oracle refused the snapshot outright and was right to:
+it matches by id and "would have no way to say which of the two it compared".
+
+`sidebar-carousel` had already hit the same thing more quietly, and I worked
+around it by hand-filtering the reference to the `carousel-*` ids and declaring
+the reduction. That only worked because those ids happen to be unique. A
+workaround that depends on a coincidence is not a rule, which is why this is now
+one.
+
+**A surface may declare its set only when the set is a property of the surface
+rather than of the cell.** `git-status-row`'s is a function of the cell —
+`git-row-guide-{n}` varies with depth, `git-row-dir` and `git-row-deleted` appear
+only when the fixture has them — so any fixed list would be wrong in most cells,
+and the loud-missing rule would then reject honest captures. Those surfaces also
+need no scope: their roots contain their own anchors and nothing else.
+
+Three failures follow from the rule, and all three are errors rather than
+silent repairs: a declared anchor that is **absent**, two elements carrying one
+declared id, and a declaration that **repeats** an id. In particular a duplicate
+must not be resolved by taking the first — that produces a plausible snapshot
+built from an arbitrary choice, which is worse than a refusal.
+
+**Stated hole:** a *new* anchor added to a declared component but not added to
+its declaration is dropped from the reference. It does not vanish from the run —
+the native side renders it and the differ reports an anchor present on one side
+only — but the message names the wrong cause. Adding an anchor means updating
+both sides, as it always has.
+
 ### `visible` and opacity — the two sides implemented different fields *(v1.7)*
 
 Found by P2.3 while porting `sidebar-carousel`, by reading both extractors rather
