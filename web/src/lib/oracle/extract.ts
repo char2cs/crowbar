@@ -694,6 +694,113 @@ export function oracleIsVisible(
 }
 
 /**
+ * Refuse a capture whose `visible` column the driver could not have reproduced
+ * — ANCHORS.md v1.7, and `corpus/001-opacity-ancestor-visible.md`'s narrowed
+ * standing restriction.
+ *
+ * ## The gap this closes over
+ *
+ * v1.7 decided that `visible` is false at zero opacity on the element **or any
+ * ancestor**. The two sides implement different amounts of that sentence:
+ *
+ * | | sees zero opacity on |
+ * |---|---|
+ * | {@link oracleIsVisible} | the element and **every** ancestor — it walks `parentElement` to `<html>` |
+ * | `crowbar-driver` | the element and **anchored** ancestors only |
+ *
+ * The driver folds opacity in at `AnchoredBox` boundaries
+ * (`registry.enter(self.style.opacity)`), so a plain `div().opacity(0.)`
+ * between two anchors — or an `opacity-0` layer *above* the root anchor, which
+ * is exactly what `NavStack` puts on the sidebar carousel — is never entered
+ * and never seen. It cannot be closed on that side: gpui accumulates precisely
+ * this in `Window::element_opacity`, but it is `pub(crate)` with no accessor
+ * and is applied from `Interactivity::paint`, after the `prepaint` where the
+ * driver records. Reaching it means patching the pinned `native/vendor/`.
+ *
+ * So the gap stays, and this side — the one that *can* see the whole chain —
+ * makes it unable to produce a wrong answer. A cell driven with such an
+ * ancestor reports `visible: false` on every anchor here and `true` on every
+ * anchor there: a delta on every anchor whose cause is the contract rather than
+ * the port, and one that reads exactly like a port bug. That capture must not
+ * exist, in the same way and for the same reason a mislabelled theme must not
+ * (see {@link oracleNormalizeState}).
+ *
+ * ## The region searched
+ *
+ * Every ancestor of every anchor, up to and including `<html>` — which is the
+ * region {@link oracleIsVisible} reads, so the guard trips on exactly the
+ * elements that can move this side's answer. That is deliberately *both*
+ * directions the corpus entry names: between two anchors, and **above the root
+ * anchor**, the latter being the motivating `NavStack` case.
+ *
+ * ## Anchored ancestors are exempt, and that matters
+ *
+ * An ancestor carrying `data-oracle-id` is one the driver enters, so both sides
+ * fold it in and the capture *is* comparable. The corpus entry's advice for
+ * testing opacity — "put it on an anchor, the root anchor will do" — depends on
+ * this exemption, so a guard that tripped on it would block the one legitimate
+ * way to exercise the field.
+ *
+ * ## Exactly zero, not merely translucent
+ *
+ * `opacity: 0.5` on an unanchored ancestor changes `visible` on **neither**
+ * side: this side tests `parseFloat(style.opacity) === 0` and the driver tests
+ * `declared == 0.0`, both per level rather than as a product. There is no
+ * disagreement to prevent, so flagging it would be a false alarm — and a false
+ * alarm here throws away a legitimate capture, on a tree where `opacity-90`
+ * wrappers are ordinary. The predicate is therefore the same `=== 0` the two
+ * `visible` implementations already use, so the guard trips if and only if an
+ * ancestor the driver cannot see is one this side would have called invisible.
+ */
+export function oracleAssertComparableOpacity(elements: Element[]): void {
+  function describe(el: Element): string {
+    let out = '<' + String(el.tagName || 'element').toLowerCase()
+    const id = el.getAttribute('id')
+    if (id) out += ' id="' + id + '"'
+    const cls = el.getAttribute('class')
+    if (cls) out += ' class="' + cls + '"'
+    return out + '>'
+  }
+
+  const seen: Element[] = []
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i]
+    const doc = el.ownerDocument
+    const win = doc ? doc.defaultView : null
+    if (!win || typeof win.getComputedStyle !== 'function') continue
+    let node: Element | null = el.parentElement
+    while (node) {
+      // Already walked, so everything above it was walked too — this loop only
+      // ever ends by reaching the top or by throwing.
+      if (seen.indexOf(node) >= 0) break
+      seen.push(node)
+      if (
+        node.getAttribute('data-oracle-id') === null &&
+        parseFloat(win.getComputedStyle(node).opacity) === 0
+      ) {
+        throw new Error(
+          'oracle: ' +
+            describe(node) +
+            ' is an ancestor of anchor "' +
+            (el.getAttribute('data-oracle-id') || '') +
+            '" at opacity 0, and carries no data-oracle-id. crowbar-driver folds ' +
+            'opacity in at anchor boundaries only, so it cannot see this element: ' +
+            'this side would report visible=false on every anchor beneath it and ' +
+            'the native side visible=true. The capture would not be comparable — ' +
+            'a delta on every anchor, caused by the contract rather than by the ' +
+            'port. Refusing to emit it. Put the opacity on an anchor instead (the ' +
+            'root anchor will do — opacity moves no geometry and every bound is ' +
+            'root-relative), or drive the cell with that layer opaque. See ' +
+            'native/oracle/corpus/001-opacity-ancestor-visible.md. There is no ' +
+            'override.',
+        )
+      }
+      node = node.parentElement
+    }
+  }
+}
+
+/**
  * `light` or `dark` — the only two values §2's `state.theme` permits.
  *
  * This app names its themes (`data-theme="crowbar"`), so the attribute is only
@@ -934,6 +1041,12 @@ export function extractSnapshot(options: ExtractOptions): OracleSnapshot {
   const nested = rootEl.querySelectorAll('[data-oracle-id]')
   for (let i = 0; i < nested.length; i++) elements.push(nested[i])
 
+  // v1.7 precondition, before anything is measured: an unanchored ancestor at
+  // zero opacity makes this side's `visible` column unreproducible by the
+  // driver. Nothing below changes as a result — the guard either throws or is
+  // invisible, so the archived pairs in `native/oracle/runs/` compare unchanged.
+  oracleAssertComparableOpacity(elements)
+
   const normalLineHeights: Record<string, number> = {}
   const anchors: OracleAnchor[] = []
   let rootBox: OracleBox = { left: 0, top: 0, width: 0, height: 0 }
@@ -1077,6 +1190,7 @@ const ORACLE_RUNTIME = [
   oracleTextAdvanceWidth,
   oraclePaddingBoxRect,
   oracleIsVisible,
+  oracleAssertComparableOpacity,
   oracleDetectTheme,
   oracleNormalizeState,
   extractSnapshot,

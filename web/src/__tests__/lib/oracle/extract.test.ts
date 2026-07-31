@@ -647,6 +647,63 @@ function mountRow(theme: 'light' | 'dark' = 'light') {
   return { row, guide, btn, name, badge }
 }
 
+/**
+ * The tree the v1.7 opacity gap is about, in its smallest form:
+ *
+ * ```
+ * <html> → <body> → #outer → #row[anchor] → #gap → #child[anchor]
+ * ```
+ *
+ * `#outer` is the ancestor **above** the root anchor — `NavStack`'s `opacity-0`
+ * layer — and `#gap` the unanchored ancestor **between** two anchors. Either can
+ * be given a style, and either can be turned into an anchor, which is what
+ * separates a comparable capture from one that is not.
+ */
+function mountProbeTree(
+  styles: Record<string, FakeStyle>,
+  anchored?: { outer?: boolean; gap?: boolean },
+) {
+  document.documentElement.className = 'light'
+  const outerAttr = anchored?.outer ? ' data-oracle-id="probe-outer"' : ''
+  const gapAttr = anchored?.gap ? ' data-oracle-id="probe-gap"' : ''
+  document.body.innerHTML = `
+    <div id="outer"${outerAttr}>
+      <div id="row" data-oracle-id="probe-root">
+        <div id="gap"${gapAttr}>
+          <span id="child" data-oracle-id="probe-child"></span>
+        </div>
+      </div>
+    </div>`
+
+  const byId: Record<string, Element> = {
+    html: document.documentElement,
+    body: document.body,
+    outer: document.getElementById('outer') as HTMLElement,
+    row: document.getElementById('row') as HTMLElement,
+    gap: document.getElementById('gap') as HTMLElement,
+    child: document.getElementById('child') as HTMLElement,
+  }
+  stubRect(byId.outer, { left: 0, top: 0, width: 400, height: 40 })
+  stubRect(byId.row, { left: 10, top: 10, width: 300, height: 20 })
+  stubRect(byId.gap, { left: 10, top: 10, width: 300, height: 20 })
+  stubRect(byId.child, { left: 20, top: 12, width: 60, height: 16 })
+
+  const resolved = new Map<Element, FakeStyle>()
+  for (const key of Object.keys(styles)) resolved.set(byId[key], styles[key])
+
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(((
+    el: Element,
+    pseudo?: string | null,
+  ) => {
+    if (pseudo) return { ...BASE_STYLE, content: 'none' } as unknown as CSSStyleDeclaration
+    return { ...BASE_STYLE, ...(resolved.get(el) || {}) } as unknown as CSSStyleDeclaration
+  }) as typeof window.getComputedStyle)
+
+  return byId
+}
+
+const PROBE = { surface: 'sidebar-carousel', root: 'probe-root' }
+
 describe('extractSnapshot', () => {
   afterEach(() => {
     vi.restoreAllMocks()
@@ -910,6 +967,154 @@ describe('extractSnapshot', () => {
   })
 })
 
+// ── the v1.7 opacity gap, made unable to produce a wrong answer ──────────────
+//
+// ANCHORS.md v1.7 says `visible` is false at zero opacity on the element or any
+// ancestor. This side implements all of that sentence; `crowbar-driver`
+// implements it for *anchored* ancestors only, and cannot do better without
+// patching the pinned vendor tree. So a cell driven with a transparent
+// **unanchored** ancestor produces `visible: false` here against `true` there —
+// a delta on every anchor, caused by the contract rather than by the port.
+// `corpus/001-opacity-ancestor-visible.md` records that as a standing
+// restriction; these tests are the restriction made mechanical.
+
+describe('the v1.7 unanchored-opacity precondition', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+    document.documentElement.className = ''
+  })
+
+  it('refuses the NavStack case — a transparent layer above the root anchor', () => {
+    // The motivating scenario, and the one the driver's own v1.7 work did not
+    // reach: `opacity-0` on the layer *holding* the surface. Nothing may come
+    // back, exactly as for a contradicted theme — a snapshot that reached an
+    // archive would become evidence for a port bug that does not exist.
+    mountProbeTree({ outer: { opacity: '0' } })
+
+    let snapshot: OracleSnapshot | undefined
+    expect(() => {
+      snapshot = extractSnapshot(PROBE)
+    }).toThrow(/would not be comparable/)
+    expect(snapshot).toBeUndefined()
+  })
+
+  it('refuses an unanchored transparent ancestor between two anchors', () => {
+    // The driver's probe tree, one for one:
+    // `anchor_root("root", div().child(div().opacity(0.).child(anchor("child"))))`
+    // reports both anchors visible; this side reports neither.
+    mountProbeTree({ gap: { opacity: '0' } })
+    expect(() => extractSnapshot(PROBE)).toThrow(/would not be comparable/)
+  })
+
+  it('searches all the way to <html>, where oracleIsVisible also stops', () => {
+    // The region has to be the one `oracleIsVisible` reads, or the guard covers
+    // less than the field it is protecting. `<body>` and `<html>` are ancestors
+    // like any other and neither can carry an anchor id.
+    mountProbeTree({ body: { opacity: '0' } })
+    expect(() => extractSnapshot(PROBE)).toThrow(/would not be comparable/)
+
+    vi.restoreAllMocks()
+    mountProbeTree({ html: { opacity: '0' } })
+    expect(() => extractSnapshot(PROBE)).toThrow(/would not be comparable/)
+  })
+
+  it('names the offending element, the anchor under it, and the corpus entry', () => {
+    // The error is the whole signal: it is read by an operator mid-capture, in
+    // a bridge where nothing else is being watched.
+    const els = mountProbeTree({ gap: { opacity: '0' } })
+    els.gap.setAttribute('class', 'nav-layer')
+
+    let message = ''
+    try {
+      extractSnapshot(PROBE)
+    } catch (error) {
+      message = String((error as Error).message)
+    }
+
+    expect(message).toContain('<div id="gap" class="nav-layer">')
+    expect(message).toContain('opacity 0')
+    // The anchor the walk reached it from — `#gap` sits between the root and
+    // the child, so the child is what names it.
+    expect(message).toContain('probe-child')
+    expect(message).toContain('corpus/001-opacity-ancestor-visible.md')
+    // The way out, which is what the corpus entry tells a caller to do.
+    expect(message).toContain('Put the opacity on an anchor')
+  })
+
+  it('lets a fully opaque tree through untouched (the control)', () => {
+    // Half the claim. A guard that failed this would refuse every honest
+    // capture, which is a worse outcome than the gap it exists to cover.
+    mountProbeTree({})
+    const snapshot = extractSnapshot(PROBE)
+
+    expect(snapshot.anchors.map((a) => a.id)).toEqual(['probe-root', 'probe-child'])
+    expect(snapshot.anchors.every((a) => a.visible)).toBe(true)
+    // And it adds nothing to the wire shape: `native/oracle/runs/` holds pairs
+    // that must still compare, and a field only one side writes is worse than
+    // no coverage at all.
+    expect(Object.keys(snapshot).sort()).toEqual(['anchors', 'root', 'schema', 'state', 'surface'])
+    for (const anchor of snapshot.anchors) {
+      expect(Object.keys(anchor).sort()).toEqual([
+        'bg',
+        'border',
+        'bounds',
+        'id',
+        'radius',
+        'visible',
+      ])
+    }
+  })
+
+  it('does NOT trip on an anchored transparent ancestor above the root', () => {
+    // The case that is comparable, and therefore must still capture. The driver
+    // folds an anchored ancestor's opacity in on `enter`, so both sides agree —
+    // and they agree on `false`, which is the answer a reader wants.
+    mountProbeTree({ outer: { opacity: '0' } }, { outer: true })
+    const snapshot = extractSnapshot(PROBE)
+
+    expect(snapshot.anchors.map((a) => a.id)).toEqual(['probe-root', 'probe-child'])
+    expect(snapshot.anchors.every((a) => a.visible)).toBe(false)
+  })
+
+  it('does NOT trip on an anchored transparent ancestor between anchors', () => {
+    // The corpus entry's advice for exercising the field at all is "put the
+    // opacity on an anchor". If the guard blocked that, the field would be
+    // untestable and the advice would be wrong.
+    mountProbeTree({ gap: { opacity: '0' } }, { gap: true })
+    const snapshot = extractSnapshot(PROBE)
+
+    expect(snapshot.anchors.map((a) => a.id)).toEqual(['probe-root', 'probe-gap', 'probe-child'])
+    expect(snapshot.anchors.find((a) => a.id === 'probe-root')?.visible).toBe(true)
+    expect(snapshot.anchors.find((a) => a.id === 'probe-gap')?.visible).toBe(false)
+    expect(snapshot.anchors.find((a) => a.id === 'probe-child')?.visible).toBe(false)
+  })
+
+  it('does NOT trip on a merely translucent unanchored ancestor', () => {
+    // Exact zero, not `< 1`, and deliberately: both `visible` implementations
+    // test for zero per level, so `opacity: 0.5` on an unanchored ancestor
+    // moves neither side's answer. There is no disagreement to prevent, and
+    // refusing here would throw away legitimate captures on a tree where
+    // partial opacity is ordinary — the row fixture's own indent guide sits at
+    // 0.9.
+    mountProbeTree({ outer: { opacity: '0.5' }, gap: { opacity: '0.01' } })
+    const snapshot = extractSnapshot(PROBE)
+
+    expect(snapshot.anchors.every((a) => a.visible)).toBe(true)
+  })
+
+  it('changes nothing about the gate surface it is not aimed at', () => {
+    // The archived pairs are captures of this row. The guard runs on every one
+    // of them and has to be invisible: same anchors, same values, same keys.
+    mountRow('dark')
+    const snapshot = extractSnapshot({ surface: 'git-status-row', state: { theme: 'dark' } })
+
+    expect(snapshot.anchors).toHaveLength(5)
+    expect(snapshot.anchors[0].bounds).toEqual({ x: 0, y: 0, w: 320, h: 24 })
+    expect(snapshot.anchors[0].bg).toBe('#ff000080')
+  })
+})
+
 // ── injectability ────────────────────────────────────────────────────────────
 
 describe('extractSnapshotSource', () => {
@@ -950,6 +1155,25 @@ describe('extractSnapshotSource', () => {
     })
 
     expect(() => (0, eval)(source)).toThrow(/document being measured is "light"/)
+  })
+
+  it('carries the opacity precondition into the injected script as well', () => {
+    // Same reasoning as the theme check above, and the same failure if it is
+    // missed: the bridge evaluates this IIFE in the page, so a guard left out
+    // of `ORACLE_RUNTIME` is a `ReferenceError` there and green everywhere
+    // else. Matching the guard's own wording is deliberate — a ReferenceError
+    // would throw too, and would pass a bare `.toThrow()`.
+    mountProbeTree({ outer: { opacity: '0' } })
+    const source = extractSnapshotSource(PROBE)
+
+    expect(() => (0, eval)(source)).toThrow(/would not be comparable/)
+  })
+
+  it('still captures through the injected script when every ancestor is opaque', () => {
+    mountProbeTree({})
+    const emitted = JSON.parse((0, eval)(extractSnapshotSource(PROBE)) as string)
+
+    expect(emitted).toEqual(JSON.parse(JSON.stringify(extractSnapshot(PROBE))))
   })
 
   it('still produces a snapshot through the injected script when the label agrees', () => {
