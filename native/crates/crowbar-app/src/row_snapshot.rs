@@ -15,7 +15,9 @@ use std::fs;
 use std::io::{self, Write as _};
 use std::path::PathBuf;
 
-use crowbar_driver::{AnchorRegistry, Content, Flag, Snapshot, SurfaceState, Theme as SnapshotTheme};
+use crowbar_driver::{
+    AnchorRegistry, Content, Flag, Snapshot, SurfaceState, Theme as SnapshotTheme,
+};
 use crowbar_ui::Appearance;
 use crowbar_ui::components::ContentLength;
 

@@ -1,0 +1,123 @@
+{
+  "schema": 1,
+  "surface": "file-tree-row",
+  "state": {
+    "width": 800,
+    "theme": "dark",
+    "content": "short",
+    "flags": [
+      "selected"
+    ]
+  },
+  "root": "file-row-item",
+  "anchors": [
+    {
+      "id": "file-row-item",
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 286.0,
+        "h": 24.0
+      },
+      "bg": "#ffffff0a",
+      "visible": true,
+      "radius": 2.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "file-row-guide-0",
+      "bounds": {
+        "x": 14.0,
+        "y": 0.0,
+        "w": 7.0,
+        "h": 24.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "file-row-guide-1",
+      "bounds": {
+        "x": 30.0,
+        "y": 4.0,
+        "w": 7.0,
+        "h": 20.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "file-row-button",
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 286.0,
+        "h": 24.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 2.0,
+      "border": {
+        "w": 1.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "file-row-icon",
+      "bounds": {
+        "x": 43.0,
+        "y": 5.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "file-row-name",
+      "bounds": {
+        "x": 63.0,
+        "y": 2.0,
+        "w": 24.0,
+        "h": 20.0
+      },
+      "fg": "#fe9a00ff",
+      "bg": "#00000000",
+      "text": "a.ts",
+      "text_width": 23.268,
+      "clipped": false,
+      "font": {
+        "size": 14.0,
+        "weight": 400,
+        "family": "CalSansUI",
+        "line_height": 20.0
+      },
+      "visible": true,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      },
+      "content_sized": true,
+      "line_sized": true
+    }
+  ]
+}

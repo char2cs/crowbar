@@ -157,7 +157,10 @@ mod tests {
     /// component, where it is reviewable.
     #[test]
     fn an_ordinary_anchor_id_declares_nothing() {
-        for plain in [AnchorId::from("git-row-icon"), AnchorId::new("git-row-icon")] {
+        for plain in [
+            AnchorId::from("git-row-icon"),
+            AnchorId::new("git-row-icon"),
+        ] {
             assert!(!plain.content_sized);
             assert!(!plain.line_sized);
         }

@@ -765,11 +765,11 @@ impl Render for RowSurface {
             .pl(px(INSET_X))
             .pt(px(INSET_Y))
             .font_family(theme.font_sans.primary().unwrap_or("sans-serif"))
-            .child(
-                div()
-                    .w(self.cell.width_px())
-                    .child(render_row(&self.cell, &theme, self.anchors.as_ref())),
-            )
+            .child(div().w(self.cell.width_px()).child(render_row(
+                &self.cell,
+                &theme,
+                self.anchors.as_ref(),
+            )))
             // Outside the root anchor, so it cannot reach the snapshot: every
             // bound is reported relative to `git-row-item`.
             .child(
@@ -1158,8 +1158,7 @@ mod tests {
 
         // And the filter follows the cell's surface, not a constant.
         let git = parse(&["--flags", "empty"]).expect("well-formed");
-        let file = parse(&["--surface", "file-tree-row", "--flags", "empty"])
-            .expect("well-formed");
+        let file = parse(&["--surface", "file-tree-row", "--flags", "empty"]).expect("well-formed");
         assert_eq!(git.unmodelled_flags(), vec![]);
         assert_eq!(file.unmodelled_flags(), vec![StateFlag::Empty]);
     }
@@ -1172,7 +1171,10 @@ mod tests {
     #[test]
     fn the_surface_selector_defaults_to_the_geometry_gate() {
         assert_eq!(Cell::default().surface, Surface::GitStatusRow);
-        assert_eq!(parse(&[]).expect("well-formed").surface, Surface::GitStatusRow);
+        assert_eq!(
+            parse(&[]).expect("well-formed").surface,
+            Surface::GitStatusRow
+        );
         assert_eq!(
             parse(&["--surface", "file-tree-row"])
                 .expect("well-formed")
@@ -1191,7 +1193,10 @@ mod tests {
             panic!("`file-row` is not a surface");
         };
         assert!(complaint.contains("file-tree-row"), "{complaint}");
-        assert!(matches!(parse(&["--surface"]), Err(ParseError::Rejected(_))));
+        assert!(matches!(
+            parse(&["--surface"]),
+            Err(ParseError::Rejected(_))
+        ));
     }
 
     /// The state axis reaches the file explorer row, which is the whole point of
@@ -1230,13 +1235,22 @@ mod tests {
                 .describe()
                 .contains("file-tree-row"),
         );
-        assert!(parse(&[]).expect("well-formed").describe().contains("git-status-row"));
+        assert!(
+            parse(&[])
+                .expect("well-formed")
+                .describe()
+                .contains("git-status-row")
+        );
 
         // The three git-only row parameters are not announced on a surface that
         // has no prop for them.
         let file = parse(&["--surface", "file-tree-row", "--no-directory", "--no-icon"])
             .expect("well-formed");
-        assert!(!file.describe().contains("no-directory"), "{}", file.describe());
+        assert!(
+            !file.describe().contains("no-directory"),
+            "{}",
+            file.describe()
+        );
         assert!(!file.describe().contains("no-icon"), "{}", file.describe());
     }
 

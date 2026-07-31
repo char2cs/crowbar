@@ -273,9 +273,7 @@ fn by_rule(report: &Report, line_sized: bool) -> Vec<&Forgiven> {
     report
         .forgiven
         .iter()
-        .filter(|forgiven| {
-            matches!(forgiven.reason, Forgiveness::LineHeight { .. }) == line_sized
-        })
+        .filter(|forgiven| matches!(forgiven.reason, Forgiveness::LineHeight { .. }) == line_sized)
         .collect()
 }
 

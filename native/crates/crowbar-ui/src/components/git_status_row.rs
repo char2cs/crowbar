@@ -602,21 +602,17 @@ impl GitStatusRow {
 
         if self.trailing.additions > 0 {
             let label = SharedString::from(format!("+{}", self.trailing.additions));
-            group = group.child(
-                div().text_color(theme.git_added).child(anchors.text(
-                    AnchorId::new(ID_ADDED).content_sized().line_sized(),
-                    label,
-                )),
-            );
+            group =
+                group.child(div().text_color(theme.git_added).child(
+                    anchors.text(AnchorId::new(ID_ADDED).content_sized().line_sized(), label),
+                ));
         }
         if self.trailing.deletions > 0 {
             let label = SharedString::from(format!("-{}", self.trailing.deletions));
-            group = group.child(
-                div().text_color(theme.git_deleted).child(anchors.text(
-                    AnchorId::new(ID_DELETED).content_sized().line_sized(),
-                    label,
-                )),
-            );
+            group = group.child(div().text_color(theme.git_deleted).child(anchors.text(
+                AnchorId::new(ID_DELETED).content_sized().line_sized(),
+                label,
+            )));
         }
         group
     }
@@ -773,7 +769,12 @@ mod tests {
     fn every_bare_text_span_is_line_sized_and_the_badge_is_not() {
         assert_eq!(
             LINE_SIZED,
-            ["git-row-name", "git-row-dir", "git-row-added", "git-row-deleted"]
+            [
+                "git-row-name",
+                "git-row-dir",
+                "git-row-added",
+                "git-row-deleted"
+            ]
         );
         assert!(
             !LINE_SIZED.contains(&ID_BADGE),
@@ -790,7 +791,10 @@ mod tests {
         // The two counts are the overlap: their width is their advance width
         // and their height is their line box, so they declare both.
         for id in [ID_ADDED, ID_DELETED] {
-            assert!(CONTENT_SIZED.contains(&id) && LINE_SIZED.contains(&id), "{id}");
+            assert!(
+                CONTENT_SIZED.contains(&id) && LINE_SIZED.contains(&id),
+                "{id}"
+            );
         }
         // And `git-row-name` is line-sized only: it is the flexible sibling
         // that absorbs the ceil excess along the inline axis.
@@ -826,9 +830,21 @@ mod tests {
     fn the_badge_variants_are_the_measured_pairs() {
         const ROOT: f32 = 16.0;
 
-        assert!((BADGE_HEIGHT_SM * ROOT - 16.0).abs() < f32::EPSILON, "sm:h-4");
-        assert!((BADGE_TEXT_SM * ROOT - 10.0).abs() < f32::EPSILON, "sm:text");
-        assert!((BADGE_HEIGHT_BASE * ROOT - 20.0).abs() < f32::EPSILON, "h-5");
-        assert!((BADGE_TEXT_BASE * ROOT - 12.0).abs() < f32::EPSILON, "text-xs");
+        assert!(
+            (BADGE_HEIGHT_SM * ROOT - 16.0).abs() < f32::EPSILON,
+            "sm:h-4"
+        );
+        assert!(
+            (BADGE_TEXT_SM * ROOT - 10.0).abs() < f32::EPSILON,
+            "sm:text"
+        );
+        assert!(
+            (BADGE_HEIGHT_BASE * ROOT - 20.0).abs() < f32::EPSILON,
+            "h-5"
+        );
+        assert!(
+            (BADGE_TEXT_BASE * ROOT - 12.0).abs() < f32::EPSILON,
+            "text-xs"
+        );
     }
 }

@@ -727,7 +727,10 @@ mod tests {
             FileTreeRow::fixture(ContentLength::Overflow).name,
             "an-extremely-long-file-name-that-must-truncate-in-the-sidebar-row.ts",
         );
-        assert_eq!(FileTreeRow::fixture(ContentLength::Normal).state, RowState::resting());
+        assert_eq!(
+            FileTreeRow::fixture(ContentLength::Normal).state,
+            RowState::resting()
+        );
         // And no git status, so every command line written before `--git-status`
         // existed renders the row it rendered.
         assert_eq!(FileTreeRow::fixture(ContentLength::Short).git_status, None);

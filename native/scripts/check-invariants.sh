@@ -13,6 +13,7 @@
 #      comment on its enclosing item (§4.2, §12).
 #   4. No raw colour is constructed outside `crates/crowbar-ui/src/theme/`
 #      (§4.3 rule 3, §6.1).
+#   5. `cargo fmt --check` is clean.
 #
 # Known limits, stated so nobody mistakes this for a parser: check 3 is a line
 # scanner. It does not understand block comments, and a string literal
@@ -391,6 +392,40 @@ else
 	else
 		pass 'rule 4: no raw colour construction outside crowbar-ui/src/theme/'
 	fi
+fi
+
+# ---------------------------------------------------------------------------
+# 5. The tree is rustfmt-clean.
+# ---------------------------------------------------------------------------
+# Added after `cargo fmt --check` was found red on 21 files across 7 of them, on
+# a tree where every other gate was green. Nothing had gone wrong in a single
+# commit; formatting simply was not gated, so drift accumulated one merge at a
+# time until the check was useless — a worker hit it, correctly declined to run
+# `cargo fmt` because that would have rewritten files outside its owned paths,
+# and hand-formatted its own lines instead. That is the right call for a worker
+# and the wrong steady state for the repo: a permanently-red check is worse than
+# no check, because it trains everyone to scroll past the one signal that would
+# have caught the next instance.
+#
+# Gating it here means the *next* drift is one file, in the commit that caused
+# it, rather than twenty-one discovered months later.
+#
+# A gate that cannot run must not silently pass, so a missing toolchain is a
+# failure with a message that says so rather than a skip.
+
+if ! command -v cargo >/dev/null 2>&1; then
+	fail 'rule 5: cargo is not on PATH, so the formatting gate could not run'
+	printf '      This is a failure rather than a skip: a gate that quietly does\n' >&2
+	printf '      not run is indistinguishable from one that passes. Rust installs\n' >&2
+	printf '      to ~/.cargo/bin, which is not on PATH in a non-login shell.\n' >&2
+elif fmt_report=$(cargo fmt --check 2>&1); then
+	pass 'rule 5: cargo fmt --check is clean'
+else
+	fail 'rule 5: cargo fmt --check reports drift'
+	printf '%s\n' "$fmt_report" | grep '^Diff in' | sort -u >&2 || true
+	printf '      Run `cargo fmt` from native/. If that would rewrite files you do\n' >&2
+	printf '      not own, format your own lines by hand and say so — do not widen\n' >&2
+	printf '      your diff to absorb drift you did not cause.\n' >&2
 fi
 
 if [ "$status" -ne 0 ]; then

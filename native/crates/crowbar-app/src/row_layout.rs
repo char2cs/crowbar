@@ -492,7 +492,11 @@ fn every_bare_text_span_declares_line_sized_and_its_box_is_its_line_box(cx: &mut
 
     // The badge, measured: its height is authored, not derived.
     let badge = find(&records, "git-row-badge");
-    let badge_line = badge.text.expect("the badge paints its label").font.line_height;
+    let badge_line = badge
+        .text
+        .expect("the badge paints its label")
+        .font
+        .line_height;
     assert_px(badge.bounds.size.height, px(16.0));
     assert!(
         (badge.bounds.size.height - badge_line).abs() > px(0.5),
@@ -519,10 +523,7 @@ fn the_viewport_width_selects_the_badges_breakpoint_variant(cx: &mut TestAppCont
 
     assert_px(below.bounds.size.height, px(20.0));
     assert_px(above.bounds.size.height, px(16.0));
-    assert_px(
-        below.text.clone().expect("paints text").font.size,
-        px(12.0),
-    );
+    assert_px(below.text.clone().expect("paints text").font.size, px(12.0));
     assert_px(above.text.clone().expect("paints text").font.size, px(10.0));
 
     // The unprefixed half of the badge is the same at both viewports.
@@ -547,10 +548,7 @@ fn the_viewport_width_selects_the_badges_breakpoint_variant(cx: &mut TestAppCont
 fn the_surface_width_does_not_move_the_breakpoint(cx: &mut TestAppContext) {
     for width in ["240", "294", "420"] {
         let records = measure(cx, a_cell(&["--width", width]));
-        assert_px(
-            find(&records, "git-row-badge").bounds.size.height,
-            px(16.0),
-            );
+        assert_px(find(&records, "git-row-badge").bounds.size.height, px(16.0));
     }
 }
 
@@ -731,7 +729,10 @@ mod file_tree_row {
             "file-row-guide-0",
             "file-row-guide-1",
         ] {
-            assert!(seen.contains(&id.to_owned()), "{id} is missing from {seen:?}");
+            assert!(
+                seen.contains(&id.to_owned()),
+                "{id} is missing from {seen:?}"
+            );
         }
         assert!(
             !seen.contains(&"file-row-guide-2".to_owned()),
@@ -739,7 +740,10 @@ mod file_tree_row {
         );
         // And nothing from the other surface leaked in. Two roots in one frame
         // would make `Snapshot::build` anchor to whichever it found first.
-        assert!(!seen.iter().any(|id| id.starts_with("git-row-")), "{seen:?}");
+        assert!(
+            !seen.iter().any(|id| id.starts_with("git-row-")),
+            "{seen:?}"
+        );
     }
 
     /// The wrapper and the button are one full-width box, as on the git row:
@@ -805,7 +809,10 @@ mod file_tree_row {
             let icon = at(&records, "file-row-icon");
             let border = find(&records, "file-row-button").border_width;
 
-            assert_px(icon.origin.x, border + file_tree_row::leading_padding(depth));
+            assert_px(
+                icon.origin.x,
+                border + file_tree_row::leading_padding(depth),
+            );
             assert_px(icon.origin.x, px(1.0 + 10.0 + 16.0 * f32::from(depth)));
             assert_px(icon.size.width, ICON_SIZE);
             assert_px(icon.size.height, ICON_SIZE);
