@@ -1,0 +1,88 @@
+[package]
+name = "gpui_web"
+version = "0.1.0"
+publish = false
+edition = "2024"
+license = "Apache-2.0"
+autoexamples = false
+
+[lints.rust]
+unexpected_cfgs = { level = "allow" }
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+declare_interior_mutable_const = "deny"
+redundant_clone = "deny"
+disallowed_methods = "deny"
+style = { level = "allow", priority = -1 }
+type_complexity = "allow"
+let_underscore_future = "allow"
+single_range_in_vec_init = "allow"
+too_many_arguments = "allow"
+large_enum_variant = "allow"
+nonminimal_bool = "allow"
+
+[features]
+default = ["multithreaded"]
+multithreaded = ["dep:wasm_thread"]
+
+[lib]
+path = "src/gpui_web.rs"
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+gpui = { path = "../../gpui", default-features = false }
+parking_lot = { version = "0.12.1", features = ["nightly"] }
+gpui_wgpu = { path = "../gpui_wgpu" }
+http_client = { path = "../http_client" }
+anyhow = "1.0.86"
+futures = "0.3.32"
+log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
+smallvec = { version = "1.6", features = ["union", "const_new"] }
+uuid = { version = "1.1.2", features = ["v4", "v5", "v7", "serde"] }
+wasm-bindgen = "0.2.120"
+wasm-bindgen-futures = "0.4"
+web-time = "1.1.0"
+console_error_panic_hook = "0.1.7"
+js-sys = "0.3"
+raw-window-handle = "0.6"
+wasm_thread = { version = "0.3", features = ["es_modules"], optional = true }
+web-sys = { version = "0.3", features = [
+    "console",
+    "Clipboard",
+    "ClipboardEvent",
+    "CompositionEvent",
+    "CssStyleDeclaration",
+    "DataTransfer",
+    "Document",
+    "DomRect",
+    "DragEvent",
+    "Element",
+    "EventTarget",
+    "File",
+    "FileList",
+    "HtmlCanvasElement",
+    "HtmlElement",
+    "HtmlInputElement",
+    "KeyboardEvent",
+    "MediaQueryList",
+    "MediaQueryListEvent",
+    "MouseEvent",
+    "Navigator",
+    "PointerEvent",
+    "ResizeObserver",
+    "ResizeObserverBoxOptions",
+    "ResizeObserverEntry",
+    "ResizeObserverSize",
+    "ResizeObserverOptions",
+    "Screen",
+    "Storage",
+    "VisualViewport",
+    "Headers",
+    "Request",
+    "RequestInit",
+    "RequestRedirect",
+    "Response",
+    "WheelEvent",
+    "Window",
+] }

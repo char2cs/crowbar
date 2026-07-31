@@ -1,0 +1,12 @@
+# Probe workspace for the vendored gpui / gpui-component pair.
+#
+# Only `probe` is a member. Every vendored crate under `gpui/`, `zed-deps/` and
+# `gpui-component*/` is a plain `path` dependency whose manifest has been fully
+# de-inherited, so it can be depended on from this workspace *or* from the real
+# `native/Cargo.toml` root without either one having to carry Zed's
+# `[workspace.dependencies]` table.
+#
+# See PINNED.md for the pinned SHAs and the stanzas the root workspace needs.
+[workspace]
+members = ["probe"]
+resolver = "2"
