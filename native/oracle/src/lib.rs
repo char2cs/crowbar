@@ -78,6 +78,8 @@ pub mod tolerance;
 
 pub use color::Color;
 pub use delta::{Class, Delta, DeltaKind};
-pub use diff::{ContextField, ContextMismatch, Report, diff};
+pub use diff::{
+    ContentSizing, ContextField, ContextMismatch, Contributor, Forgiven, Forgiveness, Report, diff,
+};
 pub use snapshot::{Anchor, Border, Bounds, Font, LoadError, LoadErrorKind, Snapshot, State};
 pub use tolerance::Tolerances;

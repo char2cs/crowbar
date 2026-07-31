@@ -116,7 +116,11 @@ impl SurfaceState {
             width,
             theme,
             content,
-            flags: flags.into_iter().collect::<BTreeSet<_>>().into_iter().collect(),
+            flags: flags
+                .into_iter()
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
         }
     }
 }
@@ -158,6 +162,25 @@ pub struct Anchor {
     pub radius: f64,
     /// Border width and colour.
     pub border: Border,
+    /// Whether this box sizes to its own text (v1.5).
+    ///
+    /// **Omitted when false**, because v1.5 defines the absent key and an
+    /// explicit `false` as the same fact. Emitting `false` on every anchor
+    /// would be forty bytes per record saying nothing, and the contract's
+    /// wording ("an optional `content_sized: true`") is the one an extractor
+    /// should be readable against.
+    #[serde(skip_serializing_if = "is_false")]
+    pub content_sized: bool,
+}
+
+/// `#[serde(skip_serializing_if)]` needs a path, and `bool::not` is not one
+/// that resolves in this position.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if hands the field by reference"
+)]
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// A box, logical pixels.
@@ -246,10 +269,7 @@ impl Snapshot {
             .map(|record| record.bounds.origin)
             .ok_or_else(|| SnapshotError::MissingRoot {
                 root: root.to_owned(),
-                recorded: records
-                    .iter()
-                    .map(|record| record.id.to_string())
-                    .collect(),
+                recorded: records.iter().map(|record| record.id.to_string()).collect(),
             })?;
 
         Ok(Self {
@@ -302,6 +322,7 @@ fn anchor_of(record: &RawAnchor, origin: crowbar_ui::gpui::Point<Pixels>) -> Anc
                 .border_color
                 .map_or_else(|| color::TRANSPARENT.to_owned(), color::hex),
         },
+        content_sized: record.content_sized,
     }
 }
 
@@ -387,6 +408,7 @@ mod tests {
             radius: px(0.0),
             border_width: px(0.0),
             border_color: None,
+            content_sized: false,
         }
     }
 
@@ -517,7 +539,10 @@ mod tests {
         let font = anchor.font.as_ref().expect("a text anchor has a font");
 
         assert_eq!(anchor.fg.as_deref(), Some("#c8ccd4ff"));
-        assert_eq!(anchor.text.as_deref(), Some("resolve-terminal-connection.ts"));
+        assert_eq!(
+            anchor.text.as_deref(),
+            Some("resolve-terminal-connection.ts")
+        );
         assert_eq!(anchor.text_width, Some(186.5));
         assert_eq!(anchor.clipped, Some(true));
         assert_px(font.size, 13.0);

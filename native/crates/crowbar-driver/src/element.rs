@@ -114,7 +114,26 @@ pub fn anchor<E>(id: impl Into<SharedString>, element: E) -> AnchoredBox
 where
     E: InteractiveElement + IntoElement + 'static,
 {
-    AnchoredBox::wrap(id, element, false)
+    AnchoredBox::wrap(id, element, false, false)
+}
+
+/// As [`anchor`], for a box that **sizes to its own text**
+/// (`native/oracle/ANCHORS.md` v1.5).
+///
+/// The differ compares such a box's `bounds.w` against `ceil(reference)`,
+/// because gpui ceils a text run's max-content width and therefore cannot
+/// produce the fraction the DOM keeps. It is an argument rather than something
+/// this crate works out, and the contract is emphatic about why: a heuristic
+/// here (`width: None` plus a text child) and the DOM side's heuristic
+/// (`width: auto` and not a stretched flex item) are both falsifiable by
+/// flex-grow, and two extractors each guessing wrong in different directions is
+/// invisible — it opens a blind spot or invents a delta and announces neither.
+#[must_use]
+pub fn anchor_content_sized<E>(id: impl Into<SharedString>, element: E) -> AnchoredBox
+where
+    E: InteractiveElement + IntoElement + 'static,
+{
+    AnchoredBox::wrap(id, element, false, true)
 }
 
 /// As [`anchor`], and additionally the frame boundary: all geometry in a
@@ -125,7 +144,7 @@ pub fn anchor_root<E>(id: impl Into<SharedString>, element: E) -> AnchoredBox
 where
     E: InteractiveElement + IntoElement + 'static,
 {
-    AnchoredBox::wrap(id, element, true)
+    AnchoredBox::wrap(id, element, true, false)
 }
 
 /// Renders a string *and* records it as a text anchor.
@@ -134,11 +153,33 @@ where
 /// so `text` cannot drift from what is actually painted.
 #[must_use]
 pub fn anchor_text(id: impl Into<SharedString>, text: impl Into<SharedString>) -> AnchoredText {
+    text_anchor(id, text, false)
+}
+
+/// As [`anchor_text`], for a run whose box is the run — see
+/// [`anchor_content_sized`].
+///
+/// This is the common case for a bare `StyledText`: gpui measures it at exactly
+/// `ceil(shaped advance)`, which is the ceil the contract models.
+#[must_use]
+pub fn anchor_text_content_sized(
+    id: impl Into<SharedString>,
+    text: impl Into<SharedString>,
+) -> AnchoredText {
+    text_anchor(id, text, true)
+}
+
+fn text_anchor(
+    id: impl Into<SharedString>,
+    text: impl Into<SharedString>,
+    content_sized: bool,
+) -> AnchoredText {
     let content: SharedString = text.into();
     AnchoredText {
         id: id.into(),
         child: StyledText::new(content.clone()).into_any_element(),
         content,
+        content_sized,
     }
 }
 
@@ -146,12 +187,18 @@ pub fn anchor_text(id: impl Into<SharedString>, text: impl Into<SharedString>) -
 pub struct AnchoredBox {
     id: SharedString,
     resets: bool,
+    content_sized: bool,
     style: Style,
     child: AnyElement,
 }
 
 impl AnchoredBox {
-    fn wrap<E>(id: impl Into<SharedString>, mut element: E, resets: bool) -> Self
+    fn wrap<E>(
+        id: impl Into<SharedString>,
+        mut element: E,
+        resets: bool,
+        content_sized: bool,
+    ) -> Self
     where
         E: InteractiveElement + IntoElement + 'static,
     {
@@ -171,6 +218,7 @@ impl AnchoredBox {
         Self {
             id: id.into(),
             resets,
+            content_sized,
             style,
             child: element.into_any_element(),
         }
@@ -212,13 +260,18 @@ impl Element for AnchoredBox {
             if self.resets {
                 registry.clear();
             }
-            registry.record(record::box_facts(
-                self.id.clone(),
-                bounds,
-                window.content_mask().bounds,
-                &self.style,
-                window.rem_size(),
-            ));
+            registry.record(RawAnchor {
+                // The component's claim, folded onto the style's facts. See
+                // `record::box_facts`.
+                content_sized: self.content_sized,
+                ..record::box_facts(
+                    self.id.clone(),
+                    bounds,
+                    window.content_mask().bounds,
+                    &self.style,
+                    window.rem_size(),
+                )
+            });
         }
 
         let _focus = self.child.prepaint(window, cx);
@@ -250,6 +303,7 @@ impl IntoElement for AnchoredBox {
 pub struct AnchoredText {
     id: SharedString,
     content: SharedString,
+    content_sized: bool,
     child: AnyElement,
 }
 
@@ -304,6 +358,7 @@ impl Element for AnchoredText {
                 line_height,
                 content: self.content.clone(),
                 shaped_width,
+                content_sized: self.content_sized,
             }));
         }
 
@@ -438,9 +493,11 @@ mod tests {
 
             anchor_root(
                 "root",
-                div()
-                    .w(px(400.0))
-                    .child(if self.truncate { row.text_ellipsis() } else { row }),
+                div().w(px(400.0)).child(if self.truncate {
+                    row.text_ellipsis()
+                } else {
+                    row
+                }),
             )
         }
     }
@@ -614,7 +671,11 @@ mod tests {
         cx.run_until_parked();
 
         assert!(anchors.records().is_empty());
-        assert!(anchors.snapshot("driver-surface", a_state(), "root").is_err());
+        assert!(
+            anchors
+                .snapshot("driver-surface", a_state(), "root")
+                .is_err()
+        );
     }
 
     /// Two rows for one id would make the snapshot depend on which one the

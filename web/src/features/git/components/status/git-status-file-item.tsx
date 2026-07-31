@@ -87,8 +87,23 @@ export const GitFileItem = ({
         )}
       </div>
       <div className="relative z-1 ml-auto flex shrink-0 items-center gap-1.5">
+        {/*
+          `data-oracle-content-sized` on the trailing group, per
+          `native/oracle/ANCHORS.md` v1.5: these three boxes take their width
+          from what they say, so GPUI's `ceil()` on a text run's max-content
+          width applies and the differ compares them against `ceil(reference)`.
+          Declared rather than detected — the same three ids are declared on the
+          GPUI side in `crowbar-ui`'s `CONTENT_SIZED`. `git-row-name` is
+          deliberately not one of them: it is the flexible sibling that absorbs
+          the excess.
+        */}
         {uncommitted && (
-          <Badge variant="warning" size="sm" data-oracle-id="git-row-badge">
+          <Badge
+            variant="warning"
+            size="sm"
+            data-oracle-id="git-row-badge"
+            data-oracle-content-sized="true"
+          >
             uncommitted
           </Badge>
         )}
@@ -100,12 +115,20 @@ export const GitFileItem = ({
             )}
           >
             {diffStats.additions > 0 && (
-              <span className="text-git-added" data-oracle-id="git-row-added">
+              <span
+                className="text-git-added"
+                data-oracle-id="git-row-added"
+                data-oracle-content-sized="true"
+              >
                 +{diffStats.additions}
               </span>
             )}
             {diffStats.deletions > 0 && (
-              <span className="text-git-deleted" data-oracle-id="git-row-deleted">
+              <span
+                className="text-git-deleted"
+                data-oracle-id="git-row-deleted"
+                data-oracle-content-sized="true"
+              >
                 -{diffStats.deletions}
               </span>
             )}

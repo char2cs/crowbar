@@ -56,6 +56,23 @@ export interface OracleAnchor {
   text_width?: number
   clipped?: boolean
   font?: OracleFont
+  /**
+   * ANCHORS.md v1.5 — this anchor's box sizes to its own text.
+   *
+   * **Declared by the component, never detected here.** GPUI `ceil()`s a text
+   * run's max-content width where this engine keeps the fraction, so the differ
+   * compares such a box against `ceil(reference)`. Working the flag out from
+   * `width: auto` and not-a-stretched-flex-item is a heuristic that flex-grow
+   * falsifies, and the GPUI side's equivalent guess is falsifiable the same way
+   * — two extractors each guessing is the silent divergence this contract
+   * exists to prevent, and a wrong guess announces nothing. So it comes off
+   * `data-oracle-content-sized`, authored next to `data-oracle-id`.
+   *
+   * Emitted **only when true**: v1.5 defines the absent key and an explicit
+   * `false` as the same fact, and a `false` on every anchor would be bytes that
+   * say nothing.
+   */
+  content_sized?: boolean
 }
 
 export type OracleTheme = 'light' | 'dark'
@@ -488,6 +505,22 @@ export function oracleIsClipped(params: {
   return scrollWidth - clientWidth > epsilon
 }
 
+/**
+ * Whether the element declares itself content-sized (ANCHORS.md v1.5).
+ *
+ * `data-oracle-content-sized` present and not literally `"false"`. React
+ * renders `data-x={true}` as `="true"` and `data-x={false}` as `="false"`, and
+ * a bare attribute in hand-written markup arrives as `""` — all three read the
+ * way an author would expect, and anything unrecognised is *false*, so a
+ * typo opens no blind spot on this side that the differ cannot see: the other
+ * extractor's `true` then shows up as a `FieldPresence` delta.
+ */
+export function oracleContentSized(el: Element): boolean {
+  const raw = el.getAttribute('data-oracle-content-sized')
+  if (raw === null) return false
+  return String(raw).trim().toLowerCase() !== 'false'
+}
+
 /** The element's *own* text nodes — never a descendant's. */
 export function oracleOwnTextNodes(el: Element): Text[] {
   const out: Text[] = []
@@ -801,6 +834,13 @@ export function extractSnapshot(options: ExtractOptions): OracleSnapshot {
       },
     }
 
+    // v1.5: emitted only when true. Absent *is* false in the contract, so a
+    // `false` here would be a key the GPUI side does not write and this one
+    // does — a difference in the wire shape that says nothing about the UI.
+    if (oracleContentSized(el)) {
+      record.content_sized = true
+    }
+
     const text = oracleOwnText(el)
     if (text.length > 0 && text.replace(/\s/g, '') !== '') {
       const fontSize = parseFloat(style.fontSize) || 0
@@ -875,6 +915,7 @@ const ORACLE_RUNTIME = [
   oracleMeasureNormalLineHeight,
   oracleRelativeBounds,
   oracleIsClipped,
+  oracleContentSized,
   oracleOwnTextNodes,
   oracleOwnText,
   oracleTextAdvanceWidth,

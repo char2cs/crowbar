@@ -17,8 +17,8 @@
 
 mod support;
 
-use oracle::{Snapshot, Tolerances, diff};
-use support::{BOX_AND_TEXT, EMPTY, REFERENCE, native, once};
+use oracle::{Forgiveness, Snapshot, Tolerances, diff};
+use support::{BOX_AND_TEXT, EMPTY, REFERENCE, declare_content_sized, native, once};
 
 /// Parse both sides and render the ranked deltas as strings.
 fn deltas_of(native_json: &str) -> Vec<String> {
@@ -669,6 +669,315 @@ fn the_archived_gate_run_is_reproduced_delta_for_delta() {
         "the archived run's borders agree once the zero-width colours are ignored: {:?}",
         report.deltas
     );
+}
+
+/// The same archived pair as above, with the declaration v1.5 adds and nothing
+/// else.
+///
+/// **The archived files are evidence and are not edited** — `runs/` holds the
+/// bytes two live apps produced, and they predate the flag. The declaration is
+/// layered on here, so every number below is still the measured one.
+///
+/// The result is the whole point of P1.8: five of the six deltas were one
+/// framework rounding rule seen five times, and modelling that rule removes
+/// exactly those five. The sixth is a different rule and survives.
+#[test]
+fn declaring_content_sized_removes_the_five_ceil_derived_deltas() {
+    let (reference, native_side) = archived_v2();
+    let reference = declare_content_sized(&reference, "git-row-badge");
+    let reference = declare_content_sized(&reference, "git-row-added");
+    let native_side = declare_content_sized(&native_side, "git-row-badge");
+    let native_side = declare_content_sized(&native_side, "git-row-added");
+
+    let expected = Snapshot::from_json(&reference).expect("declared reference loads");
+    let actual = Snapshot::from_json(&native_side).expect("declared native loads");
+    let report = diff(&expected, &actual, &Tolerances::V1).expect("same cell");
+
+    // One delta left, and it is the line-height one — a *vertical* difference
+    // with an unrelated cause, which is why the allowance is inline-axis only.
+    assert_eq!(
+        report
+            .deltas
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        vec!["git-row-name.bounds.h: 19.0, expected 18.0 (Δ +1.0, tol ±0.5)"]
+    );
+
+    // Σ is the measured 0.89 + 0.84, off the anchor list — no tree, no order.
+    assert!(
+        (report.content_sizing.excess_px - 1.73).abs() < 1e-9,
+        "Σ ceil excess was {}",
+        report.content_sizing.excess_px
+    );
+    assert_eq!(
+        report
+            .content_sizing
+            .contributors
+            .iter()
+            .map(|c| c.anchor.as_str())
+            .collect::<Vec<_>>(),
+        vec!["git-row-badge", "git-row-added"]
+    );
+
+    // Nothing is forgiven silently: all five say which rule forgave them.
+    assert_eq!(
+        report
+            .forgiven
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        vec![
+            "git-row-name.bounds.w: 103.0, expected 104.73 (Δ -1.73, tol ±0.5) — forgiven: \
+             within tolerance once v1.5's content-sizing allowance of +1.73 px is added; the \
+             ceil excess on the content-sized anchors is absorbed along this axis rather than \
+             propagated",
+            "git-row-badge.bounds.x: 195.0, expected 196.73 (Δ -1.73, tol ±0.5) — forgiven: \
+             within tolerance once v1.5's content-sizing allowance of +1.73 px is added; the \
+             ceil excess on the content-sized anchors is absorbed along this axis rather than \
+             propagated",
+            "git-row-badge.bounds.w: 75.0, expected 74.11 (Δ +0.89, tol ±0.5) — forgiven: this \
+             anchor is declared content_sized, so ANCHORS.md v1.5 compares it against \
+             ceil(74.11) = 75.0 — GPUI ceils a text run's max-content width and cannot produce \
+             the fraction the reference kept",
+            "git-row-added.bounds.w: 12.0, expected 11.16 (Δ +0.84, tol ±0.5) — forgiven: this \
+             anchor is declared content_sized, so ANCHORS.md v1.5 compares it against \
+             ceil(11.16) = 12.0 — GPUI ceils a text run's max-content width and cannot produce \
+             the fraction the reference kept",
+            "git-row-added.bounds.x: 276.0, expected 276.84 (Δ -0.84, tol ±0.5) — forgiven: \
+             within tolerance once v1.5's content-sizing allowance of +1.73 px is added; the \
+             ceil excess on the content-sized anchors is absorbed along this axis rather than \
+             propagated",
+        ]
+    );
+    assert_eq!(
+        report.summary(),
+        "FAIL — 1 delta over 10 anchors compared (1 geometry), 5 forgiven by v1.5 \
+         content-sizing (Σ ceil excess 1.73 px)"
+    );
+    // The rendered report carries the section, so the widening cannot happen
+    // off-screen.
+    let rendered = oracle::cli::render(&report);
+    assert!(
+        rendered.contains("content-sizing (ANCHORS.md v1.5)"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("git-row-badge +0.89, git-row-added +0.84"),
+        "{rendered}"
+    );
+}
+
+/// The declaration is the whole switch: **undeclared, nothing is forgiven.**
+///
+/// This is the guard that keeps v1.5 a correction rather than a tolerance. If
+/// the rule could fire on an anchor neither side declared, it would be a 1px
+/// widening applied to every snapshot ever taken, which is precisely what §5
+/// says not to do quietly.
+#[test]
+fn the_archived_v2_pair_is_untouched_while_nothing_declares_itself() {
+    let (reference, native_side) = archived_v2();
+    let expected = Snapshot::from_json(&reference).expect("archived reference loads");
+    let actual = Snapshot::from_json(&native_side).expect("archived native loads");
+    let report = diff(&expected, &actual, &Tolerances::V1).expect("same cell");
+
+    assert_eq!(
+        report
+            .deltas
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        vec![
+            "git-row-name.bounds.w: 103.0, expected 104.73 (Δ -1.73, tol ±0.5)",
+            "git-row-badge.bounds.x: 195.0, expected 196.73 (Δ -1.73, tol ±0.5)",
+            "git-row-name.bounds.h: 19.0, expected 18.0 (Δ +1.0, tol ±0.5)",
+            "git-row-badge.bounds.w: 75.0, expected 74.11 (Δ +0.89, tol ±0.5)",
+            "git-row-added.bounds.w: 12.0, expected 11.16 (Δ +0.84, tol ±0.5)",
+            "git-row-added.bounds.x: 276.0, expected 276.84 (Δ -0.84, tol ±0.5)",
+        ]
+    );
+    assert!(report.forgiven.is_empty());
+    assert!(report.content_sizing.contributors.is_empty());
+    assert!(
+        !oracle::cli::render(&report).contains("content-sizing"),
+        "no allowance means no section, or the section becomes noise"
+    );
+}
+
+/// A declaration only one side makes is a **`FieldPresence` delta**, and it
+/// buys nothing.
+///
+/// The direction matters: a mis-declaration must cost coverage, never hand it
+/// out. So the ceil rule does not fire, the anchor contributes nothing to Σ,
+/// and the ordinary §5 comparison still runs — the width delta is reported
+/// alongside the declaration one rather than hidden by it.
+#[test]
+fn a_one_sided_declaration_is_a_contract_defect_that_forgives_nothing() {
+    let (reference, native_side) = archived_v2();
+    let one_sided = declare_content_sized(&native_side, "git-row-added");
+
+    let expected = Snapshot::from_json(&reference).expect("valid");
+    let actual = Snapshot::from_json(&one_sided).expect("valid");
+    let report = diff(&expected, &actual, &Tolerances::V1).expect("same cell");
+
+    assert!(report.forgiven.is_empty());
+    assert!((report.content_sizing.excess_px - 0.0).abs() < f64::EPSILON);
+    let lines: Vec<String> = report.deltas.iter().map(ToString::to_string).collect();
+    assert_eq!(
+        lines.first().map(String::as_str),
+        Some(
+            "git-row-added.content_sized: true, expected false (declared, exact). The two \
+             extractors disagree on whether this anchor sizes to its own text, so one of them \
+             is comparing bounds.w against the wrong target and the snapshot's content-sizing \
+             allowance is computed from the wrong set"
+        ),
+        "the declaration mismatch outranks every geometry delta: {lines:?}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l == "git-row-added.bounds.w: 12.0, expected 11.16 (Δ +0.84, tol ±0.5)"),
+        "the plain §5 comparison still runs: {lines:?}"
+    );
+
+    // And the same in the other direction: the *reference* declaring alone is
+    // just as much a defect and buys just as little. Asserted separately
+    // because "both sides" is the rule, not "the native side agrees".
+    let reference_only = declare_content_sized(&reference, "git-row-added");
+    let expected = Snapshot::from_json(&reference_only).expect("valid");
+    let actual = Snapshot::from_json(&native_side).expect("valid");
+    let report = diff(&expected, &actual, &Tolerances::V1).expect("same cell");
+    assert!(report.forgiven.is_empty());
+    assert!((report.content_sizing.excess_px - 0.0).abs() < f64::EPSILON);
+    assert_eq!(
+        report.deltas.first().map(ToString::to_string),
+        Some(
+            "git-row-added.content_sized: false, expected true (declared, exact). The two \
+             extractors disagree on whether this anchor sizes to its own text, so one of them \
+             is comparing bounds.w against the wrong target and the snapshot's content-sizing \
+             allowance is computed from the wrong set"
+                .to_owned()
+        )
+    );
+}
+
+/// The correction moves the *target*; it does not widen the tolerance around
+/// it. A content-sized box that misses `ceil(reference)` is still a delta, and
+/// the line quotes both numbers so it matches the snapshot a reader opens.
+#[test]
+fn a_content_sized_box_that_misses_the_ceiled_target_is_still_a_delta() {
+    let reference = declare_content_sized(REFERENCE, "git-row-name");
+    let too_wide = once(&reference, "\"w\": 118.0", "\"w\": 121.0");
+    assert_eq!(
+        deltas_between(&reference, &too_wide),
+        vec![
+            "git-row-name.bounds.w: 121.0, expected 118.0 = ceil(118.0) (Δ +3.0, tol ±0.5, \
+              content_sized)"
+        ]
+    );
+
+    // Half a pixel past the target, in both directions — §5's ±0.5 is kept in
+    // full around the moved expectation, so sub-pixel width errors are still
+    // caught, which is exactly what a looser tolerance would have given away.
+    let fractional = once(&reference, "\"w\": 118.0", "\"w\": 118.4");
+    let native_side = once(&fractional, "\"w\": 118.4", "\"w\": 119.75");
+    assert_eq!(
+        deltas_between(&fractional, &native_side),
+        vec![
+            "git-row-name.bounds.w: 119.75, expected 119.0 = ceil(118.4) (Δ +0.75, tol ±0.5, \
+              content_sized)"
+        ]
+    );
+    let exactly_at = once(&fractional, "\"w\": 118.4", "\"w\": 119.5");
+    assert!(deltas_between(&fractional, &exactly_at).is_empty());
+}
+
+/// The allowance is on the **inline axis only**, and this is the case that
+/// makes the difference visible.
+///
+/// v1.5's prose says "every other geometry field"; everything it measured is
+/// horizontal. Spending the allowance on `bounds.h` would have swallowed the
+/// gate's one remaining finding — a 1.0px vertical difference with an entirely
+/// separate cause — under slack bought by an unrelated rule.
+#[test]
+fn the_allowance_does_not_cross_axes() {
+    let reference = declare_content_sized(REFERENCE, "git-row-name");
+    // 118.0 → 118.6 is a 0.6px ceil excess to spend.
+    let reference = once(&reference, "\"w\": 118.0", "\"w\": 118.6");
+    let native_side = once(&reference, "\"w\": 118.6", "\"w\": 119.0");
+
+    // A 0.8px vertical error on another anchor: past ±0.5, and not forgiven by
+    // a 0.6px horizontal allowance that would otherwise have covered it.
+    let native_side = once(&native_side, "\"h\": 14.0", "\"h\": 14.8");
+    let report = diff(
+        &Snapshot::from_json(&reference).expect("valid"),
+        &Snapshot::from_json(&native_side).expect("valid"),
+        &Tolerances::V1,
+    )
+    .expect("same cell");
+
+    assert_eq!(
+        report
+            .deltas
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        vec!["git-row-icon.bounds.h: 14.8, expected 14.0 (Δ +0.8, tol ±0.5)"]
+    );
+    // And the same magnitude on `bounds.x` *is* forgiven, so the test is about
+    // the axis and not about the number.
+    let horizontal = once(&reference, "\"x\": 8.0", "\"x\": 8.8");
+    let report = diff(
+        &Snapshot::from_json(&reference).expect("valid"),
+        &Snapshot::from_json(&horizontal).expect("valid"),
+        &Tolerances::V1,
+    )
+    .expect("same cell");
+    assert!(report.deltas.is_empty());
+    assert_eq!(report.forgiven.len(), 1);
+    assert!(matches!(
+        report.forgiven[0].reason,
+        Forgiveness::Allowance { .. }
+    ));
+}
+
+/// An integral reference width forgives nothing and says nothing.
+///
+/// `ceil(75.0) == 75.0`, so a declared anchor whose reference width is already
+/// a whole pixel behaves exactly as it did before v1.5. Reporting it as
+/// "forgiven" would fill the section with entries that were never in doubt and
+/// train a reader to skip past the ones that were.
+#[test]
+fn a_declared_anchor_with_an_integral_width_is_not_reported_as_forgiven() {
+    let reference = declare_content_sized(REFERENCE, "git-row-icon");
+    let native_side = once(&reference, "\"w\": 14.0", "\"w\": 14.4");
+    let report = diff(
+        &Snapshot::from_json(&reference).expect("valid"),
+        &Snapshot::from_json(&native_side).expect("valid"),
+        &Tolerances::V1,
+    )
+    .expect("same cell");
+
+    assert!(report.deltas.is_empty());
+    assert!(report.forgiven.is_empty());
+    assert!(report.content_sizing.contributors.is_empty());
+    assert!((report.content_sizing.excess_px - 0.0).abs() < f64::EPSILON);
+}
+
+/// The two archived snapshots of gate run 2, verbatim.
+fn archived_v2() -> (String, String) {
+    (
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/runs/ref-294-d4-v2.json"
+        ))
+        .to_owned(),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/runs/native-294-d4-v2.json"
+        ))
+        .to_owned(),
+    )
 }
 
 #[test]

@@ -104,3 +104,27 @@ pub fn once(fixture: &str, from: &str, to: &str) -> String {
     );
     fixture.replacen(from, to, 1)
 }
+
+/// Adds `"content_sized": true` to one anchor of a snapshot.
+///
+/// The archived runs under `runs/` are **evidence** — the bytes two live apps
+/// actually produced — and predate v1.5, so they carry no declaration and must
+/// not be edited to acquire one. Adding the flag here instead is the honest way
+/// to exercise the rule against the real numbers: the geometry stays exactly
+/// what was measured, and only the declaration the two extractors now emit is
+/// layered on.
+///
+/// Tolerates either side's JSON spelling — the reference run is compact and the
+/// native one is `to_string_pretty` — and inherits [`once`]'s uniqueness
+/// assertion, so a run whose anchor ids stopped being unique fails loudly.
+#[must_use]
+pub fn declare_content_sized(snapshot: &str, id: &str) -> String {
+    let compact = format!("\"id\":\"{id}\"");
+    let anchor = if snapshot.contains(&compact) {
+        compact
+    } else {
+        format!("\"id\": \"{id}\"")
+    };
+    let declared = format!("{anchor}, \"content_sized\": true");
+    once(snapshot, &anchor, &declared)
+}

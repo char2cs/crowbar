@@ -63,6 +63,16 @@
 //!   grid (`Window::pixel_snap`), so at 2× it is a multiple of 0.5 px where CSS
 //!   is continuous. Inside §5's ±0.5 px, but it is a systematic difference, not
 //!   noise.
+//! * **`content_sized`** *(v1.5)* — **declared by the caller, never detected
+//!   here.** gpui `ceil()`s a text run's max-content width
+//!   (`elements/text.rs`), so a content-sized box is always a whole number of
+//!   logical pixels and the DOM's fraction is a target this engine cannot hit.
+//!   The contract models that by comparing such a box against
+//!   `ceil(reference)`, which needs the anchor to say it is content-sized:
+//!   `anchor_content_sized` / `anchor_text_content_sized`. Guessing it from
+//!   `width: None` plus a text child is falsifiable by flex-grow, and a wrong
+//!   guess is invisible — it opens a blind spot or invents a delta and reports
+//!   neither.
 //! * **`radius` / `border.w`** — gpui carries four corners and four edges. v1
 //!   carries one of each, so these are the **top-left corner** and the **top
 //!   edge**. A surface with asymmetric corners or edges is silently
@@ -91,7 +101,8 @@ mod record;
 mod schema;
 
 pub use element::{
-    AnchorRegistry, AnchoredBox, AnchoredText, anchor, anchor_root, anchor_text, install, registry,
+    AnchorRegistry, AnchoredBox, AnchoredText, anchor, anchor_content_sized, anchor_root,
+    anchor_text, anchor_text_content_sized, install, registry,
 };
 pub use record::{FontFacts, Paint, RawAnchor, TextFacts};
 pub use schema::{

@@ -192,9 +192,52 @@ pub fn render(report: &Report) -> String {
             let _ = writeln!(s, "{delta}");
         }
     }
+    render_content_sizing(&mut s, report);
     s.push('\n');
     let _ = writeln!(s, "oracle: {}", report.summary());
     s
+}
+
+/// The v1.5 content-sizing section: what was declared, how much slack it
+/// bought, and every comparison that only passed because of it.
+///
+/// Printed whenever anything was forgiven, and only then. ANCHORS.md §5 calls a
+/// silent widening the cheapest way to make a gate pass while telling you
+/// nothing — so the allowance is never applied without this section appearing,
+/// and the section names the anchors it came from so a reader can check the
+/// arithmetic against the snapshot rather than take it on trust.
+///
+/// A non-empty `forgiven` implies a non-empty contributor list, so the header
+/// always has something to name: both forgivenesses require a declared anchor
+/// whose reference width carried a fraction, and that is exactly what a
+/// contributor is. An integral declared width forgives nothing.
+fn render_content_sizing(s: &mut String, report: &Report) {
+    if report.forgiven.is_empty() {
+        return;
+    }
+    let sizing = &report.content_sizing;
+    let contributors: Vec<String> = sizing
+        .contributors
+        .iter()
+        .map(|c| {
+            format!(
+                "{} +{}",
+                c.anchor,
+                crate::delta::px(crate::diff::round3(c.excess_px))
+            )
+        })
+        .collect();
+    let _ = write!(
+        s,
+        "\ncontent-sizing (ANCHORS.md v1.5): {} anchor(s) declared content_sized, \
+         Σ ceil excess {} px",
+        sizing.contributors.len(),
+        crate::delta::px(crate::diff::round3(sizing.excess_px))
+    );
+    let _ = writeln!(s, " — {}", contributors.join(", "));
+    for forgiven in &report.forgiven {
+        let _ = writeln!(s, "  {forgiven}");
+    }
 }
 
 fn read(path: &Path) -> Result<String, String> {

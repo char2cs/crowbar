@@ -19,11 +19,11 @@ mod anchor;
 mod git_status_row;
 mod sidebar_tree;
 
-pub use anchor::{AnchorSink, Unanchored};
+pub use anchor::{AnchorId, AnchorSink, Unanchored};
 pub use git_status_row::{
-    BADGE_LABEL, ContentLength, GitStatusRow, ID_ADDED, ID_BADGE, ID_BUTTON, ID_DELETED, ID_DIR,
-    ID_ICON, ID_ITEM, ID_NAME, NAME_MAX_FRACTION, NameSizing, TrailingContent, guide_id,
-    name_sizing, shows_directory_span, split_path,
+    BADGE_LABEL, CONTENT_SIZED, ContentLength, GitStatusRow, ID_ADDED, ID_BADGE, ID_BUTTON,
+    ID_DELETED, ID_DIR, ID_ICON, ID_ITEM, ID_NAME, NAME_MAX_FRACTION, NameSizing, TrailingContent,
+    guide_id, name_sizing, shows_directory_span, split_path,
 };
 pub use sidebar_tree::{
     BASE_INDENT, GUIDE_END_INSET, GUIDE_OPACITY_PERCENT, GUIDE_RULE_INSET, GUIDE_RULE_WIDTH,

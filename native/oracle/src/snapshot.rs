@@ -26,6 +26,10 @@
 //! - **A missing `bg` is named, not shrugged at** (§6, v1.2). The one legitimate
 //!   way it goes missing is a gradient fill, which v1 cannot represent, and the
 //!   contract requires a loud failure over a plausible substitute.
+//! - **`content_sized` is the one optional key whose absence has a meaning**
+//!   (v1.5). It defaults to `false` here rather than to `None`, because the
+//!   contract says absent *is* false. Everything else optional stays `Option`,
+//!   where "one side emitted it and the other did not" is a finding in itself.
 //!
 //! No `f64` in this module is ever converted with a lossy `as` cast. The three
 //! integer-valued fields (`schema`, `state.width`, `font.weight`) go through
@@ -121,6 +125,18 @@ pub struct Anchor {
     pub radius: Option<f64>,
     /// Border width and colour.
     pub border: Option<Border>,
+    /// Whether this anchor's box sizes to its own text (v1.5).
+    ///
+    /// **Declared by the component, never detected.** Absent means `false`, so
+    /// this is a `bool` rather than an `Option<bool>`: v1.5 defines the missing
+    /// key and an explicit `false` as the same fact, and modelling them apart
+    /// would make an extractor that spells out its `false`s disagree with one
+    /// that omits them — a `FieldPresence` delta on every unaffected anchor.
+    ///
+    /// The two sides *disagreeing* is a different matter and is a
+    /// `FieldPresence` delta, raised one layer up: a mis-declaration changes
+    /// which target `bounds.w` is compared against, so it has to be visible.
+    pub content_sized: bool,
 }
 
 /// The §8.3 matrix cell a snapshot was taken in.
@@ -741,6 +757,7 @@ fn anchor_at(value: &Value, path: &Path) -> Result<Anchor, LoadError> {
             "visible",
             "radius",
             "border",
+            "content_sized",
         ],
     )?;
 
@@ -802,6 +819,14 @@ fn anchor_at(value: &Value, path: &Path) -> Result<Anchor, LoadError> {
             )?)
         },
         border: border_at(value, path)?,
+        // v1.5: optional, and absent means `false`. Still type-checked when it
+        // is present — an extractor writing `"content_sized": "true"` would
+        // otherwise ship a string that changes nothing and says nothing.
+        content_sized: if value.get("content_sized").is_none() {
+            false
+        } else {
+            bool_at(value, path, "content_sized")?
+        },
     })
 }
 
@@ -858,7 +883,49 @@ mod tests {
         assert_eq!(a.font, None);
         assert_eq!(a.radius, None);
         assert_eq!(a.border, None);
+        assert!(!a.content_sized, "absent means false (v1.5)");
         assert_eq!(snap.anchor("nope"), None);
+    }
+
+    /// v1.5. Optional, defaults to `false`, and type-checked when present — an
+    /// extractor writing `"content_sized": "true"` would otherwise ship a
+    /// string that changes nothing and announces nothing.
+    #[test]
+    fn content_sized_is_optional_defaults_to_false_and_is_still_a_boolean() {
+        let declared = with_anchor(
+            r##"{"id":"a","bounds":{"x":0,"y":0,"w":1,"h":1},"bg":"#00000000",
+                 "visible":true,"content_sized":true}"##,
+        );
+        let snap = Snapshot::from_json(&declared).expect("valid");
+        assert!(snap.anchor("a").expect("present").content_sized);
+
+        // An explicit `false` and an absent key are the same fact.
+        let explicit = with_anchor(
+            r##"{"id":"a","bounds":{"x":0,"y":0,"w":1,"h":1},"bg":"#00000000",
+                 "visible":true,"content_sized":false}"##,
+        );
+        let absent = with_anchor(
+            r##"{"id":"a","bounds":{"x":0,"y":0,"w":1,"h":1},"bg":"#00000000",
+                 "visible":true}"##,
+        );
+        assert_eq!(
+            Snapshot::from_json(&explicit).expect("valid"),
+            Snapshot::from_json(&absent).expect("valid"),
+        );
+
+        for bad in ["\"true\"", "1", "null"] {
+            let json = with_anchor(&format!(
+                r##"{{"id":"a","bounds":{{"x":0,"y":0,"w":1,"h":1}},"bg":"#00000000",
+                     "visible":true,"content_sized":{bad}}}"##
+            ));
+            let e = err_of(&json);
+            assert!(
+                matches!(e.kind, LoadErrorKind::WrongType { .. }),
+                "content_sized {bad}: {:?}",
+                e.kind
+            );
+            assert_eq!(e.path, "anchors[0].content_sized");
+        }
     }
 
     #[test]
