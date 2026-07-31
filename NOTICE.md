@@ -95,3 +95,108 @@ Most highlight queries come from the same commit as their grammar. These do not:
 | `terraform` | [nvim-treesitter/nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter) | Apache-2.0 |
 | `tsx` | [nvim-treesitter/nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter) | Apache-2.0 |
 | `typescript` | [tree-sitter/tree-sitter-javascript](https://github.com/tree-sitter/tree-sitter-javascript) (`queries/highlights.scm`, composed as a base layer) | MIT |
+
+---
+
+## Vendored Rust crates — `native/vendor/`
+
+The Rust-native client vendors the `gpui` UI framework and the `gpui-component`
+widget set, together with the in-repo dependency closure each one needs, so that
+builds are reproducible and upstream churn reaches us only when we choose to take
+it. 29 third-party crates are checked into this repository from two origins:
+
+| Crates | Upstream repository | Pinned commit | Date |
+| --- | --- | --- | --- |
+| `gpui` and its in-repo closure (26 crates) | [zed-industries/zed](https://github.com/zed-industries/zed) | `1a246efd7e1b83ab568ec5e3e6c1a43a42e1abba` | 2026-07-15 |
+| `gpui-component`, `-macros`, `-assets` | [longbridge/gpui-component](https://github.com/longbridge/gpui-component) | `88f102d13654fe25aa2fede076274b6b751a3704` | 2026-07-30 |
+
+`gpui-component-assets` is not a separate repository — it is `crates/assets` in the
+same `gpui-component` tree and shares that SHA. Copyright in the Zed-derived crates
+is held by Zed Industries, Inc. (2022–2025); in the `gpui-component` crates by
+Longbridge (2024–2025). The pin record, the measured closure and the manifest
+deviations are documented in [`native/vendor/PINNED.md`](native/vendor/PINNED.md).
+
+**Full license texts are present in-tree.** Zed and gpui-component carry no
+per-file license headers: licensing is per-crate, via the `license` key in each
+crate's `Cargo.toml` plus `LICENSE-APACHE` / `LICENSE-GPL` files in the crate
+directory. Upstream those files are symlinks to the repository root; the vendoring
+dereferenced them, so `native/vendor/` contains 31 real license files and no
+symlinks. Each crate's own directory is the authoritative copy of its license text.
+
+### GPL-3.0-or-later crates
+
+Four vendored crates declare `license = "GPL-3.0-or-later"`. Three of them are
+genuinely compiled into the shipped macOS binary. This is recorded here because it
+is an attribution obligation; Crowbar is AGPL-3.0-only, and AGPLv3 §13 expressly
+permits combining with GPLv3 work.
+
+| Crate | Reached via | Linked into the macOS binary? |
+| --- | --- | --- |
+| `ztracing` | `gpui → sum_tree → ztracing` | **yes** |
+| `zlog` | `gpui → sum_tree → ztracing → zlog` | **yes** |
+| `ztracing_macro` | `ztracing → ztracing_macro` | **yes** (proc-macro) |
+| `path` | `http_client → util → path` | no — see below |
+
+The first three are unconditional, non-optional dependencies of `gpui`, so any
+build that uses `gpui` links them. `path` is a second, independent GPL edge that
+behaves differently: `http_client` declares `util` as an optional dependency behind
+its `github-download` feature, and nothing in the graph enables that feature, so
+`util` and `path` are vendored (their manifests must exist for resolution) but
+never compiled. That is a feature-flag away from changing — if `github-download`
+is ever enabled, `path` becomes linked and this table must be updated.
+
+### All vendored crates and their declared licenses
+
+Licenses below are transcribed from the `license` key of each crate's own
+`Cargo.toml`, which is the only per-crate license signal these trees carry. Note
+that the license *files* in a crate directory are not a reliable substitute:
+`zed-deps/path/` ships a `LICENSE-APACHE` while its manifest declares
+GPL-3.0-or-later, and `ztracing` / `ztracing_macro` ship both `LICENSE-APACHE` and
+`LICENSE-GPL` while their manifests declare GPL-3.0-or-later only.
+
+| Crate | Version | Declared license | Path under `native/vendor/` |
+| --- | --- | --- | --- |
+| `gpui` | 0.2.2 | Apache-2.0 | `gpui` |
+| `gpui-component` | 0.5.2 | Apache-2.0 | `gpui-component` |
+| `gpui-component-assets` | 0.5.1 | Apache-2.0 | `gpui-component-assets` |
+| `gpui-component-macros` | 0.5.1 | Apache-2.0 | `gpui-component-macros` |
+| `collections` | 0.1.0 | Apache-2.0 | `zed-deps/collections` |
+| `derive_refineable` | 0.1.0 | Apache-2.0 | `zed-deps/derive_refineable` |
+| `gpui_linux` | 0.1.0 | Apache-2.0 | `zed-deps/gpui_linux` |
+| `gpui_macos` | 0.1.0 | Apache-2.0 | `zed-deps/gpui_macos` |
+| `gpui_macros` | 0.1.0 | Apache-2.0 | `zed-deps/gpui_macros` |
+| `gpui_platform` | 0.1.0 | Apache-2.0 | `zed-deps/gpui_platform` |
+| `gpui_shared_string` | 0.1.0 | *none declared* | `zed-deps/gpui_shared_string` |
+| `gpui_util` | 0.1.0 | *none declared* | `zed-deps/gpui_util` |
+| `gpui_web` | 0.1.0 | Apache-2.0 | `zed-deps/gpui_web` |
+| `gpui_wgpu` | 0.1.0 | Apache-2.0 | `zed-deps/gpui_wgpu` |
+| `gpui_windows` | 0.1.0 | Apache-2.0 | `zed-deps/gpui_windows` |
+| `http_client` | 0.1.0 | Apache-2.0 | `zed-deps/http_client` |
+| `http_client_tls` | 0.1.0 | Apache-2.0 | `zed-deps/http_client_tls` |
+| `media` | 0.1.0 | Apache-2.0 | `zed-deps/media` |
+| `path` | 0.1.0 | **GPL-3.0-or-later** | `zed-deps/path` |
+| `perf` | 0.1.0 | Apache-2.0 | `zed-deps/perf` |
+| `refineable` | 0.1.0 | Apache-2.0 | `zed-deps/refineable` |
+| `reqwest_client` | 0.1.0 | Apache-2.0 | `zed-deps/reqwest_client` |
+| `scheduler` | 0.1.0 | Apache-2.0 | `zed-deps/scheduler` |
+| `sum_tree` | 0.1.0 | Apache-2.0 | `zed-deps/sum_tree` |
+| `util` | 0.1.0 | Apache-2.0 | `zed-deps/util` |
+| `util_macros` | 0.1.0 | Apache-2.0 | `zed-deps/util_macros` |
+| `zlog` | 0.1.0 | **GPL-3.0-or-later** | `zed-deps/zlog` |
+| `ztracing` | 0.1.0 | **GPL-3.0-or-later** | `zed-deps/ztracing` |
+| `ztracing_macro` | 0.1.0 | **GPL-3.0-or-later** | `zed-deps/ztracing_macro` |
+
+23 crates declare Apache-2.0, 4 declare GPL-3.0-or-later, and 2 declare no license
+at all. `native/vendor/probe/` (`gpui-vendor-probe`) is excluded from the table and
+from the count of 29: it is Crowbar's own throwaway build probe, not third-party
+code, and it is not shipped.
+
+### Crates that declare no license
+
+`gpui_shared_string` and `gpui_util` have no `license` key in their `Cargo.toml`.
+Both carry a `LICENSE-APACHE` file in their crate directory, and both **are**
+compiled into the macOS binary. Upstream, the absent key means the crate falls back
+to the repository's own licensing rather than stating its own; the Apache-2.0 text
+shipped in each crate directory is the only per-crate license artifact either one
+provides. Recorded here as an unresolved upstream ambiguity rather than silently
+listed as Apache-2.0. Re-check both at every re-pin.
