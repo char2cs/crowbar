@@ -61,6 +61,36 @@
 //! So: `bounds.x` and `bounds.w` get the allowance. `bounds.y`, `bounds.h`,
 //! `radius` and `text_width` do not. Narrowing an allowance needs no ceremony
 //! under §5; widening it back would.
+//!
+//! # The v1.6 line-sizing model, and why it is *not* the same mechanism
+//!
+//! The sixth delta above is the one v1.6 addresses, and it is a different
+//! shape. Measured across fourteen font sizes: `WebKit` **floors** a line box to
+//! a whole logical pixel (14px × 1.35 = 18.9 → 18), while GPUI applies
+//! `pixel_snap` — `round_half_toward_zero(L × dpr) / dpr` — and gets 19.0 at
+//! DPR 2. Both are quantising the *same* fractional number, and neither can
+//! produce the other's.
+//!
+//! v1.5's mechanism does not transfer, for two reasons the contract is explicit
+//! about. `ceil` is DPR-independent and `pixel_snap` is not, and §4 keeps DPR
+//! out of the contract altogether; and with `content_sized` **one** engine
+//! transforms while the other keeps the truth, whereas here **both** transform,
+//! so a differ that recomputed either side's quantisation would stop comparing
+//! what the extractors measured.
+//!
+//! So an anchor both sides declare `line_sized` has its `bounds.h` compared
+//! against **`reference.font.line_height`** — the fractional 18.9 — at §5's
+//! ordinary ±0.5. That is DPR-free by construction:
+//! `|pixel_snap(L) − L| ≤ 1/(2·dpr) ≤ 0.5` for any DPR ≥ 1. It gives up only
+//! the two engines' quantisation of one number and still catches a wrong line
+//! count, stray padding and a wrong font size, all of which move `bounds.h`
+//! well outside ±0.5.
+//!
+//! **It does not touch the v1.5 allowance, in either direction.** The allowance
+//! is inline-axis only and `bounds.h` is not on it, which is what keeps a
+//! 1.73px horizontal slack from swallowing this 1.0px vertical delta —
+//! `the_allowance_does_not_cross_axes` is the test that holds that down. A
+//! line-sized `bounds.h` gets its own moved target and nothing else.
 
 use crate::color::Color;
 use crate::delta::{self, Class, Delta, DeltaKind};
@@ -146,6 +176,15 @@ pub enum Forgiveness {
         /// How much slack was added, in px.
         added_px: f64,
     },
+    /// The anchor is declared `line_sized`, so `bounds.h` was compared against
+    /// the reference's `font.line_height` and the native value is within
+    /// tolerance of *that* (v1.6).
+    LineHeight {
+        /// The reference's own box height — the number §5 would have used.
+        box_height: f64,
+        /// `reference.font.line_height`, the fractional line box.
+        target: f64,
+    },
 }
 
 /// A comparison that exceeded its §5 tolerance and was forgiven anyway.
@@ -178,6 +217,16 @@ impl fmt::Display for Forgiven {
                  ceil excess on the content-sized anchors is absorbed along this axis rather \
                  than propagated",
                 delta::px(round3(added_px)),
+            ),
+            Forgiveness::LineHeight { box_height, target } => write!(
+                f,
+                "this anchor is declared line_sized, so ANCHORS.md v1.6 compares bounds.h \
+                 against the reference's font.line_height of {} rather than against its box \
+                 height of {} — both engines quantise that one fractional line box, WebKit by \
+                 flooring it to a whole logical pixel and GPUI by snapping it to the device \
+                 grid, and neither can produce the other's number",
+                delta::px(target),
+                delta::px(box_height),
             ),
         }
     }
@@ -256,15 +305,35 @@ impl Report {
         // Named on the verdict line, not only in the body: a run whose headline
         // number was reached by forgiving four comparisons and one that was
         // reached by measuring them must not read the same.
-        let forgiven = self.forgiven.len();
-        if forgiven > 0 {
+        //
+        // The two rules are counted apart rather than summed. They forgive
+        // different things for different reasons, and "5 forgiven" over a mixed
+        // list would let a reader who knows one rule assume the other.
+        let content_sized = self.forgiven_by_content_sizing();
+        let line_sized = self.forgiven.len() - content_sized;
+        if content_sized > 0 {
             let _ = write!(
                 line,
-                ", {forgiven} forgiven by v1.5 content-sizing (Σ ceil excess {} px)",
+                ", {content_sized} forgiven by v1.5 content-sizing (Σ ceil excess {} px)",
                 crate::delta::px(round3(self.content_sizing.excess_px))
             );
         }
+        if line_sized > 0 {
+            let _ = write!(
+                line,
+                ", {line_sized} forgiven by v1.6 line-sizing (bounds.h against font.line_height)"
+            );
+        }
         line
+    }
+
+    /// How many forgiven comparisons came from v1.5 rather than v1.6.
+    #[must_use]
+    pub fn forgiven_by_content_sizing(&self) -> usize {
+        self.forgiven
+            .iter()
+            .filter(|forgiven| !matches!(forgiven.reason, Forgiveness::LineHeight { .. }))
+            .count()
     }
 }
 
@@ -541,6 +610,48 @@ impl AnchorDiff<'_> {
         );
     }
 
+    /// `bounds.h` on an anchor **both** sides declare `line_sized` (v1.6).
+    ///
+    /// The expectation moves to the reference's `font.line_height` and the
+    /// tolerance stays §5's ±0.5, so this is a *correction* in exactly the way
+    /// [`AnchorDiff::content_sized_width`] is: it compares against the number
+    /// both engines derived their box from, and forgives nothing else. A box a
+    /// whole pixel away from the line height is still a delta.
+    ///
+    /// It shares no machinery with the content-sizing allowance and takes none
+    /// of it. `bounds.h` is not on the inline axis, which is the separation
+    /// that keeps a horizontal allowance from swallowing a vertical finding.
+    fn line_sized_height(&mut self, box_height: f64, target: f64, actual: f64, tolerance: f64) {
+        if within(actual, target, tolerance) {
+            // Said only when the plain §5 comparison would have failed. A
+            // reference whose box height already equals its line height
+            // forgives nothing, and reporting it would fill the section with
+            // entries that were never in doubt.
+            if !within(actual, box_height, tolerance) {
+                self.forgive(
+                    "bounds.h",
+                    DeltaKind::Number {
+                        expected: box_height,
+                        actual,
+                        tolerance,
+                    },
+                    Forgiveness::LineHeight { box_height, target },
+                );
+            }
+            return;
+        }
+        self.push(
+            "bounds.h",
+            Class::Geometry,
+            DeltaKind::LineSizedNumber {
+                box_height,
+                expected: target,
+                actual,
+                tolerance,
+            },
+        );
+    }
+
     /// A §5 **exact** number: any difference at all is a delta. Renders as
     /// `exact` rather than quoting a `±0.0` that reads like an unfilled knob.
     fn exact_number(&mut self, field: &'static str, expected: f64, actual: f64) {
@@ -668,6 +779,10 @@ fn compare_anchor(
 /// a mis-declaration open a blind spot or invent a delta and announce neither —
 /// the failure mode v1.5 gives as the reason the flag is declared rather than
 /// detected in the first place.
+/// `line_sized` (v1.6) is the second, and reads the same way: absent is false
+/// on both sides, so a disagreement is one extractor asserting something the
+/// other denies, and it decides whether `bounds.h` is compared against the
+/// reference's box or against the line box it came from.
 fn compare_declaration(d: &mut AnchorDiff<'_>, expected: &Anchor, actual: &Anchor) {
     if expected.content_sized != actual.content_sized {
         d.push(
@@ -676,6 +791,16 @@ fn compare_declaration(d: &mut AnchorDiff<'_>, expected: &Anchor, actual: &Ancho
             DeltaKind::Declaration {
                 expected: expected.content_sized,
                 actual: actual.content_sized,
+            },
+        );
+    }
+    if expected.line_sized != actual.line_sized {
+        d.push(
+            "line_sized",
+            Class::FieldPresence,
+            DeltaKind::LineDeclaration {
+                expected: expected.line_sized,
+                actual: actual.line_sized,
             },
         );
     }
@@ -761,7 +886,14 @@ fn compare_geometry(d: &mut AnchorDiff<'_>, expected: &Anchor, actual: &Anchor) 
     } else {
         d.inline_number("bounds.w", expected.bounds.w, actual.bounds.w, bounds_tol);
     }
-    d.number("bounds.h", expected.bounds.h, actual.bounds.h, bounds_tol);
+    // v1.6, and deliberately *not* reached through the allowance: a line-sized
+    // height gets a moved target and nothing else. See `line_height_target`.
+    match line_height_target(expected, actual) {
+        Some(target) => {
+            d.line_sized_height(expected.bounds.h, target, actual.bounds.h, bounds_tol);
+        }
+        None => d.number("bounds.h", expected.bounds.h, actual.bounds.h, bounds_tol),
+    }
 
     if !d.presence(
         "text_width",
@@ -782,6 +914,26 @@ fn compare_geometry(d: &mut AnchorDiff<'_>, expected: &Anchor, actual: &Anchor) 
     {
         d.number("radius", e, a, d.tol.radius_px);
     }
+}
+
+/// The `bounds.h` target for an anchor **both** sides declare `line_sized`
+/// (v1.6), or `None` when the ordinary §5 comparison applies.
+///
+/// Both sides, for the same reason v1.5's ceil rule needs both: a declaration
+/// only one extractor makes is already a `FieldPresence` delta, and letting it
+/// *also* move the target would mean a mis-declaration loosened the gate. A
+/// contract defect has to cost coverage, never hand it out.
+///
+/// The `font` is guaranteed present by the loader — an anchor that declares
+/// `line_sized` without one does not load at all — so the `and_then` is the
+/// type system being satisfied rather than a fallback. There is deliberately no
+/// `else` branch that substitutes `bounds.h`: that would be the silent no-op
+/// the load error exists to prevent.
+fn line_height_target(expected: &Anchor, actual: &Anchor) -> Option<f64> {
+    if !(expected.line_sized && actual.line_sized) {
+        return None;
+    }
+    expected.font.as_ref().map(|font| font.line_height)
 }
 
 /// The border, whose two halves land in different classes: the width is

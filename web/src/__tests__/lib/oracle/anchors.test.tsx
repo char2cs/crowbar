@@ -102,6 +102,56 @@ describe('git status row oracle anchors', () => {
     expect(container.querySelector('[data-oracle-id="git-row-deleted"]')?.textContent).toBe('-3')
   })
 
+  /**
+   * `native/oracle/ANCHORS.md` v1.6. Every bare text span declares its height
+   * to be its own line box; the badge does **not**, because `size="sm"` gives
+   * it `h-5 sm:h-4` and its border box is authored rather than derived.
+   *
+   * The same four ids are declared on the GPUI side in `crowbar-ui`'s
+   * `LINE_SIZED`. A declaration on one side only is a `FieldPresence` delta
+   * that forgives nothing, so this list drifting is a gate failure and not a
+   * quiet loss of coverage — but it is a gate failure a long way from here,
+   * which is why the list is pinned at both ends.
+   */
+  it('declares line_sized on every bare text span, and not on the badge', () => {
+    const { container } = render(
+      <GitFileItem
+        file={FILE}
+        diffStats={{ additions: 12, deletions: 3 }}
+        showDirectory
+        uncommitted
+        compactGitStatusBadges={false}
+      />,
+    )
+
+    const declared = Array.from(container.querySelectorAll('[data-oracle-line-sized]')).map((el) =>
+      el.getAttribute('data-oracle-id'),
+    )
+
+    expect(new Set(declared)).toEqual(
+      new Set(['git-row-name', 'git-row-dir', 'git-row-added', 'git-row-deleted']),
+    )
+    expect(
+      container
+        .querySelector('[data-oracle-id="git-row-badge"]')
+        ?.hasAttribute('data-oracle-line-sized'),
+    ).toBe(false)
+
+    // The two declarations are independent, and the row uses all three
+    // combinations: the counts are both, the name is line-sized only, the
+    // badge content-sized only.
+    const attrs = (id: string) => {
+      const el = container.querySelector(`[data-oracle-id="${id}"]`)
+      return {
+        content: el?.getAttribute('data-oracle-content-sized'),
+        line: el?.getAttribute('data-oracle-line-sized'),
+      }
+    }
+    expect(attrs('git-row-added')).toEqual({ content: 'true', line: 'true' })
+    expect(attrs('git-row-name')).toEqual({ content: null, line: 'true' })
+    expect(attrs('git-row-badge')).toEqual({ content: 'true', line: null })
+  })
+
   it('adds nothing to the class list — the anchors are inert markers', () => {
     const { container } = render(
       <GitFileItem file={FILE} showFileIcon compactGitStatusBadges={false} />,

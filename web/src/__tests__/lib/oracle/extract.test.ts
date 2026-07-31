@@ -7,6 +7,7 @@ import {
   oracleFirstFontFamily,
   oracleFontWeight,
   oracleContentSized,
+  oracleLineSized,
   oracleIsClipped,
   oracleMeasureNormalLineHeight,
   oracleNormalizeColor,
@@ -351,6 +352,52 @@ describe('oracleContentSized', () => {
   })
 })
 
+// ── the v1.6 declaration ─────────────────────────────────────────────────────
+
+describe('oracleLineSized', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  function el(markup: string): Element {
+    document.body.innerHTML = markup
+    return document.body.firstElementChild as Element
+  }
+
+  it('reads the three spellings an author can actually produce', () => {
+    expect(oracleLineSized(el('<span data-oracle-line-sized="true"></span>'))).toBe(true)
+    expect(oracleLineSized(el('<span data-oracle-line-sized></span>'))).toBe(true)
+    expect(oracleLineSized(el('<span data-oracle-line-sized="TRUE"></span>'))).toBe(true)
+  })
+
+  it('treats an absent attribute and an explicit false as the same fact', () => {
+    expect(oracleLineSized(el('<span></span>'))).toBe(false)
+    expect(oracleLineSized(el('<span data-oracle-line-sized="false"></span>'))).toBe(false)
+    expect(oracleLineSized(el('<span data-oracle-line-sized=" False "></span>'))).toBe(false)
+  })
+
+  it('is a different claim from content_sized and neither implies the other', () => {
+    // Two independent properties of the same box: `git-row-name` is line-sized
+    // and not content-sized (it is the flexible sibling), the badge is
+    // content-sized and not line-sized (`sm:h-4` pins its height).
+    const line = el('<span data-oracle-line-sized="true"></span>')
+    expect(oracleLineSized(line)).toBe(true)
+    expect(oracleContentSized(line)).toBe(false)
+
+    const content = el('<span data-oracle-content-sized="true"></span>')
+    expect(oracleContentSized(content)).toBe(true)
+    expect(oracleLineSized(content)).toBe(false)
+
+    const both = el('<span data-oracle-content-sized data-oracle-line-sized></span>')
+    expect(oracleContentSized(both)).toBe(true)
+    expect(oracleLineSized(both)).toBe(true)
+  })
+
+  it('does not read the flag off the id attribute', () => {
+    expect(oracleLineSized(el('<span data-oracle-id="git-row-name"></span>'))).toBe(false)
+  })
+})
+
 // ── the walk itself, including a pseudo-backed anchor (ANCHORS.md §3) ────────
 
 interface FakeStyle {
@@ -408,7 +455,7 @@ function mountRow() {
     <div id="row" data-oracle-id="git-row-item">
       <span id="guide" data-oracle-id="git-row-guide-0"></span>
       <button id="btn" data-oracle-id="git-row-button">
-        <span id="name" data-oracle-id="git-row-name">resolve-terminal-connection.ts</span>
+        <span id="name" data-oracle-id="git-row-name" data-oracle-line-sized="true">resolve-terminal-connection.ts</span>
         <span id="badge" data-oracle-id="git-row-badge" data-oracle-content-sized="true">uncommitted</span>
       </button>
     </div>`
@@ -626,6 +673,7 @@ describe('extractSnapshot', () => {
       'fg',
       'font',
       'id',
+      'line_sized',
       'radius',
       'text',
       'text_width',
@@ -660,6 +708,39 @@ describe('extractSnapshot', () => {
     for (const id of ['git-row-item', 'git-row-guide-0', 'git-row-button', 'git-row-name']) {
       expect(byId[id].content_sized).toBeUndefined()
       expect('content_sized' in byId[id]).toBe(false)
+    }
+  })
+
+  it('emits line_sized only on the anchors that declare it (v1.6)', () => {
+    mountRow()
+    const { anchors } = extractSnapshot({ surface: 'git-status-row' })
+    const byId = Object.fromEntries(anchors.map((a) => [a.id, a]))
+
+    expect(byId['git-row-name'].line_sized).toBe(true)
+    // The two flags are independent claims about the same box: the name is
+    // line-sized and not content-sized, the badge the other way round.
+    expect(byId['git-row-name'].content_sized).toBeUndefined()
+    expect(byId['git-row-badge'].content_sized).toBe(true)
+    expect(byId['git-row-badge'].line_sized).toBeUndefined()
+
+    // Absent, not `false`, exactly as for content_sized.
+    for (const id of ['git-row-item', 'git-row-guide-0', 'git-row-button', 'git-row-badge']) {
+      expect('line_sized' in byId[id]).toBe(false)
+    }
+  })
+
+  it('carries the line height a line_sized anchor will be compared against', () => {
+    // The rule is `bounds.h` against `font.line_height`, so the declaration is
+    // worthless without the font group beside it — and the differ refuses a
+    // snapshot that declares one without the other, by anchor name.
+    mountRow()
+    const { anchors } = extractSnapshot({ surface: 'git-status-row' })
+
+    for (const anchor of anchors) {
+      if (anchor.line_sized) {
+        expect(anchor.font).toBeDefined()
+        expect(typeof anchor.font?.line_height).toBe('number')
+      }
     }
   })
 

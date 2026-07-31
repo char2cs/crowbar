@@ -34,7 +34,12 @@ use row_surface::{Cell, ParseError, RowSurface};
 /// linked, because that is the configuration the oracle measures.
 #[cfg(feature = "driver")]
 mod driver_surface;
-#[cfg(feature = "driver")]
+/// Compiled for `cargo test` as well as for a driver build. `state_of` is the
+/// single place a command line becomes the differ's §8.3 matrix cell — and
+/// since that cell is keyed on the **viewport** and the command line carries a
+/// surface width too, a mapping only a feature build could test is a mapping
+/// nobody tests.
+#[cfg(any(feature = "driver", test))]
 mod row_snapshot;
 
 /// The driver-backed [`crowbar_ui::components::AnchorSink`]. A driver build

@@ -24,17 +24,19 @@
 
 use gpui::{AnyElement, Div, IntoElement as _, ParentElement as _, SharedString, StyledText};
 
-/// An anchor id, plus the one thing about the anchor the *component* knows and
-/// neither extractor can safely work out: whether the box sizes to its own text.
+/// An anchor id, plus the things about the anchor the *component* knows and
+/// neither extractor can safely work out: whether the box sizes to its own
+/// text, and whether its height *is* its own line box.
 ///
-/// `native/oracle/ANCHORS.md` v1.5 makes `content_sized` a **declared**
-/// property, and this type is why the declaration cannot be forgotten in one
-/// build and remembered in another: the same value flows to the shipping sink,
-/// which ignores it, and to the driver sink, which records it.
+/// `native/oracle/ANCHORS.md` v1.5 and v1.6 make both **declared** properties,
+/// and this type is why a declaration cannot be forgotten in one build and
+/// remembered in another: the same value flows to the shipping sink, which
+/// ignores it, and to the driver sink, which records it.
 ///
 /// `From<&'static str>` and `From<SharedString>` keep every ordinary call site
-/// reading exactly as it did — `anchors.boxed(ID_ICON.into(), …)` — so the
-/// declaration appears only where it is true.
+/// reading exactly as it did — `anchors.boxed(ID_ICON.into(), …)` — so a
+/// declaration appears only where it is true. The two builders chain, because
+/// the third combination is real: the row's `+n` count is both.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AnchorId {
     /// The stable semantic name, identical on both sides of the differ.
@@ -42,25 +44,39 @@ pub struct AnchorId {
     /// v1.5: this anchor's box sizes to its own text, so the differ compares
     /// `bounds.w` against `ceil(reference)`.
     pub content_sized: bool,
+    /// v1.6: this anchor's box height is its own line box, so the differ
+    /// compares `bounds.h` against the reference's `font.line_height` rather
+    /// than against its box.
+    ///
+    /// **Only ever true on an anchor that paints text.** The differ refuses a
+    /// snapshot that declares it without a `font`, which is the loud half of
+    /// the same rule.
+    pub line_sized: bool,
 }
 
 impl AnchorId {
-    /// A plain anchor. Equivalent to `id.into()`.
+    /// A plain anchor, declaring nothing. Equivalent to `id.into()`.
     #[must_use]
     pub fn new(id: impl Into<SharedString>) -> Self {
         Self {
             id: id.into(),
             content_sized: false,
+            line_sized: false,
         }
     }
 
-    /// An anchor whose box sizes to its own text (v1.5).
+    /// Declares [`AnchorId::content_sized`] (v1.5).
     #[must_use]
-    pub fn content_sized(id: impl Into<SharedString>) -> Self {
-        Self {
-            id: id.into(),
-            content_sized: true,
-        }
+    pub fn content_sized(mut self) -> Self {
+        self.content_sized = true;
+        self
+    }
+
+    /// Declares [`AnchorId::line_sized`] (v1.6).
+    #[must_use]
+    pub fn line_sized(mut self) -> Self {
+        self.line_sized = true;
+        self
     }
 }
 
@@ -136,16 +152,41 @@ impl AnchorSink for Unanchored {
 mod tests {
     use super::AnchorId;
 
-    /// The declaration is opt-in: an ordinary `.into()` call site cannot
-    /// accidentally claim a box is content-sized, and the one that does say so
-    /// says it in the component, where it is reviewable.
+    /// The declarations are opt-in: an ordinary `.into()` call site cannot
+    /// accidentally claim anything, and the ones that do say so say it in the
+    /// component, where it is reviewable.
     #[test]
-    fn an_ordinary_anchor_id_is_not_content_sized() {
-        assert!(!AnchorId::from("git-row-name").content_sized);
-        assert!(!AnchorId::new("git-row-name").content_sized);
-        assert!(AnchorId::content_sized("git-row-badge").content_sized);
+    fn an_ordinary_anchor_id_declares_nothing() {
+        for plain in [AnchorId::from("git-row-icon"), AnchorId::new("git-row-icon")] {
+            assert!(!plain.content_sized);
+            assert!(!plain.line_sized);
+        }
         assert_eq!(AnchorId::from("a"), AnchorId::new("a"));
-        assert_ne!(AnchorId::from("a"), AnchorId::content_sized("a"));
+        assert_ne!(AnchorId::from("a"), AnchorId::new("a").content_sized());
+        assert_ne!(AnchorId::from("a"), AnchorId::new("a").line_sized());
+    }
+
+    /// The two are independent, and they chain — which they have to, because
+    /// the row's `+n` count is both: a bare run whose box is the run's advance
+    /// width *and* the run's line box.
+    #[test]
+    fn the_two_declarations_are_independent_and_compose() {
+        let content = AnchorId::new("git-row-badge").content_sized();
+        assert!(content.content_sized);
+        assert!(!content.line_sized);
+
+        let line = AnchorId::new("git-row-name").line_sized();
+        assert!(line.line_sized);
+        assert!(!line.content_sized);
+
+        let both = AnchorId::new("git-row-added").content_sized().line_sized();
+        assert!(both.content_sized && both.line_sized);
+        // Order does not matter, and the id is untouched either way.
+        assert_eq!(
+            both,
+            AnchorId::new("git-row-added").line_sized().content_sized()
+        );
+        assert_eq!(both.id, "git-row-added");
     }
 
     #[test]
@@ -154,5 +195,6 @@ mod tests {
         let anchor = AnchorId::from(id.clone());
         assert_eq!(anchor.id, id);
         assert!(!anchor.content_sized);
+        assert!(!anchor.line_sized);
     }
 }

@@ -6,7 +6,7 @@
 //! row through this sink under a plain `cargo test --workspace`;
 //! `row_snapshot.rs` emits through it behind `--features driver`.
 
-use crowbar_driver::RawAnchor;
+use crowbar_driver::{Declared, RawAnchor};
 use crowbar_ui::components::{AnchorId, AnchorSink};
 use gpui::{AnyElement, Div, IntoElement as _, ParentElement as _, SharedString};
 
@@ -37,25 +37,19 @@ impl AnchorSink for DriverAnchors {
     }
 
     fn boxed(&self, id: AnchorId, element: Div) -> AnyElement {
-        if id.content_sized {
-            crowbar_driver::anchor_content_sized(id.id, element).into_any_element()
-        } else {
-            crowbar_driver::anchor(id.id, element).into_any_element()
-        }
+        let declared = declared(&id);
+        crowbar_driver::anchor_declared(id.id, element, declared).into_any_element()
     }
 
     fn text(&self, id: AnchorId, content: SharedString) -> AnyElement {
-        if id.content_sized {
-            crowbar_driver::anchor_text_content_sized(id.id, content).into_any_element()
-        } else {
-            crowbar_driver::anchor_text(id.id, content).into_any_element()
-        }
+        let declared = declared(&id);
+        crowbar_driver::anchor_text_declared(id.id, content, declared).into_any_element()
     }
 
-    /// The declaration goes on the **box** half, never the run.
+    /// The declarations go on the **box** half, never the run.
     ///
     /// [`fold_text_halves`] keeps the box's geometry and takes only the run's
-    /// `text`, so the box is the record whose `bounds.w` the differ compares —
+    /// `text`, so the box is the record whose `bounds` the differ compares —
     /// and it is the box the DOM extractor anchors too. A flag on the run would
     /// be folded away and the anchor would reach the snapshot undeclared, which
     /// is a blind spot that reports nothing.
@@ -63,6 +57,23 @@ impl AnchorSink for DriverAnchors {
         let run = crowbar_driver::anchor_text(text_half(&id.id), content);
         self.boxed(id, element.child(run))
     }
+}
+
+/// [`AnchorId`]'s declarations in the driver's own vocabulary.
+///
+/// One function rather than an expression at each of the two call sites: this
+/// is the only place a declaration could be dropped in translation, and
+/// dropping one is silent — the anchor reaches the snapshot undeclared and the
+/// differ compares it against a target it was never going to hit.
+fn declared(id: &AnchorId) -> Declared {
+    let mut out = Declared::nothing();
+    if id.content_sized {
+        out = out.content_sized();
+    }
+    if id.line_sized {
+        out = out.line_sized();
+    }
+    out
 }
 
 /// The id the run inside a `boxed_text` anchor records itself under.
@@ -122,8 +133,11 @@ mod tests {
             border_width: px(1.0),
             border_color: Some(Hsla::default()),
             // The badge is content-sized on the real row, and the box half is
-            // where the declaration lives — see `boxed_text`.
+            // where the declaration lives — see `boxed_text`. It is *not*
+            // line-sized: `sm:h-4` pins its border box at 16px around a
+            // 13.33px line box.
             content_sized: true,
+            line_sized: false,
         }
     }
 
@@ -153,6 +167,7 @@ mod tests {
             // Deliberately *not* declared on the run: the fold keeps the box's
             // record, so a declaration here would be thrown away.
             content_sized: false,
+            line_sized: false,
         }
     }
 
@@ -181,6 +196,34 @@ mod tests {
         // here would send an undeclared anchor to the differ, which would then
         // compare 75.0 against 74.11 and report a delta nobody can act on.
         assert!(record.content_sized);
+        // v1.6 rides the same path and is equally the box half's. The badge
+        // does not claim it — see `a_box` — so this asserts the fold carries
+        // the box's answer rather than the run's, whatever that answer is.
+        assert!(!record.line_sized);
+    }
+
+    /// The mapping from a component's [`AnchorId`] to the driver's `Declared`
+    /// is total: both flags, in every combination, and nothing invented.
+    ///
+    /// This is the one place a declaration can be lost in translation, and
+    /// losing one is silent — the anchor reaches the snapshot undeclared and
+    /// the differ compares it against a target it was never going to hit.
+    #[test]
+    fn every_combination_of_declarations_survives_the_translation() {
+        use crowbar_ui::components::AnchorId;
+
+        for (content, line) in [(false, false), (true, false), (false, true), (true, true)] {
+            let mut id = AnchorId::new("git-row-added");
+            if content {
+                id = id.content_sized();
+            }
+            if line {
+                id = id.line_sized();
+            }
+            let declared = super::declared(&id);
+            assert_eq!(declared.content_sized, content, "{content}/{line}");
+            assert_eq!(declared.line_sized, line, "{content}/{line}");
+        }
     }
 
     /// The suffix must not reach the snapshot, or the differ rejects the

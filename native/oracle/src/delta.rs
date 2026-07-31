@@ -215,6 +215,39 @@ pub enum DeltaKind {
         /// What the native side declared.
         actual: bool,
     },
+    /// `bounds.h` on an anchor both sides declare `line_sized` (v1.6).
+    ///
+    /// The expectation is the reference's **`font.line_height`** — the
+    /// fractional line box, e.g. 18.9 — not its `bounds.h`. `WebKit` floors
+    /// that number to a whole logical pixel and GPUI snaps it to the device
+    /// grid, so the two box heights differ by up to a pixel while the line box
+    /// they were both derived from is the same. Both numbers are rendered,
+    /// because a line quoting only the line height would not match the
+    /// snapshot a reader is about to open.
+    LineSizedNumber {
+        /// The reference anchor's own box height — what §5 would have compared
+        /// against, and the number in the reference snapshot.
+        box_height: f64,
+        /// `reference.font.line_height` — the target both engines quantise.
+        expected: f64,
+        /// Native value.
+        actual: f64,
+        /// The tolerance it broke, kept at §5's full ±0.5 around the target.
+        tolerance: f64,
+    },
+    /// The two sides disagree on whether an anchor is `line_sized` (v1.6).
+    ///
+    /// Ranked [`Class::FieldPresence`] for the same reason
+    /// [`DeltaKind::Declaration`] is: the declaration decides which target
+    /// `bounds.h` is compared against, and settling it silently in favour of
+    /// whichever extractor the differ read first would either open a blind spot
+    /// or invent a delta, announcing neither.
+    LineDeclaration {
+        /// What the reference declared.
+        expected: bool,
+        /// What the native side declared.
+        actual: bool,
+    },
 }
 
 /// One ranked disagreement between two snapshots.
@@ -248,6 +281,9 @@ impl Delta {
             | DeltaKind::ExactNumber { expected, actual }
             | DeltaKind::CeiledNumber {
                 expected, actual, ..
+            }
+            | DeltaKind::LineSizedNumber {
+                expected, actual, ..
             } => (actual - expected).abs(),
             DeltaKind::Colour {
                 expected,
@@ -269,7 +305,8 @@ impl Delta {
             | DeltaKind::UnexpectedField { .. }
             | DeltaKind::Bool { .. }
             | DeltaKind::Text { .. }
-            | DeltaKind::Declaration { .. } => 0.0,
+            | DeltaKind::Declaration { .. }
+            | DeltaKind::LineDeclaration { .. } => 0.0,
         }
     }
 
@@ -345,6 +382,38 @@ fn signed_int(actual: u32, expected: u32) -> String {
     }
 }
 
+/// §5's colour rule, rendered: the **worst channel** and its signed
+/// difference, plus whether the rule it broke was RGB's exactness or alpha's
+/// ±1/255.
+///
+/// Named rather than inline for the reason `Delta::fmt` says nothing about: it
+/// is the one arm that computes something before it writes, and the rest of the
+/// match reads better without it in the middle.
+fn fmt_colour(
+    f: &mut fmt::Formatter<'_>,
+    subject: &str,
+    expected: Color,
+    actual: Color,
+    rgb: bool,
+    alpha_tolerance: u8,
+) -> fmt::Result {
+    let (channel, diff) = actual.worst_channel(expected);
+    let sign = if diff < 0 { "-" } else { "+" };
+    let d = diff.abs();
+    if rgb {
+        write!(
+            f,
+            "{subject}: {actual}, expected {expected} (Δ {channel} {sign}{d}, rgb is exact)"
+        )
+    } else {
+        write!(
+            f,
+            "{subject}: {actual}, expected {expected} \
+             (Δ {channel} {sign}{d}, tol ±{alpha_tolerance}/255)"
+        )
+    }
+}
+
 impl fmt::Display for Delta {
     /// Renders a delta the way ANCHORS.md renders one: subject, actual,
     /// expected, magnitude, and the tolerance that was broken.
@@ -388,24 +457,7 @@ impl fmt::Display for Delta {
                 actual,
                 rgb,
                 alpha_tolerance,
-            } => {
-                let (channel, diff) = actual.worst_channel(*expected);
-                let sign = if diff < 0 { "-" } else { "+" };
-                let d = diff.abs();
-                if *rgb {
-                    write!(
-                        f,
-                        "{subject}: {actual}, expected {expected} \
-                         (Δ {channel} {sign}{d}, rgb is exact)"
-                    )
-                } else {
-                    write!(
-                        f,
-                        "{subject}: {actual}, expected {expected} \
-                         (Δ {channel} {sign}{d}, tol ±{alpha_tolerance}/255)"
-                    )
-                }
-            }
+            } => fmt_colour(f, &subject, *expected, *actual, *rgb, *alpha_tolerance),
             DeltaKind::Number {
                 expected,
                 actual,
@@ -450,6 +502,27 @@ impl fmt::Display for Delta {
                  disagree on whether this anchor sizes to its own text, so one of them is \
                  comparing bounds.w against the wrong target and the snapshot's content-sizing \
                  allowance is computed from the wrong set"
+            ),
+            DeltaKind::LineSizedNumber {
+                box_height,
+                expected,
+                actual,
+                tolerance,
+            } => write!(
+                f,
+                "{subject}: {}, expected {} = the reference's font.line_height, not its bounds.h \
+                 of {} (Δ {}, tol ±{}, line_sized)",
+                px(*actual),
+                px(*expected),
+                px(*box_height),
+                signed(actual - expected),
+                px(*tolerance)
+            ),
+            DeltaKind::LineDeclaration { expected, actual } => write!(
+                f,
+                "{subject}: {actual}, expected {expected} (declared, exact). The two extractors \
+                 disagree on whether this anchor's height is its own line box, so one of them is \
+                 comparing bounds.h against the wrong target"
             ),
         }
     }
@@ -662,6 +735,44 @@ mod tests {
         ]);
     }
 
+    /// v1.6. The line-sized comparison names **both** numbers too: the line
+    /// height it was compared against and the reference's own box height, so
+    /// the line still matches the snapshot a reader opens.
+    #[test]
+    fn the_line_sized_kinds_say_what_rule_they_are_under() {
+        assert_renders(&[
+            (
+                delta(
+                    "git-row-name",
+                    "bounds.h",
+                    Class::Geometry,
+                    DeltaKind::LineSizedNumber {
+                        box_height: 18.0,
+                        expected: 18.9,
+                        actual: 38.0,
+                        tolerance: 0.5,
+                    },
+                ),
+                "git-row-name.bounds.h: 38.0, expected 18.9 = the reference's font.line_height, \
+                 not its bounds.h of 18.0 (Δ +19.1, tol ±0.5, line_sized)",
+            ),
+            (
+                delta(
+                    "git-row-name",
+                    "line_sized",
+                    Class::FieldPresence,
+                    DeltaKind::LineDeclaration {
+                        expected: true,
+                        actual: false,
+                    },
+                ),
+                "git-row-name.line_sized: false, expected true (declared, exact). The two \
+                 extractors disagree on whether this anchor's height is its own line box, so one \
+                 of them is comparing bounds.h against the wrong target",
+            ),
+        ]);
+    }
+
     #[test]
     fn magnitude_measures_each_kind_in_its_own_unit() {
         let number = delta(
@@ -740,8 +851,32 @@ mod tests {
         );
         assert_eq!(ceiled.magnitude().to_bits(), 5.0_f64.to_bits());
 
+        // v1.6: measured against the **line height**, which is the target, not
+        // against the reference's box height, which is not.
+        let line_sized = delta(
+            "a",
+            "bounds.h",
+            Class::Geometry,
+            DeltaKind::LineSizedNumber {
+                box_height: 18.0,
+                expected: 18.5,
+                actual: 20.5,
+                tolerance: 0.5,
+            },
+        );
+        assert_eq!(line_sized.magnitude().to_bits(), 2.0_f64.to_bits());
+    }
+
+    /// The categorical kinds have no unit, so they measure zero and their
+    /// ordering falls through to the id/field tie-break.
+    #[test]
+    fn the_categorical_kinds_have_no_magnitude() {
         for categorical in [
             DeltaKind::Declaration {
+                expected: true,
+                actual: false,
+            },
+            DeltaKind::LineDeclaration {
                 expected: true,
                 actual: false,
             },

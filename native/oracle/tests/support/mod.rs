@@ -113,18 +113,34 @@ pub fn once(fixture: &str, from: &str, to: &str) -> String {
 /// to exercise the rule against the real numbers: the geometry stays exactly
 /// what was measured, and only the declaration the two extractors now emit is
 /// layered on.
+#[must_use]
+pub fn declare_content_sized(snapshot: &str, id: &str) -> String {
+    declare(snapshot, id, "content_sized")
+}
+
+/// Adds `"line_sized": true` to one anchor of a snapshot (v1.6).
+///
+/// Same reasoning as [`declare_content_sized`], and the same reason it is a
+/// helper rather than an edit: `runs/ref-294-d4-v2.json` was captured before
+/// v1.6 existed, and the whole value of it is that its numbers were measured
+/// rather than chosen. The declaration is the *only* thing layered on.
+#[must_use]
+pub fn declare_line_sized(snapshot: &str, id: &str) -> String {
+    declare(snapshot, id, "line_sized")
+}
+
+/// Writes one boolean declaration onto the named anchor.
 ///
 /// Tolerates either side's JSON spelling — the reference run is compact and the
 /// native one is `to_string_pretty` — and inherits [`once`]'s uniqueness
 /// assertion, so a run whose anchor ids stopped being unique fails loudly.
-#[must_use]
-pub fn declare_content_sized(snapshot: &str, id: &str) -> String {
+fn declare(snapshot: &str, id: &str, flag: &str) -> String {
     let compact = format!("\"id\":\"{id}\"");
     let anchor = if snapshot.contains(&compact) {
         compact
     } else {
         format!("\"id\": \"{id}\"")
     };
-    let declared = format!("{anchor}, \"content_sized\": true");
+    let declared = format!("{anchor}, \"{flag}\": true");
     once(snapshot, &anchor, &declared)
 }
