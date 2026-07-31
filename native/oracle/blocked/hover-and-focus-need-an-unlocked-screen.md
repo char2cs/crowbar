@@ -98,6 +98,23 @@ navigation — and then confirmed with `btn.matches(':focus-visible')`.
 That is two independent reasons the naive focus driver reports a false result,
 and only one of them is the locked screen.
 
+## Approaches tried and measured to fail — do not retry these
+
+Recorded so the next session spends its time on the one thing that works
+(unlocking the screen) instead of re-deriving four dead ends.
+
+| approach | result |
+|---|---|
+| `CGWarpMouseCursorPosition` + `CGEventPost(.cghidEventTap)` | event posts cleanly, delivered to nobody — the HID tap routes to the *active* app and there is none |
+| `NSRunningApplication.activate` | returns **`false`**. A `tauri dev` binary has no bundle id, and cooperative activation will not let a non-frontmost CLI hand over activation while locked |
+| AppleScript `System Events` (activate / set position) | `osascript is not allowed assistive access (-1719)` |
+| **`CGEventPostToPid`** | posts without error and **still nothing** — `document.querySelectorAll(':hover').length === 0`, no `mousemove` listener fires. Addressing the process directly does not bypass the lock. |
+| Tauri `setPosition` / `webview_interact` | `core:window:allow-set-position` is not in the app's capabilities; the interact tools are DOM-level and cannot set user-agent pointer state |
+| bare `WKWebView` loading the same URL | the app cannot reach the daemon — there is no Vite proxy for `/v0`, and the browser transport resolves against `window.location.origin`. Building that plumbing would create a *different* reference than the shipping app |
+
+The last row is the one worth understanding: it is not that it is hard, it is
+that it would no longer be the reference.
+
 ## Why this does not void the Phase 1 gate
 
 The STOP gate asks whether the driver and the anchored-geometry oracle *converge*

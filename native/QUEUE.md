@@ -923,7 +923,7 @@ Both numbers, reported separately and never blended, exactly as §17 requires.
 | `crowbar-core` | 148 | 0 | **100.00%** | ✅ |
 | `crowbar-client` | 277 | 1 | **99.64%** | ✅ |
 | `crowbar-driver` | 1222 | 24 | **98.04%** | ✅ over the bar, but see below |
-| `crowbar-proto` | 0 | 0 | **—** | ❌ no data — see below |
+| `crowbar-proto` | 6 | 0 | **100.00%** | ⚠ **structurally vacuous** — see below |
 | `crowbar-diff-logic` | — | — | — | crate does not exist yet |
 
 **Oracle-corpus coverage, kept separate:** `oracle` 2815 lines, 0 missed,
@@ -1019,6 +1019,53 @@ that arms the guard on a *different* app than it drives, nor any leak that is
 not an entity handle — a detached task, an `Rc` cycle among plain values, native
 memory. §17's RSS soak is the check for that class, and it is still outstanding
 and mine to run.
+
+### ✅ P0.5b — the DTOs exist, and the coverage gate on them is vacuous
+
+**133 declarations** (123 structs, 10 enums, 1 alias) across 23 modules, emitted
+from 163 routes (157 fully resolved, 8 diagnostics in
+`native/protogen.manifest.json`). Regeneration is
+`native/scripts/regen-proto.sh`; two full runs are byte-identical.
+
+**`crowbar-proto`'s ≥98% coverage gate cannot fail, and that is not a pass.**
+`rustc` excludes `#[automatically_derived]` items from instrumentation, so every
+derived `Serialize`/`Deserialize`/`Clone`/`Debug`/`PartialEq` is invisible to
+`llvm-cov`. I verified this myself rather than accepting it: the report lists
+**one file, `null_default.rs`, 6 lines**, against **24 files / 1828 lines / 133
+declarations**. The gate would read 100% with every DTO test deleted.
+
+The real assurance is **259 round-trip tests**, not the percentage. §12's number
+is reported because §17 asks for it, and it is annotated here and in `lib.rs` so
+nobody reads it as evidence.
+
+**A silent drop in protogen, found by running it.** `GET /v0/.../review/outline`
+streams its envelope with `json.NewEncoder(w).Encode(v)` — the one v0 payload too
+large to buffer — so it touches neither `ctx.JSON` nor a `libs.Write*` helper and
+the classifier fell through to **`empty`**: a body-less success, **with no
+diagnostic**. Three real wire types (`outlineResponse`, `git.FileOutline`,
+`git.HunkShape`) were simply absent. `empty` is the one wrong answer
+indistinguishable from a right one in every count the summary prints, which is
+why it survived §9.2's "no silent drops" rule.
+
+Verified by mutation, not trust: neutering `matchEncoderWrite` reproduces exactly
+`response kind "empty", want "json"`. Delta measured — one endpoint
+reclassified, three types added, nothing removed.
+
+**DECISION — `serde_json` as a dev-dependency of `crowbar-proto`.** §4.2 says
+that crate may depend on "`serde` only". I accepted the dev-dependency:
+`[dependencies]` still contains only `serde`, so the shipped crate's edge is
+unchanged and consumers are unaffected; `serde` implements no format, so a
+round-trip test cannot be written without one; and `crowbar-driver` already
+carries `gpui`+`test-support` as a dev-dependency on identical reasoning. The
+alternative was **zero** behavioural verification of 133 DTOs, which is
+indefensible given the coverage number above is vacuous. Reversible if you read
+§4.2 strictly — say so and it goes.
+
+**Left for the Go side:** five handlers still answer with an untyped `gin.H`
+(`untyped-payload` in the manifest). That is the only thing wanting `serde_json`
+in the *generated* code, so `regen-proto.sh` drops that module and prints why on
+every run — and **fails** rather than drops if a real DTO ever grows an untyped
+field, because dropping would then take a live type with it.
 
 ### ▶ How to bring up the reference app — **do not use `make dev-desktop`**
 

@@ -146,6 +146,39 @@ case "activate":
     let ok = app.activate(options: [])
     print("activate pid=\(pid) -> \(ok) (bundle=\(app.bundleIdentifier ?? "?"))")
 
+case "hoverpid":
+    // Last resort for a machine whose screen is locked.
+    //
+    // `hover` posts to the HID tap, which macOS routes to the *active*
+    // application — and while the login window owns the session there is none,
+    // so the event is synthesized correctly and delivered to nobody.
+    //
+    // `CGEventPostToPid` addresses a process directly instead of going through
+    // that routing. Whether WebKit updates `:hover` from an event that arrived
+    // this way is the open question this command exists to answer: the event
+    // still has to reach the WKWebView's NSWindow and be dispatched as a real
+    // mouseMoved, and an app that is not active may drop it earlier than that.
+    //
+    // The caller decides. This command only reports that the post was made —
+    // it CANNOT tell you the hover landed. Confirm on the page side
+    // (`document.querySelectorAll(':hover')`, or a mousemove listener) and
+    // treat "posted" as meaning nothing on its own.
+    guard args.count == 5, let pid = Int32(args[2]),
+          let x = Double(args[3]), let y = Double(args[4])
+    else {
+        fail("usage: refdrive.swift hoverpid <pid> <screenX> <screenY>")
+    }
+    guard let move = CGEvent(
+        mouseEventSource: nil,
+        mouseType: .mouseMoved,
+        mouseCursorPosition: CGPoint(x: x, y: y),
+        mouseButton: .left
+    ) else {
+        fail("could not synthesize a mouseMoved event")
+    }
+    move.postToPid(pid)
+    print("posted mouseMoved to pid=\(pid) at \(x),\(y) — verify on the page side")
+
 case "park":
     // Top-left corner of the main display. Far from any row, and on screen, so
     // the cursor is somewhere real rather than clamped from an off-screen point.
