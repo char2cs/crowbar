@@ -5,8 +5,8 @@ Source of truth for the Rust-native GPUI port. Spec:
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
 **Phase:** 1 — the driver and the oracle. **THE GATE.**
-**Line coverage (logic crates):** `crowbar-client` **99.64%** (regions 98.23%). `proto`/`core`/`diff`/`oracle`/`driver` still empty.
-**Corpus coverage (view crates):** n/a — the oracle does not exist yet. This is Phase 1's deliverable.
+**Line coverage (logic crates):** `oracle` **100.00%** (2191/2191) · `crowbar-core` **100.00%** (148/148) · `crowbar-client` **99.64%**. `proto`/`diff`/`driver` still empty. All measured by me.
+**Corpus coverage (view crates):** n/a — the differ exists but has never been run against the two apps. That is the Phase 1 gate and it is mine.
 
 ---
 
@@ -27,7 +27,9 @@ Recorded because a cold session will otherwise rediscover them the hard way.
 | Network | reachable |
 | `go build` of a **main** package | fails with `error obtaining VCS status: exit status 128` — Go's buildvcs stamping walks up and finds the parent repo's working tree. **Always pass `-buildvcs=false`.** Pre-existing and environmental; reproduces on a pristine checkout at this path. |
 | `go build ./...` untagged | fails at `cmd/crowbar/web_embed.go`: `pattern all:web/dist: no matching files found`. Needs `make embed-web` first, or the repo's canonical `-tags noEmbed`. Also pre-existing. |
-| Vendored gpui build cost | ~455 crates, **6m41s** cold release, **1.2 GB** of `target/`. Budget for it. |
+| Vendored gpui build cost | ~455 crates, **6m41s** cold release, **1.2 GB** of `target/` (now **5.5 GB** with debug + coverage profiles). Budget for it. |
+| **Never run two cargo invocations at once** | They deadlock on `~/.cargo/.package-cache`. Symptom is indistinguishable from a slow build: no `rustc` processes, `target/` mtime frozen, and cargo prints **nothing at all** — not even "Blocking waiting for file lock". I lost ~10 minutes to this by launching a second gate run before the first finished. Check with `pgrep -c rustc`; zero rustc plus a stale `target/` mtime means blocked, not building. |
+| Killed cargo runs | A killed gate script can leave an **adversarial test edit in the source tree** if it dies before its revert. Always `git status` after killing one. |
 | Running daemon | a `crowbar-api` from the **`feature/crowbar-skill` worktree** is live on a temp socket. It is **not** this port's daemon; do not reuse it for parity runs. |
 
 ### The shared `CROWBAR_HOME` for parity runs (item 0.4)
@@ -1030,10 +1032,70 @@ before any of them so three independent implementations cannot quietly diverge.
 
 | Item | Branch | Owns | Notes |
 |---|---|---|---|
-| **P1.1** React extractor | `native/p1.1-react-extractor` | the 9 `data-oracle-id` tags + `web/src/lib/oracle/**` | must be injectable via `execute_js`; `git-row-item` is pseudo-backed |
-| **P1.2** GPUI extractor | `native/p1.2-gpui-extractor` | `crowbar-driver/**` | **the riskiest item — front-loaded deliberately.** Carries the STOP-GATE note. |
-| **P1.3** oracle differ | `native/p1.3-oracle-differ` | `native/oracle/src/**` | ≥98% hard gate; refuses mismatched `state` |
-| **P1.4** sealed tokens | `native/p1.4-sealed-tokens` | `crowbar-ui/**`, `check-invariants.sh` | §6.1 sealing **+ rule 4**; `color_mix` into `crowbar-core` |
+| **P1.1** React extractor | `native/p1.1-react-extractor` | the 9 `data-oracle-id` tags + `web/src/lib/oracle/**` | **in flight** · sent the v1.1 delta |
+| **P1.2** GPUI extractor | `native/p1.2-gpui-extractor` | `crowbar-driver/**` | **in flight** · the riskiest item, carries the STOP-GATE note · sent the v1.1 delta |
+| **P1.3** oracle differ | `native/p1.3-oracle-differ` | `native/oracle/src/**` | ✅ **done** — merged `5fcec61c`, gates re-run by me |
+| **P1.4** sealed tokens | `native/p1.4-sealed-tokens` | `crowbar-ui/**`, `check-invariants.sh` | ✅ **done** — merged `60823648`, rule 4 adversarially re-tested by me |
+
+#### P1.3 — the differ ✅ merged
+
+100% line coverage (2191/2191), 99.09% regions, 81 tests. No dependencies —
+§4.2 gives `oracle` none, so the JSON reader is hand-rolled.
+
+Two design calls worth keeping:
+
+- **Exit 1 and exit 2 are separated deliberately.** 1 means the native app is
+  wrong; 2 means *the oracle could not tell you anything* (usage, IO, malformed,
+  mismatched matrix cell, empty). Conflating them is how a broken harness gets
+  mistaken for a converged one.
+- **No `--tolerance-*` CLI flag, on purpose.** §5 requires a loosened tolerance
+  to land in its own commit with the measurement justifying it; a flag would let
+  the same loosening happen invisibly inside a CI config. `Tolerances` is
+  overridable as a library type, where it shows up as a reviewable diff. A test
+  asserts five plausible spellings of such a flag are rejected.
+
+Its ranking puts **anchor presence** first and **typography last** — the latter
+not because it matters least, but because it is the class most likely to differ
+for reasons that are not a Crowbar defect (two font stacks spelling a resolved
+family differently), and putting the noisiest class on top defeats the purpose
+of ranking.
+
+**It found ten holes in ANCHORS.md** while implementing against it. All ten are
+now closed in v1.1, and both extractor workers were sent the delta mid-flight.
+That is the contract-first approach working exactly as intended.
+
+#### P1.4 — sealed tokens ✅ merged
+
+**183 fields** (180 from `theme.css` + 3 from the file-tree stylesheet),
+**generated, not transcribed**, by a parser that hard-fails on any declaration
+it cannot account for or on drift in the 254/180/74 counts — which reproduce my
+own measurements exactly.
+
+**Verified against a real browser, not against a second transcription.** A
+harness builds a page from the real `theme.css` bytes, asks Chrome for every
+token, paints each over white *and* black (unpremultiplied readback destroys
+low-alpha colours), and diffs against the constants replayed through gpui's own
+`Hsla → Rgba`: **645 samples agree, worst channel delta 1/255.**
+
+Three things that verification caught which would otherwise have shipped wrong:
+the app puts `.dark` on `documentElement`, so `:root` and `.dark` are the *same*
+element; `@theme inline` aliases substitute at use site, not at the root; and
+`oklch(L 0 0)` needs an achromatic short-circuit or matrix noise yields a
+garbage hue.
+
+Sealed **tighter than I asked**: `pub(in crate::theme)`, so not even the rest of
+`crowbar-ui` can mint a token — only the generated tables and `Color::mix`. And
+the reader is deliberately *not* named `hsla()`, which would have collided with
+rule 4's own ban.
+
+`theme.accent.mix(68.0, TRANSPARENT) == theme.file_tree_hover_bg` holds exactly
+in both appearances — the runtime `color_mix` and the generation-time resolution
+are two independent routes to the same float.
+
+Honest about what does not map: `--animate-*` keeps only its duration (easing
+and keyframes are gpui code, not tokens), and `--font-editor` has an **empty**
+fallback stack because the CSS declares none — Settings supplies it at runtime,
+so no static value was invented.
 
 Every brief carries the worker contract: do not run the oracle, do not touch
 `native/oracle/corpus/`, do not modify tests you implement against, do not edit
