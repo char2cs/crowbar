@@ -46,6 +46,7 @@ export function Input({
           className,
         ) || undefined
       }
+      data-oracle-id="input-control"
       data-size={size}
       data-slot="input-control"
     >
@@ -61,6 +62,7 @@ export function Input({
       {nativeInput ? (
         <input
           className={inputClassName}
+          data-oracle-id="input"
           data-slot="input"
           size={typeof size === 'number' ? size : undefined}
           style={typeof style === 'function' ? undefined : style}
@@ -69,6 +71,7 @@ export function Input({
       ) : (
         <InputPrimitive
           className={inputClassName}
+          data-oracle-id="input"
           data-slot="input"
           size={typeof size === 'number' ? size : undefined}
           style={style}
