@@ -260,6 +260,11 @@ Recorded because §8.2 requires honesty about it.
   `icon-lg`, `icon-xl`, and `destructive-outline`. Rendered, and named as
   unreachable per cell.
 - **`empty` is unmodelled.** Every live call site passes a child.
+- **v1.9's timing hole does not reach this surface.** `transition-shadow` is the
+  only transition on the component, and a shadow has no field in §6 — no
+  geometry property is animated, so a capture taken mid-transition is
+  indistinguishable from one taken at rest. `tabs`'s `tab-indicator` is the case
+  v1.9 was written for; `button` is the control for it.
 
 ---
 
