@@ -867,6 +867,7 @@ Neither blocks any work. Both are in `native/oracle/blocked/`.
 |---|---|---|
 | [`cla-policy.md`](oracle/blocked/cla-policy.md) | Whether contributions need a CLA, a DCO, or nothing, now that AGPL-only removes the old rationale | Publishing "no CLA required" is a forward-looking promise to contributors. `LICENSING.md` is left neutral, which reverses cleanly; either answer does not. |
 | [`route-audit-red-at-head.md`](oracle/blocked/route-audit-red-at-head.md) | Add two routes to the audit's spec list and bump 159 → 161, or delete them | Two-line fix, but in `api/`, which §0 puts out of scope except for the single §9.3 exception. Reproduced red on a clean tree before any merge. |
+| [`vendored-crates-without-a-licence.md`](oracle/blocked/vendored-crates-without-a-licence.md) | Confirm the licence of `gpui_shared_string` and `gpui_util`, or accept that both candidates are compatible | Both are **compiled into our binary** and declare no `license` key — verified absent upstream too, and Zed's root `[workspace.package]` has none to inherit. Either answer is fine under D1, so it is an attribution-accuracy question, not exposure. |
 
 ---
 
