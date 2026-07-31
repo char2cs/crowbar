@@ -7,13 +7,13 @@
 //! stays small and invents no styling beyond what it takes to make each field
 //! non-default.
 //!
-//! **The colour literals below have to move.** They are `rgb(…)` because the
-//! branch this was built on has no `crowbar_ui::Theme` — the sealed token system
-//! (§4.3 rule 3, §6.1) landed in parallel on `rewrite/rust`. Once the two meet,
-//! `check-invariants.sh` rule 4 forbids `rgb(` outside
-//! `crates/crowbar-ui/src/theme/` and this file fails it. The fix is to read the
-//! tokens; the reason it is not done here is that inventing a second palette, or
-//! dodging the rule with `gpui::blue()`, would both be worse than saying so.
+//! **The colour literals have moved onto the tokens** (P1.5). This file was
+//! written on a branch that had no `crowbar_ui::Theme` — the sealed token system
+//! (§4.3 rule 3, §6.1) landed in parallel — so it carried `rgb(…)` literals and
+//! failed `check-invariants.sh` rule 4 the moment the two met. Every one of them
+//! now reads a token instead. The surface's *appearance* is not the point and
+//! never was; what matters is that each field the v1 contract carries is
+//! non-default, which the tokens satisfy as well as the literals did.
 //!
 //! Compiled only under `--features driver`.
 
@@ -23,11 +23,12 @@ use std::io::{self, Write as _};
 use std::path::PathBuf;
 
 use crowbar_driver::{
-    AnchorRegistry, Content, SurfaceState, Theme, anchor, anchor_root, anchor_text,
+    AnchorRegistry, Content, SurfaceState, Theme as SnapshotTheme, anchor, anchor_root, anchor_text,
 };
+use crowbar_ui::Theme;
 use gpui::{
     App, AppContext as _, Context, IntoElement, ParentElement as _, Render, SharedString,
-    Styled as _, TitlebarOptions, Window, WindowOptions, div, px, rgb, size,
+    Styled as _, TitlebarOptions, Window, WindowOptions, div, px, size,
 };
 
 /// The surface's name in the snapshot, and the anchor everything is relative to.
@@ -120,7 +121,7 @@ fn window_options() -> WindowOptions {
 /// because the narrow row's string does not fit, `dark` because the palette
 /// below is dark, no flags because nothing here has a state.
 fn state() -> SurfaceState {
-    SurfaceState::new(WIDTH_PX, Theme::Dark, Content::Overflow, [])
+    SurfaceState::new(WIDTH_PX, SnapshotTheme::Dark, Content::Overflow, [])
 }
 
 /// Serialises the recorded frame and writes it where it was asked for.
@@ -157,65 +158,60 @@ struct Surface;
 
 impl Render for Surface {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = Theme::DARK;
         // Offset from the window origin on purpose: with the root anchor at
         // {0, 0} the root-relative arithmetic would be a tautology, and a
         // snapshot that is only right at the origin proves nothing.
-        div().pl(px(24.0)).pt(px(16.0)).child(
-            anchor_root(
-                ROOT,
-                div()
-                    .w(px(WIDTH))
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.0))
-                    .p(px(8.0))
-                    .bg(rgb(0x0018_1b21))
-                    .font_family("Helvetica")
-                    .text_size(px(13.0))
-                    .text_color(rgb(0x00c8_ccd4))
-                    // A box: background, radius, border.
-                    .child(anchor(
-                        "panel",
-                        div()
-                            .h(px(28.0))
-                            .rounded(px(4.0))
-                            .border_1()
-                            .border_color(rgb(0x003a_3f4b))
-                            .bg(rgb(0x0020_2734))
-                            .px(px(6.0))
-                            .flex()
-                            .items_center()
-                            // A text run that fits.
-                            .child(anchor_text("panel-label", "crowbar")),
-                    ))
-                    // A text run that does not fit, in a box narrow enough to
-                    // force the truncation `text_width` exists to catch.
-                    .child(anchor(
-                        "narrow",
-                        div()
-                            .w(px(90.0))
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .child(anchor_text(
-                                "narrow-label",
-                                "resolve-terminal-connection.ts",
-                            )),
-                    ))
-                    // A nested child, so the root-relative arithmetic has two
-                    // levels to get right rather than one.
-                    .child(anchor(
-                        "nested",
-                        div().pl(px(12.0)).child(anchor(
-                            "nested-dot",
-                            div()
-                                .w(px(8.0))
-                                .h(px(8.0))
-                                .rounded(px(4.0))
-                                .bg(rgb(0x0058_a6ff)),
+        div().pl(px(24.0)).pt(px(16.0)).child(anchor_root(
+            ROOT,
+            div()
+                .w(px(WIDTH))
+                .flex()
+                .flex_col()
+                .gap(px(8.0))
+                .p(px(8.0))
+                .bg(theme.background)
+                .font_family("Helvetica")
+                .text_size(px(13.0))
+                .text_color(theme.foreground)
+                // A box: background, radius, border.
+                .child(anchor(
+                    "panel",
+                    div()
+                        .h(px(28.0))
+                        .rounded(px(4.0))
+                        .border_1()
+                        .border_color(theme.border)
+                        .bg(theme.card)
+                        .px(px(6.0))
+                        .flex()
+                        .items_center()
+                        // A text run that fits.
+                        .child(anchor_text("panel-label", "crowbar")),
+                ))
+                // A text run that does not fit, in a box narrow enough to
+                // force the truncation `text_width` exists to catch.
+                .child(anchor(
+                    "narrow",
+                    div()
+                        .w(px(90.0))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(anchor_text(
+                            "narrow-label",
+                            "resolve-terminal-connection.ts",
                         )),
+                ))
+                // A nested child, so the root-relative arithmetic has two
+                // levels to get right rather than one.
+                .child(anchor(
+                    "nested",
+                    div().pl(px(12.0)).child(anchor(
+                        "nested-dot",
+                        div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(theme.info),
                     )),
-            ),
-        )
+                )),
+        ))
     }
 }

@@ -28,6 +28,18 @@ gpui.workspace = true
 gpui_platform.workspace = true
 gpui-component.workspace = true
 
+# The gate surface's layout assertions read the row's post-layout bounds, and
+# the only thing that can read them is the driver's extractor. A dev-dependency
+# rather than the `driver` feature so that `cargo test --workspace` — the gate
+# everybody actually runs — measures the layout instead of skipping it.
+[dev-dependencies]
+crowbar-driver.workspace = true
+# `#[gpui::test]` needs `TestAppContext`, which gpui gates behind
+# `test-support`. Named here rather than reached through the normal entry
+# because a feature has to be requested on the package and the dependency above
+# cannot carry one; nothing outside `#[cfg(test)]` uses it.
+gpui = { workspace = true, features = ["test-support"] }
+
 # §10.4: the driver is in-process and behind `--features driver`. A default
 # build must not link it.
 [features]
