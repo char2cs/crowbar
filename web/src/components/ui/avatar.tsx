@@ -11,6 +11,7 @@ export function Avatar({ className, ...props }: AvatarPrimitive.Root.Props): Rea
         'inline-flex size-8 shrink-0 select-none items-center justify-center overflow-hidden rounded-full bg-background align-middle font-medium text-xs',
         className,
       )}
+      data-oracle-id="avatar"
       data-slot="avatar"
       {...props}
     />
@@ -24,6 +25,7 @@ export function AvatarImage({
   return (
     <AvatarPrimitive.Image
       className={cn('size-full object-cover', className)}
+      data-oracle-id="avatar-image"
       data-slot="avatar-image"
       {...props}
     />
@@ -37,6 +39,7 @@ export function AvatarFallback({
   return (
     <AvatarPrimitive.Fallback
       className={cn('flex size-full items-center justify-center rounded-full bg-muted', className)}
+      data-oracle-id="avatar-fallback"
       data-slot="avatar-fallback"
       {...props}
     />

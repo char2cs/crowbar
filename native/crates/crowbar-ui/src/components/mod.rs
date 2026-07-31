@@ -53,6 +53,14 @@ mod sidebar_tree;
 // its `Size` and `Variant` are short names that only read correctly with the
 // module in front of them — `button::Variant::Ghost` says which component's
 // vocabulary it is, where a bare `Variant` would not.
+// `avatar` and `badge` are unflattened for the same reason as the rest. Each
+// carries a `CallSite` — the `className` a call site merges over the variant's,
+// which P3.1 established as a legitimate parameter — and the two enums name
+// different bundles on different components. A bare `CallSite` would say which
+// of them nowhere, and a bundle applied to the wrong primitive is the same class
+// of mistake as a declaration list applied to the wrong surface.
+pub mod avatar;
+pub mod badge;
 pub mod button;
 pub mod dropdown_menu;
 pub mod file_tree_row;
@@ -79,6 +87,8 @@ pub mod sidebar_carousel;
 pub mod tabs;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
+pub use avatar::Avatar;
+pub use badge::Badge;
 pub use button::Button;
 pub use dropdown_menu::DropdownMenu;
 pub use input::Input;
