@@ -6,7 +6,7 @@ Updated every orchestrator iteration. This file is how a cold session picks up.
 
 **Phase:** 1 — the driver and the oracle. **THE GATE.**
 **Line coverage (logic crates):** `oracle` **100.00%** (2817/2817) · `crowbar-driver` **100.00%** (1134/1134) · `crowbar-core` **100.00%** (148/148) · `crowbar-client` **99.64%**. `proto`/`diff` still empty. **191 tests, 0 failed.** All measured by me.
-**Corpus coverage (view crates):** the gate row **PASSES on 3 matrix cells** (800/dark/overflow, 800/dark/short, 600/dark/overflow). Light theme, `normal` content, a third width and the state flags are **not yet run**.
+**Corpus coverage (view crates):** the gate row **PASSES on all 18 runnable cells** (3 widths × 2 themes × 3 content lengths). The 6 state flags are **vacuous on this component** — no live consumer sets them — so a stateful target is needed to close that axis.
 
 ---
 
@@ -297,7 +297,57 @@ Archived as `native/oracle/runs/ref-v3-content-sized.json`.
 > Had I skipped the check I would have extracted from a stale page and compared
 > it in good faith. **Run the check every time; it has now caught this twice.**
 
-## ✅ THE GATE PASSES — 3 matrix cells, driven and diffed by me, 2026-07-31
+## ✅ THE GATE PASSES ON ALL 18 RUNNABLE CELLS — 2026-07-31
+
+**3 viewport widths × 2 themes × 3 content lengths = 18 cells. Every one PASS.**
+Each is a live WKWebView capture diffed against a live GPUI snapshot by me.
+
+| viewport | short | normal | overflow |
+|---|---|---|---|
+| **600** dark | PASS | PASS | PASS |
+| **600** light | PASS | PASS | PASS |
+| **800** dark | PASS | PASS | PASS |
+| **800** light | PASS | PASS | PASS |
+| **1100** dark | PASS | PASS | PASS |
+| **1100** light | PASS | PASS | PASS |
+
+Σ ceil excess tracks the badge variant across the breakpoint — **1.51px at 600**
+(narrow badge, 12px text) versus **1.73px at 800/1100** (wide badge, 10px text) —
+which is the viewport axis doing real work rather than relabelling.
+32 snapshots archived under `native/oracle/runs/matrix/`.
+
+### ⚠️ The state axis is **vacuous on this component** — measured, not assumed
+
+The spec picked `tree-row` believing it "exercises … selection state". **In every
+live consumer, it does not.** I checked each of the six §8.3 states:
+
+| state | why it cannot be exercised here |
+|---|---|
+| `hover` | Reference undrivable. CSS `:hover` is **UA pointer state**; dispatched events do not set it and `webview_interact` has no hover action. Chrome's `CSS.forcePseudoState` would do it — WKWebView exposes no CDP. |
+| `focus` | **Paints nothing.** The `:focus-visible` rule is scoped to `.file-tree-container` and `TreeRow` carries `outline-none focus:outline-none`. |
+| `selected` | **Never set.** `SidebarTreeRow` accepts an `active` prop, but *neither* live consumer passes it — `git-status-file-item.tsx` contains no reference to `active` at all, and `changed-files-tree.tsx` does not pass it either. `data-active` is dead in every real call site. A real click confirmed it: `activeAfter: 0`. |
+| `loading` | No such rendering exists in `GitFileItem`. |
+| `error` | No such rendering exists in `GitFileItem`. |
+| `empty` | Every fixture row carries an `uncommitted` badge. |
+
+**This is a property of the component, not a limitation of the oracle** — and the
+distinction is provable: on the **native** side the state axis demonstrably
+works, with `hover` → `#ffffff07` and `selected` → `#ffffff0a`, both distinct
+from resting `#00000000`. The machinery measures states correctly. The
+*reference* never enters them.
+
+So running the six state flags on this target would produce six identical cells
+that converge trivially — the exact "passes while telling us nothing" failure
+§8.1 was written to prevent. **I am not counting them as passes.**
+
+**What this means for the STOP gate.** The mechanism is validated on every axis
+this component *has*. The state axis needs a target that actually has states —
+the file-explorer tree row, which is the same `components/ui/tree-row.tsx` the
+spec names, reached through `FileExplorerTreeItem`, and which **does** set
+`data-active`. That is the honest way to close the axis, and it is Phase 1 work,
+not Phase 2.
+
+## Earlier: the first 3 cells, driven and diffed by me
 
 ```
 oracle: PASS — 0 deltas over 10 anchors compared,
