@@ -285,6 +285,19 @@ Recorded because §8.2 requires honesty about it.
 - **The snap gesture is unreachable.** `hover` and `focus` were already
   `blocked/` on a locked screen; a *swipe* is worse, and the port has nothing to
   compare it against anyway (§3).
+- **Reproducing `h-full` on two of four panels is unfalsifiable.** Mutation-
+  tested: normalising the *render* to put `h_full()` on all four leaves all 19
+  layout assertions green, because the declaration is inert. What the tests do
+  catch is normalising the *fact* — `SidebarTab::full_height` returning `true`
+  for every tab fails `h_full_is_on_the_first_two_panels_only`. So the port keeps
+  the asymmetry as fidelity, not as something the gate defends.
+
+**Mutation results, so nobody has to take the guards on trust.** Each was
+applied to the component, run, and reverted: the scroll offset pinned to zero
+→ **3 failures**; `min-w-full` dropped → **5**; the scrollport's overflow set to
+`Visible` so it stops clipping → **2**, both of them `visible` assertions;
+`full_height` true for every tab → **1**; `SidebarTab::Git.index()` off by one
+→ **1**. The control run after each revert is green.
 
 ## 8. Cross-component notes added by this component
 
