@@ -107,6 +107,7 @@
 
 mod color;
 mod element;
+mod leak;
 mod record;
 mod schema;
 

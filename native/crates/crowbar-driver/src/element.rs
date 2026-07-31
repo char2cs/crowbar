@@ -600,6 +600,7 @@ mod tests {
 
     #[gpui::test]
     fn an_anchor_records_its_post_layout_bounds(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
         let anchors = cx.update(install);
         let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| Surface);
         cx.run_until_parked();
@@ -616,6 +617,7 @@ mod tests {
     /// where the padding and the border put it and nowhere else.
     #[gpui::test]
     fn a_nested_anchor_lands_inside_its_parents_padding_and_border(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
         let anchors = cx.update(install);
         let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| Surface);
         cx.run_until_parked();
@@ -629,6 +631,7 @@ mod tests {
 
     #[gpui::test]
     fn the_snapshot_is_relative_to_the_root_anchor(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
         let anchors = cx.update(install);
         let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| Surface);
         cx.run_until_parked();
@@ -645,6 +648,7 @@ mod tests {
 
     #[gpui::test]
     fn the_resolved_style_reaches_the_record(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
         let anchors = cx.update(install);
         let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| Surface);
         cx.run_until_parked();
@@ -660,6 +664,7 @@ mod tests {
 
     #[gpui::test]
     fn a_text_anchor_records_the_full_string_and_its_unclipped_width(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
         let anchors = cx.update(install);
         let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| TextSurface {
             width: 400.0,
@@ -686,6 +691,7 @@ mod tests {
     /// truncation happened.
     #[gpui::test]
     fn a_truncated_text_anchor_reports_the_width_of_the_whole_string(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
         let anchors = cx.update(install);
         let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| TextSurface {
             width: 60.0,
@@ -705,6 +711,7 @@ mod tests {
 
     #[gpui::test]
     fn the_root_anchor_clears_the_previous_frame(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
         let anchors = cx.update(install);
         let window = cx.open_window(size(px(800.0), px(600.0)), |_, _| Surface);
         cx.run_until_parked();
@@ -722,6 +729,7 @@ mod tests {
     /// identically and record nothing.
     #[gpui::test]
     fn anchors_are_a_pass_through_when_no_registry_is_installed(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
         let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| Surface);
         cx.run_until_parked();
 
@@ -730,6 +738,7 @@ mod tests {
 
     #[gpui::test]
     fn an_empty_window_records_nothing_and_fails_to_snapshot(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
         let anchors = cx.update(install);
         let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| Empty);
         cx.run_until_parked();
@@ -746,6 +755,7 @@ mod tests {
     /// differ happened to read, so the later record wins outright.
     #[gpui::test]
     fn a_repeated_anchor_id_replaces_rather_than_duplicates(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
         let anchors = cx.update(install);
         let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| CollidingSurface);
         cx.run_until_parked();
@@ -761,6 +771,7 @@ mod tests {
     /// the other path: shape each line, keep the widest.
     #[gpui::test]
     fn a_multi_line_anchor_reports_the_width_of_its_widest_line(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
         let anchors = cx.update(install);
         let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| MultiLineSurface);
         cx.run_until_parked();

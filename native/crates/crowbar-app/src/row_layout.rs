@@ -121,6 +121,7 @@ fn a_cell(args: &[&str]) -> Cell {
 /// differ ranks first, so a missing one is the loudest possible failure.
 #[gpui::test]
 fn the_default_cell_carries_every_contract_anchor(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let records = measure(cx, Cell::default());
     let seen = ids(&records);
 
@@ -152,6 +153,7 @@ fn the_default_cell_carries_every_contract_anchor(cx: &mut TestAppContext) {
 /// and the button is `w-full` inside it.
 #[gpui::test]
 fn the_wrapper_and_the_button_are_one_full_width_box(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let cell = Cell::default();
     let records = measure(cx, cell.clone());
 
@@ -174,6 +176,7 @@ fn the_wrapper_and_the_button_are_one_full_width_box(cx: &mut TestAppContext) {
 /// computes to zero width.
 #[gpui::test]
 fn the_button_is_eight_px_round_with_no_border(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let records = measure(cx, Cell::default());
     let button = find(&records, "git-row-button");
     let item = find(&records, "git-row-item");
@@ -190,6 +193,7 @@ fn the_button_is_eight_px_round_with_no_border(cx: &mut TestAppContext) {
 /// arithmetic showing up in a real layout rather than in a unit test.
 #[gpui::test]
 fn the_icon_starts_at_the_leading_padding(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     for depth in [0_u16, 1, 4] {
         let records = measure(cx, a_cell(&["--depth", &depth.to_string()]));
         let icon = relative(&records, "git-row-icon");
@@ -210,6 +214,7 @@ fn the_icon_starts_at_the_leading_padding(cx: &mut TestAppContext) {
 /// edge to edge.
 #[gpui::test]
 fn the_guides_sit_where_the_stylesheet_puts_them(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let records = measure(cx, a_cell(&["--depth", "3"]));
 
     for level in 0..3_u16 {
@@ -229,6 +234,7 @@ fn the_guides_sit_where_the_stylesheet_puts_them(cx: &mut TestAppContext) {
 /// The cap, driven the only way it can be: a shallower row above and below.
 #[gpui::test]
 fn a_guide_that_begins_and_ends_at_this_row_is_capped(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let records = measure(
         cx,
         a_cell(&["--depth", "2", "--prev-depth", "0", "--next-depth", "0"]),
@@ -245,6 +251,7 @@ fn a_guide_that_begins_and_ends_at_this_row_is_capped(cx: &mut TestAppContext) {
 /// inset rule, and the half a single-row surface would never exercise.
 #[gpui::test]
 fn a_guide_running_through_the_row_spans_it(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let records = measure(
         cx,
         a_cell(&["--depth", "1", "--prev-depth", "3", "--next-depth", "3"]),
@@ -261,6 +268,7 @@ fn a_guide_running_through_the_row_spans_it(cx: &mut TestAppContext) {
 /// the directory takes the rest, with the `gap-1.5` between them.
 #[gpui::test]
 fn the_name_and_the_directory_share_the_container(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let records = measure(cx, a_cell(&["--content", "overflow", "--width", "320"]));
 
     let icon = relative(&records, "git-row-icon");
@@ -294,6 +302,7 @@ fn the_name_and_the_directory_share_the_container(cx: &mut TestAppContext) {
 /// reads a 0.4px delta as noise.
 #[gpui::test]
 fn a_percentage_length_lands_on_a_whole_pixel(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let records = measure(cx, a_cell(&["--content", "overflow", "--width", "320"]));
     let name = relative(&records, "git-row-name");
 
@@ -308,6 +317,7 @@ fn a_percentage_length_lands_on_a_whole_pixel(cx: &mut TestAppContext) {
 /// container — the other branch of the truncation-mode decision.
 #[gpui::test]
 fn without_the_directory_the_name_takes_the_container(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let records = measure(cx, a_cell(&["--content", "overflow", "--no-directory"]));
 
     let icon = relative(&records, "git-row-icon");
@@ -324,6 +334,7 @@ fn without_the_directory_the_name_takes_the_container(cx: &mut TestAppContext) {
 /// wrong, and the reason `name_sizing` reads the prop.
 #[gpui::test]
 fn a_root_level_file_is_still_capped_at_forty_five_percent(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let records = measure(cx, a_cell(&["--content", "short"]));
 
     let name = relative(&records, "git-row-name");
@@ -342,6 +353,7 @@ fn a_root_level_file_is_still_capped_at_forty_five_percent(cx: &mut TestAppConte
 /// where the ellipsis landed.
 #[gpui::test]
 fn the_overflowing_name_is_clipped_and_the_short_one_is_not(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let overflowing = measure(cx, a_cell(&["--content", "overflow"]));
     let short = measure(cx, a_cell(&["--content", "short"]));
 
@@ -366,6 +378,7 @@ fn the_overflowing_name_is_clipped_and_the_short_one_is_not(cx: &mut TestAppCont
 /// Narrower widths bind harder; the gate drives at least three of them.
 #[gpui::test]
 fn the_container_narrows_with_the_surface(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let mut widths = Vec::new();
     for width in ["240", "320", "420"] {
         let records = measure(cx, a_cell(&["--width", width, "--content", "overflow"]));
@@ -381,6 +394,7 @@ fn the_container_narrows_with_the_surface(cx: &mut TestAppContext) {
 /// whatever the platform inherited and the DOM never produces that string.
 #[gpui::test]
 fn every_text_anchor_names_its_family_and_its_size(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let records = measure(cx, Cell::default());
 
     for id in [
@@ -427,6 +441,7 @@ fn the_trailing_group_declares_itself_content_sized_and_lands_on_whole_pixels(
     cx: &mut TestAppContext,
 ) {
     use crowbar_ui::components::CONTENT_SIZED;
+    crowbar_driver::leak_checked!(cx);
 
     let records = measure(cx, Cell::default());
 
@@ -470,6 +485,7 @@ fn the_trailing_group_declares_itself_content_sized_and_lands_on_whole_pixels(
 #[gpui::test]
 fn every_bare_text_span_declares_line_sized_and_its_box_is_its_line_box(cx: &mut TestAppContext) {
     use crowbar_ui::components::LINE_SIZED;
+    crowbar_driver::leak_checked!(cx);
 
     let records = measure(cx, Cell::default());
 
@@ -515,6 +531,7 @@ fn every_bare_text_span_declares_line_sized_and_its_box_is_its_line_box(cx: &mut
 /// difference rather than reproducing one.
 #[gpui::test]
 fn the_viewport_width_selects_the_badges_breakpoint_variant(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let narrow = measure(cx, a_cell(&["--width", "294", "--viewport-width", "600"]));
     let wide = measure(cx, a_cell(&["--width", "294", "--viewport-width", "800"]));
 
@@ -546,6 +563,7 @@ fn the_viewport_width_selects_the_badges_breakpoint_variant(cx: &mut TestAppCont
 /// neither side.
 #[gpui::test]
 fn the_surface_width_does_not_move_the_breakpoint(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     for width in ["240", "294", "420"] {
         let records = measure(cx, a_cell(&["--width", width]));
         assert_px(find(&records, "git-row-badge").bounds.size.height, px(16.0));
@@ -558,6 +576,7 @@ fn the_surface_width_does_not_move_the_breakpoint(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_state_parameter_reaches_the_painted_background(cx: &mut TestAppContext) {
     use crowbar_driver::Paint;
+    crowbar_driver::leak_checked!(cx);
 
     let resting = find(&measure(cx, Cell::default()), "git-row-item");
     let hovered = find(&measure(cx, a_cell(&["--flags", "hover"])), "git-row-item");
@@ -594,6 +613,7 @@ fn the_state_parameter_reaches_the_painted_background(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_button_never_paints_a_background(cx: &mut TestAppContext) {
     use crowbar_driver::Paint;
+    crowbar_driver::leak_checked!(cx);
 
     for flags in ["hover", "selected", "hover,selected"] {
         let records = measure(cx, a_cell(&["--flags", flags]));
@@ -609,6 +629,7 @@ fn the_button_never_paints_a_background(cx: &mut TestAppContext) {
 /// three list-shaped ones that the original actually has.
 #[gpui::test]
 fn the_empty_flag_drops_the_badge_and_the_counts(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let records = measure(cx, a_cell(&["--flags", "empty"]));
     let seen = ids(&records);
 
@@ -622,6 +643,7 @@ fn the_empty_flag_drops_the_badge_and_the_counts(cx: &mut TestAppContext) {
 /// delta between the two themes would be a bug in the row, not in the tokens.
 #[gpui::test]
 fn the_theme_changes_the_palette_and_not_the_layout(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let dark = measure(cx, a_cell(&["--theme", "dark"]));
     let light = measure(cx, a_cell(&["--theme", "light"]));
 
@@ -649,6 +671,7 @@ fn the_theme_changes_the_palette_and_not_the_layout(cx: &mut TestAppContext) {
 /// first gate run.
 #[gpui::test]
 fn the_badge_anchor_carries_its_box_and_its_text(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let badge = find(&measure(cx, Cell::default()), "git-row-badge");
 
     // The box half.
@@ -671,6 +694,7 @@ fn the_badge_anchor_carries_its_box_and_its_text(cx: &mut TestAppContext) {
 /// the React original — which is the shape the live reference row is in.
 #[gpui::test]
 fn the_counts_flags_drive_the_trailing_anchors(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
     let records = measure(cx, a_cell(&["--added", "1", "--deleted", "0"]));
     let seen = ids(&records);
 
@@ -719,6 +743,7 @@ mod file_tree_row {
     /// loudest possible failure.
     #[gpui::test]
     fn the_default_cell_carries_every_contract_anchor(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         let seen = ids(&measure(cx, cell(&[])));
 
         for id in [
@@ -751,6 +776,7 @@ mod file_tree_row {
     /// and the button is `width: 100% !important` inside it.
     #[gpui::test]
     fn the_wrapper_and_the_button_are_one_full_width_box(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         let one = cell(&[]);
         let records = measure(cx, one.clone());
 
@@ -774,6 +800,7 @@ mod file_tree_row {
     /// !important` over both.
     #[gpui::test]
     fn the_button_is_two_px_round_with_a_one_px_border(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         let records = measure(cx, cell(&[]));
         let button = find(&records, "file-row-button");
 
@@ -804,6 +831,7 @@ mod file_tree_row {
     /// this is the assertion that keeps one from being copied onto the other.
     #[gpui::test]
     fn the_icon_starts_at_a_sixteen_pixel_indent_past_the_border(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         for depth in [0_u16, 1, 4] {
             let records = measure(cx, cell(&["--depth", &depth.to_string()]));
             let icon = at(&records, "file-row-icon");
@@ -831,6 +859,7 @@ mod file_tree_row {
     /// neighbours default to this row's own depth, so nothing is capped.
     #[gpui::test]
     fn the_guides_step_by_sixteen_too(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         let records = measure(cx, cell(&["--depth", "3"]));
         let offset = Theme::DARK.file_tree_guide_icon_offset.value();
 
@@ -848,6 +877,7 @@ mod file_tree_row {
     /// The cap, driven the only way it can be: a shallower row above and below.
     #[gpui::test]
     fn a_guide_that_begins_and_ends_at_this_row_is_capped(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         let records = measure(
             cx,
             cell(&["--depth", "2", "--prev-depth", "0", "--next-depth", "0"]),
@@ -871,6 +901,7 @@ mod file_tree_row {
     /// surface has no focus state either.
     #[gpui::test]
     fn every_state_flag_paints_something_different(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         let theme = Theme::DARK;
 
         let resting = measure(cx, cell(&[]));
@@ -910,6 +941,7 @@ mod file_tree_row {
     /// pseudo-class have the same specificity, and the active rule is second.
     #[gpui::test]
     fn selected_wins_over_hover(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         let both = measure(cx, cell(&["--flags", "hover,selected"]));
 
         assert_eq!(
@@ -922,6 +954,7 @@ mod file_tree_row {
     /// say where the ellipsis landed.
     #[gpui::test]
     fn the_overflowing_name_is_clipped_and_the_short_one_is_not(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         let long = find(
             &measure(cx, cell(&["--content", "overflow"])),
             "file-row-name",
@@ -945,6 +978,7 @@ mod file_tree_row {
     /// driving on this surface as well as on the geometry one.
     #[gpui::test]
     fn the_name_narrows_with_the_surface(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         let mut widths = Vec::new();
         for width in ["240", "320", "420"] {
             let records = measure(cx, cell(&["--width", width, "--content", "overflow"]));
@@ -962,6 +996,7 @@ mod file_tree_row {
     /// rather than reasoned about.
     #[gpui::test]
     fn the_name_is_fourteen_px_text_on_a_twenty_px_line(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         let records = measure(cx, cell(&[]));
         let text = find(&records, "file-row-name")
             .text
@@ -979,6 +1014,7 @@ mod file_tree_row {
     /// max-content width) and the height is the run's own line height.
     #[gpui::test]
     fn the_name_declares_both_and_the_layout_bears_them_out(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         let records = measure(cx, cell(&[]));
 
         for id in file_tree_row::CONTENT_SIZED {
@@ -1025,6 +1061,7 @@ mod file_tree_row {
     /// delta between the two themes would be a bug in the row.
     #[gpui::test]
     fn the_theme_changes_the_palette_and_not_the_layout(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         let dark = measure(cx, cell(&["--theme", "dark"]));
         let light = measure(cx, cell(&["--theme", "light"]));
 
@@ -1071,6 +1108,7 @@ mod file_tree_row {
     /// resting row unchanged.
     #[gpui::test]
     fn every_git_status_paints_the_name_its_own_token(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         let theme = Theme::DARK;
         let fg = |records: &[RawAnchor]| {
             find(records, "file-row-name")
@@ -1132,6 +1170,7 @@ mod file_tree_row {
     /// a `FieldPresence` delta.
     #[gpui::test]
     fn the_status_leaves_the_icon_the_chrome_and_the_anchor_set_alone(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         let plain = measure(cx, cell(&[]));
         let modified = measure(cx, cell(&["--git-status", "modified"]));
 
@@ -1177,6 +1216,7 @@ mod file_tree_row {
     /// truncation is measured in.
     #[gpui::test]
     fn the_status_letter_takes_room_from_a_clamped_name(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
         let width = |records: &[RawAnchor]| at(records, "file-row-name").size.width;
 
         let clamped = width(&measure(cx, cell(&["--content", "overflow"])));
