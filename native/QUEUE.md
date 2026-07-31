@@ -5,7 +5,7 @@ Source of truth for the Rust-native GPUI port. Spec:
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
 **Phase:** 1 — the driver and the oracle. **THE GATE.**
-**Line coverage (logic crates):** `oracle` **100.00%** (2191/2191) · `crowbar-core` **100.00%** (148/148) · `crowbar-client` **99.64%**. `proto`/`diff`/`driver` still empty. All measured by me.
+**Line coverage (logic crates):** `oracle` **100.00%** (2191/2191) · `crowbar-driver` **100.00%** (1134/1134) · `crowbar-core` **100.00%** (148/148) · `crowbar-client` **99.64%**. `proto`/`diff` still empty. **191 tests, 0 failed.** All measured by me.
 **Corpus coverage (view crates):** n/a — the differ exists but has never been run against the two apps. That is the Phase 1 gate and it is mine.
 
 ---
@@ -1055,7 +1055,7 @@ before any of them so three independent implementations cannot quietly diverge.
 | Item | Branch | Owns | Notes |
 |---|---|---|---|
 | **P1.1** React extractor | `native/p1.1-react-extractor` | the 9 `data-oracle-id` tags + `web/src/lib/oracle/**` | merged `49ba348f` · live snapshot from the real WKWebView |
-| **P1.2** GPUI extractor | `native/p1.2-gpui-extractor` | `crowbar-driver/**` | merged `03fb0732` · **STOP-GATE risk retired** · my clippy pass green; tests + coverage still running |
+| **P1.2** GPUI extractor | `native/p1.2-gpui-extractor` | `crowbar-driver/**` | ✅ **done** — merged `03fb0732` · **STOP-GATE risk retired** · verified by me |
 | **P1.3** oracle differ | `native/p1.3-oracle-differ` | `native/oracle/src/**` | ✅ **done** — merged `5fcec61c`, gates re-run by me |
 | **P1.4** sealed tokens | `native/p1.4-sealed-tokens` | `crowbar-ui/**`, `check-invariants.sh` | ✅ **done** — merged `60823648`, rule 4 adversarially re-tested by me |
 | **P1.5** native row | `native/p1.5-native-row` | `crowbar-ui/src/components/**`, `crowbar-app/src/**` | **in flight** — dispatched once P1.4's tokens existed, so it cannot be written against literals |
@@ -1332,12 +1332,24 @@ worth getting right, but the app does not produce it today, so the gate as it
 stands exercises single-span truncation only — which `git-row-name` *does* still
 exercise: measured `text_width: 476.49` in a 154.73px box, `clipped: true`.
 
-**Not yet decided, and it is mine to decide before the convergence run:** either
-(a) accept single-span truncation for the Phase 1 gate and record the reduced
-scope honestly, or (b) drive the fixture through a surface that sets
-`showDirectory`, or (c) add the two-span case to the corpus later as a Phase 2
-component. **Do not quietly let (a) happen by default** — that is how a gate
-ends up proving less than it claims.
+**DECIDED (2026-07-31): accept single-span truncation for the Phase 1 gate, and
+say so — plus carry the two-span case forward to Phase 2.**
+
+Reasoning. Phase 1 exists to validate the *mechanism*: that a driver can extract
+post-layout geometry from GPUI, that a React extractor can produce a comparable
+snapshot, and that a differ over the two says something true. Single-span
+truncation already exercises every part of that — `text_width` against box
+width, `clipped`, and the `min-width: 0` chain through nested flex containers.
+The measured case is a genuine stress: **476.49px of text in a 154.73px box.**
+
+Two-span truncation is a *harder layout*, not a different mechanism. Forcing it
+would mean rendering a configuration the app never renders, which tests a dead
+code path and tells us nothing about parity with what users actually see.
+
+**So the Phase 1 gate proves the mechanism on single-span truncation. It does
+not prove two-span.** That sentence goes in the Phase 1 report verbatim. The
+two-span case becomes a Phase 2 component the moment any surface enables
+`showDirectory`.
 
 ### F4 — `color-mix(in srgb, …)` is load-bearing and needs an exact implementation
 
