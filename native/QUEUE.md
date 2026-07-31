@@ -1036,6 +1036,7 @@ before any of them so three independent implementations cannot quietly diverge.
 | **P1.2** GPUI extractor | `native/p1.2-gpui-extractor` | `crowbar-driver/**` | **in flight** · the riskiest item, carries the STOP-GATE note · sent the v1.1 delta |
 | **P1.3** oracle differ | `native/p1.3-oracle-differ` | `native/oracle/src/**` | ✅ **done** — merged `5fcec61c`, gates re-run by me |
 | **P1.4** sealed tokens | `native/p1.4-sealed-tokens` | `crowbar-ui/**`, `check-invariants.sh` | ✅ **done** — merged `60823648`, rule 4 adversarially re-tested by me |
+| **P1.5** native row | `native/p1.5-native-row` | `crowbar-ui/src/components/**`, `crowbar-app/src/**` | **in flight** — dispatched once P1.4's tokens existed, so it cannot be written against literals |
 
 #### P1.3 — the differ ✅ merged
 
@@ -1101,9 +1102,10 @@ Every brief carries the worker contract: do not run the oracle, do not touch
 `native/oracle/corpus/`, do not modify tests you implement against, do not edit
 `native/vendor/**`.
 
-**Not yet dispatched, and deliberately so:** the native `SidebarTreeRow` itself.
-It needs P1.4's tokens to exist first, or it will be written against literals
-that rule 4 then rejects.
+**Still not dispatched:** the driver's *input injection*. Driving the native app
+into `hover`/`focus`/`selected` needs it, so the gate needs it — but it lives in
+`crowbar-driver`, which P1.2 owns right now. It goes out the moment P1.2 lands.
+(The React side needs no equivalent: I can dispatch events via `execute_js`.)
 
 **Mine alone, after all four land:** the convergence run across the §8.3 matrix.
 That is the gate, and it is not delegable.
