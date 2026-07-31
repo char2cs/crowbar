@@ -122,3 +122,46 @@ assurance. `crowbar-diff-logic` does not exist yet.
 2. `hover` re-run as a real observation once the screen is unlocked — the recipe
    and its `:focus-visible` trap are in `blocked/`;
 3. the §17 RSS soak, which needs a real workload and therefore a Phase 2 surface.
+
+---
+
+## Addendum, 2026-07-31 — `hover` is now an observation, not a construction
+
+The report above says, in its own words: *"`hover` was **not observed**. It was
+reproduced."* That caveat is now discharged, and the section is left standing
+unedited so the difference is visible.
+
+With the screen unlocked, both remaining flags were captured from the live
+reference and diffed by me:
+
+| cell | result |
+|---|---|
+| `git-status-row · 1714 · dark · short · **hover**` | **PASS — 0 deltas over 8 anchors** |
+| `git-status-row · 1714 · dark · short · **focus**` | **PASS — 0 deltas over 8 anchors** |
+
+The reference's real `:hover` state — entered from a genuine mouse-moved event,
+confirmed to contain the intended row with the hover chain cleared to zero
+first — converges exactly with `--flags hover`. The forgivenesses are the same
+ones every resting cell earns (v1.5 content-sizing, v1.6 line-sizing); nothing
+was loosened to make this pass.
+
+So **every §8.3 flag on the gate surface is now settled by measurement**:
+`hover` and `focus` observed, `selected` observed on `file-tree-row`,
+`empty`/`loading`/`error` shown not to exist.
+
+**What was wrong in the meantime is worth more than the result.** Three claims in
+the original report's reasoning were false, and are corrected in
+`oracle/blocked/hover-and-focus-need-an-unlocked-screen.md`: synthetic events
+were never delivered at all (`CGPreflightPostEventAccess()` is `false`), a live
+`:hover` count was stale state I mistook for proof, and the "misplaced" window
+was a tiling window manager parking it — visible in my own data as four
+*unrelated* processes sharing one pixel.
+
+**The exhaustive-construction argument still stands on its own**, and is worth
+keeping for the next surface that cannot be driven: of 127 hover rules carrying
+declarations, exactly two reach the git row, and one is a no-op. That reasoning
+predicted `#ffffff07`, and the live observation measured `#ffffff07`.
+
+**Unchanged by this addendum:** the gate still proves the mechanism on
+single-span truncation only, `git-row-dir` still never renders in the product,
+and §17's RSS soak is still outstanding.
