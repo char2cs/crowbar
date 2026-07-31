@@ -2038,6 +2038,57 @@ Tailwind's stock values. Eight traps recorded, of which the sharpest:
 3. `selected` needs a tick row, which the comment menu lacks, so a bare
    `--flags selected` renders resting. The caption says so per cell.
 
+### ✅ P2.2 `resizable` + P2.3 `sidebar-carousel` merged; ANCHORS.md **v1.7** implemented
+
+**All four Phase 2 components are now built** — `tree-row` (the two gate
+surfaces), `dropdown-menu`, `resizable`, `sidebar-carousel`. Five driver surfaces
+self-register.
+
+715 tests / 0 failed · clippy clean · **7 `ok` lines**, rule 6 covering **90**
+gpui tests · `crowbar-driver` **98.26%** line coverage (up from 98.05%).
+
+> `cargo test --workspace` was **SIGKILLed (exit 137)** at default parallelism
+> while other builds were live. `-- --test-threads=4` completes. Not a flake in
+> the suite; memory pressure.
+
+**The v1.7 opacity term is implemented, and it does NOT close the motivating
+case.** The driver folds opacity in at `AnchoredBox` boundaries, so an anchor's
+own opacity and an **anchored** ancestor's are detected; an **unanchored**
+ancestor's is not. I verified this myself rather than accepting the report — a
+probe tree reports `root visible=true, child visible=true` under a plain
+`div().opacity(0.)`, where React reports `false` because `oracleIsVisible` walks
+every `parentElement` regardless of anchoring.
+
+`NavStack`'s `opacity-0` layer is unanchored and above the root anchor, so the
+original scenario is still undetected. The corpus restriction **narrows rather
+than lifts**: no cell may be driven with a non-opaque *unanchored* ancestor.
+Closing it properly needs `Window::element_opacity`, which is `pub(crate)` with
+no accessor and is pushed in `Interactivity::paint` — after the `prepaint` where
+the extractor runs. That means patching pinned vendor code.
+
+The integration worker also hit a **fourth** conflict I had not predicted —
+`MAPPING.md`, which both P2.2 and P2.3 append to. It flagged that rather than
+quietly resolving a file the brief told it not to touch.
+
+### ⚠ Phase 2 is NOT complete — nothing here has been driven against the reference
+
+Every component is built, gated and unit-tested. **None has a single parity
+run**, and a green build is not the bar. All three workers independently
+reported the same obstacle, which is the real Phase 2 blocker:
+
+| surface | why the reference is hard to reach |
+|---|---|
+| `dropdown-menu` | the only usable menu is the review-thread comment menu — needs a loaded review thread |
+| `resizable` | the only `ResizablePanelGroup` is the IDE shell root — needs the full app with a workspace open |
+| `sidebar-carousel` | needs the sidebar visible and no nav screen pushed, or every anchor reports `visible: false` |
+
+Phase 1's fixture was built for a single row and reachable in one navigation.
+Phase 2's surfaces are structural, so the fixture work is the next real item —
+not more porting.
+
+Also outstanding and unchanged: `hover`/`focus` as real observations (locked
+screen), and the §17 RSS soak.
+
 ## In flight
 
 **Phase 0 is closed.** All twelve items done and merged, each verified by my own
