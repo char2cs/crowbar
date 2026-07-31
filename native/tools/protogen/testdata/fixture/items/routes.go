@@ -30,5 +30,6 @@ func Register(
 	rg.GET("/patch", h.Patch)
 	rg.GET("/untyped", h.Untyped)
 	rg.GET("/lossy", h.Lossy)
+	rg.GET("/outline", h.Outline)
 	rg.POST("/stage", h.Stage)
 }

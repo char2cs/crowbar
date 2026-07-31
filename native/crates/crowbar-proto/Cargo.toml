@@ -12,5 +12,18 @@ publish.workspace = true
 [dependencies]
 serde.workspace = true
 
+# `serde` on its own implements no format, so a round-trip test — serialise,
+# deserialise, compare — cannot be written without one. `serde_json` is named
+# here for exactly that and for nothing else: it does not widen the §4.2 edge,
+# because a dev-dependency is not part of the crate's public dependency graph
+# and nothing outside `tests/` can reach it. The same reasoning, and the same
+# wording, as `crowbar-driver`'s dev-dependency on gpui's `test-support`.
+#
+# The distinction that matters: the *generated* code must never need a second
+# crate. It does not — `regen-proto.sh` enforces that on every run and refuses
+# to emit a module that would.
+[dev-dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true

@@ -3,6 +3,8 @@
 package handlers
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -126,4 +128,40 @@ func (h *Handlers) Stage(
 		return
 	}
 	libs.WriteQueryOK(c, paths)
+}
+
+// outlineResponse is the payload of GET /outline. It is written by hand rather
+// than through libs.WriteQueryOK, which is the whole point of it: a handler
+// that streams its envelope straight into the response writer never touches
+// gin's JSON render, and protogen used to classify exactly that as a body-less
+// success and drop the payload's types on the floor.
+type outlineResponse struct {
+	// Files is the outline of every changed file.
+	Files []types.Nested `json:"files"`
+}
+
+// Outline GET /outline — a JSON payload streamed straight into the writer,
+// through two levels of same-package helper, the way a response too large to
+// buffer has to be written.
+func (h *Handlers) Outline(
+	c *gin.Context,
+) {
+	writeOutline(c, outlineResponse{Files: []types.Nested{}})
+}
+
+// writeOutline sets the headers and hands the body to the encoder.
+func writeOutline(
+	c *gin.Context,
+	data outlineResponse,
+) {
+	c.Status(http.StatusOK)
+	encodeOutline(c.Writer, data)
+}
+
+// encodeOutline writes the envelope without buffering it.
+func encodeOutline(
+	w io.Writer,
+	data outlineResponse,
+) {
+	_ = json.NewEncoder(w).Encode(libs.Envelope{Success: true, Data: data})
 }

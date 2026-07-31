@@ -1,0 +1,3579 @@
+{
+  "generator": "native/tools/protogen",
+  "stats": {
+    "endpoints": 163,
+    "distinctPaths": 123,
+    "handlersResolved": 158,
+    "fullyResolved": 157,
+    "withRequestBody": 73,
+    "requestResolved": 73,
+    "withResponsePayload": 82,
+    "responseResolved": 77,
+    "byResponseKind": {
+      "binary": 1,
+      "empty": 50,
+      "json": 82,
+      "mutation": 23,
+      "websocket": 7
+    },
+    "types": 134,
+    "typesByKind": {
+      "alias": 1,
+      "enum": 10,
+      "struct": 123
+    },
+    "typesIncomplete": 1,
+    "modules": 22,
+    "unresolved": 8,
+    "unresolvedErrors": 7,
+    "unresolvedWarnings": 1
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/v0/health",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/health/handlers",
+      "handler": "Check",
+      "handlerPos": "internal/api/v0/endpoints/health/handlers/health.go:21",
+      "responseKind": "json",
+      "doc": "Check is the GET /health handler. It reports liveness by returning the\ndaemon status, build version, and pid inside the standard query envelope:\n{\"success\":true,\"data\":{\"status\":\"ok\",\"version\":\"<v>\",\"pid\":<n>}}.\n\nThe pid is load-bearing: the desktop supervisor signals the daemon\n(SIGTERM on quit, SIGQUIT/SIGKILL on wedge) by this self-reported pid,\nbecause asking the tauri-shell child handle for it deadlocks against the\nplugin's blocking wait thread.",
+      "unresolved": [
+        {
+          "what": "GET /v0/health",
+          "where": "internal/api/v0/endpoints/health/handlers/health.go:24",
+          "reason": "response payload is an untyped map (gin.H / map[string]any), so it has no static shape — give the handler a named DTO",
+          "category": "untyped-payload",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers",
+      "handler": "List",
+      "handlerPos": "internal/api/v0/endpoints/projects/handlers/projects.go:106",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "api_v0_dto",
+            "name": "ProjectDTO"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "List handles GET /v0/projects, returning every project as ProjectDTO[]."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers",
+      "handler": "Import",
+      "handlerPos": "internal/api/v0/endpoints/projects/handlers/projects.go:136",
+      "request": {
+        "module": "api_v0_endpoints_projects_handlers",
+        "name": "ImportRequest"
+      },
+      "responseKind": "empty",
+      "doc": "Import handles POST /v0/projects. It validates the request synchronously (body\nshape, name present, path present and existing on disk) returning 4xx on any\nfailure; then it returns 202 and runs the create in the background. On\nsuccess the created project is delivered as a ProjectDTO on the Projects\nWebSocket stream."
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers",
+      "handler": "Delete",
+      "handlerPos": "internal/api/v0/endpoints/projects/handlers/projects.go:174",
+      "responseKind": "empty",
+      "doc": "Delete handles DELETE /v0/projects/:projectId. It validates the project exists\nsynchronously (4xx if not), then returns 202 and runs the cascade delete in\nthe background. A deleted-status ProjectDTO tombstone is broadcast on the\nProjects WebSocket stream after teardown so the client cache drops the entity\n(00 §6). Real repository directories are never deleted from disk; only\ncrowbar-created worktree directories are torn down (see project.DeleteUsecase)."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers",
+      "handler": "Detail",
+      "handlerPos": "internal/api/v0/endpoints/projects/handlers/projects.go:119",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "ProjectDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Detail handles GET /v0/projects/:projectId, returning a single ProjectDTO."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/home",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers",
+      "handler": "Get",
+      "handlerPos": "internal/api/v0/endpoints/home/handlers/home.go:15",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "WorkspaceDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Get handles GET /v0/projects/:projectId/home.\nIt returns the home workspace DTO for the project."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/home/agent/chats",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "List",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/chats.go:50",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "api_v0_dto",
+            "name": "AgentChatDTO"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "List handles GET .../workspaces/:wsId/agent/chats, returning only the\nchats anchored to the :wsId path param, each carrying the runner facts derived\nfor it by chatRuntime (its live runner, that runner's PTY, its provider) — so the\nchat list can render provider glyphs and attach a pane without a second round trip\nper row."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/home/agent/chats",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Create",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/chats.go:21",
+      "request": {
+        "module": "api_v0_endpoints_agent_handlers",
+        "name": "CreateRequest"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "Create handles POST .../workspaces/:wsId/agent/chats: spawns a fresh\nAgentChat anchored to the :wsId path param and starts a RUNNER on it,\nlaunching the provider's vendor CLI in a PTY. It responds with the new\nchat's id; the spawned runner id is not surfaced here (the client reads it\nback as liveRunnerId via GET .../agent/chats or .../agent/chats/:id)."
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/home/agent/chats/:id",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Delete",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/chats.go:236",
+      "responseKind": "empty",
+      "doc": "Delete handles DELETE .../workspaces/:wsId/agent/chats/:id: hard-deletes\nthe chat via usecase.PurgeChat (best-effort active-segment PTY teardown,\nthen asynx Forget): the chat's event log itself is erased, not merely\ntombstoned, so it is gone from every subsequent read, including a direct\nGetChat by id. The scoped \"deleted\" broadcast every client sees comes from\nthe hub projection's OnForget (Task 5), not from here. 404s (via\nrequireChatInWorkspace) when id names a chat anchored to a DIFFERENT\nworkspace than :wsId."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/home/agent/chats/:id",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Get",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/chats.go:81",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "AgentChatDetailDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Get handles GET .../workspaces/:wsId/agent/chats/:id, returning the chat with its\nderived runner facts and the conversations it has hosted — the append-only history\nthat succeeds the deleted segment list. 404s (via requireChatInWorkspace) when id\nnames a chat anchored to a DIFFERENT workspace than :wsId."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/home/agent/chats/:id/handoff",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Handoff",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/switch.go:105",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "HandoffDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Handoff handles GET .../workspaces/:wsId/agent/chats/:id/handoff: assembles\nthe chat's ledger into the legible handoff blob a freshly spawned provider\nCLI can be given as prior context. Used by the `crowbar handoff dump` CLI\nas well as the switch flow internally. 404s (via requireChatInWorkspace)\nwhen id names a chat anchored to a DIFFERENT workspace than :wsId."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/home/agent/chats/:id/rename",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Rename",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/chats.go:166",
+      "request": {
+        "module": "api_v0_endpoints_agent_handlers",
+        "name": "RenameRequest"
+      },
+      "responseKind": "empty",
+      "doc": "Rename handles POST .../workspaces/:wsId/agent/chats/:id/rename: sets the\nchat's title. `?source=agent` applies the agent precedence rule (skip if\nuser-locked); the default (a human/FE rename) sets unconditionally and\nlocks. 404s (via requireChatInWorkspace) when id names a chat anchored to a\nDIFFERENT workspace than :wsId."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/home/agent/chats/:id/resume",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Resume",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/switch.go:53",
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "Resume handles POST .../workspaces/:wsId/agent/chats/:id/resume: revives a\nchat whose vendor CLI is gone (it exited, or it died with the daemon),\nbringing the last provider back into its own native session — exactly where\nthe user left it. Responds with the (re)active segment's id; a chat that is\nstill live is a no-op that returns its current segment. 404s (via\nrequireChatInWorkspace) when id names a chat anchored to a DIFFERENT workspace\nthan :wsId."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/home/agent/chats/:id/stop",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Stop",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/switch.go:81",
+      "responseKind": "empty",
+      "doc": "Stop handles POST .../workspaces/:wsId/agent/chats/:id/stop: gracefully\nterminates the chat's live vendor CLI and leaves the chat DORMANT and resumable\n— the counterpart of Resume, and what closing a chat TAB calls. The agent\nprocess stops, but the chat entry (and the conversation it can be resumed into)\nis kept, so reopening the tab revives it via the resume path. The in-flight turn\nis aborted by design (\"close = stop\"). A chat whose CLI is already gone is a nil\nno-op. 404s (via requireChatInWorkspace) when id names a chat anchored to a\nDIFFERENT workspace than :wsId."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/home/agent/chats/:id/switch",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Switch",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/switch.go:18",
+      "request": {
+        "module": "api_v0_endpoints_agent_handlers",
+        "name": "SwitchRequest"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "Switch handles POST .../workspaces/:wsId/agent/chats/:id/switch: terminates\nthe chat's active provider CLI, assembles a handoff from the ledger, and\nspawns the requested provider as a new segment in the same chat. It\nresponds with the new segment's id under the mutation envelope. 404s (via\nrequireChatInWorkspace) when id names a chat anchored to a DIFFERENT\nworkspace than :wsId."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/home/agent/hooks",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Hooks",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/hooks.go:17",
+      "request": {
+        "module": "api_v0_endpoints_agent_handlers",
+        "name": "HooksRequest"
+      },
+      "responseKind": "empty",
+      "doc": "Hooks handles POST .../workspaces/:wsId/agent/hooks: the vendor-CLI hook forwarder posts a\ncanonical hook event here (segment_id/provider/event/payload_raw). IngestHook\nruns the context-move reducer and persists the outcome. Ingestion is a\nfail-fast/good-path-async mutation — the HTTP response is a bare 202, and any\nresulting chat-lifecycle change is delivered later on the agent-chat\nWebSocket rather than in this response (00 §4)."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/home/agent/providers",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Providers",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/providers.go:18",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "api_v0_dto",
+            "name": "AgentProviderDTO"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Providers handles GET .../workspaces/:wsId/agent/providers: the registered\nagent providers enriched with connected (installed) + enabled (!disabled) and\nreturned in priority order (spec §3.1). The :wsId path param is retained for\nsurface compatibility but the list is workspace-independent — the resolver reads\ncrowbar home from app config, not the workspace — so every workspace yields the\nsame ordered catalog."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/home/agent/runners/:segid/rename",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "RenameByRunner",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/chats.go:205",
+      "request": {
+        "module": "api_v0_endpoints_agent_handlers",
+        "name": "RenameByRunnerRequest"
+      },
+      "responseKind": "empty",
+      "doc": "RenameByRunner handles POST .../workspaces/:wsId/agent/runners/:segid/rename:\nsets the title of the chat the RUNNER named by :segid is placed on RIGHT NOW,\nresolved at call time (never a chat id baked into the agent's spawn-time\ninstruction — see (*agent.Usecase).RenameByRunner). This is the route the\n`crowbar chat rename --segment <segid>` CLI posts to; `?source=agent` applies\nthe same agent precedence rule Rename does (skip if user-locked).\n\nUnlike Rename it has no by-id workspace scope check to make: :segid names a\nRUNNER, not a chat, and every other runner-keyed callback (Hooks) resolves the\nsame way, straight off the runner aggregate. A runner Crowbar has never heard\nof, or one whose CLI has already exited, maps to 404 via\nagentrunner.ErrNotFound."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/home/agent/ws/chats",
+      "responseKind": "websocket"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/home/files",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers",
+      "handler": "DeleteFile",
+      "handlerPos": "internal/api/v0/endpoints/home/handlers/files.go:169",
+      "request": {
+        "module": "api_v0_endpoints_home_handlers",
+        "name": "DeleteFileRequest"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "DeleteFile handles DELETE /v0/projects/:projectId/home/files."
+    },
+    {
+      "method": "PATCH",
+      "path": "/v0/projects/:projectId/home/files",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers",
+      "handler": "RenameFile",
+      "handlerPos": "internal/api/v0/endpoints/home/handlers/files.go:140",
+      "request": {
+        "module": "api_v0_endpoints_home_handlers",
+        "name": "RenameFileRequest"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "RenameFile handles PATCH /v0/projects/:projectId/home/files."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/home/files",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers",
+      "handler": "CreateFile",
+      "handlerPos": "internal/api/v0/endpoints/home/handlers/files.go:78",
+      "request": {
+        "module": "api_v0_endpoints_home_handlers",
+        "name": "CreateFileRequest"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "CreateFile handles POST /v0/projects/:projectId/home/files."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/home/files/content",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers",
+      "handler": "FileContent",
+      "handlerPos": "internal/api/v0/endpoints/home/handlers/files.go:33",
+      "responses": [
+        {
+          "module": "domain",
+          "name": "FileContent"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "FileContent handles GET /v0/projects/:projectId/home/files/content."
+    },
+    {
+      "method": "PUT",
+      "path": "/v0/projects/:projectId/home/files/content",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers",
+      "handler": "SaveFileContent",
+      "handlerPos": "internal/api/v0/endpoints/home/handlers/files.go:52",
+      "request": {
+        "module": "api_v0_endpoints_home_handlers",
+        "name": "SaveFileContentRequest"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "SaveFileContent handles PUT /v0/projects/:projectId/home/files/content."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/home/files/copy",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers",
+      "handler": "CopyFile",
+      "handlerPos": "internal/api/v0/endpoints/home/handlers/files.go:115",
+      "request": {
+        "module": "api_v0_endpoints_home_handlers",
+        "name": "CopyFileRequest"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "CopyFile handles POST /v0/projects/:projectId/home/files/copy. It mirrors the\nworkspace-scoped copy verb (files/handlers/files.go's Copy): sourcePath is\nduplicated to destPath (both workspace-relative) byte-faithfully, so Duplicate\nin the home explorer never corrupts binaries via the base64 content round trip."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/home/files/tree",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers",
+      "handler": "FileTree",
+      "handlerPos": "internal/api/v0/endpoints/home/handlers/files.go:15",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "domain",
+            "name": "FileNode"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "FileTree handles GET /v0/projects/:projectId/home/files/tree."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/home/files/ws",
+      "responseKind": "websocket"
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/home/terminals",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers",
+      "handler": "ListTerminals",
+      "handlerPos": "internal/api/v0/endpoints/home/handlers/terminal.go:35",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "prim": "string"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "ListTerminals handles GET /v0/projects/:projectId/home/terminals."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/home/terminals",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers",
+      "handler": "CreateTerminal",
+      "handlerPos": "internal/api/v0/endpoints/home/handlers/terminal.go:48",
+      "responseKind": "json",
+      "doc": "CreateTerminal handles POST /v0/projects/:projectId/home/terminals.",
+      "unresolved": [
+        {
+          "what": "POST /v0/projects/:projectId/home/terminals",
+          "where": "internal/api/v0/endpoints/home/handlers/terminal.go:58",
+          "reason": "response payload is an untyped map (gin.H / map[string]any), so it has no static shape — give the handler a named DTO",
+          "category": "untyped-payload",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/home/terminals/:sessionId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers",
+      "handler": "KillTerminal",
+      "handlerPos": "internal/api/v0/endpoints/home/handlers/terminal.go:105",
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "KillTerminal handles DELETE /v0/projects/:projectId/home/terminals/:sessionId."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/home/terminals/:sessionId/ws",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers",
+      "handler": "TerminalWS",
+      "handlerPos": "internal/api/v0/endpoints/home/handlers/terminal.go:62",
+      "responseKind": "websocket",
+      "doc": "TerminalWS handles GET /v0/projects/:projectId/home/terminals/:sessionId/ws."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/home/threads",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "List",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:51",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "api_v0_dto",
+            "name": "ThreadDTO"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "List handles GET\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads, returning the\nworkspace's review threads as scoped DTOs. A WebSocket upgrade on the same\npath is routed to the thread broadcaster by the dual-serve wrapper."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/home/threads",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "OpenThread",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:67",
+      "request": {
+        "module": "api_v0_endpoints_threads_handlers",
+        "name": "OpenThreadRequest"
+      },
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "ThreadDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "OpenThread handles POST\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads, opening a new\nreview thread anchored to a file location. It returns 201 with the scoped DTO\nand broadcasts the same DTO so the workspace-scoped stream converges."
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/home/threads/:threadId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "DeleteThread",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:240",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "ThreadDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "DeleteThread handles DELETE\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId,\nforgetting the whole thread (root comment + replies). It broadcasts a tombstone\nDTO (Deleted=true) carrying the entity scope so subscribed clients drop it, and\nreturns 200 with the same tombstone."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/home/threads/:threadId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "Detail",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:110",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "ThreadDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Detail handles GET\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId,\nreturning the single thread as a DTO with its anchor and ordered replies."
+    },
+    {
+      "method": "PATCH",
+      "path": "/v0/projects/:projectId/home/threads/:threadId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "SetResolved",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:126",
+      "request": {
+        "module": "api_v0_endpoints_threads_handlers",
+        "name": "SetResolvedRequest"
+      },
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "ThreadDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "SetResolved handles PATCH\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId,\nresolving or reopening a thread. It returns 200 with the scoped DTO and\nbroadcasts it."
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/home/threads/:threadId/messages/:messageId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "DeleteMessage",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:219",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "ThreadDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "DeleteMessage handles DELETE\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId/messages/:messageId,\nremoving a single reply. The root comment cannot be removed this way (deleting\nthe root is DELETE on the thread); attempting it yields a 400. Returns 200 with\nthe updated thread DTO and broadcasts it."
+    },
+    {
+      "method": "PATCH",
+      "path": "/v0/projects/:projectId/home/threads/:threadId/messages/:messageId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "EditMessage",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:191",
+      "request": {
+        "module": "api_v0_endpoints_threads_handlers",
+        "name": "EditMessageRequest"
+      },
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "ThreadDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "EditMessage handles PATCH\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId/messages/:messageId,\nrewriting a message body. It targets any message by id, including the root\ncomment. Returns 200 with the scoped DTO and broadcasts it."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/home/threads/:threadId/replies",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "Reply",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:163",
+      "request": {
+        "module": "api_v0_endpoints_threads_handlers",
+        "name": "ReplyRequest"
+      },
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "ThreadDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Reply handles POST\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId/replies,\nappending a reply. It returns 200 with the scoped DTO and broadcasts it."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers",
+      "handler": "List",
+      "handlerPos": "internal/api/v0/endpoints/repos/handlers/repos.go:263",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "api_v0_dto",
+            "name": "RepoDTO"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "List handles GET /v0/repos, returning every repo as RepoDTO[]. The optional\nprojectId query parameter filters the result to one project's repos."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers",
+      "handler": "Create",
+      "handlerPos": "internal/api/v0/endpoints/repos/handlers/repos.go:312",
+      "request": {
+        "module": "api_v0_endpoints_repos_handlers",
+        "name": "CreateRequest"
+      },
+      "responseKind": "empty",
+      "doc": "Create handles POST /v0/projects/:projectId/repos. It validates the request\nsynchronously (body shape, name present, path present and existing on disk)\nreturning 4xx on any failure; then it returns 202 and persists the repository\nin the background. On success the created repo is delivered as a RepoDTO on\nthe Repos WebSocket stream. The defaultBranch field is optional: when omitted\nthe background work derives it from the local git repository at path via\nsymbolic-ref HEAD."
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/repos/:repoId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers",
+      "handler": "DeleteRepo",
+      "handlerPos": "internal/api/v0/endpoints/repos/handlers/repos.go:526",
+      "responseKind": "empty",
+      "doc": "DeleteRepo handles DELETE /v0/projects/:projectId/repos/:repoId. It validates\nthe repo exists synchronously (4xx if not), then returns 202 and runs the\nremoval in the background: the GORM record is deleted and the entity-scoped\nrepo directory (worktrees, icon, storages) is torn down on disk. A\ndeleted-status RepoDTO tombstone is broadcast on the Repos WebSocket stream\nso the client cache drops the entity (00 §6). The user's real repository\ndirectory (repo.Path) is never touched — only the ~/.crowbar entity dir."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers",
+      "handler": "Detail",
+      "handlerPos": "internal/api/v0/endpoints/repos/handlers/repos.go:279",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "RepoDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Detail handles GET /v0/projects/:projectId/repos/:repoId, returning a single RepoDTO. The workspace\ntree is not yet composed by any usecase, so detail carries the repo fields\nonly."
+    },
+    {
+      "method": "PATCH",
+      "path": "/v0/projects/:projectId/repos/:repoId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers",
+      "handler": "Rename",
+      "handlerPos": "internal/api/v0/endpoints/repos/handlers/repos.go:488",
+      "request": {
+        "module": "api_v0_endpoints_repos_handlers",
+        "name": "RenameRequest"
+      },
+      "responseKind": "empty",
+      "doc": "Rename handles PATCH /v0/projects/:projectId/repos/:repoId. It updates the\nrepository's display name (and its derived label/color avatar), then delivers\nthe updated repo as a RepoDTO on the repos WebSocket stream so every client's\nsidebar refreshes. Validation is synchronous (name present); the rename itself\nis a single store write, so unlike Create it runs inline and answers 204 — the\nupdated avatar rides the broadcast, not this response (the FE apiFetch throws\non any non-enveloped 200 body, matching the icon mutations)."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/branches",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers",
+      "handler": "Branches",
+      "handlerPos": "internal/api/v0/endpoints/repos/handlers/repos.go:770",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "api_v0_endpoints_repos_handlers",
+            "name": "BranchEntry"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Branches handles GET /v0/projects/:projectId/repos/:repoId/branches. Returns all remote branches\nannotated with isProtected and hasWorkspace fields."
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/repos/:repoId/icon",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers",
+      "handler": "DeleteIcon",
+      "handlerPos": "internal/api/v0/endpoints/repos/handlers/repos.go:935",
+      "responseKind": "empty",
+      "doc": "DeleteIcon handles DELETE /v0/projects/:projectId/repos/:repoId/icon.\nRemoves the on-disk icon file and clears both the icon flag and the emoji,\nresetting the repo to its generated label/color avatar."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/icon",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers",
+      "handler": "Icon",
+      "handlerPos": "internal/api/v0/endpoints/repos/handlers/repos.go:581",
+      "responseKind": "binary",
+      "doc": "Icon handles GET /v0/projects/:projectId/repos/:repoId/icon. It serves the\non-disk icon bytes stored at worktreepath.RepoIconPath, sniffing the\ncontent-type from the bytes. Returns 404 when the repo has no on-disk icon."
+    },
+    {
+      "method": "PUT",
+      "path": "/v0/projects/:projectId/repos/:repoId/icon",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers",
+      "handler": "PutIcon",
+      "handlerPos": "internal/api/v0/endpoints/repos/handlers/repos.go:972",
+      "request": {
+        "module": "api_v0_endpoints_repos_handlers",
+        "name": "PutIconRequest"
+      },
+      "responseKind": "empty",
+      "doc": "PutIcon handles PUT /v0/projects/:projectId/repos/:repoId/icon. It accepts the\nicon two ways: a multipart/form-data \"icon\" field (web browsers), or a JSON\nbody {\"path\": \"<absolute path>\"} the daemon reads from disk itself. The latter\nis the desktop path: the WKWebView crowbar:// scheme cannot carry a\nmultipart/binary request body, so the native file dialog yields a path and the\ndaemon reads it — the same way repo import reads a user-selected path.\nAccepts image/png, image/jpeg, image/webp; max 5 MB."
+    },
+    {
+      "method": "PUT",
+      "path": "/v0/projects/:projectId/repos/:repoId/icon/emoji",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers",
+      "handler": "PutIconEmoji",
+      "handlerPos": "internal/api/v0/endpoints/repos/handlers/repos.go:897",
+      "request": {
+        "module": "api_v0_endpoints_repos_handlers",
+        "name": "PutIconEmojiRequest"
+      },
+      "responseKind": "empty",
+      "doc": "PutIconEmoji handles PUT /v0/projects/:projectId/repos/:repoId/icon/emoji.\nBody: {\"emoji\":\"🦊\"} — stores \"emoji:🦊\" in avatar_url."
+    },
+    {
+      "method": "PUT",
+      "path": "/v0/projects/:projectId/repos/:repoId/icon/github",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers",
+      "handler": "PutIconGithub",
+      "handlerPos": "internal/api/v0/endpoints/repos/handlers/repos.go:1126",
+      "responseKind": "empty",
+      "doc": "PutIconGithub handles PUT /v0/projects/:projectId/repos/:repoId/icon/github.\nDownloads the repo owner's GitHub avatar bytes and stores them at the\nentity-scoped icon path, setting AvatarHasIcon."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/protected-branches",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/provider/handlers",
+      "handler": "ProtectedBranches",
+      "handlerPos": "internal/api/v0/endpoints/provider/handlers/provider.go:55",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "prim": "string"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "ProtectedBranches handles\nGET /v0/projects/:projectId/repos/:repoId/protected-branches.\nIt resolves a worktree path for the repo by finding any workspace whose\nRepoID matches the :repoId path param, then returns the list of protected\nbranch names. When capability is disabled, returns the\nDefaultProtectedBranches fallback. The repo aggregate gains its own on-disk\npath in W11/W12; until then the repo-scoped worktree lookup stands in."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/pull-requests",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers",
+      "handler": "PullRequests",
+      "handlerPos": "internal/api/v0/endpoints/repos/handlers/repos.go:837",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "api_v0_endpoints_repos_handlers",
+            "name": "PRLinkDTO"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "PullRequests handles GET /v0/projects/:projectId/repos/:repoId/pull-requests.\nReturns the open-PR head→base graph for the import dialog's parent hint. It is\nadvisory only — the import endpoint re-resolves parenting authoritatively — and\nsoft-fails to [] when the provider CLI is unavailable or unauthenticated."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers",
+      "handler": "List",
+      "handlerPos": "internal/api/v0/endpoints/workspaces/handlers/list.go:20",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "api_v0_dto",
+            "name": "WorkspaceDTO"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "List handles\nGET /v0/projects/:projectId/repos/:repoId/workspaces, returning the\nrepo-scoped WorkspaceDTO[] list. The scope is taken from the :projectId and\n:repoId path params and applied conjunctively over the workspace set; the\nrepo-filtered slice IS the sibling set used to compute each row's merge\neligibility (CanMergeLocally/ParentBranch)."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers",
+      "handler": "Create",
+      "handlerPos": "internal/api/v0/endpoints/workspaces/handlers/crud.go:34",
+      "request": {
+        "module": "api_v0_endpoints_workspaces_handlers",
+        "name": "CreateRequest"
+      },
+      "responseKind": "empty",
+      "doc": "Create handles\nPOST /v0/projects/:projectId/repos/:repoId/workspaces. It validates the\nrequest synchronously (body shape, repoId present, branch present, repo\nexists, parent resolves) returning 4xx on any failure; then it returns 202\nand runs CreateChild in the background. The created workspace is delivered on\nthe workspace WebSocket stream via the repository's broadcast callback; a\nfailure surfaces as LastError on… nothing yet, since no workspace id exists\npre-create, so the create error is best-effort logged by the background run."
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers",
+      "handler": "Delete",
+      "handlerPos": "internal/api/v0/endpoints/workspaces/handlers/crud.go:170",
+      "responseKind": "empty",
+      "doc": "Delete handles\nDELETE /v0/projects/:projectId/repos/:repoId/workspaces/:wsId. It validates\nthe workspace exists synchronously (4xx if not), then returns 202 and runs the\ncascade delete in the background (locked rows are skipped by the usecase). The\nrepository broadcasts a deleted-status tombstone on the workspace WebSocket\nstream; a failure surfaces as LastError on the entity."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers",
+      "handler": "Detail",
+      "handlerPos": "internal/api/v0/endpoints/workspaces/handlers/list.go:37",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "WorkspaceDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Detail handles\nGET /v0/projects/:projectId/repos/:repoId/workspaces/:wsId, returning a\nsingle WorkspaceDTO with its merge eligibility computed against the same-repo\nsiblings."
+    },
+    {
+      "method": "PATCH",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers",
+      "handler": "Rename",
+      "handlerPos": "internal/api/v0/endpoints/workspaces/handlers/hierarchy.go:45",
+      "request": {
+        "module": "api_v0_endpoints_workspaces_handlers",
+        "name": "RenameRequest"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "Rename handles PATCH /v0/projects/:projectId/repos/:repoId/workspaces/:wsId.\nIt renames the workspace's branch and relocates its workspace root to match.\n\nUnlike the other hierarchy mutations this answers SYNCHRONOUSLY. A rename is\none directory rename rather than a long-running git operation, and every way\nit can be refused (the name is taken, the destination is occupied, the\nworkspace is locked or adopted) is something the user has to see while the\ninline editor is still in front of them — a 202 would strand those behind a\nLastError frame. The updated workspace still arrives on the WebSocket stream,\nso callers do not patch their own cache."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/agent/chats",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "List",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/chats.go:50",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "api_v0_dto",
+            "name": "AgentChatDTO"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "List handles GET .../workspaces/:wsId/agent/chats, returning only the\nchats anchored to the :wsId path param, each carrying the runner facts derived\nfor it by chatRuntime (its live runner, that runner's PTY, its provider) — so the\nchat list can render provider glyphs and attach a pane without a second round trip\nper row."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/agent/chats",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Create",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/chats.go:21",
+      "request": {
+        "module": "api_v0_endpoints_agent_handlers",
+        "name": "CreateRequest2"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "Create handles POST .../workspaces/:wsId/agent/chats: spawns a fresh\nAgentChat anchored to the :wsId path param and starts a RUNNER on it,\nlaunching the provider's vendor CLI in a PTY. It responds with the new\nchat's id; the spawned runner id is not surfaced here (the client reads it\nback as liveRunnerId via GET .../agent/chats or .../agent/chats/:id)."
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/agent/chats/:id",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Delete",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/chats.go:236",
+      "responseKind": "empty",
+      "doc": "Delete handles DELETE .../workspaces/:wsId/agent/chats/:id: hard-deletes\nthe chat via usecase.PurgeChat (best-effort active-segment PTY teardown,\nthen asynx Forget): the chat's event log itself is erased, not merely\ntombstoned, so it is gone from every subsequent read, including a direct\nGetChat by id. The scoped \"deleted\" broadcast every client sees comes from\nthe hub projection's OnForget (Task 5), not from here. 404s (via\nrequireChatInWorkspace) when id names a chat anchored to a DIFFERENT\nworkspace than :wsId."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/agent/chats/:id",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Get",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/chats.go:81",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "AgentChatDetailDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Get handles GET .../workspaces/:wsId/agent/chats/:id, returning the chat with its\nderived runner facts and the conversations it has hosted — the append-only history\nthat succeeds the deleted segment list. 404s (via requireChatInWorkspace) when id\nnames a chat anchored to a DIFFERENT workspace than :wsId."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/agent/chats/:id/handoff",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Handoff",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/switch.go:105",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "HandoffDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Handoff handles GET .../workspaces/:wsId/agent/chats/:id/handoff: assembles\nthe chat's ledger into the legible handoff blob a freshly spawned provider\nCLI can be given as prior context. Used by the `crowbar handoff dump` CLI\nas well as the switch flow internally. 404s (via requireChatInWorkspace)\nwhen id names a chat anchored to a DIFFERENT workspace than :wsId."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/agent/chats/:id/rename",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Rename",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/chats.go:166",
+      "request": {
+        "module": "api_v0_endpoints_agent_handlers",
+        "name": "RenameRequest2"
+      },
+      "responseKind": "empty",
+      "doc": "Rename handles POST .../workspaces/:wsId/agent/chats/:id/rename: sets the\nchat's title. `?source=agent` applies the agent precedence rule (skip if\nuser-locked); the default (a human/FE rename) sets unconditionally and\nlocks. 404s (via requireChatInWorkspace) when id names a chat anchored to a\nDIFFERENT workspace than :wsId."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/agent/chats/:id/resume",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Resume",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/switch.go:53",
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "Resume handles POST .../workspaces/:wsId/agent/chats/:id/resume: revives a\nchat whose vendor CLI is gone (it exited, or it died with the daemon),\nbringing the last provider back into its own native session — exactly where\nthe user left it. Responds with the (re)active segment's id; a chat that is\nstill live is a no-op that returns its current segment. 404s (via\nrequireChatInWorkspace) when id names a chat anchored to a DIFFERENT workspace\nthan :wsId."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/agent/chats/:id/stop",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Stop",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/switch.go:81",
+      "responseKind": "empty",
+      "doc": "Stop handles POST .../workspaces/:wsId/agent/chats/:id/stop: gracefully\nterminates the chat's live vendor CLI and leaves the chat DORMANT and resumable\n— the counterpart of Resume, and what closing a chat TAB calls. The agent\nprocess stops, but the chat entry (and the conversation it can be resumed into)\nis kept, so reopening the tab revives it via the resume path. The in-flight turn\nis aborted by design (\"close = stop\"). A chat whose CLI is already gone is a nil\nno-op. 404s (via requireChatInWorkspace) when id names a chat anchored to a\nDIFFERENT workspace than :wsId."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/agent/chats/:id/switch",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Switch",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/switch.go:18",
+      "request": {
+        "module": "api_v0_endpoints_agent_handlers",
+        "name": "SwitchRequest2"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "Switch handles POST .../workspaces/:wsId/agent/chats/:id/switch: terminates\nthe chat's active provider CLI, assembles a handoff from the ledger, and\nspawns the requested provider as a new segment in the same chat. It\nresponds with the new segment's id under the mutation envelope. 404s (via\nrequireChatInWorkspace) when id names a chat anchored to a DIFFERENT\nworkspace than :wsId."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/agent/hooks",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Hooks",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/hooks.go:17",
+      "request": {
+        "module": "api_v0_endpoints_agent_handlers",
+        "name": "HooksRequest2"
+      },
+      "responseKind": "empty",
+      "doc": "Hooks handles POST .../workspaces/:wsId/agent/hooks: the vendor-CLI hook forwarder posts a\ncanonical hook event here (segment_id/provider/event/payload_raw). IngestHook\nruns the context-move reducer and persists the outcome. Ingestion is a\nfail-fast/good-path-async mutation — the HTTP response is a bare 202, and any\nresulting chat-lifecycle change is delivered later on the agent-chat\nWebSocket rather than in this response (00 §4)."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/agent/providers",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "Providers",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/providers.go:18",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "api_v0_dto",
+            "name": "AgentProviderDTO"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Providers handles GET .../workspaces/:wsId/agent/providers: the registered\nagent providers enriched with connected (installed) + enabled (!disabled) and\nreturned in priority order (spec §3.1). The :wsId path param is retained for\nsurface compatibility but the list is workspace-independent — the resolver reads\ncrowbar home from app config, not the workspace — so every workspace yields the\nsame ordered catalog."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/agent/runners/:segid/rename",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "RenameByRunner",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/chats.go:205",
+      "request": {
+        "module": "api_v0_endpoints_agent_handlers",
+        "name": "RenameByRunnerRequest2"
+      },
+      "responseKind": "empty",
+      "doc": "RenameByRunner handles POST .../workspaces/:wsId/agent/runners/:segid/rename:\nsets the title of the chat the RUNNER named by :segid is placed on RIGHT NOW,\nresolved at call time (never a chat id baked into the agent's spawn-time\ninstruction — see (*agent.Usecase).RenameByRunner). This is the route the\n`crowbar chat rename --segment <segid>` CLI posts to; `?source=agent` applies\nthe same agent precedence rule Rename does (skip if user-locked).\n\nUnlike Rename it has no by-id workspace scope check to make: :segid names a\nRUNNER, not a chat, and every other runner-keyed callback (Hooks) resolves the\nsame way, straight off the runner aggregate. A runner Crowbar has never heard\nof, or one whose CLI has already exited, maps to 404 via\nagentrunner.ErrNotFound."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/agent/ws/chats",
+      "responseKind": "websocket"
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/blame",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers",
+      "handler": "Blame",
+      "handlerPos": "internal/api/v0/endpoints/editor/handlers/blame.go:15",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "api_v0_dto",
+            "name": "BlameEntryDTO"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Blame handles GET /v0/workspaces/:wsId/blame, annotating each line of the\n?path= file with its last-changing commit. The data field carries a\nBlameEntry array, empty for an unblamed file."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/detach-holder",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers",
+      "handler": "DetachHolder",
+      "handlerPos": "internal/api/v0/endpoints/workspaces/handlers/hierarchy.go:253",
+      "responseKind": "empty",
+      "doc": "DetachHolder handles\nPOST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/detach-holder.\nIt validates the workspace exists synchronously (4xx if not), then returns 202\nand, in the background, detaches the branch's holder (with the user's consent,\ncaptured by the modal that fires this call), clears the home row's branch when\nthe holder is the repo home, and re-provisions the placeholder in place. A\nfailure (e.g. detach blocked mid-merge) surfaces as LastError on the entity."
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/files",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files/handlers",
+      "handler": "Delete",
+      "handlerPos": "internal/api/v0/endpoints/files/handlers/files.go:196",
+      "request": {
+        "module": "api_v0_endpoints_files_handlers",
+        "name": "DeleteRequest"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "Delete handles DELETE /v0/workspaces/:wsId/files"
+    },
+    {
+      "method": "PATCH",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/files",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files/handlers",
+      "handler": "Rename",
+      "handlerPos": "internal/api/v0/endpoints/files/handlers/files.go:166",
+      "request": {
+        "module": "api_v0_endpoints_files_handlers",
+        "name": "RenameRequest"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "Rename handles PATCH /v0/workspaces/:wsId/files"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/files",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files/handlers",
+      "handler": "Create",
+      "handlerPos": "internal/api/v0/endpoints/files/handlers/files.go:92",
+      "request": {
+        "module": "api_v0_endpoints_files_handlers",
+        "name": "CreateRequest"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "Create handles POST /v0/workspaces/:wsId/files"
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/files/content",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files/handlers",
+      "handler": "ReadContent",
+      "handlerPos": "internal/api/v0/endpoints/files/handlers/files.go:38",
+      "responses": [
+        {
+          "module": "domain",
+          "name": "FileContent"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "ReadContent handles GET /v0/workspaces/:wsId/files/content"
+    },
+    {
+      "method": "PUT",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/files/content",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files/handlers",
+      "handler": "SaveContent",
+      "handlerPos": "internal/api/v0/endpoints/files/handlers/files.go:61",
+      "request": {
+        "module": "api_v0_endpoints_files_handlers",
+        "name": "SaveContentRequest"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "SaveContent handles PUT /v0/workspaces/:wsId/files/content"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/files/copy",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files/handlers",
+      "handler": "Copy",
+      "handlerPos": "internal/api/v0/endpoints/files/handlers/files.go:136",
+      "request": {
+        "module": "api_v0_endpoints_files_handlers",
+        "name": "CopyRequest"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "Copy handles POST /v0/workspaces/:wsId/files/copy. It duplicates sourcePath\nto destPath (both workspace-relative) byte-faithfully — the server-side\nio.Copy path exists precisely so binary files never round-trip through the\nbase64 content read (which corrupts them when written back as text).\nDirectories copy recursively; an existing destination is a 409."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/files/tree",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files/handlers",
+      "handler": "Tree",
+      "handlerPos": "internal/api/v0/endpoints/files/handlers/files.go:16",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "domain",
+            "name": "FileNode"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Tree handles GET /v0/workspaces/:wsId/files/tree"
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/files/ws",
+      "responseKind": "websocket"
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/blame",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Blame",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/read.go:88",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "domain_git",
+            "name": "BlameEntry"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Blame GET /v0/workspaces/:wsId/git/blame?path=<filePath>"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/branches",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "DeleteBranch",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:326",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "DeleteBranchRequest"
+      },
+      "responseKind": "empty",
+      "doc": "DeleteBranch DELETE /workspaces/:wsId/git/branches"
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/branches",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Branches",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/read.go:111",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "domain_git",
+            "name": "Branch"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Branches GET /v0/workspaces/:wsId/git/branches"
+    },
+    {
+      "method": "PATCH",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/branches",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "RenameBranch",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:293",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "RenameBranchRequest"
+      },
+      "responseKind": "empty",
+      "doc": "RenameBranch PATCH /workspaces/:wsId/git/branches"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/branches",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "CreateBranch",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:265",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "CreateBranchRequest"
+      },
+      "responseKind": "empty",
+      "doc": "CreateBranch POST /workspaces/:wsId/git/branches"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/commit",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Commit",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:185",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "CommitRequest"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "Commit POST /workspaces/:wsId/git/commit"
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/commit-diff",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "CommitDiff",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/read.go:185",
+      "responses": [
+        {
+          "module": "domain_git",
+          "name": "MultiFileDiff"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "CommitDiff GET /v0/workspaces/:wsId/git/commit-diff?sha=<sha>"
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/conflict-hunks",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "ConflictHunks",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/read.go:162",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "domain_git",
+            "name": "ConflictHunk"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "ConflictHunks GET /v0/workspaces/:wsId/git/conflict-hunks?path=<filePath>"
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/conflicts",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Conflicts",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/read.go:145",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "prim": "string"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Conflicts GET /v0/workspaces/:wsId/git/conflicts"
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/diff",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Diff",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/read.go:32",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "domain_git",
+            "name": "FileDiff"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Diff GET /v0/workspaces/:wsId/git/diff?staged=true|false"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/discard",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Discard",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:161",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "PathsBody"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "Discard POST /workspaces/:wsId/git/discard"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/fetch",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Fetch",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:233",
+      "responseKind": "empty",
+      "doc": "Fetch POST /workspaces/:wsId/git/fetch is a slow git op (202 + async)."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/log",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Log",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/read.go:56",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "domain_git",
+            "name": "Commit"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Log GET /v0/workspaces/:wsId/git/log?limit=50&skip=0"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/merge",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Merge",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:532",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "MergeRequest"
+      },
+      "responseKind": "empty",
+      "doc": "Merge POST /workspaces/:wsId/git/merge is a slow git op: it validates the\ntarget branch synchronously (4xx) then returns 202 and runs the merge in the\nbackground (00 §4)."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/operation/abort",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "OperationAbort",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:651",
+      "responseKind": "empty",
+      "doc": "OperationAbort POST /workspaces/:wsId/git/operation/abort"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/operation/continue",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "OperationContinue",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:635",
+      "responseKind": "empty",
+      "doc": "OperationContinue POST /workspaces/:wsId/git/operation/continue"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/pull",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Pull",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:249",
+      "responseKind": "empty",
+      "doc": "Pull POST /workspaces/:wsId/git/pull is a slow git op (202 + async)."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/push",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Push",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:217",
+      "responseKind": "empty",
+      "doc": "Push POST /workspaces/:wsId/git/push is a slow git op: it returns 202 and runs\nthe push in the background, leaving the post-push state to the git-status\nwatcher broadcast and a failure to the workspace LastError (00 §4)."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/rebase",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Rebase",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:562",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "RebaseRequest"
+      },
+      "responseKind": "empty",
+      "doc": "Rebase POST /workspaces/:wsId/git/rebase is a slow git op: it validates the\nonto branch synchronously (4xx) then returns 202 and runs the rebase in the\nbackground (00 §4)."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/reset",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Reset",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:502",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "ResetRequest"
+      },
+      "responseKind": "empty",
+      "doc": "Reset POST /workspaces/:wsId/git/reset"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/resolve-hunk",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "ResolveHunk",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:590",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "ResolveHunkRequest"
+      },
+      "responseKind": "empty",
+      "doc": "ResolveHunk POST /workspaces/:wsId/git/resolve-hunk"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/stage",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Stage",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:47",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "PathsBody"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "Stage POST /workspaces/:wsId/git/stage"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/stage-hunk",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "StageHunk",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:71",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "StageHunkRequest"
+      },
+      "responseKind": "empty",
+      "doc": "StageHunk POST /workspaces/:wsId/git/stage-hunk"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/stash",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "StashDrop",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:475",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "StashDropRequest"
+      },
+      "responseKind": "empty",
+      "doc": "StashDrop DELETE /workspaces/:wsId/git/stash"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/stash",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "StashPush",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:381",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "StashPushRequest"
+      },
+      "responseKind": "empty",
+      "doc": "StashPush POST /workspaces/:wsId/git/stash"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/stash-apply",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "StashApply",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:403",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "StashApplyRequest"
+      },
+      "responseKind": "empty",
+      "doc": "StashApply POST /workspaces/:wsId/git/stash-apply"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/stash-pop",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "StashPop",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:428",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "StashPopRequest"
+      },
+      "responseKind": "empty",
+      "doc": "StashPop POST /workspaces/:wsId/git/stash-pop"
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/stashes",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Stashes",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/read.go:128",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "domain_git",
+            "name": "Stash"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Stashes GET /v0/workspaces/:wsId/git/stashes"
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/status",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Status",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/read.go:14",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "GitStatusDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Status GET /v0/workspaces/:wsId/git/status"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/switch",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Switch",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:353",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "SwitchRequest"
+      },
+      "responseKind": "empty",
+      "doc": "Switch POST /workspaces/:wsId/git/switch"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/unstage",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "Unstage",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:104",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "PathsBody"
+      },
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "Unstage POST /workspaces/:wsId/git/unstage"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/unstage-hunk",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers",
+      "handler": "UnstageHunk",
+      "handlerPos": "internal/api/v0/endpoints/git/handlers/write.go:128",
+      "request": {
+        "module": "api_v0_endpoints_git_handlers",
+        "name": "UnstageHunkRequest"
+      },
+      "responseKind": "empty",
+      "doc": "UnstageHunk POST /workspaces/:wsId/git/unstage-hunk"
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/identity",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/identity/handlers",
+      "handler": "Get",
+      "handlerPos": "internal/api/v0/endpoints/identity/handlers/identity.go:15",
+      "responses": [
+        {
+          "module": "domain_git",
+          "name": "Identity"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Get handles GET /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/identity.\nIt returns the current human's GitHub/git identity as a best-effort response:\nthe request always succeeds with 200, even when gh is absent or the workspace\nis unknown (all fields may be empty in that case).",
+      "unresolved": [
+        {
+          "what": "GET /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/identity",
+          "where": "internal/api/v0/endpoints/identity/handlers/identity.go:21, internal/api/v0/endpoints/identity/handlers/identity.go:30",
+          "reason": "response payload is an untyped map (gin.H / map[string]any), so it has no static shape — give the handler a named DTO",
+          "category": "untyped-payload",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/lsp/codeAction",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers",
+      "handler": "CodeAction",
+      "handlerPos": "internal/api/v0/endpoints/editor/handlers/lsp_request.go:126",
+      "request": {
+        "module": "api_v0_dto",
+        "name": "LSPRangeRequest"
+      },
+      "responses": [
+        {
+          "prim": "json"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "CodeAction handles POST /v0/workspaces/:wsId/lsp/codeAction. The data field\ncarries the raw textDocument/codeAction result, passed through unchanged."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/lsp/completion",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers",
+      "handler": "Completion",
+      "handlerPos": "internal/api/v0/endpoints/editor/handlers/lsp_request.go:17",
+      "request": {
+        "module": "api_v0_dto",
+        "name": "LSPPositionRequest"
+      },
+      "responses": [
+        {
+          "prim": "json"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Completion handles POST /v0/workspaces/:wsId/lsp/completion. The data field\ncarries the raw textDocument/completion result, passed through unchanged, or\nnull when no server serves the file's language."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/lsp/definition",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers",
+      "handler": "Definition",
+      "handlerPos": "internal/api/v0/endpoints/editor/handlers/lsp_request.go:55",
+      "request": {
+        "module": "api_v0_dto",
+        "name": "LSPPositionRequest"
+      },
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "domain_lsp",
+            "name": "Location"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Definition handles POST /v0/workspaces/:wsId/lsp/definition. The data field\ncarries the resolved locations as an array, empty when none resolve."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/lsp/diagnostics",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers",
+      "handler": "Diagnostics",
+      "handlerPos": "internal/api/v0/endpoints/editor/handlers/diagnostics.go:13",
+      "responses": [
+        {
+          "module": "domain_lsp",
+          "name": "DiagnosticsEvent"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Diagnostics handles GET /v0/workspaces/:wsId/lsp/diagnostics. The data field\ncarries the latest diagnostics snapshot for the workspace under the\nDiagnosticsEvent shape, empty until diagnostics arrive."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/lsp/didChange",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers",
+      "handler": "DidChange",
+      "handlerPos": "internal/api/v0/endpoints/editor/handlers/lsp_sync.go:53",
+      "request": {
+        "module": "api_v0_dto",
+        "name": "LSPDidChangeRequest"
+      },
+      "responses": [
+        {
+          "module": "api_v0_endpoints_editor_handlers",
+          "name": "SyncOK"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "DidChange handles POST /v0/workspaces/:wsId/lsp/didChange, forwarding a\ntextDocument/didChange notification with the full replacement buffer text."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/lsp/didClose",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers",
+      "handler": "DidClose",
+      "handlerPos": "internal/api/v0/endpoints/editor/handlers/lsp_sync.go:85",
+      "request": {
+        "module": "api_v0_dto",
+        "name": "LSPPathRequest"
+      },
+      "responses": [
+        {
+          "module": "api_v0_endpoints_editor_handlers",
+          "name": "SyncOK"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "DidClose handles POST /v0/workspaces/:wsId/lsp/didClose, forwarding a\ntextDocument/didClose notification."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/lsp/didOpen",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers",
+      "handler": "DidOpen",
+      "handlerPos": "internal/api/v0/endpoints/editor/handlers/lsp_sync.go:20",
+      "request": {
+        "module": "api_v0_dto",
+        "name": "LSPDidOpenRequest"
+      },
+      "responses": [
+        {
+          "module": "api_v0_endpoints_editor_handlers",
+          "name": "SyncOK"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "DidOpen handles POST /v0/workspaces/:wsId/lsp/didOpen, forwarding a\ntextDocument/didOpen notification with the full buffer text."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/lsp/documentSymbol",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers",
+      "handler": "DocumentSymbol",
+      "handlerPos": "internal/api/v0/endpoints/editor/handlers/lsp_request.go:153",
+      "request": {
+        "module": "api_v0_dto",
+        "name": "LSPPathRequest"
+      },
+      "responses": [
+        {
+          "prim": "json"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "DocumentSymbol handles POST /v0/workspaces/:wsId/lsp/documentSymbol. The data\nfield carries the raw textDocument/documentSymbol result, unchanged."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/lsp/hover",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers",
+      "handler": "Hover",
+      "handlerPos": "internal/api/v0/endpoints/editor/handlers/lsp_request.go:36",
+      "request": {
+        "module": "api_v0_dto",
+        "name": "LSPPositionRequest"
+      },
+      "responses": [
+        {
+          "prim": "json"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Hover handles POST /v0/workspaces/:wsId/lsp/hover. The data field carries the\nraw textDocument/hover result, passed through unchanged, or null when absent."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/lsp/references",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers",
+      "handler": "References",
+      "handlerPos": "internal/api/v0/endpoints/editor/handlers/lsp_request.go:74",
+      "request": {
+        "module": "api_v0_dto",
+        "name": "LSPPositionRequest"
+      },
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "domain_lsp",
+            "name": "Location"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "References handles POST /v0/workspaces/:wsId/lsp/references. The data field\ncarries the reference locations as an array, empty when none resolve."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/lsp/rename",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers",
+      "handler": "Rename",
+      "handlerPos": "internal/api/v0/endpoints/editor/handlers/lsp_request.go:93",
+      "request": {
+        "module": "api_v0_dto",
+        "name": "LSPRenameRequest"
+      },
+      "responses": [
+        {
+          "module": "domain_lsp",
+          "name": "WorkspaceEdit"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Rename handles POST /v0/workspaces/:wsId/lsp/rename. The data field carries\nthe resulting workspace edit."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/lsp/ws",
+      "responseKind": "websocket"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/merge-into-parent",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers",
+      "handler": "MergeIntoParent",
+      "handlerPos": "internal/api/v0/endpoints/workspaces/handlers/hierarchy.go:74",
+      "request": {
+        "module": "api_v0_endpoints_workspaces_handlers",
+        "name": "MergeRequest"
+      },
+      "responseKind": "empty",
+      "doc": "MergeIntoParent handles\nPOST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/merge-into-parent.\nIt validates synchronously (body shape, strategy present, workspace exists)\nreturning 4xx on failure; then it returns 202 and runs the local child→parent\nmerge in the background. The merge outcome is delivered on the workspace\nWebSocket stream via the repository's broadcast callback; a failure surfaces as\nLastError on the entity (00 §4)."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/provider",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/provider/handlers",
+      "handler": "State",
+      "handlerPos": "internal/api/v0/endpoints/provider/handlers/provider.go:20",
+      "responses": [
+        {
+          "module": "engine_provider_types",
+          "name": "ProviderState"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "State handles\nGET /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/provider.\nRuns PollOnView for the workspace and returns its ProviderState JSON.\nWhen capability is disabled, returns ProviderState{Protected: false, PR: nil}."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/rebase-onto-parent",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers",
+      "handler": "RebaseOntoParent",
+      "handlerPos": "internal/api/v0/endpoints/workspaces/handlers/hierarchy.go:165",
+      "responseKind": "empty",
+      "doc": "Reparent handles\nPOST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/reparent. It\nvalidates synchronously (body shape, newParentId present, workspace exists)\nreturning 4xx on failure; then it returns 202 and rebases the leaf child onto\nthe new parent in the background. The reparented workspace is delivered on the\nworkspace WebSocket stream via the repository's broadcast callback; a failure\nsurfaces as LastError on the entity (00 §4).\nRebaseOntoParent handles\nPOST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/rebase-onto-parent.\nIt is the user-initiated \"finish the move\" for a moved-but-conflicting child:\n202 + async rebase of the child onto its current parent, keeping a conflicting\nrebase live for the standard resolve flow. The outcome rides the workspace WS\nstream; a failure surfaces as LastError on the entity."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/reparent",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers",
+      "handler": "Reparent",
+      "handlerPos": "internal/api/v0/endpoints/workspaces/handlers/hierarchy.go:187",
+      "request": {
+        "module": "api_v0_endpoints_workspaces_handlers",
+        "name": "ReparentRequest"
+      },
+      "responseKind": "empty"
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/retry-provision",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers",
+      "handler": "RetryProvision",
+      "handlerPos": "internal/api/v0/endpoints/workspaces/handlers/hierarchy.go:224",
+      "responseKind": "empty",
+      "doc": "RetryProvision handles\nPOST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/retry-provision.\nIt validates the workspace exists synchronously (4xx if not), then returns 202\nand re-provisions the placeholder in place in the background. The provisioned\nworkspace is delivered on the workspace WebSocket stream; a failure (e.g. the\nbranch is still held) surfaces as LastError on the entity."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/review",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers",
+      "handler": "Get",
+      "handlerPos": "internal/api/v0/endpoints/review/handlers/review.go:45",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "BranchReviewDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Get handles GET /v0/workspaces/:wsId/review, returning the composite\nbranch-review read model for the workspace.\n\nThe response goes through BranchReviewDTOFrom rather than the domain object.\nThat is not cosmetic: a FileDiff for a BINARY file carries a nil Lines slice,\nwhich marshals to JSON `null`, and the review pane reads `diff.lines.length`\nunguarded — so a single binary file anywhere in a branch took the whole pane\ndown with \"null is not an object\". The DTO normalises those slices to `[]`,\nand did so all along; this endpoint simply was not using it. It was reachable\nonly from its own tests, one of which\n(TestBranchReviewDTOFromEmptySlicesAreNonNil) asserts exactly the property\nwhose absence caused the crash."
+    },
+    {
+      "method": "PATCH",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/review",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers",
+      "handler": "SetMergeStrategy",
+      "handlerPos": "internal/api/v0/endpoints/review/handlers/review.go:58",
+      "request": {
+        "module": "api_v0_endpoints_review_handlers",
+        "name": "SetMergeStrategyRequest"
+      },
+      "responseKind": "json",
+      "doc": "SetMergeStrategy handles PATCH /v0/workspaces/:wsId/review, updating the\nmerge strategy for the workspace.",
+      "unresolved": [
+        {
+          "what": "PATCH /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/review",
+          "where": "internal/api/v0/endpoints/review/handlers/review.go:72",
+          "reason": "response payload is an untyped map (gin.H / map[string]any), so it has no static shape — give the handler a named DTO",
+          "category": "untyped-payload",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/review/files",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers",
+      "handler": "GetFiles",
+      "handlerPos": "internal/api/v0/endpoints/review/handlers/review_files.go:21",
+      "responses": [
+        {
+          "module": "api_v0_endpoints_review_handlers",
+          "name": "ReviewFilesResponse"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "GetFiles handles GET /v0/workspaces/:wsId/review/files, returning the\nfiles-only branch-review summary. It is the cheap, O(file count) counterpart\nto Get: the sidebar uses it to show the complete changed-files list without\npulling the line-level branch diff that Get's read model carries."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/review/outline",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers",
+      "handler": "GetOutline",
+      "handlerPos": "internal/api/v0/endpoints/review/handlers/outline.go:27",
+      "responses": [
+        {
+          "module": "api_v0_endpoints_review_handlers",
+          "name": "OutlineResponse"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "GetOutline handles GET /v0/workspaces/:wsId/review/outline, returning the\nhunk geometry of the branch diff. It is what lets the client reserve the\nright scroll space for every file before fetching a single patch, so it\nanswers the shape of a million-line diff without any of its content."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/review/patch",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers",
+      "handler": "GetPatch",
+      "handlerPos": "internal/api/v0/endpoints/review/handlers/patch.go:56",
+      "responseKind": "empty",
+      "doc": "GetPatch handles GET /v0/workspaces/:wsId/review/patch?path=&maxLines=,\nserving ONE file's unified patch as text/plain.\n\nThe patch is streamed: git's output reaches the response as it is produced,\nso a 420,000-line file costs neither the daemon nor this handler an\nallocation proportional to it. maxLines defaults to defaultPatchMaxLines and\n<= 0 means unlimited — which also means uncuttable, so no truncation is\npromised or reported on that path.\n\npath is required. An empty one is refused here as well as inside the engine\nbecause \":(top,literal)\" with nothing appended is a valid pathspec matching\nthe whole tree: the one query guaranteed to be O(one file) would quietly\nbecome a read of the entire branch diff."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/review/search",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers",
+      "handler": "SearchDiff",
+      "handlerPos": "internal/api/v0/endpoints/review/handlers/search.go:40",
+      "responses": [
+        {
+          "module": "api_v0_endpoints_review_handlers",
+          "name": "SearchResponse"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "SearchDiff handles GET /v0/workspaces/:wsId/review/search?q=&regex=&case=&limit=,\nreturning the file and line number of every match in the branch diff's\ncontent plus whether the limit cut the results short.\n\nIt is find-in-diff moved server-side: the client only ever holds a window of\nthe patch, so it has nothing left to search locally. An empty q is the state\na find box opens in and answers an empty result rather than an error or a\nwhole-diff scan."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/search",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search/handlers",
+      "handler": "Search",
+      "handlerPos": "internal/api/v0/endpoints/search/handlers/search.go:15",
+      "request": {
+        "module": "api_v0_endpoints_search_handlers",
+        "name": "SearchRequest"
+      },
+      "responses": [
+        {
+          "module": "engine_search",
+          "name": "SearchResponse"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Search handles POST /v0/workspaces/:wsId/search."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/search/replace",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search/handlers",
+      "handler": "Replace",
+      "handlerPos": "internal/api/v0/endpoints/search/handlers/search.go:65",
+      "request": {
+        "module": "api_v0_endpoints_search_handlers",
+        "name": "ReplaceRequest"
+      },
+      "responseKind": "empty",
+      "doc": "Replace handles POST /v0/workspaces/:wsId/search/replace."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/sync",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers",
+      "handler": "Sync",
+      "handlerPos": "internal/api/v0/endpoints/workspaces/handlers/sync.go:17",
+      "responseKind": "empty",
+      "doc": "Sync handles POST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/sync.\nIt validates the workspace exists synchronously (4xx if not), then returns 202\nand recomputes the working-tree summary in the background. The synced\nworkspace is delivered on the workspace WebSocket stream via the repository's\nbroadcast callback; a failure surfaces as LastError on the entity (00 §4)."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers",
+      "handler": "ListSessions",
+      "handlerPos": "internal/api/v0/endpoints/terminal/handlers/sessions.go:84",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "api_v0_dto",
+            "name": "TerminalSessionDTO"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "ListSessions handles GET\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals. It returns\nthe sessions for the workspace from the in-memory engine registry with their\nreal lifecycle state (active|detached|suspended) (D6: terminals are ephemeral,\nno persistence). A WebSocket upgrade on the same path is routed to the\nlifecycle broadcaster by the dual-serve wrapper."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers",
+      "handler": "CreateSession",
+      "handlerPos": "internal/api/v0/endpoints/terminal/handlers/sessions.go:26",
+      "request": {
+        "module": "api_v0_endpoints_terminal_handlers",
+        "name": "CreateSessionRequest"
+      },
+      "responseKind": "json",
+      "doc": "CreateSession handles POST\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals.\n\nPer D2 the response is 201 {sessionId} synchronously (the FE needs the id\nimmediately to open the raw PTY WebSocket) AND a lifecycle\nTerminalSessionDTO{status:\"active\"} is broadcast so the workspace-scoped\nstream converges.",
+      "unresolved": [
+        {
+          "what": "POST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals",
+          "where": "internal/api/v0/endpoints/terminal/handlers/sessions.go:75",
+          "reason": "response payload is an untyped map (gin.H / map[string]any), so it has no static shape — give the handler a named DTO",
+          "category": "untyped-payload",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals/:sessionId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers",
+      "handler": "KillSession",
+      "handlerPos": "internal/api/v0/endpoints/terminal/handlers/sessions.go:113",
+      "responses": [
+        {
+          "module": "api_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "KillSession handles DELETE\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals/:sessionId.\nIt returns 202 and broadcasts a TerminalSessionDTO{status:\"ended\"} frame (the\nengine's OnSessionEnded reap also emits one; the broadcaster's idempotent\nfull-replace makes the duplicate harmless)."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals/:sessionId/ws",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers",
+      "handler": "WS",
+      "handlerPos": "internal/api/v0/endpoints/terminal/handlers/ws.go:46",
+      "responseKind": "websocket",
+      "doc": "WS handles GET .../workspaces/:wsId/terminals/:sessionId/ws.\nIt verifies the session exists before upgrading, sets up ping/pong keepalive,\nthen runs the read/write pumps via the terminal engine."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "List",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:51",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "api_v0_dto",
+            "name": "ThreadDTO"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "List handles GET\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads, returning the\nworkspace's review threads as scoped DTOs. A WebSocket upgrade on the same\npath is routed to the thread broadcaster by the dual-serve wrapper."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "OpenThread",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:67",
+      "request": {
+        "module": "api_v0_endpoints_threads_handlers",
+        "name": "OpenThreadRequest2"
+      },
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "ThreadDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "OpenThread handles POST\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads, opening a new\nreview thread anchored to a file location. It returns 201 with the scoped DTO\nand broadcasts the same DTO so the workspace-scoped stream converges."
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "DeleteThread",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:240",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "ThreadDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "DeleteThread handles DELETE\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId,\nforgetting the whole thread (root comment + replies). It broadcasts a tombstone\nDTO (Deleted=true) carrying the entity scope so subscribed clients drop it, and\nreturns 200 with the same tombstone."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "Detail",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:110",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "ThreadDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Detail handles GET\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId,\nreturning the single thread as a DTO with its anchor and ordered replies."
+    },
+    {
+      "method": "PATCH",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "SetResolved",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:126",
+      "request": {
+        "module": "api_v0_endpoints_threads_handlers",
+        "name": "SetResolvedRequest2"
+      },
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "ThreadDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "SetResolved handles PATCH\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId,\nresolving or reopening a thread. It returns 200 with the scoped DTO and\nbroadcasts it."
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId/messages/:messageId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "DeleteMessage",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:219",
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "ThreadDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "DeleteMessage handles DELETE\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId/messages/:messageId,\nremoving a single reply. The root comment cannot be removed this way (deleting\nthe root is DELETE on the thread); attempting it yields a 400. Returns 200 with\nthe updated thread DTO and broadcasts it."
+    },
+    {
+      "method": "PATCH",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId/messages/:messageId",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "EditMessage",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:191",
+      "request": {
+        "module": "api_v0_endpoints_threads_handlers",
+        "name": "EditMessageRequest2"
+      },
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "ThreadDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "EditMessage handles PATCH\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId/messages/:messageId,\nrewriting a message body. It targets any message by id, including the root\ncomment. Returns 200 with the scoped DTO and broadcasts it."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId/replies",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers",
+      "handler": "Reply",
+      "handlerPos": "internal/api/v0/endpoints/threads/handlers/threads.go:163",
+      "request": {
+        "module": "api_v0_endpoints_threads_handlers",
+        "name": "ReplyRequest2"
+      },
+      "responses": [
+        {
+          "module": "api_v0_dto",
+          "name": "ThreadDTO"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Reply handles POST\n/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId/replies,\nappending a reply. It returns 200 with the scoped DTO and broadcasts it."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/repos/:repoId/workspaces/import",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers",
+      "handler": "Import",
+      "handlerPos": "internal/api/v0/endpoints/workspaces/handlers/import.go:28",
+      "request": {
+        "module": "api_v0_endpoints_workspaces_handlers",
+        "name": "ImportRequest"
+      },
+      "responseKind": "empty",
+      "doc": "Import handles POST /v0/projects/:projectId/repos/:repoId/workspaces/import.\nIt validates synchronously (repo present, branches non-empty), returns 202,\nand resolves + creates the tree in the background. Each created workspace\narrives on the per-repo workspace WebSocket stream, exactly like a single\ncreate; a batch that fails before producing any workspace is best-effort\nlogged (no entity to hang LastError on)."
+    },
+    {
+      "method": "PUT",
+      "path": "/v0/settings/agent/providers",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers",
+      "handler": "UpdateProviderPreferences",
+      "handlerPos": "internal/api/v0/endpoints/agent/handlers/providers.go:37",
+      "request": {
+        "module": "api_v0_endpoints_agent_handlers",
+        "name": "UpdateProviderPreferencesRequest"
+      },
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "api_v0_dto",
+            "name": "AgentProviderDTO"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "UpdateProviderPreferences handles PUT /v0/settings/agent/providers: the full\nordered preference set (spec §3.2). The body is the COMPLETE ordered list of\nknown providers; the array position defines the new priority. The handler\nreplaces the whole preference table (upsert submitted, delete omitted) and\nreturns the freshly resolved list so the client reconciles from server truth\nwith no second fetch. An unknown provider id is rejected 400 by the usecase\n(apperr.ErrInvalidArgument) before any row is written.",
+      "unresolved": [
+        {
+          "what": "PUT /v0/settings/agent/providers",
+          "reason": "DTO api_v0_endpoints_agent_handlers.UpdateProviderPreferencesRequest is missing at least one field protogen could not lower, so this endpoint's shape is incomplete",
+          "category": "incomplete-type",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v0/settings/terminal/profiles",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers",
+      "handler": "ListProfiles",
+      "handlerPos": "internal/api/v0/endpoints/terminal/handlers/profiles.go:16",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "domain",
+            "name": "TerminalProfile"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "ListProfiles handles GET /v0/settings/terminal/profiles."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/settings/terminal/profiles",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers",
+      "handler": "CreateProfile",
+      "handlerPos": "internal/api/v0/endpoints/terminal/handlers/profiles.go:43",
+      "request": {
+        "module": "domain",
+        "name": "TerminalProfile"
+      },
+      "responses": [
+        {
+          "module": "domain",
+          "name": "TerminalProfile"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "CreateProfile handles POST /v0/settings/terminal/profiles."
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/settings/terminal/profiles/:id",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers",
+      "handler": "DeleteProfile",
+      "handlerPos": "internal/api/v0/endpoints/terminal/handlers/profiles.go:92",
+      "responseKind": "empty",
+      "doc": "DeleteProfile handles DELETE /v0/settings/terminal/profiles/:id."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/settings/terminal/profiles/:id",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers",
+      "handler": "GetProfile",
+      "handlerPos": "internal/api/v0/endpoints/terminal/handlers/profiles.go:27",
+      "responses": [
+        {
+          "container": "option",
+          "elem": {
+            "module": "domain",
+            "name": "TerminalProfile"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "GetProfile handles GET /v0/settings/terminal/profiles/:id."
+    },
+    {
+      "method": "PUT",
+      "path": "/v0/settings/terminal/profiles/:id",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers",
+      "handler": "UpdateProfile",
+      "handlerPos": "internal/api/v0/endpoints/terminal/handlers/profiles.go:63",
+      "request": {
+        "module": "domain",
+        "name": "TerminalProfile"
+      },
+      "responses": [
+        {
+          "module": "domain",
+          "name": "TerminalProfile"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "UpdateProfile handles PUT /v0/settings/terminal/profiles/:id."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/settings/ui",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/settings/handlers",
+      "handler": "GetUI",
+      "handlerPos": "internal/api/v0/endpoints/settings/handlers/ui.go:70",
+      "responses": [
+        {
+          "prim": "json"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "GetUI handles GET /v0/settings/ui?scope=<scope>.\n\nIt returns the JSON object last PUT under that scope, verbatim. A scope with\nnothing stored yields 200 with {} rather than 404. The value is opaque: the\ndaemon returns exactly the bytes it was given (compacted), having never\nparsed past confirming it was an object."
+    },
+    {
+      "method": "PUT",
+      "path": "/v0/settings/ui",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/settings/handlers",
+      "handler": "PutUI",
+      "handlerPos": "internal/api/v0/endpoints/settings/handlers/ui.go:103",
+      "responses": [
+        {
+          "prim": "json"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "PutUI handles PUT /v0/settings/ui?scope=<scope>.\n\nThe body must be a JSON object; it REPLACES whatever was stored under that\nscope wholesale, so keys absent from the new body are dropped. The daemon\ndoes not merge, does not validate the object's shape, and does not know what\nany of its keys mean — that is the point, and it is what keeps client layout\ndecisions out of the daemon. The stored object is echoed back so a client can\nconfirm from server truth without a second read.\n\nA non-object body (array, scalar, null, malformed) is rejected 400; a body\nover MaxValueBytes is rejected 413."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/system/perf",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/system/handlers",
+      "handler": "Get",
+      "handlerPos": "internal/api/v0/endpoints/system/handlers/perf.go:33",
+      "responses": [
+        {
+          "module": "api_v0_endpoints_system_handlers",
+          "name": "PerfData"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Get is the GET /system/perf gin handler. It answers the ring's contents even\nwhile disarmed, so a reader can tell \"armed and quiet\" from \"never armed\"."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/system/perf",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/system/handlers",
+      "handler": "Set",
+      "handlerPos": "internal/api/v0/endpoints/system/handlers/perf.go:49",
+      "responses": [
+        {
+          "module": "api_v0_endpoints_system_handlers",
+          "name": "PerfData"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Set is the POST /system/perf?enabled=true|false gin handler. Arming always\nclears the ring so a capture run starts from a known-empty window and no\nsample from a previous scenario is attributed to this one.\n\nAn absent or unparseable enabled value is a 400 rather than a silent\ndisarm: treating a typo as \"false\" would let an operator drive a whole\nscenario and read back an empty ring with nothing to explain why."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/system/prerequisites",
+      "goPackage": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/system/handlers",
+      "handler": "Prerequisites",
+      "handlerPos": "internal/api/v0/endpoints/system/handlers/prerequisites.go:53",
+      "responses": [
+        {
+          "module": "api_v0_endpoints_system_handlers",
+          "name": "PrerequisitesData"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Prerequisites is the GET /system/prerequisites gin handler."
+    }
+  ],
+  "types": [
+    {
+      "module": "api_libs",
+      "name": "Envelope",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/libs.Envelope",
+      "fields": 3
+    },
+    {
+      "module": "api_libs",
+      "name": "MutationID",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/libs.mutationData",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "AgentChatDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.AgentChatDTO",
+      "fields": 7
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "AgentChatDetailDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.AgentChatDetailDTO",
+      "fields": 8
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "AgentProviderDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.AgentProviderDTO",
+      "fields": 5
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "BlameEntryDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.BlameEntryDTO",
+      "fields": 6
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "BranchReviewDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.BranchReviewDTO",
+      "fields": 3
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "GitFileDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.GitFileDTO",
+      "fields": 3
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "GitStatusDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.GitStatusDTO",
+      "fields": 4
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "HandoffDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.HandoffDTO",
+      "fields": 1
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "LSPDidChangeRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.LSPDidChangeRequest",
+      "fields": 2
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "LSPDidOpenRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.LSPDidOpenRequest",
+      "fields": 3
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "LSPPathRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.LSPPathRequest",
+      "fields": 1
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "LSPPositionRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.LSPPositionRequest",
+      "fields": 2
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "LSPRangeRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.LSPRangeRequest",
+      "fields": 2
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "LSPRenameRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.LSPRenameRequest",
+      "fields": 3
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "ProjectDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.ProjectDTO",
+      "fields": 5
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "RepoDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.RepoDTO",
+      "fields": 10
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "ReviewMessageDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.ReviewMessageDTO",
+      "fields": 5
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "ReviewThreadDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.ReviewThreadDTO",
+      "fields": 9
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "TerminalSessionDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.TerminalSessionDTO",
+      "fields": 9
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "ThreadDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.ThreadDTO",
+      "fields": 17
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "ThreadReplyDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.ThreadReplyDTO",
+      "fields": 6
+    },
+    {
+      "module": "api_v0_dto",
+      "name": "WorkspaceDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/dto.WorkspaceDTO",
+      "fields": 22
+    },
+    {
+      "module": "api_v0_endpoints_agent_handlers",
+      "name": "CreateRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers.<anonymous Create request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_agent_handlers",
+      "name": "CreateRequest2",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers.<anonymous Create request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_agent_handlers",
+      "name": "HooksRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers.<anonymous Hooks request>",
+      "fields": 4,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_agent_handlers",
+      "name": "HooksRequest2",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers.<anonymous Hooks request>",
+      "fields": 4,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_agent_handlers",
+      "name": "RenameByRunnerRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers.<anonymous RenameByRunner request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_agent_handlers",
+      "name": "RenameByRunnerRequest2",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers.<anonymous RenameByRunner request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_agent_handlers",
+      "name": "RenameRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers.<anonymous Rename request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_agent_handlers",
+      "name": "RenameRequest2",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers.<anonymous Rename request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_agent_handlers",
+      "name": "SwitchRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers.<anonymous Switch request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_agent_handlers",
+      "name": "SwitchRequest2",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers.<anonymous Switch request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_agent_handlers",
+      "name": "UpdateProviderPreferencesRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers.<anonymous UpdateProviderPreferences request>",
+      "dropped": [
+        {
+          "what": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers.UpdateProviderPreferencesRequest.Providers",
+          "reason": "field type []struct{ID string \"json:\\\"id\\\"\"; Disabled bool \"json:\\\"disabled\\\"\"} did not resolve, so the field is missing from the generated struct",
+          "category": "dropped-field",
+          "severity": "error"
+        }
+      ],
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_editor_handlers",
+      "name": "SyncOK",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers.syncOK",
+      "fields": 1
+    },
+    {
+      "module": "api_v0_endpoints_files_handlers",
+      "name": "CopyRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files/handlers.<anonymous Copy request>",
+      "fields": 2,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_files_handlers",
+      "name": "CreateRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files/handlers.<anonymous Create request>",
+      "fields": 2,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_files_handlers",
+      "name": "DeleteRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files/handlers.<anonymous Delete request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_files_handlers",
+      "name": "RenameRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files/handlers.<anonymous Rename request>",
+      "fields": 2,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_files_handlers",
+      "name": "SaveContentRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files/handlers.<anonymous SaveContent request>",
+      "fields": 3,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "CommitRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.<anonymous Commit request>",
+      "fields": 3,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "CreateBranchRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.<anonymous CreateBranch request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "DeleteBranchRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.<anonymous DeleteBranch request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "MergeRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.<anonymous Merge request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "PathsBody",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.pathsBody",
+      "fields": 1
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "RebaseRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.<anonymous Rebase request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "RenameBranchRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.<anonymous RenameBranch request>",
+      "fields": 2,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "ResetRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.<anonymous Reset request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "ResolveHunkRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.<anonymous ResolveHunk request>",
+      "fields": 4,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "StageHunkRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.<anonymous StageHunk request>",
+      "fields": 2,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "StashApplyRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.<anonymous StashApply request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "StashDropRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.<anonymous StashDrop request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "StashPopRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.<anonymous StashPop request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "StashPushRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.<anonymous StashPush request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "SwitchRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.<anonymous Switch request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_git_handlers",
+      "name": "UnstageHunkRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers.<anonymous UnstageHunk request>",
+      "fields": 2,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_home_handlers",
+      "name": "CopyFileRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers.<anonymous CopyFile request>",
+      "fields": 2,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_home_handlers",
+      "name": "CreateFileRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers.<anonymous CreateFile request>",
+      "fields": 2,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_home_handlers",
+      "name": "DeleteFileRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers.<anonymous DeleteFile request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_home_handlers",
+      "name": "RenameFileRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers.<anonymous RenameFile request>",
+      "fields": 2,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_home_handlers",
+      "name": "SaveFileContentRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers.<anonymous SaveFileContent request>",
+      "fields": 3,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_projects_handlers",
+      "name": "ImportRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers.importRequest",
+      "fields": 2
+    },
+    {
+      "module": "api_v0_endpoints_repos_handlers",
+      "name": "BranchEntry",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers.BranchEntry",
+      "fields": 3
+    },
+    {
+      "module": "api_v0_endpoints_repos_handlers",
+      "name": "CreateRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers.createRequest",
+      "fields": 5
+    },
+    {
+      "module": "api_v0_endpoints_repos_handlers",
+      "name": "PRLinkDTO",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers.PRLinkDTO",
+      "fields": 6
+    },
+    {
+      "module": "api_v0_endpoints_repos_handlers",
+      "name": "PutIconEmojiRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers.<anonymous PutIconEmoji request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_repos_handlers",
+      "name": "PutIconRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers.<anonymous PutIcon request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_repos_handlers",
+      "name": "RenameRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers.renameRequest",
+      "fields": 1
+    },
+    {
+      "module": "api_v0_endpoints_review_handlers",
+      "name": "OutlineResponse",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers.outlineResponse",
+      "fields": 1
+    },
+    {
+      "module": "api_v0_endpoints_review_handlers",
+      "name": "ReviewFilesResponse",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers.reviewFilesResponse",
+      "fields": 1
+    },
+    {
+      "module": "api_v0_endpoints_review_handlers",
+      "name": "SearchResponse",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers.searchResponse",
+      "fields": 2
+    },
+    {
+      "module": "api_v0_endpoints_review_handlers",
+      "name": "SetMergeStrategyRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers.<anonymous SetMergeStrategy request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_search_handlers",
+      "name": "ReplaceRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search/handlers.<anonymous Replace request>",
+      "fields": 6,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_search_handlers",
+      "name": "SearchRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search/handlers.<anonymous Search request>",
+      "fields": 6,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_system_handlers",
+      "name": "CLIStatus",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/system/handlers.CLIStatus",
+      "fields": 2
+    },
+    {
+      "module": "api_v0_endpoints_system_handlers",
+      "name": "GitStatus",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/system/handlers.GitStatus",
+      "fields": 2
+    },
+    {
+      "module": "api_v0_endpoints_system_handlers",
+      "name": "PerfData",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/system/handlers.PerfData",
+      "fields": 2
+    },
+    {
+      "module": "api_v0_endpoints_system_handlers",
+      "name": "PrerequisitesData",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/system/handlers.PrerequisitesData",
+      "fields": 3
+    },
+    {
+      "module": "api_v0_endpoints_terminal_handlers",
+      "name": "CreateSessionRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers.<anonymous CreateSession request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_threads_handlers",
+      "name": "EditMessageRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers.<anonymous EditMessage request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_threads_handlers",
+      "name": "EditMessageRequest2",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers.<anonymous EditMessage request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_threads_handlers",
+      "name": "OpenThreadRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers.<anonymous OpenThread request>",
+      "fields": 8,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_threads_handlers",
+      "name": "OpenThreadRequest2",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers.<anonymous OpenThread request>",
+      "fields": 8,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_threads_handlers",
+      "name": "ReplyRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers.<anonymous Reply request>",
+      "fields": 3,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_threads_handlers",
+      "name": "ReplyRequest2",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers.<anonymous Reply request>",
+      "fields": 3,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_threads_handlers",
+      "name": "SetResolvedRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers.<anonymous SetResolved request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_threads_handlers",
+      "name": "SetResolvedRequest2",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers.<anonymous SetResolved request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "api_v0_endpoints_workspaces_handlers",
+      "name": "CreateRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers.createRequest",
+      "fields": 2
+    },
+    {
+      "module": "api_v0_endpoints_workspaces_handlers",
+      "name": "ImportRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers.importRequest",
+      "fields": 1
+    },
+    {
+      "module": "api_v0_endpoints_workspaces_handlers",
+      "name": "MergeRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers.mergeRequest",
+      "fields": 2
+    },
+    {
+      "module": "api_v0_endpoints_workspaces_handlers",
+      "name": "RenameRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers.renameRequest",
+      "fields": 1
+    },
+    {
+      "module": "api_v0_endpoints_workspaces_handlers",
+      "name": "ReparentRequest",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers.reparentRequest",
+      "fields": 1
+    },
+    {
+      "module": "domain",
+      "name": "ChatConversation",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain.ChatConversation",
+      "fields": 4
+    },
+    {
+      "module": "domain",
+      "name": "FileContent",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain.FileContent",
+      "fields": 2
+    },
+    {
+      "module": "domain",
+      "name": "FileNode",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain.FileNode",
+      "fields": 5
+    },
+    {
+      "module": "domain",
+      "name": "FileNodeGitStatus",
+      "kind": "enum",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain.FileNodeGitStatus",
+      "variants": 5
+    },
+    {
+      "module": "domain",
+      "name": "FileNodeType",
+      "kind": "enum",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain.FileNodeType",
+      "variants": 2
+    },
+    {
+      "module": "domain",
+      "name": "ReviewSide",
+      "kind": "enum",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain.ReviewSide",
+      "variants": 2
+    },
+    {
+      "module": "domain",
+      "name": "ReviewThreadStatus",
+      "kind": "enum",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain.ReviewThreadStatus",
+      "variants": 2
+    },
+    {
+      "module": "domain",
+      "name": "TerminalProfile",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain.TerminalProfile",
+      "fields": 7
+    },
+    {
+      "module": "domain",
+      "name": "WorkspaceKind",
+      "kind": "enum",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain.WorkspaceKind",
+      "variants": 2
+    },
+    {
+      "module": "domain",
+      "name": "WorkspaceStatus",
+      "kind": "enum",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain.WorkspaceStatus",
+      "variants": 7
+    },
+    {
+      "module": "domain_git",
+      "name": "BlameEntry",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.BlameEntry",
+      "fields": 6
+    },
+    {
+      "module": "domain_git",
+      "name": "Branch",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.Branch",
+      "fields": 6
+    },
+    {
+      "module": "domain_git",
+      "name": "Commit",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.Commit",
+      "fields": 7
+    },
+    {
+      "module": "domain_git",
+      "name": "ConflictHunk",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.ConflictHunk",
+      "fields": 8
+    },
+    {
+      "module": "domain_git",
+      "name": "ConflictResolution",
+      "kind": "enum",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.ConflictResolution",
+      "variants": 5
+    },
+    {
+      "module": "domain_git",
+      "name": "DiffLine",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.DiffLine",
+      "fields": 5
+    },
+    {
+      "module": "domain_git",
+      "name": "DiffLineType",
+      "kind": "enum",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.DiffLineType",
+      "variants": 4
+    },
+    {
+      "module": "domain_git",
+      "name": "FileDiff",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.FileDiff",
+      "fields": 15
+    },
+    {
+      "module": "domain_git",
+      "name": "FileOutline",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.FileOutline",
+      "fields": 5
+    },
+    {
+      "module": "domain_git",
+      "name": "GitFileStatus",
+      "kind": "enum",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.GitFileStatus",
+      "variants": 6
+    },
+    {
+      "module": "domain_git",
+      "name": "Hunk",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.Hunk",
+      "fields": 4
+    },
+    {
+      "module": "domain_git",
+      "name": "HunkShape",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.HunkShape",
+      "fields": 4
+    },
+    {
+      "module": "domain_git",
+      "name": "Identity",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.Identity",
+      "fields": 3
+    },
+    {
+      "module": "domain_git",
+      "name": "MergeStrategy",
+      "kind": "enum",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.MergeStrategy",
+      "variants": 3
+    },
+    {
+      "module": "domain_git",
+      "name": "MultiFileDiff",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.MultiFileDiff",
+      "fields": 9
+    },
+    {
+      "module": "domain_git",
+      "name": "ReviewFileSummary",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.ReviewFileSummary",
+      "fields": 7
+    },
+    {
+      "module": "domain_git",
+      "name": "SearchHit",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.SearchHit",
+      "fields": 4
+    },
+    {
+      "module": "domain_git",
+      "name": "Stash",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/git.Stash",
+      "fields": 4
+    },
+    {
+      "module": "domain_lsp",
+      "name": "Diagnostic",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/lsp.Diagnostic",
+      "fields": 6
+    },
+    {
+      "module": "domain_lsp",
+      "name": "DiagnosticsEvent",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/lsp.DiagnosticsEvent",
+      "fields": 2
+    },
+    {
+      "module": "domain_lsp",
+      "name": "Location",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/lsp.Location",
+      "fields": 2
+    },
+    {
+      "module": "domain_lsp",
+      "name": "Position",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/lsp.Position",
+      "fields": 2
+    },
+    {
+      "module": "domain_lsp",
+      "name": "Range",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/lsp.Range",
+      "fields": 2
+    },
+    {
+      "module": "domain_lsp",
+      "name": "TextEdit",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/lsp.TextEdit",
+      "fields": 2
+    },
+    {
+      "module": "domain_lsp",
+      "name": "WorkspaceEdit",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/domain/lsp.WorkspaceEdit",
+      "fields": 1
+    },
+    {
+      "module": "engine_provider_types",
+      "name": "PRInfo",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/engine/provider/types.PRInfo",
+      "fields": 5
+    },
+    {
+      "module": "engine_provider_types",
+      "name": "ProviderState",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/engine/provider/types.ProviderState",
+      "fields": 2
+    },
+    {
+      "module": "engine_search",
+      "name": "SearchResponse",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/engine/search.SearchResponse",
+      "fields": 2
+    },
+    {
+      "module": "engine_search",
+      "name": "SearchResult",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/engine/search.SearchResult",
+      "fields": 5
+    },
+    {
+      "module": "gin_gonic_gin",
+      "name": "H",
+      "kind": "alias",
+      "goPath": "github.com/gin-gonic/gin.H"
+    },
+    {
+      "module": "perf",
+      "name": "Sample",
+      "kind": "struct",
+      "goPath": "github.com/char2cs/crowbar/api/internal/perf.Sample",
+      "fields": 3
+    }
+  ],
+  "unresolved": [
+    {
+      "what": "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers.UpdateProviderPreferencesRequest.Providers",
+      "reason": "anonymous struct nested inside another type; give it a named Go type so it can be generated",
+      "category": "anonymous-struct",
+      "severity": "error"
+    },
+    {
+      "what": "github.com/char2cs/crowbar/api/internal/domain/git.FileDiff",
+      "where": "internal/domain/git/diff.go:29",
+      "reason": "github.com/char2cs/crowbar/api/internal/domain/git.FileDiff declares MarshalJSON/UnmarshalJSON: the emitted shape is its struct shape, which the generator cannot prove matches the wire",
+      "category": "custom-marshaller",
+      "severity": "warning"
+    },
+    {
+      "what": "PUT /v0/settings/agent/providers",
+      "reason": "DTO api_v0_endpoints_agent_handlers.UpdateProviderPreferencesRequest is missing at least one field protogen could not lower, so this endpoint's shape is incomplete",
+      "category": "incomplete-type",
+      "severity": "error"
+    },
+    {
+      "what": "GET /v0/health",
+      "where": "internal/api/v0/endpoints/health/handlers/health.go:24",
+      "reason": "response payload is an untyped map (gin.H / map[string]any), so it has no static shape — give the handler a named DTO",
+      "category": "untyped-payload",
+      "severity": "error"
+    },
+    {
+      "what": "GET /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/identity",
+      "where": "internal/api/v0/endpoints/identity/handlers/identity.go:21, internal/api/v0/endpoints/identity/handlers/identity.go:30",
+      "reason": "response payload is an untyped map (gin.H / map[string]any), so it has no static shape — give the handler a named DTO",
+      "category": "untyped-payload",
+      "severity": "error"
+    },
+    {
+      "what": "PATCH /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/review",
+      "where": "internal/api/v0/endpoints/review/handlers/review.go:72",
+      "reason": "response payload is an untyped map (gin.H / map[string]any), so it has no static shape — give the handler a named DTO",
+      "category": "untyped-payload",
+      "severity": "error"
+    },
+    {
+      "what": "POST /v0/projects/:projectId/home/terminals",
+      "where": "internal/api/v0/endpoints/home/handlers/terminal.go:58",
+      "reason": "response payload is an untyped map (gin.H / map[string]any), so it has no static shape — give the handler a named DTO",
+      "category": "untyped-payload",
+      "severity": "error"
+    },
+    {
+      "what": "POST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals",
+      "where": "internal/api/v0/endpoints/terminal/handlers/sessions.go:75",
+      "reason": "response payload is an untyped map (gin.H / map[string]any), so it has no static shape — give the handler a named DTO",
+      "category": "untyped-payload",
+      "severity": "error"
+    }
+  ],
+  "unresolvedByCategory": [
+    {
+      "category": "untyped-payload",
+      "count": 5
+    },
+    {
+      "category": "anonymous-struct",
+      "count": 1
+    },
+    {
+      "category": "custom-marshaller",
+      "count": 1
+    },
+    {
+      "category": "incomplete-type",
+      "count": 1
+    }
+  ]
+}

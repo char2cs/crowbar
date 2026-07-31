@@ -207,3 +207,47 @@ func TestJoinPath(t *testing.T) {
 		})
 	}
 }
+
+// TestStreamedJSONPayloadIsNotAnEmptyBody pins the classification of a handler
+// that writes its envelope with `json.NewEncoder(w).Encode(v)` instead of
+// through gin or a libs helper.
+//
+// Found in the daemon rather than designed for: `GET /v0/.../review/outline`
+// streams its response because it is the one v0 payload large enough that
+// gin's marshal-then-write would hold the whole thing in memory. Because it
+// touches neither `ctx.JSON` nor `libs.Write*`, the classifier fell through to
+// "body-less success" — and reported no diagnostic, so three real wire types
+// (`outlineResponse`, `git.FileOutline`, `git.HunkShape`) were absent from the
+// generated crate with nothing anywhere saying they were missing. §9.2's
+// promise is that nothing is dropped silently; `empty` is the one wrong answer
+// that looks exactly like a right one in every count the summary prints.
+//
+// The fixture's Outline handler reproduces the shape that hid it: the encoder
+// is two same-package helpers away from the handler, and the payload arrives
+// there as a parameter.
+func TestStreamedJSONPayloadIsNotAnEmptyBody(t *testing.T) {
+	r := fixtureRun(t)
+	e := findEndpoint(t, r, "GET", "/v0/projects/:projectId/outline")
+
+	if e.ResponseKind != RespJSON {
+		t.Fatalf("response kind %q, want %q — a streamed envelope is a body, not the absence of one",
+			e.ResponseKind, RespJSON)
+	}
+	if len(e.Responses) != 1 {
+		t.Fatalf("resolved %d response payloads, want 1: %+v", len(e.Responses), e.Responses)
+	}
+	if got := e.Responses[0].Name; got != "OutlineResponse" {
+		t.Errorf("payload type %q, want OutlineResponse", got)
+	}
+	if len(e.Unresolved) != 0 {
+		t.Errorf("endpoint reported unresolved: %+v", e.Unresolved)
+	}
+
+	// And the payload's own field types have to be pulled into the closure,
+	// which is the half that actually went missing.
+	d := findDecl(t, r, "OutlineResponse")
+	f := findField(t, d, "files")
+	if f.Type.Container != "slice" || f.Type.Elem == nil || f.Type.Elem.Name != "Nested" {
+		t.Errorf("files field resolved to %+v, want a slice of Nested", f.Type)
+	}
+}
