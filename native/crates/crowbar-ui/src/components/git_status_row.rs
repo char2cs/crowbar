@@ -31,7 +31,7 @@ use gpui::{
     div, px, relative, rems,
 };
 
-use super::anchor::AnchorSink;
+use super::anchor::{AnchorId, AnchorSink};
 use super::sidebar_tree::{self, ICON_SIZE, RowState};
 use crate::theme::{Color, Theme};
 
@@ -52,6 +52,25 @@ pub const ID_BADGE: &str = "git-row-badge";
 pub const ID_ADDED: &str = "git-row-added";
 /// The `-n` deletions count.
 pub const ID_DELETED: &str = "git-row-deleted";
+
+/// The anchors on this row whose boxes size to their own text
+/// (`native/oracle/ANCHORS.md` v1.5).
+///
+/// The trailing group, and only the trailing group. `git-row-badge` is a
+/// `shrink-0` box around one word, and the two counts are bare runs of `+n` /
+/// `-n` — all three take their width from what they say, and `git-row-added`
+/// renders `+1` or `+12` depending on the file, which is why pinning a width
+/// instead was rejected: it would be wrong at one of them.
+///
+/// **`git-row-name` is deliberately absent.** It is the flexible sibling that
+/// *absorbs* the ceil excess — `max-w-[45%]` when the directory column is on,
+/// `flex-1` when it is not — and declaring it content-sized would compare it
+/// against a ceiled target it has no reason to land on.
+///
+/// Written down as data because the same three ids have to be declared on the
+/// React side, and a list one side can be diffed against is the only reason the
+/// two do not drift.
+pub const CONTENT_SIZED: [&str; 3] = [ID_BADGE, ID_ADDED, ID_DELETED];
 
 /// One indent guide, per level: `git-row-guide-0`, `git-row-guide-1`, …
 ///
@@ -334,7 +353,7 @@ impl GitStatusRow {
     fn guides(&self, theme: &Theme, anchors: &dyn AnchorSink) -> Div {
         let guides = (0..self.depth).map(|level| {
             anchors.boxed(
-                guide_id(level),
+                guide_id(level).into(),
                 sidebar_tree::guide(theme, level, self.previous_depth, self.next_depth),
             )
         });
@@ -436,7 +455,7 @@ impl GitStatusRow {
 
         if self.trailing.uncommitted {
             group = group.child(anchors.boxed_text(
-                ID_BADGE.into(),
+                AnchorId::content_sized(ID_BADGE),
                 Self::badge(theme),
                 SharedString::new_static(BADGE_LABEL),
             ));
@@ -494,7 +513,7 @@ impl GitStatusRow {
             group = group.child(
                 div()
                     .text_color(theme.git_added)
-                    .child(anchors.text(ID_ADDED.into(), label)),
+                    .child(anchors.text(AnchorId::content_sized(ID_ADDED), label)),
             );
         }
         if self.trailing.deletions > 0 {
@@ -502,7 +521,7 @@ impl GitStatusRow {
             group = group.child(
                 div()
                     .text_color(theme.git_deleted)
-                    .child(anchors.text(ID_DELETED.into(), label)),
+                    .child(anchors.text(AnchorId::content_sized(ID_DELETED), label)),
             );
         }
         group
@@ -512,8 +531,9 @@ impl GitStatusRow {
 #[cfg(test)]
 mod tests {
     use super::{
-        ContentLength, GitStatusRow, NameSizing, TrailingContent, guide_id, name_sizing,
-        shows_directory_span, split_path,
+        AnchorId, CONTENT_SIZED, ContentLength, GitStatusRow, ID_BUTTON, ID_DIR, ID_ICON, ID_ITEM,
+        ID_NAME, NameSizing, TrailingContent, guide_id, name_sizing, shows_directory_span,
+        split_path,
     };
 
     #[test]
@@ -623,5 +643,26 @@ mod tests {
     fn guide_ids_are_zero_based() {
         assert_eq!(guide_id(0), "git-row-guide-0");
         assert_eq!(guide_id(3), "git-row-guide-3");
+    }
+
+    /// v1.5. The declaration is the *trailing group*, and `git-row-name` — the
+    /// flexible sibling that absorbs the ceil excess — is not in it. Declaring
+    /// it would compare it against a ceiled target it has no reason to land on,
+    /// and would double-count the excess it is already absorbing.
+    #[test]
+    fn only_the_trailing_group_is_declared_content_sized() {
+        assert_eq!(
+            CONTENT_SIZED,
+            ["git-row-badge", "git-row-added", "git-row-deleted"]
+        );
+        assert!(!CONTENT_SIZED.contains(&ID_NAME));
+        assert!(!CONTENT_SIZED.contains(&ID_ITEM));
+        assert!(!CONTENT_SIZED.contains(&ID_BUTTON));
+        assert!(!CONTENT_SIZED.contains(&ID_DIR));
+        assert!(!CONTENT_SIZED.contains(&ID_ICON));
+
+        for id in CONTENT_SIZED {
+            assert!(AnchorId::content_sized(id).content_sized, "{id}");
+        }
     }
 }

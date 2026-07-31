@@ -7,7 +7,7 @@
 //! `row_snapshot.rs` emits through it behind `--features driver`.
 
 use crowbar_driver::RawAnchor;
-use crowbar_ui::components::AnchorSink;
+use crowbar_ui::components::{AnchorId, AnchorSink};
 use gpui::{AnyElement, Div, IntoElement as _, ParentElement as _, SharedString};
 
 /// What [`DriverAnchors::boxed_text`] appends to an id to record the run inside
@@ -32,21 +32,36 @@ const TEXT_HALF: &str = "\u{a7}text";
 pub struct DriverAnchors;
 
 impl AnchorSink for DriverAnchors {
-    fn root(&self, id: SharedString, element: Div) -> AnyElement {
-        crowbar_driver::anchor_root(id, element).into_any_element()
+    fn root(&self, id: AnchorId, element: Div) -> AnyElement {
+        crowbar_driver::anchor_root(id.id, element).into_any_element()
     }
 
-    fn boxed(&self, id: SharedString, element: Div) -> AnyElement {
-        crowbar_driver::anchor(id, element).into_any_element()
+    fn boxed(&self, id: AnchorId, element: Div) -> AnyElement {
+        if id.content_sized {
+            crowbar_driver::anchor_content_sized(id.id, element).into_any_element()
+        } else {
+            crowbar_driver::anchor(id.id, element).into_any_element()
+        }
     }
 
-    fn text(&self, id: SharedString, content: SharedString) -> AnyElement {
-        crowbar_driver::anchor_text(id, content).into_any_element()
+    fn text(&self, id: AnchorId, content: SharedString) -> AnyElement {
+        if id.content_sized {
+            crowbar_driver::anchor_text_content_sized(id.id, content).into_any_element()
+        } else {
+            crowbar_driver::anchor_text(id.id, content).into_any_element()
+        }
     }
 
-    fn boxed_text(&self, id: SharedString, element: Div, content: SharedString) -> AnyElement {
-        let run = crowbar_driver::anchor_text(text_half(&id), content);
-        crowbar_driver::anchor(id, element.child(run)).into_any_element()
+    /// The declaration goes on the **box** half, never the run.
+    ///
+    /// [`fold_text_halves`] keeps the box's geometry and takes only the run's
+    /// `text`, so the box is the record whose `bounds.w` the differ compares —
+    /// and it is the box the DOM extractor anchors too. A flag on the run would
+    /// be folded away and the anchor would reach the snapshot undeclared, which
+    /// is a blind spot that reports nothing.
+    fn boxed_text(&self, id: AnchorId, element: Div, content: SharedString) -> AnyElement {
+        let run = crowbar_driver::anchor_text(text_half(&id.id), content);
+        self.boxed(id, element.child(run))
     }
 }
 
@@ -106,6 +121,9 @@ mod tests {
             radius: px(4.0),
             border_width: px(1.0),
             border_color: Some(Hsla::default()),
+            // The badge is content-sized on the real row, and the box half is
+            // where the declaration lives — see `boxed_text`.
+            content_sized: true,
         }
     }
 
@@ -132,6 +150,9 @@ mod tests {
             radius: px(0.0),
             border_width: px(0.0),
             border_color: None,
+            // Deliberately *not* declared on the run: the fold keeps the box's
+            // record, so a declaration here would be thrown away.
+            content_sized: false,
         }
     }
 
@@ -156,6 +177,10 @@ mod tests {
         assert_eq!(text.content, "uncommitted");
         assert_eq!(text.width, px(66.11));
         assert_eq!(text.font.family, "CalSansUI");
+        // v1.5: the declaration is the box's and survives the fold. Losing it
+        // here would send an undeclared anchor to the differ, which would then
+        // compare 75.0 against 74.11 and report a delta nobody can act on.
+        assert!(record.content_sized);
     }
 
     /// The suffix must not reach the snapshot, or the differ rejects the

@@ -93,9 +93,25 @@ pub struct RawAnchor {
     pub border_width: Pixels,
     /// Border colour, or `None` when gpui would paint no border at all.
     pub border_color: Option<Hsla>,
+    /// Whether this anchor's box sizes to its own text
+    /// (`native/oracle/ANCHORS.md` v1.5).
+    ///
+    /// **Declared by the component, never detected here.** A heuristic on this
+    /// side would be `width: None` plus a text child, which flex-grow
+    /// falsifies; the DOM side's equivalent guess is falsifiable the same way.
+    /// Two extractors each guessing is the silent divergence the contract
+    /// exists to prevent, and a mis-guess announces nothing — so the flag comes
+    /// in from the caller, where it is a visible line in a component.
+    pub content_sized: bool,
 }
 
 /// Records a box-shaped anchor from its already-resolved [`Style`].
+///
+/// [`RawAnchor::content_sized`] is **not** an argument: it is not a fact about
+/// the style, it is a claim the component made, and the element that carries
+/// the claim folds it in with struct-update syntax. A trailing positional
+/// `bool` on a six-argument function would read as `…, px(16.0), false)` at
+/// every call site, which says nothing.
 pub(crate) fn box_facts(
     id: SharedString,
     bounds: Bounds<Pixels>,
@@ -114,6 +130,7 @@ pub(crate) fn box_facts(
         radius: style.corner_radii.to_pixels(rem_size).top_left,
         border_width: style.border_widths.to_pixels(rem_size).top,
         border_color: style.border_color,
+        content_sized: false,
     }
 }
 
@@ -136,6 +153,9 @@ pub(crate) struct TextInput<'a> {
     pub content: SharedString,
     /// The shaped advance width of the *whole* `content`.
     pub shaped_width: Pixels,
+    /// Whether the run's box sizes to the run (v1.5). See
+    /// [`RawAnchor::content_sized`].
+    pub content_sized: bool,
 }
 
 /// Records a text-painting anchor.
@@ -143,7 +163,10 @@ pub(crate) fn text_facts(input: &TextInput) -> RawAnchor {
     RawAnchor {
         id: input.id.clone(),
         bounds: input.bounds,
-        background: input.style.background_color.map_or(Paint::None, Paint::Solid),
+        background: input
+            .style
+            .background_color
+            .map_or(Paint::None, Paint::Solid),
         text: Some(TextFacts {
             content: input.content.clone(),
             width: input.shaped_width,
@@ -163,6 +186,7 @@ pub(crate) fn text_facts(input: &TextInput) -> RawAnchor {
         radius: px(0.0),
         border_width: px(0.0),
         border_color: None,
+        content_sized: input.content_sized,
     }
 }
 
@@ -404,6 +428,7 @@ mod tests {
             line_height: px(17.5),
             content: "resolve-terminal-connection.ts".into(),
             shaped_width: px(shaped),
+            content_sized: false,
         }
     }
 

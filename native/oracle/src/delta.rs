@@ -182,6 +182,39 @@ pub enum DeltaKind {
         /// Native value.
         actual: u32,
     },
+    /// `bounds.w` on an anchor both sides declare `content_sized` (v1.5).
+    ///
+    /// The expectation is `ceil(reference)`, not the reference: GPUI ceils a
+    /// text run's max-content width, so it **cannot produce** the fraction
+    /// Blink kept, and comparing against that fraction asks a question the
+    /// engine is incapable of answering. Both numbers are rendered, because a
+    /// line that quoted only the ceiled target would not match the snapshot a
+    /// reader is about to open.
+    CeiledNumber {
+        /// The reference's own, fractional, width.
+        reference: f64,
+        /// `ceil(reference)` — what the native engine can actually produce.
+        expected: f64,
+        /// Native value.
+        actual: f64,
+        /// The tolerance it broke, kept at §5's full ±0.5 around the target.
+        tolerance: f64,
+    },
+    /// The two sides disagree on whether an anchor is `content_sized` (v1.5).
+    ///
+    /// Ranked [`Class::FieldPresence`] rather than coerced to either side's
+    /// answer. The declaration decides which target `bounds.w` is compared
+    /// against and how much slack every other inline measurement in the
+    /// snapshot gets, so a mis-declaration is a defect in the contract's
+    /// implementation — the class ANCHORS.md says "looks like coverage and is
+    /// not" — and it must not be settled silently by whichever extractor the
+    /// differ happened to read first.
+    Declaration {
+        /// What the reference declared.
+        expected: bool,
+        /// What the native side declared.
+        actual: bool,
+    },
 }
 
 /// One ranked disagreement between two snapshots.
@@ -212,7 +245,10 @@ impl Delta {
             DeltaKind::Number {
                 expected, actual, ..
             }
-            | DeltaKind::ExactNumber { expected, actual } => (actual - expected).abs(),
+            | DeltaKind::ExactNumber { expected, actual }
+            | DeltaKind::CeiledNumber {
+                expected, actual, ..
+            } => (actual - expected).abs(),
             DeltaKind::Colour {
                 expected,
                 actual,
@@ -232,7 +268,8 @@ impl Delta {
             | DeltaKind::MissingField { .. }
             | DeltaKind::UnexpectedField { .. }
             | DeltaKind::Bool { .. }
-            | DeltaKind::Text { .. } => 0.0,
+            | DeltaKind::Text { .. }
+            | DeltaKind::Declaration { .. } => 0.0,
         }
     }
 
@@ -272,7 +309,7 @@ const PRECISION: f64 = 1000.0;
 /// actually emitted, and v1.2 already requires them to arrive at three
 /// decimals; printing them verbatim is what keeps an extractor that emits more
 /// precision than the contract allows visible rather than tidied away.
-fn px(v: f64) -> String {
+pub(crate) fn px(v: f64) -> String {
     format!("{v:?}")
 }
 
@@ -392,6 +429,27 @@ impl fmt::Display for Delta {
                 f,
                 "{subject}: {actual}, expected {expected} (Δ {}, exact)",
                 signed_int(*actual, *expected)
+            ),
+            DeltaKind::CeiledNumber {
+                reference,
+                expected,
+                actual,
+                tolerance,
+            } => write!(
+                f,
+                "{subject}: {}, expected {} = ceil({}) (Δ {}, tol ±{}, content_sized)",
+                px(*actual),
+                px(*expected),
+                px(*reference),
+                signed(actual - expected),
+                px(*tolerance)
+            ),
+            DeltaKind::Declaration { expected, actual } => write!(
+                f,
+                "{subject}: {actual}, expected {expected} (declared, exact). The two extractors \
+                 disagree on whether this anchor sizes to its own text, so one of them is \
+                 comparing bounds.w against the wrong target and the snapshot's content-sizing \
+                 allowance is computed from the wrong set"
             ),
         }
     }
@@ -565,6 +623,45 @@ mod tests {
         ]);
     }
 
+    /// v1.5. The ceiled comparison names **both** numbers: the target the
+    /// engine can meet and the reference's own fraction, so the line still
+    /// matches the snapshot a reader is about to open.
+    #[test]
+    fn the_content_sized_kinds_say_what_rule_they_are_under() {
+        assert_renders(&[
+            (
+                delta(
+                    "git-row-badge",
+                    "bounds.w",
+                    Class::Geometry,
+                    DeltaKind::CeiledNumber {
+                        reference: 74.11,
+                        expected: 75.0,
+                        actual: 80.0,
+                        tolerance: 0.5,
+                    },
+                ),
+                "git-row-badge.bounds.w: 80.0, expected 75.0 = ceil(74.11) \
+                 (Δ +5.0, tol ±0.5, content_sized)",
+            ),
+            (
+                delta(
+                    "git-row-badge",
+                    "content_sized",
+                    Class::FieldPresence,
+                    DeltaKind::Declaration {
+                        expected: true,
+                        actual: false,
+                    },
+                ),
+                "git-row-badge.content_sized: false, expected true (declared, exact). \
+                 The two extractors disagree on whether this anchor sizes to its own text, \
+                 so one of them is comparing bounds.w against the wrong target and the \
+                 snapshot's content-sizing allowance is computed from the wrong set",
+            ),
+        ]);
+    }
+
     #[test]
     fn magnitude_measures_each_kind_in_its_own_unit() {
         let number = delta(
@@ -578,6 +675,17 @@ mod tests {
             },
         );
         assert_eq!(number.magnitude().to_bits(), 4.0_f64.to_bits());
+
+        let exact = delta(
+            "a",
+            "border.w",
+            Class::Geometry,
+            DeltaKind::ExactNumber {
+                expected: 1.0,
+                actual: 1.5,
+            },
+        );
+        assert_eq!(exact.magnitude().to_bits(), 0.5_f64.to_bits());
 
         let rgb = delta(
             "a",
@@ -616,7 +724,27 @@ mod tests {
         );
         assert_eq!(weight.magnitude().to_bits(), 100.0_f64.to_bits());
 
+        // v1.5: measured against the **ceiled** target, not the reference's
+        // fraction, so the ranking sorts by the error the engine could have
+        // avoided rather than by the one it cannot.
+        let ceiled = delta(
+            "a",
+            "bounds.w",
+            Class::Geometry,
+            DeltaKind::CeiledNumber {
+                reference: 74.11,
+                expected: 75.0,
+                actual: 80.0,
+                tolerance: 0.5,
+            },
+        );
+        assert_eq!(ceiled.magnitude().to_bits(), 5.0_f64.to_bits());
+
         for categorical in [
+            DeltaKind::Declaration {
+                expected: true,
+                actual: false,
+            },
             DeltaKind::MissingAnchor,
             DeltaKind::UnexpectedAnchor,
             DeltaKind::MissingField {

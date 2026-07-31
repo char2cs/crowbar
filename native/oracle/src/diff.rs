@@ -14,9 +14,56 @@
 //! is the entire correspondence function. Order is irrelevant, nesting is
 //! irrelevant, and an anchor on one side only is a delta of its own kind rather
 //! than a wrongly-paired comparison.
+//!
+//! # The v1.5 content-sizing model
+//!
+//! GPUI `ceil()`s a text run's max-content width (`elements/text.rs`:
+//! `size.width = size.width.max(line_size.width).ceil()`); Blink and `WebKit`
+//! keep the fraction. Measured on the gate pair, both content-sized boxes were
+//! **exactly** `ceil(reference)` — `74.11 → 75`, `11.16 → 12`.
+//!
+//! ANCHORS.md v1.5 models that rather than widening a tolerance, and this module
+//! implements the three parts:
+//!
+//! 1. **The target moves.** An anchor both sides declare `content_sized` has its
+//!    `bounds.w` compared against `ceil(reference.w)`, keeping §5's full ±0.5
+//!    around it — so a genuine sub-pixel width error is still caught, which is
+//!    exactly what a looser tolerance would have given away.
+//! 2. **One global allowance, no tree.** The excess is *absorbed*, not
+//!    propagated: on the gate pair the flexible sibling shrank by exactly the
+//!    summed excess and the trailing group's right edge was identical on both
+//!    sides. So `Σ(ceil(ref.w) − ref.w)` over the declared anchors is added to
+//!    the other inline measurements — one scalar off the anchor list, needing no
+//!    flow order and no tree, which keeps §1's rejection of tree-diffing intact.
+//! 3. **Nothing is forgiven silently.** A comparison that only passes because of
+//!    the allowance, or only because the target moved, is recorded in
+//!    [`Report::forgiven`] and rendered with the reason. §5 calls a silent
+//!    widening the cheapest way to make a gate pass while it tells you nothing;
+//!    a reader has to be able to see which findings were forgiven and why.
+//!
+//! ## The allowance is on the inline axis only, and that is narrower than v1.5's prose
+//!
+//! v1.5 says "every other geometry field in the same snapshot". Everything it
+//! *measures* is horizontal: a ceiled **width**, a flexible sibling that
+//! absorbed it along the same axis, a conserved right edge. There is no
+//! measurement behind extending it to `bounds.y`, `bounds.h` or `radius`, and
+//! §5's rule cuts the same way in both directions — an allowance applied to an
+//! axis nothing was measured on is a widening with nothing behind it, which is
+//! the thing the version note is at pains to avoid being.
+//!
+//! It is also not theoretical. On the archived gate pair the sixth delta is
+//! `git-row-name.bounds.h: 19.0 vs 18.0`, a **vertical** difference with an
+//! entirely different cause (GPUI snaps line height to the device grid where
+//! `WebKit` floors it to a whole logical pixel). A 1.73px allowance spread over
+//! every axis swallows it, and the one finding the gate has left to explain
+//! disappears into slack bought by an unrelated rule.
+//!
+//! So: `bounds.x` and `bounds.w` get the allowance. `bounds.y`, `bounds.h`,
+//! `radius` and `text_width` do not. Narrowing an allowance needs no ceremony
+//! under §5; widening it back would.
 
 use crate::color::Color;
-use crate::delta::{Class, Delta, DeltaKind};
+use crate::delta::{self, Class, Delta, DeltaKind};
 use crate::snapshot::{Anchor, Border, Font, Snapshot, State};
 use crate::tolerance::{Tolerances, within};
 
@@ -60,6 +107,82 @@ impl fmt::Display for ContextMismatch {
 
 impl std::error::Error for ContextMismatch {}
 
+/// One anchor's contribution to the v1.5 content-sizing allowance.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Contributor {
+    /// The anchor both sides declared `content_sized`.
+    pub anchor: String,
+    /// `ceil(reference.bounds.w) − reference.bounds.w`, always in `[0, 1)`.
+    pub excess_px: f64,
+}
+/// The v1.5 allowance for one comparison, and where it came from.
+///
+/// A value rather than a bare `f64` so a report can *show its working*: an
+/// allowance whose provenance is not printed is indistinguishable from a
+/// loosened tolerance, which §5 is explicit about.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ContentSizing {
+    /// `Σ(ceil(ref.w) − ref.w)` over the anchors **both** sides declared
+    /// `content_sized`. Zero when there are none.
+    pub excess_px: f64,
+    /// The anchors that contributed a non-zero excess, in reference order.
+    pub contributors: Vec<Contributor>,
+}
+
+/// Why a comparison that broke its §5 tolerance is not a delta.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Forgiveness {
+    /// The anchor is declared `content_sized`, so the expectation moved to
+    /// `ceil(reference)` and the native value is within tolerance of *that*.
+    Ceil {
+        /// The reference's own, fractional, width.
+        reference: f64,
+        /// `ceil(reference)`.
+        target: f64,
+    },
+    /// The comparison passed only once the snapshot's content-sizing allowance
+    /// was added to the §5 tolerance.
+    Allowance {
+        /// How much slack was added, in px.
+        added_px: f64,
+    },
+}
+
+/// A comparison that exceeded its §5 tolerance and was forgiven anyway.
+///
+/// Carried separately from [`Report::deltas`] — it is not a finding — but
+/// **rendered**, because a widening nobody can see is the failure §5 names.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Forgiven {
+    /// The delta it would have been, quoting the tolerance it actually broke.
+    pub delta: Delta,
+    /// The v1.5 rule that forgave it.
+    pub reason: Forgiveness,
+}
+
+impl fmt::Display for Forgiven {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} — forgiven: ", self.delta)?;
+        match self.reason {
+            Forgiveness::Ceil { reference, target } => write!(
+                f,
+                "this anchor is declared content_sized, so ANCHORS.md v1.5 compares it against \
+                 ceil({}) = {} — GPUI ceils a text run's max-content width and cannot produce \
+                 the fraction the reference kept",
+                delta::px(reference),
+                delta::px(target),
+            ),
+            Forgiveness::Allowance { added_px } => write!(
+                f,
+                "within tolerance once v1.5's content-sizing allowance of +{} px is added; the \
+                 ceil excess on the content-sized anchors is absorbed along this axis rather \
+                 than propagated",
+                delta::px(round3(added_px)),
+            ),
+        }
+    }
+}
+
 /// The result of comparing two snapshots.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Report {
@@ -78,6 +201,16 @@ pub struct Report {
     pub native_anchors: usize,
     /// Every disagreement, ranked most severe first.
     pub deltas: Vec<Delta>,
+    /// The v1.5 content-sizing allowance in force, and the anchors it came
+    /// from. `excess_px` is `0.0` when nothing was declared.
+    pub content_sizing: ContentSizing,
+    /// Comparisons that broke their §5 tolerance and were forgiven by a v1.5
+    /// rule, ranked like the deltas.
+    ///
+    /// **Not** deltas: they do not change the verdict. But they are the exact
+    /// list a reader needs in order to tell a modelled correction from a
+    /// tolerance somebody quietly widened.
+    pub forgiven: Vec<Forgiven>,
 }
 
 impl Report {
@@ -120,8 +253,68 @@ impl Report {
                 .collect();
             let _ = write!(line, " ({})", parts.join(", "));
         }
+        // Named on the verdict line, not only in the body: a run whose headline
+        // number was reached by forgiving four comparisons and one that was
+        // reached by measuring them must not read the same.
+        let forgiven = self.forgiven.len();
+        if forgiven > 0 {
+            let _ = write!(
+                line,
+                ", {forgiven} forgiven by v1.5 content-sizing (Σ ceil excess {} px)",
+                crate::delta::px(round3(self.content_sizing.excess_px))
+            );
+        }
         line
     }
+}
+
+/// The contract's three decimals (v1.2 ruling 3), for **rendering only**.
+///
+/// A sum of three-decimal values in binary floating point lands on things like
+/// `1.7300000000000004`, and twelve digits of representation noise in a
+/// human-facing report is noise a reader has to learn to skip past.
+///
+/// The allowance itself is never rounded before it is used: rounding a
+/// tolerance moves the boundary, which is a §5 loosening and is not what this
+/// is.
+pub(crate) fn round3(v: f64) -> f64 {
+    (v * 1000.0).round() / 1000.0
+}
+
+/// `Σ(ceil(ref.w) − ref.w)` over the anchors **both** sides declare
+/// `content_sized`.
+///
+/// Both sides, deliberately. A declaration only one extractor makes is already
+/// a `FieldPresence` delta; letting it also silently buy slack for every other
+/// inline measurement in the snapshot would mean a mis-declaration on one side
+/// *loosened the gate*, which is the exact direction a contract defect must not
+/// push. Requiring agreement makes a mis-declaration cost coverage rather than
+/// hand it out.
+///
+/// No tree walk and no flow order: this is a fold over the anchor list, which is
+/// what keeps §1's rejection of tree-diffing intact.
+fn content_sizing(expected: &Snapshot, actual: &Snapshot) -> ContentSizing {
+    let mut sizing = ContentSizing::default();
+    for reference in &expected.anchors {
+        if !reference.content_sized {
+            continue;
+        }
+        if !actual
+            .anchor(&reference.id)
+            .is_some_and(|native| native.content_sized)
+        {
+            continue;
+        }
+        let excess = reference.bounds.w.ceil() - reference.bounds.w;
+        sizing.excess_px += excess;
+        if excess > 0.0 {
+            sizing.contributors.push(Contributor {
+                anchor: reference.id.clone(),
+                excess_px: excess,
+            });
+        }
+    }
+    sizing
 }
 
 /// Compare a reference snapshot against a native one.
@@ -147,13 +340,22 @@ pub fn diff(
     }
 
     let mut deltas = Vec::new();
+    let mut forgiven = Vec::new();
     let mut compared = 0_usize;
+    let sizing = content_sizing(expected, actual);
 
     for reference in &expected.anchors {
         match actual.anchor(&reference.id) {
             Some(native) => {
                 compared += 1;
-                compare_anchor(reference, native, tol, &mut deltas);
+                compare_anchor(
+                    reference,
+                    native,
+                    tol,
+                    sizing.excess_px,
+                    &mut deltas,
+                    &mut forgiven,
+                );
             }
             None => deltas.push(Delta {
                 anchor: reference.id.clone(),
@@ -175,6 +377,7 @@ pub fn diff(
     }
 
     deltas.sort_by(Delta::rank);
+    forgiven.sort_by(|a, b| a.delta.rank(&b.delta));
 
     Ok(Report {
         surface: expected.surface.clone(),
@@ -183,6 +386,8 @@ pub fn diff(
         reference_anchors: expected.anchors.len(),
         native_anchors: actual.anchors.len(),
         deltas,
+        content_sizing: sizing,
+        forgiven,
     })
 }
 
@@ -232,7 +437,11 @@ fn context_mismatches(expected: &Snapshot, actual: &Snapshot) -> Vec<ContextFiel
 struct AnchorDiff<'a> {
     id: &'a str,
     tol: &'a Tolerances,
+    /// The snapshot-wide v1.5 allowance, in px. `0.0` when nothing declared
+    /// itself content-sized, which is every snapshot written before v1.5.
+    allowance: f64,
     out: &'a mut Vec<Delta>,
+    forgiven: &'a mut Vec<Forgiven>,
 }
 
 impl AnchorDiff<'_> {
@@ -242,6 +451,19 @@ impl AnchorDiff<'_> {
             field,
             class,
             kind,
+        });
+    }
+
+    /// Records a comparison that broke `kind`'s tolerance but is not a finding.
+    fn forgive(&mut self, field: &'static str, kind: DeltaKind, reason: Forgiveness) {
+        self.forgiven.push(Forgiven {
+            delta: Delta {
+                anchor: self.id.to_owned(),
+                field,
+                class: Class::Geometry,
+                kind,
+            },
+            reason,
         });
     }
 
@@ -257,6 +479,66 @@ impl AnchorDiff<'_> {
                 },
             );
         }
+    }
+
+    /// A measurement along the **inline** axis, which the v1.5 allowance
+    /// applies to. See the module docs for why only this axis.
+    fn inline_number(&mut self, field: &'static str, expected: f64, actual: f64, tolerance: f64) {
+        if within(actual, expected, tolerance) {
+            return;
+        }
+        let kind = DeltaKind::Number {
+            expected,
+            actual,
+            tolerance,
+        };
+        // The line the reader sees still quotes §5's tolerance, because that is
+        // the one it broke; the allowance is named in the forgiveness, where it
+        // can carry its own justification. Quoting a widened tolerance instead
+        // would make the report look like the contract says ±2.23.
+        if self.allowance > 0.0 && within(actual, expected, tolerance + self.allowance) {
+            let added_px = self.allowance;
+            self.forgive(field, kind, Forgiveness::Allowance { added_px });
+            return;
+        }
+        self.push(field, Class::Geometry, kind);
+    }
+
+    /// `bounds.w` on an anchor **both** sides declare `content_sized` (v1.5).
+    ///
+    /// The expectation is `ceil(reference)` and the tolerance stays §5's ±0.5,
+    /// so this is strictly a *correction*: it moves the target onto the value
+    /// the engine is capable of producing, and it forgives nothing else. A
+    /// native box a whole pixel wider than the ceiled target is still a delta.
+    fn content_sized_width(&mut self, reference: f64, actual: f64, tolerance: f64) {
+        let target = reference.ceil();
+        if within(actual, target, tolerance) {
+            // Only worth saying when the raw comparison would have failed —
+            // an integral reference width forgives nothing and reporting it
+            // would train a reader to skip the section.
+            if !within(actual, reference, tolerance) {
+                self.forgive(
+                    "bounds.w",
+                    DeltaKind::Number {
+                        expected: reference,
+                        actual,
+                        tolerance,
+                    },
+                    Forgiveness::Ceil { reference, target },
+                );
+            }
+            return;
+        }
+        self.push(
+            "bounds.w",
+            Class::Geometry,
+            DeltaKind::CeiledNumber {
+                reference,
+                expected: target,
+                actual,
+                tolerance,
+            },
+        );
     }
 
     /// A §5 **exact** number: any difference at all is a delta. Renders as
@@ -354,17 +636,49 @@ impl AnchorDiff<'_> {
 /// `uncommitted` — and each group is compared if and only if it is present.
 /// Nothing here makes the box fields and the text group exclusive, and nothing
 /// may.
-fn compare_anchor(expected: &Anchor, actual: &Anchor, tol: &Tolerances, out: &mut Vec<Delta>) {
+fn compare_anchor(
+    expected: &Anchor,
+    actual: &Anchor,
+    tol: &Tolerances,
+    allowance: f64,
+    out: &mut Vec<Delta>,
+    forgiven: &mut Vec<Forgiven>,
+) {
     let mut d = AnchorDiff {
         id: &expected.id,
         tol,
+        allowance,
         out,
+        forgiven,
     };
+    compare_declaration(&mut d, expected, actual);
     compare_content(&mut d, expected, actual);
     compare_paint(&mut d, expected, actual);
     compare_geometry(&mut d, expected, actual);
     compare_border(&mut d, expected, actual);
     compare_typography(&mut d, expected, actual);
+}
+
+/// `content_sized`, v1.5 — the one field that is about the *contract* rather
+/// than about the pixels.
+///
+/// It ranks [`Class::FieldPresence`] because that is what it is: a field one
+/// extractor asserts and the other does not, which decides what the geometry
+/// comparison below is even asking. Coercing to either side's answer would let
+/// a mis-declaration open a blind spot or invent a delta and announce neither —
+/// the failure mode v1.5 gives as the reason the flag is declared rather than
+/// detected in the first place.
+fn compare_declaration(d: &mut AnchorDiff<'_>, expected: &Anchor, actual: &Anchor) {
+    if expected.content_sized != actual.content_sized {
+        d.push(
+            "content_sized",
+            Class::FieldPresence,
+            DeltaKind::Declaration {
+                expected: expected.content_sized,
+                actual: actual.content_sized,
+            },
+        );
+    }
 }
 
 /// `visible`, `text`, `clipped` — the exact-match facts about what the user
@@ -431,11 +745,22 @@ fn compare_paint(d: &mut AnchorDiff<'_>, expected: &Anchor, actual: &Anchor) {
 }
 
 /// `bounds`, `text_width` and `radius` — the tolerated px quantities.
+///
+/// `x` and `w` are the inline axis and carry the v1.5 allowance; `y`, `h`,
+/// `radius` and `text_width` do not. The module docs give the measurement that
+/// justifies the split, and the one it would otherwise swallow.
 fn compare_geometry(d: &mut AnchorDiff<'_>, expected: &Anchor, actual: &Anchor) {
     let bounds_tol = d.tol.bounds_px;
-    d.number("bounds.x", expected.bounds.x, actual.bounds.x, bounds_tol);
+    d.inline_number("bounds.x", expected.bounds.x, actual.bounds.x, bounds_tol);
     d.number("bounds.y", expected.bounds.y, actual.bounds.y, bounds_tol);
-    d.number("bounds.w", expected.bounds.w, actual.bounds.w, bounds_tol);
+    // The ceil rule needs *both* declarations. A disagreement is already a
+    // FieldPresence delta immediately above; comparing under the plain §5 rule
+    // as well means the mis-declaration costs coverage rather than buying it.
+    if expected.content_sized && actual.content_sized {
+        d.content_sized_width(expected.bounds.w, actual.bounds.w, bounds_tol);
+    } else {
+        d.inline_number("bounds.w", expected.bounds.w, actual.bounds.w, bounds_tol);
+    }
     d.number("bounds.h", expected.bounds.h, actual.bounds.h, bounds_tol);
 
     if !d.presence(

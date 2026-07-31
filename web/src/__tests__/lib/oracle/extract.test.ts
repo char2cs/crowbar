@@ -6,6 +6,7 @@ import {
   oracleDetectTheme,
   oracleFirstFontFamily,
   oracleFontWeight,
+  oracleContentSized,
   oracleIsClipped,
   oracleMeasureNormalLineHeight,
   oracleNormalizeColor,
@@ -320,6 +321,36 @@ describe('oracleIsClipped', () => {
   })
 })
 
+// ── the v1.5 declaration ─────────────────────────────────────────────────────
+
+describe('oracleContentSized', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  function el(markup: string): Element {
+    document.body.innerHTML = markup
+    return document.body.firstElementChild as Element
+  }
+
+  it('reads the three spellings an author can actually produce', () => {
+    // React renders `data-x={true}` as `="true"`; hand-written markup gives `""`.
+    expect(oracleContentSized(el('<span data-oracle-content-sized="true"></span>'))).toBe(true)
+    expect(oracleContentSized(el('<span data-oracle-content-sized></span>'))).toBe(true)
+    expect(oracleContentSized(el('<span data-oracle-content-sized="TRUE"></span>'))).toBe(true)
+  })
+
+  it('treats an absent attribute and an explicit false as the same fact', () => {
+    expect(oracleContentSized(el('<span></span>'))).toBe(false)
+    expect(oracleContentSized(el('<span data-oracle-content-sized="false"></span>'))).toBe(false)
+    expect(oracleContentSized(el('<span data-oracle-content-sized=" False "></span>'))).toBe(false)
+  })
+
+  it('does not read the flag off the id attribute', () => {
+    expect(oracleContentSized(el('<span data-oracle-id="git-row-badge"></span>'))).toBe(false)
+  })
+})
+
 // ── the walk itself, including a pseudo-backed anchor (ANCHORS.md §3) ────────
 
 interface FakeStyle {
@@ -378,6 +409,7 @@ function mountRow() {
       <span id="guide" data-oracle-id="git-row-guide-0"></span>
       <button id="btn" data-oracle-id="git-row-button">
         <span id="name" data-oracle-id="git-row-name">resolve-terminal-connection.ts</span>
+        <span id="badge" data-oracle-id="git-row-badge" data-oracle-content-sized="true">uncommitted</span>
       </button>
     </div>`
 
@@ -385,11 +417,13 @@ function mountRow() {
   const guide = document.getElementById('guide') as HTMLElement
   const btn = document.getElementById('btn') as HTMLElement
   const name = document.getElementById('name') as HTMLElement
+  const badge = document.getElementById('badge') as HTMLElement
 
   stubRect(row, { left: 100, top: 50, width: 320, height: 24 })
   stubRect(guide, { left: 110, top: 50, width: 7, height: 24 })
   stubRect(btn, { left: 100, top: 50, width: 320, height: 24 })
   stubRect(name, { left: 130, top: 54, width: 118, height: 16 })
+  stubRect(badge, { left: 252, top: 54, width: 74.11, height: 16 })
 
   const styles = new Map<Element, FakeStyle>([
     // The button is pinned transparent in every state by file-explorer-tree.css;
@@ -416,6 +450,19 @@ function mountRow() {
         overflowY: 'hidden',
         color: 'rgb(200, 204, 212)',
         lineHeight: '17.55px',
+        fontWeight: '500',
+      },
+    ],
+    [
+      badge,
+      {
+        color: 'rgb(255, 185, 0)',
+        backgroundColor: 'rgba(254, 154, 0, 0.16)',
+        borderTopLeftRadius: '4px',
+        borderTopWidth: '1px',
+        borderTopColor: 'transparent',
+        lineHeight: '13.33px',
+        fontSize: '10px',
         fontWeight: '500',
       },
     ],
@@ -457,7 +504,7 @@ function mountRow() {
       }) as unknown as Range,
   )
 
-  return { row, guide, btn, name }
+  return { row, guide, btn, name, badge }
 }
 
 describe('extractSnapshot', () => {
@@ -488,6 +535,7 @@ describe('extractSnapshot', () => {
       'git-row-guide-0',
       'git-row-button',
       'git-row-name',
+      'git-row-badge',
     ])
   })
 
@@ -574,6 +622,7 @@ describe('extractSnapshot', () => {
       'bounds',
       'border',
       'clipped',
+      'content_sized',
       'fg',
       'font',
       'id',
@@ -595,6 +644,22 @@ describe('extractSnapshot', () => {
     for (const anchor of extractSnapshot({ surface: 'git-status-row' }).anchors) {
       const present = group.filter((k) => anchor[k] !== undefined).length
       expect(present === 0 || present === group.length).toBe(true)
+    }
+  })
+
+  it('emits content_sized only on the anchors that declare it (v1.5)', () => {
+    mountRow()
+    const { anchors } = extractSnapshot({ surface: 'git-status-row' })
+    const byId = Object.fromEntries(anchors.map((a) => [a.id, a]))
+
+    expect(byId['git-row-badge'].content_sized).toBe(true)
+    // Absent, not `false`. v1.5 makes the missing key and an explicit `false`
+    // the same fact, and the GPUI side omits it too — a key one extractor
+    // writes and the other does not is a difference in the wire shape that
+    // says nothing about the UI.
+    for (const id of ['git-row-item', 'git-row-guide-0', 'git-row-button', 'git-row-name']) {
+      expect(byId[id].content_sized).toBeUndefined()
+      expect('content_sized' in byId[id]).toBe(false)
     }
   })
 

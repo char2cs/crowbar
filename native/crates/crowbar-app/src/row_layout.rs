@@ -396,6 +396,54 @@ fn every_text_anchor_names_its_family_and_its_size(cx: &mut TestAppContext) {
     assert_px(dir.font.size, px(12.0));
 }
 
+/// `content_sized` reaches the recorded row, and the ceil it models is real.
+///
+/// `native/oracle/ANCHORS.md` v1.5 is built on one measured claim: gpui `ceil()`s
+/// a text run's max-content width, so a content-sized box is always a whole
+/// number of logical pixels. That claim was taken from an archived pair of
+/// snapshots; this asserts it against a live layout of the real component,
+/// which is the difference between a rule that happened to fit two numbers and
+/// one that holds.
+///
+/// It also checks the declaration survives the whole path — component →
+/// [`DriverAnchors`] → the driver's elements → [`fold_text_halves`]. The badge
+/// is the interesting one: its box and its run are recorded separately and
+/// folded, and a declaration put on the run half would be thrown away silently.
+#[gpui::test]
+fn the_trailing_group_declares_itself_content_sized_and_lands_on_whole_pixels(
+    cx: &mut TestAppContext,
+) {
+    use crowbar_ui::components::CONTENT_SIZED;
+
+    let records = measure(cx, Cell::default());
+
+    for id in CONTENT_SIZED {
+        let record = find(&records, id);
+        assert!(
+            record.content_sized,
+            "{id} did not reach the record declared"
+        );
+        let width = record.bounds.size.width;
+        assert_px(width, px(f32::from(width).ceil()));
+    }
+
+    // And nothing else on the row claims it — least of all the flexible sibling
+    // that absorbs the excess, which a ceiled target would be wrong for.
+    for id in [
+        "git-row-item",
+        "git-row-button",
+        "git-row-icon",
+        "git-row-name",
+        "git-row-dir",
+        "git-row-guide-0",
+    ] {
+        assert!(
+            !find(&records, id).content_sized,
+            "{id} must not declare it"
+        );
+    }
+}
+
 /// The three backgrounds `.file-tree-item::before` paints, keyed off the state
 /// **parameter**. A `.hover(…)` refinement would report the resting paint here,
 /// which is the whole reason the state is a parameter.
