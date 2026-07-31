@@ -57,6 +57,13 @@ pub mod button;
 pub mod dropdown_menu;
 pub mod file_tree_row;
 pub mod git_status_row;
+// `input` is unflattened for the same reason as the rest, and one further one:
+// its `Size`, `State` and `Text` are short names that only read correctly with
+// the module in front of them — `button::Size` and `input::Size` are two
+// different vocabularies, and a bare `Size` would not say which. Its
+// `CONTENT_SIZED`/`LINE_SIZED` would collide exactly as `dropdown_menu`'s do,
+// and `input::LINE_SIZED` in particular carries a *reason* the others do not.
+pub mod input;
 pub mod resizable;
 // `sidebar_carousel` is flattened not at all for the same reason: its
 // `CONTENT_SIZED`, `LINE_SIZED` and `ID_*` are its own, and a declaration list
@@ -74,6 +81,7 @@ pub mod tabs;
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
 pub use button::Button;
 pub use dropdown_menu::DropdownMenu;
+pub use input::Input;
 pub use resizable::ResizablePanelGroup;
 pub use tabs::Tabs;
 // `GitStatus` and its vocabulary are flattened because nothing on the other
