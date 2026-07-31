@@ -254,7 +254,7 @@ mod tests {
                 orientation: Orientation::Horizontal,
                 call_site,
             };
-            assert!(!horizontal.stretches(), "horizontal · {}", call_site.name(),);
+            assert!(!horizontal.stretches(), "horizontal · {}", call_site.name());
         }
     }
 
