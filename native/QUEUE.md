@@ -4,9 +4,9 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 0 — scaffolding and the cheap answers
-**Line coverage (logic crates):** n/a — no logic crates exist yet
-**Corpus coverage (view crates):** n/a — no oracle exists yet
+**Phase:** 1 — the driver and the oracle. **THE GATE.**
+**Line coverage (logic crates):** `crowbar-client` **99.64%** (regions 98.23%). `proto`/`core`/`diff`/`oracle`/`driver` still empty.
+**Corpus coverage (view crates):** n/a — the oracle does not exist yet. This is Phase 1's deliverable.
 
 ---
 
@@ -73,16 +73,89 @@ Two consequences worth knowing:
   source** despite its name. So daemon changes (0.6, 0.7) reach the harness on
   the next `make dev-desktop`, with no separate step.
 
-### 0.4 status — React half **verified live**, native half blocked on 0.2
+### 0.4 — both apps against one daemon ✅ **CLOSED. Verified by my own run.**
 
-Observed, not inferred. `make dev-desktop` built and launched; the daemon log
-shows `crowbar daemon is ready on …crowbar-6d4f21ce150add3c.sock (pid 62909)`,
-the daemon binary is the one built from **this** worktree, and `.crowbar/`
-now holds `bin/ logs/ state/`. `GET /v0/health` over the socket returns
-`{"pid":62909,"status":"ok"}`.
+At 2026-07-30 22:42 all three of these were alive **simultaneously**:
 
-The native half cannot be proven until `crowbar-app` can open a socket, which
-needs 0.2. **0.4 stays open.**
+| | pid | |
+|---|---|---|
+| native `crowbar-app` | 12057 | GPUI window, layer 0, 855×1119 |
+| React `crowbar-desktop` | 55007 | GPUI/WebKit window, layer 0, 855×1119 |
+| daemon `crowbar-api` | 62909 | on `$TMPDIR/crowbar-6d4f21ce150add3c.sock` |
+
+**I did not accept the worker's run as evidence.** It reported reaching the
+daemon at 22:31:38; I killed that instance, baselined the daemon's health-request
+count at 5, launched `crowbar-app` myself with the shared `CROWBAR_HOME`, and
+watched the count go to 6 with a new line:
+
+```
+[err] 2026/07/30 22:42:00 GET /v0/health 200 783.167µs
+```
+
+Window presence confirmed via `CGWindowListCopyWindowInfo` (a Swift script —
+`screencapture` and the AX API are both permission-blocked in this shell, and
+`AXIsProcessTrusted()` is `false`, so pixels cannot be read here).
+
+**The native window renders:** `daemon reached` / `pid 62909` / `status ok` /
+`version 0.1.0` / the resolved socket path. Those exact strings are pinned by a
+unit test, because the frame itself cannot be read back.
+
+Gates, all re-run by me: `cargo build --workspace` clean · `cargo clippy
+--workspace --all-targets -- -D warnings` **exit 0** · `cargo test --workspace`
+**21 passed, 0 failed** · `check-invariants.sh` all four rules ok.
+
+**§12 coverage, measured by me:**
+
+```
+crowbar-client   Lines 99.64%   Regions 98.23%   Functions 100.00%
+  socket.rs      100.00% lines
+  health.rs       99.12% lines
+  lib.rs         100.00% lines
+```
+
+Above the ≥98% bar. The one uncovered line is an error arm in the test harness.
+
+#### The zero-pad trap — closed, and the test is real
+
+`socket.rs` formats `format!("crowbar-{hash:x}.sock")`, never `{:016x}`.
+`socket_name_is_not_zero_padded` pins `/home/10/.crowbar`, and **I recomputed
+the hash independently**: `fnv1a64` = `0x0bbb_5af7_c356_03fa`, which Go's `%x`
+renders as `crowbar-bbb5af7c35603fa.sock` — **15** hex digits. The test asserts
+the value, the short name, that the padded name is *not* produced, and that the
+hex run is 15 chars. It genuinely fails under `{:016x}`.
+
+A detail the worker added that I had not specified, and which matters: the hash
+input is the `CROWBAR_HOME` string **exactly as it appears in the environment**
+— not canonicalised, not trailing-slash-normalised. Go hashes the raw string, so
+anything else silently disagrees.
+
+#### Structural decisions to know about
+
+- **Path derivation went in `crowbar-client`, not `crowbar-core`.** §4.2 gives
+  `core → client`, so the edge cannot be reversed; putting it in `core` would
+  mean the crate whose entire job is dialling the socket has to be *told* where
+  the socket is. It is still a pure function under the same ≥98% gate.
+- **`gpui` is a direct dep of `crowbar-ui`, `crowbar-state` and `crowbar-app`
+  only** — not all eight permitted crates. `crowbar-ui` re-exports it
+  (`pub use gpui; pub use gpui_component;`) and the leaf view crates take it
+  transitively, which is what their scaffold manifests already claimed. See the
+  0.1 note above for the anti-hardcoding consequence this creates.
+- `crowbar-app` also needs `gpui_platform` — it owns `application()`, and
+  `gpui::Application::new()` does not exist at this rev (only `with_platform`).
+- **`reqwest` 0.13 has native unix-socket support** (`ClientBuilder::unix_socket`),
+  so §10.1's "unix connector" needed no third-party crate. `tungstenite`
+  deliberately not added until a caller exists.
+
+> **A warning line that is not ours and cannot be removed.** Every cargo
+> invocation in `native/` prints:
+> `warning: the following packages contain code that will be rejected by a
+> future version of Rust: block v0.1.6`.
+> It is a cargo **future-incompat report**, not a rustc warning against our
+> code — `block 0.1.6` is a crates.io transitive dep of the vendored gpui macOS
+> stack (`static of uninhabited type`). Removing it needs either a `[patch]`
+> (PINNED.md forbids inventing one) or an edit under `vendor/` (breaks the pin).
+> **`clippy -D warnings` is genuinely clean.** Do not treat this line as a dirty
+> gate, and do not silence it with a `.cargo/config.toml`.
 
 > **Driving the app: the MCP bridge is on port 9224, not 9223.** The log line is
 > `MCP Bridge plugin initialized for 'Crowbar' (software.rabbyte.crowbar) on
@@ -894,7 +967,7 @@ Owner column: `W` = dispatched worker, `O` = orchestrator-only.
 | 0.1 | `native/` workspace scaffold, 13 crates per §4.2 with the §4.3 compiler-enforced rules | §4.2 §4.3 §4.4 | W | **done** |
 | 0.2 | Vendor + pin `gpui` at a SHA under `native/vendor/gpui/` | §10.5 | W | **done — built --locked** |
 | 0.3 | `gpui` + `gpui-component` skills into `.claude/skills/` | §16 | W | **done** |
-| 0.4 | Both apps launch against one daemon on a shared `CROWBAR_HOME` | §0 §9.1 | O | React half **verified live**; native half gated on 0.2 |
+| 0.4 | Both apps launch against one daemon on a shared `CROWBAR_HOME` | §0 §9.1 | O | **done — both apps live on one daemon** |
 | 0.5 | DTO generator: Go handlers → `crowbar-proto` + regenerated `web/` types | §9.2 | W | **done — 4 gates re-run** |
 | 0.6 | `GET`/`PUT` `/v0/settings/ui` in the daemon — the ONE daemon exception | §9.3 | W | **done — driven live** |
 | 0.7 | Loopback TCP listener for webview panes, `127.0.0.1` only, authed | §9.4 | W | **done — driven live** |
@@ -904,9 +977,10 @@ Owner column: `W` = dispatched worker, `O` = orchestrator-only.
 | 0.11 | `cargo tree -i zlog`, for the record | §15 | O | **done — chain absent** |
 | 0.12 | Relicense to AGPL-3.0-only: `LICENSING.md`, `LICENSE`, SPDX, manifests | §15 | W | **done** |
 
-**Phase 0 exit condition:** every row above is `done` or written to
-`native/oracle/blocked/`, and `cargo clippy --workspace -- -D warnings` is clean
-from `native/`.
+**Phase 0 exit condition — MET 2026-07-30.** All twelve rows `done`.
+`cargo clippy --workspace --all-targets -- -D warnings` exits 0 from `native/`,
+`cargo test --workspace` is 21/21, and `check-invariants.sh` passes all four
+rules. Two items sit in `blocked/` and neither gates anything.
 
 ---
 
