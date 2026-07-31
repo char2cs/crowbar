@@ -49,10 +49,18 @@ pub enum Paint {
 /// to `0` where two separate tests both say "not zero". Nothing in the app is at
 /// `1e-30` opacity today; the point is that the two sides cannot start
 /// disagreeing if something ever is.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub(crate) struct Opacity {
     /// Whether some level at or above this one declared exactly zero.
     zero: bool,
+}
+
+impl Default for Opacity {
+    /// A fresh registry starts at the window root, where nothing above is
+    /// transparent.
+    fn default() -> Self {
+        Self::OPAQUE
+    }
 }
 
 impl Opacity {
@@ -75,9 +83,13 @@ impl Opacity {
     }
 }
 
-/// Exactly zero, spelled so `clippy::float_cmp` can see it is deliberate: the
-/// contract's term is `=== 0`, not "near zero", and a tolerance here would make
-/// the two sides disagree about `opacity: 0.001`.
+/// Exactly zero — the contract's term is `parseFloat(…) === 0`, not "near
+/// zero", and a tolerance here would put the two sides at odds over
+/// `opacity: 0.001`.
+///
+/// `-0.0 == 0.0` is deliberately included: JavaScript's `parseFloat('-0') === 0`
+/// is `true` as well, so a bit-pattern comparison would be the divergence this
+/// function exists to avoid.
 fn is_zero(declared: f32) -> bool {
     declared == 0.0
 }
@@ -316,7 +328,7 @@ mod tests {
         point, px, red, rems, size,
     };
 
-    use super::{Opacity, Paint, TextInput, box_facts, text_facts};
+    use super::{Opacity, Paint, TextInput, box_facts, is_zero, text_facts};
 
     fn a_box() -> Bounds<Pixels> {
         bounds(point(px(10.0), px(20.0)), size(px(100.0), px(30.0)))
@@ -637,7 +649,8 @@ mod tests {
     #[test]
     fn the_chain_is_not_a_product_that_can_underflow() {
         let tiny = f32::MIN_POSITIVE;
-        assert_eq!(tiny * tiny, 0.0);
+        assert!(!is_zero(tiny), "the factor itself is not zero");
+        assert!(is_zero(tiny * tiny), "but the product underflows to zero");
 
         let record = box_facts(
             "panel".into(),
