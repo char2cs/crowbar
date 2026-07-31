@@ -32,6 +32,24 @@
 //! Every option has a default, so a bare `cargo run -p crowbar-app` renders a
 //! cell rather than a usage message.
 //!
+//! # `--git-status` is a row parameter, not a matrix flag
+//!
+//! ```text
+//! crowbar-app --surface file-tree-row --git-status modified
+//! ```
+//!
+//! The file explorer colours a filename by its git status
+//! ([`crowbar_ui::components::GitStatus`]), and a reference fixture whose `a.ts`
+//! is modified paints it amber while a port with no way to say so paints the
+//! foreground. So the status has to be drivable — but it is **not** part of
+//! §8.3's cell: `SurfaceState` carries width, theme, content and flags, and a
+//! snapshot that smuggled a sixth quantity in there would make the differ refuse
+//! comparisons it should make. It sits beside `--added` and `--depth`, which are
+//! the other things the two apps have to be told to render the same.
+//!
+//! It is honoured on `file-tree-row` only, because `GitFileItem` pins its
+//! filename at `text-foreground` and never moves it.
+//!
 //! # `--width` and `--viewport-width` are two different quantities
 //!
 //! `--width` is the **surface**: how wide the row is drawn, which is the
@@ -50,8 +68,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::components::{
-    AnchorSink, Breakpoint, ContentLength, FileTreeRow, GitStatusRow, RowState, TrailingContent,
-    file_tree_row, git_status_row,
+    ALL_GIT_STATUSES, AnchorSink, Breakpoint, ContentLength, FileTreeRow, GitStatus, GitStatusRow,
+    RowState, TrailingContent, file_tree_row, git_status_row,
 };
 use crowbar_ui::{Appearance, Theme};
 use gpui::{
@@ -279,6 +297,18 @@ pub struct Cell {
     /// row showing `+1` and no deletions, which produced four deltas that said
     /// nothing about the port.
     pub deletions: u32,
+    /// The file's git status, which colours the name — `file-tree-row` only.
+    ///
+    /// **Configurable for the same reason the counts are**, and it cost a gate
+    /// run to learn it a second time: driving both apps into
+    /// `file-tree-row · dark · short · selected` left exactly one delta,
+    /// `file-row-name.fg` `#f5f5f5ff` against `#fe9a00ff`, because the reference
+    /// fixture's `a.ts` is modified and the port had no way to say so. A row
+    /// parameter rather than a matrix flag: `SurfaceState` is §8.3's vocabulary
+    /// and this is not in it, so it belongs beside `--added` and `--depth`.
+    ///
+    /// `None` — `--git-status none` — is the default and the unchanged file.
+    pub git_status: Option<GitStatus>,
 }
 
 impl Default for Cell {
@@ -308,6 +338,10 @@ impl Default for Cell {
             // the row the gate was designed around.
             additions: 12,
             deletions: 3,
+            // The unchanged file. Every command line written before
+            // `--git-status` existed keeps painting the name on the inherited
+            // foreground, which is what it was painting.
+            git_status: None,
         }
     }
 }
@@ -352,6 +386,7 @@ impl Cell {
         row.previous_depth = self.previous_depth;
         row.next_depth = self.next_depth;
         row.state = self.row_state();
+        row.git_status = self.git_status;
         row
     }
 
@@ -443,8 +478,9 @@ impl Cell {
             self.viewport_width,
             self.depth,
         );
-        // The three row parameters the file explorer row has no prop for, so
-        // they are only worth naming on the surface that honours them.
+        // The row parameters the *other* surface has no prop for, each named
+        // only where it is honoured. A caption that announced `git modified` on
+        // a git status row would be describing a colour nothing painted.
         if self.surface == Surface::GitStatusRow {
             if !self.show_directory {
                 out.push_str(" · no-directory");
@@ -452,6 +488,8 @@ impl Cell {
             if !self.show_file_icon {
                 out.push_str(" · no-icon");
             }
+        } else if let Some(status) = self.git_status {
+            let _ = write!(out, " · git {}", status.name());
         }
         out
     }
@@ -482,6 +520,7 @@ impl Cell {
                 "--next-depth" => next_depth = Some(parse_u16(&value(&mut args, &arg)?)?),
                 "--added" => cell.additions = parse_u32(&value(&mut args, &arg)?)?,
                 "--deleted" => cell.deletions = parse_u32(&value(&mut args, &arg)?)?,
+                "--git-status" => cell.git_status = parse_git_status(&value(&mut args, &arg)?)?,
                 "--no-directory" => cell.show_directory = false,
                 "--no-icon" => cell.show_file_icon = false,
                 "--compact" => cell.compact = true,
@@ -557,6 +596,33 @@ fn parse_content(raw: &str) -> Result<ContentLength, ParseError> {
     }
 }
 
+/// `none`, or one of [`ALL_GIT_STATUSES`]'s own names.
+///
+/// The vocabulary is generated from [`GitStatus::name`] rather than restated
+/// here, so the word the command line takes and the word the component reports
+/// cannot drift into two spellings of one status. `none` is the only word this
+/// function adds, and it is the absence — which is why `GitStatus` has no
+/// variant for it.
+fn parse_git_status(raw: &str) -> Result<Option<GitStatus>, ParseError> {
+    if raw == "none" {
+        return Ok(None);
+    }
+    ALL_GIT_STATUSES
+        .into_iter()
+        .find(|status| status.name() == raw)
+        .map(Some)
+        .ok_or_else(|| {
+            ParseError::Rejected(format!("{raw} is not a git status: {}", git_statuses()))
+        })
+}
+
+/// The `--git-status` vocabulary as one line, for the usage and for a rejection.
+fn git_statuses() -> String {
+    let mut words = vec!["none"];
+    words.extend(ALL_GIT_STATUSES.iter().map(|status| status.name()));
+    words.join(", ")
+}
+
 /// The flags, deduplicated but kept in the order they were given.
 fn parse_flags(raw: &str) -> Result<Vec<StateFlag>, ParseError> {
     let mut flags = Vec::new();
@@ -580,6 +646,9 @@ pub fn usage() -> String {
         "crowbar-app — a Phase 1 gate surface: one row in one matrix cell.\n\n\
          Options (all optional; the defaults are one cell):\n",
     );
+    // Built rather than written out, so the usage cannot claim a vocabulary the
+    // parser does not accept.
+    let statuses = format!("file-tree-row: colours the name; {} [none]", git_statuses());
     for (option, description) in [
         (
             "--surface <name>",
@@ -612,6 +681,7 @@ pub fn usage() -> String {
             "--deleted <n>",
             "git-status-row: diffStats.deletions; 0 omits the span [3]",
         ),
+        ("--git-status <name>", statuses.as_str()),
         ("--no-directory", "git-status-row: showDirectory = false"),
         ("--no-icon", "git-status-row: showFileIcon = false"),
         ("--compact", "git-status-row: compactGitStatusBadges = true"),
@@ -720,7 +790,9 @@ mod tests {
         StateFlag, Surface, usage,
     };
     use crowbar_ui::Appearance;
-    use crowbar_ui::components::{BREAKPOINT_SM, Breakpoint, ContentLength};
+    use crowbar_ui::components::{
+        ALL_GIT_STATUSES, BREAKPOINT_SM, Breakpoint, ContentLength, GitStatus,
+    };
 
     fn parse(args: &[&str]) -> Result<Cell, ParseError> {
         Cell::parse(args.iter().map(|arg| (*arg).to_owned()))
@@ -778,6 +850,95 @@ mod tests {
         assert!(!cell.show_directory);
         assert!(!cell.show_file_icon);
         assert!(cell.compact);
+        // Defaulted, because this line does not pass it.
+        assert_eq!(cell.git_status, None);
+    }
+
+    /// **`--git-status` drives the colour**, one word per status, and `none` is
+    /// the default rather than a rejection.
+    #[test]
+    fn every_git_status_parses_and_none_is_the_absence() {
+        assert_eq!(Cell::default().git_status, None);
+        assert_eq!(parse(&[]).expect("well-formed").git_status, None);
+        assert_eq!(
+            parse(&["--git-status", "none"])
+                .expect("well-formed")
+                .git_status,
+            None,
+        );
+
+        for status in ALL_GIT_STATUSES {
+            let cell = parse(&["--git-status", status.name()]).expect("well-formed");
+            assert_eq!(cell.git_status, Some(status), "{}", status.name());
+            // And it reaches the row, which is where the colour is read.
+            assert_eq!(cell.file_row().git_status, Some(status));
+        }
+
+        // The one the defect was found on.
+        assert_eq!(
+            parse(&["--git-status", "modified"])
+                .expect("well-formed")
+                .file_row()
+                .git_status,
+            Some(GitStatus::Modified),
+        );
+    }
+
+    /// The vocabulary is closed and the complaint lists it, because "invalid" is
+    /// not something anyone can act on — and `staged` is the near-miss worth
+    /// naming: it is not a status in the React source, it is `modified` with a
+    /// boolean, and its word here is `modified-staged`.
+    #[test]
+    fn the_git_status_vocabulary_is_closed() {
+        for line in [
+            vec!["--git-status", "staged"],
+            vec!["--git-status", "conflicted"],
+            vec!["--git-status", "ignored"],
+            vec!["--git-status", "Modified"],
+            vec!["--git-status", ""],
+            vec!["--git-status"],
+        ] {
+            assert!(
+                matches!(parse(&line), Err(ParseError::Rejected(_))),
+                "{line:?} should have been rejected",
+            );
+        }
+
+        let Err(ParseError::Rejected(complaint)) = parse(&["--git-status", "staged"]) else {
+            panic!("`staged` is not a status");
+        };
+        assert!(complaint.contains("modified-staged"), "{complaint}");
+        assert!(complaint.contains("none"), "{complaint}");
+    }
+
+    /// It is named in the caption on the surface that honours it, and nowhere
+    /// else: a git status row announcing `git modified` would be describing a
+    /// colour nothing painted, because `GitFileItem` pins its filename at
+    /// `text-foreground`.
+    #[test]
+    fn the_caption_names_the_status_only_on_the_surface_that_paints_it() {
+        let file =
+            parse(&["--surface", "file-tree-row", "--git-status", "deleted"]).expect("well-formed");
+        assert!(
+            file.describe().contains("git deleted"),
+            "{}",
+            file.describe()
+        );
+
+        let git = parse(&["--git-status", "deleted"]).expect("well-formed");
+        assert!(
+            !git.describe().contains("git deleted"),
+            "{}",
+            git.describe()
+        );
+
+        // And no status says nothing at all, so the default caption is unchanged.
+        let plain = parse(&["--surface", "file-tree-row"]).expect("well-formed");
+        assert!(
+            !plain.describe().contains(" · git "),
+            "{}",
+            plain.describe()
+        );
     }
 
     /// The reason the counts are on the command line at all: the two sides have
@@ -891,6 +1052,7 @@ mod tests {
             "--next-depth",
             "--added",
             "--deleted",
+            "--git-status",
             "--no-directory",
             "--no-icon",
             "--compact",
@@ -900,6 +1062,15 @@ mod tests {
         }
         for flag in ["empty", "loading", "error", "hover", "focus", "selected"] {
             assert!(usage.contains(flag), "{flag} is missing from the usage");
+        }
+        // Every word `--git-status` accepts, including the absence.
+        assert!(usage.contains("none"), "{usage}");
+        for status in ALL_GIT_STATUSES {
+            assert!(
+                usage.contains(status.name()),
+                "{} is missing from the usage",
+                status.name(),
+            );
         }
     }
 
