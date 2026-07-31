@@ -1,9 +1,28 @@
 import type React from 'react'
 
-/** The Crowbar mark alone — no wordmark. Source: desktop/src-tauri/icons/crowbar.icon. */
+/**
+ * The Crowbar mark alone — no wordmark. Source: desktop/src-tauri/icons/crowbar.icon.
+ *
+ * Carries `data-oracle-id` and neither declaration. The mark authors **no box
+ * of its own** — no `className`, no `width`/`height` attribute — so both axes
+ * come from the call site, which is a pinned extent rather than a content
+ * width; `native/oracle/ANCHORS.md` v1.5 does not apply. Nor does v1.6: the
+ * element paints no text, so there is no line box for a height to derive from.
+ *
+ * **What the anchor can be compared on is the box and nothing else.** `fill`
+ * resolves `currentColor` off `text-muted-foreground`, and the contract has no
+ * field for an SVG's paint: `fg` is emitted only for an element with its own
+ * text nodes, and this one has none. See `native/mapping/crowbar-mark.md`.
+ */
 export function CrowbarMark(props: React.SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 146 145" fill="currentColor" xmlns="http://www.w3.org/2000/svg" {...props}>
+    <svg
+      viewBox="0 0 146 145"
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+      data-oracle-id="crowbar-mark"
+      {...props}
+    >
       <path d="M72.87 15C104.84 15 130.75 40.74 130.75 72.5C130.75 104.26 104.84 130 72.87 130C40.91 130 15 104.26 15 72.5C15 40.74 40.91 15 72.87 15ZM74.9 42.82C72.27 42.37 69.54 42.71 66.54 44.43C61.46 47.34 57.69 50.81 56.45 56.24C54.58 64.42 51.36 72.04 47.94 79.48C47.4 80.66 46.73 81.83 46.17 82.86C45.6 83.93 45.11 84.92 44.81 85.93C42.95 92.2 41.37 99.97 40.51 106.49C40.81 106.44 41.12 106.36 41.32 106.25C43.5 105.05 45.65 103.79 47.86 102.64C49.11 101.99 49.68 101.03 49.93 99.68C50.8 94.97 52.13 90.37 53.53 85.8C53.63 85.45 53.64 84.96 54.19 84.81C54.59 88.77 54.96 92.65 55.39 96.52C55.6 98.44 56.22 98.75 57.88 97.82C61.07 96.04 64.23 94.23 67.42 92.45C68.23 91.99 68.73 91.4 68.9 90.42C69.29 88.26 69.85 86.13 70.3 83.98C71.41 78.79 73.09 73.64 71.31 68.27C71.26 68.11 71.29 67.93 71.26 67.78C70.72 65.43 71.73 63.59 73.25 61.94C74.69 60.39 76.28 60.28 77.94 61.57C78.86 62.29 79.62 63.16 80.27 64.13C82.83 67.92 84.54 72.09 85.75 76.46C88.42 86.11 91.04 95.78 93.67 105.44C94.69 109.18 95.79 111.71 96.84 113.43C101.36 110.81 105.41 107.47 108.82 103.58C107.36 98.33 105.1 90.54 102.06 79.5C100.19 72.71 98.58 66.14 95.17 60.23C91.95 54.63 88.39 49.62 83.03 46.3C80.25 44.58 77.59 43.28 74.9 42.82ZM72.87 25.15C46.55 25.15 25.22 46.35 25.22 72.5C25.22 84.84 29.98 96.08 37.76 104.5C38.67 98.2 40.17 91.01 41.94 85.07C42.33 83.76 42.93 82.55 43.53 81.44C44.15 80.29 44.73 79.29 45.22 78.23C48.62 70.82 51.73 63.44 53.53 55.57C55.04 48.95 59.66 44.91 65.05 41.82C68.65 39.76 72.09 39.29 75.41 39.86C78.66 40.42 81.72 41.96 84.61 43.75L85.17 44.11C90.86 47.82 94.59 53.2 97.77 58.73C101.42 65.05 103.13 72.06 104.95 78.7C107.65 88.5 109.67 95.53 111.14 100.72C117.04 92.84 120.53 83.08 120.53 72.5C120.53 46.35 99.19 25.15 72.87 25.15Z" />
     </svg>
   )

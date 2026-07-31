@@ -1,8 +1,27 @@
 import type React from 'react'
 
+/**
+ * The Crowbar wordmark — mark plus lettering, one path set.
+ *
+ * Carries `data-oracle-id` and neither declaration. The wordmark authors no box
+ * of its own; every live call site pins a **width** and leaves `h-auto`, so the
+ * height comes from the `453 × 115` viewBox's intrinsic ratio. That is a
+ * replaced element's aspect ratio, not a content width and not a line box, so
+ * neither `native/oracle/ANCHORS.md` v1.5 nor v1.6 applies.
+ *
+ * **The lettering itself is invisible to the contract.** It is `<path>` fill,
+ * not a text node, so the anchor carries no `text`, `text_width`, `clipped`,
+ * `font` or `fg` — only its box. See `native/mapping/crowbar-wordmark.md`.
+ */
 export function CrowbarWordmark(props: React.SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 453 115" fill="currentColor" xmlns="http://www.w3.org/2000/svg" {...props}>
+    <svg
+      viewBox="0 0 453 115"
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+      data-oracle-id="crowbar-wordmark"
+      {...props}
+    >
       <path d="M226.74 86.86C226.64 86.85 226.53 86.84 226.43 86.83L226.37 86.82C226.49 86.83 226.62 86.85 226.74 86.86Z" />
       <path d="M228.76 51.48C231.98 51.48 234.56 52.87 236.58 55.77L236.59 55.78L236.6 55.8C238.79 58.73 239.92 62.53 239.92 67.28C239.92 72.03 238.79 75.83 236.6 78.76L236.6 78.76C234.47 81.64 231.87 83 228.76 83C225.48 83 222.81 81.62 220.69 78.77C218.6 75.78 217.52 71.97 217.52 67.28C217.52 62.53 218.63 58.72 220.77 55.79C222.95 52.87 225.6 51.48 228.76 51.48Z" />
       <path d="M240.87 69.08C240.86 69.16 240.85 69.24 240.85 69.32C240.85 69.22 240.86 69.12 240.87 69.02L240.87 69.08Z" />
