@@ -848,6 +848,79 @@ impl Label {
     }
 }
 
+/// A `rounded-*` class a **call site** merges over the size variant's own.
+///
+/// # Why this is a parameter, and where the line is
+///
+/// `button.tsx` composes `cn(buttonVariants({ className, size, variant }), …)`,
+/// so a call site's `className` is merged over the variant's by tailwind-merge —
+/// **the call site is half the component**. Every one of the nine live Buttons
+/// does it, and this is the one merged class that reaches a *compared* field.
+///
+/// It names the **class**, never the number, and resolves through the sealed
+/// token the class names. That is the whole difference between an input both
+/// engines still have to resolve and an answer handed to the port: a
+/// `--radius 6` would let a cell be tuned to whatever the reference happened to
+/// say, and the anchor would stop being able to fail. Same shape as
+/// [`Props::loading`] — a fact about the call site, not about the layout.
+///
+/// The three arms are the three classes live call sites actually write:
+/// `rounded-sm` at five of the nine, `rounded-lg` at two, and none at the other
+/// two. There is deliberately no `rounded-xl` or `rounded-none`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RadiusClass {
+    /// `rounded-sm` — `calc(var(--radius) * 0.6)` = **6px**.
+    ///
+    /// What the tab bar's five buttons write, verbatim, in
+    /// `tab-navigation-buttons.tsx`, `tab-add-button.tsx`,
+    /// `close-split-button.tsx` and `sidebar-project-header.tsx` (twice). The
+    /// first of those carries a comment naming the intent — "icon-sm (28px, 6px
+    /// radius)" — so this is the design's number and not a stray override.
+    Sm,
+    /// `rounded-md` — `calc(var(--radius) * 0.8)` = **8px**. No live call site
+    /// writes it as an override; it is the `xs`/`icon-xs` *variants'* own class,
+    /// and it is here so the vocabulary is the token scale rather than a subset
+    /// chosen by what happened to be on screen.
+    Md,
+    /// `rounded-lg` — `var(--radius)` = **10px**, not Tailwind's stock 8.
+    ///
+    /// What the two `icon-xs` buttons in the workspace header write, *over* the
+    /// variant's own `rounded-md`.
+    Lg,
+}
+
+/// Every `rounded-*` class the surface can be driven to, small to large.
+pub const ALL_RADIUS_CLASSES: [RadiusClass; 3] =
+    [RadiusClass::Sm, RadiusClass::Md, RadiusClass::Lg];
+
+impl RadiusClass {
+    /// Its word on the command line and in a caption — the Tailwind suffix.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Sm => "sm",
+            Self::Md => "md",
+            Self::Lg => "lg",
+        }
+    }
+
+    /// The class's compiled value, read out of the sealed token it names.
+    ///
+    /// **Through the token, never as a literal.** `theme.css` defines the whole
+    /// scale off one `--radius: 0.625rem` — `--radius-sm: calc(var(--radius) *
+    /// 0.6)`, `--radius-md: calc(… * 0.8)`, `--radius-lg: var(--radius)` — so a
+    /// project that moved the base moves all three together, and a port holding
+    /// `px(6.0)` would silently stop describing the app.
+    #[must_use]
+    pub fn value(self, theme: &Theme) -> Pixels {
+        match self {
+            Self::Sm => theme.radius_sm.value(),
+            Self::Md => theme.radius_md.value(),
+            Self::Lg => theme.radius_lg.value(),
+        }
+    }
+}
+
 /// One `<Button>`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Button {
@@ -878,21 +951,45 @@ pub struct Button {
     pub icon: bool,
     /// The label, or `None` for the icon-only shape every live call site has.
     pub label: Option<Label>,
+    /// A call site's own `rounded-*`, or `None` for the size variant's.
+    ///
+    /// See [`RadiusClass`] for why a call-site class is a parameter at all.
+    /// `None` is the *primitive's* radius — and it has **no visible reference**:
+    /// the only two live Buttons that keep it sit inside the sidebar carousel's
+    /// snapped-out panels and report `visible: false`, so no capture of the
+    /// unmerged button is comparable. `Button::fixture` therefore defaults to
+    /// `Some(RadiusClass::Sm)`, which is the button a reference *can* be taken
+    /// from.
+    pub class_radius: Option<RadiusClass>,
     /// The visual state.
     pub state: ButtonState,
 }
 
 impl Button {
-    /// The shape the live app actually renders: `variant="ghost" size="icon-sm"`,
-    /// one icon, no label, at rest.
+    /// The button a reference can actually be taken from: `variant="ghost"
+    /// size="icon-sm"` with the tab bar's `rounded-sm`, one icon, no label, at
+    /// rest.
     ///
-    /// Read off the reference rather than chosen: of the nine `[data-slot=button]`
-    /// elements in the fixture workspace, the one at `x 1140, y 153` is the only
-    /// one whose class list is exactly `buttonVariants({variant:'ghost',
-    /// size:'icon-sm'})` plus a `shrink-0` that the base list already carries —
-    /// so it is the cell whose reference is cleanest. The other eight all add a
-    /// `rounded-*`, a `text-*` or a `p-*` of their own, which tailwind-merge
-    /// resolves against the variant's and which this component has no prop for.
+    /// Read off the live app rather than chosen. The nine `[data-slot=button]`
+    /// elements in the fixture workspace divide into three groups, and only one
+    /// of them is capturable:
+    ///
+    /// | group | radius | `visible` |
+    /// |---|---|---|
+    /// | five in the tab bar, `rounded-sm` over the variant | **6** | true |
+    /// | two `icon-xs` in the workspace header, `rounded-lg` over `rounded-md` | 10 | true |
+    /// | two with **no** `rounded-*` override — the primitive's own | 10 | **false** |
+    ///
+    /// The two unmerged ones are inside the sidebar carousel's snapped-out
+    /// panels, so their whole snapshot is an artefact of an ancestor this port
+    /// has no equivalent for (`ANCHORS.md` v1.7's own worked example). **There
+    /// is no live Button that is both unmerged and visible**, so the fixture is
+    /// the merged one and [`Button::class_radius`] is what says so.
+    ///
+    /// The call site is `web/src/features/tabs/components/tab-navigation-buttons.tsx`
+    /// — the sidebar toggle, `aria-label="Hide sidebar"`, measured at
+    /// `x 88, y 8, 28×28, radius 6`. Four more Buttons write the same class
+    /// string verbatim.
     ///
     /// **`size-8 sm:size-7` is `icon-sm`, not `icon`.** `icon` is
     /// `size-9 sm:size-8`, one step larger, and reading the reference's class
@@ -908,8 +1005,25 @@ impl Button {
             breakpoint: Breakpoint::Sm,
             icon: true,
             label: None,
+            class_radius: Some(RadiusClass::Sm),
             state: ButtonState::resting(),
         }
+    }
+
+    /// The radius the button is drawn with: a call site's class where there is
+    /// one, and the size variant's own where there is not.
+    ///
+    /// **The `::before` overlay does not follow it**, and that is measured
+    /// rather than reasoned: `before:rounded-[…]` is a *different* tailwind-merge
+    /// group from `rounded-*`, so a call site's `rounded-sm` moves the host and
+    /// leaves the overlay on the variant's class. Live, on the fixture's own
+    /// button: host **6px**, `::before` **9px** — and the reciprocal on the two
+    /// `icon-xs` buttons, whose call-site `rounded-lg` gives host **10px** with
+    /// `::before` at the variant's **7px**. See [`Button::overlay`].
+    #[must_use]
+    pub fn radius(&self, theme: &Theme) -> Pixels {
+        self.class_radius
+            .map_or_else(|| self.size.radius(theme), |class| class.value(theme))
     }
 
     /// Renders the button, opting every contract anchor into `anchors`.
@@ -969,7 +1083,7 @@ impl Button {
             .gap(self.size.gap())
             .whitespace_nowrap()
             .h(extent)
-            .rounded(self.size.radius(theme))
+            .rounded(self.radius(theme))
             .border_1()
             .border_color(self.variant.border(theme, self.state))
             .text_size(step.size)
@@ -1035,6 +1149,15 @@ impl Button {
     /// background, border and 10px radius are the whole point of the surface. So
     /// the overlay is painted and not anchored, and its 9px inner radius lives in
     /// [`Size::overlay_radius`] where it can at least be asserted.
+    ///
+    /// **Its radius is the size variant's, never a call site's.**
+    /// `before:rounded-[calc(var(--radius-lg)-1px)]` and a bare `rounded-sm` are
+    /// different tailwind-merge groups, so both survive the merge and each
+    /// applies to its own box. Measured on all nine live Buttons: the five with
+    /// `rounded-sm` are `6 / 9`, the two with `rounded-lg` over `icon-xs` are
+    /// `10 / 7`, and the two unmerged are `10 / 9`. A port that let
+    /// [`Button::class_radius`] reach here would be wrong on seven of the nine —
+    /// invisibly, because the overlay is unanchored.
     ///
     /// Its four shadow layers are **not painted**. Each one is
     /// `--theme(--color-black/N%)` or `--theme(--color-white/N%)`, and
@@ -1118,10 +1241,10 @@ fn ring(mut element: Div, theme: &Theme) -> Div {
 #[cfg(test)]
 mod tests {
     use super::{
-        ACTIVE_TINT, ALL_SIZES, ALL_VARIANTS, BORDER_WIDTH, Breakpoint, Button, ButtonState,
-        CONTENT_SIZED, DISABLED_OPACITY, ICON_MARGIN_X, ID_BUTTON, ID_LOADING_INDICATOR,
-        Interaction, LINE_SIZED, Label, Props, RING_OFFSET_WIDTH, RING_SPREAD, Size, TEXT_LG,
-        Variant,
+        ACTIVE_TINT, ALL_RADIUS_CLASSES, ALL_SIZES, ALL_VARIANTS, BORDER_WIDTH, Breakpoint, Button,
+        ButtonState, CONTENT_SIZED, DISABLED_OPACITY, ICON_MARGIN_X, ID_BUTTON,
+        ID_LOADING_INDICATOR, Interaction, LINE_SIZED, Label, Props, RING_OFFSET_WIDTH,
+        RING_SPREAD, RadiusClass, Size, TEXT_LG, Variant,
     };
     use crate::theme::{Color, Theme};
     use gpui::{Rems, px};
@@ -1649,6 +1772,16 @@ mod tests {
         assert_eq!(fixture.state, ButtonState::resting());
         assert_eq!(ButtonState::default(), ButtonState::resting());
 
+        // The tab bar's `rounded-sm`, which is what makes this the button a
+        // reference can be taken from at all — the two that keep the
+        // primitive's own radius are `visible: false`.
+        assert_eq!(fixture.class_radius, Some(RadiusClass::Sm));
+        assert_eq!(fixture.radius(&Theme::DARK), px(6.0));
+        assert_ne!(
+            fixture.radius(&Theme::DARK),
+            fixture.size.radius(&Theme::DARK)
+        );
+
         // 28×28, which is what the reference measures at `x 1140, y 153`.
         assert_eq!(fixture.size.extent(fixture.breakpoint), px(28.0));
         // And a 16px glyph pulled in by 2px on each side, which is what puts the
@@ -1713,6 +1846,104 @@ mod tests {
         assert_eq!(Size::Default.icon(Breakpoint::Base), px(18.0));
         assert_eq!(Size::IconXl.icon(Breakpoint::Sm), px(18.0));
         assert_eq!(Size::IconXs.icon(Breakpoint::Sm), px(14.0));
+    }
+
+    /// **A call site's `rounded-*` replaces the variant's, and stops there.**
+    ///
+    /// The three arms resolve through the sealed tokens rather than through
+    /// literals, so the assertion is the arithmetic `theme.css` writes —
+    /// `--radius-sm: calc(var(--radius) * 0.6)` and
+    /// `--radius-md: calc(var(--radius) * 0.8)` off a single `--radius` — and a
+    /// project that moved the base would move all three together rather than
+    /// failing here.
+    #[test]
+    fn a_call_sites_rounded_class_resolves_through_the_token_it_names() {
+        for theme in [Theme::LIGHT, Theme::DARK] {
+            let base = theme.radius_lg.value();
+
+            // The token each class names, and the compiled multiple it is.
+            assert_eq!(RadiusClass::Lg.value(&theme), base);
+            assert_eq!(RadiusClass::Md.value(&theme), theme.radius_md.value());
+            assert_eq!(RadiusClass::Sm.value(&theme), theme.radius_sm.value());
+            assert_eq!(RadiusClass::Md.value(&theme), base * 0.8);
+            assert_eq!(RadiusClass::Sm.value(&theme), base * 0.6);
+
+            // Which, at this project's `--radius: 0.625rem`, is 10 / 8 / 6 —
+            // and none of the three is Tailwind's stock value for its name.
+            assert_eq!(RadiusClass::Lg.value(&theme), px(10.0));
+            assert_eq!(RadiusClass::Md.value(&theme), px(8.0));
+            assert_eq!(RadiusClass::Sm.value(&theme), px(6.0));
+
+            // Three distinct values, or the option could not move anything.
+            let mut seen: Vec<f32> = ALL_RADIUS_CLASSES
+                .into_iter()
+                .map(|class| f32::from(class.value(&theme)))
+                .collect();
+            let before = seen.len();
+            seen.dedup();
+            assert_eq!(seen.len(), before, "{seen:?}");
+        }
+
+        // The words the command line takes.
+        assert_eq!(
+            ALL_RADIUS_CLASSES.map(RadiusClass::name),
+            ["sm", "md", "lg"],
+        );
+    }
+
+    /// The override reaches the **host** and the size variant still decides
+    /// everything else — including the `::before` overlay, which is a different
+    /// tailwind-merge group.
+    #[test]
+    fn the_class_moves_the_host_and_leaves_the_overlay_on_the_variants() {
+        let theme = Theme::DARK;
+
+        for size in ALL_SIZES {
+            let mut button = Button::fixture();
+            button.size = size;
+
+            // `None` is the primitive's own.
+            button.class_radius = None;
+            assert_eq!(
+                button.radius(&theme),
+                size.radius(&theme),
+                "{}",
+                size.name()
+            );
+
+            for class in ALL_RADIUS_CLASSES {
+                button.class_radius = Some(class);
+                assert_eq!(
+                    button.radius(&theme),
+                    class.value(&theme),
+                    "{}",
+                    size.name()
+                );
+                // And the overlay is unmoved by it, in every combination.
+                assert_eq!(
+                    size.overlay_radius(&theme),
+                    size.radius(&theme) - BORDER_WIDTH,
+                    "{} {}",
+                    size.name(),
+                    class.name(),
+                );
+            }
+        }
+
+        // The three pairs measured on the live app, host against `::before`.
+        let mut tab_bar = Button::fixture();
+        assert_eq!(tab_bar.radius(&theme), px(6.0));
+        assert_eq!(tab_bar.size.overlay_radius(&theme), px(9.0));
+
+        let mut header = Button::fixture();
+        header.size = Size::IconXs;
+        header.class_radius = Some(RadiusClass::Lg);
+        assert_eq!(header.radius(&theme), px(10.0));
+        assert_eq!(header.size.overlay_radius(&theme), px(7.0));
+
+        tab_bar.class_radius = None;
+        assert_eq!(tab_bar.radius(&theme), px(10.0));
+        assert_eq!(tab_bar.size.overlay_radius(&theme), px(9.0));
     }
 
     /// The two ids this component writes, distinct — a repeat would make two

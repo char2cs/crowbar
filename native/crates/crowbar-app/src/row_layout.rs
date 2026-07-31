@@ -3283,7 +3283,9 @@ mod button {
     use crowbar_driver::{Paint, RawAnchor};
     use crowbar_ui::Theme;
     use crowbar_ui::components::button;
-    use crowbar_ui::components::button::{ALL_SIZES, ALL_VARIANTS, ButtonState, Size};
+    use crowbar_ui::components::button::{
+        ALL_RADIUS_CLASSES, ALL_SIZES, ALL_VARIANTS, ButtonState, RadiusClass, Size,
+    };
     use gpui::{Bounds, Pixels, TestAppContext, px};
 
     use crate::row_surface::Cell;
@@ -3323,6 +3325,55 @@ mod button {
         // And it is drawn at the ordinary inset, so the root-relative
         // subtraction in the snapshot is doing work on both axes.
         assert_px(find(&records, "button").bounds.origin.x, px(24.0));
+
+        // `rounded-sm`, from the tab bar call site the default reproduces —
+        // **not** the `icon-sm` variant's own `rounded-lg`. This is the field
+        // the first gate run came back one delta on.
+        assert_px(find(&records, "button").radius, px(6.0));
+    }
+
+    /// **A call site's `rounded-*` reaches the extractor**, and `none` gives the
+    /// size variant's own back.
+    ///
+    /// Read off the recorded anchor rather than off `Button::radius`, because
+    /// what the differ compares is what the extractor saw: a class that never
+    /// reached the style would still leave the component's own arithmetic right.
+    #[gpui::test]
+    fn a_call_site_radius_class_reaches_the_extractor(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
+        let theme = Theme::DARK;
+
+        for class in ALL_RADIUS_CLASSES {
+            let records = measure(cx, cell(&["--class-radius", class.name()]));
+            assert_px(find(&records, "button").radius, class.value(&theme));
+        }
+
+        // The three are three different pictures, or the option would be
+        // decoration.
+        let seen: Vec<f32> = ALL_RADIUS_CLASSES
+            .into_iter()
+            .map(|class| {
+                let records = measure(cx, cell(&["--class-radius", class.name()]));
+                f32::from(find(&records, "button").radius)
+            })
+            .collect();
+        assert_eq!(seen, vec![6.0, 8.0, 10.0]);
+
+        // `none` is the size variant's own, on both sides of the `rounded-md`
+        // split: `icon-sm` keeps 10 and `icon-xs` keeps 8.
+        for (size, expected) in [(Size::IconSm, 10.0), (Size::IconXs, 8.0)] {
+            let records = measure(cx, cell(&["--class-radius", "none", "--size", size.name()]));
+            assert_px(find(&records, "button").radius, px(expected));
+            assert_px(find(&records, "button").radius, size.radius(&theme));
+        }
+
+        // And the class beats the variant in the direction that would otherwise
+        // look like agreement: `icon-xs`'s own is 8, the workspace header's
+        // call site writes `rounded-lg`, and 10 is what paints.
+        let header = measure(cx, cell(&["--size", "icon-xs", "--class-radius", "lg"]));
+        assert_px(find(&header, "button").radius, px(10.0));
+        assert_ne!(find(&header, "button").radius, Size::IconXs.radius(&theme),);
+        assert_eq!(RadiusClass::Lg.value(&theme), px(10.0));
     }
 
     /// **`border.w` is 1 on every variant** — the field `ANCHORS.md` v1.1
@@ -3368,6 +3419,9 @@ mod button {
                 ("800", crowbar_ui::components::Breakpoint::Sm),
                 ("600", crowbar_ui::components::Breakpoint::Base),
             ] {
+                // `--class-radius none` because this test is about the size
+                // *variant's* own `rounded-*`; the default cell carries the tab
+                // bar's `rounded-sm` over the top of it.
                 let subject = cell(&[
                     "--size",
                     size.name(),
@@ -3375,6 +3429,8 @@ mod button {
                     viewport,
                     "--width",
                     "300",
+                    "--class-radius",
+                    "none",
                 ]);
                 let records = measure(cx, subject);
                 let box_ = at(&records, "button");

@@ -19,7 +19,7 @@ has no third-party primitive under it that writes inline styles. What it does
 have is `cn(buttonVariants({ className, size, variant }), active && …)`, so a
 **call site's `className` is merged over the variant's** by tailwind-merge — and
 that turns out to be the single most important fact about the *reference*
-(§7).
+(§7, §11).
 
 ---
 
@@ -60,6 +60,7 @@ model: `box-sizing: border-box` is on, so the pixel eats into the padding box
 | `px-[calc(--spacing(3)-1px)]` | `calc(calc(var(--spacing) * 3) - 1px)` = **11px** | `Size::padding_x()` | compared (through the box) |
 | `rounded-lg` | `var(--radius)` = **10px**, *not* Tailwind's stock 8 — `theme.css` sets `--radius: 0.625rem` and `--radius-lg: var(--radius)` | `theme.radius_lg.value()` | compared |
 | `rounded-md` (`xs`, `icon-xs`) | `calc(var(--radius) * 0.8)` = **8px**, *not* stock 6 | `theme.radius_md.value()` | compared |
+| `rounded-sm` (a **call site's**, over the variant's) | `calc(var(--radius) * 0.6)` = **6px** | `RadiusClass::Sm` → `theme.radius_sm.value()` | compared — see §11 |
 | `before:rounded-[calc(var(--radius-lg)-1px)]` | **9px** (and **7px** for the `--radius-md` spelling) — measured live on both | `Size::overlay_radius()` | **invisible** (§5) |
 | `border` | `border-width: 1px` | `BORDER_WIDTH` | compared, **exactly** |
 | `font-medium` | `--font-weight-medium: 500` | `FontWeight::MEDIUM` | compared |
@@ -195,6 +196,7 @@ fails there rather than being noticed years later.
 | the `::before` overlay | **not anchored** — see the traps |
 | `CONTENT_SIZED` | **empty, and it is a stated hole rather than a measurement.** The five non-icon sizes author no width, so a labelled button *is* a content-sized box and v1.5 would apply. A v1.5 declaration has to be made on both sides and the React spelling is a `data-oracle-content-sized` attribute, which this item's remit on `button.tsx` (`data-oracle-id` and nothing else) does not allow. Undeclared on **both** sides is the safe direction: it can manufacture a delta of at most the `ceil` excess (< 1px) and cannot hide one — and no live call site renders a Button with a label, so it cannot fire today |
 | `LINE_SIZED` | **empty, and here it is a measurement.** Every one of the ten sizes authors a height, so no button's box is derived from its line box. Pinned by asserting, for all ten sizes at both breakpoints, that the box differs from its own line box by more than 0.5px |
+| `--class-radius` | the surface names the **class** a call site merged, never a number — see §11 |
 | a surface scope declaration (v1.8) | **none, deliberately.** The anchor set is a function of the *cell* — `button-loading-indicator` exists only under `--loading` — and v1.8 permits a declaration only when the set is a property of the surface. The root's subtree contains no other anchor either way |
 
 ---
@@ -215,6 +217,7 @@ Each of these compiles, renders something plausible, and is wrong.
 | **`px-[calc(--spacing(3)-1px)]` is not `px-3`.** | The `-1px` pays for the base list's border out of the padding, because `box-sizing: border-box` is on. A port that wrote `px(12)` would be one pixel wide on each side of every text button |
 | **Expecting `opacity-64` to move `visible`.** | v1.7's opacity term fires only at **zero**. 0.64 leaves `visible: true` on both sides, and nothing else about `disabled` is representable — so `--disabled` is the *most* live prop on the component (35 of 142 call sites) and the *least* visible |
 | **`pointer-coarse:` on a Mac.** | `matchMedia('(pointer: coarse)')` is **false** and `::after` has `content: none`. Four dead classes |
+| **Letting a call site's `rounded-*` reach the `::before` overlay.** | It does not. `before:rounded-[…]` and a bare `rounded-*` are **different tailwind-merge groups**, so both survive the merge and each applies to its own box. Measured on all nine live Buttons: the five with `rounded-sm` are host **6** / overlay **9**, the two with `rounded-lg` over `icon-xs` are **10 / 7**, and the two unmerged are **10 / 9**. A port that wired the override through to the overlay would be wrong on seven of the nine — and **invisibly**, because the overlay is unanchored on both sides (mutation-tested: **0 failures**, §11) |
 | **Trusting `-mx-0.5` to lay out.** | §6 |
 | **Naming a surface option `--no-icon`.** | `Cell::parse` matches every shared option *before* it asks the selected surface's bag, and `--no-icon` is `git-status-row`'s `showFileIcon`. A surface option spelled the same is swallowed with no error anywhere. This surface's is `--no-glyph`, and `the_shared_parsers_words_are_not_this_surfaces` pins it |
 
@@ -230,15 +233,17 @@ Recorded because §8.2 requires honesty about it.
   and the whole `font` group — half the contract — have **no reference on this
   surface today**. The port renders them and the layout gate measures them
   against the compiled CSS; the oracle cannot confirm any of it.
-- **Every live Button merges a call-site `className` over the variant, and the
-  radius is where that shows.** Of the nine, five carry `rounded-sm` (6px over
-  the primitive's 10), two carry `rounded-lg` over `icon-xs`'s `rounded-md`
-  (10 over 8), and the only two whose radius **is** the primitive's are the two
-  inside the sidebar carousel's snapped-out panels — which report
-  `visible: false`. So the reference at `/tmp/p3-ref-button.json` carries
-  `radius: 6` where the port draws 10, and that one delta is a call-site class
-  the primitive has no prop for. `/tmp/p3-ref-button-unmerged.json` is the other
-  half of the same fact: the unmerged button, `radius: 10`, `visible: false`.
+- **The primitive's own radius has no visible reference.** Every live Button
+  merges a call-site `className` over the variant, and the radius is where that
+  shows: of the nine, five carry `rounded-sm` (6px over the primitive's 10), two
+  carry `rounded-lg` over `icon-xs`'s `rounded-md` (10 over 8), and **the only
+  two whose radius *is* the primitive's are inside the sidebar carousel's
+  snapped-out panels**, reporting `visible: false`. So there is no live Button
+  that is both unmerged and visible, `--class-radius none` is a cell that can be
+  drawn and not compared, and its caption says so — the same shape of finding as
+  `resizable`'s grip and Phase 1's `git-row-dir`.
+  `/tmp/p3-ref-button-unmerged.json` is the archived half of it: the unmerged
+  button, `radius: 10`, `visible: false`.
 - **`hover` is real, visible and unreachable.** `hover:bg-*` moves `bg` on six of
   the seven variants — the first time in this port an interaction flag moves a
   *compared* field, where `dropdown-menu`'s focus and `resizable`'s hover both
@@ -281,4 +286,73 @@ Things learned here that are **not** about `button`.
 | `Theme::LIGHT.card` **is** `--color-white` | `theme.css` writes `--card: var(--color-white)` in `:root`, so that is the door rule 4 leaves open for Tailwind's own white. There is **no** such door for `--color-black`, which is why every `--theme(--color-black/N%)` shadow in this component is unpainted |
 | a **shared** parser option shadows a surface's own | `Cell::parse` matches its own words before delegating, silently. Check `row_surface.rs`'s match arms before naming a surface option |
 | `struct_excessive_bools` is a real design question | six booleans in one bag became `Interaction` (three pseudo-classes) and `Props` (three props) — which is the division the surface already had between §8.3 flags and its own options |
+| `cn(variants(…), className)` means **the call site is half the component** | a wrapped `cva` primitive is not its variant table: tailwind-merge resolves a call site's class over it, and for `button` that is the *only* thing separating the port from its reference. Model it as a knob naming the **class**, resolved through the sealed token — never as the number. §11 has the line between that and handing the port the reference's output |
 | an **anchor id can be an object property**, not just a JSX attribute | `useRender`-based primitives build their element from a props object. Anything mechanical over `data-oracle-id` has to handle both spellings |
+
+---
+
+## 11. `--class-radius`, and the line it sits on
+
+The first gate run came back with **exactly one delta**:
+
+```
+button.radius: 10.0, expected 6.0   (Δ +4.0, tol ±0.5)
+```
+
+Diagnosed, not tuned away. The reference is the tab bar's sidebar toggle, whose
+call site writes `className="shrink-0 rounded-sm …"` over
+`buttonVariants({ variant: 'ghost', size: 'icon-sm' })`. The port drew the
+primitive's `rounded-lg`; the app draws the call site's `rounded-sm`.
+
+### Why a call-site class is a legitimate parameter, and where it stops being one
+
+| | |
+|---|---|
+| **Forbidden** | a knob that hands the port the reference's **output**. P3.2 refused exactly that for `tab-indicator`, whose box *is* the answer — passing it in makes the anchor unable to fail |
+| **Correct** | a knob that supplies the same **input** both engines then resolve independently. `rounded-sm` is a class; each side still computes a radius from `--radius` through its own scale |
+
+So the option is `--class-radius none|sm|md|lg` — it names the **class**, and
+`RadiusClass::value` reads the sealed token that class names
+(`theme.radius_sm` / `_md` / `_lg`). **There is deliberately no numeric form**:
+`--class-radius 6` is a rejection whose message says "never a pixel value",
+because a numeric knob would let a future cell be tuned to whatever the
+reference happened to report. Same shape as `--loading`, and as P3.2's
+`--list-bg` / `--tab-sizing`.
+
+`theme.css` derives the whole scale from one `--radius: 0.625rem` —
+`--radius-sm: calc(var(--radius) * 0.6)`, `--radius-md: calc(… * 0.8)`,
+`--radius-lg: var(--radius)` — so the assertion is that arithmetic rather than
+`px(6.0)`, and a project that moved the base moves all three together instead of
+failing here.
+
+### What the default is, and why
+
+`Button::fixture` carries `Some(RadiusClass::Sm)`: the tab bar's toggle in
+`web/src/features/tabs/components/tab-navigation-buttons.tsx`, whose own comment
+names the intent — "icon-sm (28px, 6px radius)" — so this is the design's number
+rather than a stray override. Four more Buttons write the same class string
+verbatim. A bare `--surface button --viewport-width 1714` therefore describes the
+same picture the reference does, and the caption names the call site so a reader
+can check the claim against the app.
+
+`--class-radius none` is the primitive's own, reachable and **unreferenced** —
+see §9.
+
+### Mutation results
+
+Each applied to the component, run with `--no-fail-fast`, reverted; the control
+after every revert is **0 failures over 833 tests**.
+
+| Mutation | Failures |
+|---|---|
+| `Button::radius` ignores `class_radius` | **5** |
+| `RadiusClass::Sm` reads `radius_md` (the wrong token) | **6** |
+| the fixture defaults to `None` instead of `Some(Sm)` | **5** |
+| the `::before` overlay follows the call site's class instead of the variant's | **0** |
+
+**The last row is the honest one.** The overlay is unanchored on both sides, so
+no gate can see it and the trap in §8 is *recorded rather than defended* — the
+standing `resizable`'s hit strip has, whose geometry was measured once by hand
+and written into a doc comment because nothing would notice if it stopped being
+true. The numbers for this one are in `Button::overlay`'s doc comment: `6 / 9`,
+`10 / 7`, `10 / 9`, read off all nine live Buttons.

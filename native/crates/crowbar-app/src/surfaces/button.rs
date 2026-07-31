@@ -56,6 +56,33 @@
 //! `--loading` renders the branch, and [`Params::describe`] says per cell that it
 //! has no reference.
 //!
+//! # `--class-radius`, and why a call site's class is a legitimate parameter
+//!
+//! `button.tsx` composes `cn(buttonVariants({ className, size, variant }), …)`,
+//! so **the call site is half the component**: tailwind-merge resolves a call
+//! site's `className` against the variant's, and all nine live Buttons use it.
+//! `rounded-*` is the one merged class that reaches a *compared* field, so the
+//! surface has to be able to say which one the cell has.
+//!
+//! The line this sits on is worth stating, because it is close to something that
+//! should be refused:
+//!
+//! * **forbidden** — a knob that hands the port the reference's *output*. P3.2
+//!   rightly refused that for `tab-indicator`, whose box **is** the answer;
+//!   passing it in makes the anchor unable to fail.
+//! * **correct** — a knob that supplies the same *input* both engines then
+//!   resolve independently. `rounded-sm` is a class; each side still computes a
+//!   radius from `--radius` through its own scale.
+//!
+//! So the option names the **class** (`sm|md|lg`) and never a number. There is
+//! deliberately no `--class-radius 6`: that would let a cell be tuned to
+//! whatever the reference happened to report.
+//!
+//! `none` is the **primitive's own** radius, and it is reachable — but it has no
+//! visible reference, and the caption says so per cell. See
+//! [`crowbar_ui::components::button::Button::fixture`] for the three groups the
+//! nine live Buttons fall into.
+//!
 //! # Three options that are not matrix axes
 //!
 //! `--pressed`, `--disabled` and `--loading` are all props rather than §8.3
@@ -69,7 +96,8 @@ use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
 use crowbar_ui::components::button::{
-    ALL_SIZES, ALL_VARIANTS, Button, ButtonState, Interaction, Label, Props, Size, Variant,
+    ALL_RADIUS_CLASSES, ALL_SIZES, ALL_VARIANTS, Button, ButtonState, Interaction, Label, Props,
+    RadiusClass, Size, Variant,
 };
 use crowbar_ui::components::{AnchorSink, ContentLength, button};
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div};
@@ -148,6 +176,14 @@ pub struct Params {
     pub icon: bool,
     /// `--pressed`, `--disabled` and `--loading`.
     pub driven: Driven,
+    /// `--class-radius`: the `rounded-*` a **call site** merges over the size
+    /// variant's own, or `None` for the variant's.
+    ///
+    /// The one option here that is not a prop, and the one that needed the most
+    /// justifying — see the module docs. It names the **class**; the pixels come
+    /// out of the sealed token the class names, so a cell cannot be tuned to a
+    /// number the reference happened to say.
+    pub class_radius: Option<RadiusClass>,
 }
 
 impl Default for Params {
@@ -159,6 +195,7 @@ impl Default for Params {
             label: fixture.label.is_some(),
             icon: fixture.icon,
             driven: Driven::default(),
+            class_radius: fixture.class_radius,
         }
     }
 }
@@ -177,6 +214,7 @@ impl Params {
         button.breakpoint = cell.breakpoint();
         button.icon = self.icon;
         button.label = self.label.then(|| label_of(cell.content));
+        button.class_radius = self.class_radius;
         button.state = ButtonState {
             interaction: Interaction {
                 hovered: cell.has(StateFlag::Hover),
@@ -222,6 +260,7 @@ impl SurfaceParams for Params {
             "--pressed" => self.driven.pressed = true,
             "--disabled" => self.driven.disabled = true,
             "--loading" => self.driven.loading = true,
+            "--class-radius" => self.class_radius = parse_class_radius(&value(args, option)?)?,
             _ => return Ok(false),
         }
         Ok(true)
@@ -255,6 +294,33 @@ impl SurfaceParams for Params {
         }
         if self.driven.loading {
             out.push_str(" · loading");
+        }
+
+        match self.class_radius {
+            Some(class) => {
+                let _ = write!(out, " · rounded-{}", class.name());
+                // The default cell reproduces a real call site, and says which.
+                // A caption that only printed the class would leave a reader
+                // unable to check the claim against the app.
+                if self.variant == Variant::Ghost
+                    && self.size == Size::IconSm
+                    && class == RadiusClass::Sm
+                {
+                    out.push_str(
+                        " (the tab bar's sidebar toggle, tab-navigation-buttons.tsx; \
+                         four more Buttons write the same class)",
+                    );
+                }
+            }
+            // The primitive's own radius. Both live Buttons that keep it are
+            // inside the sidebar carousel's snapped-out panels and report
+            // `visible: false`, so a capture of one is not comparable at all —
+            // the same shape of finding as Phase 1's `git-row-dir`.
+            None => out.push_str(
+                " · radius: the size variant's own, with no call-site class; the only two \
+                 live Buttons that keep it are clipped out by the carousel at \
+                 visible:false, so there is no visible reference",
+            ),
         }
 
         if !self.variant.live() {
@@ -342,6 +408,33 @@ fn parse_variant(raw: &str) -> Result<Variant, ParseError> {
         })
 }
 
+/// A call site's `rounded-*`, or `none` for the size variant's own.
+///
+/// The vocabulary is generated from [`ALL_RADIUS_CLASSES`], and `none` is the
+/// only word this function adds — the same shape `--git-status none` takes, and
+/// for the same reason: the absence is not a variant of the enum.
+///
+/// **There is deliberately no numeric form.** A `--class-radius 6` would let a
+/// future cell be tuned to whatever the reference happened to report, and the
+/// anchor would stop being able to fail. What a caller may say is which class
+/// the call site wrote; both engines still resolve it from `--radius`.
+fn parse_class_radius(raw: &str) -> Result<Option<RadiusClass>, ParseError> {
+    if raw == "none" {
+        return Ok(None);
+    }
+    ALL_RADIUS_CLASSES
+        .into_iter()
+        .find(|class| class.name() == raw)
+        .map(Some)
+        .ok_or_else(|| {
+            ParseError::Rejected(format!(
+                "--class-radius takes none or one of {}, not {raw}; it names the \
+                 rounded-* class a call site merges, never a pixel value",
+                names(ALL_RADIUS_CLASSES.into_iter().map(RadiusClass::name)),
+            ))
+        })
+}
+
 /// One of `cva`'s ten size keys. Generated, for [`parse_variant`]'s reason.
 fn parse_size(raw: &str) -> Result<Size, ParseError> {
     ALL_SIZES
@@ -414,6 +507,21 @@ fn options() -> Vec<(String, String)> {
             "--loading".to_owned(),
             "the loading prop; no live call site passes it [off]".to_owned(),
         ),
+        (
+            "--class-radius <name>".to_owned(),
+            format!(
+                "none|{} — the rounded-* a call site merges over the variant's; \
+                 `none` is the primitive's own and has no visible reference [{}]",
+                ALL_RADIUS_CLASSES
+                    .into_iter()
+                    .map(RadiusClass::name)
+                    .collect::<Vec<_>>()
+                    .join("|"),
+                Button::fixture()
+                    .class_radius
+                    .map_or("none", RadiusClass::name),
+            ),
+        ),
     ]
     .into_iter()
     .collect()
@@ -424,7 +532,9 @@ mod tests {
     use super::{Params, SURFACE, options};
     use crate::row_surface::{CAPTION_HEIGHT, Cell, ParseError, StateFlag};
     use crowbar_ui::components::button;
-    use crowbar_ui::components::button::{ALL_SIZES, ALL_VARIANTS, Button, Label, Size, Variant};
+    use crowbar_ui::components::button::{
+        ALL_RADIUS_CLASSES, ALL_SIZES, ALL_VARIANTS, Button, Label, RadiusClass, Size, Variant,
+    };
 
     fn cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "button"];
@@ -530,6 +640,103 @@ mod tests {
         for variant in ALL_VARIANTS {
             assert!(complaint.contains(variant.name()), "{complaint}");
         }
+    }
+
+    /// **`--class-radius` names a class and resolves it through the token**, and
+    /// the default is the call site a reference can be captured from.
+    #[test]
+    fn the_class_radius_option_names_a_class_and_never_a_number() {
+        let theme = crowbar_ui::Theme::DARK;
+
+        // The default is the tab bar's `rounded-sm`, which is what makes the
+        // default cell converge without flags.
+        assert_eq!(params_of(&cell(&[])).class_radius, Some(RadiusClass::Sm));
+        assert_eq!(button(&cell(&[])).radius(&theme), gpui::px(6.0));
+
+        for class in ALL_RADIUS_CLASSES {
+            let driven = cell(&["--class-radius", class.name()]);
+            assert_eq!(
+                params_of(&driven).class_radius,
+                Some(class),
+                "{}",
+                class.name()
+            );
+            // Through the token, so this is the compiled value rather than a
+            // literal restated here.
+            assert_eq!(button(&driven).radius(&theme), class.value(&theme));
+        }
+
+        // `none` is the primitive's own, which for `icon-sm` is `rounded-lg`.
+        let bare = cell(&["--class-radius", "none"]);
+        assert_eq!(params_of(&bare).class_radius, None);
+        assert_eq!(button(&bare).radius(&theme), Size::IconSm.radius(&theme));
+        assert_eq!(button(&bare).radius(&theme), gpui::px(10.0));
+        assert_ne!(
+            button(&bare).radius(&theme),
+            button(&cell(&[])).radius(&theme)
+        );
+
+        // **No numeric form.** A pixel value is a rejection, not a fourth arm.
+        for line in [
+            vec!["--class-radius", "6"],
+            vec!["--class-radius", "6px"],
+            vec!["--class-radius", "rounded-sm"],
+            vec!["--class-radius", "xl"],
+            vec!["--class-radius", ""],
+            vec!["--class-radius"],
+        ] {
+            let mut full = vec!["--surface", "button"];
+            full.extend_from_slice(&line);
+            assert!(
+                matches!(
+                    Cell::parse(full.iter().map(|arg| (*arg).to_owned())),
+                    Err(ParseError::Rejected(_)),
+                ),
+                "{line:?} should have been rejected",
+            );
+        }
+
+        let Err(ParseError::Rejected(complaint)) = Cell::parse(
+            ["--surface", "button", "--class-radius", "6"]
+                .iter()
+                .map(|arg| (*arg).to_owned()),
+        ) else {
+            panic!("a pixel value is not a class");
+        };
+        assert!(complaint.contains("never a pixel value"), "{complaint}");
+        assert!(complaint.contains("none"), "{complaint}");
+        for class in ALL_RADIUS_CLASSES {
+            assert!(complaint.contains(class.name()), "{complaint}");
+        }
+    }
+
+    /// The default cell **names the call site it reproduces**, and `none` says
+    /// that the primitive's own radius has nothing to compare against.
+    #[test]
+    fn the_caption_names_the_call_site_and_the_unreferenced_alternative() {
+        let default = cell(&[]).describe();
+        assert!(default.contains("rounded-sm"), "{default}");
+        assert!(default.contains("tab-navigation-buttons.tsx"), "{default}");
+        assert!(!default.contains("no visible reference"), "{default}");
+
+        let bare = cell(&["--class-radius", "none"]).describe();
+        assert!(bare.contains("no visible reference"), "{bare}");
+        assert!(bare.contains("visible:false"), "{bare}");
+        assert!(!bare.contains("rounded-"), "{bare}");
+
+        // The call-site sentence is about **that** call site, so a different
+        // variant or size carrying the same class does not claim it.
+        let elsewhere = cell(&["--variant", "outline", "--class-radius", "sm"]).describe();
+        assert!(elsewhere.contains("rounded-sm"), "{elsewhere}");
+        assert!(
+            !elsewhere.contains("tab-navigation-buttons.tsx"),
+            "{elsewhere}"
+        );
+
+        // The workspace header's own pair, which is the other live override.
+        let header = cell(&["--size", "icon-xs", "--class-radius", "lg"]).describe();
+        assert!(header.contains("rounded-lg"), "{header}");
+        assert!(!header.contains("tab-navigation-buttons.tsx"), "{header}");
     }
 
     /// `--label` turns the text child on and `--content` picks the string;
@@ -689,7 +896,14 @@ mod tests {
     /// **These options belong to this surface and to no other.**
     #[test]
     fn this_surfaces_options_are_rejected_on_another_surface() {
-        for option in ["--variant", "--size", "--label", "--pressed", "--loading"] {
+        for option in [
+            "--variant",
+            "--size",
+            "--label",
+            "--pressed",
+            "--loading",
+            "--class-radius",
+        ] {
             let line = ["--surface", "resizable", option, "ghost"];
             assert!(
                 matches!(
@@ -743,6 +957,7 @@ mod tests {
             "--pressed",
             "--disabled",
             "--loading",
+            "--class-radius",
         ] {
             assert!(usage.contains(option), "{option} is missing from the usage");
         }
@@ -756,6 +971,9 @@ mod tests {
         }
         for size in ALL_SIZES {
             assert!(usage.contains(size.name()), "{}", size.name());
+        }
+        for class in ALL_RADIUS_CLASSES {
+            assert!(usage.contains(class.name()), "{}", class.name());
         }
     }
 
