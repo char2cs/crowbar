@@ -21,13 +21,13 @@ import (
 // stubThreadReader is the ThreadReader test double. It records the wsID it was
 // last asked for, which is how the caller-scoping tests prove a tool cannot be
 // steered at another workspace, and every id Get was asked for, which is how the
-// threadId tests prove a thread outside the caller's workspace is not merely
-// refused but never read.
+// threadId tests prove a named thread is reached by ONE lookup rather than by
+// scanning a workspace.
 //
 // ListByWorkspace FILTERS by WsID rather than handing back the whole fixture,
-// because that is the one property the threadId path leans on: it looks a thread
-// up in the caller's own list, so a stub that ignored wsID would hand it a
-// sibling's thread and the scope test would pass for the wrong reason.
+// the way the real store does. Without that, a thread the LISTING should never
+// have shown would appear in it, and the descendant test — whose whole point is
+// that threadId reaches a thread the listing cannot — would pass vacuously.
 type stubThreadReader struct {
 	list     []domain.ReviewThread
 	lastWsID string

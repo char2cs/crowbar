@@ -33,10 +33,11 @@ type ReviewReader interface {
 }
 
 // ThreadReader is the narrow read port the review tools need from the
-// review-thread store: ListByWorkspace for list_review_threads, and Get for
-// reply_to_review_thread and resolve_review_thread — both of which must look a
-// thread up before writing to it, to learn which workspace it actually belongs
-// to. A thread id names a thread in SOME workspace; it is not itself an
+// review-thread store: ListByWorkspace for list_review_threads' listing, and Get
+// for every tool that acts on ONE named thread — reply_to_review_thread,
+// resolve_review_thread, and list_review_threads' own threadId — each of which
+// must look a thread up before touching it, to learn which workspace it actually
+// belongs to. A thread id names a thread in SOME workspace; it is not itself an
 // authorization, so the WsID that Get returns is what CanSee is checked
 // against, never the id argument on its own.
 type ThreadReader interface {
@@ -159,13 +160,15 @@ type listReviewThreadsArgs struct {
 }
 
 // listReviewThreads renders ONE page of the caller's review threads, or — when
-// threadId names one of them — that single thread with every message.
+// threadId names one — that single thread with every message.
 //
 // threadId, offset and limit are the only arguments a model can widen anything
-// with, and none reaches past the caller: the query below is still keyed on
-// c.Workspace.ID alone, so every answer is a slice of what the caller could
-// already see, never a way to see more of it. Neither paging nor naming a thread
-// may become a scope argument by the back door.
+// with, and none reaches past the caller. The listing is keyed on
+// c.Workspace.ID alone, so a page is a slice of what the caller could already
+// see; threadId goes through the SAME CanSee check reply_to_review_thread and
+// resolve_review_thread use, so it reaches exactly what those two can already
+// write to and nothing more. Neither paging nor naming a thread may become a
+// scope argument by the back door.
 //
 // The whole list is fetched and then sliced rather than pushed into the store's
 // query, because filtering resolved threads out happens in Go — pushing an
@@ -181,31 +184,18 @@ func listReviewThreads(
 	if err := decode(args, &in); err != nil {
 		return "", err
 	}
+	// Named-thread reads short-circuit BEFORE the listing, so they cost one row
+	// rather than a whole workspace's threads — and so a thread on a workspace the
+	// listing never covers is still reachable.
+	if in.ThreadID != "" {
+		return oneReviewThread(ctx, deps, c, in.ThreadID)
+	}
 	// c.Workspace.ID is the caller's OWN workspace, resolved by the Resolver
 	// from its authenticated runner — the tool takes no workspace argument, so
 	// there is no field here a model could steer elsewhere.
 	threads, err := deps.Threads.ListByWorkspace(ctx, c.Workspace.ID)
 	if err != nil {
 		return "", fmt.Errorf("agenttools: list_review_threads: %w", err)
-	}
-	// A FILTER over the list the tool would have rendered anyway, deliberately not
-	// a lookup by id.
-	//
-	// Threads.Get would be the shorter route and is what reply_to_review_thread
-	// uses, but it is a route that READS a row before deciding whether the caller
-	// may have it — an id names a thread in SOME workspace, so a bug or a later
-	// edit in the check that follows leaks a foreign thread. Filtering the
-	// caller's own list cannot: a thread outside c.Workspace.ID is not in the
-	// slice, so it is not merely refused, it is never read at all. The narrowing
-	// this costs is that a DESCENDANT workspace's thread — which the caller may
-	// reply to — is not readable in full here; what list_review_threads shows has
-	// always been the caller's own workspace, and threadId does not change that.
-	//
-	// It runs BEFORE the resolved filter: a named thread is rendered whatever its
-	// state, because a model that just resolved a thread and wants to re-read it
-	// should not have to also know to pass includeResolved.
-	if in.ThreadID != "" {
-		return oneReviewThread(threads, in.ThreadID)
 	}
 	if !in.IncludeResolved {
 		threads = unresolvedThreads(threads)
@@ -225,33 +215,43 @@ func listReviewThreads(
 	return note + renderThreads(threads[w.start:w.end]), nil
 }
 
-// oneReviewThread renders the named thread in full, or refuses.
+// oneReviewThread renders the named thread with every message it has, after the
+// same authorization reply_to_review_thread and resolve_review_thread perform: a
+// thread id names a thread in SOME workspace and authorizes nothing by itself, so
+// the thread is looked up, its OWN WsID is checked against the caller's visible
+// set, and only a thread that passes is rendered.
 //
-// The refusal deliberately reads the same for a thread that does not exist and a
-// thread that exists in somebody else's workspace, because those two are the same
-// answer here: neither is in this caller's review. Distinguishing them would turn
-// the argument into an existence oracle over every review thread on the machine,
-// and would tell a model something it has no move to act on either way.
+// CanSee — itself plus descendants — rather than "the caller's own workspace",
+// deliberately, and it is the SAME rule the write tools already use. A surface
+// where an agent may reply to a descendant's thread but may not read that thread
+// in full is one an agent trips over: it answers a finding whose middle it was
+// never able to see. The reachable set is therefore identical to what reply and
+// resolve already reach, so this adds no exposure that surface did not have.
 //
 // The lead line states the message count for the same reason every other note
 // does: a rendered thread and a COMPLETE rendered thread are the same bytes to a
 // model unless the output says which it is holding.
 func oneReviewThread(
-	threads []domain.ReviewThread,
+	ctx context.Context,
+	deps Deps,
+	c Caller,
 	threadID string,
 ) (string, error) {
-	for _, t := range threads {
-		if t.ID != threadID {
-			continue
-		}
-		return fmt.Sprintf(
-			"Showing thread %s in full: %d messages.\n", t.ID, len(t.Messages),
-		) + renderThread(t), nil
+	thread, err := deps.Threads.Get(ctx, threadID)
+	if err != nil {
+		return "", fmt.Errorf("agenttools: list_review_threads: %w", err)
 	}
-	return "", fmt.Errorf(
-		"agenttools: list_review_threads: no review thread %q on this branch; "+
-			"call list_review_threads without threadId for the ids", threadID,
-	)
+	// Rejected BEFORE anything of the thread is rendered — the aggregate is in
+	// hand at this point, and nothing but its WsID may be used until this passes.
+	if !c.CanSee(thread.WsID) {
+		return "", fmt.Errorf("agenttools: list_review_threads: %w", ErrOutOfScope)
+	}
+	// Resolved threads render too. includeResolved governs the LISTING; a model
+	// that just resolved a thread and wants to re-read it should not also have to
+	// know to flip a listing flag.
+	return fmt.Sprintf(
+		"Showing thread %s in full: %d messages.\n", thread.ID, len(thread.Messages),
+	) + renderThread(thread), nil
 }
 
 func unresolvedThreads(threads []domain.ReviewThread) []domain.ReviewThread {

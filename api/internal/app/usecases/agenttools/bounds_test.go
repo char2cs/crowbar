@@ -266,10 +266,10 @@ func TestListReviewThreads_TheElisionNoteNamesTheMoveThatRecoversTheMiddle(t *te
 	require.NotContains(t, full, "middle replies not shown")
 }
 
-// threadId is a FILTER over the caller's own list, not a lookup by id — so a
-// thread id belonging to a sibling workspace is not merely refused after being
-// fetched, it is never fetched at all. ws-b is a sibling of the caller's ws-a.
-func TestListReviewThreads_AThreadIdFromASiblingWorkspaceIsRefusedUnread(t *testing.T) {
+// A thread id names a thread in SOME workspace and authorizes nothing by itself.
+// ws-b is a SIBLING of the caller's ws-a — visibility is downward only — so
+// naming its thread must be refused, and refused before any of it is rendered.
+func TestListReviewThreads_AThreadIdFromASiblingWorkspaceIsRefused(t *testing.T) {
 	stub := &stubThreadReader{list: []domain.ReviewThread{{
 		ID: "sibling-1", WsID: "ws-b", FilePath: "secret.go", StartLine: 1, EndLine: 1,
 		Side: domain.ReviewSideRight, Status: domain.ReviewThreadStatusOpen,
@@ -279,39 +279,90 @@ func TestListReviewThreads_AThreadIdFromASiblingWorkspaceIsRefusedUnread(t *test
 
 	out, err := ts.Call(context.Background(), "list_review_threads",
 		json.RawMessage(`{"threadId":"sibling-1"}`))
-	require.Error(t, err)
-	require.NotContains(t, out, "the sibling's finding")
+	require.ErrorIs(t, err, agenttools.ErrOutOfScope)
+	require.Empty(t, out)
+	// The row is fetched to learn its WsID — that is the only way to know whom it
+	// belongs to, and it is exactly what reply_to_review_thread does. What must
+	// never happen is any of it reaching the caller.
 	require.NotContains(t, err.Error(), "the sibling's finding")
 	require.NotContains(t, err.Error(), "secret.go",
 		"the refusal must not leak the thread it refused")
-	require.Empty(t, stub.gets, "a thread outside the caller's workspace must never be read")
-	require.Equal(t, "ws-a", stub.lastWsID,
-		"threadId must not change which workspace is queried")
 }
 
-// An id that names nothing and an id that names somebody else's thread come back
-// the same, deliberately: distinguishing them would make the argument an
-// existence oracle over every review thread on the machine, and a model has the
-// same move to make either way.
-func TestListReviewThreads_AnUnknownThreadIdReadsLikeASiblingsDoes(t *testing.T) {
+// The same refusal reaching UPWARD. repo-default is the caller's parent, and the
+// visibility rule is downward only, so an ancestor's thread is as out of reach as
+// a sibling's — a distinction a check written against "some workspace I know
+// about" would get wrong.
+func TestListReviewThreads_AThreadIdOnAnAncestorWorkspaceIsRefused(t *testing.T) {
 	stub := &stubThreadReader{list: []domain.ReviewThread{{
-		ID: "sibling-1", WsID: "ws-b", FilePath: "secret.go", StartLine: 1, EndLine: 1,
+		ID: "parent-1", WsID: "repo-default", FilePath: "up.go", StartLine: 1, EndLine: 1,
 		Side: domain.ReviewSideRight, Status: domain.ReviewThreadStatusOpen,
+		Messages: []domain.ReviewMessage{{ID: "m1", Author: "mateo", Body: "the parent's finding"}},
 	}}}
 	ts, _ := reviewToolsetOn(t, stub, &stubReviewReader{})
 
-	_, siblingErr := ts.Call(context.Background(), "list_review_threads",
-		json.RawMessage(`{"threadId":"sibling-1"}`))
-	_, unknownErr := ts.Call(context.Background(), "list_review_threads",
-		json.RawMessage(`{"threadId":"no-such-thread"}`))
-	require.Error(t, siblingErr)
-	require.Error(t, unknownErr)
+	out, err := ts.Call(context.Background(), "list_review_threads",
+		json.RawMessage(`{"threadId":"parent-1"}`))
+	require.ErrorIs(t, err, agenttools.ErrOutOfScope)
+	require.Empty(t, out)
+	require.NotContains(t, err.Error(), "the parent's finding")
+}
 
-	require.Equal(t,
-		strings.Replace(siblingErr.Error(), "sibling-1", "no-such-thread", 1),
-		unknownErr.Error(),
-		"the two refusals must differ only in the id the caller supplied")
-	require.Contains(t, unknownErr.Error(), "call list_review_threads without threadId")
+// A DESCENDANT's thread IS readable in full, and this is the property the check
+// exists to give. reply_to_review_thread can already WRITE to ws-a1's thread from
+// ws-a, so a surface that refused to READ it would let an agent answer a finding
+// whose middle it was never able to see. threadId reaches exactly what reply and
+// resolve reach — the caller's own visible set — and nothing beyond it.
+func TestListReviewThreads_AThreadIdOnADescendantWorkspaceRendersInFull(t *testing.T) {
+	total := agenttools.MaxThreadMessagesForTest + 5
+	msgs := make([]domain.ReviewMessage, 0, total)
+	for i := 1; i <= total; i++ {
+		msgs = append(msgs, domain.ReviewMessage{
+			ID: fmt.Sprintf("m%d", i), Author: "mateo", Body: fmt.Sprintf("child-msg-%d", i),
+		})
+	}
+	// ws-a1 is a CHILD of the caller's ws-a, and its threads never appear in the
+	// listing — which is keyed on the caller's own workspace alone. Reaching it is
+	// therefore something only threadId can do, and only through CanSee.
+	stub := &stubThreadReader{list: []domain.ReviewThread{{
+		ID: "child-1", WsID: "ws-a1", FilePath: "child.go", StartLine: 7, EndLine: 9,
+		Side: domain.ReviewSideRight, Status: domain.ReviewThreadStatusOpen,
+		Messages: msgs,
+	}}}
+	ts, _ := reviewToolsetOn(t, stub, &stubReviewReader{})
+
+	listed, err := ts.Call(context.Background(), "list_review_threads", json.RawMessage(`{}`))
+	require.NoError(t, err)
+	require.NotContains(t, listed, "child-1",
+		"the listing is the caller's own workspace; the descendant must not appear in it")
+
+	out, err := ts.Call(context.Background(), "list_review_threads",
+		json.RawMessage(`{"threadId":"child-1"}`))
+	require.NoError(t, err)
+	require.Contains(t, out, fmt.Sprintf("Showing thread child-1 in full: %d messages.", total))
+	require.Contains(t, out, "child-1  child.go:7-9  right  unresolved")
+	for i := 1; i <= total; i++ {
+		require.Contains(t, out, fmt.Sprintf("mateo: child-msg-%d\n", i),
+			"message %d of the descendant's thread is missing", i)
+	}
+	require.NotContains(t, out, "middle replies not shown")
+	require.Equal(t, []string{"child-1"}, stub.gets,
+		"the thread must be reached by one lookup, never by scanning a workspace")
+}
+
+// An id that names nothing at all is a different answer from one the caller may
+// not have, and it says so: a model that mistyped an id has a move to make (fetch
+// the listing) that a model refused for scope does not.
+func TestListReviewThreads_AnUnknownThreadIdReportsTheLookupFailure(t *testing.T) {
+	stub := &stubThreadReader{}
+	ts, _ := reviewToolsetOn(t, stub, &stubReviewReader{})
+
+	_, err := ts.Call(context.Background(), "list_review_threads",
+		json.RawMessage(`{"threadId":"no-such-thread"}`))
+	require.Error(t, err)
+	require.NotErrorIs(t, err, agenttools.ErrOutOfScope,
+		"a thread that does not exist is not a scope refusal")
+	require.Contains(t, err.Error(), "list_review_threads")
 }
 
 // A named thread renders whatever its state. includeResolved governs the LIST —
@@ -351,17 +402,28 @@ func TestListReviewThreads_ThreadIdStillCapsBodies(t *testing.T) {
 	require.Contains(t, out, "… [shortened; 25 characters not shown]")
 }
 
-// threadId is a filter, NEVER a scope widener: it selects from the list the tool
-// would have rendered anyway, so no value of it changes which workspace is read.
+// threadId is bounded by the caller's VISIBLE SET, and by nothing a model can
+// type: no combination of the other arguments moves that boundary, and naming a
+// thread does not fall back to the listing when the check refuses.
 func TestListReviewThreads_ThreadIdCannotReachPastTheCallersScope(t *testing.T) {
-	stub := &stubThreadReader{list: manyThreads(3)}
+	stub := &stubThreadReader{list: []domain.ReviewThread{{
+		ID: "sibling-1", WsID: "ws-b", FilePath: "secret.go", StartLine: 1, EndLine: 1,
+		Side: domain.ReviewSideRight, Status: domain.ReviewThreadStatusOpen,
+		Messages: []domain.ReviewMessage{{ID: "m1", Author: "mateo", Body: "not yours"}},
+	}}}
 	ts, _ := reviewToolsetOn(t, stub, &stubReviewReader{})
 
-	_, err := ts.Call(context.Background(), "list_review_threads",
-		json.RawMessage(`{"threadId":"t-2","offset":100000,"limit":100000}`))
-	require.NoError(t, err)
-	require.Equal(t, "ws-a", stub.lastWsID)
-	require.Empty(t, stub.gets)
+	for _, args := range []string{
+		`{"threadId":"sibling-1","offset":100000,"limit":100000}`,
+		`{"threadId":"sibling-1","includeResolved":true}`,
+		`{"threadId":"sibling-1","offset":0,"limit":1}`,
+	} {
+		out, err := ts.Call(context.Background(), "list_review_threads", json.RawMessage(args))
+		require.ErrorIs(t, err, agenttools.ErrOutOfScope, "args %s", args)
+		require.Empty(t, out, "a refused thread must render nothing at all")
+	}
+	require.Empty(t, stub.lastWsID,
+		"a named-thread read must not also run the listing query")
 }
 
 // A branch with more threads than one page renders one page — and says so. The
