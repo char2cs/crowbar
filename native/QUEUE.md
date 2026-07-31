@@ -283,6 +283,144 @@ Known limit, stated in the script's own header: rule 3 is a line scanner, not a
 parser. Block comments and string literals containing `unsafe {` produce false
 *positives*. It fails loud rather than silent, which is the right direction.
 
+### 0.5 — `protogen`: Go handlers → Rust serde DTOs + TypeScript ✅
+
+Go tool at `native/tools/protogen/`, built on `go/packages` with full type
+checking (not regex). **131 types across 22 modules**; 155/161 endpoints fully
+resolved; 73/73 request bodies; 74/79 response payloads.
+
+**Orchestrator verification — I ran all four gates:**
+
+| Gate | Result |
+|---|---|
+| `go test ./...` | `ok …/internal/gen 10.3s` ✅ |
+| Generated Rust compiles standalone (temp crate, `serde` only) | `Finished dev profile`, zero warnings ✅ |
+| Generated TS typechecks (`--strict`, repo's own `tsc 5.9.3`) | exit 0 ✅ |
+| **Determinism** — two full runs, `diff -r` | **byte-identical** ✅ |
+
+**Design calls worth keeping, all verified rather than assumed:**
+
+- **Enums are open sets.** A Go named string type's zero value `""` is legal and
+  no constant declares it, so Rust gets an untagged `Other(String)` and TS a
+  `(string & {})` member. A closed enum would fail to deserialize valid daemon
+  output — a runtime error discovered late, which is exactly what §9.2 exists
+  to prevent.
+- **Nil slices/maps marshal as `null`, not omitted**, and serde refuses `null`
+  for `Vec`/`HashMap`. Non-optional containers deserialize through a generated
+  `null_to_default` helper; TS types them `T[] | null`.
+- `int64`/`uint64` stay JSON **numbers** — checked, the daemon uses no `,string`
+  tags. `time.Time` → `String` (RFC 3339 via its own marshaller, so no `chrono`
+  dependency). `[]byte` → `String` (base64).
+- **No silent drops.** An unlowerable field gets an `INCOMPLETE:` banner in
+  *both* languages and marks every endpoint transitively reaching it as
+  unresolved. That is what moved "fully resolved" from 156 down to an honest 155.
+
+**8 diagnostics — the fix list for the Go side, in priority order:**
+
+1. **`gin.H` response payloads (5 endpoints)** — `/v0/health`, `…/identity`,
+   `PATCH …/review`, and both `POST …/terminals`. `map[string]any` has no static
+   shape. Four return a 1–3 key object, so naming them is cheap.
+2. **Anonymous struct nested in a DTO (1)** —
+   `UpdateProviderPreferencesRequest.Providers []struct{…}`. A *top-level*
+   anonymous body is fine (protogen names it after the handler); one nested
+   inside another type has no name to hang on.
+3. **`MarshalJSON` on a wire type (1)** — `domain/git.FileDiff`. Its marshaller
+   happens to be shape-preserving, but that is unprovable statically.
+4. **5 WS routes injected as `gin.HandlerFunc` values** — correctly classified,
+   but it means **WS frame shapes are invisible to codegen**. If the port wants
+   typed WS frames, that needs a declared handler or a separate declaration.
+   Worth knowing now, since the native client is WS-heavy.
+5. `libs.Envelope.Data any` is handled, but one hand-rolled
+   `c.JSON(status, libs.Envelope{…})` in `identity.go` needed a special case.
+   Routing every response through the `libs.Write*` helpers stops that recurring.
+
+### 0.9 — Zed extractability audit ✅ · every verdict compiled, not reasoned about
+
+Audited `zed-industries/zed` @ `b6b2148b` (2026-07-30) in scratch workspaces.
+
+| Crate | Closure | gpui? | Verdict |
+|---|---|---|---|
+| **`fuzzy_nucleo`** | 17 crates; **3** excl. gpui | 2 methods | **TAKE** |
+| **`fuzzy`** | 16; **2** excl. gpui | 2 methods | **TAKE** (dep of the above) |
+| **`refineable`** | **0** in-repo deps, 680 lines, Apache-2.0 | **no** | **TAKE**, if we want override layering |
+| `util` | 4 crates / 2,819 lines, Apache-2.0 | **no** | Cherry-pick modules only |
+| `theme` | 5 excl. gpui | yes | **Skip — on design grounds** |
+| `picker` | **90 crates / 500,945 lines** | yes | NOT EXTRACTABLE |
+| `editor` | **96 / 518,077** | yes | NOT EXTRACTABLE |
+| `language` | **47 / 201,696** | yes | NOT EXTRACTABLE |
+| `terminal` | **41 / 193,535** | yes | NOT EXTRACTABLE as-is |
+| `ui` (bonus) | 22; 9 excl. gpui | yes, hard | Skip — 95 errors off-rev |
+
+**`fuzzy` is extractable, proven twice.** Its *entire* gpui coupling is two
+methods at four call sites: `executor.num_cpus()` and `executor.scoped(…)`. No
+`App`, no `Context`, no `Entity`, no rendering. Built and tested unmodified
+against stock `gpui 0.2.2` (9/9 tests pass), **and** built with gpui removed
+entirely behind a 35-line executor shim (9/9 again, 27 packages total).
+
+**But take `fuzzy_nucleo` instead — it was not on the spec's list and it is the
+one we want.** Zed has already migrated off `fuzzy` for exactly our two use
+cases; 8 crates now use `fuzzy_nucleo` (`command_palette`, `file_finder`,
+`outline`, `tab_switcher`, `git_ui`, …) against 27 still on `fuzzy`. It carries
+tuning we would otherwise rediscover — from its own header: nucleo-level
+matching must be case-*insensitive*, because `CaseMatching::Smart` **rejects**
+candidates whose capitalization differs, breaking a palette lookup of
+`"Editor: Backspace"` against an action named `"editor: backspace"`. `Case::Smart`
+is honoured as a scoring *hint* instead. Its lib builds clean against 0.2.2; its
+23 tests need a matching gpui rev.
+
+**Two prior expectations refuted — same verdict, wrong reason. Recorded so they
+are not re-litigated:**
+
+- **`terminal` is not blocked by `project`/`workspace`/`multi_buffer`** — it
+  depends on none of them. Its 193k closure is driven almost entirely by
+  **`settings` + `theme_settings`** (26 call sites) dragging ~190k lines of
+  config plumbing behind a 9,552-line crate. Substituting our own types is
+  plausibly a 1–2k-line diff, so this is *not* impossible the way `editor` is —
+  but we already ship a working terminal on a daemon-side VT model, so the trade
+  is bad. Verdict stands; reclassifiable if anyone wants to pay ~2k lines.
+- **`language` is not blocked by `project`/`workspace`/`multi_buffer` either.**
+  Its real blockers are `settings`, `lsp`, `rpc` (Zed's collab protocol), `fs`,
+  `grammars`, `telemetry`, `zeta_prompt`.
+
+**`picker`'s weld is one line**, which is the interesting part:
+`impl<D: PickerDelegate> ModalView for Picker<D> {}` — `ModalView` belongs to
+`workspace` (49,498 lines). Only 6 `workspace::` and 2 `project::` call sites in
+the whole crate, yet the closure is half a million lines. Take the 134-method
+`PickerDelegate` **shape** as a design reference; build on gpui `uniform_list`.
+
+**`theme`: skip, and the reason is our own sealing property.** `ThemeColors` is
+**143 `pub` fields, every one a bare `gpui::Hsla`**; `StatusColors` adds 42 more.
+~190 colours against our token surface — *not* a superset, so we would be adding
+fields, not filling a chassis. Sealing is zero and cannot be retrofitted from
+outside: `gpui::Hsla` has public fields and free constructors, so wherever gpui
+is in scope `div().bg(rgb(0xff0000))` compiles. Our `Color(Hsla)` would have to
+wrap Zed's fields anyway — at which point we have written the struct ourselves
+and `theme`'s only residual contribution is the `Refineable` derive. **So take
+`refineable` directly** (Apache-2.0, 680 lines, no gpui, no in-repo deps).
+
+What `theme` actually *is*: machinery for **user-authored JSON theme files** —
+`ThemeRegistry` loading off a `gpui::AssetSource`, `Option<T>` refinements for
+partial overrides. If Crowbar ever ships user-editable themes that is the
+argument for revisiting. Otherwise it is dead weight.
+
+**`util`: Apache-2.0, no gpui, 132 tests pass — but do not take `command/`.**
+`command/darwin.rs:497` calls `smol::process::Child::adopt_raw_pid`, which
+**does not exist upstream** — it is Zed-fork-only and forces their
+`async-process`/`async-task` patches into *our* workspace root. Dropping that
+module (1,247 of 9,689 lines) removes the requirement entirely. Two more traps:
+`util_macros` depends on `perf`, which lives at **`tooling/perf`, not
+`crates/`** — a path map built from `crates/*` misses it; and `util` needs
+**rand 0.9**, not 0.8.
+
+**Fuzzy-matching fallback, decided now so it is not reopened:** `nucleo` 0.5 /
+`nucleo-matcher` 0.3.1, **MPL-2.0**, quiet releases but commits through
+2026-06-22 — what Zed itself migrated to. `fuzzy-matcher` (SkimMatcherV2) is MIT
+but untouched since 2020-10-04; `skim` is a full TUI and its matcher *is*
+`fuzzy-matcher`; `sublime_fuzzy` reports a **non-standard** licence, do not use
+without review. Taking `fuzzy_nucleo` gets us nucleo anyway. MPL-2.0 is
+file-level copyleft and is standardly read as compatible with (A)GPL-3.0 via
+MPL 2.0 §3.3 — fold into the same review as the relicense.
+
 ### 0.6 — `GET`/`PUT /v0/settings/ui` ✅ · the ONE daemon exception, and it is closed
 
 1,228 lines: handlers + `domain/ui_settings.go` + routes on `settingsRG` +
@@ -496,11 +634,11 @@ Owner column: `W` = dispatched worker, `O` = orchestrator-only.
 | 0.2 | Vendor + pin `gpui` at a SHA under `native/vendor/gpui/` | §10.5 | W | todo |
 | 0.3 | `gpui` + `gpui-component` skills into `.claude/skills/` | §16 | W | **done** |
 | 0.4 | Both apps launch against one daemon on a shared `CROWBAR_HOME` | §0 §9.1 | O | React half **verified live**; native half gated on 0.2 |
-| 0.5 | DTO generator: Go handlers → `crowbar-proto` + regenerated `web/` types | §9.2 | W | todo |
+| 0.5 | DTO generator: Go handlers → `crowbar-proto` + regenerated `web/` types | §9.2 | W | **done — 4 gates re-run** |
 | 0.6 | `GET`/`PUT` `/v0/settings/ui` in the daemon — the ONE daemon exception | §9.3 | W | **done — driven live** |
 | 0.7 | Loopback TCP listener for webview panes, `127.0.0.1` only, authed | §9.4 | W | todo |
 | 0.8 | Decide `.app` bundling: `cargo-packager` vs hand-rolled | §14 | W | **done — cargo-packager 0.11.8** |
-| 0.9 | Zed extractability audit — `fuzzy`, `picker`, `util`, `theme` | §10.6 | W | todo |
+| 0.9 | Zed extractability audit — `fuzzy`, `picker`, `util`, `theme` | §10.6 | W | **done — take fuzzy_nucleo + refineable** |
 | 0.10 | AX spike, timeboxed 1h: `ZED_EXPERIMENTAL_A11Y=1` + an AX tree dump | §10.4 | W | **done — THIN, dropped** |
 | 0.11 | `cargo tree -i zlog`, for the record | §15 | O | todo — gated on 0.2 |
 | 0.12 | Relicense to AGPL-3.0-only: `LICENSING.md`, `LICENSE`, SPDX, manifests | §15 | W | **done** |

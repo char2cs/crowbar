@@ -100,7 +100,7 @@ Measured at `7bb9e829`. Re-measure before quoting these anywhere else.
 | npm dependencies | 84 runtime + 28 dev |
 | `desktop/src-tauri` | 4,266 lines Rust, **13 IPC commands** |
 | `api/` (Go daemon) | 164,119 lines |
-| Distinct API endpoint paths | 252 |
+| Distinct API endpoint paths | ~~252~~ → **122** (161 method+path pairs) — see below |
 | React components | 234 · zustand store files **44** · `useEffect` 229 |
 
 Per-directory, non-test:
@@ -116,6 +116,20 @@ Per-directory, non-test:
 | `features/workspace/` | 4,511 | | `features/window/` | 399 |
 | `features/terminal/` | 4,081 | | `features/file-system/` | 349 |
 | `features/panes/` | 3,746 | | `routes/`+`hooks/`+`types/` | 310 |
+
+> **Corrected 2026-07-30 (Phase 0). The endpoint count was wrong: 161, not 252.**
+> Three independent measurements agree and none reproduces 252:
+> 1. `protogen` (item 0.5) walks the gin route registrations and finds **161
+>    (method, path) pairs across 122 distinct paths**.
+> 2. The daemon's own `TestRouteAudit_AllSpecRoutesRegistered` reports
+>    `should have 159 item(s), but has 161`.
+> 3. Counting `.GET(`/`.POST(`/… call sites in non-test source under
+>    `internal/api/v0` gives **163**, the two-route difference being
+>    registration helpers.
+>
+> `protogen` additionally finds **159/159** of the audit's declared set with none
+> missing. **Scope later phases off 161, not 252** — the surface is ~35% smaller
+> than the spec claimed.
 
 ### 3.2 Component inventory — measured 2026-07-30
 
@@ -650,8 +664,39 @@ delta in §13.6 as a side effect. If it is thin, drop it and never revisit.
 
 ### 10.5 GPUI is pre-1.0 and tracks git main
 
-`gpui` is not a released crate. **Vendor it at `native/vendor/gpui/`, pinned to a
-SHA.** Zed's churn then reaches us only when we choose to take it.
+~~`gpui` is not a released crate.~~ **Vendor it at `native/vendor/gpui/`, pinned
+to a SHA.** Zed's churn then reaches us only when we choose to take it.
+
+> **Corrected 2026-07-30 (Phase 0). `gpui` IS a released crate.** Verified
+> against the crates.io API: **`gpui 0.2.2`**, licence `Apache-2.0 OR MIT`,
+> 177,788 downloads, updated 2025-10-22 (earlier: 0.2.1, 0.2.0, 0.1.0).
+>
+> The *decision* stands — pin exactly, so Zed's churn arrives only when we take
+> it. What changes is that a crates.io version pin is an available and **simpler**
+> form of that pin than a vendored git subtree. Two configurations, and item 0.2
+> must report on both before we commit:
+>
+> - **Config 1 — `gpui = "0.2.2"`.** No vendoring, no patches. Cost: ~9 months
+>   behind `main`, and `gpui-component` tracks `main`, so the pair may not
+>   compile. That is the open question.
+> - **Config 2 — pinned git rev.** Compiles by construction, but Zed's workspace
+>   carries a global **`[patch.crates-io]` set of 10 forks** (`async-process`,
+>   `async-task`, `windows-capture`, `calloop`, `livekit`, `libwebrtc`, `notify`,
+>   `notify-types`, `webrtc-sys`, plus font-kit/scap). **`[patch]` applies to the
+>   whole consuming workspace**, so those land in `native/Cargo.toml` and affect
+>   every crate we build. A `ui`-only build was observed fetching livekit,
+>   libwebrtc and the livekit protocol submodule.
+>
+> **The two cannot be mixed.** Vendoring Zed's support crates while sourcing
+> `gpui` from the Zed repo makes cargo refuse outright — *"package collision in
+> the lockfile: … only one can be written unambiguously"*. Whatever supplies
+> `gpui` must also supply `collections`, `gpui_util`, `refineable` and
+> `gpui_macros`.
+>
+> **Environment:** building any `gpui` on macOS needs the Metal toolchain, which
+> Xcode 17 does not install by default (`xcodebuild -downloadComponent
+> MetalToolchain`, 688 MB). Absent it, `build.rs` fails with *"cannot execute
+> tool 'metal'"*. It **is** present on this machine.
 
 ### 10.6 Zed extractability audit — Phase 0
 
@@ -666,7 +711,28 @@ record a verdict per crate; take what is genuinely self-contained:
   `multi_buffer`. Expected verdict: not extractable. Record the finding either
   way so it is not re-litigated.
 
-Anything taken lands under `native/vendor/zed/` with its GPL header intact.
+Anything taken lands under `native/vendor/zed/` ~~with its GPL header intact~~.
+
+> **Corrected 2026-07-30 (Phase 0). Zed has no per-file licence headers.**
+> Exactly one file repo-wide carries an SPDX identifier. Licensing is
+> **per-crate**, expressed twice: a `license = "…"` key in the crate's
+> `Cargo.toml`, and a `LICENSE-GPL` / `LICENSE-APACHE` **symlink** in the crate
+> directory pointing at the repo root.
+>
+> So the vendoring rule is: **`cp -RL`** (dereference the symlink so the licence
+> text becomes a real file) and preserve the `license =` key. A plain `cp -R`
+> yields a dangling symlink and no licence text at all.
+>
+> Note also that several of these crates are **Apache-2.0, not GPL**: `gpui`
+> itself, plus `util`, `path`, `gpui_util`, `collections`, `refineable`,
+> `util_macros`, `gpui_shared_string`.
+>
+> **Audit results are in `native/QUEUE.md` under item 0.9.** Headline: take
+> `fuzzy_nucleo` (not `fuzzy` — Zed migrated) and `refineable`; skip `picker`,
+> `editor`, `language`, `terminal`, `theme` and `ui`. Two prior expectations in
+> the table above were **refuted**: `language` and `terminal` are blocked by
+> `settings`, *not* by `project`/`workspace`/`multi_buffer`. Same verdicts,
+> different mechanisms — recorded so they are not re-litigated.
 
 ---
 
