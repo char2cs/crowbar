@@ -298,6 +298,74 @@ Archived as `native/oracle/runs/ref-v3-content-sized.json`.
 > Had I skipped the check I would have extracted from a stale page and compared
 > it in good faith. **Run the check every time; it has now caught this twice.**
 
+## ✅ THE STATE AXIS IS CLOSED — `selected` converges, and it found a real defect
+
+`file-tree-row` is the second gate surface, added because the git row's state
+axis was vacuous. It works.
+
+**Driven on both sides, for real:**
+
+| | reference (WKWebView) | native (GPUI) |
+|---|---|---|
+| resting `file-row-item.bg` | `#00000000` | `#00000000` |
+| **`selected`** | **`#ffffff0a`** | **`#ffffff0a`** |
+| `hover` | `--file-tree-hover-bg` | `#ffffff07` |
+| `focus` `button.border` | `:focus-visible` rule exists | `#ffffff0d` |
+
+The reference `selected` state was reached **programmatically** — no real pointer
+input — by focusing `.file-tree-container` and dispatching a bubbling click.
+Confirmed live: `data-active="true"` and `::before` painting
+`oklch(1 0 0 / 0.04)`, which is exactly `#ffffff0a`.
+
+> **Ordering matters and cost several attempts.** `highlightedPath =
+> hasTreeFocus ? focusedPath : activePath`, and an effect resets `focusedPath`
+> when the tree is unfocused. So focusing the container and clicking **in the
+> same tick does not work** — React has not committed `hasTreeFocus` yet. Focus
+> in one call, click in the next. Also: clicking a folder **toggles** it, so
+> repeated calls oscillate it open/closed.
+
+### The run found one genuine defect
+
+```
+oracle: FAIL — 1 delta over 6 anchors compared (1 colour)
+file-row-name.fg: #f5f5f5ff, expected #fe9a00ff (Δ b +245, rgb is exact)
+```
+
+**The reference colours the filename by git status** — `a.ts` is modified, so it
+renders amber `#fe9a00ff`. The native row paints default foreground. That is a
+**missing feature in the native component**, found by the oracle rather than by
+reading code, which is exactly what it is for.
+
+> **Two of the three original deltas were MY driving error, not defects.**
+> `file-row-guide-1` differed in `y` and `h` because I left `--prev-depth` /
+> `--next-depth` at their defaults, so no guide capping was applied. The
+> reference's `a.ts` follows `a` at depth 1, so level 1 *is* top-inset by 4px.
+> Driving with `--prev-depth 1 --next-depth 2` cleared both. **The guide-inset
+> logic is correct on both sides** — I had simply not told the native side who
+> its neighbours were.
+
+### Three measurements that would each have manufactured a delta on this surface
+
+Found by the worker before compiling, and each is the same class of trap:
+
+1. **Indent step is 16**, not the sidebar tree's 14 — `settings.fileTreeIndentSize` defaults to 16.
+2. **The line box is 20px**, not the git row's 18.9 — `GitFileItem` authors `leading-[1.35]`; this row authors nothing and inherits `.text-sm`'s `calc(1.25 / 0.875)`.
+3. **The icon starts at `1 + padding`** — the container-scoped `border: 1px solid transparent !important` shifts the content box. The git row's button has no border, so the two surfaces genuinely differ.
+
+And the `file-row-button` declares **neither** `content_sized` nor `line_sized`:
+it paints text and holds one line, but `h-6` authors its box at 24 around a 20px
+line — the same trap as the badge.
+
+### States this surface genuinely has
+
+`hover` ✓ · `selected` ✓ (converges) · `focus` — rendering is real *here*
+(`:focus-visible` is scoped to `.file-tree-container`, which this row is inside
+and the git row is not), but **drivability unconfirmed**: the tree keeps DOM
+focus on the container and moves a virtual cursor via `aria-activedescendant`,
+so a row button never takes DOM focus through normal navigation. `empty`,
+`loading` — **absent**. `error` — a transient `✕ failed` span owned by the tree,
+reachable only by making a real operation fail; **not modelled, not fabricated**.
+
 ## ✅ THE GATE PASSES ON ALL 18 RUNNABLE CELLS — 2026-07-31
 
 **3 viewport widths × 2 themes × 3 content lengths = 18 cells. Every one PASS.**
