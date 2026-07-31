@@ -49,6 +49,10 @@ interface WireBranchChat {
 
 // ── Mappers (wire → store slice types) ──────────────────────────────
 
+// The two attribution fields are carried as '' → undefined rather than through
+// verbatim: the wire omits them entirely on a human message and on every agent
+// message predating attribution, and an empty string would look like a real id to
+// every `find` downstream.
 function mapReply(r: ThreadReplyDTO): ReviewThread['messages'][number] {
   return {
     id: r.id,
@@ -56,6 +60,8 @@ function mapReply(r: ThreadReplyDTO): ReviewThread['messages'][number] {
     isAgent: r.isAgent,
     body: r.body,
     createdAt: r.createdAt,
+    providerId: r.providerId || undefined,
+    chatId: r.chatId || undefined,
   }
 }
 
@@ -71,6 +77,11 @@ export function mapThread(t: ThreadDTO): ReviewThread {
     isAgent: t.isAgent,
     body: t.body,
     createdAt: t.createdAt,
+    // The root's attribution is flattened onto the THREAD, not carried in
+    // replies[] — without reading it here an agent-opened thread would render
+    // attributed on every reply and anonymous on the finding itself.
+    providerId: t.providerId || undefined,
+    chatId: t.chatId || undefined,
   }
   return {
     id: t.id,
