@@ -31,8 +31,10 @@ pub static SURFACE: Surface = Surface {
     // real here and only here: this row's trailing badge and counts are
     // optional, where a file explorer row always paints an icon and a name.
     unmodelled: &[StateFlag::Loading, StateFlag::Error],
-    // One row and a caption. The number the archived gate runs were taken at.
-    window_height: 72,
+    // One row and a caption. The number the archived gate runs were taken at,
+    // and — because this surface drives no height (see `driven_height`) — the
+    // number its window still is, exactly.
+    min_window_height: 72,
     options,
     params: || Box::new(Params),
 };
@@ -48,6 +50,14 @@ impl SurfaceParams for Params {
         _args: &mut dyn Iterator<Item = String>,
     ) -> Result<bool, ParseError> {
         Ok(false)
+    }
+
+    /// **None.** A row is one line of a fixed height and no option on this
+    /// command line moves it, so there is nothing for the window to follow and
+    /// the floor is the whole answer. That is what keeps this surface's window
+    /// at the geometry its archived Phase 1 runs were taken at.
+    fn driven_height(&self, _cell: &Cell) -> Option<u16> {
+        None
     }
 
     /// The two row parameters the *other* surfaces have no prop for, each named

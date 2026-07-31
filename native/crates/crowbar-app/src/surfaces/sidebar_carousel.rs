@@ -60,10 +60,11 @@ pub static SURFACE: Surface = Surface {
         StateFlag::Hover,
         StateFlag::Focus,
     ],
-    // The tallest surface so far by an order of magnitude: a sidebar is a
-    // column, not a row. `MAX_HEIGHT` is held below this with room for the
-    // caption by `the_window_holds_the_tallest_carousel_and_its_caption`.
-    window_height: 700,
+    // The tallest floor of any surface here by an order of magnitude: a sidebar
+    // is a column, not a row. A floor rather than a ceiling since P2.5 — a
+    // `--height` past it takes the window with it, so this is only what the
+    // window is when the cell asks for less.
+    min_window_height: 700,
     options,
     params: || Box::new(Params::default()),
 };
@@ -80,15 +81,6 @@ pub const DEFAULT_ACTIVE_TAB: SidebarTab = SidebarTab::Files;
 
 /// `--height`'s default, in logical px.
 pub const DEFAULT_HEIGHT: u16 = 600;
-
-/// The tallest `--height` this surface's window can hold with its caption still
-/// on screen.
-///
-/// Rejected rather than clamped, for the reason `--viewport-width` is: a
-/// carousel taller than the window is one whose lower panels are cut by the
-/// window's own content mask, and a `visible` that turned on the window size
-/// would be an artefact rather than a fact about the port.
-pub const MAX_HEIGHT: u16 = 640;
 
 /// This surface's own options.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -172,14 +164,20 @@ impl SurfaceParams for Params {
             }
             "--height" => {
                 let height = pixels(&value(args, option)?, option)?;
-                if height == 0 || height > MAX_HEIGHT {
-                    return Err(ParseError::Rejected(format!(
-                        "--height {height} is outside 1..={MAX_HEIGHT}; this surface's window is \
-                         {} logical px tall and the caption sits below the carousel, so a taller \
-                         one would be cut by the window's own clip and every `visible` in the \
-                         snapshot would be an artefact of the window size",
-                        SURFACE.window_height,
-                    )));
+                // Zero is the only refusal left. There used to be a ceiling of
+                // 640, because this surface's window was a fixed 700 with the
+                // caption below the carousel — sound reasoning about clipping,
+                // applied to the wrong side. The window follows `--height` now
+                // (`Cell::window_extent`), so a sidebar as tall as the reference
+                // sidebar is drawable; a window the platform will not grant is
+                // refused at emit, where a cut surface can be seen rather than
+                // guessed at.
+                if height == 0 {
+                    return Err(ParseError::Rejected(
+                        "--height must be greater than zero: a column with no height leaves \
+                         the carousel's flex-1 nothing to resolve against"
+                            .to_owned(),
+                    ));
                 }
                 self.height = height;
             }
@@ -187,6 +185,14 @@ impl SurfaceParams for Params {
             _ => return Ok(false),
         }
         Ok(true)
+    }
+
+    /// `--height`. It is the column the carousel's `flex-1` fills, so it **is**
+    /// the surface's height, and the window follows it — which is what lets a
+    /// run match the reference's own sidebar instead of reporting an `h` delta
+    /// on every anchor.
+    fn driven_height(&self, _cell: &Cell) -> Option<u16> {
+        Some(self.height)
     }
 
     /// Which tab is showing, how tall the column is — and, where it applies, the
@@ -248,7 +254,7 @@ fn options() -> Vec<(String, String)> {
         ),
         (
             "--height <px>".to_owned(),
-            format!("the column flex-1 resolves against, 1..={MAX_HEIGHT} [{DEFAULT_HEIGHT}]"),
+            format!("the column flex-1 resolves against; the window follows it [{DEFAULT_HEIGHT}]"),
         ),
         (
             "--panel-content <px>".to_owned(),
@@ -261,8 +267,8 @@ fn options() -> Vec<(String, String)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_ACTIVE_TAB, DEFAULT_HEIGHT, MAX_HEIGHT, Params, SURFACE, options};
-    use crate::row_surface::{Cell, ParseError, StateFlag};
+    use super::{DEFAULT_ACTIVE_TAB, DEFAULT_HEIGHT, Params, SURFACE, options};
+    use crate::row_surface::{CAPTION_HEIGHT, Cell, ParseError, StateFlag};
     use crowbar_ui::components::sidebar_carousel::{SidebarTab, TABS};
     use gpui::px;
 
@@ -363,41 +369,51 @@ mod tests {
         }
     }
 
-    /// A `--height` the window cannot hold is refused, and the refusal says why
-    /// rather than clamping — a carousel cut by the window's own clip would make
-    /// `visible` an artefact of the window size.
+    /// **The window follows `--height`.** There used to be a ceiling of 640
+    /// here, below a fixed 700px window with the caption under the carousel; the
+    /// reference's sidebar is as tall as the window it is in, so the ceiling put
+    /// a real picture out of reach. Now the window grows and any height a
+    /// reference can exhibit is drivable.
     #[test]
-    fn a_height_the_window_cannot_hold_is_refused_with_its_reason() {
-        assert!(Cell::parse(
-            ["--surface", "sidebar-carousel", "--height", "640"]
-                .iter()
-                .map(|arg| (*arg).to_owned()),
-        )
-        .is_ok());
+    fn the_window_follows_the_height_past_the_floor() {
+        // Inside the floor: the window it was measured at, unchanged.
+        assert_eq!(cell(&[]).window_extent(), SURFACE.min_window_height);
+        assert_eq!(
+            cell(&["--height", "640"]).window_extent(),
+            SURFACE.min_window_height,
+            "640 + the caption still fits the floor",
+        );
 
+        // Past it, including the height that blocked `resizable`.
+        for height in [700_u16, 1119, 2000] {
+            let driven = cell(&["--height", &height.to_string()]);
+            assert_eq!(driven.window_extent(), height + CAPTION_HEIGHT, "{height}");
+            assert!(driven.window_extent() > SURFACE.min_window_height, "{height}");
+        }
+
+        // And the one refusal left is the one that is not about the window at
+        // all: a column of no height has nothing for `flex-1` to resolve
+        // against.
         let Err(ParseError::Rejected(complaint)) = Cell::parse(
-            ["--surface", "sidebar-carousel", "--height", "641"]
+            ["--surface", "sidebar-carousel", "--height", "0"]
                 .iter()
                 .map(|arg| (*arg).to_owned()),
         ) else {
-            panic!("641 is above the ceiling");
+            panic!("a zero-height column is not a picture");
         };
-        assert!(complaint.contains("visible"), "{complaint}");
-        assert!(complaint.contains("641"), "{complaint}");
+        assert!(complaint.contains("flex-1"), "{complaint}");
     }
 
-    /// The window has to hold the tallest carousel **and** the caption below it,
-    /// or `MAX_HEIGHT` is a ceiling that still produces a clipped surface.
+    /// The floor holds the default carousel **and** the caption below it, or a
+    /// bare `--surface sidebar-carousel` would draw a surface its own window
+    /// cuts before `window_extent` grew anything.
     #[test]
-    fn the_window_holds_the_tallest_carousel_and_its_caption() {
-        // `RowSurface::render`: the surface starts at `INSET_Y`, and the caption
-        // sits below it behind a 12px gap on a ~17px line.
-        const CAPTION: u16 = 12 + 17;
-        let needed = MAX_HEIGHT + CAPTION;
+    fn the_floor_holds_the_default_carousel_and_its_caption() {
+        let needed = DEFAULT_HEIGHT + CAPTION_HEIGHT;
         assert!(
-            needed <= SURFACE.window_height,
+            needed <= SURFACE.min_window_height,
             "{needed} does not fit in {}",
-            SURFACE.window_height,
+            SURFACE.min_window_height,
         );
     }
 

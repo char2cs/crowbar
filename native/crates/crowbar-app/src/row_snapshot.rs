@@ -16,13 +16,14 @@ use std::io::{self, Write as _};
 use std::path::PathBuf;
 
 use crowbar_driver::{
-    AnchorRegistry, Content, Flag, Snapshot, SurfaceState, Theme as SnapshotTheme,
+    AnchorRegistry, Content, Flag, RawAnchor, Snapshot, SurfaceState, Theme as SnapshotTheme,
 };
 use crowbar_ui::Appearance;
 use crowbar_ui::components::ContentLength;
+use gpui::{Pixels, Size, px};
 
 use crate::driver_anchors::fold_text_halves;
-use crate::row_surface::{Cell, StateFlag};
+use crate::row_surface::{Cell, RowSurface, StateFlag};
 
 /// Where an emitted snapshot goes.
 pub enum Destination {
@@ -96,16 +97,90 @@ fn flag_of(flag: StateFlag) -> Flag {
     }
 }
 
+/// How far past the window's edge an anchor may reach before the frame is
+/// refused, in logical px.
+///
+/// Not zero, because both sides of the comparison are `f32` that have been
+/// through a device-pixel snap, and a box whose bottom lands a hundredth of a
+/// pixel outside a window sized to hold it is arithmetic rather than clipping.
+/// Small enough that nothing a user could see hides inside it.
+const EDGE_TOLERANCE: Pixels = px(0.5);
+
+/// Why this frame cannot be emitted: the window cut the surface.
+///
+/// # Why this exists, and why it is here rather than in the parser
+///
+/// The driver's window now follows the surface it is asked to draw
+/// ([`Cell::window_extent`]), so the height a cell asks for is no longer capped
+/// at some number chosen to keep it inside a fixed window. What the caps were
+/// protecting still has to hold: **a surface must never be silently clipped by
+/// the driver's window**, because `visible` is a statement about what a user
+/// sees, and an anchor cut by the window's own content mask reports a `visible`
+/// that is a fact about the window size instead of about the port. A snapshot
+/// full of those is exactly the fake convergence this project refuses.
+///
+/// It cannot be a parse-time check, because the bound that survives is not a
+/// number anyone can write down: the platform decides. macOS constrains a titled
+/// window's frame to its screen, so asking for a window taller than the
+/// display's visible frame returns a shorter one, and the surface inside it is
+/// cut. Whether *this* machine can hold *this* cell is knowable only once a
+/// window exists — so the check is made against the drawable area the platform
+/// actually granted, on the frame that was actually drawn, and the answer is to
+/// refuse rather than to emit.
+///
+/// # Vertical only, and why that is not an oversight
+///
+/// Horizontally, an anchor outside the window is a picture some surfaces really
+/// have: `sidebar-carousel` scrolls its track, and three of its four panels sit
+/// entirely outside the scrollport — and therefore outside the window — on
+/// purpose, with `visible: false` being the fact under measurement. Refusing
+/// those would refuse the surface's whole point. The width axis has its own
+/// guard anyway, one layer up: [`Cell::parse`] rejects a viewport too narrow for
+/// the surface plus its insets.
+///
+/// Vertically nothing scrolls, and the window is now sized to the surface — so
+/// an anchor below the window's bottom edge means the window did not follow, and
+/// there is nothing else it could mean.
+fn cut_by_the_window(records: &[RawAnchor], cell: &Cell, viewport: Size<Pixels>) -> Option<String> {
+    let asked = RowSurface::window_size(cell).height;
+    for record in records {
+        let bottom = record.bounds.origin.y + record.bounds.size.height;
+        if bottom <= viewport.height + EDGE_TOLERANCE {
+            continue;
+        }
+        return Some(format!(
+            "`{}` reaches {}px down the window but its drawable area is only {}px tall, so the \
+             surface is cut at the window edge and every `visible` in this snapshot would be an \
+             artefact of the window size rather than a fact about the port. This cell asked for a \
+             {}px window; the platform granted {}px — on macOS a window is constrained to its \
+             display, so this cell needs a taller display. Nothing was written.",
+            record.id,
+            f32::from(bottom),
+            f32::from(viewport.height),
+            f32::from(asked),
+            f32::from(viewport.height),
+        ));
+    }
+    None
+}
+
 /// Serialises the recorded frame and writes it where it was asked for.
+///
+/// `viewport` is the drawable area the platform **granted**, not the one the
+/// cell asked for: [`cut_by_the_window`] is the guard that keeps a clipped
+/// surface out of the corpus, and it can only be answered by the window that
+/// exists. It is a parameter of this function rather than a check at the call
+/// site so that there is no way to write a snapshot without passing it.
 ///
 /// # Errors
 ///
-/// The snapshot could not be built (no root anchor was recorded), could not be
-/// serialised, or could not be written.
+/// The window cut the surface, the snapshot could not be built (no root anchor
+/// was recorded), could not be serialised, or could not be written.
 pub fn emit(
     anchors: &AnchorRegistry,
     cell: &Cell,
     destination: &Destination,
+    viewport: Size<Pixels>,
 ) -> Result<PathBuf, String> {
     // Built from the folded records rather than through `AnchorRegistry::snapshot`,
     // because the fold has to happen between "what prepaint recorded" and "what
@@ -114,11 +189,19 @@ pub fn emit(
     // snapshot cannot claim to be one surface while being anchored to the
     // other's root — which would offset every bound by a constant *and* pass
     // the differ's surface check.
+    let records = fold_text_halves(anchors.records());
+
+    // Before anything is built, let alone written: a frame the window cut is
+    // not a measurement of the port.
+    if let Some(complaint) = cut_by_the_window(&records, cell, viewport) {
+        return Err(complaint);
+    }
+
     let snapshot = Snapshot::build(
         cell.surface.name,
         state_of(cell),
         cell.surface.root,
-        &fold_text_halves(anchors.records()),
+        &records,
     )
     .map_err(|err| err.to_string())?;
     let json = snapshot.to_json().map_err(|err| err.to_string())?;

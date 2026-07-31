@@ -30,7 +30,9 @@ pub static SURFACE: Surface = Surface {
     // icon and a name and has no optional content to remove, where the git
     // row's trailing badge and counts are optional.
     unmodelled: &[StateFlag::Empty, StateFlag::Loading, StateFlag::Error],
-    window_height: 72,
+    // One row and a caption, and — because this surface drives no height (see
+    // `driven_height`) — the number its window still is, exactly.
+    min_window_height: 72,
     options,
     params: || Box::new(Params),
 };
@@ -46,6 +48,12 @@ impl SurfaceParams for Params {
         _args: &mut dyn Iterator<Item = String>,
     ) -> Result<bool, ParseError> {
         Ok(false)
+    }
+
+    /// **None**, for the reason `git-status-row`'s is: a row is one line and
+    /// nothing on this command line moves its height.
+    fn driven_height(&self, _cell: &Cell) -> Option<u16> {
+        None
     }
 
     /// `--git-status` is named only here: `GitFileItem` pins its filename at

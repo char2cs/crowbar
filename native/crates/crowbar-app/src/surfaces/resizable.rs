@@ -63,21 +63,13 @@ pub static SURFACE: Surface = Surface {
         StateFlag::Error,
         StateFlag::Selected,
     ],
-    // The shell box plus the caption below it. `--shell-height` is refused above
-    // `MAX_SHELL_HEIGHT` rather than clamped, so this is a bound and not a hope.
-    window_height: 200,
+    // The floor, which the default cell sits inside. `--shell-height` is no
+    // longer capped below it: the window follows the shell box (P2.5), so a cell
+    // taller than this gets a taller window rather than a refusal.
+    min_window_height: 200,
     options,
     params: || Box::new(Params::default()),
 };
-
-/// The tallest `--shell-height` this surface will draw.
-///
-/// A group taller than the window would be cut at the window edge, and the
-/// driver reports a box cut by its clip as no longer fully visible — so every
-/// `visible` in the snapshot would be an artefact of the window size rather than
-/// a fact about the layout. The same reasoning `Cell::parse` applies to
-/// `--viewport-width`, and the same answer: refuse, and name the number.
-pub const MAX_SHELL_HEIGHT: u16 = 160;
 
 /// How many panels the fixture has, and therefore how many values `--grow`
 /// takes.
@@ -177,12 +169,21 @@ impl SurfaceParams for Params {
             "--grow" => self.grow = parse_grow(&value(args, option)?)?,
             "--shell-height" => {
                 let height = pixels(&value(args, option)?, option)?;
-                if height == 0 || height > MAX_SHELL_HEIGHT {
-                    return Err(ParseError::Rejected(format!(
-                        "--shell-height {height} is outside 1..={MAX_SHELL_HEIGHT}; the group \
-                         would be cut at the window edge and every `visible` in the snapshot \
-                         would be an artefact of the window size",
-                    )));
+                // Zero is the only refusal left. There used to be a ceiling of
+                // 160 here, on the grounds that a taller group would be cut at
+                // the window edge and every `visible` in the snapshot would be
+                // an artefact of the window size. The grounds were right; the
+                // ceiling was the wrong remedy — the live IDE shell's group is
+                // **1119px** tall, so it made the only real reference
+                // unreachable. The window follows the shell box now
+                // (`Cell::window_extent`), and a surface the platform will not
+                // give a window for is refused at emit rather than drawn cut.
+                if height == 0 {
+                    return Err(ParseError::Rejected(
+                        "--shell-height must be greater than zero: a group with no height \
+                         resolves every panel to zero and there is no layout to compare"
+                            .to_owned(),
+                    ));
                 }
                 self.shell_height = height;
             }
@@ -190,6 +191,13 @@ impl SurfaceParams for Params {
             _ => return Ok(false),
         }
         Ok(true)
+    }
+
+    /// `--shell-height`. This is the box the group's `height: 100%` resolves
+    /// against, so it **is** the surface's height — the window follows it, and
+    /// the live shell's 1119px is expressible because of it.
+    fn driven_height(&self, _cell: &Cell) -> Option<u16> {
+        Some(self.shell_height)
     }
 
     /// The three inputs that decide the picture, and — where it applies — the
@@ -304,8 +312,8 @@ fn options() -> Vec<(String, String)> {
         (
             "--shell-height <px>".to_owned(),
             format!(
-                "the box the group's height:100% resolves against, \
-                 1..={MAX_SHELL_HEIGHT} [{DEFAULT_SHELL_HEIGHT_PX}]",
+                "the box the group's height:100% resolves against; the window \
+                 follows it [{DEFAULT_SHELL_HEIGHT_PX}]",
             ),
         ),
         (
@@ -319,8 +327,8 @@ fn options() -> Vec<(String, String)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_SHELL_HEIGHT_PX, MAX_SHELL_HEIGHT, PANEL_COUNT, Params, SURFACE, options};
-    use crate::row_surface::{Cell, ParseError};
+    use super::{DEFAULT_SHELL_HEIGHT_PX, PANEL_COUNT, Params, SURFACE, options};
+    use crate::row_surface::{CAPTION_HEIGHT, Cell, ParseError};
     use crowbar_ui::components::resizable::{
         CONTENT_GROW, DEFAULT_SHELL_HEIGHT, GroupEntry, Handle, Orientation, Panel, SIDEBAR_GROW,
     };
@@ -384,7 +392,40 @@ mod tests {
     #[test]
     fn the_default_shell_height_is_the_components() {
         assert_eq!(px(f32::from(DEFAULT_SHELL_HEIGHT_PX)), DEFAULT_SHELL_HEIGHT);
-        const { assert!(DEFAULT_SHELL_HEIGHT_PX <= MAX_SHELL_HEIGHT) }
+    }
+
+    /// **The window follows `--shell-height`**, which is the whole of P2.5 on
+    /// this surface: the live IDE shell's group is 1119px tall, and the cell
+    /// that draws it gets a window with room for it rather than a rejection.
+    ///
+    /// The default is unmoved, because it sits inside the floor — a surface
+    /// whose cell asks for less than the window it was measured at keeps that
+    /// window, so introducing this changed no cell that already ran.
+    #[test]
+    fn the_window_follows_the_shell_height_past_the_floor() {
+        assert_eq!(cell(&[]).window_extent(), SURFACE.min_window_height);
+        assert_eq!(
+            cell(&["--shell-height", "120"]).window_extent(),
+            SURFACE.min_window_height,
+            "a shell inside the floor keeps the floor",
+        );
+
+        // The live measurement, which the old ceiling of 160 made unreachable.
+        let shell = cell(&["--shell-height", "1119"]);
+        assert_eq!(shell.window_extent(), 1119 + CAPTION_HEIGHT);
+        assert!(shell.window_extent() > SURFACE.min_window_height);
+
+        // And it tracks, rather than jumping to one special number.
+        for height in [200_u16, 400, 900, 1119, 2000] {
+            let driven = cell(&["--shell-height", &height.to_string()]);
+            assert_eq!(
+                driven.window_extent(),
+                SURFACE
+                    .min_window_height
+                    .max(height + CAPTION_HEIGHT),
+                "{height}",
+            );
+        }
     }
 
     /// `--grow` reaches the panels **in DOM order**, and leaves everything else
@@ -501,7 +542,6 @@ mod tests {
             vec!["--grow", "0,0"],
             vec!["--grow"],
             vec!["--shell-height", "0"],
-            vec!["--shell-height", "4000"],
             vec!["--shell-height", "tall"],
             vec!["--shell-height"],
         ] {
@@ -525,17 +565,23 @@ mod tests {
         };
         assert!(complaint.contains("one per panel"), "{complaint}");
 
-        // The refusal that protects the snapshot, not the parser: it names the
-        // bound and says what a bigger window would cost.
-        let Err(ParseError::Rejected(complaint)) = Cell::parse(
-            ["--surface", "resizable", "--shell-height", "400"]
-                .iter()
-                .map(|arg| (*arg).to_owned()),
-        ) else {
-            panic!("400px is taller than the window");
-        };
-        assert!(complaint.contains("160"), "{complaint}");
-        assert!(complaint.contains("artefact"), "{complaint}");
+        // **A tall shell is no longer a rejection.** This is the parse that P2.5
+        // exists for: 1119 is the live IDE shell's measured height, and the old
+        // ceiling of 160 refused it. The property that ceiling protected has not
+        // gone anywhere — see `row_snapshot`'s refusal and
+        // `row_layout::window` — it moved to where a cut surface can actually be
+        // observed.
+        for height in ["161", "400", "1119", "4000"] {
+            assert!(
+                Cell::parse(
+                    ["--surface", "resizable", "--shell-height", height]
+                        .iter()
+                        .map(|arg| (*arg).to_owned()),
+                )
+                .is_ok(),
+                "{height} should be drawable",
+            );
+        }
     }
 
     /// **These options belong to this surface and to no other.** Driving one on
@@ -576,6 +622,9 @@ mod tests {
     fn the_surface_names_itself_and_its_root_anchor() {
         assert_eq!(SURFACE.name, "resizable");
         assert_eq!(SURFACE.root, "resize-group");
-        assert!(SURFACE.window_height >= MAX_SHELL_HEIGHT);
+        // The floor holds the default cell and its caption, so the surface a
+        // bare `--surface resizable` draws is inside the window it asks for
+        // before `window_extent` grows anything.
+        assert!(SURFACE.min_window_height >= DEFAULT_SHELL_HEIGHT_PX + CAPTION_HEIGHT);
     }
 }

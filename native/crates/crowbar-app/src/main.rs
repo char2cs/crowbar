@@ -122,8 +122,20 @@ fn open(cell: Cell, caption: String, cx: &mut App) -> gpui::Result<()> {
 
     cx.open_window(window_options(&cell), move |window, cx| {
         if let (Some(registry), Some(destination)) = (registry, destination) {
-            window.on_next_frame(move |_window, cx| {
-                row_snapshot::report(&row_snapshot::emit(&registry, &measured, &destination));
+            window.on_next_frame(move |window, cx| {
+                // The drawable area the platform **granted**, read off the frame
+                // that was just drawn rather than the size that was asked for.
+                // macOS constrains a window to its display, so the two are not
+                // the same number on a display too short for the cell — and a
+                // surface cut by the window is a snapshot `emit` must refuse
+                // rather than write. See `row_snapshot::cut_by_the_window`.
+                let granted = window.viewport_size();
+                row_snapshot::report(&row_snapshot::emit(
+                    &registry,
+                    &measured,
+                    &destination,
+                    granted,
+                ));
                 cx.quit();
             });
         }

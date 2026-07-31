@@ -44,8 +44,10 @@ pub static SURFACE: Surface = Surface {
     root: dropdown_menu::ID_POPUP,
     unmodelled: &[StateFlag::Empty, StateFlag::Loading, StateFlag::Error],
     // A four-entry popup is a little over 100px; a label and a `--tick` row push
-    // it further, and the caption sits below it.
-    window_height: 220,
+    // it further, and the caption sits below it. A floor rather than a ceiling,
+    // and the whole answer here: this surface drives no height (see
+    // `driven_height`), because a popup's height is its rows'.
+    min_window_height: 220,
     options,
     params: || Box::new(Params::default()),
 };
@@ -238,6 +240,19 @@ impl SurfaceParams for Params {
             _ => return Ok(false),
         }
         Ok(true)
+    }
+
+    /// **None.** Every option this surface takes is a *width* — the popup's
+    /// height is however tall its rows come out, and no number on the command
+    /// line decides it. A surface with nothing for the window to follow keeps
+    /// its floor, which is exactly what this one has always had.
+    ///
+    /// If a later option did move the popup's height — a `--rows`, say — this
+    /// would be where it is said, and the window would follow it. Until then a
+    /// popup that outgrew the floor is caught where every clipped surface is:
+    /// `row_snapshot::emit` refuses a frame whose anchors the window cut.
+    fn driven_height(&self, _cell: &Cell) -> Option<u16> {
+        None
     }
 
     /// The popup's two width declarations, the focused row, and — where it

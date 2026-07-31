@@ -799,14 +799,16 @@ impl RowSurface {
     /// already refused a viewport too small to hold the surface, so this can
     /// never be narrower than `surface + 2 × INSET_X`.
     ///
-    /// The height is the surface's own, because a row is one line and a menu
-    /// popup is a column of them. The two Phase 1 surfaces keep the 72 they were
-    /// measured at.
+    /// The height is **the cell's**, not the surface's: [`Cell::window_extent`]
+    /// grows the window to whatever height the cell drives its surface to, so
+    /// any height a real reference can exhibit is expressible. A row is still
+    /// one line and the two Phase 1 surfaces still keep the 72 they were
+    /// measured at, because they drive no height at all.
     #[must_use]
     pub fn window_size(cell: &Cell) -> Size<Pixels> {
         size(
             cell.viewport_width_px(),
-            px(INSET_Y * 2.0 + f32::from(cell.surface.window_height)),
+            px(INSET_Y * 2.0 + f32::from(cell.window_extent())),
         )
     }
 }
@@ -833,6 +835,25 @@ impl Render for RowSurface {
             .pl(px(INSET_X))
             .pt(px(INSET_Y))
             .font_family(theme.font_sans.primary().unwrap_or("sans-serif"))
+            // **The surface overflows a short window; it is never compressed
+            // into one.** That matters because `row_snapshot::emit` refuses a
+            // frame by finding anchors *outside* the window — a surface squashed
+            // to fit would report a full set of plausible bounds that are simply
+            // the wrong picture, with nothing outside the window to give it
+            // away, and no downstream check could catch it.
+            //
+            // It holds without anything being declared for it, which was worth
+            // finding out rather than assuming: an explicit `flex_shrink_0()`
+            // here was written first and then **proved inert by mutation** —
+            // removing it changed no measurement. Two reasons, either of which
+            // is sufficient. gpui's `Style::default()` is `display: block`, so
+            // this root is not a flex container and its children are not flex
+            // items; and the anchored box inside carries a definite height from
+            // `--shell-height` / `--height`, which no ancestor's shrinking can
+            // reach. The claim is kept honest by
+            // `row_layout::window::a_cut_surface_is_refused_and_nothing_is_written`,
+            // which needs the group to genuinely reach past the window edge in
+            // order to have anything to refuse.
             .child(div().w(self.cell.width_px()).child(render_row(
                 &self.cell,
                 &theme,
@@ -842,7 +863,7 @@ impl Render for RowSurface {
             // bound is reported relative to `git-row-item`.
             .child(
                 div()
-                    .pt(px(12.0))
+                    .pt(px(f32::from(CAPTION_GAP)))
                     .text_size(theme.ui_text_xs.value())
                     .line_height(relative(1.35))
                     .text_color(theme.muted_foreground)
