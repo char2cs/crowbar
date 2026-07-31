@@ -10,8 +10,9 @@ publish.workspace = true
 [dependencies]
 crowbar-ui.workspace = true
 crowbar-state.workspace = true
-# `gpui-wry` (§10.1) goes here once item 0.2 has pinned the gpui SHA it builds
-# against; gpui itself arrives transitively through crowbar-ui.
+# `gpui-wry` (§10.1) goes here; it is NOT vendored by item 0.2 and has to be
+# matched against the pinned gpui SHA (vendor/PINNED.md) when webview panes land.
+# gpui itself is reached as `crowbar_ui::gpui`, which crowbar-ui re-exports.
 
 [lints]
 workspace = true

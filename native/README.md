@@ -44,7 +44,34 @@ cargo test --workspace
 
 `check-invariants.sh` enforces the §4.3 rules that live outside the type system.
 Coverage (`cargo llvm-cov --fail-under-lines 98` on the logic crates) is a
-separate §12 gate and needs `cargo-llvm-cov`, which is not installed yet.
+separate §12 gate.
+
+> **One line of output is not ours and does not clear.** Cargo prints
+> `the following packages contain code that will be rejected by a future version
+> of Rust: block v0.1.6` on every build. `block` is a crates.io transitive
+> dependency of the vendored `gpui` macOS stack (`static of uninhabited type`);
+> `cargo report future-incompatibilities` shows it. Fixing it means either a
+> `[patch]` or editing `vendor/`, both of which break the pin. Zero warnings
+> means zero warnings *from the workspace* — clippy with `-D warnings` is clean.
+
+## Run
+
+```sh
+cd native
+CROWBAR_HOME=<the home the daemon was started with> cargo run -p crowbar-app
+```
+
+The binary derives the daemon's socket path from `CROWBAR_HOME` exactly the way
+the Go daemon does (`crowbar-client`'s `socket` module), asks it
+`GET /v0/health`, and shows the answer.
+
+**The app does not start a daemon.** Start Crowbar-React (`make dev-desktop`)
+first and leave it open — it owns the daemon — then run this against the same
+`CROWBAR_HOME`. Starting a daemon by hand *first* and then launching the Tauri
+app is a trap; `QUEUE.md`'s 0.4 section explains why.
+
+If the daemon is down, the window says so. That is the designed outcome, not a
+failure: a connection error is displayed, never panicked on.
 
 ## The two rules a newcomer will otherwise break
 
@@ -99,10 +126,19 @@ native/
 │   └── crowbar-app/      the binary
 ├── oracle/               the parity differ · corpus/ is append-only (§8.4)
 ├── scripts/              check-invariants.sh
-├── vendor/               pinned gpui (item 0.2) — committed on purpose
+├── vendor/               pinned gpui (item 0.2) — committed on purpose,
+│                         excluded from this workspace, never hand-edited
 └── tools/                protogen (item 0.5)
 ```
 
 The dependency edges between these crates are not a suggestion; §4.2 fixes them
 and the manifests are the enforcement. `crowbar-driver` and `crowbar-app` are
 the only crates that may depend on everything.
+
+**`gpui` is a direct dependency of `crowbar-ui`, `crowbar-state` and
+`crowbar-app` only.** The leaf view crates — `terminal`, `editor`, `diff`,
+`webview` — reach it as `crowbar_ui::gpui` / `crowbar_ui::gpui_component`,
+because §4.2 gives them `ui` and `state` and nothing else. That re-export is
+deliberate: a framework bump, or a wrapper interposed in front of a
+`gpui-component` type, is then one edit in the design system rather than one per
+crate. See `vendor/PINNED.md` for the pins themselves.

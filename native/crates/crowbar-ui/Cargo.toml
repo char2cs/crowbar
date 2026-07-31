@@ -9,8 +9,12 @@ publish.workspace = true
 
 [dependencies]
 crowbar-core.workspace = true
-# gpui + gpui-component go here (§4.2) once item 0.2 has vendored and pinned
-# them under native/vendor/gpui/. Do not add them before then.
+# §4.2: `core`, `gpui`, `gpui-component`. Vendored and pinned by item 0.2, wired
+# in by 0.4. Re-exported from `lib.rs` so the leaf view crates that §4.2 puts
+# downstream of this one get the framework "transitively through crowbar-ui"
+# without each restating the dependency.
+gpui.workspace = true
+gpui-component.workspace = true
 
 [lints]
 workspace = true

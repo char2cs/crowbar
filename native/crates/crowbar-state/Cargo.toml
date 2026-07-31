@@ -10,9 +10,11 @@ publish.workspace = true
 [dependencies]
 crowbar-core.workspace = true
 crowbar-client.workspace = true
-# gpui goes here (§4.2) once item 0.2 has vendored and pinned it. The §12 gate
-# for this crate is `#[gpui::test]` on a seeded TestDispatcher, so `gpui`'s
-# `test-support` feature will be a dev-dependency at the same time.
+# §4.2: `core`, `client`, `gpui`. The §12 gate for this crate is `#[gpui::test]`
+# on a seeded TestDispatcher; the `test-support` dev-dependency lands with the
+# first such test, not before — it drags in a rev-pinned `proptest` git fork
+# (vendor/PINNED.md) that nothing here needs yet.
+gpui.workspace = true
 
 [lints]
 workspace = true

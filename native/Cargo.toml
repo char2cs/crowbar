@@ -3,13 +3,17 @@
 # Spec: docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md
 # Queue: native/QUEUE.md
 #
-# `gpui` and `gpui-component` are deliberately ABSENT. They are vendored and
-# pinned by a separate item (0.2, spec §10.5) and wired in at merge. Do not add
-# them here speculatively.
+# `gpui` and `gpui-component` are vendored and SHA-pinned under `vendor/`
+# (item 0.2, spec §10.5) and wired in below (item 0.4). There is deliberately no
+# `[patch]` section and no `.cargo/config.toml`: every vendored crate is a plain
+# `path` dependency with a fully de-inherited manifest. See vendor/PINNED.md.
 
 [workspace]
 resolver = "3"
 members = ["crates/*", "oracle"]
+# `vendor/` is its own workspace root (it carries the standalone build probe),
+# so it must not be swept up as a member of this one. vendor/PINNED.md.
+exclude = ["vendor"]
 
 [workspace.package]
 version = "0.1.0"
@@ -34,9 +38,27 @@ crowbar-webview = { path = "crates/crowbar-webview", version = "0.1.0" }
 crowbar-platform = { path = "crates/crowbar-platform", version = "0.1.0" }
 crowbar-driver = { path = "crates/crowbar-driver", version = "0.1.0" }
 
+# Vendored + SHA-pinned; see vendor/PINNED.md for the pins, the licence
+# provenance and the re-pin procedure. `gpui` alone is the framework with no
+# window system — `gpui_platform` is the crate that owns `application()`.
+# `runtime_shaders` keeps the Metal shaders compiled at startup rather than at
+# build time, so a machine with only the Xcode Command Line Tools can build.
+gpui = { path = "vendor/gpui" }
+gpui_macros = { path = "vendor/zed-deps/gpui_macros" }
+gpui_platform = { path = "vendor/zed-deps/gpui_platform", features = ["font-kit", "runtime_shaders"] }
+gpui-component = { path = "vendor/gpui-component" }
+gpui-component-assets = { path = "vendor/gpui-component-assets" }
+gpui-component-macros = { path = "vendor/gpui-component-macros" }
+
 # External.
 objc2 = "0.6"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# §10.1: the transport is `reqwest` with a unix connector. 0.13 has native unix
+# socket support (`ClientBuilder::unix_socket`), so no third-party connector
+# crate is needed. `blocking` because gpui does not run a tokio reactor and the
+# daemon is a local socket; no TLS features — the transport is a unix socket.
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
 
 # §4.3 rule 4. Every member carries `[lints] workspace = true`; the per-test
 # exemptions live in `clippy.toml` so no crate needs `#[allow]` noise.

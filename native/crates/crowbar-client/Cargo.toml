@@ -9,8 +9,13 @@ publish.workspace = true
 
 # §4.2: `proto` only (plus the transport crates named in §10.1 — `reqwest` with
 # the unix connector and `tungstenite` — when the transport actually lands).
+# `tungstenite` is not here yet: item 0.4 needs one HTTP GET, and an unused WS
+# stack would be dead configuration.
 [dependencies]
 crowbar-proto.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true
