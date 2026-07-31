@@ -17,6 +17,7 @@ type GORMStores struct {
 	TerminalProfiles         store.Store[domain.TerminalProfile, string]
 	TerminalSessions         store.Store[domain.TerminalSession, string]
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
+	UISettings               store.Store[domain.UISettings, string]
 }
 
 func newGORMStores(
@@ -42,11 +43,16 @@ func newGORMStores(
 	if err != nil {
 		return nil, fmt.Errorf("app: agent provider preference store: %w", err)
 	}
+	uiSettings, err := storesqlite.NewFromDB[domain.UISettings, string](db)
+	if err != nil {
+		return nil, fmt.Errorf("app: ui settings store: %w", err)
+	}
 	return &GORMStores{
 		Projects:                 projects,
 		Repositories:             repos,
 		TerminalProfiles:         profiles,
 		TerminalSessions:         sessions,
 		AgentProviderPreferences: providerPrefs,
+		UISettings:               uiSettings,
 	}, nil
 }
