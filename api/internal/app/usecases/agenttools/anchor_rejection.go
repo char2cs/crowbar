@@ -52,6 +52,10 @@ func anchorRejection(
 		return sidelessAnchorRejection(file, path, start, end, side)
 	}
 	shown, hidden := nearestRanges(ranges, start, end)
+	//nolint:staticcheck // ST1005: this is prose for a MODEL recovering from a rejection,
+	// not a clause a Go caller wraps with %w and re-cases — it is never wrapped further
+	// (see validateAnchor's call site), so the terminal period ends a real sentence
+	// instead of dangling mid-thought. See the doc above for why the wording is fixed.
 	return fmt.Errorf(
 		"agenttools: post_review_comment: lines %d-%d of %s are not inside a single changed hunk "+
 			"on the %s side. A comment must sit entirely within ONE changed range — a range that "+
@@ -80,6 +84,8 @@ func sidelessAnchorRejection(
 	other := otherSide(side)
 	elsewhere := rangesOnSide(file.Hunks, other)
 	if len(elsewhere) == 0 {
+		//nolint:staticcheck // ST1005: prose for a model, not a wrapped Go clause — same
+		// rationale as anchorRejection above.
 		return fmt.Errorf(
 			"agenttools: post_review_comment: lines %d-%d of %s cannot be anchored: git reports no "+
 				"line-level changes for this file on either side, which is what a binary file looks "+
@@ -88,6 +94,8 @@ func sidelessAnchorRejection(
 		)
 	}
 	shown, hidden := nearestRanges(elsewhere, start, end)
+	//nolint:staticcheck // ST1005: prose for a model, not a wrapped Go clause — same
+	// rationale as anchorRejection above.
 	return fmt.Errorf(
 		"agenttools: post_review_comment: lines %d-%d of %s cannot be anchored on the %s side: that "+
 			"side of the file has no changed lines at all. It changed only on the %s side, where the "+

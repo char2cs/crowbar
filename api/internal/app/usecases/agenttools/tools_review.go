@@ -701,7 +701,7 @@ func broadcastThreadWrite(
 // says "too long". Runes are counted for the same reason truncateBody counts
 // them: the limit is about how much text this is, not how many bytes UTF-8 spent
 // on it.
-func checkBody(tool string, body string) error {
+func checkBody(tool, body string) error {
 	if strings.TrimSpace(body) == "" {
 		return fmt.Errorf("agenttools: %s: body must not be empty", tool)
 	}
