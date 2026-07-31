@@ -7,8 +7,10 @@ import {
   oracleFirstFontFamily,
   oracleFontWeight,
   oracleContentSized,
+  oracleGeneratesBox,
   oracleLineSized,
   oracleIsClipped,
+  oracleOverflowHidesText,
   oracleMeasureNormalLineHeight,
   oracleNormalizeColor,
   oracleNormalizeState,
@@ -382,13 +384,25 @@ describe('oracleIsClipped', () => {
     // scrollWidth/clientWidth are integers, so a 100.4px string in a 100px box
     // reads as a whole pixel of overflow that never paints an ellipsis.
     expect(
-      oracleIsClipped({ scrollWidth: 101, clientWidth: 100, textWidth: 100.4, contentWidth: 100 }),
+      oracleIsClipped({
+        scrollWidth: 101,
+        clientWidth: 100,
+        textWidth: 100.4,
+        contentWidth: 100,
+        overflowHidden: true,
+      }),
     ).toBe(false)
   })
 
   it('calls a real overhang a clip', () => {
     expect(
-      oracleIsClipped({ scrollWidth: 187, clientWidth: 118, textWidth: 186.5, contentWidth: 118 }),
+      oracleIsClipped({
+        scrollWidth: 187,
+        clientWidth: 118,
+        textWidth: 186.5,
+        contentWidth: 118,
+        overflowHidden: true,
+      }),
     ).toBe(true)
   })
 
@@ -400,14 +414,59 @@ describe('oracleIsClipped', () => {
         textWidth: 100.4,
         contentWidth: 100,
         epsilon: 0.25,
+        overflowHidden: true,
       }),
     ).toBe(true)
   })
 
   it('falls back to scrollWidth vs clientWidth when there is no text to measure', () => {
-    expect(oracleIsClipped({ scrollWidth: 187, clientWidth: 118 })).toBe(true)
-    expect(oracleIsClipped({ scrollWidth: 118, clientWidth: 118 })).toBe(false)
-    expect(oracleIsClipped({ scrollWidth: 187, clientWidth: 118, contentWidth: 0 })).toBe(true)
+    expect(oracleIsClipped({ scrollWidth: 187, clientWidth: 118, overflowHidden: true })).toBe(true)
+    expect(oracleIsClipped({ scrollWidth: 118, clientWidth: 118, overflowHidden: true })).toBe(
+      false,
+    )
+    expect(
+      oracleIsClipped({
+        scrollWidth: 187,
+        clientWidth: 118,
+        contentWidth: 0,
+        overflowHidden: true,
+      }),
+    ).toBe(true)
+  })
+
+  // ANCHORS.md v1.12. Overflowing the content box and being *truncated* are two
+  // different facts, and v1.3 ruling 1 conflated them: the fractional test is
+  // true for any overflowing text, hidden or not. §3 asks whether the text is
+  // "visually truncated", and a glyph painted in full is not.
+  it('is not a clip when nothing hides the overflow, however far it overhangs (v1.12)', () => {
+    // The exact numbers P3.10 measured on the callout emoji, which the v1.3
+    // predicate called truncated and the port — correctly — did not.
+    expect(
+      oracleIsClipped({
+        scrollWidth: 22,
+        clientWidth: 22,
+        textWidth: 19,
+        contentWidth: 14,
+        overflowHidden: false,
+      }),
+    ).toBe(false)
+    // And the same for the gate row's own numbers: 68px of overhang is still
+    // not a truncation if the box paints all of it.
+    expect(
+      oracleIsClipped({
+        scrollWidth: 187,
+        clientWidth: 118,
+        textWidth: 186.5,
+        contentWidth: 118,
+        overflowHidden: false,
+      }),
+    ).toBe(false)
+  })
+
+  it('gates the scrollWidth fallback on overflow too — it is the same question', () => {
+    expect(oracleIsClipped({ scrollWidth: 187, clientWidth: 118, overflowHidden: false })).toBe(
+      false,
+    )
   })
 })
 
@@ -716,6 +775,413 @@ function mountProbeTree(
  * declaration exists to stop — so the probe takes a name of its own.
  */
 const PROBE = { surface: 'oracle-probe', root: 'probe-root' }
+
+// ── what actually hides overflow (ANCHORS.md v1.12) ──────────────────────────
+
+describe('oracleOverflowHidesText', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+  })
+
+  /**
+   * `#outer → #host → #el`, with a style per id and a rect per id. `#el` is the
+   * element under test; either wrapper can be given a hiding `overflow`.
+   */
+  function mount(
+    styles: Record<string, FakeStyle>,
+    outerRect?: { left: number; top: number; width: number; height: number },
+  ) {
+    document.body.innerHTML = `
+      <div id="outer"><div id="host"><span id="el">x</span></div></div>`
+    const byId: Record<string, Element> = {
+      outer: document.getElementById('outer') as HTMLElement,
+      host: document.getElementById('host') as HTMLElement,
+      el: document.getElementById('el') as HTMLElement,
+    }
+    stubRect(byId.outer, outerRect || { left: 0, top: 0, width: 400, height: 40 })
+    stubRect(byId.host, { left: 0, top: 0, width: 400, height: 40 })
+    stubRect(byId.el, { left: 10, top: 8, width: 24, height: 24 })
+
+    const resolved = new Map<Element, FakeStyle>()
+    for (const key of Object.keys(styles)) resolved.set(byId[key], styles[key])
+    vi.spyOn(window, 'getComputedStyle').mockImplementation(((el: Element) => {
+      return { ...BASE_STYLE, ...(resolved.get(el) || {}) } as unknown as CSSStyleDeclaration
+    }) as typeof window.getComputedStyle)
+
+    return byId
+  }
+
+  const EL_BOX = { left: 10, top: 8, width: 24, height: 24 }
+
+  it('treats every overflow value except `visible` as hiding', () => {
+    for (const value of ['hidden', 'clip', 'scroll', 'auto', 'overlay']) {
+      const byId = mount({ el: { overflowX: value } })
+      expect(oracleOverflowHidesText(byId.el, EL_BOX)).toBe(true)
+      vi.restoreAllMocks()
+    }
+  })
+
+  it('treats `visible` — and a style that carries no overflow at all — as hiding nothing', () => {
+    expect(oracleOverflowHidesText(mount({ el: { overflowX: 'visible' } }).el, EL_BOX)).toBe(false)
+    vi.restoreAllMocks()
+    // The empty string means "this style object has no such longhand", not any
+    // CSS value. A partial stub must not be able to manufacture a truncation.
+    expect(oracleOverflowHidesText(mount({ el: { overflowX: '', overflow: '' } }).el, EL_BOX)).toBe(
+      false,
+    )
+  })
+
+  it('falls back to the `overflow` shorthand when the longhand is absent', () => {
+    expect(
+      oracleOverflowHidesText(mount({ el: { overflowX: '', overflow: 'hidden' } }).el, EL_BOX),
+    ).toBe(true)
+  })
+
+  it('does NOT read `text-overflow`, which is inert without a hiding overflow', () => {
+    // CSS UI applies text-overflow only to a block container whose overflow is
+    // other than `visible`, so an ellipsis declaration alone can never be the
+    // thing that hides a glyph. v1.12's own element proves the other direction:
+    // it computes `text-overflow: clip` and is not truncated at all.
+    const byId = mount({ el: { overflowX: 'visible', textOverflow: 'ellipsis' } })
+    expect(oracleOverflowHidesText(byId.el, EL_BOX)).toBe(false)
+  })
+
+  it('sees an ancestor whose clip rect actually cuts the element', () => {
+    const byId = mount(
+      { el: { overflowX: 'visible' }, outer: { overflowX: 'hidden' } },
+      {
+        left: 0,
+        top: 0,
+        width: 20,
+        height: 40,
+      },
+    )
+    // The element runs to x=34; the scrollport stops at x=20.
+    expect(oracleOverflowHidesText(byId.el, EL_BOX)).toBe(true)
+  })
+
+  it('ignores a hiding ancestor that contains the element whole — the `html` case', () => {
+    // This is why the ancestor term intersects rather than merely asking whether
+    // a clip exists. `index.css` puts `overflow: hidden` on html, body AND
+    // #root, so every anchor in every live capture has three clipping
+    // ancestors; a CSS-only test would be a tautology and v1.12 would do
+    // nothing at all.
+    const byId = mount({
+      el: { overflowX: 'visible' },
+      host: { overflowX: 'hidden' },
+      outer: { overflowX: 'hidden' },
+    })
+    expect(oracleOverflowHidesText(byId.el, EL_BOX)).toBe(false)
+  })
+
+  it('does not call a sub-pixel ancestor overhang a clip either', () => {
+    const byId = mount(
+      { el: { overflowX: 'visible' }, outer: { overflowX: 'hidden' } },
+      {
+        left: 0,
+        top: 0,
+        width: 33.7,
+        height: 40,
+      },
+    )
+    expect(oracleOverflowHidesText(byId.el, EL_BOX)).toBe(false)
+    expect(oracleOverflowHidesText(byId.el, EL_BOX, 0.1)).toBe(true)
+  })
+})
+
+// ── generating a box at all (ANCHORS.md v1.11) ───────────────────────────────
+
+describe('oracleGeneratesBox', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+  })
+
+  function mount(styles: Record<string, FakeStyle>) {
+    document.body.innerHTML = `<div id="host"><span id="el">x</span></div>`
+    const byId: Record<string, Element> = {
+      host: document.getElementById('host') as HTMLElement,
+      el: document.getElementById('el') as HTMLElement,
+    }
+    const resolved = new Map<Element, FakeStyle>()
+    for (const key of Object.keys(styles)) resolved.set(byId[key], styles[key])
+    vi.spyOn(window, 'getComputedStyle').mockImplementation(((el: Element) => {
+      return { ...BASE_STYLE, ...(resolved.get(el) || {}) } as unknown as CSSStyleDeclaration
+    }) as typeof window.getComputedStyle)
+    return byId
+  }
+
+  it('is false for `display: none` on the element itself', () => {
+    expect(oracleGeneratesBox(mount({ el: { display: 'none' } }).el)).toBe(false)
+  })
+
+  it('is false for `display: none` on an ancestor', () => {
+    // getComputedStyle reports the descendant's *own* display here — whatever it
+    // was authored as — so the walk is necessary rather than defensive.
+    expect(oracleGeneratesBox(mount({ host: { display: 'none' } }).el)).toBe(false)
+  })
+
+  // The distinction v1.11 says must not be blurred: these three all generate
+  // boxes, stay anchors, and report `visible: false`. Collapsing this predicate
+  // into `oracleIsVisible` would delete the carousel's snapped-out panels and
+  // v1.7's opacity case from every snapshot that contains them.
+  it('is true for `visibility: hidden`, which still generates a box', () => {
+    expect(oracleGeneratesBox(mount({ el: { visibility: 'hidden' } }).el)).toBe(true)
+  })
+
+  it('is true for `opacity: 0`, on the element and on an ancestor', () => {
+    expect(oracleGeneratesBox(mount({ el: { opacity: '0' } }).el)).toBe(true)
+    vi.restoreAllMocks()
+    expect(oracleGeneratesBox(mount({ host: { opacity: '0' } }).el)).toBe(true)
+  })
+
+  it('is true for an ordinary element (the control)', () => {
+    expect(oracleGeneratesBox(mount({}).el)).toBe(true)
+  })
+})
+
+/**
+ * The v1.12 case, in the shape P3.10 measured it: a callout emoji whose glyph is
+ * **wider than its content box** and painted in full anyway.
+ *
+ * ```
+ * border box 24 · padding 4/4 + border 1/1 → content box 14 · text advance 19
+ * ```
+ *
+ * `19 − 14 = 5` is five pixels of overhang, so v1.3 ruling 1's predicate calls it
+ * truncated on its own. Whether it *is* depends entirely on `#outer`, which is
+ * what each test below varies.
+ */
+function mountCallout(outer: FakeStyle, outerRect?: { left: number; width: number }) {
+  document.documentElement.className = 'light'
+  document.body.innerHTML = `
+    <div id="outer">
+      <div id="root" data-oracle-id="callout-node">
+        <span id="emoji" data-oracle-id="callout-emoji">💡</span>
+      </div>
+    </div>`
+
+  const byId: Record<string, Element> = {
+    outer: document.getElementById('outer') as HTMLElement,
+    root: document.getElementById('root') as HTMLElement,
+    emoji: document.getElementById('emoji') as HTMLElement,
+  }
+  stubRect(byId.outer, {
+    left: outerRect ? outerRect.left : 0,
+    top: 0,
+    width: outerRect ? outerRect.width : 400,
+    height: 40,
+  })
+  stubRect(byId.root, { left: 0, top: 0, width: 400, height: 40 })
+  // Border box 24, running from x=10 to x=34.
+  stubRect(byId.emoji, { left: 10, top: 8, width: 24, height: 24 })
+
+  const styles = new Map<Element, FakeStyle>([
+    [byId.outer, outer],
+    [
+      byId.emoji,
+      {
+        // `justify-center` spills the glyph 2.5px past each edge of the content
+        // box and nothing here hides it — `text-overflow` computes to `clip`.
+        overflowX: 'visible',
+        overflowY: 'visible',
+        textOverflow: 'clip',
+        paddingLeft: '4px',
+        paddingRight: '4px',
+        borderLeftWidth: '1px',
+        borderRightWidth: '1px',
+      },
+    ],
+  ])
+
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(((
+    el: Element,
+    pseudo?: string | null,
+  ) => {
+    if (pseudo) return { ...BASE_STYLE, content: 'none' } as unknown as CSSStyleDeclaration
+    return { ...BASE_STYLE, ...(styles.get(el) || {}) } as unknown as CSSStyleDeclaration
+  }) as typeof window.getComputedStyle)
+
+  vi.spyOn(document, 'createRange').mockImplementation(
+    () =>
+      ({
+        selectNodeContents: () => {},
+        getClientRects: () => [{ width: 19 }],
+        getBoundingClientRect: () => ({ width: 19 }),
+      }) as unknown as Range,
+  )
+
+  return byId
+}
+
+describe('v1.12: `clipped` is truncation, so it consults overflow', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+    document.documentElement.className = ''
+  })
+
+  function emoji(): OracleSnapshot['anchors'][number] {
+    const { anchors } = extractSnapshot({ surface: 'callout-node', root: 'callout-node' })
+    return anchors.find((a) => a.id === 'callout-emoji') as OracleSnapshot['anchors'][number]
+  }
+
+  it('does not call a glyph painted in full truncated', () => {
+    mountCallout({ overflowX: 'visible' })
+    const a = emoji()
+
+    // The overhang is real and still reported — `text_width` is the unclipped
+    // advance and that has not changed. Only the verdict has.
+    expect(a.text_width).toBe(19)
+    expect(a.clipped).toBe(false)
+  })
+
+  it('still does not, when the only clipping ancestor contains the glyph whole', () => {
+    // index.css puts `overflow: hidden` on html, body AND #root, so every anchor
+    // in every live capture has clipping ancestors. If the ancestor term asked
+    // only whether one exists, this would be `true` and v1.12 would be a no-op
+    // on every surface the app can capture.
+    mountCallout({ overflowX: 'hidden' })
+    expect(emoji().clipped).toBe(false)
+  })
+
+  it('does call it truncated when an ancestor’s clip rect actually cuts it', () => {
+    // The glyph runs to x=34; the scrollport stops at x=20.
+    mountCallout({ overflowX: 'hidden' }, { left: 0, width: 20 })
+    expect(emoji().clipped).toBe(true)
+  })
+
+  it('does call it truncated when the element’s own box hides the overflow', () => {
+    // The control for the whole ruling, and the shape every archived
+    // `clipped: true` has: a `truncate` span, `overflow: hidden` on itself.
+    mountRow()
+    const { anchors } = extractSnapshot({ surface: 'git-status-row' })
+    const name = anchors.find((a) => a.id === 'git-row-name')
+
+    expect(name?.text_width).toBe(186.5)
+    expect(name?.clipped).toBe(true)
+  })
+})
+
+/**
+ * The v1.11 case: three anchors that are all invisible for three different
+ * reasons, only **one** of which stops the element generating a box.
+ */
+function mountBoxTree(styles: Record<string, FakeStyle>) {
+  document.documentElement.className = 'light'
+  document.body.innerHTML = `
+    <div id="root" data-oracle-id="probe-root">
+      <span id="gone" data-oracle-id="probe-gone">tick</span>
+      <span id="faded" data-oracle-id="probe-faded">faded</span>
+      <span id="veiled" data-oracle-id="probe-veiled">veiled</span>
+      <div id="wrap"><span id="buried" data-oracle-id="probe-buried">buried</span></div>
+    </div>`
+
+  const byId: Record<string, Element> = {
+    root: document.getElementById('root') as HTMLElement,
+    gone: document.getElementById('gone') as HTMLElement,
+    faded: document.getElementById('faded') as HTMLElement,
+    veiled: document.getElementById('veiled') as HTMLElement,
+    wrap: document.getElementById('wrap') as HTMLElement,
+    buried: document.getElementById('buried') as HTMLElement,
+  }
+  stubRect(byId.root, { left: 0, top: 0, width: 300, height: 20 })
+  // A `display: none` element measures 0×0 in a real engine; the point of v1.11
+  // is that it must not reach the snapshot as a zero-rect record at all.
+  stubRect(byId.gone, { left: 0, top: 0, width: 0, height: 0 })
+  stubRect(byId.faded, { left: 10, top: 2, width: 40, height: 16 })
+  stubRect(byId.veiled, { left: 60, top: 2, width: 40, height: 16 })
+  stubRect(byId.wrap, { left: 110, top: 2, width: 40, height: 16 })
+  stubRect(byId.buried, { left: 110, top: 2, width: 40, height: 16 })
+
+  const resolved = new Map<Element, FakeStyle>()
+  for (const key of Object.keys(styles)) resolved.set(byId[key], styles[key])
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(((
+    el: Element,
+    pseudo?: string | null,
+  ) => {
+    if (pseudo) return { ...BASE_STYLE, content: 'none' } as unknown as CSSStyleDeclaration
+    return { ...BASE_STYLE, ...(resolved.get(el) || {}) } as unknown as CSSStyleDeclaration
+  }) as typeof window.getComputedStyle)
+
+  return byId
+}
+
+const BOX_TREE = {
+  gone: { display: 'none' },
+  faded: { opacity: '0' },
+  veiled: { visibility: 'hidden' },
+}
+
+describe('v1.11: an element that generates no box is not an anchor', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+    document.documentElement.className = ''
+  })
+
+  function snapshot(): OracleSnapshot {
+    return extractSnapshot({ surface: 'oracle-probe', root: 'probe-root' })
+  }
+
+  it('skips a `display: none` anchor rather than emitting a zero-rect record', () => {
+    mountBoxTree(BOX_TREE)
+    const ids = snapshot().anchors.map((a) => a.id)
+
+    // GPUI has no such element at all, so emitting it put a delta on *anchor
+    // presence* — a structural difference caused by the contract, on a resting
+    // cell, that reads exactly like a port bug.
+    expect(ids).not.toContain('probe-gone')
+    expect(ids).toEqual(['probe-root', 'probe-faded', 'probe-veiled', 'probe-buried'])
+  })
+
+  it('skips an anchor buried under a `display: none` ancestor too', () => {
+    mountBoxTree({ ...BOX_TREE, wrap: { display: 'none' } })
+    expect(snapshot().anchors.map((a) => a.id)).toEqual([
+      'probe-root',
+      'probe-faded',
+      'probe-veiled',
+    ])
+  })
+
+  // The distinction that must not be blurred. These two are how the carousel's
+  // snapped-out panels and v1.7's opacity case are caught, and both would
+  // vanish from every snapshot if the skip were keyed on `visible` instead.
+  it('keeps an `opacity: 0` anchor, with visible false (the control)', () => {
+    mountBoxTree(BOX_TREE)
+    const faded = snapshot().anchors.find((a) => a.id === 'probe-faded')
+
+    expect(faded).toBeDefined()
+    expect(faded?.visible).toBe(false)
+    expect(faded?.bounds).toEqual({ x: 10, y: 2, w: 40, h: 16 })
+  })
+
+  it('keeps a `visibility: hidden` anchor, with visible false (the control)', () => {
+    mountBoxTree(BOX_TREE)
+    const veiled = snapshot().anchors.find((a) => a.id === 'probe-veiled')
+
+    expect(veiled).toBeDefined()
+    expect(veiled?.visible).toBe(false)
+    expect(veiled?.bounds).toEqual({ x: 60, y: 2, w: 40, h: 16 })
+  })
+
+  it('refuses a capture whose root generates no box, by name', () => {
+    mountBoxTree({ ...BOX_TREE, root: { display: 'none' } })
+    expect(() => snapshot()).toThrow(/root anchor "probe-root" generates no box/)
+  })
+
+  it('changes nothing when every anchor has a box (the control)', () => {
+    mountBoxTree({})
+    expect(snapshot().anchors.map((a) => a.id)).toEqual([
+      'probe-root',
+      'probe-gone',
+      'probe-faded',
+      'probe-veiled',
+      'probe-buried',
+    ])
+  })
+})
 
 describe('extractSnapshot', () => {
   afterEach(() => {
