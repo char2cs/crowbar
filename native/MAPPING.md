@@ -310,3 +310,174 @@ Things learned here that are **not** about `sidebar-carousel`.
 | `Styled::style()` is still the seam | second use, and the first where the two overflow axes have to take *different* values. Every `overflow_*` builder gpui exposes without an element id sets `Hidden` |
 | a component with no colour takes no `Theme` | `SidebarCarousel::render` takes only the `AnchorSink`. A `Theme` argument that read no token would advertise a palette the component does not have, and the surface's `render` names its `_theme` unread so the omission is visible at the boundary |
 | the content mask is pushed in `Interactivity::prepaint` | `window.with_content_mask(style.overflow_mask(bounds, rem_size))` wraps the *children's* prepaint, so an anchor records the mask its **ancestors** pushed and never its own. That is what makes `visible` mean the same thing on both sides without either extractor being told about carousels |
+
+---
+
+# `resizable` (P2.2)
+
+`web/src/components/ui/resizable.tsx` →
+`crates/crowbar-ui/src/components/resizable.rs`.
+
+**This component is not its class lists**, and that is the first thing to know
+about it. `resizable.tsx` is three thin wrappers over `react-resizable-panels`
+4.11.2, and the library writes **inline styles** onto every element it renders.
+An inline declaration beats a class, so several of the Tailwind utilities below
+are dead on arrival — including one that can *never* match. `web/src/index.css`
+then overrides two of the library's inline styles with `!important`, which beats
+the inline declaration in turn. Reading the `cn(…)` call is not enough here; the
+"Compiles to" column says which of the three layers actually wins.
+
+Read `web/node_modules/react-resizable-panels/dist/react-resizable-panels.js`
+(`Group`, `Panel`, `Separator`) alongside this table. The three inline style
+objects are the real source.
+
+## 1. Values: spacing, radius, colour
+
+Every "Compiles to" came from running the app's own `src/index.css` through its
+own `tailwindcss` 4.3.0 with the utility as a candidate, exactly as P2.1's did.
+`--spacing` is Tailwind's stock `0.25rem`; `theme.css` does not redefine it.
+
+| React / Tailwind | Compiles to | gpui / `crowbar-ui` | Oracle |
+|---|---|---|---|
+| `w-px`, `h-px` | **1px** — Tailwind's own literal, not a `--spacing` multiple | `HANDLE_THICKNESS` | compared |
+| `after:w-1.5`, `after:h-1.5` | `calc(--spacing * 1.5)` = **6px** | `HIT_THICKNESS` | **invisible** (see §5) |
+| `h-6` | **24px** | `GRIP_LENGTH` | compared, no reference |
+| `w-1` | **4px** | `GRIP_THICKNESS` | compared, no reference |
+| `rounded-lg` | `var(--radius)` = **10px**, *not* Tailwind's stock 8 | `theme.radius_lg.value()` | compared, no reference |
+| `bg-border` | `var(--border)` | `theme.border` | compared, no reference |
+| `hover:after:bg-border/60` | `color-mix(in oklab, var(--border) 60%, transparent)` | `theme.border.mix(60.0, TRANSPARENT)` | **invisible** |
+| `focus-visible:ring-1` | `--tw-ring-shadow: 0 0 0 calc(1px + 0px)` — a **box-shadow** | a `BoxShadow`, 0 blur, `spread_radius: 1px` | **invisible** (`ANCHORS.md` §6) |
+| `focus-visible:ring-ring` | `--tw-ring-color: var(--ring)` | `theme.ring` | invisible |
+| `ring-offset-background` | `--tw-ring-offset-color: var(--background)` | **nothing** — `--tw-ring-offset-width` stays at its `0px` initial, so the offset layer keeps its `0 0 #0000` initial and paints nothing | absent |
+| `z-10` | `z-index: 10` | **nothing** — `ANCHORS.md` §6 excludes paint order as a field on purpose | absent |
+| `left-1/2` on the `::after` | `left: calc(1/2 * 100%)` of the **host** | resolved by hand: `HIT_LEFT` | invisible |
+| `-translate-x-1/2` | `translate: calc(-50%)` of the **element** | resolved by hand; **gpui has no `translate`** | invisible |
+
+## 2. Layout constructs
+
+The two useful rows here are the ones no earlier component had: a **flex
+division** and a **flex item that neither grows nor shrinks**.
+
+| React / Tailwind / inline | Compiles to | gpui / `crowbar-ui` | Oracle |
+|---|---|---|---|
+| `Group`'s inline `display:flex; flexDirection: row\|column; flexWrap: nowrap` | the layout, unconditionally | `.flex().flex_row()`/`.flex_col()`, `.flex_nowrap()` | compared |
+| `Group`'s `className="flex h-full w-full"` | the same three things the inline style already says | rendered once — **the classes are dead but harmless** | compared |
+| `Panel`'s inline `flexBasis: 0; flexShrink: 1; flexGrow: <layout>` | each panel's width is `grow/Σgrow × free` | `.flex_basis(px(0.)).flex_shrink(1.).flex_grow(g)` | compared |
+| `Panel`'s inline `minWidth: 0; minHeight: 0` | defeats CSS's content-based automatic minimum size | `.min_w(px(0.)).min_h(px(0.))` — **load-bearing**; taffy defaults to `auto` exactly as CSS does | compared |
+| `Panel`'s inline `maxWidth: 100%; maxHeight: 100%` | never binds here, and is reproduced anyway | `.max_w(relative(1.)).max_h(relative(1.))` | compared |
+| `Separator`'s inline `flexGrow: 0; flexShrink: 0; flexBasis: auto` | one pixel at every width | `.flex_grow(0.).flex_shrink(0.).flex_basis(Length::Auto)` | compared |
+| no `align-items` on the group | CSS's `stretch` | gpui's `AlignItems` default is `Stretch` too — **measured**, see `the_panels_and_the_separator_tile_the_group_exactly` | compared |
+| `height: 100%` on the group | resolves against `SidebarProvider`'s `h-screen` | `ResizablePanelGroup::shell_height`, a **parameter**, rendered as a definite-height box **above** the root anchor and therefore outside the snapshot | absent by construction |
+| the `::after` | `position: absolute` out of flow | a `.absolute()` child; takes no room in the flex line either way | invisible |
+
+**The `flex-grow` numbers are a parameter, not a property.** `Group` writes
+`style={{ flexGrow: layout[panelId] }}` from its own layout engine, and the
+numbers it writes are **percentages summing to 100**. Reproducing that engine
+would be reproducing the wrong thing — what a parity run compares is whether two
+flex implementations divide the same free space the same way. Same call P2.1
+made for `--anchor-width`.
+
+## 3. No gpui equivalent
+
+| React / Tailwind | Why | What the port does |
+|---|---|---|
+| `translate`, on the `::after` | gpui's `Style` carries no transform at all | **resolved by hand.** Both percentages are of lengths this component authors (the 1px host, the 6px strip), so `left: 50%` + `-translate-x-1/2` is exactly `−2.5px` and there is no engine-dependent value in it |
+| `[&[aria-orientation=horizontal]>div]:rotate-90` | same — no transform | **absent.** It only applies to a vertical group *with* `withHandle`, and neither exists in the app, so the cell it would change does not exist on either side |
+| `after:transition-colors` | a transition | **absent.** `ANCHORS.md` §6: a snapshot is one instant |
+| `focus-visible:outline-hidden` | `outline-style: none` | **absent.** The contract has no outline field, and gpui paints no outline to suppress |
+| `touchAction` (inline, all three elements) | pointer routing | **absent.** Not a visual property |
+| `pointerEvents: "none"` on panels during a drag | hit testing | **absent.** Not a visual property, and drag state is the library's |
+| `cursor` (inline, only when disabled) | `not-allowed` | **absent.** No live call site disables the separator |
+
+## 4. Anchoring
+
+| Construct | Decision |
+|---|---|
+| ids in the primitive | `resize-group`, `resize-panel`, `resize-handle`, `resize-handle-grip`, each written *before* `{...props}` so a call site can override it — P2.1's convention |
+| a group with several panels | the call site names them, as a menu with several rows does. `ide-shell.tsx` names its two `resize-panel-sidebar` / `resize-panel-content`, so the primitive's own `resize-panel` **never appears in the live app** |
+| which of a panel's two divs | the **outer** one. `data-slot` and any spread `data-*` land there; the library puts a call site's `className` on the *inner* div, which nothing outside the library can put an attribute on |
+| the `::after` | **not anchored.** See the traps |
+| `CONTENT_SIZED` / `LINE_SIZED` | **both empty**, and empty *lists* rather than absent, for P2.1's reason. Here it follows from one fact: nothing on this surface paints text |
+
+## 5. Traps
+
+Each of these compiles, renders something plausible, and is wrong.
+
+| Trap | What actually happens |
+|---|---|
+| **The separator's `aria-orientation` is the OPPOSITE of the group's.** | `Separator` computes `orientation === "horizontal" ? "vertical" : "horizontal"`, and **every** `aria-[orientation=…]` variant in `resizable.tsx` is written on the separator. So `aria-[orientation=horizontal]:w-full` is the rule a **vertical group** gets. A port that matched the words up gives a horizontal group a full-width separator and collapses the layout to nothing. This is the single most likely mistake in the file |
+| **`aria-[orientation=vertical]:flex-col` on the group can never match.** | `Group` renders **no `aria-orientation` attribute at all**. The class is dead; the inline `flexDirection` is what stacks the panels. A port that keyed the direction off that class would render every group as a row |
+| **`flex h-full w-full` on the group is also dead** — but harmlessly. | The library's inline style already says `display:flex; height:100%; width:100%`, and inline beats a class. Same picture, different reason: a reader who edits the class expecting the layout to move will be surprised |
+| **The group does not clip.** | The library writes `overflow: hidden` inline, and `index.css` overrides it with `[data-slot='resizable-panel-group'] { overflow: visible !important }` so a pane's shadow can bleed into the sidebar. `!important` beats an inline declaration. Same for the panel's **inner** div, whose `overflow: auto` is overridden by `[data-slot='resizable-panel'] > div`. A port that clipped would report a different `visible` on any overflowing child |
+| **A `ResizablePanel` is two divs, not one.** | The outer carries the flex sizing and the `data-*`; the inner carries the call site's `className`, `flexGrow: 1` and the panel's children. `className="min-w-0"` in `ide-shell.tsx` therefore lands on the **inner** div, not on the flex item it looks like it is modifying — and the outer already has `min-width: 0` inline anyway |
+| **`ring-1` is not a border** *(P2.1's trap, in a second place)*. | Tailwind 4 compiles it to a box-shadow. The separator's `border.w` is **zero in every cell**, and that is the one field `ANCHORS.md` v1.1 compares exactly |
+| **The `::after` is not `inset: 0`, so it cannot be a pseudo-backed anchor.** | `ANCHORS.md` §3 permits the shortcut *only* while the pseudo is `position:absolute; inset:0`, because the extractor then synthesises bounds from the **host's padding box**. This pseudo is `left:50%; width:6px` with a translate; taking the shortcut anyway would have both sides agree on a 1px-wide box that is really 6px wide and 2.5px to the left. So it is painted and **deliberately unanchored** |
+| **The hit strip is centred in one orientation and half a pixel out in the other.** | A vertical separator gets `left-1/2` (of the host) *and* `-translate-x-1/2` (of itself) → centred. A horizontal one gets `after:left-0` and `-translate-y-1/2` with **no `top-1/2`** to pair with it, so it is centred on the separator's top edge instead. Reproduced rather than corrected — see `HIT_TOP` |
+| **taffy rounds a panel's width to a whole logical pixel; `WebKit` does not.** | Measured: 600px surface, the live factors, CSS gives **146.8748** and taffy lays out **147**. It is a *round*, so it is bounded by 0.5 and §5's tolerance already covers it — unlike v1.5's one-directional `ceil`, which needed a correction. **But it is the one place on this surface where ±0.5 is genuinely tight:** a share landing on a half pixel is Δ 0.5 exactly and reads as a defect. Pick `--width`/`--grow` so the arithmetic lands near a whole pixel |
+| **Assuming a `withHandle` grip exists.** | No live call site passes it. `ide-shell.tsx` writes `<ResizableHandle key="handle" data-testid="sidebar-resize-handle" />` and it is the only `ResizableHandle` in the app |
+
+## 6. Painted but invisible to the oracle
+
+`ANCHORS.md` has no field for any of these. They are painted for fidelity and
+the differ will never confirm or deny them — **say so in any report**.
+
+| React / Tailwind | gpui | Note |
+|---|---|---|
+| the `::after` hit strip, at rest and on hover | a `.absolute()` child, `bg` only when hovered | no DOM node, and §3's pseudo shortcut is invalid here. **This is the whole of the component's hover state.** Unanchored means untestable through the oracle, so its layout was measured once by hand — temporary anchor, read back, removed: horizontal `x 75.5, 6×160` against a separator at `x 78, 1×160`; vertical `y 57, 600×6` against `y 60, 600×1`. The numbers are in `hit_strip`'s doc comment, because no gate would notice if they stopped being true |
+| `focus-visible:ring-1 ring-ring` | a `BoxShadow` inserted via `Styled::style` | §6: shadows are not representable. **This is the whole of the component's focus state** |
+| `z-10` on the grip | nothing | §6 excludes paint order |
+
+## 7. What this surface cannot show the differ
+
+Recorded because §8.2 requires honesty about it, and because this surface has
+more of it than any before — **three of §8.3's four axes are vacuous here**.
+
+- **`hover` cannot fail.** Its only rule paints the `::after`. Measured, not
+  argued: `neither_interaction_flag_moves_a_field_the_differ_can_see` asserts
+  every anchored record is identical to the resting one.
+- **`focus` cannot fail.** Its only rule paints a ring, which is a box-shadow.
+  Same test.
+- **Neither is declared `unmodelled`.** That field means "this surface's React
+  original has no such state", and both of these originals exist. What is
+  missing is a *field in the contract*, which is a different fact — so it is
+  said per cell, in the caption, where `dropdown-menu` says the same kind of
+  thing about `selected` without `--tick`.
+- **`--content` cannot fail, on every cell.** Nothing here paints a character,
+  so the three content lengths render three identical pictures. The caption says
+  so unconditionally.
+- **`--theme` cannot fail without `--with-handle`.** `bg-border` on the grip is
+  the only colour on the component; every other anchor is `bg: #00000000`,
+  `radius: 0`, `border.w: 0` in both themes. Measured by
+  `without_the_grip_the_surface_has_no_colour_at_all`.
+- **The grip has no reference at all** — no call site passes `withHandle` — so
+  the one cell that would make `--theme` real is itself unreachable. The same
+  shape of finding as Phase 1's `git-row-dir`.
+- **A vertical group has no reference.** The app has exactly one
+  `ResizablePanelGroup` and it is `orientation="horizontal"`. Rendered, and named
+  as unreachable in the caption.
+- **The panel's inner div is unanchorable.** It is the library's own element:
+  nothing in `resizable.tsx` or at a call site can put an attribute on it.
+  Rendered anyway, because it is what a panel's content lays out inside.
+- **`empty` is unmodelled.** `ide-shell.tsx` renders its three children
+  unconditionally; a group with no panels is not a state the app has.
+
+**What is left is worth having, and it is the width axis.** `flex-basis: 0` plus
+fractional `flex-grow` around a fixed 1px sibling is one division that taffy and
+`WebKit` each perform and round independently, and it is the arithmetic the whole
+IDE shell's layout rests on. The collapsed sidebar (`collapsible`,
+`collapsedSize={0}`) is a real reference state and is `--grow 0,100`, on which
+both extractors agree a zero-area box is `visible: false`.
+
+---
+
+## Cross-component notes (P2.2)
+
+Things learned here that are **not** about `resizable`.
+
+| Note | |
+|---|---|
+| A wrapped third-party primitive's inline styles outrank its class list | and `!important` in `index.css` outranks both. For anything over a library — `react-resizable-panels`, `base-ui`, Plate — read the library's rendered `style` object before the `cn(…)` call. `dropdown-menu` happened not to need this; most of the remaining 44 primitives will |
+| gpui's `AlignItems` default is `Stretch`, like CSS's | so a flex container that sets no `align-items` ports as nothing at all. **Measured** |
+| gpui has no transform | `rotate-*`, `translate-*`, `scale-*` are unportable. A translate by a percentage of lengths the component authors can be resolved by hand exactly; one against a runtime-measured length cannot |
+| taffy rounds layout to whole logical pixels | which is DPR-independent and bounded by 0.5, so §5's tolerance covers it — but it is *tight* on any box whose used size is a fraction. Worth choosing matrix widths that avoid half-pixel shares |
+| `ANCHORS.md` §3's pseudo-backed shortcut is narrower than it reads | it is valid only for `inset: 0`, and there is no mechanism for anything else. A pseudo positioned any other way is simply not anchorable today |
