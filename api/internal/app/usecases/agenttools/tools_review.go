@@ -99,6 +99,14 @@ type ThreadWriter interface {
 // frame, so without a broadcaster the write is stored and silently invisible to
 // an open review pane. A tool that only sometimes updates what the user is
 // looking at is worse than one that plainly does not exist.
+//
+// Neither of those two is gated on Idempotency, unlike post_review_comment, and
+// the difference is deliberate. They register as a PAIR, and resolve_review_thread
+// is idempotent by nature — resolving twice leaves the same thread resolved — so
+// requiring a dedup map for the pair would suppress a tool that has no use for
+// one. reply_to_review_thread stays useful without a map too: its key is optional,
+// so only a call that actually supplied one is refused, and it is refused rather
+// than written unguarded (see errNoDedupMap).
 func reviewTools(deps Deps) []toolDef {
 	var out []toolDef
 	if deps.Threads != nil {
@@ -480,7 +488,8 @@ func replyToReviewThreadTool(deps Deps) toolDef {
 			"type":"object",
 			"properties":{
 				"threadId":{"type":"string","description":"The thread to reply to. Get ids from list_review_threads."},
-				"body":{"type":"string","description":"The reply, in markdown."}
+				"body":{"type":"string","description":"The reply, in markdown."},
+				"idempotencyKey":{"type":"string","description":"Stable key for this reply; a retry with the same key will not duplicate it."}
 			},
 			"required":["threadId","body"],
 			"additionalProperties":false
@@ -492,8 +501,9 @@ func replyToReviewThreadTool(deps Deps) toolDef {
 }
 
 type replyToReviewThreadArgs struct {
-	ThreadID string `json:"threadId"`
-	Body     string `json:"body"`
+	ThreadID       string `json:"threadId"`
+	Body           string `json:"body"`
+	IdempotencyKey string `json:"idempotencyKey"`
 }
 
 // replyToReviewThread looks the thread up before writing to it: a thread id
@@ -501,6 +511,11 @@ type replyToReviewThreadArgs struct {
 // once the thread's actual WsID is known and confirmed visible to the caller
 // does the reply reach the store — a rejection here must never call
 // deps.ThreadWrites.Reply at all.
+//
+// The lookup and the scope check run on EVERY call, including one a key
+// deduplicates. Answering a retry from the map before checking who is asking would
+// turn a cached key into a way to learn that a thread exists in a workspace the
+// caller cannot see; authorization is not a thing a retry gets to skip.
 func replyToReviewThread(
 	ctx context.Context,
 	deps Deps,
@@ -521,12 +536,28 @@ func replyToReviewThread(
 	if !c.CanSee(thread.WsID) {
 		return "", fmt.Errorf("agenttools: reply_to_review_thread: %w", ErrOutOfScope)
 	}
-	updated, err := deps.ThreadWrites.Reply(ctx, replyInputFor(c, in.ThreadID, in.Body), time.Now())
+	out, err := deps.Idempotency.replyOnce(
+		ctx,
+		deps.ThreadWrites,
+		c.Workspace.ID,
+		in.IdempotencyKey,
+		replyInputFor(c, in.ThreadID, in.Body),
+		time.Now(),
+	)
 	if err != nil {
 		return "", fmt.Errorf("agenttools: reply_to_review_thread: %w", err)
 	}
-	broadcastThreadWrite(deps, c, thread.WsID, updated)
-	return fmt.Sprintf("Replied to review thread %s.", in.ThreadID), nil
+	// Only a real write is announced, exactly as in post_review_comment: a dedup hit
+	// changed nothing, so a frame for it would tell every connected client to
+	// re-render a thread it already has.
+	if out.created {
+		broadcastThreadWrite(deps, c, thread.WsID, out.fresh)
+	}
+	// The thread named is the one the reply actually LANDED on, read back off the
+	// outcome rather than off the arguments: a retry that reuses a key against a
+	// different thread wrote nothing, and echoing its own argument would report a
+	// reply on a thread that never received one.
+	return fmt.Sprintf("Replied to review thread %s.", out.threadID), nil
 }
 
 // replyInputFor builds the reply write, attributing it exactly the way
