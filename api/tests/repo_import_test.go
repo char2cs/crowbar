@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -111,6 +112,15 @@ func TestRepoImport_ProtectedBranchesGetManagedWorktrees(t *testing.T) {
 
 	// 3. Collect the repo's workspaces from the per-repo stream until the two
 	//    protected branches have materialised (snapshot + live frames).
+	//
+	//    Join the import's post-commit reactors FIRST. Provisioning runs
+	//    asynchronously off the repo POST above, so a stream dialled here races
+	//    it: the frames for the protected branches can be broadcast before this
+	//    connection exists, and the snapshot that would otherwise carry them is
+	//    built from an independent read model that settles separately. Lose both
+	//    and the collector waits on a branch that is never coming — on Linux it
+	//    lost every time, and saw only [(default) develop] with master missing.
+	h.QuiesceReactors()
 	wsConn := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
 	byBranch := collectWorkspacesUntil(t, wsConn, func(seen map[string]homeWorkspaceDTO) bool {
 		_, dev := seen["develop"]
@@ -270,12 +280,21 @@ func TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsAR
 	// Re-add the folder. Allowed: the row that owned it is gone.
 	secondRepoID := addRepo(t, h, reposWS, projectID, repoDir, firstRepoID)
 
-	// master is resolved AFTER main, so its arrival proves main's decision is
-	// already made and broadcast — no polling, no deadline.
+	// Join the import's post-commit reactors, then read a settled snapshot.
+	//
+	// This used to wait for "master" to arrive as its own row, on the reasoning
+	// that master is resolved after main and so proves main's decision landed.
+	// That signal is UNREACHABLE: this fixture checks out master, so master is
+	// the repo HOME, and branchKey files every default row under "(default)".
+	// seen["master"] was only ever set when a frame raced in before isDefault
+	// had become true — the test passed only by catching a transient wrong
+	// state, and hung forever when it did not. On Linux it never did: 0/5.
+	h.QuiesceReactors()
+
 	second := collectWorkspacesUntil(t,
 		h.dial("/v0/projects/"+projectID+"/repos/"+secondRepoID+"/workspaces"),
 		func(seen map[string]homeWorkspaceDTO) bool {
-			_, ok := seen["master"]
+			_, ok := seen["main"]
 			return ok
 		})
 
@@ -465,6 +484,21 @@ func collectWorkspacesUntil(
 ) map[string]homeWorkspaceDTO {
 	t.Helper()
 	seen := map[string]homeWorkspaceDTO{}
+	// readUntil aborts the test from inside the loop when its bound expires, so
+	// report what DID arrive from a cleanup — otherwise the only thing on record
+	// is "no matching frame", which never says which branches the import
+	// actually produced and which one went missing.
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		keys := make([]string, 0, len(seen))
+		for k := range seen {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		t.Logf("collectWorkspacesUntil saw %d workspace(s): %v", len(keys), keys)
+	})
 	for {
 		readUntil(t, conn, func(m map[string]any) bool {
 			id, _ := m["id"].(string)

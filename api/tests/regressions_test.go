@@ -1137,6 +1137,13 @@ func TestRegression_PullingParentUpdatesChildDiffWithoutManualSync(t *testing.T)
 	pull := h.raw(http.MethodPost, repoBase+"/workspaces/"+baseID+"/git/pull", nil, http.StatusAccepted)
 	_ = pull.Body.Close()
 	waitForWorkComplete(t, pullWS, baseID)
+	// waitForWorkComplete only proves the PARENT's pull finished. The child's
+	// refresh is the CASCADE off that pull — a post-commit reactor in its own
+	// goroutine — so the parent going idle says nothing about whether the child
+	// has been resynced yet. Join the reactors before reading the child, which
+	// is precisely what QuiesceReactors exists for; without it this asserts on
+	// the pre-cascade read model and sees the stale Added=1.
+	h.QuiesceReactors()
 
 	child := childDiff(t, h, imported, childID)
 	require.Equal(t, childID, child.ID, "child workspace must be in the list")
