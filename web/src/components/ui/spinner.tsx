@@ -10,6 +10,7 @@ export function Spinner({
     <Loader2Icon
       aria-label="Loading"
       className={cn('animate-spin', className)}
+      data-oracle-id="spinner"
       role="status"
       {...props}
     />

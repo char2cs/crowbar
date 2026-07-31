@@ -26,6 +26,7 @@ export function FlickerSpinner({
       // SVG dots use fill="currentColor", so callers color this by wrapping it
       // in (or applying) a text-* theme token span — never a hardcoded color.
       className={cn('inline-flex size-4 items-center justify-center [&>svg]:size-full', className)}
+      data-oracle-id="flicker-spinner"
       // react-doctor-disable-next-line dangerous-html-sink -- `markup` is a static build-time SVG asset from ./spinners/*.svg (import.meta.glob '?raw'), never attacker-influenceable. DOMPurify would strip the load-bearing <animate>/currentColor markup (see comment above SPINNERS).
       dangerouslySetInnerHTML={{ __html: markup }}
       {...props}
