@@ -970,24 +970,55 @@ and missing-`# Panics` errors, exit **101**. Reverted immediately; tree clean.
 > The manifests use the `[lints]` section form. Check for the section, not the
 > dotted key.
 
-### ❌ §17 leak detection is NOT on — dispatched as P1.12
+### ✅ §17 leak detection — P1.12 merged, and it CORRECTED my finding
 
-Spec §17: *"No leaks. gpui leak-detection on in every test."*
+I recorded this as *"leak detection was never on — the condition was never met."*
+**That was wrong, and wrong in the more interesting direction.** Recorded here
+rather than quietly fixed, because the way it was wrong is the finding.
 
-`grep -rn 'assert_no_new_leaks\|leak_detector_snapshot' native/crates/` returns
-**zero hits**, against 11 `#[gpui::test]` tests in `crowbar-driver/src/element.rs`
-and `crowbar-app/src/row_layout.rs`. The vendored gpui exposes the mechanism —
-`leak_detector_snapshot()` / `assert_no_new_leaks()` in `app.rs:906-926`, backed
-by `LeakDetector` in `app/entity_map.rs` — and we call neither.
+Both crates already request `gpui/test-support`, and `test-support` includes
+`leak-detection`. `#[gpui::test]` holds `App::ref_counts_drop_handle()`, whose
+`Drop` panics on a surviving entity handle. So a plainly forgotten entity was
+**already** caught, before this item. My grep for `assert_no_new_leaks` measured
+the wrong thing: absence of an explicit call is not absence of detection.
 
-So this condition was never met; it had simply never been checked. The worker is
-told that a helper each test must remember to call is the design that rots, and
-that if it finds a **real** leak it must report it rather than snapshot around
-it — a "no NEW leaks" assertion taken after the leak has already happened is a
-green light over a red condition.
+I also said 11 tests. There are **51** — `element.rs` 11, `row_layout.rs` 40. I
+had grepped `crowbar-ui` and `crowbar-driver` and never looked in `crowbar-app`.
 
-The other half of that §17 line — the RSS soak against the React app on the same
-workload — is still outstanding and is mine to run, not a worker's.
+The real defect is narrower and worse: **the detector lives inside `App`**, so
+anything outliving the harness keeps it alive, and a `Drop` that never runs
+reports nothing. `assert_no_new_leaks` reads live state instead and has no such
+dependency.
+
+**I verified that by mutation rather than taking it on trust.** The identical
+leak — forget an entity, then forget a `cx` clone — in one temporary test:
+
+| | result |
+|---|---|
+| with `leak_checked!(cx)` | **FAILED** (`entity_map.rs:1080`) |
+| same test, only that line removed | **passed green** |
+
+So the hole was real and the guard closes it.
+
+Landed: `crowbar-driver/src/leak.rs` exporting `leak_checked!`, armed on all 51
+tests plus 2 controls. The guard parks → `quit()` → parks → asserts, because an
+*open window's* root view is indistinguishable from a leak to the detector; it
+stands down under `thread::panicking()` so a failing test keeps its own message
+instead of aborting. A macro, not a helper, so `let _ = guard(cx);` — a
+temporary dropped before the window it must outlive — cannot be written.
+
+**Rule 6** fails any `#[gpui::test]` whose first statement is not the macro. I
+mutated it in both directions myself: disarming one existing test **fails**, and
+a fresh unarmed test in a brand-new file **fails**. Not a vacuous guard.
+
+Gates I re-ran: **347 passed / 0 failed / 3 ignored**, clippy clean, **7 `ok`
+lines**, `crowbar-driver` **98.05%** line coverage (up from 98.04%).
+
+Stated limits, from the worker and worth keeping: rule 6 does not catch a test
+that arms the guard on a *different* app than it drives, nor any leak that is
+not an entity handle — a detached task, an `Rc` cycle among plain values, native
+memory. §17's RSS soak is the check for that class, and it is still outstanding
+and mine to run.
 
 ### ▶ How to bring up the reference app — **do not use `make dev-desktop`**
 
