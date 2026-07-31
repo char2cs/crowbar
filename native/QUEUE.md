@@ -272,6 +272,31 @@ none of it. Classification, and what each needs:
    debugging session wrote a permanent key into the user's production storage
    and nobody noticed. Left in place — see consequence 3 above.
 
+### Reference side now declares `content_sized` — verified live, 2026-07-31
+
+Confirmed in the running app after P1.8 merged, not from the diff:
+`data-oracle-content-sized` appears on **`git-row-badge` (6)**,
+**`git-row-added` (4)**, **`git-row-deleted` (1)** — and **not** on
+`git-row-name`, which is correctly the flexible sibling that absorbs the excess.
+The extractor emits `"content_sized": true` on exactly those anchors.
+
+Archived as `native/oracle/runs/ref-v3-content-sized.json`.
+
+> **The v3 pair is deliberately NOT run yet.** I labelled its cell
+> `state.width: 1100` — the **viewport** width, per the v1.6 ruling — while the
+> native binary still labels its cell by the **surface** width (294). Running
+> them now would be running with exactly the broken label I just diagnosed:
+> either the differ refuses on a mismatched matrix cell, or I fudge one side's
+> label to make it agree, which is the fake convergence §8.3 exists to prevent.
+> **It waits for P1.9's `--viewport-width`.**
+
+> **The `pkill -f vite` hazard fired again**, and the pre-flight check earned its
+> place: my Vite on 5273 was dead — killed by another session starting a Crowbar
+> — while **my app kept running against nothing**. There are now four
+> `crowbar-desktop` processes on this machine, three of them other sessions'.
+> Had I skipped the check I would have extracted from a stale page and compared
+> it in good faith. **Run the check every time; it has now caught this twice.**
+
 ## ⚠ OPEN: `state.width` is ambiguous, and the badge proved it is load-bearing
 
 **This already produced one wrong comparison and it will produce more.**
