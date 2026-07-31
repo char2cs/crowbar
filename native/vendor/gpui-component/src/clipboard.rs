@@ -1,13 +1,13 @@
 use std::{rc::Rc, time::Duration};
 
 use gpui::{
-    App, ClipboardItem, ElementId, IntoElement, RenderOnce, SharedString, Window,
-    prelude::FluentBuilder,
+    prelude::FluentBuilder, App, ClipboardItem, ElementId, IntoElement, RenderOnce, SharedString,
+    Window,
 };
 
 use crate::{
-    IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
+    IconName, Sizable as _,
 };
 
 /// An element that provides clipboard copy functionality.

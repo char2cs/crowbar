@@ -5,10 +5,7 @@ use crate::{
     list::{ListDelegate, ListState},
 };
 
-use super::{
-    delegate::{SearchableListDelegate, SearchableListItem as _},
-    item::SearchableListItemElement,
-};
+use super::{delegate::{SearchableListDelegate, SearchableListItem as _}, item::SearchableListItemElement};
 
 /// Bridges a [`SearchableListDelegate`] into the [`ListDelegate`] protocol.
 ///
