@@ -2412,6 +2412,66 @@ moves the base moves all three rather than failing.
 > counts: `cargo test` stops at the first failing binary. Correct form is
 > `cargo test --workspace --no-fail-fast -- --test-threads=4`.
 
+### ✅ `input` VERIFIED — 0 deltas over 2 anchors (**wave 2**)
+
+`input · 1714 · dark · normal · --width 246`. Control `246×28` `bg #ffffff07`
+`r 10` `bw 1`, field `224×26` at `x 21` (= `ps-5`'s 20 + 1 border). 867 tests,
+clippy clean, 7 `ok` lines, rule 6 over **125** gpui tests.
+
+> **The first run FAILED and it was MY driving error, not the port.** I left
+> `--width` at its 320 default while the reference's container is 246. Both
+> anchors were off by exactly **+74** — a *constant* delta across every anchor is
+> the tell for a container-width mistake, the same shape as Phase 1's
+> `--prev-depth`/`--next-depth` slip. The component was right the whole time.
+
+**The finding that matters: the anchor set cannot see a text field's text at
+all** — and this is a property of the **extractor**, not a §6 omission.
+`extract.ts` builds `text`/`fg`/`text_width`/`clipped`/`font` from
+`oracleOwnText(el)`, which walks `el.childNodes` for text nodes — and an
+`<input>` is a **void element**. Measured, not argued: `childNodes.length` is
+**0**, `Range.selectNodeContents(input).getClientRects()` returns **0 rects**, and
+`scrollWidth === clientWidth === 224` so the clip fallback is dead too.
+
+So **the value, the placeholder, the caret and the selection are invisible to the
+differ**, together with the whole `font` group, `fg`, `text_width`, `clipped`,
+and the field's `border.color` (v1.3 ignores it while `w == 0`). The caret and
+selection are a *third* kind of invisible — not a pseudo-element like
+`resizable`'s hit strip or `button`'s `::before`, but **no box at all**. No
+fields were invented for them.
+
+`line_sized` is the closest call so far and was still declared **empty**: the
+field's box height and line box are the same 26px at every size and breakpoint,
+but the reference emits **no `font`** for an `<input>`, so `bounds.h` against
+`reference.font.line_height` has nothing on the other side. Two authored
+declarations agreeing is not a height *derived from* a line box. Mutation-tested:
+declaring it → 2 failures.
+
+> **⚠ `.focus()` cannot be driven, and the blocker is NOT the one I recorded.**
+> A programmatic `.focus()` sets `document.activeElement` and nothing else:
+> `document.hasFocus()` is **false and stays false** through `window.focus()`
+> **and** Tauri's `getCurrentWindow().setFocus()`. So `:focus` never matches and
+> `:focus-visible` cannot — the wall is **document focus**, not
+> `CGPreflightPostEventAccess()`. On this reading **every `focus-visible:` cell
+> in the app is agent-unreachable.**
+>
+> This sits in tension with P2.7, which reported `btn.matches(':focus-visible')`
+> true before its capture. Both cannot be generally true. P2.7's focus cell also
+> converged on a surface that **paints nothing for focus**, so it proves little
+> either way. **Recorded as an open tension rather than resolved by picking the
+> answer I prefer** — the next surface with a *visible* focus ring settles it.
+
+> **The carousel trap fired again, and only `visible` caught it.** The first
+> capture came back *geometrically perfect* and `visible: false` on both anchors
+> — the sidebar panel was snapped out (control at x 596..842 against a 0..294
+> scrollport). Every bound was right; only the `visible` column showed the
+> capture was worthless. This is the third time that column has earned its place.
+
+Recurring shape worth deciding rather than re-litigating: **`error` is a real
+state on `input`** (`aria-invalid` moves the control's `border.color`, a compared
+field), but `surface.rs` asserts `unmodelled(Error)` for *every* surface, so it
+is driven by `--invalid` instead. `select`, `checkbox`, `radio-group` and
+`textarea` carry the same four rules and will hit this again.
+
 ## In flight
 
 **Phase 0 is closed.** All twelve items done and merged, each verified by my own

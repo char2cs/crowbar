@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "surface": "input",
+  "state": {
+    "width": 1714,
+    "theme": "dark",
+    "content": "normal",
+    "flags": []
+  },
+  "root": "input-control",
+  "anchors": [
+    {
+      "id": "input-control",
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 246.0,
+        "h": 28.0
+      },
+      "bg": "#ffffff07",
+      "visible": true,
+      "radius": 10.0,
+      "border": {
+        "w": 1.0,
+        "color": "#ffffff14"
+      }
+    },
+    {
+      "id": "input",
+      "bounds": {
+        "x": 21.0,
+        "y": 1.0,
+        "w": 224.0,
+        "h": 26.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 10.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    }
+  ]
+}
