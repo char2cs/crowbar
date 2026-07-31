@@ -459,6 +459,7 @@ mod tests {
                 "dropdown-menu",
                 "file-tree-row",
                 "git-status-row",
+                "native-menu",
                 "resizable",
                 "sidebar-carousel",
             ],

@@ -52,6 +52,32 @@ gpui-component-macros = { path = "vendor/gpui-component-macros" }
 
 # External.
 objc2 = "0.6"
+# The generated AppKit and Foundation bindings for that same `objc2`. Only
+# `crowbar-platform` may name them (§4.2, §4.3 rule 2): a second crate reaching
+# for AppKit is a second crate that needs `unsafe`.
+#
+# Features are per class, and these are the classes a native context menu is:
+# `NSMenu` + `NSMenuItem` for the menu itself, `NSCell` for
+# `NSControlStateValue{On,Off}` (the tick), and `NSResponder` + `NSView` because
+# the `popUpMenuPositioningItem:atLocation:inView:` binding is `#[cfg]`-gated on
+# them even when the view is `nil`.
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSCell",
+    "NSMenu",
+    "NSMenuItem",
+    "NSResponder",
+    "NSView",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSDate",
+    "NSGeometry",
+    "NSObjCRuntime",
+    "NSRunLoop",
+    "NSString",
+    "NSTimer",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # §10.1: the transport is `reqwest` with a unix connector. 0.13 has native unix
