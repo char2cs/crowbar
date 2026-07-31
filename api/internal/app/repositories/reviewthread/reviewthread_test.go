@@ -206,6 +206,10 @@ func TestReviewThread_AttributionSurvivesTheEventLog(t *testing.T) {
 	assert.Empty(t, got.Messages[2].ProviderID)
 	assert.Empty(t, got.Messages[2].ChatID)
 
+	// List reads the read model, which the store projection fills ASYNCHRONOUSLY —
+	// Send returns before it runs (decision 4). Drain the dispatch queue first;
+	// this is the deterministic read-your-writes barrier, not a wait.
+	reviewthread.WaitQuiescentForTest(repo)
 	list, err := repo.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
