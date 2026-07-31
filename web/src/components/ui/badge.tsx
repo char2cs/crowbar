@@ -49,6 +49,8 @@ export function Badge({
 }: BadgeProps): React.ReactElement {
   const defaultProps = {
     className: cn(badgeVariants({ className, size, variant })),
+    'data-oracle-content-sized': 'true',
+    'data-oracle-id': 'badge',
     'data-slot': 'badge',
   }
 
