@@ -472,6 +472,99 @@ under my own run.
 > belongs to whoever added those two routes. Filed as
 > `native/oracle/blocked/route-audit-red-at-head.md`.
 
+### 0.7 — loopback TCP listener, token-authed ✅
+
+New leaf package `api/internal/core/loopback/` + `transports.NewLoopback`.
+**Off by default** (`--loopback-tcp` / `CROWBAR_LOOPBACK_TCP`), so nothing about
+today's behaviour changes.
+
+> **What auth existed before: none.** Verified. The unix socket's *entire* access
+> control is `chmod 0600` on the socket file
+> (`transports/socket.go:52`). `middleware.CORS()` + `origin.go` is a
+> **browser-only** control — it decides whether a browser may *read* a
+> cross-origin response, and stops nothing for a local non-browser process,
+> which sends no `Origin` at all (`Allowed("") == true`). Over TCP there was
+> nothing whatsoever. So §9.4's "carry the existing daemon auth" had nothing to
+> carry; the token mechanism is new.
+
+**Orchestrator verification — I ran the real binary and inspected the sockets:**
+
+| Check | Result |
+|---|---|
+| Off by default | no `loopback.json`, **0** TCP listeners on the pid ✅ |
+| Bind address (`lsof`) | **`127.0.0.1:53292` only** — no `0.0.0.0`, no `::` ✅ |
+| Reachable on the LAN IP `10.10.128.12`? | connection **refused** ✅ |
+| `loopback.json` mode | `-rw-------` ✅ |
+| Token | 43 chars = 256 bits base64url ✅ |
+| no credential / wrong / empty bearer | `401` / `401` / `401` ✅ |
+| bearer / `X-Crowbar-Token` / query param | `200` / `200` / `200` ✅ |
+| **static asset** and **`/`** with no credential | `401` / `401` ✅ |
+| **WS upgrade** with no token | `401` (written *before* the hijack) ✅ |
+| **unix socket** with no credential | `200` — unchanged ✅ |
+| Non-loopback binds | all 11 subtests refuse, **including `localhost`** ✅ |
+
+Refusing the literal hostname `localhost` is the sharp call and it is right: a
+hostname is OS-resolved and `/etc/hosts` can point it off-box. It refuses rather
+than warns — the pre-existing `NewTCP` only `slog.Warn`s, and its own doc
+comment calls that API "unauthenticated".
+
+**It also fixed a real pre-existing bug while in there.** The listener was bound
+*before* the engine/adapter/app wiring, so any failure in that wiring returned
+with the listener still open. On the unix path that leaves a socket the next
+launch dials successfully and reads as `ErrDaemonRunning` — **a dead daemon
+squatting the address**, which is a plausible cause of past "daemon won't start"
+reports. Fixed with a named error return + `defer closeOnFailure`, plus
+`container.Close()` so half-built PTYs/watchers/sqlite handles aren't stranded.
+Regression test: `TestNew_FailureAfterBind_ReleasesTheUnixSocket`.
+
+Nice instinct worth keeping: `api/tests/loopback_tcp_test.go` deliberately
+carries **no `integration` build tag**, unlike every other file in that package,
+so "who may reach the daemon" is gated on every default `go test ./...` rather
+than on a tag nobody runs. Given §0.6's finding that the tagged route audit has
+been failing unnoticed, that is exactly the right call.
+
+> **DECIDED (mine, not a user decision): webview panes get a request
+> interceptor, NOT a session cookie.**
+>
+> The problem 0.7 correctly surfaced: a browser *document navigation* and its
+> subresource loads cannot set headers, so `webview.load("http://127.0.0.1:PORT/route")`
+> 401s on every JS/CSS chunk. Header and query-param auth cover XHR and
+> WebSocket (the `WebSocket` API cannot set headers either, which is why the
+> query param is load-bearing rather than convenience) — but not chunk fetches.
+>
+> The obvious fix is Jupyter's: set a session cookie on successful query-param
+> auth. **Rejected.** Cookies are not port-scoped — any `127.0.0.1:*` origin
+> would receive it. This machine routinely runs several local dev daemons at
+> once, so that is not theoretical; it hands our token to any other local
+> server's page and reintroduces CSRF surface on state-changing routes.
+>
+> `wry` is WKWebView on macOS and can intercept/decorate requests, which keeps
+> the credential out of any ambient store and is port-scoped by construction.
+> **`crowbar-webview` owns this**; it is a Phase 3 implementation detail, not a
+> blocker, and not a product decision.
+
+### 0.11 — `cargo tree -i zlog` ✅ · **the alleged GPL chain does not exist in the released crate**
+
+§15 asked for this "for the record", against zed-industries/zed#55470's claim
+that `gpui → sum_tree → ztracing → zlog` pulls GPL into a nominally Apache-2.0
+crate. Resolved a lockfile for `gpui = "0.2.2"` (**704 packages**) and asked:
+
+```
+$ cargo tree -i zlog       → error: package ID specification `zlog` did not match any packages
+$ cargo tree -i ztracing   → error: package ID specification `ztracing` did not match any packages
+$ cargo tree -i sum_tree   → error: package ID specification `sum_tree` did not match any packages
+```
+
+**None of the three is present at all** — not `zlog`, not `ztracing`, and not
+even `sum_tree`, the head of the alleged chain. The published crate does not
+carry it. (This is expected in hindsight: crates.io requires every dependency to
+itself be published, and none of those three are.)
+
+So the concern is void for **Config 1** regardless of the D1 relicense — which
+was going to make it moot anyway. It remains an open question for **Config 2**
+(git-rev gpui), where the in-repo `sum_tree` *is* reachable; item 0.2 should
+re-run this if it lands on Config 2.
+
 ### 0.8 — `.app` bundling ✅ · **DECIDED: `cargo-packager`, pinned to `0.11.8`, driven by our own script.**
 
 Not chosen on impressions. The worker installed it and **actually built** a
@@ -636,11 +729,11 @@ Owner column: `W` = dispatched worker, `O` = orchestrator-only.
 | 0.4 | Both apps launch against one daemon on a shared `CROWBAR_HOME` | §0 §9.1 | O | React half **verified live**; native half gated on 0.2 |
 | 0.5 | DTO generator: Go handlers → `crowbar-proto` + regenerated `web/` types | §9.2 | W | **done — 4 gates re-run** |
 | 0.6 | `GET`/`PUT` `/v0/settings/ui` in the daemon — the ONE daemon exception | §9.3 | W | **done — driven live** |
-| 0.7 | Loopback TCP listener for webview panes, `127.0.0.1` only, authed | §9.4 | W | todo |
+| 0.7 | Loopback TCP listener for webview panes, `127.0.0.1` only, authed | §9.4 | W | **done — driven live** |
 | 0.8 | Decide `.app` bundling: `cargo-packager` vs hand-rolled | §14 | W | **done — cargo-packager 0.11.8** |
 | 0.9 | Zed extractability audit — `fuzzy`, `picker`, `util`, `theme` | §10.6 | W | **done — take fuzzy_nucleo + refineable** |
 | 0.10 | AX spike, timeboxed 1h: `ZED_EXPERIMENTAL_A11Y=1` + an AX tree dump | §10.4 | W | **done — THIN, dropped** |
-| 0.11 | `cargo tree -i zlog`, for the record | §15 | O | todo — gated on 0.2 |
+| 0.11 | `cargo tree -i zlog`, for the record | §15 | O | **done — chain absent** |
 | 0.12 | Relicense to AGPL-3.0-only: `LICENSING.md`, `LICENSE`, SPDX, manifests | §15 | W | **done** |
 
 **Phase 0 exit condition:** every row above is `done` or written to
