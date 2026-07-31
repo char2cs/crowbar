@@ -106,3 +106,60 @@ file it.
 `floating` is not sticky under a tiling WM. Re-assert it before any run that
 depends on the window's natural size, and re-read the frame rather than assuming
 it held.
+
+
+---
+
+## Not done yet — TWO STRUCTURAL blockers, and this time they are ours
+
+The window is the right size now, the capture succeeded (81 anchors, opacity
+guard clean, state held exactly). The diff still cannot run, for two reasons
+that are **design constraints in our own tooling**, not the environment.
+
+### 1. The oracle refuses the reference — correctly
+
+```
+/tmp/p2.10-ref-resizable.json is not a v1 snapshot: `anchors[13].id`:
+anchor id `git-row-item` appears twice; the differ matches by id and would
+have no way to say which of the two it compared
+```
+
+`extractSnapshot` walks **every** `data-oracle-id` under the root, not a
+per-surface set. `resize-group` **is the IDE shell root**, so it swallows the
+whole sidebar — carousel, file rows, ten git rows — giving 81 anchors with
+repeated ids against the native surface's 4.
+
+This is not specific to `resizable`. The carousel hit it too; I worked around it
+there by hand-filtering to the `carousel-*` ids and saying so. That worked
+because the carousel's own ids are unique — here they are not, and the oracle is
+right to refuse rather than guess.
+
+**A surface whose root contains other anchored subtrees cannot currently be
+captured in isolation.** The fix belongs in the extractor: capture the surface's
+own anchor set, not everything beneath its root.
+
+### 2. The driver cannot render a full-bleed surface
+
+```
+--viewport-width 1200 is narrower than the 1200px surface plus its 24px insets;
+the row would be cut at the window edge … Give it at least 1248
+```
+
+The refusal is sound — it is the same guard that stops `visible` becoming an
+artefact of window size. But the real shell **fills its window**: surface width
+*is* viewport width. Every gate surface so far has been a row narrower than its
+viewport, so the 24px inset was free. It is not free for a surface that goes
+edge to edge.
+
+Widening to `--viewport-width 1248` would make `state.width` 1248 against the
+reference's 1200, and the oracle would refuse — **as it should**; those are
+different cells. Loosening that check to force this through is exactly the trick
+this project does not do, and the breakpoint being the same at both widths is an
+argument for fixing the driver, not for weakening the differ.
+
+### Escalation status
+
+Well past three attempts. It stays filed. But the diagnosis is now **ours to
+fix** rather than the platform's to grant, which is a materially better place
+than the last two versions of this note — both of which blamed the environment
+and were wrong.
