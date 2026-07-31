@@ -4,27 +4,6 @@ import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { cn } from '@/lib/utils'
 import { ChevronRightIcon, CheckIcon } from 'lucide-react'
 
-/*
- * `data-oracle-id` — the parity anchors (`native/oracle/ANCHORS.md` §3), read by
- * `lib/oracle/extract.ts` and matched by `crowbar-ui`'s `components/dropdown_menu.rs`.
- *
- * Every id below is written BEFORE `{...props}`, so a call site can override it
- * by passing its own. That matters because these are per-*slot* defaults, and a
- * slot can repeat: a menu with three `DropdownMenuItem`s would emit
- * `menu-item` three times, and the extractor keeps whichever it walks last.
- * The primitive has no index to build unique ids from, so a menu with more than
- * one of a kind names them at the call site — see `review-thread-item.tsx`.
- *
- * Uniqueness is only required WITHIN one popup: `extractOracleSnapshot` walks
- * `[data-oracle-id]` under the root anchor, and the root is `menu-popup`.
- *
- * Deliberately NOT anchored: `DropdownMenuShortcut`. It carries
- * `tracking-widest` (`letter-spacing: 0.1em`) and gpui has no letter-spacing at
- * all, so its shaped advance would be short by a tenth of an em per character —
- * several px against ANCHORS.md §5's ±1.0px `text_width` tolerance. An anchor
- * there would report a delta that says nothing about the port.
- */
-
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
   return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
 }
