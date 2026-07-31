@@ -270,6 +270,55 @@ none of it. Classification, and what each needs:
    debugging session wrote a permanent key into the user's production storage
    and nobody noticed. Left in place — see consequence 3 above.
 
+### ✅ The reference half of the gate is proven, end to end, by me — 2026-07-31
+
+Not a worker's claim. I brought up an isolated reference app, verified its asset
+origin, navigated to the fixture workspace, loaded the extractor, and pulled a
+real snapshot out of the live WKWebView.
+
+**68 anchors render** on the git status panel: `git-row-item` ×11,
+`git-row-button` ×11, `git-row-name`/`icon`/`badge` ×6, `git-row-added` ×4,
+`git-row-deleted` ×1, guides 0–3. The panel reads "6 uncommitted changes".
+
+**All three content lengths of the §8.3 matrix are present in one panel** — the
+fixture was designed for this and it worked:
+
+| row | file | length |
+|---|---|---|
+| 2 | `a.ts` | short |
+| 10 | `resolve-terminal-connection.ts` | normal |
+| 9 | `an-extremely-long-…-sidebar-row.ts` | **overflow** |
+
+**Reference snapshot, row 9 (overflow), 10 anchors:**
+
+```
+git-row-item    294×24 @(0,0)   bg #00000000  r 2  bw 0
+git-row-button  294×24 @(0,0)   bg #00000000  r 8  bw 0
+git-row-icon     14×14 @(66,5)
+git-row-name    104.73×18 @(86,3)  fg #f5f5f5ff  14/400/CalSansUI
+                text_width 476.49  clipped TRUE      ← 476px of text in a 105px box
+git-row-badge   74.11×16 @(196.73,4)  bg #fe9a0029  r 4  bw 1  10/500
+git-row-added   11.16×16 @(276.84,4)  fg #00bc7dff  "+1"
+git-row-guide-0..3  7×24 @ x=14,28,42,56
+```
+
+**This independently confirms my own correction**: `git-row-button` really is
+radius **8** with border width **0**, not the 2px/1px I first told P1.5 from
+reading the stylesheet. I measured it myself this time.
+
+`git-row-dir` is absent, exactly as P1.1 reported — confirming the
+single-span-truncation scope decision above rather than taking it on faith.
+
+**What remains for the gate:** P1.5's native row, then the native snapshot, then
+the differ across the matrix.
+
+> **Bridge payload limit.** `webview_execute_js` times out at 7s returning a
+> large `JSON.stringify` of a whole snapshot. Return a **trimmed, structured**
+> object instead — the data arrives fine that way. Same limit bites a dynamic
+> `import()` that makes Vite compile: the import *succeeds*, the call reports a
+> timeout, and the module is there on the next call. Do not read either timeout
+> as a failure without re-checking.
+
 ### ▶ How to bring up the reference app — **do not use `make dev-desktop`**
 
 `make dev-desktop` is wrong for this work, for two reasons that only show up when
