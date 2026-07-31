@@ -992,15 +992,56 @@ export function oracleAssertComparableOpacity(elements: Element[]): void {
  * `surface` string §2 puts in the snapshot, so the two are readable against each
  * other by a human — which is all three implementations ever had.
  *
- * ## Why only these two surfaces are here
+ * ## Why only these four surfaces are here
  *
  * A surface may declare a set only when the set is a property of the *surface*
- * rather than of the *cell*, and both of these are:
+ * rather than of the *cell*, and all four of these are:
  *
  * | surface | its set |
  * |---|---|
  * | `resizable` | the group, the two panels `ide-shell.tsx` names, and the separator. The grip is **not** here: it renders only under `withHandle`, which no live call site passes — `resizable.rs` records the same fact |
  * | `sidebar-carousel` | the scrollport and its four panels, all four rendered unconditionally |
+ * | `popover` | the popup and its viewport — the two boxes `PopoverPopup` builds on every render, whatever the call site nests inside |
+ * | `select` | the popup, the panel and the list — the three boxes `SelectPopup` builds on every render, whatever items the call site passes |
+ *
+ * Each set is read off the component that builds the boxes — `popover.tsx`,
+ * `select.tsx`, `sidebar-carousel.tsx`, `resizable.tsx` + `ide-shell.tsx` — and
+ * never off a capture. A capture shows what one call site produced, which is the
+ * very thing being filtered out; deriving the set from it would encode the call
+ * site into the surface and the filter would then be a no-op by construction.
+ *
+ * ### The two overlays, and what each of them had to drop
+ *
+ * `popover` and `select` are both floated by Base UI, so a capture rooted at the
+ * popup contains the call site's whole sub-UI. On the one live popover a parity
+ * run can reach that is an avatar, its fallback and three buttons — a
+ * **duplicate-id document**, which ANCHORS.md v1.8 refuses outright. Both were
+ * reduced by hand instead; the two rows above are that reduction, moved to where
+ * it can be read and re-derived.
+ *
+ * Three ids each are deliberately **not** declared, and the reasons differ:
+ *
+ * * **`popover-title`** renders only where a call site places `<PopoverTitle>`.
+ *   `surfaces/popover.rs` defaults `--title` to `None` for the same reason —
+ *   *"the one popover a parity run can drive renders no title, and an anchor the
+ *   reference cannot produce is a `FieldPresence` delta that forgives nothing"* —
+ *   and declaring it here would make the loud-missing rule below refuse that
+ *   popover on every capture. Exactly `resizable`'s grip, one component over.
+ * * **`select-item`, `select-item-indicator`, `select-item-text`** exist once per
+ *   item the call site passes. Their *count* is a property of the cell, so
+ *   declaring them could not be satisfied: the repeated-id rule below would
+ *   refuse every list of more than one. v1.8's "each at most once" is the same
+ *   sentence read from the other end.
+ * * **`select-trigger`, `select-value`, `select-icon`** are real anchors on
+ *   `select.tsx` and are unreachable from this root — `SelectPopup` renders
+ *   inside a `SelectPrimitive.Portal`, so the popup is not a descendant of the
+ *   trigger and no single root spans both. The surface is the popup, which is
+ *   also where `dropdown-menu`'s native `Surface` roots (`ID_POPUP`); a trigger
+ *   capture is a different surface and does not have one yet.
+ *
+ * Both entries are inert until `native/p3-wrap-popover-select` merges: that
+ * branch puts the `data-oracle-id`s on `popover.tsx` and `select.tsx`, and until
+ * then no document carries them and no capture names either surface.
  *
  * `git-status-row`, `file-tree-row` and `dropdown-menu` are deliberately absent,
  * and not for want of getting to them. Their anchor sets are functions of the
@@ -1037,6 +1078,20 @@ export function oracleSurfaceScope(
         'carousel-panel-files',
         'carousel-panel-git',
       ],
+    },
+    // `popover.tsx`: `PopoverPopup` renders `PopoverPrimitive.Popup` wrapping
+    // exactly one `PopoverPrimitive.Viewport`, unconditionally. `children` — the
+    // call site's sub-UI — goes inside the viewport and is not the surface.
+    popover: {
+      root: 'popover-popup',
+      anchors: ['popover-popup', 'popover-viewport'],
+    },
+    // `select.tsx`: `SelectPopup` renders `Popup` → the panel `div` → `List`,
+    // unconditionally. `children` — the call site's `SelectItem`s — go inside
+    // the list, one `select-item` each, and are not the surface.
+    select: {
+      root: 'select-popup',
+      anchors: ['select-popup', 'select-panel', 'select-list'],
     },
   }
   const key = String(surface === null || surface === undefined ? '' : surface)
