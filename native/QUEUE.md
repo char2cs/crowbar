@@ -2142,17 +2142,59 @@ with a cell no run ever produced. A non-numeric width now throws.
 the *derived* value would be equally wrong, so an override could not fix a
 capture — only silence the check.
 
+### ✅ P2.5 — the driver window follows the surface
+
+`Surface::window_height` became `min_window_height`, a **floor**; a per-cell
+`driven_height` supplies the rest, and `window_extent()` takes
+`max(floor, driven + caption)`. The Phase 1 surfaces drive no height, so their
+window is unchanged **by construction**.
+
+I verified that independently rather than accepting it: re-emitting from the
+post-change binary and byte-comparing against archived snapshots —
+`git-status-row/normal`, `carousel/resting`, `carousel/selected` — all
+**IDENTICAL**. Archived Phase 1 pairs still PASS. 721 tests, clippy clean,
+7 `ok` lines, rule 6 at **95** gpui tests.
+
+> **A mutation found a vacuous claim of the worker's own, and it removed it.** It
+> had written `flex_shrink_0()` with a test that a short window cuts rather than
+> compresses — then found that removing it changed **no** measurement, because
+> gpui's `Style::default()` is `display: block`, so the root is not a flex
+> container and the anchored box carries a definite height no ancestor's
+> shrinking can reach. The declaration is gone and the assertion is now stated as
+> the refusal test's *precondition* rather than posing as a test. That is the
+> standard this project needs and it was applied unprompted.
+
+> ⚠ **PROCESS BREACH, recorded rather than glossed.** This worker committed
+> **directly onto `rewrite/rust` in the orchestrator's own worktree**
+> (`55a02122`, `60fa8dee`) instead of its own branch, and misread my own commits
+> as a "sibling session's". Workers deliver a branch; I merge after verifying.
+> The work verifies fully — every gate above is my own re-run — so reverting
+> sound work would cost more than it protects, and it stands. Future briefs must
+> say *"commit to your own branch; never to `rewrite/rust`"* explicitly, because
+> this one said only "work in your own worktree" and that was not enough.
+
 ### ⚠ The other two Phase 2 surfaces are still undriven
 
-- **`resizable` — BLOCKED on a driver limit.** `--shell-height` is capped at
-  `1..=160` and the live IDE shell is **1119px**. The cap is not laziness: the
-  driver's window is fixed-size, and the error says so — a taller surface would
-  be cut by the window edge and *"every `visible` in the snapshot would be an
-  artefact of the window size"*. Correct reasoning, wrong constraint for a parity
-  run. The fix is for the driver's window to size itself to the requested
-  surface. Same shape on `sidebar-carousel` (`--height` capped 640) — there I met
-  it from the other side by shrinking the **reference** window to 640, which is
-  free because height is not a §8.3 axis. That trick does not work at 160.
+- **`resizable` — the driver cap is GONE (P2.5); the binding constraint is now
+  the display.** `--shell-height`'s `1..=160` and `--height`'s `1..=640` are
+  removed. The window follows the surface, and the guard moved to where it can
+  actually be observed: `row_snapshot::emit` takes the drawable area the platform
+  **granted** and refuses any frame with an anchor below it — a parameter of
+  `emit`, so a snapshot cannot be written without it.
+
+  Verified live by me, not from the report:
+
+  | `--shell-height` | result |
+  |---|---|
+  | 1000 | **emitted**, `h = 1000`, every anchor visible |
+  | **1082** | **emitted**, every anchor visible |
+  | **1083** | **refused** — *"reaches 1099px down the window but its drawable area is only 1098px"* |
+  | 1119 | refused, same shape |
+
+  6.8× the old cap. The live IDE shell is 1119px and this display grants 1098px
+  of drawable height, so 1119 needs a taller display — the driver now says so
+  with the exact number instead of clipping silently. A parity run is reachable
+  by shrinking the **reference** window, as done for the carousel.
 - **`dropdown-menu` — no menu exists anywhere in the reachable app.** I searched
   for this rather than assuming: `[aria-haspopup]` is **0** across the entire
   document on the IDE route (all four carousel panels are in the DOM even when
