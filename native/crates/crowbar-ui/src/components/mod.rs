@@ -58,10 +58,18 @@ pub mod resizable;
 // that silently meant another surface's is the mistake `ANCHORS.md` v1.6 warns
 // about.
 pub mod sidebar_carousel;
+// `tabs` is unflattened for the third time and the same reason: its
+// `Orientation`, `Variant`, `Panel`, `Tab`, `CONTENT_SIZED` and `LINE_SIZED`
+// would each collide with another surface's, and a declaration list that
+// silently meant `resizable`'s is the mistake `ANCHORS.md` v1.6 warns about.
+// `Panel` is the sharpest of them: `resizable::Panel` is a resize pane and
+// `tabs::Panel` is a tab's content, and nothing about the name says which.
+pub mod tabs;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
 pub use dropdown_menu::DropdownMenu;
 pub use resizable::ResizablePanelGroup;
+pub use tabs::Tabs;
 // `GitStatus` and its vocabulary are flattened because nothing on the other
 // surface is called that: the git status row's filename is pinned at
 // `text-foreground` and never takes a status colour.

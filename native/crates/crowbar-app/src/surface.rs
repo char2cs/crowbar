@@ -462,6 +462,7 @@ mod tests {
                 "native-menu",
                 "resizable",
                 "sidebar-carousel",
+                "tabs",
             ],
         );
     }
