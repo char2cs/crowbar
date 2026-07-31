@@ -420,7 +420,12 @@ you are implementing against.
 
 ## Blocked — needs a user decision
 
-_(none)_
+Neither blocks any work. Both are in `native/oracle/blocked/`.
+
+| Item | What is needed | Why it is not mine to decide |
+|---|---|---|
+| [`cla-policy.md`](oracle/blocked/cla-policy.md) | Whether contributions need a CLA, a DCO, or nothing, now that AGPL-only removes the old rationale | Publishing "no CLA required" is a forward-looking promise to contributors. `LICENSING.md` is left neutral, which reverses cleanly; either answer does not. |
+| [`route-audit-red-at-head.md`](oracle/blocked/route-audit-red-at-head.md) | Add two routes to the audit's spec list and bump 159 → 161, or delete them | Two-line fix, but in `api/`, which §0 puts out of scope except for the single §9.3 exception. Reproduced red on a clean tree before any merge. |
 
 ---
 
