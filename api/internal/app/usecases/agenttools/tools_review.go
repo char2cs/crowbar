@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -398,8 +399,8 @@ func postReviewComment(
 	if err := checkAnchorRange(in.StartLine, in.EndLine); err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(in.Body) == "" {
-		return "", fmt.Errorf("agenttools: post_review_comment: body must not be empty")
+	if err := checkBody("post_review_comment", in.Body); err != nil {
+		return "", err
 	}
 	// commit="" is the whole BRANCH scope — the same diff get_review_scope reports,
 	// and the widest one, so an anchor accepted here is in the branch diff. A user
@@ -539,8 +540,8 @@ func replyToReviewThread(
 	if err := decode(args, &in); err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(in.Body) == "" {
-		return "", fmt.Errorf("agenttools: reply_to_review_thread: body must not be empty")
+	if err := checkBody("reply_to_review_thread", in.Body); err != nil {
+		return "", err
 	}
 	thread, err := deps.Threads.Get(ctx, in.ThreadID)
 	if err != nil {
@@ -684,6 +685,34 @@ func broadcastThreadWrite(
 		}
 	}
 	deps.ThreadBroadcast(thread.NormalizedMessages(), ws.ProjectID, ws.RepoID)
+}
+
+// checkBody is the one gate every free-text body a model WRITES passes through:
+// it must say something, and it must be small enough to store.
+//
+// The upper bound is the half that did not exist. maxMessageBodyChars and
+// maxTurnBodyChars bound what is rendered BACK; nothing bounded what went in, so
+// a body was unbounded in the store and — because a reply emits the whole thread
+// aggregate as its event payload — re-serialised on every later message of that
+// thread. See maxWrittenBodyChars.
+//
+// The refusal names the length AND the limit, because the model's only recovery
+// is to shorten and retry, and it cannot do that against an error that merely
+// says "too long". Runes are counted for the same reason truncateBody counts
+// them: the limit is about how much text this is, not how many bytes UTF-8 spent
+// on it.
+func checkBody(tool string, body string) error {
+	if strings.TrimSpace(body) == "" {
+		return fmt.Errorf("agenttools: %s: body must not be empty", tool)
+	}
+	if n := utf8.RuneCountInString(body); n > maxWrittenBodyChars {
+		return fmt.Errorf(
+			"agenttools: %s: body is %d characters, over the %d-character limit; "+
+				"shorten it and call again",
+			tool, n, maxWrittenBodyChars,
+		)
+	}
+	return nil
 }
 
 func parseSide(side string) (domain.ReviewSide, error) {

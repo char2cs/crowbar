@@ -118,6 +118,31 @@ const (
 	maxMessageBodyChars = 200
 	maxTurnBodyChars    = 800
 
+	// maxWrittenBodyChars caps a body on the way IN — the finding a model posts
+	// and the reply it writes — as opposed to the two caps above, which bound
+	// only what is rendered back out.
+	//
+	// Those two bound nothing about what is STORED. post_review_comment accepted
+	// any non-blank body, so a model could write a megabyte into a review thread,
+	// and the review-thread aggregate then pays for it repeatedly: replying emits
+	// the WHOLE aggregate as the event payload (see commands.ReplyReviewThread),
+	// so every subsequent message on a thread re-serialises every body already on
+	// it. Cost is quadratic in thread length with the body size as its constant,
+	// which is exactly the constant nothing bounded.
+	//
+	// 4000 characters is deliberately generous — about 600 words, twenty times a
+	// real finding, and enough for a paragraph of explanation plus a code block.
+	// It is not a style rule: a finding that needs more than this is a finding
+	// that should live in the code, and the surface renders only the first
+	// maxMessageBodyChars of it back anyway. What it buys is a bound: a
+	// fifty-message thread's total re-serialisation stays in single-digit
+	// megabytes instead of being unbounded.
+	//
+	// Runes, not bytes, matching every other character cap here — and the refusal
+	// names both the length and the limit, so a model can shorten and retry
+	// rather than guess.
+	maxWrittenBodyChars = 4000
+
 	// maxAnchorRangesShown bounds how many changed ranges a rejected anchor is
 	// told about.
 	//

@@ -12,6 +12,11 @@ var RenderThreadForTest = renderThread
 // the renderer itself.
 var RenderWorkspacesForTest = renderWorkspaces
 
+// RenderChatLogForTest exposes renderChatLog, so the chat-log path's own
+// row-forgery guards can assert on the exact bytes a turn renders as — the same
+// seam RenderThreadsForTest gives the review path.
+var RenderChatLogForTest = renderChatLog
+
 // ChatsByWorkspaceForTest exposes chatsByWorkspace so its membership filter can
 // be asserted on the MAP it returns.
 //
@@ -39,4 +44,5 @@ const (
 	MaxScopeRangesForTest        = maxScopeRanges
 	MaxMessageBodyCharsForTest   = maxMessageBodyChars
 	MaxTurnBodyCharsForTest      = maxTurnBodyChars
+	MaxWrittenBodyCharsForTest   = maxWrittenBodyChars
 )
