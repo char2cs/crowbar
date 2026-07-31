@@ -103,20 +103,30 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
         onWheel={armUserGesture}
         onTouchStart={armUserGesture}
         data-sidebar-carousel=""
+        data-oracle-id="carousel-scrollport"
         className="flex flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {/* Workspaces panel */}
-        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden h-full">
+        <div
+          className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden h-full"
+          data-oracle-id="carousel-panel-workspaces"
+        >
           <WorkspaceTree />
         </div>
 
         {/* Chats panel */}
-        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden h-full">
+        <div
+          className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden h-full"
+          data-oracle-id="carousel-panel-chats"
+        >
           <AgentChatsPanel />
         </div>
 
         {/* Files panel */}
-        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
+        <div
+          className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden"
+          data-oracle-id="carousel-panel-files"
+        >
           <ErrorBoundary>
             <Suspense fallback={<SidebarSkeleton />}>
               <FileExplorerTree
@@ -151,7 +161,10 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
         </div>
 
         {/* Git panel */}
-        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
+        <div
+          className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden"
+          data-oracle-id="carousel-panel-git"
+        >
           <GitPanel />
         </div>
       </div>

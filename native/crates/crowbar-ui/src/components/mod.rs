@@ -47,6 +47,11 @@ mod sidebar_tree;
 pub mod dropdown_menu;
 pub mod file_tree_row;
 pub mod git_status_row;
+// `sidebar_carousel` is flattened not at all for the same reason: its
+// `CONTENT_SIZED`, `LINE_SIZED` and `ID_*` are its own, and a declaration list
+// that silently meant another surface's is the mistake `ANCHORS.md` v1.6 warns
+// about.
+pub mod sidebar_carousel;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
 pub use dropdown_menu::DropdownMenu;

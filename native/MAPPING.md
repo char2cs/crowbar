@@ -167,3 +167,146 @@ component should not re-derive.
 | gpui's shadow presets are Tailwind's | `shadow_2xs` … `shadow_2xl` carry Tailwind's exact offsets, blurs, spreads and `rgb(0 0 0 / .1)`. Using them is also the only way to paint a Tailwind shadow without minting a colour outside `crowbar-ui/src/theme/` |
 | gpui has no letter-spacing | any `tracking-*` utility is unportable today |
 | `Styled::style()` is the seam | for anything the builder methods cannot express — here, inserting a shadow layer in front of a preset |
+
+---
+
+# `sidebar-carousel` (P2.3)
+
+`web/src/components/layout/sidebar-carousel.tsx` →
+`crates/crowbar-ui/src/components/sidebar_carousel.rs`.
+
+> Appended **after** P2.1's cross-component notes rather than before them, to
+> keep this file strictly append-only. The notes this component adds are in its
+> own §8 at the end.
+
+Nothing overrides these classes from a stylesheet — `data-sidebar-carousel=""`
+carries no rule anywhere in the app and is a query hook for the component's own
+Vitest file — so the class lists are what renders. Every value below came out of
+the app's own `tailwindcss` 4.3.0, same method as `dropdown-menu`.
+
+**This is the first component in the port that paints nothing.** No colour, no
+type, no radius, no border, no spacing: twelve classes, all of them layout. What
+it has instead is a **clip**, and the clip is the whole contract surface.
+
+## 1. Values
+
+There are none. There is no `--spacing` multiple, no token, no `Theme` argument
+on `SidebarCarousel::render` — which is a statement rather than an omission, and
+`nothing_on_this_surface_paints` is the assertion that keeps it true.
+
+| React / Tailwind | Compiles to | gpui / `crowbar-ui` | Oracle |
+|---|---|---|---|
+| `flex` | `display: flex` | `.flex()`. gpui's `Style::default()` already has `flex_direction: Row`, so a row needs no `.flex_row()` | compared (through geometry) |
+| `flex-1` | **`flex: 1`** — the *shorthand*, which expands to grow 1 / shrink 1 / **basis 0%**, not `flex-grow: 1` alone | `.flex_1()`, which sets exactly those three (`styled.rs`: `flex_grow 1`, `flex_shrink 1`, `flex_basis relative(0.)`) | compared |
+| `flex-col` | `flex-direction: column` | `.flex_col()` | compared |
+| `min-w-full` | `min-width: 100%` | `.min_w_full()` — `relative(1.)`, a taffy `Percent`, resolved against the flex container's inline size exactly as CSS does | compared |
+| `h-full` | `height: 100%` | `.h_full()` | compared |
+| `overflow-hidden` (panels) | `overflow: hidden` | `.overflow_hidden()` | compared via `visible` |
+| `overflow-x-scroll` | `overflow-x: scroll` | `style().overflow.x = Some(Overflow::Scroll)` through the `Styled::style()` seam — see the traps | compared via `visible` |
+| `overflow-y-hidden` | `overflow-y: hidden` | `style().overflow.y = Some(Overflow::Hidden)` | compared via `visible` |
+| `[scrollbar-width:none]` | `scrollbar-width: none` | **nothing to write.** gpui's `Style::scrollbar_width` defaults to `AbsoluteLength::Pixels(0)` and is passed to taffy, so `Overflow::Scroll` reserves no gutter — which is what the class asks `WebKit` for | invisible |
+| `[&::-webkit-scrollbar]:hidden` | a nested `&::-webkit-scrollbar { display: none }` — the `hidden` **utility**, i.e. `display: none`, *not* `visibility: hidden` | nothing; gpui paints no scrollbar | invisible |
+| `[scroll-snap-type:x_mandatory]` | `scroll-snap-type: x mandatory` | **absent** — §3 | absent |
+| `[scroll-snap-align:start]` | `scroll-snap-align: start` | **absent** — §3 | absent |
+| `data-sidebar-carousel=""` | no rule; a test hook | nothing | invisible |
+
+## 2. Layout constructs
+
+| React / Tailwind | Compiles to | gpui / `crowbar-ui` | Oracle |
+|---|---|---|---|
+| `el.scrollLeft = index * el.clientWidth`, written in two `useEffect`s | a **DOM property**, not a declaration — there is no class and no element it lives on | a **negative percentage margin on the first snap child**: `.ml(relative(-index))`. A margin percentage resolves against the flex container's inline size, which is the same box `clientWidth` measures, so the translation carries no width and cannot drift from `--width`. In a flex row a negative `margin-left` on item 0 shifts item 0 **and every sibling after it** by the same amount — which is precisely what a scroll offset does. **Measured**, `every_tab_snaps_the_track_by_one_scrollport_per_index` | compared |
+| four `min-w-full` items in a one-item-wide row | Σ min-width is 4 scrollports against 1 of space | flexbox freezes every item at its minimum, so each panel is **exactly** the scrollport's width whatever its flex base size was. This is what licenses rendering the panels empty, and it is driven rather than argued — `--panel-content 4000` produces a byte-identical record set | compared |
+| a panel's own `overflow-hidden` | clips the panel's *children* | does **not** clip the panel's own anchor, on either side, for two different mechanical reasons that happen to agree: `oracleIsVisible` starts its walk at `el.parentElement`, and `AnchoredBox::prepaint` reads `window.content_mask()` **before** prepainting its child | compared |
+| `flex-1` with no `height` anywhere on the component | the block size comes entirely from the parent | the host column belongs to the **surface**, not to `crowbar-ui`: it is `NavStack`'s `flex h-full flex-col`, and `nav-stack.tsx` is a different component. `--height` drives it, for the same reason `dropdown-menu`'s `--anchor-width` is an option — the reference's carousel is as tall as the sidebar it is in | compared |
+| `align-items` unset on the row | `stretch` | gpui's `Style::default()` leaves `align_items: None` and taffy's flex default is `Stretch`, so the two panels *without* `h-full` come out the same height as the two with it. **Measured**, `h_full_and_the_default_stretch_give_the_same_height` | compared |
+
+## 3. No gpui equivalent
+
+| React / Tailwind | Why | What the port does |
+|---|---|---|
+| `scroll-snap-type: x mandatory`, `scroll-snap-align: start` | gpui has **no scroll snapping at all** | **absent, and here that costs nothing.** `sidebar-carousel.tsx` computes its own snapped positions — `el.scrollLeft = index * el.clientWidth` in the `ResizeObserver` effect and `el.scrollTo({left: index * el.clientWidth})` in the `activeTab` effect — so the positions the port reproduces are the *component's* arithmetic, not the engine's. What is unported is the settle after a swipe that ended between panels, and `ANCHORS.md` §6 already puts "a snapshot is one instant" outside the contract |
+| the `ResizeObserver` re-align, `onScroll → setActiveTab`, the `isUserGesture` ref | behaviour, not appearance | **absent.** The port renders one scroll position; it does not own one. The React comments record a real defect in that logic (a collapse/expand cycle silently changing tabs) and none of it is visible to a snapshot |
+| `WorkspaceTree`, `AgentChatsPanel`, `FileExplorerTree`, `GitPanel` | four whole feature subtrees | **empty boxes** — the same call `git_status_row`, `file_tree_row` and `dropdown_menu` made about icons. Unusually, this one is *proved* rather than asserted: see `--panel-content` and §2 |
+| `<Suspense fallback={<SidebarSkeleton />}>`, `<ErrorBoundary>` | the `loading` and `error` states the component really has | **absent**, and the cells are declared unmodelled: both swap content *inside* a panel whose box is floored by `min-w-full`, so no anchored box can move |
+
+## 4. Painted but invisible to the oracle
+
+**Nothing.** There is no shadow, no ring, no letter-spacing, no opacity on this
+component. Every anchor reports `bg: #00000000`, `radius: 0.0` and
+`border.w: 0.0` — which is a *comparison* the differ makes, not an absence it
+cannot see. `border.w` is the field `ANCHORS.md` v1.1 compares **exactly**, and
+zero on both sides is the strongest form of agreement it can express.
+
+## 5. Anchoring
+
+| Construct | Decision |
+|---|---|
+| the root | `carousel-scrollport`, the scroll container. It **has** to be the root: §4 puts the origin on it, and a snapped-out panel's `x` is only meaningful relative to the box it is clipped against |
+| the four panels | `carousel-panel-workspaces` / `-chats` / `-files` / `-git`. Named for their tab rather than indexed, although `TABS` would supply an index: an id has to stay attached to the same panel across a reorder, and an indexed id would silently repoint |
+| `visible` on a snapped-out panel | **`false`.** Five-point argument in the component's module docs. Short form: §3 defines the field as "not fully clipped by an ancestor"; both extractors already compute exactly that with no change to either; the alternative reading turns the field into a claim about *reachability* and reports `true` on all four panels in every cell forever; and it gives up nothing because `bounds` still carries the geometry at ±0.5px |
+| `CONTENT_SIZED` / `LINE_SIZED` | both **empty**, and on this surface not even a judgement call — v1.5 is about a text run's max-content width and v1.6 about a line box, and nothing here paints text |
+| ids in the primitive | written directly on the five `<div>`s. There is one carousel in the app and it takes no children from a call site, so unlike `dropdown-menu` there is no per-slot default to override |
+
+## 6. Traps
+
+Each of these compiles, renders something plausible, and is wrong.
+
+| Trap | What actually happens |
+|---|---|
+| **Reaching for gpui's `overflow_x_scroll()`.** | It lives on `StatefulInteractiveElement`, so it drags in an element id **and** a `ScrollHandle` — runtime state gpui re-clamps every frame from measured content size, and which `ANCHORS.md` §6 says a snapshot reads *around*. A surface whose defining quantity lived there could not be pinned by a cell. Everything the layout and the content mask need is the *style*, and `Styled::style()` reaches it — P2.1's seam, second use |
+| **Anchoring a panel and expecting its own `overflow-hidden` to clip it.** | It clips the panel's children, not the panel. Both extractors agree, by two different mechanisms (see §2), and a port that pushed its own mask before recording would report `visible: false` for the panel that *is* showing |
+| **Treating "the adjacent panel" as a borderline `visible`.** | It is not borderline. At `scrollLeft = k·W` the next panel's left edge **is** the scrollport's right edge and the overlap is exactly zero; the DOM side requires `r - l > 0` and the driver requires a non-empty intersection, so both say `false` without a tolerance being involved. `--active-tab files` is the default here precisely so that the sharp case is in the default cell |
+| **Modelling the scroll offset as a transform on the container.** | It would move the **root anchor**, and `ANCHORS.md` v1.1 §4 makes a root anywhere but the origin a load error. The offset has to land *inside* the root, which is why it is a margin on the first child rather than anything on the scrollport |
+| **`flex-1` is `flex: 1`, and `flex: 1` sets `flex-basis: 0%`.** | Compiled and read, not assumed. A port that translated it as `flex_grow_1()` would leave `flex-basis: auto`, and a content-sized basis in a column of one item happens to give the same answer here — so the mistake would be invisible on this surface and wrong on the next one |
+| **Assuming a `--theme` or `--content` cell can fail here.** | Two of §8.3's four axes cannot move an anchor on this surface: no colour means `--theme` selects a token table nothing reads, no text means the three content lengths are one picture. `the_theme_and_content_axes_move_nothing` pins that as a measurement so that a future background would fail loudly instead of quietly converging |
+| **Assuming the `h-full` on two of four panels means something.** | It is inert — `align-items: stretch` already fills the row's height and `height: 100%` resolves against the same box. Reproduced anyway, because a port that "tidied" the four to match would be hiding a difference rather than showing that there is none |
+| **Letting the panels' real contents decide the panel width.** | They cannot. All four are `min-w-full`, so the track always overflows and every item freezes at its minimum. Without that, rendering the four subtrees as empty boxes would be unsound — and it is the single largest assumption in this port, which is why `--panel-content` exists to drive it rather than a comment to assert it |
+
+## 7. What this surface cannot show the differ
+
+Recorded because §8.2 requires honesty about it.
+
+- **Two of the four §8.3 axes are vacuous.** `theme` and `content` cannot move
+  an anchor here, for the reason in the traps. The `width` axis does real work —
+  it scales the scrollport, every panel and the whole track.
+- **Five of the six state flags are unmodelled**, and the sixth is a *reading*.
+  `selected` is mapped onto "the carousel has scrolled to `--active-tab`",
+  because the fixed six-word vocabulary has no word for "which panel is
+  showing". Declaring all six unmodelled would be the honest answer and
+  `surface.rs`'s `no_surface_declares_its_entire_state_axis_unmodelled` forbids
+  it. Reported rather than resolved quietly.
+- **A capture precondition, not a port property.** `oracleIsVisible` walks
+  ancestors all the way to `<html>`. In the live app the carousel additionally
+  sits inside `NavStack`'s `overflow-hidden` root and inside a layer that becomes
+  `opacity-0 -translate-x-1/4` whenever a nav screen is pushed — so a reference
+  capture taken with the sidebar collapsed, or with a screen pushed, reports
+  `visible: false` on **every** anchor while the native side reports the truth.
+  The native surface has no such ancestor and cannot reproduce that.
+- **The snap gesture is unreachable.** `hover` and `focus` were already
+  `blocked/` on a locked screen; a *swipe* is worse, and the port has nothing to
+  compare it against anyway (§3).
+- **Reproducing `h-full` on two of four panels is unfalsifiable.** Mutation-
+  tested: normalising the *render* to put `h_full()` on all four leaves all 19
+  layout assertions green, because the declaration is inert. What the tests do
+  catch is normalising the *fact* — `SidebarTab::full_height` returning `true`
+  for every tab fails `h_full_is_on_the_first_two_panels_only`. So the port keeps
+  the asymmetry as fidelity, not as something the gate defends.
+
+**Mutation results, so nobody has to take the guards on trust.** Each was
+applied to the component, run, and reverted: the scroll offset pinned to zero
+→ **3 failures**; `min-w-full` dropped → **5**; the scrollport's overflow set to
+`Visible` so it stops clipping → **2**, both of them `visible` assertions;
+`full_height` true for every tab → **1**; `SidebarTab::Git.index()` off by one
+→ **1**. The control run after each revert is green.
+
+## 8. Cross-component notes added by this component
+
+Things learned here that are **not** about `sidebar-carousel`.
+
+| Note | |
+|---|---|
+| taffy honours **percentage** margins, and negative ones | resolved against the flex container's inline size, exactly as CSS does. P2.1 measured negative *absolute* block margins; this is the inline, fractional case. **Measured** — it is how the scroll offset is expressed |
+| gpui reserves no scrollbar gutter | `Style::scrollbar_width` defaults to `0px` and is handed to taffy, so `Overflow::Scroll` and `Overflow::Hidden` are layout-identical in gpui as well as producing the same content mask. P2.1 asserted the second half; this is the first |
+| `Styled::style()` is still the seam | second use, and the first where the two overflow axes have to take *different* values. Every `overflow_*` builder gpui exposes without an element id sets `Hidden` |
+| a component with no colour takes no `Theme` | `SidebarCarousel::render` takes only the `AnchorSink`. A `Theme` argument that read no token would advertise a palette the component does not have, and the surface's `render` names its `_theme` unread so the omission is visible at the boundary |
+| the content mask is pushed in `Interactivity::prepaint` | `window.with_content_mask(style.overflow_mask(bounds, rem_size))` wraps the *children's* prepaint, so an anchor records the mask its **ancestors** pushed and never its own. That is what makes `visible` mean the same thing on both sides without either extractor being told about carousels |
