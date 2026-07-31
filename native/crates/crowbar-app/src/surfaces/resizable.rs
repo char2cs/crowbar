@@ -67,6 +67,12 @@ pub static SURFACE: Surface = Surface {
     // longer capped below it: the window follows the shell box (P2.5), so a cell
     // taller than this gets a taller window rather than a refusal.
     min_window_height: 200,
+    // **The reference fills its window** (P2.12). `ide-shell.tsx` renders this
+    // group as the shell root, measured live at `innerWidth` 1200 with a
+    // 1200×800 `resize-group` — so the surface width and the viewport width are
+    // one quantity, and a horizontal inset would cut the only cell that has a
+    // reference. See `Surface::full_bleed`.
+    full_bleed: true,
     options,
     params: || Box::new(Params::default()),
 };

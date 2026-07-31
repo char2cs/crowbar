@@ -35,9 +35,12 @@ impl Render for Stage {
         let theme = self.0.theme();
         // Offset and width-pinned exactly as `RowSurface` draws it, and through
         // the same `render_row` dispatch, so the numbers here are the numbers
-        // the oracle will read off the binary.
+        // the oracle will read off the binary. The horizontal offset comes off
+        // the cell for the same reason — a harness that always insetted by 24
+        // would measure a full-bleed surface in a place the binary never draws
+        // it.
         div()
-            .pl(px(crate::row_surface::INSET_X))
+            .pl(px(f32::from(self.0.horizontal_inset())))
             .pt(px(crate::row_surface::INSET_Y))
             .font_family(theme.font_sans.primary().unwrap_or("sans-serif"))
             .child(

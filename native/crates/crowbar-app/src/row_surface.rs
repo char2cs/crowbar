@@ -79,12 +79,31 @@ use gpui::{
 
 use crate::surface::{Surface, SurfaceOptions};
 
-/// The horizontal inset the surface is drawn at inside the window.
+/// The horizontal inset an **ordinary** surface is drawn at inside the window.
 ///
 /// Non-zero on purpose, and for the same reason `driver_surface.rs` offsets
 /// itself: with the root anchor at the window origin the root-relative
 /// arithmetic in the snapshot would be a tautology, and a snapshot that is only
 /// right at the origin proves nothing.
+///
+/// # A full-bleed surface takes none of it (P2.12)
+///
+/// A surface whose original *fills its window* has no room for it: its width is
+/// the viewport's, so an inset would push it past the window edge and the
+/// picture the reference actually has would be the one cell the driver could not
+/// draw. Such a surface declares [`Surface::full_bleed`] and is drawn flush
+/// left; [`Cell::horizontal_inset`] is the one place the choice is made.
+///
+/// **What that gives up, stated rather than glossed.** The reason above is a
+/// reason about the *x* axis, and a full-bleed surface does hand it back: its
+/// root anchor sits at x = 0, so the root-relative subtraction on that axis is a
+/// tautology for the root itself. Three things make it an acceptable price, and
+/// only together. [`INSET_Y`] is untouched, so the root is at y = 16 and the
+/// subtraction is still doing work on the other axis. Every *non-root* anchor is
+/// at its own offset inside the surface, which is where the arithmetic was ever
+/// interesting. And the alternative is not "a better-tested cell" but "no cell":
+/// the reference is at x = 0 in its own window, so an inset here would be the
+/// port drawing a picture the original cannot produce.
 pub const INSET_X: f32 = 24.0;
 
 /// [`INSET_X`] as a whole number of pixels, for the `u16` width arithmetic the
@@ -431,15 +450,45 @@ impl Cell {
         Breakpoint::of(f32::from(self.viewport_width))
     }
 
+    /// The horizontal inset **this cell's surface** is drawn at, in whole
+    /// logical px.
+    ///
+    /// [`INSET_X`] for an ordinary surface and zero for a full-bleed one, which
+    /// is the whole of P2.12's decision and is made here so that the window
+    /// arithmetic, the guard and the view cannot answer it three different ways.
+    /// See [`Surface::full_bleed`].
+    #[must_use]
+    pub fn horizontal_inset(&self) -> u16 {
+        if self.surface.full_bleed {
+            0
+        } else {
+            INSET_X_WHOLE
+        }
+    }
+
     /// The narrowest window this cell's surface fits in without being clipped.
     ///
-    /// A viewport narrower than this would cut the row at the window edge, and
-    /// the driver reports a box cut horizontally by its clip as `clipped` — so
-    /// every `clipped` in the snapshot would become an artefact of the window
+    /// A viewport narrower than this would cut the surface at the window edge,
+    /// and the driver reports a box cut horizontally by its clip as `clipped` —
+    /// so every `clipped` in the snapshot would become an artefact of the window
     /// size rather than a fact about the truncation the gate exists to measure.
+    ///
+    /// # The width counterpart of `window_extent` (P2.12)
+    ///
+    /// P2.5 made the window's *height* follow the surface. Its width cannot: the
+    /// window **is** the viewport, the viewport is §8.3's cell, and a window
+    /// widened past it would report a `state.width` the run was not taken at. So
+    /// on this axis it is the **inset** that follows the surface instead, and
+    /// this is where that shows up: a full-bleed surface's minimum viewport is
+    /// exactly its own width, because it is drawn flush with the window's left
+    /// edge and a surface that exactly fills the window is not cut by it.
+    ///
+    /// The guard itself is unchanged in what it refuses — anything genuinely
+    /// wider than the window it is drawn in. `--width 1201 --viewport-width 1200`
+    /// is still a rejection on every surface there is.
     #[must_use]
     pub fn minimum_viewport(&self) -> u16 {
-        self.width.saturating_add(INSET_X_WHOLE * 2)
+        self.width.saturating_add(self.horizontal_inset() * 2)
     }
 
     /// The room below the window's top inset **this cell** needs, caption
@@ -599,13 +648,32 @@ impl Cell {
         // Clamping the window instead would leave `state.width` claiming a
         // viewport the run was not taken at, which is the same lie one layer
         // further down.
+        //
+        // What P2.12 changed is the *number*, not the rule: the minimum is the
+        // surface plus whatever inset this surface is actually drawn at, which
+        // is nothing for a full-bleed one. A surface genuinely wider than the
+        // window is refused exactly as before, on every surface there is.
         let minimum = cell.minimum_viewport();
         if cell.viewport_width < minimum {
+            // Two phrasings because the two cases have different remedies, and a
+            // complaint about "insets" on a surface that has none sends the
+            // reader looking for a constant to change.
+            let why = if cell.surface.full_bleed {
+                format!(
+                    "the {}px surface, which fills its viewport edge to edge",
+                    cell.width,
+                )
+            } else {
+                format!(
+                    "the {}px surface plus its {INSET_X_WHOLE}px insets",
+                    cell.width,
+                )
+            };
             return Err(ParseError::Rejected(format!(
-                "--viewport-width {} is narrower than the {}px surface plus its {}px insets; \
-                 the row would be cut at the window edge and every `clipped` in the snapshot \
-                 would be an artefact of the window size. Give it at least {minimum}",
-                cell.viewport_width, cell.width, INSET_X_WHOLE,
+                "--viewport-width {} is narrower than {why}; the surface would be cut at the \
+                 window edge and every `clipped` in the snapshot would be an artefact of the \
+                 window size. Give it at least {minimum}",
+                cell.viewport_width,
             )));
         }
         Ok(cell)
@@ -797,7 +865,9 @@ impl RowSurface {
     /// resolves against — a window sized to the surface would render the wide
     /// badge in a run that asked for a narrow viewport. [`Cell::parse`] has
     /// already refused a viewport too small to hold the surface, so this can
-    /// never be narrower than `surface + 2 × INSET_X`.
+    /// never be narrower than the surface plus twice [`Cell::horizontal_inset`]
+    /// — which for a full-bleed surface is the surface's own width exactly, and
+    /// that is the P2.12 case: the window and the surface are one number.
     ///
     /// The height is **the cell's**, not the surface's: [`Cell::window_extent`]
     /// grows the window to whatever height the cell drives its surface to, so
@@ -832,7 +902,12 @@ impl Render for RowSurface {
         div()
             .size_full()
             .bg(theme.background)
-            .pl(px(INSET_X))
+            // **The cell's inset, not the constant** (P2.12): zero for a surface
+            // that fills its viewport, `INSET_X` for every other. It is on the
+            // root rather than on the surface's own box so that the caption below
+            // moves with it — one padding, so a caption hanging in space beside a
+            // flush-left surface is not expressible.
+            .pl(px(f32::from(self.cell.horizontal_inset())))
             .pt(px(INSET_Y))
             .font_family(theme.font_sans.primary().unwrap_or("sans-serif"))
             // **The surface overflows a short window; it is never compressed
