@@ -281,6 +281,20 @@ merely lacking the forbid.
 > stronger" than the oracle, and it does not exist yet. **It must land with the
 > first line of `crowbar-ui`, in Phase 2, before any component work is
 > dispatched** — not after. Tracked here so it cannot be quietly skipped.
+>
+> **And sealing the newtype is not sufficient on its own.** 0.4 wired `gpui`
+> into `crowbar-ui`, which now re-exports it (`pub use gpui;`) so the leaf view
+> crates reach it transitively. That means `crowbar_ui::gpui::rgb(0x1e1e1e)` is
+> reachable from every view crate, and `.bg(rgb(…))` on a raw gpui element
+> bypasses `Theme` entirely — a private inner field on `Color` does nothing to
+> stop it.
+>
+> This hole is **inherent, not caused by the re-export**: no view crate can
+> render without gpui's colour types in scope. So the guard has to be a check,
+> not a type. `scripts/check-invariants.sh` must grow **rule 4**: no
+> `rgb(`/`rgba(`/`hsla(`/`Hsla {` construction anywhere outside
+> `crates/crowbar-ui/src/theme/`. Mechanically checkable, and it is the form
+> §6.1's claim actually requires.
 
 Known limit, stated in the script's own header: rule 3 is a line scanner, not a
 parser. Block comments and string literals containing `unsafe {` produce false
