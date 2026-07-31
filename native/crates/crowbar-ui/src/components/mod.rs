@@ -85,6 +85,19 @@ pub mod label;
 pub mod resizable;
 pub mod separator;
 pub mod skeleton;
+// The three P3.7 spinners are unflattened for the same reason as the rest, and
+// one further one: they are a *family*, so every short name in them exists three
+// times over. `CallSite` names three different className bundles;
+// `spinner::SIZE_4` and `flicker_spinner::SIZE_4` are two components' readings
+// of the same utility and only one of them is the captured cell; and
+// `spinner::PERIOD` against `flicker_spinner::FLICKER_PERIOD_RANGE` is the
+// distinction the whole item turns on — one animation moves a recorded field and
+// the other does not. A bare `CallSite` or a bare `SIZE_4` would say which of
+// them nowhere, and `loading_spinner::CONTENT_SIZED` in particular is the only
+// non-empty one of the three.
+pub mod flicker_spinner;
+pub mod loading_spinner;
+pub mod spinner;
 // `sidebar_carousel` is flattened not at all for the same reason: its
 // `CONTENT_SIZED`, `LINE_SIZED` and `ID_*` are its own, and a declaration list
 // that silently meant another surface's is the mistake `ANCHORS.md` v1.6 warns
