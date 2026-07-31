@@ -728,11 +728,11 @@ func validateAnchor(
 		if anchorInAnyHunk(f.Hunks, start, end, side) {
 			return nil
 		}
-		return fmt.Errorf(
-			"agenttools: lines %d-%d of %s are not in any changed hunk on the %s side; "+
-				"call get_review_scope and anchor inside a changed range",
-			start, end, path, side,
-		)
+		// The refusal is built from the file's own geometry rather than written as
+		// a fixed sentence, because the model has to recover from it and the only
+		// thing it can recover with is where the legal anchors are. See
+		// anchorRejection.
+		return anchorRejection(f, path, start, end, side)
 	}
 	return fmt.Errorf(
 		"agenttools: %s is not part of this review; call get_review_scope for the changed files",

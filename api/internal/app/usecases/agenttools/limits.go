@@ -91,6 +91,21 @@ const (
 	maxMessageBodyChars = 200
 	maxTurnBodyChars    = 800
 
+	// maxAnchorRangesShown bounds how many changed ranges a rejected anchor is
+	// told about.
+	//
+	// A rejection has to name the legal move or the model guesses the same wrong
+	// number again, and the legal moves here are the file's changed ranges. But a
+	// single file may contribute up to a thousand hunks to an outline, and an error
+	// carrying a thousand ranges is a page of tool output spent on a failed call.
+	//
+	// 8 is about seventy characters — small beside the sentence explaining the rule
+	// — and it is enough because the ranges chosen are the ones NEAREST the anchor
+	// the model actually tried (see nearestRanges), not the first eight in the file.
+	// A model anchoring on a function it just read is within a hunk or two of the
+	// right answer; it does not need the other side of the file.
+	maxAnchorRangesShown = 8
+
 	// allThreadMessages is the message cap for the single-thread view — none. It is
 	// spelled rather than passed as a bare 0 because 0 read literally is "render no
 	// messages", the exact opposite of what that view is for.
