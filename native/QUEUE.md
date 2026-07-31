@@ -226,6 +226,57 @@ Known limit, stated in the script's own header: rule 3 is a line scanner, not a
 parser. Block comments and string literals containing `unsafe {` produce false
 *positives*. It fails loud rather than silent, which is the right direction.
 
+### 0.6 — `GET`/`PUT /v0/settings/ui` ✅ · the ONE daemon exception, and it is closed
+
+1,228 lines: handlers + `domain/ui_settings.go` + routes on `settingsRG` +
+399 lines of unit tests + 445 lines of black-box tests in `api/tests/`.
+
+**Orchestrator verification — I drove the endpoint against a live daemon**, on a
+scratch `CROWBAR_HOME`, rather than reading the worker's test output:
+
+| Behaviour | Result |
+|---|---|
+| `GET` a scope never written | `200 {}` — **not** 404 ✅ |
+| `PUT` nested object + array + `null`, then `GET` | exact round-trip ✅ |
+| Second `PUT` with fewer keys | replaces wholesale ✅ |
+| Two scopes | isolated ✅ |
+| `PUT [1,2,3]` / `"str"` / `42` / `null` | `400` on all four ✅ |
+| `PUT` a 3 MB body | `413`, "exceeds the 256 KiB per-scope limit" ✅ |
+| Kill daemon, restart, `GET` | **both scopes survive** ✅ |
+| Where it landed | table `ui_settings` **inside `view.db`** — no side file ✅ |
+
+And a detail worth more than it looks: **key order survived the round-trip.**
+`{"theme","sidebar","recent","nested"}` came back in insertion order. A Go
+`map[string]any` re-marshal would have sorted them alphabetically. So the value
+is stored as **raw bytes** — genuinely opaque, exactly as §9.3 demands, rather
+than opaque-in-intent-but-parsed-in-fact.
+
+`go test -race` on the new handler package and the black-box suite both `ok`
+under my own run.
+
+> **Scope taxonomy — a real discovery, and the store names lie.** §9.3 lists
+> four stores as though the split were obvious. It is not:
+> `ui-preferences` and `sidebar-ui` are both single **`global`** rows;
+> **`workspace-hierarchy` is keyed by REPO id despite its name**; only
+> `workspace-layout` is genuinely per workspace. So scope has three forms, and a
+> Rust client that trusted the store names would key `workspace-hierarchy`
+> wrongly and silently lose hierarchy on every repo with more than one
+> workspace.
+
+> **Pre-existing red gate, verified by me at HEAD — not inherited from 0.6.**
+> `TestRouteAudit_AllSpecRoutesRegistered` (build tag `integration`) fails on a
+> clean tree: **161 registered routes vs 159 expected**, from two routes
+> registered but absent from the spec list —
+> `POST /v0/projects/:projectId/repos/:repoId/workspaces/import` and
+> `GET /v0/projects/:projectId/repos/:repoId/pull-requests`. I reproduced this
+> before merging anything. `/v0/settings/ui` is **not** among the undeclared
+> routes, which is the check that actually matters here.
+>
+> This is not the port's bug, but it **is** a red gate that will mask a genuine
+> route regression from this port later, so it is not something to shrug at. It
+> belongs to whoever added those two routes. Filed as
+> `native/oracle/blocked/route-audit-red-at-head.md`.
+
 ### 0.8 — `.app` bundling ✅ · **DECIDED: `cargo-packager`, pinned to `0.11.8`, driven by our own script.**
 
 Not chosen on impressions. The worker installed it and **actually built** a
@@ -384,7 +435,7 @@ Owner column: `W` = dispatched worker, `O` = orchestrator-only.
 | 0.3 | `gpui` + `gpui-component` skills into `.claude/skills/` | §16 | W | **done** |
 | 0.4 | Both apps launch against one daemon on a shared `CROWBAR_HOME` | §0 §9.1 | O | React half **verified live**; native half gated on 0.2 |
 | 0.5 | DTO generator: Go handlers → `crowbar-proto` + regenerated `web/` types | §9.2 | W | todo |
-| 0.6 | `GET`/`PUT` `/v0/settings/ui` in the daemon — the ONE daemon exception | §9.3 | W | todo |
+| 0.6 | `GET`/`PUT` `/v0/settings/ui` in the daemon — the ONE daemon exception | §9.3 | W | **done — driven live** |
 | 0.7 | Loopback TCP listener for webview panes, `127.0.0.1` only, authed | §9.4 | W | todo |
 | 0.8 | Decide `.app` bundling: `cargo-packager` vs hand-rolled | §14 | W | **done — cargo-packager 0.11.8** |
 | 0.9 | Zed extractability audit — `fuzzy`, `picker`, `util`, `theme` | §10.6 | W | todo |
