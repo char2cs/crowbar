@@ -283,6 +283,61 @@ Known limit, stated in the script's own header: rule 3 is a line scanner, not a
 parser. Block comments and string literals containing `unsafe {` produce false
 *positives*. It fails loud rather than silent, which is the right direction.
 
+### 0.2 — vendor + pin `gpui` and `gpui-component` ✅ · **the critical path, cleared**
+
+**Pins**, chosen in the required order (gpui-component first, Zed SHA read out of
+*its* lock):
+
+| | |
+|---|---|
+| `gpui` | `zed-industries/zed` @ `1a246efd7e1b83ab568ec5e3e6c1a43a42e1abba` (2026-07-15) |
+| `gpui-component` / `-macros` / `-assets` | `longbridge/gpui-component` @ `88f102d1…` (2026-07-30) — same SHA 0.3 used |
+
+**29 crates, 740 files, 238,543 lines, 13.0 MiB.** 21 of the 29 compile on
+macOS; the other 8 are carried so manifests stay loadable (Cargo resolves
+target-conditional deps for *all* targets, so `gpui_linux`/`gpui_windows`/
+`gpui_web` must exist even though we build only macOS).
+
+**Orchestrator verification — my own cold release build:**
+
+```
+$ cd native/vendor && cargo build --release -p gpui-vendor-probe --locked
+    Finished `release` profile [optimized] target(s) in 6m 41s
+
+├── gpui v0.2.2            (native/vendor/gpui)
+├── gpui-component v0.5.2  (native/vendor/gpui-component)
+└── gpui_platform v0.1.0   (native/vendor/zed-deps/gpui_platform)
+```
+
+`--locked` passing means the committed lock **is** the resolution. Both
+libraries resolve from `native/vendor/`, so the collision hazard is structurally
+impossible — nothing points at a Zed checkout.
+
+**Shape: extracted subtree with *de-inherited* manifests.** `cargo vendor` was
+rejected (drags the entire crates.io graph to disk for 13 MiB of Zed source),
+and copying verbatim does not work either — the crates inherit `edition`/`lints`
+and ~80 dep specs from Zed's root, and **Cargo refuses a `path` dep into a
+nested workspace** (`is a member of the wrong workspace`). Every
+`workspace = true` was replaced with its concrete value.
+
+> **The edit that mattered most:** gpui-component's own workspace pinned Zed
+> with a **floating** ref — `gpui = { git = "…/zed" }`, no rev. Left alone, our
+> "pinned" tree would have silently tracked Zed `main`, which is the exact
+> failure §10.5 exists to prevent. Every such entry now points at the vendored
+> path.
+
+**`gpui` features confirmed through the resolver, not just the manifest:**
+`test-support` → `leak-detection` → `backtrace` (§12 requires leak detection on
+in every test). `inspector`, `screen-capture`, `input-latency-histogram`,
+`profiler` all present.
+
+Zed pins **Rust 1.95.0** at this SHA — no conflict with our 1.96.0, and its
+`rust-toolchain.toml` was deliberately not vendored.
+
+Worth noting: the worker's probe failed its first cold compile on a missing
+`use` in **its own probe source**, after all 29 vendored crates had compiled
+cleanly, and it recorded that in `PINNED.md` rather than quietly fixing it.
+
 ### 0.5 — `protogen`: Go handlers → Rust serde DTOs + TypeScript ✅
 
 Go tool at `native/tools/protogen/`, built on `go/packages` with full type
@@ -753,7 +808,7 @@ Owner column: `W` = dispatched worker, `O` = orchestrator-only.
 | # | Item | Spec | Owner | Status |
 |---|---|---|---|---|
 | 0.1 | `native/` workspace scaffold, 13 crates per §4.2 with the §4.3 compiler-enforced rules | §4.2 §4.3 §4.4 | W | **done** |
-| 0.2 | Vendor + pin `gpui` at a SHA under `native/vendor/gpui/` | §10.5 | W | todo |
+| 0.2 | Vendor + pin `gpui` at a SHA under `native/vendor/gpui/` | §10.5 | W | **done — built --locked** |
 | 0.3 | `gpui` + `gpui-component` skills into `.claude/skills/` | §16 | W | **done** |
 | 0.4 | Both apps launch against one daemon on a shared `CROWBAR_HOME` | §0 §9.1 | O | React half **verified live**; native half gated on 0.2 |
 | 0.5 | DTO generator: Go handlers → `crowbar-proto` + regenerated `web/` types | §9.2 | W | **done — 4 gates re-run** |
