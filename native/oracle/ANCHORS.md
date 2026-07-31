@@ -1,3 +1,32 @@
+# The anchor snapshot contract — v1.2
+
+> **v1.2 — 2026-07-30.** Five rulings, all raised by the **GPUI extractor**
+> (P1.2) once it was reading a real element tree rather than a spec. Two of them
+> would have made *every* comparison fail. `schema` stays **1**.
+>
+> | # | Question | Ruling |
+> |---|---|---|
+> | 1 | Is "no flags" `[]` or `["empty"]`? | **`[]`.** `empty` is a *content* state in §8.3's matrix — a surface with nothing in it. The resting state is the empty list. Had the two extractors split on this, every comparison would have refused on a mismatched matrix cell. |
+> | 2 | What exactly does `clipped` mean? | **A property of the anchored element itself**, horizontal only. An anchor that reports `clipped` **must sit on the element that truncates** — put it on an ancestor and the two sides measure different boxes. Vertical clipping is out of scope. |
+> | 3 | Float precision | **Both sides round to 3 decimal places.** Three orders inside the ±0.5 tolerance, and it keeps snapshots diffable and stable. |
+> | 4 | Gradient / pattern backgrounds | **Not representable in v1.** An anchored element must have a *solid* `bg`. The extractor emits no `bg` at all rather than a plausible substitute, so the differ rejects the document by name — a loud failure, which is correct. Added to §6. |
+> | 5 | `font.family` — declared or resolved? | **Declared, first family only.** Neither engine can do better: `getComputedStyle().fontFamily` returns the specified list, and GPUI has no `FontId` → name reverse lookup. **Consequence: anchored text on the native side must name its family explicitly.** A style inheriting macOS's `.SystemUIFont` reports that literal string, which the DOM will never produce. |
+
+## Known systematic differences — not noise, and not defects
+
+Both are inside tolerance today. They are recorded because "inside tolerance"
+and "the same" are different claims, and if either ever drifts out we should
+recognise it rather than re-derive it.
+
+- **`font.line_height` is device-pixel-snapped on the GPUI side.** GPUI applies
+  `window.pixel_snap(...)`, so at 2× it lands on a multiple of 0.5px where CSS
+  is continuous — e.g. `21.0` where CSS computes `21.034`. Within ±0.5, but it
+  is a **bias in one direction**, not random.
+- **`radius` and `border.w` report the top-left corner and the top edge only.**
+  GPUI carries four of each and so does CSS. **Asymmetric corners or per-side
+  borders are silently under-reported by both extractors.** If a component needs
+  them, the contract must grow — do not assume the oracle is watching.
+
 # The anchor snapshot contract — v1.1
 
 > **v1.1 — 2026-07-30.** Ten ambiguities, all found by the differ implementation
@@ -199,6 +228,24 @@ will otherwise assume the oracle covers more than it does.
 
 - **Shadows, blur, `backdrop-filter`, vibrancy.** GPUI has no "computed style" —
   it has an already-resolved `Style`. These have no comparable representation.
+- **Gradient and pattern fills** *(v1.2)*. `bg` is a single solid colour. An
+  anchored element with a gradient gets **no `bg` emitted at all** — not `null`,
+  not `#00000000` — so the differ rejects the document and names it. That is
+  deliberate: a plausible substitute would compare as a real delta and send a
+  reader hunting the wrong thing.
+- **Runtime interaction state on the GPUI side** *(v1.2)*. The extractor reads
+  each element's **base `StyleRefinement`** at prepaint. GPUI resolves
+  `.hover(…)` / `.active(…)` from interaction state that exists only once a
+  hitbox is hit, so a snapshot of a `.hover`-styled element reports its
+  **resting** appearance. **Components under test must take their visual state
+  as a prop** and fold it into the base style, or every hover/selected cell of
+  the matrix silently compares resting-against-resting and converges while
+  proving nothing. This mirrors the React original anyway, where the row
+  background is painted by the *container's* `:hover` / `data-active`, not by
+  the button's own interaction.
+- **`visibility: hidden` on an *unanchored* ancestor.** Prepaint still runs, so
+  a descendant reports `visible: true`. (`display: none` is caught implicitly —
+  prepaint never arrives and the anchor is simply absent.)
 - **Transitions and animation curves.** A snapshot is one instant.
 - **Compositing.** `bg` is each element's own paint, not what the user sees
   after blending. Two different stacks can produce the same final pixel.
