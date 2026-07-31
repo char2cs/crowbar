@@ -5,8 +5,8 @@ Source of truth for the Rust-native GPUI port. Spec:
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
 **Phase:** 1 — the driver and the oracle. **THE GATE.**
-**Line coverage (logic crates):** `oracle` **100.00%** (2590/2590) · `crowbar-driver` **100.00%** (1134/1134) · `crowbar-core` **100.00%** (148/148) · `crowbar-client` **99.64%**. `proto`/`diff` still empty. **191 tests, 0 failed.** All measured by me.
-**Corpus coverage (view crates):** n/a — the differ exists but has never been run against the two apps. That is the Phase 1 gate and it is mine.
+**Line coverage (logic crates):** `oracle` **100.00%** (2817/2817) · `crowbar-driver` **100.00%** (1134/1134) · `crowbar-core` **100.00%** (148/148) · `crowbar-client` **99.64%**. `proto`/`diff` still empty. **191 tests, 0 failed.** All measured by me.
+**Corpus coverage (view crates):** the gate row **PASSES on 3 matrix cells** (800/dark/overflow, 800/dark/short, 600/dark/overflow). Light theme, `normal` content, a third width and the state flags are **not yet run**.
 
 ---
 
@@ -296,6 +296,46 @@ Archived as `native/oracle/runs/ref-v3-content-sized.json`.
 > `crowbar-desktop` processes on this machine, three of them other sessions'.
 > Had I skipped the check I would have extracted from a stale page and compared
 > it in good faith. **Run the check every time; it has now caught this twice.**
+
+## ✅ THE GATE PASSES — 3 matrix cells, driven and diffed by me, 2026-07-31
+
+```
+oracle: PASS — 0 deltas over 10 anchors compared,
+        5 forgiven by v1.5 content-sizing, 1 forgiven by v1.6 line-sizing
+```
+
+| # | viewport | theme | content | depth | anchors | result |
+|---|---|---|---|---|---|---|
+| 1 | 800 | dark | overflow | 4 | 10 | **PASS** |
+| 2 | 800 | dark | short | 2 | 8 | **PASS** |
+| 3 | **600** | dark | overflow | 4 | 10 | **PASS** — *below* the 640 breakpoint |
+
+Cell 3 is the one that matters. At a 600px viewport the reference renders the
+Badge's **narrow** variant (h20 / 12px) instead of the wide one, and the native
+side — which previously had no viewport concept at all — **followed the
+breakpoint correctly** via `--viewport-width`. The `state.width` fix is doing
+real work, not just relabelling: Σ ceil excess even changes with the variant
+(1.73px at 800, **1.51px at 600**), because the badge's text is a different size.
+
+Every difference in all three cells is forgiven by an explicitly **declared**
+rule, and each forgiven line names the rule, gives the cause, and quotes **the
+tolerance it actually broke** — never a widened one. A PASS reached by forgiving
+five comparisons cannot be mistaken for one reached by measuring them.
+
+**What is NOT yet covered**, stated plainly rather than left to inference:
+
+| axis | status |
+|---|---|
+| viewport widths | 2 of ≥3 (800, 600) — a third still to run |
+| theme | dark only — **light not run** |
+| content length | short + overflow — **normal not run** |
+| `hover` | **cannot be driven on the reference side** (documented above) |
+| `focus` | drivable but paints nothing — converges and proves nothing |
+| `loading` / `error` | no React original exists; native warns they prove nothing |
+| `selected` | not yet attempted — the row's `data-active` is app state, so a real click may drive it |
+
+So: **the gate passes on the cells I have run, and the matrix is not complete.**
+Those are different claims and I am not merging them.
 
 ## ⚠ OPEN: `state.width` is ambiguous, and the badge proved it is load-bearing
 
