@@ -2095,13 +2095,52 @@ renders the carousel alone. I compared the **five `carousel-*` anchors**, which
 is the surface's own anchor set. Every value is the extractor's; only the *set*
 was narrowed, and no number was touched.
 
-> **Extractor finding: a declared `state` is never checked against the document.**
+> **Extractor finding — FIXED in P2.4 (`b2ffb21b`).** A declared `state` was never checked against the document.
 > I captured with `theme: 'dark'` while the app was in **light** — a page reload
 > had undone my earlier theme switch — and the extractor emitted a snapshot
 > labelled `dark` carrying light-theme values, silently. The oracle would then
 > have compared it against the wrong native cell and reported colour deltas whose
 > cause was the label. Caught because `border.color` read `#00000014`. Worth a
 > validation pass in the extractor; recorded, not yet fixed.
+
+### ✅ P2.4 — the extractor now refuses a mislabelled capture
+
+The defect I hit live is closed: `oracleNormalizeState` throws when a declared
+`theme` contradicts `oracleDetectTheme(doc)`. **Verified by reproducing my own
+mistake against the running app**, not from the test suite:
+
+```
+declared dark, document light → THREW "oracle: state.theme declares \"dark\" but
+                                the document being measured is \"light\" …"
+declared light, document light → SNAPSHOT theme=light
+```
+
+I re-ran the mutation myself rather than accept the reported one: neutering the
+condition gives **7 failed / 62 passed**; restored, **69 passed**. The controls
+stay green under the mutation, so they assert the right thing rather than merely
+"something throws". Archived pairs still compare — the guard is capture-time and
+emits no new field: 4 Phase 1 hover cells and the carousel cell all still PASS.
+
+**`width` is deliberately NOT validated, and the evidence is decisive.** Every
+archived reference declares a `state.width` that differs from its root anchor's
+width — 600 vs 294, 800 vs 294.02, 1200 vs 294 — because `state.width` is the
+*viewport* and the anchor is the *surface*. A check comparing them would reject
+**100% of honest captures**. `content` and `flags` are the caller's intent and
+are not properties of the document at all; the worker declined to invent a way to
+"verify" them, which is right.
+
+> **Two tests in the suite were themselves mislabelled** and started failing the
+> moment the guard landed — one declared `theme: 'dark'` against jsdom's light
+> default, the identical shape to the live defect. So the mistake was not a
+> one-off slip in my driving; it was latent in the test fixtures too.
+
+One adjacent hole closed beyond the brief and flagged as revertible:
+`Math.round(NaN)` landed on `0`, so `width: '600px'` emitted a snapshot labelled
+with a cell no run ever produced. A non-numeric width now throws.
+
+**No escape hatch**, and the reasoning is worth keeping: if detection were wrong
+the *derived* value would be equally wrong, so an override could not fix a
+capture — only silence the check.
 
 ### ⚠ The other two Phase 2 surfaces are still undriven
 

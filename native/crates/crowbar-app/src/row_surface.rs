@@ -94,6 +94,29 @@ const INSET_X_WHOLE: u16 = 24;
 /// The vertical inset. See [`INSET_X`].
 pub const INSET_Y: f32 = 16.0;
 
+/// The gap between the surface and the caption below it, in logical px.
+///
+/// Read by [`RowSurface::render`], which draws the gap, and by
+/// [`CAPTION_HEIGHT`], which reserves room for it — one constant, so a window
+/// that reserved a gap the view does not draw is not expressible.
+const CAPTION_GAP: u16 = 12;
+
+/// The caption's own line box, in whole logical px.
+///
+/// The caption is drawn at `ui_text_xs` (0.6875rem — 11px at gpui's 16px rem)
+/// on a 1.35 line height, which is 14.85px, and 17 is the whole-pixel room it
+/// is given. Deliberately a little generous: the caption is chrome that no
+/// anchor is taken from, so a spare pixel or two costs the window nothing,
+/// while a caption sliced in half is a run nobody can read back.
+const CAPTION_LINE: u16 = 17;
+
+/// The room the caption needs below the surface.
+///
+/// Named because two places have to agree on it: the window height, which
+/// reserves it, and `sidebar-carousel`'s own floor, which was chosen to hold a
+/// 640px carousel *and* this.
+pub const CAPTION_HEIGHT: u16 = CAPTION_GAP + CAPTION_LINE;
+
 /// The default `--viewport-width`, in logical px.
 ///
 /// Chosen for one reason: it has to be **at or above** Tailwind's 640px `sm`
@@ -417,6 +440,43 @@ impl Cell {
     #[must_use]
     pub fn minimum_viewport(&self) -> u16 {
         self.width.saturating_add(INSET_X_WHOLE * 2)
+    }
+
+    /// The room below the window's top inset **this cell** needs, caption
+    /// included.
+    ///
+    /// # The window follows the surface (P2.5)
+    ///
+    /// Whichever is larger of the surface's own floor and what this cell drives
+    /// its height to. Before P2.5 there was no `max`: the window was the floor,
+    /// full stop, and each surface capped its height option below it —
+    /// `--shell-height 1..=160`, `--height 1..=640`. The reasoning behind those
+    /// caps was right and is kept: a surface cut at the window edge makes every
+    /// `visible` in the snapshot an artefact of the window size, which is worse
+    /// than refusing. What was wrong was the side it was applied to. The live
+    /// IDE shell's `ResizablePanelGroup` is **1119px** tall, so a cap at 160
+    /// made the only real reference unreachable — the surface could not be
+    /// parity-tested at all, which is the same fake convergence arrived at by
+    /// the other door.
+    ///
+    /// So the window moves instead of the surface, and the "never silently
+    /// clipped" property is enforced where it can actually be observed:
+    /// `row_snapshot::emit` refuses to write a snapshot whose anchors the window
+    /// cut. See that function — this arithmetic decides what to *ask* the
+    /// platform for, and only the platform decides what is granted.
+    ///
+    /// A surface that drives no height keeps its floor exactly, which is what
+    /// holds `git-status-row` and `file-tree-row` at the geometry their archived
+    /// gate runs were taken at.
+    #[must_use]
+    pub fn window_extent(&self) -> u16 {
+        match self.params.driven_height(self) {
+            Some(height) => self
+                .surface
+                .min_window_height
+                .max(height.saturating_add(CAPTION_HEIGHT)),
+            None => self.surface.min_window_height,
+        }
     }
 
     /// A one-line description, for the caption and for stderr.

@@ -68,17 +68,26 @@ pub struct Surface {
     /// equal and proves nothing — which is why the binary names them on stderr
     /// rather than rendering them quietly.
     pub unmodelled: &'static [StateFlag],
-    /// How much room below the window's top inset this surface needs, in whole
-    /// logical px, including the caption.
+    /// The **least** room below the window's top inset this surface is given, in
+    /// whole logical px, caption included.
+    ///
+    /// A floor and not a ceiling (P2.5). The window follows whatever height the
+    /// cell drives the surface to — see [`SurfaceParams::driven_height`] — and
+    /// this is what it falls back to when the cell drives none: a surface whose
+    /// height is decided by its own content, like a menu popup, has no number
+    /// for the window to follow, so it keeps the one it was measured at.
     ///
     /// Per surface because they differ by an order of magnitude — a row is one
     /// line, a menu popup is a column of them — and because the two Phase 1
-    /// surfaces' number is part of a configuration that has already converged.
+    /// surfaces' number is part of a configuration that has already converged:
+    /// `git-status-row` and `file-tree-row` drive no height, so their window is
+    /// exactly the one the archived gate runs were taken at, by construction
+    /// rather than by arithmetic that happens to land on it.
     ///
     /// A `u16` rather than the `f32` the window arithmetic works in, so that
     /// `Cell` can stay `Eq`: `f32` is not, and a window height with a fractional
     /// part is not a thing anyone needs.
-    pub window_height: u16,
+    pub min_window_height: u16,
     /// This surface's own options, as `(spelling, description)`, for `--help`.
     ///
     /// A function rather than a `&'static [_]` because a vocabulary is sometimes
@@ -175,6 +184,28 @@ pub trait SurfaceParams: Clone + Debug + PartialEq + 'static {
         args: &mut dyn Iterator<Item = String>,
     ) -> Result<bool, ParseError>;
 
+    /// The height **this cell drives the surface to**, in whole logical px, or
+    /// `None` where this surface has no option that sets one.
+    ///
+    /// This is what makes the driver's window follow the surface (P2.5). Before
+    /// it, every surface's window was a fixed number and each height option was
+    /// *capped* below it — `--shell-height 1..=160` on `resizable`,
+    /// `--height 1..=640` on `sidebar-carousel` — which was sound reasoning
+    /// applied to the wrong side of the equation: it kept the surface out of the
+    /// window's clip by making the live IDE shell's own 1119px unreachable, so
+    /// the only real reference could not be driven at all.
+    ///
+    /// `None` is not "zero". It is "nothing on this command line decides how
+    /// tall this is", which is the honest answer for a row (one line) and for a
+    /// menu popup (a column of rows whose height is its content's). Those keep
+    /// [`Surface::min_window_height`], and that is also what pins the two
+    /// Phase 1 surfaces' window to the geometry their archived runs were taken
+    /// at.
+    ///
+    /// Whole px, and `u16`, for the reason [`Surface::min_window_height`] is:
+    /// this reaches `Cell`, which has to stay `Eq`.
+    fn driven_height(&self, cell: &Cell) -> Option<u16>;
+
     /// Appends this surface's own half of the caption.
     ///
     /// The shared half — surface, widths, theme, content, flags, depth — is
@@ -205,6 +236,9 @@ pub trait Params: Debug {
         args: &mut dyn Iterator<Item = String>,
     ) -> Result<bool, ParseError>;
 
+    /// See [`SurfaceParams::driven_height`].
+    fn driven_height(&self, cell: &Cell) -> Option<u16>;
+
     /// See [`SurfaceParams::describe`].
     fn describe(&self, cell: &Cell, out: &mut String);
 
@@ -234,6 +268,10 @@ impl<T: SurfaceParams> Params for T {
         args: &mut dyn Iterator<Item = String>,
     ) -> Result<bool, ParseError> {
         <T as SurfaceParams>::accept(self, option, args)
+    }
+
+    fn driven_height(&self, cell: &Cell) -> Option<u16> {
+        <T as SurfaceParams>::driven_height(self, cell)
     }
 
     fn describe(&self, cell: &Cell, out: &mut String) {
