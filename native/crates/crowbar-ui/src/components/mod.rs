@@ -44,12 +44,19 @@ mod sidebar_tree;
 // `ICON_SIZE`, `label`), and the collisions are the *point* — a `CONTENT_SIZED`
 // that silently meant the git row's would be a declaration applied to the wrong
 // surface, which is precisely the mistake `ANCHORS.md` v1.6 warns about.
+//
+// `resizable` is unflattened for the same reason and one further one: its
+// `Panel`, `Handle` and `Orientation` are short names that only read correctly
+// with the module in front of them, and its `CONTENT_SIZED`/`LINE_SIZED` would
+// collide exactly as `dropdown_menu`'s do.
 pub mod dropdown_menu;
 pub mod file_tree_row;
 pub mod git_status_row;
+pub mod resizable;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
 pub use dropdown_menu::DropdownMenu;
+pub use resizable::ResizablePanelGroup;
 // `GitStatus` and its vocabulary are flattened because nothing on the other
 // surface is called that: the git status row's filename is pinned at
 // `text-foreground` and never takes a status colour.
