@@ -49,6 +49,11 @@ mod sidebar_tree;
 // `Panel`, `Handle` and `Orientation` are short names that only read correctly
 // with the module in front of them, and its `CONTENT_SIZED`/`LINE_SIZED` would
 // collide exactly as `dropdown_menu`'s do.
+// `button` is unflattened for the same reason as the rest, and one further one:
+// its `Size` and `Variant` are short names that only read correctly with the
+// module in front of them — `button::Variant::Ghost` says which component's
+// vocabulary it is, where a bare `Variant` would not.
+pub mod button;
 pub mod dropdown_menu;
 pub mod file_tree_row;
 pub mod git_status_row;
@@ -67,6 +72,7 @@ pub mod sidebar_carousel;
 pub mod tabs;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
+pub use button::Button;
 pub use dropdown_menu::DropdownMenu;
 pub use resizable::ResizablePanelGroup;
 pub use tabs::Tabs;
