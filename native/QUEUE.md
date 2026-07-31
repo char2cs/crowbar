@@ -1144,6 +1144,28 @@ starting Crowbar dev kills my Vite on 5273, after which my app boots to
 Both hazards are silent: the first drives the wrong app, the second hangs the
 right one. Neither announces itself.
 
+### §17 #6 — the RSS soak has no workload to run yet, and that is sequencing
+
+Checked rather than deferred. `crowbar-app`'s `main` parses one §8.3 matrix
+`Cell`, renders one surface, emits a snapshot and exits. It opens no workspace,
+connects to no daemon, navigates nowhere, streams nothing. It is a **gate
+harness**, not an application.
+
+§17 #6 asks for *"no RSS growth against the React app **on the same
+workload**"*. There is no workload on the native side to hold against React —
+nothing to soak, and no shared task the two apps could both perform. Measuring
+the harness's RSS and calling it a soak would be a manufactured green, in the
+same family as driving a state the product does not have.
+
+This unblocks at **Phase 4** (§16: 44 stores → `Entity<T>`, 229 `useEffect`s →
+event wiring), which is the first point at which the native app *does* anything
+a soak could exercise. Until then the condition is not "skipped" — it is not yet
+measurable, and the reason is verifiable in `crates/crowbar-app/src/main.rs`.
+
+What **is** in place already: gpui leak detection armed on all 95 `#[gpui::test]`
+tests and gated by invariant rule 6, with the gap it closes proved by mutation.
+That is the other half of §17 #6's sentence, and it is done.
+
 ### ▶ How to bring up the reference app — **do not use `make dev-desktop`**
 
 `make dev-desktop` is wrong for this work, for two reasons that only show up when
