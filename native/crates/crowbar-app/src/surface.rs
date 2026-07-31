@@ -456,6 +456,8 @@ mod tests {
         assert_eq!(
             Surface::names(),
             [
+                "avatar",
+                "badge",
                 "button",
                 "dropdown-menu",
                 "file-tree-row",
