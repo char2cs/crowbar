@@ -104,3 +104,39 @@ gpui accumulates exactly this in `Window::element_opacity`, but it is
 `Interactivity::paint` — after `prepaint`, where the extractor runs. Reaching it
 means patching `native/vendor/`, which is pinned. Recorded as the known cost of
 the current design rather than as a bug to be quietly lived with.
+
+---
+
+## Status update 2, 2026-07-31 — the restriction is now ENFORCED, not remembered
+
+The driver-side gap is unchanged and still open: it sees an anchor's own opacity
+and an **anchored** ancestor's, never an unanchored one, and closing that needs
+`Window::element_opacity`, which is `pub(crate)` and applied after `prepaint`.
+
+What changed is that **a capture which would hit the gap can no longer be
+taken.** `oracleAssertComparableOpacity` in the React extractor walks every
+ancestor of every anchor to `<html>` and **throws** when one is at `opacity: 0`
+and carries no `data-oracle-id` — i.e. exactly the elements the driver cannot
+see. The error names the element, says the capture would not be comparable, and
+points here.
+
+So the standing restriction at the top of this file is now a property of the
+tooling rather than a rule someone has to remember. That matters, because the
+reason this defect survived in the first place is that nobody was watching the
+field.
+
+**Two rulings inside it, both verified load-bearing by my own mutation:**
+
+| mutation | tests killed |
+|---|---|
+| remove the guard call | **5** |
+| `=== 0` → `< 1` | **1** |
+| drop the `data-oracle-id` exemption | **2** |
+
+- **Exact zero, not `< 1`.** Both sides test each level for zero separately and
+  never multiply, so an unanchored ancestor at `0.5` moves *neither* side's
+  `visible` — flagging it would throw away honest captures on a tree where
+  partial opacity is ordinary (the gate fixture's own indent guide sits at 0.9).
+- **Anchored transparent ancestors are exempt and must stay so**, in both
+  positions — above the root and between anchors. Those captures *are*
+  comparable, and they are precisely the workaround this file recommends.
