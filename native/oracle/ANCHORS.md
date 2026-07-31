@@ -166,6 +166,19 @@ states is meaningless and would be the easiest possible way to fake convergence.
 | `radius` | Corner radius px. Single value; if corners differ, emit the top-left and note it. | no |
 | `border` | Width px + colour. | no |
 
+### An anchor may be **both** a painted box and a text run *(clarified v1.4)*
+
+Nothing in this table forbids it, and the first real gate run hit it immediately:
+`git-row-badge` is a rounded, tinted, bordered box whose content is the word
+`uncommitted`. The React extractor emitted `bg`/`radius`/`border` **and**
+`text`/`fg`/`font`/`text_width`/`clipped`; the GPUI extractor emitted only the
+box, producing **five `FieldPresence` deltas on every cell of the matrix**.
+
+That was a limitation of the driver's `anchor()` / `anchor_text()` split, not of
+this contract. **Stated explicitly so no one re-derives it:** the box fields and
+the text group are independent, an anchor may carry both, and an extractor that
+can only produce one or the other must say so rather than silently dropping half.
+
 ### `text_width` and `clipped` are why the gate target was chosen
 
 The Phase 1 gate is a row whose filename and directory spans **truncate against

@@ -1259,7 +1259,9 @@ before any of them so three independent implementations cannot quietly diverge.
 | **P1.2** GPUI extractor | `native/p1.2-gpui-extractor` | `crowbar-driver/**` | ✅ **done** — merged `03fb0732` · **STOP-GATE risk retired** · verified by me |
 | **P1.3** oracle differ | `native/p1.3-oracle-differ` | `native/oracle/src/**` | ✅ **done** — merged `5fcec61c`, gates re-run by me |
 | **P1.4** sealed tokens | `native/p1.4-sealed-tokens` | `crowbar-ui/**`, `check-invariants.sh` | ✅ **done** — merged `60823648`, rule 4 adversarially re-tested by me |
-| **P1.5** native row | `native/p1.5-native-row` | `crowbar-ui/src/components/**`, `crowbar-app/src/**` | **in flight** — dispatched once P1.4's tokens existed, so it cannot be written against literals |
+| **P1.5** native row | `native/p1.5-native-row` | `crowbar-ui/src/components/**`, `crowbar-app/src/**` | ✅ merged `11fa277d` — all 5 invariants green |
+| **P1.6** differ v1.3 conformance | `native/p1.6-differ-v13` | `native/oracle/src/**` | **in flight** — 8 of 26 deltas are its own bug |
+| **P1.7** font + badge | `native/p1.7-font-and-badge` | fonts, `crowbar-ui/components`, `crowbar-app` | **in flight** — the font is the biggest blocker |
 
 #### P1.2 — the GPUI extractor ✅ merged · **the STOP-GATE risk is retired**
 
