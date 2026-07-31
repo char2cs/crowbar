@@ -459,7 +459,6 @@ mod tests {
                 "avatar",
                 "badge",
                 "button",
-                "callout-node",
                 "card",
                 "checkbox",
                 "crowbar-mark",

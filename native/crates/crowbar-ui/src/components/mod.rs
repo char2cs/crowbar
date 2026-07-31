@@ -62,16 +62,14 @@ mod sidebar_tree;
 pub mod avatar;
 pub mod badge;
 pub mod button;
-// The three P3.10 containers are unflattened for the same reason as the rest,
-// and one further one: they are the first surfaces whose anchors are *slots*, so
-// every short name in them exists three times over. `ID_PANEL` is
-// `card::ID_PANEL` (a `CardContent`) and `inline_error::ID_PANEL` (the whole
-// surface) — two different boxes under one spelling, which is the sharpest
-// collision in the tree so far. `ID_TITLE`, `CONTENT_SIZED`, `LINE_SIZED`,
-// `PADDING`, `GAP` and `CallSite` each exist in more than one of them, and a
-// declaration list that silently meant another surface's is the mistake
-// `ANCHORS.md` v1.6 warns about.
-pub mod callout_node;
+// The two P3.10 containers are unflattened for the same reason as the rest, and
+// one further one: they are the first surfaces whose anchors are *slots*, so
+// every short name in them exists twice over. `ID_PANEL` is `card::ID_PANEL` (a
+// `CardContent`) and `inline_error::ID_PANEL` (the whole surface) — two
+// different boxes under one spelling, which is the sharpest collision in the
+// tree so far. `ID_TITLE`, `CONTENT_SIZED`, `LINE_SIZED` and `PADDING` each
+// exist in both, and a declaration list that silently meant the other surface's
+// is the mistake `ANCHORS.md` v1.6 warns about.
 pub mod card;
 // The four P3.8 icon and brand primitives are unflattened for the same reason as
 // the rest: each carries its own `ID_*`, `CONTENT_SIZED` and `LINE_SIZED`, and

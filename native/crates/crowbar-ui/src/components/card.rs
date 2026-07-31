@@ -346,8 +346,8 @@ impl Card {
     /// **The title is unbreakable at the width the card has.** `max-w-sm` gives a
     /// 384px card and a 334px title box, and `Something went wrong` shapes well
     /// inside it — but the string is fixed here rather than taken from a
-    /// `--content` axis for the reason `callout-node`'s body is: a run that wraps
-    /// is outside what the contract can compare.
+    /// `--content` axis for the usual reason: a run that wraps is outside what
+    /// the contract can compare.
     #[must_use]
     pub fn fixture() -> Self {
         Self {
