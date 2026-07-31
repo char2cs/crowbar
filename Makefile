@@ -23,9 +23,22 @@ dev dev-api dev-web dev-desktop dev-bundle seed: export CROWBAR_HOME ?= $(CURDIR
 crowbar_root := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 dev dev-api dev-web dev-desktop dev-bundle: export CROWBAR_DEV_LABEL ?= $(shell git -C $(crowbar_root) rev-parse --abbrev-ref HEAD 2>/dev/null)
 
-# Parallel dev: starts all three subsystems
+# Which ORIGIN this worktree's dev app is served from. CROWBAR_HOME above
+# isolates the daemon; this isolates the webview, whose IndexedDB, localStorage
+# and service workers are keyed by origin and were shared by every worktree back
+# when the dev URL was a hardcoded localhost:5173. See desktop/Makefile for the
+# full rationale and the corruption it caused. Derived from the same worktree
+# root as desktop/Makefile so both entry points agree; override to pin one.
+dev dev-web dev-desktop: export CROWBAR_DEV_PORT ?= $(shell printf '%s' '$(crowbar_root)' | cksum | awk '{print 5300 + ($$1 % 600)}')
+
+# Parallel dev. dev-web is deliberately NOT started here: dev-desktop's
+# beforeDevCommand already runs Vite on CROWBAR_DEV_PORT, and a second one on
+# the same port now fails outright under --strictPort. It used to "work" only
+# because the old beforeDevCommand opened with `pkill -f vite`, silently killing
+# the dev-web this target had just launched (and every other worktree's too).
+# `make dev-web` remains available on its own for a browser-only session.
 dev:
-	@$(MAKE) dev-api & $(MAKE) dev-web & $(MAKE) dev-desktop & wait
+	@$(MAKE) dev-api & $(MAKE) dev-desktop & wait
 
 dev-api:
 	$(MAKE) -C api dev
