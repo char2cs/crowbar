@@ -11,7 +11,8 @@ publish.workspace = true
 crowbar-ui.workspace = true
 crowbar-state.workspace = true
 crowbar-core.workspace = true
-# gpui arrives transitively through crowbar-ui once item 0.2 lands.
+# §4.2 allows `ui`, `state` and `core` only. gpui is reached as
+# `crowbar_ui::gpui`, which crowbar-ui re-exports.
 
 [lints]
 workspace = true

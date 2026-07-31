@@ -19,7 +19,14 @@ crowbar-diff.workspace = true
 crowbar-webview.workspace = true
 crowbar-platform.workspace = true
 crowbar-driver = { workspace = true, optional = true }
-# gpui arrives transitively through crowbar-ui once item 0.2 lands.
+# The binary is the one crate that owns the platform: `gpui_platform` is where
+# `application()` lives, and nothing upstream can supply it. `gpui` and
+# `gpui-component` are direct rather than via crowbar-ui's re-export because
+# this crate constructs the app and the window, not views over the design
+# system.
+gpui.workspace = true
+gpui_platform.workspace = true
+gpui-component.workspace = true
 
 # §10.4: the driver is in-process and behind `--features driver`. A default
 # build must not link it.

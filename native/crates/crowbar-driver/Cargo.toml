@@ -20,7 +20,7 @@ crowbar-editor.workspace = true
 crowbar-diff.workspace = true
 crowbar-webview.workspace = true
 crowbar-platform.workspace = true
-# gpui arrives transitively through crowbar-ui once item 0.2 lands.
+# gpui is reached as `crowbar_ui::gpui`, which crowbar-ui re-exports.
 
 [lints]
 workspace = true

@@ -10,7 +10,8 @@ publish.workspace = true
 [dependencies]
 crowbar-ui.workspace = true
 crowbar-state.workspace = true
-# gpui arrives transitively through crowbar-ui once item 0.2 lands.
+# §4.2 allows `ui` and `state` only. gpui is reached as `crowbar_ui::gpui` —
+# crowbar-ui re-exports it, so this crate needs no manifest entry of its own.
 
 [lints]
 workspace = true

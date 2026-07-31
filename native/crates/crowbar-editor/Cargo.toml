@@ -11,8 +11,9 @@ publish.workspace = true
 crowbar-ui.workspace = true
 crowbar-state.workspace = true
 crowbar-core.workspace = true
-# gpui-component's `input` module (§10.1) is wrapped by crowbar-ui, so gpui
-# arrives transitively once item 0.2 lands.
+# gpui-component's `input` module (§10.1) is wrapped by crowbar-ui, which
+# re-exports both `gpui` and `gpui_component`; reach them as
+# `crowbar_ui::gpui` / `crowbar_ui::gpui_component`.
 
 [lints]
 workspace = true
