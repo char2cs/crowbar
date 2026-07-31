@@ -456,6 +456,7 @@ mod tests {
         assert_eq!(
             Surface::names(),
             [
+                "button",
                 "dropdown-menu",
                 "file-tree-row",
                 "git-status-row",

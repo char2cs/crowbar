@@ -162,6 +162,49 @@ pub const ACTIVE_TINT: f32 = 20.0;
 /// `[&_svg]:-mx-0.5` — every icon inside a button pulls its neighbours in by
 /// 2px on each side. Measured live: the reference's `<svg>` reports
 /// `margin-left: -2px`.
+///
+/// # gpui cannot lay this out, and that is the largest finding in this port
+///
+/// **A negative inline margin on an in-flow flex item breaks taffy's
+/// content-based main-size resolution.** Measured in the harness, isolated from
+/// this component — a flex row with `px-11 border-1`, a 16px item and a text
+/// run:
+///
+/// | item margin | container width | CSS |
+/// |---|---|---|
+/// | `0` | 77 | 77 |
+/// | `+2` | 81 | 81 |
+/// | `-1` | **24** | 75 |
+/// | `-2` | **24** | 73 |
+/// | `-4` | **24** | 69 |
+///
+/// 24 is the padding box and the two border pixels: the container's whole
+/// content contribution is gone. It is not a clamp at zero either — with a wider
+/// run the same tree gives 199 against CSS's 323 at `-2` and 71 at `-4`, so the
+/// error scales with the margin and is not a constant. Positive margins are
+/// exact. A container with an **authored** width is unaffected, which is why the
+/// five square sizes and every earlier component in this port never met it:
+/// `dropdown-menu`'s `-mx-1` separator and `sidebar-carousel`'s negative
+/// percentage margin both sit in containers whose main size is already definite.
+///
+/// # What the port does: resolves it by hand, into the glyph's own box
+///
+/// [`Button::glyph`] renders a box of [`Size::glyph_box`] — the icon less the
+/// two margins — and **no margin at all**. Every measurable quantity is then
+/// exactly CSS's: the button's border box, the label's advance, the gap. What
+/// changes is the glyph's own box, from 16 to 12, and that costs **nothing**:
+/// the glyph is an *empty* box standing in for a call-site `<svg>` this port
+/// does not draw, so 16px of nothing and 12px of nothing are the same picture —
+/// and it is unanchorable on the reference side anyway, because `button.tsx`
+/// cannot put an attribute on a child a call site passes.
+///
+/// [`Button::spinner`] **keeps** the margin, for two reasons that have to hold
+/// together: it is `position: absolute`, so it contributes nothing to the
+/// content size and cannot trip the defect, and it *is* anchored — so its box
+/// has to be the reference's 16, not 12.
+///
+/// The alternative — pinning the button's width in the component — is the one
+/// `native/oracle/ANCHORS.md` rejects by name, twice.
 pub const ICON_MARGIN_X: Pixels = px(-SPACING * 0.5);
 
 /// Tailwind's `text-lg`, which **no crowbar token carries**.
@@ -445,6 +488,20 @@ impl Size {
                 Breakpoint::Sm => small,
             })
     }
+
+    /// The **in-flow** glyph's box: [`Size::icon`] with `[&_svg]:-mx-0.5`
+    /// already folded into it.
+    ///
+    /// This is where the negative margin is resolved by hand rather than
+    /// declared, because gpui cannot lay a negative margin out in a
+    /// content-sized flex container. [`ICON_MARGIN_X`] carries the measurement
+    /// and the reasoning; the short version is that the quantity CSS actually
+    /// contributes to the button's width is the glyph's **margin box**, and this
+    /// is that number.
+    #[must_use]
+    pub fn glyph_box(self, breakpoint: Breakpoint) -> Pixels {
+        self.icon(breakpoint) + ICON_MARGIN_X * 2.0
+    }
 }
 
 /// `cva`'s `variant` union, all seven of them.
@@ -565,10 +622,10 @@ impl Variant {
             // specificity — a class plus a one-simple-selector `:is()` — so
             // source order decides, and Tailwind emits the arbitrary-variant
             // rule **later**. Hover alone is still 90%.
-            Self::Secondary if state.pressed => {
+            Self::Secondary if state.interaction.pressed => {
                 Some(theme.secondary.mix(TINT_80, Color::TRANSPARENT))
             }
-            Self::Secondary if state.hovered => {
+            Self::Secondary if state.interaction.hovered => {
                 Some(theme.secondary.mix(TINT_90, Color::TRANSPARENT))
             }
             Self::Secondary => Some(theme.secondary),
@@ -654,13 +711,13 @@ fn is_dark(theme: &Theme) -> bool {
     *theme == Theme::DARK
 }
 
-/// The visual state a button is painted in.
+/// The three CSS pseudo-classes a pointer or the keyboard puts a button in.
 ///
 /// **Parameters, not gpui `.hover(…)` refinements** — `ANCHORS.md` §6 makes
 /// runtime interaction state invisible to the extractor, so a component that
 /// expressed its states that way would report its resting paint in every cell.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ButtonState {
+pub struct Interaction {
     /// `:hover`. **The first genuinely visible interaction state in this port**:
     /// `hover:bg-*` changes `bg` on six of the seven variants, which is a
     /// compared field — unlike `dropdown-menu`'s focus (also a background, but
@@ -681,23 +738,43 @@ pub struct ButtonState {
     /// rules are `ring-2`, `ring-offset-1` and `outline-hidden`: two box-shadows
     /// and an outline, and `ANCHORS.md` §6 has a field for neither.
     pub focused: bool,
-    /// `:disabled`. **Live** — 35 of the 142 `<Button` call sites pass
-    /// `disabled` — and **invisible**: its three rules are `pointer-events-none`
-    /// (not a visual property), `opacity-64` (no field, and non-zero so v1.7's
-    /// `visible` term does not fire) and `shadow-none` (§6).
+}
+
+/// The three optional props of `button.tsx` that change what it paints.
+///
+/// Split from [`Interaction`] rather than flattened beside it, and the split is
+/// the surface's own: a pseudo-class is a §8.3 **flag** on the command line and
+/// a prop is a surface **option**. (It also keeps either struct inside clippy's
+/// `struct_excessive_bools`, which is what forced the question — but a flat
+/// six-field bag would have hidden a real division.)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Props {
+    /// `disabled`. **Live** — 35 of the 142 `<Button` call sites pass it — and
+    /// **invisible**: its three rules are `pointer-events-none` (not a visual
+    /// property), `opacity-64` (no field, and non-zero so v1.7's `visible` term
+    /// does not fire) and `shadow-none` (§6).
     pub disabled: bool,
-    /// The `loading` prop. Sets `data-loading`, which makes the label
-    /// **transparent** — the one thing on this component that changes `fg` — and
-    /// renders the spinner. It also forces `disabled`, because `button.tsx`
-    /// computes `isDisabled = Boolean(loading || disabledProp)`; ask
+    /// `loading`. Sets `data-loading`, which makes the label **transparent** —
+    /// the one thing on this component that changes `fg` — and renders the
+    /// spinner. It also forces `disabled`, because `button.tsx` computes
+    /// `isDisabled = Boolean(loading || disabledProp)`; ask
     /// [`ButtonState::is_disabled`] rather than this field.
     ///
     /// **No live call site passes it.**
     pub loading: bool,
-    /// The `active` prop — `bg-accent/20` over the resting background. **No live
-    /// call site passes it**, exactly as no live consumer passes
-    /// `SidebarTreeRow`'s `active`.
+    /// `active` — `bg-accent/20` over the resting background. **No live call
+    /// site passes it**, exactly as no live consumer passes `SidebarTreeRow`'s
+    /// `active`.
     pub active: bool,
+}
+
+/// The visual state a button is painted in: its pseudo-classes and its props.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ButtonState {
+    /// The CSS pseudo-classes.
+    pub interaction: Interaction,
+    /// The props.
+    pub props: Props,
 }
 
 impl ButtonState {
@@ -705,12 +782,16 @@ impl ButtonState {
     #[must_use]
     pub const fn resting() -> Self {
         Self {
-            hovered: false,
-            pressed: false,
-            focused: false,
-            disabled: false,
-            loading: false,
-            active: false,
+            interaction: Interaction {
+                hovered: false,
+                pressed: false,
+                focused: false,
+            },
+            props: Props {
+                disabled: false,
+                loading: false,
+                active: false,
+            },
         }
     }
 
@@ -722,13 +803,13 @@ impl ButtonState {
     /// duplicated branches and one real one.
     #[must_use]
     pub const fn engaged(self) -> bool {
-        self.hovered || self.pressed
+        self.interaction.hovered || self.interaction.pressed
     }
 
     /// `isDisabled = Boolean(loading || disabledProp)`, from `button.tsx`.
     #[must_use]
     pub const fn is_disabled(self) -> bool {
-        self.disabled || self.loading
+        self.props.disabled || self.props.loading
     }
 }
 
@@ -859,11 +940,9 @@ impl Button {
         if let Some(label) = self.label {
             element = element.child(anchors.text_half(&id, label.text().into()));
         }
-        if self.state.loading {
-            element = element.child(anchors.boxed(
-                ID_LOADING_INDICATOR.into(),
-                self.spinner(theme),
-            ));
+        if self.state.props.loading {
+            element =
+                element.child(anchors.boxed(ID_LOADING_INDICATOR.into(), self.spinner(theme)));
         }
 
         anchors.root(id, element).into_any_element()
@@ -912,7 +991,7 @@ impl Button {
         if self.state.is_disabled() {
             element = element.opacity(DISABLED_OPACITY);
         }
-        if self.state.focused {
+        if self.state.interaction.focused {
             element = ring(element, theme);
         }
         element
@@ -925,7 +1004,7 @@ impl Button {
     /// `hover:`/`data-pressed:`, which is a fact about CSS specificity rather
     /// than about tailwind-merge — see the constant.
     fn background(&self, theme: &Theme) -> Option<Color> {
-        if self.state.active && !self.state.engaged() {
+        if self.state.props.active && !self.state.engaged() {
             return Some(theme.accent.mix(ACTIVE_TINT, Color::TRANSPARENT));
         }
         self.variant.background(theme, self.state)
@@ -937,7 +1016,7 @@ impl Button {
     /// contract can see.** Everything else `loading` does is either a shadow, an
     /// opacity or a `user-select`.
     fn foreground(&self, theme: &Theme) -> Color {
-        if self.state.loading {
+        if self.state.props.loading {
             Color::TRANSPARENT
         } else {
             self.variant.foreground(theme)
@@ -977,14 +1056,19 @@ impl Button {
     /// A call site's leading `<svg>`, as an empty box.
     ///
     /// Three of the base class list's four svg rules land here: `size-4.5`/
-    /// `sm:size-4` (or a size's own override), `shrink-0`, and `-mx-0.5`.
-    /// `pointer-events-none` is not a visual property.
+    /// `sm:size-4` (or a size's own override), `shrink-0`, and `-mx-0.5` —
+    /// the last **resolved into the box** rather than declared, because gpui
+    /// cannot lay a negative margin out in a content-sized flex container. See
+    /// [`ICON_MARGIN_X`] for the measurement and [`Size::glyph_box`] for the
+    /// arithmetic. `pointer-events-none` is not a visual property.
+    ///
+    /// The height keeps the true [`Size::icon`]: `-mx-0.5` is an *inline*
+    /// margin and the cross axis is untouched.
     fn glyph(&self) -> Div {
         div()
             .flex_shrink_0()
-            .w(self.size.icon(self.breakpoint))
+            .w(self.size.glyph_box(self.breakpoint))
             .h(self.size.icon(self.breakpoint))
-            .mx(ICON_MARGIN_X)
     }
 
     /// `<Spinner className="pointer-events-none absolute" />`.
@@ -1022,8 +1106,8 @@ impl Button {
 /// nothing, while `ring-offset-1` moves this one to 1px. Tailwind's composite puts
 /// the offset **in front of** the ring, so the two are inserted in that order.
 fn ring(mut element: Div, theme: &Theme) -> Div {
-    let offset = BoxShadow::new(px(0.0), px(0.0), theme.background.value())
-        .spread_radius(RING_OFFSET_WIDTH);
+    let offset =
+        BoxShadow::new(px(0.0), px(0.0), theme.background.value()).spread_radius(RING_OFFSET_WIDTH);
     let halo = BoxShadow::new(px(0.0), px(0.0), theme.ring.value()).spread_radius(RING_SPREAD);
     let shadows = element.style().box_shadow.get_or_insert_with(Vec::new);
     shadows.insert(0, halo);
@@ -1036,10 +1120,33 @@ mod tests {
     use super::{
         ACTIVE_TINT, ALL_SIZES, ALL_VARIANTS, BORDER_WIDTH, Breakpoint, Button, ButtonState,
         CONTENT_SIZED, DISABLED_OPACITY, ICON_MARGIN_X, ID_BUTTON, ID_LOADING_INDICATOR,
-        LINE_SIZED, Label, RING_OFFSET_WIDTH, RING_SPREAD, Size, TEXT_LG, Variant,
+        Interaction, LINE_SIZED, Label, Props, RING_OFFSET_WIDTH, RING_SPREAD, Size, TEXT_LG,
+        Variant,
     };
     use crate::theme::{Color, Theme};
     use gpui::{Rems, px};
+
+    /// A hovered button, spelled once because six tests need it.
+    fn hovering() -> ButtonState {
+        ButtonState {
+            interaction: Interaction {
+                hovered: true,
+                ..Interaction::default()
+            },
+            ..ButtonState::resting()
+        }
+    }
+
+    /// A pressed button.
+    fn pressing() -> ButtonState {
+        ButtonState {
+            interaction: Interaction {
+                pressed: true,
+                ..Interaction::default()
+            },
+            ..ButtonState::resting()
+        }
+    }
 
     /// **The border is one pixel wide in every variant**, which is the one thing
     /// about this component a port is most likely to get wrong — and the exact
@@ -1135,12 +1242,7 @@ mod tests {
             (Size::Sm, 2.5),
             (Size::Xs, 2.0),
         ] {
-            assert_eq!(
-                size.padding_x(),
-                px(4.0 * steps - 1.0),
-                "{}",
-                size.name(),
-            );
+            assert_eq!(size.padding_x(), px(4.0 * steps - 1.0), "{}", size.name());
             assert!(!size.square(), "{}", size.name());
         }
 
@@ -1200,7 +1302,10 @@ mod tests {
             assert_ne!(theme.ui_text_xl.value(), TEXT_LG);
 
             // Eight of the ten sizes take the base list's own pair.
-            for size in ALL_SIZES.into_iter().filter(|s| !matches!(s, Size::Xl | Size::Xs)) {
+            for size in ALL_SIZES
+                .into_iter()
+                .filter(|s| !matches!(s, Size::Xl | Size::Xs))
+            {
                 assert_eq!(
                     size.type_step(&theme, Breakpoint::Base).size,
                     theme.ui_text_lg.value(),
@@ -1260,14 +1365,8 @@ mod tests {
     #[test]
     fn a_pressed_secondary_button_is_eighty_percent_and_a_hovered_one_is_ninety() {
         for theme in [Theme::LIGHT, Theme::DARK] {
-            let hovered = ButtonState {
-                hovered: true,
-                ..ButtonState::resting()
-            };
-            let pressed = ButtonState {
-                pressed: true,
-                ..ButtonState::resting()
-            };
+            let hovered = hovering();
+            let pressed = pressing();
 
             assert_eq!(
                 Variant::Secondary.background(&theme, hovered),
@@ -1304,10 +1403,7 @@ mod tests {
     #[test]
     fn hover_moves_the_background_on_every_variant_but_link() {
         for theme in [Theme::LIGHT, Theme::DARK] {
-            let hovered = ButtonState {
-                hovered: true,
-                ..ButtonState::resting()
-            };
+            let hovered = hovering();
             for variant in ALL_VARIANTS {
                 let resting = variant.background(&theme, ButtonState::resting());
                 let engaged = variant.background(&theme, hovered);
@@ -1390,14 +1486,26 @@ mod tests {
         // `oklch(0.49 0.082 130)` in both tables and `--primary-foreground` is
         // `oklch(0.98 0.027 98)` in both.
         assert_eq!(Theme::LIGHT.primary, Theme::DARK.primary);
-        assert_eq!(Theme::LIGHT.primary_foreground, Theme::DARK.primary_foreground);
+        assert_eq!(
+            Theme::LIGHT.primary_foreground,
+            Theme::DARK.primary_foreground
+        );
 
         // `ghost` and `link` paint no background in either table; what moves
         // them is `text-foreground`.
         for variant in [Variant::Ghost, Variant::Link] {
-            assert_eq!(variant.background(&Theme::LIGHT, ButtonState::resting()), None);
-            assert_eq!(variant.background(&Theme::DARK, ButtonState::resting()), None);
-            assert_ne!(variant.foreground(&Theme::LIGHT), variant.foreground(&Theme::DARK));
+            assert_eq!(
+                variant.background(&Theme::LIGHT, ButtonState::resting()),
+                None
+            );
+            assert_eq!(
+                variant.background(&Theme::DARK, ButtonState::resting()),
+                None
+            );
+            assert_ne!(
+                variant.foreground(&Theme::LIGHT),
+                variant.foreground(&Theme::DARK)
+            );
         }
     }
 
@@ -1429,14 +1537,20 @@ mod tests {
     #[test]
     fn loading_makes_the_label_transparent_and_forces_disabled() {
         let loading = ButtonState {
-            loading: true,
+            props: Props {
+                loading: true,
+                ..Props::default()
+            },
             ..ButtonState::resting()
         };
         assert!(loading.is_disabled());
         assert!(!ButtonState::resting().is_disabled());
         assert!(
             ButtonState {
-                disabled: true,
+                props: Props {
+                    disabled: true,
+                    ..Props::default()
+                },
                 ..ButtonState::resting()
             }
             .is_disabled()
@@ -1447,7 +1561,12 @@ mod tests {
                 let mut button = Button::fixture();
                 button.variant = variant;
                 button.state = loading;
-                assert_eq!(button.foreground(&theme), Color::TRANSPARENT, "{}", variant.name());
+                assert_eq!(
+                    button.foreground(&theme),
+                    Color::TRANSPARENT,
+                    "{}",
+                    variant.name()
+                );
 
                 button.state = ButtonState::resting();
                 assert_eq!(button.foreground(&theme), variant.foreground(&theme));
@@ -1467,13 +1586,16 @@ mod tests {
             let mut button = Button::fixture();
             button.variant = variant;
             button.state = ButtonState {
-                active: true,
+                props: Props {
+                    active: true,
+                    ..Props::default()
+                },
                 ..ButtonState::resting()
             };
             assert_eq!(button.background(&theme), Some(tint), "{}", variant.name());
 
             // Hovered, the variant's own hover colour wins again.
-            button.state.hovered = true;
+            button.state.interaction.hovered = true;
             assert_eq!(
                 button.background(&theme),
                 variant.background(&theme, button.state),
@@ -1562,6 +1684,37 @@ mod tests {
         }
     }
 
+    /// The glyph's box is its **margin box** — the icon less the two
+    /// `-mx-0.5` margins — because gpui cannot lay a negative margin out in a
+    /// content-sized flex container. See [`ICON_MARGIN_X`]; the control that
+    /// measures the defect is `row_layout::button`'s
+    /// `a_negative_margin_still_collapses_a_content_sized_flex_container`.
+    #[test]
+    fn the_glyphs_box_is_the_icon_less_its_two_margins() {
+        assert_eq!(ICON_MARGIN_X, px(-2.0));
+
+        for size in ALL_SIZES {
+            for breakpoint in [Breakpoint::Base, Breakpoint::Sm] {
+                assert_eq!(
+                    size.glyph_box(breakpoint),
+                    size.icon(breakpoint) - px(4.0),
+                    "{} {breakpoint:?}",
+                    size.name(),
+                );
+                // Never negative, or a glyph would consume width instead of
+                // contributing it.
+                assert!(size.glyph_box(breakpoint) > px(0.0), "{}", size.name());
+            }
+        }
+
+        // The three glyph scales the class list has: the base list's, `xl`'s
+        // and `icon-xs`'s.
+        assert_eq!(Size::Default.icon(Breakpoint::Sm), px(16.0));
+        assert_eq!(Size::Default.icon(Breakpoint::Base), px(18.0));
+        assert_eq!(Size::IconXl.icon(Breakpoint::Sm), px(18.0));
+        assert_eq!(Size::IconXs.icon(Breakpoint::Sm), px(14.0));
+    }
+
     /// The two ids this component writes, distinct — a repeat would make two
     /// anchors one record and the differ would compare whichever arrived last.
     #[test]
@@ -1604,6 +1757,6 @@ mod tests {
         // `visible` term fires only at zero, so a disabled button is visible on
         // both sides.
         assert!((DISABLED_OPACITY - 0.64).abs() < f32::EPSILON);
-        assert!(DISABLED_OPACITY > 0.0);
+        const { assert!(DISABLED_OPACITY > 0.0) };
     }
 }
