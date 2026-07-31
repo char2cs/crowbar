@@ -23,6 +23,8 @@ Recorded because a cold session will otherwise rediscover them the hard way.
 | `cargo-nextest` | not installed |
 | Go | 1.26.2 (`/opt/homebrew/bin/go`) |
 | `bun` | `~/.bun/bin/bun`, also off the default PATH |
+| Shell is **zsh** | **Unquoted `$var` does NOT word-split**, unlike bash. Building an args string and passing `$args` sends it as ONE argument. Use an array or `${=args}`. Cost me a silently-empty sweep that looked like the binary was broken. |
+| `timeout(1)` | **not installed** on macOS. `gtimeout` needs coreutils. A command using it fails with `command not found` and the surrounding pipeline still reports success. |
 | Zed | `/Applications/Zed.app` present (stable channel) — used by the §10.4 AX spike |
 | Network | reachable |
 | `go build` of a **main** package | fails with `error obtaining VCS status: exit status 128` — Go's buildvcs stamping walks up and finds the parent repo's working tree. **Always pass `-buildvcs=false`.** Pre-existing and environmental; reproduces on a pristine checkout at this path. |
@@ -321,6 +323,61 @@ the reference — `showDirectory={false}`, already decided and recorded above.
 | `git-row-badge` h 16 vs **20**, and x/y/w | the Badge's `sm:` breakpoint — native implemented the ≥640px variant, the reference is rendering the narrow one |
 | `git-row-name.bounds.w` 39.5 vs 91.52, `text_width` 424.05 vs 476.49 | **the font is not loaded** — see below |
 | `git-row-name.bounds.h` 19 vs 18 | GPUI snaps line-height to the device grid (14 × 1.35 = 18.9 → 19.0) |
+
+### The state axis works on the native side — verified by me across six cells
+
+The mid-flight correction to P1.5 (visual state must be a **prop**, because the
+extractor reads base `StyleRefinement` and cannot see GPUI's runtime `.hover()`)
+was necessary and it worked:
+
+| cell | `git-row-item.bg` | `git-row-name.fg` | `text_width` |
+|---|---|---|---|
+| resting | `#00000000` | `#f5f5f5ff` | 424.047 |
+| **hover** | **`#ffffff07`** | `#f5f5f5ff` | 424.047 |
+| **selected** | **`#ffffff0a`** | `#f5f5f5ff` | 424.047 |
+| focus | `#00000000` | `#f5f5f5ff` | 424.047 |
+| **light** | `#00000000` | **`#262626ff`** | 424.047 |
+| **short** | `#00000000` | `#f5f5f5ff` | **22.565** |
+
+Hover, selected, theme and content length all move the snapshot. **`focus` is
+byte-identical to resting**, exactly as P1.5 predicted — the `:focus-visible`
+rule is scoped to `.file-tree-container` and `TreeRow` carries `outline-none`.
+So the focus cell will converge and **prove nothing**; that is recorded, not
+counted as a pass.
+
+### ⚠ The **hover** cell cannot be driven on the React side with this harness
+
+A real gap, found by trying rather than assuming.
+
+- **Synthetic events do not trigger CSS `:hover`.** `:hover` is driven by the
+  user agent's pointer state, not by dispatched `mouseover`/`mouseenter`. A
+  `dispatchEvent` changes nothing about which rules match.
+- **`webview_interact` has no hover action** — it offers click, double-click,
+  long-press, scroll, swipe and focus. None of them leaves the pointer resting
+  over an element.
+- Chrome DevTools has `CSS.forcePseudoState` for exactly this. **WKWebView does
+  not expose CDP**, and the MCP bridge does not reach WebKit's inspector
+  protocol.
+
+So the reference row's hover background — which is painted by
+`.file-tree-item:hover::before` — is currently **unmeasurable**.
+
+**Three ways out, in order of honesty:**
+
+1. **Move the real cursor.** `CGEventPost` / `CGWarpMouseCursorPosition` from a
+   small Swift helper, positioned from the window bounds (already obtainable via
+   `CGWindowListCopyWindowInfo`) plus the row's client rect. This produces
+   genuine pointer state, so the genuine rule matches. **This is the right
+   answer** and it is feasible with tools already proven here.
+2. A dev-only route that renders the row with a forced-hover class. Changes the
+   app under test, but visibly and in a *test* surface rather than the
+   production render.
+3. Accept hover as unmeasurable on the reference side and compare the native
+   hover against the CSS rule as *specification*. **Weakest** — it tests our
+   reading of the stylesheet, which is the exact mistake I already made once.
+
+**Not yet resolved.** It does not block the rest of the matrix, and it matters
+again in Phase 5 (interaction and behaviour), so it is written down now.
 
 ### The font is the single biggest blocker, and it is an asset problem
 
