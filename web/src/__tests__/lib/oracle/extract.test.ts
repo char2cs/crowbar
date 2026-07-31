@@ -702,7 +702,18 @@ function mountProbeTree(
   return byId
 }
 
-const PROBE = { surface: 'sidebar-carousel', root: 'probe-root' }
+/**
+ * The probe tree's own surface name.
+ *
+ * It used to say `sidebar-carousel`, which was decorative — the tree carries
+ * `probe-*` anchors and is rooted on `probe-root`. Since P2.11 a declared
+ * surface owns a root and an anchor set, so that label now refuses itself:
+ * `oracleSurfaceScope('sidebar-carousel')` pins `carousel-scrollport` and five
+ * `carousel-*` anchors, none of which this tree has. That refusal is the
+ * feature — a capture labelled with a surface it is not is exactly what the
+ * declaration exists to stop — so the probe takes a name of its own.
+ */
+const PROBE = { surface: 'oracle-probe', root: 'probe-root' }
 
 describe('extractSnapshot', () => {
   afterEach(() => {

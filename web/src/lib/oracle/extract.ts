@@ -801,6 +801,181 @@ export function oracleAssertComparableOpacity(elements: Element[]): void {
 }
 
 /**
+ * The anchors a surface owns, and the root it owns them from — declared **per
+ * surface**, never per capture.
+ *
+ * ## The defect this exists for
+ *
+ * The walk below collects every `data-oracle-id` beneath the root anchor. For a
+ * leaf surface that is the surface. For a surface whose root *contains* other
+ * anchored subtrees it is not: `resizable`'s root is `resize-group`, the IDE
+ * shell's own group, so it swallowed the sidebar — the carousel, the file rows
+ * and ten git rows, **81 anchors with repeated ids** against the native
+ * surface's four. The differ matches by id and refused it outright, correctly.
+ * `sidebar-carousel` hit the same thing and was worked around by hand-filtering
+ * to the `carousel-*` ids, which only worked because those ids happen to be
+ * unique. Hand-filtering is not a fix; this is.
+ *
+ * ## Why the surface declares it, and not the call site
+ *
+ * A free-form `include: string[]` per call is the same shape of mistake this
+ * contract exists to prevent. Two captures of one surface could then disagree
+ * about which anchors belong to it, and the differ — which sees only the anchor
+ * lists — would read the disagreement as a UI delta, or as an anchor "missing"
+ * from a port that renders it perfectly well. The set is a property of the
+ * component, and the native side already treats it that way: each
+ * `crates/crowbar-ui/src/components/*.rs` names its anchors in `ID_*` constants
+ * and each `crates/crowbar-app/src/surfaces/*.rs` pins `Surface { name, root }`.
+ * The table below is that same declaration on this side, keyed by the same
+ * `surface` string §2 puts in the snapshot, so the two are readable against each
+ * other by a human — which is all three implementations ever had.
+ *
+ * ## Why only these two surfaces are here
+ *
+ * A surface may declare a set only when the set is a property of the *surface*
+ * rather than of the *cell*, and both of these are:
+ *
+ * | surface | its set |
+ * |---|---|
+ * | `resizable` | the group, the two panels `ide-shell.tsx` names, and the separator. The grip is **not** here: it renders only under `withHandle`, which no live call site passes — `resizable.rs` records the same fact |
+ * | `sidebar-carousel` | the scrollport and its four panels, all four rendered unconditionally |
+ *
+ * `git-status-row`, `file-tree-row` and `dropdown-menu` are deliberately absent,
+ * and not for want of getting to them. Their anchor sets are functions of the
+ * cell — `git-row-guide-{n}` exists once per depth level, `git-row-dir` and
+ * `git-row-deleted` only when the fixture has them, a `--tick` row takes its
+ * primitive's own id — so any list written here would be a lie in most cells,
+ * and the loud-missing rule below would then reject honest captures. They also
+ * need no scope: their roots contain their own anchors and nothing else. An
+ * undeclared surface therefore captures its whole subtree exactly as before,
+ * which is what keeps the 63 archived `git-status-row` / `file-tree-row` pairs
+ * in `native/oracle/runs/` comparing byte-for-byte.
+ *
+ * Returns `null` for an undeclared surface — "no declaration" and "an empty
+ * declaration" are different facts and only the first is expressible here.
+ */
+export function oracleSurfaceScope(
+  surface: string | undefined | null,
+): { root: string; anchors: string[] } | null {
+  // Inlined rather than lifted to a module constant, per the injectability rules
+  // at the top of this file: this function is serialised by `toString()` into a
+  // page with no module scope, where a captured binding is a `ReferenceError`
+  // there and nowhere else.
+  const declared: Record<string, { root: string; anchors: string[] }> = {
+    resizable: {
+      root: 'resize-group',
+      anchors: ['resize-group', 'resize-panel-sidebar', 'resize-handle', 'resize-panel-content'],
+    },
+    'sidebar-carousel': {
+      root: 'carousel-scrollport',
+      anchors: [
+        'carousel-scrollport',
+        'carousel-panel-workspaces',
+        'carousel-panel-chats',
+        'carousel-panel-files',
+        'carousel-panel-git',
+      ],
+    },
+  }
+  const key = String(surface === null || surface === undefined ? '' : surface)
+  // Own properties only: `declared['constructor']` would otherwise hand back a
+  // function and be read as a declaration.
+  if (!Object.prototype.hasOwnProperty.call(declared, key)) return null
+  return declared[key]
+}
+
+/**
+ * Keep exactly the surface's own anchors, in document order, or refuse.
+ *
+ * Three ways this ends, and only one of them emits a snapshot:
+ *
+ * 1. **A declared anchor is not in the document → throws.** Filtering is the one
+ *    operation that can make a capture quietly *smaller* than the surface, and a
+ *    reference that shrinks proves less every time it does — silently, because
+ *    the differ compares the anchors it is given. A rename on one side, a
+ *    surface driven into a state it does not have, a typo in the table above:
+ *    all three land here rather than in an archive.
+ * 2. **Two elements carry one declared id → throws.** The differ matches by id
+ *    and could not say which of the two it compared. Taking the first would make
+ *    that choice invisible, which is worse than the ambiguity.
+ * 3. Otherwise the kept elements come back **in the order the walk found them**,
+ *    so a declared capture is a subsequence of the undeclared one — the same
+ *    elements, measured by the same code, in the same order.
+ *
+ * An anchor found under the root that the surface does not declare is dropped
+ * without comment: on `resizable` that is most of the sidebar, so it cannot be
+ * an error. The reciprocal risk — a **new** anchor added to a declared
+ * component and not added here — is the one thing this cannot see, and it does
+ * not vanish silently either: the native side renders it, the reference does
+ * not, and the differ reports an anchor present on one side only.
+ */
+export function oracleSelectDeclaredAnchors(
+  elements: Element[],
+  surface: string,
+  declared: string[],
+): Element[] {
+  const counts: number[] = []
+  for (let i = 0; i < declared.length; i++) {
+    if (declared.indexOf(declared[i]) !== i) {
+      throw new Error(
+        'oracle: surface "' +
+          surface +
+          '" declares the anchor "' +
+          declared[i] +
+          '" twice. A repeated declaration cannot be satisfied — the second copy ' +
+          'would report as missing however the document is built.',
+      )
+    }
+    counts.push(0)
+  }
+
+  const kept: Element[] = []
+  for (let i = 0; i < elements.length; i++) {
+    const id = elements[i].getAttribute('data-oracle-id') || ''
+    const at = declared.indexOf(id)
+    if (at < 0) continue
+    counts[at]++
+    kept.push(elements[i])
+  }
+
+  const missing: string[] = []
+  const repeated: string[] = []
+  for (let i = 0; i < declared.length; i++) {
+    if (counts[i] === 0) missing.push(declared[i])
+    else if (counts[i] > 1) repeated.push(declared[i] + ' ×' + counts[i])
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      'oracle: surface "' +
+        surface +
+        '" declares the anchor(s) ' +
+        missing.join(', ') +
+        ', and the document has none. Either the surface was driven into a state ' +
+        'it does not render them in, or the id was renamed on one side only. ' +
+        'Emitting the rest would archive a capture smaller than the surface, and a ' +
+        'comparison against a shrinking anchor set stops proving anything without ' +
+        'ever saying so. Refusing to emit it. There is no override.',
+    )
+  }
+  if (repeated.length > 0) {
+    throw new Error(
+      'oracle: surface "' +
+        surface +
+        '" has more than one element carrying the declared anchor id(s) ' +
+        repeated.join(', ') +
+        '. The differ matches by id and would have no way to say which of them it ' +
+        'compared; picking the first would make that choice invisible. Give them ' +
+        'distinct ids at the call site — ide-shell.tsx names its two panels ' +
+        'resize-panel-sidebar and resize-panel-content for exactly this reason — ' +
+        'or narrow `scope` to one of them. Refusing to emit it.',
+    )
+  }
+
+  return kept
+}
+
+/**
  * `light` or `dark` — the only two values §2's `state.theme` permits.
  *
  * This app names its themes (`data-theme="crowbar"`), so the attribute is only
@@ -996,14 +1171,37 @@ export function oracleNormalizeState(
 
 /**
  * Walk every `data-oracle-id` under (and including) the root anchor and emit a
- * v1 snapshot. Everything is read from `getComputedStyle` on the live element —
+ * v1 snapshot — narrowed to the surface's own anchors where the surface declares
+ * a set (see {@link oracleSurfaceScope}), because a root that contains other
+ * anchored subtrees would otherwise capture them too.
+ *
+ * Everything is read from `getComputedStyle` on the live element —
  * never inferred from class names, because the tree CSS overrides the component's
  * Tailwind classes (`rounded-md` → `border-radius: 2px !important`,
  * `hover:bg-muted` killed outright) and a class list would lie.
  */
 export function extractSnapshot(options: ExtractOptions): OracleSnapshot {
   const opts = options || ({} as ExtractOptions)
-  const rootId = opts.root || 'git-row-item'
+  // The surface's own declaration, where it has one (v1.7 + P2.11). It supplies
+  // the root as well as the anchor set, because the root *is* one of the
+  // surface's anchors: a capture rooted somewhere else reports every bound
+  // against an origin the other side never used, and the differ sees only the
+  // `root` string that came with it.
+  const declared = oracleSurfaceScope(opts.surface)
+  const rootId = opts.root || (declared ? declared.root : '') || 'git-row-item'
+  if (declared && rootId !== declared.root) {
+    throw new Error(
+      'oracle: surface "' +
+        opts.surface +
+        '" is rooted on "' +
+        declared.root +
+        '", not on "' +
+        rootId +
+        '". Every bound in a snapshot is relative to its root (ANCHORS.md §4) ' +
+        'and the native surface pins that root, so a capture taken from another ' +
+        'one is not comparable with anything. Refusing to emit it.',
+    )
+  }
   const index = opts.index || 0
   const pseudoMap = opts.pseudo || {
     'git-row-item': '::before',
@@ -1041,18 +1239,32 @@ export function extractSnapshot(options: ExtractOptions): OracleSnapshot {
   const nested = rootEl.querySelectorAll('[data-oracle-id]')
   for (let i = 0; i < nested.length; i++) elements.push(nested[i])
 
+  // P2.11: everything beneath the root is not the surface. A declared surface
+  // keeps its own anchors and refuses rather than shrink; an undeclared one is
+  // handed the identical array, so the path the archived `git-status-row` and
+  // `file-tree-row` pairs were captured on is untouched — same elements, same
+  // order, same code below.
+  const scoped = declared
+    ? oracleSelectDeclaredAnchors(elements, String(opts.surface), declared.anchors)
+    : elements
+
   // v1.7 precondition, before anything is measured: an unanchored ancestor at
   // zero opacity makes this side's `visible` column unreproducible by the
   // driver. Nothing below changes as a result — the guard either throws or is
   // invisible, so the archived pairs in `native/oracle/runs/` compare unchanged.
-  oracleAssertComparableOpacity(elements)
+  //
+  // Run on the *scoped* set, which is the set that gets measured: an `opacity-0`
+  // layer inside the sidebar is not a reason to refuse a `resizable` capture
+  // that does not report a single anchor from under it — and NavStack puts
+  // exactly such a layer there.
+  oracleAssertComparableOpacity(scoped)
 
   const normalLineHeights: Record<string, number> = {}
   const anchors: OracleAnchor[] = []
   let rootBox: OracleBox = { left: 0, top: 0, width: 0, height: 0 }
 
-  for (let i = 0; i < elements.length; i++) {
-    const el = elements[i] as HTMLElement
+  for (let i = 0; i < scoped.length; i++) {
+    const el = scoped[i] as HTMLElement
     const id = el.getAttribute('data-oracle-id') || ''
     const style = win.getComputedStyle(el)
 
@@ -1191,6 +1403,8 @@ const ORACLE_RUNTIME = [
   oraclePaddingBoxRect,
   oracleIsVisible,
   oracleAssertComparableOpacity,
+  oracleSurfaceScope,
+  oracleSelectDeclaredAnchors,
   oracleDetectTheme,
   oracleNormalizeState,
   extractSnapshot,
