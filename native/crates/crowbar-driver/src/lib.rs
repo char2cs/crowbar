@@ -91,9 +91,36 @@
 //!   anchor's own `display: none` / `visibility: hidden`. A `display: none`
 //!   *ancestor* is detected implicitly, because `prepaint` never reaches the
 //!   anchor and it is absent from the snapshot entirely. A `visibility: hidden`
-//!   **ancestor** is the one blind spot: it is laid out and prepainted, so a
+//!   **ancestor** is a blind spot: it is laid out and prepainted, so a
 //!   descendant anchor reports `visible: true`. Put the anchor on the element
 //!   that carries the visibility.
+//! * **`visible` and opacity** *(v1.7)* — an anchor at zero opacity, or under an
+//!   **anchored** ancestor at zero opacity, reports `visible: false`. What that
+//!   costs is worth stating exactly, because gpui makes the general case
+//!   unreachable from here:
+//!
+//!   * The **element's own** opacity is exact. `Style::opacity` is a public
+//!     field of the already-resolved style `AnchoredBox` captures, so it is read
+//!     the same way `radius` and `border` are.
+//!   * The **ancestor chain** is reconstructed by the driver, not read off the
+//!     window. gpui accumulates ancestor opacity in `Window::element_opacity`,
+//!     but (a) it is `pub(crate)`, with no public accessor anywhere in the
+//!     crate, and (b) `with_element_opacity` is called from
+//!     `Interactivity::paint` only — `Interactivity::prepaint` pushes the text
+//!     style and the content mask and *not* the opacity. So at the instant the
+//!     extractor runs the value does not exist yet, and at the instant it does
+//!     it cannot be read. The driver therefore keeps its own chain in
+//!     [`AnchorRegistry`], pushed by each [`AnchoredBox`] around its child's
+//!     `prepaint`.
+//!   * The consequence: **an unanchored ancestor's opacity is invisible.**
+//!     `anchor("a", div().child(div().opacity(0.).child(anchor("b", …))))`
+//!     reports `b` as visible, and so does an `opacity: 0` layer above the root
+//!     anchor. Put the opacity on an anchor — the root anchor will do, since
+//!     opacity changes no geometry and every bound in a snapshot is relative to
+//!     that root either way.
+//!   * Zero is **exact**, matching `oracleIsVisible`'s `parseFloat(…) === 0`,
+//!     and it is tested per level rather than as a product so that an `f32`
+//!     product cannot underflow into a disagreement.
 //! * **Hover and active state** — `AnchoredBox` reads the element's *base*
 //!   style. gpui applies `hover`/`active` refinements from runtime state that
 //!   only exists once a hitbox has been hit, so a snapshot of a hovered state

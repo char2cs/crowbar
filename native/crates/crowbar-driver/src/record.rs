@@ -34,6 +34,54 @@ pub enum Paint {
     Unrepresentable,
 }
 
+/// The opacity in force at a point in the tree — this element's own and every
+/// **anchored** ancestor's, folded together (`native/oracle/ANCHORS.md` v1.7).
+///
+/// A named type rather than a `bool` argument, because `box_facts(…, px(16.0),
+/// false)` says nothing at a call site and this is the one input to `visible`
+/// that does not come from the style.
+///
+/// # It records "some level is zero", not the product
+///
+/// Deliberately, and to match `oracleIsVisible` exactly: the DOM side tests
+/// `parseFloat(style.opacity) === 0` at each level *separately* rather than
+/// multiplying, and an `f32` product of two small non-zero factors can underflow
+/// to `0` where two separate tests both say "not zero". Nothing in the app is at
+/// `1e-30` opacity today; the point is that the two sides cannot start
+/// disagreeing if something ever is.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Opacity {
+    /// Whether some level at or above this one declared exactly zero.
+    zero: bool,
+}
+
+impl Opacity {
+    /// Nothing above this point is transparent — the state at the window root.
+    pub(crate) const OPAQUE: Self = Self { zero: false };
+
+    /// This chain extended by one element whose own declared opacity is
+    /// `declared` — [`gpui::Style::opacity`], which is `None` for the
+    /// overwhelming majority of elements because they never called
+    /// `Styled::opacity`.
+    pub(crate) fn under(self, declared: Option<f32>) -> Self {
+        Self {
+            zero: self.zero || declared.is_some_and(is_zero),
+        }
+    }
+
+    /// Whether an element here paints nothing at all, however it is styled.
+    pub(crate) const fn is_zero(self) -> bool {
+        self.zero
+    }
+}
+
+/// Exactly zero, spelled so `clippy::float_cmp` can see it is deliberate: the
+/// contract's term is `=== 0`, not "near zero", and a tolerance here would make
+/// the two sides disagree about `opacity: 0.001`.
+fn is_zero(declared: f32) -> bool {
+    declared == 0.0
+}
+
 /// The font facts the contract asks for, already resolved to pixels.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FontFacts {
@@ -122,24 +170,30 @@ pub struct RawAnchor {
 
 /// Records a box-shaped anchor from its already-resolved [`Style`].
 ///
+/// `opacity` is the v1.7 term and is the element's **own** opacity folded with
+/// its anchored ancestors' — the caller owns that chain, because this function
+/// sees one element and the chain is a property of the walk. `src/element.rs`
+/// is where it is accumulated.
+///
 /// [`RawAnchor::content_sized`] and [`RawAnchor::line_sized`] are **not**
 /// arguments: they are not facts about the style, they are claims the component
 /// made, and the element that carries them folds them in with struct-update
-/// syntax. Trailing positional `bool`s on a six-argument function would read as
-/// `…, px(16.0), false, false)` at every call site, which says nothing.
+/// syntax. Trailing positional `bool`s would read as `…, px(16.0), false,
+/// false)` at every call site, which says nothing.
 pub(crate) fn box_facts(
     id: SharedString,
     bounds: Bounds<Pixels>,
     clip: Bounds<Pixels>,
     style: &Style,
     rem_size: Pixels,
+    opacity: Opacity,
 ) -> RawAnchor {
     RawAnchor {
         id,
         bounds,
         background: background_of(style),
         text: None,
-        visible: is_visible(bounds, clip)
+        visible: is_visible(bounds, clip, opacity)
             && style.display != Display::None
             && style.visibility != Visibility::Hidden,
         radius: style.corner_radii.to_pixels(rem_size).top_left,
@@ -175,6 +229,10 @@ pub(crate) struct TextInput<'a> {
     /// Whether the run's box height is the run's line box (v1.6). See
     /// [`RawAnchor::line_sized`].
     pub line_sized: bool,
+    /// The opacity in force here (v1.7). A `StyledText` carries no opacity of
+    /// its own — `TextStyle` has no such field — so this is exactly what the
+    /// run's anchored ancestors accumulated.
+    pub opacity: Opacity,
 }
 
 /// Records a text-painting anchor.
@@ -198,7 +256,7 @@ pub(crate) fn text_facts(input: &TextInput) -> RawAnchor {
                 line_height: input.line_height,
             },
         }),
-        visible: is_visible(input.bounds, input.clip),
+        visible: is_visible(input.bounds, input.clip, input.opacity),
         // A gpui text run paints neither corners nor a border. Emitted as zero
         // rather than omitted so that every anchor carries the same field set —
         // a field one extractor omits is invisible to the differ.
@@ -210,10 +268,15 @@ pub(crate) fn text_facts(input: &TextInput) -> RawAnchor {
     }
 }
 
-/// Whether the anchor is actually painted: non-zero area, and not entirely
-/// outside the clip rect in force.
-fn is_visible(bounds: Bounds<Pixels>, clip: Bounds<Pixels>) -> bool {
-    !bounds.is_empty() && !bounds.intersect(&clip).is_empty()
+/// Whether the anchor is actually painted: not at zero opacity, non-zero area,
+/// and not entirely outside the clip rect in force.
+///
+/// The opacity term is `native/oracle/ANCHORS.md` v1.7 — the row's own first
+/// words are "actually painted", and an element at `opacity: 0` paints nothing.
+/// It is first because it is the cheapest and because it is the term that made
+/// the two sides implement different fields; `corpus/001` is the admission.
+fn is_visible(bounds: Bounds<Pixels>, clip: Bounds<Pixels>, opacity: Opacity) -> bool {
+    !opacity.is_zero() && !bounds.is_empty() && !bounds.intersect(&clip).is_empty()
 }
 
 /// Whether the full string is visually truncated in this box.
@@ -253,7 +316,7 @@ mod tests {
         point, px, red, rems, size,
     };
 
-    use super::{Paint, TextInput, box_facts, text_facts};
+    use super::{Opacity, Paint, TextInput, box_facts, text_facts};
 
     fn a_box() -> Bounds<Pixels> {
         bounds(point(px(10.0), px(20.0)), size(px(100.0), px(30.0)))
@@ -289,6 +352,7 @@ mod tests {
             the_window(),
             &Style::default(),
             px(16.0),
+            Opacity::OPAQUE,
         );
 
         assert_eq!(record.background, Paint::None);
@@ -307,7 +371,14 @@ mod tests {
             ..Style::default()
         };
 
-        let record = box_facts("panel".into(), a_box(), the_window(), &style, px(16.0));
+        let record = box_facts(
+            "panel".into(),
+            a_box(),
+            the_window(),
+            &style,
+            px(16.0),
+            Opacity::OPAQUE,
+        );
 
         assert_eq!(record.background, Paint::Solid(red()));
     }
@@ -325,7 +396,14 @@ mod tests {
             ..Style::default()
         };
 
-        let record = box_facts("panel".into(), a_box(), the_window(), &style, px(16.0));
+        let record = box_facts(
+            "panel".into(),
+            a_box(),
+            the_window(),
+            &style,
+            px(16.0),
+            Opacity::OPAQUE,
+        );
 
         assert_eq!(record.background, Paint::Unrepresentable);
     }
@@ -339,7 +417,14 @@ mod tests {
             ..Style::default()
         };
 
-        let record = box_facts("panel".into(), a_box(), the_window(), &style, px(16.0));
+        let record = box_facts(
+            "panel".into(),
+            a_box(),
+            the_window(),
+            &style,
+            px(16.0),
+            Opacity::OPAQUE,
+        );
 
         assert_eq!(record.radius, px(4.0));
         assert_eq!(record.border_width, px(1.0));
@@ -354,7 +439,14 @@ mod tests {
             ..Style::default()
         };
 
-        let record = box_facts("panel".into(), a_box(), the_window(), &style, px(16.0));
+        let record = box_facts(
+            "panel".into(),
+            a_box(),
+            the_window(),
+            &style,
+            px(16.0),
+            Opacity::OPAQUE,
+        );
 
         assert_eq!(record.radius, px(4.0));
         assert_eq!(record.border_width, px(2.0));
@@ -369,7 +461,14 @@ mod tests {
             ..Style::default()
         };
 
-        let record = box_facts("panel".into(), a_box(), the_window(), &style, px(16.0));
+        let record = box_facts(
+            "panel".into(),
+            a_box(),
+            the_window(),
+            &style,
+            px(16.0),
+            Opacity::OPAQUE,
+        );
 
         assert_eq!(record.border_width, px(3.0));
         assert_eq!(record.border_color, None);
@@ -385,6 +484,7 @@ mod tests {
             the_window(),
             &Style::default(),
             px(16.0),
+            Opacity::OPAQUE,
         );
 
         assert!(!record.visible);
@@ -394,7 +494,14 @@ mod tests {
     fn a_box_entirely_outside_the_clip_is_not_visible() {
         let clip = bounds(point(px(0.0), px(0.0)), size(px(5.0), px(5.0)));
 
-        let record = box_facts("panel".into(), a_box(), clip, &Style::default(), px(16.0));
+        let record = box_facts(
+            "panel".into(),
+            a_box(),
+            clip,
+            &Style::default(),
+            px(16.0),
+            Opacity::OPAQUE,
+        );
 
         assert!(!record.visible);
     }
@@ -403,7 +510,14 @@ mod tests {
     fn a_box_partly_inside_the_clip_is_still_visible() {
         let clip = bounds(point(px(0.0), px(0.0)), size(px(50.0), px(50.0)));
 
-        let record = box_facts("panel".into(), a_box(), clip, &Style::default(), px(16.0));
+        let record = box_facts(
+            "panel".into(),
+            a_box(),
+            clip,
+            &Style::default(),
+            px(16.0),
+            Opacity::OPAQUE,
+        );
 
         assert!(record.visible);
     }
@@ -415,7 +529,14 @@ mod tests {
             ..Style::default()
         };
 
-        let record = box_facts("panel".into(), a_box(), the_window(), &style, px(16.0));
+        let record = box_facts(
+            "panel".into(),
+            a_box(),
+            the_window(),
+            &style,
+            px(16.0),
+            Opacity::OPAQUE,
+        );
 
         assert!(!record.visible);
     }
@@ -427,10 +548,107 @@ mod tests {
             ..Style::default()
         };
 
-        let record = box_facts("panel".into(), a_box(), the_window(), &style, px(16.0));
+        let record = box_facts(
+            "panel".into(),
+            a_box(),
+            the_window(),
+            &style,
+            px(16.0),
+            Opacity::OPAQUE,
+        );
 
         assert_eq!(record.bounds.size.width, px(100.0));
         assert!(!record.visible);
+    }
+
+    /// `native/oracle/ANCHORS.md` v1.7 and `corpus/001`: an element at zero
+    /// opacity paints nothing, and until this term existed the driver said it
+    /// did while `oracleIsVisible` said it did not — on every anchor of every
+    /// cell driven under a translucent layer.
+    ///
+    /// Everything else about the box is untouched: opacity changes no geometry
+    /// and no declaration, so the record still carries its bounds and its paint.
+    #[test]
+    fn zero_opacity_is_laid_out_and_painted_but_not_visible() {
+        let style = Style {
+            background: Some(red().into()),
+            ..Style::default()
+        };
+
+        let record = box_facts(
+            "panel".into(),
+            a_box(),
+            the_window(),
+            &style,
+            px(16.0),
+            Opacity::OPAQUE.under(Some(0.0)),
+        );
+
+        assert!(!record.visible);
+        assert_eq!(record.bounds.size.width, px(100.0));
+        assert_eq!(record.background, Paint::Solid(red()));
+    }
+
+    /// The chain, not the element: a fully opaque box under a transparent
+    /// **anchored** ancestor is exactly as invisible as the ancestor.
+    #[test]
+    fn a_box_under_a_transparent_ancestor_is_not_visible() {
+        let under = Opacity::OPAQUE
+            .under(Some(0.0))
+            .under(None)
+            .under(Some(1.0));
+
+        let record = box_facts(
+            "panel".into(),
+            a_box(),
+            the_window(),
+            &Style::default(),
+            px(16.0),
+            under,
+        );
+
+        assert!(!record.visible);
+    }
+
+    /// The DOM side's term is `parseFloat(style.opacity) === 0` — **exact**. A
+    /// near-zero opacity is still painted, and a tolerance here would make the
+    /// two sides disagree about `opacity: 0.001` in the direction the contract
+    /// calls useless: reporting invisible for something a user can see.
+    #[test]
+    fn only_exactly_zero_is_transparent() {
+        for declared in [None, Some(1.0), Some(0.001), Some(f32::MIN_POSITIVE)] {
+            let record = box_facts(
+                "panel".into(),
+                a_box(),
+                the_window(),
+                &Style::default(),
+                px(16.0),
+                Opacity::OPAQUE.under(declared),
+            );
+
+            assert!(record.visible, "{declared:?}");
+        }
+    }
+
+    /// Why the chain remembers "some level was zero" instead of multiplying:
+    /// `f32::MIN_POSITIVE * f32::MIN_POSITIVE` **is** `0.0`, so a product would
+    /// report invisible where `oracleIsVisible` — which tests each level on its
+    /// own — reports visible. Two tiny levels, still painted.
+    #[test]
+    fn the_chain_is_not_a_product_that_can_underflow() {
+        let tiny = f32::MIN_POSITIVE;
+        assert_eq!(tiny * tiny, 0.0);
+
+        let record = box_facts(
+            "panel".into(),
+            a_box(),
+            the_window(),
+            &Style::default(),
+            px(16.0),
+            Opacity::OPAQUE.under(Some(tiny)).under(Some(tiny)),
+        );
+
+        assert!(record.visible);
     }
 
     fn a_text_input(
@@ -450,7 +668,24 @@ mod tests {
             shaped_width: px(shaped),
             content_sized: false,
             line_sized: false,
+            opacity: Opacity::OPAQUE,
         }
+    }
+
+    /// A text run has no opacity of its own, so this is the whole of v1.7 for
+    /// one: what its anchored ancestors accumulated reaches its `visible`.
+    #[test]
+    fn a_text_run_under_a_transparent_ancestor_is_not_visible() {
+        let style = TextStyle::default();
+        let mut input = a_text_input(&style, 200.0, 186.5, the_window());
+        input.opacity = Opacity::OPAQUE.under(Some(0.0));
+
+        let record = text_facts(&input);
+
+        assert!(!record.visible);
+        // The run is still measured: `text_width` and `clipped` say where the
+        // ellipsis would land whether or not anyone can see it.
+        assert_eq!(record.text.expect("paints text").width, px(186.5));
     }
 
     /// v1.5 and v1.6 are the component's claims, carried through untouched and
@@ -473,6 +708,7 @@ mod tests {
             the_window(),
             &Style::default(),
             px(16.0),
+            Opacity::OPAQUE,
         );
         assert!(!boxed.line_sized);
         assert!(!boxed.content_sized);
@@ -612,7 +848,14 @@ mod tests {
             ..Style::default()
         };
 
-        let record = box_facts("panel".into(), a_box(), the_window(), &style, px(16.0));
+        let record = box_facts(
+            "panel".into(),
+            a_box(),
+            the_window(),
+            &style,
+            px(16.0),
+            Opacity::OPAQUE,
+        );
 
         assert_eq!(record.background, Paint::Solid(colour));
         assert_eq!(
