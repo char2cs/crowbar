@@ -2763,7 +2763,51 @@ progress number correspondingly too small.
 | **P3.15** wrap `popover` + `select` | `native/p3-wrap-popover-select` @ `04ca276d` | ⏸ **HELD, not merged** — gates green by my own run, but I cannot capture it yet (see P3.17) |
 | **P3.16** gpui `inspector` spike | `native/p3.16-inspector-spike` | in flight — gates the 7 style-only widgets |
 | **P3.17** two-frame capture | `native/p3.17-two-frame-capture` | in flight — **blocks P3.15's verification** |
-| **P3.18** `oracleSurfaceScope` for popover/select/carousel | `native/p3.18-surface-scope-popover` | in flight — removes a hand step from the evidence chain |
+| **P3.18** `oracleSurfaceScope` for popover/select | `native/p3.18-surface-scope-popover` @ `02b820c5` | ✅ **MERGED `5f8ec5cd`** — verified by my own run incl. all three mutations |
+
+#### ✅ P3.18 verified by me — 176 passed, and the mutations bite
+
+`bun run vitest run src/__tests__/lib/oracle/ src/__tests__/components/ui/` →
+**176 passed / 0 failed**, 11 files. `bun tsc --noEmit` exit 0. I re-ran the
+mutations myself rather than accepting the worker's table:
+
+| mutation | my result | claimed |
+|---|---|---|
+| delete the `popover` entry | **3 failed** | 3 |
+| declare `popover-title` | **2 failed** | 2 |
+| declare `select-item` | **2 failed** | 2 |
+
+Source `git checkout --`'d after each; baseline 121 restored exactly. The tests
+assert what a capture **contains** and carry controls proving the same DOM
+captured *undeclared* still yields `avatar` and three `button`s — behaviour, not
+a restatement of the declaration.
+
+**My brief was wrong:** `sidebar-carousel` was already in the map from P2.11
+(`extract.ts:1031`). The worker checked v1.8's condition for it anyway instead of
+just skipping, and it holds.
+
+Three ids are deliberately **not** declared, each for a different reason —
+`popover-title` renders only where a call site places it, so declaring it would
+make the loud-missing rule refuse the only reachable popover; `select-item`
+recurs per option, and v1.8's "each at most once" forbids the declaration;
+`select-trigger`/`-value`/`-icon` sit outside the Base UI portal, so no single
+root spans them and the popup.
+
+#### ⚠ Latent collision: two meanings of surface `select`
+
+| source | root | anchors |
+|---|---|---|
+| P3.15's reference `/tmp/p3-ref-select.json` | `select-trigger` | trigger · value · icon |
+| P3.18's scope entry (merged) | `select-popup` | popup · panel · list |
+
+Both name themselves `select`. **Nothing in the repo breaks** — that reference
+lives in `/tmp`, `select` has no native surface, and `mapping/select.md` makes no
+parity claim — but under one name the two are not recapturable together, because
+the extractor pins a surface to its root and refuses a capture taken from
+another. **Whichever of the two is built first must take a distinct name**
+(`select-trigger` and `select-popup` are the obvious pair). Recorded now because
+two branches independently chose different meanings for one name and would have
+disagreed silently.
 
 #### P3.15 — held deliberately, and why
 
