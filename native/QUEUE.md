@@ -2472,6 +2472,81 @@ field), but `surface.rs` asserts `unmodelled(Error)` for *every* surface, so it
 is driven by `--invalid` instead. `select`, `checkbox`, `radio-group` and
 `textarea` carry the same four rules and will hit this again.
 
+### ✅ Wave 2 VERIFIED — `badge`, `avatar`; and `row_layout.rs` stops conflicting
+
+| surface | result |
+|---|---|
+| `badge · 1714 · dark · normal` | **PASS — 0 deltas**, 0.66px forgiven by v1.5 content-sizing |
+| `avatar · 1714 · dark · normal` | **PASS — 0 deltas over 2 anchors** |
+
+**917 tests**, clippy clean, **7 `ok` lines**, rule 6 over **142** gpui tests,
+Phase 1's two archived snapshots still byte-identical.
+
+**Six Tier B surfaces verified**: `tabs`, `button`, `input`, `badge`, `avatar`
+(plus Phase 2's three).
+
+#### The recurring conflict is gone
+
+`row_layout.rs` was **4083 lines** holding eight per-surface `mod` blocks, and
+every Tier B worker appended one more at EOF — it conflicted on **four
+consecutive merges**. `build.rs` now discovers `src/row_layout/` exactly as it
+discovers `src/surfaces/`, so `row_layout.rs` is **152 lines of pure harness**
+and 11 files sit beside 11 surfaces.
+
+The next addition is conflict-*free*, not conflict-*moved*: **the list does not
+exist as text anywhere.** A new surface writes `surfaces/foo.rs` and
+`row_layout/foo.rs` and touches no file another branch touches. The alternatives
+were rejected for the right reason — a `row_layout/mod.rs` of `mod x;` lines just
+relocates the append-at-EOF collision, and `inventory`/`linkme` still needs a
+declaration line in a shared file.
+
+Proved a **move, not a rewrite**: normalised line multisets differ by exactly
+**16 lines** — the eight `mod X {` and their eight `}` — the function-signature
+set is byte-identical, and the gpui-test count in that corpus is **109 → 109**.
+
+#### Findings
+
+- **`rounded-full` is not gpui's `rounded_full()`.** WebKit resolves
+  `calc(infinity * 1px)` to **exactly `f32::MAX`**; gpui's preset is `px(9999.)`
+  — a 3.4e38 delta on a field compared at ±0.5. Confirmed in the live reference:
+  `avatar.radius = 3.4028234663852886e+38`. Every future `rounded-full` needs
+  `px(f32::MAX)`.
+- **The avatar image does not exist before it loads.** base-ui's `AvatarImage`
+  returns `null` and the fallback unmounts on load, so the two states differ in
+  their **anchor set**, not a field — a mis-driven cell produces the loudest
+  failure the differ has.
+- **A call site's unprefixed `h-4` is dead above 640px**: different
+  tailwind-merge modifiers keep both classes, and Tailwind emits `sm:` later, so
+  the variant's `sm:h-4.5` wins. The live badge is **18**, not the 16 its class
+  list reads as. Measured.
+- `border` is 1px on all eight badge variants — P3.1's mirror, second occurrence.
+
+#### Two decisions of mine, recorded
+
+1. **`data-oracle-content-sized` was added to `badge.tsx`** — one attribute
+   beyond my stated "`data-oracle-id` and nothing else". **I accept it**: v1.5
+   requires `content_sized` declared on *both* sides, and without it the badge
+   carries a 0.66px false delta. **My brief wording was wrong**, not the worker's
+   judgement; Tier B briefs now say `data-oracle-*`.
+2. **The only capturable Badge exists because a worker created it.** All six live
+   badges are `git-row-badge` (the call site overrides the id); the primitive's
+   default id appears only on the agent pill, behind `message.isAgent`. A reply
+   with `isAgent:true` was posted through the app's own API — data-only, like
+   P2.8's thread. **Deleting that reply removes the only capturable Badge.**
+
+> **Archived command lines, so nobody bisects them a third time:**
+> ```
+> crowbar-app --width 294 --content short --added 1 --deleted 0 --no-directory
+>   → oracle/runs/matrix/native-short.json
+> crowbar-app --surface file-tree-row --width 286 --content short --flags selected --prev-depth 1
+>   → oracle/runs/matrix/native-file-tree-selected.json
+> ```
+
+> **My baseline arithmetic was wrong and the worker measured rather than
+> accepted it.** I briefed 883 + 34 = 917. The true baseline was **867**, and
+> badge+avatar adds **50**. The total was right and the decomposition was not —
+> it checked out the base commit and ran the suite rather than trusting me.
+
 ## In flight
 
 **Phase 0 is closed.** All twelve items done and merged, each verified by my own

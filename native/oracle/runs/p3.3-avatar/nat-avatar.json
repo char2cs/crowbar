@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "surface": "avatar",
+  "state": {
+    "width": 1714,
+    "theme": "dark",
+    "content": "normal",
+    "flags": []
+  },
+  "root": "avatar",
+  "anchors": [
+    {
+      "id": "avatar",
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "bg": "#1f1f1eff",
+      "visible": true,
+      "radius": 3.4028234663852886e+38,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "avatar-image",
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "surface": "badge",
+  "state": {
+    "width": 1714,
+    "theme": "dark",
+    "content": "normal",
+    "flags": []
+  },
+  "root": "badge",
+  "anchors": [
+    {
+      "id": "badge",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 44.34,
+        "h": 18
+      },
+      "bg": "#ffffff07",
+      "visible": true,
+      "radius": 6,
+      "border": {
+        "w": 1,
+        "color": "#516a364d"
+      },
+      "content_sized": true,
+      "fg": "#516a36ff",
+      "text": "agent",
+      "text_width": 34.33,
+      "clipped": false,
+      "font": {
+        "size": 12,
+        "weight": 500,
+        "family": "CalSansUI",
+        "line_height": 16
+      }
+    }
+  ]
+}
