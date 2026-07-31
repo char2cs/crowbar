@@ -309,8 +309,20 @@ port. The port was right, and the measurements say so:
 
 ```
 border box 24 · padding 4/4 + border 1/1 → content box 14 · text advance 19
-clientWidth 22 == scrollWidth 22 · overflow-x: visible · clipping ancestors: none
+clientWidth 22 == scrollWidth 22 · overflow-x: visible
 ```
+
+> **Correction, from implementing this (P3.11).** The measurement above
+> originally read "clipping ancestors: **none**". That is wrong:
+> `web/src/index.css:48–60` puts `overflow: hidden` on `html`, `body` **and**
+> `#root`, so **every anchor in every live capture has three clipping
+> ancestors**. A CSS-only ancestor test would therefore be a tautology and this
+> ruling would change nothing on any surface this app can capture.
+>
+> An ancestor counts **only where its rect actually cuts the element's box** —
+> the same intersection `oracleIsVisible` already performs. The glyph is
+> unclipped because those three ancestors *contain* it, not because they are
+> absent.
 
 **The glyph is painted in full.** `justify-center` spills it 2.5px past each edge
 and nothing hides it. Nothing is truncated.
@@ -345,6 +357,25 @@ stay `true`; every other archived anchor stays `false`.
 the anchor's **border** box, where both predicates agree. The callout emoji is the
 first anchored element whose text overflows a box with `overflow: visible` — wider
 than the *content* box only.
+
+### Two holes v1.12 leaves open, recorded rather than patched
+
+Both surfaced while implementing it. Neither is fixed, and neither can currently
+fire on a surface this app can capture.
+
+**1. `overflow: hidden` clips at the PADDING box, not the content box.** v1.12's
+own element shows it: text advance 19 inside `clientWidth` 22. So even if that
+emoji *did* carry `overflow-x: hidden`, the glyph would still be painted in full
+while the predicate — which keeps v1.3 ruling 1's **content**-box comparison —
+would report `clipped: true`. That is the same defect as v1.12 itself, one level
+down. Left alone deliberately: the ruling said keep the content-box comparison
+and add only the overflow condition, and changing the comparison would move
+every archived `git-row-name`.
+
+**2. The ancestor probe uses the element's border box, not the text's own rect.**
+An ancestor edge that cuts only text spilling *past* the border box is not seen.
+The exact probe needs a second `Range` pass over every text anchor and a quantity
+the contract does not carry.
 
 ### An element that generates NO BOX is not an anchor *(v1.11)*
 
