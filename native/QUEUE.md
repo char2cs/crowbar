@@ -2020,10 +2020,19 @@ Tailwind's stock values. Eight traps recorded, of which the sharpest:
 
 **Carried forward, flagged by the worker rather than papered over:**
 
-1. `hover == focus` on this surface is a **reading, not a measurement** —
-   `dropdown-menu.tsx` has no `hover:` rule at all, and both flags map to the
-   focus paint assuming base-ui's roving focus follows the pointer. It chose the
-   falsifiable option over marking `hover` unmodelled. **Mine to confirm live.**
+1. `hover == focus` — **CSS half confirmed by me, runtime half outstanding.**
+   `grep -c 'hover:' web/src/components/ui/dropdown-menu.tsx` is **0**: there is
+   no hover styling to diverge from. The highlight is
+   `focus:bg-accent focus:text-accent-foreground`, plus
+   `data-[variant=destructive]:focus:*`. So the mapping is sound *unless*
+   base-ui's roving focus does not follow the pointer, which needs a live menu
+   and real pointer input — blocked by the same locked screen.
+
+   > **This surface is driven differently from the tree row.** It uses `focus:`,
+   > **not** `:focus-visible`. On `file-tree-row` a programmatic `.focus()` paints
+   > nothing because `:focus-visible` needs keyboard interaction; here it would
+   > match — except `document.hasFocus()` is `false` while locked, so `:focus`
+   > still fails. Two surfaces, two different reasons the naive driver lies.
 2. The `overflow` content cell **has no reference** — menu labels come from call
    sites and only attributes may be added. Same shape as Phase 1's `git-row-dir`.
 3. `selected` needs a tick row, which the comment menu lacks, so a bare
