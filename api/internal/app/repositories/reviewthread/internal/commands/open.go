@@ -11,6 +11,11 @@ import (
 
 // OpenReviewThread creates a ReviewThread anchored to a diff line, with its first
 // message (09 §3).
+//
+// ProviderID and ChatID attribute the first message to the agent that wrote it;
+// a human open leaves both empty. They are not validated: attribution is
+// decoration on a message, never authority, so a write that carries none is a
+// perfectly valid thread.
 type OpenReviewThread struct {
 	ID         string
 	WsID       string
@@ -22,6 +27,8 @@ type OpenReviewThread struct {
 	MessageID  string
 	Author     string
 	IsAgent    bool
+	ProviderID string
+	ChatID     string
 	Body       string
 	Now        time.Time
 }
@@ -71,11 +78,13 @@ func (c OpenReviewThread) EmitEvent(
 		Side:       c.Side,
 		Status:     domain.ReviewThreadStatusOpen,
 		Messages: []domain.ReviewMessage{{
-			ID:        c.MessageID,
-			Author:    c.Author,
-			IsAgent:   c.IsAgent,
-			Body:      c.Body,
-			CreatedAt: c.Now,
+			ID:         c.MessageID,
+			Author:     c.Author,
+			IsAgent:    c.IsAgent,
+			ProviderID: c.ProviderID,
+			ChatID:     c.ChatID,
+			Body:       c.Body,
+			CreatedAt:  c.Now,
 		}},
 		CreatedAt: c.Now,
 	}

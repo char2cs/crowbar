@@ -32,10 +32,7 @@ func TestMain(
 // the broadcast + response assertions can be made without an event store.
 type fakeStore struct {
 	openIn         reviewthread.OpenInput
-	replyID        string
-	replyAuthor    string
-	replyIsAgent   bool
-	replyBody      string
+	replyIn        reviewthread.ReplyInput
 	editID         string
 	editMsgID      string
 	editBody       string
@@ -62,17 +59,10 @@ func (f *fakeStore) Open(
 
 func (f *fakeStore) Reply(
 	_ context.Context,
-	id string,
-	_ string,
-	author string,
-	isAgent bool,
-	body string,
+	in reviewthread.ReplyInput,
 	_ time.Time,
 ) (domain.ReviewThread, error) {
-	f.replyID = id
-	f.replyAuthor = author
-	f.replyIsAgent = isAgent
-	f.replyBody = body
+	f.replyIn = in
 	return f.thread, f.err
 }
 
@@ -260,8 +250,12 @@ func TestReply_BroadcastsAndReturns(t *testing.T) {
 	rec := do(r, http.MethodPost, base+"/t1/replies", map[string]any{"body": "a reply"})
 
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "t1", store.replyID)
-	assert.Equal(t, "a reply", store.replyBody)
+	assert.Equal(t, "t1", store.replyIn.ID)
+	assert.Equal(t, "a reply", store.replyIn.Body)
+	// The user-facing reply route attributes nothing: a person has no provider and
+	// no originating agent chat, and the route must not become a way to claim one.
+	assert.Empty(t, store.replyIn.ProviderID)
+	assert.Empty(t, store.replyIn.ChatID)
 	require.Len(t, bc.pushed, 1)
 	assert.Equal(t, "t1", bc.pushed[0].ID)
 }

@@ -125,6 +125,76 @@ func TestReplyReviewThread_Validate_Accepts(t *testing.T) {
 	assert.NoError(t, ReplyReviewThread{ID: "t1", MessageID: "m1"}.Validate(&domain.ReviewThread{ID: "t1"}))
 }
 
+// TestOpenReviewThread_CarriesAgentAttribution asserts the opened thread's first
+// message keeps the provider and chat the write named, so the review UI can say
+// which agent left the finding and which conversation it came out of.
+func TestOpenReviewThread_CarriesAgentAttribution(t *testing.T) {
+	th := OpenReviewThread{
+		ID: "t1", WsID: "w1", MessageID: "m1", Body: "hi",
+		Author: "claude", IsAgent: true, ProviderID: "claude", ChatID: "chat-7",
+		Now: time.Unix(1, 0),
+	}.EmitEvent(nil)
+
+	require.Len(t, th.Messages, 1)
+	assert.Equal(t, "claude", th.Messages[0].ProviderID)
+	assert.Equal(t, "chat-7", th.Messages[0].ChatID)
+}
+
+// A human open names neither, and must not be given a blank-but-present
+// attribution that would render as an agent with no name.
+func TestOpenReviewThread_LeavesAHumanUnattributed(t *testing.T) {
+	th := OpenReviewThread{
+		ID: "t1", WsID: "w1", MessageID: "m1", Body: "hi", Now: time.Unix(1, 0),
+	}.EmitEvent(nil)
+
+	require.Len(t, th.Messages, 1)
+	assert.False(t, th.Messages[0].IsAgent)
+	assert.Empty(t, th.Messages[0].ProviderID)
+	assert.Empty(t, th.Messages[0].ChatID)
+}
+
+// TestReplyReviewThread_CarriesAgentAttribution asserts a reply is attributed
+// independently of the root: two agents in one thread must be distinguishable,
+// which is the whole point of carrying the ids per MESSAGE rather than per
+// thread.
+func TestReplyReviewThread_CarriesAgentAttribution(t *testing.T) {
+	cur := &domain.ReviewThread{
+		ID: "t1", Status: domain.ReviewThreadStatusOpen,
+		Messages: []domain.ReviewMessage{{
+			ID: "m1", Body: "first", IsAgent: true, ProviderID: "claude", ChatID: "chat-1",
+		}},
+	}
+
+	th := ReplyReviewThread{
+		ID: "t1", MessageID: "m2", Body: "second",
+		Author: "codex", IsAgent: true, ProviderID: "codex", ChatID: "chat-2",
+		Now: time.Unix(2, 0),
+	}.EmitEvent(cur)
+
+	require.Len(t, th.Messages, 2)
+	assert.Equal(t, "claude", th.Messages[0].ProviderID)
+	assert.Equal(t, "chat-1", th.Messages[0].ChatID)
+	assert.Equal(t, "codex", th.Messages[1].ProviderID)
+	assert.Equal(t, "chat-2", th.Messages[1].ChatID)
+}
+
+// A human reply on an agent-opened thread carries no attribution of its own,
+// and does not inherit the root's.
+func TestReplyReviewThread_LeavesAHumanUnattributed(t *testing.T) {
+	cur := &domain.ReviewThread{
+		ID: "t1", Status: domain.ReviewThreadStatusOpen,
+		Messages: []domain.ReviewMessage{{
+			ID: "m1", Body: "first", IsAgent: true, ProviderID: "claude", ChatID: "chat-1",
+		}},
+	}
+
+	th := ReplyReviewThread{ID: "t1", MessageID: "m2", Body: "ack", Now: time.Unix(2, 0)}.EmitEvent(cur)
+
+	require.Len(t, th.Messages, 2)
+	assert.Empty(t, th.Messages[1].ProviderID)
+	assert.Empty(t, th.Messages[1].ChatID)
+}
+
 func threadWith(messages ...domain.ReviewMessage) *domain.ReviewThread {
 	return &domain.ReviewThread{ID: "t1", Status: domain.ReviewThreadStatusOpen, Messages: messages}
 }
@@ -139,6 +209,27 @@ func TestEditReviewMessage_RewritesBody(t *testing.T) {
 	assert.Equal(t, "new reply", th.Messages[1].Body)
 	// Original aggregate is not mutated in place.
 	assert.Equal(t, "old reply", cur.Messages[1].Body)
+}
+
+// TestEditReviewMessage_KeepsAttribution asserts an edit rewrites the body and
+// nothing else. Editing is how a user corrects a message in place, and an edit
+// that dropped the provider or chat would silently un-attribute an agent's
+// finding — the aggregate is the only copy, so there is nothing to restore it
+// from.
+func TestEditReviewMessage_KeepsAttribution(t *testing.T) {
+	cur := threadWith(
+		domain.ReviewMessage{ID: "m1", Body: "root", IsAgent: true, ProviderID: "claude", ChatID: "chat-1"},
+		domain.ReviewMessage{ID: "m2", Body: "old reply", IsAgent: true, ProviderID: "codex", ChatID: "chat-2"},
+	)
+
+	th := EditReviewMessage{ID: "t1", MessageID: "m2", Body: "new reply"}.EmitEvent(cur)
+
+	require.Len(t, th.Messages, 2)
+	assert.Equal(t, "new reply", th.Messages[1].Body)
+	assert.Equal(t, "codex", th.Messages[1].ProviderID)
+	assert.Equal(t, "chat-2", th.Messages[1].ChatID)
+	assert.Equal(t, "claude", th.Messages[0].ProviderID)
+	assert.Equal(t, "chat-1", th.Messages[0].ChatID)
 }
 
 func TestEditReviewMessage_CanEditRoot(t *testing.T) {

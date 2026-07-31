@@ -83,9 +83,10 @@ func (s *stubReviewReader) GetOutline(_ context.Context, wsID, _ string) ([]gitd
 // rather than merely that an error came back — an implementation that validated
 // after writing would return the same error and still leave the floating comment.
 type stubThreadWriter struct {
-	opens  []reviewthread.OpenInput
-	nextID int
-	err    error
+	opens   []reviewthread.OpenInput
+	replies []reviewthread.ReplyInput
+	nextID  int
+	err     error
 }
 
 func (s *stubThreadWriter) Open(
@@ -115,13 +116,10 @@ func (s *stubThreadWriter) Open(
 
 func (s *stubThreadWriter) Reply(
 	_ context.Context,
-	_ string,
-	_ string,
-	_ string,
-	_ bool,
-	_ string,
+	in reviewthread.ReplyInput,
 	_ time.Time,
 ) (domain.ReviewThread, error) {
+	s.replies = append(s.replies, in)
 	return domain.ReviewThread{}, nil
 }
 
@@ -762,8 +760,18 @@ func TestPostReviewComment_RejectsBadArguments(t *testing.T) {
 type spyThreads struct {
 	thread   domain.ReviewThread
 	opened   []reviewthread.OpenInput
-	replied  []string
+	replied  []reviewthread.ReplyInput
 	resolved []string
+}
+
+// repliedIDs is the thread ids every recorded reply targeted, in order — what the
+// scope tests assert on, which care only about WHICH thread a write reached.
+func (s *spyThreads) repliedIDs() []string {
+	out := make([]string, 0, len(s.replied))
+	for _, in := range s.replied {
+		out = append(out, in.ID)
+	}
+	return out
 }
 
 func (s *spyThreads) Get(context.Context, string) (domain.ReviewThread, error) {
@@ -779,8 +787,8 @@ func (s *spyThreads) Open(_ context.Context, in reviewthread.OpenInput, _ time.T
 	return domain.ReviewThread{ID: "new-thread", WsID: in.WsID}, nil
 }
 
-func (s *spyThreads) Reply(_ context.Context, id, _, _ string, _ bool, _ string, _ time.Time) (domain.ReviewThread, error) {
-	s.replied = append(s.replied, id)
+func (s *spyThreads) Reply(_ context.Context, in reviewthread.ReplyInput, _ time.Time) (domain.ReviewThread, error) {
+	s.replied = append(s.replied, in)
 	return s.thread, nil
 }
 
@@ -822,7 +830,7 @@ func TestReplyToReviewThread_AppendsAsAgent(t *testing.T) {
 		json.RawMessage(`{"threadId":"t1","body":"Bounded the loop."}`))
 	require.NoError(t, err)
 	require.Contains(t, out, "t1")
-	require.Equal(t, []string{"t1"}, spy.replied)
+	require.Equal(t, []string{"t1"}, spy.repliedIDs())
 }
 
 // A blank body is rejected before the thread is ever looked up, mirroring
@@ -869,7 +877,7 @@ func TestReplyToReviewThread_AllowsAThreadOnADescendantWorkspace(t *testing.T) {
 	_, err := ts.Call(context.Background(), "reply_to_review_thread",
 		json.RawMessage(`{"threadId":"t2","body":"ok"}`))
 	require.NoError(t, err)
-	require.Equal(t, []string{"t2"}, spy.replied)
+	require.Equal(t, []string{"t2"}, spy.repliedIDs())
 }
 
 func TestResolveReviewThread_Resolves(t *testing.T) {
@@ -1067,5 +1075,127 @@ func TestPostReviewComment_NotAdvertisedWithoutItsDependencies(t *testing.T) {
 			_, err = ts.Call(context.Background(), "post_review_comment", json.RawMessage(`{}`))
 			require.Error(t, err)
 		})
+	}
+}
+
+// --- agent attribution (Task D1) ---
+
+// attributedReviewToolsOn is reviewToolsOn with the runner's provider and current
+// chat actually set. reviewToolsOn's runner deliberately carries neither, so a
+// test built on it could not tell attribution read from the caller apart from
+// attribution left blank.
+func attributedReviewToolsOn(
+	t *testing.T,
+	threads *spyThreads,
+	providerID string,
+	chatID string,
+) *agenttools.ToolSet {
+	t.Helper()
+	m, err := agenttools.NewTokenMinter()
+	require.NoError(t, err)
+	res := agenttools.NewResolver(m,
+		stubRunners{r: domain.AgentRunner{
+			ID:            "RUN",
+			CurrentChatID: chatID,
+			WorkspaceID:   "ws-a",
+			ProviderID:    providerID,
+		}},
+		stubChats{c: domain.AgentChat{ID: chatID, WorkspaceID: "ws-a"}},
+		stubWorkspaces{all: tree()})
+	return agenttools.NewToolSet(agenttools.Deps{
+		Resolver:        res,
+		Threads:         threads,
+		ThreadWrites:    threads,
+		ThreadBroadcast: (&spyThreadBroadcast{}).fn(),
+	}, "RUN", m.Mint("RUN"))
+}
+
+// TestPostReviewComment_CarriesTheCallersProviderAndChat is the attribution
+// property for the open path: the review UI can only say WHICH agent left a
+// finding, and offer a way back to the conversation it came out of, if both ids
+// are stamped on the message at write time — nothing downstream can recover them
+// later.
+func TestPostReviewComment_CarriesTheCallersProviderAndChat(t *testing.T) {
+	f := postOn(t, "ws-a", authHunk())
+
+	_, err := f.post(
+		`{"filePath":"src/auth.go","startLine":42,"endLine":44,"side":"right","body":"This leaks the token."}`)
+	require.NoError(t, err)
+
+	require.Len(t, f.writer.opens, 1)
+	got := f.writer.opens[0]
+	require.Equal(t, callerProviderID, got.ProviderID,
+		"the provider must come from the caller's runner, never from an argument")
+	require.Equal(t, "CHAT", got.ChatID,
+		"the chat must be the runner's CURRENT chat, so the finding links back to where it was reasoned")
+}
+
+// TestReplyToReviewThread_CarriesTheCallersProviderAndChat is the same property
+// for the reply path, which is where two agents in one thread actually become
+// indistinguishable without it.
+func TestReplyToReviewThread_CarriesTheCallersProviderAndChat(t *testing.T) {
+	spy := &spyThreads{thread: domain.ReviewThread{ID: "t1", WsID: "ws-a"}}
+	ts := attributedReviewToolsOn(t, spy, "codex", "chat-9")
+
+	_, err := ts.Call(context.Background(), "reply_to_review_thread",
+		json.RawMessage(`{"threadId":"t1","body":"Bounded the loop."}`))
+	require.NoError(t, err)
+
+	require.Len(t, spy.replied, 1)
+	require.Equal(t, "codex", spy.replied[0].ProviderID)
+	require.Equal(t, "chat-9", spy.replied[0].ChatID)
+	require.True(t, spy.replied[0].IsAgent)
+	require.NotEmpty(t, spy.replied[0].MessageID)
+}
+
+// TestReplyToReviewThread_AttributesTheWriterNotTheThreadsWorkspace pins the case
+// a caller can reach a DESCENDANT's thread: the attribution describes who wrote
+// the reply, which is the caller, and is unaffected by where the thread lives.
+func TestReplyToReviewThread_AttributesTheWriterNotTheThreadsWorkspace(t *testing.T) {
+	spy := &spyThreads{thread: domain.ReviewThread{ID: "t2", WsID: "ws-a1"}}
+	ts := attributedReviewToolsOn(t, spy, "codex", "chat-9")
+
+	_, err := ts.Call(context.Background(), "reply_to_review_thread",
+		json.RawMessage(`{"threadId":"t2","body":"ok"}`))
+	require.NoError(t, err)
+
+	require.Len(t, spy.replied, 1)
+	require.Equal(t, "codex", spy.replied[0].ProviderID)
+	require.Equal(t, "chat-9", spy.replied[0].ChatID)
+}
+
+// A runner with no provider recorded still writes — attribution is decoration,
+// not a precondition — and the message simply carries none, which is exactly the
+// shape every pre-attribution message already has. The UI's fallback path is
+// therefore reachable from a live write, not only from historical data.
+func TestReviewWrites_WithoutAProviderCarryNoAttribution(t *testing.T) {
+	spy := &spyThreads{thread: domain.ReviewThread{ID: "t1", WsID: "ws-a"}}
+	ts := reviewToolsOn(t, spy)
+
+	_, err := ts.Call(context.Background(), "reply_to_review_thread",
+		json.RawMessage(`{"threadId":"t1","body":"still lands"}`))
+	require.NoError(t, err)
+
+	require.Len(t, spy.replied, 1)
+	require.Empty(t, spy.replied[0].ProviderID)
+	// The chat is still recorded: reviewToolsOn's runner has a current chat even
+	// though it names no provider, and the two ids are independent.
+	require.Equal(t, "CHAT", spy.replied[0].ChatID)
+}
+
+// TestReviewWriteTools_DoNotAcceptAttributionAsAnArgument is the forgery guard.
+// Attribution a model can type is attribution a model can fake, and a finding
+// filed under another agent's name or another chat's id is worse than an
+// anonymous one — so neither id may ever appear in a tool schema.
+func TestReviewWriteTools_DoNotAcceptAttributionAsAnArgument(t *testing.T) {
+	f := postOn(t, "ws-a", authHunk())
+	forbidden := []string{"providerId", "provider_id", "chatId", "chat_id", "author"}
+
+	for _, tool := range f.ts.Tools() {
+		for _, bad := range forbidden {
+			require.NotContains(t, string(tool.InputSchema), bad,
+				"tool %s exposes %s; attribution must come from the caller, never an argument",
+				tool.Name, bad)
+		}
 	}
 }

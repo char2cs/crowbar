@@ -36,6 +36,10 @@ const maxOCCAttempts = 64
 type BroadcastFunc = store.BroadcastFunc
 
 // OpenInput carries the anchor + first message for a new thread (09 §3).
+//
+// ProviderID and ChatID attribute the first message to the agent that wrote it
+// and to the chat it came out of. The human/UI path leaves both empty: a person
+// has neither a provider nor an originating conversation.
 type OpenInput struct {
 	ID         string
 	WsID       string
@@ -47,6 +51,28 @@ type OpenInput struct {
 	MessageID  string
 	Author     string
 	IsAgent    bool
+	ProviderID string
+	ChatID     string
+	Body       string
+}
+
+// ReplyInput carries the message appended to an existing thread (09 §3).
+//
+// It is a struct rather than the positional argument list it replaces because
+// agent attribution took the parameter count past what a call site can be read
+// at: seven anonymous strings and bools in a row, two of them newly added and
+// both optional, is a signature where a transposed pair compiles and silently
+// files a finding under the wrong chat.
+//
+// ProviderID and ChatID carry the same meaning they do on OpenInput, and are
+// empty for the same human/UI path.
+type ReplyInput struct {
+	ID         string
+	MessageID  string
+	Author     string
+	IsAgent    bool
+	ProviderID string
+	ChatID     string
 	Body       string
 }
 
@@ -59,11 +85,7 @@ type ReviewThread interface {
 	) (domain.ReviewThread, error)
 	Reply(
 		ctx context.Context,
-		id string,
-		messageID string,
-		author string,
-		isAgent bool,
-		body string,
+		in ReplyInput,
 		now time.Time,
 	) (domain.ReviewThread, error)
 	EditMessage(
@@ -198,6 +220,8 @@ func (r *reviewThread) Open(
 		MessageID:  in.MessageID,
 		Author:     in.Author,
 		IsAgent:    in.IsAgent,
+		ProviderID: in.ProviderID,
+		ChatID:     in.ChatID,
 		Body:       in.Body,
 		Now:        now,
 	})
@@ -209,20 +233,18 @@ func (r *reviewThread) Open(
 
 func (r *reviewThread) Reply(
 	ctx context.Context,
-	id string,
-	messageID string,
-	author string,
-	isAgent bool,
-	body string,
+	in ReplyInput,
 	now time.Time,
 ) (domain.ReviewThread, error) {
 	evt, err := r.sendWithOCC(ctx, commands.ReplyReviewThread{
-		ID:        id,
-		MessageID: messageID,
-		Author:    author,
-		IsAgent:   isAgent,
-		Body:      body,
-		Now:       now,
+		ID:         in.ID,
+		MessageID:  in.MessageID,
+		Author:     in.Author,
+		IsAgent:    in.IsAgent,
+		ProviderID: in.ProviderID,
+		ChatID:     in.ChatID,
+		Body:       in.Body,
+		Now:        now,
 	})
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("reviewthread: reply: %w", err)

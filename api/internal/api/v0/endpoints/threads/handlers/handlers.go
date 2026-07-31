@@ -25,11 +25,7 @@ type ThreadStore interface {
 	) (domain.ReviewThread, error)
 	Reply(
 		ctx context.Context,
-		id string,
-		messageID string,
-		author string,
-		isAgent bool,
-		body string,
+		in reviewthread.ReplyInput,
 		now time.Time,
 	) (domain.ReviewThread, error)
 	EditMessage(

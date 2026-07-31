@@ -350,7 +350,13 @@ func (u *branchReviewUsecase) Reply(
 	threadID string,
 	body string,
 ) (domain.ReviewThread, error) {
-	thread, err := u.threads.Reply(ctx, threadID, uuid.NewString(), "", false, body, u.now())
+	// No ProviderID or ChatID: this is the human/UI path, and a person has neither
+	// a vendor CLI behind them nor an originating agent conversation.
+	thread, err := u.threads.Reply(ctx, reviewthread.ReplyInput{
+		ID:        threadID,
+		MessageID: uuid.NewString(),
+		Body:      body,
+	}, u.now())
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("branch review: reply: %w", asNotFound(err))
 	}

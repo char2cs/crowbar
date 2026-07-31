@@ -563,11 +563,7 @@ func (fixtureThreadWriter) Open(
 
 func (fixtureThreadWriter) Reply(
 	context.Context,
-	string,
-	string,
-	string,
-	bool,
-	string,
+	reviewthread.ReplyInput,
 	time.Time,
 ) (domain.ReviewThread, error) {
 	return domain.ReviewThread{}, nil

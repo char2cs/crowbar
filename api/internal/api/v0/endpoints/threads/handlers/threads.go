@@ -174,7 +174,17 @@ func (h *Handlers) Reply(
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	thread, err := h.store.Reply(ctx.Request.Context(), threadID, h.newID(), body.Author, body.IsAgent, body.Body, h.now())
+	// The route carries no provider or chat, and deliberately: this is the
+	// user-facing reply endpoint, and an agent replies through the MCP tool
+	// surface, which attributes off its authenticated caller rather than off a
+	// request body anyone could type.
+	thread, err := h.store.Reply(ctx.Request.Context(), reviewthread.ReplyInput{
+		ID:        threadID,
+		MessageID: h.newID(),
+		Author:    body.Author,
+		IsAgent:   body.IsAgent,
+		Body:      body.Body,
+	}, h.now())
 	if err != nil {
 		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
 		return

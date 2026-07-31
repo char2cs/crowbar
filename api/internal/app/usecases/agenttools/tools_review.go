@@ -74,11 +74,7 @@ type ThreadWriter interface {
 	Open(ctx context.Context, in reviewthread.OpenInput, now time.Time) (domain.ReviewThread, error)
 	Reply(
 		ctx context.Context,
-		id string,
-		messageID string,
-		author string,
-		isAgent bool,
-		body string,
+		in reviewthread.ReplyInput,
 		now time.Time,
 	) (domain.ReviewThread, error)
 	Resolve(ctx context.Context, id string) (domain.ReviewThread, error)
@@ -431,6 +427,12 @@ func postReviewComment(
 // LineNumber repeats StartLine: it is the aggregate's original single-line anchor,
 // still read by clients that predate ranges, and leaving it zero would render the
 // comment against line 0.
+//
+// ProviderID and ChatID come off the resolved Caller, never off the arguments, for
+// the same reason WsID does: attribution a model could type is attribution a model
+// could forge, and a finding filed under another agent's name is worse than an
+// anonymous one. ChatID is the runner's CURRENT chat, so it names the conversation
+// the finding was actually reasoned in.
 func openInputFor(
 	c Caller,
 	in postReviewCommentArgs,
@@ -447,6 +449,8 @@ func openInputFor(
 		MessageID:  uuid.NewString(),
 		Author:     authorOf(c),
 		IsAgent:    true,
+		ProviderID: c.ProviderID,
+		ChatID:     c.ChatID,
 		Body:       in.Body,
 	}
 }
@@ -517,14 +521,36 @@ func replyToReviewThread(
 	if !c.CanSee(thread.WsID) {
 		return "", fmt.Errorf("agenttools: reply_to_review_thread: %w", ErrOutOfScope)
 	}
-	updated, err := deps.ThreadWrites.Reply(
-		ctx, in.ThreadID, uuid.NewString(), authorOf(c), true, in.Body, time.Now(),
-	)
+	updated, err := deps.ThreadWrites.Reply(ctx, replyInputFor(c, in.ThreadID, in.Body), time.Now())
 	if err != nil {
 		return "", fmt.Errorf("agenttools: reply_to_review_thread: %w", err)
 	}
 	broadcastThreadWrite(deps, c, thread.WsID, updated)
 	return fmt.Sprintf("Replied to review thread %s.", in.ThreadID), nil
+}
+
+// replyInputFor builds the reply write, attributing it exactly the way
+// openInputFor attributes a new thread: provider and chat come off the resolved
+// Caller and never off the tool's arguments, so a model cannot file a reply under
+// another agent's name or another conversation.
+//
+// The thread this reply lands on may belong to a workspace other than the
+// caller's own — CanSee spans descendants — so the attribution deliberately
+// describes the WRITER, not the thread's workspace.
+func replyInputFor(
+	c Caller,
+	threadID string,
+	body string,
+) reviewthread.ReplyInput {
+	return reviewthread.ReplyInput{
+		ID:         threadID,
+		MessageID:  uuid.NewString(),
+		Author:     authorOf(c),
+		IsAgent:    true,
+		ProviderID: c.ProviderID,
+		ChatID:     c.ChatID,
+		Body:       body,
+	}
 }
 
 func resolveReviewThreadTool(deps Deps) toolDef {

@@ -35,11 +35,7 @@ func (stubStore) Open(
 
 func (stubStore) Reply(
 	_ context.Context,
-	_ string,
-	_ string,
-	_ string,
-	_ bool,
-	_ string,
+	_ reviewthread.ReplyInput,
 	_ time.Time,
 ) (domain.ReviewThread, error) {
 	return domain.ReviewThread{}, nil
