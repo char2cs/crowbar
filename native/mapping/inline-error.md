@@ -53,8 +53,8 @@ are the precedent: rendered by the port, absent from the product.
 The utilities, resolved through the app's own compiled `tailwindcss` 4.3.0 and
 then read back off a **probe element inserted into the live document** and
 removed again — so the numbers include any stylesheet that would have overridden
-them (which, unlike `callout-node`, none does). The probe was taken at the
-sidebar's real **294px**, which is the panel's only call site.
+them (here, none does — but only a probe can establish that). The probe was taken
+at the sidebar's real **294px**, which is the panel's only call site.
 
 | React / Tailwind | Compiles to | Probe | gpui / `crowbar-ui` | Oracle |
 |---|---|---|---|---|
@@ -99,7 +99,7 @@ Two things were measured while getting the fixture right, and both are general:
    **still wrapped**: `U+002D` is line-break class `HY`. Measured: the box came
    back 33px against 16.5, exactly two lines. *"Unbreakable" means no spaces
    **and** no hyphens*, which is stronger than the brief states and stronger than
-   what `callout-node`'s single-word fixture satisfied by accident.
+   what a single-word fixture satisfies by accident.
 
 2. **gpui wraps an over-long unbreakable run where WebKit would let it
    overflow.** With `overflow-wrap: normal` and no break opportunity, CSS spills

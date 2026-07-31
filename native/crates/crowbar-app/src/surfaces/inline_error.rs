@@ -118,7 +118,7 @@ impl Params {
 
 /// The `error.message` a content length shows.
 ///
-/// **Every one is a single unbreakable token**, for `callout-node`'s reason: the
+/// **Every one is a single unbreakable token**, for the usual reason: the
 /// sidebar leaves a 246px content box and a wrapped run is uncomparable — the DOM
 /// sums client rects where gpui shapes one line.
 ///
@@ -131,8 +131,8 @@ impl Params {
 /// for the other two, exactly two lines.
 ///
 /// "Unbreakable" therefore means no spaces **and no hyphens**, which is a
-/// stronger condition than the one the brief states and than the one
-/// `callout-node`'s single-word fixture happened to satisfy by accident.
+/// stronger condition than the one the brief states and than the one a
+/// single-word fixture happens to satisfy by accident.
 ///
 /// # The `<p>` cannot clip, so `overflow` here is a wrap test and not a clip test
 ///
