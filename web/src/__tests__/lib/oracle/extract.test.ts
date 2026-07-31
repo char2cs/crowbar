@@ -1796,6 +1796,254 @@ describe('a surface captures its own anchors, not everything under its root', ()
   })
 })
 
+// ── surface scope: the two floated overlays (P3.18) ──────────────────────────
+//
+// `popover` and `select` were the two surfaces still being reduced **by hand**
+// after P2.11 gave the table a home. Both are floated out of the document by
+// Base UI's portal, so a capture rooted at the popup contains the call site's
+// entire sub-UI — for the one live popover a parity run can reach, an avatar,
+// its fallback and three `button`s, which also makes it a duplicate-id document
+// that ANCHORS.md v1.8 refuses outright.
+//
+// The fixtures below are those two trees, at the numbers the live captures
+// produced, with the one property that matters kept intact: foreign anchored
+// content inside the popup, repeated in `select`'s case. Every assertion here is
+// on what a capture *contains*, never on what the table *says* — a test that
+// reads the declaration back passes just as happily against a declaration that
+// filters nothing.
+
+/**
+ * `popover.tsx`'s popup as `repo-icon-popover` renders it: the popup, its
+ * viewport, and the call site's own sub-UI inside that.
+ *
+ * Floated to `812,300` rather than the origin, because §4's bounds are relative
+ * to the root and a fixture pinned at `0,0` cannot tell the two apart.
+ *
+ * `title` adds the `PopoverTitle` a call site may or may not place — the anchor
+ * the surface deliberately does not declare.
+ */
+function mountPopover(options?: { title?: boolean }) {
+  document.documentElement.className = 'dark'
+  const title = options?.title ? `<h2 id="pop-title" data-oracle-id="popover-title"></h2>` : ''
+
+  document.body.innerHTML = `
+    <div id="positioner">
+      <div id="pop" data-oracle-id="popover-popup">
+        <div id="pop-viewport" data-oracle-id="popover-viewport">
+          ${title}
+          <span id="pop-avatar" data-oracle-id="avatar">
+            <span id="pop-avatar-fb" data-oracle-id="avatar-fallback"></span>
+          </span>
+          <button id="pop-b1" data-oracle-id="button"></button>
+          <button id="pop-b2" data-oracle-id="button"></button>
+          <button id="pop-b3" data-oracle-id="button"></button>
+        </div>
+      </div>
+    </div>`
+
+  const at = (id: string) => document.getElementById(id) as HTMLElement
+  const ORIGIN_X = 812
+  const ORIGIN_Y = 300
+  const place = (id: string, x: number, y: number, width: number, height: number) =>
+    stubRect(at(id), { left: ORIGIN_X + x, top: ORIGIN_Y + y, width, height })
+
+  place('pop', 0, 0, 256, 177)
+  place('pop-viewport', 1, 1, 254, 175)
+  if (options?.title) place('pop-title', 17, 17, 222, 24)
+  place('pop-avatar', 100, 56, 56, 56)
+  place('pop-avatar-fb', 100, 56, 56, 56)
+  place('pop-b1', 29, 124, 69, 24)
+  place('pop-b2', 104, 124, 60, 24)
+  place('pop-b3', 170, 124, 70, 24)
+
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(
+    ((_el: Element, pseudo?: string | null) =>
+      ({
+        ...BASE_STYLE,
+        ...(pseudo ? { content: 'none' } : {}),
+      }) as unknown as CSSStyleDeclaration) as typeof window.getComputedStyle,
+  )
+}
+
+/**
+ * `select.tsx`'s popup with `items` options in it — the shape every settings row
+ * produces, and the one where the call site's content repeats.
+ */
+function mountSelect(options?: { items?: number }) {
+  document.documentElement.className = 'dark'
+  const items = options?.items ?? 3
+  let markup = ''
+  for (let i = 0; i < items; i++) {
+    markup += `
+      <div id="opt-${i}" data-oracle-id="select-item">
+        <span id="opt-${i}-ind" data-oracle-id="select-item-indicator"></span>
+        <span id="opt-${i}-txt" data-oracle-id="select-item-text"></span>
+      </div>`
+  }
+
+  document.body.innerHTML = `
+    <div id="sel-trigger" data-oracle-id="select-trigger">
+      <span id="sel-value" data-oracle-id="select-value"></span>
+      <span id="sel-icon" data-oracle-id="select-icon"></span>
+    </div>
+    <div id="sel-positioner">
+      <div id="sel-popup" data-oracle-id="select-popup">
+        <div id="sel-panel" data-oracle-id="select-panel">
+          <div id="sel-list" data-oracle-id="select-list">${markup}</div>
+        </div>
+      </div>
+    </div>`
+
+  const at = (id: string) => document.getElementById(id) as HTMLElement
+  stubRect(at('sel-trigger'), { left: 400, top: 120, width: 224, height: 28 })
+  stubRect(at('sel-value'), { left: 409, top: 124, width: 190, height: 20 })
+  stubRect(at('sel-icon'), { left: 603, top: 126, width: 16, height: 16 })
+  stubRect(at('sel-popup'), { left: 400, top: 152, width: 224, height: 8 + items * 28 })
+  stubRect(at('sel-panel'), { left: 400, top: 152, width: 224, height: 8 + items * 28 })
+  stubRect(at('sel-list'), { left: 401, top: 153, width: 222, height: 6 + items * 28 })
+  for (let i = 0; i < items; i++) {
+    stubRect(at(`opt-${i}`), { left: 405, top: 157 + i * 28, width: 214, height: 28 })
+    stubRect(at(`opt-${i}-ind`), { left: 413, top: 163 + i * 28, width: 16, height: 16 })
+    stubRect(at(`opt-${i}-txt`), { left: 437, top: 161 + i * 28, width: 120, height: 20 })
+  }
+
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(
+    ((_el: Element, pseudo?: string | null) =>
+      ({
+        ...BASE_STYLE,
+        ...(pseudo ? { content: 'none' } : {}),
+      }) as unknown as CSSStyleDeclaration) as typeof window.getComputedStyle,
+  )
+}
+
+describe('the two floated overlays declare their own anchors (P3.18)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+    document.documentElement.className = ''
+  })
+
+  it('drops the call site sub-UI a popover was floated around', () => {
+    mountPopover()
+    const snapshot = extractSnapshot({ surface: 'popover' })
+    const ids = snapshot.anchors.map((a) => a.id)
+
+    expect(ids).toEqual(['popover-popup', 'popover-viewport'])
+    // The load-bearing half: named exclusions, not just a length. `avatar` is
+    // in the document, under the root, and measured by the same walk — it is
+    // absent because the surface does not claim it.
+    expect(ids).not.toContain('avatar')
+    expect(ids).not.toContain('avatar-fallback')
+    expect(ids).not.toContain('button')
+    // §4: relative to the root, which sits at 812,300 in the fixture.
+    expect(snapshot.root).toBe('popover-popup')
+    expect(snapshot.anchors[0].bounds).toEqual({ x: 0, y: 0, w: 256, h: 177 })
+    expect(snapshot.anchors[1].bounds).toEqual({ x: 1, y: 1, w: 254, h: 175 })
+  })
+
+  it('and the control: the identical tree, undeclared, still walks all of it', () => {
+    // Without this the assertion above proves only that *something* came back
+    // with two entries. Same DOM, same code, no declaration.
+    mountPopover()
+    const ids = extractSnapshot({
+      surface: 'repo-icon-popover',
+      root: 'popover-popup',
+    }).anchors.map((a) => a.id)
+
+    expect(ids).toContain('avatar')
+    expect(ids).toContain('avatar-fallback')
+    // The duplicate-id document v1.8 refuses, which is what forced the hand
+    // reduction in the first place.
+    expect(ids.filter((id) => id === 'button')).toHaveLength(3)
+    expect(ids.length).toBeGreaterThan(2)
+  })
+
+  it('captures the same two anchors whether or not the call site places a title', () => {
+    // `popover-title` is deliberately **not** declared: it renders only where a
+    // call site writes `<PopoverTitle>`, exactly as `resizable`'s grip renders
+    // only under `withHandle`. Declaring it would make the loud-missing rule
+    // refuse the titleless popover above — the only one a parity run can reach —
+    // and this pair is what says so in both directions.
+    mountPopover({ title: true })
+    const withTitle = extractSnapshot({ surface: 'popover' }).anchors.map((a) => a.id)
+
+    expect(withTitle).toEqual(['popover-popup', 'popover-viewport'])
+    expect(withTitle).not.toContain('popover-title')
+
+    // And it really is in the document — the walk found it and the scope
+    // dropped it, rather than the fixture never having rendered one.
+    expect(document.querySelectorAll('[data-oracle-id="popover-title"]')).toHaveLength(1)
+  })
+
+  it('drops the repeated items a select popup was floated around', () => {
+    mountSelect()
+    const snapshot = extractSnapshot({ surface: 'select' })
+    const ids = snapshot.anchors.map((a) => a.id)
+
+    expect(ids).toEqual(['select-popup', 'select-panel', 'select-list'])
+    expect(ids).not.toContain('select-item')
+    expect(ids).not.toContain('select-item-indicator')
+    expect(ids).not.toContain('select-item-text')
+    expect(snapshot.root).toBe('select-popup')
+  })
+
+  it('and the control: undeclared, the same popup is a duplicate-id document', () => {
+    mountSelect()
+    const ids = extractSnapshot({ surface: 'theme-select', root: 'select-popup' }).anchors.map(
+      (a) => a.id,
+    )
+
+    expect(ids.filter((id) => id === 'select-item')).toHaveLength(3)
+    expect(ids.filter((id) => id === 'select-item-text')).toHaveLength(3)
+  })
+
+  it('reports one anchor list for a one-item popup and a nine-item one', () => {
+    // The whole claim, stated as the property it is: the set belongs to the
+    // surface, so the cell cannot move it. A declaration that included
+    // `select-item` would fail this at nine and pass at one.
+    mountSelect({ items: 1 })
+    const one = extractSnapshot({ surface: 'select' }).anchors.map((a) => a.id)
+    vi.restoreAllMocks()
+
+    mountSelect({ items: 9 })
+    const nine = extractSnapshot({ surface: 'select' }).anchors.map((a) => a.id)
+
+    expect(one).toEqual(nine)
+    expect(nine).toEqual(['select-popup', 'select-panel', 'select-list'])
+  })
+
+  it('pins each overlay to its own root, so two captures cannot disagree', () => {
+    mountPopover()
+    expect(() => extractSnapshot({ surface: 'popover', root: 'popover-viewport' })).toThrow(
+      /is rooted on "popover-popup", not on "popover-viewport"/,
+    )
+    vi.restoreAllMocks()
+
+    mountSelect()
+    // `select-trigger` is a real anchor on `select.tsx` and is not reachable
+    // from this surface: `SelectPopup` renders inside a `SelectPrimitive.Portal`
+    // and the popup is not a descendant of the trigger. The refusal names it
+    // rather than the capture coming back short.
+    expect(() => extractSnapshot({ surface: 'select', root: 'select-trigger' })).toThrow(
+      /is rooted on "select-popup", not on "select-trigger"/,
+    )
+  })
+
+  it('still refuses a popup missing an anchor its surface declares', () => {
+    // The narrowing must not have bought silence: drop `select-panel` and the
+    // capture is refused, not quietly two anchors long.
+    mountSelect()
+    const panel = document.getElementById('sel-panel') as HTMLElement
+    panel.removeAttribute('data-oracle-id')
+
+    let snapshot: OracleSnapshot | undefined
+    expect(() => {
+      snapshot = extractSnapshot({ surface: 'select' })
+    }).toThrow(/declares the anchor\(s\) select-panel, and the document has none/)
+    expect(snapshot).toBeUndefined()
+  })
+})
+
 // ── injectability ────────────────────────────────────────────────────────────
 
 describe('extractSnapshotSource', () => {
