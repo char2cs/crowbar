@@ -1,4 +1,45 @@
-# The anchor snapshot contract — v1
+# The anchor snapshot contract — v1.1
+
+> **v1.1 — 2026-07-30.** Ten ambiguities, all found by the differ implementation
+> (P1.3) while building against v1. Every one of them is a place where the two
+> extractors could have disagreed silently, which is the exact failure this file
+> exists to prevent. `schema` stays **1** — the wire shape is unchanged; these
+> are clarifications, not a format break.
+>
+> | # | Question | Resolution |
+> |---|---|---|
+> | 1 | `radius` / `border.w` had no tolerance | `radius` **±0.5**. `border.w` **exact** — ±0.5 on a 1.0px border is a 50% error and plainly visible. Loosen only with a measurement, per §5. |
+> | 2 | `#rrggbbaa` or `#rrggbb`? | **Always 8 digits.** 6 is rejected. The only alpha to invent is `ff`, at which point "opaque" and "the extractor forgot alpha" become indistinguishable. |
+> | 3 | `state` had no schema or vocabulary | Fixed below. **The vocabulary matters most**: one side emitting `"dark"` and the other `"Dark"` makes *every* comparison refuse. |
+> | 4 | Must `root` be in `anchors`, at the origin? | **Yes, both — a load error.** An extractor emitting window coordinates would offset every anchor by a constant, which is precisely what §4 exists to prevent. Skipped when `anchors` is empty. |
+> | 5 | Is the text group all-or-nothing? | A partial group is a **`FieldPresence` delta**, not a load error — visible and ranked, rather than swallowed or fatal. |
+> | 6 | What does a consumer do with an unknown field? | **Hard failure**, document and anchor level. An extractor that ships a field early breaks the differ outright, which is the intended pressure. |
+> | 7 | `font.weight` range | Accept **1–1000** (the CSS range), not 100–900. A legitimate variable-font weight must not fail to *load*; our own tokens stay on the 100s. |
+> | 8 | `schema` negotiation | Reject anything but `1`. |
+> | 9 | Nothing stopped a zero-anchor "pass" | **Refuse an empty comparison** (exit 2) unless explicitly asked for. "0 deltas over 0 anchors" reading as PASS is the cheapest possible fake convergence. |
+> | 10 | `--report` argument shape | Exactly two paths: reference, then native. A corpus-directory sweep is a different shape and is deferred to Phase 5. |
+
+## `state` — the fixed schema and vocabulary (v1.1)
+
+Exactly these four keys, no more:
+
+| Key | Type | Permitted values |
+|---|---|---|
+| `width` | integer | logical px |
+| `theme` | string | `light` \| `dark` |
+| `content` | string | `short` \| `normal` \| `overflow` |
+| `flags` | string[] | subset of `empty`, `loading`, `error`, `hover`, `focus`, `selected` |
+
+`flags` is a **set**: sorted on load, duplicates rejected. `["selected","hover"]`
+and `["hover","selected"]` are the same matrix cell, and refusing to compare
+them would be a false alarm that trains a reader to ignore refusals.
+
+These values map 1:1 onto §8.3's matrix — ≥3 widths × light/dark × 3 content
+lengths × the state flags. Lowercase throughout, no synonyms.
+
+---
+
+# The contract
 
 Spec §8.1 (D8). **This file is the contract.** Three independent implementations
 must agree on it byte-for-byte in meaning:
@@ -139,6 +180,8 @@ pixels would make the diff DPR-dependent for no gain.
 | `font.size`, `line_height` | ±0.5 px |
 | `font.weight` | exact |
 | `text`, `clipped`, `visible` | exact |
+| `radius` | ±0.5 px *(v1.1)* |
+| `border.w` | **exact** *(v1.1)* — a ±0.5 tolerance on a 1.0px border is a 50% error |
 
 > **Loosening a tolerance is a recordable event.** These are the *starting*
 > values. Phase 1 may change them, but a loosened tolerance is the single
