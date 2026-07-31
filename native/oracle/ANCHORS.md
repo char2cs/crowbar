@@ -295,9 +295,55 @@ states is meaningless and would be the easiest possible way to fake convergence.
 | `text_width` | Rendered advance width of `text` in px, **unclipped**. | if it paints text |
 | `clipped` | Whether the text is visually truncated in this box. | if it paints text |
 | `font` | `size` px, `weight` 100–900 numeric, `family` resolved first family, `line_height` px. | if it paints text |
-| `visible` | Actually painted: not `display:none`, not `visibility:hidden`, non-zero area, not fully clipped by an ancestor. | yes |
+| `visible` | Actually painted: not `display:none`, not `visibility:hidden`, **zero opacity on the element or any ancestor** *(v1.7)*, non-zero area, not fully clipped by an ancestor. | yes |
 | `radius` | Corner radius px. Single value; if corners differ, emit the top-left and note it. | no |
 | `border` | Width px + colour. | no |
+
+### `visible` and opacity — the two sides implemented different fields *(v1.7)*
+
+Found by P2.3 while porting `sidebar-carousel`, by reading both extractors rather
+than by a failing run — which is why it is worth spelling out.
+
+Until now this table said `visible` meant "not `display:none`, not
+`visibility:hidden`, non-zero area, not fully clipped". **It said nothing about
+opacity**, and the two implementations diverged inside that silence:
+
+| | opacity term |
+|---|---|
+| `web/src/lib/oracle/extract.ts` `oracleIsVisible` | **yes** — `parseFloat(style.opacity) === 0` on the element *and* on every ancestor |
+| `crowbar-driver` `is_visible` | **none.** `grep -c opacity crates/crowbar-driver/src/` is `0` |
+
+Neither was wrong against the contract, because the contract had not decided.
+That is the failure mode this document exists to prevent: two independent
+implementations agreeing on the words and disagreeing on the field.
+
+**DECIDED: opacity participates.** The row's own first words are "Actually
+painted", and an element at `opacity: 0` paints nothing. The React side already
+reads it that way, and the alternative — deleting the check to match the driver —
+would make `visible` report `true` for something a user cannot see, which is the
+useless direction to resolve an ambiguity in.
+
+**This is not academic.** `NavStack` puts `opacity-0 -translate-x-1/4
+pointer-events-none` on exactly the layer that holds the sidebar carousel
+whenever a nav screen is pushed. A cell driven in that state has every anchor
+reporting `visible: false` on the React side and `true` on the native side — a
+delta on every anchor, whose cause is the contract rather than the port.
+
+`crowbar-driver` therefore has to grow an opacity term. Until it does, **no cell
+may be driven with a non-opaque ancestor**, and that restriction is recorded in
+`corpus/` rather than trusted to memory.
+
+### A related asymmetry, latent, NOT resolved here *(v1.7)*
+
+Also from P2.3, also unresolved rather than quietly patched: `oracleIsVisible`
+clips against an ancestor's **border box** (`getBoundingClientRect()`), while CSS
+clips at the **padding box** and gpui's `overflow_mask` subtracts border widths —
+and only when `border_color` is set and non-transparent.
+
+A bordered scroll ancestor therefore makes the two disagree by the border width.
+Nothing in the tree has one today, so this is latent and no cell can currently
+hit it. It is written down so that the day something does, the cause is one grep
+away instead of a week of bisecting a "port bug" that is not one.
 
 ### An anchor may be **both** a painted box and a text run *(clarified v1.4)*
 
