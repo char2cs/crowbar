@@ -2647,6 +2647,47 @@ so Plate renders **byte-identically** — the spec calls that "the strongest
 possible form of parity". Hand-porting it is strictly worse than the thing
 already chosen.
 
+### §6.2 — WRAP these, do not rebuild them
+
+> "Where `gpui-component` provides an equivalent (**dock, resizable, tree,
+> virtual_list, table, dialog, popover, combobox, menu, context_menu,
+> native_menu, sidebar, sheet, select, slider, switch, focus_trap, title_bar,
+> form**), we **wrap it** rather than use it directly, so the `gpui-component`
+> upgrade surface is confined to one crate."
+
+§4.2 says the same thing about the crate itself: `crowbar-ui` is *"design system:
+`Theme`, token newtypes, **primitives over `gpui-component`**"*.
+
+**Audit, 2026-07-31.** Only **1 of 27** ported components imports
+`gpui_component`. Against the named list that is **2 real violations**:
+
+| ported | should have been |
+|---|---|
+| `resizable` | a wrapper over `gpui-component`'s `resizable` |
+| `switch` | a wrapper over `gpui-component`'s `switch` |
+
+Both converge at **0 deltas**, and the stated purpose — confining the upgrade
+surface to one crate — is met either way, since a hand-built component does not
+depend on `gpui-component` at all. **Recorded as a deviation rather than
+rewritten**; rework buys no parity. Reversible if the upgrade-surface argument
+matters more than it appears to.
+
+The other 25 are **not** on the named list (`button`, `badge`, `avatar`,
+`checkbox`, `input`, `label`, `kbd`, `separator`, `skeleton`, `spinner`, `tabs`,
+`card`, `inline-error`, the marks and toggle icons), so building them was
+correct.
+
+**Nine of the remaining 23 are on the wrap list and must be wrapped:**
+`context-menu` · `dialog` · `popover` · `select` · `sheet` · `sidebar` ·
+`slider` · `table-icons` · `tree-row`
+
+Note `context-menu` also falls under the user's native-menus ruling — it should
+reach `native_menu`, not a pixel port.
+
+Four more touch fuzzy matching, where §10.1 says use Zed's **`fuzzy_nucleo`** for
+the *algorithm* even though the component still needs building: `autocomplete`,
+`command`, `inline-combobox`, `search`.
+
 ### Never hand-built — an existing Rust implementation is specified (§10.1, §5.2)
 
 | Need | Use | Do NOT |
