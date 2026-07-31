@@ -115,6 +115,38 @@ Recorded so the next session spends its time on the one thing that works
 The last row is the one worth understanding: it is not that it is hard, it is
 that it would no longer be the reference.
 
+## The residual is smaller than "two of six flags" — measured 2026-07-31
+
+Checked live on the reference, because the earlier phrasing overstated what is
+actually missing on the **gate surface** (`git-status-row`, the 9 anchors §16
+names).
+
+```
+git-row-item : closest('.file-tree-container') === null , button outline: none
+file-row-item: closest('.file-tree-container') !== null
+hover rule   : ".file-tree-item:hover::before { background: var(--file-tree-hover-bg) }"
+               — UNSCOPED, so it reaches the git panel too
+```
+
+Consequences, per flag, on the gate surface:
+
+| flag | status on `git-status-row` |
+|---|---|
+| `empty` / `loading` / `error` | do not exist — container states, not row states |
+| `focus` | **provably vacuous.** `:focus-visible` is scoped to `.file-tree-container`, the git row is not inside it, and its button is `outline: none`. Nothing can paint. Native already measured byte-identical to resting. |
+| `selected` | vacuous here (no live consumer passes `active`) — which is why `file-tree-row` was built, and it **converged exactly** there |
+| `hover` | **the one genuinely unobserved cell** |
+
+And `hover` is not wide open either: the rule that governs it is unscoped, so the
+same CSSOM resolution applies — `#ffffff07`, exactly what native paints. What
+that cannot establish is the *paint*, and strictly the geometry under hover —
+though the rule sets only a `background-color` on an `::before` that is already
+`position:absolute; inset:0`, which cannot move a box.
+
+So the honest residual is **one cell, whose colour is resolved and matching**,
+not two flags wide open. It is still not an observation, and it is still not
+counted as a pass.
+
 ## Why this does not void the Phase 1 gate
 
 The STOP gate asks whether the driver and the anchored-geometry oracle *converge*
