@@ -473,6 +473,7 @@ mod tests {
                 "label",
                 "loading-spinner",
                 "native-menu",
+                "popover",
                 "resizable",
                 "search-toggle-icons",
                 "separator",

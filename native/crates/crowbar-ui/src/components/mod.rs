@@ -114,8 +114,25 @@ pub mod input;
 // mistake `ANCHORS.md` v1.6 warns about.
 pub mod kbd;
 pub mod label;
+// The two P3.15 wraps are unflattened for the same reason as the rest, and one
+// sharper one: they are the first components whose behaviour comes from
+// `gpui-component`, so their vocabularies are *two* systems' at once.
+// `popover::ID_POPUP` and `dropdown_menu::ID_POPUP` are two different boxes
+// under one spelling — one bordered, one ringed — which is the border trap and
+// its inverse sitting two modules apart. `select::Size` and `select::Breakpoint`
+// would collide with `input`'s and `button`'s outright, and `select::Variant`
+// with `dropdown_menu`'s `RowVariant` neighbours. A bare `BORDER_WIDTH` meaning
+// `popover`'s 1, `switch`'s 0 or `checkbox`'s 1 is exactly the mistake
+// `ANCHORS.md` v1.6 warns about.
+//
+// **`select` carries no surface**, and that is the item's finding rather than an
+// omission: every box `select.tsx` styles is built inside `gpui-component` and
+// `AnchorSink` takes a `Div` this crate holds. Its module docs and
+// `native/mapping/select.md` carry the account.
+pub mod popover;
 pub mod resizable;
 pub mod search_toggle_icons;
+pub mod select;
 pub mod separator;
 pub mod sidebar_toggle_icon;
 pub mod skeleton;
