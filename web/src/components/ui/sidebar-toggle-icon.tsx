@@ -34,6 +34,13 @@ export function SidebarToggleIcon({ className, ...props }: SidebarToggleIconProp
       strokeLinecap="round"
       strokeLinejoin="round"
       xmlns="http://www.w3.org/2000/svg"
+      // Neither declaration, and both for the same reason as the box above:
+      // `size-4` *authors* 16px on both axes, so the width is not a content
+      // width (`native/oracle/ANCHORS.md` v1.5) and the height is not a line box
+      // (v1.6 — this element paints no text at all). The stroke is invisible to
+      // the contract: `stroke`/`stroke-width` have no field, and `fg` is emitted
+      // only for an element with its own text nodes. The anchor pins the box.
+      data-oracle-id="sidebar-toggle-icon"
       {...props}
     >
       {/* panel */}

@@ -62,6 +62,16 @@ mod sidebar_tree;
 pub mod avatar;
 pub mod badge;
 pub mod button;
+// The four P3.8 icon and brand primitives are unflattened for the same reason as
+// the rest: each carries its own `ID_*`, `CONTENT_SIZED` and `LINE_SIZED`, and
+// three of them carry a `CallSite` that names a different bundle on a different
+// component. `crowbar_mark::CallSite::None` and `sidebar_toggle_icon::CallSite::None`
+// are two different pictures, and a bare `CallSite` would say which of them
+// nowhere. `search_toggle_icons::WEIGHT` would collide with `kbd::WEIGHT` and
+// `label::WEIGHT` outright, and `sidebar_toggle_icon::EXTENT` reads as a number
+// belonging to no component at all without its module in front of it.
+pub mod crowbar_mark;
+pub mod crowbar_wordmark;
 pub mod dropdown_menu;
 pub mod file_tree_row;
 pub mod git_status_row;
@@ -83,7 +93,9 @@ pub mod input;
 pub mod kbd;
 pub mod label;
 pub mod resizable;
+pub mod search_toggle_icons;
 pub mod separator;
+pub mod sidebar_toggle_icon;
 pub mod skeleton;
 // The three P3.7 spinners are unflattened for the same reason as the rest, and
 // one further one: they are a *family*, so every short name in them exists three
