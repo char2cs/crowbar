@@ -11,6 +11,7 @@ export function Tabs({ className, ...props }: TabsPrimitive.Root.Props): React.R
     <TabsPrimitive.Root
       className={cn('flex flex-col gap-2 data-[orientation=vertical]:flex-row', className)}
       data-slot="tabs"
+      data-oracle-id="tabs"
       {...props}
     />
   )
@@ -35,6 +36,7 @@ export function TabsList({
         className,
       )}
       data-slot="tabs-list"
+      data-oracle-id="tabs-list"
       {...props}
     >
       {children}
@@ -46,6 +48,7 @@ export function TabsList({
             : '-z-1 rounded-lg border border-background bg-background shadow-xs shadow-black/10 inset-shadow-[0_1px_--theme(--color-white/16%)]',
         )}
         data-slot="tab-indicator"
+        data-oracle-id="tab-indicator"
       />
     </TabsPrimitive.List>
   )
@@ -59,6 +62,7 @@ export function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props): React
         className,
       )}
       data-slot="tabs-tab"
+      data-oracle-id={`tabs-tab-${String(props.value)}`}
       {...props}
     />
   )
@@ -69,6 +73,7 @@ export function TabsPanel({ className, ...props }: TabsPrimitive.Panel.Props): R
     <TabsPrimitive.Panel
       className={cn('flex-1 outline-none', className)}
       data-slot="tabs-content"
+      data-oracle-id={`tabs-content-${String(props.value)}`}
       {...props}
     />
   )
