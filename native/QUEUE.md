@@ -1033,10 +1033,58 @@ before any of them so three independent implementations cannot quietly diverge.
 | Item | Branch | Owns | Notes |
 |---|---|---|---|
 | **P1.1** React extractor | `native/p1.1-react-extractor` | the 9 `data-oracle-id` tags + `web/src/lib/oracle/**` | **in flight** · sent the v1.1 delta |
-| **P1.2** GPUI extractor | `native/p1.2-gpui-extractor` | `crowbar-driver/**` | **in flight** · the riskiest item, carries the STOP-GATE note · sent the v1.1 delta |
+| **P1.2** GPUI extractor | `native/p1.2-gpui-extractor` | `crowbar-driver/**` | merged `03fb0732` · **STOP-GATE risk retired** · my clippy pass green; tests + coverage still running |
 | **P1.3** oracle differ | `native/p1.3-oracle-differ` | `native/oracle/src/**` | ✅ **done** — merged `5fcec61c`, gates re-run by me |
 | **P1.4** sealed tokens | `native/p1.4-sealed-tokens` | `crowbar-ui/**`, `check-invariants.sh` | ✅ **done** — merged `60823648`, rule 4 adversarially re-tested by me |
 | **P1.5** native row | `native/p1.5-native-row` | `crowbar-ui/src/components/**`, `crowbar-app/src/**` | **in flight** — dispatched once P1.4's tokens existed, so it cannot be written against literals |
+
+#### P1.2 — the GPUI extractor ✅ merged · **the STOP-GATE risk is retired**
+
+The item most likely to void the spec. **It works, with no fork of
+`native/vendor/` and no architectural blocker.** 100% line coverage (1134
+lines), 99.83% regions, 63 tests.
+
+GPUI has no post-hoc tree walk and nothing "computed" to read, so the extractor
+**participates in the element lifecycle** instead of inspecting it: `anchor()` /
+`anchor_root()` / `anchor_text()` are transparent wrappers that return their
+child's `LayoutId` from `request_layout`, so GPUI hands them the child's own
+bounds at `prepaint`.
+
+Three deliberate choices keep "the driver must not alter rendering" true, and
+each is subtle enough to be worth recording:
+
+- `Element::id()` returns `None` — an id would push a `GlobalElementId` and
+  **shift every descendant's element-state path**.
+- No taffy node of its own. Proven, not asserted: a nested test checks the child
+  lands at exactly parent padding + border, which only holds if nothing was
+  inserted into the layout tree.
+- The registry is read through `try_global`, not `global_mut`, because the
+  latter pushes `NotifyGlobalObservers`.
+
+**A real snapshot from the running binary**, with genuine Helvetica shaping:
+
+```
+"id": "narrow-label", "bounds": {"x":8,"y":44,"w":90,"h":21},
+"text": "resolve-terminal-connection.ts",
+"text_width": 173.405, "clipped": true
+```
+
+A 173.4px string in a 90px box. **That is exactly the truncation-point
+disagreement `bounds` alone cannot see**, and it is why the contract carries
+`text_width` at all. The mechanism is doing the job it was designed for.
+
+One colour detail worth keeping: GPUI's `impl From<Rgba> for u32` uses
+`(c * 255.0) as u32`, which **truncates** — a channel returning from the HSL
+round-trip as `0.99999994` becomes 254, not 255. The float→float half is GPUI's
+(so we report what GPUI actually paints); the float→`u8` half is ours and
+rounds. Tested across every grey level and a stride of the whole RGB cube.
+
+> **Integration debt, flagged by the worker rather than hidden.** Its test
+> surface `crowbar-app/src/driver_surface.rs` fails rule 4 — it constructs
+> colours with `rgb(…)`, because it branched before the sealed tokens existed.
+> It explicitly did **not** dodge the check with something like `gpui::blue()`,
+> which would have passed the letter and defeated the intent. Routed to P1.5,
+> which already owns `crowbar-app/src/**`; a second worker there would collide.
 
 #### P1.3 — the differ ✅ merged
 
