@@ -76,8 +76,19 @@ func readSnapshot(
 	conn *websocket.Conn,
 ) map[string]any {
 	t.Helper()
+	// A FAILURE BOUND, not a wait: every caller quiesces the projections first,
+	// so the frame is already sitting there and this deadline is never reached
+	// on a correct run — it does not slow the suite down and it is not a poll.
+	// It exists because the alternative is unbounded. Without it a snapshot that
+	// never arrives blocks ReadMessage forever, and Go kills the entire PACKAGE
+	// on the 4m timeout: every other test in it is reported as failed, the only
+	// clue is a goroutine dump, and the actual culprit is one line of
+	// "running tests:" buried in it. That is precisely how this presented in CI.
+	// Bounded, the same bug names itself in 10s.
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(10*time.Second)))
 	_, msg, err := conn.ReadMessage()
-	require.NoError(t, err)
+	require.NoError(t, err, "no snapshot frame within 10s — the projection the "+
+		"snapshot is built from had not settled, or nothing matched the scope predicate")
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(msg, &got))
 	return got
@@ -122,6 +133,14 @@ func TestSnapshot_Workspaces_DeliveredOnConnect(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	// Read-your-writes before subscribing. Create/Sync go through the ASYNC Send
+	// path, so the list read model the snapshot is built from settles out of
+	// band; dialling straight after the mutation races it. Lose that race and
+	// the snapshot carries nothing, readSnapshot blocks on a frame that will
+	// never come, and the whole PACKAGE dies on the 4m test timeout rather than
+	// this one test failing — which is exactly how it presented in CI.
+	tc.app.Repositories.WaitQuiescent()
+
 	_, srv := serveV0(t, tc.app, tc.eng)
 	conn := dialV0(t, srv, "/v0/projects/p1/repos/r1/workspaces")
 
@@ -155,6 +174,10 @@ func TestSnapshot_Workspaces_ScopePredicateFilters(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	// See TestSnapshot_Workspaces_DeliveredOnConnect: settle both projections
+	// before subscribing. This is the test that actually hung CI for 3m55s.
+	tc.app.Repositories.WaitQuiescent()
+
 	_, srv := serveV0(t, tc.app, tc.eng)
 	conn := dialV0(t, srv, "/v0/projects/p2/repos/r2/workspaces")
 
@@ -185,6 +208,12 @@ func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	// Settle the projections before subscribing (see
+	// TestSnapshot_Workspaces_DeliveredOnConnect). Doubly required here: the
+	// scope guard below reads the same read model, so losing the race rejects
+	// the upgrade rather than merely emptying the snapshot.
+	tc.app.Repositories.WaitQuiescent()
+
 	// The URL scope must match workspace A's actual repo (rA): the scope guard
 	// now rejects a :wsId that does not belong to the :repoId in the path.
 	_, srv := serveV0(t, tc.app, tc.eng)
@@ -214,6 +243,11 @@ func TestSnapshot_LSP_DeliveredOnConnect(t *testing.T) {
 		Engine: tc.eng.LSP,
 		diags:  map[string][]lspdomain.Diagnostic{"w1": {{Message: "boom"}}},
 	}
+
+	// Settle the projections before subscribing (see
+	// TestSnapshot_Workspaces_DeliveredOnConnect); the wsId scope guard on this
+	// route reads the workspace read model too.
+	tc.app.Repositories.WaitQuiescent()
 
 	_, srv := serveV0(t, tc.app, tc.eng)
 	conn := dialV0(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/lsp/ws")
