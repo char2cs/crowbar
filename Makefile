@@ -10,6 +10,19 @@ export CARGO_HOME := $(HOME)/.cargo
 # pin the ~/.crowbar default and must run without the override.
 dev dev-api dev-web dev-desktop dev-bundle seed: export CROWBAR_HOME ?= $(CURDIR)/.crowbar
 
+# Which worktree launched this dev instance. Debug builds put it in the window
+# title (see apply_dev_window_title in desktop/src-tauri/src/lib.rs) so that the
+# several dev apps running on one machine — one per worktree, all of them a
+# `target/debug/crowbar-desktop` window called "Crowbar" — can be told apart.
+#
+# Asked of THIS Makefile's directory, not the caller's: git answers a question
+# about a directory outside a worktree with whichever repository ENCLOSES it, so
+# a `make -f .../Makefile` run from elsewhere would confidently label the window
+# with a stranger's branch. Empty output (no git, not a repo) is fine — the
+# window keeps its plain "Crowbar" title rather than a half-filled one.
+crowbar_root := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+dev dev-api dev-web dev-desktop dev-bundle: export CROWBAR_DEV_LABEL ?= $(shell git -C $(crowbar_root) rev-parse --abbrev-ref HEAD 2>/dev/null)
+
 # Parallel dev: starts all three subsystems
 dev:
 	@$(MAKE) dev-api & $(MAKE) dev-web & $(MAKE) dev-desktop & wait

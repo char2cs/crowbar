@@ -256,6 +256,63 @@ fn apply_dev_app_icon() {
     log::info!("dev build: Dock icon set to badged dev artwork");
 }
 
+/// The title a debug build wears, or `None` when there is nothing to say.
+///
+/// A blank label is not a small defect to paper over with an empty interpolation:
+/// `Crowbar — dev: ` claims to name a worktree and then names none, which is
+/// worse than the plain title, because it looks like the answer. So an absent,
+/// empty or whitespace-only label degrades all the way back to the configured
+/// "Crowbar" rather than part of the way.
+#[cfg(debug_assertions)]
+fn dev_window_title(label: &str) -> Option<String> {
+    let label = label.trim();
+    (!label.is_empty()).then(|| format!("Crowbar — dev: {label}"))
+}
+
+/// Name the worktree a debug build was launched from, in its window title.
+///
+/// Same motivation as [`apply_dev_app_icon`], one notch finer. Badged artwork
+/// separates dev from production, but not one dev instance from another — and
+/// several agents run `make dev-desktop` on this machine at once, each out of a
+/// different git worktree of this repo. Every one of them is a
+/// `target/debug/crowbar-desktop` showing a window called "Crowbar", so an agent
+/// asked to clean up *its own* app has nothing to match on and has already taken
+/// down someone else's session by guessing. A branch is the one label that is
+/// unique per worktree — git refuses to check the same one out twice — which is
+/// what makes it worth putting in the title.
+///
+/// The label arrives through `CROWBAR_DEV_LABEL`, exported by the dev targets in
+/// the root Makefile, instead of being resolved here. That Makefile knows which
+/// worktree it is; this process only knows a working directory, which under
+/// `tauri dev` is `desktop/src-tauri` — inside the tree today, but nothing holds
+/// it there, and asking git from the wrong directory answers for whichever
+/// repository happens to enclose it.
+///
+/// Unlike the Dock icon this needs no `RunEvent::Ready`: tauri builds the
+/// config-declared windows before `setup()` runs and never revisits their titles,
+/// so `setup` is simply the first moment "main" exists to be renamed.
+///
+/// Best-effort, like the icon: a window that cannot rename itself is still a
+/// perfectly good window.
+#[cfg(debug_assertions)]
+fn apply_dev_window_title(app: &tauri::App) {
+    let Some(title) = std::env::var("CROWBAR_DEV_LABEL")
+        .ok()
+        .and_then(|label| dev_window_title(&label))
+    else {
+        return;
+    };
+
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+
+    match window.set_title(&title) {
+        Ok(()) => log::info!("dev build: window titled {title:?}"),
+        Err(e) => log::warn!("dev build: could not set window title: {e}"),
+    }
+}
+
 // Injected into the webview at document-start on every page load (including full
 // reloads), before any frontend JS runs. It sets the API base the frontend
 // resolves against (`api.ts` / `ws/url.ts`). Doing this as an init script rather
@@ -931,6 +988,11 @@ pub fn run() {
                 decorate_window(&window);
             }
 
+            // Say which worktree this instance came out of. See
+            // apply_dev_window_title for why setup is early enough.
+            #[cfg(debug_assertions)]
+            apply_dev_window_title(app);
+
             // Spawn the Go daemon sidecar on the unix socket.
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = sidecar::spawn(&app_handle, socket).await {
@@ -1162,5 +1224,32 @@ mod seed_hash_script_tests {
         let decoded: String =
             serde_json::from_str(literal).expect("literal must be valid JSON/JS string syntax");
         assert_eq!(decoded, route);
+    }
+}
+
+#[cfg(all(test, debug_assertions))]
+mod dev_window_title_tests {
+    use super::dev_window_title;
+
+    /// The whole point of the title: an agent reading it can tell this instance
+    /// from the other dev instances on the machine.
+    #[test]
+    fn a_branch_name_becomes_the_title() {
+        assert_eq!(
+            dev_window_title("feature/crowbar-skill").as_deref(),
+            Some("Crowbar — dev: feature/crowbar-skill")
+        );
+    }
+
+    /// `CROWBAR_DEV_LABEL` is a `$(shell git ...)` in the Makefile, so "git
+    /// failed" arrives as the empty string rather than as an unset variable —
+    /// and `$(shell)` output that came back on its own line arrives with
+    /// whitespace. Both must fall all the way back to the configured title:
+    /// dropping the emptiness check turns them into `Crowbar — dev: `, a title
+    /// that looks like it identifies a worktree and does not.
+    #[test]
+    fn a_label_git_could_not_produce_falls_back_to_the_plain_title() {
+        assert_eq!(dev_window_title(""), None);
+        assert_eq!(dev_window_title("   \n"), None);
     }
 }
