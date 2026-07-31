@@ -39,3 +39,7 @@ api/docs/superpowers/
 desktop/src-tauri/icons/Assets.car
 desktop/src-tauri/icons/crowbar.icns
 desktop/icons-compiler/.build/
+
+# Rust-native port build artifacts
+native/target/
+native/vendor/target/

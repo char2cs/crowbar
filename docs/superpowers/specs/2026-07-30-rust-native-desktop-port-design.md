@@ -697,6 +697,38 @@ to a SHA.** Zed's churn then reaches us only when we choose to take it.
 > Xcode 17 does not install by default (`xcodebuild -downloadComponent
 > MetalToolchain`, 688 MB). Absent it, `build.rs` fails with *"cannot execute
 > tool 'metal'"*. It **is** present on this machine.
+>
+> ---
+>
+> **RESOLVED by item 0.2 — Config 2 (vendored subtree). Config 1 was tried and
+> does not compile.**
+>
+> `gpui = "0.2.2"` **resolves** cleanly and is self-contained (its support crates
+> ship as published `gpui_collections`, `gpui_sum_tree`, `gpui_util`, … at
+> `^0.2.2`). It simply will not build against `gpui-component`:
+> **338 errors across 75 source files** — 139 × `E0599` (`Pixels::as_f32` alone
+> at 86 call sites), 56 × `E0308`, 54 × `E0061` arity changes, 33 unresolved
+> imports. The decisive one is structural, not drift: **the platform layer has
+> moved out of `gpui` into `gpui_platform`/`gpui_macos`/`gpui_linux`/…**, so
+> `gpui_platform::application()` does not exist at 0.2.2 at all.
+>
+> **My `[patch.crates-io]` warning above was wrong, and the worker was right to
+> check rather than accept it.** Cargo honours `[patch]` only from the
+> **top-level workspace manifest**; a dependency's own patch table is ignored.
+> The livekit/libwebrtc fetches observed in §10.6's audit happen when building
+> *inside Zed's checkout*, where Zed's manifest **is** the root. Verified against
+> our own lock: `livekit`, `libwebrtc`, `webrtc-sys`, `libyuv` are **absent
+> entirely**; `async-process`, `async-task`, `calloop`, `notify`,
+> `notify-types`, `windows-capture` all resolve from **upstream crates.io**.
+> **Zero of the ten forks adopted.**
+>
+> Four Zed-forked git deps *are* in the lock — `font-kit`, `reqwest`, `scap`,
+> `xim-rs` (plus `proptest`), all rev-pinned. Note `font-kit` is a **default
+> feature and sits in the macOS dependency block**, so it does build here.
+>
+> **Re-pin check:** step 8 of `native/vendor/PINNED.md` re-runs the Config 1
+> compile. The day it returns zero errors, `native/vendor/` can be deleted in
+> favour of a plain version pin.
 
 ### 10.6 Zed extractability audit — Phase 0
 

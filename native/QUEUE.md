@@ -561,9 +561,30 @@ carry it. (This is expected in hindsight: crates.io requires every dependency to
 itself be published, and none of those three are.)
 
 So the concern is void for **Config 1** regardless of the D1 relicense — which
-was going to make it moot anyway. It remains an open question for **Config 2**
-(git-rev gpui), where the in-repo `sum_tree` *is* reachable; item 0.2 should
-re-run this if it lands on Config 2.
+was going to make it moot anyway.
+
+> **UPDATED after 0.2 chose Config 2 — and for the config we actually adopted,
+> the chain is REAL.** I re-checked the vendored tree directly:
+>
+> | Crate | Licence in the vendored tree |
+> |---|---|
+> | `zlog` | **GPL-3.0-or-later** |
+> | `ztracing` | **GPL-3.0-or-later** |
+> | `ztracing_macro` | **GPL-3.0-or-later** |
+> | `sum_tree` | Apache-2.0 |
+> | `path` | **GPL-3.0-or-later** ← 0.9 reported this as Apache-2.0. It is not. |
+>
+> So zed#55470's `gpui → sum_tree → ztracing → zlog` is genuinely compiled into
+> our binary, plus a fourth independent GPL edge via `http_client → util → path`.
+>
+> **This is legally fine and was anticipated: D1 exists precisely for it.**
+> AGPLv3 §13 permits combining with GPLv3. It is not a blocker.
+>
+> **But it is an obligation, not a non-event.** `NOTICE.md` must list `zlog`,
+> `ztracing`, `ztracing_macro` and `path` as GPL-3.0-or-later. The 0.12
+> relicense swept our *own* licence surface and deliberately left third-party
+> notices alone — correctly, since none of this was vendored yet. It is now.
+> **Tracked as a Phase 1 prerequisite.**
 
 ### 0.8 — `.app` bundling ✅ · **DECIDED: `cargo-packager`, pinned to `0.11.8`, driven by our own script.**
 
