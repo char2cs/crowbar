@@ -2547,6 +2547,80 @@ set is byte-identical, and the gpui-test count in that corpus is **109 → 109**
 > badge+avatar adds **50**. The total was right and the decomposition was not —
 > it checked out the base commit and ran the suite rather than trusting me.
 
+### ✅ Wave 3 — `kbd` and `label` VERIFIED; `separator` and `skeleton` have no reference
+
+| surface | result |
+|---|---|
+| `kbd · 1714 · dark · normal` | **PASS — 0 deltas** |
+| `label · 1714 · dark · normal` | **PASS — 0 deltas** |
+| `separator` | **0 live instances** — ported, no reference, not fabricated |
+| `skeleton` | **0 live instances** — ported, no reference, not fabricated |
+
+**963 tests**, clippy **exit 0**, 7 `ok` lines, rule 6 over **164** gpui tests,
+Phase 1 snapshots byte-identical. **Eight Tier B surfaces verified.**
+
+Reachability was **measured, not assumed**, and the two unreachable ones were
+evidenced rather than hand-waved:
+
+- **`separator`** — its only importers are Plate chrome behind `FloatingToolbar`,
+  gated on `useEventEditorValue('focus')`, and `document.hasFocus()` measures
+  **false** and immovable. Same wall as
+  `blocked/hover-and-focus-need-an-unlocked-screen.md`.
+- **`skeleton`** — its only call site is a `<Suspense fallback>` whose subtree
+  contains **no suspending source**: no `React.lazy`, no `useSuspenseQuery`, no
+  `use()` anywhere beneath it. Every `lazy()` in the tree is outside the
+  boundary. **It can never mount.**
+
+Both are `git-row-dir`'s precedent: rendered by the port, absent from the product.
+
+> ### ⚠ **Format first, THEN lint.** rustfmt can *introduce* a clippy finding.
+>
+> HEAD went **red on clippy** after this merge — `separator.rs:257`,
+> `unnecessary_trailing_comma`, exit 101 — while the worker had truthfully
+> reported it clean.
+>
+> **My diagnosis was wrong.** I guessed toolchain skew, because the lint's docs
+> URL cited `rust-1.96.0`. The worker checked and both machines run **exactly**
+> `rustc 1.96.0 (ac68faa20 2026-05-25)`, matching `rust-toolchain.toml`'s pin. I
+> confirmed that myself.
+>
+> The real cause: it wrote the `assert!` multi-line, where the trailing comma is
+> **rustfmt-canonical and correct**, ran clippy clean, and *then* ran
+> `rustfmt --edition 2024`, which collapsed the call onto one line and left the
+> comma behind — where the same comma becomes *unnecessary*. The clippy run was
+> true of the tree it ran on and stale by the time it was reported.
+>
+> **Any clippy run that predates a formatting pass has not gated the tree that
+> gets committed.** Worker briefs now say: format, then lint, then report.
+
+**Findings:**
+
+- **`border.w` is 0 on `kbd`** — the mirror of the `border`-is-1px trap. `kbd.tsx`
+  carries no `border`, so preflight's `border: 0 solid` stands.
+- **The `sm:` trap fires in REVERSE on `label`**: the primitive's `sm:text-sm/4`
+  (14px) beats the **call site's** `ui-text-sm` (12px). All twelve live labels
+  render 14/16, so a port reading the call site would be 2px wrong on every
+  settings row.
+- **v1.9 does not reach `skeleton`** — checked rather than assumed: the animation
+  moves `background-position`, and the contract reads `background-color`. The
+  capture is timing-independent *in every recorded field*, which is a stronger
+  statement than "captured at rest".
+- **A question I answered from the contract, not by patching:** the `border.color`
+  mismatch on a **zero-width** border is benign — `diff.rs` compares that field
+  only when the border is painted (v1.3 ruling 2), because `getComputedStyle`
+  falls back to the element's *text* colour for a border that does not exist.
+  That ruling exists because it once produced eight deltas across eight anchors.
+
+> **The worker deleted two vacuous guards it had written itself.** It had added
+> `HIGHLIGHT_IS_UNMODELLED` and `KbdGroup::FAMILY_IS_INHERITED` as
+> `const … : bool = true` with tests asserting them. Clippy's
+> `assertions_on_constants` surfaced the symptom, but the real defect was that
+> the tests asserted a **declaration** and no behaviour — they could never fail
+> for any reason anyone cares about. Both are gone; the facts live in doc
+> comments. The one genuine *value* in that family — the skeleton sweep's 2s
+> duration — stayed, read from the sealed token, with a test that fails if the
+> token moves.
+
 ## In flight
 
 **Phase 0 is closed.** All twelve items done and merged, each verified by my own

@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "surface": "kbd",
+  "state": {
+    "width": 1714,
+    "theme": "dark",
+    "content": "normal",
+    "flags": []
+  },
+  "root": "kbd",
+  "anchors": [
+    {
+      "id": "kbd",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 27.61,
+        "h": 20
+      },
+      "bg": "#ffffff0a",
+      "visible": true,
+      "radius": 4,
+      "border": {
+        "w": 0,
+        "color": "#ffffff0f"
+      },
+      "content_sized": true,
+      "fg": "#a4a4a4ff",
+      "text": "Esc",
+      "text_width": 19.61,
+      "clipped": false,
+      "font": {
+        "size": 12,
+        "weight": 500,
+        "family": "CalSansUI",
+        "line_height": 16
+      }
+    }
+  ]
+}
