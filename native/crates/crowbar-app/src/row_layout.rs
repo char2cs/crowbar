@@ -1973,7 +1973,11 @@ mod sidebar_carousel {
                 cell(&["--flags", "selected", "--panel-content", filler]),
             );
 
-            assert_eq!(ids(&stuffed), ids(&empty), "{filler}");
+            // The whole record, not just its geometry: `bg`, `radius`,
+            // `border` and `visible` all have to be untouched too, or "the
+            // track ignores its contents" would be a claim about four fields
+            // out of eight.
+            assert_eq!(stuffed, empty, "{filler}");
             for id in ids(&empty) {
                 assert_eq!(at(&stuffed, &id), at(&empty, &id), "{id} at {filler}");
                 assert_eq!(

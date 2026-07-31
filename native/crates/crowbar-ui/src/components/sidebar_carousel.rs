@@ -58,10 +58,12 @@
 //!
 //! * **Scroll snapping itself.** gpui has no `scroll-snap-type` and no
 //!   `scroll-snap-align`. What the port reproduces is not the snap engine but
-//!   the *snapped position*, and it is entitled to: `sidebar-carousel.tsx` sets
-//!   `el.scrollLeft = index * el.clientWidth` itself, in two effects. The
-//!   browser's snapping only catches a swipe that ended between panels, and
-//!   `ANCHORS.md` §6 already puts "a snapshot is one instant" beyond the
+//!   the *snapped position*, and it is entitled to: `sidebar-carousel.tsx`
+//!   computes those itself, in both of its effects —
+//!   `el.scrollLeft = index * el.clientWidth` in the `ResizeObserver` and
+//!   `el.scrollTo({ left: index * el.clientWidth })` on an `activeTab` change.
+//!   The browser's snapping only catches a swipe that ended *between* panels,
+//!   and `ANCHORS.md` §6 already puts "a snapshot is one instant" beyond the
 //!   contract.
 //! * **What is inside a panel.** The four panels hold `WorkspaceTree`,
 //!   `AgentChatsPanel`, `FileExplorerTree` and `GitPanel`; this port renders
