@@ -141,7 +141,7 @@ func TestGetScope_GeometryIsCachedLikeGetOutlines(
 // ranges its own validator refuses — which is worse than advertising none,
 // because it looks actionable.
 //
-// The fixture is the rebased child GetBase's own test uses, where the live merge
+// The fixture is the rebased child the diff-ref test uses, where the live merge
 // base and the recorded fork point genuinely diverge, so an implementation that
 // quietly resolved the geometry against a different ref would show up here.
 func TestGetScope_GeometryMatchesGetOutlineAgainstRealGit(

@@ -116,15 +116,6 @@ type Usecase interface {
 		wsID string,
 		strategy gitdomain.MergeStrategy,
 	) error
-	// GetBase returns the ref this workspace's review diffs against — the merge
-	// base of the parent (or default) branch and HEAD, which is what every
-	// /review surface actually uses. It is exported because the agent tool
-	// surface must be able to tell a model what range it is reviewing; a model
-	// left to guess reviews HEAD~1 or main and anchors every finding wrongly.
-	GetBase(
-		ctx context.Context,
-		wsID string,
-	) (string, error)
 	// OpenThread opens a new review thread anchored to a file location (09 §3).
 	OpenThread(
 		ctx context.Context,
@@ -180,25 +171,6 @@ func (u *branchReviewUsecase) Get(
 		return domain.BranchReview{}, fmt.Errorf("branch review: get workspace: %w", asNotFound(err))
 	}
 	return u.assemble(ctx, ws)
-}
-
-// GetBase returns the ref this workspace's review diffs against, so a caller
-// outside this package (the agent tool surface) can learn what range a review
-// covers instead of guessing HEAD~1 or main and anchoring findings against the
-// wrong diff.
-func (u *branchReviewUsecase) GetBase(
-	ctx context.Context,
-	wsID string,
-) (string, error) {
-	ws, err := u.workspaces.Get(ctx, wsID)
-	if err != nil {
-		return "", fmt.Errorf("branchreview: get base: workspace: %w", asNotFound(err))
-	}
-	ref, err := u.resolveDiffRef(ctx, ws)
-	if err != nil {
-		return "", fmt.Errorf("branchreview: get base: resolve ref: %w", err)
-	}
-	return ref, nil
 }
 
 // resolveDiffRef returns the ref the review diffs against: the merge-base of the

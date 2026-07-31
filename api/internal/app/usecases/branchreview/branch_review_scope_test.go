@@ -102,17 +102,12 @@ func TestGetScope_ResolvesTheDiffRefOnce(
 	_, err = uc.GetFiles(context.Background(), "child", "")
 	require.NoError(t, err)
 	viaFiles := len(*calls)
-	*calls = nil
-
-	_, err = uc.GetBase(context.Background(), "child")
-	require.NoError(t, err)
-	viaBase := len(*calls)
 
 	assert.Equal(t, viaFiles, viaScope,
 		"GetScope must cost exactly what the file list alone costs: the ref was always "+
 			"resolved on the way to it and merely discarded")
-	assert.Less(t, viaScope, viaFiles+viaBase,
-		"GetScope must be cheaper than the GetBase+GetFiles pair it replaces")
+	assert.NotZero(t, viaScope,
+		"a fixture where nothing reaches git would satisfy the equality above vacuously")
 }
 
 // TestGetScope_ReportsTheRefItsFilesWereDiffedFrom is the correctness half of the
@@ -198,13 +193,13 @@ func TestResolveDiffRef_DivergentCandidatesStillCompare(
 	}, *calls)
 }
 
-// TestGetScope_AgreesWithGetBaseAndGetFiles is the anti-regression pin against
-// REAL git plumbing rather than a stub: GetScope is only allowed to be cheaper,
-// never to answer differently. The fixture is the rebased-child one GetBase's own
-// test uses, where the live merge base and the recorded fork point genuinely
+// TestGetScope_AgreesWithGetFiles is the anti-regression pin against REAL git
+// plumbing rather than a stub: GetScope is only allowed to be cheaper than the
+// reads it folded together, never to answer differently. The fixture is the
+// rebased child, where the live merge base and the recorded fork point genuinely
 // diverge, so an implementation that quietly shortcut to the frozen fork point
 // would fail here.
-func TestGetScope_AgreesWithGetBaseAndGetFiles(
+func TestGetScope_AgreesWithGetFiles(
 	t *testing.T,
 ) {
 	uc, ws, wantRef := newDivergedWorkspaceFixture(t)
@@ -213,13 +208,10 @@ func TestGetScope_AgreesWithGetBaseAndGetFiles(
 	scope, err := uc.GetScope(ctx, ws)
 	require.NoError(t, err)
 
-	base, err := uc.GetBase(ctx, ws.ID)
-	require.NoError(t, err)
 	files, err := uc.GetFiles(ctx, ws.ID, "")
 	require.NoError(t, err)
 
 	assert.Equal(t, wantRef, scope.Base)
-	assert.Equal(t, base, scope.Base)
 	assert.Equal(t, files, scope.Files)
 	assert.NotEqual(t, ws.ForkPointSha, scope.Base,
 		"GetScope must not shortcut to the frozen fork point once the base branch has advanced past it")

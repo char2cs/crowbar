@@ -59,11 +59,6 @@ type ReviewUsecase interface {
 		wsID string,
 		strategy gitdomain.MergeStrategy,
 	) error
-	// GetBase returns the ref this workspace's review diffs against.
-	GetBase(
-		ctx context.Context,
-		wsID string,
-	) (string, error)
 }
 
 // Handlers serves the /v0 branch-review routes from the branch-review usecase.

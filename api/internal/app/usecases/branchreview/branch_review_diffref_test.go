@@ -71,25 +71,42 @@ func newDivergedWorkspaceFixture(
 	return uc, child, wantRef
 }
 
-func TestGetBase_ReturnsTheRefTheReviewDiffsAgainst(
+// TestGetScope_ReturnsTheRefTheReviewDiffsAgainst is the divergence guard, and
+// it is the reason this fixture exists: the ref a review reports must be the
+// LIVE merge base, never the frozen ForkPointSha the workspace row still
+// carries. The two agree for an un-rebased branch, which is why the fixture goes
+// to the trouble of advancing the base and rebasing the child — that is what
+// makes a shortcut to the recorded fork point observable at all.
+//
+// It asks GetScope, which is the only method that answers this question now:
+// GetBase was exported for the agent surface, replaced there by GetScope, and
+// then deleted with no production caller left. The guard outlived it because the
+// property is about resolveDiffRef, which both went through.
+func TestGetScope_ReturnsTheRefTheReviewDiffsAgainst(
 	t *testing.T,
 ) {
 	uc, ws, wantRef := newDivergedWorkspaceFixture(t)
 
-	got, err := uc.GetBase(context.Background(), ws.ID)
+	scope, err := uc.GetScope(context.Background(), ws)
 	require.NoError(t, err)
-	require.Equal(t, wantRef, got)
-	require.NotEqual(t, ws.Branch, got, "GetBase must return the merge base, not the bare branch name")
-	require.NotEqual(t, ws.ForkPointSha, got,
-		"GetBase must not shortcut to the frozen fork point once the base branch has advanced past it")
+	require.Equal(t, wantRef, scope.Base)
+	require.NotEqual(t, ws.Branch, scope.Base,
+		"the review must report the merge base, not the bare branch name")
+	require.NotEqual(t, ws.ForkPointSha, scope.Base,
+		"the review must not shortcut to the frozen fork point once the base branch has advanced past it")
 }
 
-func TestGetBase_UnknownWorkspaceIsNotFound(
+// The not-found half of the deleted GetBase's coverage, kept on the method that
+// still performs that lookup. GetScope cannot carry it: it takes the caller's
+// ALREADY-RESOLVED workspace, so there is no id for it to fail to resolve —
+// which is precisely why GetFiles is where an unknown workspace still has to
+// come back as a not-found rather than as a git failure.
+func TestGetFiles_UnknownWorkspaceIsNotFound(
 	t *testing.T,
 ) {
 	uc, _, _ := newDivergedWorkspaceFixture(t)
 
-	_, err := uc.GetBase(context.Background(), "nope")
+	_, err := uc.GetFiles(context.Background(), "nope", "")
 	require.Error(t, err)
 	require.ErrorIs(t, err, apperr.ErrNotFound)
 }

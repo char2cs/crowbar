@@ -76,13 +76,6 @@ func (stubUsecase) SearchDiff(
 	return nil, false, nil
 }
 
-func (stubUsecase) GetBase(
-	_ context.Context,
-	_ string,
-) (string, error) {
-	return "", nil
-}
-
 func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
