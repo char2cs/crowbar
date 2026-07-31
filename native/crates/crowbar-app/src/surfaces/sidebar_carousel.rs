@@ -126,7 +126,7 @@ impl Default for Params {
 impl Params {
     /// The carousel this cell describes.
     #[must_use]
-    pub fn carousel(&self, cell: &Cell) -> SidebarCarousel {
+    pub fn carousel(self, cell: &Cell) -> SidebarCarousel {
         SidebarCarousel {
             // Without the flag the track rests where a freshly mounted carousel
             // rests: `getInitialState().activeTab` is `workspaces`, index 0.
@@ -141,7 +141,7 @@ impl Params {
 
     /// Which tab is actually showing in this cell, flag and option together.
     #[must_use]
-    pub fn showing(&self, cell: &Cell) -> SidebarTab {
+    pub fn showing(self, cell: &Cell) -> SidebarTab {
         self.carousel(cell).active
     }
 

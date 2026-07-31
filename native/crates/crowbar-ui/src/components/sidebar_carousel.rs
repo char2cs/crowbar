@@ -296,7 +296,7 @@ impl SidebarCarousel {
     /// `scrollLeft` has no element to live on in a declarative tree, and a
     /// negative margin on the first flex item shifts it and every sibling after
     /// it by exactly the same amount, which is what a scroll offset does.
-    fn panel(&self, tab: SidebarTab) -> Div {
+    fn panel(self, tab: SidebarTab) -> Div {
         let mut element = div()
             // `min-w-full`. The floor that freezes every panel at the
             // scrollport's width, whatever its content wants.
