@@ -463,9 +463,13 @@ mod tests {
                 "file-tree-row",
                 "git-status-row",
                 "input",
+                "kbd",
+                "label",
                 "native-menu",
                 "resizable",
+                "separator",
                 "sidebar-carousel",
+                "skeleton",
                 "tabs",
             ],
         );
