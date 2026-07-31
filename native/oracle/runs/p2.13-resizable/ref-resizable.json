@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "surface": "resizable",
+  "state": {
+    "width": 1200,
+    "theme": "dark",
+    "content": "normal",
+    "flags": []
+  },
+  "root": "resize-group",
+  "anchors": [
+    {
+      "id": "resize-group",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 1200,
+        "h": 800
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0,
+      "border": {
+        "w": 0,
+        "color": "#ffffff0f"
+      }
+    },
+    {
+      "id": "resize-panel-sidebar",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 294,
+        "h": 800
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0,
+      "border": {
+        "w": 0,
+        "color": "#f5f5f5ff"
+      }
+    },
+    {
+      "id": "resize-handle",
+      "bounds": {
+        "x": 294,
+        "y": 0,
+        "w": 1,
+        "h": 800
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0,
+      "border": {
+        "w": 0,
+        "color": "#ffffff0f"
+      }
+    },
+    {
+      "id": "resize-panel-content",
+      "bounds": {
+        "x": 295,
+        "y": 0,
+        "w": 905,
+        "h": 800
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0,
+      "border": {
+        "w": 0,
+        "color": "#f5f5f5ff"
+      }
+    }
+  ]
+}

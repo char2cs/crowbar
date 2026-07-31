@@ -2223,83 +2223,67 @@ post-change binary and byte-comparing against archived snapshots —
 > say *"commit to your own branch; never to `rewrite/rust`"* explicitly, because
 > this one said only "work in your own worktree" and that was not enough.
 
-### ⚠ The other two Phase 2 surfaces are still undriven
+### ✅ `resizable` VERIFIED — 0 deltas over 4 anchors
 
-- **`resizable` — the driver cap is GONE (P2.5); the binding constraint is now
-  the display.** `--shell-height`'s `1..=160` and `--height`'s `1..=640` are
-  removed. The window follows the surface, and the guard moved to where it can
-  actually be observed: `row_snapshot::emit` takes the drawable area the platform
-  **granted** and refuses any frame with an anchor below it — a parameter of
-  `emit`, so a snapshot cannot be written without it.
+**PASS**, `resizable · 1200 · dark · normal`. Both sides agree exactly: group
+`1200×800`, sidebar `294×800`, handle `1×800`, content `905×800`, all visible.
 
-  Verified live by me, not from the report:
+Three blockers were cleared to get here, and only the first was the environment:
 
-  | `--shell-height` | result |
-  |---|---|
-  | 1000 | **emitted**, `h = 1000`, every anchor visible |
-  | **1082** | **emitted**, every anchor visible |
-  | **1083** | **refused** — *"reaches 1099px down the window but its drawable area is only 1098px"* |
-  | 1119 | refused, same shape |
+1. **the driver cap** (`--shell-height` ≤ 160) — removed in P2.5;
+2. **the window height** — never a display limit at all. **AeroSpace**, a tiling
+   WM, was forcing 1714×1119; `aerospace layout floating --window-id <id>` let
+   the window revert to its own 1200×800;
+3. **two structural blockers in our own tooling** — the reference could not be
+   captured in isolation (fixed by ANCHORS.md **v1.8** + P2.11's surface
+   scoping: 81 anchors with `git-row-item` ten times → the declared **4**), and
+   the driver could not render a surface as wide as its viewport (fixed by
+   P2.12's `full_bleed`).
 
-  6.8× the old cap. The live IDE shell is 1119px and this display grants 1098px
-  of drawable height, so 1119 needs a taller display — the driver now says so
-  with the exact number instead of clipping silently. A parity run is reachable
-  by shrinking the **reference** window, as done for the carousel.
-- **`dropdown-menu` — a menu is now REACHABLE (P2.8), and it cost no code and no
-  fixture damage.** A review thread was created straight through the daemon's
-  HTTP API over its unix socket — threads are a workspace-scoped endpoint
-  (`api/.../endpoints/threads/routes.go`), not part of `/review`, and the
-  `crowbar` CLI has no review command. Data-only: the thread lives under
-  `.crowbar/`, which is gitignored, so **nothing was committed**.
+> **Most of this surface's §8.3 axes are vacuous, and P2.2 said so when it built
+> it.** `hover` and `focus` have real originals but neither is anchorable — the
+> hit strip is an `::after`, and the focus ring is a `box-shadow`, which §6 has
+> no field for. `--content` never fails: nothing here paints a character.
+> `--theme` never fails without `--with-handle`, and **no live call site passes
+> it** — the same shape as `git-row-dir`. A vertical group has no reference
+> either; the app has exactly one `ResizablePanelGroup` and it is horizontal.
+>
+> So the **width axis is the only one that does work here**, and one width is
+> verified. More widths need a way to resize the reference window:
+> `aerospace resize` refuses floating windows, and `set-size` is not in the
+> app's capabilities.
 
-  ```bash
-  S=$TMPDIR/crowbar-6d4f21ce150add3c.sock
-  B="http://localhost/v0/projects/<proj>/repos/<repo>/workspaces/<ws>"
-  curl --unix-socket $S -X POST "$B/threads" -H 'Content-Type: application/json' \
-    -d '{"filePath":"src/a/a.ts","line":2,"startLine":2,"endLine":2,"side":"new",
-         "author":"char2cs","isAgent":false,"body":"Fixture thread."}'
-  ```
+**Phase 2 surfaces: 3 of 4 verified by my own run** — `tree-row` (the Phase 1
+gate surface, 18/18 resting + hover + focus), `sidebar-carousel` (2 cells),
+`resizable` (1 cell). `dropdown-menu` is **awaiting a product decision** (below).
 
-  Three things guessing would have got wrong: **`side` must be `"new"`**, not the
-  Go constant's `left`/`right` — the DTO passes it through verbatim and the
-  frontend types it `'old' | 'new'`; the anchor **must be a line the diff
-  actually renders** (`src/a/a.ts:2` is the added line of the only hunk); and
-  `author` must match `GET .../identity` to enable the edit item.
+### ⚠ `dropdown-menu` — the target changed, by user decision
 
-  **No working-tree change was needed** — `resolveDiffRef` with an empty commit
-  scope diffs the merge-base against the working tree, so the six already-dirty
-  fixture files *are* the review's content. **Fixture verified intact**: 11
-  `git-row-item`, same labels, same per-anchor counts, HEAD unchanged. Durability
-  was checked by cold-booting a throwaway daemon against a *copy* of the state —
-  it served the thread from the on-disk projection, so an app restart will not
-  lose it.
+**"Dropdown menus should be native, not React simulated."** That removes this
+surface from the §5.1 strict-parity gate: a platform menu cannot be anchor-diffed
+against a DOM popup. It becomes a §13 accepted delta or a §5.2-style *judged*
+surface — recorded as the user's decision, not one I invented.
 
-  `[aria-haspopup="menu"]` is now **1**; open, it yields `menu-popup`,
-  `menu-item-edit`, `menu-item-copy`, `menu-separator`, `menu-item-delete`.
+Consequences, stated rather than glossed:
 
-  > **But only 2 of the primitive's 10 anchors are reachable this way.**
-  > `dropdown-menu.tsx` spreads `{...props}` **after** its own `data-oracle-id`,
-  > so a call site's per-item id **shadows** the primitive's generic `menu-item`.
-  > This fixture exercises `menu-popup` and `menu-separator` from the primitive;
-  > `menu-item`, `menu-label`, `menu-sub-trigger`, `menu-sub-popup`,
-  > `menu-checkbox-item`/`-indicator`, `menu-radio-item`/`-indicator` stay
-  > unreachable. A parity run here cannot prove the primitive's own `menu-item`.
+- **P2.1's port is partly superseded.** `dropdown_menu.rs` reproduces base-ui's
+  structure and Tailwind styling in GPUI precisely so it could be pixel-diffed.
+  Its `MAPPING.md` section stays useful — the `ring-1`-is-a-box-shadow trap and
+  the measured Tailwind values are surface-independent — but the component would
+  be replaced.
+- **P2.8's fixture is NOT wasted.** The review thread it created through the
+  daemon API is what makes any menu reachable at all, and a native menu still
+  needs a trigger to judge.
+- The parity capture (P2.9) was **stopped mid-flight** rather than finished, once
+  the target changed.
 
-  > **Correction to my own earlier sweep.** I reported `#/settings` as a dead
-  > end. `settings-dialog.tsx:104` has a `DropdownMenuTrigger` classed
-  > `hidden … max-[720px]:inline-flex` — my window was **855px** wide, so it was
-  > correctly hidden and my "0 menus anywhere" was a result of the viewport I
-  > happened to be at, not of the app. Source-level observation, not yet driven.
-
-  Also measured: the trigger is `opacity-0` until hovered or open, so its
-  **closed** state has an invisible trigger under v1.7; opening sets both trigger
-  and popup to opacity 1.
-
-  Environment note: **`webview_interact` is broken against this app** —
-  `window.__MCP__.resolveRef` is undefined; drive clicks by dispatching the
-  pointer sequence through `webview_execute_js`. base-ui also does not open
-  within the same `execute_js` call — `aria-expanded` stays `false` until a
-  following call.
+**Open question, awaiting the user:** a real macOS `NSMenu` (AppKit draws it, it
+floats outside the window, it inherits OS keyboard nav, accessibility, submenu
+timing and screen-edge flipping — but it cannot carry Crowbar's design tokens),
+or a **GPUI-drawn** menu (native Rust, in-window, keeps the sealed tokens)? My
+recommendation: `NSMenu` for true context menus, GPUI-drawn for anything that
+must be themed. `NSMenu` would live in `crowbar-platform`, the one crate allowed
+`unsafe`, every block carrying a `# Safety` proof.
 
 Every component is built, gated and unit-tested. **None has a single parity
 run**, and a green build is not the bar. All three workers independently

@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "surface": "resizable",
+  "state": {
+    "width": 1200,
+    "theme": "dark",
+    "content": "normal",
+    "flags": []
+  },
+  "root": "resize-group",
+  "anchors": [
+    {
+      "id": "resize-group",
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 1200.0,
+        "h": 800.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "resize-panel-sidebar",
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 294.0,
+        "h": 800.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "resize-handle",
+      "bounds": {
+        "x": 294.0,
+        "y": 0.0,
+        "w": 1.0,
+        "h": 800.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "resize-panel-content",
+      "bounds": {
+        "x": 295.0,
+        "y": 0.0,
+        "w": 905.0,
+        "h": 800.0
+      },
+      "bg": "#00000000",
+      "visible": true,
+      "radius": 0.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    }
+  ]
+}
