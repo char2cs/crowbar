@@ -14,12 +14,14 @@
 #   4. No raw colour is constructed outside `crates/crowbar-ui/src/theme/`
 #      (§4.3 rule 3, §6.1).
 #   5. `cargo fmt --check` is clean.
+#   6. Every `#[gpui::test]` arms `leak_checked!` as its first statement (§17).
 #
 # Known limits, stated so nobody mistakes this for a parser: check 3 is a line
 # scanner. It does not understand block comments, and a string literal
 # containing the text `unsafe {` will be reported. Both failure modes are
 # loud rather than silent, which is the correct direction for a gate. Check 4
-# has its own scanner and its own stated limits; see its section.
+# has its own scanner and its own stated limits; see its section, and so does
+# check 6.
 
 set -euo pipefail
 
@@ -426,6 +428,91 @@ else
 	printf '      Run `cargo fmt` from native/. If that would rewrite files you do\n' >&2
 	printf '      not own, format your own lines by hand and say so — do not widen\n' >&2
 	printf '      your diff to absorb drift you did not cause.\n' >&2
+fi
+
+# ---------------------------------------------------------------------------
+# 6. Every #[gpui::test] arms leak detection.
+# ---------------------------------------------------------------------------
+# §17: *"No leaks. gpui leak-detection on in every test."* The assertion is
+# `crowbar_driver::leak_checked!(cx)`, armed as a test's first statement so
+# that — locals dropping in reverse declaration order — its guard outlives every
+# window handle and entity the test binds. `crates/crowbar-driver/src/leak.rs`
+# documents the mechanism and carries the control that proves it is not vacuous.
+#
+# This rule exists because the call is a call: the one shape that would make it
+# unforgettable — an attribute we own instead of `#[gpui::test]` — is still an
+# attribute someone can decline to write, so it would buy a nicer diff and no
+# guarantee. What *is* structural is that `TestAppContext` does not exist
+# without gpui's `test-support`, which turns `leak-detection` on, so
+# `leak_detector_snapshot`/`assert_no_new_leaks` cannot silently compile away:
+# a re-pin that dropped the feature would be a compile error here, not a green
+# run. The part that can rot is a new test that never calls the macro, and that
+# is what this scans for.
+#
+# What it does NOT catch, stated rather than papered over: a test that arms the
+# guard on a *different* app than the one it drives, and any leak that is not an
+# entity handle (a detached task, an `Rc` cycle among plain values, native
+# memory). §17's RSS soak is the check for that class, not this one.
+#
+# The scanner is a line scanner. It matches a line whose whole content is
+# `#[gpui::test]` or `#[gpui::test(…)]` — so the example inside `leak.rs`'s own
+# doc comment, which is prefixed `///`, is correctly not a test — then walks the
+# signature to the line that opens the body and requires the first statement
+# there to invoke `leak_checked!`. Blank lines, `//` comments and local `use` in
+# between are skipped: none of them binds a value, so none of them changes the
+# drop order the rule is about — and clippy's `items_after_statements`, which is
+# denied here, *requires* a local `use` to come first, so the two rules would
+# otherwise contradict each other. A signature whose opening brace is not the
+# last character on its line would be missed; rustfmt does not produce one.
+
+leak_report=$(
+	find crates oracle -name '*.rs' -type f 2>/dev/null | sort | while IFS= read -r f; do
+		awk -v file="$f" '
+		BEGIN { state = 0; attr_line = 0 }
+		{
+			trimmed = $0
+			sub(/^[[:space:]]+/, "", trimmed)
+			sub(/[[:space:]]+$/, "", trimmed)
+
+			if (state == 2) {
+				if (trimmed == "" || trimmed ~ /^\/\// || trimmed ~ /^use[[:space:]]/) next
+				if (trimmed !~ /^([A-Za-z_][A-Za-z0-9_]*[[:space:]]*::[[:space:]]*)*leak_checked![[:space:](]/) {
+					printf "%s:%d: the test at line %d does not arm leak_checked! first; its body opens with:%s\n", file, NR, attr_line, $0
+				}
+				state = 0
+				next
+			}
+			if (state == 1) {
+				if (trimmed ~ /\{$/) state = 2
+				next
+			}
+			if (trimmed ~ /^#\[gpui::test(\(.*\))?\]$/) { state = 1; attr_line = NR }
+		}
+		END {
+			if (state != 0) {
+				printf "%s:%d: #[gpui::test] whose body the scanner never found\n", file, attr_line
+			}
+		}
+	' "$f"
+	done
+)
+armed=$(grep -rn --include='*.rs' -cE '^[[:space:]]*#\[gpui::test(\(.*\))?\][[:space:]]*$' crates oracle 2>/dev/null |
+	awk -F: '{ n += $2 } END { print n + 0 }')
+
+if [ -n "$leak_report" ]; then
+	fail 'rule 6 (§17): a #[gpui::test] without leak detection'
+	printf '%s\n' "$leak_report" >&2
+	printf '      Add `crowbar_driver::leak_checked!(cx);` as the first statement\n' >&2
+	printf '      of the test (`crate::leak_checked!(cx);` inside crowbar-driver).\n' >&2
+	printf '      It must be first: locals drop in reverse declaration order, so a\n' >&2
+	printf '      guard armed after the window would run before the window closed\n' >&2
+	printf '      and report the still-open root view as a leak.\n' >&2
+elif [ "$armed" -eq 0 ]; then
+	fail 'rule 6 (§17): found no #[gpui::test] at all — has the scanner gone blind?'
+	printf '      There were 53 of them when this rule was written. Zero means the\n' >&2
+	printf '      pattern stopped matching, not that the tests stopped existing.\n' >&2
+else
+	pass "rule 6: all $armed #[gpui::test] tests arm leak_checked! first"
 fi
 
 if [ "$status" -ne 0 ]; then
