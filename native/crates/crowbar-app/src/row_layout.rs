@@ -40,7 +40,7 @@ impl Render for Stage {
         // would measure a full-bleed surface in a place the binary never draws
         // it.
         div()
-            .pl(px(f32::from(self.0.horizontal_inset())))
+            .pl(self.0.horizontal_inset_px())
             .pt(px(crate::row_surface::INSET_Y))
             .font_family(theme.font_sans.primary().unwrap_or("sans-serif"))
             .child(
@@ -2572,7 +2572,7 @@ mod resizable {
 /// window comes back short, and a frame with a cut anchor in it is **refused
 /// rather than emitted**.
 mod window {
-    use super::{a_cell, assert_px, find, ids};
+    use super::{a_cell, assert_px, find, ids, measure};
     use crowbar_driver::{AnchorRegistry, RawAnchor};
     use crowbar_ui::components::resizable;
     use crowbar_ui::components::sidebar_carousel::{ID_SCROLLPORT, SidebarTab, TABS};
@@ -2821,6 +2821,174 @@ mod window {
         let _ = std::fs::remove_file(&written);
     }
 
+    /// The concrete P2.12 cell: the live IDE shell, edge to edge.
+    ///
+    /// `innerWidth` 1200 with a 1200×800 `resize-group`, and the growth factors
+    /// `react-resizable-panels` resolved. Every number below came off the running
+    /// web app, which is why they are literals here rather than arithmetic.
+    fn full_bleed_cell() -> Cell {
+        a_cell(&[
+            "--surface",
+            "resizable",
+            "--viewport-width",
+            "1200",
+            "--width",
+            "1200",
+            "--theme",
+            "dark",
+            "--content",
+            "normal",
+            "--shell-height",
+            "800",
+            "--grow",
+            "24.521,75.478996",
+        ])
+    }
+
+    /// The three panel ids the live group carries, and their measured widths.
+    const LIVE_DIVISION: [(&str, f32); 3] = [
+        ("resize-panel-sidebar", 294.0),
+        ("resize-handle", 1.0),
+        ("resize-panel-content", 905.0),
+    ];
+
+    /// **A surface that fills its viewport is drawn whole** — P2.12, measured.
+    ///
+    /// The width counterpart of `the_live_shell_height_is_drawn_with_every_anchor_visible`.
+    /// The reference here is the IDE shell **root**: it fills its window, so the
+    /// surface width *is* the viewport width, and the driver's 24px horizontal
+    /// inset — free for every row narrower than its viewport — would push it
+    /// past the window edge. A full-bleed surface takes none of it.
+    ///
+    /// **`visible` alone would not carry this claim, so containment does.** The
+    /// driver's `is_visible` is an intersection test, so a box hanging 24px past
+    /// the right edge of its window still reports `visible: true` — which is
+    /// exactly what the old geometry would have produced here. So every anchor
+    /// is asserted to lie *inside* the window rather than merely to overlap it,
+    /// and `the_same_cell_in_a_window_narrower_than_the_surface_is_cut` is the
+    /// control that proves both halves of that are reading live quantities.
+    #[gpui::test]
+    fn a_full_bleed_surface_at_its_viewport_width_is_drawn_unclipped(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
+        let cell = full_bleed_cell();
+        assert_eq!(cell.horizontal_inset(), 0);
+
+        // The window is the viewport verbatim, and the surface is its whole
+        // width: one number, which is the thing that was unrepresentable.
+        let window = window_for(&cell);
+        assert_px(window.width, px(1200.0));
+        assert_px(window.width, cell.width_px());
+
+        let (_anchors, records) = draw(cx, &cell, window);
+        assert_eq!(ids(&records).len(), 4, "{:?}", ids(&records));
+
+        for id in ids(&records) {
+            let anchor = find(&records, &id);
+            assert!(anchor.visible, "{id} is not visible");
+            // Inside the window, not merely intersecting it.
+            assert!(
+                anchor.bounds.origin.x >= px(0.0),
+                "{id} starts left of the window at {:?}",
+                anchor.bounds.origin.x,
+            );
+            assert!(
+                anchor.bounds.origin.x + anchor.bounds.size.width <= window.width,
+                "{id} reaches {:?} across a {:?} window",
+                anchor.bounds.origin.x + anchor.bounds.size.width,
+                window.width,
+            );
+        }
+
+        // The root sits flush with the window's left edge, which is where the
+        // reference's own root sits, and is 1200×800.
+        let group = find(&records, resizable::ID_GROUP);
+        assert_px(group.bounds.origin.x, px(0.0));
+        assert_px(group.bounds.origin.y, px(INSET_Y));
+        assert_px(group.bounds.size.width, px(1200.0));
+        assert_px(group.bounds.size.height, px(800.0));
+
+        // …and the division inside it is the live one, to the pixel.
+        for (id, width) in LIVE_DIVISION {
+            let anchor = find(&records, id);
+            assert_px(anchor.bounds.size.width, px(width));
+            assert_px(anchor.bounds.size.height, px(800.0));
+            assert_px(anchor.bounds.origin.y, px(INSET_Y));
+        }
+        assert_px(
+            find(&records, "resize-panel-sidebar").bounds.origin.x,
+            px(0.0),
+        );
+        assert_px(find(&records, "resize-handle").bounds.origin.x, px(294.0));
+        assert_px(
+            find(&records, "resize-panel-content").bounds.origin.x,
+            px(295.0),
+        );
+    }
+
+    /// **The control the assertion above needs.** The identical cell in a window
+    /// narrower than the surface *is* cut, and every anchor still says
+    /// `visible: true` while it happens — which is why the test above asserts
+    /// containment and not visibility, and is the shape of evidence a
+    /// "permitted, therefore fine" claim cannot produce.
+    #[gpui::test]
+    fn the_same_cell_in_a_window_narrower_than_the_surface_is_cut(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
+        let cell = full_bleed_cell();
+        // 200px short of the surface — which is what the driver would have been
+        // drawing had the inset stayed, only more of it.
+        let narrow = size(px(1000.0), window_for(&cell).height);
+
+        let (_anchors, records) = draw(cx, &cell, narrow);
+        let group = find(&records, resizable::ID_GROUP);
+
+        // Cut, not squashed: the surface keeps its 1200px and reaches past the
+        // edge, exactly as it keeps its height in the vertical case.
+        assert_px(group.bounds.size.width, px(1200.0));
+        assert!(
+            group.bounds.origin.x + group.bounds.size.width > narrow.width,
+            "the group must reach past the window to have anything to prove",
+        );
+
+        // And `visible` is *true* throughout, on a frame that is plainly cut.
+        for id in ids(&records) {
+            assert!(
+                find(&records, &id).visible,
+                "{id}: `visible` is an intersection test, so a cut box still reports true",
+            );
+        }
+    }
+
+    /// **What the caption does to the width axis: nothing.**
+    ///
+    /// It is the reason the window has to exceed the surface *vertically*
+    /// (`CAPTION_HEIGHT`), so the question is fair — and the answer is measured
+    /// rather than argued. The caption is a block-level sibling *below* the
+    /// surface inside a root gpui lays out as `display: block`, so it is never a
+    /// flex item competing for the main axis, and it carries no anchor, so it
+    /// cannot reach a snapshot either. The proof is that the same cell measured
+    /// through `RowSurface` — caption and `size_full` root and all — and through
+    /// the caption-less `Stage` records the identical frame, anchor for anchor,
+    /// at the width where a horizontal interaction would be loudest: the one
+    /// where the surface has the whole window.
+    ///
+    /// The one thing it does share is the root's left padding, so a full-bleed
+    /// cell draws its caption flush at x = 0 too. That is chrome moving with the
+    /// surface it describes, and it is why the inset is applied once on the root
+    /// rather than twice.
+    #[gpui::test]
+    fn the_caption_has_no_horizontal_effect_on_the_surface(cx: &mut TestAppContext) {
+        crowbar_driver::leak_checked!(cx);
+        let cell = full_bleed_cell();
+
+        let (_anchors, with_caption) = draw(cx, &cell, window_for(&cell));
+        let without_caption = measure(cx, cell);
+
+        assert_eq!(with_caption, without_caption);
+        // Stated as well as compared, so a future frame that recorded nothing at
+        // all could not satisfy the equality.
+        assert_eq!(ids(&with_caption).len(), 4, "{:?}", ids(&with_caption));
+    }
+
     /// **The two Phase 1 surfaces' window is the one their archived runs were
     /// taken at**, to the pixel — because neither drives a height, so the floor
     /// is the whole arithmetic and `window_extent` cannot move it.
@@ -2836,6 +3004,18 @@ mod window {
             let cell = a_cell(&["--surface", surface]);
             assert_eq!(cell.window_extent(), 72, "{surface}");
             assert_px(window_for(&cell).height, px(104.0));
+            // And their **horizontal** geometry likewise, which is what P2.12
+            // had to leave alone: neither is full-bleed, so both keep the 24px
+            // inset their archived runs were taken at. A surface that acquired
+            // `full_bleed` by accident would move the root anchor to x = 0.
+            assert_eq!(cell.horizontal_inset(), 24, "{surface}");
+            assert_px(
+                find(&draw(cx, &cell, window_for(&cell)).1, cell.surface.root)
+                    .bounds
+                    .origin
+                    .x,
+                px(24.0),
+            );
 
             // And what they emit is untouched by the window having become a
             // computed quantity: the same records, anchor for anchor, as in the

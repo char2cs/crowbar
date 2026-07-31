@@ -466,6 +466,23 @@ impl Cell {
         }
     }
 
+    /// [`Cell::horizontal_inset`], as gpui takes it.
+    ///
+    /// The same pairing `width` / [`Cell::width_px`] already has, and for the
+    /// same reason: the command line's guard arithmetic is `u16` and the view's
+    /// padding is `Pixels`. It matters more here than there — the guard is
+    /// computed from the whole-pixel spelling and the drawing from this one, so
+    /// two numbers that disagreed would permit a cell the view then cut.
+    /// `the_two_spellings_of_the_inset_agree` is what holds them equal.
+    #[must_use]
+    pub fn horizontal_inset_px(&self) -> Pixels {
+        if self.surface.full_bleed {
+            px(0.0)
+        } else {
+            px(INSET_X)
+        }
+    }
+
     /// The narrowest window this cell's surface fits in without being clipped.
     ///
     /// A viewport narrower than this would cut the surface at the window edge,
@@ -907,7 +924,7 @@ impl Render for RowSurface {
             // root rather than on the surface's own box so that the caption below
             // moves with it — one padding, so a caption hanging in space beside a
             // flush-left surface is not expressible.
-            .pl(px(f32::from(self.cell.horizontal_inset())))
+            .pl(self.cell.horizontal_inset_px())
             .pt(px(INSET_Y))
             .font_family(theme.font_sans.primary().unwrap_or("sans-serif"))
             // **The surface overflows a short window; it is never compressed
@@ -1490,9 +1507,23 @@ mod tests {
 
     /// The two spellings of the horizontal inset — `f32` for gpui, `u16` for
     /// the command line's width arithmetic — are one number.
+    ///
+    /// Load-bearing since P2.12, on both surfaces of the fork: the guard is
+    /// computed from the whole-pixel spelling and the padding is drawn from the
+    /// `f32` one, so a pair that disagreed would permit a viewport the view then
+    /// cut the surface at.
     #[test]
     fn the_two_spellings_of_the_inset_agree() {
         assert!((f32::from(INSET_X_WHOLE) - INSET_X).abs() < f32::EPSILON);
+
+        for name in Surface::names() {
+            let cell = parse(&["--surface", name]).expect("well-formed");
+            assert_eq!(
+                cell.horizontal_inset_px(),
+                gpui::px(f32::from(cell.horizontal_inset())),
+                "{name}",
+            );
+        }
     }
 
     /// **The surface and the viewport are independent**, which is what the
@@ -1542,5 +1573,160 @@ mod tests {
         assert!(complaint.contains("294"), "{complaint}");
         assert!(complaint.contains("342"), "{complaint}");
         assert!(complaint.contains("clipped"), "{complaint}");
+    }
+
+    /// **The inset is the surface's, not a constant** — P2.12.
+    ///
+    /// A surface whose original fills its window takes none of it, and every
+    /// other keeps [`INSET_X`] exactly. The second half is not decoration: 30+
+    /// archived snapshot pairs in `native/oracle/runs/` were taken at the
+    /// inset geometry, and a surface that acquired `full_bleed` by accident
+    /// would move the window it is measured in.
+    #[test]
+    fn only_a_full_bleed_surface_gives_up_the_horizontal_inset() {
+        let full = parse(&["--surface", "resizable", "--width", "1200"]);
+        // …at the default 800px viewport a 1200px surface is still too wide,
+        // which is the point of the next test. Take the cell at its own width.
+        assert!(matches!(full, Err(ParseError::Rejected(_))));
+
+        let full = parse(&[
+            "--surface",
+            "resizable",
+            "--width",
+            "1200",
+            "--viewport-width",
+            "1200",
+        ])
+        .expect("a full-bleed surface fits its own viewport");
+        assert!(full.surface.full_bleed);
+        assert_eq!(full.horizontal_inset(), 0);
+        assert_eq!(full.minimum_viewport(), 1200);
+
+        // Every registered surface, so that adding one makes this a decision
+        // rather than an omission.
+        for name in Surface::names() {
+            let cell = parse(&["--surface", name]).expect("well-formed");
+            let expected = if cell.surface.full_bleed {
+                0
+            } else {
+                INSET_X_WHOLE
+            };
+            assert_eq!(cell.horizontal_inset(), expected, "{name}");
+            assert_eq!(cell.minimum_viewport(), cell.width + expected * 2, "{name}");
+        }
+
+        // Exactly one surface is full-bleed today, and it is the one whose
+        // reference is the IDE shell root.
+        let bleeding: Vec<&str> = Surface::names()
+            .into_iter()
+            .filter(|name| a_surface(name).full_bleed)
+            .collect();
+        assert_eq!(bleeding, vec!["resizable"]);
+
+        // And the two Phase 1 surfaces' number is unchanged, stated as the
+        // literal their archived runs were taken at rather than as arithmetic
+        // that could move with the constant.
+        for name in ["git-status-row", "file-tree-row"] {
+            let cell = parse(&["--surface", name, "--width", "294"]).expect("well-formed");
+            assert_eq!(cell.horizontal_inset(), 24, "{name}");
+            assert_eq!(cell.minimum_viewport(), 342, "{name}");
+        }
+    }
+
+    /// **A surface wider than its viewport is refused on every surface there
+    /// is**, full-bleed or not — which is the half of the guard P2.12 did not
+    /// touch, and the half that stops `clipped` becoming an artefact of the
+    /// window size.
+    ///
+    /// The pair either side of the boundary is the whole assertion: a full-bleed
+    /// surface at *exactly* the viewport width is not cut and must be drawable,
+    /// and one pixel more is cut and must not be.
+    #[test]
+    fn a_surface_wider_than_its_viewport_is_still_refused() {
+        assert!(
+            parse(&[
+                "--surface",
+                "resizable",
+                "--width",
+                "1200",
+                "--viewport-width",
+                "1200"
+            ])
+            .is_ok(),
+            "a full-bleed surface exactly filling its viewport is not cut",
+        );
+
+        let Err(ParseError::Rejected(complaint)) = parse(&[
+            "--surface",
+            "resizable",
+            "--width",
+            "1201",
+            "--viewport-width",
+            "1200",
+        ]) else {
+            panic!("a 1201px surface does not fit a 1200px window, full-bleed or not");
+        };
+        assert!(complaint.contains("1201"), "{complaint}");
+        assert!(complaint.contains("1200"), "{complaint}");
+        assert!(complaint.contains("clipped"), "{complaint}");
+        // The full-bleed phrasing, because a complaint about "insets" on a
+        // surface that has none sends the reader looking for a constant to
+        // change.
+        assert!(complaint.contains("edge to edge"), "{complaint}");
+        assert!(!complaint.contains("insets"), "{complaint}");
+
+        // Well past the edge, not only one pixel past it.
+        for width in ["1300", "2000", "9000"] {
+            assert!(
+                matches!(
+                    parse(&[
+                        "--surface",
+                        "resizable",
+                        "--width",
+                        width,
+                        "--viewport-width",
+                        "1200"
+                    ]),
+                    Err(ParseError::Rejected(_)),
+                ),
+                "{width} in a 1200px window should have been refused",
+            );
+        }
+
+        // And an ordinary surface is unmoved: it still needs room for its inset
+        // on top of its own width, so filling the viewport is a rejection there.
+        for name in [
+            "git-status-row",
+            "file-tree-row",
+            "dropdown-menu",
+            "sidebar-carousel",
+        ] {
+            assert!(
+                matches!(
+                    parse(&[
+                        "--surface",
+                        name,
+                        "--width",
+                        "1200",
+                        "--viewport-width",
+                        "1200"
+                    ]),
+                    Err(ParseError::Rejected(_)),
+                ),
+                "{name} is not full-bleed and must still be refused at its viewport width",
+            );
+            assert!(
+                parse(&[
+                    "--surface",
+                    name,
+                    "--width",
+                    "1200",
+                    "--viewport-width",
+                    "1248"
+                ])
+                .is_ok(),
+                "{name} fits once there is room for the inset",
+            );
+        }
     }
 }
