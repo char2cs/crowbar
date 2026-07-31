@@ -9,11 +9,35 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/char2cs/crowbar/api/internal/core/ipc"
 )
+
+// mcpRelayTimeout bounds ONE relayed MCP message.
+//
+// It is not the ipc default (5s), and the difference is the point. A hook or a
+// handoff callback is a small read against local state; a TOOL CALL can be
+// several git subprocesses — get_review_scope resolves the merge base and reads
+// the whole branch diff, post_review_comment reads the diff geometry before it
+// writes — and the daemon bounds each of those at its own GitOpTimeout of 60s,
+// chosen as "far above any healthy local git command". Under the 5s default that
+// ceiling was unreachable from this path: no tool call could spend more than five
+// seconds of git, however large the repository.
+//
+// Two seconds' work is not what makes this worth fixing. The failure was that
+// the relay pre-empted work the daemon was still legitimately doing, and then
+// reported it as `crowbar daemon unreachable` — which is false, points the model
+// at a recovery that cannot help, and (for an unkeyed write that had already
+// committed) invites a retry that duplicates the finding.
+//
+// 120s is two of the daemon's own git ceilings: enough for a call that chains a
+// ref resolution and a diff read to hit that ceiling and return the daemon's own
+// error, and short enough that a genuinely wedged daemon still surfaces to the
+// model inside one turn rather than hanging the CLI.
+const mcpRelayTimeout = 120 * time.Second
 
 func newMCPCmd() *cobra.Command {
 	var project, repo, workspace, segment, token string
@@ -22,7 +46,7 @@ func newMCPCmd() *cobra.Command {
 		Short:  "Relay MCP stdio traffic to the Crowbar daemon",
 		Hidden: true,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			client, err := ipc.NewClient("unix://")
+			client, err := ipc.NewClientWithTimeout("unix://", mcpRelayTimeout)
 			if err != nil {
 				return err
 			}

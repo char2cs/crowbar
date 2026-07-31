@@ -19,13 +19,34 @@ type Client struct {
 	http *http.Client
 }
 
+// DefaultTimeout bounds one in-PTY callback into the daemon: a hook posting a
+// turn, a handoff fetch. Those are small reads and writes against local state,
+// and the process making them is blocking a vendor CLI, so the budget is short
+// on purpose — a wedged daemon must not hold a hook open.
+//
+// It is NOT the budget for every caller. A request whose daemon-side work is a
+// git operation needs a budget consistent with the daemon's own git ceiling, or
+// the client gives up on work the daemon was still legitimately doing and
+// reports a transport failure for it. See NewClientWithTimeout.
+const DefaultTimeout = 5 * time.Second
+
 func NewClient(host string) (*Client, error) {
+	return NewClientWithTimeout(host, DefaultTimeout)
+}
+
+// NewClientWithTimeout builds a client whose per-request budget the CALLER
+// chooses, for callers whose daemon-side work is not a small local read.
+//
+// It exists so that raising one caller's budget cannot silently raise
+// everyone's: the client is shared by the hook and handoff callbacks, where a
+// short timeout is the correct behaviour, and by the MCP relay, where it is not.
+func NewClientWithTimeout(host string, timeout time.Duration) (*Client, error) {
 	sock, err := transports.SocketPath(host)
 	if err != nil {
 		return nil, fmt.Errorf("ipc: socket path: %w", err)
 	}
 	return &Client{http: &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: timeout,
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 				return (&net.Dialer{}).DialContext(ctx, "unix", sock)
