@@ -212,6 +212,9 @@ func (a *analyzer) matchResponse(
 		}
 		return false
 	}
+	if a.matchEncoderWrite(site, call, label, facts) {
+		return true
+	}
 	if !isGinContextExpr(site, sel.X) {
 		return false
 	}
@@ -230,6 +233,49 @@ func (a *analyzer) matchResponse(
 		return true
 	}
 	return false
+}
+
+// encodingJSONPath is the standard library's JSON package. A handler that
+// streams through its Encoder is writing a body, not omitting one.
+const encodingJSONPath = "encoding/json"
+
+// matchEncoderWrite records a payload written straight into the response writer
+// with `json.NewEncoder(w).Encode(v)`. It reports whether the call was one.
+//
+// This was found missing rather than designed in, and the way it was missing is
+// the point: `GET /v0/.../review/outline` streams its envelope by hand — the
+// one v0 payload large enough that gin's marshal-then-write would hold the
+// whole 2.3 MB response in memory — and because it never touches `ctx.JSON` or
+// a `libs.Write*` helper, the classifier fell through to `setEmpty`. The
+// endpoint was reported as a **body-less success**, with no diagnostic, and its
+// three DTOs (`outlineResponse`, `git.FileOutline`, `git.HunkShape`) were
+// simply absent from the emitted crate. A silent drop is precisely what §9.2's
+// "no silent drops" rule exists to prevent, and it stayed invisible because the
+// wrong answer — `empty` — is indistinguishable from a correct one in every
+// count the summary prints.
+//
+// Stated limit: this matches the Encoder by its package, not by proving its
+// writer is the response. A handler that encoded JSON to something other than
+// the client — a file, a log — would have that shape read as its response
+// payload. Nothing in the daemon does, and the alternative (tracking the
+// writer across the helper boundary, where it arrives as a bare `io.Writer`
+// parameter) trades a stated limit for a fragile heuristic.
+func (a *analyzer) matchEncoderWrite(
+	site *funcSite,
+	call *ast.CallExpr,
+	label string,
+	facts *handlerFacts,
+) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Encode" {
+		return false
+	}
+	fn, ok := site.Pkg.TypesInfo.Uses[sel.Sel].(*types.Func)
+	if !ok || fn.Pkg() == nil || fn.Pkg().Path() != encodingJSONPath {
+		return false
+	}
+	a.addPayload(site, call, 0, label, facts)
+	return true
 }
 
 // setEmpty records a body-less success response without clobbering a payload

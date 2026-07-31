@@ -5,11 +5,17 @@
 // Usage:
 //
 //	protogen -daemon-root ./api -out-rust ./native/crates/crowbar-proto/src/generated \
+//	         -out-rust-tests ./native/crates/crowbar-proto/tests \
 //	         -out-ts ./web/src/lib/api/generated -manifest ./native/protogen.manifest.json
 //
 // The generated files are the single source of truth for both apps: a field
 // that drifts in the Go handler becomes a compile error in Rust and in
 // TypeScript instead of a silent undefined at runtime.
+//
+// -out-rust-tests emits the round-trip suite for the Rust DTOs from the same
+// IR. Generated rather than hand-written for the same reason the DTOs are: a
+// hand-written suite keeps passing when a handler grows a field, so the new
+// field arrives untested with nothing to say so.
 package main
 
 import (
@@ -37,6 +43,8 @@ func run() error {
 			"path to the Go daemon module root (the api/ directory)")
 		outRust = flag.String("out-rust", "",
 			"directory to write the generated Rust modules into")
+		outRustTests = flag.String("out-rust-tests", "",
+			"directory to write the generated Rust round-trip tests into")
 		outTS = flag.String("out-ts", "",
 			"directory to write the generated TypeScript modules into")
 		manifestPath = flag.String("manifest", "",
@@ -63,6 +71,14 @@ func run() error {
 			return err
 		}
 	}
+	var skippedTests []gen.Unresolved
+	if *outRustTests != "" {
+		files, skipped := gen.EmitRustTests(result)
+		skippedTests = skipped
+		if err := writeTree(*outRustTests, files, ".rs"); err != nil {
+			return err
+		}
+	}
 	if *outTS != "" {
 		if err := writeTree(*outTS, gen.EmitTS(result), ".ts"); err != nil {
 			return err
@@ -82,6 +98,7 @@ func run() error {
 	}
 	if !*quiet {
 		fmt.Fprint(os.Stderr, summary(result))
+		fmt.Fprint(os.Stderr, gen.SkippedRustTestSummary(skippedTests))
 	}
 	return nil
 }
