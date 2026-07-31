@@ -8,7 +8,7 @@
 
 use crowbar_driver::{Declared, RawAnchor};
 use crowbar_ui::components::{AnchorId, AnchorSink};
-use gpui::{AnyElement, Div, IntoElement as _, ParentElement as _, SharedString};
+use gpui::{AnyElement, Div, IntoElement as _, SharedString};
 
 /// What [`DriverAnchors::boxed_text`] appends to an id to record the run inside
 /// the box under an id of its own.
@@ -53,9 +53,13 @@ impl AnchorSink for DriverAnchors {
     /// and it is the box the DOM extractor anchors too. A flag on the run would
     /// be folded away and the anchor would reach the snapshot undeclared, which
     /// is a blind spot that reports nothing.
-    fn boxed_text(&self, id: AnchorId, element: Div, content: SharedString) -> AnyElement {
-        let run = crowbar_driver::anchor_text(text_half(&id.id), content);
-        self.boxed(id, element.child(run))
+    ///
+    /// `AnchorSink::boxed_text` composes this with [`DriverAnchors::boxed`] and
+    /// is deliberately not overridden, so a caller that has to place the run
+    /// itself — a menu row, whose label is followed by a chevron — records the
+    /// *same* two halves as one that lets the default append it last.
+    fn text_half(&self, id: &AnchorId, content: SharedString) -> AnyElement {
+        crowbar_driver::anchor_text(text_half(&id.id), content).into_any_element()
     }
 }
 

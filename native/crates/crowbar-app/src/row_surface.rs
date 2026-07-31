@@ -69,13 +69,15 @@ use std::fmt::Write as _;
 
 use crowbar_ui::components::{
     ALL_GIT_STATUSES, AnchorSink, Breakpoint, ContentLength, FileTreeRow, GitStatus, GitStatusRow,
-    RowState, TrailingContent, file_tree_row, git_status_row,
+    RowState, TrailingContent,
 };
 use crowbar_ui::{Appearance, Theme};
 use gpui::{
     AnyElement, Context, IntoElement, ParentElement as _, Pixels, Render, SharedString, Size,
     Styled as _, Window, div, px, relative, size,
 };
+
+use crate::surface::{Surface, SurfaceOptions};
 
 /// The horizontal inset the surface is drawn at inside the window.
 ///
@@ -91,84 +93,6 @@ const INSET_X_WHOLE: u16 = 24;
 
 /// The vertical inset. See [`INSET_X`].
 pub const INSET_Y: f32 = 16.0;
-
-/// Which row is under measurement.
-///
-/// A closed set on purpose: the name reaches the snapshot's `surface` field and
-/// the root anchor reaches its `root`, and the differ refuses to compare two
-/// snapshots that disagree on either. A free-form string here would let a typo
-/// become a silent refusal three steps later.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Surface {
-    /// One row of the git status panel — the geometry gate.
-    ///
-    /// The default, because it is the row the Phase 1 gate is measured on and a
-    /// command line written before `--surface` existed must keep rendering what
-    /// it rendered.
-    #[default]
-    GitStatusRow,
-    /// One row of the file explorer tree — the state gate.
-    FileTreeRow,
-}
-
-impl Surface {
-    /// The surface's name in a snapshot's `surface` field.
-    #[must_use]
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::GitStatusRow => "git-status-row",
-            Self::FileTreeRow => "file-tree-row",
-        }
-    }
-
-    /// The anchor every other bound on this surface is reported relative to
-    /// (`native/oracle/ANCHORS.md` §4).
-    ///
-    /// Only the snapshot path reads it, and that path is
-    /// `#[cfg(any(feature = "driver", test))]` — so in a plain shipping build
-    /// this is genuinely dead, exactly as `row_snapshot.rs` as a whole is. It
-    /// lives here rather than there because it is a fact about the surface, and
-    /// putting the two halves of `--surface` in two places is how they come to
-    /// disagree.
-    #[cfg_attr(not(any(feature = "driver", test)), allow(dead_code))]
-    #[must_use]
-    pub const fn root(self) -> &'static str {
-        match self {
-            Self::GitStatusRow => git_status_row::ID_ITEM,
-            Self::FileTreeRow => file_tree_row::ID_ITEM,
-        }
-    }
-
-    /// Whether this surface's React original has no such state to compare
-    /// against, so the cell **cannot fail**.
-    ///
-    /// Per surface rather than per flag, because the answer genuinely differs
-    /// and that difference is the reason the second surface exists. Neither
-    /// original has a `loading` or an `error` rendering of the row itself. Only
-    /// the git row has an `empty`: its trailing badge and counts are optional,
-    /// where a file explorer row always paints an icon and a name and has no
-    /// content to remove.
-    #[must_use]
-    pub const fn unmodelled(self, flag: StateFlag) -> bool {
-        match self {
-            Self::GitStatusRow => matches!(flag, StateFlag::Loading | StateFlag::Error),
-            Self::FileTreeRow => matches!(
-                flag,
-                StateFlag::Empty | StateFlag::Loading | StateFlag::Error
-            ),
-        }
-    }
-
-    fn parse(raw: &str) -> Result<Self, ParseError> {
-        match raw {
-            "git-status-row" => Ok(Self::GitStatusRow),
-            "file-tree-row" => Ok(Self::FileTreeRow),
-            other => Err(ParseError::Rejected(format!(
-                "--surface takes git-status-row or file-tree-row, not {other}"
-            ))),
-        }
-    }
-}
 
 /// The default `--viewport-width`, in logical px.
 ///
@@ -255,8 +179,24 @@ impl StateFlag {
 /// has no word for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cell {
-    /// Which row is under measurement.
-    pub surface: Surface,
+    /// Which surface is under measurement — an entry in the registry
+    /// `build.rs` builds out of `src/surfaces/`.
+    ///
+    /// A closed set still: the name reaches the snapshot's `surface` field and
+    /// the root anchor reaches its `root`, and the differ refuses to compare two
+    /// snapshots that disagree on either. What changed is *where* the set is
+    /// written down — in the surfaces' own files rather than in an enum here,
+    /// so that adding one does not touch another's code.
+    pub surface: &'static Surface,
+    /// The selected surface's own options.
+    ///
+    /// Every surface added from Phase 2 onwards puts its options here; the nine
+    /// legacy fields below belong to the two Phase 1 surfaces and are the
+    /// exception, for the reason `crate::surface`'s module docs give.
+    ///
+    /// Private, because it is a `dyn` and the typed way in is
+    /// [`Cell::surface_params`].
+    params: SurfaceOptions,
     /// Surface width in logical pixels — the width the row is given, not the
     /// window's.
     pub width: u16,
@@ -311,10 +251,26 @@ pub struct Cell {
     pub git_status: Option<GitStatus>,
 }
 
+/// The surface a bare command line renders.
+///
+/// Named by path rather than taken from the head of the registry, which is
+/// sorted by file name and would put whichever surface sorts first here. It has
+/// to stay `git-status-row`: every invocation written before `--surface` existed
+/// must keep rendering the row it rendered, and the archived gate runs are
+/// evidence taken at that default.
+///
+/// This is the **only** place `crate::surfaces` names one surface in particular,
+/// and it is a commitment rather than a dispatch.
+fn default_surface() -> &'static Surface {
+    &crate::surfaces::git_status_row::SURFACE
+}
+
 impl Default for Cell {
     fn default() -> Self {
+        let surface = default_surface();
         Self {
-            surface: Surface::GitStatusRow,
+            surface,
+            params: SurfaceOptions::new((surface.params)()),
             width: 320,
             // Comfortably above Tailwind's 640px `sm` breakpoint, so every
             // invocation written before `--viewport-width` existed keeps
@@ -351,6 +307,20 @@ impl Cell {
     #[must_use]
     pub fn has(&self, flag: StateFlag) -> bool {
         self.flags.contains(&flag)
+    }
+
+    /// The selected surface's own parameters, as the surface's own type.
+    ///
+    /// `None` when `T` is a different surface's bag, which is the honest answer:
+    /// a `dropdown-menu` cell carries no `git-status-row` parameters.
+    ///
+    /// Only a surface's own tests read it — the binary never needs to know which
+    /// surface it is holding, which is the whole point of the registry — so it
+    /// is genuinely dead in a shipping build, exactly as `row_snapshot.rs` is.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub fn surface_params<T: 'static>(&self) -> Option<&T> {
+        self.params.as_any().downcast_ref::<T>()
     }
 
     /// The flags whose cells cannot fail, because **this surface's** original
@@ -473,24 +443,14 @@ impl Cell {
         // how a reader concludes the badge changed size for no reason.
         let mut out = format!(
             "{} · {}px in a {}px viewport · {theme} · {content} · flags {flags} · depth {}",
-            self.surface.name(),
-            self.width,
-            self.viewport_width,
-            self.depth,
+            self.surface.name, self.width, self.viewport_width, self.depth,
         );
-        // The row parameters the *other* surface has no prop for, each named
-        // only where it is honoured. A caption that announced `git modified` on
-        // a git status row would be describing a colour nothing painted.
-        if self.surface == Surface::GitStatusRow {
-            if !self.show_directory {
-                out.push_str(" · no-directory");
-            }
-            if !self.show_file_icon {
-                out.push_str(" · no-icon");
-            }
-        } else if let Some(status) = self.git_status {
-            let _ = write!(out, " · git {}", status.name());
-        }
+        // The parameters the *other* surfaces have no prop for, each named only
+        // where it is honoured, by the surface that honours it. A caption that
+        // announced `git modified` on a git status row would be describing a
+        // colour nothing painted — and the surface is the only thing that knows
+        // that, which is why this is a delegation and not a `match`.
+        self.params.describe(self, &mut out);
         out
     }
 
@@ -502,14 +462,38 @@ impl Cell {
     /// value outside the fixed vocabulary; [`ParseError::HelpRequested`] for
     /// `--help`, which is a request to print the usage rather than a mistake.
     pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Self, ParseError> {
+        let words: Vec<String> = args.into_iter().collect();
+
+        // `--surface` is read in its own pass, before anything else, because the
+        // selected surface decides which *other* options exist. Reading it in
+        // the loop would mean a `--tick checkbox --surface dropdown-menu` line
+        // rejected its own surface's option, and a `--surface` written twice
+        // would silently discard the first surface's parameters. One pass makes
+        // the option order irrelevant, which is what the rest of this parser
+        // already promises.
         let mut cell = Self::default();
+        let mut selector = words.iter();
+        while let Some(word) = selector.next() {
+            if word == "--surface" {
+                let name = selector
+                    .next()
+                    .ok_or_else(|| ParseError::Rejected("--surface needs a value".to_owned()))?;
+                cell.surface = Surface::parse(name)?;
+                cell.params = SurfaceOptions::new((cell.surface.params)());
+            }
+        }
+
         let mut previous_depth = None;
         let mut next_depth = None;
-        let mut args = args.into_iter();
+        let mut args = words.into_iter();
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "--surface" => cell.surface = Surface::parse(&value(&mut args, &arg)?)?,
+                // Already consumed by the pass above; its value still has to be
+                // stepped over here.
+                "--surface" => {
+                    value(&mut args, &arg)?;
+                }
                 "--width" => cell.width = parse_u16(&value(&mut args, &arg)?)?,
                 "--viewport-width" => cell.viewport_width = parse_u16(&value(&mut args, &arg)?)?,
                 "--theme" => cell.appearance = parse_appearance(&value(&mut args, &arg)?)?,
@@ -525,7 +509,15 @@ impl Cell {
                 "--no-icon" => cell.show_file_icon = false,
                 "--compact" => cell.compact = true,
                 "--help" | "-h" => return Err(ParseError::HelpRequested),
-                other => return Err(ParseError::Rejected(format!("unknown option {other}"))),
+                // The **one** arm every surface's own options come through. A
+                // surface that does not recognise the word says so and the
+                // rejection below is unchanged, so an option belonging to one
+                // surface is still an error on another.
+                other => {
+                    if !cell.params.accept(other, &mut args)? {
+                        return Err(ParseError::Rejected(format!("unknown option {other}")));
+                    }
+                }
             }
         }
 
@@ -643,18 +635,15 @@ fn parse_flags(raw: &str) -> Result<Vec<StateFlag>, ParseError> {
 #[must_use]
 pub fn usage() -> String {
     let mut out = String::from(
-        "crowbar-app — a Phase 1 gate surface: one row in one matrix cell.\n\n\
+        "crowbar-app — one measurable surface in one §8.3 matrix cell.\n\n\
          Options (all optional; the defaults are one cell):\n",
     );
     // Built rather than written out, so the usage cannot claim a vocabulary the
     // parser does not accept.
     let statuses = format!("file-tree-row: colours the name; {} [none]", git_statuses());
+    let surfaces = format!("one of {} [git-status-row]", Surface::names().join(", "));
     for (option, description) in [
-        (
-            "--surface <name>",
-            "git-status-row (geometry) or file-tree-row (state) \
-             [git-status-row]",
-        ),
+        ("--surface <name>", surfaces.as_str()),
         ("--width <px>", "surface width, logical px [320]"),
         (
             "--viewport-width <px>",
@@ -688,18 +677,32 @@ pub fn usage() -> String {
     ] {
         let _ = writeln!(out, "  {option:<32}{description}");
     }
+
+    // Each surface's own options, from the surface itself. Nothing here knows
+    // what any of them are, which is the point: adding a surface adds a section.
+    for surface in crate::surfaces::ALL {
+        let options = (surface.options)();
+        if options.is_empty() {
+            continue;
+        }
+        let _ = write!(out, "\n{} only:\n", surface.name);
+        for (option, description) in options {
+            let _ = writeln!(out, "  {option:<32}{description}");
+        }
+    }
+
     out.push_str(
-        "\nWhich flags each surface really has (the rest render the resting row\n\
-         and are reported on stderr, because a cell that cannot fail is the\n\
-         cheapest possible fake convergence):\n",
+        "\nWhich flags each surface really has (the rest render the resting\n\
+         surface and are reported on stderr, because a cell that cannot fail is\n\
+         the cheapest possible fake convergence):\n",
     );
-    for surface in [Surface::GitStatusRow, Surface::FileTreeRow] {
+    for surface in crate::surfaces::ALL {
         let modelled: Vec<&str> = ALL_FLAGS
             .iter()
             .filter(|flag| !surface.unmodelled(**flag))
             .map(|flag| flag.name())
             .collect();
-        let _ = writeln!(out, "  {:<32}{}", surface.name(), modelled.join(", "));
+        let _ = writeln!(out, "  {:<32}{}", surface.name, modelled.join(", "));
     }
     out.push_str(
         "\nA driver build (--features driver) additionally honours\n  \
@@ -726,7 +729,7 @@ impl RowSurface {
         }
     }
 
-    /// The window: **the viewport**, and tall enough for the row and its
+    /// The window: **the viewport**, and tall enough for the surface and its
     /// caption.
     ///
     /// The width is `--viewport-width` verbatim rather than "whatever the
@@ -735,24 +738,29 @@ impl RowSurface {
     /// badge in a run that asked for a narrow viewport. [`Cell::parse`] has
     /// already refused a viewport too small to hold the surface, so this can
     /// never be narrower than `surface + 2 × INSET_X`.
+    ///
+    /// The height is the surface's own, because a row is one line and a menu
+    /// popup is a column of them. The two Phase 1 surfaces keep the 72 they were
+    /// measured at.
     #[must_use]
     pub fn window_size(cell: &Cell) -> Size<Pixels> {
-        size(cell.viewport_width_px(), px(INSET_Y * 2.0 + 72.0))
+        size(
+            cell.viewport_width_px(),
+            px(INSET_Y * 2.0 + f32::from(cell.surface.window_height)),
+        )
     }
 }
 
-/// The one place `--surface` becomes an element tree.
+/// The one place `--surface` becomes an element tree — and it no longer names a
+/// surface.
 ///
 /// A free function over the cell rather than a method on [`RowSurface`], because
 /// `row_layout.rs` renders the same dispatch under `cargo test` without a
-/// `RowSurface` — and two spellings of "which row does this cell mean" is
+/// `RowSurface` — and two spellings of "which surface does this cell mean" is
 /// exactly the duplication that lets the measured tree drift from the drawn one.
 #[must_use]
 pub fn render_row(cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
-    match cell.surface {
-        Surface::GitStatusRow => cell.row().render(theme, anchors),
-        Surface::FileTreeRow => cell.file_row().render(theme, anchors),
-    }
+    cell.params.render(cell, theme, anchors)
 }
 
 impl Render for RowSurface {
@@ -796,6 +804,13 @@ mod tests {
 
     fn parse(args: &[&str]) -> Result<Cell, ParseError> {
         Cell::parse(args.iter().map(|arg| (*arg).to_owned()))
+    }
+
+    /// A registered surface by name. Every one of these names is asserted to
+    /// exist by `surface.rs`, so a lookup that misses here is a registry
+    /// failure and not a typo in this file.
+    fn a_surface(name: &str) -> &'static Surface {
+        Surface::parse(name).expect("a registered surface")
     }
 
     #[test]
@@ -1109,7 +1124,7 @@ mod tests {
             StateFlag::Selected,
         ] {
             assert!(
-                !Surface::GitStatusRow.unmodelled(flag),
+                !a_surface("git-status-row").unmodelled(flag),
                 "{} has an original on the git row",
                 flag.name(),
             );
@@ -1128,7 +1143,8 @@ mod tests {
     /// binary says so on stderr rather than rendering it quietly.
     #[test]
     fn the_two_surfaces_model_different_flags() {
-        let modelled = |surface: Surface| {
+        let modelled = |name: &str| {
+            let surface = a_surface(name);
             ALL_FLAGS
                 .iter()
                 .copied()
@@ -1137,7 +1153,7 @@ mod tests {
         };
 
         assert_eq!(
-            modelled(Surface::GitStatusRow),
+            modelled("git-status-row"),
             vec![
                 StateFlag::Empty,
                 StateFlag::Hover,
@@ -1146,14 +1162,15 @@ mod tests {
             ],
         );
         assert_eq!(
-            modelled(Surface::FileTreeRow),
+            modelled("file-tree-row"),
             vec![StateFlag::Hover, StateFlag::Focus, StateFlag::Selected],
         );
 
-        // The two the *contract* has and neither app does.
-        for surface in [Surface::GitStatusRow, Surface::FileTreeRow] {
-            assert!(surface.unmodelled(StateFlag::Loading));
-            assert!(surface.unmodelled(StateFlag::Error));
+        // The two the *contract* has and no app does — on every surface, which
+        // is the claim the registry makes it possible to state once.
+        for surface in crate::surfaces::ALL {
+            assert!(surface.unmodelled(StateFlag::Loading), "{}", surface.name);
+            assert!(surface.unmodelled(StateFlag::Error), "{}", surface.name);
         }
 
         // And the filter follows the cell's surface, not a constant.
@@ -1170,23 +1187,20 @@ mod tests {
     /// archived gate runs are evidence taken at that default.
     #[test]
     fn the_surface_selector_defaults_to_the_geometry_gate() {
-        assert_eq!(Cell::default().surface, Surface::GitStatusRow);
+        assert_eq!(Cell::default().surface.name, "git-status-row");
         assert_eq!(
-            parse(&[]).expect("well-formed").surface,
-            Surface::GitStatusRow
+            parse(&[]).expect("well-formed").surface.name,
+            "git-status-row"
         );
-        assert_eq!(
-            parse(&["--surface", "file-tree-row"])
-                .expect("well-formed")
-                .surface,
-            Surface::FileTreeRow,
-        );
-        assert_eq!(
-            parse(&["--surface", "git-status-row"])
-                .expect("well-formed")
-                .surface,
-            Surface::GitStatusRow,
-        );
+        for name in Surface::names() {
+            assert_eq!(
+                parse(&["--surface", name])
+                    .expect("well-formed")
+                    .surface
+                    .name,
+                name,
+            );
+        }
 
         // The vocabulary is closed, and the complaint names what was wanted.
         let Err(ParseError::Rejected(complaint)) = parse(&["--surface", "file-row"]) else {

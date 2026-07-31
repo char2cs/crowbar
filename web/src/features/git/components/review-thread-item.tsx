@@ -158,19 +158,26 @@ function MessageRow({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-40">
                 {canEdit && (
-                  <DropdownMenuItem onClick={onStartEdit}>
+                  <DropdownMenuItem data-oracle-id="menu-item-edit" onClick={onStartEdit}>
                     <PencilSimple className="size-4" />
                     Edit
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem onClick={() => void copyAsMarkdown(message.body)}>
+                <DropdownMenuItem
+                  data-oracle-id="menu-item-copy"
+                  onClick={() => void copyAsMarkdown(message.body)}
+                >
                   <Copy className="size-4" />
                   Copy as Markdown
                 </DropdownMenuItem>
                 {canDelete && (
                   <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem variant="destructive" onClick={onRequestDelete}>
+                    <DropdownMenuItem
+                      data-oracle-id="menu-item-delete"
+                      variant="destructive"
+                      onClick={onRequestDelete}
+                    >
                       <Trash className="size-4" />
                       Delete
                     </DropdownMenuItem>

@@ -123,7 +123,37 @@ pub trait AnchorSink {
     /// The `content` is owned by the sink rather than being passed as a child,
     /// for the same reason [`AnchorSink::text`] owns its string: what is
     /// recorded cannot then drift from what is painted.
-    fn boxed_text(&self, id: AnchorId, element: Div, content: SharedString) -> AnyElement;
+    ///
+    /// Defaulted over [`AnchorSink::text_half`] and [`AnchorSink::boxed`], so
+    /// that "the run goes last" is one composition rather than one per
+    /// implementation — two spellings of the same arrangement being exactly how
+    /// the measured build comes to differ from the shipping one.
+    fn boxed_text(&self, id: AnchorId, element: Div, content: SharedString) -> AnyElement {
+        let run = self.text_half(&id, content);
+        self.boxed(id, element.child(run))
+    }
+
+    /// The **run half** of a `boxed_text` anchor, as an element the caller
+    /// places itself.
+    ///
+    /// [`AnchorSink::boxed_text`] appends the run as the box's *last* child,
+    /// which is right for a box whose only content is its string — the
+    /// `uncommitted` badge — and wrong for one whose string is followed by
+    /// something else. A dropdown menu row is the second shape: its DOM is
+    /// `[icon, "Copy as Markdown", chevron]`, and a run appended last would put
+    /// the chevron *before* the label and lay the row out differently on the
+    /// two sides.
+    ///
+    /// So the placement becomes the caller's while the recording stays the
+    /// sink's, which keeps the property `boxed_text` exists for: the sink owns
+    /// the string either way, so what is recorded cannot drift from what is
+    /// painted.
+    ///
+    /// **The declarations do not ride on this half.** They go on the box, which
+    /// is the record the differ keeps — see `crowbar-app`'s `fold_text_halves`.
+    /// That is why this takes `&AnchorId` rather than consuming one: the id it
+    /// needs is the box's, and the box still needs it afterwards.
+    fn text_half(&self, id: &AnchorId, content: SharedString) -> AnyElement;
 }
 
 /// The shipping sink: renders exactly what it was given and records nothing.
@@ -143,8 +173,8 @@ impl AnchorSink for Unanchored {
         StyledText::new(content).into_any_element()
     }
 
-    fn boxed_text(&self, _id: AnchorId, element: Div, content: SharedString) -> AnyElement {
-        element.child(StyledText::new(content)).into_any_element()
+    fn text_half(&self, _id: &AnchorId, content: SharedString) -> AnyElement {
+        StyledText::new(content).into_any_element()
     }
 }
 
