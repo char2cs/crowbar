@@ -158,3 +158,48 @@ func TestBranchReviewDTOFromHasNoConversationsKey(
 	assert.False(t, hasConversations,
 		"branch-review DTO must not carry a conversations key after Chat removal")
 }
+
+// TestReviewMessageDTOFrom_CarriesAgentAttribution asserts the second, entirely
+// independent message DTO maps the provider and chat too. ReviewMessageDTO and
+// ThreadDTO are separate wire shapes over the same aggregate, served by different
+// endpoints, so attribution added to one and not the other would show an agent's
+// name on one review surface and not on another.
+func TestReviewMessageDTOFrom_CarriesAgentAttribution(
+	t *testing.T,
+) {
+	got := dto.ReviewMessageDTOFrom(domain.ReviewMessage{
+		ID:         "msg-1",
+		Author:     "claude",
+		IsAgent:    true,
+		ProviderID: "claude",
+		ChatID:     "chat-7",
+		Body:       "This leaks the token.",
+		CreatedAt:  time.Date(2026, 6, 6, 12, 30, 0, 0, time.UTC),
+	})
+
+	assert.Equal(t, "claude", got.ProviderID)
+	assert.Equal(t, "chat-7", got.ChatID)
+}
+
+// TestReviewMessageDTOFrom_PreAttributionMessageOmitsTheFields is the
+// degradation guard: a message written before attribution existed — every
+// message in every install today — must serialise without either key, so a
+// client sees "absent" rather than an empty provider id to resolve.
+func TestReviewMessageDTOFrom_PreAttributionMessageOmitsTheFields(
+	t *testing.T,
+) {
+	got := dto.ReviewMessageDTOFrom(domain.ReviewMessage{
+		ID:        "msg-1",
+		Author:    "alice",
+		Body:      "looks good",
+		CreatedAt: time.Date(2026, 6, 6, 12, 30, 0, 0, time.UTC),
+	})
+
+	assert.Empty(t, got.ProviderID)
+	assert.Empty(t, got.ChatID)
+
+	out, err := json.Marshal(got)
+	require.NoError(t, err)
+	assert.NotContains(t, string(out), "providerId")
+	assert.NotContains(t, string(out), "chatId")
+}

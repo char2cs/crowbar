@@ -5,14 +5,22 @@ import (
 )
 
 // ReviewMessageDTO is the wire shape of one append-only message inside a review
-// thread (09 §3): its id, optional author, agent flag, body, and creation time
-// rendered in RFC 3339.
+// thread (09 §3): its id, optional author, agent flag, optional agent
+// attribution, body, and creation time rendered in RFC 3339.
+//
+// ProviderID and ChatID are omitempty and absent far more often than present:
+// every human message has neither, and so does every agent message written
+// before attribution existed. A client must render exactly as it did before this
+// field pair when they are missing, resolving them against the providers and
+// chats it already holds when they are not — never branching on a particular id.
 type ReviewMessageDTO struct {
-	ID        string `json:"id"`
-	Author    string `json:"author,omitempty"`
-	IsAgent   bool   `json:"isAgent"`
-	Body      string `json:"body"`
-	CreatedAt string `json:"createdAt"`
+	ID         string `json:"id"`
+	Author     string `json:"author,omitempty"`
+	IsAgent    bool   `json:"isAgent"`
+	ProviderID string `json:"providerId,omitempty"`
+	ChatID     string `json:"chatId,omitempty"`
+	Body       string `json:"body"`
+	CreatedAt  string `json:"createdAt"`
 }
 
 // ReviewThreadDTO is the wire shape of a branch-review comment thread (09 §3):
@@ -48,11 +56,13 @@ func ReviewMessageDTOFrom(
 	msg domain.ReviewMessage,
 ) ReviewMessageDTO {
 	return ReviewMessageDTO{
-		ID:        msg.ID,
-		Author:    msg.Author,
-		IsAgent:   msg.IsAgent,
-		Body:      msg.Body,
-		CreatedAt: msg.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		ID:         msg.ID,
+		Author:     msg.Author,
+		IsAgent:    msg.IsAgent,
+		ProviderID: msg.ProviderID,
+		ChatID:     msg.ChatID,
+		Body:       msg.Body,
+		CreatedAt:  msg.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
 
