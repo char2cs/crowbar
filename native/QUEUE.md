@@ -914,6 +914,46 @@ the next drift is one file in the commit that caused it.
 > is `600×900 @(1723,1137)` in points at dpr 2 — and points are what
 > `CGWindowList` and `CGWarpMouseCursorPosition` use.
 
+### §17 coverage — measured 2026-07-31, and one item was over-claimed
+
+Both numbers, reported separately and never blended, exactly as §17 requires.
+
+| crate | lines | missed | line % | |
+|---|---|---|---|---|
+| `crowbar-core` | 148 | 0 | **100.00%** | ✅ |
+| `crowbar-client` | 277 | 1 | **99.64%** | ✅ |
+| `crowbar-driver` | 1222 | 24 | **98.04%** | ✅ over the bar, but see below |
+| `crowbar-proto` | 0 | 0 | **—** | ❌ no data — see below |
+| `crowbar-diff-logic` | — | — | — | crate does not exist yet |
+
+**Oracle-corpus coverage, kept separate:** `oracle` 2815 lines, 0 missed,
+**100.00%**.
+
+> Read the right column. `cargo llvm-cov --summary-only` prints regions, then
+> functions, **then** lines — the line percentage is column 10, not column 7. I
+> misread it first and produced a table claiming every crate was below 98%.
+
+**`crowbar-proto` is empty, and item 0.5 was marked done too early.** The crate
+is `Cargo.toml` plus a 9-line `lib.rs`: no types, no functions, no
+`src/generated/` — and that directory has no git history, so it was never
+committed rather than lost. Meanwhile **four crates already depend on it**
+(`crowbar-client`, `crowbar-core`, `crowbar-app`, `crowbar-driver`).
+
+0.5's row reads "Go handlers → `crowbar-proto` + regenerated `web/` types", and
+what actually shipped was the **generator** — `tools/protogen`, with golden
+fixtures and determinism tests, all genuinely good. It was simply never run to
+produce the output the row promises. A `-` in a coverage table is not a pass; it
+is an absent measurement, and it went unnoticed because nothing consumes the
+crate yet.
+
+Dispatched as **P0.5b**, Rust side only. Regenerating `web/` types is
+deliberately excluded while the React app is the live reference for an in-flight
+parity gate — churning its types would perturb the thing being measured.
+
+**`crowbar-driver` regressed 100% → 98.04%** (24 lines missed, all in
+`element.rs`, 94.43%). Still over the bar, so not a violation and not treated as
+one, but it is drift in the wrong direction on the crate that carries the gate.
+
 ### ▶ How to bring up the reference app — **do not use `make dev-desktop`**
 
 `make dev-desktop` is wrong for this work, for two reasons that only show up when
