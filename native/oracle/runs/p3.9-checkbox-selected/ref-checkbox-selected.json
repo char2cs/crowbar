@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "surface": "checkbox",
+  "state": {
+    "width": 1714,
+    "theme": "dark",
+    "content": "normal",
+    "flags": [
+      "selected"
+    ]
+  },
+  "root": "checkbox",
+  "anchors": [
+    {
+      "id": "checkbox",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 16,
+        "h": 16
+      },
+      "bg": "#1f1f1eff",
+      "visible": true,
+      "radius": 4,
+      "border": {
+        "w": 1,
+        "color": "#ffffff14"
+      }
+    }
+  ]
+}

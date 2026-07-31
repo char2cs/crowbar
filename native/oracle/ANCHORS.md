@@ -1,4 +1,4 @@
-# The anchor snapshot contract — v1.10
+# The anchor snapshot contract — v1.11
 
 > ## ‼️ CORRECTION: the reference engine is **WebKit**, not Blink
 >
@@ -299,12 +299,49 @@ states is meaningless and would be the easiest possible way to fake convergence.
 | `radius` | Corner radius px. Single value; if corners differ, emit the top-left and note it. | no |
 | `border` | Width px + colour. | no |
 
+### An element that generates NO BOX is not an anchor *(v1.11)*
+
+Found by P3.9 porting `checkbox`, whose tick indicator is `display: none` when
+unchecked. Reported rather than patched, which was right — the fix is a contract
+decision.
+
+The two sides disagreed on **anchor presence**, not on a field:
+
+| | a `display: none` element |
+|---|---|
+| `extract.ts` | `oracleIsVisible` returns `false`, **but the anchor is still emitted** — a zero-rect record with `visible: false` |
+| GPUI | the element does not exist, so **there is no anchor at all** |
+
+That is a structural delta on the *resting* cell, caused by the contract rather
+than by the port. And both obvious repairs are worse: anchoring nothing on the
+native side is impossible, and synthesising a zero-rect record there would be
+writing the reference's own output into the port.
+
+**DECIDED: an element that generates no box is not an anchor.** The React
+extractor must **skip** it rather than emit a zero-rect record.
+
+The distinction that makes this safe, and that must not be blurred:
+`visibility: hidden`, `opacity: 0` and being clipped by an ancestor all **do**
+generate boxes. Those stay anchors, with `visible: false` — which is exactly how
+the carousel's snapped-out panels and v1.7's opacity case are caught. Only
+`display: none` generates nothing, and only it is skipped.
+
+Verified before ruling: **no archived reference contains a zero-area anchor**, so
+no existing evidence depends on the current behaviour.
+
+Until the extractor implements this, an anchor that can be `display: none` in one
+cell must be left unanchored — which is what P3.9 did with the tick, at the cost
+of `checkbox`'s `selected` moving one compared field where `switch`'s moves two.
+
 ### v1.9 is ASYMMETRIC: only the reference's box moves under a transform
 
 Established by P3.7 porting `spinner`, and it narrows v1.9 considerably.
 
-`animate-spin` animates `transform`, and the two sides treat that differently at
-the level the extractors read:
+`animate-spin` animates `transform` — and Tailwind 4 compiles `translate-x-*` to
+the standalone **`translate`** property, which WebKit folds into the same box, so
+read "transform" below as "any of the transform-ish properties". P3.9 found that
+distinction the hard way on a switch thumb. The two sides treat them differently
+at the level the extractors read:
 
 | | does a rotation move the recorded `bounds`? |
 |---|---|

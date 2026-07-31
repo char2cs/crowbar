@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "surface": "switch",
+  "state": {
+    "width": 1714,
+    "theme": "dark",
+    "content": "normal",
+    "flags": []
+  },
+  "root": "switch",
+  "anchors": [
+    {
+      "id": "switch",
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 30.0,
+        "h": 18.0
+      },
+      "bg": "#ffffff14",
+      "visible": true,
+      "radius": 3.4028234663852886e+38,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    },
+    {
+      "id": "switch-thumb",
+      "bounds": {
+        "x": 1.0,
+        "y": 1.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "bg": "#1f1f1eff",
+      "visible": true,
+      "radius": 16.0,
+      "border": {
+        "w": 0.0,
+        "color": "#00000000"
+      }
+    }
+  ]
+}
