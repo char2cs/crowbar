@@ -1,44 +1,24 @@
-//! The driver-backed [`AnchorSink`] and the snapshot it emits.
+//! The snapshot a driver build emits, and where it goes.
 //!
-//! `--features driver` only. The shipping build carries `Unanchored`, whose
-//! elements request layout identically, so what the oracle measures is what
-//! ships.
+//! `--features driver` only. The sink the row is rendered through is
+//! [`crate::driver_anchors`], which a plain `cargo test` also uses; the shipping
+//! build carries `Unanchored`, whose elements request layout identically, so
+//! what the oracle measures is what ships.
 
 use std::env;
 use std::fs;
 use std::io::{self, Write as _};
 use std::path::PathBuf;
 
-use crowbar_driver::{AnchorRegistry, Content, Flag, SurfaceState, Theme as SnapshotTheme};
+use crowbar_driver::{AnchorRegistry, Content, Flag, Snapshot, SurfaceState, Theme as SnapshotTheme};
 use crowbar_ui::Appearance;
-use crowbar_ui::components::{AnchorSink, ContentLength};
-use gpui::{AnyElement, Div, IntoElement as _, SharedString};
+use crowbar_ui::components::ContentLength;
 
+use crate::driver_anchors::fold_text_halves;
 use crate::row_surface::{Cell, SURFACE, StateFlag};
 
 /// The anchor id everything else is reported relative to.
 const ROOT: &str = crowbar_ui::components::ID_ITEM;
-
-/// Wraps the row's elements in the driver's anchor elements.
-///
-/// The wrappers contribute no taffy node and return `None` from
-/// `Element::id()`, so the layout tree with them is the layout tree without
-/// them — see `crowbar-driver`'s `src/element.rs`.
-pub struct DriverAnchors;
-
-impl AnchorSink for DriverAnchors {
-    fn root(&self, id: SharedString, element: Div) -> AnyElement {
-        crowbar_driver::anchor_root(id, element).into_any_element()
-    }
-
-    fn boxed(&self, id: SharedString, element: Div) -> AnyElement {
-        crowbar_driver::anchor(id, element).into_any_element()
-    }
-
-    fn text(&self, id: SharedString, content: SharedString) -> AnyElement {
-        crowbar_driver::anchor_text(id, content).into_any_element()
-    }
-}
 
 /// Where an emitted snapshot goes.
 pub enum Destination {
@@ -109,9 +89,16 @@ pub fn emit(
     cell: &Cell,
     destination: &Destination,
 ) -> Result<PathBuf, String> {
-    let snapshot = anchors
-        .snapshot(SURFACE, state_of(cell), ROOT)
-        .map_err(|err| err.to_string())?;
+    // Built from the folded records rather than through `AnchorRegistry::snapshot`,
+    // because the fold has to happen between "what prepaint recorded" and "what
+    // the contract describes". See `fold_text_halves`.
+    let snapshot = Snapshot::build(
+        SURFACE,
+        state_of(cell),
+        ROOT,
+        &fold_text_halves(anchors.records()),
+    )
+    .map_err(|err| err.to_string())?;
     let json = snapshot.to_json().map_err(|err| err.to_string())?;
 
     match destination {

@@ -37,6 +37,12 @@ mod driver_surface;
 #[cfg(feature = "driver")]
 mod row_snapshot;
 
+/// The driver-backed [`crowbar_ui::components::AnchorSink`]. A driver build
+/// emits through it; `row_layout.rs` measures through it under a plain
+/// `cargo test`, which is why it is not behind the feature alone.
+#[cfg(any(feature = "driver", test))]
+mod driver_anchors;
+
 #[cfg(test)]
 mod row_layout;
 mod row_surface;
@@ -109,7 +115,7 @@ fn open(cell: Cell, caption: String, cx: &mut App) -> gpui::Result<()> {
                 cx.quit();
             });
         }
-        cx.new(|_| RowSurface::new(cell, Box::new(row_snapshot::DriverAnchors), caption))
+        cx.new(|_| RowSurface::new(cell, Box::new(driver_anchors::DriverAnchors), caption))
     })?;
     cx.activate(true);
     Ok(())
@@ -141,39 +147,102 @@ fn window_options(cell: &Cell) -> WindowOptions {
     }
 }
 
-/// Where the React app's UI font lives, unless `CROWBAR_ROW_FONT` says
-/// otherwise.
-fn ui_font_path() -> PathBuf {
-    std::env::var("CROWBAR_ROW_FONT").map_or_else(
-        |_| {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../../web/public/fonts/CalSansUI.woff2")
-        },
-        PathBuf::from,
-    )
+/// The family the row declares, and therefore the family the snapshot reports.
+///
+/// It is the *stylesheet's* `@font-face` name (`web/src/styles/theme.css`), not
+/// the name inside the original font file — see [`UI_FONT_FILES`].
+const UI_FONT_FAMILY: &str = "CalSansUI";
+
+/// The faces the React app renders the row with, converted for CoreText.
+///
+/// **Provenance, because these are derived files.** Both are produced from the
+/// repo's own `web/public/fonts/CalSansUI.woff2` — which stays, and which the
+/// web app still loads — by `fontTools`:
+///
+/// ```text
+/// instantiateVariableFont(TTFont('CalSansUI.woff2'), {'wght': W, 'GEOM': 0})
+/// font.flavor = None                       # drop the WOFF2 container
+/// name IDs 1/4/16 := "CalSansUI"           # the @font-face name, see below
+/// ```
+///
+/// Three decisions are load-bearing:
+///
+/// * **WOFF2 → bare sfnt.** gpui hands `add_fonts` bytes to CoreText through
+///   font-kit, and CoreText does not read the WOFF2 container: the original
+///   file fails with `font: CalSansUI rejected (parse error)`. Nothing but the
+///   container changes — the `glyf`, `hmtx`, `GPOS` and `cmap` tables are the
+///   ones the browser shapes with, so the advance widths are the same numbers.
+/// * **Static instances, not the variable face.** `CalSansUI.woff2` is variable
+///   (`wght` 400–700, `GEOM` 0–100). font-kit picks a face out of a family by
+///   reading `OS/2.usWeightClass` and has no way to ask for a `wght`
+///   coordinate, so a single variable face would answer *every* weight request
+///   with its 400 default — and the badge's `font-weight: 500` would shape at
+///   400 while the snapshot went on reporting the declared 500. Two instances
+///   give `find_best_match` something real to choose between. `GEOM` is pinned
+///   at its default because nothing in the app sets `font-variation-settings`.
+/// * **The family is renamed `Cal Sans UI` → `CalSansUI`.** font-kit's
+///   `MemSource` matches a family by exact name, and the name in the file is
+///   `Cal Sans UI` while the stylesheet's `@font-face` declares `CalSansUI`.
+///   Leaving them different means either the family never resolves (and the row
+///   silently shapes with a fallback, which is the failure this whole comment
+///   exists to prevent) or the row declares `Cal Sans UI` and every text
+///   anchor reports a `font.family` the DOM will never produce.
+///   `licenses/CalSans-OFL-1.1.txt` declares **no Reserved Font Name**, so
+///   OFL-1.1 §3 places no restriction on a Modified Version's name.
+const UI_FONT_FILES: [&str; 2] = ["CalSansUI-Regular.ttf", "CalSansUI-Medium.ttf"];
+
+/// Where the row's faces live, unless `CROWBAR_ROW_FONT` says otherwise.
+///
+/// The override takes a **single** path — it exists so a parity run can point
+/// the row at some other face to prove a suspected shaping difference, and one
+/// file is enough for that.
+fn ui_font_paths() -> Vec<PathBuf> {
+    if let Ok(overridden) = std::env::var("CROWBAR_ROW_FONT") {
+        return vec![PathBuf::from(overridden)];
+    }
+    let fonts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../web/public/fonts");
+    UI_FONT_FILES.iter().map(|file| fonts.join(file)).collect()
 }
 
-/// Tries to give gpui the same font the React app renders with, and says
-/// plainly whether it worked.
+/// Gives gpui the same faces the React app renders with, and says plainly
+/// whether it worked.
 ///
 /// **This is a parity dependency, not a nicety.** `text_width` is the field the
 /// gate was chosen for, and it is a property of the shaped face: the two apps
 /// can agree on every box and still disagree on where the ellipsis lands if
-/// they are shaping with different fonts. The face the React app uses is
-/// `CalSansUI`, distributed as **WOFF2** — a web container format that gpui
-/// hands straight to CoreText, which does not read it. The attempt is made
-/// anyway, because the answer belongs in the caption rather than in a guess,
-/// and because pointing `CROWBAR_ROW_FONT` at a TTF of the same face then makes
-/// it work with no code change.
+/// they are shaping with different fonts.
+///
+/// The registration is checked as well as attempted, and that is the point.
+/// `add_fonts` returning `Ok` only says CoreText parsed the bytes — it says
+/// nothing about whether `font_family("CalSansUI")` will *find* them. If it
+/// does not, gpui falls back silently, the row goes on **declaring** the family
+/// it was told to, and `font.family` compares equal on both sides while every
+/// `text_width` underneath is the wrong typeface. That is the worst kind of
+/// agreement: the one field that would reveal the problem is the field that
+/// matches. So the family is looked up by name afterwards and a miss is a
+/// different message, not a quieter one.
 fn load_ui_font(cx: &mut App) -> String {
-    let path = ui_font_path();
-    let Ok(bytes) = std::fs::read(&path) else {
-        return format!("font: {} not found", path.display());
-    };
-    match cx.text_system().add_fonts(vec![Cow::Owned(bytes)]) {
-        Ok(()) => "font: CalSansUI loaded".to_owned(),
-        Err(err) => format!("font: CalSansUI rejected ({err})"),
+    let paths = ui_font_paths();
+    let mut faces = Vec::with_capacity(paths.len());
+    for path in &paths {
+        match std::fs::read(path) {
+            Ok(bytes) => faces.push(Cow::Owned(bytes)),
+            Err(err) => return format!("font: {} not read ({err})", path.display()),
+        }
     }
+
+    if let Err(err) = cx.text_system().add_fonts(faces) {
+        return format!("font: {UI_FONT_FAMILY} rejected ({err})");
+    }
+    if !cx
+        .text_system()
+        .all_font_names()
+        .iter()
+        .any(|name| name == UI_FONT_FAMILY)
+    {
+        return format!("font: {UI_FONT_FAMILY} parsed but the family did not register");
+    }
+    format!("font: {UI_FONT_FAMILY} loaded")
 }
 
 /// The daemon round trip item 0.4 proved, kept alive as one caption line.
@@ -243,7 +312,7 @@ mod tests {
     use crowbar_client::{Health, Probe};
     use gpui::SharedString;
 
-    use super::{Cell, Report, RowSurface, ui_font_path, window_options};
+    use super::{Cell, Report, RowSurface, UI_FONT_FAMILY, ui_font_paths, window_options};
 
     /// Pins what the daemon probe reports, because the window itself cannot be
     /// read back: `screencapture` and the accessibility API are both
@@ -314,16 +383,99 @@ mod tests {
         }
     }
 
-    /// The default points at the React app's own font file, so a checkout is
-    /// the only setup a parity run needs.
+    /// The defaults point at the React app's own font directory, so a checkout
+    /// is the only setup a parity run needs — and both faces are there, because
+    /// one of them is the badge's weight 500.
     #[test]
-    fn the_font_path_defaults_into_the_react_app() {
-        let path = ui_font_path();
+    fn the_font_paths_default_into_the_react_app() {
+        let paths = ui_font_paths();
 
+        assert_eq!(paths.len(), 2, "{paths:?}");
         assert!(
-            path.ends_with("web/public/fonts/CalSansUI.woff2"),
+            paths[0].ends_with("web/public/fonts/CalSansUI-Regular.ttf"),
             "{}",
-            path.display(),
+            paths[0].display(),
         );
+        assert!(
+            paths[1].ends_with("web/public/fonts/CalSansUI-Medium.ttf"),
+            "{}",
+            paths[1].display(),
+        );
+    }
+
+    /// The faces exist in the checkout and are what CoreText will accept: a
+    /// bare sfnt, not the WOFF2 container that made the first gate run shape
+    /// with a fallback while reporting the right family name.
+    #[test]
+    fn the_default_faces_are_present_and_are_not_woff2() {
+        for path in ui_font_paths() {
+            let bytes = std::fs::read(&path)
+                .unwrap_or_else(|err| panic!("{} is missing: {err}", path.display()));
+            assert_eq!(
+                &bytes[..4],
+                // TrueType outlines. `wOF2` here is the whole original defect.
+                &[0x00, 0x01, 0x00, 0x00],
+                "{} is not a bare sfnt",
+                path.display(),
+            );
+        }
+    }
+
+    /// The declared family has to be the stylesheet's `@font-face` name, or the
+    /// snapshot's `font.family` cannot compare equal to the DOM's.
+    #[test]
+    fn the_declared_family_is_the_themes_family() {
+        assert_eq!(
+            crowbar_ui::Theme::DARK.font_sans.primary(),
+            Some(UI_FONT_FAMILY),
+        );
+    }
+
+    /// And the *files* have to carry that same family, or `add_fonts` succeeds
+    /// and the lookup still misses. Read straight out of the `name` table's
+    /// records rather than trusted from the filename.
+    #[test]
+    fn the_faces_name_the_family_the_row_declares() {
+        for path in ui_font_paths() {
+            let bytes = std::fs::read(&path).expect("the face is in the checkout");
+            assert!(
+                sfnt_names(&bytes).any(|name| name == UI_FONT_FAMILY),
+                "{} does not name the family {UI_FONT_FAMILY}",
+                path.display(),
+            );
+        }
+    }
+
+    /// Every string in an sfnt's `name` table, as UTF-8 where it can be.
+    ///
+    /// A deliberately small reader: enough to prove the family name is in the
+    /// file, not enough to pretend to be a font library. Both encodings that
+    /// matter appear — Windows records are UTF-16BE, Macintosh Roman records
+    /// are one byte per character — so both are decoded.
+    fn sfnt_names(bytes: &[u8]) -> impl Iterator<Item = String> + '_ {
+        let be16 = |at: usize| u16::from_be_bytes([bytes[at], bytes[at + 1]]) as usize;
+        let tables = be16(4);
+        let name_table = (0..tables)
+            .map(|ix| 12 + ix * 16)
+            .find(|&at| &bytes[at..at + 4] == b"name")
+            .map(|at| u32::from_be_bytes(bytes[at + 8..at + 12].try_into().unwrap()) as usize)
+            .expect("an sfnt with no name table is not a font");
+
+        let count = be16(name_table + 2);
+        let strings = name_table + be16(name_table + 4);
+        (0..count).map(move |ix| {
+            let record = name_table + 6 + ix * 12;
+            let (platform, length, offset) = (be16(record), be16(record + 8), be16(record + 10));
+            let raw = &bytes[strings + offset..strings + offset + length];
+            if platform == 1 {
+                raw.iter().map(|&byte| byte as char).collect()
+            } else {
+                let wide: Vec<u16> = raw
+                    .chunks_exact(2)
+                    .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+                    .collect();
+                String::from_utf16_lossy(&wide)
+            }
+        })
     }
 }

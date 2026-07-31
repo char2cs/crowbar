@@ -130,6 +130,17 @@ pub struct Cell {
     pub show_file_icon: bool,
     /// `compactGitStatusBadges`.
     pub compact: bool,
+    /// `diffStats.additions`. Zero omits the `git-row-added` anchor entirely,
+    /// exactly as `additions > 0` gates the span in the React original.
+    pub additions: u32,
+    /// `diffStats.deletions`. Zero omits `git-row-deleted`.
+    ///
+    /// **Configurable because the reference is.** The two sides have to render
+    /// the *same content* or the comparison is between two different rows: the
+    /// first gate run had the native fixture on `+12 / -3` against a reference
+    /// row showing `+1` and no deletions, which produced four deltas that said
+    /// nothing about the port.
+    pub deletions: u32,
 }
 
 impl Default for Cell {
@@ -149,6 +160,10 @@ impl Default for Cell {
             show_directory: true,
             show_file_icon: true,
             compact: false,
+            // The live fixture's counts, so a bare `cargo run` still renders
+            // the row the gate was designed around.
+            additions: 12,
+            deletions: 3,
         }
     }
 }
@@ -196,6 +211,8 @@ impl Cell {
         } else {
             TrailingContent {
                 compact: self.compact,
+                additions: self.additions,
+                deletions: self.deletions,
                 ..row.trailing
             }
         };
@@ -268,6 +285,8 @@ impl Cell {
                 "--depth" => cell.depth = parse_u16(&value(&mut args, &arg)?)?,
                 "--prev-depth" => previous_depth = Some(parse_u16(&value(&mut args, &arg)?)?),
                 "--next-depth" => next_depth = Some(parse_u16(&value(&mut args, &arg)?)?),
+                "--added" => cell.additions = parse_u32(&value(&mut args, &arg)?)?,
+                "--deleted" => cell.deletions = parse_u32(&value(&mut args, &arg)?)?,
                 "--no-directory" => cell.show_directory = false,
                 "--no-icon" => cell.show_file_icon = false,
                 "--compact" => cell.compact = true,
@@ -296,6 +315,11 @@ fn value<I: Iterator<Item = String>>(args: &mut I, option: &str) -> Result<Strin
 }
 
 fn parse_u16(raw: &str) -> Result<u16, ParseError> {
+    raw.parse()
+        .map_err(|_| ParseError::Rejected(format!("{raw} is not a whole number")))
+}
+
+fn parse_u32(raw: &str) -> Result<u32, ParseError> {
     raw.parse()
         .map_err(|_| ParseError::Rejected(format!("{raw} is not a whole number")))
 }
@@ -358,6 +382,8 @@ pub fn usage() -> String {
         ("--depth <n>", "indent level [2]"),
         ("--prev-depth <n>", "depth of the row above [= --depth]"),
         ("--next-depth <n>", "depth of the row below [= --depth]"),
+        ("--added <n>", "diffStats.additions; 0 omits the span [12]"),
+        ("--deleted <n>", "diffStats.deletions; 0 omits the span [3]"),
         ("--no-directory", "showDirectory = false"),
         ("--no-icon", "showFileIcon = false"),
         ("--compact", "compactGitStatusBadges = true"),
@@ -465,6 +491,10 @@ mod tests {
             "1",
             "--next-depth",
             "5",
+            "--added",
+            "1",
+            "--deleted",
+            "0",
             "--no-directory",
             "--no-icon",
             "--compact",
@@ -478,9 +508,48 @@ mod tests {
         assert_eq!(cell.depth, 3);
         assert_eq!(cell.previous_depth, 1);
         assert_eq!(cell.next_depth, 5);
+        assert_eq!(cell.additions, 1);
+        assert_eq!(cell.deletions, 0);
         assert!(!cell.show_directory);
         assert!(!cell.show_file_icon);
         assert!(cell.compact);
+    }
+
+    /// The reason the counts are on the command line at all: the two sides have
+    /// to render the same content, and the live reference row shows `+1` with
+    /// no deletions.
+    #[test]
+    fn the_counts_reach_the_row_and_a_zero_omits_its_span() {
+        let row = parse(&["--added", "1", "--deleted", "0"])
+            .expect("well-formed")
+            .row();
+
+        assert_eq!(row.trailing.additions, 1);
+        assert_eq!(row.trailing.deletions, 0);
+        assert!(row.trailing.has_counts(), "+1 still renders the group");
+    }
+
+    /// Both at zero drops the counts group entirely, which is what the React
+    /// original's `hasDiffStats` does — while leaving the badge alone, because
+    /// that is a different prop.
+    #[test]
+    fn zero_on_both_counts_leaves_only_the_badge() {
+        let row = parse(&["--added", "0", "--deleted", "0"])
+            .expect("well-formed")
+            .row();
+
+        assert!(!row.trailing.has_counts());
+        assert!(row.trailing.uncommitted);
+    }
+
+    /// The defaults are the fixture the gate was designed around, so a bare
+    /// `cargo run` is unchanged by the counts becoming configurable.
+    #[test]
+    fn the_counts_default_to_the_live_fixtures() {
+        let cell = Cell::default();
+
+        assert_eq!(cell.additions, 12);
+        assert_eq!(cell.deletions, 3);
     }
 
     /// `TreeGuides` defaults both neighbours to this row's own depth, and
@@ -515,6 +584,9 @@ mod tests {
             vec!["--width"],
             vec!["--width", "wide"],
             vec!["--width", "0"],
+            vec!["--added"],
+            vec!["--added", "some"],
+            vec!["--deleted", "-1"],
         ] {
             assert!(
                 matches!(parse(&line), Err(ParseError::Rejected(_))),
@@ -542,6 +614,8 @@ mod tests {
             "--depth",
             "--prev-depth",
             "--next-depth",
+            "--added",
+            "--deleted",
             "--no-directory",
             "--no-icon",
             "--compact",

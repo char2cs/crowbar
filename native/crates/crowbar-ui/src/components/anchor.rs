@@ -18,10 +18,11 @@
 //!
 //! [`Unanchored::text`] returns a [`StyledText`] rather than
 //! `div().child(content)` on purpose: `crowbar_driver::anchor_text` renders a
-//! `StyledText`, and a `Text` element and a `StyledText` do not request layout
-//! identically.
+//! `StyledText`, and only rendering the same element on both paths keeps the
+//! shipping build and the measured one identical by construction rather than by
+//! inspection. The same reasoning applies to [`Unanchored::boxed_text`].
 
-use gpui::{AnyElement, Div, IntoElement as _, SharedString, StyledText};
+use gpui::{AnyElement, Div, IntoElement as _, ParentElement as _, SharedString, StyledText};
 
 /// A sink for the anchor ids a measurable component carries.
 ///
@@ -38,6 +39,23 @@ pub trait AnchorSink {
     /// A text-painting anchor — bounds, colour, the string and its unclipped
     /// shaped width.
     fn text(&self, id: SharedString, content: SharedString) -> AnyElement;
+
+    /// An anchor that is **both** a painted box and a text run, reported under
+    /// one id.
+    ///
+    /// `native/oracle/ANCHORS.md` §3 has always permitted this — the field
+    /// table's "required: if it paints text" group sits alongside `bg`,
+    /// `radius` and `border`, not instead of them, and the DOM extractor emits
+    /// both halves for any element that has both. Splitting it was a limitation
+    /// of [`AnchorSink::boxed`] and [`AnchorSink::text`], and the first surface
+    /// to need it — the `uncommitted` badge, a tinted rounded box *containing*
+    /// a string — produced five `FieldPresence` deltas on one anchor because of
+    /// it.
+    ///
+    /// The `content` is owned by the sink rather than being passed as a child,
+    /// for the same reason [`AnchorSink::text`] owns its string: what is
+    /// recorded cannot then drift from what is painted.
+    fn boxed_text(&self, id: SharedString, element: Div, content: SharedString) -> AnyElement;
 }
 
 /// The shipping sink: renders exactly what it was given and records nothing.
@@ -55,5 +73,9 @@ impl AnchorSink for Unanchored {
 
     fn text(&self, _id: SharedString, content: SharedString) -> AnyElement {
         StyledText::new(content).into_any_element()
+    }
+
+    fn boxed_text(&self, _id: SharedString, element: Div, content: SharedString) -> AnyElement {
+        element.child(StyledText::new(content)).into_any_element()
     }
 }
