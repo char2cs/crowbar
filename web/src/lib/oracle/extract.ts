@@ -149,9 +149,16 @@ export interface ExtractOptions {
   /**
    * Anchor id → pseudo-element selector whose paint backs that anchor
    * (ANCHORS.md §3). Only valid when the pseudo is `position:absolute; inset:0`.
-   * Defaults to `{ 'git-row-item': '::before' }` — on the gate target every
-   * visible row background is painted by `.file-tree-item::before` while the
-   * button is pinned `background-color: transparent !important` in every state.
+   *
+   * Defaults to `::before` on **both** gate surfaces' root anchors —
+   * `git-row-item` and `file-row-item`. They are the same wrapper class,
+   * `.file-tree-item`, and every visible row background on either one is
+   * painted by `.file-tree-item::before` while the button is pinned
+   * `background-color: transparent !important`. That rule group is *unscoped*,
+   * so it reaches the git status panel as well as the file tree.
+   *
+   * The map is keyed by anchor id, so carrying both entries costs a snapshot of
+   * either surface nothing: the other key never matches.
    */
   pseudo?: Record<string, string>
 }
@@ -800,7 +807,10 @@ export function extractSnapshot(options: ExtractOptions): OracleSnapshot {
   const opts = options || ({} as ExtractOptions)
   const rootId = opts.root || 'git-row-item'
   const index = opts.index || 0
-  const pseudoMap = opts.pseudo || { 'git-row-item': '::before' }
+  const pseudoMap = opts.pseudo || {
+    'git-row-item': '::before',
+    'file-row-item': '::before',
+  }
 
   let scope: Document | Element = document
   if (typeof opts.scope === 'string') {
