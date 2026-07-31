@@ -21,6 +21,13 @@ use gpui::{
 };
 use gpui_component::{ActiveTheme as _, Root, v_flex};
 
+/// The driver's proving surface (item P1.2). `--features driver` only, and even
+/// then only when `CROWBAR_DRIVER_SNAPSHOT` asks for it: a driver build that is
+/// *not* taking a measurement has to be the ordinary app with the driver
+/// linked, because that is the configuration the oracle measures.
+#[cfg(feature = "driver")]
+mod driver_surface;
+
 fn main() {
     // Blocking, before the window exists, and on purpose. The daemon is a local
     // unix socket a few hundred microseconds away, this is a single request,
@@ -32,6 +39,12 @@ fn main() {
 
     gpui_platform::application().run(move |cx: &mut App| {
         gpui_component::init(cx);
+
+        #[cfg(feature = "driver")]
+        if let Some(request) = driver_surface::Request::from_env() {
+            driver_surface::run(request, cx);
+            return;
+        }
 
         let opened = cx.open_window(window_options(), |window, cx| {
             let view = cx.new(|_| report);
