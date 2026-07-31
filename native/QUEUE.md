@@ -686,25 +686,33 @@ does **not** pass environment through; launch `Contents/MacOS/zed` directly.
 
 ## In flight
 
-Wave 1 — dispatched 2026-07-30. Ten workers, disjoint owned paths, one worktree
-each. Every brief carries the worker contract: do not grade your own work, do
-not run the oracle, do not touch `native/oracle/corpus/`, do not modify tests
-you are implementing against.
+Wave 1 was ten workers, dispatched 2026-07-30, disjoint owned paths, one git
+worktree each. Nine have returned, been verified by me, and merged. **One
+remains, and Phase 0 now hangs entirely on it.**
 
-| Item | Branch | Owned paths |
-|---|---|---|
-| 0.1 scaffold | `native/0.1-scaffold` | `native/{Cargo.toml,rust-toolchain.toml,clippy.toml,crates/**,scripts/**}`, `native/oracle/{Cargo.toml,src/**}` |
-| 0.2 vendor gpui | `native/0.2-vendor-gpui` | `native/vendor/**` |
-| 0.3 skills | `native/0.3-skills` | `.claude/skills/{gpui,gpui-component}/**` |
-| 0.5 protogen | `native/0.5-protogen` | `native/tools/protogen/**` |
-| 0.6 settings/ui | `native/0.6-settings-ui` | `api/**` |
-| 0.7 loopback TCP | `native/0.7-loopback-tcp` | `api/**` (serve wiring) |
-| 0.12 relicense | `native/0.12-agpl-only` | everything except `native/` |
-| 0.8 bundling | — read-only research | — |
-| 0.9 Zed audit | — read-only research | — |
-| 0.10 AX spike | — read-only research, 1h timebox | — |
+| Item | Branch | Owned paths | State |
+|---|---|---|---|
+| **0.2 vendor gpui** | `native/0.2-vendor-gpui` | `native/vendor/**` | **in flight — the critical path** |
 
-0.6 and 0.7 both live in `api/`; they are merged serially, 0.6 first.
+**0.2 was re-briefed mid-flight.** After 0.9 finished, I sent the worker three
+findings that change its solution space and asked it to report on **both**
+configurations rather than only the vendored-subtree one:
+
+1. `gpui` **is** a released crate (`0.2.2`, Apache-2.0 OR MIT) — its brief and
+   §10.5 both said otherwise.
+2. A git-rev pin drags Zed's **10 global `[patch.crates-io]` forks** into our
+   workspace root, because `[patch]` is workspace-wide.
+3. The two sources **cannot be mixed** — cargo refuses with a lockfile package
+   collision if vendored support crates coexist with repo-sourced `gpui`.
+
+Expected answer shape: does the chosen `gpui-component` pin compile against
+`0.2.2`? If yes, Config 1 wins outright. If no, we need Config 2's real cost
+(the exact patch set, and which of those forks actually *build* rather than
+merely resolve) written down before accepting it.
+
+Everything still open depends on this: **0.4**'s native half needs a
+`crowbar-app` that can open a socket, and the whole of Phase 1 needs a
+compiling GPUI.
 
 ## Blocked — needs a user decision
 
