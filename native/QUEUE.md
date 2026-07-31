@@ -2778,6 +2778,29 @@ are not set until `on_prepaint` on frame 2 — so the only geometry that exists 
 from the worker's *own* test. That is precisely the evidence I do not bank.
 P3.15 merges after P3.17 lands and I capture it myself.
 
+**The reference half IS mine, re-measured 2026-07-31 with the window visible:**
+
+| anchor | my absolute measurement | worker's root-relative ref |
+|---|---|---|
+| `popover-popup` | `37,193 256×177` r10 border 1px | `0,0 256×177` r10 border 1px |
+| `popover-viewport` | `38,194 254×175` r0 border 0 | `1,1 254×175` r0 border 0 |
+
+Offsets differ by exactly (1,1), the border, so they agree to the pixel.
+`oklch(1 0 0 / 0.06)` = `#ffffff0f`; `oklch(0.239 0.002 106.5)` = `#1f1f1e`.
+
+**And the hand-pinning did not shape the answer.** The worker had to force
+`transition:none` and strip `data-starting-style` because it captured while
+`visibilityState` was `hidden`, where rAF never fires and the mount transition
+freezes mid-flight at `250.88×173.46` — 0.98 scale. With the window visible the
+element is settled on its own (`transform: none`, `opacity: 1`, no
+`data-starting-style`) and measures the pinned numbers exactly. The pin
+reproduced the settled state; it did not invent it.
+
+**Standing lesson:** a capture taken while the window is hidden reads a frozen
+transition frame, not the resting state — and 0.98 of the truth is exactly the
+size of error that survives review. Prefer a visible window; if one is not
+available, pin and then re-measure visible before banking it.
+
 **Correction to my own briefing:** I told the worker an archived parity run
 existed for `callout-node` (P3.14) and told this one that `select` was a
 directory. Both wrong; both caught by the worker. `select` is `src/select.rs`.
