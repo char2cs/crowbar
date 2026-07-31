@@ -9,13 +9,17 @@ func TestReportDistinguishesCreatedFromReused(t *testing.T) {
 	rep := &report{}
 	rep.note(true, "project Crowbar Seed")
 	rep.note(false, "repo checkout on main")
+	rep.noteRepair("worktree for feature/pricing-rounding")
 
 	joined := strings.Join(rep.lines, "\n")
-	if !strings.Contains(joined, "created  project Crowbar Seed") {
-		t.Fatalf("missing the created line: %q", joined)
-	}
-	if !strings.Contains(joined, "reused   repo checkout on main") {
-		t.Fatalf("missing the reused line: %q", joined)
+	for _, want := range []string{
+		"created   project Crowbar Seed",
+		"reused    repo checkout on main",
+		"repaired  worktree for feature/pricing-rounding",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q:\n%s", want, joined)
+		}
 	}
 }
 

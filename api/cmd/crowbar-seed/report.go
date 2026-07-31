@@ -21,11 +21,27 @@ func (r *report) note(
 	created bool,
 	what string,
 ) {
-	verb := "reused "
+	verb := "reused"
 	if created {
 		verb = "created"
 	}
-	r.lines = append(r.lines, fmt.Sprintf("  %s  %s", verb, what))
+	r.noteVerb(verb, what)
+}
+
+// noteRepair is its own verb because a repair is neither of the two outcomes a
+// rerun expects: it means the run found the fixture and the daemon's idea of it
+// out of step and put them back together, which is worth seeing.
+func (r *report) noteRepair(
+	what string,
+) {
+	r.noteVerb("repaired", what)
+}
+
+func (r *report) noteVerb(
+	verb string,
+	what string,
+) {
+	r.lines = append(r.lines, fmt.Sprintf("  %-8s  %s", verb, what))
 }
 
 // noteThreads spells the partial case out. A rerun that finds one thread and

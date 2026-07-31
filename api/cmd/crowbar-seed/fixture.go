@@ -70,76 +70,111 @@ func branchFiles() []sourceFile {
 // regenerating would strand.
 func ensureFixture(
 	repoPath string,
-) (bool, error) {
+) (*gitRepo, bool, error) {
 	if _, err := os.Stat(filepath.Join(repoPath, ".git")); err == nil {
-		return false, nil
+		repo, err := openRepo(repoPath)
+		return repo, false, err
 	}
 	if err := os.MkdirAll(repoPath, 0o750); err != nil {
-		return false, fmt.Errorf("seed: create fixture dir: %w", err)
+		return nil, false, fmt.Errorf("seed: create fixture dir: %w", err)
 	}
-	if err := initFixtureRepo(repoPath); err != nil {
-		return false, err
+	repo, err := initFixtureRepo(repoPath)
+	if err != nil {
+		return nil, false, err
 	}
 	for _, commit := range fixtureCommits() {
-		if err := applyFixtureCommit(repoPath, commit); err != nil {
-			return false, err
+		if err := applyFixtureCommit(repo, commit); err != nil {
+			return nil, false, err
 		}
 	}
-	return true, nil
+	return repo, true, nil
 }
 
 func initFixtureRepo(
 	repoPath string,
-) error {
-	if err := git(repoPath, "init", "--quiet"); err != nil {
-		return err
+) (*gitRepo, error) {
+	if _, err := runGit(repoPath, "init", "--quiet"); err != nil {
+		return nil, err
 	}
-	if err := git(repoPath, "symbolic-ref", "HEAD", "refs/heads/"+seedBaseBranch); err != nil {
-		return err
+	repo, err := openRepo(repoPath)
+	if err != nil {
+		return nil, err
 	}
-	if err := git(repoPath, "config", "user.name", fixtureAuthorName); err != nil {
-		return err
+	if err := repo.run("symbolic-ref", "HEAD", "refs/heads/"+seedBaseBranch); err != nil {
+		return nil, err
 	}
-	return git(repoPath, "config", "user.email", fixtureAuthorEmail)
+	if err := repo.run("config", "user.name", fixtureAuthorName); err != nil {
+		return nil, err
+	}
+	if err := repo.run("config", "user.email", fixtureAuthorEmail); err != nil {
+		return nil, err
+	}
+	return repo, nil
 }
 
 func applyFixtureCommit(
-	repoPath string,
+	repo *gitRepo,
 	commit fixtureCommit,
 ) error {
-	if err := writeSources(repoPath, commit.files); err != nil {
+	if err := writeSources(repo.root, commit.files); err != nil {
 		return err
 	}
-	if err := git(repoPath, "add", "-A"); err != nil {
+	if err := repo.run("add", "-A"); err != nil {
 		return err
 	}
-	return git(repoPath, "commit", "--quiet", "-m", commit.subject)
+	return repo.run("commit", "--quiet", "-m", commit.subject)
 }
 
 // ensureBranchDiff commits the follow-up change inside the feature workspace's
 // own worktree. Without it the workspace is an empty branch and the review and
 // diff panes — the surfaces this seed exists to populate — render nothing.
 func ensureBranchDiff(
-	worktreePath string,
+	worktree *gitRepo,
 ) (bool, error) {
-	head, err := gitOutput(worktreePath, "log", "-1", "--pretty=%s")
+	head, err := worktree.output("log", "-1", "--pretty=%s")
 	if err != nil {
 		return false, err
 	}
 	if strings.TrimSpace(head) == branchCommitSubject {
 		return false, nil
 	}
-	if err := writeSources(worktreePath, branchFiles()); err != nil {
+	if err := writeSources(worktree.root, branchFiles()); err != nil {
 		return false, err
 	}
-	if err := git(worktreePath, "add", "-A"); err != nil {
+	if err := worktree.run("add", "-A"); err != nil {
 		return false, err
 	}
 	message := branchCommitSubject + "\n\n" + branchCommitBody
-	if err := git(worktreePath, "commit", "--quiet", "-m", message); err != nil {
+	if err := worktree.run("commit", "--quiet", "-m", message); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+func writeSources(
+	dir string,
+	files []sourceFile,
+) error {
+	for _, file := range files {
+		if err := writeSource(dir, file); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeSource(
+	dir string,
+	file sourceFile,
+) error {
+	target := filepath.Join(dir, file.path)
+	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
+		return fmt.Errorf("seed: create %s: %w", filepath.Dir(file.path), err)
+	}
+	if err := os.WriteFile(target, []byte(file.content), 0o644); err != nil { //nolint:gosec // G306: throwaway fixture sources, not secrets
+		return fmt.Errorf("seed: write %s: %w", file.path, err)
+	}
+	return nil
 }
 
 // lineOf resolves a review anchor to a line number in the branch source, so the

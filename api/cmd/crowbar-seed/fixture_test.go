@@ -10,7 +10,7 @@ import (
 func TestEnsureFixtureBuildsRepoOnBaseBranch(t *testing.T) {
 	repoPath := filepath.Join(t.TempDir(), seedRepoName)
 
-	created, err := ensureFixture(repoPath)
+	repo, created, err := ensureFixture(repoPath)
 	if err != nil {
 		t.Fatalf("ensureFixture: %v", err)
 	}
@@ -18,7 +18,7 @@ func TestEnsureFixtureBuildsRepoOnBaseBranch(t *testing.T) {
 		t.Fatal("expected the first ensureFixture to report the repo as created")
 	}
 
-	branch, err := gitOutput(repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+	branch, err := repo.output("rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		t.Fatalf("rev-parse: %v", err)
 	}
@@ -29,11 +29,12 @@ func TestEnsureFixtureBuildsRepoOnBaseBranch(t *testing.T) {
 
 func TestEnsureFixtureCommitsEachChangeSeparately(t *testing.T) {
 	repoPath := filepath.Join(t.TempDir(), seedRepoName)
-	if _, err := ensureFixture(repoPath); err != nil {
+	repo, _, err := ensureFixture(repoPath)
+	if err != nil {
 		t.Fatalf("ensureFixture: %v", err)
 	}
 
-	log, err := gitOutput(repoPath, "log", "--pretty=%s")
+	log, err := repo.output("log", "--pretty=%s")
 	if err != nil {
 		t.Fatalf("log: %v", err)
 	}
@@ -48,11 +49,12 @@ func TestEnsureFixtureCommitsEachChangeSeparately(t *testing.T) {
 
 func TestEnsureFixtureWritesEveryTrackedSource(t *testing.T) {
 	repoPath := filepath.Join(t.TempDir(), seedRepoName)
-	if _, err := ensureFixture(repoPath); err != nil {
+	repo, _, err := ensureFixture(repoPath)
+	if err != nil {
 		t.Fatalf("ensureFixture: %v", err)
 	}
 
-	tracked, err := gitOutput(repoPath, "ls-files")
+	tracked, err := repo.output("ls-files")
 	if err != nil {
 		t.Fatalf("ls-files: %v", err)
 	}
@@ -69,7 +71,7 @@ func TestEnsureFixtureWritesEveryTrackedSource(t *testing.T) {
 // render, so the generated pricing source must carry the seeded bugs verbatim.
 func TestFixtureSourceCarriesTheReviewableDefects(t *testing.T) {
 	repoPath := filepath.Join(t.TempDir(), seedRepoName)
-	if _, err := ensureFixture(repoPath); err != nil {
+	if _, _, err := ensureFixture(repoPath); err != nil {
 		t.Fatalf("ensureFixture: %v", err)
 	}
 
@@ -86,7 +88,7 @@ func TestFixtureSourceCarriesTheReviewableDefects(t *testing.T) {
 
 func TestEnsureFixtureReusesAnExistingRepo(t *testing.T) {
 	repoPath := filepath.Join(t.TempDir(), seedRepoName)
-	if _, err := ensureFixture(repoPath); err != nil {
+	if _, _, err := ensureFixture(repoPath); err != nil {
 		t.Fatalf("first ensureFixture: %v", err)
 	}
 	marker := filepath.Join(repoPath, "LOCAL.md")
@@ -94,7 +96,7 @@ func TestEnsureFixtureReusesAnExistingRepo(t *testing.T) {
 		t.Fatalf("write marker: %v", err)
 	}
 
-	created, err := ensureFixture(repoPath)
+	_, created, err := ensureFixture(repoPath)
 	if err != nil {
 		t.Fatalf("second ensureFixture: %v", err)
 	}
@@ -108,11 +110,12 @@ func TestEnsureFixtureReusesAnExistingRepo(t *testing.T) {
 
 func TestEnsureBranchDiffCommitsTheFollowUpChange(t *testing.T) {
 	repoPath := filepath.Join(t.TempDir(), seedRepoName)
-	if _, err := ensureFixture(repoPath); err != nil {
+	repo, _, err := ensureFixture(repoPath)
+	if err != nil {
 		t.Fatalf("ensureFixture: %v", err)
 	}
 
-	created, err := ensureBranchDiff(repoPath)
+	created, err := ensureBranchDiff(repo)
 	if err != nil {
 		t.Fatalf("ensureBranchDiff: %v", err)
 	}
@@ -120,7 +123,7 @@ func TestEnsureBranchDiffCommitsTheFollowUpChange(t *testing.T) {
 		t.Fatal("expected ensureBranchDiff to report a new commit")
 	}
 
-	changed, err := gitOutput(repoPath, "diff", "--name-only", "HEAD~1", "HEAD")
+	changed, err := repo.output("diff", "--name-only", "HEAD~1", "HEAD")
 	if err != nil {
 		t.Fatalf("diff: %v", err)
 	}
@@ -133,14 +136,15 @@ func TestEnsureBranchDiffCommitsTheFollowUpChange(t *testing.T) {
 
 func TestEnsureBranchDiffIsIdempotent(t *testing.T) {
 	repoPath := filepath.Join(t.TempDir(), seedRepoName)
-	if _, err := ensureFixture(repoPath); err != nil {
+	repo, _, err := ensureFixture(repoPath)
+	if err != nil {
 		t.Fatalf("ensureFixture: %v", err)
 	}
-	if _, err := ensureBranchDiff(repoPath); err != nil {
+	if _, err := ensureBranchDiff(repo); err != nil {
 		t.Fatalf("first ensureBranchDiff: %v", err)
 	}
 
-	created, err := ensureBranchDiff(repoPath)
+	created, err := ensureBranchDiff(repo)
 	if err != nil {
 		t.Fatalf("second ensureBranchDiff: %v", err)
 	}
@@ -148,7 +152,7 @@ func TestEnsureBranchDiffIsIdempotent(t *testing.T) {
 		t.Fatal("second ensureBranchDiff committed again; it must recognise its own commit")
 	}
 
-	log, err := gitOutput(repoPath, "log", "--pretty=%s")
+	log, err := repo.output("log", "--pretty=%s")
 	if err != nil {
 		t.Fatalf("log: %v", err)
 	}

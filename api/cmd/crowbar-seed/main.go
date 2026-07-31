@@ -46,7 +46,7 @@ func run(
 	repoPath := filepath.Join(root, seedRepoName)
 	rep := &report{out: out}
 
-	fixtureCreated, err := ensureFixture(repoPath)
+	fixture, fixtureCreated, err := ensureFixture(repoPath)
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func run(
 	rep.repo = repo
 	rep.note(repoCreated, "repo "+seedRepoName+" on "+repo.DefaultBranch)
 
-	return finish(ctx, d, rep)
+	return finish(ctx, d, fixture, rep)
 }
 
 // finish covers everything downstream of the imported repo: the base workspace
@@ -81,6 +81,7 @@ func run(
 func finish(
 	ctx context.Context,
 	d *daemon,
+	fixture *gitRepo,
 	rep *report,
 ) error {
 	base, err := waitForBaseWorkspace(ctx, d, rep.repo)
@@ -95,7 +96,15 @@ func finish(
 	rep.workspace = ws
 	rep.note(wsCreated, "workspace "+seedFeatureBranch)
 
-	diffCreated, err := ensureBranchDiff(ws.LocalPath)
+	worktree, repaired, err := ensureWorktree(fixture, ws.LocalPath, seedFeatureBranch)
+	if err != nil {
+		return err
+	}
+	if repaired {
+		rep.noteRepair("worktree for " + seedFeatureBranch + " at " + ws.LocalPath)
+	}
+
+	diffCreated, err := ensureBranchDiff(worktree)
 	if err != nil {
 		return err
 	}
