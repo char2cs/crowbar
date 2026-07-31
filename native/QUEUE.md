@@ -5,7 +5,7 @@ Source of truth for the Rust-native GPUI port. Spec:
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
 **Phase:** 1 — the driver and the oracle. **THE GATE.**
-**Line coverage (logic crates):** `oracle` **100.00%** (2191/2191) · `crowbar-driver` **100.00%** (1134/1134) · `crowbar-core` **100.00%** (148/148) · `crowbar-client` **99.64%**. `proto`/`diff` still empty. **191 tests, 0 failed.** All measured by me.
+**Line coverage (logic crates):** `oracle` **100.00%** (2331/2331) · `crowbar-driver` **100.00%** (1134/1134) · `crowbar-core` **100.00%** (148/148) · `crowbar-client` **99.64%**. `proto`/`diff` still empty. **191 tests, 0 failed.** All measured by me.
 **Corpus coverage (view crates):** n/a — the differ exists but has never been run against the two apps. That is the Phase 1 gate and it is mine.
 
 ---
@@ -398,6 +398,71 @@ field that matches.
 content-sized `bounds.w` is measuring the wrong typeface.** There is an escape
 hatch (`CROWBAR_ROW_FONT=<path to TTF/OTF>`), verified working with a system
 TTF.
+
+### DECISION on the GPUI `ceil()` difference — model it, do not loosen; implementation deferred one measurement
+
+**Rejected (a) loosen `bounds.w`.** Not merely because it is lossy. The
+differ worker's argument is decisive and I am adopting it: `ceil()` on a
+content-sized box **displaces every following sibling's `bounds.x` by the same
+amount, cumulatively**, so loosening `w` leaves the downstream `x` deltas firing
+and you must loosen `x` too — by a bound that *grows with the number of
+content-sized boxes upstream*. **A tolerance that has to grow with the layout is
+not a tolerance.** And the error is strictly one-directional (`ceil` can only
+make native wider) while a tolerance is symmetric, so half the slack bought is
+pure lost coverage bought for nothing.
+
+**Rejected "give the boxes explicit widths so `ceil()` is a no-op"** for
+genuinely content-sized anchors. It makes the component worse to make the test
+pass: `git-row-added` renders `+1` or `+12`, and a pinned width is wrong at one
+of them. Legitimate only where a box is fixed-width *by design anyway* — which
+is a component decision, not an oracle one.
+
+**Adopted (b), reframed correctly: this is a correction, not a loosening.** If
+GPUI ceils, the native app **cannot produce** a fractional content width, so
+asking "is native within 0.5px of Blink's fraction" asks a question the engine
+is incapable of answering — a delta there is never actionable. Comparing against
+`ceil(reference)` moves the *expectation* to the one the engine can meet and
+keeps the full ±0.5 around it, so a genuine sub-pixel error on a content-sized
+box is **still caught**. That is exactly what (a) gives away.
+
+**And: declare the flag, do not detect it.** Detection is a heuristic on both
+sides — `width: auto` and not-a-stretched-flex-item on the DOM, `width: None`
+plus a text child in GPUI, both falsifiable by flex-grow. Two extractors each
+guessing is precisely the silent divergence this contract exists to prevent, and
+a mis-guess is invisible: it either opens a 1px blind spot or invents a delta,
+and says neither. Content-sizing is a property of the *component*, which already
+authors its anchors on both sides — so it becomes an authored argument
+(`anchor_content_sized(...)` / `data-oracle-content-sized`). Cost: one optional
+boolean in §3, one rule in §5, one argument per affected anchor. A wrong
+declaration is then a visible line in a component, not a subtle engine-reading
+difference.
+
+**Implementation deferred by exactly one measurement**, and I tried to take it
+from the archived run rather than assume:
+
+```
+added:  x=252.0  w=21.0  text_width=20.355   ceil excess 0.645
+deleted: x=277.0
+gap if the ceil propagated     : 4.000
+gap if it did not              : 4.645
+```
+
+**Inconclusive.** `4.000` is suspiciously exact and I suspect propagation, but
+one sample cannot distinguish a 4px gap that inherited the excess from a 4.645px
+gap that did not. **P1.7 is adding `--added N` / `--deleted N`**, which lets me
+vary the text width and watch whether the downstream `x` moves by the ceil'd or
+the raw amount. That settles it.
+
+Why it matters enough to wait: **if displacement propagates, modelling
+`bounds.w` alone is not sufficient** and the differ needs flow order to model
+`x` — which it deliberately does not have (§1 rejects trees outright). That
+would be a genuine design question, not a tweak, and I am not committing to a
+shape before knowing which one I am solving.
+
+One supporting fact that makes this modellable at all: **`text_width` needs no
+treatment.** GPUI reports the unrounded shaped advance (`20.355`) and it already
+compares correctly against Blink. Only `bounds.w` inherits the ceil — so this is
+a box-sizing artefact, not a shaping one.
 
 ### One measured difference that exceeds tolerance and is not fixable app-side
 
@@ -1317,7 +1382,7 @@ before any of them so three independent implementations cannot quietly diverge.
 | **P1.3** oracle differ | `native/p1.3-oracle-differ` | `native/oracle/src/**` | ✅ **done** — merged `5fcec61c`, gates re-run by me |
 | **P1.4** sealed tokens | `native/p1.4-sealed-tokens` | `crowbar-ui/**`, `check-invariants.sh` | ✅ **done** — merged `60823648`, rule 4 adversarially re-tested by me |
 | **P1.5** native row | `native/p1.5-native-row` | `crowbar-ui/src/components/**`, `crowbar-app/src/**` | ✅ merged `11fa277d` — all 5 invariants green |
-| **P1.6** differ v1.3 conformance | `native/p1.6-differ-v13` | `native/oracle/src/**` | **in flight** — 8 of 26 deltas are its own bug |
+| **P1.6** differ v1.3 conformance | `native/p1.6-differ-v13` | `native/oracle/src/**` | ✅ **done** — merged `8bee1e23`, **26 → 18 deltas**, verified by my own re-run |
 | **P1.7** font + badge | `native/p1.7-font-and-badge` | fonts, `crowbar-ui/components`, `crowbar-app` | **in flight** — the font is the biggest blocker |
 
 #### P1.2 — the GPUI extractor ✅ merged · **the STOP-GATE risk is retired**
