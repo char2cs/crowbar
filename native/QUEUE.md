@@ -2302,6 +2302,53 @@ not more porting.
 Also outstanding and unchanged: `hover`/`focus` as real observations (locked
 screen), and the §17 RSS soak.
 
+## Phase 2 — CLOSED 2026-07-31
+
+Its §16 purpose was *"front-load difficulty to establish house style and the §6.2
+mapping table early"*. Both delivered: five self-registering driver surfaces, and
+`MAPPING.md` with four sections whose "compiles to" values were measured by
+running the app's own `index.css` through its own Tailwind rather than read off
+class names.
+
+| surface | status |
+|---|---|
+| `tree-row` | ✅ **verified** — it *is* the Phase 1 gate surface: 18/18 resting cells, plus `hover` and `focus` as real observations |
+| `sidebar-carousel` | ✅ **verified** — 2 cells, 0 deltas over 5 anchors, including the tangent `visible` case |
+| `resizable` | ✅ **verified** — 0 deltas over 4 anchors |
+| `dropdown-menu` | ⚖️ **judged, not diffed** — by user decision, recorded in `blocked/s13-native-menus-accepted-delta.md` |
+
+**`dropdown-menu` is deliberately not a parity result**, and the final report
+must say so rather than let three-of-four read as four. Native menus were a user
+ruling; an `NSMenu` is not in the window's view tree and carries no
+`data-oracle-id`, so it gets §5.2's treatment — judged against a written
+checklist, no oracle invented for it. 15 of its 16 checklist items need a human,
+and that is stated rather than automated around.
+
+## Phase 3 — Tier B started
+
+§16: Tier A (`core`, `proto`, `client`, theme tokens — gated by ported tests) and
+Tier B (46 `components/ui` primitives + 36 `components/layout` files — gated by
+the oracle).
+
+**Reachability was measured before dispatching**, because porting a component
+whose reference cannot be reached is the trap that cost the `dropdown-menu` run.
+A live query of the fixture workspace found **26 distinct primitives, 66
+instances**:
+
+`button` ×21 · `tabs-tab` ×6 · `badge` ×6 · `dropdown-menu-item` ×3 ·
+`resizable-panel` ×2 · `tabs`/`tabs-list`/`tab-indicator` ×2 ·
+`scroll-area-viewport` ×2 · `popover-trigger` ×2 · `input`/`input-control` ×2 ·
+`avatar` ×1 · `sidebar-*`, `toast-*`, `command-dialog-trigger` ×1
+
+First wave dispatched: **`button`** (the most-used primitive) and **`tabs`** (a
+compound, and its `tab-indicator` is measurement-positioned in React, so worth
+getting right early).
+
+> **Process note for parallel Tier B work.** Workers write their §6.2 notes to
+> `native/mapping/<component>.md` rather than appending to `MAPPING.md` —
+> P2.2 and P2.3 both appended and conflicted, and resolving that means the
+> orchestrator editing code. One file per component is conflict-free.
+
 ## In flight
 
 **Phase 0 is closed.** All twelve items done and merged, each verified by my own
