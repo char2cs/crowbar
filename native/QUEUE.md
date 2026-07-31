@@ -270,6 +270,44 @@ none of it. Classification, and what each needs:
    debugging session wrote a permanent key into the user's production storage
    and nobody noticed. Left in place — see consequence 3 above.
 
+### ▶ How to bring up the reference app — **do not use `make dev-desktop`**
+
+`make dev-desktop` is wrong for this work, for two reasons that only show up when
+more than one Crowbar is running: its `beforeDevCommand` **`pkill -f vite`** kills
+every other Vite on the machine — including other agent sessions' and the user's
+— and it hard-codes port 5173, which another worktree may already hold.
+
+I did use it twice before understanding that, and it killed a sibling session's
+dev server both times. Use this instead:
+
+```sh
+# 1. my own Vite, my own port, from MY worktree
+cd <worktree>/web && node ./node_modules/.bin/vite --port 5273 --strictPort &
+
+# 2. clear any orphaned daemon on MY socket first (see the spawn trap above)
+kill $(pgrep -f crowbar-6d4f21ce150add3c)
+
+# 3. the app, pointed at my Vite, with beforeDevCommand DISABLED so it
+#    does not pkill anyone else's
+cd <worktree>/desktop
+export CROWBAR_HOME="<worktree>/.crowbar"
+bunx @tauri-apps/cli dev \
+  --config '{"build":{"devUrl":"http://localhost:5273","beforeDevCommand":""}}'
+```
+
+The empty `beforeDevCommand` is the courtesy half; the distinct port is the
+isolation half. Both are needed.
+
+**Verified live 2026-07-31:** 5273 serves from my worktree while another
+session's instance keeps 5173 and its own daemon (`crowbar-2978a066…`)
+untouched. Two Crowbars, two daemons, no interference.
+
+> **Other sessions are running on this machine.** At the time of writing, a
+> `feature/crowbar-skill` instance owns 5173 and daemon `24957`. **Do not kill
+> it** — it is not mine. Sibling agent sessions share this repo; the workspace
+> model memo already warns they will commit into your worktree, and they will
+> take your ports too.
+
 ### ⚠ PRE-FLIGHT CHECK before every parity run — worker worktrees do **not** isolate ports
 
 **Run this before diffing anything. It takes one command and it prevents a
