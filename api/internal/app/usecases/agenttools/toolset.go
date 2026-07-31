@@ -41,6 +41,45 @@ type Deps struct {
 	// Metrics.Record, which is safe to call on a nil receiver, and it is
 	// deliberately absent from newAgentToolDeps's non-nil checks.
 	Metrics *Metrics
+	// ToolAccess reports whether the CALLER'S PROVIDER may use this surface at
+	// all — the user's per-provider "Tools" switch, consulted on every call.
+	//
+	// It is a port here rather than a flag baked into the ToolSet because the
+	// switch is a live permission, not a spawn-time one: the CLI that registered
+	// Crowbar's MCP server at spawn keeps its stdio channel for the life of the
+	// process, so a preference read once at spawn leaves a chat spawned with
+	// tools ON holding full tool access after the user has switched it off. See
+	// ToolSet.Call.
+	ToolAccess ProviderToolAccess
+}
+
+// ProviderToolAccess answers, for one provider, whether its agent may reach
+// Crowbar's tool surface right now. It takes the provider rather than the caller
+// because the preference is stored per provider and this port must not need the
+// authority model to answer it.
+type ProviderToolAccess func(ctx context.Context, providerID string) (bool, error)
+
+// refuseDisabledTools rejects a call whose provider has its tool surface
+// switched off, and reports a read failure as a refusal rather than guessing.
+//
+// A nil ToolAccess means no per-provider switch was wired, which is the surface
+// as it behaved before the switch existed: every registered tool is callable.
+// That is deliberate — this port is filled in by agent.New alongside Chats and
+// ChatLogs, so a nil here is a hand-assembled Deps in a test, never production,
+// and TestDispatchMCP_ToolCallIsRefusedOnceToolsAreSwitchedOff pins the real
+// wiring against a real *agent.Usecase.
+func (d Deps) refuseDisabledTools(ctx context.Context, providerID string) error {
+	if d.ToolAccess == nil {
+		return nil
+	}
+	on, err := d.ToolAccess(ctx, providerID)
+	if err != nil {
+		return fmt.Errorf("agenttools: tool access: %w", err)
+	}
+	if !on {
+		return ErrToolsDisabled
+	}
+	return nil
 }
 
 type toolDef struct {
@@ -94,11 +133,24 @@ const UnknownToolMetric = "<unknown>"
 // hallucinating model could otherwise grow that map without bound, one entry
 // per invented name, for the lifetime of the daemon. Real tools keep their own
 // attribution; everything else lands in UnknownToolMetric. See metricName.
+//
+// The provider's tool switch is checked HERE, per call, immediately after the
+// caller is resolved and before any handler runs. It cannot be checked at spawn
+// and remembered: the vendor CLI holds its MCP channel for the life of the
+// process, so a chat spawned while the switch was on would otherwise keep full
+// tool access forever after the user turned it off — a permission the UI
+// promises and nothing enforced. The check runs after Resolve because the
+// provider comes off the RESOLVED caller, never off anything the relay said.
 func (t *ToolSet) Call(ctx context.Context, name string, args json.RawMessage) (result string, err error) {
 	defer func() { t.deps.Metrics.Record(t.metricName(name), err == nil) }()
 
 	caller, err := t.deps.Resolver.Resolve(ctx, t.runnerID, t.token)
 	if err != nil {
+		return "", err
+	}
+	// `=`, not `:=`: a shadowed err here would leave the deferred Record above
+	// counting a refused call as a success.
+	if err = t.deps.refuseDisabledTools(ctx, caller.ProviderID); err != nil {
 		return "", err
 	}
 	for _, d := range t.defs {

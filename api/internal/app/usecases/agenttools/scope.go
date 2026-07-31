@@ -16,6 +16,15 @@ var (
 	// ErrOutOfScope means the caller is real but asked about something outside
 	// what its position in the workspace tree permits.
 	ErrOutOfScope = errors.New("agenttools: out of scope")
+	// ErrToolsDisabled means the caller is real and in scope, but the user has
+	// switched Crowbar's tool surface off for the provider it runs on.
+	//
+	// The wording is what the MODEL reads — a tool error rides back as result
+	// text — so it names the switch and where it lives rather than reporting a
+	// generic refusal the model would retry against.
+	ErrToolsDisabled = errors.New(
+		"agenttools: Crowbar's tools are switched off for this provider " +
+			"(Settings → Providers → Tools); no tool call will be served")
 )
 
 // RunnerReader is the narrow read port the resolver needs from the runner

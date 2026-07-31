@@ -208,6 +208,11 @@ func New(
 	}
 	u.tools.Chats = u
 	u.tools.ChatLogs = u
+	// The per-provider tool switch, wired as a LIVE port rather than read once at
+	// spawn: without it a chat spawned with tools on keeps them for the life of
+	// its CLI, whatever the user does in Settings afterwards. See
+	// agenttools.Deps.ToolAccess.
+	u.tools.ToolAccess = u.providerMCPEnabled
 	return u
 }
 
@@ -2195,6 +2200,14 @@ func (u *Usecase) requireProviderEnabled(
 // with this provider, and mirrors requireProviderEnabled: same store, same
 // "no row means the default", same negative column so a freshly migrated table
 // does not silently switch every provider's tools off.
+//
+// It has TWO callers, and they are two different questions about one preference.
+// spawnRunner asks whether to RENDER the registration into a CLI's argv, once,
+// at spawn. agenttools.Deps.ToolAccess asks whether to SERVE a tool call, on
+// every call — because the registration a spawn rendered outlives any later
+// change of mind, so the spawn-time read alone would make the switch a
+// decoration on every chat that was already running. The switch is described to
+// the user as a permission; only the per-call read makes that true.
 //
 // It ANSWERS rather than refuses, which is the whole difference between the two
 // switches. Disabling a provider stops the spawn; disabling its tools does not —

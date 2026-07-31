@@ -254,3 +254,105 @@ func TestSpawnChat_MCPDisabledDoesNotDisableTheProvider(t *testing.T) {
 		}
 	}
 }
+
+// ── the switch is a LIVE permission, not a spawn-time one ───────────
+// Rendering the registration out of a CLI's argv only governs chats that have
+// not started yet. The CLI holds its MCP stdio channel for the life of the
+// process, so a chat spawned while the switch was ON keeps a working tool
+// surface for as long as it runs — unless the DISPATCH consults the preference
+// too. The UI calls this switch "Tools" and describes it as letting a provider's
+// agent use Crowbar itself; that sentence is only true if the daemon refuses.
+
+// TestDispatchMCP_ToolCallIsRefusedOnceToolsAreSwitchedOff is the live-gate
+// guard. It spawns with the switch on (so the CLI is genuinely holding a
+// registered tool surface), turns the switch off underneath it, and calls a
+// tool: the refusal must come back as a tool error and the write must not
+// happen.
+func TestDispatchMCP_ToolCallIsRefusedOnceToolsAreSwitchedOff(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+
+	// The chat was spawned with tools ON — the registration reached the CLI.
+	require.GreaterOrEqual(t, indexOf(f.term.calls[0].argv, "--mcp-config"), 0)
+
+	f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "claude", MCPDisabled: true})
+
+	out, send, err := f.usecase.DispatchMCP(f.ctx, runnerID, f.minter.Mint(runnerID),
+		[]byte(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":`+
+			`{"name":"set_chat_title","arguments":{"title":"Should Not Land"}}}`))
+	require.NoError(t, err)
+	require.True(t, send)
+
+	var res mcpCallResult
+	mcpResult(t, out, &res)
+	assert.True(t, res.IsError, "a tool call from a provider with its tools off must be refused")
+	assert.Empty(t, f.chat(t, chatID).Title, "the refused call must not have written")
+}
+
+// The refusal is not a mystery to the model. A tool error rides back as result
+// text, so it has to say WHICH switch is off and where it lives — otherwise the
+// model reads a bare failure and retries the same call for the rest of the turn.
+func TestDispatchMCP_ToolRefusalNamesTheSwitchThatIsOff(t *testing.T) {
+	f := newFixture(t)
+	_, runnerID := f.spawn(t, "claude")
+	f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "claude", MCPDisabled: true})
+
+	out, _, err := f.usecase.DispatchMCP(f.ctx, runnerID, f.minter.Mint(runnerID),
+		[]byte(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":`+
+			`{"name":"set_chat_title","arguments":{"title":"x"}}}`))
+	require.NoError(t, err)
+
+	var res mcpCallResult
+	mcpResult(t, out, &res)
+	require.True(t, res.IsError)
+	require.Len(t, res.Content, 1)
+	assert.Contains(t, res.Content[0].Text, "switched off")
+	assert.Contains(t, res.Content[0].Text, "Providers")
+}
+
+// The gate is PER PROVIDER, exactly like the spawn-time half: switching codex's
+// tools off must not refuse a claude runner's calls. A global refusal would pass
+// both tests above and still be the wrong feature.
+func TestDispatchMCP_TheLiveGateIsScopedToTheProviderItNames(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "codex", MCPDisabled: true})
+
+	out, _, err := f.usecase.DispatchMCP(f.ctx, runnerID, f.minter.Mint(runnerID),
+		[]byte(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":`+
+			`{"name":"set_chat_title","arguments":{"title":"Still Allowed"}}}`))
+	require.NoError(t, err)
+
+	var res mcpCallResult
+	mcpResult(t, out, &res)
+	require.False(t, res.IsError, "claude's tools must survive codex's switch: %+v", res.Content)
+	assert.Equal(t, "Still Allowed", f.chat(t, chatID).Title)
+}
+
+// And the switch coming back ON restores the surface within the same running
+// chat — the other direction of the same property, and the one that proves the
+// preference is genuinely re-read per call rather than cached after the first
+// refusal.
+func TestDispatchMCP_SwitchingToolsBackOnRestoresThemInARunningChat(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "claude", MCPDisabled: true})
+
+	call := func(title string) mcpCallResult {
+		t.Helper()
+		out, _, err := f.usecase.DispatchMCP(f.ctx, runnerID, f.minter.Mint(runnerID),
+			[]byte(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":`+
+				`{"name":"set_chat_title","arguments":{"title":"`+title+`"}}}`))
+		require.NoError(t, err)
+		var res mcpCallResult
+		mcpResult(t, out, &res)
+		return res
+	}
+
+	require.True(t, call("Refused").IsError)
+
+	f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "claude", MCPDisabled: false})
+
+	require.False(t, call("Allowed Again").IsError)
+	assert.Equal(t, "Allowed Again", f.chat(t, chatID).Title)
+}

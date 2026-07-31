@@ -3,6 +3,7 @@ package agenttools_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -128,4 +129,91 @@ func TestToolSet_BadTokenCannotReachAnyTool(t *testing.T) {
 	_, err = ts.Call(context.Background(), "set_chat_title", json.RawMessage(`{"title":"x"}`))
 	require.ErrorIs(t, err, agenttools.ErrUnauthorized)
 	require.Zero(t, spy.calls, "an unauthorized call must never reach a tool handler")
+}
+
+// ── the per-provider tool switch ────────────────────────────────────
+// Deps.ToolAccess is the user's "Tools" switch, and it is consulted on EVERY
+// call rather than once at spawn. The tests here pin the three answers the port
+// can give; the live end-to-end behaviour (a switch flipped underneath a running
+// chat) is pinned against a real *agent.Usecase in
+// TestDispatchMCP_ToolCallIsRefusedOnceToolsAreSwitchedOff.
+
+// toolsetGatedOn builds the full surface with a ToolAccess port under the test's
+// control, recording every provider it was asked about — which is what proves
+// the question is asked about the RESOLVED caller's provider rather than about
+// something the relay could have supplied.
+func toolsetGatedOn(
+	t *testing.T,
+	renamer agenttools.ChatRenamer,
+	access func(providerID string) (bool, error),
+) (*agenttools.ToolSet, *[]string) {
+	t.Helper()
+	m, err := agenttools.NewTokenMinter()
+	require.NoError(t, err)
+	res := agenttools.NewResolver(m,
+		stubRunners{r: domain.AgentRunner{
+			ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a", ProviderID: "codex",
+		}},
+		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubWorkspaces{all: tree()})
+	asked := &[]string{}
+	deps := agenttools.Deps{
+		Resolver: res,
+		Chats:    renamer,
+		ToolAccess: func(_ context.Context, providerID string) (bool, error) {
+			*asked = append(*asked, providerID)
+			return access(providerID)
+		},
+	}
+	return agenttools.NewToolSet(deps, "RUN", m.Mint("RUN")), asked
+}
+
+func TestToolSet_RefusesEveryCallWhenTheProvidersToolsAreOff(t *testing.T) {
+	spy := &spyRenamer{}
+	ts, asked := toolsetGatedOn(t, spy, func(string) (bool, error) { return false, nil })
+
+	_, err := ts.Call(context.Background(), "set_chat_title", json.RawMessage(`{"title":"x"}`))
+
+	require.ErrorIs(t, err, agenttools.ErrToolsDisabled)
+	require.Zero(t, spy.calls, "a refused call must never reach a tool handler")
+	require.Equal(t, []string{"codex"}, *asked,
+		"the switch must be read for the RESOLVED caller's provider")
+}
+
+func TestToolSet_ServesTheCallWhenTheProvidersToolsAreOn(t *testing.T) {
+	spy := &spyRenamer{}
+	ts, asked := toolsetGatedOn(t, spy, func(string) (bool, error) { return true, nil })
+
+	_, err := ts.Call(context.Background(), "set_chat_title", json.RawMessage(`{"title":"Fine"}`))
+
+	require.NoError(t, err)
+	require.Equal(t, 1, spy.calls)
+	require.Equal(t, []string{"codex"}, *asked)
+}
+
+// A preference the daemon cannot READ must not be guessed at in the permissive
+// direction: the whole point of the switch is that the user decided, and a
+// storage failure is not permission.
+func TestToolSet_RefusesWhenTheSwitchCannotBeRead(t *testing.T) {
+	spy := &spyRenamer{}
+	ts, _ := toolsetGatedOn(t, spy, func(string) (bool, error) {
+		return false, errors.New("provider preference store is down")
+	})
+
+	_, err := ts.Call(context.Background(), "set_chat_title", json.RawMessage(`{"title":"x"}`))
+
+	require.Error(t, err)
+	require.Zero(t, spy.calls, "an unreadable preference must fail closed")
+}
+
+// The switch is consulted BEFORE the caller is even known to be calling a real
+// tool, so a provider with its tools off gets the same answer whatever it asks
+// for — including a tool that does not exist. The alternative leaks which tools
+// this daemon registers to a caller that may not use any of them.
+func TestToolSet_ADisabledProviderCannotProbeForToolNames(t *testing.T) {
+	ts, _ := toolsetGatedOn(t, &spyRenamer{}, func(string) (bool, error) { return false, nil })
+
+	_, err := ts.Call(context.Background(), "rm_rf", json.RawMessage(`{}`))
+
+	require.ErrorIs(t, err, agenttools.ErrToolsDisabled)
 }
