@@ -235,10 +235,18 @@ fi
 #   * `fn f() -> Hsla {` and `impl T for Rgba {` name the type rather than
 #     building one, and are not reported — a body that does build one still is.
 #
-# Stated limits: the scanner does not understand raw strings (`r#"…"#`) or
-# character literals, so a `'{'` would miscount brace depth and a raw string
-# containing `rgb(` would be reported. Both fail loud, which is the right
-# direction for a gate.
+# Raw strings (`r"…"`, `r#"…"#`, `br#"…"#`, `cr#"…"#`, and the multi-line form)
+# *are* understood, as of P1.5. They were a stated limit and the limit bit:
+# `crowbar-driver`'s schema tests embed a JSON fixture in an `r##"…"##`, whose
+# braces miscounted the depth, which ended the `#[cfg(test)]` skip early and
+# reported three colour literals inside a test module as violations. A gate that
+# cries wolf is a gate people learn to skip, so the scanner was taught the
+# syntax rather than the rule loosened — the *rule* is untouched, and the
+# adversarial check below still fails on a real literal placed after a raw
+# string in the same file.
+#
+# Stated limit that remains: character literals. A `'{'` still miscounts brace
+# depth. It fails loud, which is the right direction for a gate.
 
 theme_dir=crates/crowbar-ui/src/theme
 if [ ! -d "$theme_dir" ]; then
@@ -251,13 +259,48 @@ else
 			sort |
 			while IFS= read -r f; do
 				awk -v file="$f" '
-				# Strip block comments, line comments and string literals, so
-				# that only code reaches the matcher.
-				function clean(line,   out, i, n, ch, ch2, c) {
+				# Where a raw string opens at position i, if one does: the length
+				# of its `r`/`br`/`cr` + `#`* + `"` prefix, else 0. The character
+				# before the prefix must not continue an identifier, or the `r` of
+				# `for` would open one.
+				function raw_open(line, i,   j, prefix, before, candidate) {
+					prefix = substr(line, i, 1)
+					if (prefix == "b" || prefix == "c") {
+						if (substr(line, i + 1, 1) != "r") return 0
+						j = i + 2
+					} else if (prefix == "r") {
+						j = i + 1
+					} else {
+						return 0
+					}
+					if (i > 1) {
+						before = substr(line, i - 1, 1)
+						if (before ~ /[A-Za-z0-9_]/) return 0
+					}
+					candidate = "\""
+					while (substr(line, j, 1) == "#") {
+						candidate = candidate "#"
+						j++
+					}
+					if (substr(line, j, 1) != "\"") return 0
+					raw_close = candidate
+					return j - i + 1
+				}
+
+				# Strip block comments, line comments, string literals and raw
+				# strings, so that only code reaches the matcher.
+				function clean(line,   out, i, n, ch, ch2, c, opened, at) {
 					out = ""
 					i = 1
 					n = length(line)
 					while (i <= n) {
+						if (in_raw) {
+							at = index(substr(line, i), raw_close)
+							if (at == 0) break
+							i = i + at - 1 + length(raw_close)
+							in_raw = 0
+							continue
+						}
 						ch = substr(line, i, 1)
 						ch2 = substr(line, i, 2)
 						if (in_block) {
@@ -266,6 +309,12 @@ else
 						}
 						if (ch2 == "/*") { in_block = 1; i += 2; continue }
 						if (ch2 == "//") { break }
+						opened = raw_open(line, i)
+						if (opened > 0) {
+							in_raw = 1
+							i += opened
+							continue
+						}
 						if (ch == "\"") {
 							i++
 							while (i <= n) {
@@ -281,7 +330,10 @@ else
 					}
 					return out
 				}
-				BEGIN { in_block = 0; depth = 0; pending = 0; skipping = 0 }
+				BEGIN {
+					in_block = 0; in_raw = 0; raw_close = ""
+					depth = 0; pending = 0; skipping = 0
+				}
 				{
 					code = clean($0)
 
