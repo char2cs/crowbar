@@ -425,11 +425,7 @@ impl ResizablePanelGroup {
     /// declaration, so the group does **not** clip — which is why an overflowing
     /// panel would be reported `visible` rather than cut, on both sides.
     fn group(&self) -> Div {
-        let element = div()
-            .flex()
-            .flex_nowrap()
-            .w(relative(1.0))
-            .h(relative(1.0));
+        let element = div().flex().flex_nowrap().w(relative(1.0)).h(relative(1.0));
         match self.orientation {
             Orientation::Horizontal => element.flex_row(),
             Orientation::Vertical => element.flex_col(),
@@ -634,10 +630,10 @@ fn ring(mut element: Div, color: Color) -> Div {
 #[cfg(test)]
 mod tests {
     use super::{
-        CONTENT_GROW, CONTENT_SIZED, DEFAULT_SHELL_HEIGHT, GRIP_LENGTH, GRIP_THICKNESS,
-        GroupEntry, HANDLE_THICKNESS, HIT_HOVER_ALPHA, HIT_LEFT, HIT_THICKNESS, HIT_TOP, Handle,
-        HandleState, ID_GROUP, ID_HANDLE, ID_HANDLE_GRIP, ID_PANEL, LINE_SIZED, Orientation,
-        PANEL_FLEX_BASIS, Panel, RING_WIDTH, ResizablePanelGroup, SIDEBAR_GROW, hit_background,
+        CONTENT_GROW, CONTENT_SIZED, DEFAULT_SHELL_HEIGHT, GRIP_LENGTH, GRIP_THICKNESS, GroupEntry,
+        HANDLE_THICKNESS, HIT_HOVER_ALPHA, HIT_LEFT, HIT_THICKNESS, HIT_TOP, Handle, HandleState,
+        ID_GROUP, ID_HANDLE, ID_HANDLE_GRIP, ID_PANEL, LINE_SIZED, Orientation, PANEL_FLEX_BASIS,
+        Panel, RING_WIDTH, ResizablePanelGroup, SIDEBAR_GROW, hit_background,
     };
     use crate::theme::{Color, Theme};
     use gpui::px;
@@ -698,14 +694,8 @@ mod tests {
     /// written on the separator.
     #[test]
     fn the_separators_axis_is_the_opposite_of_the_groups() {
-        assert_eq!(
-            Orientation::Horizontal.handle_axis(),
-            Orientation::Vertical
-        );
-        assert_eq!(
-            Orientation::Vertical.handle_axis(),
-            Orientation::Horizontal
-        );
+        assert_eq!(Orientation::Horizontal.handle_axis(), Orientation::Vertical);
+        assert_eq!(Orientation::Vertical.handle_axis(), Orientation::Horizontal);
         for orientation in [Orientation::Horizontal, Orientation::Vertical] {
             assert_ne!(orientation.handle_axis(), orientation);
             assert_eq!(orientation.handle_axis().handle_axis(), orientation);
@@ -803,7 +793,11 @@ mod tests {
             .collect();
         assert_eq!(
             ids,
-            ["resize-panel-sidebar", "resize-handle", "resize-panel-content"],
+            [
+                "resize-panel-sidebar",
+                "resize-handle",
+                "resize-panel-content"
+            ],
         );
 
         // The percentages the library's layout engine writes always sum to 100,
@@ -820,7 +814,10 @@ mod tests {
             })
             .collect();
         assert_eq!(grows.len(), 2);
-        assert!((grows.iter().sum::<f32>() - 100.0).abs() < 0.001, "{grows:?}");
+        assert!(
+            (grows.iter().sum::<f32>() - 100.0).abs() < 0.001,
+            "{grows:?}"
+        );
         // And the sidebar is the smaller of the two, which is the shape the
         // remembered 294px default has in any window the shell opens at.
         assert!(grows[0] < grows[1], "{grows:?}");

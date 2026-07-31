@@ -392,7 +392,12 @@ mod tests {
     fn the_registry_is_sorted_and_holds_the_four_surfaces() {
         assert_eq!(
             Surface::names(),
-            ["dropdown-menu", "file-tree-row", "git-status-row", "resizable"],
+            [
+                "dropdown-menu",
+                "file-tree-row",
+                "git-status-row",
+                "resizable"
+            ],
         );
     }
 
