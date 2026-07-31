@@ -259,6 +259,18 @@ impl AnchorDiff<'_> {
         }
     }
 
+    /// A §5 **exact** number: any difference at all is a delta. Renders as
+    /// `exact` rather than quoting a `±0.0` that reads like an unfilled knob.
+    fn exact_number(&mut self, field: &'static str, expected: f64, actual: f64) {
+        if !within(actual, expected, 0.0) {
+            self.push(
+                field,
+                Class::Geometry,
+                DeltaKind::ExactNumber { expected, actual },
+            );
+        }
+    }
+
     fn typography_number(
         &mut self,
         field: &'static str,
@@ -335,6 +347,13 @@ impl AnchorDiff<'_> {
 
 /// Every field comparison for one anchor, in severity order so the
 /// pre-sort list already reads roughly right.
+///
+/// The five groups are **independent**, which is v1.4's clarification stated as
+/// code: an anchor may be both a painted box and a text run — the gate target's
+/// badge is a rounded, tinted, bordered box whose content is the word
+/// `uncommitted` — and each group is compared if and only if it is present.
+/// Nothing here makes the box fields and the text group exclusive, and nothing
+/// may.
 fn compare_anchor(expected: &Anchor, actual: &Anchor, tol: &Tolerances, out: &mut Vec<Delta>) {
     let mut d = AnchorDiff {
         id: &expected.id,
@@ -442,6 +461,22 @@ fn compare_geometry(d: &mut AnchorDiff<'_>, expected: &Anchor, actual: &Anchor) 
 
 /// The border, whose two halves land in different classes: the width is
 /// geometry, the colour is colour.
+///
+/// # `border.color` is compared only when the border is painted (v1.3 ruling 2)
+///
+/// A zero-width border has no colour anybody can see, and neither engine
+/// reports a *meaningful* one for it: `getComputedStyle` falls back to the
+/// element's inherited **text** colour, so the DOM side reports things like
+/// `#f5f5f5ff` for a border that does not exist, while GPUI reports its own
+/// default. Comparing those produced eight deltas across eight anchors on the
+/// first real gate run, every one of them about paint that never happened.
+///
+/// **Both** widths are checked, not just the reference's. The contract says the
+/// differ ignores the colour "below that threshold", and the value is junk on
+/// whichever side reports zero — a real colour on one side against junk on the
+/// other is the same false alarm in the other direction. Nothing is swallowed
+/// by this: a width that disagrees is reported by `border.w` immediately above,
+/// and §5 makes that one **exact**.
 fn compare_border(d: &mut AnchorDiff<'_>, expected: &Anchor, actual: &Anchor) {
     if !d.presence(
         "border",
@@ -450,8 +485,10 @@ fn compare_border(d: &mut AnchorDiff<'_>, expected: &Anchor, actual: &Anchor) {
         render_border,
     ) && let (Some(e), Some(a)) = (expected.border, actual.border)
     {
-        d.number("border.w", e.w, a.w, d.tol.border_width_px);
-        d.color("border.color", e.color, a.color);
+        d.exact_number("border.w", e.w, a.w);
+        if e.w > 0.0 && a.w > 0.0 {
+            d.color("border.color", e.color, a.color);
+        }
     }
 }
 

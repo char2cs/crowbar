@@ -44,6 +44,36 @@ pub const REFERENCE: &str = r##"{
   ]
 }"##;
 
+/// A snapshot whose single anchor is **both** a painted box and a text run
+/// (ANCHORS.md v1.4).
+///
+/// The gate target's `uncommitted` badge is exactly this — a rounded, tinted,
+/// bordered box whose content is a word — and the first real gate run produced
+/// five `FieldPresence` deltas on every matrix cell because one extractor could
+/// emit only the box half. The contract always allowed both; this fixture is
+/// the differ's half of that, held down by a test.
+pub const BOX_AND_TEXT: &str = r##"{
+  "schema": 1,
+  "surface": "git-status-row",
+  "state": { "width": 320, "theme": "dark", "content": "overflow",
+             "flags": ["selected", "hover"] },
+  "root": "git-row-badge",
+  "anchors": [
+    { "id": "git-row-badge",
+      "bounds": { "x": 0.0, "y": 0.0, "w": 87.0, "h": 20.0 },
+      "fg": "#ffb900ff",
+      "bg": "#fe9a0029",
+      "text": "uncommitted",
+      "text_width": 79.33,
+      "clipped": false,
+      "font": { "size": 12.0, "weight": 500, "family": "CalSansUI",
+                "line_height": 16.0 },
+      "visible": true,
+      "radius": 4.0,
+      "border": { "w": 1.0, "color": "#fe9a0080" } }
+  ]
+}"##;
+
 /// A snapshot with no anchors at all.
 pub const EMPTY: &str = r#"{
   "schema": 1,
@@ -60,10 +90,17 @@ pub const EMPTY: &str = r#"{
 /// fixture edit into a test failure rather than a silently doubled mutation.
 #[must_use]
 pub fn native(from: &str, to: &str) -> String {
-    let hits = REFERENCE.matches(from).count();
+    once(REFERENCE, from, to)
+}
+
+/// Any fixture with exactly one substring replaced, with the same uniqueness
+/// guarantee [`native`] gives.
+#[must_use]
+pub fn once(fixture: &str, from: &str, to: &str) -> String {
+    let hits = fixture.matches(from).count();
     assert_eq!(
         hits, 1,
         "fixture pattern {from:?} occurs {hits} times, not once"
     );
-    REFERENCE.replacen(from, to, 1)
+    fixture.replacen(from, to, 1)
 }

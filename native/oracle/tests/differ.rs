@@ -18,11 +18,16 @@
 mod support;
 
 use oracle::{Snapshot, Tolerances, diff};
-use support::{EMPTY, REFERENCE, native};
+use support::{BOX_AND_TEXT, EMPTY, REFERENCE, native, once};
 
 /// Parse both sides and render the ranked deltas as strings.
 fn deltas_of(native_json: &str) -> Vec<String> {
-    let expected = Snapshot::from_json(REFERENCE).expect("reference fixture must load");
+    deltas_between(REFERENCE, native_json)
+}
+
+/// The same, for a pair where the *reference* side is mutated too.
+fn deltas_between(reference_json: &str, native_json: &str) -> Vec<String> {
+    let expected = Snapshot::from_json(reference_json).expect("reference fixture must load");
     let actual = Snapshot::from_json(native_json).expect("native fixture must load");
     diff(&expected, &actual, &Tolerances::V1)
         .expect("same matrix cell")
@@ -127,13 +132,85 @@ fn geometry_deltas_report_magnitude_and_the_tolerance_they_broke() {
             to: "\"radius\": 6.0",
             want: &["git-row-item.radius: 6.0, expected 2.0 (Δ +4.0, tol ±0.5)"],
         },
+    ]);
+}
+
+/// §5, v1.1 ruling 1: `border.w` is **exact**. ±0.5 on a 1.0px border is a 50%
+/// error and plainly visible, so there is no tolerance to be at the boundary of
+/// — which is why these cases are here and not in the tolerance tests.
+#[test]
+fn border_width_is_exact_not_tolerated() {
+    run(&[
         Case {
-            what: "border width",
+            what: "half a pixel wider is already a defect",
             from: "\"border\": { \"w\": 1.0",
-            to: "\"border\": { \"w\": 3.0",
-            want: &["git-row-item.border.w: 3.0, expected 1.0 (Δ +2.0, tol ±0.5)"],
+            to: "\"border\": { \"w\": 1.5",
+            want: &["git-row-item.border.w: 1.5, expected 1.0 (Δ +0.5, exact)"],
+        },
+        Case {
+            what: "half a pixel narrower likewise",
+            from: "\"border\": { \"w\": 1.0",
+            to: "\"border\": { \"w\": 0.5",
+            want: &["git-row-item.border.w: 0.5, expected 1.0 (Δ -0.5, exact)"],
+        },
+        Case {
+            // The Δ reads `+0.063` — three decimals, per v1.2 — while the value
+            // itself is printed in full. Nothing was forgiven: exact means
+            // exact, and this is still a delta.
+            what: "and so is a sixteenth",
+            from: "\"border\": { \"w\": 1.0",
+            to: "\"border\": { \"w\": 1.0625",
+            want: &["git-row-item.border.w: 1.0625, expected 1.0 (Δ +0.063, exact)"],
         },
     ]);
+}
+
+/// v1.3 ruling 2. A zero-width border paints nothing, and neither engine
+/// reports a meaningful colour for one: the DOM returns the element's inherited
+/// *text* colour. On the first real gate run this produced eight deltas across
+/// eight anchors, every one of them about paint that never happened.
+#[test]
+fn border_colour_is_only_compared_when_the_border_is_painted() {
+    let zero_width = "\"border\": { \"w\": 0.0, \"color\": \"#f5f5f5ff\" }";
+
+    // Both sides zero-width, wildly different junk colours: not a delta.
+    let reference = once(
+        REFERENCE,
+        "\"border\": { \"w\": 1.0, \"color\": \"#00000000\" }",
+        zero_width,
+    );
+    let native_side = once(
+        &reference,
+        zero_width,
+        "\"border\": { \"w\": 0.0, \"color\": \"#00000000\" }",
+    );
+    assert!(
+        deltas_between(&reference, &native_side).is_empty(),
+        "a colour on a border nobody paints is not a finding: {:?}",
+        deltas_between(&reference, &native_side)
+    );
+
+    // One side zero-width: the *width* is the delta, and it is not joined by a
+    // colour delta comparing a real colour against junk.
+    let widened = once(
+        &reference,
+        zero_width,
+        "\"border\": { \"w\": 1.0, \"color\": \"#00000000\" }",
+    );
+    assert_eq!(
+        deltas_between(&reference, &widened),
+        vec!["git-row-item.border.w: 1.0, expected 0.0 (Δ +1.0, exact)"]
+    );
+
+    // And with both sides painting, the colour is compared exactly as before —
+    // the rule narrows what is checked, it does not switch it off.
+    assert_eq!(
+        deltas_of(&native(
+            "\"color\": \"#00000000\"",
+            "\"color\": \"#ff000000\""
+        )),
+        vec!["git-row-item.border.color: #ff000000, expected #00000000 (Δ r +255, rgb is exact)"]
+    );
 }
 
 #[test]
@@ -166,11 +243,6 @@ fn a_value_exactly_at_the_tolerance_passes() {
             "\"line_height\": 17.0",
         ),
         ("radius +0.5", "\"radius\": 2.0", "\"radius\": 2.5"),
-        (
-            "border.w -0.5",
-            "\"border\": { \"w\": 1.0",
-            "\"border\": { \"w\": 0.5",
-        ),
         (
             "alpha +1/255",
             "\"bg\": \"#1e2228ff\"",
@@ -229,12 +301,6 @@ fn a_value_just_past_the_tolerance_fails_in_both_directions() {
             "\"radius\": 2.0",
             "\"radius\": 2.75",
             "git-row-item.radius: 2.75, expected 2.0 (Δ +0.75, tol ±0.5)",
-        ),
-        (
-            "border.w +0.75",
-            "\"border\": { \"w\": 1.0",
-            "\"border\": { \"w\": 1.75",
-            "git-row-item.border.w: 1.75, expected 1.0 (Δ +0.75, tol ±0.5)",
         ),
         (
             "alpha +2/255",
@@ -455,6 +521,153 @@ fn ranking_puts_the_biggest_fact_at_the_top() {
             "git-row-name.bounds.y: 6.0, expected 4.0 (Δ +2.0, tol ±0.5)",
             "git-row-name.font.weight: 400, expected 500 (Δ -100, exact)",
         ]
+    );
+}
+
+/// v1.4. The box fields and the text group are independent; an anchor may carry
+/// both, and every field of both must still be compared.
+#[test]
+fn an_anchor_can_be_both_a_painted_box_and_a_text_run() {
+    let snapshot = Snapshot::from_json(BOX_AND_TEXT).expect("valid");
+    let report = diff(&snapshot, &snapshot, &Tolerances::V1).expect("same cell");
+    assert!(report.is_clean());
+    assert_eq!(report.anchors_compared, 1);
+
+    // One mutation in each half of the anchor, asserted together: if either half
+    // were being skipped because the other was present, one of these would be
+    // missing.
+    let mutated = once(BOX_AND_TEXT, "\"radius\": 4.0", "\"radius\": 9.0");
+    let mutated = once(&mutated, "\"uncommitted\"", "\"staged\"");
+    assert_eq!(
+        deltas_between(BOX_AND_TEXT, &mutated),
+        vec![
+            "git-row-badge.text: \"staged\", expected \"uncommitted\" (exact)",
+            "git-row-badge.radius: 9.0, expected 4.0 (Δ +5.0, tol ±0.5)",
+        ]
+    );
+
+    // And the box's own border colour is compared, because this box paints one.
+    assert_eq!(
+        deltas_between(
+            BOX_AND_TEXT,
+            &once(BOX_AND_TEXT, "\"#fe9a0080\"", "\"#fe9a0180\"")
+        ),
+        vec!["git-row-badge.border.color: #fe9a0180, expected #fe9a0080 (Δ b +1, rgb is exact)"]
+    );
+}
+
+/// v1.2 ruling 3 fixes the snapshot precision at three decimals. The printed
+/// **difference** honours that; the comparison does not round at all.
+#[test]
+fn the_printed_magnitude_is_rounded_to_the_contracts_three_decimals() {
+    // 476.49 - 424.047 is -52.442999999999984 in binary floating point. Twelve
+    // digits of representation noise is noise a reader has to learn to skip.
+    let reference = once(REFERENCE, "\"text_width\": 186.5", "\"text_width\": 476.49");
+    let actual = once(
+        &reference,
+        "\"text_width\": 476.49",
+        "\"text_width\": 424.047",
+    );
+    assert_eq!(
+        deltas_between(&reference, &actual),
+        vec!["git-row-name.text_width: 424.047, expected 476.49 (Δ -52.443, tol ±1.0)"]
+    );
+
+    // The values themselves are printed verbatim, so an extractor emitting more
+    // precision than the contract allows stays visible rather than tidied away.
+    let over_precise = once(REFERENCE, "\"x\": 8.0", "\"x\": 12.00048828125");
+    assert_eq!(
+        deltas_of(&over_precise),
+        vec!["git-row-icon.bounds.x: 12.00048828125, expected 8.0 (Δ +4.0, tol ±0.5)"]
+    );
+
+    // Rounding is for the eye only: a difference inside the tolerance but
+    // outside three decimals is still inside the tolerance, and one outside it
+    // is still a delta.
+    assert!(deltas_of(&native("\"x\": 8.0", "\"x\": 8.4999")).is_empty());
+    assert_eq!(deltas_of(&native("\"x\": 8.0", "\"x\": 8.5001")).len(), 1);
+}
+
+/// The **archived output of the first real gate run**, held down verbatim.
+///
+/// `runs/{ref,native}-294-d4.json` are the actual snapshots the two apps
+/// produced at width 294, dark, overflow. Against the v1.0 differ they yielded
+/// 26 deltas, eight of which were `border.color` on borders of zero width — a
+/// third of the report was noise the contract already said to ignore.
+///
+/// This asserts the complete ranked list rather than a count, so it fails on a
+/// delta that appears, one that disappears, one that moves, and one whose
+/// wording changes. It is the regression fixture for the whole of P1.6: the
+/// eight zero-width colour deltas are gone, every other finding survives, and
+/// the four Δs that used to carry a dozen digits of float noise now read at the
+/// contract's three decimals.
+#[test]
+fn the_archived_gate_run_is_reproduced_delta_for_delta() {
+    let reference = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/runs/ref-294-d4.json"));
+    let native_side = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/runs/native-294-d4.json"
+    ));
+    assert_eq!(
+        deltas_between(reference, native_side),
+        vec![
+            "git-row-deleted: anchor present in the native snapshot but not in the reference",
+            "git-row-dir: anchor present in the native snapshot but not in the reference",
+            "git-row-badge.clipped: not emitted by the native extractor, expected false \
+             (field-presence mismatch, not a value delta)",
+            "git-row-badge.fg: not emitted by the native extractor, expected #ffb900ff \
+             (field-presence mismatch, not a value delta)",
+            "git-row-badge.font: not emitted by the native extractor, expected \
+             { size: 12.0, weight: 500, family: \"CalSansUI\", line_height: 16.0 } \
+             (field-presence mismatch, not a value delta)",
+            "git-row-badge.text: not emitted by the native extractor, expected \"uncommitted\" \
+             (field-presence mismatch, not a value delta)",
+            "git-row-badge.text_width: not emitted by the native extractor, expected 79.33 \
+             (field-presence mismatch, not a value delta)",
+            "git-row-added.text: \"+12\", expected \"+1\" (exact)",
+            "git-row-name.text_width: 424.047, expected 476.49 (Δ -52.443, tol ±1.0)",
+            "git-row-name.bounds.w: 39.5, expected 91.52 (Δ -52.02, tol ±0.5)",
+            "git-row-added.bounds.x: 252.0, expected 276.84 (Δ -24.84, tol ±0.5)",
+            "git-row-badge.bounds.w: 66.0, expected 87.33 (Δ -21.33, tol ±0.5)",
+            "git-row-added.bounds.w: 21.0, expected 11.16 (Δ +9.84, tol ±0.5)",
+            "git-row-added.text_width: 20.355, expected 11.15 (Δ +9.205, tol ±1.0)",
+            "git-row-badge.bounds.h: 16.0, expected 20.0 (Δ -4.0, tol ±0.5)",
+            "git-row-badge.bounds.x: 180.0, expected 183.52 (Δ -3.52, tol ±0.5)",
+            "git-row-badge.bounds.y: 4.0, expected 2.0 (Δ +2.0, tol ±0.5)",
+            "git-row-name.bounds.h: 19.0, expected 18.0 (Δ +1.0, tol ±0.5)",
+        ]
+    );
+
+    // Eight anchors in that run carry a border of zero width whose two sides
+    // report *different* colours — the DOM's inherited `#f5f5f5ff` and
+    // `#ffffff0f` against GPUI's `#00000000`. Counted from the fixtures rather
+    // than assumed, so a future change that reintroduces them fails here with
+    // the reason rather than as an off-by-eight in the list above.
+    let reference_snapshot = Snapshot::from_json(reference).expect("archived reference loads");
+    let native_snapshot = Snapshot::from_json(native_side).expect("archived native loads");
+    let suppressed = reference_snapshot
+        .anchors
+        .iter()
+        .filter(|anchor| {
+            let (Some(reference_border), Some(native_border)) = (
+                anchor.border,
+                native_snapshot.anchor(&anchor.id).and_then(|a| a.border),
+            ) else {
+                return false;
+            };
+            (reference_border.w <= 0.0 || native_border.w <= 0.0)
+                && reference_border.color != native_border.color
+        })
+        .count();
+    assert_eq!(suppressed, 8);
+    let report = diff(&reference_snapshot, &native_snapshot, &Tolerances::V1).expect("same cell");
+    assert!(
+        !report
+            .deltas
+            .iter()
+            .any(|d| d.field == "border.color" || d.field == "border.w"),
+        "the archived run's borders agree once the zero-width colours are ignored: {:?}",
+        report.deltas
     );
 }
 

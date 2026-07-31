@@ -163,6 +163,18 @@ pub enum DeltaKind {
         /// The tolerance it broke.
         tolerance: f64,
     },
+    /// An exact-match number disagrees at all.
+    ///
+    /// Separate from [`DeltaKind::Number`] with a zero tolerance so the
+    /// rendering can say `exact` rather than quote a `±0.0` that reads like a
+    /// tolerance somebody forgot to fill in. `border.w` is the one field in
+    /// this class (§5, v1.1 ruling 1).
+    ExactNumber {
+        /// Reference value.
+        expected: f64,
+        /// Native value.
+        actual: f64,
+    },
     /// An exact-match integer disagrees.
     Integer {
         /// Reference value.
@@ -199,7 +211,8 @@ impl Delta {
         match &self.kind {
             DeltaKind::Number {
                 expected, actual, ..
-            } => (actual - expected).abs(),
+            }
+            | DeltaKind::ExactNumber { expected, actual } => (actual - expected).abs(),
             DeltaKind::Colour {
                 expected,
                 actual,
@@ -248,15 +261,36 @@ impl Delta {
     }
 }
 
+/// The snapshot precision ANCHORS.md v1.2 ruling 3 fixes for **both sides**:
+/// three decimal places, three orders inside the ±0.5 tolerance.
+const PRECISION: f64 = 1000.0;
+
 /// A number, always with a decimal point, so `12` reads as `12.0` and a px
 /// quantity never looks like a count.
+///
+/// Deliberately **not** rounded. These are the values the two extractors
+/// actually emitted, and v1.2 already requires them to arrive at three
+/// decimals; printing them verbatim is what keeps an extractor that emits more
+/// precision than the contract allows visible rather than tidied away.
 fn px(v: f64) -> String {
     format!("{v:?}")
 }
 
-/// A signed difference, e.g. `+4.0` or `-0.75`.
+/// A signed *difference*, e.g. `+4.0` or `-0.75`, rounded to the contract's
+/// three decimals.
+///
+/// This is the one number in a delta line that nobody measured: it is
+/// `actual - expected`, and subtracting two three-decimal values in binary
+/// floating point lands on things like `-52.442999999999984`. Twelve digits of
+/// representation noise in a human-facing report is noise a reader has to learn
+/// to skip past, so the *rendering* rounds to the precision the contract says
+/// the inputs have.
+///
+/// **The comparison is not rounded.** [`crate::tolerance::within`] sees the raw
+/// `f64`s; rounding before the tolerance test would move the boundary, which is
+/// a loosening under §5 and is not what this is.
 fn signed(v: f64) -> String {
-    let magnitude = px(v.abs());
+    let magnitude = px((v.abs() * PRECISION).round() / PRECISION);
     if v < 0.0 {
         format!("-{magnitude}")
     } else {
@@ -346,6 +380,13 @@ impl fmt::Display for Delta {
                 px(*expected),
                 signed(actual - expected),
                 px(*tolerance)
+            ),
+            DeltaKind::ExactNumber { expected, actual } => write!(
+                f,
+                "{subject}: {}, expected {} (Δ {}, exact)",
+                px(*actual),
+                px(*expected),
+                signed(actual - expected),
             ),
             DeltaKind::Integer { expected, actual } => write!(
                 f,
