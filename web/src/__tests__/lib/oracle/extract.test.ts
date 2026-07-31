@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { OracleState } from '@/lib/oracle/extract'
+import type { OracleSnapshot, OracleState } from '@/lib/oracle/extract'
 import {
   extractSnapshot,
   extractSnapshotSource,
@@ -140,10 +140,13 @@ describe('oracleNormalizeState', () => {
   const untyped = (state: Record<string, unknown>) => state as Partial<OracleState>
 
   it('lowercases the caller’s casing rather than emitting a refusal', () => {
+    // The document is `dark` here because `Dark` now has to *agree* with it.
+    // Casing is the only thing under test; pairing it with a light document
+    // would be exercising the contradiction guard below instead.
     const state = oracleNormalizeState(
       untyped({ theme: 'Dark', content: 'Overflow', flags: ['Hover'] }),
       0,
-      'light',
+      'dark',
     )
     expect(state).toEqual({ width: 0, theme: 'dark', content: 'overflow', flags: ['hover'] })
   })
@@ -160,6 +163,90 @@ describe('oracleNormalizeState', () => {
     expect(() => oracleNormalizeState(untyped({ flags: ['pressed'] }), 0, 'light')).toThrow(
       /state\.flags/,
     )
+  })
+
+  // ── the declared cell must match the document it is measuring ──────────────
+  //
+  // The defect: a reference was captured with `state: { theme: 'dark' }` while
+  // a page reload had silently put the app back into **light**. The snapshot
+  // came out *labelled* dark carrying light-theme values, and the oracle
+  // reported a colour delta on every anchor whose real cause was the label.
+
+  it('throws when the declared theme contradicts the document', () => {
+    expect(() => oracleNormalizeState({ theme: 'dark' }, 320, 'light')).toThrow(
+      /declares "dark".*document being measured is "light"/s,
+    )
+  })
+
+  it('throws in the other direction too — it compares, it does not blacklist', () => {
+    // A guard written as `if (t === 'dark') throw` would pass the test above.
+    // This is the one that says the two values are actually being compared.
+    expect(() => oracleNormalizeState({ theme: 'light' }, 320, 'dark')).toThrow(
+      /declares "light".*document being measured is "dark"/s,
+    )
+  })
+
+  it('catches the contradiction through the caller’s casing, not around it', () => {
+    // `'Dark'` is lowercased before the comparison, so a mixed-case
+    // declaration cannot slip past by failing a `===` against `'dark'`.
+    expect(() => oracleNormalizeState(untyped({ theme: 'Dark' }), 320, 'light')).toThrow(
+      /document being measured/,
+    )
+  })
+
+  it('names both values and the way out, because the error is the whole signal', () => {
+    // It is thrown inside an `execute_js` bridge: the message is all the
+    // operator gets, so it has to say what was declared, what the document
+    // actually is, and what to do about it.
+    let message = ''
+    try {
+      oracleNormalizeState({ theme: 'dark' }, 320, 'light')
+    } catch (err) {
+      message = String(err)
+    }
+    expect(message).toContain('"dark"')
+    expect(message).toContain('"light"')
+    expect(message).toMatch(/no override/i)
+  })
+
+  it('lets an agreeing declaration through untouched (the control)', () => {
+    // The check must cost a correct caller nothing — including the redundant
+    // but legitimate habit of declaring the cell you drove the app into.
+    expect(oracleNormalizeState({ theme: 'dark' }, 320, 'dark')).toEqual({
+      width: 320,
+      theme: 'dark',
+      content: 'normal',
+      flags: [],
+    })
+    expect(oracleNormalizeState({ theme: 'light' }, 320, 'light').theme).toBe('light')
+  })
+
+  it('still derives the theme when the caller declares none', () => {
+    // Declaring nothing is not a contradiction — the guard must not fire on the
+    // path that had no label to get wrong in the first place.
+    expect(oracleNormalizeState({ width: 600 }, 320, 'dark').theme).toBe('dark')
+    expect(oracleNormalizeState({ width: 600 }, 320, 'light').theme).toBe('light')
+  })
+
+  // `width` is NOT compared to the document — it is the *viewport* width and
+  // `derivedWidth` is the root anchor's, a different quantity (the archived
+  // `ref-600.json` declares 600 around a 294px root). What is enforced is that
+  // a declared width is a number at all.
+
+  it('does not compare a declared width against the root anchor’s width', () => {
+    // The load-bearing case: `ref-600.json` is an honest capture. Rejecting it
+    // would be a false alarm that blocks the viewport axis of the matrix.
+    expect(oracleNormalizeState({ width: 600 }, 294, 'dark').width).toBe(600)
+  })
+
+  it('throws on a declared width that is not a number, rather than emitting 0', () => {
+    // `Math.round(NaN)` used to land on `0`, so `width: '600px'` shipped a
+    // snapshot labelled with a cell no run ever produced — the same silent
+    // mislabel as the theme case.
+    expect(() => oracleNormalizeState(untyped({ width: '600px' }), 294, 'dark')).toThrow(
+      /state\.width/,
+    )
+    expect(() => oracleNormalizeState(untyped({ width: NaN }), 294, 'dark')).toThrow(/state\.width/)
   })
 })
 
@@ -449,8 +536,14 @@ function stubRect(el: Element, box: { left: number; top: number; width: number; 
  * A gate-target-shaped row: a `.file-tree-item` container whose *only* visible
  * background is painted by `::before`, a transparent button, one indent guide
  * and a truncating filename.
+ *
+ * `theme` puts the *document* into that theme, which is what
+ * `oracleDetectTheme` reads. It is a parameter rather than a constant because a
+ * declared `state.theme` is now checked against it: a test that wants to
+ * snapshot a dark cell has to mount a dark document, exactly as a capture does.
  */
-function mountRow() {
+function mountRow(theme: 'light' | 'dark' = 'light') {
+  document.documentElement.className = theme
   document.body.innerHTML = `
     <div id="row" data-oracle-id="git-row-item">
       <span id="guide" data-oracle-id="git-row-guide-0"></span>
@@ -558,10 +651,11 @@ describe('extractSnapshot', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     document.body.innerHTML = ''
+    document.documentElement.className = ''
   })
 
   it('emits a v1 snapshot rooted on the anchor it was told to root on', () => {
-    mountRow()
+    mountRow('dark')
     const snapshot = extractSnapshot({
       surface: 'git-status-row',
       root: 'git-row-item',
@@ -751,6 +845,69 @@ describe('extractSnapshot', () => {
     )
     expect(() => extractSnapshot({ surface: 'git-status-row', scope: '#nope' })).toThrow(/scope/)
   })
+
+  // ── the mislabelled capture, end to end ───────────────────────────────────
+
+  it('makes it impossible to get a snapshot back for a contradicted theme', () => {
+    // This is the live defect, reproduced: the app is in light — a reload
+    // undid an earlier theme switch — and the operator asks for the dark cell.
+    // The old code answered with a snapshot labelled `dark` carrying light
+    // values. Nothing downstream could have caught that, so nothing may come
+    // back at all: the binding stays undefined, not merely wrong.
+    mountRow('light')
+
+    let snapshot: OracleSnapshot | undefined
+    expect(() => {
+      snapshot = extractSnapshot({
+        surface: 'git-status-row',
+        state: { width: 1100, theme: 'dark', content: 'overflow', flags: ['hover'] },
+      })
+    }).toThrow(/state\.theme/)
+    expect(snapshot).toBeUndefined()
+  })
+
+  it('refuses a light label on a dark document as well', () => {
+    mountRow('dark')
+    expect(() => extractSnapshot({ surface: 'git-status-row', state: { theme: 'light' } })).toThrow(
+      /document being measured is "dark"/,
+    )
+  })
+
+  it('returns a snapshot when the label matches the document (the control)', () => {
+    // The other half of the claim: the check is a *filter on wrong labels*, not
+    // a blanket refusal of declared state. A guard that failed this would have
+    // taken the reference capture path out entirely.
+    mountRow('dark')
+    const snapshot = extractSnapshot({
+      surface: 'git-status-row',
+      state: { width: 1100, theme: 'dark', content: 'overflow', flags: ['hover'] },
+    })
+
+    expect(snapshot.state).toEqual({
+      width: 1100,
+      theme: 'dark',
+      content: 'overflow',
+      flags: ['hover'],
+    })
+    expect(snapshot.anchors).toHaveLength(5)
+    expect(snapshot.anchors[0].id).toBe('git-row-item')
+  })
+
+  it('takes the theme from the document when none is declared', () => {
+    mountRow('dark')
+    expect(extractSnapshot({ surface: 'git-status-row' }).state.theme).toBe('dark')
+  })
+
+  it('does not change any emitted value — the archived snapshots still compare', () => {
+    // The check runs at capture time and must not touch the wire shape: a
+    // labelled capture and an unlabelled one over the same document have to be
+    // byte-identical, or `native/oracle/runs/`’s archived pairs stop matching.
+    mountRow('dark')
+    const declared = extractSnapshot({ surface: 'git-status-row', state: { theme: 'dark' } })
+    const derived = extractSnapshot({ surface: 'git-status-row' })
+
+    expect(JSON.stringify(declared)).toBe(JSON.stringify(derived))
+  })
 })
 
 // ── injectability ────────────────────────────────────────────────────────────
@@ -759,6 +916,7 @@ describe('extractSnapshotSource', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     document.body.innerHTML = ''
+    document.documentElement.className = ''
   })
 
   it('produces a self-contained IIFE whose result matches the module path', () => {
@@ -777,5 +935,29 @@ describe('extractSnapshotSource', () => {
     mountRow()
     const row = document.getElementById('row') as HTMLElement
     expect(() => extractSnapshotSource({ surface: 'x', scope: row })).toThrow(/selector/)
+  })
+
+  it('carries the theme check into the injected script, where the capture happens', () => {
+    // The only path that matters for the live defect. The bridge evaluates this
+    // IIFE in the page — if `oracleNormalizeState` were left out of
+    // `ORACLE_RUNTIME`, or the guard lived in the module rather than in a
+    // serialised helper, the module path above would be green and every real
+    // capture would still hand back a mislabelled snapshot.
+    mountRow('light')
+    const source = extractSnapshotSource({
+      surface: 'git-status-row',
+      state: { theme: 'dark' },
+    })
+
+    expect(() => (0, eval)(source)).toThrow(/document being measured is "light"/)
+  })
+
+  it('still produces a snapshot through the injected script when the label agrees', () => {
+    mountRow('dark')
+    const options = { surface: 'git-status-row', state: { theme: 'dark' as const } }
+    const emitted = JSON.parse((0, eval)(extractSnapshotSource(options)) as string)
+
+    expect(emitted.state.theme).toBe('dark')
+    expect(emitted).toEqual(JSON.parse(JSON.stringify(extractSnapshot(options))))
   })
 })

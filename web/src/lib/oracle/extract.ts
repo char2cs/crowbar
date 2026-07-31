@@ -135,6 +135,11 @@ export interface ExtractOptions {
    * from the root anchor, `theme` by {@link oracleDetectTheme}, `content` as
    * `normal` and `flags` as `[]`. Anything supplied is validated against the
    * v1.1 vocabulary and rejected loudly rather than emitted as a silent refusal.
+   *
+   * A supplied `theme` is additionally checked **against the document being
+   * measured**, and a contradiction throws — see {@link oracleNormalizeState}.
+   * `content` and `flags` are not properties of the document and are taken on
+   * trust; `width` is the *viewport* width, which nothing here measures.
    */
   state?: Partial<OracleState>
   /** Anchor id that all geometry is relative to (ANCHORS.md §4). */
@@ -738,6 +743,33 @@ export function oracleDetectTheme(doc: Document): 'light' | 'dark' {
  * unknown value is to refuse the comparison, and a refusal that shows up as
  * "0 deltas" three steps later is far harder to trace than a failure at the
  * point the wrong string was written.
+ *
+ * ## `derivedTheme` is ground truth, not a default
+ *
+ * It used to be only the fallback for a caller who supplied nothing, and a
+ * supplied `theme` overrode it **unchecked**. That silently produced the one
+ * artefact this whole contract exists to prevent: a reference captured with
+ * `state: { theme: 'dark' }` while a page reload had quietly put the app back
+ * into **light**, emitted as a snapshot *labelled* `dark` carrying light-theme
+ * values. Compared against the native `--theme dark` cell it reported a colour
+ * delta on every anchor whose real cause was the label. It was caught only
+ * because a reader recognised `border.color: #00000014` as a light token —
+ * nothing in the pipeline would have caught it, and a mislabelled reference
+ * that gets archived is worse than a failing run, because it becomes evidence.
+ *
+ * So a supplied `theme` that contradicts {@link oracleDetectTheme} **throws**.
+ * It does not warn: this runs inside an `execute_js` bridge where a warning
+ * goes to a console nobody is reading, so the only way to make the mislabel
+ * impossible is to make the snapshot impossible.
+ *
+ * **There is deliberately no override.** The emitted value is unchanged either
+ * way — after this check the declaration and the document agree by
+ * construction — so the check costs a correct caller nothing, and an escape
+ * hatch would only ever be reached for the case it exists to catch.
+ *
+ * `width`, `content` and `flags` are *not* checked against the document. See
+ * the notes at each below: the reason differs per field and is not "we did not
+ * get to it".
  */
 export function oracleNormalizeState(
   requested: Partial<OracleState> | undefined | null,
@@ -746,9 +778,40 @@ export function oracleNormalizeState(
 ): OracleState {
   const wanted = requested || {}
 
-  let width = wanted.width === undefined || wanted.width === null ? derivedWidth : wanted.width
-  width = Math.round(Number(width))
-  if (!isFinite(width)) width = 0
+  // NOT checked against the document, and that is a decision.
+  //
+  // `state.width` is the **viewport** width (ANCHORS.md §8.3, and the ruling
+  // recorded in QUEUE.md after a 569px webview silently rendered the narrow
+  // badge variant). `derivedWidth` is the *root anchor's* width — a different
+  // quantity, and knowably so: the archived `ref-600.json` pair declares
+  // `width: 600` around a `git-row-item` measuring 294. Comparing the two would
+  // false-alarm on every honest capture.
+  //
+  // The document does expose viewport-ish numbers, but not one that is
+  // unambiguously this field: `window.innerWidth` includes a classic
+  // scrollbar's gutter and `documentElement.clientWidth` does not, and they
+  // disagree precisely when a breakpoint is near — which is the only reason
+  // this field is load-bearing at all. Picking one and asserting equality would
+  // be a second guess layered on a field ANCHORS.md itself still records as
+  // open, and a false alarm here blocks a capture outright. Left unchecked,
+  // deliberately.
+  //
+  // What *is* enforced: a supplied width has to be a number. `Math.round(NaN)`
+  // used to land on `0`, so `width: '600px'` emitted a snapshot labelled with a
+  // cell no run ever produced — the same silent mislabel as the theme case, and
+  // this one has no false-alarm question hanging over it.
+  let width: number
+  if (wanted.width === undefined || wanted.width === null) {
+    width = Math.round(Number(derivedWidth))
+    if (!isFinite(width)) width = 0
+  } else {
+    width = Math.round(Number(wanted.width))
+    if (!isFinite(width)) {
+      throw new Error(
+        'oracle: state.width must be a number of logical px, got ' + JSON.stringify(wanted.width),
+      )
+    }
+  }
 
   let theme = derivedTheme
   if (wanted.theme !== undefined && wanted.theme !== null) {
@@ -758,8 +821,36 @@ export function oracleNormalizeState(
         'oracle: state.theme must be "light" or "dark", got ' + JSON.stringify(wanted.theme),
       )
     }
+    if (t !== derivedTheme) {
+      throw new Error(
+        'oracle: state.theme declares "' +
+          t +
+          '" but the document being measured is "' +
+          derivedTheme +
+          '". Refusing to emit a snapshot labelled with a cell it was not ' +
+          'captured in — an archived mislabel is worse than a failed run. Put ' +
+          'the app into "' +
+          t +
+          '" and capture again, or declare "' +
+          derivedTheme +
+          '". There is no override.',
+      )
+    }
     theme = t as 'light' | 'dark'
   }
+
+  // `content` and `flags` are the caller's *intent*, not properties of the
+  // document, and there is deliberately no attempt to verify them.
+  //
+  // `content` names which fixture string the surface was driven with — the
+  // extractor sees one string and cannot know whether the author considers it
+  // short, normal or overflow; `clipped` is a consequence of the box, not of
+  // the cell. `flags` names how the surface was *driven* (`hover` is a pointer
+  // the harness is holding, `loading` a prop). A DOM guess — `:hover` matching,
+  // `aria-selected` — would be a heuristic that disagrees with the harness on
+  // exactly the surfaces that do not use the attribute it happened to look at,
+  // and a wrong guess here throws away a legitimate capture. Unverifiable is
+  // the honest answer; inventing a check would only look like coverage.
 
   let content: OracleContent = 'normal'
   if (wanted.content !== undefined && wanted.content !== null) {
