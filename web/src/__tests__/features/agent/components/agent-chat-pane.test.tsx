@@ -103,8 +103,22 @@ import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-stor
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 
 const providers: AgentProvider[] = [
-  { id: 'claude', displayName: 'Claude', icon: '<svg/>', connected: true, enabled: true },
-  { id: 'codex', displayName: 'Codex', icon: '<svg/>', connected: true, enabled: true },
+  {
+    id: 'claude',
+    displayName: 'Claude',
+    icon: '<svg/>',
+    connected: true,
+    enabled: true,
+    mcpEnabled: true,
+  },
+  {
+    id: 'codex',
+    displayName: 'Codex',
+    icon: '<svg/>',
+    connected: true,
+    enabled: true,
+    mcpEnabled: true,
+  },
 ]
 
 // ── Wire fixtures ────────────────────────────────────────────────────
@@ -1072,8 +1086,22 @@ describe('AgentChatPane', () => {
     it('never offers a DISABLED provider as the next one', async () => {
       const store = createWorkspaceStore('w1')
       store.getState().setAgentProviders([
-        { id: 'claude', displayName: 'Claude', icon: '<svg/>', connected: true, enabled: true },
-        { id: 'codex', displayName: 'Codex', icon: '<svg/>', connected: true, enabled: false },
+        {
+          id: 'claude',
+          displayName: 'Claude',
+          icon: '<svg/>',
+          connected: true,
+          enabled: true,
+          mcpEnabled: true,
+        },
+        {
+          id: 'codex',
+          displayName: 'Codex',
+          icon: '<svg/>',
+          connected: true,
+          enabled: false,
+          mcpEnabled: true,
+        },
       ])
       store.getState().seedAgentChats([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       const bufferId = openBuffer(store, 'c1', 'r1')

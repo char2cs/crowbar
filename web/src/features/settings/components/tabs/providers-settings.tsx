@@ -27,6 +27,7 @@ import {
   providerDisabledMap,
   reorderProviderIds,
 } from './provider-preferences'
+import type { ProviderFlags } from './provider-preferences'
 
 /**
  * The Providers settings tab: the enriched, priority-ordered provider list, drag
@@ -90,9 +91,15 @@ export const ProvidersSettings = () => {
     getActiveWorkspaceStoreRef()?.getState().setAgentProviders(resolved)
   }, [])
 
+  // THE ONLY WRITE PATH. Every change — a reorder, an enable toggle, a tools
+  // toggle — is expressed as the same pair (the new order, the complete flags
+  // table) and lands here. That is not tidiness: the PUT replaces whole rows, so
+  // a second call site that knew about only one of the two flags would write the
+  // zero value over the other. A tools toggle followed by any drag would have
+  // switched the tools straight back on.
   const commit = useCallback(
-    async (orderedIds: string[], disabledById: Record<string, boolean>) => {
-      const prefs = buildProviderPreferences(orderedIds, disabledById)
+    async (orderedIds: string[], flagsById: Record<string, ProviderFlags>) => {
+      const prefs = buildProviderPreferences(orderedIds, flagsById)
       const previous = useAgentProvidersStore.getState().providers
 
       // OPTIMISTIC. The rows are fully controlled off this list, so the switch
@@ -100,7 +107,7 @@ export const ProvidersSettings = () => {
       // whatever this list says, so it has to say the truth before the response
       // lands or two quick toggles fight each other.
       const seq = ++latestWrite.current
-      publish(applyProviderPreferences(previous, orderedIds, disabledById))
+      publish(applyProviderPreferences(previous, orderedIds, flagsById))
       try {
         const resolved = await updateProviderPreferences(prefs)
         if (seq !== latestWrite.current) return // overtaken — a newer write owns the store
@@ -120,9 +127,26 @@ export const ProvidersSettings = () => {
 
   const handleToggle = useCallback(
     (id: string, enabled: boolean) => {
+      const flagsById = providerDisabledMap(providers)
       const orderedIds = providers.map((p) => p.id)
-      const disabledById = { ...providerDisabledMap(providers), [id]: !enabled }
-      void commit(orderedIds, disabledById)
+      // Flip ONE FIELD of one row; the other flag on that row (and every flag on
+      // every other row) is carried through exactly as the list has it.
+      void commit(orderedIds, {
+        ...flagsById,
+        [id]: { disabled: !enabled, mcpDisabled: flagsById[id]?.mcpDisabled ?? false },
+      })
+    },
+    [providers, commit],
+  )
+
+  const handleToggleTools = useCallback(
+    (id: string, enabled: boolean) => {
+      const flagsById = providerDisabledMap(providers)
+      const orderedIds = providers.map((p) => p.id)
+      void commit(orderedIds, {
+        ...flagsById,
+        [id]: { disabled: flagsById[id]?.disabled ?? false, mcpDisabled: !enabled },
+      })
     },
     [providers, commit],
   )
@@ -187,10 +211,14 @@ export const ProvidersSettings = () => {
           </p>
         ) : (
           <>
-            {/* The connected dot has no legend of its own — this line is it. */}
+            {/* The connected dot and the two switches have no legend of their own
+                — this line is it. It says what the Tools switch actually costs an
+                agent, because the row can only afford the word "Tools". */}
             <p className="ui-font ui-text-sm px-1 pb-1 text-muted-foreground">
               Drag to set which provider a new chat opens first. A filled dot means the CLI is
-              installed; turn one off to hide it from every New chat surface.
+              installed; turn a provider off to hide it from every New chat surface. Tools lets that
+              provider's agent use Crowbar itself — reading your workspaces and leaving review
+              comments; turn it off and the agent still runs, with no way in.
             </p>
             <DndContext
               sensors={sensors}
@@ -204,6 +232,7 @@ export const ProvidersSettings = () => {
                       key={provider.id}
                       provider={provider}
                       onToggle={handleToggle}
+                      onToggleTools={handleToggleTools}
                     />
                   ))}
                 </div>

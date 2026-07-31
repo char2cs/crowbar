@@ -28,6 +28,7 @@ const PROVIDERS = [
     icon: '<svg data-p="claude"></svg>',
     connected: true,
     enabled: true,
+    mcpEnabled: true,
   },
   {
     id: 'codex',
@@ -35,6 +36,7 @@ const PROVIDERS = [
     icon: '<svg data-p="codex"></svg>',
     connected: true,
     enabled: true,
+    mcpEnabled: true,
   },
 ]
 

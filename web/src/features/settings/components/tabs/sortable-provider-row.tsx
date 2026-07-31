@@ -10,16 +10,28 @@ import type { AgentProvider } from '@/features/agent/api/agent-api'
 interface SortableProviderRowProps {
   provider: AgentProvider
   onToggle: (id: string, enabled: boolean) => void
+  /** Flip whether this provider's agent can use Crowbar's own tools. */
+  onToggleTools: (id: string, enabled: boolean) => void
 }
 
 /**
  * One provider row in the Providers settings tab: a drag handle for priority,
- * the provider glyph + name, a connected (installed) indicator, and an enable
- * toggle. Extracted from the tab so the tab stays within react-doctor's
- * `no-giant-component`; the `useSortable` wiring mirrors `sortable-editor-tab.tsx`
- * but puts the drag listeners on the handle alone so the Switch stays clickable.
+ * the provider glyph + name, a connected (installed) indicator, a Crowbar-tools
+ * toggle, and an enable toggle. Extracted from the tab so the tab stays within
+ * react-doctor's `no-giant-component`; the `useSortable` wiring mirrors
+ * `sortable-editor-tab.tsx` but puts the drag listeners on the handle alone so
+ * the switches stay clickable.
+ *
+ * The two switches are independent axes, and the order they sit in says so: tools
+ * first (a narrower thing you can take away), then the provider itself. Neither
+ * says "MCP" anywhere a user can read — the transport is not what is being
+ * decided here; whether the agent can reach into Crowbar is.
  */
-export function SortableProviderRow({ provider, onToggle }: SortableProviderRowProps) {
+export function SortableProviderRow({
+  provider,
+  onToggle,
+  onToggleTools,
+}: SortableProviderRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: provider.id,
   })
@@ -62,9 +74,25 @@ export function SortableProviderRow({ provider, onToggle }: SortableProviderRowP
         )}
       />
 
+      {/* Crowbar's own tools, not the provider. A row with this off still opens
+          chats and still runs the CLI — the agent just cannot read the workspace
+          or leave review comments through Crowbar. */}
+      <span aria-hidden="true" className="ui-font ui-text-xs shrink-0 text-muted-foreground">
+        Tools
+      </span>
+      <Switch
+        data-testid={`provider-tools-toggle-${provider.id}`}
+        aria-label={`Let ${provider.displayName} use Crowbar's tools`}
+        title={`Let ${provider.displayName} use Crowbar's tools`}
+        checked={provider.mcpEnabled}
+        onChange={(checked) => onToggleTools(provider.id, checked)}
+        size="sm"
+      />
+
       <Switch
         data-testid={`provider-toggle-${provider.id}`}
         aria-label={`Enable ${provider.displayName}`}
+        title={`Offer ${provider.displayName} when starting a chat`}
         checked={provider.enabled}
         onChange={(checked) => onToggle(provider.id, checked)}
         size="sm"

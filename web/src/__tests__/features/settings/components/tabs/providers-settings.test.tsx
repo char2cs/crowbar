@@ -55,7 +55,15 @@ const provider = (
   displayName: string,
   connected: boolean,
   enabled: boolean,
-): AgentProvider => ({ id, displayName, icon: `<svg data-p="${id}"></svg>`, connected, enabled })
+  mcpEnabled = true,
+): AgentProvider => ({
+  id,
+  displayName,
+  icon: `<svg data-p="${id}"></svg>`,
+  connected,
+  enabled,
+  mcpEnabled,
+})
 
 function store() {
   return getOrCreateWorkspaceStore('w1')
@@ -255,13 +263,109 @@ describe('ProvidersSettings', () => {
     await userEvent.click(screen.getByTestId('provider-toggle-codex'))
 
     expect(updateProviderPreferencesFn).toHaveBeenCalledWith([
-      { id: 'codex', disabled: true },
-      { id: 'claude', disabled: false },
+      { id: 'codex', disabled: true, mcpDisabled: false },
+      { id: 'claude', disabled: false, mcpDisabled: false },
     ])
 
     // Store reconciled from the mocked response, not from local optimism.
     await waitFor(() => {
       expect(store().getState().agentChats.providers[0].enabled).toBe(false)
+    })
+  })
+
+  // ── Crowbar's tools, per provider ───────────────────────────────────
+  // A SECOND, INDEPENDENT axis: a provider with its tools off still spawns and
+  // still holds a normal chat — the agent just cannot reach into Crowbar. The row
+  // never says "MCP"; the transport is not what the user is deciding.
+  describe('the tools switch', () => {
+    it('renders one per row, reflecting mcpEnabled', () => {
+      seedProviders([
+        provider('codex', 'Codex', true, true, true),
+        provider('claude', 'Claude', true, true, false),
+      ])
+      render(<ProvidersSettings />)
+
+      expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
+        'aria-checked',
+        'true',
+      )
+      expect(screen.getByTestId('provider-tools-toggle-claude')).toHaveAttribute(
+        'aria-checked',
+        'false',
+      )
+    })
+
+    it('is labelled for what it does, not for the protocol behind it', () => {
+      seedProviders([provider('codex', 'Codex', true, true)])
+      render(<ProvidersSettings />)
+
+      expect(screen.getByLabelText("Let Codex use Crowbar's tools")).toBeInTheDocument()
+      expect(document.body.textContent).not.toMatch(/MCP/i)
+    })
+
+    it('turning it off PUTs mcpDisabled for that provider and leaves the others alone', async () => {
+      seedProviders([
+        provider('codex', 'Codex', true, true),
+        provider('claude', 'Claude', true, true),
+      ])
+      updateProviderPreferencesFn.mockResolvedValueOnce([
+        provider('codex', 'Codex', true, true, false),
+        provider('claude', 'Claude', true, true, true),
+      ])
+
+      render(<ProvidersSettings />)
+      await userEvent.click(screen.getByTestId('provider-tools-toggle-codex'))
+
+      expect(updateProviderPreferencesFn).toHaveBeenCalledWith([
+        { id: 'codex', disabled: false, mcpDisabled: true },
+        { id: 'claude', disabled: false, mcpDisabled: false },
+      ])
+
+      // Round trip: the reconciled store, and the switch, both say off.
+      await waitFor(() => {
+        expect(store().getState().agentChats.providers[0].mcpEnabled).toBe(false)
+      })
+      expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
+        'aria-checked',
+        'false',
+      )
+      // …and the provider itself is untouched by a tools toggle.
+      expect(screen.getByTestId('provider-toggle-codex')).toHaveAttribute('aria-checked', 'true')
+    })
+
+    // THE LANDMINE. The PUT replaces whole rows, so any later write that forgot
+    // this flag would write its zero value back over the user's choice. Every
+    // write carries both flags — here, an enable toggle taken after a tools
+    // toggle still says mcpDisabled.
+    it('survives a later, unrelated enable toggle', async () => {
+      seedProviders([
+        provider('codex', 'Codex', true, true),
+        provider('claude', 'Claude', true, true),
+      ])
+      updateProviderPreferencesFn
+        .mockResolvedValueOnce([
+          provider('codex', 'Codex', true, true, false),
+          provider('claude', 'Claude', true, true, true),
+        ])
+        .mockResolvedValueOnce([
+          provider('codex', 'Codex', true, true, false),
+          provider('claude', 'Claude', true, false, true),
+        ])
+
+      render(<ProvidersSettings />)
+      await userEvent.click(screen.getByTestId('provider-tools-toggle-codex'))
+      await waitFor(() =>
+        expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
+          'aria-checked',
+          'false',
+        ),
+      )
+      await userEvent.click(screen.getByTestId('provider-toggle-claude'))
+
+      expect(updateProviderPreferencesFn).toHaveBeenNthCalledWith(2, [
+        { id: 'codex', disabled: false, mcpDisabled: true },
+        { id: 'claude', disabled: true, mcpDisabled: false },
+      ])
     })
   })
 
@@ -288,8 +392,8 @@ describe('ProvidersSettings', () => {
       await userEvent.click(screen.getByTestId('provider-toggle-claude'))
 
       expect(updateProviderPreferencesFn).toHaveBeenNthCalledWith(2, [
-        { id: 'codex', disabled: true },
-        { id: 'claude', disabled: true },
+        { id: 'codex', disabled: true, mcpDisabled: false },
+        { id: 'claude', disabled: true, mcpDisabled: false },
       ])
     })
 
