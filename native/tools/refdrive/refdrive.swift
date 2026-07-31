@@ -26,12 +26,26 @@
 // points silently hovers the neighbouring row — which looks like a converged
 // run against the wrong element.
 //
-// `calibrate` therefore measures it instead of computing it. The caller installs
-// a mousemove listener, this tool warps to a known screen point, and the page
-// reports the clientX/clientY it observed. One sample solves the offset exactly,
-// because the mapping is a translation: the scale is 1, as client coordinates
-// are CSS pixels and so are the AppKit points CGEvent uses. Retina changes the
-// backing store, not this mapping.
+// `calibrate` was to measure it instead of computing it: the caller installs a
+// mousemove listener, this tool warps to a known screen point, and the page
+// reports the clientX/clientY it observed. One sample would solve the offset
+// exactly, because the mapping is a translation — the scale is 1, as client
+// coordinates are CSS pixels and so are the AppKit points CGEvent uses, and
+// Retina changes the backing store, not this mapping.
+//
+// **That design does not work on this machine, and it was never built.** It
+// needs a mousemove to reach the page, and none does — see the section below on
+// denied events. A listener installed on `window` in the capture phase counted
+// zero real moves across an entire session while `:hover` sat there looking
+// healthy.
+//
+// What replaces it is cheaper and does not need an event: `windows` reports the
+// window's frame, and with `titleBarStyle: Overlay` the webview covers the whole
+// window, so client (0,0) is the frame origin. That is an assumption, so do not
+// trust it — it costs nothing to check, because the thing you actually care
+// about is verifiable directly. Aim at a row, then ask the page whether *that
+// row* matches `:hover`. If the offset were wrong you would be told, by the only
+// question whose answer matters.
 //
 // PLACEMENT IS NOT OURS TO DO
 //
@@ -107,13 +121,21 @@ func fail(_ message: String) -> Never {
     exit(2)
 }
 
-/// Place the cursor and tell the system it moved.
+/// Place the cursor and *try* to tell the system it moved.
 ///
 /// The order matters. `CGWarpMouseCursorPosition` updates the cursor location
 /// but posts no event, so a webview that has not seen a mouse event since the
 /// last one still believes the pointer is wherever it was. Posting the move
-/// afterwards, at the same location, gives WebKit the event it needs to
-/// recompute `:hover`.
+/// afterwards, at the same location, is meant to give WebKit the event it needs
+/// to recompute `:hover`.
+///
+/// Only the warp is reliable. The post needs the post-events privilege, and
+/// where that is missing macOS discards the event with no error of any kind —
+/// `post` returns void whether or not anything was delivered, so there is
+/// nothing here to check and nothing to report. `point` is the command that
+/// closes this gap; this function is the half of it that always works, and is
+/// left alone so `hover` keeps behaving as it always has on a machine that does
+/// have the privilege.
 func movePointer(to point: CGPoint) {
     CGWarpMouseCursorPosition(point)
     // Re-associate immediately: the warp suppresses hardware cursor updates for
