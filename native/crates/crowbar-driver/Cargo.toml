@@ -21,6 +21,16 @@ crowbar-diff.workspace = true
 crowbar-webview.workspace = true
 crowbar-platform.workspace = true
 # gpui is reached as `crowbar_ui::gpui`, which crowbar-ui re-exports.
+serde.workspace = true
+serde_json.workspace = true
+
+# `#[gpui::test]` needs `TestAppContext`, which gpui gates behind
+# `test-support`. That is the *only* reason gpui is named directly here rather
+# than reached through `crowbar_ui::gpui`: a feature has to be requested on the
+# package, and a re-export cannot carry one. It does not widen the §4.2
+# dependency edge — nothing outside `#[cfg(test)]` uses this entry.
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true
