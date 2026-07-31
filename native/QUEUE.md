@@ -135,6 +135,63 @@ isolation into production's client state.
 The app itself is **fine**: `location.href` is `#/oobe`, rendering "The IDE where
 agents do the heavy lifting", which is exactly right for a home with no projects.
 
+#### The full `localStorage` surface, measured from the running app
+
+**166 keys, 32,762 bytes.** Read live out of the webview. §9.3 accounts for
+none of it. Classification, and what each needs:
+
+| Group | Count | Disposition |
+|---|---|---|
+| `crowbar:settings:*` | **88** | **Daemon-side, `global` scope.** This is the *entire* settings surface. |
+| `crowbar:terminal-reconnect:<workspaceId>` | **64** | **Delete.** See below. |
+| `react-scan-*` | 3 | Delete — dev tooling. |
+| `crowbar.activeProject` | 1 | **Delete.** This is the one that caused the 404 loop. |
+| `crowbar.bootstrap.appearance.v2` | 1 | Daemon-side, `global` — it exists to paint before first frame. |
+| `crowbar:agent-chat-order:<uuid>` | 2 | Daemon-side, per workspace. |
+| `sidebar-open`, `sidebar-width` | 2 | Daemon-side, `global`. |
+| `terminal-profiles` | 1 | **Check for a duplicate source of truth** — see below. |
+| `crowbar:switch-profiles`, `crowbar:cache-version`, `crowbar_font_cache` | 3 | Delete — caches and a schema version that D6 makes meaningless. |
+| `setItem` | 1 | Debris, see below. |
+
+**Five things this turned up:**
+
+1. **88 `crowbar:settings:*` keys.** Theme, fonts, editor, terminal, git, file
+   tree, keybinding presets *and* user overrides, enterprise policy
+   (`enterpriseManagedMode`, `enterpriseRequireExtensionAllowlist`,
+   `enterpriseAllowedExtensionIds`), telemetry. §9.3 moves "four stores"
+   daemon-side and never mentions this. **It is the single largest omission in
+   the persistence plan** and the native client needs every one of these keys or
+   users lose their entire configuration on migration. At 32 KB total the
+   migration is cheap — the risk is forgetting it, not doing it.
+
+2. **`crowbar:terminal-reconnect:*` grows without bound.** 64 entries, one per
+   workspace ever opened, keyed `crowbar:terminal-reconnect:${workspaceId}`
+   (`features/terminal/lib/terminal-reconnect-map.ts:4`). Each holds a
+   tab-id → session-id map. Nothing reaps them when a workspace is deleted.
+   D6 deletes the whole category rather than porting the leak.
+
+3. **`terminal-profiles` may be a duplicate source of truth.** It is a
+   zustand-persist blob (`{"state":{"profiles":[],...}}`) sitting in
+   `localStorage`, while the daemon *already* owns
+   `/v0/settings/terminal/profiles` with full CRUD
+   (`endpoints/terminal/routes.go:40-44`). Worth resolving before the native
+   client reads either — two writable copies of the same list is how they drift.
+
+4. **Two un-namespaced keys.** `sidebar-open` and `sidebar-width` carry no
+   `crowbar:` prefix and are written straight from a component
+   (`components/layout/use-sidebar-panel.ts:61,120`). In a shared origin that is
+   a collision waiting to happen, and it sidesteps the store layer that
+   `CLAUDE.md` says owns persistence.
+
+5. **A key literally named `setItem`**, whose value is
+   `(k, v) => { if (k === 'sidebar-width') window.__drag.writes++; return origSet(k, v); }`
+   — leftover instrumentation from a past drag-performance investigation.
+   **Not a repo defect**; grep finds no such code. It persists because
+   `localStorage.setItem = fn` on a `Storage` object goes through the named
+   property setter and is *stored as data* instead of shadowing the method. A
+   debugging session wrote a permanent key into the user's production storage
+   and nobody noticed. Left in place — see consequence 3 above.
+
 ### Socket-path contract — `crowbar-client` must reproduce this exactly
 
 `api/internal/core/gateway/transports/socket.go:117`. With `CROWBAR_HOME` set:
