@@ -2349,6 +2349,69 @@ getting right early).
 > P2.2 and P2.3 both appended and conflicted, and resolving that means the
 > orchestrator editing code. One file per component is conflict-free.
 
+### ✅ Phase 3 Tier B, first wave — `tabs` and `button` both VERIFIED
+
+| surface | result |
+|---|---|
+| `tabs · 1714 · dark · normal` | **PASS — 0 deltas over 6 anchors** |
+| `button · 1714 · dark · normal` | **PASS — 0 deltas over 1 anchor** (after one returned delta) |
+
+833 tests, clippy clean, **7 `ok` lines**, rule 6 over **115** gpui tests.
+
+**`button` failed first, exactly as its worker predicted, and the fix is the
+interesting part.** Every live Button merges a call-site `className`, and radius
+is where it shows: the reference carries `rounded-sm` (6) over the primitive's
+`rounded-md` (10). **No live Button is both unmerged and visible** — the only two
+that keep the primitive's radius sit inside the carousel's snapped-out panels at
+`visible: false`, archived here as `ref-button-unmerged-invisible.json`.
+
+I returned it with the line drawn explicitly, because the fix sits very close to
+something I would reject:
+
+- **forbidden** — a knob handing the port the reference's *output*. P3.2 refused
+  exactly that for `tab-indicator`: the indicator's box **is** the answer, so
+  passing it in makes the anchor unable to fail.
+- **correct** — a knob supplying the same *input* both engines resolve
+  independently.
+
+So `--class-radius none|sm|md|lg` names the **class**, never the number. I
+verified the distinction holds: `6`, `6px` and `rounded-sm` are all **rejected**,
+only the class words parse, and the values come from `theme.css`'s single
+`--radius: 0.625rem` as `base*0.6` / `base*0.8` / `base` — so a project that
+moves the base moves all three rather than failing.
+
+> **A mutation that failed nothing, and was reported anyway.** Wiring the
+> override through to the `::before` overlay would be wrong on **seven of nine**
+> live Buttons — a call-site `rounded-sm` moves the host but leaves the overlay
+> on the variant's class, because `before:rounded-[…]` is a different
+> tailwind-merge group (`6/9`, `10/7`, `10/9` measured). The mutation proves **no
+> gate would notice**, because the overlay is unanchored on both sides. Recorded
+> in `Button::overlay`'s docs and mapping §8 rather than defended — the same
+> standing `resizable`'s hit strip has.
+
+**Other findings from this wave worth carrying:**
+
+- **`border` is 1px on every button variant** — the exact *inverse* of the
+  `ring-1` trap, and someone who learned that trap is **more** likely to make
+  this one. `ghost` measures `borderTopWidth: 1px` with a transparent colour;
+  `border.w` is compared exactly.
+- **A real taffy defect**: a negative inline margin on an in-flow flex item
+  collapses a content-sized flex container to its padding box (`−2` gives 199
+  where CSS gives 323). Positive margins are exact and a definite-width container
+  is unaffected — which is why P2.1's `-mx-1` and P2.3's negative percentage
+  margin both measured correct. Shipped with a control that **fails if a gpui
+  bump fixes it**, so the workaround cannot outlive the bug silently.
+- **No live Button paints text** — all nine are icon-only, so `fg`, `text`,
+  `text_width`, `clipped` and `font` have no reference on this surface at all.
+- **Census:** of 142 `<Button` call sites, `destructive-outline` and four sizes
+  (`lg`, `xl`, `icon-lg`, `icon-xl`) are **dead**, and `loading`/`active` are
+  never passed.
+
+> **`cargo test --no-fail-fast` is a CARGO flag, not a libtest one.** After the
+> `--` it is rejected outright, and before this run I had been reading truncated
+> counts: `cargo test` stops at the first failing binary. Correct form is
+> `cargo test --workspace --no-fail-fast -- --test-threads=4`.
+
 ## In flight
 
 **Phase 0 is closed.** All twelve items done and merged, each verified by my own
