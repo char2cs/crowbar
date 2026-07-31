@@ -1,4 +1,4 @@
-# The anchor snapshot contract — v1.11
+# The anchor snapshot contract — v1.12
 
 > ## ‼️ CORRECTION: the reference engine is **WebKit**, not Blink
 >
@@ -298,6 +298,53 @@ states is meaningless and would be the easiest possible way to fake convergence.
 | `visible` | Actually painted: not `display:none`, not `visibility:hidden`, **zero opacity on the element or any ancestor** *(v1.7)*, non-zero area, not fully clipped by an ancestor. | yes |
 | `radius` | Corner radius px. Single value; if corners differ, emit the top-left and note it. | no |
 | `border` | Width px + colour. | no |
+
+### `clipped` means VISUALLY TRUNCATED, so the DOM side must consult `overflow` *(v1.12)*
+
+Found by P3.10 porting `callout-node`, and it is a defect in **this document's own
+v1.3 ruling 1**, not in either port.
+
+The callout's emoji reported `clipped: true` on the reference and `false` on the
+port. The port was right, and the measurements say so:
+
+```
+border box 24 · padding 4/4 + border 1/1 → content box 14 · text advance 19
+clientWidth 22 == scrollWidth 22 · overflow-x: visible · clipping ancestors: none
+```
+
+**The glyph is painted in full.** `justify-center` spills it 2.5px past each edge
+and nothing hides it. Nothing is truncated.
+
+The two sides ask different questions:
+
+| | predicate |
+|---|---|
+| `extract.ts` | `text_width − contentWidth > ε` → `19 − 14 = 5` → **true** |
+| `crowbar-driver` | shaped advance vs **the run's own box**, which is `ceil(shaped)` → fires only where the layout actually *constrains* the run → **false** |
+
+**v1.3 ruling 1 changed the question when it improved the precision.** It replaced
+`scrollWidth > clientWidth` — which is **`overflow`-aware**, and answers *no*
+here — with a fractional content-box test that is true for **any** overflowing
+text, hidden or not. §3 defines the field as *"whether the text is **visually
+truncated** in this box"*, so the reference is reporting a truncation that does
+not exist.
+
+**DECIDED: keep §3's meaning and make the DOM side consult `overflow`.** Report
+`clipped` only where the box, or an ancestor, actually hides the overflow.
+
+Rejected: redefining `clipped` as "does not fit the content box". That makes the
+field report a truncation a user cannot see, and would require changing the
+**driver** on every surface to match a definition nobody wants.
+
+**No archived record changes**, verified before ruling: every `clipped: true` in
+`oracle/runs/` is `git-row-name` — a `truncate` span with `overflow: hidden`
+whose text exceeds even the *border* box (204 and 476 against 90 and 103). Those
+stay `true`; every other archived anchor stays `false`.
+
+**Why it took this long to surface:** every earlier case had the string wider than
+the anchor's **border** box, where both predicates agree. The callout emoji is the
+first anchored element whose text overflows a box with `overflow: visible` — wider
+than the *content* box only.
 
 ### An element that generates NO BOX is not an anchor *(v1.11)*
 
