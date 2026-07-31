@@ -11,11 +11,14 @@
 #      `#![forbid(unsafe_code)]` (§4.3 rule 2).
 #   3. Every `unsafe` construct in `crowbar-platform` has a `# Safety` doc
 #      comment on its enclosing item (§4.2, §12).
+#   4. No raw colour is constructed outside `crates/crowbar-ui/src/theme/`
+#      (§4.3 rule 3, §6.1).
 #
 # Known limits, stated so nobody mistakes this for a parser: check 3 is a line
 # scanner. It does not understand block comments, and a string literal
 # containing the text `unsafe {` will be reported. Both failure modes are
-# loud rather than silent, which is the correct direction for a gate.
+# loud rather than silent, which is the correct direction for a gate. Check 4
+# has its own scanner and its own stated limits; see its section.
 
 set -euo pipefail
 
@@ -199,6 +202,142 @@ else
 		printf '      guarantee on every pointer crossing the boundary.\n' >&2
 	else
 		pass 'rule 3: every unsafe in crowbar-platform carries a # Safety proof'
+	fi
+fi
+
+# ---------------------------------------------------------------------------
+# 4. No raw colour construction outside the theme.
+# ---------------------------------------------------------------------------
+# Sealing the token newtype is necessary and NOT sufficient, which is the part
+# that is easy to get wrong. `crowbar-ui` re-exports gpui (`pub use gpui;`) —
+# it has to, because §4.2 gives the leaf view crates the framework *through*
+# the design system — so `crowbar_ui::gpui::rgb(0x1e1e1e)` is in scope
+# everywhere and `.bg(rgb(…))` on a raw gpui element never touches `Theme`. A
+# private field on `Color` does nothing about that: the bypass does not go
+# through `Color` at all.
+#
+# So: no `rgb(`, `rgba(`, `hsl(`, `hsla(`, `Hsla {` or `Rgba {` anywhere except
+# `crates/crowbar-ui/src/theme/`, which is where the tokens are minted from
+# `theme.css` and where `Color::mix` reseals a derived one.
+#
+# False positives are handled rather than tolerated:
+#
+#   * the theme directory itself is exempt — that is the whole point of it;
+#   * `#[cfg(test)]` blocks are exempt, tracked by brace depth, because a unit
+#     test asserting on a colour is not a component painting one, and so are
+#     the `tests/` integration-test directories for the same reason;
+#   * comments and string literals are stripped before matching, so the prose
+#     in this file's own subject matter — and a `"rgba(…)"` in a message — does
+#     not trip it;
+#   * the match requires a non-identifier character before the name, so
+#     `Srgba { … }` (crowbar-core's own sRGB type, which carries no gpui) and a
+#     hypothetical `srgb(` are not colour construction and are not reported;
+#   * `fn f() -> Hsla {` and `impl T for Rgba {` name the type rather than
+#     building one, and are not reported — a body that does build one still is.
+#
+# Stated limits: the scanner does not understand raw strings (`r#"…"#`) or
+# character literals, so a `'{'` would miscount brace depth and a raw string
+# containing `rgb(` would be reported. Both fail loud, which is the right
+# direction for a gate.
+
+theme_dir=crates/crowbar-ui/src/theme
+if [ ! -d "$theme_dir" ]; then
+	fail "rule 4: $theme_dir is missing — where are the tokens minted?"
+else
+	color_report=$(
+		find crates oracle -name '*.rs' -type f 2>/dev/null |
+			grep -v "^$theme_dir/" |
+			grep -v '/tests/' |
+			sort |
+			while IFS= read -r f; do
+				awk -v file="$f" '
+				# Strip block comments, line comments and string literals, so
+				# that only code reaches the matcher.
+				function clean(line,   out, i, n, ch, ch2, c) {
+					out = ""
+					i = 1
+					n = length(line)
+					while (i <= n) {
+						ch = substr(line, i, 1)
+						ch2 = substr(line, i, 2)
+						if (in_block) {
+							if (ch2 == "*/") { in_block = 0; i += 2 } else { i++ }
+							continue
+						}
+						if (ch2 == "/*") { in_block = 1; i += 2; continue }
+						if (ch2 == "//") { break }
+						if (ch == "\"") {
+							i++
+							while (i <= n) {
+								c = substr(line, i, 1)
+								if (c == "\\") { i += 2; continue }
+								if (c == "\"") { i++; break }
+								i++
+							}
+							continue
+						}
+						out = out ch
+						i++
+					}
+					return out
+				}
+				BEGIN { in_block = 0; depth = 0; pending = 0; skipping = 0 }
+				{
+					code = clean($0)
+
+					# Brace depth. Inline rather than in a helper: awk evaluates
+					# a regex literal passed as an argument against $0 and hands
+					# the function a 0 or a 1, which counts nothing.
+					braces = code
+					opens = gsub(/\{/, "&", braces)
+					braces = code
+					closes = gsub(/\}/, "&", braces)
+
+					before = depth
+					depth = before + opens - closes
+
+					if (skipping) {
+						if (depth <= skip_depth) skipping = 0
+						next
+					}
+					if (code ~ /#\[cfg\((all\()?[[:space:]]*test[,)]/) {
+						pending = 1
+						next
+					}
+					if (pending) {
+						if (depth > before) { skipping = 1; skip_depth = before }
+						pending = 0
+						next
+					}
+
+					# A brace after `Hsla` is only a struct literal in expression
+					# position. `fn f() -> Hsla {` and `impl T for Rgba {` name
+					# the type, they do not build one; neutralise both before
+					# matching, or every function that *returns* a colour is a
+					# violation and the rule becomes noise people learn to skip.
+					probe = code
+					gsub(/->[[:space:]]*([A-Za-z0-9_]+[[:space:]]*::[[:space:]]*)*(Hsla|Rgba)[[:space:]]*\{/, "-> T {", probe)
+					gsub(/(^|[^A-Za-z0-9_])for[[:space:]]+([A-Za-z0-9_]+[[:space:]]*::[[:space:]]*)*(Hsla|Rgba)[[:space:]]*\{/, " for T {", probe)
+
+					if (probe ~ /(^|[^A-Za-z0-9_])(rgba?|hsla?)[[:space:]]*\(/ ||
+					    probe ~ /(^|[^A-Za-z0-9_])(Hsla|Rgba)[[:space:]]*\{/) {
+						printf "%s:%d:%s\n", file, NR, $0
+					}
+				}
+			' "$f"
+			done
+	)
+	if [ -n "$color_report" ]; then
+		fail 'rule 4 (§4.3 rule 3, §6.1): raw colour construction outside the theme'
+		printf '%s\n' "$color_report" >&2
+		printf '      A colour literal at a call site is exactly the bypass the sealed\n' >&2
+		printf '      token newtype cannot catch: `crowbar-ui` re-exports gpui, so\n' >&2
+		printf '      `rgb(0x1e1e1e)` is reachable from every view crate and never\n' >&2
+		printf '      touches `Theme`. Read the token instead — `theme.background`,\n' >&2
+		printf '      `theme.border` — or, if the colour is genuinely derived, derive\n' >&2
+		printf '      it with `Color::mix` from one that is.\n' >&2
+	else
+		pass 'rule 4: no raw colour construction outside crowbar-ui/src/theme/'
 	fi
 fi
 
