@@ -726,3 +726,52 @@ func TestBoundedTools_AdvertiseOffsetAndLimitAndNoOutputSchema(t *testing.T) {
 		require.True(t, seen, "%s is not registered, so this test proved nothing about it", name)
 	}
 }
+
+// ── negative offsets ────────────────────────────────────────────────
+// offset is a MODEL-supplied number and the schema's `minimum: 0` is
+// advertisement, never enforcement: decode is a bare json.Unmarshal, so
+// {"offset":-1} reaches the window arithmetic exactly as typed. Both windows
+// clamp it, and until these tests neither clamp was covered — removing either
+// one panics with `slice bounds out of range [-1:]` and no test failed.
+//
+// The clamped answer is "from the beginning" for a forward window and "the
+// newest page" for the backwards one, which is the same page offset=0 gives:
+// a nonsensical argument must not become a different, silently wrong page.
+
+func TestListReviewThreads_ANegativeOffsetReadsAsTheFirstPage(t *testing.T) {
+	stub := &stubThreadReader{list: manyThreads(3)}
+	ts, _ := reviewToolsetOn(t, stub, &stubReviewReader{})
+
+	out, err := ts.Call(context.Background(), "list_review_threads", json.RawMessage(`{"offset":-1}`))
+	require.NoError(t, err)
+
+	require.Contains(t, out, "Showing all 3 threads.")
+	require.Equal(t, 3, threadRows(out))
+	require.Contains(t, out, "t-1")
+}
+
+func TestGetReviewScope_ANegativeOffsetReadsAsTheFirstPage(t *testing.T) {
+	review := &stubReviewReader{base: "abc123", files: manyFiles(3)}
+	ts, _ := reviewToolsetOn(t, &stubThreadReader{}, review)
+
+	out, err := ts.Call(context.Background(), "get_review_scope", json.RawMessage(`{"offset":-1}`))
+	require.NoError(t, err)
+
+	require.Contains(t, out, "Showing all 3 changed files.")
+	require.Equal(t, 3, fileRows(out))
+	require.Contains(t, out, "src/f1.go")
+}
+
+func TestGetChatLog_ANegativeOffsetReadsAsTheNewestPage(t *testing.T) {
+	total := 5
+	logs := &stubChatLogs{turns: chatTurns(total)}
+	ts := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a1"}, logs)
+
+	out, err := ts.Call(context.Background(), "get_chat_log",
+		json.RawMessage(`{"chatId":"other","offset":-1}`))
+	require.NoError(t, err)
+
+	require.Contains(t, out, fmt.Sprintf("Showing all %d turns, oldest first.", total))
+	require.Contains(t, out, fmt.Sprintf("turn-%d\n", total),
+		"a negative offset must not page past the newest turn")
+}
