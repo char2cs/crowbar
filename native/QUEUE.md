@@ -268,6 +268,50 @@ none of it. Classification, and what each needs:
    debugging session wrote a permanent key into the user's production storage
    and nobody noticed. Left in place — see consequence 3 above.
 
+### ⚠ PRE-FLIGHT CHECK before every parity run — worker worktrees do **not** isolate ports
+
+**Run this before diffing anything. It takes one command and it prevents a
+whole class of silently-invalid comparison.**
+
+```sh
+P=$(lsof -nP -iTCP:5173 -sTCP:LISTEN -t | head -1)
+lsof -a -p "$P" -d cwd -Fn | grep ^n | cut -c2-      # MUST be <this worktree>/web
+```
+
+#### What happened, because it will happen again
+
+Workers run in isolated **git worktrees**, which isolates *files*. It does not
+isolate *ports*. The P1.1 worker legitimately needed a live React app to run its
+extractor against, so it started
+`vite --port 5173 --strictPort` from its own worktree — and took the port
+globally.
+
+My reference app's `beforeDevCommand` then failed to bind 5173, `tauri dev`
+reported a non-zero exit, and `make dev-desktop` died. **But the Tauri window
+launched anyway and attached to the worker's Vite.** Verified:
+
+```
+port 5173 pid 16263 cwd = .../.claude/worktrees/agent-<id>/web     ← NOT my worktree
+```
+
+So the "reference app" on screen was rendering **a worker's in-progress branch**.
+Had I diffed the native app against it, the comparison would have been
+meaningless in a way that produces plausible-looking deltas rather than an
+obvious error. Nothing in the app, the daemon, or the oracle would have flagged
+it.
+
+#### Rules that follow
+
+1. **Verify the asset origin before every parity run**, with the command above.
+   "The app is running" is not the same as "the app is mine".
+2. A failed `make dev-desktop` **does not mean no app is running** — the window
+   can outlive the failure and silently point at someone else's dev server.
+3. Do not race a worker for the port. If a worker holds 5173, either wait for it
+   or bring the reference up on a different port and point the webview there
+   deliberately.
+4. The daemon is safe to share — one daemon on the shared `CROWBAR_HOME` is the
+   design (§0). It is the **asset origin**, not the daemon, that must be mine.
+
 ### The Phase 1 gate fixture — and three traps that cost real time to find
 
 The gate surface is a **git status row**. It cannot render at all unless the
