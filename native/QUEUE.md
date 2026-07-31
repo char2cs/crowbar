@@ -268,6 +268,64 @@ none of it. Classification, and what each needs:
    debugging session wrote a permanent key into the user's production storage
    and nobody noticed. Left in place — see consequence 3 above.
 
+### The Phase 1 gate fixture — and three traps that cost real time to find
+
+The gate surface is a **git status row**. It cannot render at all unless the
+daemon has a project with a repo that has uncommitted changes, and on a fresh
+`CROWBAR_HOME` it has none. Setting that up surfaced three things.
+
+**The fixture, now live:**
+
+| | |
+|---|---|
+| Project | `oracle-fixture` → `/tmp/crowbar-oracle-fixture` |
+| Repo | `demo` → `/tmp/crowbar-oracle-fixture/demo`, default branch `main` |
+| Origin | `file:///tmp/crowbar-oracle-origin.git` — **a real bare repo, and this is load-bearing** |
+| Dirty state | 6 entries: modified ×3, deleted, staged-add, untracked |
+
+Deliberately spans the §8.3 **content-length** axis so truncation is actually
+exercised: `a.ts` (short), `resolve-terminal-connection.ts` (normal), and
+`an-extremely-long-file-name-that-must-truncate-in-the-sidebar-row.ts`
+(overflowing), the last two nested deep enough that the directory span renders.
+
+> **TRAP 1 — repo adoption silently requires a *reachable* remote.**
+> `POST /v0/projects/:id/repos` returns **202 Accepted** and then does nothing
+> if the repo has no remote, or a remote that cannot be reached. No repo row, no
+> error, and **zero log output** — `grep -ci 'import|discover|adopt|provision'`
+> over the whole daemon log returns 0. `runAsync` discards the error
+> (`if err != nil { return }`).
+>
+> I lost three attempts to this: no remote → nothing; a plausible-looking but
+> non-existent `github.com/...` remote → nothing; a real local bare repo →
+> **worked immediately**. Auto-discovery on project import fails the same way,
+> which is why importing a project full of local-only repos looks like a no-op.
+>
+> Discovery itself is fine — `discover.Repos` walks to depth 3 and a `.git`
+> *directory* at depth 2 is well within it. The failure is entirely downstream
+> in adoption, and it is invisible.
+
+> **TRAP 2 — do not put a fixture inside `CROWBAR_HOME`.**
+> `DELETE /v0/projects/:id` **removed the project's `path` directory from disk**,
+> taking the fixture and its `.git` with it. The handler's own comment says
+> "Real repository directories are never deleted from disk; only
+> crowbar-created worktree directories are torn down", and the fixture was at
+> `<home>/.crowbar/fixtures/…` — inside Crowbar's own home, which it plausibly
+> treats as its to reap.
+>
+> Stated precisely, because the distinction matters: **repo** delete was
+> re-tested afterwards and correctly left the real directory intact. I have
+> **not** tested project-delete against a path outside `CROWBAR_HOME`, so this
+> is "do not do that", not "project delete destroys your code".
+
+> **TRAP 3 — `git -C <path>` walks up, and it nearly edited the real repo.**
+> Running `git -C "$FX/demo" remote add origin …` moments after that directory
+> was deleted did not fail — **it operated on the enclosing Crowbar worktree**,
+> and was stopped only by the accident that `origin` already existed there. One
+> command away from rewriting the real repository's remote.
+> **Verify the directory exists before any `git -C`**, or `cd` into it under
+> `set -e`. (Crowbar's remotes and working tree were checked afterwards and are
+> untouched.)
+
 ### Socket-path contract — `crowbar-client` must reproduce this exactly
 
 `api/internal/core/gateway/transports/socket.go:117`. With `CROWBAR_HOME` set:
