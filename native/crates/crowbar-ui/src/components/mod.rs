@@ -72,7 +72,19 @@ pub mod git_status_row;
 // `CONTENT_SIZED`/`LINE_SIZED` would collide exactly as `dropdown_menu`'s do,
 // and `input::LINE_SIZED` in particular carries a *reason* the others do not.
 pub mod input;
+// The four P3.6 leaves are unflattened for the same reason as the rest: each
+// carries its own `ID_*`, `CONTENT_SIZED` and `LINE_SIZED`, and three of them
+// carry a `CallSite`. `kbd::CallSite` does not exist but `label::CallSite`,
+// `separator::CallSite` and `skeleton::CallSite` all do, and a bare `CallSite`
+// would say which of them nowhere. `separator::Orientation` would collide with
+// `tabs::Orientation` outright, and `label::Label` with `git_status_row`'s
+// `Label` — a bundle or a declaration list applied to the wrong primitive is the
+// mistake `ANCHORS.md` v1.6 warns about.
+pub mod kbd;
+pub mod label;
 pub mod resizable;
+pub mod separator;
+pub mod skeleton;
 // `sidebar_carousel` is flattened not at all for the same reason: its
 // `CONTENT_SIZED`, `LINE_SIZED` and `ID_*` are its own, and a declaration list
 // that silently meant another surface's is the mistake `ANCHORS.md` v1.6 warns
