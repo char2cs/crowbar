@@ -167,17 +167,44 @@ describe('file tree row oracle anchors', () => {
 
   /**
    * The inline-editing branch renders a different row — an `<Input>` where the
-   * button is — and is deliberately **not** tagged. The extractor takes the
+   * button is — and carries **no `file-row-*` anchor**. The extractor takes the
    * first match for its root, so a second `file-row-item` in the document would
    * be indistinguishable from the real one and would snapshot a shape the native
    * surface does not model.
+   *
+   * **This assertion used to read `toHaveLength(0)` over *every* anchor, and
+   * that was broader than the premise above.** P3.4 gave `components/ui/input.tsx`
+   * its own `input-control` / `input` anchors — correctly; the `input` surface
+   * depends on them — and this branch renders that primitive, so two anchors now
+   * appear inside an editing row. They belong to a **different surface**. They
+   * cannot become this surface's root (`rootId` is `file-row-item`), and they
+   * cannot reach another row's capture either: `extractSnapshot` walks
+   * `rootEl.querySelectorAll`, and an editing row is a *sibling* of every
+   * `file-row-item`, never a descendant. So no capture that is possible today
+   * measures them.
+   *
+   * What their presence does mean is that this cell cannot be *added*: tagging
+   * the editing root would pull `input-control` and `input` into a
+   * `file-tree-row` snapshot — the `resizable` shape ANCHORS.md v1.8 exists to
+   * solve — and v1.8's remedy, a declared anchor set, is unavailable to this
+   * surface. Recorded in `native/mapping/file-tree-row.md`.
+   *
+   * The two expectations below are therefore both narrower *and* stricter than
+   * the count they replace: the first states the premise exactly, and the second
+   * pins the whole remaining set, so a *third* primitive's anchors arriving in
+   * this branch — which would deepen the hole — still fails here.
    */
-  it('leaves the inline-editing row untagged', () => {
+  it('leaves the inline-editing row untagged by any file-row anchor', () => {
     const { container } = render(
       <FileExplorerTreeItem {...props} file={{ ...FILE, isEditing: true }} />,
     )
 
-    expect(container.querySelectorAll('[data-oracle-id]')).toHaveLength(0)
+    const ids = Array.from(container.querySelectorAll('[data-oracle-id]')).map((el) =>
+      el.getAttribute('data-oracle-id'),
+    )
+
+    expect(ids.filter((id) => id?.startsWith('file-row-'))).toEqual([])
+    expect(ids).toEqual(['input-control', 'input'])
   })
 
   it('adds nothing to the class list — the anchors are inert markers', () => {
