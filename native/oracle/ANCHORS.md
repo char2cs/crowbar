@@ -1,3 +1,62 @@
+# The anchor snapshot contract — v1.6
+
+> ## ‼️ CORRECTION: the reference engine is **WebKit**, not Blink
+>
+> Earlier amendments in this file said "Blink". **That was wrong**, and it was my
+> error, repeated six times across the records. The reference app is a Tauri
+> **WKWebView** — WebKit. Every "Blink" has been corrected in place.
+>
+> **It is not a pedantic distinction; it changed an answer.** Chrome (Blink)
+> computes a `line-height: 1.35` box at 14px as **18.8984375**. The reference
+> reports **18.0**. Blink could not have produced that number, which is how the
+> discrepancy was caught — by running the same page through a real offscreen
+> `WKWebView` rather than assuming the two engines agree.
+
+> **v1.6 — 2026-07-31. `line_sized`.** The last delta on the gate row, and it is
+> a *different shape* from `content_sized`.
+>
+> **Measured across 14 font sizes**, both engines, same font file:
+>
+> | font-size | line-height | **WebKit box** | **GPUI box** (DPR 2) |
+> |---|---|---|---|
+> | 13 | 17.55 | 17 | 17.5 |
+> | **14** | **18.9** | **18** | **19.0** |
+> | 15 | 20.25 | 20 | 20.0 |
+> | 16 | 21.6 | 21 | 21.5 |
+> | 20 | 27.0 | 27 | 27.0 |
+>
+> Every size: **WebKit floors to a whole logical pixel** — not a round, and not a
+> device-pixel floor (13.5 → 13 at DPR 2). GPUI applies
+> `round_half_toward_zero(L × dpr) / dpr`. The model predicts every line-derived
+> height in both archived runs, **including why only one of three text anchors
+> fires**: `git-row-added` has L = 16.2, where floor and snap both give 16.
+>
+> **Why not reuse the `content_sized` correction.** Two reasons, both real:
+> `ceil` is DPR-independent while `pixel_snap` is not, and §4 deliberately keeps
+> DPR out of the contract; and with `content_sized` **one** engine transforms
+> while the other keeps the truth, whereas here **both** transform — so the
+> differ would stop comparing what the extractors measured and start comparing
+> something it recomputed.
+>
+> **The rule.** An anchor may carry `"line_sized": true`. For those,
+> `bounds.h` compares against **`reference.font.line_height`** — the fractional
+> 18.9 — at the normal ±0.5, *not* against `reference.bounds.h`.
+>
+> **This is DPR-free by construction**, which is the whole point:
+> `|pixel_snap(L) − L| ≤ 1/(2·dpr) ≤ 0.5` for any DPR ≥ 1. On the gate row it
+> gives 19.0 vs 18.9, **Δ 0.1**.
+>
+> **What it still catches**, so this is not a blind spot: a wrong line count
+> (2 × 19 against 18.9), stray padding, and a wrong font size — all of which move
+> `bounds.h` well outside ±0.5. It gives up **only** the two engines'
+> quantisation of the same number, which is not actionable by anyone.
+>
+> **Rejected: pin the span's height in the component.** Same objection as pinned
+> widths — it makes the component worse to make the test pass. **Rejected:
+> leave it as a visible known difference.** `line-height: 1.35` is used
+> app-wide, so this fires at most font sizes, and a gate that always shows the
+> same deltas trains a reader to skip them.
+
 # The anchor snapshot contract — v1.5
 
 > **v1.5 — 2026-07-31. `content_sized`, and why it is a correction rather than a
@@ -5,14 +64,14 @@
 >
 > **The observation.** GPUI `ceil()`s a text run's max-content width
 > (`elements/text.rs`: `size.width = size.width.max(line_size.width).ceil()`)
-> where Blink keeps fractional LayoutUnits. On the gate row both content-sized
+> where WebKit keeps fractional widths. On the gate row both content-sized
 > boxes came out **exactly** `ceil(reference)` — `74.11 → 75`, `11.16 → 12`.
 >
 > **Why not just widen the tolerance.** The error is strictly one-directional —
 > `ceil` can only make native wider — so a symmetric tolerance spends half its
 > slack on an error that cannot occur. And it is not actionable: if the engine
 > ceils, it **cannot produce** a fractional content width, so "is native within
-> ±0.5 of Blink's fraction" asks a question the engine is incapable of answering
+> ±0.5 of WebKit's fraction" asks a question the engine is incapable of answering
 > correctly.
 >
 > **The new field.** An anchor may carry `"content_sized": true`. For those,

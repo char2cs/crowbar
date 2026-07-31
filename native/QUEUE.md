@@ -5,7 +5,7 @@ Source of truth for the Rust-native GPUI port. Spec:
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
 **Phase:** 1 — the driver and the oracle. **THE GATE.**
-**Line coverage (logic crates):** `oracle` **100.00%** (2331/2331) · `crowbar-driver` **100.00%** (1134/1134) · `crowbar-core` **100.00%** (148/148) · `crowbar-client` **99.64%**. `proto`/`diff` still empty. **191 tests, 0 failed.** All measured by me.
+**Line coverage (logic crates):** `oracle` **100.00%** (2590/2590) · `crowbar-driver` **100.00%** (1134/1134) · `crowbar-core` **100.00%** (148/148) · `crowbar-client` **99.64%**. `proto`/`diff` still empty. **191 tests, 0 failed.** All measured by me.
 **Corpus coverage (view crates):** n/a — the differ exists but has never been run against the two apps. That is the Phase 1 gate and it is mine.
 
 ---
@@ -533,7 +533,7 @@ is a component decision, not an oracle one.
 
 **Adopted (b), reframed correctly: this is a correction, not a loosening.** If
 GPUI ceils, the native app **cannot produce** a fractional content width, so
-asking "is native within 0.5px of Blink's fraction" asks a question the engine
+asking "is native within 0.5px of WebKit's fraction" asks a question the engine
 is incapable of answering — a delta there is never actionable. Comparing against
 `ceil(reference)` moves the *expectation* to the one the engine can meet and
 keeps the full ±0.5 around it, so a genuine sub-pixel error on a content-sized
@@ -575,13 +575,13 @@ shape before knowing which one I am solving.
 
 One supporting fact that makes this modellable at all: **`text_width` needs no
 treatment.** GPUI reports the unrounded shaped advance (`20.355`) and it already
-compares correctly against Blink. Only `bounds.w` inherits the ceil — so this is
+compares correctly against WebKit. Only `bounds.w` inherits the ceil — so this is
 a box-sizing artefact, not a shaping one.
 
 ### One measured difference that exceeds tolerance and is not fixable app-side
 
 GPUI **`ceil()`s a text run's max-content width** — `elements/text.rs`:
-`size.width = size.width.max(line_size.width).ceil()`. Blink keeps LayoutUnit
+`size.width = size.width.max(line_size.width).ceil()`. WebKit keeps fractional
 fractions. Measured on a live pair: `git-row-added` has `text_width 20.355` and
 `bounds.w 21.0` — **Δ 0.645, against a ±0.5 tolerance.**
 
@@ -1853,7 +1853,7 @@ target. When a directory is shown the filename is `shrink-0 basis-auto
 max-w-[45%]` and the directory is `flex-1 truncate`; when it is not, the
 filename is `flex-1`. That is a flexbox negotiation whose outcome depends on
 `min-width: 0` propagating correctly through three nested flex containers. If
-GPUI's taffy layout disagrees with Blink anywhere, this row is where it shows.
+GPUI's taffy layout disagrees with WebKit anywhere, this row is where it shows.
 
 ### Anchor set — 9 anchors on one row
 
