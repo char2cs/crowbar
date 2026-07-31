@@ -131,6 +131,15 @@ func (i *Idempotency) openOnce(
 	if key == "" {
 		return open(ctx, writer, in, now)
 	}
+	// Symmetric with replyOnce, and for the same reason: a KEYED write on a daemon
+	// wired without a dedup map is refused, never written unguarded. Unreachable
+	// today — post_review_comment is not even registered without one (see
+	// canPostReviewComment) — but the alternative to the guard is a nil-deref on
+	// the map below, and the two halves of one mechanism disagreeing about a case
+	// is how the reachable version of that gets written later.
+	if i == nil {
+		return openOutcome{}, errNoDedupMap
+	}
 	ref := idempotencyRef{wsID: in.WsID, key: key}
 
 	i.mu.Lock()
