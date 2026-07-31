@@ -1945,10 +1945,18 @@ mod resizable {
         );
 
         // And a zero factor collapses its panel outright, because the basis is
-        // zero and there is nothing else to size it from.
+        // zero and there is nothing else to size it from. **This is a state the
+        // reference really has**: the shell's sidebar is `collapsible` with
+        // `collapsedSize={0}`, so a collapsed sidebar is `--grow 0,100`.
         let collapsed = measure(cx, cell(&["--width", "600", "--grow", "0,100"]));
         assert_px(at(&collapsed, SIDEBAR).size.width, px(0.0));
         assert_px(at(&collapsed, CONTENT).size.width, px(free));
+        // Both extractors call a zero-area box invisible — `oracleIsVisible`
+        // requires `width > 0 && height > 0` and `crowbar-driver`'s `is_visible`
+        // requires a non-empty intersection with the clip — so this cell compares
+        // rather than diverging on a field neither side agreed the meaning of.
+        assert!(!find(&collapsed, SIDEBAR).visible);
+        assert!(find(&collapsed, CONTENT).visible);
     }
 
     /// **taffy rounds a panel's width to a whole logical pixel; `WebKit` does

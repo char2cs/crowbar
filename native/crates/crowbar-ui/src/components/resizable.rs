@@ -579,9 +579,14 @@ pub const DEFAULT_SHELL_HEIGHT: Pixels = px(160.0);
 /// separator's pixel, as a percentage of what is left.
 pub const SIDEBAR_GROW: f32 = 24.52;
 
-/// The content panel's growth factor in [`ResizablePanelGroup::fixture`], so that
-/// the pair sums to the 100 the library's layout always sums to.
-pub const CONTENT_GROW: f32 = 100.0 - SIDEBAR_GROW;
+/// The content panel's growth factor in [`ResizablePanelGroup::fixture`].
+///
+/// Written as the literal the library would, rather than as `100.0 - SIDEBAR_GROW`:
+/// that subtraction is `75.479996` in `f32`, and the number reaches a caption and
+/// a `--help` line where a reader would have to decide whether the noise meant
+/// anything. `the_fixture_is_the_live_ide_shell` holds the pair at the 100 the
+/// library's layout always sums to.
+pub const CONTENT_GROW: f32 = 75.48;
 
 /// `z-10 flex h-6 w-1 shrink-0 rounded-lg bg-border` — the grip.
 ///

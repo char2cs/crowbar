@@ -290,9 +290,8 @@ fn parse_grow(raw: &str) -> Result<Vec<f32>, ParseError> {
 fn options() -> Vec<(String, String)> {
     [
         (
-            "--orientation horizontal|vertical".to_owned(),
-            "ResizablePanelGroup orientation; only horizontal has a reference [horizontal]"
-                .to_owned(),
+            "--orientation <name>".to_owned(),
+            "horizontal|vertical; only horizontal has a reference [horizontal]".to_owned(),
         ),
         (
             "--grow <a,b>".to_owned(),
