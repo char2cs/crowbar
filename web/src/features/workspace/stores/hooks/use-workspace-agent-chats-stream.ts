@@ -3,7 +3,11 @@ import { wsManager } from '@/lib/ws/manager'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import { listChats, getChat, listProviders } from '@/features/agent/api/agent-api'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
-import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import {
+  isLatestProviderWrite,
+  providerWriteGeneration,
+  useAgentProvidersStore,
+} from '@/features/settings/stores/agent-providers-store'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { toast } from '@/features/window/stores/toast-store'
 
@@ -230,12 +234,21 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     let providerSeq = 0
     const seedProviders = async () => {
       const seq = ++providerSeq
+      // The write generation this reseed is a snapshot of. A GET issued before a
+      // preferences PUT and answered after it describes the server as it was
+      // BEFORE the write, so publishing it would undo the user's change in both
+      // copies — visibly, since the Providers rows are controlled off them. See
+      // agent-providers-store's write generation.
+      const writes = providerWriteGeneration()
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const providers = await listProviders(wsId)
           if (cancelled) return
           // A newer read (a reconnect reseed) already owns the list.
           if (seq !== providerSeq) return
+          // A preferences write landed while this was in flight; it is newer
+          // truth and it already published to both copies.
+          if (!isLatestProviderWrite(writes)) return
           getOrCreateWorkspaceStore(wsId).getState().setAgentProviders(providers)
           // Providers are machine-level, and the Settings dialog is global: give
           // the global store the same answer so opening Settings from anywhere

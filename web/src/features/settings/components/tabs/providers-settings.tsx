@@ -12,10 +12,14 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { updateProviderPreferences } from '@/features/agent/api/agent-api'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
-import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import {
+  beginProviderWrite,
+  isLatestProviderWrite,
+  useAgentProvidersStore,
+} from '@/features/settings/stores/agent-providers-store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 import { toast } from '@/features/window/stores/toast-store'
@@ -75,14 +79,6 @@ export const ProvidersSettings = () => {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
-  // Only the most-recently ISSUED write may touch the store — the same guard
-  // `createLoadableSlice.fetch` carries (lib/store/loadable-slice.ts), and for the
-  // same reason: resolution order is not issue order, so without it the LAST
-  // RESPONSE TO ARRIVE wins and an older one silently reinstates the state it read
-  // before the newer change. A PUT here replaces the WHOLE preference table, so
-  // that is not a missed update but an actively undone one.
-  const latestWrite = useRef(0)
-
   // BOTH copies, always together. The global one is what this tab renders; the
   // per-workspace one is what the chat surfaces render. Letting a write reach
   // only one of them is how they drift.
@@ -106,18 +102,26 @@ export const ProvidersSettings = () => {
       // cannot move until the store does — and the next payload is built from
       // whatever this list says, so it has to say the truth before the response
       // lands or two quick toggles fight each other.
-      const seq = ++latestWrite.current
+      //
+      // The generation is claimed from the STORE, not from a ref local to this
+      // component, and that is what fences reads as well as writes. The mount
+      // refetch and the workspace-stream reseed are GETs that can be issued
+      // before a write and answered after it, carrying the pre-write list; both
+      // now decline to publish once this counter has moved. A ref here could
+      // only ever sequence writes against writes, which is what let a stale GET
+      // visibly flip a switch back on and hand the next write the flag it read.
+      const seq = beginProviderWrite()
       publish(applyProviderPreferences(previous, orderedIds, flagsById))
       try {
         const resolved = await updateProviderPreferences(prefs)
-        if (seq !== latestWrite.current) return // overtaken — a newer write owns the store
+        if (!isLatestProviderWrite(seq)) return // overtaken — a newer write owns the store
         publish(resolved)
       } catch {
         // A write that has already been superseded neither rolls back (it would
         // stomp the newer optimistic state) nor complains: its intent is carried
         // inside the newer payload, which PUTs the complete set and will report
         // its own failure if it fails too.
-        if (seq !== latestWrite.current) return
+        if (!isLatestProviderWrite(seq)) return
         publish(previous)
         toast.error('Could not save providers', 'Crowbar could not reach the daemon — try again.')
       }

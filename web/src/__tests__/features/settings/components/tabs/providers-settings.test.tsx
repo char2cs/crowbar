@@ -337,7 +337,14 @@ describe('ProvidersSettings', () => {
     // this flag would write its zero value back over the user's choice. Every
     // write carries both flags — here, an enable toggle taken after a tools
     // toggle still says mcpDisabled.
-    it('survives a later, unrelated enable toggle', async () => {
+    //
+    // BOTH CLICKS ARE ON THE SAME PROVIDER, deliberately. The pair that has to
+    // survive is "turn this provider's tools off, then turn this provider off":
+    // handleToggle carries mcpDisabled through from the row it is flipping, so
+    // aiming the second click at a DIFFERENT provider tested nothing — claude's
+    // mcpDisabled was already false, and dropping the flag from handleToggle's
+    // payload left the assertion passing.
+    it("survives a later toggle of the same provider's enable switch", async () => {
       seedProviders([
         provider('codex', 'Codex', true, true),
         provider('claude', 'Claude', true, true),
@@ -348,8 +355,8 @@ describe('ProvidersSettings', () => {
           provider('claude', 'Claude', true, true, true),
         ])
         .mockResolvedValueOnce([
-          provider('codex', 'Codex', true, true, false),
-          provider('claude', 'Claude', true, false, true),
+          provider('codex', 'Codex', true, false, false),
+          provider('claude', 'Claude', true, true, true),
         ])
 
       render(<ProvidersSettings />)
@@ -360,12 +367,115 @@ describe('ProvidersSettings', () => {
           'false',
         ),
       )
-      await userEvent.click(screen.getByTestId('provider-toggle-claude'))
+      await userEvent.click(screen.getByTestId('provider-toggle-codex'))
 
       expect(updateProviderPreferencesFn).toHaveBeenNthCalledWith(2, [
-        { id: 'codex', disabled: false, mcpDisabled: true },
-        { id: 'claude', disabled: true, mcpDisabled: false },
+        { id: 'codex', disabled: true, mcpDisabled: true },
+        { id: 'claude', disabled: false, mcpDisabled: false },
       ])
+      // And the tools switch is still off afterwards, which is what the user
+      // would actually see go wrong.
+      await waitFor(() =>
+        expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
+          'aria-checked',
+          'false',
+        ),
+      )
+    })
+  })
+
+  // ── A READ THAT OVERTAKES A WRITE ───────────────────────────────────
+  // The rows are interactive from the workspace seed, so the user can toggle
+  // while the mount GET is still in flight. That GET is a snapshot of the server
+  // BEFORE the PUT, and publishing it re-installs the pre-write list: the switch
+  // visibly flips back, and — because every write PUTs the complete set built
+  // from whatever the store now says — the next drag or toggle writes the stale
+  // flag back to the daemon. Sequencing writes against writes cannot see this;
+  // the fence has to cover reads.
+  describe('a stale read landing after a write', () => {
+    /** Both copies seeded, with the mount GET deliberately left in flight. */
+    function seedWithGetInFlight(providers: AgentProvider[]) {
+      const inflight = deferred<AgentProvider[]>()
+      listProvidersFn.mockReturnValue(inflight.promise)
+      act(() => {
+        store().getState().setAgentProviders(providers)
+        setActiveWorkspaceStoreRef(store())
+        setActiveWorkspaceId('w1')
+        useAgentProvidersStore.setState({ providers, status: 'ready' })
+      })
+      return inflight
+    }
+
+    it('does not let the mount refetch undo a tools toggle taken while it was in flight', async () => {
+      const seeded = [
+        provider('codex', 'Codex', true, true),
+        provider('claude', 'Claude', true, true),
+      ]
+      const mountGet = seedWithGetInFlight(seeded)
+      updateProviderPreferencesFn.mockResolvedValueOnce([
+        provider('codex', 'Codex', true, true, false),
+        provider('claude', 'Claude', true, true, true),
+      ])
+
+      render(<ProvidersSettings />)
+      await userEvent.click(screen.getByTestId('provider-tools-toggle-codex'))
+      await waitFor(() =>
+        expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
+          'aria-checked',
+          'false',
+        ),
+      )
+
+      // The mount GET, issued before the PUT, now answers with the pre-PUT list.
+      await act(async () => {
+        mountGet.resolve(seeded)
+      })
+
+      expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
+        'aria-checked',
+        'false',
+      )
+      expect(useAgentProvidersStore.getState().providers[0].mcpEnabled).toBe(false)
+      // The workspace copy — what the chat surfaces read — must not be reinstated
+      // either, or the next write is built from a list that still says tools-on.
+      expect(store().getState().agentChats.providers[0].mcpEnabled).toBe(false)
+    })
+
+    it('still settles the status, so the tab never strands a spinner', async () => {
+      const seeded = [provider('codex', 'Codex', true, true)]
+      const mountGet = seedWithGetInFlight(seeded)
+      updateProviderPreferencesFn.mockResolvedValueOnce([
+        provider('codex', 'Codex', true, true, false),
+      ])
+
+      render(<ProvidersSettings />)
+      await userEvent.click(screen.getByTestId('provider-tools-toggle-codex'))
+      await act(async () => {
+        mountGet.resolve(seeded)
+      })
+
+      expect(useAgentProvidersStore.getState().status).toBe('ready')
+      expect(screen.queryByTestId('providers-loading')).toBeNull()
+    })
+
+    it('still adopts a read that finishes with no write racing it', async () => {
+      // The fence must not simply refuse every read: this is the ordinary mount
+      // refresh, and it has to keep repairing a stale list.
+      const mountGet = seedWithGetInFlight([provider('codex', 'Codex', true, true)])
+
+      render(<ProvidersSettings />)
+      await act(async () => {
+        mountGet.resolve([
+          provider('codex', 'Codex', true, true, false),
+          provider('claude', 'Claude', true, true),
+        ])
+      })
+
+      expect(screen.getByText('Claude')).toBeInTheDocument()
+      expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
+        'aria-checked',
+        'false',
+      )
     })
   })
 
