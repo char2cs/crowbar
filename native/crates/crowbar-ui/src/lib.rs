@@ -28,8 +28,10 @@
 //! raw colour construction outside `src/theme/`. The two together are the
 //! §4.3 rule 3 guard; either alone is a suggestion.
 
+pub mod components;
 pub mod theme;
 
+pub use components::{AnchorSink, GitStatusRow, RowState, Unanchored};
 pub use gpui;
 pub use gpui_component;
 pub use theme::{Appearance, Color, Duration, FontFamily, FontSize, Radius, Scale, Space, Theme};
