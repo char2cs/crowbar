@@ -1955,6 +1955,24 @@ does **not** pass environment through; launch `Contents/MacOS/zed` directly.
 > the live tree looks like. Every point-by-point answer above is source-read,
 > not observed, and is labelled as such.
 
+## Phase 1 — CLOSED, gate passed 2026-07-31
+
+Full write-up in **[`PHASE1-REPORT.md`](PHASE1-REPORT.md)**. Summary:
+
+- resting matrix **18/18**, hover **6/6**, `selected` converges exactly
+- `empty`/`loading`/`error` vacuous (container states, not row states)
+- `focus` **provably** vacuous on the gate surface (CSS scope + `outline: none`)
+- `hover` reproduced by a proven-complete construction, not observed — the screen
+  is locked and six approaches were measured to fail
+- **8 of 9 anchors** exercised; `git-row-dir` never renders in the product (F3b)
+
+Verbatim, per F3b: **the Phase 1 gate proves the mechanism on single-span
+truncation. It does not prove two-span.**
+
+Phase 2 is authorised. Three things carry forward: two-span truncation as a
+Phase 2 component, `hover` re-run as a real observation once unlocked, and the
+§17 RSS soak once a real workload exists.
+
 ## In flight
 
 **Phase 0 is closed.** All twelve items done and merged, each verified by my own
@@ -2306,7 +2324,7 @@ shorter path.
 
 ---
 
-## Phase 1 — THE GATE (not started)
+## Phase 1 — THE GATE ✅ **PASSED 2026-07-31** — see [PHASE1-REPORT.md](PHASE1-REPORT.md)
 
 Build `crowbar-driver` (extract + inject + MCP over stdio) and the
 anchored-geometry differ, then converge on one row across the full §8.3 matrix.
