@@ -824,6 +824,86 @@ the differ across the matrix.
 > timeout, and the module is there on the next call. Do not read either timeout
 > as a failure without re-checking.
 
+### ✅ Phase 1 state axis — closed 2026-07-31, and it found a real defect
+
+The geometry matrix is **18/18 on `git-status-row`** (3 widths × light/dark × 3
+content lengths), every cell a live WKWebView capture diffed against a live GPUI
+snapshot by me. Σ ceil excess tracks the badge breakpoint — 1.51px at 600 against
+1.73px at 800/1100 — which is the evidence that the viewport axis does real work
+rather than three cells that happen to agree.
+
+The state axis needed a second surface, because on the git row it is **vacuous**:
+no live consumer passes `active`, `focus` paints nothing, and `loading`/`error`
+do not exist. `file-tree-row` was built for it and is genuinely stateful.
+
+**`selected` converges exactly** — `file-row-item.bg = #ffffff0a` on both sides.
+Driving it needs a two-call ordering that is not obvious: focus
+`.file-tree-container` in one call, dispatch the bubbling click in the **next**.
+`highlightedPath` depends on `hasTreeFocus`, and React must commit the focus
+state before the click, so doing both in one tick silently does nothing.
+
+**The run found one genuine defect (P1.11).** The reference colours filenames by
+git status — `a.ts` is modified, so it renders amber `#fe9a00ff` — and the native
+row painted default foreground. A missing feature, found by the oracle rather
+than by reading code, which is the entire point of having built it. Two of the
+other three deltas were **my driving error**, not defects: I left
+`--prev-depth`/`--next-depth` at their defaults so no guide capping applied.
+
+P1.11 merged. Verified by me across all seven values, not by its worker:
+
+```
+none #f5f5f5ff   modified #fe9a00ff ← the reference value   deleted #f94047ff
+added #00bc7dff  modified-staged #00bc7dff  untracked #9ae600ff  renamed #00bcffff
+```
+
+`deleted`'s `#f94047ff` is the same red the reference painted on the `src` folder
+that aggregated a deletion beneath it, so the folder-rollup path checks out too.
+The worker corrected three things my two samples would have got wrong: `staged`
+is a **boolean, not a status** (five statuses, six decorations), there is no
+`conflicted`/`ignored` colour, and `modified-staged` and `added` are the *same*
+colour — distinguishable only by the trailing letter.
+
+**`hover` and `focus` are unobserved**, for one environmental root cause, written
+up in `blocked/hover-and-focus-need-an-unlocked-screen.md`. The screen is locked
+(`CGSSessionScreenIsLocked = 1`), so no app can be active: `:hover` gets no real
+pointer input and `:focus` fails because `document.hasFocus()` is `false`.
+
+> **The `focus` trap, worth reading before anyone re-runs this.** `btn.focus()`
+> sets `document.activeElement === btn` — but `btn.matches(':focus')` is
+> **false**. A driver asserting on `activeElement`, the obvious choice, would
+> report `focus` converged against an app painting no focus ring. Assert on
+> `matches(':focus')`.
+
+**`empty`/`loading`/`error` are vacuous on both gate surfaces**, and that is the
+honest close rather than a skip: they are *container* states. A tree can be
+empty; a row cannot, because a row that does not exist is not rendered. Driving
+them would mean inventing a state the product does not have and then agreeing
+with myself about it, which manufactures a green cell.
+
+**New gate: `check-invariants.sh` rule 5 — `cargo fmt --check`.** It was red on
+21 files across 7, and had been red before P1.11 touched anything. Formatting was
+simply never gated, so drift accumulated one merge at a time until the check was
+useless. The worker hit it, correctly declined to run `cargo fmt` because that
+would have rewritten the oracle it does not own, and hand-formatted its own lines
+instead — right call for a worker, wrong steady state for the repo. Now gated, so
+the next drift is one file in the commit that caused it.
+
+> **Two traps that cost real time here, both about *which app you are driving*.**
+>
+> 1. **The MCP bridge binds port 9223 once.** A stale instance from hours earlier
+>    kept it, so `webview_execute_js` was driving that process while I believed
+>    it was the one I had just launched. `driver_session status` reporting the
+>    right `cwd` does **not** disambiguate — every instance from this worktree
+>    reports the same one. Check `lsof -nP -iTCP:9223 -sTCP:LISTEN`.
+> 2. **macOS cascades every fresh window to the same origin.** Three windows sat
+>    at exactly `(262,122) 1200×800`, two of them a sibling session's from a
+>    different worktree. "The window at those coordinates" is not a unique thing
+>    to point at. Match `cwd` **and** `CROWBAR_HOME` before driving.
+>
+> Also: `manage_window info` reports **physical** pixels. `1200×1800 @(3446,2274)`
+> is `600×900 @(1723,1137)` in points at dpr 2 — and points are what
+> `CGWindowList` and `CGWarpMouseCursorPosition` use.
+
 ### ▶ How to bring up the reference app — **do not use `make dev-desktop`**
 
 `make dev-desktop` is wrong for this work, for two reasons that only show up when
@@ -1803,12 +1883,13 @@ into `hover`/`focus`/`selected` needs it, so the gate needs it — but it lives 
 **Mine alone, after all four land:** the convergence run across the §8.3 matrix.
 That is the gate, and it is not delegable.
 
-## Blocked — needs a user decision
+## Blocked
 
-Neither blocks any work. Both are in `native/oracle/blocked/`.
+None of these block any work. All are in `native/oracle/blocked/`.
 
 | Item | What is needed | Why it is not mine to decide |
 |---|---|---|
+| [`hover-and-focus-need-an-unlocked-screen.md`](oracle/blocked/hover-and-focus-need-an-unlocked-screen.md) | **Environmental, not a product decision.** Re-run the two flags with the screen unlocked; the recipe is in the note | `CGSSessionScreenIsLocked = 1`, so no app can be active. `:hover` needs real pointer input macOS will not deliver, and `:focus` needs `document.hasFocus()`, which is `false`. Not a modelling failure and **not** an accepted delta. |
 | [`cla-policy.md`](oracle/blocked/cla-policy.md) | Whether contributions need a CLA, a DCO, or nothing, now that AGPL-only removes the old rationale | Publishing "no CLA required" is a forward-looking promise to contributors. `LICENSING.md` is left neutral, which reverses cleanly; either answer does not. |
 | [`route-audit-red-at-head.md`](oracle/blocked/route-audit-red-at-head.md) | Add two routes to the audit's spec list and bump 159 → 161, or delete them | Two-line fix, but in `api/`, which §0 puts out of scope except for the single §9.3 exception. Reproduced red on a clean tree before any merge. |
 | [`vendored-crates-without-a-licence.md`](oracle/blocked/vendored-crates-without-a-licence.md) | Confirm the licence of `gpui_shared_string` and `gpui_util`, or accept that both candidates are compatible | Both are **compiled into our binary** and declare no `license` key — verified absent upstream too, and Zed's root `[workspace.package]` has none to inherit. Either answer is fine under D1, so it is an attribution-accuracy question, not exposure. |
