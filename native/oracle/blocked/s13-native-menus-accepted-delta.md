@@ -63,3 +63,65 @@ design tokens or live inside a pane. The user did not rule between them, so I
 took that split as the reading and said so before acting. If it is wrong, the
 `NSMenu` work is confined to `crowbar-platform` and a driver surface, and the
 GPUI path is what P2.1 already built.
+
+
+---
+
+## P2.14 landed — and it duplicates something already vendored. My error.
+
+`crates/crowbar-platform/src/native_menu.rs` is merged, green and genuinely
+good: 755 tests, clippy clean, 7 `ok` lines, Phase 1's two archived snapshots
+re-emit byte-identical, and **rule 3 bites** — removing a single `# Safety`
+heading fails the build, which I verified by mutation myself. It is the first
+`unsafe` this project has shipped and the proofs are real arguments, not
+gestures.
+
+**But `vendor/gpui-component/src/native_menu/` already does this job** — 1,252
+lines across `macos.rs`, `windows.rs` and `fallback.rs`, gpui-integrated
+(`show(position, window, cx)`), with icons and `Box<dyn Action>` dispatch.
+
+**That is my mistake, not the worker's.** I briefed P2.14 without checking
+whether the capability already existed in a dependency we already ship. The
+worker built exactly what was asked and then told me, which is the right
+behaviour and the reason I know.
+
+### Ruling
+
+**Call sites use the vendored menu.** It takes a gpui `Point<Pixels>`, dispatches
+`Action`s, and is what an idiomatic gpui call site wants; it also already covers
+Windows, which ours does not. Blocking for a return value, as ours does, is not
+how a gpui view is written.
+
+**`crowbar-platform::native_menu` is retained for now and retired before Phase 3
+closes** unless a concrete need appears that the vendored one cannot serve. It is
+wired to **no** call site — only to its own driver surface — so it ships nothing
+today and costs only its own maintenance.
+
+Two things it holds that the vendored one does not, and which decide the question
+if either turns out to matter:
+
+- it is **gpui-free**, which §4.2 requires of `crowbar-platform` and which makes
+  it testable with no window and no `App` — worth something on a machine where
+  synthetic events are denied and 15 of its 16 checklist items need a human;
+- it returns the **chosen id synchronously**, which a test can assert on.
+
+### Findings from P2.14 worth keeping regardless of which one ships
+
+- **`NSMenu` cannot express four things Crowbar's menus use**:
+  `menu-radio-item`, `menu-label`, `menu-shortcut` and `inset`. A radio group
+  becomes ticked items whose exclusivity the *caller* owns; a label becomes a
+  disabled item; a shortcut becomes the responder chain's business. **Any call
+  site depending on those, or rendering arbitrary content in a row, cannot move
+  to a native menu** and must stay on P2.1's GPUI popup. That has to be decided
+  per call site before P2.1 is retired — it is not one global switch.
+- **A GPUI-scheduled dismissal silently does not work.** GPUI's foreground
+  executor schedules onto the main dispatch queue, and libdispatch will not begin
+  another main-queue block while one is on the stack — so a timer armed that way
+  fires only *after* the menu closes by itself. An `NSTimer` in
+  `NSRunLoopCommonModes` is the way.
+- **`--test-threads=1` is a live hazard**: libtest runs on the process main
+  thread at concurrency 1, so a test calling `show_at` unconditionally would pop
+  a real menu and hang the suite.
+- Rule 3 has a blind spot it cannot see: `define_class!`'s `#[unsafe(super(…))]`
+  and `#[unsafe(method(…))]` are unsafe *attributes*, not blocks, so the scanner
+  skips them. Documented in the module rather than left to be discovered.
