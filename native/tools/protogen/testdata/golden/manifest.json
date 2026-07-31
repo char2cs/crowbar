@@ -1,0 +1,366 @@
+{
+  "generator": "native/tools/protogen",
+  "stats": {
+    "endpoints": 12,
+    "distinctPaths": 9,
+    "handlersResolved": 11,
+    "fullyResolved": 9,
+    "withRequestBody": 3,
+    "requestResolved": 3,
+    "withResponsePayload": 8,
+    "responseResolved": 6,
+    "byResponseKind": {
+      "binary": 1,
+      "empty": 1,
+      "json": 8,
+      "mutation": 1,
+      "websocket": 1
+    },
+    "types": 13,
+    "typesByKind": {
+      "alias": 2,
+      "enum": 1,
+      "struct": 10
+    },
+    "typesIncomplete": 1,
+    "modules": 4,
+    "unresolved": 4,
+    "unresolvedErrors": 4,
+    "unresolvedWarnings": 0
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/v0/health",
+      "goPackage": "example.com/fixture/handlers",
+      "handler": "Untyped",
+      "handlerPos": "handlers/handlers.go:90",
+      "responseKind": "json",
+      "doc": "Untyped GET /untyped — an untyped map payload, which has no static shape.",
+      "unresolved": [
+        {
+          "what": "GET /v0/health",
+          "where": "handlers/handlers.go:93",
+          "reason": "response payload is an untyped map (gin.H / map[string]any), so it has no static shape — give the handler a named DTO",
+          "category": "untyped-payload",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/items",
+      "goPackage": "example.com/fixture/handlers",
+      "handler": "ListItems",
+      "handlerPos": "handlers/handlers.go:23",
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "module": "fixture_types",
+            "name": "Item"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "ListItems GET /items — a read with no request body."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/items",
+      "goPackage": "example.com/fixture/handlers",
+      "handler": "CreateItem",
+      "handlerPos": "handlers/handlers.go:39",
+      "request": {
+        "module": "fixture_types",
+        "name": "CreateItemBody"
+      },
+      "responses": [
+        {
+          "module": "fixture_types",
+          "name": "Item"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "CreateItem POST /items — a named request body and a 201 payload."
+    },
+    {
+      "method": "DELETE",
+      "path": "/v0/projects/:projectId/items/:id",
+      "goPackage": "example.com/fixture/handlers",
+      "handler": "DeleteItem",
+      "handlerPos": "handlers/handlers.go:69",
+      "responseKind": "empty",
+      "doc": "DeleteItem DELETE /items/:id — a body-less 202."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/items/:id",
+      "goPackage": "example.com/fixture/handlers",
+      "handler": "GetItem",
+      "handlerPos": "handlers/handlers.go:31",
+      "responses": [
+        {
+          "module": "fixture_types",
+          "name": "Item"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "GetItem GET /items/:id — a read returning one named struct."
+    },
+    {
+      "method": "PATCH",
+      "path": "/v0/projects/:projectId/items/:id",
+      "goPackage": "example.com/fixture/handlers",
+      "handler": "RenameItem",
+      "handlerPos": "handlers/handlers.go:52",
+      "request": {
+        "module": "fixture_handlers",
+        "name": "RenameItemRequest"
+      },
+      "responses": [
+        {
+          "module": "fixture_libs",
+          "name": "MutationID"
+        }
+      ],
+      "responseKind": "mutation",
+      "doc": "RenameItem PATCH /items/:id — an anonymous request body and a mutation\nresponse."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/items/ws",
+      "responseKind": "websocket"
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/lossy",
+      "goPackage": "example.com/fixture/handlers",
+      "handler": "Lossy",
+      "handlerPos": "handlers/handlers.go:98",
+      "responses": [
+        {
+          "module": "fixture_types",
+          "name": "Lossy"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Lossy GET /lossy — a payload whose type loses a field the generator cannot\nlower, which must make the endpoint report unresolved.",
+      "unresolved": [
+        {
+          "what": "GET /v0/projects/:projectId/lossy",
+          "reason": "DTO fixture_types.Lossy is missing at least one field protogen could not lower, so this endpoint's shape is incomplete",
+          "category": "incomplete-type",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/patch",
+      "goPackage": "example.com/fixture/handlers",
+      "handler": "Patch",
+      "handlerPos": "handlers/handlers.go:83",
+      "responseKind": "binary",
+      "doc": "Patch GET /patch — a raw non-JSON body."
+    },
+    {
+      "method": "POST",
+      "path": "/v0/projects/:projectId/stage",
+      "goPackage": "example.com/fixture/handlers",
+      "handler": "Stage",
+      "handlerPos": "handlers/handlers.go:121",
+      "request": {
+        "module": "fixture_handlers",
+        "name": "StageRequest"
+      },
+      "responses": [
+        {
+          "container": "slice",
+          "elem": {
+            "prim": "string"
+          }
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Stage POST /stage — binds through a helper."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/tree",
+      "goPackage": "example.com/fixture/handlers",
+      "handler": "Tree",
+      "handlerPos": "handlers/handlers.go:76",
+      "responses": [
+        {
+          "module": "fixture_types",
+          "name": "TreeNode"
+        }
+      ],
+      "responseKind": "json",
+      "doc": "Tree GET /tree — the self-referential type."
+    },
+    {
+      "method": "GET",
+      "path": "/v0/projects/:projectId/untyped",
+      "goPackage": "example.com/fixture/handlers",
+      "handler": "Untyped",
+      "handlerPos": "handlers/handlers.go:90",
+      "responseKind": "json",
+      "doc": "Untyped GET /untyped — an untyped map payload, which has no static shape.",
+      "unresolved": [
+        {
+          "what": "GET /v0/projects/:projectId/untyped",
+          "where": "handlers/handlers.go:93",
+          "reason": "response payload is an untyped map (gin.H / map[string]any), so it has no static shape — give the handler a named DTO",
+          "category": "untyped-payload",
+          "severity": "error"
+        }
+      ]
+    }
+  ],
+  "types": [
+    {
+      "module": "fixture_handlers",
+      "name": "RenameItemRequest",
+      "kind": "struct",
+      "goPath": "example.com/fixture/handlers.<anonymous RenameItem request>",
+      "fields": 2,
+      "synthetic": true
+    },
+    {
+      "module": "fixture_handlers",
+      "name": "StageRequest",
+      "kind": "struct",
+      "goPath": "example.com/fixture/handlers.<anonymous Stage request>",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "fixture_libs",
+      "name": "Envelope",
+      "kind": "struct",
+      "goPath": "example.com/fixture/libs.Envelope",
+      "fields": 3
+    },
+    {
+      "module": "fixture_libs",
+      "name": "MutationID",
+      "kind": "struct",
+      "goPath": "example.com/fixture/libs.mutationData",
+      "fields": 1,
+      "synthetic": true
+    },
+    {
+      "module": "fixture_types",
+      "name": "CreateItemBody",
+      "kind": "struct",
+      "goPath": "example.com/fixture/types.CreateItemBody",
+      "fields": 2
+    },
+    {
+      "module": "fixture_types",
+      "name": "Item",
+      "kind": "struct",
+      "goPath": "example.com/fixture/types.Item",
+      "fields": 19
+    },
+    {
+      "module": "fixture_types",
+      "name": "Lossy",
+      "kind": "struct",
+      "goPath": "example.com/fixture/types.Lossy",
+      "fields": 1,
+      "dropped": [
+        {
+          "what": "example.com/fixture/types.Lossy.Rows",
+          "reason": "field type []struct{Value string \"json:\\\"value\\\"\"} did not resolve, so the field is missing from the generated struct",
+          "category": "dropped-field",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "module": "fixture_types",
+      "name": "Meta",
+      "kind": "struct",
+      "goPath": "example.com/fixture/types.Meta",
+      "fields": 1
+    },
+    {
+      "module": "fixture_types",
+      "name": "Nested",
+      "kind": "struct",
+      "goPath": "example.com/fixture/types.Nested",
+      "fields": 2
+    },
+    {
+      "module": "fixture_types",
+      "name": "Status",
+      "kind": "enum",
+      "goPath": "example.com/fixture/types.Status",
+      "variants": 3
+    },
+    {
+      "module": "fixture_types",
+      "name": "TreeNode",
+      "kind": "struct",
+      "goPath": "example.com/fixture/types.TreeNode",
+      "fields": 2
+    },
+    {
+      "module": "fixture_types",
+      "name": "Untagged",
+      "kind": "alias",
+      "goPath": "example.com/fixture/types.Untagged"
+    },
+    {
+      "module": "gin_gonic_gin",
+      "name": "H",
+      "kind": "alias",
+      "goPath": "github.com/gin-gonic/gin.H"
+    }
+  ],
+  "unresolved": [
+    {
+      "what": "example.com/fixture/types.Lossy.Rows",
+      "reason": "anonymous struct nested inside another type; give it a named Go type so it can be generated",
+      "category": "anonymous-struct",
+      "severity": "error"
+    },
+    {
+      "what": "GET /v0/projects/:projectId/lossy",
+      "reason": "DTO fixture_types.Lossy is missing at least one field protogen could not lower, so this endpoint's shape is incomplete",
+      "category": "incomplete-type",
+      "severity": "error"
+    },
+    {
+      "what": "GET /v0/health",
+      "where": "handlers/handlers.go:93",
+      "reason": "response payload is an untyped map (gin.H / map[string]any), so it has no static shape — give the handler a named DTO",
+      "category": "untyped-payload",
+      "severity": "error"
+    },
+    {
+      "what": "GET /v0/projects/:projectId/untyped",
+      "where": "handlers/handlers.go:93",
+      "reason": "response payload is an untyped map (gin.H / map[string]any), so it has no static shape — give the handler a named DTO",
+      "category": "untyped-payload",
+      "severity": "error"
+    }
+  ],
+  "unresolvedByCategory": [
+    {
+      "category": "untyped-payload",
+      "count": 2
+    },
+    {
+      "category": "anonymous-struct",
+      "count": 1
+    },
+    {
+      "category": "incomplete-type",
+      "count": 1
+    }
+  ]
+}
