@@ -2621,6 +2621,75 @@ Both are `git-row-dir`'s precedent: rendered by the port, absent from the produc
 > duration — stayed, read from the sealed token, with a test that fails if the
 > token moves.
 
+## ⛔ SCOPE GATE — read this BEFORE writing any worker brief
+
+Added 2026-07-31 after I dispatched a worker to port four **Plate** markdown
+nodes, which spec §3.2 says are **never ported**. One already-merged port
+(`callout-node`) was wasted; the batch of four was stopped only because the user
+asked. **I had built the work list from `ls web/src/components/ui/*.tsx`. A
+directory listing is not a scope.**
+
+Every brief must be checked against the table below **first**. Quote the relevant
+constraint into the brief, so the worker can catch me when I get it wrong.
+
+### Never ported — it ships as a webview (§5.3)
+
+| Surface | Reach |
+|---|---|
+| **Plate markdown editor** | 55 files **+ the 26 `components/ui` nodes and toolbars** |
+| mermaid | 8 files |
+| katex | 4 files |
+| HTML preview | already an iframe |
+
+The 26 are matched by `block-*`, `*-node.tsx`, `*toolbar*`. **Verified count: 26.**
+A webview pane is `gpui-wry` pointed at the same route through the same engine,
+so Plate renders **byte-identically** — the spec calls that "the strongest
+possible form of parity". Hand-porting it is strictly worse than the thing
+already chosen.
+
+### Never hand-built — an existing Rust implementation is specified (§10.1, §5.2)
+
+| Need | Use | Do NOT |
+|---|---|---|
+| **Code editor** | **`gpui-component`'s `input` module** (17,796 lines) | port Monaco; **and do not reach for Zed's `crates/editor`** — see below |
+| Syntax highlighting | `tree-sitter` via `gpui-component`'s `highlighter` (3,844 lines) | hand-roll, or `syntect` (rejected §10.2) |
+| Widgets | `gpui-component` + assets | rebuild primitives that exist there |
+| Diff algorithm | `imara-diff` — **but check first** whether the daemon already returns unified diff, in which case `git-diff-parser.ts` ports directly and no algorithm is needed | write a diff algorithm |
+| Terminal | GPU text-grid over **the daemon's** VT model; `tty7` is the renderer reference | `alacritty_terminal`, or Zed's `crates/terminal` — the daemon owns the model |
+| Fuzzy matching | Zed's **`fuzzy_nucleo`** (taken, §10.6) | hand-roll |
+| Transport | `reqwest` (unix connector) + `tungstenite` | |
+| Git | **the daemon owns it** | `git2`, `gix` (rejected §10.2) |
+| PTY | **the daemon owns it** | `portable-pty` (rejected §10.2) |
+| Persistence | **none** (D6) | `redb`, `rusqlite` (rejected §10.2) |
+
+### On Zed's editor specifically — audited and REJECTED, do not re-litigate
+
+§5.2: *"Zed's `crates/editor` is now legal (D1) but remains welded to `project`,
+`workspace`, `multi_buffer`. **Extractability, not licensing, is why we use
+`input`.**"*
+
+Phase 0 item 0.9 ran the audit and the verdict is recorded: **take
+`fuzzy_nucleo` and `refineable`; skip `picker`, `editor`, `language`, `terminal`,
+`theme`, `ui`.** Two prior expectations were *refuted* — `language` and
+`terminal` are blocked by **`settings`**, not by `project`/`workspace`/
+`multi_buffer`. Same verdict, different mechanism, recorded so it is not
+re-litigated.
+
+### The real Tier B denominator
+
+| | |
+|---|---|
+| `components/ui/*.tsx` | 72 |
+| Plate-only, **never ported** | 26 |
+| **real port target** | **46** |
+| ported and on-target | **23** |
+| wasted (Plate) | **1** — `callout-node`, to be reverted |
+| **remaining** | **23** |
+
+**Tier B is ~50% of its real target, not the 11% I kept reporting.** My
+denominator was wrong in both directions at once: too large by 26, and the
+progress number correspondingly too small.
+
 ## In flight
 
 **Phase 0 is closed.** All twelve items done and merged, each verified by my own
