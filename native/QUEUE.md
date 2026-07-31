@@ -38,7 +38,7 @@ native app only has to derive the same socket path.
 | `CROWBAR_HOME` | `<worktree>/.crowbar` |
 | fnv1a64 of it | `6d4f21ce150add3c` |
 | Socket | `$TMPDIR/crowbar-6d4f21ce150add3c.sock` |
-| Present? | no — no daemon has run against this worktree yet |
+| Present? | **yes** — daemon live, pid 62909, built from this worktree |
 
 ### 0.4 harness — one daemon, both apps. **No code required.**
 
