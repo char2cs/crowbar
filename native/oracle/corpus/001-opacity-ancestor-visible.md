@@ -52,3 +52,55 @@ the fix.
 the contract gap, not the port. This is recorded here rather than trusted to
 memory, because the whole reason the defect survived is that nobody was watching
 this field.
+
+---
+
+## Status update, 2026-07-31 — v1.7 landed, and the restriction NARROWS rather than lifts
+
+`crowbar-driver` now implements the v1.7 opacity term. It is **not** a full fix,
+and the difference matters for exactly the case that motivated this entry.
+
+**What the driver now sees**
+
+| | detected |
+|---|---|
+| the anchor's own `opacity` | **yes** |
+| an **anchored** ancestor's `opacity` | **yes** — folded in on `enter`, restored on `leave` |
+| an **unanchored** ancestor's `opacity` | **NO** |
+
+The chain is accumulated at `AnchoredBox` boundaries only (`registry.enter(self.style.opacity)`),
+so a plain `div().opacity(0.)` between two anchors is never entered.
+
+**Verified by me, not taken from the worker's report.** A probe tree —
+`anchor_root("root", div().child(div().opacity(0.).child(anchor("child", …))))` —
+reports:
+
+```
+PROBE root  visible=true
+PROBE child visible=true
+```
+
+The React side reports `false` for the same tree, because `oracleIsVisible` walks
+**every** `parentElement` regardless of whether it is an anchor.
+
+**Why this is the case that matters.** `NavStack`'s `opacity-0` layer is *not* an
+anchor and sits *above* the root anchor. So the original motivating scenario is
+still undetected. The gap has moved, not closed.
+
+**The restriction therefore stands, narrowed:**
+
+> No cell may be driven with a non-opaque **unanchored** ancestor. Such a run
+> measures the contract gap, not the port.
+
+**If you need to test opacity**, put it on an anchor — the root anchor will do,
+since opacity moves no geometry and every bound is root-relative. Note this is
+*not* the sequence written at the top of this file, which says "any ancestor of
+the root anchor"; that sequence still fails today, and it is left standing rather
+than edited to match what currently passes.
+
+**Closing it properly** needs the driver to observe opacity it does not own.
+gpui accumulates exactly this in `Window::element_opacity`, but it is
+`pub(crate)` with no accessor, and `with_element_opacity` runs from
+`Interactivity::paint` — after `prepaint`, where the extractor runs. Reaching it
+means patching `native/vendor/`, which is pinned. Recorded as the known cost of
+the current design rather than as a bug to be quietly lived with.
