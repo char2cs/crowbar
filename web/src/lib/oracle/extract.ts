@@ -510,6 +510,101 @@ export function oracleRelativeBounds(
 }
 
 /**
+ * Does anything actually hide this element's horizontal overflow — its own box,
+ * or an ancestor's? ANCHORS.md v1.12, and the term {@link oracleIsClipped} was
+ * missing.
+ *
+ * ## Which `overflow` values hide
+ *
+ * **Every one except `visible`**, which is the same test {@link oracleIsVisible}
+ * already applies one function below, and it is correct by construction rather
+ * than by enumeration: CSS defines `visible` as the *only* value that does not
+ * establish a clip. `hidden` and `clip` clip outright; `scroll` and `auto` clip
+ * the painted content to the padding box and make the rest reachable only by
+ * scrolling, which is still not painted at this scroll offset; `overlay` is a
+ * legacy alias that computes to `auto` in this engine and would be covered even
+ * if it did not. An unrecognised future value therefore reads as *hiding*, which
+ * is the direction that cannot silently drop a truncation.
+ *
+ * The empty string is the one exception, and it means "the style object does not
+ * carry this longhand" rather than any CSS value — it is read as **not** hiding,
+ * so a partial style stub cannot manufacture a truncation.
+ *
+ * ## Only `overflow-x`
+ *
+ * `text_width` and `clipped` are about the *inline* direction. A vertical-only
+ * clip does not truncate a line, and it cannot hide behind this: CSS computes
+ * `overflow-x: visible` to `auto` whenever the other axis is not `visible`, so
+ * `overflow-y: hidden` arrives here as `overflow-x: auto` and is caught.
+ *
+ * ## `text-overflow` is deliberately not consulted
+ *
+ * It is **inert** without a hiding `overflow` — CSS UI applies it only to a block
+ * container whose overflow is other than `visible` — so it can never be the thing
+ * that hides a glyph. v1.12's own motivating element proves the converse
+ * direction too: it computes `text-overflow: clip` and is not truncated at all.
+ * Reading it would add a condition that is either redundant or wrong.
+ *
+ * ## Ancestors are walked, and **intersected** — not merely tested
+ *
+ * v1.12 says "the element's own box, **or an ancestor**". A CSS-only ancestor
+ * test would be a tautology in this app and the ruling would do nothing:
+ * `index.css` puts `overflow: hidden` on `html`, `body` **and** `#root`, so every
+ * anchor in every live capture has three clipping ancestors. So an ancestor
+ * counts only where its rect **actually cuts** this element's box, exactly as
+ * {@link oracleIsVisible} intersects rather than asking whether a clip exists.
+ * The viewport does not cut a row that is on screen; a narrow scrollport does.
+ *
+ * The element's **own** box is not treated geometrically, because v1.3 ruling 1
+ * already answers that question more precisely than a rect can: `clientWidth` is
+ * an integer and `text_width` against the fractional content box is not.
+ *
+ * **Known imprecision, stated rather than hidden:** the ancestor probe is this
+ * element's border box, so an ancestor edge that cuts only text spilling *past*
+ * that box — `justify-center` on a box narrower than its glyph — is not seen. The
+ * exact probe is the text's own laid-out rect, which the contract does not carry
+ * and which would mean a second `Range` pass over every text anchor.
+ */
+export function oracleOverflowHidesText(
+  el: Element,
+  box: { left: number; top: number; width: number; height: number },
+  epsilon?: number,
+): boolean {
+  function hides(value: string | null | undefined, fallback: string | null | undefined): boolean {
+    let v = String(value === null || value === undefined ? '' : value)
+      .trim()
+      .toLowerCase()
+    if (v === '') {
+      v = String(fallback === null || fallback === undefined ? '' : fallback)
+        .trim()
+        .toLowerCase()
+    }
+    return v !== '' && v !== 'visible'
+  }
+
+  const eps = typeof epsilon === 'number' ? epsilon : 0.5
+  const doc = el.ownerDocument
+  const win = doc ? doc.defaultView : null
+  if (!win || typeof win.getComputedStyle !== 'function') return false
+
+  const own = win.getComputedStyle(el)
+  if (hides(own.overflowX, own.overflow)) return true
+
+  const left = box.left
+  const right = box.left + box.width
+  let node: Element | null = el.parentElement
+  while (node) {
+    const s = win.getComputedStyle(node)
+    if (hides(s.overflowX, s.overflow)) {
+      const nr = node.getBoundingClientRect()
+      if (nr.left - left > eps || right - (nr.left + nr.width) > eps) return true
+    }
+    node = node.parentElement
+  }
+  return false
+}
+
+/**
  * Is the text visually truncated in this box?
  *
  * `scrollWidth`/`clientWidth` are the contract's stated signal but both are
@@ -517,14 +612,39 @@ export function oracleRelativeBounds(
  * overflow that never paints an ellipsis. When the unclipped advance width and
  * the content-box width are available — they are for every text anchor, both
  * fractional — they decide instead, with an epsilon absorbing the sub-pixel case.
+ *
+ * ## `overflowHidden` — ANCHORS.md v1.12, and why it is required rather than
+ * defaulted
+ *
+ * Overflowing a box and being *truncated* are two different facts, and v1.3
+ * ruling 1 conflated them when it improved the precision: it replaced
+ * `scrollWidth > clientWidth`, which is `overflow`-aware, with a fractional
+ * content-box test that is true for **any** overflowing text, hidden or not. §3
+ * defines the field as "whether the text is **visually truncated** in this box",
+ * and a glyph painted in full is not truncated — P3.10's callout emoji spills
+ * 2.5px past each edge of a 24px box under `overflow-x: visible` and nothing
+ * hides it.
+ *
+ * So the caller must say whether anything hides the overflow — see
+ * {@link oracleOverflowHidesText}, which is what answers it from the DOM. It is a
+ * required field and not a defaulted one on purpose: a default of `true` would
+ * leave the old behaviour one forgotten argument away, on a field whose whole
+ * job is to say something about text.
+ *
+ * The term gates the `scrollWidth`/`clientWidth` fallback as well as the
+ * fractional test. That path is only meaningful for a scroll container anyway,
+ * and it is the same question either way.
  */
 export function oracleIsClipped(params: {
   scrollWidth: number
   clientWidth: number
+  /** Does the element's own box, or an ancestor's, hide the overflow? (v1.12) */
+  overflowHidden: boolean
   textWidth?: number | null
   contentWidth?: number | null
   epsilon?: number
 }): boolean {
+  if (params.overflowHidden !== true) return false
   const epsilon = typeof params.epsilon === 'number' ? params.epsilon : 0.5
   const textWidth = params.textWidth
   const contentWidth = params.contentWidth
@@ -651,6 +771,48 @@ export function oraclePaddingBoxRect(
     width: r.width - bl - br,
     height: r.height - bt - bb,
   }
+}
+
+/**
+ * Does this element generate a box at all? ANCHORS.md v1.11.
+ *
+ * An element that generates none **is not an anchor**, and the extractor skips
+ * it rather than emitting a zero-rect record with `visible: false`. GPUI has no
+ * such element in its tree, so the two sides otherwise disagree on *anchor
+ * presence* — a structural delta on a resting cell, caused by the contract
+ * rather than by the port. P3.9's checkbox tick, which is `display: none` when
+ * unchecked, is the case that found it.
+ *
+ * ## The distinction that must not be blurred
+ *
+ * `visibility: hidden`, `opacity: 0` and being clipped by an ancestor all **do**
+ * generate boxes. Those stay anchors, with `visible: false` — which is exactly
+ * how the carousel's snapped-out panels and v1.7's opacity case are caught. Only
+ * `display: none` generates nothing, and only it is tested here. This is
+ * therefore a strictly narrower predicate than {@link oracleIsVisible}, and
+ * deliberately so: the two must not be collapsed into one walk.
+ *
+ * ## Ancestors
+ *
+ * A descendant of a `display: none` element generates no box either, and
+ * `getComputedStyle` will not say so — it reports the descendant's *own*
+ * `display`, which is whatever it was authored as. So the walk is necessary
+ * rather than defensive, and it stops where {@link oracleIsVisible}'s does.
+ *
+ * Without a window to ask, the answer is **yes**: filtering is the one operation
+ * that can quietly make a capture smaller than the surface, and a shrinking
+ * reference proves less every time it does.
+ */
+export function oracleGeneratesBox(el: Element): boolean {
+  const doc = el.ownerDocument
+  const win = doc ? doc.defaultView : null
+  if (!win || typeof win.getComputedStyle !== 'function') return true
+  let node: Element | null = el
+  while (node) {
+    if (win.getComputedStyle(node).display === 'none') return false
+    node = node.parentElement
+  }
+  return true
 }
 
 /** Actually painted: ANCHORS.md §3's `visible`. */
@@ -1259,12 +1421,43 @@ export function extractSnapshot(options: ExtractOptions): OracleSnapshot {
   // exactly such a layer there.
   oracleAssertComparableOpacity(scoped)
 
+  // v1.11: an element that generates no box is not an anchor. Emitting it as a
+  // zero-rect record with `visible: false` put a delta on *anchor presence* —
+  // GPUI has no such element at all — and neither repair on that side is honest:
+  // anchoring nothing is impossible there, and synthesising a zero-rect record
+  // would be writing this extractor's output into the port.
+  //
+  // Applied after the walk and after the v1.7 guard rather than instead of
+  // either, so nothing above changes: the scoped set, the surface's declaration
+  // and the opacity precondition all still see every anchored element. Only the
+  // *measured* set narrows, and only by elements that have no box to measure.
+  const boxed: Element[] = []
+  for (let i = 0; i < scoped.length; i++) {
+    if (oracleGeneratesBox(scoped[i])) boxed.push(scoped[i])
+  }
+  // The root is the origin every other bound is expressed against (§4). If it
+  // generates no box there is no origin, and the §4 check at the bottom would
+  // report that as "not at the origin" — true, but it names the wrong cause and
+  // costs an hour. `scoped[0]` is the root anchor on both paths: the walk seeds
+  // `elements` with it, and a declared surface is refused unless it is rooted on
+  // one of its own declared anchors.
+  if (boxed.length === 0 || boxed[0] !== scoped[0]) {
+    throw new Error(
+      'oracle: root anchor "' +
+        rootId +
+        '" generates no box — it or an ancestor computes display:none. Every ' +
+        'bound in a snapshot is relative to this element (ANCHORS.md §4), so ' +
+        'there is nothing to measure against. The surface was driven into a ' +
+        'state it does not render. Refusing to emit it.',
+    )
+  }
+
   const normalLineHeights: Record<string, number> = {}
   const anchors: OracleAnchor[] = []
   let rootBox: OracleBox = { left: 0, top: 0, width: 0, height: 0 }
 
-  for (let i = 0; i < scoped.length; i++) {
-    const el = scoped[i] as HTMLElement
+  for (let i = 0; i < boxed.length; i++) {
+    const el = boxed[i] as HTMLElement
     const id = el.getAttribute('data-oracle-id') || ''
     const style = win.getComputedStyle(el)
 
@@ -1349,6 +1542,11 @@ export function extractSnapshot(options: ExtractOptions): OracleSnapshot {
         clientWidth: el.clientWidth,
         textWidth: textWidth,
         contentWidth: contentWidth,
+        // v1.12. Overflowing the content box is not truncation on its own —
+        // something has to hide it. Measured on the same `box` the bounds and
+        // `visible` come from, so the three answers cannot be about different
+        // rects.
+        overflowHidden: oracleOverflowHidesText(el, box),
       })
       record.font = {
         size: oracleRound(fontSize),
@@ -1394,6 +1592,7 @@ const ORACLE_RUNTIME = [
   oracleResolveLineHeight,
   oracleMeasureNormalLineHeight,
   oracleRelativeBounds,
+  oracleOverflowHidesText,
   oracleIsClipped,
   oracleContentSized,
   oracleLineSized,
@@ -1401,6 +1600,7 @@ const ORACLE_RUNTIME = [
   oracleOwnText,
   oracleTextAdvanceWidth,
   oraclePaddingBoxRect,
+  oracleGeneratesBox,
   oracleIsVisible,
   oracleAssertComparableOpacity,
   oracleSurfaceScope,
