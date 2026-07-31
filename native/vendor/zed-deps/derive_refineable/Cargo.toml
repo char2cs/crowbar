@@ -1,0 +1,35 @@
+[package]
+name = "derive_refineable"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+description = "A derive macro for creating refinement types in Rust"
+
+
+[lints.rust]
+unexpected_cfgs = { level = "allow" }
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+declare_interior_mutable_const = "deny"
+redundant_clone = "deny"
+disallowed_methods = "deny"
+style = { level = "allow", priority = -1 }
+type_complexity = "allow"
+let_underscore_future = "allow"
+single_range_in_vec_init = "allow"
+too_many_arguments = "allow"
+large_enum_variant = "allow"
+nonminimal_bool = "allow"
+
+[lib]
+path = "src/derive_refineable.rs"
+proc-macro = true
+doctest = false
+
+[dependencies]
+proc-macro2 = "1.0.93"
+quote = "1.0.9"
+syn = { version = "2.0.101", features = ["full", "extra-traits", "visit-mut"] }

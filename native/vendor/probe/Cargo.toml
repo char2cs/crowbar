@@ -1,0 +1,23 @@
+[package]
+name = "gpui-vendor-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Throwaway crate that proves the vendored gpui / gpui-component pair links together."
+
+[[bin]]
+name = "gpui-vendor-probe"
+path = "src/main.rs"
+
+[features]
+default = []
+# Off by default: it drags in the rev-pinned `proptest` git fork. Exists so the
+# `test-support` -> `leak-detection` chain (spec §12) can be verified with
+# `cargo tree --features gpui-test-support -e features -p gpui` without editing
+# a manifest.
+gpui-test-support = ["gpui/test-support"]
+
+[dependencies]
+gpui = { path = "../gpui" }
+gpui-component = { path = "../gpui-component" }
+gpui_platform = { path = "../zed-deps/gpui_platform", features = ["font-kit", "runtime_shaders"] }
