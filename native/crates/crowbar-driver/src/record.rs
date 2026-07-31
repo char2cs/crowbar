@@ -103,15 +103,30 @@ pub struct RawAnchor {
     /// exists to prevent, and a mis-guess announces nothing — so the flag comes
     /// in from the caller, where it is a visible line in a component.
     pub content_sized: bool,
+    /// Whether this anchor's box height **is** its own line box
+    /// (`native/oracle/ANCHORS.md` v1.6).
+    ///
+    /// **Declared by the component, never detected here**, for the same reasons
+    /// [`RawAnchor::content_sized`] is. What it buys is a different comparison:
+    /// the differ takes `bounds.h` against the *reference's* `font.line_height`
+    /// rather than against its box, because `WebKit` floors a line box to a
+    /// whole logical pixel and gpui snaps it to the device grid, and neither
+    /// can produce the other's number.
+    ///
+    /// A heuristic would be worse here than for `content_sized`: "this element
+    /// has one text child and no explicit height" is false for the gate row's
+    /// own badge, whose `sm:h-4` pins a 16px border box around a 13.33px line
+    /// box. Guessing it there would compare 16 against 13.33 and invent a delta.
+    pub line_sized: bool,
 }
 
 /// Records a box-shaped anchor from its already-resolved [`Style`].
 ///
-/// [`RawAnchor::content_sized`] is **not** an argument: it is not a fact about
-/// the style, it is a claim the component made, and the element that carries
-/// the claim folds it in with struct-update syntax. A trailing positional
-/// `bool` on a six-argument function would read as `…, px(16.0), false)` at
-/// every call site, which says nothing.
+/// [`RawAnchor::content_sized`] and [`RawAnchor::line_sized`] are **not**
+/// arguments: they are not facts about the style, they are claims the component
+/// made, and the element that carries them folds them in with struct-update
+/// syntax. Trailing positional `bool`s on a six-argument function would read as
+/// `…, px(16.0), false, false)` at every call site, which says nothing.
 pub(crate) fn box_facts(
     id: SharedString,
     bounds: Bounds<Pixels>,
@@ -131,6 +146,7 @@ pub(crate) fn box_facts(
         border_width: style.border_widths.to_pixels(rem_size).top,
         border_color: style.border_color,
         content_sized: false,
+        line_sized: false,
     }
 }
 
@@ -156,6 +172,9 @@ pub(crate) struct TextInput<'a> {
     /// Whether the run's box sizes to the run (v1.5). See
     /// [`RawAnchor::content_sized`].
     pub content_sized: bool,
+    /// Whether the run's box height is the run's line box (v1.6). See
+    /// [`RawAnchor::line_sized`].
+    pub line_sized: bool,
 }
 
 /// Records a text-painting anchor.
@@ -187,6 +206,7 @@ pub(crate) fn text_facts(input: &TextInput) -> RawAnchor {
         border_width: px(0.0),
         border_color: None,
         content_sized: input.content_sized,
+        line_sized: input.line_sized,
     }
 }
 
@@ -429,7 +449,33 @@ mod tests {
             content: "resolve-terminal-connection.ts".into(),
             shaped_width: px(shaped),
             content_sized: false,
+            line_sized: false,
         }
+    }
+
+    /// v1.5 and v1.6 are the component's claims, carried through untouched and
+    /// independently: this crate never inspects a style to decide either.
+    #[test]
+    fn the_declarations_reach_the_record_without_being_second_guessed() {
+        let style = TextStyle::default();
+        let mut input = a_text_input(&style, 200.0, 186.5, the_window());
+        input.line_sized = true;
+
+        let record = text_facts(&input);
+
+        assert!(record.line_sized);
+        assert!(!record.content_sized);
+        // A box never claims either on its own: `box_facts` folds in nothing
+        // and the element that carries the claim overwrites it.
+        let boxed = box_facts(
+            "panel".into(),
+            a_box(),
+            the_window(),
+            &Style::default(),
+            px(16.0),
+        );
+        assert!(!boxed.line_sized);
+        assert!(!boxed.content_sized);
     }
 
     #[test]

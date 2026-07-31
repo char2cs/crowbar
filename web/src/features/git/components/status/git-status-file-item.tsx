@@ -67,6 +67,15 @@ export const GitFileItem = ({
         className="relative z-1 flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden"
         title={file.path}
       >
+        {/*
+          `data-oracle-line-sized` on both spans, per `native/oracle/ANCHORS.md`
+          v1.6: each is a blockified flex item holding one line, so its border
+          box *is* its line box — which WebKit floors to a whole logical pixel
+          (14 × 1.35 = 18.9 → 18) where GPUI snaps it to the device grid (→ 19).
+          The differ therefore takes `bounds.h` against `font.line_height`. The
+          same four ids are declared on the GPUI side in `crowbar-ui`'s
+          `LINE_SIZED`; the badge is deliberately not one of them.
+        */}
         <span
           className={cn(
             'min-w-0 truncate leading-[1.35]',
@@ -74,6 +83,7 @@ export const GitFileItem = ({
             'text-foreground',
           )}
           data-oracle-id="git-row-name"
+          data-oracle-line-sized="true"
         >
           {fileName}
         </span>
@@ -81,6 +91,7 @@ export const GitFileItem = ({
           <span
             className="ui-text-sm min-w-0 flex-1 truncate leading-[1.35] text-muted-foreground/80"
             data-oracle-id="git-row-dir"
+            data-oracle-line-sized="true"
           >
             {directory}
           </span>
@@ -96,6 +107,14 @@ export const GitFileItem = ({
           GPUI side in `crowbar-ui`'s `CONTENT_SIZED`. `git-row-name` is
           deliberately not one of them: it is the flexible sibling that absorbs
           the excess.
+
+          The two counts additionally carry `data-oracle-line-sized` (v1.6):
+          they are bare runs, so their height is their line box. **The badge
+          does not**, and that is measured rather than assumed: `size="sm"`
+          gives it `h-5 sm:h-4`, so its border box is authored at 20px or 16px
+          around a 13.33px line box. Declaring it would compare 16 against
+          13.33 and invent a delta on an anchor where the archived gate run has
+          both engines at exactly 16.
         */}
         {uncommitted && (
           <Badge
@@ -119,6 +138,7 @@ export const GitFileItem = ({
                 className="text-git-added"
                 data-oracle-id="git-row-added"
                 data-oracle-content-sized="true"
+                data-oracle-line-sized="true"
               >
                 +{diffStats.additions}
               </span>
@@ -128,6 +148,7 @@ export const GitFileItem = ({
                 className="text-git-deleted"
                 data-oracle-id="git-row-deleted"
                 data-oracle-content-sized="true"
+                data-oracle-line-sized="true"
               >
                 -{diffStats.deletions}
               </span>

@@ -72,6 +72,28 @@ pub const ID_DELETED: &str = "git-row-deleted";
 /// two do not drift.
 pub const CONTENT_SIZED: [&str; 3] = [ID_BADGE, ID_ADDED, ID_DELETED];
 
+/// The anchors on this row whose **box height is their own line box**
+/// (`native/oracle/ANCHORS.md` v1.6).
+///
+/// Every bare text span on the row, and only those. Each is a blockified flex
+/// item holding one line of text, so its border box is exactly the line box —
+/// which `WebKit` floors to a whole logical pixel and gpui snaps to the device
+/// grid, landing them up to a pixel apart on the same 18.9px number.
+///
+/// **`git-row-badge` is deliberately absent, and this is the trap.** It is a
+/// single line of text in a box, which reads like the same case, but `sm:h-4`
+/// pins its border box at 16px around a 13.33px line box: the height is
+/// authored, not derived. Declaring it would compare 16 against 13.33 and
+/// manufacture a 2.67px delta on an anchor where both engines already agree —
+/// the archived gate run has the badge at exactly 16 on both sides. The
+/// evidence is in `oracle/runs/`; do not add it back on the grounds that it
+/// paints text.
+///
+/// Written down as data for the same reason [`CONTENT_SIZED`] is: the same ids
+/// have to be declared on the React side, and a list is the only thing the two
+/// can be diffed against.
+pub const LINE_SIZED: [&str; 4] = [ID_NAME, ID_DIR, ID_ADDED, ID_DELETED];
+
 /// One indent guide, per level: `git-row-guide-0`, `git-row-guide-1`, …
 ///
 /// Zero-based, matching the React `level` index that produces the `left`
@@ -85,26 +107,74 @@ pub fn guide_id(level: u16) -> SharedString {
 /// unitless, so it resolves against each element's own font size.
 const LINE_HEIGHT: f32 = 1.35;
 
+/// Tailwind's stock `--breakpoint-sm`, in logical px.
+///
+/// A **viewport** width, not a container width: the generated rule is
+/// `@media (width >= 40rem)`, and `40rem` in a media query resolves against the
+/// initial font size rather than the document's, so it is 640 CSS px whatever
+/// the page does to `html { font-size }`.
+pub const BREAKPOINT_SM: f32 = 640.0;
+
+/// Which side of [`BREAKPOINT_SM`] the viewport is on.
+///
+/// gpui has no media queries, so a `sm:` variant has to be resolved by asking
+/// the question CSS would have asked. Making it a type rather than a bare `f32`
+/// on the row is what keeps that question from being answered twice, differently
+/// — the surface width and the viewport width are separate quantities here, and
+/// conflating them is how a reference captured at a 569px viewport came to be
+/// compared against a native row rendering the ≥640px variant.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Breakpoint {
+    /// Viewport narrower than [`BREAKPOINT_SM`]: the unprefixed utilities.
+    Base,
+    /// Viewport at or above [`BREAKPOINT_SM`]: the `sm:` utilities win.
+    ///
+    /// The default, because a real Crowbar window is wider than 640px and a
+    /// caller that has not thought about the viewport should get the variant
+    /// the app actually renders.
+    #[default]
+    Sm,
+}
+
+impl Breakpoint {
+    /// The breakpoint a viewport of this width selects.
+    ///
+    /// `>=`, exactly as `(width >= 40rem)` says: 640 itself is `sm`.
+    #[must_use]
+    pub fn of(viewport_width: f32) -> Self {
+        if viewport_width >= BREAKPOINT_SM {
+            Self::Sm
+        } else {
+            Self::Base
+        }
+    }
+}
+
 /// The badge's `sm:text-[.625rem]` — an arbitrary Tailwind value with no token
 /// behind it. `--ui-text-xs` is 0.6875rem and is a different number.
-///
-/// See [`BADGE_HEIGHT`] for why the `sm:` half of the pair is the right one.
-const BADGE_TEXT: f32 = 0.625;
+const BADGE_TEXT_SM: f32 = 0.625;
 
-/// `sm:h-4` / `sm:min-w-4` on `Badge size="sm"`, in rems.
+/// The badge's unprefixed `text-xs` — Tailwind's stock `--text-xs`, 0.75rem.
 ///
-/// **The `sm:` variant, deliberately, and this was contested.** Compiling the
-/// app's own `index.css` through its own Tailwind gives
+/// See [`Breakpoint`]: this is what a viewport **narrower** than 640px gets.
+const BADGE_TEXT_BASE: f32 = 0.75;
+
+/// `sm:h-4` / `sm:min-w-4` on `Badge size="sm"`, in rems — the variant a
+/// viewport ≥ 640px gets.
+///
+/// **Which variant applies is a property of the viewport, not of this
+/// component, and it was contested.** Compiling the app's own `index.css`
+/// through its own Tailwind gives
 ///
 /// ```text
+/// .h-5                { height: calc(var(--spacing) * 5) }
 /// .sm\:h-4            { @media (width >= 40rem) { height: calc(var(--spacing) * 4) } }
 /// .sm\:text-\[\.625rem\] { @media (width >= 40rem) { font-size: .625rem } }
 /// ```
 ///
 /// — a plain **viewport** media query at 640px. Nothing in this app redefines
-/// `--breakpoint-sm` (it is Tailwind's stock `40rem`), so every window wider
-/// than 640px gets these values and the narrow `h-5` / `text-xs` pair is
-/// unreachable in a real Crowbar window.
+/// `--breakpoint-sm` (it is Tailwind's stock `40rem`) or `--spacing` (0.25rem),
+/// so the pair is 20px/12px below 640 and 16px/10px at or above it.
 ///
 /// Both variants have been measured live off the *same* React row, which is
 /// what settled it: one reference capture reports the badge at 74.11×16 with a
@@ -114,10 +184,16 @@ const BADGE_TEXT: f32 = 0.625;
 /// gained. That is the breakpoint being crossed, not a component difference:
 /// **the second capture was taken in a webview narrower than 640px.**
 ///
-/// A snapshot to compare against this therefore has to come from a reference
-/// window ≥ 640px wide. Matching the narrow numbers here would converge the
-/// gate on a reference the real app never renders.
-const BADGE_HEIGHT: f32 = 1.0;
+/// Neither is "the right one": the row renders whichever the viewport selects,
+/// and it is [`GitStatusRow::breakpoint`] that carries the answer, so a
+/// comparison is against a reference captured at the *same* viewport. Hard-
+/// coding one and comparing it to a capture taken at the other is exactly the
+/// mistake that produced four geometry deltas belonging to neither side.
+const BADGE_HEIGHT_SM: f32 = 1.0;
+
+/// The badge's unprefixed `h-5` / `min-w-5` — `calc(0.25rem * 5)`, i.e. 20px.
+/// See [`BADGE_HEIGHT_SM`].
+const BADGE_HEIGHT_BASE: f32 = 1.25;
 
 /// `px-[calc(--spacing(1)-1px)]` — 4px minus the 1px border, in pixels because
 /// that is how the arithmetic is written.
@@ -281,6 +357,13 @@ pub struct GitStatusRow {
     pub trailing: TrailingContent,
     /// The visual state, as a parameter — see [`RowState`].
     pub state: RowState,
+    /// Which side of [`BREAKPOINT_SM`] the **viewport** is on.
+    ///
+    /// A parameter for the same reason [`RowState`] is: gpui resolves no media
+    /// queries, so the answer has to arrive from whatever knows the viewport.
+    /// It is not the surface width — a 294px sidebar in a 1200px window is
+    /// [`Breakpoint::Sm`].
+    pub breakpoint: Breakpoint,
 }
 
 impl GitStatusRow {
@@ -302,6 +385,7 @@ impl GitStatusRow {
                 compact: false,
             },
             state: RowState::resting(),
+            breakpoint: Breakpoint::default(),
         }
     }
 
@@ -398,16 +482,16 @@ impl GitStatusRow {
             .flex_1()
             .min_w_0()
             .overflow_hidden()
-            .child(
-                self.name_span(theme)
-                    .child(anchors.text(ID_NAME.into(), SharedString::from(name.to_owned()))),
-            );
+            .child(self.name_span(theme).child(anchors.text(
+                AnchorId::new(ID_NAME).line_sized(),
+                SharedString::from(name.to_owned()),
+            )));
 
         if shows_directory_span(self.show_directory, directory) {
-            container = container.child(
-                Self::directory_span(theme)
-                    .child(anchors.text(ID_DIR.into(), SharedString::from(directory.to_owned()))),
-            );
+            container = container.child(Self::directory_span(theme).child(anchors.text(
+                AnchorId::new(ID_DIR).line_sized(),
+                SharedString::from(directory.to_owned()),
+            )));
         }
 
         container
@@ -455,8 +539,10 @@ impl GitStatusRow {
 
         if self.trailing.uncommitted {
             group = group.child(anchors.boxed_text(
-                AnchorId::content_sized(ID_BADGE),
-                Self::badge(theme),
+                // Content-sized and **not** line-sized: the width comes from
+                // the word, the height from `h-4`/`h-5`. See [`LINE_SIZED`].
+                AnchorId::new(ID_BADGE).content_sized(),
+                self.badge(theme),
                 SharedString::new_static(BADGE_LABEL),
             ));
         }
@@ -470,27 +556,33 @@ impl GitStatusRow {
     /// label: the caller hands the string to [`AnchorSink::boxed_text`] so that
     /// the box and the run it contains reach the snapshot as one anchor.
     ///
-    /// At the `sm:` breakpoint — see [`BADGE_HEIGHT`], which records the
-    /// measurement that settles which variant this is.
-    fn badge(theme: &Theme) -> Div {
+    /// The height and the face come from [`GitStatusRow::breakpoint`] — see
+    /// [`BADGE_HEIGHT_SM`] for the measurement behind both pairs. Everything
+    /// else about the badge is the same at either viewport: the padding, the
+    /// radius and the tint are all unprefixed.
+    fn badge(&self, theme: &Theme) -> Div {
         let tint = if is_dark(theme) {
             BADGE_TINT_DARK
         } else {
             BADGE_TINT_LIGHT
+        };
+        let (height, text) = match self.breakpoint {
+            Breakpoint::Sm => (BADGE_HEIGHT_SM, BADGE_TEXT_SM),
+            Breakpoint::Base => (BADGE_HEIGHT_BASE, BADGE_TEXT_BASE),
         };
         div()
             .flex()
             .items_center()
             .justify_center()
             .flex_shrink_0()
-            .h(rems(BADGE_HEIGHT))
-            .min_w(rems(BADGE_HEIGHT))
+            .h(rems(height))
+            .min_w(rems(height))
             .px(px(BADGE_PADDING_X))
             .border_1()
             .border_color(Color::TRANSPARENT)
             .rounded(rems(BADGE_RADIUS))
             .bg(theme.warning.mix(tint, Color::TRANSPARENT))
-            .text_size(rems(BADGE_TEXT))
+            .text_size(rems(text))
             .text_color(theme.warning_foreground)
             .font_weight(FontWeight::MEDIUM)
             .whitespace_nowrap()
@@ -511,17 +603,19 @@ impl GitStatusRow {
         if self.trailing.additions > 0 {
             let label = SharedString::from(format!("+{}", self.trailing.additions));
             group = group.child(
-                div()
-                    .text_color(theme.git_added)
-                    .child(anchors.text(AnchorId::content_sized(ID_ADDED), label)),
+                div().text_color(theme.git_added).child(anchors.text(
+                    AnchorId::new(ID_ADDED).content_sized().line_sized(),
+                    label,
+                )),
             );
         }
         if self.trailing.deletions > 0 {
             let label = SharedString::from(format!("-{}", self.trailing.deletions));
             group = group.child(
-                div()
-                    .text_color(theme.git_deleted)
-                    .child(anchors.text(AnchorId::content_sized(ID_DELETED), label)),
+                div().text_color(theme.git_deleted).child(anchors.text(
+                    AnchorId::new(ID_DELETED).content_sized().line_sized(),
+                    label,
+                )),
             );
         }
         group
@@ -531,9 +625,10 @@ impl GitStatusRow {
 #[cfg(test)]
 mod tests {
     use super::{
-        AnchorId, CONTENT_SIZED, ContentLength, GitStatusRow, ID_BUTTON, ID_DIR, ID_ICON, ID_ITEM,
-        ID_NAME, NameSizing, TrailingContent, guide_id, name_sizing, shows_directory_span,
-        split_path,
+        AnchorId, BADGE_HEIGHT_BASE, BADGE_HEIGHT_SM, BADGE_TEXT_BASE, BADGE_TEXT_SM,
+        BREAKPOINT_SM, Breakpoint, CONTENT_SIZED, ContentLength, GitStatusRow, ID_ADDED, ID_BADGE,
+        ID_BUTTON, ID_DELETED, ID_DIR, ID_ICON, ID_ITEM, ID_NAME, LINE_SIZED, NameSizing,
+        TrailingContent, guide_id, name_sizing, shows_directory_span, split_path,
     };
 
     #[test]
@@ -662,7 +757,78 @@ mod tests {
         assert!(!CONTENT_SIZED.contains(&ID_ICON));
 
         for id in CONTENT_SIZED {
-            assert!(AnchorId::content_sized(id).content_sized, "{id}");
+            assert!(AnchorId::new(id).content_sized().content_sized, "{id}");
         }
+    }
+
+    /// v1.6. Every bare text span, and **not the badge**.
+    ///
+    /// The badge is the trap this test exists to hold shut: it is one line of
+    /// text in a box, which reads like the same case, but its height is
+    /// authored (`sm:h-4` → 16px) rather than derived from its 13.33px line
+    /// box. Declaring it would compare 16 against 13.33 and invent a 2.67px
+    /// delta on an anchor where the archived gate run has both sides at
+    /// exactly 16.
+    #[test]
+    fn every_bare_text_span_is_line_sized_and_the_badge_is_not() {
+        assert_eq!(
+            LINE_SIZED,
+            ["git-row-name", "git-row-dir", "git-row-added", "git-row-deleted"]
+        );
+        assert!(
+            !LINE_SIZED.contains(&ID_BADGE),
+            "the badge's height is h-4/h-5, not its line box"
+        );
+        for id in [ID_ITEM, ID_BUTTON, ID_ICON] {
+            assert!(!LINE_SIZED.contains(&id), "{id} paints no text");
+        }
+
+        for id in LINE_SIZED {
+            assert!(AnchorId::new(id).line_sized().line_sized, "{id}");
+        }
+
+        // The two counts are the overlap: their width is their advance width
+        // and their height is their line box, so they declare both.
+        for id in [ID_ADDED, ID_DELETED] {
+            assert!(CONTENT_SIZED.contains(&id) && LINE_SIZED.contains(&id), "{id}");
+        }
+        // And `git-row-name` is line-sized only: it is the flexible sibling
+        // that absorbs the ceil excess along the inline axis.
+        assert!(LINE_SIZED.contains(&ID_NAME) && !CONTENT_SIZED.contains(&ID_NAME));
+    }
+
+    /// The `sm:` pair is a **viewport** media query at Tailwind's stock
+    /// `40rem`, and `>=` means 640 itself is already `sm`.
+    #[test]
+    fn the_breakpoint_is_the_viewports_and_is_inclusive() {
+        assert!((BREAKPOINT_SM - 640.0).abs() < f32::EPSILON);
+        assert_eq!(Breakpoint::of(639.9), Breakpoint::Base);
+        assert_eq!(Breakpoint::of(640.0), Breakpoint::Sm);
+        assert_eq!(Breakpoint::of(1200.0), Breakpoint::Sm);
+        assert_eq!(Breakpoint::of(0.0), Breakpoint::Base);
+        // A real Crowbar window is wider than 640, so the default is the
+        // variant the app actually renders.
+        assert_eq!(Breakpoint::default(), Breakpoint::Sm);
+        assert_eq!(
+            GitStatusRow::fixture(ContentLength::Normal).breakpoint,
+            Breakpoint::Sm
+        );
+    }
+
+    /// The two variants, in the units the row states them in: 16px/10px above
+    /// the breakpoint and 20px/12px below it, against a 16px root.
+    ///
+    /// Both pairs were measured off the live React row — one capture at
+    /// 74.11×16 with a 10px face, one at 87.33×20 with a 12px face — and the
+    /// arithmetic here is the class list agreeing with the measurement rather
+    /// than substituting for it.
+    #[test]
+    fn the_badge_variants_are_the_measured_pairs() {
+        const ROOT: f32 = 16.0;
+
+        assert!((BADGE_HEIGHT_SM * ROOT - 16.0).abs() < f32::EPSILON, "sm:h-4");
+        assert!((BADGE_TEXT_SM * ROOT - 10.0).abs() < f32::EPSILON, "sm:text");
+        assert!((BADGE_HEIGHT_BASE * ROOT - 20.0).abs() < f32::EPSILON, "h-5");
+        assert!((BADGE_TEXT_BASE * ROOT - 12.0).abs() < f32::EPSILON, "text-xs");
     }
 }

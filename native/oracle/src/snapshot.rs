@@ -26,10 +26,16 @@
 //! - **A missing `bg` is named, not shrugged at** (§6, v1.2). The one legitimate
 //!   way it goes missing is a gradient fill, which v1 cannot represent, and the
 //!   contract requires a loud failure over a plausible substitute.
-//! - **`content_sized` is the one optional key whose absence has a meaning**
-//!   (v1.5). It defaults to `false` here rather than to `None`, because the
-//!   contract says absent *is* false. Everything else optional stays `Option`,
-//!   where "one side emitted it and the other did not" is a finding in itself.
+//! - **`content_sized` and `line_sized` are the optional keys whose absence has
+//!   a meaning** (v1.5, v1.6). They default to `false` here rather than to
+//!   `None`, because the contract says absent *is* false. Everything else
+//!   optional stays `Option`, where "one side emitted it and the other did not"
+//!   is a finding in itself.
+//! - **`line_sized` without a `font` is refused by name** (v1.6). The rule
+//!   compares `bounds.h` against `font.line_height`, so an anchor that declares
+//!   it and emits no font has asked for a comparison against nothing. Falling
+//!   back to `bounds.h` would turn the declaration into a silent no-op, which
+//!   is the one thing a declared flag must never be.
 //!
 //! No `f64` in this module is ever converted with a lossy `as` cast. The three
 //! integer-valued fields (`schema`, `state.width`, `font.weight`) go through
@@ -137,6 +143,17 @@ pub struct Anchor {
     /// `FieldPresence` delta, raised one layer up: a mis-declaration changes
     /// which target `bounds.w` is compared against, so it has to be visible.
     pub content_sized: bool,
+    /// Whether this anchor's box height **is** its own line box (v1.6).
+    ///
+    /// Declared and defaulted exactly as [`Anchor::content_sized`] is, and for
+    /// the same reasons. What it buys is different: `bounds.h` is compared
+    /// against [`Font::line_height`] — the fractional value — rather than
+    /// against the reference's `bounds.h`, because the two engines quantise
+    /// that one number differently and neither can produce the other's answer.
+    ///
+    /// An anchor that declares this **must** carry a [`Anchor::font`]; the
+    /// loader refuses one that does not, by name.
+    pub line_sized: bool,
 }
 
 /// The §8.3 matrix cell a snapshot was taken in.
@@ -395,6 +412,8 @@ pub enum LoadErrorKind {
     /// An anchor emitted no `bg` (§3 requires one; §6 says a gradient fill is
     /// why).
     MissingBackground(String),
+    /// An anchor declared `line_sized` and emitted no `font` (v1.6).
+    LineSizedWithoutFont(String),
 }
 
 impl fmt::Display for LoadErrorKind {
@@ -451,6 +470,14 @@ impl fmt::Display for LoadErrorKind {
                  `null`, not `#00000000` — so the document is rejected by name. A plausible \
                  substitute would compare as a real delta and send a reader hunting the wrong \
                  thing"
+            ),
+            Self::LineSizedWithoutFont(id) => write!(
+                f,
+                "anchor `{id}` declares `line_sized` but emits no `font`. ANCHORS.md v1.6 \
+                 compares a line-sized anchor's `bounds.h` against `font.line_height`, so \
+                 without a font there is no target to compare against. Falling back to \
+                 `bounds.h` would leave the declaration doing nothing and say so nowhere, which \
+                 is the one outcome a declared flag must never have"
             ),
         }
     }
@@ -758,6 +785,7 @@ fn anchor_at(value: &Value, path: &Path) -> Result<Anchor, LoadError> {
             "radius",
             "border",
             "content_sized",
+            "line_sized",
         ],
     )?;
 
@@ -775,7 +803,7 @@ fn anchor_at(value: &Value, path: &Path) -> Result<Anchor, LoadError> {
         });
     }
 
-    Ok(Anchor {
+    let anchor = Anchor {
         id,
         bounds: bounds_at(value, path)?,
         fg: if value.get("fg").is_none() {
@@ -827,7 +855,29 @@ fn anchor_at(value: &Value, path: &Path) -> Result<Anchor, LoadError> {
         } else {
             bool_at(value, path, "content_sized")?
         },
-    })
+        // v1.6: the same shape as `content_sized` — optional, absent means
+        // `false`, and still type-checked when it is present.
+        line_sized: if value.get("line_sized").is_none() {
+            false
+        } else {
+            bool_at(value, path, "line_sized")?
+        },
+    };
+
+    // v1.6. The rule needs a `font.line_height` to compare against, and an
+    // anchor that declares itself line-sized without one has asked for a
+    // comparison against nothing. Refused here, by anchor name, rather than
+    // quietly falling back to `bounds.h` — a fallback would make the
+    // declaration a no-op that announces nothing, which is exactly the class of
+    // silent divergence the flag is declared rather than detected to avoid.
+    if anchor.line_sized && anchor.font.is_none() {
+        return Err(LoadError {
+            path: path.child("line_sized").0,
+            kind: LoadErrorKind::LineSizedWithoutFont(anchor.id),
+        });
+    }
+
+    Ok(anchor)
 }
 
 #[cfg(test)]
@@ -884,7 +934,90 @@ mod tests {
         assert_eq!(a.radius, None);
         assert_eq!(a.border, None);
         assert!(!a.content_sized, "absent means false (v1.5)");
+        assert!(!a.line_sized, "absent means false (v1.6)");
         assert_eq!(snap.anchor("nope"), None);
+    }
+
+    /// v1.6. The same shape as `content_sized` — optional, absent *is* false,
+    /// and type-checked when present — with one rule of its own: it needs a
+    /// `font`, because `font.line_height` is the thing it compares against.
+    #[test]
+    fn line_sized_is_optional_defaults_to_false_and_is_still_a_boolean() {
+        const FONT: &str = r#""font":{"size":14,"weight":400,"family":"CalSansUI",
+                                     "line_height":18.9}"#;
+
+        let declared = with_anchor(&format!(
+            r##"{{"id":"a","bounds":{{"x":0,"y":0,"w":1,"h":19}},"bg":"#00000000",
+                 "visible":true,"text":"x","line_sized":true,{FONT}}}"##
+        ));
+        let snap = Snapshot::from_json(&declared).expect("valid");
+        assert!(snap.anchor("a").expect("present").line_sized);
+
+        // An explicit `false` and an absent key are the same fact.
+        let explicit = with_anchor(&format!(
+            r##"{{"id":"a","bounds":{{"x":0,"y":0,"w":1,"h":19}},"bg":"#00000000",
+                 "visible":true,"text":"x","line_sized":false,{FONT}}}"##
+        ));
+        let absent = with_anchor(&format!(
+            r##"{{"id":"a","bounds":{{"x":0,"y":0,"w":1,"h":19}},"bg":"#00000000",
+                 "visible":true,"text":"x",{FONT}}}"##
+        ));
+        assert_eq!(
+            Snapshot::from_json(&explicit).expect("valid"),
+            Snapshot::from_json(&absent).expect("valid"),
+        );
+
+        for bad in ["\"true\"", "1", "null"] {
+            let json = with_anchor(&format!(
+                r##"{{"id":"a","bounds":{{"x":0,"y":0,"w":1,"h":19}},"bg":"#00000000",
+                     "visible":true,"text":"x","line_sized":{bad},{FONT}}}"##
+            ));
+            let e = err_of(&json);
+            assert!(
+                matches!(e.kind, LoadErrorKind::WrongType { .. }),
+                "line_sized {bad}: {:?}",
+                e.kind
+            );
+            assert_eq!(e.path, "anchors[0].line_sized");
+        }
+
+        // The two flags are independent: declaring one says nothing about the
+        // other, and an anchor may carry both.
+        let both = with_anchor(&format!(
+            r##"{{"id":"a","bounds":{{"x":0,"y":0,"w":1,"h":19}},"bg":"#00000000",
+                 "visible":true,"text":"x","line_sized":true,"content_sized":true,{FONT}}}"##
+        ));
+        let snap = Snapshot::from_json(&both).expect("valid");
+        let a = snap.anchor("a").expect("present");
+        assert!(a.line_sized && a.content_sized);
+    }
+
+    /// v1.6: `line_sized` without a `font` is an **error naming the anchor**,
+    /// never a silent fallback to `bounds.h`. A fallback would leave the
+    /// declaration doing nothing and say so nowhere.
+    #[test]
+    fn a_line_sized_anchor_without_a_font_is_rejected_by_name() {
+        let json = with_anchor(
+            r##"{"id":"git-row-name","bounds":{"x":0,"y":0,"w":1,"h":19},"bg":"#00000000",
+                 "visible":true,"line_sized":true}"##,
+        )
+        .replace(r#""root":"a""#, r#""root":"git-row-name""#);
+        let e = err_of(&json);
+        assert_eq!(
+            e.kind,
+            LoadErrorKind::LineSizedWithoutFont("git-row-name".to_owned())
+        );
+        assert_eq!(e.path, "anchors[0].line_sized");
+        let rendered = e.to_string();
+        assert!(rendered.contains("git-row-name"), "{rendered}");
+        assert!(rendered.contains("font.line_height"), "{rendered}");
+
+        // An *undeclared* anchor with no font is still perfectly legal — the
+        // rule is about the declaration, not about anchors that paint no text.
+        let plain = with_anchor(
+            r##"{"id":"a","bounds":{"x":0,"y":0,"w":1,"h":19},"bg":"#00000000","visible":true}"##,
+        );
+        assert!(Snapshot::from_json(&plain).is_ok());
     }
 
     /// v1.5. Optional, defaults to `false`, and type-checked when present — an
@@ -1348,6 +1481,7 @@ mod tests {
                 allowed: "light, dark".to_owned(),
             },
             LoadErrorKind::MissingBackground("git-row-badge".to_owned()),
+            LoadErrorKind::LineSizedWithoutFont("git-row-name".to_owned()),
         ];
         for k in kinds {
             assert!(!k.to_string().is_empty(), "{k:?} rendered empty");

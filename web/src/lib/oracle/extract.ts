@@ -73,6 +73,31 @@ export interface OracleAnchor {
    * say nothing.
    */
   content_sized?: boolean
+  /**
+   * ANCHORS.md v1.6 — this anchor's box height **is** its own line box.
+   *
+   * The differ then compares `bounds.h` against this side's `font.line_height`
+   * — the fractional 18.9 — rather than against this side's `bounds.h`. It has
+   * to, because the two engines quantise that one number differently and
+   * neither can produce the other's: WebKit floors a line box to a whole
+   * logical pixel (14px × 1.35 = 18.9 → 18) where GPUI snaps it to the device
+   * grid (→ 19.0 at DPR 2).
+   *
+   * **Declared, never detected**, like `content_sized` and for a sharper
+   * reason. "One line of text and no explicit height" is exactly wrong for this
+   * row's own `<Badge>`: `sm:h-4` pins its border box at 16px around a 13.33px
+   * line box, so a detector would compare 16 against 13.33 and manufacture a
+   * 2.67px delta on an anchor where both engines already agree. So it comes off
+   * `data-oracle-line-sized`, authored next to `data-oracle-id`.
+   *
+   * An anchor that declares it **must** paint text: the differ refuses, by
+   * anchor name, a snapshot carrying `line_sized` without a `font`. This
+   * extractor does not soften that — a mis-authored attribute on a box has to
+   * be loud, not quietly dropped.
+   *
+   * Emitted **only when true**, exactly as `content_sized` is.
+   */
+  line_sized?: boolean
 }
 
 export type OracleTheme = 'light' | 'dark'
@@ -521,6 +546,26 @@ export function oracleContentSized(el: Element): boolean {
   return String(raw).trim().toLowerCase() !== 'false'
 }
 
+/**
+ * Whether the element declares its box height to be its own line box
+ * (ANCHORS.md v1.6).
+ *
+ * `data-oracle-line-sized` present and not literally `"false"` — the same three
+ * spellings {@link oracleContentSized} accepts, for the same reason: React
+ * renders `data-x={true}` as `="true"`, `data-x={false}` as `="false"`, and a
+ * bare attribute in hand-written markup arrives as `""`.
+ *
+ * A separate reader rather than a shared one taking the attribute name: these
+ * are two independent claims about an anchor, an element may make either, both
+ * or neither, and a helper parameterised by a string is one typo away from
+ * reading the wrong flag with nothing to catch it.
+ */
+export function oracleLineSized(el: Element): boolean {
+  const raw = el.getAttribute('data-oracle-line-sized')
+  if (raw === null) return false
+  return String(raw).trim().toLowerCase() !== 'false'
+}
+
 /** The element's *own* text nodes — never a descendant's. */
 export function oracleOwnTextNodes(el: Element): Text[] {
   const out: Text[] = []
@@ -841,6 +886,15 @@ export function extractSnapshot(options: ExtractOptions): OracleSnapshot {
       record.content_sized = true
     }
 
+    // v1.6, and emitted the same way and for the same reason. Written here
+    // rather than inside the text branch below on purpose: an author who puts
+    // `data-oracle-line-sized` on a box that paints no text has made a mistake,
+    // and the differ's job is to refuse that document by name. Emitting it only
+    // where a font happens to exist would swallow the mistake instead.
+    if (oracleLineSized(el)) {
+      record.line_sized = true
+    }
+
     const text = oracleOwnText(el)
     if (text.length > 0 && text.replace(/\s/g, '') !== '') {
       const fontSize = parseFloat(style.fontSize) || 0
@@ -916,6 +970,7 @@ const ORACLE_RUNTIME = [
   oracleRelativeBounds,
   oracleIsClipped,
   oracleContentSized,
+  oracleLineSized,
   oracleOwnTextNodes,
   oracleOwnText,
   oracleTextAdvanceWidth,

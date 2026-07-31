@@ -171,6 +171,20 @@ pub struct Anchor {
     /// should be readable against.
     #[serde(skip_serializing_if = "is_false")]
     pub content_sized: bool,
+    /// Whether this box's height **is** its own line box (v1.6).
+    ///
+    /// **Omitted when false**, for the same reason `content_sized` is: v1.6
+    /// defines the absent key and an explicit `false` as the same fact, and the
+    /// contract's wording ("an anchor may carry `line_sized: true`") is the one
+    /// an extractor should be readable against.
+    ///
+    /// An anchor that carries this **must** also carry a `font`, or the differ
+    /// refuses the document by name: the whole rule is a comparison against
+    /// `font.line_height`. Nothing here can emit one without the other — the
+    /// declaration rides on a text anchor, and a text anchor always emits the
+    /// whole font group.
+    #[serde(skip_serializing_if = "is_false")]
+    pub line_sized: bool,
 }
 
 /// `#[serde(skip_serializing_if)]` needs a path, and `bool::not` is not one
@@ -323,6 +337,7 @@ fn anchor_of(record: &RawAnchor, origin: crowbar_ui::gpui::Point<Pixels>) -> Anc
                 .map_or_else(|| color::TRANSPARENT.to_owned(), color::hex),
         },
         content_sized: record.content_sized,
+        line_sized: record.line_sized,
     }
 }
 
@@ -409,6 +424,7 @@ mod tests {
             border_width: px(0.0),
             border_color: None,
             content_sized: false,
+            line_sized: false,
         }
     }
 

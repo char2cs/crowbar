@@ -33,7 +33,7 @@ use std::fmt::Write as _;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::diff::{Report, diff};
+use crate::diff::{Forgiven, Forgiveness, Report, diff};
 use crate::snapshot::Snapshot;
 use crate::tolerance::Tolerances;
 
@@ -193,6 +193,7 @@ pub fn render(report: &Report) -> String {
         }
     }
     render_content_sizing(&mut s, report);
+    render_line_sizing(&mut s, report);
     s.push('\n');
     let _ = writeln!(s, "oracle: {}", report.summary());
     s
@@ -201,7 +202,8 @@ pub fn render(report: &Report) -> String {
 /// The v1.5 content-sizing section: what was declared, how much slack it
 /// bought, and every comparison that only passed because of it.
 ///
-/// Printed whenever anything was forgiven, and only then. ANCHORS.md §5 calls a
+/// Printed whenever a **v1.5** rule forgave something, and only then — v1.6's
+/// line-sizing has its own section below. ANCHORS.md §5 calls a
 /// silent widening the cheapest way to make a gate pass while telling you
 /// nothing — so the allowance is never applied without this section appearing,
 /// and the section names the anchors it came from so a reader can check the
@@ -212,7 +214,8 @@ pub fn render(report: &Report) -> String {
 /// whose reference width carried a fraction, and that is exactly what a
 /// contributor is. An integral declared width forgives nothing.
 fn render_content_sizing(s: &mut String, report: &Report) {
-    if report.forgiven.is_empty() {
+    let forgiven = by_rule(report, false);
+    if forgiven.is_empty() {
         return;
     }
     let sizing = &report.content_sizing;
@@ -235,9 +238,45 @@ fn render_content_sizing(s: &mut String, report: &Report) {
         crate::delta::px(crate::diff::round3(sizing.excess_px))
     );
     let _ = writeln!(s, " — {}", contributors.join(", "));
-    for forgiven in &report.forgiven {
-        let _ = writeln!(s, "  {forgiven}");
+    for entry in forgiven {
+        let _ = writeln!(s, "  {entry}");
     }
+}
+
+/// The v1.6 line-sizing section: every comparison that only passed because
+/// `bounds.h` was measured against the reference's `font.line_height`.
+///
+/// A section of its own rather than a line in the one above. The two rules
+/// forgive different things for different reasons — v1.5's a one-directional
+/// `ceil` on the inline axis, v1.6's two engines quantising the same line box —
+/// and a reader who has learnt one must not be able to skim the other as more
+/// of it.
+fn render_line_sizing(s: &mut String, report: &Report) {
+    let forgiven = by_rule(report, true);
+    if forgiven.is_empty() {
+        return;
+    }
+    let _ = writeln!(
+        s,
+        "\nline-sizing (ANCHORS.md v1.6): {} comparison(s) took bounds.h against the reference's \
+         font.line_height rather than its box height",
+        forgiven.len(),
+    );
+    for entry in forgiven {
+        let _ = writeln!(s, "  {entry}");
+    }
+}
+
+/// The forgiven comparisons under one of the two rules — v1.6's line-sizing
+/// when `line_sized`, v1.5's content-sizing otherwise.
+fn by_rule(report: &Report, line_sized: bool) -> Vec<&Forgiven> {
+    report
+        .forgiven
+        .iter()
+        .filter(|forgiven| {
+            matches!(forgiven.reason, Forgiveness::LineHeight { .. }) == line_sized
+        })
+        .collect()
 }
 
 fn read(path: &Path) -> Result<String, String> {

@@ -106,6 +106,72 @@ impl AnchorRegistry {
     }
 }
 
+/// What a component **declares** about an anchor that neither extractor can
+/// safely detect.
+///
+/// One value rather than a family of `anchor_*_sized` constructors, because the
+/// two flags are independent and the third combination is real: the gate row's
+/// `+n` count is content-sized *and* line-sized. Spelling that as
+/// `anchor_text_content_and_line_sized` would be the point at which the API
+/// starts hiding the thing it is supposed to make visible.
+///
+/// Every field defaults to `false`, so an ordinary `anchor(…)` declares
+/// nothing and the declaration appears only where a component states it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Declared {
+    /// The box **sizes to its own text** (`native/oracle/ANCHORS.md` v1.5).
+    ///
+    /// The differ compares such a box's `bounds.w` against `ceil(reference)`,
+    /// because gpui ceils a text run's max-content width and therefore cannot
+    /// produce the fraction the DOM keeps. It is declared rather than worked
+    /// out here, and the contract is emphatic about why: a heuristic here
+    /// (`width: None` plus a text child) and the DOM side's heuristic
+    /// (`width: auto` and not a stretched flex item) are both falsifiable by
+    /// flex-grow, and two extractors each guessing wrong in different
+    /// directions is invisible — it opens a blind spot or invents a delta and
+    /// announces neither.
+    pub content_sized: bool,
+    /// The box height **is** the run's line box
+    /// (`native/oracle/ANCHORS.md` v1.6).
+    ///
+    /// The differ then compares `bounds.h` against the reference's
+    /// `font.line_height` rather than against its box: `WebKit` floors a line
+    /// box to a whole logical pixel where gpui snaps it to the device grid, so
+    /// the two boxes differ by up to a pixel while the line box behind them is
+    /// the same number.
+    ///
+    /// Declared for a sharper reason than `content_sized`. "One text child and
+    /// no explicit height" is exactly wrong for the gate row's badge, whose
+    /// `sm:h-4` pins a 16px border box around a 13.33px line box — a detector
+    /// would compare 16 against 13.33 and invent a delta out of nothing.
+    pub line_sized: bool,
+}
+
+impl Declared {
+    /// Declares nothing. The resting state, and what [`anchor`] uses.
+    #[must_use]
+    pub const fn nothing() -> Self {
+        Self {
+            content_sized: false,
+            line_sized: false,
+        }
+    }
+
+    /// [`Declared::content_sized`].
+    #[must_use]
+    pub const fn content_sized(mut self) -> Self {
+        self.content_sized = true;
+        self
+    }
+
+    /// [`Declared::line_sized`].
+    #[must_use]
+    pub const fn line_sized(mut self) -> Self {
+        self.line_sized = true;
+        self
+    }
+}
+
 /// Opts an element into the snapshot under a stable semantic name.
 ///
 /// The wrapped element is drawn exactly as it would have been.
@@ -114,26 +180,20 @@ pub fn anchor<E>(id: impl Into<SharedString>, element: E) -> AnchoredBox
 where
     E: InteractiveElement + IntoElement + 'static,
 {
-    AnchoredBox::wrap(id, element, false, false)
+    AnchoredBox::wrap(id, element, false, Declared::nothing())
 }
 
-/// As [`anchor`], for a box that **sizes to its own text**
-/// (`native/oracle/ANCHORS.md` v1.5).
-///
-/// The differ compares such a box's `bounds.w` against `ceil(reference)`,
-/// because gpui ceils a text run's max-content width and therefore cannot
-/// produce the fraction the DOM keeps. It is an argument rather than something
-/// this crate works out, and the contract is emphatic about why: a heuristic
-/// here (`width: None` plus a text child) and the DOM side's heuristic
-/// (`width: auto` and not a stretched flex item) are both falsifiable by
-/// flex-grow, and two extractors each guessing wrong in different directions is
-/// invisible — it opens a blind spot or invents a delta and announces neither.
+/// As [`anchor`], carrying the component's [`Declared`] claims about the box.
 #[must_use]
-pub fn anchor_content_sized<E>(id: impl Into<SharedString>, element: E) -> AnchoredBox
+pub fn anchor_declared<E>(
+    id: impl Into<SharedString>,
+    element: E,
+    declared: Declared,
+) -> AnchoredBox
 where
     E: InteractiveElement + IntoElement + 'static,
 {
-    AnchoredBox::wrap(id, element, false, true)
+    AnchoredBox::wrap(id, element, false, declared)
 }
 
 /// As [`anchor`], and additionally the frame boundary: all geometry in a
@@ -144,7 +204,7 @@ pub fn anchor_root<E>(id: impl Into<SharedString>, element: E) -> AnchoredBox
 where
     E: InteractiveElement + IntoElement + 'static,
 {
-    AnchoredBox::wrap(id, element, true, false)
+    AnchoredBox::wrap(id, element, true, Declared::nothing())
 }
 
 /// Renders a string *and* records it as a text anchor.
@@ -153,33 +213,35 @@ where
 /// so `text` cannot drift from what is actually painted.
 #[must_use]
 pub fn anchor_text(id: impl Into<SharedString>, text: impl Into<SharedString>) -> AnchoredText {
-    text_anchor(id, text, false)
+    text_anchor(id, text, Declared::nothing())
 }
 
-/// As [`anchor_text`], for a run whose box is the run — see
-/// [`anchor_content_sized`].
+/// As [`anchor_text`], carrying the component's [`Declared`] claims about the
+/// run's box.
 ///
-/// This is the common case for a bare `StyledText`: gpui measures it at exactly
-/// `ceil(shaped advance)`, which is the ceil the contract models.
+/// A bare `StyledText` is normally both: gpui measures it at exactly
+/// `ceil(shaped advance)` wide — the ceil v1.5 models — and exactly one line
+/// box tall, which is what v1.6 models.
 #[must_use]
-pub fn anchor_text_content_sized(
+pub fn anchor_text_declared(
     id: impl Into<SharedString>,
     text: impl Into<SharedString>,
+    declared: Declared,
 ) -> AnchoredText {
-    text_anchor(id, text, true)
+    text_anchor(id, text, declared)
 }
 
 fn text_anchor(
     id: impl Into<SharedString>,
     text: impl Into<SharedString>,
-    content_sized: bool,
+    declared: Declared,
 ) -> AnchoredText {
     let content: SharedString = text.into();
     AnchoredText {
         id: id.into(),
         child: StyledText::new(content.clone()).into_any_element(),
         content,
-        content_sized,
+        declared,
     }
 }
 
@@ -187,7 +249,7 @@ fn text_anchor(
 pub struct AnchoredBox {
     id: SharedString,
     resets: bool,
-    content_sized: bool,
+    declared: Declared,
     style: Style,
     child: AnyElement,
 }
@@ -197,7 +259,7 @@ impl AnchoredBox {
         id: impl Into<SharedString>,
         mut element: E,
         resets: bool,
-        content_sized: bool,
+        declared: Declared,
     ) -> Self
     where
         E: InteractiveElement + IntoElement + 'static,
@@ -218,7 +280,7 @@ impl AnchoredBox {
         Self {
             id: id.into(),
             resets,
-            content_sized,
+            declared,
             style,
             child: element.into_any_element(),
         }
@@ -261,9 +323,10 @@ impl Element for AnchoredBox {
                 registry.clear();
             }
             registry.record(RawAnchor {
-                // The component's claim, folded onto the style's facts. See
+                // The component's claims, folded onto the style's facts. See
                 // `record::box_facts`.
-                content_sized: self.content_sized,
+                content_sized: self.declared.content_sized,
+                line_sized: self.declared.line_sized,
                 ..record::box_facts(
                     self.id.clone(),
                     bounds,
@@ -303,7 +366,7 @@ impl IntoElement for AnchoredBox {
 pub struct AnchoredText {
     id: SharedString,
     content: SharedString,
-    content_sized: bool,
+    declared: Declared,
     child: AnyElement,
 }
 
@@ -358,7 +421,8 @@ impl Element for AnchoredText {
                 line_height,
                 content: self.content.clone(),
                 shaped_width,
-                content_sized: self.content_sized,
+                content_sized: self.declared.content_sized,
+                line_sized: self.declared.line_sized,
             }));
         }
 

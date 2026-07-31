@@ -18,7 +18,9 @@
 mod support;
 
 use oracle::{Forgiveness, Snapshot, Tolerances, diff};
-use support::{BOX_AND_TEXT, EMPTY, REFERENCE, declare_content_sized, native, once};
+use support::{
+    BOX_AND_TEXT, EMPTY, REFERENCE, declare_content_sized, declare_line_sized, native, once,
+};
 
 /// Parse both sides and render the ranked deltas as strings.
 fn deltas_of(native_json: &str) -> Vec<String> {
@@ -962,6 +964,307 @@ fn a_declared_anchor_with_an_integral_width_is_not_reported_as_forgiven() {
     assert!(report.forgiven.is_empty());
     assert!(report.content_sizing.contributors.is_empty());
     assert!((report.content_sizing.excess_px - 0.0).abs() < f64::EPSILON);
+}
+
+/// **The gate row's last delta, and the rule that answers it.**
+///
+/// The same archived pair again, with v1.5's declarations *and* v1.6's, and
+/// nothing else. The files are untouched: every number below is still the one
+/// two live apps produced, and `runs/` is evidence rather than a fixture.
+///
+/// `git-row-name` is the whole point. The reference's box is 18.0 and the
+/// native one is 19.0 — a full pixel apart — and neither is wrong: `WebKit`
+/// floors the 18.9px line box to a whole logical pixel, GPUI snaps it to the
+/// device grid at DPR 2. Compared against the 18.9 they both came from, the
+/// native side is 0.1px out.
+#[test]
+fn declaring_line_sized_closes_the_gate_rows_last_delta() {
+    let (reference, native_side) = archived_v2();
+    let reference = declare_all(&reference);
+    let native_side = declare_all(&native_side);
+
+    let expected = Snapshot::from_json(&reference).expect("declared reference loads");
+    let actual = Snapshot::from_json(&native_side).expect("declared native loads");
+    let report = diff(&expected, &actual, &Tolerances::V1).expect("same cell");
+
+    assert!(
+        report.deltas.is_empty(),
+        "the gate row converges: {:?}",
+        report
+            .deltas
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+    );
+
+    // Exactly one comparison is forgiven by v1.6, and it says which number it
+    // was measured against and which one it was not.
+    let line_sized: Vec<String> = report
+        .forgiven
+        .iter()
+        .filter(|forgiven| matches!(forgiven.reason, Forgiveness::LineHeight { .. }))
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(
+        line_sized,
+        vec![
+            "git-row-name.bounds.h: 19.0, expected 18.0 (Δ +1.0, tol ±0.5) — forgiven: this \
+             anchor is declared line_sized, so ANCHORS.md v1.6 compares bounds.h against the \
+             reference's font.line_height of 18.9 rather than against its box height of 18.0 — \
+             both engines quantise that one fractional line box, WebKit by flooring it to a \
+             whole logical pixel and GPUI by snapping it to the device grid, and neither can \
+             produce the other's number"
+        ],
+    );
+
+    // `git-row-added` declares **both** flags and is forgiven by v1.5 alone:
+    // its line height is 16.2, which floors and snaps to the same 16, so the
+    // v1.6 rule changes nothing and correctly says nothing.
+    assert_eq!(report.forgiven_by_content_sizing(), 5);
+    assert_eq!(
+        report.summary(),
+        "PASS — 0 deltas over 10 anchors compared, 5 forgiven by v1.5 content-sizing \
+         (Σ ceil excess 1.73 px), 1 forgiven by v1.6 line-sizing (bounds.h against \
+         font.line_height)"
+    );
+
+    // Both sections are on screen, and they are two sections: a reader who has
+    // learnt one rule must not be able to skim the other as more of it.
+    let rendered = oracle::cli::render(&report);
+    assert!(
+        rendered.contains("content-sizing (ANCHORS.md v1.5)"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("line-sizing (ANCHORS.md v1.6)"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("1 comparison(s) took bounds.h against the reference's"),
+        "{rendered}"
+    );
+}
+
+/// **The declaration is the whole switch, on this axis too.**
+///
+/// v1.5's guard has a v1.6 twin, and it is the more important of the two: the
+/// line-height rule fires at *most* font sizes, because `leading-[1.35]` is
+/// used app-wide. If it could fire undeclared it would be a silent one-pixel
+/// widening of `bounds.h` on every snapshot ever taken.
+#[test]
+fn nothing_is_line_sized_unless_it_says_so() {
+    let (reference, native_side) = archived_v2();
+    // v1.5's declarations only: the five ceil-derived deltas go, the vertical
+    // one stays, and it stays *as a delta*.
+    let reference = declare_content_sized(&reference, "git-row-badge");
+    let reference = declare_content_sized(&reference, "git-row-added");
+    let native_side = declare_content_sized(&native_side, "git-row-badge");
+    let native_side = declare_content_sized(&native_side, "git-row-added");
+
+    let report = diff(
+        &Snapshot::from_json(&reference).expect("valid"),
+        &Snapshot::from_json(&native_side).expect("valid"),
+        &Tolerances::V1,
+    )
+    .expect("same cell");
+
+    assert_eq!(
+        report
+            .deltas
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        vec!["git-row-name.bounds.h: 19.0, expected 18.0 (Δ +1.0, tol ±0.5)"]
+    );
+    assert!(
+        !report
+            .forgiven
+            .iter()
+            .any(|forgiven| matches!(forgiven.reason, Forgiveness::LineHeight { .. })),
+    );
+    assert!(
+        !oracle::cli::render(&report).contains("line-sizing"),
+        "no declaration means no section, or the section becomes noise"
+    );
+}
+
+/// A `line_sized` declaration only one side makes is a **`FieldPresence`
+/// delta**, and it buys nothing.
+///
+/// Same direction as v1.5's: a mis-declaration must cost coverage, never hand
+/// it out. So the target does not move, and the ordinary §5 comparison still
+/// runs — the height delta is reported *alongside* the declaration one rather
+/// than hidden by it.
+#[test]
+fn a_one_sided_line_sized_declaration_is_a_contract_defect_that_forgives_nothing() {
+    let (reference, native_side) = archived_v2();
+
+    for (what, expected_json, actual_json, want) in [
+        (
+            "the native side alone",
+            reference.clone(),
+            declare_line_sized(&native_side, "git-row-name"),
+            "git-row-name.line_sized: true, expected false (declared, exact). The two extractors \
+             disagree on whether this anchor's height is its own line box, so one of them is \
+             comparing bounds.h against the wrong target",
+        ),
+        (
+            "the reference alone",
+            declare_line_sized(&reference, "git-row-name"),
+            native_side.clone(),
+            "git-row-name.line_sized: false, expected true (declared, exact). The two extractors \
+             disagree on whether this anchor's height is its own line box, so one of them is \
+             comparing bounds.h against the wrong target",
+        ),
+    ] {
+        let report = diff(
+            &Snapshot::from_json(&expected_json).expect("valid"),
+            &Snapshot::from_json(&actual_json).expect("valid"),
+            &Tolerances::V1,
+        )
+        .expect("same cell");
+        let lines: Vec<String> = report.deltas.iter().map(ToString::to_string).collect();
+
+        assert!(report.forgiven.is_empty(), "{what}: {:?}", report.forgiven);
+        assert_eq!(
+            lines.first().map(String::as_str),
+            Some(want),
+            "{what}: the declaration mismatch outranks every geometry delta: {lines:?}",
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "git-row-name.bounds.h: 19.0, expected 18.0 (Δ +1.0, tol ±0.5)"),
+            "{what}: the plain §5 comparison still runs: {lines:?}",
+        );
+    }
+}
+
+/// The correction moves the *target*; it does not widen the tolerance around
+/// it, and it does not stop `bounds.h` being checked.
+///
+/// This is what v1.6 says it still catches: a wrong line count, stray padding,
+/// a wrong font size. All three move `bounds.h` well outside ±0.5 of the line
+/// height, and all three still land as deltas — quoting both numbers, so the
+/// line matches the snapshot a reader opens.
+#[test]
+fn a_line_sized_box_that_misses_the_line_height_is_still_a_delta() {
+    let reference = declare_line_sized(REFERENCE, "git-row-name");
+
+    // Two lines of an 17.5px line box against a box that says one.
+    let two_lines = once(&reference, "\"h\": 16.0", "\"h\": 35.0");
+    assert_eq!(
+        deltas_between(&reference, &two_lines),
+        vec![
+            "git-row-name.bounds.h: 35.0, expected 17.5 = the reference's font.line_height, not \
+             its bounds.h of 16.0 (Δ +17.5, tol ±0.5, line_sized)"
+        ]
+    );
+
+    // Half a pixel past the target, in both directions: §5's ±0.5 is kept in
+    // full around the moved expectation, so a sub-pixel height error is still
+    // caught — which is exactly what a looser tolerance would have given away.
+    let past = once(&reference, "\"h\": 16.0", "\"h\": 18.01");
+    assert_eq!(
+        deltas_between(&reference, &past),
+        vec![
+            "git-row-name.bounds.h: 18.01, expected 17.5 = the reference's font.line_height, not \
+             its bounds.h of 16.0 (Δ +0.51, tol ±0.5, line_sized)"
+        ]
+    );
+    let exactly_at = once(&reference, "\"h\": 16.0", "\"h\": 18.0");
+    assert!(deltas_between(&reference, &exactly_at).is_empty());
+}
+
+/// A reference whose box height already **is** its line height forgives
+/// nothing and says nothing.
+///
+/// The live case is `git-row-added`: L = 16.2, which floors and snaps to the
+/// same 16, so the rule changes no answer. Reporting it as "forgiven" would
+/// fill the section with entries that were never in doubt and train a reader
+/// to skip past the ones that were.
+#[test]
+fn a_line_sized_anchor_whose_box_already_matches_is_not_reported_as_forgiven() {
+    let reference = declare_line_sized(REFERENCE, "git-row-name");
+    // 16.0 against a 17.5 line height is 1.5 out, so pin the line height to
+    // the box first: this is the "both quantisations agree" case.
+    let reference = once(&reference, "\"line_height\": 17.5", "\"line_height\": 16.2");
+    let native_side = once(&reference, "\"h\": 16.0", "\"h\": 16.4");
+
+    let report = diff(
+        &Snapshot::from_json(&reference).expect("valid"),
+        &Snapshot::from_json(&native_side).expect("valid"),
+        &Tolerances::V1,
+    )
+    .expect("same cell");
+
+    assert!(report.deltas.is_empty());
+    assert!(report.forgiven.is_empty());
+}
+
+/// **The two rules do not touch each other**, which is the separation v1.6 is
+/// explicit about wanting.
+///
+/// v1.5's allowance is inline-axis only precisely so that a horizontal 1.73px
+/// slack cannot swallow this vertical 1.0px finding; v1.6's correction is
+/// vertical-only for the mirror reason. Asserted here from both sides: a
+/// content-sizing allowance big enough to cover a height error does not, and a
+/// line-sizing target does not travel to `bounds.w`.
+#[test]
+fn the_two_corrections_stay_on_their_own_axes() {
+    // A content-sized icon whose reference width carries a 0.4px fraction, so
+    // the snapshot's inline allowance is 0.4px …
+    let reference = declare_content_sized(REFERENCE, "git-row-icon");
+    let reference = once(&reference, "\"w\": 14.0", "\"w\": 14.6");
+    // … and a line-sized name whose box and line box agree, as a real one's do.
+    let reference = declare_line_sized(&reference, "git-row-name");
+    let reference = once(&reference, "\"line_height\": 17.5", "\"line_height\": 16.2");
+    let native_side = once(&reference, "\"w\": 14.6", "\"w\": 15.0");
+    // 0.7px of vertical error: past ±0.5, and *inside* ±0.5 + the 0.4px
+    // allowance. An allowance that crossed axes would have swallowed it.
+    let native_side = once(&native_side, "\"h\": 16.0", "\"h\": 16.9");
+
+    let report = diff(
+        &Snapshot::from_json(&reference).expect("valid"),
+        &Snapshot::from_json(&native_side).expect("valid"),
+        &Tolerances::V1,
+    )
+    .expect("same cell");
+
+    assert_eq!(
+        report
+            .deltas
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        vec![
+            "git-row-name.bounds.h: 16.9, expected 16.2 = the reference's font.line_height, not \
+             its bounds.h of 16.0 (Δ +0.7, tol ±0.5, line_sized)"
+        ]
+    );
+
+    // And the line height does not become a target for the *width*: a
+    // line-sized anchor's `bounds.w` is compared exactly as §5 says.
+    let wide = once(&reference, "\"w\": 118.0", "\"w\": 120.0");
+    assert_eq!(
+        deltas_between(&reference, &wide),
+        vec!["git-row-name.bounds.w: 120.0, expected 118.0 (Δ +2.0, tol ±0.5)"]
+    );
+}
+
+/// v1.5's declarations plus v1.6's, on the anchors the two live extractors
+/// declare them on.
+///
+/// `git-row-name` is line-sized and not content-sized: it is the flexible
+/// sibling that *absorbs* the ceil excess. `git-row-added` is both. The badge
+/// is content-sized and **not** line-sized — `sm:h-4` pins its border box at
+/// 16px, so its height is not derived from its 13.33px line box at all, and
+/// declaring it would compare 16 against 13.33 and invent a delta.
+fn declare_all(snapshot: &str) -> String {
+    let out = declare_content_sized(snapshot, "git-row-badge");
+    let out = declare_content_sized(&out, "git-row-added");
+    let out = declare_line_sized(&out, "git-row-added");
+    declare_line_sized(&out, "git-row-name")
 }
 
 /// The two archived snapshots of gate run 2, verbatim.

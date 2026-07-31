@@ -69,10 +69,20 @@
 //!   logical pixels and the DOM's fraction is a target this engine cannot hit.
 //!   The contract models that by comparing such a box against
 //!   `ceil(reference)`, which needs the anchor to say it is content-sized:
-//!   `anchor_content_sized` / `anchor_text_content_sized`. Guessing it from
-//!   `width: None` plus a text child is falsifiable by flex-grow, and a wrong
-//!   guess is invisible — it opens a blind spot or invents a delta and reports
-//!   neither.
+//!   `Declared::content_sized`, through `anchor_declared` /
+//!   `anchor_text_declared`. Guessing it from `width: None` plus a text child
+//!   is falsifiable by flex-grow, and a wrong guess is invisible — it opens a
+//!   blind spot or invents a delta and reports neither.
+//! * **`line_sized`** *(v1.6)* — **declared by the caller as well**, and for a
+//!   sharper reason. gpui snaps a line height to the *device* grid where
+//!   `WebKit` floors it to a whole logical pixel, so the two engines' boxes
+//!   round the same fractional line box in different directions and can land a
+//!   full pixel apart. The contract models that by comparing such a box's
+//!   `bounds.h` against the reference's `font.line_height` — which needs the
+//!   anchor to say its height *is* its line box: `Declared::line_sized`. A
+//!   detector ("one text child, no explicit height") would be plainly wrong on
+//!   the gate row's own badge, whose `sm:h-4` pins a 16px border box around a
+//!   13.33px line box, and would invent a 2.67px delta out of nothing.
 //! * **`radius` / `border.w`** — gpui carries four corners and four edges. v1
 //!   carries one of each, so these are the **top-left corner** and the **top
 //!   edge**. A surface with asymmetric corners or edges is silently
@@ -101,8 +111,8 @@ mod record;
 mod schema;
 
 pub use element::{
-    AnchorRegistry, AnchoredBox, AnchoredText, anchor, anchor_content_sized, anchor_root,
-    anchor_text, anchor_text_content_sized, install, registry,
+    AnchorRegistry, AnchoredBox, AnchoredText, Declared, anchor, anchor_declared, anchor_root,
+    anchor_text, anchor_text_declared, install, registry,
 };
 pub use record::{FontFacts, Paint, RawAnchor, TextFacts};
 pub use schema::{

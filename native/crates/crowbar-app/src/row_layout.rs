@@ -50,9 +50,16 @@ impl Render for Surface {
 /// Lays the cell out in a real window and hands back what the extractor
 /// recorded — folded, so what these assertions see is what a snapshot would
 /// carry.
+///
+/// The window is the cell's **viewport**, exactly as `RowSurface::window_size`
+/// makes it in the app. Sizing it to some fixed 1200px instead would let a
+/// surface wider than the window pass unnoticed here and clip in the real
+/// binary, and it would make the harness and the thing it measures two
+/// different configurations.
 fn measure(cx: &mut TestAppContext, cell: Cell) -> Vec<RawAnchor> {
     let anchors: AnchorRegistry = cx.update(crowbar_driver::install);
-    let _window = cx.open_window(size(px(1200.0), px(400.0)), |_, _| Surface(cell));
+    let window_width = cell.viewport_width_px();
+    let _window = cx.open_window(size(window_width, px(400.0)), |_, _| Surface(cell));
     cx.run_until_parked();
     fold_text_halves(anchors.records())
 }
@@ -441,6 +448,103 @@ fn the_trailing_group_declares_itself_content_sized_and_lands_on_whole_pixels(
             !find(&records, id).content_sized,
             "{id} must not declare it"
         );
+    }
+}
+
+/// `line_sized` reaches the recorded row, and every anchor that claims it is
+/// telling the truth (`native/oracle/ANCHORS.md` v1.6).
+///
+/// The claim is checkable here in a way it is not on paper: a line-sized box's
+/// height **is** its own line height, and the assertion below reads both off
+/// the same record. That is what makes the badge's absence from the list a
+/// measurement rather than an opinion — its 16px box sits around a 13.5px line
+/// box, two and a half pixels apart, so declaring it would have compared 16
+/// against the reference's 13.33 and invented a delta on an anchor where the
+/// archived gate run has both sides at exactly 16.
+#[gpui::test]
+fn every_bare_text_span_declares_line_sized_and_its_box_is_its_line_box(cx: &mut TestAppContext) {
+    use crowbar_ui::components::LINE_SIZED;
+
+    let records = measure(cx, Cell::default());
+
+    for id in LINE_SIZED {
+        let record = find(&records, id);
+        assert!(record.line_sized, "{id} did not reach the record declared");
+        let line_height = record.text.expect("paints text").font.line_height;
+        assert_px(relative(&records, id).size.height, line_height);
+    }
+
+    for id in [
+        "git-row-item",
+        "git-row-button",
+        "git-row-icon",
+        "git-row-badge",
+        "git-row-guide-0",
+    ] {
+        assert!(!find(&records, id).line_sized, "{id} must not declare it");
+    }
+
+    // The badge, measured: its height is authored, not derived.
+    let badge = find(&records, "git-row-badge");
+    let badge_line = badge.text.expect("the badge paints its label").font.line_height;
+    assert_px(badge.bounds.size.height, px(16.0));
+    assert!(
+        (badge.bounds.size.height - badge_line).abs() > px(0.5),
+        "the badge's box is `sm:h-4`, not its line box: {:?} vs {badge_line:?}",
+        badge.bounds.size.height,
+    );
+}
+
+/// **`--viewport-width` selects the badge's `sm:` variant**, which is the whole
+/// reason the option exists.
+///
+/// Measured off the live reference at both viewports: 16px tall with a 10px
+/// face at or above 640, 20px tall with a 12px face below it. Everything else
+/// about the badge is unprefixed and must not move — a variant switch that also
+/// changed the radius or the border would be this component inventing a
+/// difference rather than reproducing one.
+#[gpui::test]
+fn the_viewport_width_selects_the_badges_breakpoint_variant(cx: &mut TestAppContext) {
+    let narrow = measure(cx, a_cell(&["--width", "294", "--viewport-width", "600"]));
+    let wide = measure(cx, a_cell(&["--width", "294", "--viewport-width", "800"]));
+
+    let below = find(&narrow, "git-row-badge");
+    let above = find(&wide, "git-row-badge");
+
+    assert_px(below.bounds.size.height, px(20.0));
+    assert_px(above.bounds.size.height, px(16.0));
+    assert_px(
+        below.text.clone().expect("paints text").font.size,
+        px(12.0),
+    );
+    assert_px(above.text.clone().expect("paints text").font.size, px(10.0));
+
+    // The unprefixed half of the badge is the same at both viewports.
+    assert_eq!(below.radius, above.radius);
+    assert_eq!(below.border_width, above.border_width);
+    assert_eq!(below.background, above.background);
+    assert_eq!(
+        below.text.expect("paints text").content,
+        above.text.expect("paints text").content,
+    );
+
+    // 640 itself is already `sm` — `(width >= 40rem)`, not `>`.
+    let at = measure(cx, a_cell(&["--width", "294", "--viewport-width", "640"]));
+    assert_px(find(&at, "git-row-badge").bounds.size.height, px(16.0));
+}
+
+/// The surface width does **not** select the variant. A 294px sidebar in an
+/// 800px window is the wide badge, exactly as the React original is — and
+/// conflating the two is what produced four geometry deltas belonging to
+/// neither side.
+#[gpui::test]
+fn the_surface_width_does_not_move_the_breakpoint(cx: &mut TestAppContext) {
+    for width in ["240", "294", "420"] {
+        let records = measure(cx, a_cell(&["--width", width]));
+        assert_px(
+            find(&records, "git-row-badge").bounds.size.height,
+            px(16.0),
+            );
     }
 }
 

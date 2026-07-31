@@ -15,10 +15,27 @@
 //!
 //! Every option has a default, so a bare `cargo run -p crowbar-app` renders a
 //! cell rather than a usage message.
+//!
+//! # `--width` and `--viewport-width` are two different quantities
+//!
+//! `--width` is the **surface**: how wide the row is drawn, which is the
+//! sidebar's width in the app being ported. `--viewport-width` is the
+//! **window**, which is what a CSS `@media (width >= 40rem)` asks about — so it
+//! is what selects the badge's `sm:` variant, and it is what goes into the
+//! snapshot's `state.width`.
+//!
+//! Conflating them has already cost a run: a reference captured in a 569px
+//! webview rendered the badge's narrow variant (20px tall, 12px face) against a
+//! native row drawing the wide one (16px / 10px), and the differ reported four
+//! geometry deltas that were neither side's fault. They are separate options
+//! here because the matrix needs to vary the viewport while holding the surface
+//! at the reference's fixed 294px sidebar.
 
 use std::fmt::Write as _;
 
-use crowbar_ui::components::{AnchorSink, ContentLength, GitStatusRow, RowState, TrailingContent};
+use crowbar_ui::components::{
+    AnchorSink, Breakpoint, ContentLength, GitStatusRow, RowState, TrailingContent,
+};
 use crowbar_ui::{Appearance, Theme};
 use gpui::{
     Context, IntoElement, ParentElement as _, Pixels, Render, SharedString, Size, Styled as _,
@@ -33,11 +50,24 @@ use gpui::{
 /// right at the origin proves nothing.
 pub const INSET_X: f32 = 24.0;
 
+/// [`INSET_X`] as a whole number of pixels, for the `u16` width arithmetic the
+/// command line works in. Held equal to it by `the_two_spellings_of_the_inset_agree`.
+const INSET_X_WHOLE: u16 = 24;
+
 /// The vertical inset. See [`INSET_X`].
 pub const INSET_Y: f32 = 16.0;
 
 /// The surface's name in a snapshot.
 pub const SURFACE: &str = "git-status-row";
+
+/// The default `--viewport-width`, in logical px.
+///
+/// Chosen for one reason: it has to be **at or above** Tailwind's 640px `sm`
+/// breakpoint, or introducing the option would silently change what every
+/// existing invocation renders — the badge would drop from `sm:h-4`/10px to
+/// `h-5`/12px and four geometry deltas would appear out of a flag nobody
+/// passed. 800 clears it with room and holds any surface the matrix drives.
+pub const DEFAULT_VIEWPORT_WIDTH: u16 = 800;
 
 /// Why a command line did not produce a cell.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -112,6 +142,14 @@ pub struct Cell {
     /// Surface width in logical pixels — the width the row is given, not the
     /// window's.
     pub width: u16,
+    /// Viewport width in logical pixels — the **window's**.
+    ///
+    /// This is the quantity a CSS media query asks about, so it is what selects
+    /// the badge's `sm:` variant, and it is what the snapshot reports as
+    /// `state.width`. It is not [`Cell::width`]: a 294px sidebar inside a
+    /// 1200px window is a 1200px viewport, and the row it renders is the wide
+    /// one.
+    pub viewport_width: u16,
     /// Which token table is in force.
     pub appearance: Appearance,
     /// Which of the three fixture strings the row shows.
@@ -147,6 +185,11 @@ impl Default for Cell {
     fn default() -> Self {
         Self {
             width: 320,
+            // Comfortably above Tailwind's 640px `sm` breakpoint, so every
+            // invocation written before `--viewport-width` existed keeps
+            // rendering the variant it was rendering — and wide enough to hold
+            // the default surface and its insets several times over.
+            viewport_width: DEFAULT_VIEWPORT_WIDTH,
             appearance: Appearance::Dark,
             content: ContentLength::Normal,
             flags: Vec::new(),
@@ -206,6 +249,7 @@ impl Cell {
         row.show_directory = self.show_directory;
         row.show_file_icon = self.show_file_icon;
         row.state = self.row_state();
+        row.breakpoint = self.breakpoint();
         row.trailing = if self.has(StateFlag::Empty) {
             TrailingContent::empty()
         } else {
@@ -231,6 +275,29 @@ impl Cell {
         px(f32::from(self.width))
     }
 
+    /// The viewport width, as gpui takes it. This is the window's width.
+    #[must_use]
+    pub fn viewport_width_px(&self) -> Pixels {
+        px(f32::from(self.viewport_width))
+    }
+
+    /// Which side of the `sm` breakpoint this cell's **viewport** is on.
+    #[must_use]
+    pub fn breakpoint(&self) -> Breakpoint {
+        Breakpoint::of(f32::from(self.viewport_width))
+    }
+
+    /// The narrowest window this cell's surface fits in without being clipped.
+    ///
+    /// A viewport narrower than this would cut the row at the window edge, and
+    /// the driver reports a box cut horizontally by its clip as `clipped` — so
+    /// every `clipped` in the snapshot would become an artefact of the window
+    /// size rather than a fact about the truncation the gate exists to measure.
+    #[must_use]
+    pub fn minimum_viewport(&self) -> u16 {
+        self.width.saturating_add(INSET_X_WHOLE * 2)
+    }
+
     /// A one-line description, for the caption and for stderr.
     #[must_use]
     pub fn describe(&self) -> String {
@@ -250,9 +317,12 @@ impl Cell {
         } else {
             names.join(",")
         };
+        // The viewport is named alongside the surface, not instead of it: they
+        // are different quantities and a caption that showed only one is how a
+        // reader concludes the badge changed size for no reason.
         let mut out = format!(
-            "{SURFACE} · {}px · {theme} · {content} · flags {flags} · depth {}",
-            self.width, self.depth,
+            "{SURFACE} · {}px in a {}px viewport · {theme} · {content} · flags {flags} · depth {}",
+            self.width, self.viewport_width, self.depth,
         );
         if !self.show_directory {
             out.push_str(" · no-directory");
@@ -279,6 +349,7 @@ impl Cell {
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--width" => cell.width = parse_u16(&value(&mut args, &arg)?)?,
+                "--viewport-width" => cell.viewport_width = parse_u16(&value(&mut args, &arg)?)?,
                 "--theme" => cell.appearance = parse_appearance(&value(&mut args, &arg)?)?,
                 "--content" => cell.content = parse_content(&value(&mut args, &arg)?)?,
                 "--flags" => cell.flags = parse_flags(&value(&mut args, &arg)?)?,
@@ -304,6 +375,23 @@ impl Cell {
             return Err(ParseError::Rejected(
                 "--width must be greater than zero".to_owned(),
             ));
+        }
+        // Rejected rather than clamped, and rather than drawn anyway. A window
+        // too narrow for the surface cuts the row at its edge, and the driver
+        // reports a box cut horizontally by its clip as `clipped` — so every
+        // `clipped` in the snapshot would be an artefact of the window size
+        // instead of a fact about the truncation this gate exists to measure.
+        // Clamping the window instead would leave `state.width` claiming a
+        // viewport the run was not taken at, which is the same lie one layer
+        // further down.
+        let minimum = cell.minimum_viewport();
+        if cell.viewport_width < minimum {
+            return Err(ParseError::Rejected(format!(
+                "--viewport-width {} is narrower than the {}px surface plus its {}px insets; \
+                 the row would be cut at the window edge and every `clipped` in the snapshot \
+                 would be an artefact of the window size. Give it at least {minimum}",
+                cell.viewport_width, cell.width, INSET_X_WHOLE,
+            )));
         }
         Ok(cell)
     }
@@ -370,6 +458,11 @@ pub fn usage() -> String {
     );
     for (option, description) in [
         ("--width <px>", "surface width, logical px [320]"),
+        (
+            "--viewport-width <px>",
+            "window width; selects the sm: breakpoint and is the snapshot's \
+             state.width [800]",
+        ),
         ("--theme light|dark", "token table [dark]"),
         (
             "--content short|normal|overflow",
@@ -415,13 +508,18 @@ impl RowSurface {
         }
     }
 
-    /// The window that holds the surface, its inset and the caption.
+    /// The window: **the viewport**, and tall enough for the row and its
+    /// caption.
+    ///
+    /// The width is `--viewport-width` verbatim rather than "whatever the
+    /// surface needs", because the window *is* the viewport a `sm:` variant
+    /// resolves against — a window sized to the surface would render the wide
+    /// badge in a run that asked for a narrow viewport. [`Cell::parse`] has
+    /// already refused a viewport too small to hold the surface, so this can
+    /// never be narrower than `surface + 2 × INSET_X`.
     #[must_use]
     pub fn window_size(cell: &Cell) -> Size<Pixels> {
-        size(
-            cell.width_px() + px(INSET_X * 2.0),
-            px(INSET_Y * 2.0 + 72.0),
-        )
+        size(cell.viewport_width_px(), px(INSET_Y * 2.0 + 72.0))
     }
 }
 
@@ -456,9 +554,12 @@ impl Render for RowSurface {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cell, ParseError, RowSurface, StateFlag, usage};
+    use super::{
+        Cell, DEFAULT_VIEWPORT_WIDTH, INSET_X, INSET_X_WHOLE, ParseError, RowSurface, StateFlag,
+        usage,
+    };
     use crowbar_ui::Appearance;
-    use crowbar_ui::components::ContentLength;
+    use crowbar_ui::components::{BREAKPOINT_SM, Breakpoint, ContentLength};
 
     fn parse(args: &[&str]) -> Result<Cell, ParseError> {
         Cell::parse(args.iter().map(|arg| (*arg).to_owned()))
@@ -479,6 +580,8 @@ mod tests {
         let cell = parse(&[
             "--width",
             "240",
+            "--viewport-width",
+            "600",
             "--theme",
             "light",
             "--content",
@@ -502,6 +605,7 @@ mod tests {
         .expect("a well-formed command line");
 
         assert_eq!(cell.width, 240);
+        assert_eq!(cell.viewport_width, 600);
         assert_eq!(cell.appearance, Appearance::Light);
         assert_eq!(cell.content, ContentLength::Overflow);
         assert_eq!(cell.flags, vec![StateFlag::Hover, StateFlag::Selected]);
@@ -584,6 +688,12 @@ mod tests {
             vec!["--width"],
             vec!["--width", "wide"],
             vec!["--width", "0"],
+            vec!["--viewport-width"],
+            vec!["--viewport-width", "wide"],
+            vec!["--viewport-width", "0"],
+            // Narrower than the surface plus its insets: the row would be cut
+            // at the window edge and every `clipped` would be an artefact.
+            vec!["--width", "294", "--viewport-width", "341"],
             vec!["--added"],
             vec!["--added", "some"],
             vec!["--deleted", "-1"],
@@ -608,6 +718,7 @@ mod tests {
         let usage = usage();
         for option in [
             "--width",
+            "--viewport-width",
             "--theme",
             "--content",
             "--flags",
@@ -686,6 +797,7 @@ mod tests {
 
         assert!(description.contains("git-status-row"));
         assert!(description.contains("420px"));
+        assert!(description.contains("800px viewport"), "{description}");
         assert!(description.contains("light"));
         assert!(description.contains("normal"));
         assert!(description.contains("hover"));
@@ -704,14 +816,84 @@ mod tests {
         );
     }
 
-    /// The window has to be wider than the surface, or the row is clipped and
-    /// every `clipped` in the snapshot is an artefact of the window size.
+    /// The window **is** the viewport — that is the whole point of the option,
+    /// because a `sm:` variant resolves against the window and not against the
+    /// surface. It is still always wide enough to hold the surface and its
+    /// insets, which `Cell::parse` guarantees rather than `window_size`
+    /// clamping after the fact.
     #[test]
-    fn the_window_holds_the_surface_and_its_inset() {
-        let cell = parse(&["--width", "420"]).expect("well-formed");
+    fn the_window_is_the_viewport_and_still_holds_the_surface() {
+        let cell = parse(&["--width", "420", "--viewport-width", "900"]).expect("well-formed");
         let window = RowSurface::window_size(&cell);
 
-        assert_eq!(window.width, cell.width_px() + gpui::px(48.0));
+        assert_eq!(window.width, cell.viewport_width_px());
+        assert_eq!(window.width, gpui::px(900.0));
+        assert!(window.width >= cell.width_px() + gpui::px(INSET_X * 2.0));
         assert!(window.height > gpui::px(24.0));
+
+        // At the tightest viewport the parser accepts, the surface exactly
+        // fills the window's insets and nothing is cut.
+        let tight = parse(&["--width", "294", "--viewport-width", "342"]).expect("well-formed");
+        assert_eq!(
+            RowSurface::window_size(&tight).width,
+            tight.width_px() + gpui::px(INSET_X * 2.0),
+        );
+        assert_eq!(tight.minimum_viewport(), 342);
+    }
+
+    /// The two spellings of the horizontal inset — `f32` for gpui, `u16` for
+    /// the command line's width arithmetic — are one number.
+    #[test]
+    fn the_two_spellings_of_the_inset_agree() {
+        assert!((f32::from(INSET_X_WHOLE) - INSET_X).abs() < f32::EPSILON);
+    }
+
+    /// **The surface and the viewport are independent**, which is what the
+    /// matrix needs: hold the sidebar at the reference's 294px and move the
+    /// window across the breakpoint.
+    #[test]
+    fn the_surface_and_the_viewport_move_independently() {
+        let narrow = parse(&["--width", "294", "--viewport-width", "600"]).expect("well-formed");
+        let wide = parse(&["--width", "294", "--viewport-width", "800"]).expect("well-formed");
+
+        assert_eq!(narrow.width, wide.width);
+        assert_ne!(narrow.viewport_width, wide.viewport_width);
+        assert_eq!(narrow.breakpoint(), Breakpoint::Base);
+        assert_eq!(wide.breakpoint(), Breakpoint::Sm);
+        // And the breakpoint reaches the row, which is where the badge reads it.
+        assert_eq!(narrow.row().breakpoint, Breakpoint::Base);
+        assert_eq!(wide.row().breakpoint, Breakpoint::Sm);
+
+        // The surface alone never moves it: a 294px row is the wide variant in
+        // an 800px window, exactly as the React original is.
+        for width in ["240", "294", "420"] {
+            let cell = parse(&["--width", width]).expect("well-formed");
+            assert_eq!(cell.breakpoint(), Breakpoint::Sm, "surface {width}");
+        }
+    }
+
+    /// The default clears the `sm` breakpoint, so introducing the option did
+    /// not silently change what every existing invocation renders.
+    #[test]
+    fn the_default_viewport_is_above_the_breakpoint() {
+        assert!(f32::from(DEFAULT_VIEWPORT_WIDTH) >= BREAKPOINT_SM);
+        assert_eq!(Cell::default().viewport_width, DEFAULT_VIEWPORT_WIDTH);
+        assert_eq!(Cell::default().breakpoint(), Breakpoint::Sm);
+        assert!(Cell::default().viewport_width >= Cell::default().minimum_viewport());
+    }
+
+    /// A rejected viewport says which two numbers disagreed and what to pass,
+    /// because "invalid" is not something anyone can act on.
+    #[test]
+    fn a_viewport_too_small_for_the_surface_names_the_number_it_needs() {
+        let Err(ParseError::Rejected(complaint)) =
+            parse(&["--width", "294", "--viewport-width", "300"])
+        else {
+            panic!("a 300px viewport cannot hold a 294px surface plus 48px of insets");
+        };
+        assert!(complaint.contains("300"), "{complaint}");
+        assert!(complaint.contains("294"), "{complaint}");
+        assert!(complaint.contains("342"), "{complaint}");
+        assert!(complaint.contains("clipped"), "{complaint}");
     }
 }
