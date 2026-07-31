@@ -299,6 +299,38 @@ states is meaningless and would be the easiest possible way to fake convergence.
 | `radius` | Corner radius px. Single value; if corners differ, emit the top-left and note it. | no |
 | `border` | Width px + colour. | no |
 
+### v1.9 is ASYMMETRIC: only the reference's box moves under a transform
+
+Established by P3.7 porting `spinner`, and it narrows v1.9 considerably.
+
+`animate-spin` animates `transform`, and the two sides treat that differently at
+the level the extractors read:
+
+| | does a rotation move the recorded `bounds`? |
+|---|---|
+| **WebKit** | **yes** — `getBoundingClientRect()` returns the *transformed* box. Measured: a 16×16 glyph reports `w 22.627` at 45°, a **6.63px** excursion against ±0.5 |
+| **GPUI** | **no** — rotation happens at *paint* (`Window::paint_path` tessellates into the scene without touching taffy), and the driver reads **layout** bounds at prepaint |
+
+So for an animated transform:
+
+- the **reference** must be pinned — `animation.pause(); currentTime = 0` — and a
+  careless capture is not merely noisy but *wrong nearly always*: four instants
+  per second are at rest and the other 996ms are not;
+- the **native side cannot get the instant wrong**, because the field never
+  moves. Verified twice: six consecutive `--surface spinner` emissions produced
+  **one** distinct file, and the *rotating* port's snapshots are **byte-identical**
+  to the earlier static port's on all three spinner surfaces.
+
+**This is why "the port must not animate" was the wrong conclusion and was
+reverted.** A spinner that does not spin fails §17's deliverable at a glance,
+and it bought nothing: the animation was never the reason the cell converged.
+The component animates; the capture is a chosen instant; those are separate
+concerns and they separate for free.
+
+> The general rule this leaves: **an animated property matters to the contract
+> only where the reading engine reports it.** Check which property animates
+> against which field the extractor reads — on *each* side, because they differ.
+
 ### An intrinsic aspect ratio quantises differently on each side *(v1.10 — a measured bound, not a rule)*
 
 Found by P3.8 porting `crowbar-wordmark`, the port's first element sized by an
