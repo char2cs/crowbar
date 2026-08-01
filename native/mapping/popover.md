@@ -112,7 +112,7 @@ rather than computed, so that the two boxes which genuinely **are** this
 primitive compare against a reference whose content is whatever it happens to
 be. `row_layout` pins the relationship at three body heights and three widths.
 
-## 4. ‼️ THE FINDING: `gpui-component`'s popup needs **two frames**, and the emit path gives it one
+## 4. THE FINDING: `gpui-component`'s popup needs **two frames** — fixed in P3.17
 
 `gpui_component::Popover::render`:
 
@@ -125,20 +125,23 @@ if !open || !trigger_bounds_captured { return el; }   // frame 1 stops here
 nothing else, whatever `open` says; the vendor then calls
 `window.request_animation_frame()` and frame 2 has the popup.
 
-`Window::request_animation_frame` is `on_next_frame(|_, cx| cx.notify(…))`. Both
-places that consume the popup deliver that one frame too late:
+`Window::request_animation_frame` is `on_next_frame(|_, cx| cx.notify(…))`. When
+this surface was written, both places that consume the popup delivered that one
+frame too late:
 
 | | mechanism | result |
 |---|---|---|
-| `crowbar-app --features driver` | `main.rs` emits from `window.on_next_frame`, and gpui runs **all** next-frame callbacks at the *top* of a frame request, before `window.draw`. The emit callback is registered first (at `open_window`) and calls `cx.quit()`. | registry holds frame 1 → **0 anchors** → `MissingRoot` |
+| `crowbar-app --features driver` | `main.rs` emitted from `window.on_next_frame`, and gpui runs **all** next-frame callbacks at the *top* of a frame request, before `window.draw`. The emit callback was registered first (at `open_window`) and called `cx.quit()`. | registry held frame 1 → **0 anchors** → `MissingRoot` |
 | `row_layout`'s shared `measure` | `open_window` + `run_until_parked`. gpui's own comment on `simulate_next_frame` says why: *"Tests have no platform frame loop"* — `run_until_parked` drives the executor, not the frame loop. | **0 anchors** (measured) |
 
-`row_layout/popover.rs` carries a **local** harness that calls
-`Window::simulate_next_frame` by hand, and asserts that the vendor really did
-ask for a frame — so the port is measured, and the second frame is visible in
-one file rather than hidden in the shared one. The driver has no such escape:
-the fix is in `main.rs`/`surface.rs`, which are shared, and is the
-orchestrator's call.
+**P3.17 fixed both**, on one signal rather than two frame counters: the capture
+is taken on the first completed draw that reproduced the previous completed
+draw's recorded anchors (`crowbar_driver::on_settled_frame` / `Settling`, and
+`crowbar-driver/src/frame.rs` for why that is the right frame). `main.rs` and
+`row_layout`'s shared `lay_out` both stop on it, so this surface emits from the
+binary — `popover-popup` 256 × 177 — and `row_layout/popover.rs` carries no
+local harness. Every §8.3 cell of every surface that existed before it is
+byte-identical.
 
 **This generalises to most of the §6.2 list.** Every `gpui-component` widget
 whose content is `deferred(anchored(…))` behind a captured trigger bound has the
@@ -156,7 +159,7 @@ one-frame capture would look like a port defect instead of a missing frame.
 | the popup box is **ours** | the vendor builds its content box inside the private `render_popover_content`. `AnchorSink` takes a `Div` this crate *holds*, so a box we never hold cannot carry an anchor. With `appearance(false)` the vendor's box paints nothing and ours is the visible popup. |
 | `ParentElement`, not `content` | `Popover::content` needs `F: … + 'static`; a component here holds `&dyn AnchorSink` with a lifetime. Children are already-built `AnyElement`s and land in the same box. |
 | `Trigger` | `Popover::trigger` needs `T: Selectable`, `gpui-component`'s own trait, which no gpui element implements. `PopoverTrigger` has no class list of its own, so the trigger here is an unstyled box that satisfies the bound. |
-| `gpui_component::init` | the wrap reaches `GlobalState` on the way to opening. `main.rs` calls it; the shared test harness does not, so this surface's tests call it themselves. |
+| `gpui_component::init` | the wrap reaches `GlobalState` on the way to opening. `main.rs` calls it, and since P3.17 so does the shared test harness — the harness runs the binary's configuration or it is measuring something else. |
 
 **Layers the wrap adds that base-ui does not:** a `v_flex().id("content")
 .occlude().tab_group()` with a `top_1()`. It paints nothing, and `row_layout`

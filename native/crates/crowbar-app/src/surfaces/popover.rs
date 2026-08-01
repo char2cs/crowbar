@@ -35,7 +35,7 @@
 //! popover, so the cell has no reference — which is a different thing from
 //! having no state, and the caption says which.
 //!
-//! # ⚠️ The frame this surface needs, which is not the frame the driver emits
+//! # The frame this surface needs, and where it now comes from
 //!
 //! `gpui_component::Popover` renders its popup **only after** the trigger's
 //! bounds have been captured — `if !open || !trigger_bounds_captured { return
@@ -44,9 +44,9 @@
 //! trigger and no popup; the vendor calls `window.request_animation_frame()` and
 //! frame 2 contains both.
 //!
-//! `main.rs` emits from `window.on_next_frame`, and gpui runs those callbacks at
-//! the **top** of a frame request, before `window.draw` — so the registry it
-//! reads is the previous draw's. **Measured, not inferred:**
+//! When this surface was written, both consumers gave it one frame. `main.rs`
+//! emitted from `window.on_next_frame`, which gpui runs at the **top** of a
+//! frame request, before `window.draw`:
 //!
 //! ```text
 //! $ CROWBAR_ROW_SNAPSHOT=… crowbar-app --surface popover
@@ -54,19 +54,20 @@
 //!              this frame; the anchors that were: []
 //! ```
 //!
-//! That is the right failure — loud, named, and nothing written — but it means
-//! **this surface cannot currently be captured by the driver**, and the fix is
-//! in `main.rs`/`surface.rs`, which are shared. `native/mapping/popover.md` §4
-//! carries the mechanism, the generalisation to the rest of the §6.2 list, and
-//! the decision.
+//! P3.17 replaced the frame *index* with a signal: the capture is taken on the
+//! first completed draw that reproduced the previous completed draw's anchors —
+//! `crowbar_driver::on_settled_frame`, documented in `crowbar-driver`'s
+//! `src/frame.rs`. The same signal drives the shared `row_layout` harness, which
+//! is why `row_layout/popover.rs` no longer carries a local copy of `measure_in`
+//! and why this surface now emits:
 //!
-//! The shared `row_layout` harness has the *same* problem for a different
-//! reason — gpui's own comment on `simulate_next_frame` is *"Tests have no
-//! platform frame loop"*, so `run_until_parked` drives the executor and not the
-//! frame loop, and it too records zero anchors. `row_layout/popover.rs`
-//! therefore carries a **local** harness that delivers the frame by hand, which
-//! is why the port's geometry is measured here even though the binary cannot
-//! emit it.
+//! ```text
+//! $ CROWBAR_ROW_SNAPSHOT=… crowbar-app --surface popover
+//! crowbar-app: snapshot written to …   # popover-popup 256 × 177
+//! ```
+//!
+//! `native/mapping/popover.md` §4 carries the mechanism and the generalisation
+//! to the rest of the §6.2 list, every one of which needed the same frame.
 
 use std::fmt::Write as _;
 

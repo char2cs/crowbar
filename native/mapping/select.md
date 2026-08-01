@@ -170,4 +170,7 @@ on frame 1, but sized off `SelectState.bounds`, which is still
 `Bounds::default()` until the trigger's `on_prepaint` — so the menu comes out
 **2px wide** (`bounds.size.width + px(2.)`) rather than absent. A one-frame
 capture would therefore look like a *port defect* rather than a missing frame.
-`native/mapping/popover.md` §4 carries the mechanism and the measurement.
+`native/mapping/popover.md` §4 carries the mechanism and the measurement, and
+P3.17's settled-frame capture is what removes it: the capture waits for the draw
+that reproduces the previous draw's anchors, by which point the trigger's bounds
+are real and the popup is its real width.

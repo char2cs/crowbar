@@ -16,15 +16,38 @@
 //! popup     256 × 177    border 1px  radius 10  bg --popover  16px/24px
 //! viewport  254 × 175    padding 16 on all four sides
 //! ```
+//!
+//! # This surface needs two frames, and the shared harness delivers them
+//!
+//! `gpui_component::Popover` is not a pure function of its props the way every
+//! surface before it was:
+//!
+//! ```text
+//! RenderOnce::render  →  if !open || !trigger_bounds_captured { return el; }
+//! trigger's on_prepaint  →  trigger_bounds = bounds
+//!                           trigger_bounds_captured = true
+//!                           window.request_animation_frame()
+//! ```
+//!
+//! `trigger_bounds_captured` is set in the trigger's `on_prepaint`, which runs
+//! *after* `render` has already returned — so frame 1 is the trigger and
+//! nothing else, whatever `open` says. The vendor asks for another frame, and on
+//! frame 2 the popup is in the tree.
+//!
+//! This file used to carry a local copy of `measure_in` to deliver it, because
+//! `row_layout`'s shared harness was one `open_window` and one
+//! `run_until_parked`. P3.17 moved the capability into that harness — `lay_out`
+//! waits for the first draw that reproduces the previous draw's anchors, which
+//! is the same signal the binary's own capture now stops on — so `measure` here
+//! is `super::measure` and there is nothing left to keep in step.
 
-use super::{Stage, a_cell, assert_px, find, ids, relative_to};
-use crowbar_driver::{AnchorRegistry, Paint, RawAnchor};
+use super::{a_cell, assert_px, find, ids, measure, relative_to};
+use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
 use crowbar_ui::components::popover;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
-use crate::driver_anchors::fold_text_halves;
-use crate::row_surface::{Cell, RowSurface};
+use crate::row_surface::Cell;
 
 /// A cell on this surface, with the selector already applied.
 fn cell(args: &[&str]) -> Cell {
@@ -36,63 +59,6 @@ fn cell(args: &[&str]) -> Cell {
 /// Bounds relative to *this* surface's root.
 fn at(records: &[RawAnchor], id: &str) -> Bounds<Pixels> {
     relative_to(records, popover::ID_POPUP, id)
-}
-
-/// **This surface needs two frames, and that is the item's finding.**
-///
-/// The shared `measure` is one `open_window` and a `run_until_parked`, which is
-/// one frame — and every surface so far has been a pure function of its props,
-/// so one frame was all any of them meant. `gpui_component::Popover` is not:
-///
-/// ```text
-/// RenderOnce::render  →  if !open || !trigger_bounds_captured { return el; }
-/// trigger's on_prepaint  →  trigger_bounds = bounds
-///                           trigger_bounds_captured = true
-///                           window.request_animation_frame()
-/// ```
-///
-/// `trigger_bounds_captured` is set in the trigger's `on_prepaint`, which runs
-/// *after* `render` has already returned — so frame 1 is the trigger and
-/// nothing else, whatever `open` says. The vendor asks for another frame, and
-/// on frame 2 the popup is in the tree.
-///
-/// `Window::request_animation_frame` is `on_next_frame(|_, cx| cx.notify(…))`,
-/// and gpui's own comment on `simulate_next_frame` says why that is invisible
-/// here: *"Tests have no platform frame loop"*. `run_until_parked` drives the
-/// executor, not the frame loop, so the callback never fires and the shared
-/// `measure` records **zero** anchors — measured, not inferred.
-///
-/// So this harness delivers the frame by hand. It is a local copy of
-/// `measure_in` rather than a change to it, for two reasons: no other surface
-/// should pay for a second frame it does not need, and the difference is
-/// exactly the thing worth being able to see in one file.
-///
-/// **The driver binary has the same problem and no such escape** — see
-/// `surfaces/popover.rs`'s module docs and `native/mapping/popover.md`.
-fn measure(cx: &mut TestAppContext, cell: Cell) -> Vec<RawAnchor> {
-    // `gpui_component::Popover` reaches `GlobalState` on the way to opening,
-    // and that global is installed by `gpui_component::init` — which `main.rs`
-    // calls and the shared harness does not.
-    cx.update(gpui_component::init);
-
-    let size = RowSurface::window_size(&cell);
-    let anchors: AnchorRegistry = cx.update(crowbar_driver::install);
-    let window = cx.open_window(size, |_, _| Stage(cell));
-    cx.run_until_parked();
-
-    window
-        .update(cx, |_, window, cx| {
-            let delivered = window.simulate_next_frame(cx);
-            assert!(
-                delivered > 0,
-                "the vendor asked for no second frame, so either it stopped needing one \
-                 or the popup stopped opening — both change what this file measures",
-            );
-        })
-        .expect("the window is open");
-    cx.run_until_parked();
-
-    fold_text_halves(anchors.records())
 }
 
 /// **The wrap renders at all**, and it renders the popup rather than only the
