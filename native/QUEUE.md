@@ -2670,23 +2670,57 @@ So a wrapped widget can only be measured if the vendor lets the caller supply an
 *element*; a `StyleRefinement` seam is not enough, because every box is then
 built inside the vendor's own `render` and never passes through this crate.
 
-I surveyed all of `vendor/gpui-component/src` myself for `impl ParentElement` and
-for `pub fn child|children|content|panel|item…`:
-
-| **element seam → measurable** | **style-only → NOT measurable by wrapping** |
-|---|---|
-| popover · dialog · sheet · sidebar · resizable · tree · table · form · title_bar · dock | **select · combobox · slider · switch · virtual_list · native_menu · focus_trap** |
-
 **A widget is wrappable-and-measurable exactly when it lets the caller supply an
 element, not merely a style.** Apply that test before starting any wrap item.
 
-For the right-hand column, §6.2 ("wrap it") and §17.1 ("every anchor converges")
-cannot both be satisfied by the obvious means. Wrapping a `div()` around such a
-widget yields one extra layer whose bounds merely *coincide* with the real box —
-it would compare a single box and read as converged, which is the fake
-convergence ANCHORS.md exists to refuse. **P3.16 is a spike on a third path**
-(gpui's `inspector` feature, which may expose post-paint bounds for elements we
-do not own). Until it reports, no style-only widget should be started.
+Where a widget is genuinely style-only, §6.2 ("wrap it") and §17.1 ("every anchor
+converges") cannot both be satisfied by the obvious means: wrapping a `div()`
+around it yields one extra layer whose bounds merely *coincide* with the real box,
+so a snapshot would compare a single box and read as converged — the fake
+convergence ANCHORS.md exists to refuse.
+
+**The list is 3, not 7 — my first survey was wrong.** I grepped for
+`impl ParentElement` and for `pub fn child|children|content|panel|item…`, which
+finds only the seam shapes I had already imagined. P3.16 caught three misses and
+one category error, each re-verified by me against the vendor:
+
+| widget | my verdict | actually |
+|---|---|---|
+| `focus_trap` | style-only | **element seam** — `fn focus_trap(self, …) -> FocusTrapContainer<Self>` where `Self: ParentElement + Styled + Element` (`focus_trap.rs:39`). The box *is* the caller's element, forwarded. |
+| `combobox` | style-only | **element seam** — `render_trigger<E: IntoElement>` (`:834`) and `footer<E: IntoElement>` (`:845`). Trigger anchorable; only the `SearchableList` popup/items are not. |
+| `virtual_list` | style-only | **element seam** — `v_virtual_list(view, id, sizes, f)`: the caller builds every row; only the scroll container is the vendor's. |
+| `native_menu` | style-only | **out of scope by kind** — it is an `NSMenu`. There is no element on *either* side, so ANCHORS cannot apply at all. |
+
+**Corrected — genuinely style-only: `select` · `slider` · `switch`.** And
+`switch` is already hand-built, so only **`select` and `slider`** are open, and
+`slider` has no reference captured yet.
+
+**Methodological lesson, worth more than the table:** a grep over a fixed list of
+member names finds the seams you already thought of. Extension methods that wrap
+the caller's element, closure seams under other names, and free functions taking
+a row builder are all invisible to it.
+
+#### ✅ P3.16 — the `inspector` path is REJECTED. Branch NOT merged.
+
+`native/p3.16-inspector-spike` @ `ea543b24`, kept for reference, **deliberately
+not merged** — its value is the knowledge, and merging would land a permanent
+gpui fork in a per-div hot path for a path we are not taking.
+
+| question | answer |
+|---|---|
+| what is recorded | **id only, and not retained.** `Drawable::prepaint` builds an `InspectorElementId` and keeps nothing. The one map that survives paint, `Frame::inspector_hitboxes`, is `pub(crate)` with no accessor and is written only under `is_inspector_picking`. **No bounds are stored anywhere.** |
+| coverage | vendor boxes yes — a `Select` layout probed **9 boxes, 7 built inside `gpui-component`**. But every gpui text element returns `source_location() -> None`, so **a text run has no identity at all** — killing `text`, `text_width`, `clipped`, `fg`, `font.*`. |
+| stable identity | **no.** `InspectorElementId` embeds `EntityId`s (process-global allocation order), including `NamedInteger("select", <entity id>)`. Normalising away the digits leaves `Name(…)` + `file:line:col` **in a pinned vendor file** — a `data-oracle-id` table keyed on `gpui-component` line numbers, i.e. §6.2's upgrade surface relocated into the oracle in its most brittle form. |
+| does it move geometry | **compiling it: no** — snapshots byte-identical, verified with `-C debug-assertions=off` so the feature was the only variable. **Activating the picker: yes** — `window.rs:2863` subtracts `rems(30.0)` from the root *before* layout, `1714 → 1234`. I verified both. Binary cost 42.6 MB → 73.6 MB (+73%). |
+
+**So the decision for `select` and `slider` is fork-vs-accept-unmeasured, not
+inspector.** Forking is already the house pattern and serves §6.2's *stated
+purpose* — "so the `gpui-component` upgrade surface is confined to one crate" —
+since a hand-built component does not depend on `gpui-component` at all. On HEAD
+only `spinner.rs` mentions `gpui_component`, and that is two doc comments.
+Recorded as an implementation deviation from §6.2's letter, with **no
+user-visible effect**, so it is not an §13 accepted delta and not a user
+decision.
 
 #### This retires one of the two recorded "violations"
 
@@ -2761,7 +2795,7 @@ progress number correspondingly too small.
 | Item | Branch | State |
 |---|---|---|
 | **P3.15** wrap `popover` + `select` | `native/p3-wrap-popover-select` @ `04ca276d` | ⏸ **HELD, not merged** — gates green by my own run, but I cannot capture it yet (see P3.17) |
-| **P3.16** gpui `inspector` spike | `native/p3.16-inspector-spike` | in flight — gates the 7 style-only widgets |
+| **P3.16** gpui `inspector` spike | `native/p3.16-inspector-spike` @ `ea543b24` | ✅ **REPORTED — path REJECTED, branch deliberately not merged.** Also corrected my seam survey 7 → 3 |
 | **P3.17** two-frame capture | `native/p3.17-two-frame-capture` | in flight — **blocks P3.15's verification** |
 | **P3.18** `oracleSurfaceScope` for popover/select | `native/p3.18-surface-scope-popover` @ `02b820c5` | ✅ **MERGED `5f8ec5cd`** — verified by my own run incl. all three mutations |
 
