@@ -113,7 +113,24 @@ fn main() -> ExitCode {
 }
 
 /// Opens the gate surface, and — in a driver build asked for a snapshot —
-/// emits one snapshot of the first frame and quits.
+/// emits one snapshot of the **settled** frame and quits.
+///
+/// # Not the first frame, and that is this function's whole subject
+///
+/// This used to be a bare `on_next_frame`, which delivers at the top of the
+/// platform's first frame request — after exactly one draw, the synchronous one
+/// `App::open_window` performs before it returns. That is one draw, and a
+/// deferred anchored popup is not in it: `gpui_component::Popover` renders its
+/// popup only once the trigger's `prepaint` has measured it, which is after
+/// `render` has returned, so the first draw is the trigger and nothing else and
+/// the run died with `the root anchor "popover-popup" was not recorded this
+/// frame`.
+///
+/// [`crowbar_driver::on_settled_frame`] replaces it with a signal instead of an
+/// index: the capture happens on the first completed draw that reproduced the
+/// previous completed draw's anchors. `crowbar-driver`'s `src/frame.rs`
+/// documents why that is the right frame and why a surface that was already
+/// correct is unaffected by it.
 #[cfg(feature = "driver")]
 fn open(cell: Cell, caption: String, cx: &mut App) -> gpui::Result<()> {
     let destination = row_snapshot::Destination::from_env();
@@ -122,20 +139,23 @@ fn open(cell: Cell, caption: String, cx: &mut App) -> gpui::Result<()> {
 
     cx.open_window(window_options(&cell), move |window, cx| {
         if let (Some(registry), Some(destination)) = (registry, destination) {
-            window.on_next_frame(move |window, cx| {
-                // The drawable area the platform **granted**, read off the frame
-                // that was just drawn rather than the size that was asked for.
-                // macOS constrains a window to its display, so the two are not
-                // the same number on a display too short for the cell — and a
-                // surface cut by the window is a snapshot `emit` must refuse
-                // rather than write. See `row_snapshot::cut_by_the_window`.
-                let granted = window.viewport_size();
-                row_snapshot::report(&row_snapshot::emit(
-                    &registry,
-                    &measured,
-                    &destination,
-                    granted,
-                ));
+            let watched = registry.clone();
+            crowbar_driver::on_settled_frame(window, &watched, move |frame, window, cx| {
+                let outcome = match frame {
+                    crowbar_driver::Observation::Settled => {
+                        // The drawable area the platform **granted**, read off
+                        // the frame that was just drawn rather than the size
+                        // that was asked for. macOS constrains a window to its
+                        // display, so the two are not the same number on a
+                        // display too short for the cell — and a surface cut by
+                        // the window is a snapshot `emit` must refuse rather
+                        // than write. See `row_snapshot::cut_by_the_window`.
+                        let granted = window.viewport_size();
+                        row_snapshot::emit(&registry, &measured, &destination, granted)
+                    }
+                    _ => Err(never_settled(&measured)),
+                };
+                row_snapshot::report(&outcome);
                 cx.quit();
             });
         }
@@ -143,6 +163,24 @@ fn open(cell: Cell, caption: String, cx: &mut App) -> gpui::Result<()> {
     })?;
     cx.activate(true);
     Ok(())
+}
+
+/// Why a cell whose picture never stopped moving gets no snapshot.
+///
+/// A refusal rather than a capture of whichever frame happened to be current: a
+/// snapshot is a statement about a surface at rest, and one taken mid-motion
+/// would compare against the reference's rest state and report deltas belonging
+/// to neither side. See `crowbar-driver`'s `UNSETTLED_FRAME_LIMIT`.
+#[cfg(feature = "driver")]
+fn never_settled(cell: &Cell) -> String {
+    format!(
+        "`{}` recorded a different frame on each of {} consecutive draws, so it has no settled \
+         picture to capture — its anchored geometry is a function of time, which a v1 snapshot \
+         cannot represent. Put the motion on an unanchored child, as `spinner` does. Nothing was \
+         written.",
+        cell.surface.name,
+        crowbar_driver::UNSETTLED_FRAME_LIMIT,
+    )
 }
 
 /// Opens the gate surface. The shipping build carries no oracle code at all.

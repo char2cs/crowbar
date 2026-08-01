@@ -78,17 +78,28 @@ impl Request {
     }
 }
 
-/// Opens a window on the driver surface, emits one snapshot of the first frame,
-/// and quits.
+/// Opens a window on the driver surface, emits one snapshot of the **settled**
+/// frame, and quits.
 ///
 /// Quitting is the point: this is a measurement, and a window left open after
 /// it would leave the caller waiting on a UI nobody is driving.
+///
+/// The settled frame rather than the first one, through the same
+/// [`crowbar_driver::on_settled_frame`] `main.rs` arms. This surface is static
+/// and its snapshot is byte-identical either way — but it is the fixture the
+/// extractor is proved against, and a fixture that captured on a different rule
+/// from the thing it proves would be proving the wrong rule.
 pub fn run(request: Request, cx: &mut App) {
     let anchors = crowbar_driver::install(cx);
 
     let opened = cx.open_window(window_options(), |window, cx| {
-        window.on_next_frame(move |_window, cx| {
-            report(&emit(&anchors, &request.destination));
+        let watched = anchors.clone();
+        crowbar_driver::on_settled_frame(window, &watched, move |frame, _window, cx| {
+            let outcome = match frame {
+                crowbar_driver::Observation::Settled => emit(&anchors, &request.destination),
+                _ => Err(never_settled()),
+            };
+            report(&outcome);
             cx.quit();
         });
         cx.new(|_| Surface)
@@ -143,6 +154,19 @@ fn emit(anchors: &AnchorRegistry, destination: &Destination) -> Result<PathBuf, 
             Ok(path.clone())
         }
     }
+}
+
+/// Why a surface whose picture never stopped moving gets no snapshot.
+///
+/// Unreachable for *this* surface, which is a handful of fixed boxes — but the
+/// refusal is written out rather than left as an `unreachable!()`, because a
+/// panic in a measurement binary is a stack trace where a sentence belongs.
+fn never_settled() -> String {
+    format!(
+        "the driver surface recorded a different frame on each of {} consecutive draws, so it \
+         has no settled picture to capture. Nothing was written.",
+        crowbar_driver::UNSETTLED_FRAME_LIMIT,
+    )
 }
 
 /// Says on stderr what happened, so a failed emit is never a silent one.

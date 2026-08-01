@@ -34,6 +34,14 @@
 //! println!("{}", snapshot.to_json()?);
 //! ```
 //!
+//! # Which frame
+//!
+//! Not the first one. A deferred, anchored popup — every one in
+//! `gpui-component` — is absent from the draw its trigger's `prepaint` is the
+//! first to measure, so a capture taken after one draw records a frame the popup
+//! is not in. [`on_settled_frame`] and [`Settling`] are the answer, and
+//! `src/frame.rs` documents the signal in full.
+//!
 //! # What gpui can and cannot supply
 //!
 //! Stated here rather than in a report, because the next person to read this
@@ -134,6 +142,7 @@
 
 mod color;
 mod element;
+mod frame;
 mod leak;
 mod record;
 mod schema;
@@ -142,6 +151,7 @@ pub use element::{
     AnchorRegistry, AnchoredBox, AnchoredText, Declared, anchor, anchor_declared, anchor_root,
     anchor_text, anchor_text_declared, install, registry,
 };
+pub use frame::{Observation, Settling, UNSETTLED_FRAME_LIMIT, on_settled_frame};
 pub use record::{FontFacts, Paint, RawAnchor, TextFacts};
 pub use schema::{
     Anchor, Border, Content, Flag, Font, Rect, SCHEMA, Snapshot, SnapshotError, SurfaceState, Theme,
