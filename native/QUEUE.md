@@ -2778,11 +2778,36 @@ re-litigated.
 | | |
 |---|---|
 | `components/ui/*.tsx` | 72 |
-| Plate-only, **never ported** | 26 |
-| **real port target** | **46** |
-| ported and on-target | **23** |
-| wasted (Plate) | **1** — `callout-node`, to be reverted |
-| **remaining** | **23** |
+| Plate-only by **filename** (`^block-\|-node$\|toolbar`) | 26 |
+| Plate-only by **dependency** — see below | 3 |
+| **real port target** | **43** |
+| ported and on-target | **26** |
+| ported but out of scope | **1** — `separator` |
+| **remaining** | **17** |
+
+#### ‼️ §3.2's filename pattern under-counts — three more are Plate-only
+
+The spec's rule catches files *named* like Plate nodes. It cannot catch a file
+that is generic in name and rendered **only** by one. Measured 2026-07-31 by
+resolving every importer of all 46 targets, via both `ui/X` and relative `./X`
+(my first pass used only the former and wrongly called two of these *dead*):
+
+| file | sole importer(s) | consequence |
+|---|---|---|
+| `inline-combobox` | `slash-node.tsx` | **comes off the `fuzzy_nucleo` list**, which is now 3: `autocomplete`, `command`, `search` |
+| `table-icons` | `table-node.tsx` | 685 lines of `BorderAll…`/`BorderBottom…` table-toolbar icons. **Comes off the wrap list.** |
+| `separator` | `toolbar.tsx`, `link-toolbar.tsx` | **already ported, out of scope** |
+
+`separator` explains a loose end from Wave 3, recorded then as *"`separator` and
+`skeleton` have no reference"*. It has no reference because **it never renders
+outside the webview**. Kept rather than reverted — unlike `callout-node` it is a
+genuinely generic primitive that native UI may yet use, and it is a few lines —
+but it is not counted toward the target and no reference will be sought for it.
+
+**The general rule, now part of the SCOPE GATE:** a file is in scope only if
+something outside the Plate set renders it. Resolve the importers; do not read
+the filename. Two of my three wave-4 briefs carried a stale premise, and this
+check is what catches that class before dispatch rather than after.
 
 **Tier B is ~50% of its real target, not the 11% I kept reporting.** My
 denominator was wrong in both directions at once: too large by 26, and the
