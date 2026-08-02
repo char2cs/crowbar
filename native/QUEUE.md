@@ -2824,6 +2824,91 @@ progress number correspondingly too small.
 | **P3.17** two-frame capture | `native/p3.17-two-frame-capture` @ `d465eb6d` · combined `native/p3.17-popover-reduction` @ `ecc6d242` | ✅ delivered — under my verification |
 | **P3.19** `sidebar` (wrap) | `native/p3.19-sidebar` @ `fe7dfaac` | ⏸ **HELD** — gates green, but no capture is possible (locked screen) |
 | **P3.20** `scroll-area` + `keybinding` | `native/p3.20-scroll-keybinding` @ `b8225e58` | ⏸ **HELD** — gates green; **references verified by me**, native half impossible |
+| **P3.21** wrap `dialog` + `sheet` | `native/p3.21-dialog-sheet` @ `54499247` | ⏸ **HELD** — gates green; **`dialog` reference verified by me**; `sheet` unreachable, no reference, no claim |
+| **P3.22** `tooltip` + `radio-group` | `native/p3.22-tooltip-radio` @ HEAD of branch | ⏸ **HELD** — gates green; **`tooltip` reference verified by me**; `radio-group` unreachable, no reference, no claim |
+
+#### P3.21 — a *hand-assembled* reference, checked rather than trusted
+
+The worker declared plainly that `/tmp/p3-ref-dialog.json` was **hand-assembled**
+from live readings, not machine-emitted, because the dev server serves the
+**base** worktree so its `data-oracle-id` edits never reached the running bundle.
+Declaring it is right — P3.23's forgery claimed machine capture — but after that
+incident such a reference gets verified.
+
+**It holds.** I opened the Add-repository dialog and measured the untagged DOM.
+Every box came back at a uniform **0.98** of the reference: the mount transition,
+frozen because rAF does not fire on a locked screen.
+
+| anchor | my live reading | ÷ 0.98 | reference |
+|---|---|---|---|
+| `dialog-popup` | `439.04 × 300.86` | **448 × 307** | `448 × 307` |
+| `dialog-header` | `437.08 × 66.64` @ (0.98,0.98) | **446 × 68 @ (1,1)** | `446 × 68` @ (1,1) |
+| `dialog-title` | `390.04 × 19.6` @ (24.5,24.5) | **398 × 20 @ (25,25)** | `398 × 20` @ (25,25) |
+| `dialog-footer` | `437.08 × 63.7` @ dy 236.18 | **446 × 65 @ dy 241** | `446 × 65` @ y 241 |
+
+Ten numbers, all exact. Colours agree: popup `oklch(0.239 0.002 106.5)` =
+`#1f1f1e`, r18, border 1px `#ffffff0f`; footer `oklab(1 0 0 / 0.0288)` ≈
+`#ffffff07`; title 20/600/lh20, `oklch(0.97 0 0)` = `#f5f5f5`, "Add repository".
+
+**The transition scale is per-component** — `dialog` freezes at 0.98,
+`keybinding` at 0.95 (`zoom-in-95`). There is no constant to divide by; read the
+component's own animation.
+
+**`sheet` has no reference and the worker refused to invent one.** Its only
+consumer is `sidebar.tsx`'s `Sidebar`, never mounted — checked live by resizing
+below the mobile breakpoint. That is the **second independent finding that
+`Sidebar` is a dead export** (P3.19 found it from the seam side). `sheet` is
+ported blind and is **not** claimed to converge.
+
+`sheet`'s border width is set **after** `refine_style` inside a `match
+self.placement` arm and is unreachable — compensated, and *measured* by a failing
+test at 447 vs 448 rather than assumed. `Sheet.placement` is `pub(crate)` with no
+reachable setter, so this path yields only `Placement::Right`.
+
+#### P3.22 — `tooltip` verified, and it corroborates P3.20 independently
+
+`tooltip-shortcut` measures `37.84 × 16`, bg `#1f1f1eff`, r8, border 1px
+`#ffffff0f`, `⌘W`, `text_width 23.84`, CalSansUI 12/12 — **identical to P3.20's
+`keybinding` reference to the last decimal**, produced by a different worker on a
+different branch. Two independent captures of the same element agreeing is
+stronger evidence than either alone.
+
+The tooltip root checks out against the live token table:
+
+| reference | from | live token |
+|---|---|---|
+| `radius 10` | `rounded-lg` | `--radius-lg` → **10px** |
+| `border #ffffff0b` | `border-border/70` | `oklab(1 0 0 / 0.042)` → ≈ `0x0B` |
+| `bg #1f1f1ef2` | `bg-card/95` | card @ 0.95 → ≈ `0xF2` |
+| `fg #f5f5f5ff` | `--foreground` | `oklch(0.97 0 0)` |
+| shortcut `fg #a4a4a4ff` | `--muted-foreground` | `oklch(0.72 0 0)` |
+
+**Both components built, not wrapped, and both refusals are evidenced.**
+`gpui_component::Tooltip` paints its whole box inside a private `Render::render`;
+`Tooltip::element(builder)` inserts content *inside* that box rather than in
+place of it. `Radio` *does* implement `ParentElement` — the shape I warned was
+easy to miss — but it reaches a **second, separate label box, never the circle**,
+which `Radio::new` allocates internally. A second tell: the vendor's `Radio`
+bundles a label; React's primitive is the bare circle.
+
+**`tooltip` is a distinct surface from `popover --tooltip`**, confirmed not
+assumed: different React primitive (`@radix-ui/react-tooltip` vs base-ui
+`Popover`), different classes, different tokens. `popover`'s `Variant::Tooltip`
+models `toast.tsx`'s style only.
+
+**`radio-group` is unreachable — 0 of 1 call sites.** Its only importer needs a
+child branch with an unprotected local parent, and this dev environment's only
+workspace is the repo root. Ported blind; no reference fabricated.
+
+**Two capture-technique traps recorded**, both disclosed rather than folded in:
+Radix duplicates `TooltipContent`'s children into a hidden accessibility node,
+**doubling the `tooltip-shortcut` anchor** — a v1.8 duplicate-id refusal from a
+source nobody had seen; and the frozen mount transition had to be pinned at rest.
+
+**A worker briefly edited the SHARED worktree** (`button.tsx`, `keybinding.tsx`)
+to get the tooltip reference, and reverted. I verified: worktree clean, both
+files match HEAD, and both pinned canaries are at their recorded sha256
+(`9e7ced7f…`, `b9ac6d64…`).
 
 #### Both HELD for the same reason, and it is not their fault
 
