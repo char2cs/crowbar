@@ -2851,6 +2851,36 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### ‼️ CORRECTION — the "fuzzy group" is not a fuzzy group
+
+I have been recording `autocomplete`, `command`, `search` (and `inline-combobox`)
+as items that "touch fuzzy matching, where §10.1 says use Zed's `fuzzy_nucleo`".
+**Measured, and that is wrong on both halves:**
+
+- **None of the three implements matching.** Grepping each for
+  `.filter(` / `score` / `fuzzy` / `match(` / `includes(` / `indexOf` returns
+  **0 lines** in all three. `autocomplete.tsx` delegates to
+  `@base-ui/react/autocomplete`, `command.tsx` composes a base-ui dialog, and
+  `search.tsx` is a `Button` + `Input` shell.
+- **The real matchers live outside `components/ui/`** — `web/src/utils/fuzzy-matcher.tsx`,
+  `web/src/utils/search-match.ts`, plus `features/editor/{completion,lsp,stores}`
+  and `components/layout/workspace-switcher.tsx`.
+
+So `fuzzy_nucleo` belongs to whatever ports **`utils/fuzzy-matcher.tsx`**, which
+is Phase 4 work, not Tier B. **It is also not vendored** — absent from
+`native/vendor/` and from every `Cargo.toml`. Vendoring it is a separate item
+whenever that phase starts.
+
+**Consequence:** these three are ordinary component ports with no algorithm
+attached, and can be dispatched as such. That removes the last "special
+handling" flag from the remaining set except `context-menu` (native menus, a user
+ruling) and `slider` (style-only, fork).
+
+This is the third time a name-derived assumption in my own queue turned out
+wrong — after `table-icons`/`inline-combobox` being Plate-only by dependency, and
+`stepper` being a wizard-progress widget. **Resolve the imports; do not read the
+name.**
+
 #### ✅ WAVE 5 CLOSED — full regression sweep, 8/8 PASS on the merged tip
 
 Merged **P3.27** (`number-input`, `textarea`) and **P3.28** (`alert-dialog`,
