@@ -2851,6 +2851,35 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### ✅ THE THEME AXIS OPENS — 3 surfaces verified on the light cell
+
+macOS switched to light appearance, which made light references capturable for
+the first time. Taken while the window was open:
+
+| surface | light-cell verdict |
+|---|---|
+| `scroll-area` | ✅ **PASS — 0 deltas / 2 anchors** |
+| `sidebar-header` | ✅ **PASS — 0 deltas / 1 anchor** |
+| `sidebar-empty` | ✅ **PASS — 0 deltas / 2 anchors** |
+| `dialog` | ⏸ reference incomplete — see below |
+
+With `tooltip` (already light), **4 surfaces now carry a light-cell verdict** and
+§17.1's theme axis is no longer entirely unexercised.
+
+**A cross-check I ran, and what it actually found.** I compared each light
+reference's *bounds* against its dark twin, on the theory that only colours
+should change. Two "differences" turned up — `scroll-area` and `sidebar-header`
+both read **343.98 light vs 344 dark** — and neither is a theme effect: the
+sidebar panel simply sat at a fractional width in one of the two sessions. Both
+still PASS. **The check is worth keeping but must allow sub-pixel session
+variance**; exact equality is too strict and will cry wolf.
+
+**`dialog`'s light reference is incomplete** and the failure says so precisely —
+3 deltas, *all* "anchor presence". It captured only `dialog-popup`; the dark
+reference has `dialog-header`, `dialog-title` and `dialog-footer` too. The dialog
+was caught before its content mounted. **Not a port defect** — the dark cell
+passes at 0 deltas over all 4 anchors. Needs a re-capture.
+
 #### ✅ WAVE 4 CLOSED — all eight items merged, all eight verified by my own capture
 
 Merged: **P3.15/P3.17 · P3.18 · P3.19 · P3.20 · P3.21 · P3.22 · P3.24 · P3.25 ·
