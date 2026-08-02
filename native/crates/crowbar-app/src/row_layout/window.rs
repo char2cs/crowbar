@@ -471,3 +471,85 @@ fn the_phase_one_surfaces_keep_the_window_they_were_measured_in(cx: &mut TestApp
         assert_eq!(now, before, "{surface}");
     }
 }
+
+/// **P3.35: a granted window that disagrees with the request is refused even
+/// when nothing was cut.**
+///
+/// `a_cut_surface_is_refused_and_nothing_is_written`, above, only ever
+/// exercises the case where the granted window slices an anchor off —
+/// `cut_by_the_window`'s whole domain. A platform (a tiling window manager is
+/// the one this item found it on) can also grant a window that is simply the
+/// *wrong size* without cutting anything at all: nothing in this surface's
+/// content reaches anywhere near either edge, so every anchor stays inside
+/// both the requested and the granted window. `cut_by_the_window` finds
+/// nothing to refuse — and yet `state_of` reports `cell.viewport_width`
+/// unconditionally, so an `emit` that let this through would write a
+/// snapshot claiming the requested viewport while its geometry belongs to
+/// the granted one.
+///
+/// The granted window here is **wider** than requested, deliberately: a
+/// wider window can never cut an anchor, so a refusal in this test can only
+/// be the new guard's doing, not `cut_by_the_window` reappearing under a
+/// different name. The precondition is stated, not assumed, exactly as the
+/// cut test above states its own.
+#[gpui::test]
+fn a_granted_window_that_cuts_nothing_is_still_refused_on_mismatch(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let cell = a_cell(&["--width", "294", "--viewport-width", "800"]);
+
+    let requested = window_for(&cell);
+    // 200px wider on the width axis: nothing this row draws is anywhere
+    // near either edge, so no anchor is cut by shrinking back down to the
+    // narrower, requested window either.
+    let granted = size(requested.width + px(200.0), requested.height);
+    let (anchors, records) = draw(cx, &cell, granted);
+
+    // The precondition: every anchor fits inside the *narrower*, requested
+    // window too, so a refusal below cannot be a disguised anchor cut.
+    for id in ids(&records) {
+        let anchor = find(&records, &id);
+        assert!(
+            anchor.bounds.origin.x + anchor.bounds.size.width <= requested.width,
+            "{id} does not fit the requested window, so this is testing a cut, not a mismatch",
+        );
+    }
+
+    // A path that does not exist, so "nothing was written" is checkable
+    // without a temporary file to clean up.
+    let refused = std::env::temp_dir().join("crowbar-p335-refused-must-not-exist.json");
+    let _ = std::fs::remove_file(&refused);
+
+    let outcome = emit(&anchors, &cell, &Destination::File(refused.clone()), granted);
+
+    let Err(complaint) = outcome else {
+        panic!("a granted window that disagrees with the request must not be emitted");
+    };
+    assert!(complaint.contains("git-status-row"), "{complaint}");
+    assert!(complaint.contains("800"), "{complaint}");
+    assert!(!refused.exists(), "a refused emit wrote {refused:?}");
+}
+
+/// **The control the refusal above needs.** Without it, "the emit failed"
+/// would also pass on an `emit` that had stopped working altogether — the
+/// same shape of vacuous guard `the_same_cell_in_the_window_it_asked_for_emits`
+/// already guards against for the cut case. The identical cell, granted
+/// exactly the window it asked for, emits.
+#[gpui::test]
+fn the_same_cell_granted_its_requested_window_emits(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let cell = a_cell(&["--width", "294", "--viewport-width", "800"]);
+
+    let window = window_for(&cell);
+    let (anchors, _records) = draw(cx, &cell, window);
+
+    let written = std::env::temp_dir().join("crowbar-p335-emitted.json");
+    let _ = std::fs::remove_file(&written);
+
+    let path = emit(&anchors, &cell, &Destination::File(written.clone()), window)
+        .expect("a granted window matching the request is emitted");
+    assert_eq!(path, written);
+
+    let json = std::fs::read_to_string(&written).expect("the snapshot is on disk");
+    assert!(json.contains("\"git-row-item\""), "{json}");
+    let _ = std::fs::remove_file(&written);
+}
