@@ -59,7 +59,7 @@ include!(concat!(env!("OUT_DIR"), "/row_layout_mods.rs"));
 struct Stage(Cell);
 
 impl Render for Stage {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.0.theme();
         // Offset and width-pinned exactly as `RowSurface` draws it, and through
         // the same `render_row` dispatch, so the numbers here are the numbers
@@ -74,11 +74,13 @@ impl Render for Stage {
             // comment (P3.24) for why the ambient value still matters even
             // though every leaf declares its own font.
             .font(ui_sans_font(&theme))
-            .child(
-                div()
-                    .w(self.0.width_px())
-                    .child(render_row(&self.0, &theme, &DriverAnchors)),
-            )
+            .child(div().w(self.0.width_px()).child(render_row(
+                &self.0,
+                &theme,
+                &DriverAnchors,
+                window,
+                cx,
+            )))
     }
 }
 

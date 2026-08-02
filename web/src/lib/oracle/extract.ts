@@ -1003,12 +1003,15 @@ export function oracleAssertComparableOpacity(elements: Element[]): void {
  * | `sidebar-carousel` | the scrollport and its four panels, all four rendered unconditionally |
  * | `popover` | the popup and its viewport — the two boxes `PopoverPopup` builds on every render, whatever the call site nests inside |
  * | `select` | the popup, the panel and the list — the three boxes `SelectPopup` builds on every render, whatever items the call site passes |
+ * | `dialog` | the popup alone — `DialogPopup`'s one unconditional box. `dialog-header`/`dialog-title`/`dialog-description`/`dialog-footer` are all call-site-optional (P3.21's `import-project-modal` reference has a header and a footer; `add-repository-modal` — same primitive — has no description; a bare `<DialogContent>` has none of the four), so none of them is "a property of the surface" in the sense this table requires — see the point right below about `popover-title`, which the same reasoning already covers |
+ * | `sheet` | the popup alone, for the same reason `dialog`'s is just the popup — and doubly so here: `sheet.tsx` has no live call site at all (`crowbar_ui::components::sheet`'s module docs), so there is no reference to derive a fuller set from even if the primitive's own shape allowed one |
  *
  * Each set is read off the component that builds the boxes — `popover.tsx`,
- * `select.tsx`, `sidebar-carousel.tsx`, `resizable.tsx` + `ide-shell.tsx` — and
- * never off a capture. A capture shows what one call site produced, which is the
- * very thing being filtered out; deriving the set from it would encode the call
- * site into the surface and the filter would then be a no-op by construction.
+ * `select.tsx`, `sidebar-carousel.tsx`, `resizable.tsx` + `ide-shell.tsx`,
+ * `dialog.tsx`, `sheet.tsx` — and never off a capture. A capture shows what one
+ * call site produced, which is the very thing being filtered out; deriving the
+ * set from it would encode the call site into the surface and the filter would
+ * then be a no-op by construction.
  *
  * ### The two overlays, and what each of them had to drop
  *
@@ -1038,10 +1041,28 @@ export function oracleAssertComparableOpacity(elements: Element[]): void {
  *   trigger and no single root spans both. The surface is the popup, which is
  *   also where `dropdown-menu`'s native `Surface` roots (`ID_POPUP`); a trigger
  *   capture is a different surface and does not have one yet.
+ * * **`dialog-header`, `dialog-title`, `dialog-description`, `dialog-footer`**
+ *   (and `sheet`'s equivalents) are the same shape as `popover-title`, four
+ *   times over: each renders only where a call site nests the matching
+ *   component, so declaring any of them would refuse every capture where the
+ *   call site left it out — which both `dialog` references do, in different
+ *   fields (`import-project-modal` has no description; `add-repository-modal`,
+ *   same primitive, has neither a description nor is distinguishable from it by
+ *   this table). P3.21's own reference JSON therefore was not produced through
+ *   this function at all: `crowbar-app/native/mapping/dialog.md` §6 records
+ *   that it was captured undeclared (root `dialog-popup`, whatever
+ *   `import-project-modal` produced under it) and reduced by hand to the
+ *   `dialog-*` ids — the same manoeuvre `popover`'s own reference needed before
+ *   this table existed, two rows up.
  *
- * Both entries are inert until `native/p3-wrap-popover-select` merges: that
- * branch puts the `data-oracle-id`s on `popover.tsx` and `select.tsx`, and until
- * then no document carries them and no capture names either surface.
+ * `popover` and `select` are inert only historically — both were captured
+ * before this table carried them and had to be reduced by hand once, the
+ * account two rows up. Once `data-oracle-id` landed on the two files (P3.18)
+ * the declarations here started doing real work on every capture since.
+ * `dialog` and `sheet` carry their `data-oracle-id`s from the same change that
+ * added these two rows, so — `dialog-header`/`dialog-title`/
+ * `dialog-description`/`dialog-footer` aside, which no declaration here could
+ * ever safely cover — the two entries below are live from the start.
  *
  * `git-status-row`, `file-tree-row` and `dropdown-menu` are deliberately absent,
  * and not for want of getting to them. Their anchor sets are functions of the
@@ -1111,6 +1132,23 @@ export function oracleSurfaceScope(
     'scroll-area': {
       root: 'scroll-area-root',
       anchors: ['scroll-area-root', 'scroll-area-viewport'],
+    },
+    // `dialog.tsx`: `DialogPopup` renders `DialogPrimitive.Popup` and nothing
+    // else unconditionally. `DialogHeader`/`DialogTitle`/`DialogDescription`/
+    // `DialogFooter` are all call-site slots — see the module docs above for
+    // why none of the four can be declared — and `children` (the call site's
+    // own body) is not the surface either.
+    dialog: {
+      root: 'dialog-popup',
+      anchors: ['dialog-popup'],
+    },
+    // `sheet.tsx`: same shape as `dialog`'s, for the same reason — see the
+    // module docs. No live call site mounts one at all
+    // (`crowbar_ui::components::sheet`'s module docs), so this entry exists
+    // for the day one does rather than for any capture taken so far.
+    sheet: {
+      root: 'sheet-popup',
+      anchors: ['sheet-popup'],
     },
   }
   const key = String(surface === null || surface === undefined ? '' : surface)

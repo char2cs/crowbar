@@ -37,7 +37,7 @@ use std::fmt::Debug;
 
 use crowbar_ui::Theme;
 use crowbar_ui::components::AnchorSink;
-use gpui::AnyElement;
+use gpui::{AnyElement, App, Window};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
 
@@ -241,6 +241,38 @@ pub trait SurfaceParams: Clone + Debug + PartialEq + 'static {
 
     /// The element tree this cell means.
     fn render(&self, cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement;
+
+    /// [`Self::render`], with `window`/[`App`] access besides.
+    ///
+    /// Every surface before P3.21 is a pure function of its props: `theme` and
+    /// `anchors` are all `render` ever needed, because the `gpui-component`
+    /// widget each one wraps — `Popover::new`, `Select::new`, and so on — takes
+    /// no context to construct. `dialog` and `sheet` break that: `Dialog::new`
+    /// and `Sheet::new` each mint a `FocusHandle` off `cx`, and no method on
+    /// either type takes one some other way. `render`'s signature — carried by
+    /// `AnchorSink` too — cannot supply it; both live in `crowbar-ui`, which
+    /// `crowbar-driver` depends on, so neither can reach back into `gpui` for a
+    /// context type without an import cycle. This method is the seam instead:
+    /// it lives only in `crowbar-app`, one layer up, where `window`/`cx` are
+    /// already in hand at every call site that would otherwise have called
+    /// `render`.
+    ///
+    /// Defaulted to [`Self::render`], so the 27 surfaces registered before this
+    /// item needs no line changed: `render_row` calls this method exclusively,
+    /// and for every surface that does not override it the call is a
+    /// straight pass-through that never looks at `window` or `cx`. `dialog`
+    /// and `sheet` override *this* method and leave `render`'s default —
+    /// unreachable in correct use — to say why, if it is ever called anyway.
+    fn render_ctx(
+        &self,
+        cell: &Cell,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> AnyElement {
+        self.render(cell, theme, anchors)
+    }
 }
 
 /// The object-safe half of [`SurfaceParams`], plus the three methods that make
@@ -267,8 +299,23 @@ pub trait Params: Debug {
     /// See [`SurfaceParams::describe`].
     fn describe(&self, cell: &Cell, out: &mut String);
 
-    /// See [`SurfaceParams::render`].
-    fn render(&self, cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement;
+    /// See [`SurfaceParams::render_ctx`].
+    ///
+    /// **Not [`SurfaceParams::render`]** — that method stays on the typed
+    /// trait only. `render_row` is this object-safe wrapper's one caller and
+    /// it always asks for `render_ctx`, so a forwarding `Params::render` here
+    /// would never be called and `cargo clippy -D warnings` (rule: no dead
+    /// code) would refuse the build. `render_ctx`'s own default already
+    /// reaches `SurfaceParams::render` for the 27 surfaces that only
+    /// implement that one.
+    fn render_ctx(
+        &self,
+        cell: &Cell,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement;
 
     /// A boxed clone, so `Cell` can stay `Clone`.
     #[must_use]
@@ -303,8 +350,15 @@ impl<T: SurfaceParams> Params for T {
         <T as SurfaceParams>::describe(self, cell, out);
     }
 
-    fn render(&self, cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
-        <T as SurfaceParams>::render(self, cell, theme, anchors)
+    fn render_ctx(
+        &self,
+        cell: &Cell,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
+        <T as SurfaceParams>::render_ctx(self, cell, theme, anchors, window, cx)
     }
 
     fn clone_params(&self) -> Box<dyn Params> {
@@ -463,6 +517,7 @@ mod tests {
                 "checkbox",
                 "crowbar-mark",
                 "crowbar-wordmark",
+                "dialog",
                 "dropdown-menu",
                 "file-tree-row",
                 "flicker-spinner",
@@ -482,6 +537,7 @@ mod tests {
                 "scroll-area",
                 "search-toggle-icons",
                 "separator",
+                "sheet",
                 "sidebar-carousel",
                 "sidebar-toggle-icon",
                 "skeleton",

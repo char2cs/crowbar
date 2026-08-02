@@ -72,6 +72,7 @@ export function DialogPopup({
               'max-sm:max-w-none max-sm:origin-bottom max-sm:rounded-none max-sm:border-x-0 max-sm:border-t max-sm:border-b-0 max-sm:data-ending-style:translate-y-4 max-sm:data-starting-style:translate-y-4 max-sm:before:hidden max-sm:before:rounded-none',
             className,
           )}
+          data-oracle-id="dialog-popup"
           data-slot="dialog-popup"
           {...props}
         >
@@ -102,6 +103,7 @@ export function DialogHeader({
       'flex flex-col gap-2 p-6 in-[[data-slot=dialog-popup]:has([data-slot=dialog-panel])]:pb-3 max-sm:pb-4',
       className,
     ),
+    'data-oracle-id': 'dialog-header',
     'data-slot': 'dialog-header',
   }
 
@@ -128,6 +130,7 @@ export function DialogFooter({
         'in-[[data-slot=dialog-popup]:has([data-slot=dialog-panel])]:pt-3 pt-4 pb-6',
       className,
     ),
+    'data-oracle-id': 'dialog-footer',
     'data-slot': 'dialog-footer',
   }
 
@@ -145,6 +148,8 @@ export function DialogTitle({
   return (
     <DialogPrimitive.Title
       className={cn('font-heading font-semibold text-xl leading-none', className)}
+      data-oracle-id="dialog-title"
+      data-oracle-line-sized="true"
       data-slot="dialog-title"
       {...props}
     />
@@ -158,6 +163,7 @@ export function DialogDescription({
   return (
     <DialogPrimitive.Description
       className={cn('text-muted-foreground text-sm', className)}
+      data-oracle-id="dialog-description"
       data-slot="dialog-description"
       {...props}
     />
