@@ -539,6 +539,8 @@ mod tests {
                 "separator",
                 "sheet",
                 "sidebar-carousel",
+                "sidebar-empty",
+                "sidebar-header",
                 "sidebar-toggle-icon",
                 "skeleton",
                 "spinner",

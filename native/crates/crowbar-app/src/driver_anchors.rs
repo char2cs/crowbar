@@ -32,15 +32,21 @@ const TEXT_HALF: &str = "\u{a7}text";
 pub struct DriverAnchors;
 
 impl AnchorSink for DriverAnchors {
-    /// The declarations travel on the root too, which they did not until P3.20.
+    /// The declarations travel on the root too, which they did not until
+    /// P3.19/P3.20 independently found and fixed the same hole.
     ///
-    /// `keybinding` is the first surface whose **root is itself content-sized**
-    /// — one `<kbd>` and nothing else — and this method used to hardcode
-    /// `Declared::nothing()`. A component that declared `content_sized` on its
-    /// root therefore had it dropped here, silently, which is the blind spot
-    /// [`declared`]'s own doc comment warns about one function down. §4 zeroes a
-    /// root's `x`/`y`, so `w` and `h` are all that is ever compared on one — and
-    /// those are exactly the two fields v1.5 and v1.6 correct.
+    /// `keybinding` and `sidebar-empty` are the first two surfaces whose
+    /// **root is itself content-sized** — one is a lone `<kbd>`, the other a
+    /// shrink-to-fit column inside a row flex parent — and this method used to
+    /// hardcode `Declared::nothing()`. A component that declared
+    /// `content_sized` on its root therefore had it dropped here, silently,
+    /// which is the blind spot [`declared`]'s own doc comment warns about one
+    /// function down: the DOM extractor has no such hole, so the reference
+    /// says `content_sized: true` and the native side said `false`, and the
+    /// differ reported that as a `ContentSizedMismatch` rather than as a
+    /// missing feature. §4 zeroes a root's `x`/`y`, so `w` and `h` are all that
+    /// is ever compared on one — and those are exactly the two fields v1.5 and
+    /// v1.6 correct.
     fn root(&self, id: AnchorId, element: Div) -> AnyElement {
         let declared = declared(&id);
         crowbar_driver::anchor_root_declared(id.id, element, declared).into_any_element()

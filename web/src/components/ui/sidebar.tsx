@@ -254,6 +254,7 @@ export function SidebarHeader({
   return (
     <div
       className={cn('flex flex-col gap-2 p-2 backdrop-blur-sm', className)}
+      data-oracle-id="sidebar-header"
       data-sidebar="header"
       data-slot="sidebar-header"
       {...props}
@@ -348,12 +349,19 @@ export function SidebarEmptyActionState({
   actionClassName?: string
   tone?: 'neutral' | 'error' | 'success'
 }): React.ReactElement {
+  // `data-oracle-line-sized` goes on the message only where it paints a run —
+  // the same conditional `label.tsx` and `card.tsx` carry, and for the same
+  // reason: a box with no text has no line box, and the declaration on one
+  // would be a claim the differ is entitled to refuse by name.
+  const messagePaintsARun = React.Children.count(message) > 0
   return (
     <div
       className={cn(
         'ui-font flex min-h-24 select-none flex-col items-center justify-center gap-1.5 px-3 py-6 text-center text-muted-foreground',
         className,
       )}
+      data-oracle-content-sized="true"
+      data-oracle-id="sidebar-empty"
       {...props}
     >
       {icon ? (
@@ -363,6 +371,7 @@ export function SidebarEmptyActionState({
             tone === 'error' && 'text-destructive',
             tone === 'success' && 'text-success',
           )}
+          data-oracle-id="sidebar-empty-icon"
         >
           {icon}
         </span>
@@ -373,11 +382,17 @@ export function SidebarEmptyActionState({
           tone === 'error' && 'text-destructive',
           tone === 'success' && 'text-success',
         )}
+        data-oracle-content-sized="true"
+        data-oracle-id="sidebar-empty-message"
+        {...(messagePaintsARun ? { 'data-oracle-line-sized': 'true' } : {})}
       >
         {message}
       </div>
       {description ? (
-        <div className="ui-text-xs max-w-[24ch] leading-[1.35] text-muted-foreground">
+        <div
+          className="ui-text-xs max-w-[24ch] leading-[1.35] text-muted-foreground"
+          data-oracle-id="sidebar-empty-description"
+        >
           {description}
         </div>
       ) : null}
