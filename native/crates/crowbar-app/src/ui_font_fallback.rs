@@ -81,7 +81,14 @@ use super::{UI_FONT_FAMILY, ui_font_paths};
 /// panicking mid-section must still release it (a poisoned lock still
 /// unlocks on drop; only a *second* panic while already poisoned would
 /// need handling, and no test here panics twice).
-static REAL_PLATFORM: Mutex<()> = Mutex::new(());
+///
+/// `pub(crate)`, and reused by `ui_font_weight.rs` (P3.25) rather than that
+/// file minting a second `Mutex<()>`: a second lock would not serialise
+/// against *this* one, and this module's own concurrency note is explicit
+/// that concurrent construction of a second real platform is what
+/// `SIGABRT`s — a hazard scoped to "any two real platforms", not to "any two
+/// real platforms in this file".
+pub(crate) static REAL_PLATFORM: Mutex<()> = Mutex::new(());
 
 /// The seven glyphs `native/QUEUE.md`'s P3.24 entry found missing from
 /// `CalSansUI`'s cmap — every macOS modifier symbol the app's keycaps and
@@ -121,14 +128,14 @@ fn is_notdef_width(width: Pixels) -> bool {
 /// A real, headless platform text system — see the module docs for why this
 /// is safe and necessary in place of `#[gpui::test]`'s `TestAppContext`, and
 /// why every caller must hold [`REAL_PLATFORM`] first.
-fn real_platform_text_system() -> Arc<dyn PlatformTextSystem> {
+pub(crate) fn real_platform_text_system() -> Arc<dyn PlatformTextSystem> {
     gpui_platform::current_platform(true).text_system()
 }
 
 /// Registers the real `CalSansUI` faces exactly as `main.rs`'s `load_ui_font`
 /// does, straight off the same paths — a fresh platform text system has
 /// nothing loaded until this runs.
-fn load_real_calsansui(pts: &dyn PlatformTextSystem) {
+pub(crate) fn load_real_calsansui(pts: &dyn PlatformTextSystem) {
     let faces: Vec<std::borrow::Cow<'static, [u8]>> = ui_font_paths()
         .iter()
         .map(|path| {
@@ -163,7 +170,11 @@ fn font_without_fallback() -> Font {
 /// One run and one glyph are guaranteed: the input is one character, so
 /// there is nothing for `layout_line` to split on. A failure here means this
 /// helper's own contract broke, not that a real surface did.
-fn shape(pts: &dyn PlatformTextSystem, requested: &Font, ch: char) -> (Pixels, FontId, GlyphId) {
+pub(crate) fn shape(
+    pts: &dyn PlatformTextSystem,
+    requested: &Font,
+    ch: char,
+) -> (Pixels, FontId, GlyphId) {
     let font_id = pts
         .font_id(requested)
         .unwrap_or_else(|err| panic!("resolving {requested:?}: {err}"));
