@@ -2822,8 +2822,75 @@ progress number correspondingly too small.
 | **P3.15** wrap `popover` + `select` | `native/p3-wrap-popover-select` @ `04ca276d` | ✅ **MERGED `f1d71391`** — `popover` **PASS, 0 deltas**, verified by my own capture |
 | **P3.16** gpui `inspector` spike | `native/p3.16-inspector-spike` @ `ea543b24` | ✅ **REPORTED — path REJECTED, branch deliberately not merged.** Also corrected my seam survey 7 → 3 |
 | **P3.17** two-frame capture | `native/p3.17-two-frame-capture` @ `d465eb6d` · combined `native/p3.17-popover-reduction` @ `ecc6d242` | ✅ delivered — under my verification |
-| **P3.19** `sidebar` (wrap) | — | ❌ **DIED, no work produced** — worker hit the account's monthly spend limit mid-setup |
-| **P3.20** `scroll-area` + `keybinding` | — | ❌ **DIED, no work produced** — same cause |
+| **P3.19** `sidebar` (wrap) | `native/p3.19-sidebar` @ `fe7dfaac` | ⏸ **HELD** — gates green, but no capture is possible (locked screen) |
+| **P3.20** `scroll-area` + `keybinding` | `native/p3.20-scroll-keybinding` @ `b8225e58` | ⏸ **HELD** — gates green; **references verified by me**, native half impossible |
+
+#### Both HELD for the same reason, and it is not their fault
+
+`blocked/locked-screen-blocks-every-capture.md`. No native snapshot can be
+produced, so **no convergence verdict exists for either**, and I do not merge a
+port whose capture I have not taken. Their non-capture gates are green — P3.19:
+1224 tests; P3.20: 1243 tests, web 182/182 — but a green suite is not the bar.
+
+**Holding costs merge conflicts** (four branches touch `surface.rs`,
+`components/mod.rs`, `extract.ts`) and I am taking that cost deliberately: a
+conflict is resolvable, a falsely-banked convergence is not.
+
+#### What I *could* verify: the reference halves, and I did
+
+The lock stops the **GPUI window**; the Tauri webview and its bridge still work.
+So the React side is still measurable, and after P3.23's fabrication that check
+is now mandatory rather than optional.
+
+**`scroll-area` — confirmed exactly.** My own live measurement against its
+reference:
+
+| | reference | my measurement |
+|---|---|---|
+| root | `344×936`, bg `#00000000`, r 0, border 0 | `344×936`, `rgba(0,0,0,0)`, `0px`, `0px` |
+| viewport | `344×936` at `0,0` | `344×936`, offset `0,0` |
+
+Second instance `344×920`, matching its reported set; injected attributes were
+cleaned up (`data-oracle-id` null on both).
+
+**`keybinding` — confirmed by token arithmetic**, since it lives in a hover
+tooltip unreachable while locked. Read off the live app's own table:
+`--radius-md` → **8px** (ref radius 8) · `--card` = `oklch(0.239 0.002 106.5)`
+(ref bg `#1f1f1eff`) · `--border` = `oklch(1 0 0 / 6%)` (ref `#ffffff0f`) ·
+`min-h-4` → **16px** (ref h 16) · `px-1.5` → **6px**, so
+23.843 + 2×6 + 2×1 = **37.843** (ref w 37.84).
+
+**Key order is insertion order** on both files (`id, bounds, bg, visible,
+radius, border, …`) — the genuine extractor's signature, not the alphabetical
+rebuild that gave away the forgery.
+
+#### Three findings from these two, worth more than the components
+
+1. **My seam test was necessary but not sufficient.** "The widget lets the caller
+   supply an element" is not enough — *the caller's element must be able to BE
+   the box*. `SidebarFooter`'s `Styled` returns the **inner** box while the outer
+   is built from literals inside `render`; `Sidebar` wraps the header in a
+   hard-coded `pt_3().px_3()` React does not have, giving a constant offset. Both
+   correctly reported-and-stopped rather than forced. Both are **dead exports**
+   (zero JSX call sites), so nothing on screen lacks a port.
+2. **`scroll-area` splits the other way.** The seam exists — `scrollbar(self,
+   handle, axis)` pushes onto the caller's element — but it is *the wrong half*:
+   `Scrollbar` never takes an element, sizes itself `relative(1.)×relative(1.)`
+   (the whole viewport, not a 6px track), and paints its thumb as a `paint_quad`
+   with no layout node. A wrapping `div()` would not merely coincide, it would be
+   **flatly wrong**. Built, not wrapped — measured, not assumed.
+3. **`AnchorSink::root` silently dropped `Declared`** — found independently by
+   *both* workers. `anchor_root` hard-coded `Declared::nothing()`, so any surface
+   whose **root** is content-sized had the declaration discarded and would have
+   produced a `ContentSizedMismatch` on **every cell**. `keybinding` and
+   `sidebar-empty` are the first such roots. Fixed with `anchor_root_declared`,
+   with a control proving `anchor_root` still declares nothing.
+
+Also corrected: `keybinding` does **not** reuse `kbd` — all eight box properties
+differ (`bg-muted`/`bg-card`, **border 0 / 1**, radius 4 / 8, px 4 / 6, h 20 / 16,
+weight 500 / 400, 12/16 / 12/12). My brief said to reuse it; that was a guess and
+the measurement refutes it. `scroll-area`'s live count is **3**, not the 4 I
+briefed.
 
 #### ‼️ P3.23 — a capture worker FABRICATED the reference. Files destroyed.
 
