@@ -59,6 +59,8 @@ mod surface;
 mod surfaces;
 #[cfg(test)]
 mod ui_font_fallback;
+#[cfg(test)]
+mod ui_font_weight;
 
 fn main() -> ExitCode {
     let cell = match Cell::parse(std::env::args().skip(1)) {
@@ -219,9 +221,9 @@ const UI_FONT_FAMILY: &str = "CalSansUI";
 
 /// The faces the React app renders the row with, converted for CoreText.
 ///
-/// **Provenance, because these are derived files.** Both are produced from the
-/// repo's own `web/public/fonts/CalSansUI.woff2` — which stays, and which the
-/// web app still loads — by `fontTools`:
+/// **Provenance, because these are derived files.** All three are produced from
+/// the repo's own `web/public/fonts/CalSansUI.woff2` — which stays, and which
+/// the web app still loads — by `fontTools`:
 ///
 /// ```text
 /// instantiateVariableFont(TTFont('CalSansUI.woff2'), {'wght': W, 'GEOM': 0})
@@ -240,10 +242,17 @@ const UI_FONT_FAMILY: &str = "CalSansUI";
 ///   (`wght` 400–700, `GEOM` 0–100). font-kit picks a face out of a family by
 ///   reading `OS/2.usWeightClass` and has no way to ask for a `wght`
 ///   coordinate, so a single variable face would answer *every* weight request
-///   with its 400 default — and the badge's `font-weight: 500` would shape at
-///   400 while the snapshot went on reporting the declared 500. Two instances
-///   give `find_best_match` something real to choose between. `GEOM` is pinned
-///   at its default because nothing in the app sets `font-variation-settings`.
+///   with its 400 default. Two instances (400/500) left a 600 request with
+///   nothing closer than 500 to fall back on — P3.25's defect: `font-semibold`
+///   (`--font-weight-semibold: 600`, 41 call sites in `web/src`) snapped to
+///   Medium natively while `WebKit` shaped a real semibold. A third instance,
+///   `CalSansUI-SemiBold.ttf` (`wght: 600`), gives `find_best_match` a 600
+///   candidate to prefer over 500 (`|600-600|=0` beats `|600-500|=100`); no
+///   live call site requests 700 (`avatar.rs`'s `WEIGHT_BOLD` constant is
+///   defined but never reaches a `.font_weight()` call), so a fourth,
+///   Bold instance is not this item's defect and was not added. `GEOM` is
+///   pinned at its default because nothing in the app sets
+///   `font-variation-settings`.
 /// * **The family is renamed `Cal Sans UI` → `CalSansUI`.** font-kit's
 ///   `MemSource` matches a family by exact name, and the name in the file is
 ///   `Cal Sans UI` while the stylesheet's `@font-face` declares `CalSansUI`.
@@ -253,7 +262,17 @@ const UI_FONT_FAMILY: &str = "CalSansUI";
 ///   anchor reports a `font.family` the DOM will never produce.
 ///   `licenses/CalSans-OFL-1.1.txt` declares **no Reserved Font Name**, so
 ///   OFL-1.1 §3 places no restriction on a Modified Version's name.
-const UI_FONT_FILES: [&str; 2] = ["CalSansUI-Regular.ttf", "CalSansUI-Medium.ttf"];
+///
+/// `CalSansUI-SemiBold.ttf`'s `OS/2.fsSelection` additionally has its
+/// `REGULAR` bit cleared (matching `CalSansUI-Medium.ttf`'s own `128`, not the
+/// variable source's inherited `192`) — the source font's `OS/2` table is the
+/// *default* instance's (`wght: 400`, `REGULAR`), and `instantiateVariableFont`
+/// does not revise it for a pinned non-Regular weight on its own.
+const UI_FONT_FILES: [&str; 3] = [
+    "CalSansUI-Regular.ttf",
+    "CalSansUI-Medium.ttf",
+    "CalSansUI-SemiBold.ttf",
+];
 
 /// Where the row's faces live, unless `CROWBAR_ROW_FONT` says otherwise.
 ///
@@ -448,13 +467,13 @@ mod tests {
     }
 
     /// The defaults point at the React app's own font directory, so a checkout
-    /// is the only setup a parity run needs — and both faces are there, because
-    /// one of them is the badge's weight 500.
+    /// is the only setup a parity run needs — and all three faces are there:
+    /// the badge's weight 500, and P3.25's weight 600.
     #[test]
     fn the_font_paths_default_into_the_react_app() {
         let paths = ui_font_paths();
 
-        assert_eq!(paths.len(), 2, "{paths:?}");
+        assert_eq!(paths.len(), 3, "{paths:?}");
         assert!(
             paths[0].ends_with("web/public/fonts/CalSansUI-Regular.ttf"),
             "{}",
@@ -464,6 +483,11 @@ mod tests {
             paths[1].ends_with("web/public/fonts/CalSansUI-Medium.ttf"),
             "{}",
             paths[1].display(),
+        );
+        assert!(
+            paths[2].ends_with("web/public/fonts/CalSansUI-SemiBold.ttf"),
+            "{}",
+            paths[2].display(),
         );
     }
 
