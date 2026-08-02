@@ -212,6 +212,39 @@ nobody re-runs the comparison.
 
 ---
 
+## §17 status, re-measured 2026-08-02
+
+### Condition 3 — coverage, gate crates separately, NEVER blended
+
+| crate | lines | missed | line % |
+|---|---|---|---|
+| `crowbar-proto` | 6 | 0 | 100.00% |
+| `crowbar-client` | 452 | 8 | **98.23%** |
+| `crowbar-core` | 169 | 0 | 100.00% |
+| `crowbar-driver` | 2622 | 14 | **99.47%** |
+| `crowbar-diff-logic` | — | — | **does not exist** (Phase 4+) |
+
+**Oracle-corpus coverage, reported separately: 99.13%** (3776 lines, 33 missed).
+
+All four existing gate crates clear the ≥98% bar. Two caveats travel with those
+numbers and must not be dropped:
+
+- **`crowbar-proto`'s 100% is structurally vacuous.** `rustc` excludes
+  `#[automatically_derived]` items from instrumentation, so `llvm-cov` sees six
+  lines against 24 files. It would read 100% with every DTO test deleted; the
+  **259 round-trip tests** are the real assurance.
+- **`crowbar-diff-logic` is absent, which is not a pass.** §17 names it; it is a
+  Phase 4+ crate.
+
+**A regression worth naming: `oracle` was 100.00% and is now 99.13%** — 33 lines
+uncovered. The corpus suite has lost coverage as the differ grew. Not a §17 gate
+failure (it is the separately-reported number), but it is moving the wrong way.
+
+**`cargo llvm-cov` prints a blended `TOTAL` of 95.86%.** That figure is exactly
+what §17 forbids reporting — it averages the gate crates with `crowbar-app`
+(95.06%), `crowbar-ui` (96.49%) and `crowbar-platform` (73.87%), none of which
+§17 names. **Never quote the TOTAL.**
+
 ## §17 status, measured 2026-07-31 — 3 of 9 met
 
 Re-measured rather than recalled, because the coverage numbers had not been
