@@ -56,6 +56,7 @@ function PopoverPopup({
               'w-fit text-balance rounded-md text-xs shadow-md/5 before:rounded-[calc(var(--radius-md)-1px)]',
             className,
           )}
+          data-oracle-id="popover-popup"
           data-slot="popover-popup"
           {...props}
         >
@@ -66,6 +67,7 @@ function PopoverPopup({
                 ? 'py-1 [--viewport-inline-padding:--spacing(2)]'
                 : 'not-data-transitioning:overflow-y-auto',
             )}
+            data-oracle-id="popover-viewport"
             data-slot="popover-viewport"
           >
             {children}
@@ -83,6 +85,8 @@ export function PopoverTitle({
   return (
     <PopoverPrimitive.Title
       className={cn('font-semibold text-lg leading-none', className)}
+      data-oracle-id="popover-title"
+      data-oracle-line-sized="true"
       data-slot="popover-title"
       {...props}
     />
