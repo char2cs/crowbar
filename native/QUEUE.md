@@ -2851,6 +2851,49 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### STATE AT THE SECOND LOCK — 2026-08-02
+
+The screen unlocked for roughly one window and then **re-locked**. Captures hang
+again (the known-good cell went 2s → hangs at 20s). What that window bought, and
+what it did not:
+
+| item | state |
+|---|---|
+| **P3.15/P3.17** popover + settled-frame | ✅ merged, verified |
+| **P3.18** surface scope | ✅ merged, verified |
+| **P3.20** `scroll-area` + `keybinding` | ✅ **merged** — both PASS 0 deltas |
+| **P3.24** font fallback | ✅ **merged** — verified, canaries byte-identical |
+| **P3.19** `sidebar` | ⏸ held — gates green, no verdict taken |
+| **P3.21** `dialog` + `sheet` (rebased `471eb5f0`) | ⏸ held — **`dialog` FAILS** on the weight defect; blocked on P3.25 |
+| **P3.22** `tooltip` + `radio-group` (merge `95cdf930`) | ⏸ held — gates green (**1295 passed**), **tooltip verdict cut off mid-capture by the re-lock** |
+| **P3.25** font weights (`999460a0`) | ⏸ held — fix measured good, **canaries and registry re-capture not done** |
+
+**P3.25's fix itself is well-evidenced**, just unverified by me end-to-end:
+a SemiBold static instantiated from the variable font by the **same recipe
+already documented for the other two faces**, with fidelity proven by
+re-instancing the shipped Medium and matching its `glyf` byte-for-byte. Measured
+on a real headless `MacTextSystem`: `Add repository`@20/600 → **149.40001**
+(WebKit 149.4); `Aa`@11/600 → **14.476** (WebKit 14.48). Both *before* numbers
+reproduced the diagnosis exactly. Weight 600 resolves to a **different `FontId`**
+than 500 *and* the same glyph measures a different advance under each — ruling
+out the "distinct id, same face" false positive. Mutation: reverting
+`UI_FONT_FILES` turns 3 of 4 new tests red with exactly the pre-fix numbers.
+
+**Option 1 was checked, not assumed:** `add_fonts()` on the raw `.woff2` returns
+a parse error and the family never registers — so the variable font cannot simply
+be handed to gpui.
+
+No 700/Bold face was added: `avatar.rs`'s `WEIGHT_BOLD` exists but no
+`.font_weight()` call site reaches it, so weight 700 is not a live defect.
+
+**Outstanding when the screen next unlocks, in order:**
+1. Re-run the two Phase 1 canaries — if they are not byte-identical, stop.
+2. P3.25: re-capture all registry surfaces; `search-toggle-icons` is **expected**
+   to change (14.19 → 14.48) and must be re-diffed.
+3. P3.21: re-diff `dialog` — it should reach `text_width 149.4`.
+4. P3.22: take the `tooltip` verdict.
+5. P3.19: take the `sidebar` verdict.
+
 #### ‼️ P3.25 — THE NATIVE APP CANNOT RENDER ANY WEIGHT ABOVE 500
 
 Found the same way as the tofu: taking a held verdict. `dialog` failed on one
