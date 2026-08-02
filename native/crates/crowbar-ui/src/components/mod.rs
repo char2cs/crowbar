@@ -113,6 +113,17 @@ pub mod input;
 // `Label` — a bundle or a declaration list applied to the wrong primitive is the
 // mistake `ANCHORS.md` v1.6 warns about.
 pub mod kbd;
+// `keybinding` is unflattened for the same reason as the rest, and one sharper
+// one: it is the closest neighbour `kbd` has, and **every one of its box
+// constants is the other's opposite**. `keybinding::BORDER_WIDTH` is 1 and
+// `kbd` pays none at all; `keybinding::PADDING_X` is 6 and `kbd::PADDING_X` is
+// 4; `keybinding::WEIGHT` is 400 and `kbd::WEIGHT` is 500. A bare
+// `BORDER_WIDTH` meaning either of them is the border trap in both directions
+// under one spelling, which is exactly the mistake `ANCHORS.md` v1.6 warns
+// about. Its `Platform` and `Source` are short names that only read correctly
+// with the module in front of them, and `CONTENT_SIZED`/`LINE_SIZED` would
+// collide as every other surface's do.
+pub mod keybinding;
 pub mod label;
 // The two P3.15 wraps are unflattened for the same reason as the rest, and one
 // sharper one: they are the first components whose behaviour comes from
@@ -131,6 +142,16 @@ pub mod label;
 // `native/mapping/select.md` carry the account.
 pub mod popover;
 pub mod resizable;
+// `scroll_area` is unflattened for the same reason as the rest, and one further
+// one: it is the second component in the tree whose vocabulary is *two*
+// systems' at once, and the one where the vendor's half was **rejected**.
+// `scroll_area::Orientation` would collide with `separator`'s and `tabs`'
+// outright — three components' readings of the same word, and only this one
+// means "which way a scrollbar runs". `scroll_area::BORDER_WIDTH` is 0 where
+// `keybinding`'s two modules over is 1, and `scroll_area::THUMB_RADIUS` is
+// `f32::MAX` where `kbd::RADIUS` is 4. A bare `Overflow`, `ScrollBar` or
+// `Corner` would say which component's picture it is nowhere.
+pub mod scroll_area;
 pub mod search_toggle_icons;
 pub mod select;
 pub mod separator;

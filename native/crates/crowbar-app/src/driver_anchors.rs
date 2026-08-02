@@ -32,8 +32,18 @@ const TEXT_HALF: &str = "\u{a7}text";
 pub struct DriverAnchors;
 
 impl AnchorSink for DriverAnchors {
+    /// The declarations travel on the root too, which they did not until P3.20.
+    ///
+    /// `keybinding` is the first surface whose **root is itself content-sized**
+    /// — one `<kbd>` and nothing else — and this method used to hardcode
+    /// `Declared::nothing()`. A component that declared `content_sized` on its
+    /// root therefore had it dropped here, silently, which is the blind spot
+    /// [`declared`]'s own doc comment warns about one function down. §4 zeroes a
+    /// root's `x`/`y`, so `w` and `h` are all that is ever compared on one — and
+    /// those are exactly the two fields v1.5 and v1.6 correct.
     fn root(&self, id: AnchorId, element: Div) -> AnyElement {
-        crowbar_driver::anchor_root(id.id, element).into_any_element()
+        let declared = declared(&id);
+        crowbar_driver::anchor_root_declared(id.id, element, declared).into_any_element()
     }
 
     fn boxed(&self, id: AnchorId, element: Div) -> AnyElement {

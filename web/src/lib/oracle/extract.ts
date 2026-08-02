@@ -1093,6 +1093,25 @@ export function oracleSurfaceScope(
       root: 'select-popup',
       anchors: ['select-popup', 'select-panel', 'select-list'],
     },
+    // `scroll-area.tsx`: `ScrollArea` renders `Root` wrapping exactly one
+    // `Viewport`, unconditionally. `children` — a whole file tree, a diff list,
+    // a command list — go inside the viewport and are **not** the surface; a
+    // capture of `workspace-tree`'s instance without this entry swallows every
+    // `file-row-item` under it, which is the `resizable` failure v1.8 was
+    // written for.
+    //
+    // **The two scrollbars and the corner are deliberately not here**, and that
+    // is the half of this entry worth reading. `ScrollAreaScrollbar` is
+    // `shouldRender = keepMounted || !isHidden` and returns `null` otherwise;
+    // `scroll-area.tsx` never passes `keepMounted`, so a track exists only on an
+    // axis that actually overflows. Presence is therefore a property of the
+    // **cell**, not of the surface, and v1.8 permits a declaration only for the
+    // latter — declaring them would turn every honest no-overflow capture into a
+    // refusal for a missing declared anchor.
+    'scroll-area': {
+      root: 'scroll-area-root',
+      anchors: ['scroll-area-root', 'scroll-area-viewport'],
+    },
   }
   const key = String(surface === null || surface === undefined ? '' : surface)
   // Own properties only: `declared['constructor']` would otherwise hand back a

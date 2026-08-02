@@ -21,7 +21,11 @@ export default function Keybinding({ keys, binding, className }: KeybindingProps
   }
 
   return (
-    <kbd className={cn(keybindingKeyVariants(), className)}>
+    <kbd
+      className={cn(keybindingKeyVariants(), className)}
+      data-oracle-content-sized
+      data-oracle-id="keybinding"
+    >
       {displayKeys.join(IS_MAC ? '' : '+')}
     </kbd>
   )

@@ -2044,6 +2044,170 @@ describe('the two floated overlays declare their own anchors (P3.18)', () => {
   })
 })
 
+// ── surface scope: the scroll viewport (P3.20) ───────────────────────────────
+//
+// `scroll-area` is the third surface to need the table, and the one where the
+// foreign content is the *whole point of the component*: a `ScrollArea`'s root
+// contains whatever the call site scrolls, which for `workspace-tree` and
+// `git-panel` is a tree of `file-row-item`s and `git-row-item`s. A capture
+// rooted at the root without the declaration swallows all of them — repeated
+// ids included, which ANCHORS.md v1.8 refuses outright.
+//
+// The second block is the half that is easy to get wrong: the two **scrollbars
+// and the corner are deliberately not declared**, because base-ui returns
+// `null` for them unless that axis overflows (`shouldRender = keepMounted ||
+// !isHidden`, and `scroll-area.tsx` never passes `keepMounted`). Presence is a
+// property of the cell, and v1.8 permits a declaration only for a property of
+// the surface. Declaring them would turn every honest no-overflow capture into
+// a refusal.
+
+/**
+ * `scroll-area.tsx` as `workspace-tree` renders it, at the numbers the live
+ * capture produced: a `344 × 936` root whose viewport covers it exactly, with
+ * the call site's own scrolled rows inside.
+ *
+ * Floated to `1370,183` rather than the origin, because §4's bounds are relative
+ * to the root and a fixture pinned at `0,0` cannot tell the two apart.
+ *
+ * `overflowing` mounts the two scrollbars and the corner, which is the cell
+ * base-ui only produces when the content actually overruns the viewport.
+ */
+function mountScrollArea(options?: { overflowing?: boolean; rows?: number }) {
+  document.documentElement.className = 'dark'
+  const rows = options?.rows ?? 3
+  let scrolled = ''
+  for (let i = 0; i < rows; i++) {
+    scrolled += `
+      <div id="row-${i}" data-oracle-id="file-row-item">
+        <span id="row-${i}-name" data-oracle-id="file-row-name"></span>
+      </div>`
+  }
+  const tracks = options?.overflowing
+    ? `<div id="bar-y" data-oracle-id="scroll-area-scrollbar"></div>
+       <div id="bar-x" data-oracle-id="scroll-area-scrollbar"></div>
+       <div id="corner" data-oracle-id="scroll-area-corner"></div>`
+    : ''
+
+  document.body.innerHTML = `
+    <div id="panel">
+      <div id="area" data-oracle-id="scroll-area-root">
+        <div id="area-vp" data-oracle-id="scroll-area-viewport">${scrolled}</div>
+        ${tracks}
+      </div>
+    </div>`
+
+  const at = (id: string) => document.getElementById(id) as HTMLElement
+  const ORIGIN_X = 1370
+  const ORIGIN_Y = 183
+  const place = (id: string, x: number, y: number, width: number, height: number) =>
+    stubRect(at(id), { left: ORIGIN_X + x, top: ORIGIN_Y + y, width, height })
+
+  place('area', 0, 0, 344, 936)
+  place('area-vp', 0, 0, 344, 936)
+  for (let i = 0; i < rows; i++) {
+    place(`row-${i}`, 0, i * 24, 344, 24)
+    place(`row-${i}-name`, 8, i * 24 + 4, 120, 16)
+  }
+  if (options?.overflowing) {
+    place('bar-y', 334, 4, 6, 918)
+    place('bar-x', 4, 926, 326, 6)
+    place('corner', 330, 922, 14, 14)
+  }
+
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(
+    ((_el: Element, pseudo?: string | null) =>
+      ({
+        ...BASE_STYLE,
+        ...(pseudo ? { content: 'none' } : {}),
+      }) as unknown as CSSStyleDeclaration) as typeof window.getComputedStyle,
+  )
+}
+
+describe('the scroll viewport declares its own anchors (P3.20)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+    document.documentElement.className = ''
+  })
+
+  it('keeps the root and the viewport, and drops what the call site scrolls', () => {
+    mountScrollArea()
+    const snapshot = extractSnapshot({ surface: 'scroll-area' })
+
+    expect(snapshot.root).toBe('scroll-area-root')
+    expect(snapshot.anchors.map((a) => a.id)).toEqual(['scroll-area-root', 'scroll-area-viewport'])
+    // The two boxes land on top of each other, which is what the live capture
+    // reports and the property the native harness pins.
+    expect(snapshot.anchors[0].bounds).toEqual({ x: 0, y: 0, w: 344, h: 936 })
+    expect(snapshot.anchors[1].bounds).toEqual({ x: 0, y: 0, w: 344, h: 936 })
+
+    // The control, without which the assertion above proves only that *some*
+    // reduction happened: the identical tree captured as a surface that
+    // declares nothing still walks every scrolled row.
+    const unscoped = extractSnapshot({ surface: 'workspace-tree', root: 'scroll-area-root' })
+    const ids = unscoped.anchors.map((a) => a.id)
+
+    expect(ids.length).toBeGreaterThan(2)
+    expect(ids.filter((id) => id === 'file-row-item')).toHaveLength(3)
+  })
+
+  it('is not troubled by the repeated ids in the subtree it is dropping', () => {
+    // A tree deep enough to make the unscoped capture unusable — v1.8 refuses a
+    // document that carries one id twice among the anchors being compared, and
+    // this is the whole reason the entry exists.
+    mountScrollArea({ rows: 40 })
+    expect(document.querySelectorAll('[data-oracle-id="file-row-item"]')).toHaveLength(40)
+    expect(extractSnapshot({ surface: 'scroll-area' }).anchors).toHaveLength(2)
+  })
+
+  it('does NOT declare the scrollbars, because their presence is a cell property', () => {
+    // base-ui renders a track only on an axis that overflows. A declaration
+    // covering them would be right in this cell …
+    mountScrollArea({ overflowing: true })
+    expect(document.querySelectorAll('[data-oracle-id="scroll-area-scrollbar"]')).toHaveLength(2)
+    expect(extractSnapshot({ surface: 'scroll-area' }).anchors.map((a) => a.id)).toEqual([
+      'scroll-area-root',
+      'scroll-area-viewport',
+    ])
+
+    // … and would refuse the resting one outright, which is every instance the
+    // live app has ever been in. Same declaration, same two anchors, no track
+    // in the document at all.
+    mountScrollArea({ overflowing: false })
+    expect(document.querySelectorAll('[data-oracle-id="scroll-area-scrollbar"]')).toHaveLength(0)
+    expect(extractSnapshot({ surface: 'scroll-area' }).anchors.map((a) => a.id)).toEqual([
+      'scroll-area-root',
+      'scroll-area-viewport',
+    ])
+  })
+
+  it('pins the root as part of the set, so two captures cannot disagree on it', () => {
+    mountScrollArea()
+    expect(() =>
+      extractSnapshot({ surface: 'scroll-area', root: 'scroll-area-viewport' }),
+    ).toThrow(/is rooted on "scroll-area-root", not on "scroll-area-viewport"/)
+  })
+
+  it('refuses a capture missing an anchor the surface declares', () => {
+    mountScrollArea()
+    ;(document.getElementById('area-vp') as HTMLElement).removeAttribute('data-oracle-id')
+
+    let snapshot: OracleSnapshot | undefined
+    expect(() => {
+      snapshot = extractSnapshot({ surface: 'scroll-area' })
+    }).toThrow(/declares the anchor\(s\) scroll-area-viewport, and the document has none/)
+    expect(snapshot).toBeUndefined()
+  })
+
+  it('leaves `keybinding` undeclared, because its root contains nothing else', () => {
+    // The companion surface in the same item, and the contrast worth keeping:
+    // v1.8 says a surface needs a scope only when its root contains other
+    // anchored subtrees. `keybinding` renders one `<kbd>` and no children of its
+    // own, so the walk is already exactly the surface.
+    expect(oracleSurfaceScope('keybinding')).toBeNull()
+  })
+})
+
 // ── injectability ────────────────────────────────────────────────────────────
 
 describe('extractSnapshotSource', () => {

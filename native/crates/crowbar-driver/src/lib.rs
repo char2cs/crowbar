@@ -149,7 +149,7 @@ mod schema;
 
 pub use element::{
     AnchorRegistry, AnchoredBox, AnchoredText, Declared, anchor, anchor_declared, anchor_root,
-    anchor_text, anchor_text_declared, install, registry,
+    anchor_root_declared, anchor_text, anchor_text_declared, install, registry,
 };
 pub use frame::{Observation, Settling, UNSETTLED_FRAME_LIMIT, on_settled_frame};
 pub use record::{FontFacts, Paint, RawAnchor, TextFacts};
