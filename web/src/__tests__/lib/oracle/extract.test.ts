@@ -14,6 +14,7 @@ import {
   oracleMeasureNormalLineHeight,
   oracleNormalizeColor,
   oracleNormalizeState,
+  oraclePseudoBoxRect,
   oracleRelativeBounds,
   oracleResolveLineHeight,
   oracleSelectDeclaredAnchors,
@@ -574,6 +575,19 @@ const BASE_STYLE: FakeStyle = {
   fontWeight: 'normal',
   fontStyle: 'normal',
   lineHeight: 'normal',
+  // P3.34: `oraclePseudoBoxRect`'s inputs. `position: absolute; inset: 0;
+  // margin: 0` is `.file-tree-item::before`'s real shape (and the shape every
+  // mocked pseudo here defaults to unless a test overrides one of these) —
+  // never read on a non-pseudo style, so harmless there.
+  position: 'absolute',
+  left: '0px',
+  top: '0px',
+  right: '0px',
+  bottom: '0px',
+  marginLeft: '0px',
+  marginTop: '0px',
+  marginRight: '0px',
+  marginBottom: '0px',
 }
 
 function stubRect(el: Element, box: { left: number; top: number; width: number; height: number }) {
@@ -706,6 +720,54 @@ function mountRow(theme: 'light' | 'dark' = 'light') {
   )
 
   return { row, guide, btn, name, badge }
+}
+
+/**
+ * `#outer[root] → #track[pseudo-backed]`, shaped after `slider.tsx`'s track —
+ * the component `native/QUEUE.md` P3.30 found violating the pseudo shortcut's
+ * `inset:0` assumption (P3.34).
+ *
+ * The track is deliberately **not** the root: `oracleRelativeBounds` always
+ * reports `x: 0, y: 0` for the root anchor by construction (`rootBox = box`
+ * when `i === 0`), so a test that put the pseudo-backed element at the root
+ * could not distinguish "the inset offset was applied" from "it was ignored" —
+ * only `w`/`h` would move, never `x`/`y`. Nesting it under an unrelated root
+ * gives every one of `bounds.x/y/w/h` a non-trivial expected value.
+ *
+ * `pseudoOverrides` defaults to nothing, which — via {@link BASE_STYLE}'s
+ * `position: absolute; inset: 0; margin: 0` — is `inset:0`, the control case.
+ */
+function mountPseudoInsetProbe(pseudoOverrides: FakeStyle = {}) {
+  document.documentElement.className = 'light'
+  document.body.innerHTML = `
+    <div id="outer" data-oracle-id="pseudo-probe-root">
+      <div id="track" data-oracle-id="pseudo-probe-track"></div>
+    </div>`
+  const outer = document.getElementById('outer') as HTMLElement
+  const track = document.getElementById('track') as HTMLElement
+  stubRect(outer, { left: 0, top: 0, width: 768, height: 24 })
+  // 668 wide at x=50 is the shape `native/QUEUE.md` P3.30 diffed slider's
+  // track against — kept here so the expected numbers below trace back to it.
+  stubRect(track, { left: 50, top: 10, width: 668, height: 4 })
+
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(((
+    el: Element,
+    pseudo?: string | null,
+  ) => {
+    if (pseudo) {
+      if (el !== track) return { ...BASE_STYLE, content: 'none' } as unknown as CSSStyleDeclaration
+      return { ...BASE_STYLE, content: '""', ...pseudoOverrides } as unknown as CSSStyleDeclaration
+    }
+    return { ...BASE_STYLE } as unknown as CSSStyleDeclaration
+  }) as typeof window.getComputedStyle)
+
+  return { outer, track }
+}
+
+const PSEUDO_INSET_PROBE = {
+  surface: 'oracle-probe-pseudo-inset',
+  root: 'pseudo-probe-root',
+  pseudo: { 'pseudo-probe-track': '::before' },
 }
 
 /**
@@ -1254,6 +1316,40 @@ describe('extractSnapshot', () => {
     expect(byId['git-row-button'].radius).toBe(2)
   })
 
+  /**
+   * P3.34 control, through the real `extractSnapshot` wiring rather than
+   * {@link oraclePseudoBoxRect} in isolation: an `inset:0` pseudo not at the
+   * root must still measure exactly the host's padding box, x/y included.
+   */
+  it('P3.34 control: an inset:0 pseudo (not at the root) still measures the host padding box exactly', () => {
+    mountPseudoInsetProbe()
+    const snapshot = extractSnapshot(PSEUDO_INSET_PROBE)
+    const track = snapshot.anchors.find((a) => a.id === 'pseudo-probe-track')
+
+    expect(track?.bounds).toEqual({ x: 50, y: 10, w: 668, h: 4 })
+  })
+
+  /**
+   * P3.34: `slider.tsx`'s track is `before:inset-x-0.5` — 2px in from each
+   * side, `native/QUEUE.md` P3.30's bounded oracle bug. The old shortcut
+   * (`oraclePaddingBoxRect` applied unconditionally) reports the *host's*
+   * padding box regardless of inset — `{x: 50, w: 668}` here — which is wrong
+   * whenever the inset is not zero.
+   *
+   * **Non-vacuity, checked by mutation:** reverting `extractSnapshot`'s
+   * pseudo branch from `oraclePseudoBoxRect(el, style, pseudoStyle, id)` back
+   * to the old `oraclePaddingBoxRect(el, style)` makes this test fail with
+   * `{x: 50, w: 668}` where it expects `{x: 52, w: 664}` — confirmed by hand
+   * against the pre-P3.34 code before this test was added.
+   */
+  it("P3.34: a one-axis inset (slider's before:inset-x-0.5) offsets x and shrinks w, leaves y/h untouched", () => {
+    mountPseudoInsetProbe({ left: '2px', right: '2px' })
+    const snapshot = extractSnapshot(PSEUDO_INSET_PROBE)
+    const track = snapshot.anchors.find((a) => a.id === 'pseudo-probe-track')
+
+    expect(track?.bounds).toEqual({ x: 52, y: 10, w: 664, h: 4 })
+  })
+
   it('records full text, unclipped advance width, and the truncation', () => {
     mountRow()
     const { anchors } = extractSnapshot({ surface: 'git-status-row' })
@@ -1443,6 +1539,151 @@ describe('extractSnapshot', () => {
     const derived = extractSnapshot({ surface: 'git-status-row' })
 
     expect(JSON.stringify(declared)).toBe(JSON.stringify(derived))
+  })
+})
+
+// ── P3.34: a pseudo-backed anchor's box, without assuming `inset: 0` ─────────
+//
+// `oraclePaddingBoxRect` alone (the pre-P3.34 shortcut, still used for the
+// *host's* padding box as the baseline `oraclePseudoBoxRect` offsets from)
+// assumed every pseudo-backed anchor was `position:absolute; inset:0`, which
+// is `git-row-item`/`file-row-item`'s shape but not `slider.tsx`'s track
+// (`before:inset-x-0.5`, `native/QUEUE.md` P3.30). These exercise
+// {@link oraclePseudoBoxRect} directly, in isolation from `extractSnapshot`'s
+// walk — the integration-level control and non-vacuity check live in
+// `describe('extractSnapshot', ...)` above, next to the rest of the
+// pseudo-backed-anchor tests.
+
+describe('oraclePseudoBoxRect', () => {
+  function hostStyle(overrides: FakeStyle = {}) {
+    return {
+      borderLeftWidth: '0px',
+      borderTopWidth: '0px',
+      borderRightWidth: '0px',
+      borderBottomWidth: '0px',
+      ...overrides,
+    }
+  }
+
+  // Matches `BASE_STYLE`'s pseudo defaults: `position:absolute; inset:0;
+  // margin:0` — spelled out here rather than imported so each test's
+  // deviation from it is visible at the call site.
+  function pseudoStyle(overrides: FakeStyle = {}) {
+    return {
+      position: 'absolute',
+      left: '0px',
+      top: '0px',
+      right: '0px',
+      bottom: '0px',
+      marginLeft: '0px',
+      marginTop: '0px',
+      marginRight: '0px',
+      marginBottom: '0px',
+      ...overrides,
+    }
+  }
+
+  function host(rect: { left: number; top: number; width: number; height: number }) {
+    const el = document.createElement('div')
+    stubRect(el, rect)
+    return el
+  }
+
+  it('control: inset:0 measures exactly the host padding box', () => {
+    const el = host({ left: 100, top: 50, width: 320, height: 24 })
+
+    expect(oraclePseudoBoxRect(el, hostStyle(), pseudoStyle(), 'test-anchor')).toEqual({
+      left: 100,
+      top: 50,
+      width: 320,
+      height: 24,
+    })
+  })
+
+  it('a border on the host still shrinks the padding box before the inset is applied', () => {
+    const el = host({ left: 0, top: 0, width: 100, height: 100 })
+
+    expect(
+      oraclePseudoBoxRect(
+        el,
+        hostStyle({ borderLeftWidth: '1px', borderTopWidth: '1px' }),
+        pseudoStyle({ left: '2px', right: '2px', top: '2px', bottom: '2px' }),
+        'bordered-host',
+      ),
+    ).toEqual({ left: 3, top: 3, width: 95, height: 95 })
+  })
+
+  it("slider's before:inset-x-0.5: a one-axis inset offsets left and shrinks width, top/height untouched", () => {
+    const el = host({ left: 0, top: 0, width: 668, height: 4 })
+
+    expect(
+      oraclePseudoBoxRect(
+        el,
+        hostStyle(),
+        pseudoStyle({ left: '2px', right: '2px' }),
+        'slider-track',
+      ),
+    ).toEqual({ left: 2, top: 0, width: 664, height: 4 })
+  })
+
+  it('a pseudo positioned by left+width (right left auto in source) resolves through the browser-solved used `right`', () => {
+    const el = host({ left: 0, top: 0, width: 100, height: 100 })
+    // The abspos algorithm solves a concrete used `right` — 100 - 4 - 20 = 76 —
+    // before `getComputedStyle` ever reports it; this function reads that
+    // resolved value and never looks at `width` itself.
+    expect(
+      oraclePseudoBoxRect(
+        el,
+        hostStyle(),
+        pseudoStyle({ left: '4px', right: '76px' }),
+        'width-positioned',
+      ),
+    ).toEqual({ left: 4, top: 0, width: 20, height: 100 })
+  })
+
+  it('refuses a pseudo that is not position:absolute', () => {
+    const el = host({ left: 0, top: 0, width: 100, height: 100 })
+
+    expect(() =>
+      oraclePseudoBoxRect(el, hostStyle(), pseudoStyle({ position: 'relative' }), 'bad-anchor'),
+    ).toThrow(/is `position: relative`, not `absolute`/)
+  })
+
+  it('refuses an inset that never resolved off `auto`', () => {
+    const el = host({ left: 0, top: 0, width: 100, height: 100 })
+
+    expect(() =>
+      oraclePseudoBoxRect(el, hostStyle(), pseudoStyle({ left: 'auto' }), 'auto-anchor'),
+    ).toThrow(/did not resolve to a definite pixel length/)
+  })
+
+  it('refuses a percentage inset that did not resolve to a used pixel value', () => {
+    const el = host({ left: 0, top: 0, width: 100, height: 100 })
+
+    expect(() =>
+      oraclePseudoBoxRect(el, hostStyle(), pseudoStyle({ left: '50%' }), 'percent-anchor'),
+    ).toThrow(/did not resolve to a definite pixel length/)
+  })
+
+  it('refuses a non-zero margin rather than mis-measuring by it', () => {
+    const el = host({ left: 0, top: 0, width: 100, height: 100 })
+
+    expect(() =>
+      oraclePseudoBoxRect(el, hostStyle(), pseudoStyle({ marginLeft: '4px' }), 'margined-anchor'),
+    ).toThrow(/non-zero or unresolved margin/)
+  })
+
+  it('refuses an inset that would resolve to a negative box rather than emit one', () => {
+    const el = host({ left: 0, top: 0, width: 10, height: 10 })
+
+    expect(() =>
+      oraclePseudoBoxRect(
+        el,
+        hostStyle(),
+        pseudoStyle({ left: '8px', right: '8px' }),
+        'overinset-anchor',
+      ),
+    ).toThrow(/negative box/)
   })
 })
 
@@ -2183,9 +2424,9 @@ describe('the scroll viewport declares its own anchors (P3.20)', () => {
 
   it('pins the root as part of the set, so two captures cannot disagree on it', () => {
     mountScrollArea()
-    expect(() =>
-      extractSnapshot({ surface: 'scroll-area', root: 'scroll-area-viewport' }),
-    ).toThrow(/is rooted on "scroll-area-root", not on "scroll-area-viewport"/)
+    expect(() => extractSnapshot({ surface: 'scroll-area', root: 'scroll-area-viewport' })).toThrow(
+      /is rooted on "scroll-area-root", not on "scroll-area-viewport"/,
+    )
   })
 
   it('refuses a capture missing an anchor the surface declares', () => {

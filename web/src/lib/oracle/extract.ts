@@ -153,7 +153,9 @@ export interface ExtractOptions {
   index?: number
   /**
    * Anchor id → pseudo-element selector whose paint backs that anchor
-   * (ANCHORS.md §3). Only valid when the pseudo is `position:absolute; inset:0`.
+   * (ANCHORS.md §3). Only valid when the pseudo is `position:absolute` — its
+   * box is read from its own resolved inset ({@link oraclePseudoBoxRect}), not
+   * assumed to be `inset:0` (P3.34).
    *
    * Defaults to `::before` on **both** gate surfaces' root anchors —
    * `git-row-item` and `file-row-item`. They are the same wrapper class,
@@ -748,8 +750,10 @@ export function oracleTextAdvanceWidth(el: Element): number {
 }
 
 /**
- * The host's padding box, which is what `position:absolute; inset:0` resolves
- * against — so it is the box of a pseudo-element backing an anchor (§3).
+ * The host's padding box — what `position:absolute; inset:0` resolves
+ * against, and therefore the box of an `inset:0` pseudo-element backing an
+ * anchor (§3). For any other inset, {@link oraclePseudoBoxRect} offsets from
+ * this box rather than returning it directly.
  */
 export function oraclePaddingBoxRect(
   el: Element,
@@ -770,6 +774,176 @@ export function oraclePaddingBoxRect(
     top: r.top + bt,
     width: r.width - bl - br,
     height: r.height - bt - bb,
+  }
+}
+
+/**
+ * A CSS length that has already been resolved to a definite pixel value, or
+ * `null` if it has not.
+ *
+ * ANCHORS.md §3's pseudo shortcut (below) must never guess: `getComputedStyle`
+ * is asked for a *resolved* value, and this is the check that the answer it
+ * gave back was actually resolved — a plain `<number>px` — rather than a
+ * literal `auto`, an unresolved percentage, or anything else CSSOM permits a
+ * UA to hand back when it cannot compute a used value.
+ */
+export function oracleParsePx(raw: string): number | null {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  if (!/^-?\d+(\.\d+)?px$/.test(trimmed)) return null
+  const value = parseFloat(trimmed)
+  return isFinite(value) ? value : null
+}
+
+/**
+ * The pseudo's *own* box — ANCHORS.md §3, generalised past the `inset:0` case
+ * {@link oraclePaddingBoxRect} alone handles. P3.34: `extract.ts` used to
+ * return the host's padding box for every pseudo-backed anchor, on the stated
+ * assumption that the pseudo is always `inset:0`. `slider`'s track pseudo is
+ * `before:inset-x-0.5` — inset 2px on each side, not 0 — and the shortcut
+ * reported `{x:0, w:668}` where the true box is `{x:2, w:664}`.
+ *
+ * ## Mechanism
+ *
+ * `top`/`right`/`bottom`/`left` and `margin-*` are exactly the properties
+ * CSSOM's resolved-value algorithm reports as the **used** value — a definite
+ * px length — rather than the literal specified value, for any absolutely
+ * positioned, box-generating element, regardless of whether the author wrote
+ * a length, a percentage, or left the property `auto`. The abspos placement
+ * algorithm (CSS2.1 §10.3.7 / §10.6.4) resolves every one of the four insets
+ * to a concrete number before layout is done — that is precisely what makes
+ * an otherwise over/under-constrained system solvable — so reading them back
+ * is asking the engine for its own answer, not re-deriving one by hand.
+ *
+ * Offsetting the host's padding box by the resolved left/top, then shrinking
+ * it by left+right and top+bottom, handles every shape in one formula without
+ * this function ever needing to know which sides the author actually wrote:
+ *
+ * - `inset: 0` — all four resolve to `0`, so the result is the host's padding
+ *   box exactly: adding and subtracting zero is exact in floating point, so
+ *   this reproduces {@link oraclePaddingBoxRect}'s answer bit-for-bit, not
+ *   merely approximately. `git-row-item` and `file-row-item` are `inset: 0`
+ *   (`.file-tree-item::before`) and stay on this identity.
+ * - `inset-x-0.5` (the `slider` track) — left/right resolve to the authored
+ *   `2px`, so `width = hostWidth - 4` and `left = hostLeft + 2`.
+ * - A pseudo positioned by `left` + `width` alone, `right` left `auto` in the
+ *   source: the abspos algorithm still solves a concrete *used* `right` that
+ *   balances the equation, so subtracting it reproduces the authored width —
+ *   this function never has to read `width` itself to get that case right.
+ *
+ * ## Refusals — loud, not a plausible-looking wrong number
+ *
+ * - Anything but `position: absolute` is out of scope: ANCHORS.md §3 only
+ *   describes this shortcut for an absolutely positioned pseudo, and
+ *   `position: relative`'s offset semantics (an author's `right` can be
+ *   *present but ignored*) do not fit the same formula.
+ * - A non-zero (or unresolved) margin refuses outright. Insetting from the
+ *   host's padding box lands on the pseudo's *margin* edge, and folding
+ *   margin into the formula too is unexercised by anything in this codebase
+ *   today — better to refuse than to add an untested term.
+ * - Any of the six lengths not resolving to a plain `<number>px` refuses by
+ *   name: a literal `auto` surviving resolution, or a percentage the engine
+ *   could not compute against an indefinite containing block. This is the
+ *   "percentage insets that don't resolve" case — nothing here decides what
+ *   such a value *should* mean, it stops instead.
+ * - A box that would resolve to a negative width or height — the insets
+ *   exceed the host's own box — refuses rather than emit a nonsensical size.
+ */
+export function oraclePseudoBoxRect(
+  el: Element,
+  hostStyle: {
+    borderLeftWidth: string
+    borderTopWidth: string
+    borderRightWidth: string
+    borderBottomWidth: string
+  },
+  pseudoStyle: {
+    position: string
+    left: string
+    top: string
+    right: string
+    bottom: string
+    marginLeft: string
+    marginTop: string
+    marginRight: string
+    marginBottom: string
+  },
+  id: string,
+): { left: number; top: number; width: number; height: number } {
+  if (pseudoStyle.position !== 'absolute') {
+    throw new Error(
+      'oracle: pseudo-backed anchor "' +
+        id +
+        '" is `position: ' +
+        pseudoStyle.position +
+        "`, not `absolute` — ANCHORS.md §3's pseudo shortcut only covers an " +
+        'absolutely positioned pseudo. Refusing to guess its box.',
+    )
+  }
+
+  const marginLeft = oracleParsePx(pseudoStyle.marginLeft)
+  const marginTop = oracleParsePx(pseudoStyle.marginTop)
+  const marginRight = oracleParsePx(pseudoStyle.marginRight)
+  const marginBottom = oracleParsePx(pseudoStyle.marginBottom)
+  if (marginLeft !== 0 || marginTop !== 0 || marginRight !== 0 || marginBottom !== 0) {
+    throw new Error(
+      'oracle: pseudo-backed anchor "' +
+        id +
+        '" has a non-zero or unresolved margin on its pseudo (left=' +
+        pseudoStyle.marginLeft +
+        ' top=' +
+        pseudoStyle.marginTop +
+        ' right=' +
+        pseudoStyle.marginRight +
+        ' bottom=' +
+        pseudoStyle.marginBottom +
+        ") — this shortcut offsets from the host's padding box by inset alone " +
+        'and does not account for margin. Refusing to guess its box.',
+    )
+  }
+
+  const left = oracleParsePx(pseudoStyle.left)
+  const top = oracleParsePx(pseudoStyle.top)
+  const right = oracleParsePx(pseudoStyle.right)
+  const bottom = oracleParsePx(pseudoStyle.bottom)
+  if (left === null || top === null || right === null || bottom === null) {
+    throw new Error(
+      'oracle: pseudo-backed anchor "' +
+        id +
+        '" has an inset that did not resolve to a definite pixel length ' +
+        '(left=' +
+        pseudoStyle.left +
+        ' top=' +
+        pseudoStyle.top +
+        ' right=' +
+        pseudoStyle.right +
+        ' bottom=' +
+        pseudoStyle.bottom +
+        '). Refusing to guess its box.',
+    )
+  }
+
+  const host = oraclePaddingBoxRect(el, hostStyle)
+  const width = host.width - left - right
+  const height = host.height - top - bottom
+  if (width < 0 || height < 0) {
+    throw new Error(
+      'oracle: pseudo-backed anchor "' +
+        id +
+        '" resolves to a negative box (' +
+        width +
+        'x' +
+        height +
+        ') after its inset is subtracted from the host padding box. Refusing ' +
+        'to emit a negative size.',
+    )
+  }
+
+  return {
+    left: host.left + left,
+    top: host.top + top,
+    width,
+    height,
   }
 }
 
@@ -1608,7 +1782,8 @@ export function extractSnapshot(options: ExtractOptions): OracleSnapshot {
 
     // Pseudo-backed anchors (§3): the paint lives on a pseudo-element that has
     // no DOM node and cannot carry the attribute. Only valid while the pseudo
-    // is `position:absolute; inset:0`, which resolves to the host's padding box.
+    // is `position:absolute` — {@link oraclePseudoBoxRect} reads its actual
+    // resolved inset rather than assuming `inset:0` (P3.34).
     let pseudoStyle: CSSStyleDeclaration | null = null
     const pseudoSelector = pseudoMap[id]
     if (pseudoSelector) {
@@ -1618,7 +1793,7 @@ export function extractSnapshot(options: ExtractOptions): OracleSnapshot {
 
     let box: OracleBox
     if (pseudoStyle) {
-      box = oraclePaddingBoxRect(el, style)
+      box = oraclePseudoBoxRect(el, style, pseudoStyle, id)
     } else {
       const r = el.getBoundingClientRect()
       box = { left: r.left, top: r.top, width: r.width, height: r.height }
@@ -1745,6 +1920,8 @@ const ORACLE_RUNTIME = [
   oracleOwnText,
   oracleTextAdvanceWidth,
   oraclePaddingBoxRect,
+  oracleParsePx,
+  oraclePseudoBoxRect,
   oracleGeneratesBox,
   oracleIsVisible,
   oracleAssertComparableOpacity,
