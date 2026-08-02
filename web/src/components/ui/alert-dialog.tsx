@@ -62,6 +62,7 @@ function AlertDialogPopup({
               'max-sm:max-w-none max-sm:origin-bottom max-sm:rounded-none max-sm:border-x-0 max-sm:border-t max-sm:border-b-0 max-sm:data-ending-style:translate-y-4 max-sm:data-starting-style:translate-y-4 max-sm:before:hidden max-sm:before:rounded-none',
             className,
           )}
+          data-oracle-id="alert-dialog-popup"
           data-slot="alert-dialog-popup"
           {...props}
         />
@@ -77,6 +78,7 @@ export function AlertDialogHeader({
   return (
     <div
       className={cn('flex flex-col gap-2 p-6 text-center max-sm:pb-4 sm:text-left', className)}
+      data-oracle-id="alert-dialog-header"
       data-slot="alert-dialog-header"
       {...props}
     />
@@ -98,6 +100,7 @@ export function AlertDialogFooter({
         variant === 'bare' && 'pb-6',
         className,
       )}
+      data-oracle-id="alert-dialog-footer"
       data-slot="alert-dialog-footer"
       {...props}
     />
@@ -111,6 +114,8 @@ export function AlertDialogTitle({
   return (
     <AlertDialogPrimitive.Title
       className={cn('font-heading font-semibold text-xl leading-none', className)}
+      data-oracle-id="alert-dialog-title"
+      data-oracle-line-sized="true"
       data-slot="alert-dialog-title"
       {...props}
     />
@@ -124,6 +129,7 @@ export function AlertDialogDescription({
   return (
     <AlertDialogPrimitive.Description
       className={cn('text-muted-foreground text-sm', className)}
+      data-oracle-id="alert-dialog-description"
       data-slot="alert-dialog-description"
       {...props}
     />

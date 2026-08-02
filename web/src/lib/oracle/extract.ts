@@ -1142,6 +1142,19 @@ export function oracleSurfaceScope(
       root: 'dialog-popup',
       anchors: ['dialog-popup'],
     },
+    // `alert-dialog.tsx` (P3.28): `AlertDialogPopup` renders
+    // `AlertDialogPrimitive.Popup` and nothing else unconditionally, the same
+    // shape `dialog`'s is — `AlertDialogHeader`/`AlertDialogTitle`/
+    // `AlertDialogDescription`/`AlertDialogFooter` are all call-site slots.
+    // Sharper reason to declare it than `dialog` had: the one reachable call
+    // site (`review-thread-item.tsx`'s delete confirmation) nests two real
+    // `<Button>`s inside `AlertDialogFooter`, each carrying the primitive's
+    // own `data-oracle-id="button"` — an undeclared capture rooted at
+    // `alert-dialog-popup` would pull both in.
+    'alert-dialog': {
+      root: 'alert-dialog-popup',
+      anchors: ['alert-dialog-popup'],
+    },
     // `sheet.tsx`: same shape as `dialog`'s, for the same reason — see the
     // module docs. No live call site mounts one at all
     // (`crowbar_ui::components::sheet`'s module docs), so this entry exists
