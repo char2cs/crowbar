@@ -186,6 +186,21 @@ pub mod separator;
 // mounts one at all, and its vendor widget cannot even be driven past
 // `Placement::Right` without a `Root` this measurement harness does not mount.
 pub mod sheet;
+// `sidebar` is unflattened for the reason `sidebar_carousel` is, and one
+// sharper: `sidebar::Header` is `sidebar.tsx`'s `SidebarHeader` and
+// `card::Header` is `card.tsx`'s, two padded containers with different numbers;
+// `sidebar::Tone` names three text colours where `inline_error` has its own
+// notion of an error tone; and `sidebar::CONTENT_SIZED` is non-empty where the
+// flattened `git_status_row::CONTENT_SIZED` already occupies the bare name — a
+// declaration list that silently meant another surface's is exactly the mistake
+// `ANCHORS.md` v1.6 warns about.
+//
+// **`sidebar` carries two surfaces and covers two of its file's six visual
+// exports.** `Sidebar` and `SidebarFooter` are reported-and-stopped rather than
+// rebuilt: the vendor puts geometry between its own border box and the child
+// this crate can hold, so neither can reach strict parity. The module docs and
+// `native/mapping/sidebar.md` carry the account and the quoted vendor code.
+pub mod sidebar;
 pub mod sidebar_toggle_icon;
 pub mod skeleton;
 // `tooltip` is unflattened for the same reason as the rest. Its `ID_TOOLTIP`

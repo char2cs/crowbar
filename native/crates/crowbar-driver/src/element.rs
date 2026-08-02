@@ -249,18 +249,25 @@ where
 ///
 /// # Why the root needs this at all
 ///
-/// Added by P3.20, which is the first surface whose **root is itself
-/// content-sized**: `keybinding` renders one `<kbd>` and nothing else, so the
-/// frame boundary and the measured box are the same element.
+/// Added independently by P3.19 and P3.20, which found the same hole from two
+/// different surfaces: `keybinding` (P3.20) renders one `<kbd>` and nothing
+/// else, so the frame boundary and the measured box are the same element;
+/// `sidebar-empty` (P3.19) is a shrink-to-fit column inside a row flex parent,
+/// so its used width **is** a text run's max-content width plus integral
+/// padding. Both are surfaces whose **root is itself content-sized**.
 ///
 /// Until then every root was a container — a row, a popup, a panel — whose
 /// width came from its parent, so `anchor_root` hardcoding
 /// [`Declared::nothing`] cost nothing and nobody noticed. It was still a hole,
 /// and of the worst kind: a component that declared `content_sized` on its root
-/// had the declaration **silently dropped in translation**, and the differ then
-/// compared `bounds.w` against the reference's fraction rather than against
-/// `ceil(reference.w)` — a blind spot that reports nothing, which is exactly
-/// what `native/oracle/ANCHORS.md` v1.5 says a mis-declaration does.
+/// had the declaration **silently dropped in translation**. The DOM extractor
+/// has no such hole — it reads `data-oracle-content-sized` off whichever
+/// element carries the root id — so the reference said `content_sized: true`
+/// and the native side said `false`, and the differ reported that as a
+/// `ContentSizedMismatch` rather than as a missing feature: `bounds.w` compared
+/// against the reference's fraction rather than against `ceil(reference.w)`, a
+/// blind spot that reports nothing, which is exactly what
+/// `native/oracle/ANCHORS.md` v1.5 says a mis-declaration does.
 ///
 /// §4 zeroes a root's `x` and `y`, so only `w` and `h` are ever compared on one
 /// — but those are precisely the two fields v1.5 and v1.6 correct.
@@ -591,7 +598,10 @@ mod tests {
         Window, div, px, rgb, size,
     };
 
-    use super::{anchor, anchor_root, anchor_text, install, registry};
+    use super::{
+        Declared, anchor, anchor_declared, anchor_root, anchor_root_declared, anchor_text, install,
+        registry,
+    };
     use crate::record::Paint;
     use crate::schema::{Content, SurfaceState, Theme};
 
@@ -622,6 +632,24 @@ mod tests {
     impl Render for Surface {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
             a_surface()
+        }
+    }
+
+    /// A root that declares `content_sized` around a child that declares
+    /// `line_sized`, so the two flags cannot be confused for one another.
+    struct Declaring;
+
+    impl Render for Declaring {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            anchor_root_declared(
+                "root",
+                div().child(anchor_declared(
+                    "child",
+                    div().w(px(10.0)).h(px(10.0)),
+                    Declared::nothing().line_sized(),
+                )),
+                Declared::nothing().content_sized(),
+            )
         }
     }
 
@@ -860,6 +888,54 @@ mod tests {
         cx.run_until_parked();
 
         assert_eq!(anchors.records().len(), 2);
+    }
+
+    /// **A root anchor carries its declarations**, which it could not before
+    /// P3.19 — [`anchor_root`] hard-coded [`Declared::nothing`] and there was no
+    /// other way in.
+    ///
+    /// The hole was invisible from inside this crate and loud from outside it:
+    /// the DOM extractor reads `data-oracle-content-sized` off whichever element
+    /// carries the root id, so a surface whose root shrink-wraps emitted `true`
+    /// on the reference and `false` here, and the differ reports that as a
+    /// `ContentSizedMismatch` on every cell.
+    ///
+    /// The control is the second half — [`anchor_root`] still declares nothing,
+    /// so this test cannot pass by both spellings having become the same thing.
+    #[gpui::test]
+    fn a_root_anchor_carries_the_declarations_it_is_given(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
+        let anchors = cx.update(install);
+        let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| Declaring);
+        cx.run_until_parked();
+
+        let records = anchors.records();
+        let root = records
+            .iter()
+            .find(|record| record.id == "root")
+            .expect("the root was recorded");
+        assert!(root.content_sized, "{root:?}");
+        assert!(!root.line_sized, "{root:?}");
+        let child = records
+            .iter()
+            .find(|record| record.id == "child")
+            .expect("the child was recorded");
+        assert!(child.line_sized, "{child:?}");
+        assert!(!child.content_sized, "{child:?}");
+    }
+
+    /// The control for the test above: the undeclared spelling still declares
+    /// nothing, so a root that *should* be plain cannot be silently promoted.
+    #[gpui::test]
+    fn a_plain_root_anchor_declares_nothing(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
+        let anchors = cx.update(install);
+        let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| Surface);
+        cx.run_until_parked();
+
+        let records = anchors.records();
+        assert!(!records[0].content_sized, "{:?}", records[0]);
+        assert!(!records[0].line_sized, "{:?}", records[0]);
     }
 
     /// A build that links the driver but never installs a registry has to draw

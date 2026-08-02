@@ -1150,6 +1150,26 @@ export function oracleSurfaceScope(
       root: 'sheet-popup',
       anchors: ['sheet-popup'],
     },
+    // `sidebar.tsx`: `SidebarHeader` is **one** `<div>` and nothing else of its
+    // own — everything inside it belongs to the call site. The one live call
+    // site (`file-explorer-tree.tsx`) puts an `<Input>` and a `<Button>` in
+    // there, and both carry their own primitive's ids, so an undeclared capture
+    // comes back with `input-control`, `input` and `button` under this root.
+    // Measured on the running app before this entry was written; the set below
+    // is read off the component, not off that capture.
+    'sidebar-header': {
+      root: 'sidebar-header',
+      anchors: ['sidebar-header'],
+    },
+    // `sidebar.tsx`: `SidebarEmptyActionState` renders its own `<div>` and a
+    // message `<div>` unconditionally. The icon `<span>`, the description
+    // `<div>` and the action `<Button>` are each behind a prop, so none of them
+    // is declared — the call `popover` makes about `PopoverTitle`, for the same
+    // reason: a declared anchor that is not in the document throws.
+    'sidebar-empty': {
+      root: 'sidebar-empty',
+      anchors: ['sidebar-empty', 'sidebar-empty-message'],
+    },
   }
   const key = String(surface === null || surface === undefined ? '' : surface)
   // Own properties only: `declared['constructor']` would otherwise hand back a
