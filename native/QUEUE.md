@@ -2819,9 +2819,19 @@ progress number correspondingly too small.
 
 | Item | Branch | State |
 |---|---|---|
-| **P3.15** wrap `popover` + `select` | `native/p3-wrap-popover-select` @ `04ca276d` | ⏸ **HELD, not merged** — gates green by my own run, but I cannot capture it yet (see P3.17) |
+| **P3.15** wrap `popover` + `select` | `native/p3-wrap-popover-select` @ `04ca276d` | ✅ **MERGED `f1d71391`** — `popover` **PASS, 0 deltas**, verified by my own capture |
 | **P3.16** gpui `inspector` spike | `native/p3.16-inspector-spike` @ `ea543b24` | ✅ **REPORTED — path REJECTED, branch deliberately not merged.** Also corrected my seam survey 7 → 3 |
-| **P3.17** two-frame capture | `native/p3.17-two-frame-capture` | in flight — **blocks P3.15's verification** |
+| **P3.17** two-frame capture | `native/p3.17-two-frame-capture` @ `d465eb6d` · combined `native/p3.17-popover-reduction` @ `ecc6d242` | ✅ delivered — under my verification |
+| **P3.19** `sidebar` (wrap) | — | ❌ **DIED, no work produced** — worker hit the account's monthly spend limit mid-setup |
+| **P3.20** `scroll-area` + `keybinding` | — | ❌ **DIED, no work produced** — same cause |
+
+#### P3.19 / P3.20 — nothing to salvage, and not a work failure
+
+Both agents terminated on `You've hit your monthly spend limit` before writing a
+line: one was still reading the vendor `sidebar`, the other still setting up its
+worktree. **No branch, no worktree, no partial commit** — they are simply
+un-started, and re-dispatching them is the whole of the recovery. Recorded so a
+cold start does not go looking for their output.
 | **P3.18** `oracleSurfaceScope` for popover/select | `native/p3.18-surface-scope-popover` @ `02b820c5` | ✅ **MERGED `5f8ec5cd`** — verified by my own run incl. all three mutations |
 
 #### ✅ P3.18 verified by me — 176 passed, and the mutations bite
@@ -2881,7 +2891,35 @@ are not set until `on_prepaint` on frame 2 — so the only geometry that exists 
 from the worker's *own* test. That is precisely the evidence I do not bank.
 P3.15 merges after P3.17 lands and I capture it myself.
 
-**The reference half IS mine, re-measured 2026-07-31 with the window visible:**
+**✅ RESOLVED — `popover` PASS, 0 deltas over 2 anchors, my own run.** P3.17
+landed and I took the capture the paragraph above says I could not:
+
+```
+crowbar-app --surface popover --viewport-width 1714   →  /tmp/v-popover.json
+oracle --report /tmp/p3-ref-popover.json /tmp/v-popover.json
+  oracle: popover · width=1714 theme=dark content=normal flags=[]
+  oracle: PASS — 0 deltas over 2 anchors compared
+```
+
+Both halves of that chain are mine: the reference re-measured off the live app
+with the window visible, the native side captured from the built binary, and the
+verdict taken by the project's differ rather than by a diff I wrote for the
+occasion. **`select` remains unmeasured and unclaimed** — see `mapping/select.md`.
+
+Two of my own driving errors on the way, both self-inflicted and worth the note:
+`--width` is the **surface** width and `--viewport-width` is the window — the
+distinction that produced constant-delta errors twice before. And I passed
+`--body-height 175` assuming the viewport's height *is* the body height; it is
+body + 32px of padding, which is exactly why the flag's default is 143. The wrong
+value produced a clean, plausible `256×209` — a wrong answer with no smell to it.
+
+I also nearly banked a false pass: a stale `/tmp/v-short.json` from an earlier
+run hashed **equal to the committed file** while the binary had not been built at
+all, because my wait-loop fired on a progress marker rather than on the build
+finishing. **Delete the artefact before regenerating it**; an unwritten file that
+matches is indistinguishable from a written one that matches.
+
+**The reference half, re-measured 2026-07-31 with the window visible:**
 
 | anchor | my absolute measurement | worker's root-relative ref |
 |---|---|---|
