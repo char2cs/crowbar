@@ -2851,7 +2851,58 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
-#### ✅ WAVE 4 CLOSED — every item merged and verified except `sidebar`
+#### ✅ WAVE 4 CLOSED — all eight items merged, all eight verified by my own capture
+
+Merged: **P3.15/P3.17 · P3.18 · P3.19 · P3.20 · P3.21 · P3.22 · P3.24 · P3.25 ·
+P3.26.** Tip gates: clippy `-D warnings` 0 · **1388 passed / 0 failed** · 7 `ok`
+· both canaries byte-identical.
+
+| surface | verdict | cell |
+|---|---|---|
+| `popover` | PASS 0/2 anchors | 1714 dark |
+| `scroll-area` | PASS 0/2 | 1714 dark |
+| `keybinding` | PASS 0/1 | 1714 dark |
+| `dialog` | PASS 0/**4** | 1714 dark |
+| `search-toggle-icons` | PASS — re-verified after the weight fix | 1714 dark |
+| `sidebar-header` | PASS 0/1 | 1714 dark |
+| `sidebar-empty` | PASS 0/2 | 1714 dark |
+| `tooltip` | PASS 0/2 | 1714 **light** |
+
+#### ⚠ INCIDENT — a worker committed to the SHARED branch, unreviewed
+
+`cd9be621` landed P3.19's twelve files directly on `rewrite/rust`. The chain:
+`git worktree add` failed (branch already checked out elsewhere) → the following
+`cd` failed too → **a failed `cd` does not stop a shell script**, so the shell
+stayed in the shared worktree → the next `git merge` ran there. The worker then
+attempted `git reset --hard`, which **the permission classifier blocked** —
+protectively, since another merge had already landed on top.
+
+**Nothing was lost.** History intact, tree clean. But the content landed *before
+its gates ran and without a verdict*, which is the one rule everything else here
+is held to.
+
+**Resolved by taking the verdict rather than reverting**: a revert-then-re-merge
+would produce a byte-identical tree, so it would buy process tidiness and no
+correctness. Both sidebar surfaces then passed at 0 deltas, so the commit stays.
+Had they failed, the revert was the fallback.
+
+**Rule for every future brief:** worktree setup must be fail-fast and *verified* —
+`git worktree add … || exit 1`, `cd … || exit 1`, then print
+`git rev-parse --show-toplevel` and confirm it is not the shared path. A bare
+`cd` inside a longer script fails silently and every later command lands
+somewhere unintended — the same shape as the zsh `nomatch` and word-splitting
+traps that have bitten me three times.
+
+**And on recovery:** once a stray commit is buried under later work,
+`git revert -m 1 <sha>` is safe and `reset --hard` is not. "Undo it quickly" is
+exactly when that distinction gets forgotten.
+
+**The worker's actual deliverable was sound**, and settled a real question: by
+diffing both sides against their merge base it confirmed **P3.19's and P3.20's
+`AnchorSink::root` fixes are the same fix** — identical name, signature and body,
+found independently from two different content-sized-root surfaces
+(`sidebar-empty` and `keybinding`). It kept one mechanism and merged the two doc
+comments rather than applying the fix twice.
 
 Merged: **P3.15/P3.17 · P3.18 · P3.20 · P3.21 · P3.22 · P3.24 · P3.25 · P3.26.**
 Outstanding: `native/p3.19-sidebar`, being rebased (4-file conflict).
