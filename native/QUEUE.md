@@ -2851,6 +2851,42 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### ‼️ THE DRIVER CAN CLAIM A CELL IT WAS NOT MEASURED IN
+
+`command` diffed **FAIL — 7 deltas**, six of them a **constant −39** on every
+width anchor (576 → 537). A *constant* delta is the documented tell for a
+container-width mistake, so I chased it before returning anything.
+
+**It is environmental, and I initially called it a port defect — wrong.**
+
+- `command`'s root is **537 regardless of `--width`** (576/700/1200 all identical)
+  **and regardless of `--viewport-width`** (800/1200/1714 all identical).
+- `crowbar-ui/src/components/command.rs` sizes from the **granted** window:
+  `outer_width = min(window.viewport_size().width - 2*VIEWPORT_PADDING, max_width)`,
+  with `VIEWPORT_PADDING = 16`. So the granted viewport is **569px**, not the
+  1714 requested.
+- **AeroSpace is running** and is tiling the driver window — the same hazard that
+  produced the "misplaced window" and "37px display shortfall" misdiagnoses in
+  Phase 1.
+
+**Why nothing caught it until now.** The control is decisive: on the same binary
+and the same window, **`dialog` still measures exactly 448**, its reference. Every
+previously-verified surface either caps below the clamp (`dialog` 448, `popover`
+256, `scroll-area` 344, `tooltip` 99, `number-input` 112) or takes its width
+directly from `--width` (`slider` 668). **`command` is the first surface whose
+layout derives from the viewport**, so it is the first to expose this.
+
+**The defect in the harness, which is the real finding:** the snapshot's
+`state.width` records the **requested** width while layout used the **granted**
+one. When they diverge the capture is measured in one cell and **labelled as
+another** — and it fails in a way that looks exactly like a port bug. P3.17 added
+`row_snapshot::cut_by_the_window` for a surface *cut* by the window; this case is
+not cut, merely laid out narrower, so nothing refuses.
+
+**`command` is HELD**, not failed. Its gates are green (clippy 0, **1536 passed**,
+7 `ok`) and 10 of 11 anchors were byte-identical in the worker's own run at a
+correct window. A guard is dispatched (P3.35); the verdict is re-taken after.
+
 #### ✅ P3.30 — `slider` verified on TWO cells; `tree-row` ruled out
 
 ```
