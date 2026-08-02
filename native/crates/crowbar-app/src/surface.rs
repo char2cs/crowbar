@@ -518,6 +518,8 @@ mod tests {
                 "button",
                 "card",
                 "checkbox",
+                // `command.rs` sorts before `crowbar_mark.rs` — `co` < `cr`.
+                "command",
                 "crowbar-mark",
                 "crowbar-wordmark",
                 "dialog",

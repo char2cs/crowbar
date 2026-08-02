@@ -32,18 +32,21 @@ export function AutocompleteInput({
   return (
     <AutocompletePrimitive.InputGroup
       className="relative not-has-[>*.w-full]:w-fit w-full text-foreground has-disabled:opacity-64"
+      data-oracle-id="autocomplete-input-group"
       data-slot="autocomplete-input-group"
     >
       {startAddon && (
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-y-0 start-px z-10 flex items-center ps-[calc(--spacing(3)-1px)] opacity-80 has-[+[data-size=sm]]:ps-[calc(--spacing(2.5)-1px)] [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:-mx-0.5"
+          data-oracle-id="autocomplete-start-addon"
           data-slot="autocomplete-start-addon"
         >
           {startAddon}
         </div>
       )}
       <AutocompletePrimitive.Input
+        data-oracle-id="autocomplete-input"
         className={cn(
           startAddon &&
             'data-[size=sm]:*:data-[slot=autocomplete-input]:ps-[calc(--spacing(7.5)-1px)] *:data-[slot=autocomplete-input]:ps-[calc(--spacing(8.5)-1px)] sm:data-[size=sm]:*:data-[slot=autocomplete-input]:ps-[calc(--spacing(7)-1px)] sm:*:data-[slot=autocomplete-input]:ps-[calc(--spacing(8)-1px)]',
@@ -95,6 +98,7 @@ export function AutocompleteItem({
         'flex min-h-8 cursor-default select-none items-center rounded-sm px-2 py-1 text-base outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-64 sm:min-h-7 sm:text-sm',
         className,
       )}
+      data-oracle-id="autocomplete-item"
       data-slot="autocomplete-item"
       {...props}
     >
@@ -113,6 +117,7 @@ export function AutocompleteEmpty({
         'not-empty:p-2 text-center text-base text-muted-foreground sm:text-sm',
         className,
       )}
+      data-oracle-id="autocomplete-empty"
       data-slot="autocomplete-empty"
       {...props}
     />
@@ -127,6 +132,7 @@ export function AutocompleteList({
     <ScrollArea scrollbarGutter scrollFade>
       <AutocompletePrimitive.List
         className={cn('not-empty:scroll-py-1 not-empty:p-1 in-data-has-overflow-y:pe-3', className)}
+        data-oracle-id="autocomplete-list"
         data-slot="autocomplete-list"
         {...props}
       />
@@ -144,6 +150,7 @@ function AutocompleteClear({
         "absolute end-0.5 top-1/2 inline-flex size-8 shrink-0 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border border-transparent opacity-80 outline-none transition-[color,background-color,box-shadow,opacity] pointer-coarse:after:absolute pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 hover:opacity-100 sm:size-7 [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
         className,
       )}
+      data-oracle-id="autocomplete-clear"
       data-slot="autocomplete-clear"
       {...props}
     >
@@ -160,6 +167,7 @@ function AutocompleteTrigger({
   return (
     <AutocompletePrimitive.Trigger
       className={className}
+      data-oracle-id="autocomplete-trigger"
       data-slot="autocomplete-trigger"
       {...props}
     >

@@ -1005,13 +1005,14 @@ export function oracleAssertComparableOpacity(elements: Element[]): void {
  * | `select` | the popup, the panel and the list — the three boxes `SelectPopup` builds on every render, whatever items the call site passes |
  * | `dialog` | the popup alone — `DialogPopup`'s one unconditional box. `dialog-header`/`dialog-title`/`dialog-description`/`dialog-footer` are all call-site-optional (P3.21's `import-project-modal` reference has a header and a footer; `add-repository-modal` — same primitive — has no description; a bare `<DialogContent>` has none of the four), so none of them is "a property of the surface" in the sense this table requires — see the point right below about `popover-title`, which the same reasoning already covers |
  * | `sheet` | the popup alone, for the same reason `dialog`'s is just the popup — and doubly so here: `sheet.tsx` has no live call site at all (`crowbar_ui::components::sheet`'s module docs), so there is no reference to derive a fuller set from even if the primitive's own shape allowed one |
+ * | `command` (P3.32) | the popup, the panel, the footer, and every box `autocomplete.tsx`'s `AutocompleteInput`/`AutocompleteList` build unconditionally (the input group, the start addon `CommandInput` always passes, the field, the always-mounted empty node, and the scroll area) — `autocomplete-item` is **not** here, `select-item`'s own reason (see below) |
  *
  * Each set is read off the component that builds the boxes — `popover.tsx`,
  * `select.tsx`, `sidebar-carousel.tsx`, `resizable.tsx` + `ide-shell.tsx`,
- * `dialog.tsx`, `sheet.tsx` — and never off a capture. A capture shows what one
- * call site produced, which is the very thing being filtered out; deriving the
- * set from it would encode the call site into the surface and the filter would
- * then be a no-op by construction.
+ * `dialog.tsx`, `sheet.tsx`, `command.tsx` + `autocomplete.tsx` — and never off
+ * a capture. A capture shows what one call site produced, which is the very
+ * thing being filtered out; deriving the set from it would encode the call
+ * site into the surface and the filter would then be a no-op by construction.
  *
  * ### The two overlays, and what each of them had to drop
  *
@@ -1182,6 +1183,48 @@ export function oracleSurfaceScope(
     'sidebar-empty': {
       root: 'sidebar-empty',
       anchors: ['sidebar-empty', 'sidebar-empty-message'],
+    },
+    // `command.tsx` (P3.32): `CommandDialogPopup` renders
+    // `CommandDialogPrimitive.Popup` and nothing else unconditionally —
+    // `dialog`'s own shape, one file over (`command` hand-rolls its own
+    // dialog chrome from raw base-ui `Dialog` primitives rather than
+    // composing `dialog.tsx`'s `DialogPopup`; see
+    // `crowbar_ui::components::command`'s module docs). Inside it,
+    // `Command`/`CommandInput`/`CommandPanel`/`CommandList`/`CommandFooter`
+    // render `autocomplete.tsx`'s own `AutocompleteInput`/`AutocompleteList`
+    // boxes, restyled through `className`, not reimplemented — the reused
+    // ids (`autocomplete-input-group`, `autocomplete-start-addon`,
+    // `autocomplete-input`, `autocomplete-empty`, `autocomplete-list`, and
+    // the already-declared `scroll-area-root`/`scroll-area-viewport` this
+    // surface nests) are declared here rather than a second time under
+    // `command-*` names, because there is only one set of boxes and
+    // `command.tsx` never overrides their `data-slot` (confirmed live —
+    // `CommandInput` passes none, so the field still reports
+    // `data-slot="autocomplete-input"`).
+    //
+    // `autocomplete-item` is **not** declared, for `select-item`'s own
+    // reason: its count is a property of the cell (the call site's own
+    // workspace list), and this dev environment's one-workspace fixture
+    // happening to keep it at exactly one does not make it a property of
+    // the *surface*. Its footer nests several `<Kbd>`s — `kbd.tsx`'s own
+    // id, repeated — which is the sharper reason a declaration is needed
+    // here at all: an undeclared capture rooted at `command-dialog-popup`
+    // pulls every one of them in, and `ANCHORS.md` v1.8 refuses a document
+    // with a repeated id outright.
+    command: {
+      root: 'command-dialog-popup',
+      anchors: [
+        'command-dialog-popup',
+        'command-panel',
+        'command-footer',
+        'autocomplete-input-group',
+        'autocomplete-start-addon',
+        'autocomplete-input',
+        'autocomplete-empty',
+        'scroll-area-root',
+        'scroll-area-viewport',
+        'autocomplete-list',
+      ],
     },
   }
   const key = String(surface === null || surface === undefined ? '' : surface)
