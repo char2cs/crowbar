@@ -2851,6 +2851,31 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### ✅ WAVE 4 CLOSED — every item merged and verified except `sidebar`
+
+Merged: **P3.15/P3.17 · P3.18 · P3.20 · P3.21 · P3.22 · P3.24 · P3.25 · P3.26.**
+Outstanding: `native/p3.19-sidebar`, being rebased (4-file conflict).
+
+| surface | verdict | cell |
+|---|---|---|
+| `popover` | PASS 0 deltas / 2 anchors | 1714 · dark |
+| `scroll-area` | PASS 0 deltas / 2 anchors | 1714 · dark |
+| `keybinding` | PASS 0 deltas / 1 anchor | 1714 · dark |
+| `dialog` | PASS 0 deltas / **4 anchors** | 1714 · dark |
+| `search-toggle-icons` | PASS — **re-verified after the weight fix** | 1714 · dark |
+| `tooltip` | PASS 0 deltas / 2 anchors | 1714 · **light** |
+
+**`tooltip` is the first surface verified on the light cell.** That happened by
+accident and is worth the note: macOS switched appearance mid-session, so the
+re-captured reference derived `theme: light`. The worker **refused to force it to
+dark** and flagged the discrepancy instead of quietly matching the stale cell —
+so I diffed the native light cell against it and got a genuine theme-axis result
+rather than a re-run of a cell I already had.
+
+Its four deltas were exactly as diagnosed: pure instrumentation. With
+`content_sized` declared on both sides, v1.5 forgives the ceil excess (+0.7 and
++0.16) and the surface converges.
+
 #### ✅ THIRD UNLOCK — four verdicts taken, both font defects confirmed fixed
 
 Canaries byte-identical first, then every outstanding diff in one pass:
