@@ -2851,6 +2851,50 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### ✅ P3.30 — `slider` verified on TWO cells; `tree-row` ruled out
+
+```
+slider resting              oracle: PASS - 0 deltas over 4 anchors
+slider value 40, selected   oracle: PASS - 0 deltas over 4 anchors
+```
+
+**The first surface here with a value/flag axis actually exercised.** Its seam was
+confirmed by reading `vendor/gpui-component/src/slider.rs` rather than trusting my
+survey — `RenderOnce::render` builds bar, fill and thumb inside its own body,
+`Styled::style` is the only seam, and none of the three shapes my survey missed
+elsewhere are present. Genuinely style-only; hand-built on `switch`'s precedent.
+
+**`tree-row` is not a distinct surface and nothing was built.** Its only DOM
+output — a `<button>` — is already anchored and verified twice, as
+`git-row-button` (part of the passing Phase 1 gate) and `file-row-button`. Both
+exported constants are dead; every live consumer overrides them.
+
+#### ‼️ A latent ORACLE bug — bounded, Phase 1 unaffected
+
+`ANCHORS.md` §3's pseudo-backed shortcut **assumes the `::before` is `inset: 0`**
+— `extract.ts` states it in its own comment and returns the **host's padding
+box**. `slider`'s track carries `before:inset-x-0.5`, so the shortcut yields
+`{x:0, w:668}` where the truth is `{x:2, w:664}`.
+
+**Blast radius, checked by me:** the only two anchors using that path are
+`git-row-item` and `file-row-item`, both resolving to `.file-tree-item::before`,
+which **is** `inset: 0`. **So the Phase 1 gate is unaffected**, and `slider` is
+the first component to violate the assumption. The worker hand-corrected its own
+reference and deliberately left the shared infra alone.
+
+**Open item:** make the pseudo path read the pseudo's *own* computed inset
+instead of assuming zero. Until then, any new pseudo-backed anchor must have its
+inset checked by hand.
+
+#### ⚠ My own driving error, third occurrence
+
+I first diffed `slider` at the **default `--width 320`** against a **668**-wide
+reference and got `FAIL — 2 geometry deltas`, plus an empty verdict on the second
+cell for a missing `--flags selected`. Both were mine, not the port's. This is
+the exact constant-delta mistake I warn every worker about **in writing**, and it
+is the third time. **Derive cell parameters FROM THE REFERENCE before driving** —
+read its `state` and root `bounds` first, every time.
+
 #### The last three, scoped before dispatch — two shrink
 
 | item | what it actually is |
