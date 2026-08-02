@@ -475,6 +475,7 @@ mod tests {
                 "loading-spinner",
                 "native-menu",
                 "popover",
+                "radio-group",
                 "resizable",
                 // `scroll_area.rs` sorts before `search_toggle_icons.rs` —
                 // `build.rs` orders by **file** name, and `sc` < `se`.
@@ -487,6 +488,7 @@ mod tests {
                 "spinner",
                 "switch",
                 "tabs",
+                "tooltip",
             ],
         );
     }

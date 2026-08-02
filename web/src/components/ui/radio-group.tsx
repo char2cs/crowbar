@@ -10,6 +10,7 @@ export function RadioGroup({ className, ...props }: RadioGroupPrimitive.Props): 
     <RadioGroupPrimitive
       className={cn('flex flex-col gap-3', className)}
       data-slot="radio-group"
+      data-oracle-id="radio-group"
       {...props}
     />
   )
@@ -23,8 +24,21 @@ export function Radio({ className, ...props }: RadioPrimitive.Root.Props): React
         className,
       )}
       data-slot="radio"
+      data-oracle-id="radio"
       {...props}
     >
+      {/*
+       * The indicator deliberately carries **no `data-oracle-id`** —
+       * `checkbox.tsx`'s precedent, unchanged. `data-unchecked:hidden` is
+       * `display: none`, and the two oracle extractors disagree about what a
+       * `display: none` element is (`native/oracle/ANCHORS.md` v1.11): the
+       * DOM side keeps it mounted and emits a zero-rect anchor, GPUI's never
+       * exists. Anchoring it would put a structural delta on the *resting*
+       * cell, caused by the contract rather than the port. The fill is
+       * painted by both sides and measured by neither. See
+       * `native/mapping/radio-group.md` and
+       * `crowbar_ui::components::radio_group`.
+       */}
       <RadioPrimitive.Indicator
         className="absolute -inset-px flex size-4.5 items-center justify-center rounded-full before:size-2 before:rounded-full before:bg-primary-foreground data-unchecked:hidden data-checked:bg-primary sm:size-4 sm:before:size-1.5"
         data-slot="radio-indicator"
