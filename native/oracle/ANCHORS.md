@@ -626,9 +626,36 @@ itself is pinned `background-color: transparent !important` in every state.
 An anchor may therefore declare itself **pseudo-backed**. The React extractor
 then reads `getComputedStyle(el, '::before')` — which does return the pseudo's
 `background-color`, `border-radius` and box offsets — and synthesises `bounds`
-from the host's padding box. This is valid for the gate target because the rule
-is `position: absolute; inset: 0`; **an anchor whose pseudo is not `inset: 0`
-must not use this shortcut** and needs its geometry derived properly.
+from the host's padding box **offset by the pseudo's own resolved insets**.
+
+> **v1.13 — amended 2026-08-02.** This paragraph previously said the shortcut
+> assumed `inset: 0` and that *"an anchor whose pseudo is not `inset: 0` must not
+> use this shortcut"*. That restriction is lifted: `oraclePseudoBoxRect` now reads
+> the pseudo's own resolved `left`/`top`/`right`/`bottom` and offsets the host's
+> padding box by them.
+>
+> This is sound because CSSOM reports those four as **used values** — definite
+> pixels — for *any* absolutely positioned, box-generating element, whether the
+> author wrote a length, a percentage, or left them `auto`: the CSS 2.1
+> absolutely-positioned layout algorithm (§10.3.7 / §10.6.4) must resolve all
+> four before layout completes, precisely to make an over- or under-constrained
+> system solvable. The extractor is therefore **asking the engine for its own
+> answer**, not re-deriving one.
+>
+> `inset: 0` is unchanged **algebraically** — `x + 0 = x`, `x − 0 − 0 = x` — so
+> `git-row-item` and `file-row-item` (both `.file-tree-item::before`, both
+> `inset: 0`, both Phase 1 gate anchors) keep byte-identical geometry.
+>
+> **What still refuses, loudly rather than approximating:** a pseudo that is not
+> `position: absolute`; an inset that does not resolve to a plain `<number>px`
+> (an unresolved percentage, or `auto` surviving resolution); a non-zero or
+> unresolved margin, since the formula folds in no margin term; and any
+> negative resolved box. Refusing is deliberate — **a wrong box that looks
+> plausible is the worst outcome in the one file every reference is measured
+> with.**
+>
+> Found by `slider`, whose track is `before:inset-x-0.5`: the old shortcut
+> reported `{x: 0, w: 668}` where the truth is `{x: 2, w: 664}`.
 
 The rejected alternative was injecting a real `<div>` into the React app under
 an oracle build flag. It changes the app under test. Do not take it.
