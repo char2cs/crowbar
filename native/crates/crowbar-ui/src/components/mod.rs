@@ -93,6 +93,18 @@ pub mod card;
 pub mod checkbox;
 pub mod crowbar_mark;
 pub mod crowbar_wordmark;
+// P3.21's two wraps are unflattened for the same reason as the rest, and one
+// sharper one still: `dialog::ID_POPUP` and `popover::ID_POPUP` are two
+// different boxes under one spelling — a real border on both, but a
+// `radius_2xl` against a `radius_lg` — and `dialog::ID_FOOTER` would collide
+// with a future `sheet` footer outright if either were flattened. Neither
+// carries a `render(&self, theme, anchors)` like the rest: `GpuiDialog::new`
+// and `GpuiSheet::new` each mint a `FocusHandle` off `cx`, which `popover`'s
+// and `select`'s constructors never needed, so both take `window`/`cx`
+// besides — see `dialog`'s module docs and `crowbar-app/src/surface.rs`'s
+// `SurfaceParams::render_ctx` for the seam that makes a cx-less call site
+// still reach them.
+pub mod dialog;
 pub mod dropdown_menu;
 pub mod file_tree_row;
 pub mod git_status_row;
@@ -155,6 +167,12 @@ pub mod scroll_area;
 pub mod search_toggle_icons;
 pub mod select;
 pub mod separator;
+// `sheet` is the third P3.21 wrap, alongside `dialog` — see that module's
+// comment above `pub mod dialog;` for the shared reasoning, and `sheet`'s own
+// module docs for the finding that sits on top of it: no live call site
+// mounts one at all, and its vendor widget cannot even be driven past
+// `Placement::Right` without a `Root` this measurement harness does not mount.
+pub mod sheet;
 pub mod sidebar_toggle_icon;
 pub mod skeleton;
 // The three P3.7 spinners are unflattened for the same reason as the rest, and

@@ -86,6 +86,7 @@ export function SheetPopup({
               'before:hidden sm:rounded-2xl sm:border sm:before:rounded-[calc(var(--radius-2xl)-1px)] sm:**:data-[slot=sheet-footer]:rounded-b-[calc(var(--radius-2xl)-1px)]',
             className,
           )}
+          data-oracle-id="sheet-popup"
           data-slot="sheet-popup"
           {...props}
         >
@@ -116,6 +117,7 @@ export function SheetHeader({
       'flex flex-col gap-2 p-6 in-[[data-slot=sheet-popup]:has([data-slot=sheet-panel])]:pb-3 max-sm:pb-4',
       className,
     ),
+    'data-oracle-id': 'sheet-header',
     'data-slot': 'sheet-header',
   }
 
@@ -133,6 +135,8 @@ export function SheetTitle({
   return (
     <SheetPrimitive.Title
       className={cn('font-heading font-semibold text-xl leading-none', className)}
+      data-oracle-id="sheet-title"
+      data-oracle-line-sized="true"
       data-slot="sheet-title"
       {...props}
     />
@@ -146,6 +150,7 @@ export function SheetDescription({
   return (
     <SheetPrimitive.Description
       className={cn('text-muted-foreground text-sm', className)}
+      data-oracle-id="sheet-description"
       data-slot="sheet-description"
       {...props}
     />
