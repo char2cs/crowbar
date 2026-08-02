@@ -113,6 +113,15 @@ pub mod crowbar_wordmark;
 // `SurfaceParams::render_ctx` for the seam that makes a cx-less call site
 // still reach them.
 pub mod dialog;
+// `dropdown` is unflattened for the same reason as the rest, and one sharper
+// one: it sits right next to `dropdown_menu` in this list and is easy to
+// mistake for a second reading of it. It is not — see its module docs for the
+// evidence — and `dropdown::ID_ROOT`/`CONTENT_SIZED`/`LINE_SIZED` would
+// collide with `dropdown_menu::ID_POPUP`'s neighbours outright if flattened.
+// `dropdown::BORDER_WIDTH` is `1`, the same real-border shape `popover`'s is
+// and the *inverse* of `dropdown_menu`'s ring trap, which is exactly the
+// mistake a bare `BORDER_WIDTH` would risk meaning here.
+pub mod dropdown;
 pub mod dropdown_menu;
 pub mod file_tree_row;
 pub mod git_status_row;
