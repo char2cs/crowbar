@@ -2823,7 +2823,63 @@ progress number correspondingly too small.
 | **P3.16** gpui `inspector` spike | `native/p3.16-inspector-spike` @ `ea543b24` | ✅ **REPORTED — path REJECTED, branch deliberately not merged.** Also corrected my seam survey 7 → 3 |
 | **P3.17** two-frame capture | `native/p3.17-two-frame-capture` @ `d465eb6d` · combined `native/p3.17-popover-reduction` @ `ecc6d242` | ✅ delivered — under my verification |
 | **P3.19** `sidebar` (wrap) | `native/p3.19-sidebar` @ `fe7dfaac` | ⏸ **HELD** — gates green, but no capture is possible (locked screen) |
-| **P3.20** `scroll-area` + `keybinding` | `native/p3.20-scroll-keybinding` @ `b8225e58` | ⚠ `scroll-area` **PASS 0 deltas**; `keybinding` **FAIL** — and the cause is a whole-port defect, see P3.24 |
+| **P3.20** `scroll-area` + `keybinding` | `native/p3.20-scroll-keybinding` @ `b8225e58` | ✅ **MERGED `0af9e9ab`** — both **PASS 0 deltas** once P3.24 landed |
+| **P3.24** font fallback chain | `native/p3.24-font-fallback` @ `f1eaec43` | ✅ **MERGED `4ce9e8c4`** — verified by my own run |
+
+#### ✅ P3.24 + P3.20 — verified and merged. The tofu is gone.
+
+My own run on the merged tree:
+
+```
+keybinding   oracle: PASS — 0 deltas over 1 anchor compared
+scroll-area  oracle: PASS — 0 deltas over 2 anchors compared
+canaries     IDENTICAL native-short.json / native-file-tree-selected.json
+```
+
+P3.24 alone: clippy `-D warnings` 0 · **1181 passed / 0 failed** · 7 `ok` · both
+canaries regenerated **by me** byte-identical. Metrics checked against WebKit,
+not against the worker's table: `⌘` native **11.027345** vs **11.027**; `⚠`
+native **16.884** vs **16.875**.
+
+**The mechanism was already there.** `Font.fallbacks` → `TextStyle` →
+`apply_features_and_fallbacks` → `kCTFontCascadeListAttribute` — never populated.
+Setting *any* non-empty list also makes CoreText append its own default cascade,
+so the backstop is the OS font list rather than a hand-picked set.
+
+Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
+*also* absent from CalSansUI — `text_width` moved from `18.0` (1em `.notdef`) to
+`16.884`. It has **no reference** (its mapping records refusing to fabricate
+one), so no verified pair moved.
+
+#### ‼️ Why 1176 tests and 27 surfaces never caught tofu — a bound on the suite
+
+`TestPlatform` hardcodes `NoopTextSystem` (`vendor/gpui/src/platform.rs:981`,
+wired at `platform/test/platform.rs:100`):
+
+```rust
+fn glyph_for_char(&self, _font_id: FontId, ch: char) -> Option<GlyphId> {
+    Some(GlyphId(ch.len_utf16() as u32))      // every BMP char → GlyphId(1)
+}
+fn advance(&self, _font_id: FontId, glyph_id: GlyphId) -> Result<Size<f32>> {
+    Ok(size(600.0 * glyph_id.0 as f32, 0.0))  // …so every BMP char is identical
+}
+```
+
+**Under `#[gpui::test]`, text width is a function of character COUNT** — not
+glyphs, not font, not shaping. So **no `#[gpui::test]` can detect a font defect**,
+and `row_layout`'s text-bearing assertions test box arithmetic over fabricated
+advances. They remain useful for layout; they are blind to typography.
+
+Consequences to carry:
+- A font/shaping defect is invisible to the suite and visible **only** to a real
+  capture diffed against the reference. That is now an argument for the oracle,
+  not a nicety.
+- Tests touching real metrics must be plain `#[test]`s against a headless
+  `MacTextSystem`, serialized (concurrent construction `SIGABRT`s), as P3.24's
+  regression tests are.
+- **Every "verified" surface carrying text was verified for geometry, not for
+  glyph identity** — the oracle compares `text_width`, so a capture-based verdict
+  does cover it, but a test-only verdict never did.
 
 #### ‼️ P3.24 — THE NATIVE APP RENDERS TOFU FOR EVERY MODIFIER KEY
 
