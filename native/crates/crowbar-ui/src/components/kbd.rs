@@ -50,7 +50,7 @@ use gpui::{
 
 use super::anchor::{AnchorId, AnchorSink};
 use super::badge::TypeStep;
-use crate::theme::Theme;
+use crate::theme::{Theme, ui_sans_font};
 
 /// The keycap anchor — the only one this surface carries.
 pub const ID_KBD: &str = "kbd";
@@ -150,14 +150,15 @@ impl Kbd {
     /// load-bearing rather than hygienic: a bare `<kbd>` inherits the UA's
     /// monospace default, which is what [`KbdGroup`] actually renders. Measured
     /// live — the cap says `CalSansUI`, the group says
-    /// `JetBrains Mono Variable`.
+    /// `JetBrains Mono Variable`. [`ui_sans_font`] carries the fallback chain a
+    /// keycap needs for exactly this component's most common legend — a macOS
+    /// modifier symbol, which `CalSansUI`'s own cmap does not cover (P3.24).
     ///
     /// `pointer-events-none` and `select-none` are not visual properties and
     /// land nowhere.
     fn shell(theme: &Theme) -> Div {
-        let family = theme.font_sans.primary().unwrap_or("sans-serif");
         div()
-            .font_family(family)
+            .font(ui_sans_font(theme))
             .flex()
             .items_center()
             .justify_center()

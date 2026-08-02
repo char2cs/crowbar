@@ -82,7 +82,7 @@ use gpui::{
 
 use super::anchor::{AnchorId, AnchorSink};
 use super::badge::TypeStep;
-use crate::theme::{Color, Theme};
+use crate::theme::{Color, Theme, ui_sans_font};
 
 /// The card's own box — the surface root.
 pub const ID_CARD: &str = "card";
@@ -360,7 +360,7 @@ impl Card {
     /// The card's own box.
     fn shell(&self, theme: &Theme) -> Div {
         div()
-            .font_family(theme.font_sans.primary().unwrap_or("sans-serif"))
+            .font(ui_sans_font(theme))
             .relative()
             .flex()
             .flex_col()

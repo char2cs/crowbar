@@ -66,7 +66,7 @@ use gpui::{AnyElement, Div, FontWeight, Pixels, SharedString, Styled as _, div, 
 use super::anchor::{AnchorId, AnchorSink};
 use super::button;
 use super::git_status_row::Breakpoint;
-use crate::theme::Theme;
+use crate::theme::{Theme, ui_sans_font};
 
 /// The single anchor id, carried by all four renderings.
 pub const ID_SEARCH_TOGGLE_ICON: &str = "search-toggle-icon";
@@ -254,9 +254,8 @@ impl SearchToggleIcon {
             // `git_status_row`'s reason: `ANCHORS.md` v1.2 makes `font.family`
             // the *declared* first family, and an inherited style reports
             // macOS's `.SystemUIFont`, which the DOM never produces.
-            let family = theme.font_sans.primary().unwrap_or("sans-serif");
             let mut element = div()
-                .font_family(family)
+                .font(ui_sans_font(theme))
                 .text_size(theme.ui_text_xs.value())
                 .line_height(relative(inherited_line_height(theme, self.breakpoint)))
                 .font_weight(WEIGHT)

@@ -70,7 +70,7 @@ use gpui::{
 use gpui_component::{Selectable, popover::Popover as GpuiPopover};
 
 use super::anchor::{AnchorId, AnchorSink};
-use crate::theme::Theme;
+use crate::theme::{Theme, ui_sans_font};
 
 /// The root anchor: `PopoverPrimitive.Popup`, the bordered box `bg-popover`
 /// paints. Every other bound on this surface is reported relative to it
@@ -309,9 +309,11 @@ impl Popover {
     /// gpui can only report the *declared* family, and an inherited
     /// `.SystemUIFont` is a string the DOM will never produce. The reference's
     /// is `CalSansUI` — the popup is portalled to `document.body`, so it
-    /// inherits `html { @apply font-sans }`.
+    /// inherits `html { @apply font-sans }`. [`ui_sans_font`] also carries the
+    /// fallback chain a `Variant::Tooltip` shortcut needs: its legend is a
+    /// macOS modifier symbol, which `CalSansUI`'s own cmap does not cover
+    /// (P3.24).
     fn popup(&self, theme: &Theme) -> Div {
-        let family = theme.font_sans.primary().unwrap_or("sans-serif");
         div()
             .flex()
             .w(self.width)
@@ -320,7 +322,7 @@ impl Popover {
             .border_color(theme.border)
             .bg(theme.popover)
             .text_color(theme.popover_foreground)
-            .font_family(family)
+            .font(ui_sans_font(theme))
             .font_weight(FontWeight::NORMAL)
             .text_size(self.variant.text_size(theme))
             .line_height(relative(self.variant.line_height()))

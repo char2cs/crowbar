@@ -44,6 +44,7 @@
 #![cfg(test)]
 
 use crowbar_driver::{AnchorRegistry, Observation, RawAnchor, Settling};
+use crowbar_ui::ui_sans_font;
 use gpui::{
     Context, IntoElement, ParentElement as _, Pixels, Render, Size, Styled as _, TestAppContext,
     Window, div, px,
@@ -69,7 +70,10 @@ impl Render for Stage {
         div()
             .pl(self.0.horizontal_inset_px())
             .pt(px(crate::row_surface::INSET_Y))
-            .font_family(theme.font_sans.primary().unwrap_or("sans-serif"))
+            // Mirrors `RowSurface::render`'s own root exactly — see its
+            // comment (P3.24) for why the ambient value still matters even
+            // though every leaf declares its own font.
+            .font(ui_sans_font(&theme))
             .child(
                 div()
                     .w(self.0.width_px())

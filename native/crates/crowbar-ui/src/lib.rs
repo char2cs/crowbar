@@ -34,4 +34,6 @@ pub mod theme;
 pub use components::{AnchorSink, GitStatusRow, RowState, Unanchored};
 pub use gpui;
 pub use gpui_component;
-pub use theme::{Appearance, Color, Duration, FontFamily, FontSize, Radius, Scale, Space, Theme};
+pub use theme::{
+    Appearance, Color, Duration, FontFamily, FontSize, Radius, Scale, Space, Theme, ui_sans_font,
+};

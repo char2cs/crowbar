@@ -57,7 +57,7 @@ use gpui::{
 use super::anchor::{AnchorId, AnchorSink};
 use super::git_status_row::Breakpoint;
 use super::spinner::{self, Extent, Spinner};
-use crate::theme::Theme;
+use crate::theme::{Theme, ui_sans_font};
 
 /// The wrapper, and this surface's root anchor.
 pub const ID_ROOT: &str = "loading-spinner";
@@ -273,9 +273,8 @@ impl LoadingSpinner {
     /// The size is the sealed `--ui-text-sm` token rather than a literal, so a
     /// project that moves `--app-ui-scale` moves this with it.
     fn caption(theme: &Theme) -> Div {
-        let family = theme.font_sans.primary().unwrap_or("sans-serif");
         div()
-            .font_family(family)
+            .font(ui_sans_font(theme))
             .text_size(Rems::from(theme.ui_text_sm))
             .line_height(relative(LINE_HEIGHT))
             .font_weight(WEIGHT)

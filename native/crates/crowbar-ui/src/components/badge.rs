@@ -57,7 +57,7 @@ use gpui::{
 
 use super::anchor::{AnchorId, AnchorSink};
 use super::git_status_row::Breakpoint;
-use crate::theme::{Color, Theme};
+use crate::theme::{Color, Theme, ui_sans_font};
 
 /// The root anchor: the `<span>` itself. Every other bound on this surface is
 /// reported relative to it (`native/oracle/ANCHORS.md` §4).
@@ -912,12 +912,13 @@ impl Badge {
     /// `git_status_row`'s reason: `ANCHORS.md` v1.2 makes `font.family` the
     /// *declared* first family, and a style inheriting macOS's `.SystemUIFont`
     /// reports a literal string the DOM will never produce. The reference says
-    /// `CalSansUI`.
+    /// `CalSansUI`. [`ui_sans_font`] carries the same declared family plus the
+    /// fallback chain that lets a glyph missing from it (a macOS modifier
+    /// symbol in a legend, say) resolve the way `WebKit` resolves it (P3.24).
     fn shell(&self, theme: &Theme) -> Div {
         let step = self.type_step(theme);
-        let family = theme.font_sans.primary().unwrap_or("sans-serif");
         let mut element = div()
-            .font_family(family)
+            .font(ui_sans_font(theme))
             .relative()
             .flex()
             .flex_shrink_0()

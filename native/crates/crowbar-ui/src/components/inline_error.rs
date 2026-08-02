@@ -91,7 +91,7 @@ use super::anchor::{AnchorId, AnchorSink};
 use super::badge::TypeStep;
 use super::button::{ButtonState, Size, Variant};
 use super::git_status_row::Breakpoint;
-use crate::theme::Theme;
+use crate::theme::{Theme, ui_sans_font};
 
 /// The panel's own box — the surface root.
 pub const ID_PANEL: &str = "inline-error";
@@ -210,7 +210,7 @@ impl InlineError {
     /// gap-2 p-6 text-center`.
     fn shell(theme: &Theme) -> Div {
         div()
-            .font_family(theme.font_sans.primary().unwrap_or("sans-serif"))
+            .font(ui_sans_font(theme))
             .flex()
             .flex_1()
             .flex_col()

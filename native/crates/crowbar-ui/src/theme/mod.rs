@@ -9,9 +9,11 @@
 
 mod generated;
 mod token;
+mod ui_font;
 
 pub use generated::Theme;
 pub use token::{Color, Duration, FontFamily, FontSize, Radius, Scale, Space};
+pub use ui_font::ui_sans_font;
 
 /// Which of the two token tables is in force.
 ///
