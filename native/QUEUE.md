@@ -2851,6 +2851,60 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### ‼️ P3.25 — THE NATIVE APP CANNOT RENDER ANY WEIGHT ABOVE 500
+
+Found the same way as the tofu: taking a held verdict. `dialog` failed on one
+field —
+
+```
+dialog-title.text_width: 143.82, expected 149.4  (Δ -5.58, tol ±1.0)
+```
+
+**Native is rendering weight 600 as weight 500.** Measured in WebKit with the
+component's own classes:
+
+| string | @500 | @600 | native | reference |
+|---|---|---|---|---|
+| `Add repository` 20px | **143.82** | 149.4 | **143.82** | 149.4 |
+| `Aa` 11px | **14.19** | 14.48 | **14.19** | 14.48 |
+
+Native matches the **500** column exactly, twice, on different sizes and strings.
+
+**Cause — the same shape as P3.24.** The web app loads
+`web/public/fonts/CalSansUI.woff2`, a **variable font declared over weight
+300–700** (`document.fonts` reports `CalSansUI 300 700 normal`). The native app
+registers two **static** faces — `CalSansUI-Regular.ttf` (400) and
+`CalSansUI-Medium.ttf` (500) — so a 600 request snaps to the nearest available,
+500. There is no 600 face for it to find.
+
+`font-semibold` / `font-bold` appear **41 times** in `web/src/**/*.tsx`, so this
+is broad, not one title.
+
+#### ‼️ And it was already shipping inside a "verified" surface
+
+**`search-toggle-icons` is merged and was recorded as converged. It has this
+defect.** Native `text_width` 14.19 against reference 14.48 — it PASSES only
+because its string is `"Aa"`, two characters, so the proportional error lands at
+0.29px, inside `text_width`'s **±1.0 absolute** tolerance. `dialog-title` is
+fourteen characters, so the identical error becomes 5.58px and breaks through.
+
+**The lesson is about the oracle, not the font:** an absolute tolerance on a
+proportional error is only as strong as the string is long. A short-text anchor
+can pass while rendering in the wrong weight, the wrong face, or a fallback font.
+Two consequences:
+
+- A `PASS` on a short-text anchor is **weaker evidence** than a `PASS` on a long
+  one, and the anchor set should be read with that in mind.
+- `search-toggle-icons` must be **re-verified after the fix**, and any other
+  merged surface whose text is short enough to hide a systematic metric error is
+  suspect until re-run. Only `search-toggle-icon` and `dialog-title` carry
+  weight 600 among current references, but references only cover what has been
+  captured.
+
+**`dialog` is therefore NOT converged and P3.21 stays HELD.** Everything else on
+that branch is green: clippy 0, **1289 passed / 0 failed**, 7 `ok`, both canaries
+byte-identical, and its two merge conflicts resolved keeping both sides.
+
 #### ‼️ Why 1176 tests and 27 surfaces never caught tofu — a bound on the suite
 
 `TestPlatform` hardcodes `NoopTextSystem` (`vendor/gpui/src/platform.rs:981`,
