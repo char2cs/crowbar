@@ -2851,6 +2851,39 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### ✅ WAVE 5 CLOSED — full regression sweep, 8/8 PASS on the merged tip
+
+Merged **P3.27** (`number-input`, `textarea`) and **P3.28** (`alert-dialog`,
+`toast`). Rather than trust that earlier verdicts survive later merges — P3.28
+changed `dialog.rs`, which already had one — I re-diffed **every surface that has
+a reference**, together, on the merged tip:
+
+| surface | verdict |
+|---|---|
+| `number-input` | PASS 0 deltas / 4 anchors |
+| `dialog` | PASS 0 / 4 |
+| `tooltip` (**light**) | PASS 0 / 2 (2 forgiven, v1.5) |
+| `scroll-area` | PASS 0 / 2 |
+| `keybinding` | PASS 0 / 1 |
+| `sidebar-header` | PASS 0 / 1 |
+| `sidebar-empty` | PASS 0 / 2 |
+| `search-toggle-icons` | PASS 0 / 1 (1 forgiven, v1.5) |
+
+`clippy -D warnings` **0** · **1499 passed / 0 failed** · 7 `ok` · both canaries
+byte-identical.
+
+**Ported blind, NOT claimed to converge** (genuinely unreachable, no reference
+fabricated for any of them): `sheet`, `radio-group`, `toast`, `textarea`, and
+`select` (no anchors possible at all).
+
+**Position: 40 ported · 8 remaining** — `autocomplete` · `command` · `search` ·
+`dropdown` · `context-menu` · `slider` · `primitive-dialog-service` · `tree-row`.
+
+Of those, four are decisions already taken rather than open questions: the
+fuzzy-matching group uses Zed's **`fuzzy_nucleo`** (§10.1), `context-menu` is the
+user's **native-menu** ruling, and `slider` is one of the three genuinely
+style-only widgets where a fork is the only measurable option.
+
 #### ✅ P3.28 merged — and it found a floor bug in already-merged code
 
 `alert-dialog` is **`dialog`'s own numbers under its own anchor namespace**,
