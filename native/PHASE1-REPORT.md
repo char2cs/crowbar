@@ -168,6 +168,50 @@ and §17's RSS soak is still outstanding.
 
 ---
 
+## Correction, 2026-08-02 — the pinned `selected` file is at the wrong cell
+
+I re-ran the differ over **every archived matrix pair** at HEAD, which nobody had
+done since the pairs were written. **16 of 17 PASS.** The seventeenth,
+`native-file-tree-selected.json` against `ref-file-tree-selected.json`, **FAILS**:
+
+```
+file-row-name.fg: #f5f5f5ff, expected #fe9a00ff  (Δ b +245, rgb is exact)
+oracle: FAIL — 1 delta over 6 anchors compared (1 colour)
+```
+
+**The claim above is not affected, and the cause is not a port defect.**
+`#fe9a00` is the `modified` git-status colour. I swept all seven statuses: the
+native side produces `#fe9a00ff` at `--git-status modified` — exactly the
+reference — and the pinned snapshot was simply driven at the default
+`--git-status none`. Re-driven at the right cell:
+
+```
+oracle: PASS — 0 deltas over 6 anchors compared, 1 forgiven by v1.5
+```
+
+archived as `oracle/runs/matrix/native-file-tree-selected-modified.json`. And the
+`selected` claim itself stands, measured again today: `file-row-item.bg` is
+`#ffffff0a` on **both** sides.
+
+**What this does change is what the byte-identity guard has been proving.** That
+file is quoted in every worker brief as Phase 1 evidence that a change moved no
+capture, and it is checked by sha256. It is a **stability canary** — "this
+capture did not move" — and it is *not* a convergence pair, because its cell and
+its reference's cell differ. Every byte-identical check run against it, mine
+included, has been confirming that a snapshot of the wrong cell stays put.
+
+Left in place rather than regenerated, deliberately: two workers are in flight
+checking that exact sha256, and yanking it mid-run would hand them a spurious
+failure. **It should be regenerated at `--git-status modified` once they land**,
+after which the canary and the evidence are the same file again.
+
+The general lesson is the one worth keeping: **a pinned artefact proves only that
+it has not changed.** Byte-identity says nothing about whether the thing it is
+pinned against still agrees with it, and a pair can rot silently for as long as
+nobody re-runs the comparison.
+
+---
+
 ## §17 status, measured 2026-07-31 — 3 of 9 met
 
 Re-measured rather than recalled, because the coverage numbers had not been
