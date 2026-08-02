@@ -90,9 +90,10 @@ export function Button({
             sideOffset={6}
             collisionPadding={8}
             className={cn(tooltipContentBase, shortcut && 'flex items-center gap-2')}
+            data-oracle-id="tooltip"
           >
             {tooltip}
-            {shortcut && <Keybinding binding={shortcut} />}
+            {shortcut && <Keybinding binding={shortcut} data-oracle-id="tooltip-shortcut" />}
           </TooltipPrimitive.Content>
         </TooltipPrimitive.Portal>
       </TooltipPrimitive.Root>

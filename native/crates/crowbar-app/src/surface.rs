@@ -474,6 +474,7 @@ mod tests {
                 "loading-spinner",
                 "native-menu",
                 "popover",
+                "radio-group",
                 "resizable",
                 "search-toggle-icons",
                 "separator",
@@ -483,6 +484,7 @@ mod tests {
                 "spinner",
                 "switch",
                 "tabs",
+                "tooltip",
             ],
         );
     }

@@ -130,12 +130,41 @@ pub mod label;
 // `AnchorSink` takes a `Div` this crate holds. Its module docs and
 // `native/mapping/select.md` carry the account.
 pub mod popover;
+// `radio_group` is unflattened for the same reason as the rest. Its `ID_RADIO`
+// and `ID_GROUP` would sit next to `checkbox`'s and `select`'s `ID_*`
+// constants with the same shape of collision, and its `CONTENT_SIZED`/
+// `LINE_SIZED` would silently mean this surface's on every other module's
+// behalf.
+//
+// **Built, not wrapped, and unreached by any parity run** — see
+// `radio_group.rs`'s module docs for the seam test (`gpui_component::Radio`'s
+// `ParentElement` reaches a label slot, never the circle) and for the
+// reachability measurement (`radio-group.tsx`'s only importer needs a child
+// branch with an unprotected local parent, and this item's dev environment
+// has none).
+pub mod radio_group;
 pub mod resizable;
 pub mod search_toggle_icons;
 pub mod select;
 pub mod separator;
 pub mod sidebar_toggle_icon;
 pub mod skeleton;
+// `tooltip` is unflattened for the same reason as the rest. Its `ID_TOOLTIP`
+// would sit next to `select`'s and `popover`'s `ID_*` constants with the same
+// shape of collision, and its `CONTENT_SIZED`/`LINE_SIZED` would silently mean
+// this surface's on every other module's behalf — the `ANCHORS.md` v1.6
+// mistake this file has warned about since `dropdown_menu`.
+//
+// **Built, not wrapped** — the item's finding, and the inverse of `popover`'s.
+// `gpui_component::tooltip::Tooltip` paints its whole box inside a private
+// `Render::render`; the only public seam is `Styled::style()`, a
+// `StyleRefinement` on a `Div` this crate never holds, which is the exact
+// "nothing to anchor" shape `popover`'s own module docs and this item's brief
+// both name as the fake convergence `ANCHORS.md` exists to refuse. See
+// `tooltip.rs`'s module docs for the seam test applied in full, and for why
+// `tooltip.tsx` is a distinct surface from `popover`'s unreached
+// `tooltipStyle` arm rather than a second reading of it.
+pub mod tooltip;
 // The three P3.7 spinners are unflattened for the same reason as the rest, and
 // one further one: they are a *family*, so every short name in them exists three
 // times over. `CallSite` names three different className bundles;
