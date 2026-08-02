@@ -311,6 +311,18 @@ impl Dialog {
             .border_0()
             .border_color(Color::TRANSPARENT)
             .rounded(px(0.0))
+            // `min_h_24()` — the vendor's own unconditional 96px floor on the
+            // outer box, set *before* `refine_style` runs. `refine_style`
+            // only overwrites a `StyleRefinement` field this crate's own
+            // chain actually sets, and nothing above sets `min_height`, so
+            // the floor survives untouched unless named here — found by
+            // `alert_dialog.rs` (P3.28), whose one reachable popup has a
+            // genuinely empty (0px) body and so is the first cell in this
+            // whole tree low enough to fall under it. This surface's own
+            // reachable body (172px) never has, which is why no test here
+            // caught it — `--body-height 0` now does, in
+            // `row_layout/dialog.rs`.
+            .min_h(px(0.0))
             .w(outer_width)
             .children([popup])
             .into_any_element()

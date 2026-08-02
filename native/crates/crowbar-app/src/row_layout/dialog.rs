@@ -226,6 +226,30 @@ fn empty_removes_the_header_and_the_footer(cx: &mut TestAppContext) {
     assert_px(popup.size.height, px(2.0 + 172.0));
 }
 
+/// **Regression, P3.28.** `gpui_component::Dialog::render` sets its own outer
+/// box's `min_h_24()` (96px) *before* `refine_style` runs, and nothing in
+/// `Dialog::render` used to override `min_height`, so the floor survived
+/// untouched — invisible here because this surface's own reachable body
+/// (172px) never falls under 96px, but exposed the moment `alert_dialog.rs`
+/// (P3.28, whose one reachable body is genuinely 0px) hit it: `--body-height
+/// 0`, no header, no footer read `96px` against a `2px` claim before
+/// `dialog::Dialog::render` grew its own `.min_h(px(0.0))`. This is that same
+/// configuration, driven here so the fix cannot regress unnoticed on the
+/// surface it was found on.
+#[gpui::test]
+fn an_empty_body_is_not_clamped_to_the_vendors_min_height_floor(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    // `--flags empty` already clears the title/description/footer (the
+    // surface's own `empty` arm); `--body-height 0` is the one field that
+    // arm does not touch, and is the field this regression is about.
+    let records = measure(cx, cell(&["--body-height", "0", "--flags", "empty"]));
+    let popup = at(&records, "dialog-popup");
+
+    // Two borders around a zero-height body — well under the vendor's own
+    // 96px floor, which is exactly the point.
+    assert_px(popup.size.height, px(2.0));
+}
+
 /// The light table paints a different popup.
 #[gpui::test]
 fn the_light_table_paints_a_different_popup(cx: &mut TestAppContext) {

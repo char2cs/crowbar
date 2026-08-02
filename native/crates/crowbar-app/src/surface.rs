@@ -510,6 +510,9 @@ mod tests {
         assert_eq!(
             Surface::names(),
             [
+                // `alert_dialog.rs` sorts before `avatar.rs` — `build.rs`
+                // orders by **file** name, and `al` < `av`.
+                "alert-dialog",
                 "avatar",
                 "badge",
                 "button",
@@ -546,6 +549,9 @@ mod tests {
                 "spinner",
                 "switch",
                 "tabs",
+                // `toast.rs` sorts before `tooltip.rs` — `ta` < `to`... `toast`
+                // < `tooltip`: `to` common, then `a` < `o`.
+                "toast",
                 "tooltip",
             ],
         );

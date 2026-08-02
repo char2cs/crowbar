@@ -59,6 +59,14 @@ mod sidebar_tree;
 // different bundles on different components. A bare `CallSite` would say which
 // of them nowhere, and a bundle applied to the wrong primitive is the same class
 // of mistake as a declaration list applied to the wrong surface.
+// `alert_dialog` is unflattened for the same reason as the rest — its
+// `ID_POPUP`/`ID_HEADER`/`ID_TITLE`/`ID_DESCRIPTION`/`ID_FOOTER` would collide
+// with `dialog`'s outright, which matters more here than anywhere else in this
+// list: the two components' *values* are the same by finding (see
+// `alert_dialog.rs`'s module docs), so the module boundary is the only thing
+// that keeps `alert_dialog::HEADER_PADDING` from silently reading as
+// `dialog::HEADER_PADDING`'s one caller too many.
+pub mod alert_dialog;
 pub mod avatar;
 pub mod badge;
 pub mod button;
@@ -246,6 +254,22 @@ pub mod switch;
 // `Panel` is the sharpest of them: `resizable::Panel` is a resize pane and
 // `tabs::Panel` is a tab's content, and nothing about the name says which.
 pub mod tabs;
+// `toast` is unflattened for the same reason as the rest, and one further one:
+// P3.28's own finding is that it shares nothing with `popover`'s unreached
+// `Variant::Tooltip` but a name (see `toast.rs`'s module docs), so a bare
+// `CONTENT_SIZED`/`LINE_SIZED` here would be exactly the "silently means
+// another surface's" mistake `ANCHORS.md` v1.6 warns about, one door over from
+// `tooltip`'s own version of the same warning.
+//
+// **Built, not wrapped, and unreached by any live producer** — see
+// `toast.rs`'s module docs for the seam test (`gpui_component::Notification`'s
+// only element-shaped seam is a `'static` closure, unreachable from
+// `&dyn AnchorSink`'s anonymous lifetime — `popover`'s own trap, and this
+// primitive has none of `Popover`'s `ParentElement` fallback either) and for
+// the reachability finding (`anchoredToastManager.add` — the only thing that
+// can put a toast in `toast.tsx`'s own render path — has zero call sites
+// anywhere in `web/src`).
+pub mod toast;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
 pub use avatar::Avatar;

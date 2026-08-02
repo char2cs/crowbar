@@ -73,12 +73,13 @@ function AnchoredToasts({
                   upsertReplayClassName(toast),
                 )}
                 {...toastData?.rootProps}
+                data-oracle-id="toast-popup"
                 data-slot="toast-popup"
                 toast={toast}
               >
                 {tooltipStyle ? (
                   <Toast.Content className="pointer-events-auto px-2 py-1">
-                    <Toast.Title data-slot="toast-title" />
+                    <Toast.Title data-oracle-id="toast-title" data-slot="toast-title" />
                   </Toast.Content>
                 ) : (
                   <Toast.Content className="pointer-events-auto flex flex-col gap-2 overflow-hidden px-3.5 py-3 text-sm">
@@ -86,6 +87,7 @@ function AnchoredToasts({
                       {Icon && (
                         <div
                           className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
+                          data-oracle-id="toast-icon"
                           data-slot="toast-icon"
                           // Same reduced-motion spinner exemption as the stacked
                           // variant above — see index.css.
@@ -98,10 +100,12 @@ function AnchoredToasts({
                       <div className="flex flex-col gap-0.5">
                         <Toast.Title
                           className="min-w-0 break-words font-medium"
+                          data-oracle-id="toast-title"
                           data-slot="toast-title"
                         />
                         <Toast.Description
                           className="min-w-0 break-words text-muted-foreground"
+                          data-oracle-id="toast-description"
                           data-slot="toast-description"
                         />
                       </div>
