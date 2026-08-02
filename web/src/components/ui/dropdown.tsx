@@ -170,6 +170,15 @@ function MenuPopover({
     <m.div
       ref={menuRef}
       data-prevent-dialog-escape="true"
+      data-oracle-id="dropdown-root"
+      // True on the one reachable cell (file-explorer-tree's filter menu,
+      // `min-w-fit`): `min-width` there beats the locked `style.width`
+      // `applyLockedWidth` writes, so the used width tracks content on every
+      // layout. Not true for every call site (e.g. provider-switch-dropdown's
+      // `min-w-0` + explicit `style.width`) — see
+      // `crowbar_ui::components::dropdown`'s module docs (native/) for the
+      // measurement and the caveat.
+      data-oracle-content-sized="true"
       onMouseDown={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
       onWheelCapture={containScrollChain}

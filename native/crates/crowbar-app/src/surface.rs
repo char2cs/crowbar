@@ -521,6 +521,9 @@ mod tests {
                 "crowbar-mark",
                 "crowbar-wordmark",
                 "dialog",
+                // `dropdown.rs` sorts before `dropdown_menu.rs` — `d` = `d`,
+                // then the bare filename ends before `_menu` continues it.
+                "dropdown",
                 "dropdown-menu",
                 "file-tree-row",
                 "flicker-spinner",
