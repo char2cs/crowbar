@@ -69,7 +69,7 @@ use gpui::{
 };
 
 use super::anchor::{AnchorId, AnchorSink};
-use crate::theme::{Color, Theme};
+use crate::theme::{Color, Theme, ui_sans_font};
 
 /// The root anchor: `Avatar`, the `[data-slot=avatar]` span. Every other bound
 /// on this surface is reported relative to it (`native/oracle/ANCHORS.md` §4).
@@ -471,11 +471,12 @@ impl Avatar {
     ///
     /// The font family is named explicitly rather than left to inherit: gpui can
     /// only report the *declared* family, and an inherited `.SystemUIFont` is a
-    /// string the DOM will never produce (`ANCHORS.md` v1.2).
+    /// string the DOM will never produce (`ANCHORS.md` v1.2). [`ui_sans_font`]
+    /// also carries the fallback chain that lets a glyph missing from it
+    /// resolve the way `WebKit` resolves it (P3.24).
     fn root(&self, theme: &Theme) -> Div {
         let extent = self.call_site.extent();
         let step = self.call_site.type_step(theme);
-        let family = theme.font_sans.primary().unwrap_or("sans-serif");
 
         div()
             .flex()
@@ -488,7 +489,7 @@ impl Avatar {
             .h(extent)
             .rounded(self.call_site.radius(theme))
             .bg(theme.background)
-            .font_family(family)
+            .font(ui_sans_font(theme))
             .text_size(step.size)
             .line_height(relative(step.line_height))
             .font_weight(self.call_site.weight())

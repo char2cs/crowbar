@@ -33,7 +33,7 @@ use gpui::{
 
 use super::anchor::{AnchorId, AnchorSink};
 use super::sidebar_tree::{self, ICON_SIZE, RowState};
-use crate::theme::{Color, Theme};
+use crate::theme::{Color, Theme, ui_sans_font};
 
 /// The root anchor: the `.file-tree-item` wrapper. All other geometry is
 /// reported relative to it (`native/oracle/ANCHORS.md` §4).
@@ -423,10 +423,11 @@ impl GitStatusRow {
     /// The font family is named explicitly rather than left to inherit: gpui
     /// can only report the *declared* family, and an inherited
     /// `.SystemUIFont` is a string the DOM will never produce.
+    /// [`ui_sans_font`] also carries the fallback chain that lets a glyph
+    /// missing from it resolve the way `WebKit` resolves it (P3.24).
     fn button(&self, theme: &Theme) -> Div {
-        let family = theme.font_sans.primary().unwrap_or("sans-serif");
         sidebar_tree::row_button(theme, self.depth)
-            .font_family(family)
+            .font(ui_sans_font(theme))
             .font_weight(FontWeight::NORMAL)
             .text_size(theme.ui_text_base.value())
             .line_height(relative(LINE_HEIGHT))

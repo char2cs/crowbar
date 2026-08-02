@@ -52,7 +52,7 @@ use gpui::{
 use super::anchor::{AnchorId, AnchorSink};
 use super::badge::TypeStep;
 use super::git_status_row::Breakpoint;
-use crate::theme::Theme;
+use crate::theme::{Theme, ui_sans_font};
 
 /// The single anchor this surface carries.
 pub const ID_LABEL: &str = "label";
@@ -193,9 +193,8 @@ impl Label {
     /// produces. The reference says `CalSansUI`.
     fn shell(&self, theme: &Theme) -> Div {
         let step = self.type_step();
-        let family = theme.font_sans.primary().unwrap_or("sans-serif");
         div()
-            .font_family(family)
+            .font(ui_sans_font(theme))
             .flex()
             .items_center()
             .gap(GAP)

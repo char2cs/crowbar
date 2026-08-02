@@ -51,7 +51,7 @@ use gpui::{
 };
 
 use super::anchor::{AnchorId, AnchorSink};
-use crate::theme::{Color, Theme};
+use crate::theme::{Color, Theme, ui_sans_font};
 
 /// The root anchor: `MenuPrimitive.Popup`, the box `bg-popover` paints. Every
 /// other bound on this surface is reported relative to it
@@ -582,9 +582,10 @@ impl DropdownMenu {
     /// string the DOM will never produce. The reference's is `CalSansUI`, which
     /// the popup inherits from `html { @apply font-sans }` — the popup is
     /// **portalled to `document.body`**, so it inherits from the document root
-    /// and not from whatever opened it.
+    /// and not from whatever opened it. [`ui_sans_font`] also carries the
+    /// fallback chain that lets a glyph missing from it (a menu accelerator's
+    /// modifier symbol, say) resolve the way `WebKit` resolves it (P3.24).
     fn popup(&self, theme: &Theme) -> Div {
-        let family = theme.font_sans.primary().unwrap_or("sans-serif");
         let popup = div()
             .w(self.anchor_width)
             .min_w(self.min_width)
@@ -612,7 +613,7 @@ impl DropdownMenu {
             // And nothing scrolls in this port regardless: `max-h-(--available-height)`
             // is positioner output, which the mapping table records as absent.
             .overflow_hidden()
-            .font_family(family)
+            .font(ui_sans_font(theme))
             .font_weight(FontWeight::NORMAL)
             .text_size(theme.ui_text_base.value())
             .line_height(relative(ROW_LINE_HEIGHT))

@@ -81,7 +81,7 @@ use gpui::{
 use super::anchor::{AnchorId, AnchorSink};
 use super::sidebar_tree::{self, BASE_INDENT, GUIDE_SHIFT, ICON_SIZE, ITEM_RADIUS, ROW_HEIGHT};
 use super::sidebar_tree::{GuideInset, RowState, guide_inset};
-use crate::theme::{Color, Theme};
+use crate::theme::{Color, Theme, ui_sans_font};
 
 /// The root anchor: the `.file-tree-item` wrapper. Every other bound is reported
 /// relative to it (`native/oracle/ANCHORS.md` §4), and it is the layer whose
@@ -473,9 +473,10 @@ impl FileTreeRow {
     ///
     /// The font family is named explicitly rather than inherited, because gpui
     /// can only report the *declared* family and an inherited `.SystemUIFont` is
-    /// a string the DOM will never produce.
+    /// a string the DOM will never produce. [`ui_sans_font`] also carries the
+    /// fallback chain that lets a glyph missing from it resolve the way `WebKit`
+    /// resolves it (P3.24).
     fn button(&self, theme: &Theme) -> Div {
-        let family = theme.font_sans.primary().unwrap_or("sans-serif");
         div()
             .flex()
             .items_center()
@@ -494,7 +495,7 @@ impl FileTreeRow {
             // and the same constant.
             .rounded(ITEM_RADIUS)
             .whitespace_nowrap()
-            .font_family(family)
+            .font(ui_sans_font(theme))
             .font_weight(FontWeight::NORMAL)
             // `text-sm` — Tailwind's stock `--text-sm`, 0.875rem. `--ui-text-base`
             // is the same 0.875rem and is the token this design system carries;

@@ -71,7 +71,7 @@ use crowbar_ui::components::{
     ALL_GIT_STATUSES, AnchorSink, Breakpoint, ContentLength, FileTreeRow, GitStatus, GitStatusRow,
     RowState, TrailingContent,
 };
-use crowbar_ui::{Appearance, Theme};
+use crowbar_ui::{Appearance, Theme, ui_sans_font};
 use gpui::{
     AnyElement, Context, IntoElement, ParentElement as _, Pixels, Render, SharedString, Size,
     Styled as _, Window, div, px, relative, size,
@@ -926,7 +926,14 @@ impl Render for RowSurface {
             // flush-left surface is not expressible.
             .pl(self.cell.horizontal_inset_px())
             .pt(px(INSET_Y))
-            .font_family(theme.font_sans.primary().unwrap_or("sans-serif"))
+            // Every leaf that paints text declares its own font explicitly
+            // (`ANCHORS.md` v1.2 — a snapshot must report the *declared*
+            // family, never an inherited one), so this ambient value is
+            // never what actually shapes a run. It still carries
+            // `ui_sans_font`'s fallback chain rather than a bare family
+            // name, so the root default is never the TOFU-drawing one a
+            // future leaf could inherit by omission (P3.24).
+            .font(ui_sans_font(&theme))
             // **The surface overflows a short window; it is never compressed
             // into one.** That matters because `row_snapshot::emit` refuses a
             // frame by finding anchors *outside* the window — a surface squashed
