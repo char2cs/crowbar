@@ -2851,6 +2851,23 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### The last three, scoped before dispatch — two shrink
+
+| item | what it actually is |
+|---|---|
+| `search` | ordinary port; imports the already-verified `Button` + `Input`; **0** matching lines |
+| `primitive-dialog-service` | **composes the already-verified `dialog`** — imports `Dialog`/`DialogContent`/`DialogHeader`/`DialogTitle`/`DialogFooter` and adds a request queue. Its boxes are `dialog`'s boxes, so the expected outcome is *"covered by `dialog`, no new surface"*. Briefed to **rule on scope before building anything** — inventing an unnecessary surface is worse than an unported one, because it creates a thing to verify. |
+| `context-menu` | **not a hook-only file** — my earlier read was wrong. It renders base-ui `MenuPrimitive.Root/Portal/Positioner/Popup/Item/Separator`, i.e. real boxes. But the **user's native-menu ruling** covers it, and P2.14 already moved `dropdown-menu`'s context-menu path to an `NSMenu`, recorded as **"deliberately not a parity result"**. So it belongs in §5.2's *judged* treatment, not the anchor-diff gate. |
+
+`context-menu`'s two non-Plate importers are `tab-context-menu.tsx` and
+`use-file-explorer-context-menu.tsx`; its third, `block-context-menu.tsx`, is
+Plate (`^block-`) and out of scope by §3.2.
+
+**Consequence:** of the eight that remained after Wave 5, only `search` plus
+whatever `slider`/`tree-row`/`autocomplete`/`command` turn out to be are ordinary
+anchor-diffed ports. `context-menu` is a §5.2 judged item and
+`primitive-dialog-service` is probably already covered.
+
 #### ‼️ CORRECTION — the "fuzzy group" is not a fuzzy group
 
 I have been recording `autocomplete`, `command`, `search` (and `inline-combobox`)
