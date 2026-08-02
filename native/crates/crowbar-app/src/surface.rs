@@ -547,6 +547,8 @@ mod tests {
                 "sidebar-header",
                 "sidebar-toggle-icon",
                 "skeleton",
+                // `slider.rs` sorts before `spinner.rs` — `sl` < `sp`.
+                "slider",
                 "spinner",
                 "switch",
                 "tabs",

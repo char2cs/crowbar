@@ -73,6 +73,23 @@ impl Color {
         a: 0.0,
     });
 
+    /// CSS's `white` — opaque, unconditional, and carrying no token of its own.
+    ///
+    /// `slider.tsx`'s thumb is `bg-white`, in **both** themes: no `dark:`
+    /// variant touches its background (only its border moves,
+    /// `border-input dark:border-background`, which reuses [`Theme::input`] and
+    /// [`Theme::background`] directly). `theme.css` has no `--white` custom
+    /// property to seal this from — Tailwind's `white` is the CSS keyword, not
+    /// a design token — so this is minted here the same way
+    /// [`Color::TRANSPARENT`] is: a literal that names a CSS keyword rather
+    /// than a value out of `theme.css`.
+    pub const WHITE: Self = Self(Hsla {
+        h: 0.0,
+        s: 0.0,
+        l: 1.0,
+        a: 1.0,
+    });
+
     fn to_srgba(self) -> Srgba {
         let rgba = Rgba::from(self.0);
         Srgba::new(rgba.r, rgba.g, rgba.b, rgba.a)

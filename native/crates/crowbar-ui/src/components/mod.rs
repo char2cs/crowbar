@@ -222,6 +222,19 @@ pub mod sheet;
 pub mod sidebar;
 pub mod sidebar_toggle_icon;
 pub mod skeleton;
+// `slider` is unflattened for the same reason as the rest, and one sharper:
+// it is the second genuinely style-only widget (`switch` the first) and the
+// closest neighbour `switch` has. `slider::ID_THUMB` would collide with
+// `switch::ID_THUMB` outright — two different knobs, two different colour
+// rules (`switch`'s thumb moves nothing across themes; `slider`'s moves only
+// its border) — and `slider::ROUNDED_FULL` restates `switch::TRACK_RADIUS` and
+// `scroll_area::THUMB_RADIUS` under a third name, which is the point: three
+// surfaces independently measuring the same `f32::MAX` trap should not share
+// one constant that a change to any of them could silently move for the
+// others. `slider::Slider::thumb_center` in particular reads as a number
+// belonging to no component at all without its module in front of it.
+pub mod slider;
+
 // `tooltip` is unflattened for the same reason as the rest. Its `ID_TOOLTIP`
 // would sit next to `select`'s and `popover`'s `ID_*` constants with the same
 // shape of collision, and its `CONTENT_SIZED`/`LINE_SIZED` would silently mean
