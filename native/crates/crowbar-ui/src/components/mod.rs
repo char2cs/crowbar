@@ -145,6 +145,17 @@ pub mod kbd;
 // collide as every other surface's do.
 pub mod keybinding;
 pub mod label;
+// `number_input` is unflattened for the same reason as the rest, and one
+// further one: its `Size` and `Width` would collide with `input`'s and
+// `button`'s outright — `number_input::Size` is a flat `xs`/`sm`/`md` table
+// with no `sm:` breakpoint step where `button::Size` and `input::Size` both
+// carry one, and confusing the three is exactly the mistake `ANCHORS.md`
+// v1.6 warns about. **Built, not wrapped** — see the module docs for the
+// seam test (`gpui_component::input::number_input::NumberInput` builds its
+// whole `h_flex()` privately; `stepper::Stepper` is a same-named but
+// unrelated wizard-progress widget) and for the two flanking buttons'
+// private local copy of `button.rs`'s own glyph arithmetic.
+pub mod number_input;
 // The two P3.15 wraps are unflattened for the same reason as the rest, and one
 // sharper one: they are the first components whose behaviour comes from
 // `gpui-component`, so their vocabularies are *two* systems' at once.
@@ -254,6 +265,19 @@ pub mod switch;
 // `Panel` is the sharpest of them: `resizable::Panel` is a resize pane and
 // `tabs::Panel` is a tab's content, and nothing about the name says which.
 pub mod tabs;
+// `textarea` is unflattened for the same reason as the rest, and one further
+// one: its `Size` would collide with `input`'s, `button`'s and
+// `number_input`'s outright, each a different table. **Built, not wrapped**
+// — `gpui_component::input::Input`'s multi-line mode builds its whole
+// editable text element privately (`input/element.rs`), the same shape
+// `input.rs` already found for the single-line case — and **unreached by any
+// parity run**: `textarea.tsx`'s only importer, `commit-popover.tsx`, sits
+// behind a git panel whose "Changes" list would not populate in this item's
+// dev environment even after a real `git/stage` API call and a full reload,
+// confirmed against the backend's own `git/status` response showing six
+// real dirty files. The module docs and `native/mapping/textarea.md` carry
+// the account and the measurement technique used without a live mount.
+pub mod textarea;
 // `toast` is unflattened for the same reason as the rest, and one further one:
 // P3.28's own finding is that it shares nothing with `popover`'s unreached
 // `Variant::Tooltip` but a name (see `toast.rs`'s module docs), so a bare

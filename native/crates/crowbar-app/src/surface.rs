@@ -532,6 +532,7 @@ mod tests {
                 "label",
                 "loading-spinner",
                 "native-menu",
+                "number-input",
                 "popover",
                 "radio-group",
                 "resizable",
@@ -549,6 +550,9 @@ mod tests {
                 "spinner",
                 "switch",
                 "tabs",
+                // `textarea.rs` sorts before `toast.rs` — `te` < `to`... `textarea`
+                // < `toast`: `t` common, then `e` < `o`.
+                "textarea",
                 // `toast.rs` sorts before `tooltip.rs` — `ta` < `to`... `toast`
                 // < `tooltip`: `to` common, then `a` < `o`.
                 "toast",
