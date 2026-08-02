@@ -46,6 +46,7 @@ export default function TooltipCompound({
           collisionPadding={8}
           className={cn(tooltipContentVariants(), shortcut && 'flex items-center gap-2', className)}
           data-oracle-id="tooltip"
+          data-oracle-content-sized="true"
         >
           {content}
           {shortcut && <Keybinding binding={shortcut} data-oracle-id="tooltip-shortcut" />}
