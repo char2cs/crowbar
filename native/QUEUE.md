@@ -2851,6 +2851,46 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### ✅ THIRD UNLOCK — four verdicts taken, both font defects confirmed fixed
+
+Canaries byte-identical first, then every outstanding diff in one pass:
+
+| surface | verdict |
+|---|---|
+| `dialog` | ✅ **PASS — 0 deltas over 4 anchors** |
+| `keybinding` | ✅ PASS — 0 deltas |
+| `scroll-area` | ✅ PASS — 0 deltas over 2 anchors |
+| `search-toggle-icons` | ✅ PASS — and **the weight defect is gone**: `text_width` 14.19 → **14.476** against the reference's 14.48 |
+| `tooltip` | ⏸ FAIL — **stale reference, not a port defect** (see below) |
+
+**P3.25 is confirmed by measurement, not by its own report.** `dialog-title`
+reached `149.4`, and `search-toggle-icons` — the merged surface that had been
+silently carrying the weight defect behind a ±1.0 tolerance — now measures
+`14.476` where it measured `14.19`. Both were predicted exactly.
+
+**Merged: `p3.25-font-weights`, `p3.22-keybinding-merge`,
+`p3.21-dialog-sheet-rebased`.** `native/p3.19-sidebar` conflicts in four files
+(`driver_anchors.rs`, `crowbar-driver/src/element.rs`, `components/mod.rs`,
+`extract.ts`) and is being rebased — P3.19 and P3.20 independently found and
+fixed the *same* `AnchorSink::root` bug, so those two must converge on one
+mechanism rather than applying it twice.
+
+#### `tooltip` — the failure is instrumentation, and the arithmetic proves it
+
+```
+tooltip.content_sized:          true, expected false
+tooltip-shortcut.content_sized: true, expected false
+tooltip.bounds.w:            100.0, expected 99.3   (Δ +0.7)
+tooltip-shortcut.bounds.x:    51.0, expected 50.45  (Δ +0.55)
+```
+
+The two geometry deltas are **exactly `ceil(99.3) = 100` and `ceil(50.45) = 51`**
+— they would be forgiven by v1.5 if the reference agreed on `content_sized`. The
+native declaration is right (both anchors are `whitespace-nowrap`, padding-sized,
+no authored width); `tooltip.tsx` carries `data-oracle-id` but **not**
+`data-oracle-content-sized`, and the reference predates the merge that added that
+attribute to `keybinding.tsx`. Fixing the attribute and re-capturing (P3.26).
+
 #### STATE AT THE SECOND LOCK — 2026-08-02
 
 The screen unlocked for roughly one window and then **re-locked**. Captures hang
