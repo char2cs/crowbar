@@ -73,7 +73,7 @@ use crowbar_ui::components::{
 };
 use crowbar_ui::{Appearance, Theme, ui_sans_font};
 use gpui::{
-    AnyElement, Context, IntoElement, ParentElement as _, Pixels, Render, SharedString, Size,
+    AnyElement, App, Context, IntoElement, ParentElement as _, Pixels, Render, SharedString, Size,
     Styled as _, Window, div, px, relative, size,
 };
 
@@ -907,13 +907,23 @@ impl RowSurface {
 /// `row_layout.rs` renders the same dispatch under `cargo test` without a
 /// `RowSurface` — and two spellings of "which surface does this cell mean" is
 /// exactly the duplication that lets the measured tree drift from the drawn one.
+///
+/// `window`/`cx` pass straight through to [`crate::surface::SurfaceParams::render_ctx`]
+/// — see that method's docs for why `dialog` and `sheet` need them where every
+/// surface before them did not.
 #[must_use]
-pub fn render_row(cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
-    cell.params.render(cell, theme, anchors)
+pub fn render_row(
+    cell: &Cell,
+    theme: &Theme,
+    anchors: &dyn AnchorSink,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    cell.params.render_ctx(cell, theme, anchors, window, cx)
 }
 
 impl Render for RowSurface {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.cell.theme();
 
         div()
@@ -957,6 +967,8 @@ impl Render for RowSurface {
                 &self.cell,
                 &theme,
                 self.anchors.as_ref(),
+                window,
+                cx,
             )))
             // Outside the root anchor, so it cannot reach the snapshot: every
             // bound is reported relative to `git-row-item`.
@@ -1622,13 +1634,15 @@ mod tests {
             assert_eq!(cell.minimum_viewport(), cell.width + expected * 2, "{name}");
         }
 
-        // Exactly one surface is full-bleed today, and it is the one whose
-        // reference is the IDE shell root.
+        // Three surfaces are full-bleed today: `resizable`, whose reference is
+        // the IDE shell root, and `dialog`/`sheet`, whose `fixed inset-0`
+        // viewport makes the popup's own width a function of the window —
+        // see their surfaces' module docs.
         let bleeding: Vec<&str> = Surface::names()
             .into_iter()
             .filter(|name| a_surface(name).full_bleed)
             .collect();
-        assert_eq!(bleeding, vec!["resizable"]);
+        assert_eq!(bleeding, vec!["dialog", "resizable", "sheet"]);
 
         // And the two Phase 1 surfaces' number is unchanged, stated as the
         // literal their archived runs were taken at rather than as arithmetic
