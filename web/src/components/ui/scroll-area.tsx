@@ -15,7 +15,11 @@ export function ScrollArea({
   scrollbarGutter?: boolean
 }): React.ReactElement {
   return (
-    <ScrollAreaPrimitive.Root className={cn('size-full min-h-0', className)} {...props}>
+    <ScrollAreaPrimitive.Root
+      className={cn('size-full min-h-0', className)}
+      data-oracle-id="scroll-area-root"
+      {...props}
+    >
       <ScrollAreaPrimitive.Viewport
         className={cn(
           'h-full rounded-[inherit] outline-none transition-shadows focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background data-has-overflow-y:overscroll-y-contain data-has-overflow-x:overscroll-x-contain',
@@ -23,6 +27,7 @@ export function ScrollArea({
             'mask-t-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-y-start)))] mask-b-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-y-end)))] mask-l-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-x-start)))] mask-r-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-x-end)))] [--fade-size:1.5rem]',
           scrollbarGutter && 'data-has-overflow-y:pe-2.5 data-has-overflow-x:pb-2.5',
         )}
+        data-oracle-id="scroll-area-viewport"
         data-slot="scroll-area-viewport"
       >
         {children}

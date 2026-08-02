@@ -244,6 +244,38 @@ where
     AnchoredBox::wrap(id, element, true, Declared::nothing())
 }
 
+/// As [`anchor_root`], carrying the component's [`Declared`] claims about the
+/// box.
+///
+/// # Why the root needs this at all
+///
+/// Added by P3.20, which is the first surface whose **root is itself
+/// content-sized**: `keybinding` renders one `<kbd>` and nothing else, so the
+/// frame boundary and the measured box are the same element.
+///
+/// Until then every root was a container — a row, a popup, a panel — whose
+/// width came from its parent, so `anchor_root` hardcoding
+/// [`Declared::nothing`] cost nothing and nobody noticed. It was still a hole,
+/// and of the worst kind: a component that declared `content_sized` on its root
+/// had the declaration **silently dropped in translation**, and the differ then
+/// compared `bounds.w` against the reference's fraction rather than against
+/// `ceil(reference.w)` — a blind spot that reports nothing, which is exactly
+/// what `native/oracle/ANCHORS.md` v1.5 says a mis-declaration does.
+///
+/// §4 zeroes a root's `x` and `y`, so only `w` and `h` are ever compared on one
+/// — but those are precisely the two fields v1.5 and v1.6 correct.
+#[must_use]
+pub fn anchor_root_declared<E>(
+    id: impl Into<SharedString>,
+    element: E,
+    declared: Declared,
+) -> AnchoredBox
+where
+    E: InteractiveElement + IntoElement + 'static,
+{
+    AnchoredBox::wrap(id, element, true, declared)
+}
+
 /// Renders a string *and* records it as a text anchor.
 ///
 /// The element owns the string rather than being told what its child renders,

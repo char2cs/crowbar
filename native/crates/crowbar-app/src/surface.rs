@@ -470,11 +470,15 @@ mod tests {
                 "inline-error",
                 "input",
                 "kbd",
+                "keybinding",
                 "label",
                 "loading-spinner",
                 "native-menu",
                 "popover",
                 "resizable",
+                // `scroll_area.rs` sorts before `search_toggle_icons.rs` —
+                // `build.rs` orders by **file** name, and `sc` < `se`.
+                "scroll-area",
                 "search-toggle-icons",
                 "separator",
                 "sidebar-carousel",
