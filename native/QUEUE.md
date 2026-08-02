@@ -2851,6 +2851,43 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### ✅ P3.28 merged — and it found a floor bug in already-merged code
+
+`alert-dialog` is **`dialog`'s own numbers under its own anchor namespace**,
+established by a direct **compiled-class-list diff**, not inference.
+`gpui_component::AlertDialog` was read and **rejected**: its opinionated
+OK/Cancel footer does not match the live call site's
+outline-Cancel/destructive-Delete shape.
+
+**`toast` has zero live producers.** `anchoredToastManager.add(` appears nowhere
+in `web/src` — only the declaration, the provider wiring and a re-export; real
+toasts go through a different manager rendered by an unrelated file. That is the
+strong form of unreachable: **absent, not blocked**.
+
+**Neither is claimed to converge.** No reference exists for either and none was
+fabricated — same standing as `sheet` and `radio-group`: ported blind, recorded
+as such.
+
+**The find worth keeping:** `gpui_component::Dialog::render` carries an
+unconditional **`.min_h_24()` (96px)** that survives `refine_style` unless a
+caller overrides `min_height`. `dialog` never noticed — its reachable body is
+172px, always above the floor — and **`alert-dialog`'s real 0px body exposed
+it**. Fixed in both, each with a regression test.
+
+That fix touches already-merged code, so I **re-took `dialog`'s verdict** rather
+than assuming the earlier PASS survived:
+
+```
+dialog   oracle: PASS — 0 deltas over 4 anchors compared
+clippy 0 · 1440 passed / 0 failed · 7 ok · both canaries byte-identical
+```
+
+**A general lesson about absorbed defaults:** a vendor floor is invisible for as
+long as every reachable cell sits above it. `dialog` had been "converged" while
+carrying it. The only thing that surfaced it was a *second* component with a
+different content size — which is an argument for porting neighbours rather than
+one component in isolation.
+
 #### ‼️ A LIGHT CAPTURE CAME BACK MIXED-THEME — caught by the worker flagging it
 
 The capture worker flipped the theme with `classList.remove('dark')` inside a
