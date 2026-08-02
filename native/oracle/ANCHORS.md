@@ -1,4 +1,4 @@
-# The anchor snapshot contract — v1.12
+# The anchor snapshot contract — v1.13
 
 > ## ‼️ CORRECTION: the reference engine is **WebKit**, not Blink
 >
