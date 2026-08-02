@@ -2851,6 +2851,49 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### ‼️ A LIGHT CAPTURE CAME BACK MIXED-THEME — caught by the worker flagging it
+
+The capture worker flipped the theme with `classList.remove('dark')` inside a
+single synchronous call (the same class the real Settings→Appearance control
+toggles), captured, and reverted — a reasonable technique against a window a
+concurrent session was also driving. Four of five captures are clean. One is not.
+
+It flagged, honestly, that `search-toggle-icon.fg` came back `#a4a4a4ff` in
+**both** themes and guessed the token might be theme-invariant. **It is not.**
+`web/src/styles/theme.css`:
+
+| token | `:root` (light) | `.dark` |
+|---|---|---|
+| `--muted-foreground` | `oklch(0.4 0 0)` ≈ `#484848` | `oklch(0.72 0 0)` = `#a4a4a4` |
+
+So `#a4a4a4` is the **dark** value, and that reference is **mixed-theme**: its
+`border.color` correctly flipped to `#00000014` while its `fg` stayed dark.
+`sidebar-empty` picked up `#484848` correctly in the same session, so the flip
+does work — this one element didn't fully invalidate.
+
+**Deleted**, and I audited every light reference against known light/dark token
+values; the other four are consistent. That audit is now the cheap standing check
+on any theme capture: **a mixed-theme reference is more dangerous than a wholly
+wrong one, because every individual value looks plausible.**
+
+**The worker's honest flag is what made this findable.** It could have said
+nothing — the value was self-consistent within its own file — and the
+contaminated reference would have become a baseline.
+
+#### Two surfaces are currently UNREACHABLE, with evidence
+
+- **`keybinding`**: after the P3.20/P3.22 merge, `tooltip.tsx` and `button.tsx`
+  both pass `data-oracle-id="tooltip-shortcut"`, so the default `"keybinding"` id
+  now renders only at call sites that are **dead code** —
+  `tab-context-menu.tsx` passes a `keybinding` prop that `context-menu.tsx`
+  declares and **never renders**, and `editor-status-actions.tsx` needs a
+  shortcut that resolves to nothing under this fixture's `keybindingPreset:
+  "none"`. Its earlier PASS stands (taken when the id was hardcoded, against the
+  same markup) but **cannot be re-taken** in this app state.
+- **`popover`**: its one live trigger is `RepoIconPopover` inside `RepoSection`,
+  which needs a repo tree this fixture does not render — confirmed three ways
+  (aria-label probe, `role="treeitem"` enumeration, raw `innerHTML` dump).
+
 #### ✅ THE THEME AXIS OPENS — 3 surfaces verified on the light cell
 
 macOS switched to light appearance, which made light references capturable for
