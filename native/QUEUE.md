@@ -2823,7 +2823,64 @@ progress number correspondingly too small.
 | **P3.16** gpui `inspector` spike | `native/p3.16-inspector-spike` @ `ea543b24` | ✅ **REPORTED — path REJECTED, branch deliberately not merged.** Also corrected my seam survey 7 → 3 |
 | **P3.17** two-frame capture | `native/p3.17-two-frame-capture` @ `d465eb6d` · combined `native/p3.17-popover-reduction` @ `ecc6d242` | ✅ delivered — under my verification |
 | **P3.19** `sidebar` (wrap) | `native/p3.19-sidebar` @ `fe7dfaac` | ⏸ **HELD** — gates green, but no capture is possible (locked screen) |
-| **P3.20** `scroll-area` + `keybinding` | `native/p3.20-scroll-keybinding` @ `b8225e58` | ⏸ **HELD** — gates green; **references verified by me**, native half impossible |
+| **P3.20** `scroll-area` + `keybinding` | `native/p3.20-scroll-keybinding` @ `b8225e58` | ⚠ `scroll-area` **PASS 0 deltas**; `keybinding` **FAIL** — and the cause is a whole-port defect, see P3.24 |
+
+#### ‼️ P3.24 — THE NATIVE APP RENDERS TOFU FOR EVERY MODIFIER KEY
+
+The screen unlocked, I took the held verdicts, and `keybinding` failed by **one
+pixel**. Chasing that pixel found a defect that has nothing to do with
+`keybinding`:
+
+```
+keybinding.bounds.w: 39.0, expected 38.0 = ceil(37.84)  (Δ +1.0, content_sized)
+```
+
+Padding and border are identical on both sides (12px, 1px). The whole delta is
+the **text run**: native `text_width` **24.816** vs reference **23.84**.
+
+Decomposed live, with the component's real `ui-font ui-text-sm` classes:
+
+| glyph | WebKit | native | |
+|---|---|---|---|
+| `W` | 12.816 | 12.816 | agrees exactly |
+| `⌘` | **11.027** | **12.000** | 12.000 is exactly **1em** — the `.notdef` signature |
+
+**Confirmed at the font file.** I parsed the cmap of
+`web/public/fonts/CalSansUI-Regular.ttf`: `U+0057 W` is present (fmt4 segment
+`0x3a–0x7e`); **`U+2318` is in no subtable at all.** And it is not one glyph:
+
+| | |
+|---|---|
+| **missing** | `⌘` U+2318 · `⌥` U+2325 · `⇧` U+21E7 · `⌃` U+2303 · `⏎` U+23CE · `⌫` U+232B · `␛` U+241B |
+| present | `→` `…` `×` `✓` |
+
+**Seven of the eleven glyphs I probed — every macOS modifier — are absent.**
+
+**Why the two engines differ:** `main.rs` registers exactly two faces
+(`CalSansUI-Regular.ttf`, `CalSansUI-Medium.ttf`) under the single family
+`CalSansUI`, with **no fallback chain**. WebKit resolves the CSS stack
+`CalSansUI, ui-sans-serif, system-ui, -apple-system, …` and picks up ⌘ from the
+system font. gpui has nowhere to fall back to, so it draws `.notdef`.
+
+**This is not a sub-pixel metric quibble.** The native app almost certainly paints
+a **tofu box** wherever the React app paints ⌘ — in every tooltip shortcut, every
+keycap, every menu accelerator. That is §17 condition 9 ("a user cannot tell the
+two apps apart") failing at a glance, and no amount of `keybinding` work fixes
+it.
+
+**Scope: whole-port, not this item.** Split out as its own item; `keybinding`
+cannot converge until it lands. `scroll-area` is unaffected and **passed at 0
+deltas over 2 anchors** in the same run.
+
+**What this vindicates:** a 1px `content_sized` delta on one small component was
+the only symptom of a defect spanning every keycap in the app. It is exactly the
+argument for the oracle, and for not waving through "close enough" geometry.
+
+**A gap in my own earlier check, recorded:** when I "verified" this reference
+against the token table while the screen was locked, I confirmed padding, border,
+radius and height — but I took `text_width 23.84` from the worker and only
+checked that the box arithmetic was self-consistent (23.843 + 12 + 2 = 37.843).
+Self-consistent arithmetic is not verification of its inputs.
 | **P3.21** wrap `dialog` + `sheet` | `native/p3.21-dialog-sheet` @ `54499247` | ⏸ **HELD** — gates green; **`dialog` reference verified by me**; `sheet` unreachable, no reference, no claim |
 | **P3.22** `tooltip` + `radio-group` | `native/p3.22-tooltip-radio` @ HEAD of branch | ⏸ **HELD** — gates green; **`tooltip` reference verified by me**; `radio-group` unreachable, no reference, no claim |
 
