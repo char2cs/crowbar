@@ -529,6 +529,7 @@ mod tests {
                 "label",
                 "loading-spinner",
                 "native-menu",
+                "number-input",
                 "popover",
                 "radio-group",
                 "resizable",
@@ -546,6 +547,7 @@ mod tests {
                 "spinner",
                 "switch",
                 "tabs",
+                "textarea",
                 "tooltip",
             ],
         );

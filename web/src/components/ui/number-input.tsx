@@ -131,7 +131,7 @@ export default function NumberInput({
   const canIncrement = !disabled && numericValue < max
 
   return (
-    <div className={cn('flex items-center gap-1', className)}>
+    <div data-oracle-id="number-input" className={cn('flex items-center gap-1', className)}>
       <Button
         type="button"
         variant="ghost"
@@ -140,12 +140,14 @@ export default function NumberInput({
         disabled={!canDecrement}
         aria-label="Decrease value"
         className="shrink-0"
+        data-oracle-id="number-input-decrement"
       >
         <Minus className={iconSizes[size]} />
       </Button>
 
       <input
         data-setting-primary-control="true"
+        data-oracle-id="number-input-field"
         {...props}
         value={inputValue}
         onChange={handleInputChange}
@@ -170,6 +172,7 @@ export default function NumberInput({
         disabled={!canIncrement}
         aria-label="Increase value"
         className="shrink-0"
+        data-oracle-id="number-input-increment"
       >
         <Plus className={iconSizes[size]} />
       </Button>
