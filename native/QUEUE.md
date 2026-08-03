@@ -3309,6 +3309,36 @@ progress number correspondingly too small.
 
 ## In flight
 
+### 🛑 WAVE 1 CANNOT BE VERIFIED — the layout tier has almost no anchors, and I dispatched anyway
+
+A worker reported that neither of its two files carries a `data-oracle-id`
+anywhere. I checked the whole tier:
+
+| directory | files carrying **any** `data-oracle-id` |
+|---|---|
+| `components/ui/` | **41** |
+| `components/layout/` | **2 of 29** |
+
+**Every one of the nine files in wave 1 has zero.** So the React side has nothing
+to extract, no reference can be captured, and **no verdict can be taken for any
+of them** — I sent three workers to port components whose reference half does not
+exist.
+
+**This is the same prerequisite P3.15 was for `popover` and `select`**, and P3.18
+after it: an item that lands the ids on the React source and declares each
+surface's anchor set, *before* the port can be measured. I knew that pattern, had
+both items in this file, and still ordered the wave without checking whether its
+targets were anchorable. **Fourth boundary error of the day and the most
+expensive** — it would have produced three branches of unverifiable work.
+
+**The Rust is not wasted.** The ports still have to exist; they simply cannot be
+*verified* until the anchors land. Sequence corrected: anchors first, then gates,
+then verdicts.
+
+> **The rule this earns:** before dispatching a port, check that its target
+> carries `data-oracle-id`. One `grep -c` per file. "Is it in scope" and "can it
+> be measured" are different questions and I had only been asking the first.
+
 ### ▶ Layout wave 1 — dispatched 2026-08-03, three clusters in parallel
 
 The survey's own dependency graph decides the order, not my guess at it.
