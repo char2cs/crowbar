@@ -2851,6 +2851,59 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### ✅ TIER B COMPLETE — `context-menu` closed by building nothing
+
+The last outstanding item, and the right answer was **no port**.
+
+`context-menu.tsx` is **two components in one file**. The declarative family
+(`ContextMenuRoot`/`Trigger`/`Content`/`CheckboxItem`/`RadioItem`/`Sub*`) is
+**dead** — all 14 exports grepped individually, zero real importers; the only two
+apparent hits are **comments** in `block-context-menu.tsx` explaining why it does
+*not* reuse those names, and that file is Plate, out of scope by §3.2. Verified
+by me.
+
+The live half, `ImperativeContextMenu`, is built on the same `@base-ui` `Menu`
+primitive `dropdown-menu.tsx` uses. That is exactly the case the user's
+native-menu ruling moved to `NSMenu` in P2.14, so it inherits §5.2's **judged**
+treatment and no oracle is invented for it.
+
+**What the two live call sites actually need**, enumerated from the call sites
+rather than the type: `id`, `label`, `icon`, `onClick`, `separator`. `disabled`,
+`shortcut`, nested `items` and `closeOnClick` are declared and unused;
+`keybinding` is used once and is **dead** — the render loop never reads it.
+
+#### ⚖️ `crowbar-platform::native_menu` — the standing question, answered
+
+`blocked/s13-native-menus-accepted-delta.md` said it is *"retained for now and
+retired before Phase 3 closes unless a concrete need appears that the vendored
+one cannot serve."* **No such need appeared, and the evidence argues for
+retirement:**
+
+| | `crowbar-platform::native_menu` | vendored `gpui_component::native_menu` |
+|---|---|---|
+| platforms | macOS only | macOS + Windows + drawn fallback |
+| blocking | **yes** | no |
+| dispatch | — | `Box<dyn Action>` |
+| **icons** | **none** | **yes** |
+
+**Both live call sites put an icon on nearly every row** — which only the
+vendored menu supports. And **neither implementation is wired to anything
+today**: the only hits are `lib.rs`'s own `pub mod` and re-export.
+
+Also relevant to sequencing: **neither `tabs.rs` nor `file_tree_row.rs` has any
+right-click wiring**, so there is no host to attach a menu to regardless of which
+API wins. The native context-menu work belongs to whichever phase adds those
+hosts.
+
+#### ✅ P3.39 — a doc claim that outlived its evidence
+
+Three places asserted *"no live call site renders a Button with a label"*. The
+`search` port found `SearchReplaceRow`'s Replace/All **are** labelled and live
+(`75.81×32`, `39.38×32`). The sentence is **true of `crowbar-ui::Button` and
+false of the product** — those buttons are hand-built precisely because `Label`
+is a closed enum. **Sharpened, not deleted**: the `--width` weakness it documents
+is real and `Button`'s own width path genuinely stays unexercised.
+
 #### ✅ P3.36 merged — a malformed reference can no longer reach a verdict
 
 The check runs at **load** time, on **both** snapshots, before either reaches the
