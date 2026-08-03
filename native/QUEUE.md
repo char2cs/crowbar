@@ -3116,6 +3116,63 @@ Both are `git-row-dir`'s precedent: rendered by the port, absent from the produc
 > duration — stayed, read from the sealed token, with a test that fails if the
 > token moves.
 
+## 🔴 THE NATIVE APP REGISTERS NO MONOSPACE FONT — a third whole-port font defect
+
+**2026-08-03, found by taking `fps-overlay`'s verdict.** `UI_FONT_FILES` in
+`crowbar-app/src/main.rs` is **three CalSansUI faces and nothing else**. No mono
+font is registered, and none is shipped anywhere in the repo. **Four components
+ask for `theme.font_mono`:** `command`, `file_tree_row`, `inline_error`,
+`fps_overlay`.
+
+`theme.font_mono` resolves to `"JetBrains Mono Variable"` and the component asks
+for it correctly — `fps_overlay.rs:330` does
+`.font_family(theme.font_mono.primary().unwrap_or("monospace"))`. **Naming a
+family is not loading it.** gpui hands the name to CoreText, CoreText has never
+seen it, and P3.24's fallback chain quietly supplies something else. That is
+exactly the CalSansUI tofu (P3.24) and the weight-600 defect (P3.25) a third
+time: *the family is named, the file is absent, and the failure is silent.*
+
+#### The measurement
+
+| | reference | native |
+|---|---|---|
+| text | `59 fps·max 32ms·16 drops` | same, driven at `--fps 59 --max-dt 32 --drops 16` |
+| width | **202.41** (182.41 + 20 padding) | **177** (157 + 20) |
+| height | **23** (11px `leading-none` + 6 + 6) | **30** |
+
+**Two distinct defects**, and only the first is about the font:
+
+1. **Font.** 157 vs 182.41 px of advance for the *same string*. `font-mono` is
+   unregistered; `tabular-nums` is also never implemented (it appears once in the
+   whole tree, in a `number_input.rs` doc comment) and would change digit
+   advances on its own.
+2. **`leading-none`.** There is **no `line_height` anywhere in
+   `fps_overlay.rs`**, so gpui applies its default multiplier: 11px text in an
+   18px line box, 30 instead of 23. Same class as `search`'s 22.5-vs-20 earlier
+   today.
+
+#### ⚠ Why `command` and `file_tree_row` still passed, and what that costs
+
+Both carry **passing verdicts** — `command` 0/11 today, `file_tree_row` is a
+Phase 1 canary and byte-identical. **A verdict passes when no anchor measures a
+mono text run.** `fps-overlay`'s single anchor *is* the mono box and is
+`content_sized`, so its width is the advance; the other three anchor boxes whose
+width comes from elsewhere.
+
+**So those verdicts are true and narrower than they look.** The defect is real on
+all four surfaces visually and detectable on one. **This is the strongest case
+yet for the §8.2 perceptual oracle** — a geometry-and-colour oracle cannot see a
+substituted font except where a content-sized run happens to expose it.
+
+#### ⚠ And one of the two deltas was my own driving error
+
+My first run diffed at the **fixture's** `fps: 0, max_dt: 0, drops: 0` — text
+`0 fps·max 0ms·0 drops` — against a reference captured live at `59/32/16`. Width
+came back 155. Re-driven at the reference's own values it is 177, and the
+remaining 26px is the real defect. **`--width` was not the flag this time, but it
+is the same mistake**: drive the cell the reference was captured in, every axis,
+not just the one I remember.
+
 ## ⛔ LIVENESS GATE — a component must be IN USE before it is ported *(2026-08-03, user)*
 
 > **"Only port components that ARE IN USE on the production app. There may be
