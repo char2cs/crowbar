@@ -3339,6 +3339,35 @@ then verdicts.
 > carries `data-oracle-id`. One `grep -c` per file. "Is it in scope" and "can it
 > be measured" are different questions and I had only been asking the first.
 
+#### ⚠ …and "all nine" was itself measured in the wrong tree — one cluster had solved it
+
+I grepped the **shared** worktree. The three port branches are unmerged, and
+`native/p3.51-layout-cluster2` @ `ef933cbd` **had already added its React-side
+ids as part of the port**: `detach-holder-modal` ×5, `repo-import-dialog` ×4.
+Clusters 1 and 3 touched no `web/` file at all.
+
+So the count is **seven** files missing anchors, not nine — and the correction
+lands on top of the previous one, in the same measurement, in the same file.
+**Twice now I have grepped `web/src` in the shared tree and drawn a conclusion
+about work that lives on branches.**
+
+**More interesting than the arithmetic: cluster 2 chose the better pattern.** It
+landed the anchors *inside* its port rather than waiting for a prerequisite item
+— so the ids were chosen once, by the worker that was writing both sides, and
+there was never a window in which the two could drift. Its two decisions are now
+the precedent P3.54 was told to follow or argue against:
+
+- **namespace per call site** (`detach-holder-modal-popup`, never `dialog-popup`)
+  — both components are call sites of `dialog.tsx`'s primitive, and `surface.rs`
+  requires a unique root anchor per surface, so reuse would collide in fact;
+- **anchor what exists** — no `footer` id on the component that has no footer.
+
+**The open question this raises about my own sequencing:** P3.15 and P3.18 exist
+because `popover`/`select` were *wrapped* vendored widgets whose React side
+nobody was editing. A **built** port whose worker touches both sides may simply
+not need a separate anchors item. P3.54 was asked to say whether it should have
+existed at all.
+
 ### ▶ Layout wave 1 — dispatched 2026-08-03, three clusters in parallel
 
 The survey's own dependency graph decides the order, not my guess at it.
