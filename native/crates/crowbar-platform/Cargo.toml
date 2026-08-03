@@ -7,23 +7,5 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-# §4.2: `objc2`, macOS only. Version tracks desktop/src-tauri/Cargo.toml so the
-# port of the existing vibrancy code is a move, not a rewrite.
-#
-# `objc2-app-kit` and `objc2-foundation` are the generated AppKit/Foundation
-# bindings for that same `objc2` (0.6 ↔ 0.3.x). They are already in the
-# workspace lock as transitive dependencies of the vendored `gpui_platform`, so
-# naming them here adds a manifest edge and no new code to the build.
-#
-# The feature lists are **exactly** what `native_menu` sends and no more, because
-# each feature is a class whose bindings get compiled. `NSResponder` and `NSView`
-# look gratuitous — the popup is shown with `inView: nil` — but the binding for
-# `popUpMenuPositioningItem:atLocation:inView:` is itself `#[cfg]`-gated on them,
-# so without both the method does not exist.
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2.workspace = true
-objc2-app-kit.workspace = true
-objc2-foundation.workspace = true
-
 [lints]
 workspace = true
