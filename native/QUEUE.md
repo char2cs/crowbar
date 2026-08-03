@@ -180,9 +180,54 @@ is unported, Tier B's `layout` half is at 1 of 29, and the part that *is* finish
 — `components/ui`, 43 surfaces, every verdict taken by me — is genuinely
 finished. Three different states, and I had been reporting the third as the whole.
 
-Tier A's real denominator is the next measurement after the layout one. **I am
-not estimating it here**, because writing a number I have not measured is exactly
-how the last two boundaries went wrong.
+#### ✅ P3.49 — Tier A measured. **36 files · ~3,170 lines · 221 test cases.**
+
+`native/mapping/tier-a-denominator.md` @ `9035d942`, merged `ce4dccbb`. Out of
+~8,048 lines surveyed across §4.2's seven named areas. Committed in six
+increments, which is why it survived where the sibling survey lost everything to
+an API drop — that instruction is now standard in survey briefs.
+
+**"Theme tokens" is not core work at all**, though §16 lists it beside
+`core`/`proto`/`client`. §6.1's sealed token type is `pub struct
+Color(gpui::Hsla)` — a literal `gpui` wrapper that `check-invariants.sh` rule 1
+would reject inside `crowbar-core` — and §4.2 assigns token work to
+`crowbar-ui`. What belongs in core is the gpui-free *arithmetic*, which is what
+`color.rs`'s own module doc already says.
+
+**Three more corrections, all verified against the tree rather than reasoned:**
+
+- **§10.1 names `features/git/utils/git-diff-parser.ts`. It does not exist.** The
+  daemon returns structured diffs; the one place raw patch text is parsed it is
+  the third-party `@pierre/diffs`.
+- **"Diff algebra" barely exists as a distinct area** — most of what looks like it
+  is git-status classification, or `crowbar-diff`-crate windowing and search per
+  §4.2, not core.
+- **The seven areas are not one shape of work.** Git, file-tree and review threads
+  mostly duplicate DTOs `crowbar-proto` already generated; keymap, settings,
+  workspace scoping and theme tokens have **no daemon counterpart at all**.
+- **The two most literal name-matches have zero dedicated tests** —
+  `effective-keymaps.ts` and `workspace-scope-url.ts`, the latter used by *every
+  scoped API call*. §16 gates Tier A on "ported tests"; for these two there is
+  nothing to port.
+
+##### ⚠ Its one overstatement, checked by me: `oklch` is not a gap
+
+The survey called it *"a concrete, currently-real gap"* that `theme.css` uses
+`oklch()` 37 times while `color.rs` implements only `color-mix()`. **Both counts
+are right and the conclusion is wrong.** `crowbar-ui/src/theme/generated.rs` says
+in its own header that every value was resolved the way a browser resolves it —
+*"`oklch()` converted through `OKLab` to sRGB and then to gpui's `Hsla`"* — by
+`tools/gen-theme.py`, **once, at generation time**.
+
+The split is deliberate: **static** token resolution happens in the generator;
+**runtime** mixing needs `color_mix` because `color-mix(in srgb, var(--accent)
+68%, transparent)` is evaluated against values not known until then. A missing
+runtime `oklch` would only matter if something computed one at runtime, and
+nothing does.
+
+Worth stating because it is the *inverse* of the day's other errors: I have been
+finding green numbers over empty sets, and this was a red flag over a filled one.
+**Both need the same check — read the absolute facts next to the claim.**
 
 ### 🛑 "TIER B COMPLETE" WAS WRONG — the `components/layout` half was never counted
 
