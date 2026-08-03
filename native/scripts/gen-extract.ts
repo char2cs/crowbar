@@ -17,6 +17,26 @@
  * instead of through the bridge's return channel, and (3) runs a small local
  * HTTP sink that writes what it receives to disk, byte for byte.
  *
+ * ── P3.46 correction: this is the FALLBACK path, not the default one ───────
+ *
+ * Driving the live Tauri app found that `--post` (and so `sink`) cannot be
+ * reached at all from inside this app's dev webview: `fetch`/`XMLHttpRequest`
+ * from `http://localhost:5173` to any other port fails with `Load failed`,
+ * for both GET and POST — the webview's own cross-origin scoping, not a CSP
+ * policy this project authors (the document carries no CSP `<meta>` tag) or
+ * anything a response header could fix. A sink on any other port can never
+ * receive a POST from this page.
+ *
+ * The primary capture path for this app, in dev, is a direct
+ * `import('/src/lib/oracle/extract.ts')` from inside the page — Vite serves
+ * the real module at the app's own origin, so there is no cross-origin
+ * request and no stringified copy to keep in sync. See
+ * `native/oracle/README.md` for that recipe. Everything below — `emit`,
+ * `sink`, `--post` — remains correct as a mechanism and is still what you
+ * want for a context where the module genuinely cannot be imported: a
+ * packaged build with no dev server, or a capture driven from a different
+ * host entirely.
+ *
  * ── Usage ──────────────────────────────────────────────────────────────────
  *
  *   bun native/scripts/gen-extract.ts emit [options]
@@ -59,7 +79,10 @@
  *                                        started in another terminal — and
  *                                        returns a small `{ok,bytes}` status
  *                                        instead of the payload. See "Why a
- *                                        sink" below.
+ *                                        sink" below — and the P3.46 note at
+ *                                        the top of this file: this cannot
+ *                                        reach a sink from inside this app's
+ *                                        own dev webview at all.
  *
  * sink options:
  *
@@ -74,7 +97,11 @@
  *                    stoppable on demand" is exactly this: start it, it runs
  *                    until it has what it came for or you tell it to quit.
  *
- * ── The whole loop, end to end ────────────────────────────────────────────
+ * ── The sink loop, end to end (fallback — see the P3.46 note above) ───────
+ *
+ * For this app, in dev, don't start here — use `native/oracle/README.md`'s
+ * direct-`import()` loop instead. This loop is for a context where that
+ * doesn't apply (a packaged build, or a different host).
  *
  * Assume nothing has been done yet — a live Tauri app is already running (do
  * not start or restart it) and its MCP bridge port is known (QUEUE.md: it
@@ -133,6 +160,15 @@
  * request shape, so no preflight `OPTIONS` round trip has to complete first —
  * the sink still answers `OPTIONS` correctly, in case a future browser or a
  * future header disagrees.
+ *
+ * None of the above helps from inside this app's own dev webview (P3.46):
+ * the request never gets far enough for the `Content-Type: text/plain` /
+ * no-preflight care above to matter — it fails with `Load failed` before any
+ * CORS negotiation happens at all, which is the webview's own cross-origin
+ * scoping rather than anything on the HTTP layer. This section documents a
+ * mechanism that is still correct for a host where the request can be made
+ * in the first place; it's not the reason a capture from this app succeeds
+ * or fails today.
  *
  * This mirrors what the prior, uncommitted `gen-extract.ts` + `Bun.serve`
  * pair already did, per `native/mapping/dialog.md` §6 and the same note in
@@ -486,9 +522,12 @@ const HELP = `gen-extract — emit the oracle's injectable extractor, and receiv
   bun native/scripts/gen-extract.ts sink --out <path> [--port <n>] [--count <n>]
   bun native/scripts/gen-extract.ts --help
 
-See this file's own header comment for the full option list and the
-end-to-end capture recipe, or native/oracle/README.md for the same recipe
-with less code around it.`
+This is the fallback capture path (a packaged build, or a host other than
+this app's own dev webview — see this file's header comment, "P3.46
+correction"). For this app in dev, native/oracle/README.md's direct
+import()-from-the-page loop is what actually works; this file's header
+comment still has the full option list and the sink-based recipe for when
+that loop doesn't apply.`
 
 function runEmitCli(argv: string[]): void {
   const { options, post } = buildExtractOptions(argv)
