@@ -19,6 +19,23 @@ Copyright 2021 The Cal Sans Project Authors (https://github.com/calcom/font)
 Licensed under the SIL Open Font License, Version 1.1.
 Full license text: [`licenses/CalSans-OFL-1.1.txt`](licenses/CalSans-OFL-1.1.txt)
 
+### JetBrains Mono — `web/public/fonts/JetBrainsMonoVariable-{Regular,Medium,Bold}.ttf`
+
+Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
+
+Licensed under the SIL Open Font License, Version 1.1.
+Full license text: [`licenses/JetBrainsMono-OFL-1.1.txt`](licenses/JetBrainsMono-OFL-1.1.txt)
+
+These three files are static instances (`wght` 400/500/700) derived from the
+`@fontsource-variable/jetbrains-mono@5.2.8` npm package's own variable font —
+the same package `web/src/styles/editor-theme.css` imports and the one the
+browser itself instances live for every `--font-mono` weight request — by the
+same `fontTools` method `licenses/CalSans-OFL-1.1.txt`'s sibling note in
+`native/crates/crowbar-app/src/main.rs` documents for `CalSansUI`. Only the
+`name` table (to declare the family `JetBrains Mono Variable`, matching the
+CSS token) and the WOFF2 container (dropped; gpui/font-kit cannot parse it)
+were changed — the outlines are the upstream project's own.
+
 ### Symbols Nerd Font Mono — `web/public/fonts/SymbolsNerdFontMono-Regular.woff2`
 
 Copyright (c) 2014 Ryan L McIntyre (https://github.com/ryanoasis/nerd-fonts)

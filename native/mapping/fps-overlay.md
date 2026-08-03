@@ -56,9 +56,9 @@ fabricated; there is no `/tmp/p3-ref-fps-overlay.json`.
 | `rounded-md` | `theme.radius_md` = **8px** | `theme.radius_md.value()` | — |
 | `mx-1.5` (each `·`) | **6px** each side | `SEPARATOR_MARGIN_X` | — |
 | `text-[11px]` | an arbitrary value, not a `ui-text-*` step | `FONT_SIZE = px(11.0)` | — |
-| `leading-none` | `line-height: 1` | not separately modelled — gpui derives the line box from the font | — |
-| `font-mono` | `var(--font-mono)` = `'JetBrains Mono Variable', ui-monospace, monospace` | `theme.font_mono.primary().unwrap_or("monospace")` — the same one honest limit `file_tree_row.rs`/`inline_error.rs` already record | — |
-| `tabular-nums` | `font-variant-numeric: tabular-nums` | unmodelled — no comparable field, and no font-feature call site elsewhere in this tree needed one | — |
+| `leading-none` | `line-height: 1` | `LINE_HEIGHT = 1.0` via `.line_height(relative(LINE_HEIGHT))` — see §9b (P3.57) | — |
+| `font-mono` | `var(--font-mono)` = `'JetBrains Mono Variable', ui-monospace, monospace` | `theme.font_mono.primary().unwrap_or("monospace")` — the same one honest limit `file_tree_row.rs`/`inline_error.rs` already record, **and, as of P3.57, an actually-registered face** (`main.rs::load_ui_mono_font`) rather than a name nothing loaded — see §9b | — |
+| `tabular-nums` | `font-variant-numeric: tabular-nums` | `.font_features(tabular_nums())` (`tnum => 1`) — implemented, and measured inert on this component's own registered font; see §9b | — |
 | `shadow-xl` | a box-shadow preset | `.shadow_xl()` — painted for fidelity; `ANCHORS.md` §6 has no shadow field either way | — |
 | `style={{ background: 'rgba(0,0,0,0.72)' }}` | **not a Tailwind utility at all** — the one raw-colour inline style in this whole five-file cluster | `Color::BLACK.mix(72.0, Color::TRANSPARENT)` — see §3 | — |
 | `style={{ backdropFilter: 'blur(10px)' }}` | no gpui equivalent (§6.3) | absent | — |
@@ -180,3 +180,71 @@ the literal assertion in place fails as `expected 32px, got 20px`; reverting
 restores green. The same class of guard is why `the_box_carries_its_own_padding_and_radius`
 asserts `record.radius` against the literal `px(8.0)` rather than
 `theme.radius_md.value()`.
+
+## 9b. P3.57 — no monospace font was registered at all, and two of `fps-overlay.tsx`'s own classes went with it
+
+This surface is where a whole-port defect first became visible: `theme.font_mono`
+names `'JetBrains Mono Variable'`, but before this item **nothing gave gpui
+that face** — `main.rs`'s `UI_FONT_FILES` registered three `CalSansUI`
+weights and nothing else. `fps-overlay`'s badge is the one anchor in this
+cluster that is `content_sized`, so it is the one surface a missing mono font
+could not hide behind: measured against the reference at identical values
+(`--fps 59 --max-dt 32 --drops 16`), the badge's width came out **177px**
+(157 advance + 20 padding) against `WebKit`'s own **202.41px** (182.41 + 20).
+`file_tree_row`'s status letter and `inline_error`'s detail line carry the
+same one-line `.font_family(theme.font_mono.primary()…)`, and both currently
+hold passing verdicts anyway — a verdict passes when no anchor happens to
+measure a mono text run, and neither of those two components' checked
+anchors do.
+
+**The fix, in `crowbar-app/src/main.rs`:** a second registration pass,
+`load_ui_mono_font`, the exact mono sibling of `load_ui_font` — same
+"checked as well as attempted" discipline, same fail-loud-on-stderr shape.
+Three static instances (`wght` 400/500/700, the only three weights any
+`theme.font_mono` call site in this tree ever requests) are instanced out of
+the *variable* font `web/bun.lock` pins
+(`@fontsource-variable/jetbrains-mono@5.2.8`) — the same file the browser
+itself instances live for every `--font-mono` weight request — by the same
+`fontTools` recipe `UI_FONT_FILES`'s own doc comment records for `CalSansUI`.
+See `main.rs`'s `UI_MONO_FONT_FILES` doc comment for the full provenance and
+the one weight-500 `fsSelection` detail it shares with `CalSansUI-Medium.ttf`.
+Real-platform proof that the registered face actually shapes — not merely
+that `add_fonts` parsed it — is in `crowbar-app/src/ui_font_mono.rs`,
+following `ui_font_fallback.rs`/`ui_font_weight.rs`'s own pattern (`#[test]`,
+not `#[gpui::test]`: `TestPlatform` hardcodes a `NoopTextSystem` that never
+shapes a real glyph).
+
+**`leading-none` (`LINE_HEIGHT = 1.0`, `.line_height(relative(LINE_HEIGHT))`)
+is the second half of the same width-and-height gap.** With no
+`.line_height()` call at all, gpui's own default multiplier gave an 11px run
+an 18px line box — 30px of total badge height against the reference's 23.
+Unlike the font registration above, this *is* visible to a `#[gpui::test]`:
+`line-height: 1` is a multiplier of the font size, a `Style`-level quantity
+taffy resolves without shaping a real glyph. `row_layout::fps_overlay`'s
+`the_badge_is_exactly_the_padding_plus_a_leading_none_line` is the
+before/after: run against the pre-fix code it failed as `expected 23px, got
+30px`; the `.line_height()` call turns it green.
+
+**`tabular-nums` is implemented (`.font_features` carrying `tnum => 1`,
+`gpui::FontFeatures`'s real mechanism through to
+`kCTFontOpenTypeFeatureTag`) and measured — not merely declared — to move
+nothing on this component's own registered font.**
+`JetBrainsMonoVariable-Regular.ttf`'s `GSUB` table carries no `tnum` feature
+at all: tabular figures are this font's *only* figures, so every glyph —
+not only the ten digits — already carries the same 600-unit advance
+regardless of the feature. `ui_font_mono.rs`'s
+`tabular_nums_reaches_the_shaper_and_is_measurably_inert_on_this_font` proves
+both halves of that sentence: the feature reaches the shaper (a real,
+different `Font` value), and it moves nothing (identical measured width on
+or off) — a fact about `JetBrains Mono Variable`, not a limitation of
+`gpui::FontFeatures`.
+
+**Not moved: any existing `row_layout` assertion.** `#[gpui::test]` never
+shapes a real glyph regardless of what this item registers, so nothing in
+`row_layout::fps_overlay`, `row_layout::file_tree_row`, or
+`row_layout::inline_error` that existed before this item changed value —
+each such test compares either structural/relational geometry (padding,
+gaps, "wider than," "narrower than") or the *declared* `Font.family` string,
+neither of which depends on which face actually resolves.
+`the_badge_is_exactly_the_padding_plus_a_leading_none_line` above is new, not
+moved.

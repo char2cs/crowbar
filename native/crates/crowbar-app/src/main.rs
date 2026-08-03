@@ -60,6 +60,8 @@ mod surfaces;
 #[cfg(test)]
 mod ui_font_fallback;
 #[cfg(test)]
+mod ui_font_mono;
+#[cfg(test)]
 mod ui_font_weight;
 
 fn main() -> ExitCode {
@@ -92,7 +94,9 @@ fn main() -> ExitCode {
 
     gpui_platform::application().run(move |cx: &mut App| {
         gpui_component::init(cx);
-        let fonts = load_ui_font(cx);
+        let sans_fonts = load_ui_font(cx);
+        let mono_fonts = load_ui_mono_font(cx);
+        let fonts = format!("{sans_fonts}; {mono_fonts}");
         // On stderr as well as in the caption: a parity run that is silently
         // shaping with a fallback face would produce `text_width` deltas with
         // no visible cause.
@@ -328,6 +332,148 @@ fn load_ui_font(cx: &mut App) -> String {
     format!("font: {UI_FONT_FAMILY} loaded")
 }
 
+/// `theme.font_mono`'s primary stack entry (`theme/generated.rs`) — the
+/// *stylesheet's* `--font-mono: var(--editor-font-family, 'JetBrains Mono
+/// Variable', …)` name, not the family the source npm package's own `name`
+/// table carries before this item renames it (see [`UI_MONO_FONT_FILES`]).
+///
+/// # This item's defect, and the two it repeats the shape of
+///
+/// Before this item, **no monospace font was registered at all.** Four
+/// ported components (`fps_overlay`, `file_tree_row`, `inline_error`, and —
+/// only in a module doc comment, never a live call site; see
+/// `crowbar-ui/src/components/command.rs`'s own docs — `command`) declare
+/// `.font_family(theme.font_mono.primary()…)`, and every one of them shaped
+/// with whatever CoreText's own fallback cascade supplied instead, silently:
+/// `font_family("JetBrains Mono Variable")` is a request, not a guarantee,
+/// exactly the lesson `UI_FONT_FILES`'s own doc comment already draws for
+/// `CalSansUI` (P3.24) and `UI_MONO_FONT_FILES` draws again here. Measured
+/// live against the reference (`fps-overlay`, the one anchor in this cluster
+/// that is `content_sized` and therefore the one surface a missing mono font
+/// could not hide behind): the badge's text advance came out to 157px
+/// against `WebKit`'s own 182.41px for the identical string — a **narrower**
+/// fallback, not a wider one, so this was never a case a human glancing at a
+/// screenshot would flag as "obviously wrong font."
+///
+/// # Where the reference gets it from — established, not assumed
+///
+/// `web/src/styles/editor-theme.css` line 1: `@import
+/// '@fontsource-variable/jetbrains-mono';`, pinned at `5.2.8` in `web/bun.lock`.
+/// This is an **npm-distributed, project-pinned dependency** — not a font
+/// that merely happens to be installed on any one developer's machine — so
+/// shipping the app without it would itself be the defect the brief for this
+/// item warned to check for. It was not that: the family the reference
+/// resolves is exactly the family this npm package's own `@font-face`
+/// declares.
+const UI_MONO_FONT_FAMILY: &str = "JetBrains Mono Variable";
+
+/// The faces this row shapes `theme.font_mono` text with, converted for
+/// CoreText — three static instances (`wght` 400/500/700) pulled out of the
+/// same **variable** font the browser itself instances live for every
+/// `--font-mono` weight request.
+///
+/// **Provenance.** `web/bun.lock` pins
+/// `@fontsource-variable/jetbrains-mono@5.2.8`; the bytes came from that exact
+/// version's own package tree (`~/.bun/install/cache/@fontsource-variable/
+/// jetbrains-mono@5.2.8@@@1/files/jetbrains-mono-latin-wght-normal.woff2` —
+/// the same tree `bun install` places under `web/node_modules`, which this
+/// checkout does not carry). Converted with the same `fontTools` recipe
+/// [`UI_FONT_FILES`]'s own doc comment records for `CalSansUI`:
+///
+/// ```text
+/// instantiateVariableFont(TTFont('jetbrains-mono-latin-wght-normal.woff2'), {'wght': W})
+/// font.flavor = None                          # drop the WOFF2 container
+/// name IDs 1/4/16 := "JetBrains Mono Variable" # the @font-face name, see below
+/// ```
+///
+/// Three decisions, each the mono sibling of one `UI_FONT_FILES` already
+/// makes:
+///
+/// * **WOFF2 → bare sfnt**, for the reason `UI_FONT_FILES`'s doc comment
+///   gives verbatim: `add_fonts` hands bytes to CoreText through font-kit,
+///   and CoreText does not read the WOFF2 container.
+/// * **Three static instances, not the variable face** — the same
+///   `find_best_match`/`OS/2.usWeightClass` limit `UI_FONT_FILES` documents
+///   for `CalSansUI`'s three weights. The three chosen are exactly the three
+///   `theme.font_mono` text is ever painted at: `FontWeight::NORMAL` (every
+///   plain run — `fps_overlay`'s " fps"/"max "/separators, `file_tree_row`'s
+///   status letter, `inline_error`'s detail line), `FontWeight::MEDIUM`
+///   (`fps_overlay`'s `drops > 0` run), and `FontWeight::BOLD`
+///   (`fps_overlay`'s fps digit). No call site under `theme.font_mono` ever
+///   requests a fourth weight.
+///
+///   **Deliberately not the separate `@fontsource/jetbrains-mono` static
+///   package**, even though it ships pre-baked 400/500/700 cuts under its own
+///   `files/`: that package's `@font-face` declares the family `'JetBrains
+///   Mono'`, a name `--font-mono` never asks for (`editor-theme.css` imports
+///   it only so plain `'JetBrains Mono'` stays selectable in Settings/
+///   Terminal, alongside the Variable cut). `--font-mono`'s every weight —
+///   400 from the unconditional `@import`, 500 and 700 from `font-weight`
+///   requests the browser interpolates live — is shaped from the **variable**
+///   file. Instancing from that same file, at the same three coordinates, is
+///   the more faithful source, not merely the more convenient one.
+/// * **The family is renamed** `JetBrains Mono` (nameID 1 in the upstream
+///   file) **→ `JetBrains Mono Variable`**, for the same reason `UI_FONT_FILES`
+///   renames `Cal Sans UI` → `CalSansUI`: font-kit's `MemSource` matches a
+///   family by exact string, and the CSS token this item's family constant
+///   documents is `'JetBrains Mono Variable'`. `licenses/
+///   JetBrainsMono-OFL-1.1.txt` declares **no Reserved Font Name** (only the
+///   license's own boilerplate *definition* of the term appears, the same
+///   check `UI_FONT_FILES`'s doc comment already performed for `CalSans`), so
+///   OFL-1.1 §3 places no restriction on a Modified Version's name.
+///
+/// `Medium.ttf`'s `OS/2.fsSelection` has its `REGULAR` bit cleared (`0x80`,
+/// not the `Regular`/`Bold` instances' `0xC0`/`0xA0`) — the same "not
+/// Regular, but not a distinct legacy style either" treatment
+/// `CalSansUI-Medium.ttf` already carries, and for the same reason: the
+/// upstream package's own pre-baked 500 cut (not used here — see above)
+/// leaves that bit set, which this conversion does not inherit.
+const UI_MONO_FONT_FILES: [&str; 3] = [
+    "JetBrainsMonoVariable-Regular.ttf",
+    "JetBrainsMonoVariable-Medium.ttf",
+    "JetBrainsMonoVariable-Bold.ttf",
+];
+
+/// Where the row's mono faces live, unless `CROWBAR_ROW_MONO_FONT` says
+/// otherwise — [`ui_font_paths`]'s exact shape, one override env var each so
+/// a parity run can swap either face independently of the other.
+fn ui_mono_font_paths() -> Vec<PathBuf> {
+    if let Ok(overridden) = std::env::var("CROWBAR_ROW_MONO_FONT") {
+        return vec![PathBuf::from(overridden)];
+    }
+    let fonts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../web/public/fonts");
+    UI_MONO_FONT_FILES
+        .iter()
+        .map(|file| fonts.join(file))
+        .collect()
+}
+
+/// [`load_ui_font`]'s mono sibling — same registration, same "checked as well
+/// as attempted" discipline, a separate family.
+fn load_ui_mono_font(cx: &mut App) -> String {
+    let paths = ui_mono_font_paths();
+    let mut faces = Vec::with_capacity(paths.len());
+    for path in &paths {
+        match std::fs::read(path) {
+            Ok(bytes) => faces.push(Cow::Owned(bytes)),
+            Err(err) => return format!("font: {} not read ({err})", path.display()),
+        }
+    }
+
+    if let Err(err) = cx.text_system().add_fonts(faces) {
+        return format!("font: {UI_MONO_FONT_FAMILY} rejected ({err})");
+    }
+    if !cx
+        .text_system()
+        .all_font_names()
+        .iter()
+        .any(|name| name == UI_MONO_FONT_FAMILY)
+    {
+        return format!("font: {UI_MONO_FONT_FAMILY} parsed but the family did not register");
+    }
+    format!("font: {UI_MONO_FONT_FAMILY} loaded")
+}
+
 /// The daemon round trip item 0.4 proved, kept alive as one caption line.
 ///
 /// Pre-rendered to strings at probe time rather than held as a
@@ -395,7 +541,10 @@ mod tests {
     use crowbar_client::{Health, Probe};
     use gpui::SharedString;
 
-    use super::{Cell, Report, RowSurface, UI_FONT_FAMILY, ui_font_paths, window_options};
+    use super::{
+        Cell, Report, RowSurface, UI_FONT_FAMILY, UI_MONO_FONT_FAMILY, ui_font_paths,
+        ui_mono_font_paths, window_options,
+    };
 
     /// Pins what the daemon probe reports, because the window itself cannot be
     /// read back: `screencapture` and the accessibility API are both
@@ -529,6 +678,67 @@ mod tests {
             assert!(
                 sfnt_names(&bytes).any(|name| name == UI_FONT_FAMILY),
                 "{} does not name the family {UI_FONT_FAMILY}",
+                path.display(),
+            );
+        }
+    }
+
+    /// [`the_font_paths_default_into_the_react_app`]'s mono sibling: the
+    /// three weights `theme.font_mono` text is ever painted at.
+    #[test]
+    fn the_mono_font_paths_default_into_the_react_app() {
+        let paths = ui_mono_font_paths();
+
+        assert_eq!(paths.len(), 3, "{paths:?}");
+        assert!(
+            paths[0].ends_with("web/public/fonts/JetBrainsMonoVariable-Regular.ttf"),
+            "{}",
+            paths[0].display(),
+        );
+        assert!(
+            paths[1].ends_with("web/public/fonts/JetBrainsMonoVariable-Medium.ttf"),
+            "{}",
+            paths[1].display(),
+        );
+        assert!(
+            paths[2].ends_with("web/public/fonts/JetBrainsMonoVariable-Bold.ttf"),
+            "{}",
+            paths[2].display(),
+        );
+    }
+
+    /// [`the_default_faces_are_present_and_are_not_woff2`]'s mono sibling.
+    #[test]
+    fn the_default_mono_faces_are_present_and_are_not_woff2() {
+        for path in ui_mono_font_paths() {
+            let bytes = std::fs::read(&path)
+                .unwrap_or_else(|err| panic!("{} is missing: {err}", path.display()));
+            assert_eq!(
+                &bytes[..4],
+                &[0x00, 0x01, 0x00, 0x00],
+                "{} is not a bare sfnt",
+                path.display(),
+            );
+        }
+    }
+
+    /// [`the_declared_family_is_the_themes_family`]'s mono sibling.
+    #[test]
+    fn the_declared_mono_family_is_the_themes_family() {
+        assert_eq!(
+            crowbar_ui::Theme::DARK.font_mono.primary(),
+            Some(UI_MONO_FONT_FAMILY),
+        );
+    }
+
+    /// [`the_faces_name_the_family_the_row_declares`]'s mono sibling.
+    #[test]
+    fn the_mono_faces_name_the_family_the_row_declares() {
+        for path in ui_mono_font_paths() {
+            let bytes = std::fs::read(&path).expect("the face is in the checkout");
+            assert!(
+                sfnt_names(&bytes).any(|name| name == UI_MONO_FONT_FAMILY),
+                "{} does not name the family {UI_MONO_FONT_FAMILY}",
                 path.display(),
             );
         }
