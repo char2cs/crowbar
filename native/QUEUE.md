@@ -31,6 +31,51 @@ coverage number nobody has re-run is not a coverage number.
 > **Two numbers, never combined** (§12). Anything that reports one blended
 > figure here is wrong by construction.
 
+## §17 scoreboard — where "done" actually stands
+
+Nine conditions. **Two are met.** Kept here rather than reconstructed each
+session from prose scattered over 4,000 lines.
+
+| # | condition | status | evidence |
+|---|---|---|---|
+| 1 | strict-parity anchors converge across the §8.3 matrix | ❌ **not met** | 240/240 cells *runnable*; references exist for **one** cell of most surfaces. Viewport axis inert on all 40; theme axis vacuous on 10 of 40. **The gap is references.** |
+| 2 | every §5.2 surface judged against Zed | ❌ **not met** | editor, diff and terminal are not built. Phase 4+. |
+| 3 | both coverage numbers met, reported separately | ❌ **not met** | line coverage last measured against a **191-test** tree; the suite is now ~1600. Re-measure queued. |
+| 4 | zero `unsafe` outside `crowbar-platform`, every block there proved | ✅ **met — and now vacuous** | grepped 2026-08-03: **0** outside. P3.40 removed the last AppKit code, so there are **0 inside** too. Rule 3 of `check-invariants.sh` passes with nothing to check; the mutation evidence for it is historical. **Re-run that mutation the moment `unsafe` returns.** |
+| 5 | zero `unwrap`/`expect`/`todo!` outside tests | ✅ **met, enforced by the compiler** | `[workspace.lints.clippy]` denies `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`; all 12 crates opt in via `[lints] workspace = true`; **0** per-site `#[allow]`s. Proved by mutation, both directions — see below. |
+| 6 | leak soak shows no RSS growth vs React | ❌ **not met** | there is no shared workload to soak yet. Sequencing, not neglect. |
+| 7 | `blocked/` empty, or every item a listed user decision | ⚠ **partial** | 6 items; `s13-native-menus` resolved 2026-08-03. The rest need classifying — two are environmental, not decisions. |
+| 8 | terminal conformance suite green | ❌ **not met** | the terminal is not ported. |
+| 9 | a user cannot tell the apps apart, except §13 | ❌ **not met** | follows from 1, 2 and 8. |
+
+### The §17.5 mutation, run by me 2026-08-03 — both directions
+
+A denial that is declared but not opted into is inert, and Cargo does **not**
+inherit `[workspace.lints]` automatically. So I tested it rather than reading it:
+
+```
+control      cargo clippy -p crowbar-core --all-targets     → errors=0
+
+shipping     + pub fn probe(v: Option<u8>) -> u8 { v.unwrap() }
+             → error: used `unwrap()` on an `Option` value
+               note: requested on the command line with `-D clippy::unwrap-used`
+
+test-scoped  + #[cfg(test)] mod probe { … v.unwrap() … }
+             → errors=0
+```
+
+**Both halves matter.** The first proves the lint fires; the second proves the
+exemption is *scoped to tests* rather than the lint being off everywhere. The
+exemptions live centrally in `native/clippy.toml`, whose own comment gives the
+reason: a per-file `#[allow(clippy::unwrap_used)]` *"would be indistinguishable
+from an agent silencing the lint in shipping code."*
+
+> I nearly filed this as a **false alarm**: `grep -l 'lints.workspace = true'`
+> matched 0 of 12 crates, which looks exactly like an unenforced gate. Every
+> crate uses the two-line form (`[lints]` / `workspace = true`) instead. **The
+> grep was broken, not the code** — which is the third time today a check of mine
+> was the thing at fault. Verify the checker before believing the finding.
+
 ---
 
 ## Environment facts (verified 2026-07-30)
