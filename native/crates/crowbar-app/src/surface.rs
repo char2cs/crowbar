@@ -539,9 +539,13 @@ mod tests {
                 "popover",
                 "radio-group",
                 "resizable",
-                // `scroll_area.rs` sorts before `search_toggle_icons.rs` —
-                // `build.rs` orders by **file** name, and `sc` < `se`.
+                // `scroll_area.rs` sorts before `search.rs` — `build.rs`
+                // orders by **file** name, and `sc` < `se`. `search.rs`
+                // sorts before `search_toggle_icons.rs` in turn: `search` is
+                // a prefix of `search_toggle_icons`, and the shorter name
+                // ends the comparison first.
                 "scroll-area",
+                "search",
                 "search-toggle-icons",
                 "separator",
                 "sheet",
