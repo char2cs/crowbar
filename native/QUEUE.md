@@ -3388,6 +3388,17 @@ So the blocker is a **store desync between the daemon and the sidebar**, not
 absent fixture data — and the unblock is the app's own sync path
 (`syncSidebarFromCache`, `lib/store/sidebar-sync.ts`), not creating anything.
 
+#### The sync path is ruled out — it reads the CACHE, not the daemon
+
+I called the app's own `syncSidebarFromCache()` from the page and re-read the
+store: **`repos` went 0 → 0.** So the desync is not a missed sync — that function
+reads IndexedDB, and **the cache is empty** while the daemon has the repo.
+
+That narrows it usefully. The unblock is whatever populates the cache from the
+daemon (hydration, or the provider stream), **not** `sidebar-sync`. Ruled out by
+running it rather than by reading it, which cost one call and removes a whole
+branch of the search.
+
 > **Worth flagging beyond this port:** the audit found `getAllEntities` swallows
 > every failure in a bare `catch { return [] }`, which is exactly what an empty
 > tree beside a populated daemon looks like from the outside. **I have not
