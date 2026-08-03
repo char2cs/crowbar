@@ -123,3 +123,43 @@ instead, the `fps-overlay` shape. `Params::no_state_axis()` returns `true`.
 
 `ide-shell.tsx` → the sidebar column, mounted unconditionally above
 `sidebar-tab-bar.tsx`.
+
+---
+
+## ❌ VERDICT — FAIL, 3 deltas over 2 anchors (2026-08-03, taken by me)
+
+```
+context-pill.bounds.h:          52.0, expected 51.0   (Δ +1.0)
+context-pill-trigger.bounds.h:  48.0, expected 47.0   (Δ +1.0)
+context-pill-trigger.border.w:   0.0, expected  1.0   (Δ -1.0, exact)
+```
+
+Anchor sets match exactly (2 vs 2), so this is geometry rather than scope.
+Canary `native-short.json` byte-identical immediately before. Returned to P3.58.
+
+### The drive that produced the reference — ANCHORS **v1.14**
+
+```
+reference:  live Tauri app, route #/ide/<id>/home, dark, viewport 1714,
+            context pill in its HOME kind (text "oracle-fixturehome",
+            exactly one <svg>, no nested oracle ids beyond the trigger)
+            captured via import('/src/lib/oracle/extract.ts')
+native:     crowbar-app --surface context-pill --kind home \
+                        --width 344 --viewport-width 1714 --theme dark
+```
+
+**`--kind home` is the point of this note.** My first run used the surface's
+default `workspace` kind and produced a spurious `workspace-branch-icon`
+anchor-presence delta — a *fourth* delta that was mine, not the port's. The
+anchor-presence line is what exposed it: a cell mismatch shows up as a **set**
+difference before it shows up as a geometry one.
+
+### The live measurement the deltas rest on
+
+The trigger's computed border is **`1px solid rgba(0, 0, 0, 0)`** — a real 1px
+border whose colour is transparent. **A transparent border still occupies
+width**, and §5 compares `border.w` **exactly**, because ±0.5 on a 1px border is
+a 50% error and plainly visible.
+
+**Neither `row_layout` test could have caught this**: they run under a
+`NoopTextSystem` and pass either way. Only the live capture sees it.
