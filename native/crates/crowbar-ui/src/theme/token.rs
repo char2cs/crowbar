@@ -90,6 +90,26 @@ impl Color {
         a: 1.0,
     });
 
+    /// CSS's `black` — the same trade [`Color::WHITE`] is, one door over.
+    ///
+    /// `fps-overlay.tsx` writes its badge's background as an inline
+    /// `style={{ background: 'rgba(0,0,0,0.72)' }}` — the one paint in the whole
+    /// `components/layout` cluster P3.52 covers that bypasses `theme.css`
+    /// entirely rather than naming a Tailwind utility. `rgba(0,0,0,0.72)` is
+    /// exactly `color-mix(in srgb, black 72%, transparent)`: opaque black
+    /// mixed 72/28 with [`Color::TRANSPARENT`], the same idiom
+    /// `text-muted-foreground/72` compiles to elsewhere in this tree
+    /// (`native/mapping/tabs.md` §1). `theme.css` has no `--black` custom
+    /// property to seal this from, so it is minted here the same way `WHITE`
+    /// is: a literal naming a CSS keyword, not a value read out of the
+    /// stylesheet. See `native/mapping/fps-overlay.md`.
+    pub const BLACK: Self = Self(Hsla {
+        h: 0.0,
+        s: 0.0,
+        l: 0.0,
+        a: 1.0,
+    });
+
     fn to_srgba(self) -> Srgba {
         let rgba = Rgba::from(self.0);
         Srgba::new(rgba.r, rgba.g, rgba.b, rgba.a)
