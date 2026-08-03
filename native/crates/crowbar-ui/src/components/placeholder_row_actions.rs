@@ -64,7 +64,7 @@ pub const ID_DETACH: &str = "placeholder-row-actions-detach";
 pub const CONTENT_SIZED: [&str; 2] = [ID_RETRY, ID_DETACH];
 
 /// Neither button: `size="sm"` authors `h-8 sm:h-7`, `badge`'s rule. The
-/// reason line is not here either — see the module docs' §ID_REASON note.
+/// reason line is not here either — see the module docs' [`ID_REASON`] note.
 pub const LINE_SIZED: [&str; 0] = [];
 
 /// `gap-1.5` between the reason and the action row, and — reused — between the
@@ -228,8 +228,8 @@ mod tests {
     #[test]
     fn the_reason_text_size_is_the_ui_text_sm_number_not_ui_text_xs() {
         let theme = Theme::DARK;
-        assert_eq!(REASON_TEXT_SIZE.0, theme.ui_text_sm.value().0);
-        assert_ne!(REASON_TEXT_SIZE.0, theme.ui_text_xs.value().0);
+        assert_eq!(REASON_TEXT_SIZE, theme.ui_text_sm.value());
+        assert_ne!(REASON_TEXT_SIZE, theme.ui_text_xs.value());
     }
 
     /// Both buttons declare `content_sized`; neither declares `line_sized`.

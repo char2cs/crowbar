@@ -59,8 +59,8 @@
 //! real on the hint (`font.family` is compared there).
 
 use gpui::{
-    AnyElement, Div, IntoElement as _, ParentElement as _, Pixels, Rems, SharedString,
-    Styled as _, div, px, relative,
+    AnyElement, Div, IntoElement as _, ParentElement as _, Pixels, Rems, SharedString, Styled as _,
+    div, px, relative,
 };
 
 use super::anchor::{AnchorId, AnchorSink};
@@ -145,7 +145,10 @@ pub enum Kind {
 /// this port computes rather than merely relays.
 #[must_use]
 pub fn hint_text(value: &str) -> SharedString {
-    SharedString::from(format!("'{}' already has a workspace — open it", value.trim()))
+    SharedString::from(format!(
+        "'{}' already has a workspace — open it",
+        value.trim()
+    ))
 }
 
 /// One `<WorkspaceInlineInput>`.
@@ -231,7 +234,9 @@ impl WorkspaceInlineInput {
     #[must_use]
     pub fn field_text_color(&self, theme: &Theme) -> Color {
         if self.is_empty() {
-            theme.muted_foreground.mix(PLACEHOLDER_ALPHA, Color::TRANSPARENT)
+            theme
+                .muted_foreground
+                .mix(PLACEHOLDER_ALPHA, Color::TRANSPARENT)
         } else {
             theme.foreground
         }
@@ -393,7 +398,9 @@ mod tests {
         let placeholder_color = field.field_text_color(&theme);
         assert_eq!(
             placeholder_color,
-            theme.muted_foreground.mix(PLACEHOLDER_ALPHA, Color::TRANSPARENT)
+            theme
+                .muted_foreground
+                .mix(PLACEHOLDER_ALPHA, Color::TRANSPARENT)
         );
         assert_ne!(value_color, placeholder_color);
     }
@@ -405,7 +412,10 @@ mod tests {
             hint_text("fix-auth-bug"),
             "'fix-auth-bug' already has a workspace — open it",
         );
-        assert_eq!(hint_text("main"), "'main' already has a workspace — open it");
+        assert_eq!(
+            hint_text("main"),
+            "'main' already has a workspace — open it"
+        );
     }
 
     /// `value.trim()` — the call site's own arithmetic — not the raw value,
@@ -413,7 +423,10 @@ mod tests {
     /// branch it will actually be compared against.
     #[test]
     fn the_hint_text_trims_the_value() {
-        assert_eq!(hint_text("  main  "), "'main' already has a workspace — open it");
+        assert_eq!(
+            hint_text("  main  "),
+            "'main' already has a workspace — open it"
+        );
     }
 
     /// The rendered hint, end to end: the create-with-hint fixture's own

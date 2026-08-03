@@ -21,6 +21,11 @@
 //! presence is `--held`, not `empty`. `hover`/`focus`/`selected`/`loading` all
 //! belong to `button`'s own surface, the identical call `inline-error.rs`
 //! makes for its own composed retry control.
+//!
+//! **All six §8.3 flags are unmodelled**, so [`Params`] declares
+//! [`crate::surface::SurfaceParams::no_state_axis`] — `workspace_branch_icon
+//! .rs`'s own precedent for the biconditional
+//! `no_surface_declares_its_entire_state_axis_unmodelled` enforces.
 
 use std::fmt::Write as _;
 
@@ -131,6 +136,18 @@ impl SurfaceParams for Params {
     /// **None.** The panel is a plain column, not a fixed-height surface.
     fn driven_height(&self, _cell: &Cell) -> Option<u16> {
         None
+    }
+
+    /// **True**, checked exhaustively rather than assumed: `Placeholder-
+    /// RowActions({ workspace })` takes no `className` and spreads no props
+    /// on its root, the reason `<p>` or the action row, and neither of those
+    /// three carries a `hover:`/`focus:`/`data-active` rule of its own — the
+    /// two the composed buttons carry belong to `button`'s own surface, the
+    /// same exclusion `unmodelled` already states.
+    /// `workspace_branch_icon.rs`'s own declaration is the precedent this
+    /// one follows.
+    fn no_state_axis(&self) -> bool {
+        true
     }
 
     fn describe(&self, cell: &Cell, out: &mut String) {
