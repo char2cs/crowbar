@@ -3372,7 +3372,7 @@ existed at all.
 
 | item | branch @ commit | state |
 |---|---|---|
-| **P3.50** cluster 1 | `native/p3.50-layout-cluster1` @ `dd280377` | committed (code + 2 mapping docs). Implementing the state-axis exemption; **gates third** |
+| **P3.50** cluster 1 | `native/p3.50-layout-cluster1` @ `31236b19` | committed incl. the state-axis exemption. **1 clippy error** (`unused_self`) returned |
 | **P3.51** cluster 2 | `native/p3.51-layout-cluster2` @ `1509d677` | ✅ clippy fixed, committed, awaiting the integrated gate |
 | **P3.52** cluster 3 | `native/p3.52-layout-cluster3` @ `ba7ce636` | ✅ clippy fixed, committed, 4 of 5. Awaiting the integrated gate |
 | **P3.53** Tier A | ✅ **MERGED `aed95496`** | 1,299 lines. clippy 0 · **1683 passed** (was 1627) · `crowbar-core` **71 tests** (was 15) · **100.00% over 787 lines** (was 148) · 7/7 invariants. See the mutation finding below |
@@ -3492,6 +3492,28 @@ construction*: `color_mix_remainder` weights every channel by `c * a`, and both
 `BLACK` and `TRANSPARENT` have `r = g = b = 0`, so every product and the final
 division are exact. **There is no rounding step to tolerate**, which is the
 argument that makes an epsilon wrong rather than merely unnecessary.
+
+#### ✅ Both predicted collisions happened, exactly as described — and I fumbled one
+
+`native/gate-wave1` holds all three clusters. Both forecasts landed:
+
+| collision | outcome |
+|---|---|
+| `surface.rs` — `"repo-avatar"` (P3.50) and `"repo-import-dialog"` (P3.51) at the same `"resizable"` anchor | **real conflict marker**, resolved keep-both in `build.rs`'s file-name order (`repo_a` < `repo_i`) |
+| `token.rs` — P3.50's `RED_500`/`GREEN_500`/`VIOLET_500` and P3.52's `BLACK` after `WHITE` | **real conflict marker**, resolved keep-both |
+
+**I resolved the second one badly and broke the build.** I reordered the two
+sides to group `BLACK` beside `WHITE` — and the construct's shared trailing
+`});` sat **outside** the conflict markers, so moving the blocks left `BLACK`'s
+literal unclosed. `error: this file contains an unclosed delimiter`. Repaired in
+`4a251f3f`; all four constants verified well-formed.
+
+**The lesson is narrow and worth having:** a git conflict region does not
+necessarily contain whole syntactic units. Both sides here ended mid-expression
+and *shared* the closing lines below the marker. **Reordering the sides is not a
+safe default — concatenating them in place is**, and if a different order is
+wanted, move whole constructs afterwards and recheck. I took the riskier
+operation for a cosmetic gain and paid for it immediately.
 
 #### Two workers lost track of which worktree they were in
 
