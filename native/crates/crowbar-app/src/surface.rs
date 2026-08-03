@@ -615,6 +615,11 @@ mod tests {
                 "keybinding",
                 "label",
                 "loading-spinner",
+                // `nav_stack.rs` sorts before `number_input.rs` — `n` = `n`,
+                // then `a` < `u` (P3.59, cluster 4 — the sidebar's push/pop
+                // screen stack, the first of the tier's two judgment-call
+                // pair alongside `sidebar-peek`).
+                "nav-stack",
                 "number-input",
                 "popover",
                 "radio-group",
@@ -659,6 +664,14 @@ mod tests {
                 "sidebar-carousel",
                 "sidebar-empty",
                 "sidebar-header",
+                // `sidebar_peek.rs` sorts before `sidebar_project_header.rs`
+                // — `sidebar_` common, then `p` = `p`, `e` < `r` (P3.59,
+                // cluster 4's other judgment call — the hover-to-peek host,
+                // whose own `data-sidebar-peek` outer wrapper carries no
+                // anchor of its own; see
+                // `crowbar_ui::components::sidebar_peek`'s own module docs
+                // and `native/mapping/sidebar-peek.md`).
+                "sidebar-peek",
                 // `sidebar_project_header.rs` sorts before `sidebar_skeleton.rs`
                 // — `sidebar_` common, then `p` < `s` (P3.55, Cluster 3 —
                 // the "standalone sidebar chrome" leaves).

@@ -414,6 +414,19 @@ pub mod workspace_branch_icon;
 // itself leaves opaque) rather than fabricating a second id nothing on the
 // React side would ever produce.
 pub mod workspace_switcher;
+// `nav_stack` (P3.59) is unflattened for the same reason as the rest — its
+// `Screen` would collide with a hypothetical future primitive under the same
+// short name — and reuses `sidebar_project_header::HEIGHT_MAC`/
+// `HEIGHT_OTHER`/`TRAFFIC_LIGHTS_WIDTH` directly rather than re-deriving
+// them: `nav-stack.tsx`'s own comment ties its header's height and padding
+// to `SidebarProjectHeader`'s. See the module docs.
+pub mod nav_stack;
+// `sidebar_peek` (P3.59) is unflattened for the same reason as the rest.
+// Carries one anchor, on its *inner* div — see the module docs for why the
+// outer `data-sidebar-peek` wrapper gets none, the same call
+// `workspace_switcher`'s own wrapper made, extended to a conditionally
+// `display: contents` element.
+pub mod sidebar_peek;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
 pub use avatar::Avatar;
