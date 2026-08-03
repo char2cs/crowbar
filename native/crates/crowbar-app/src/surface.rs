@@ -539,6 +539,10 @@ mod tests {
                 "number-input",
                 "popover",
                 "radio-group",
+                // `repo_avatar.rs` sorts before `resizable.rs` — `rep` <
+                // `res` (P3.50, cluster 1 — the `components/layout`
+                // foundation leaves).
+                "repo-avatar",
                 "resizable",
                 // `scroll_area.rs` sorts before `search.rs` — `build.rs`
                 // orders by **file** name, and `sc` < `se`. `search.rs`
@@ -573,6 +577,10 @@ mod tests {
                 // < `tooltip`: `to` common, then `a` < `o`.
                 "toast",
                 "tooltip",
+                // `workspace_branch_icon.rs` sorts last — `w` is the
+                // alphabetically latest surface file (P3.50, cluster 1's
+                // other leaf).
+                "workspace-branch-icon",
             ],
         );
     }
