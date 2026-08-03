@@ -4,8 +4,9 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 3 — remainder **measured**, not estimated. **48 surfaces · 1815 tests ·
-clippy 0 · 7/7 invariants**, all verified by my own run.
+**Phase:** 3 — remainder **measured**, not estimated. **50 surfaces · 1848 tests ·
+clippy 0 · 7/7 invariants**, all verified by my own run. Of the 50, the liveness
+audit finds **4 measure dead code** — so the honest coverage figure is **46**.
 
 | tier | state |
 |---|---|
@@ -3448,7 +3449,39 @@ progress number correspondingly too small.
 
 ## In flight
 
-### 🛑 I MERGED WAVE 1 ON GREEN GATES AND THREE COMPONENTS CANNOT BE VERIFIED
+### ✅ P3.55 CLOSED THE GAP — registry 48 → 50, and the audit table now passes
+
+Merged `2c75617c`. clippy 0 · **1848 passed / 0 failed / 31 ok** · 7/7
+invariants, my own run. **All eight wave-1 components now have a surface (or an
+argued exception), a `row_layout` module, and a mapping doc.**
+
+`sidebar_tab_bar` deliberately has **no surface**, re-derived independently
+rather than inherited from its own module doc: its wrapper carries no
+`data-oracle-id` on either side, so every anchor belongs to `tabs::ID_ROOT`'s
+subtree already registered as `--surface tabs`. Registering it would mean sharing
+that root — refused by `every_registered_surface_has_its_own_name_and_root` — or
+minting an anchor present in no DOM. It gets a `row_layout` module instead, which
+needs no surface.
+
+#### ‼️ The reference I handed it was the WRONG CELL, and v1.14 predicted exactly this
+
+I gave it my live capture — `344×44`, toggle at `x304` — as this surface's
+reference. **It is the `--right` docked cell, not the default.** The worker
+hand-derived the arithmetic, confirmed it with a real-layout test matching all
+seven numbers to the pixel, kept the surface's default at the left-docked fixture
+per convention, and documented the derivation.
+
+**This is ANCHORS v1.14 landing on me for the third time today.** I captured a
+reference in an app state and did not record which state — and `state` cannot
+express sidebar position any more than it can express carousel page or tab-strip
+configuration. The rule v1.14 states (*a reference records the drive that
+produced it*) exists precisely for this, and I still shipped a brief without it.
+
+It also caught `sidebar_project_header.rs`'s module doc still claiming *"no
+reference exists"* — predating P3.54's anchors, and contradicted by the very
+capture I attached.
+
+### 🛑 ~~I MERGED WAVE 1 ON GREEN GATES~~ *(closed by P3.55 — kept for the rule it earned)*
 
 **Found immediately after merging, by trying to take a verdict.** Driving
 `--surface sidebar-project-header` printed usage: **there is no such surface.**
