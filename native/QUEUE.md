@@ -71,6 +71,73 @@ Merged this iteration: **P3.42** (recorder strictness), **P3.43** (§13 spec),
 **P3.44** (search, carrying P3.37 and P3.33), **P3.32** (command, carrying
 autocomplete).
 
+## 🔧 P3.45 merged — and driving it live corrected its own recipe
+
+The capture harness is committed (`native/scripts/gen-extract.ts`,
+`native/oracle/README.md`, 22 tests; **363 files / 2703 tests, run completed**,
+verified by me). Then I used it against the live app, which the worker was
+forbidden to do — and that is where three things showed up that no unit test
+could have.
+
+#### 1. ‼️ The documented `--post` sink return path **does not work** in this webview
+
+The app's origin is `http://localhost:5173`. A `fetch` to `http://127.0.0.1:8766`
+fails with `Load failed` — **both GET and POST**, and there is **no CSP meta tag**,
+so it is the webview's own origin scoping, not a policy we author. The sink can
+never receive a POST from this page.
+
+This is exactly the risk the brief named — *"demonstrate the reliability, do not
+assert it"* — and it was undetectable from the worker's side because I told it not
+to drive the app. **The gap was in my instructions, not its work.**
+
+#### 2. There is a much better path, and it removes the drift risk entirely
+
+```js
+const m = await import('/src/lib/oracle/extract.ts')
+m.extractSnapshot({ surface, root, state })
+```
+
+Vite serves the extractor **at the app's own origin** in dev, so the page imports
+the **real module** — not a 30 KB stringified copy. The whole reason
+`extractSnapshotSource` inlines its runtime is that nothing can be imported
+inside the page; **in dev, that premise is false.** A missing helper is a
+`ReferenceError` the injected path can only guard against with a round-trip test;
+the imported path cannot drift at all, because there is only one copy.
+
+Verified by me: `import(...)` resolved and exposed `extractSnapshot` and
+`extractSnapshotSource`. Note the bridge does **not** await promises, so it is
+two calls — arm, then read `window.__cap`.
+
+#### 3. ‼️ A reference depends on app state the `state` block does not record
+
+Capturing `sidebar-header` gave a snapshot **identical to the stored reference in
+every field except one**:
+
+```
+sidebar-header.visible:  ref=true   mine=false      ← everything else byte-equal
+```
+
+Cause: there is exactly **one** `sidebar-header` in the DOM and it lives inside
+`carousel-panel-files`, which was **two pages off-screen** — `x: 2058` in a 1714px
+viewport. `oracleIsVisible` was right to say false. Setting the scrollport to 688
+brought it to `x: 1370`, and the re-capture then matched the stored reference
+**exactly**:
+
+```
+python3 … json.load(ref) == json.load(mine)   →   IDENTICAL
+```
+
+**The `state` block records the §8.3 cell — width, theme, content, flags — and
+nothing about which carousel page is showing or which dialog is open.** So a
+re-capture taken in the wrong app state differs by a single boolean and otherwise
+looks perfect. That is precisely the shape that reads as a port defect. Every
+reference re-capture has to drive app state first, and the drive is not written
+down anywhere the snapshot can check.
+
+**Consequence for the §17.1 push:** the references are recapturable, and I have
+now done one end to end and reproduced it byte-for-byte. What each one needs is
+its own app-state drive, and those need recording next to the surface.
+
 ## §17 scoreboard — where "done" actually stands
 
 Nine conditions. **Two are met.** Kept here rather than reconstructed each
