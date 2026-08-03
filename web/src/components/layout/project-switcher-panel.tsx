@@ -43,9 +43,9 @@ export function ProjectSwitcherPanel() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" data-oracle-id="project-switcher-panel">
       <div className="flex flex-col py-1">
-        {projects.map((p) => {
+        {projects.map((p, index) => {
           const isActive = p.id === activeProjectId
           return (
             <button
@@ -58,8 +58,29 @@ export function ProjectSwitcherPanel() {
                 'border-transparent text-left hover:bg-accent',
                 isActive && 'bg-accent/60 text-foreground',
               )}
+              // Indexed rather than keyed off `p.id`: this list's length varies
+              // (0..n projects, always plus the static Import row below), and
+              // `ANCHORS.md` v1.8 refuses a capture where the same anchor id
+              // appears twice under one root — the same fix
+              // `sidebar-project-header.tsx`'s four buttons already needed, here
+              // because the *count* rather than the identity of the rows varies.
+              data-oracle-id={`project-switcher-panel-row-${index}`}
             >
-              <span className="min-w-0 flex-1 truncate font-mono">{p.name}</span>
+              {/*
+                `data-oracle-line-sized`, per `native/oracle/ANCHORS.md` v1.6 —
+                the same reasoning as `git-row-name`: a blockified flex item
+                (`items-center`, not `stretch`) with no explicit height takes
+                its box from its own line box regardless of the row's own
+                authored `h-9`. Indexed for the same reason the row's own id
+                is (v1.8, see above).
+              */}
+              <span
+                className="min-w-0 flex-1 truncate font-mono"
+                data-oracle-id={`project-switcher-panel-row-${index}-label`}
+                data-oracle-line-sized="true"
+              >
+                {p.name}
+              </span>
             </button>
           )
         })}
@@ -71,9 +92,16 @@ export function ProjectSwitcherPanel() {
             ROW_BASE,
             'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
           )}
+          data-oracle-id="project-switcher-panel-import"
         >
           <Plus className="size-3.5 shrink-0" />
-          <span className="min-w-0 flex-1 truncate text-left">Import project</span>
+          <span
+            className="min-w-0 flex-1 truncate text-left"
+            data-oracle-id="project-switcher-panel-import-label"
+            data-oracle-line-sized="true"
+          >
+            Import project
+          </span>
         </button>
       </div>
 

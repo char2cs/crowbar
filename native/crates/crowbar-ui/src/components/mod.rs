@@ -407,6 +407,32 @@ pub mod toast;
 // directly rather than reimplementing the spinner it wraps — see its module
 // docs.
 pub mod workspace_branch_icon;
+// `row_base` carries no anchor of its own — no `data-oracle-id` anywhere in
+// `workspace-row-base.ts`, and it paints nothing by itself — so it is not a
+// surface, and, like `anchor`/`sidebar_tree` above, it is private rather
+// than `pub`: only [`project_home_row`] and [`project_switcher_panel`],
+// this module's own siblings, reach its constants and helpers directly.
+// `crowbar-app` never needs to (it only calls the composed `render`/
+// `content_height` those two modules already expose), so there is nothing
+// for a wider visibility to buy. See its own module docs for the "keep
+// both in sync here, never inline" reasoning `workspace-row-base.ts`'s own
+// comment states.
+mod row_base;
+// `project_home_row` (P3.60) is unflattened for the same reason as the
+// rest — its `ID_ROOT`/`ID_ICON`/`ID_LABEL` would collide with other
+// surfaces' generic-sounding names under a different shape of the same
+// mistake. Composes `workspace_branch_icon` directly (never reimplements
+// it) and hand-builds its own two trailing-action buttons off
+// `button::Size`/`RadiusClass` rather than nesting `Button::render`'s own
+// anchor machinery — `context_pill.rs`'s and `sidebar_project_header.rs`'s
+// precedent. See its own module docs.
+pub mod project_home_row;
+// `project_switcher_panel` (P3.60) is unflattened for the same reason.
+// `project-home-row.tsx` pushes this panel onto the nav stack on click, so
+// it lands alongside it — see `native/mapping/layout-denominator.md` §8's
+// Cluster 5. Its own row ids are index-parameterized, not fixed strings;
+// see its module docs for why.
+pub mod project_switcher_panel;
 // `workspace_switcher` (P3.58) is unflattened for the same reason as the
 // rest, and carries **no anchor of its own** — see the module docs. Its
 // `Row` reuses `autocomplete::ID_ITEM` directly (the one real, already-
