@@ -4,11 +4,20 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 3 — component port. **Tier B is HALF done, not complete.** The
-`components/ui` half is finished (**43 registered surfaces**, **1627 tests**,
-clippy 0, 7/7 invariant checks `ok`, **no held verdicts**). The
-`components/layout` half — which §16 names in the same breath — stands at
-**1 of 29** and was never in the recorded denominator. See the correction below.
+**Phase:** 3 — and its real remainder is now **measured**, not estimated:
+
+| tier | state |
+|---|---|
+| **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
+| **Tier B · `components/layout`** | **1 of 23 targets** (29 files, of which 4 are Phase 4/5, 1 app shell, 1 no-geometry). **22 to go**, wave 1 in flight |
+| **Tier A · `crowbar-core`** | **349 lines of a ~3,170-line target** — 36 files, 221 ported-able test cases. First item in flight |
+| Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
+
+Both denominators come from surveys committed this iteration
+(`native/mapping/layout-denominator.md`, `native/mapping/tier-a-denominator.md`).
+**Until 2026-08-03 this line said "Tier B complete", on the strength of a
+denominator that covered one directory of a two-directory definition and left
+Tier A's largest crate entirely uncounted.**
 Phase 1 closed 2026-07-31 (gate passed, see [PHASE1-REPORT.md](PHASE1-REPORT.md));
 Phase 2 closed 2026-07-31.
 
