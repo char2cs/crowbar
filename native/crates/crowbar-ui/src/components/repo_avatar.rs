@@ -254,9 +254,11 @@ impl RepoAvatar {
             Kind::Image(ImageState::Loaded) => {
                 anchors.boxed(AnchorId::from(ID), self.image_box(theme))
             }
-            Kind::Image(ImageState::Errored) | Kind::Letter => {
-                anchors.boxed_text(AnchorId::from(ID), self.letter_box(theme), self.label.clone())
-            }
+            Kind::Image(ImageState::Errored) | Kind::Letter => anchors.boxed_text(
+                AnchorId::from(ID),
+                self.letter_box(theme),
+                self.label.clone(),
+            ),
         }
     }
 
