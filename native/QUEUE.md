@@ -2883,6 +2883,69 @@ progress number correspondingly too small.
 
 ## In flight
 
+### ✅ `command` PASSES — 0 deltas over 11 anchors. The third held verdict, and it is green.
+
+**2026-08-03, my own run**, `native/p3.32-command-rebased` @ `21ea1ec6` built with
+`--features driver`. Canaries first: **both byte-identical**. Then:
+
+```
+oracle: command · width=1714 theme=dark content=normal flags=[]
+oracle: PASS — 0 deltas over 11 anchors compared
+```
+
+Gates, also mine: clippy `-D warnings` **0 errors** · **1641 passed / 0 failed /
+31 `ok` lines** · **10 of 10** consecutive full `crowbar-app` bin runs green,
+against a baseline where 2 of 3 failed.
+
+**Not merged yet.** The branch sits on `native/p3.37-reference-repair`, whose
+`search` and `search-replace-row` verdicts **fail** (see below). Merging it now
+would drag an unverified port onto the branch to get a verified one. It waits for
+P3.44.
+
+#### The flake's real cause — a vendor animation that moves geometry
+
+The worker did not stop at "flaky": `gpui_component::dialog::Dialog`, which
+`command.rs` wraps directly, plays an **unconditional** 250ms slide-down whose
+closure is `this.top(y * delta).shadow(shadow)`. I checked the vendor source
+myself — `ANIMATION_DURATION` is `0.25s` at `vendor/gpui-component/src/dialog/dialog.rs:23`,
+the `with_animation("slide-down", …)` call is unconditional, and **`top(y * delta)`
+animates layout geometry, not just paint**. No builder field disables it.
+
+That interacts with the capture fixpoint: `Settling::observe()` declares a frame
+settled when two consecutive draws record the same **rounded** anchors, and two
+adjacent samples on an ease-out tail can round equal *before the curve has
+finished*. The failing test was uniquely exposed because it compared `find()`
+(window-**absolute**) bounds across two separately-created windows, each riding
+its own animation. Every other test in the file uses `at()` — relative to the
+popup root — where the in-flight offset sits on both sides of the subtraction and
+cancels. The fix is `at()`, matching the file's existing idiom: no tolerance
+widened, no retry, nothing serialised. **It was pre-existing**, reproducing 3 of 8
+on P3.32's own commit before the merge.
+
+#### ⚠ …but it does NOT reach real captures, and that distinction matters
+
+Read alone, the above says every `Dialog`-based capture is suspect. **It is not.**
+Measured by me — 6 captures each of `dialog`, `alert-dialog`, `sheet`, `popover`
+and `tabs`, 30 in total:
+
+```
+dialog        distinct hashes: 1 of 6
+alert-dialog  distinct hashes: 1 of 6
+sheet         distinct hashes: 1 of 6
+popover       distinct hashes: 1 of 6
+tabs          distinct hashes: 1 of 6
+```
+
+The platform frame loop draws at a real cadence, so by the time two consecutive
+*real* draws agree the 250ms animation is long over. The in-process harness
+advances `simulate_next_frame` with no wall clock between samples, which is
+exactly the condition that lets the ease tail plateau. **The hazard is confined
+to the test harness.**
+
+**The trap for the next surface**, recorded because it is invisible until it
+bites: any `row_layout` test that compares two independently-opened
+`Dialog`-based windows by **absolute** coordinates is exposed to this. Use `at()`.
+
 ### ✅ §17.1 precondition — **240 of 240 matrix cells render and emit**, 0 refused, 0 hung
 
 **2026-08-03, my own run**, `rewrite/rust` @ `9a5b7f4d` built with `--features
