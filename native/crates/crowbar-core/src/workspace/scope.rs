@@ -293,6 +293,24 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_string_id_does_not_resolve_even_when_a_scope_is_recorded_under_it() {
+        // The test above proves nothing about the `if id.is_empty()` line
+        // itself: it never inserts a scope keyed `""`, so `self.scopes.get("")`
+        // would already miss on its own — the guard could be deleted and that
+        // test would still pass. Force the guard to be load-bearing: record a
+        // real scope under the empty key (nothing stops `record_workspace_scope`
+        // from accepting one — see the module doc for what a `""` `ws_id` even
+        // means), then confirm `Some("")` still does not resolve it.
+        let mut registry = WorkspaceScopeRegistry::new();
+        registry.record_workspace_scope(scope("p1", "r1", ""));
+        assert_eq!(registry.get_workspace_scope(Some("")), None);
+        // The insert is otherwise real and lookup-able by a non-empty caller,
+        // which is what tells the two assertions apart: this isn't "the map is
+        // empty", it's "the map has the entry and the guard still refuses it".
+        assert!(registry.scopes.contains_key(""));
+    }
+
+    #[test]
     fn overwriting_a_scope_replaces_it_by_ws_id() {
         let mut registry = WorkspaceScopeRegistry::new();
         registry.record_workspace_scope(scope("p1", "r1", "w"));
