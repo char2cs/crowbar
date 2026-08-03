@@ -3317,7 +3317,7 @@ taken by me against the live app. **A merge is not a verdict.**
 | surface | built | verdict | note |
 |---|---|---|---|
 | `sidebar-project-header` | ✅ | ✅ **PASS 0/5** | drive: `--right` — the reference is the **right-docked** cell |
-| `context-pill` | ✅ | ❌ **FAIL 3/2** | missing 1px transparent border; both boxes +1px. Returned |
+| `context-pill` | ✅ | ✅ **PASS 0/2** | drive: `--kind home`. Fixed a missing 1px transparent border and a font-metrics line box — see the instrument-mismatch note |
 | `fps-overlay` | ✅ | ❌ **FAIL 1/1** | +3px — **contract gap**, not a port defect (7 runs × per-run `ceil`) |
 | `repo-avatar` | ✅ | ⏸ | **needs a repo in the fixture** — see below |
 | `workspace-branch-icon` | ✅ | ⏸ | **needs a repo in the fixture** — see below |
@@ -3328,7 +3328,7 @@ taken by me against the live app. **A merge is not a verdict.**
 | `workspace-switcher` | ✅ | n/a | no surface by design — `display: contents`, no box (v1.11) |
 | **`sidebar-skeleton`** | ✅ | 🚫 **UNOBTAINABLE** | never renders — its `Suspense` fallback cannot fire |
 
-**Three verdicts taken, one passing.** Eleven surfaces built in this tier; that
+**Four verdicts taken, two passing.** Eleven surfaces built in this tier; that
 ratio is the honest state and the reason the header now separates the two
 numbers.
 
