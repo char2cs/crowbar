@@ -3150,9 +3150,29 @@ options, and the middle one is what the codebase's own precedent argues for:
 3. **Accept it as a §13 delta** — refused; §13 is a closed list and a user
    decision, and this is arithmetic, not a design choice.
 
-**Not decided this iteration.** It needs a measurement first: whether the residual
-really is Σ per-run ceil, which is testable by anchoring the runs and checking
-each against its own reference.
+**Sharpened, after re-reading my own three options.** Option 1 as I first wrote it
+— *"a container allowance of N × 1px"* — I refused because a forgiveness that
+grows with child count can absorb a real defect. **That refusal was too quick.**
+
+The asymmetry is not a port defect at all: **GPUI ceils each text run's
+max-content width; WebKit does not.** That is a *systematic engine difference*,
+which is precisely the category ANCHORS already has a section for — the same
+shape as the `ceil()` observation v1.5 itself records, one level up.
+
+So the question is not *"should we forgive N pixels"* but **"is N declared or
+inferred?"** An allowance that a surface **declares** — *this root is a container
+of 7 content-sized runs* — is bounded, reviewable, and falsifiable the moment the
+count is wrong. That is exactly what `content_sized` already is: a declaration on
+**both** sides that the differ then holds them to. An allowance the differ
+*infers* from whatever it finds would be the dangerous thing, and that is what I
+was actually objecting to.
+
+**Still not decided, and the measurement still comes first**: anchor the seven
+runs, check each against its own `ceil(reference)`, and confirm the residual is
+`Σ` of the per-run excess rather than something else wearing that shape. If it
+is, the contract gains a declared container allowance; if it is not, I have
+learned something better. **A contract amendment argued from arithmetic I have
+not run is how v1.5 would have got this wrong in the first place.**
 
 ## ✅ THE MONO FONT IS REGISTERED — third whole-port font defect, closed `d95c0c67`
 
