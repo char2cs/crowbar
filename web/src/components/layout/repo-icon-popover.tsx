@@ -169,7 +169,10 @@ export function RepoIconPopover({ repo }: { repo: Repo }) {
   // pointer-events-none lets the click fall through to the row (navigate).
   if (repo.defaultWorking) {
     return (
-      <span className="pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center">
+      <span
+        className="pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center"
+        data-oracle-id="repo-icon-popover-trigger"
+      >
         <WorkspaceAgentSpinner />
       </span>
     )
@@ -181,6 +184,7 @@ export function RepoIconPopover({ repo }: { repo: Repo }) {
         aria-label={`Edit ${repo.name} icon`}
         className="group/repo-icon relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md outline-none"
         onClick={(e) => e.stopPropagation()}
+        data-oracle-id="repo-icon-popover-trigger"
       >
         {triggerAvatar}
         {/* Pencil overlay — appears only when hovering the avatar itself. */}
@@ -195,6 +199,12 @@ export function RepoIconPopover({ repo }: { repo: Repo }) {
         // The popover lives inside the row's clickable region; stop interactions
         // from bubbling out to the row's navigation handler.
         onClick={(e) => e.stopPropagation()}
+        // Namespaced away from PopoverContent's own generic
+        // `popover-popup` default — this is a call site of a shared
+        // primitive, and surface.rs's registry requires a unique root
+        // anchor per surface (the same reason detach-holder-modal-popup
+        // and repo-import-dialog-popup are namespaced, P3.51).
+        data-oracle-id="repo-icon-popover-popup"
       >
         <div className="flex flex-col gap-3 p-3">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -239,6 +249,7 @@ export function RepoIconPopover({ repo }: { repo: Repo }) {
                 void handleUpload()
               }}
               className="flex-1 gap-1 text-muted-foreground hover:text-foreground"
+              data-oracle-id="repo-icon-popover-upload"
             >
               <Upload className="size-3" />
               Upload
@@ -249,6 +260,7 @@ export function RepoIconPopover({ repo }: { repo: Repo }) {
               disabled={iconLoading}
               onClick={() => setShowEmojiInput((v) => !v)}
               className="flex-1 gap-1 text-muted-foreground hover:text-foreground"
+              data-oracle-id="repo-icon-popover-emoji"
             >
               <Smile className="size-3" />
               Emoji
@@ -262,6 +274,7 @@ export function RepoIconPopover({ repo }: { repo: Repo }) {
                 void handleGithubAvatar()
               }}
               className="flex-1 gap-1 text-muted-foreground hover:text-foreground"
+              data-oracle-id="repo-icon-popover-github"
             >
               <Star className="size-3" />
               GitHub
@@ -286,6 +299,7 @@ export function RepoIconPopover({ repo }: { repo: Repo }) {
                 className="h-7"
                 disabled={!emojiInput.trim() || iconLoading}
                 onClick={() => void handleEmojiSubmit()}
+                data-oracle-id="repo-icon-popover-emoji-submit"
               >
                 Set
               </Button>
@@ -299,6 +313,7 @@ export function RepoIconPopover({ repo }: { repo: Repo }) {
               disabled={iconLoading}
               onClick={() => void handleResetIcon()}
               className="w-full gap-1 text-muted-foreground/60 hover:text-destructive"
+              data-oracle-id="repo-icon-popover-reset"
             >
               <Trash2 className="size-3" />
               Reset to default

@@ -43,7 +43,7 @@ export function ContextPill() {
   if (model.kind === 'empty') return null
 
   return (
-    <div className="shrink-0 px-2 pt-0 pb-1">
+    <div className="shrink-0 px-2 pt-0 pb-1" data-oracle-id="context-pill">
       <CommandDialog open={open} onOpenChange={setOpen}>
         <CommandDialogTrigger
           render={
@@ -51,6 +51,7 @@ export function ContextPill() {
               variant="ghost"
               aria-label="Switch workspace"
               className="h-auto w-full justify-start gap-2 rounded-lg bg-sidebar-element-idle px-3 py-1.5 font-mono font-normal hover:bg-sidebar-element-hover sm:h-auto"
+              data-oracle-id="context-pill-trigger"
             />
           }
         >

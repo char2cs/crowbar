@@ -68,17 +68,28 @@
 //! resolved through the same `OKLab` pipeline `gen-theme.py` uses and checked
 //! against Tailwind's own published hex.
 //!
-//! # No `data-oracle-id` exists on this file today
+//! # A reference now exists — P3.54 closed the gap this file was written against
 //!
-//! Checked rather than assumed, the same finding `repo_avatar.rs`'s module
-//! docs record for its own file: `workspace-branch-icon.tsx` carries no
-//! `data-oracle-id` anywhere, on any branch. `native/mapping/flicker-
+//! At the time this module was first written, `workspace-branch-icon.tsx`
+//! carried no `data-oracle-id` anywhere, on any branch — the same finding
+//! `repo_avatar.rs`'s module docs recorded for its own file, and its own docs
+//! said so rather than working around it. `native/mapping/flicker-
 //! spinner.md`'s own reference *does* anchor `flicker-spinner` (that id lives
 //! on `flicker-spinner.tsx`, a different file this component wraps), but the
 //! wrapping `<span>` `WorkspaceAgentSpinner` builds, and every bare glyph
-//! `WorkspaceBranchIcon` returns, carries none. A live capture of this
-//! surface needs the same prerequisite `repo_avatar.rs` flags: a
-//! `data-oracle-id="workspace-branch-icon"` landed on the React source.
+//! `WorkspaceBranchIcon` returns, carried none. P3.54 has since landed the
+//! prerequisite this module's own [`ID`] already anticipated:
+//! `workspace-branch-icon.tsx` now carries `data-oracle-id="workspace-branch-
+//! icon"` on all seven glyph branches and on `WorkspaceAgentSpinner`'s own
+//! wrapping `<span>`, matching [`ID`] exactly. `context-pill.tsx` and
+//! `workspace-switcher.tsx` (`crowbar_ui::components::{context_pill,
+//! workspace_switcher}`) both compose [`WorkspaceBranchIcon::render`]
+//! directly rather than re-deriving its picture, and neither needed an
+//! `oracleSurfaceScope` entry for it: the nested `workspace-branch-icon`
+//! anchor (and, on the `working` branch, the `flicker-spinner` anchor nested
+//! one level deeper still) is exactly what those compositions paint, not
+//! foreign content left unpainted the way `sidebar-project-header`'s toggle
+//! icon is.
 //!
 //! # This component takes no `className` and spreads no props — checked, and
 //! it is the first surface with no state axis at all

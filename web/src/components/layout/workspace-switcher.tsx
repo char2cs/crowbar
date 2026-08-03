@@ -26,6 +26,28 @@ interface WorkspaceSwitcherMenuProps {
   onClose: () => void
 }
 
+// No `data-oracle-id` anywhere in this file, deliberately. The wrapper
+// `<div className="contents">` below is CSS `display: contents` — it
+// generates no box at all, so there is nothing for a root anchor to name
+// even in principle. Every real anchor this menu's content reaches already
+// belongs to a different file: `<Command>`'s own chrome is
+// `command.tsx`'s `command-dialog-popup`/`command-panel`/`command-footer`
+// (already anchored, and already captured live from this exact call site —
+// see `crowbar_ui::components::command`'s own module docs); each
+// `<CommandItem>` inherits `AutocompleteItem`'s own default
+// `data-oracle-id="autocomplete-item"` unchanged (`command.tsx`'s own
+// `CommandItem` overrides `data-slot` but never `data-oracle-id`); and the
+// leading glyph inside it is either `<RepoAvatar>` (`repo-avatar.tsx`'s own
+// `data-oracle-id="repo-avatar"`) or `<WorkspaceBranchIcon>`
+// (`workspace-branch-icon.tsx`'s own `data-oracle-id="workspace-branch-
+// icon"`), both already anchored by their own files. `<Library>` and
+// `<Check>` carry none — no native equivalent exists for either regardless,
+// the same call every other bare icon in this port makes. Minting a
+// `workspace-switcher-item` id here would either collide with
+// `autocomplete-item` (the same live element under a second name) or, if
+// aimed at some other node, be dead weight the differ can never compare —
+// see `crowbar_ui::components::workspace_switcher`'s own module docs for
+// the account in full.
 /**
  * Searchable command menu listing every workspace across repos. Selecting one
  * navigates the route only — the sidebar tab/content is never touched.

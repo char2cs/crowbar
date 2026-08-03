@@ -164,6 +164,37 @@ impl Color {
         a: 1.0,
     });
 
+    /// Tailwind's `red-300` — the workspace switcher's own `text-red-300` on
+    /// a deletion count (`workspace-switcher.tsx`'s `-{deleted}` span).
+    /// `theme.css` has no `--` custom property this reaches (`destructive`'s
+    /// two tables are `red-500`/`oklch(0.65 0.22 24)`, neither of them this
+    /// number), so it is minted here the way [`Color::RED_500`] is.
+    ///
+    /// `oklch(80.8% 0.114 19.571)`, resolved through the same `OKLab`
+    /// pipeline `gen-theme.py` uses, checked against Tailwind's own published
+    /// hex `#ffa2a2`.
+    pub const RED_300: Self = Self(Hsla {
+        h: 0.999_228_26,
+        s: 1.0,
+        l: 0.817_339_9,
+        a: 1.0,
+    });
+
+    /// Tailwind's `green-300` — the workspace switcher's own `text-green-300`
+    /// on an addition count (`workspace-switcher.tsx`'s `+{added}` span).
+    /// Not [`Theme`](super::Theme)'s `success` (`emerald-500` in both
+    /// tables), so there is no token to read this number from. Minted here
+    /// the way [`Color::GREEN_500`] is.
+    ///
+    /// `oklch(87.1% 0.15 154.449)`, resolved the same way, checked against
+    /// Tailwind's own published hex `#7bf1a8`.
+    pub const GREEN_300: Self = Self(Hsla {
+        h: 0.396_267_8,
+        s: 0.812_473,
+        l: 0.713_902,
+        a: 1.0,
+    });
+
     fn to_srgba(self) -> Srgba {
         let rgba = Rgba::from(self.0);
         Srgba::new(rgba.r, rgba.g, rgba.b, rgba.a)
