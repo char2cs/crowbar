@@ -163,3 +163,33 @@ a 50% error and plainly visible.
 
 **Neither `row_layout` test could have caught this**: they run under a
 `NoopTextSystem` and pass either way. Only the live capture sees it.
+
+### ⚠ A fix that passed for a disproved reason — caught before merge
+
+The returned fix closed all three deltas, and its third change was **wrong**.
+
+It concluded the *small* line needed `leading-tight`'s `1.25` rather than
+`text-xs`'s own bundled `calc(1/0.75)`, and said plainly that this contradicts
+`@property --tw-leading { inherits: false }` and that it had **not** confirmed it
+against the browser engine. **I confirmed it, and the spec rule holds.** Computed
+styles off the two live text leaves inside `context-pill-trigger`:
+
+```
+"oracle-fixture"   font-size 12px   line-height 16px      ratio 1.3333
+"home"             font-size 13px   line-height 16.25px   ratio 1.2500
+```
+
+The small line is **1.3333** — its own bundled ratio; `--tw-leading` does not
+inherit into it. The large line is 1.25 for exactly the reason given
+(`text-[13px]` compiles to `font-size` only, so it inherits `leading-tight`).
+**Two different cases, and only one of them inherits.**
+
+`1.25 × 12 = 15` against a live **16**. So the small line was made 1px short, and
+if the total nonetheless reached 47 then **something else is 1px over and the two
+errors cancel**. Returned with the measurement and a standing instruction:
+restore the small line, and if 47 cannot then be reached honestly, **report the
+residual rather than keep a fix whose mechanism is disproved.**
+
+**The worker's own caveat is what made this catchable.** It could have asserted
+the mechanism and I would have had no reason to look. Saying "not independently
+confirmed" is what turned a silent wrong answer into a five-minute check.
