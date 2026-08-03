@@ -150,6 +150,60 @@ fn the_input_control_and_field_keep_their_measured_split_height(cx: &mut TestApp
     );
 }
 
+/// **Defect 1 (P3.44).** `search.tsx`'s own `pl-8 pr-8 py-1` on
+/// `SearchPopover`'s `Input` insets the field from its control by 33px
+/// horizontally (the control's constant 1px border plus `pl-8`/`pr-8`'s
+/// 32px) and 5px vertically (the same border plus `py-1`'s 4px) —
+/// `/tmp/p3-ref-search.json`'s own `input-control` `37,7,246,32` against
+/// `input` `70,12,180,30`. Expressed as the relationship the reference
+/// implies (an inset from the control's own edges), not as bare absolute
+/// coordinates, so it keeps meaning if the popover's width ever moves.
+///
+/// Turns red on the one-line revert `crates/crowbar-ui/src/components/
+/// search.rs`'s `input_control` from `.items_start()` back to
+/// `.items_center()` (the vertical assertions) or from `.pl(padding_x)`
+/// back to a shared `.px(px(11.0))` (the horizontal ones) — see this test's
+/// own mutation evidence in the P3.44 report.
+#[gpui::test]
+fn the_input_field_insets_from_its_control_by_the_icon_padding(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+
+    let control = at(&records, "input-control");
+    let field = at(&records, "input");
+
+    let left_inset = field.origin.x - control.origin.x;
+    let right_inset = (control.origin.x + control.size.width) - (field.origin.x + field.size.width);
+    let top_inset = field.origin.y - control.origin.y;
+
+    assert_px(left_inset, px(33.0));
+    assert_px(right_inset, px(33.0));
+    assert_px(top_inset, px(5.0));
+}
+
+/// **Defect 3 (P3.44).** `search-toggle-icon` is `search-toggle-icons`' own
+/// anchor (P3.8, a separate, already-verified surface), reused unmodified
+/// inside every toggle button here — but it must not be recorded a second
+/// time on *this* surface's own registry, which is exactly what
+/// `web/src/lib/oracle/extract.ts`'s `oracleSurfaceScope` already enforces
+/// on the reference side (`search`'s declared ten ids do not include it).
+///
+/// Turns red on the one-line revert in `crates/crowbar-ui/src/components/
+/// search.rs`'s `toggle_button`, from `icon.render(theme, &Unanchored)`
+/// back to `icon.render(theme, anchors)` — see the P3.44 report's mutation
+/// evidence.
+#[gpui::test]
+fn the_toggle_icon_is_not_recorded_on_this_surface(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&["--replace"]));
+
+    let seen = ids(&records);
+    assert!(
+        !seen.contains(&"search-toggle-icon".to_owned()),
+        "search-toggle-icon belongs to the search-toggle-icons surface, not this one: {seen:?}",
+    );
+}
+
 /// `--can-navigate` moves the two nav chevrons off `DISABLED_OPACITY` — the
 /// field this surface's caption calls out, and the only visible effect
 /// `canNavigate` has (their box does not move).

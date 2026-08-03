@@ -13,7 +13,7 @@
 //! module docs this file's sibling refers to) and the reason this surface
 //! exists at all.
 
-use super::{a_cell, assert_px, find, ids, measure, relative_to};
+use super::{a_cell, assert_px, assert_within_tolerance, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
 use crowbar_ui::components::search;
 use gpui::{Bounds, Pixels, TestAppContext, px};
@@ -117,6 +117,63 @@ fn the_default_cell_matches_the_captured_reference(cx: &mut TestAppContext) {
     assert!(all.content_sized, "{all:?}");
     let all_text = all.text.expect("\"All\" paints a run");
     assert_eq!(all_text.content, "All");
+}
+
+/// **Defect 2 (P3.44).** The two labelled buttons take Tailwind's stock
+/// `sm:text-sm` line-height (`calc(1.25rem / 0.875rem)` over `--ui-text-base`
+/// = 14px = `20.0`px) — `button::Size::Default::type_step`'s own pair,
+/// already used by every ordinary `Button::render` call — not gpui's
+/// unset-style default, which reads `22.5` (measured live parity, not this
+/// harness: no custom font is loaded here, so only the *ratio*, not the
+/// shaped width, is safe to pin in this file — see
+/// `this_rows_own_input_is_unclobbered`'s own comment for why).
+///
+/// Turns red on the one-line revert in `crates/crowbar-ui/src/components/
+/// search.rs`'s `action_button`, deleting the `.line_height(relative(step.
+/// line_height))` call (leaving `.text_size(step.size)` alone) — see the
+/// P3.44 report's mutation evidence.
+#[gpui::test]
+fn the_labelled_buttons_take_text_sms_line_height(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+
+    let confirm = find(&records, "search-replace-confirm");
+    let confirm_text = confirm.text.expect("\"Replace\" paints a run");
+    assert_within_tolerance(confirm_text.font.line_height, px(20.0));
+
+    let all = find(&records, "search-replace-all");
+    let all_text = all.text.expect("\"All\" paints a run");
+    assert_within_tolerance(all_text.font.line_height, px(20.0));
+}
+
+/// **Defect 1 (P3.44), the other half.** `SearchReplaceRow`'s own `Input`
+/// override carries `py-1` but no `pl-*`/`pr-*` at all, so the field insets
+/// from its control by only the control's constant 1px border horizontally
+/// — not `search`'s own 33px — and by the same 5px vertically (border +
+/// `py-1`'s 4px, shared by both call sites). `/tmp/p3-ref-search-replace-row
+/// .json`'s own `input-control` `38,7,140.81,32` against `input`
+/// `39,12,138.81,30`.
+///
+/// Turns red on the same one-line reverts
+/// `row_layout::search::the_input_field_insets_from_its_control_by_the_icon_padding`
+/// names — this test is what proves the two surfaces' insets actually
+/// *differ*, which a shared hard-coded constant could not produce on either
+/// side of the split.
+#[gpui::test]
+fn the_input_field_insets_from_its_control_by_only_the_border(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+
+    let control = at(&records, "input-control");
+    let field = at(&records, "input");
+
+    let left_inset = field.origin.x - control.origin.x;
+    let right_inset = (control.origin.x + control.size.width) - (field.origin.x + field.size.width);
+    let top_inset = field.origin.y - control.origin.y;
+
+    assert_px(left_inset, px(1.0));
+    assert_px(right_inset, px(1.0));
+    assert_px(top_inset, px(5.0));
 }
 
 /// **This row's own `Input` is the narrower, undisturbed one, and not

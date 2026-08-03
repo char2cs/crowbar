@@ -407,3 +407,93 @@ fact `search`'s own default cell already encodes as `can_navigate: false` for
 an empty query, and the same flag `sidebar_header`/`scroll_area`/
 `sidebar_empty` each fall back to for their own domain's "nothing here" when
 no other flag fits.
+
+## 13. P3.44 — a side-by-side parity run against the live app, and three fixes
+
+Driven independently of this file's own captures: the requester ran both
+apps side by side and diffed the anchored geometry directly, rather than
+re-deriving it from `/tmp/p3-ref-search.json`/`/tmp/p3-ref-search-replace-row
+.json`. Three defects came back, all on the native side; the reference
+needed no change for two of them and had already been fixed for the third.
+
+**The `input` anchor's box was on the wrong offset from `input-control`, in
+both surfaces, for the same wrong reason.** §4 and §7's tables above give
+the two boxes' final sizes but never state what *positions* the inner field
+inside the outer control — that gap is where the defect lived.
+`crowbar_ui::components::search::input_control`'s first draft insetted the
+field by a flat `px(11.0)` on every side, on both call sites, centred
+vertically with `.items_center()`. Measured live, the two surfaces disagree:
+`search`'s own popover insets its main input by **33px** each side
+horizontally and **5px** from the top; `SearchReplaceRow`'s insets by only
+**1px** horizontally and the same **5px** from the top. The mechanism,
+worked out from `search.tsx` rather than guessed at: both of `Input`'s
+`className` overrides land on the **outer** `<span data-slot=
+"input-control">`, never the inner field (§4's own finding, restated here
+because it is what makes the fix possible) — `SearchPopover`'s Input carries
+`pl-8 pr-8 py-1`, `SearchReplaceRow`'s carries only `py-1`. The control's own
+`border` (1px) is constant on both; `pl-8`/`pr-8` (`--spacing(8)` = 32px)
+is what turns that 1px into 33 wherever it is present, and its absence is
+what leaves `SearchReplaceRow`'s inset at the bare 1px. `py-1`
+(`--spacing(1)` = 4px) is on *both* overrides, so the vertical inset (1px
+border + 4px padding = 5px) does not vary the way the horizontal one does —
+only the port's use of `.items_center()` (which centres the field's fixed
+30px height inside the control's 32px, landing on 1px) rather than
+`.items_start()` plus an authored `padding-top` was wrong. Fixed by giving
+`input_control` a `padding_x: Pixels` parameter
+(`INPUT_PADDING_X_ICONED` = 32, `INPUT_PADDING_X_PLAIN` = 0) and switching
+its vertical alignment to `.items_start()` with an explicit `.pt()`/`.pb()`
+of 4px. Pinned as the *relationship* (field origin minus control origin),
+not the absolute coordinates, in `row_layout/search.rs`'s
+`the_input_field_insets_from_its_control_by_the_icon_padding` and
+`row_layout/search_replace_row.rs`'s
+`the_input_field_insets_from_its_control_by_only_the_border`.
+
+**The two labelled replace buttons' `font.line_height` read `22.5`, not the
+reference's `20.0`.** §7's table above gives their box and border but never
+their type step. `action_button`'s first draft called `.text_size(theme
+.ui_text_base.value())` and never called `.line_height(…)` at all, so gpui
+fell back to its own default rather than anything either `search.tsx` or
+`button.tsx` compiles to. The two buttons are real `<Button>`s, and
+`buttonVariants`' own base class list (`button-variants.ts`) carries
+Tailwind's stock `sm:text-sm` unconditionally — a *different* class from
+`searchActionButtonVariants`' own `ui-text-sm` (a custom utility,
+`web/src/index.css`, that sets `font-size` and nothing else), so
+tailwind-merge does not treat the two as conflicting and both compile in.
+At the `sm` breakpoint `sm:text-sm`'s media-scoped rule wins the cascade for
+`font-size` over `ui-text-sm`'s plain one — the identical mechanism §2 above
+already documents for these same buttons' *height* — and, because
+`ui-text-sm` never set a line-height at all, `sm:text-sm`'s own paired one
+(`calc(1.25rem / 0.875rem)`) applies unopposed: `14 × 1.42857 = 20.0`, the
+reference's number. `button::Size::Default::type_step` already carries
+exactly that `(size, line_height)` pair — every ordinary `Button::render`
+call already reads it — so `action_button` now reads it too rather than
+hand-picking half of it and leaving the other half to gpui's default. Pinned
+in `row_layout/search_replace_row.rs`'s
+`the_labelled_buttons_take_text_sms_line_height`.
+
+**`search-toggle-icon` was being recorded on this surface a second time.**
+§5 above documents that the three (or four) option toggles each wrap
+`crowbar_ui::components::search_toggle_icons::SearchToggleIcon`, reused
+unmodified — what it does not say is that `SearchToggleIcon::render` opts
+its one anchor id into *whatever* `AnchorSink` it is handed, and
+`toggle_button` used to hand it this surface's own. Every toggle on a cell
+therefore recorded `search-toggle-icon` into `search`'s own registry, and
+because `AnchorRegistry::record` replaces rather than refuses a repeated id
+(untouched here — a different worker's branch,
+`native/p3.42-recorder-strictness`, is the one making it refuse), a
+`--surface search` snapshot silently ended up with exactly one such record,
+overwritten down to whichever toggle painted last. The reference carries
+**none**: §9's own "Reachability" account above already explains why
+`search-toggle-icons` is `search`'s sibling surface and not its own
+anchor, and `web/src/lib/oracle/extract.ts`'s `oracleSurfaceScope` already
+enforces it — `search`'s declared ten ids do not include
+`search-toggle-icon`, and `oracleSelectDeclaredAnchors` drops anything found
+under the root that is not declared. That half of the fix already existed
+on this branch before this item; only the native side still recorded the
+duplicate. Fixed by rendering the icon through `Unanchored` inside
+`toggle_button` rather than this surface's own `anchors` —
+`Unanchored`'s own contract guarantees the identical box, so nothing this
+file's tables above give moves; only the id stops being recorded a second
+time. No new id was invented for it (`search-toggle-icon-regex` and so on
+would describe geometry `search-toggle-icons` already owns). Pinned in
+`row_layout/search.rs`'s `the_toggle_icon_is_not_recorded_on_this_surface`.

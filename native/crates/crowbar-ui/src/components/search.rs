@@ -86,6 +86,115 @@
 //! `super::button::DISABLED_OPACITY` rather than defining its own 0.5 — the
 //! number that is actually painted.
 //!
+//! # P3.44 — the field's inset from its control is two Tailwind classes, not
+//! one constant
+//!
+//! [`input_control`]'s first draft insetted the field from the control by a
+//! single hard-coded `px(11.0)` on every side, on both call sites. Live
+//! parity caught it: the reference insets `search.tsx`'s own main input by
+//! **33px** each side horizontally (`input-control` `37,7,246,32` → `input`
+//! `70,12,180,30`) and `SearchReplaceRow`'s input by only **1px**
+//! (`input-control` `38,7,140.81,32` → `input` `39,12,138.81,30`) — two
+//! different numbers, where the old code produced the same 12px (11 padding
+//! + the control's own constant 1px border) on both.
+//!
+//! The reason they differ is that `search.tsx` writes two different
+//! `<Input className>` overrides. `SearchPopover`'s own is `"… py-1 pr-8
+//! pl-8"`; `SearchReplaceRow`'s is `"… py-1"`, with no `pl-*`/`pr-*` at all
+//! (its field carries no icon and no clear button, so there is nothing to
+//! clear a gutter for). Both of `Input`'s classes land on the **outer**
+//! `<span data-slot="input-control">` — never the inner field, which keeps
+//! `input.tsx`'s own unmodified box — so `pl-8`/`pr-8` (`--spacing(8)` =
+//! 32px) plus the control's own `border` (1px) is the 33px the popover's own
+//! input shows, and the control's bare `border` alone (`input.tsx`'s base
+//! span authors no `px-*`/`pl-*`/`pr-*` of its own) is the 1px
+//! `SearchReplaceRow`'s shows. [`input_control`] now takes that padding as a
+//! parameter — [`INPUT_PADDING_X_ICONED`] at the one call site that has an
+//! icon and a clear button to clear room for, [`INPUT_PADDING_X_PLAIN`] at
+//! the one that does not — rather than restating either number as a bare
+//! constant divorced from the class that produces it.
+//!
+//! `py-1` (`--spacing(1)` = 4px), by contrast, **is** on both `Input`
+//! overrides, which is why the vertical inset is the same 5px (1px border +
+//! 4px `padding-top`) on both surfaces — not something this port has to
+//! parameterise, only get right once. The old code centred the field with
+//! `.items_center()`, which happened to average out to a 1px offset (`(32 −
+//! 30) / 2`) that looked plausible until it was checked against the
+//! reference's real, padding-driven 5px. `input_control` now positions the
+//! field with `.items_start()` plus an explicit `.pt()`/`.pb()`, the same
+//! box model the browser actually computes: the field's own authored height
+//! (30px) does not change, so at `py-1`'s 4px it runs 3px past the
+//! control's own 32px bottom edge — an overflow, not a clip, because neither
+//! side sets `overflow: hidden` here. That is what the reference measures,
+//! not a rounding artefact this port introduced.
+//!
+//! # P3.44 — the replace buttons' line-height is `button`'s own `text-sm`
+//! step, not gpui's unset default
+//!
+//! [`action_button`]'s first draft set `.text_size(…)` and never called
+//! `.line_height(…)` at all, so gpui fell back to its own unset-style
+//! default rather than anything `search.tsx` or `button.tsx` compiles to —
+//! live parity read it as `22.5` against the reference's `20.0` on both
+//! `search-replace-confirm` and `search-replace-all`. `searchActionButtonVariants`
+//! carries `ui-text-sm` (a **custom** utility, `web/src/index.css`, that sets
+//! only `font-size: var(--ui-text-sm)` — no line-height at all), but these
+//! two buttons are still real `<Button>`s from `button.tsx`, and
+//! `buttonVariants`' own base class list (`button-variants.ts`) carries
+//! Tailwind's **stock** `sm:text-sm` unconditionally. `ui-text-sm` and
+//! `sm:text-sm` are different class names, so tailwind-merge does not treat
+//! them as conflicting — both compile in — and at the `sm` breakpoint
+//! `sm:text-sm`'s media-scoped rule sits later in the generated sheet than
+//! `ui-text-sm`'s plain one, so it wins the cascade for `font-size` (14px,
+//! `0.875rem`, not `ui-text-sm`'s 12px) by the identical mechanism the
+//! module docs' own size-6/`sm:h-8` section already establishes for these
+//! buttons' *height*. Because `ui-text-sm` never set a line-height at all,
+//! there is nothing to compete with `sm:text-sm`'s own paired one
+//! (`calc(1.25rem / 0.875rem)`), which lands unopposed: `14 × 1.42857 =
+//! 20.0`, the reference's own number.
+//!
+//! `button::Size::Default::type_step` already carries exactly that pair —
+//! `theme.ui_text_base.value()` (0.875rem, the same numeric value Tailwind's
+//! stock `text-sm` compiles to, coincidentally, per that function's own
+//! module docs) and `LINE_HEIGHT_SM` (`1.25 / 0.875`) — because every
+//! ordinary `Button::render` call already goes through it. `action_button`
+//! now reads that table with `button::Size::Default.type_step(theme,
+//! breakpoint)` rather than hand-picking `theme.ui_text_base.value()` and
+//! leaving `.line_height` unset, the same "read off the table rather than
+//! restate it" move [`icon_button_extent`] already makes for these buttons'
+//! shared `sm:h-8`.
+//!
+//! # P3.44 — `search-toggle-icon` is not this surface's anchor to keep
+//!
+//! [`SearchToggleIcon::render`] unconditionally opts its one anchor id
+//! (`search-toggle-icon`) into whatever [`AnchorSink`] it is handed.
+//! [`toggle_button`] used to hand it this surface's own `anchors`, so every
+//! one of the (up to four) toggle buttons on a cell recorded that same id
+//! into `search`'s own registry — `AnchorRegistry::record` **replaces**
+//! rather than refuses a repeated id (a different worker's branch,
+//! `native/p3.42-recorder-strictness`, is making it refuse; this module does
+//! not touch that), so a `--surface search` snapshot ended up carrying
+//! exactly one `search-toggle-icon`, silently overwritten down to whichever
+//! toggle painted last (`regex`, the third of three at rest). The reference
+//! carries **none**: `web/src/lib/oracle/extract.ts`'s `oracleSurfaceScope`
+//! already declares `search`'s own ten ids without `search-toggle-icon`
+//! among them (P3.37; `oracleSelectDeclaredAnchors` drops anything found
+//! under the root that is not declared, without comment), because the icon
+//! is already `search-toggle-icons`' own anchor (P3.8, a separate,
+//! already-verified surface) reused here unmodified, and declaring it a
+//! second time on this surface would describe geometry that surface already
+//! covers.
+//!
+//! **The fix stays on the render path, not the recorder.** `toggle_button`
+//! now renders the icon through [`Unanchored`] instead of this surface's own
+//! `anchors` — `Unanchored`'s own doc comment guarantees the element it
+//! returns is byte-for-byte what the driver-backed sink would have wrapped,
+//! so the box does not move and the three always-live toggle *buttons*
+//! (already byte-exact) do not either; only the icon's own id stops being
+//! recorded into `search`'s registry. No id was invented
+//! (`search-toggle-icon-regex` and so on would grow the contract to
+//! describe geometry `search-toggle-icons` already owns), and
+//! `crowbar-driver`'s recorder is untouched.
+//!
 //! # What is captured, and what is real-but-unreached
 //!
 //! Two references, both taken live 2026-08-02 from the editor find bar
@@ -121,9 +230,10 @@
 
 use gpui::{
     AnyElement, Div, FontWeight, ParentElement as _, Pixels, SharedString, Styled as _, div, px,
+    relative,
 };
 
-use super::anchor::{AnchorId, AnchorSink};
+use super::anchor::{AnchorId, AnchorSink, Unanchored};
 use super::button::{self, DISABLED_OPACITY};
 use super::git_status_row::Breakpoint;
 use super::input;
@@ -377,7 +487,12 @@ fn toggle_button(
         active,
         empty: false,
     };
-    let shell = shell.child(icon.render(theme, anchors));
+    // `Unanchored`, not `anchors`: `search-toggle-icon` belongs to the
+    // `search-toggle-icons` surface (P3.8), already verified on its own —
+    // see the module docs' P3.44 section. `Unanchored` paints the identical
+    // box (its own doc comment's guarantee), so nothing here moves; only the
+    // duplicate id stops landing in this surface's own registry.
+    let shell = shell.child(icon.render(theme, &Unanchored));
     anchors.boxed(AnchorId::from(id), shell)
 }
 
@@ -461,16 +576,24 @@ impl SearchReplaceRow {
 
         let icon = anchors.boxed(AnchorId::from(ID_REPLACE_ICON), self.icon_shell(theme));
 
-        let input = input_control(theme, anchors, None);
+        let input = input_control(theme, anchors, None, INPUT_PADDING_X_PLAIN);
 
         let confirm = action_button(
             ID_REPLACE_CONFIRM,
             "Replace",
             self.can_replace,
+            self.breakpoint,
             theme,
             anchors,
         );
-        let all = action_button(ID_REPLACE_ALL, "All", self.can_replace_all, theme, anchors);
+        let all = action_button(
+            ID_REPLACE_ALL,
+            "All",
+            self.can_replace_all,
+            self.breakpoint,
+            theme,
+            anchors,
+        );
 
         shell.child(icon).child(input).child(confirm).child(all)
     }
@@ -569,13 +692,23 @@ impl SearchReplaceRow {
 /// justify-center rounded-lg border border-transparent px-2.5
 /// text-muted-foreground`. **Content-sized** — see the module docs' finding
 /// against `button.rs`'s own claim.
+///
+/// `text_size`/`line_height` are read off [`button::Size::Default::type_step`]
+/// rather than picked separately, because that is what actually paints these
+/// two cells: they are real `<Button>`s, `buttonVariants`' own base class
+/// list carries Tailwind's stock `sm:text-sm` unconditionally, and it wins
+/// the font-size *and* supplies the line-height `search.tsx`'s own
+/// `ui-text-sm` never sets — see the module docs' P3.44 section for the
+/// cascade argument in full.
 fn action_button(
     id: &'static str,
     label: &'static str,
     enabled: bool,
+    breakpoint: Breakpoint,
     theme: &Theme,
     anchors: &dyn AnchorSink,
 ) -> AnyElement {
+    let step = button::Size::Default.type_step(theme, breakpoint);
     let mut shell = div()
         .flex_shrink_0()
         .flex()
@@ -587,7 +720,8 @@ fn action_button(
         .border_1()
         .border_color(Color::TRANSPARENT)
         .font(ui_sans_font(theme))
-        .text_size(theme.ui_text_base.value())
+        .text_size(step.size)
+        .line_height(relative(step.line_height))
         .font_weight(FontWeight::MEDIUM)
         .text_color(theme.muted_foreground);
     if !enabled {
@@ -704,7 +838,7 @@ impl SearchPopover {
                 }
                 .render(theme, anchors),
             )
-            .child(input_control(theme, anchors, None))
+            .child(input_control(theme, anchors, None, INPUT_PADDING_X_ICONED))
             .child(self.close_button(theme, anchors));
 
         let row2 = div()
@@ -800,23 +934,54 @@ impl SearchPopover {
     }
 }
 
+/// `search.tsx`'s own `pl-8 pr-8` override on `SearchPopover`'s `Input` —
+/// `--spacing(8)` = 32px each side, landing on the outer `<span
+/// data-slot="input-control">` (`Input`'s `className` prop merges there,
+/// never onto the inner field — see [`input_control`]'s own docs). Room for
+/// the `Search` glyph (`left-2.5`) and the clear button (`right-1`), both
+/// painted as this box's *siblings*, never its children.
+pub const INPUT_PADDING_X_ICONED: Pixels = px(32.0);
+
+/// `SearchReplaceRow`'s own `Input` override carries no `pl-*`/`pr-*` at
+/// all — no icon or clear button shares this field's box — so the outer
+/// span's horizontal padding stays at `input.tsx`'s own base, which authors
+/// none of its own: `0px`.
+pub const INPUT_PADDING_X_PLAIN: Pixels = px(0.0);
+
+/// `py-1`, present on **both** of `search.tsx`'s `Input` overrides — the one
+/// half of the field's inset the two call sites share. `--spacing(1)` = 4px.
+const INPUT_PADDING_Y: Pixels = px(4.0);
+
 /// The `Input`'s two boxes — `<span data-slot="input-control">` and the
 /// `<input data-slot="input">` inside it — built by hand rather than through
 /// [`super::input::Input::render`].
 ///
-/// **Why not reuse `Input::render`.** `search.tsx`'s `className` prop
-/// (`h-8 rounded-lg border-border/80 bg-background py-1 pr-8 pl-8`) lands on
-/// the **outer span only** (`input.tsx`'s own
-/// `cn(!unstyled && baseClasses, className)`), while the **inner field**
-/// keeps `input.tsx`'s own unmodified `h-8.5 w-full … sm:h-7.5` — a genuine
-/// split between control-height (32, this override) and field-height (30,
-/// `input`'s own `Size::Default` at `Sm`), confirmed live
-/// (`input-control` `246×32`, `input` `180×30`). `input.rs`'s own `Size` enum
-/// couples the two together (they are equal on every call site `input.md`'s
-/// reference covers), so there is no parameter on `Input` that reproduces
-/// this decoupling — the same "own copy" call `dropdown::trigger`/`item` and
-/// `alert_dialog` already make, applied to a second already-verified
-/// primitive rather than to a sibling wrap.
+/// **Why not reuse `Input::render`.** `search.tsx`'s `className` prop lands
+/// on the **outer span only** (`input.tsx`'s own `cn(!unstyled &&
+/// baseClasses, className)`), while the **inner field** keeps `input.tsx`'s
+/// own unmodified `h-8.5 w-full … sm:h-7.5` — a genuine split between
+/// control-height (32, this override) and field-height (30, `input`'s own
+/// `Size::Default` at `Sm`), confirmed live (`input-control` `246×32`,
+/// `input` `180×30`). `input.rs`'s own `Size` enum couples the two together
+/// (they are equal on every call site `input.md`'s reference covers), so
+/// there is no parameter on `Input` that reproduces this decoupling — the
+/// same "own copy" call `dropdown::trigger`/`item` and `alert_dialog`
+/// already make, applied to a second already-verified primitive rather than
+/// to a sibling wrap.
+///
+/// **The horizontal inset is a `padding_x` parameter, not a constant**,
+/// because `search.tsx`'s two call sites write two different overrides:
+/// `SearchPopover`'s carries `pl-8 pr-8` ([`INPUT_PADDING_X_ICONED`]) and
+/// `SearchReplaceRow`'s carries neither ([`INPUT_PADDING_X_PLAIN`]). Both
+/// land on this same outer span, so the field's own left/right offset from
+/// it is always the span's constant 1px `border` plus whichever of the two
+/// this call passes — 33px and 1px respectively, the module docs' P3.44
+/// section has the live numbers. The **vertical** inset does not vary the
+/// same way: `py-1` is on both overrides, so [`INPUT_PADDING_Y`] (border +
+/// 4px) is not a parameter, only applied via `.items_start()` rather than
+/// the centring `.items_center()` an earlier draft used — see the module
+/// docs for why centring produced the wrong number even though it looked
+/// plausible.
 ///
 /// Both `input::ID_CONTROL`/`input::ID_FIELD` are reused verbatim (the same
 /// ids `input.tsx` already hard-codes onto any `<Input>`, this call site
@@ -829,7 +994,12 @@ impl SearchPopover {
 /// `input.rs`'s own module docs establish that an `<input>` has no text
 /// node, so the reference's record for either id carries no text group
 /// regardless of value.
-fn input_control(theme: &Theme, anchors: &dyn AnchorSink, width: Option<Pixels>) -> AnyElement {
+fn input_control(
+    theme: &Theme,
+    anchors: &dyn AnchorSink,
+    width: Option<Pixels>,
+    padding_x: Pixels,
+) -> AnyElement {
     let field = anchors.boxed(
         AnchorId::from(input::ID_FIELD),
         div().flex_1().h(px(30.0)).rounded(theme.radius_lg.value()),
@@ -841,12 +1011,15 @@ fn input_control(theme: &Theme, anchors: &dyn AnchorSink, width: Option<Pixels>)
         .min_w(px(0.0))
         .h(INPUT_CONTROL_HEIGHT)
         .flex()
-        .items_center()
+        .items_start()
         .rounded(theme.radius_lg.value())
         .border_1()
         .border_color(theme.border.mix(INPUT_BORDER_MIX, Color::TRANSPARENT))
         .bg(input_background(theme))
-        .px(px(11.0))
+        .pt(INPUT_PADDING_Y)
+        .pb(INPUT_PADDING_Y)
+        .pl(padding_x)
+        .pr(padding_x)
         .child(field);
     if let Some(width) = width {
         control = control.flex_none().w(width);
@@ -876,8 +1049,9 @@ mod tests {
         CONTENT_SIZED, GROUP_GAP, ID_CLOSE, ID_NAV_NEXT, ID_NAV_PREVIOUS, ID_POPOVER,
         ID_REPLACE_ALL, ID_REPLACE_CONFIRM, ID_REPLACE_ICON, ID_REPLACE_ROW, ID_REPLACE_TOGGLE,
         ID_TOGGLE_CASE, ID_TOGGLE_PRESERVE_CASE, ID_TOGGLE_REGEX, ID_TOGGLE_WHOLE_WORD,
-        INPUT_CONTROL_HEIGHT, LINE_SIZED, POPOVER_WIDTH, SPACING_1_5, SearchPopover,
-        SearchReplaceRow, SearchReplaceToggle, icon_button_extent,
+        INPUT_CONTROL_HEIGHT, INPUT_PADDING_X_ICONED, INPUT_PADDING_X_PLAIN, LINE_SIZED,
+        POPOVER_WIDTH, SPACING_1_5, SearchPopover, SearchReplaceRow, SearchReplaceToggle,
+        icon_button_extent,
     };
     use crate::components::git_status_row::Breakpoint;
     use crate::theme::Theme;
@@ -907,6 +1081,19 @@ mod tests {
         assert_eq!(POPOVER_WIDTH, px(320.0));
         assert_eq!(SPACING_1_5, px(6.0));
         assert_eq!(INPUT_CONTROL_HEIGHT, px(32.0));
+    }
+
+    /// **Defect 1's two constants, pinned to the two live `pl-8 pr-8` /
+    /// no-override overrides they read** — `search.tsx`'s own `pl-8`/`pr-8`
+    /// (`--spacing(8)` = 32px) on `SearchPopover`'s `Input`, and nothing at
+    /// all on `SearchReplaceRow`'s. Distinct on purpose: a fix that
+    /// hardcoded one shared inset for both surfaces (the defect this closes)
+    /// would make this assertion vacuous by construction.
+    #[test]
+    fn the_two_input_padding_x_constants_are_the_two_different_overrides() {
+        assert_eq!(INPUT_PADDING_X_ICONED, px(32.0));
+        assert_eq!(INPUT_PADDING_X_PLAIN, px(0.0));
+        assert_ne!(INPUT_PADDING_X_ICONED, INPUT_PADDING_X_PLAIN);
     }
 
     /// `SearchPopover::fixture` is the collapsed, resting, no-query cell —
