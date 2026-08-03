@@ -335,7 +335,7 @@ Window chrome and vibrancy · tabs bar · **sidebar and project tree, including 
 scroll-snap carousel (D3)** · panes and split layout · settings, all tabs ·
 command palette · git status / history / branches · agent chat list · file
 explorer · OOBE (background per D4) · all 46 non-Plate `components/ui`
-primitives · all 36 `components/layout` files.
+primitives (except `dropdown-menu`, per §13) · all 36 `components/layout` files.
 
 ### 5.2 Native, reference = Zed (improvement permitted, D5)
 
@@ -867,6 +867,16 @@ a decision for the user, escalated as such, never a footnote in a report.
 5. **Accessibility coverage is partial** at parity. `accesskit` is present;
    completeness is not claimed. §10.4's spike may improve this for free.
 6. **`backdrop-filter` and CSS transitions are re-implemented, not translated.**
+7. **Crowbar-native uses real platform menus**, so a menu does not match
+   the React app pixel-for-pixel — it looks like a macOS menu because it is
+   one. The concrete consequence: `dropdown-menu` leaves §5.1's strict-parity
+   gate. An `NSMenu` is not in the window's view tree and carries no anchor
+   id, so the surface is **judged, not diffed** — the same treatment §5.2
+   gives the editor, diff and terminal, and for the same reason: no comparable
+   reference exists. In exchange: OS keyboard navigation, VoiceOver
+   reachability, submenu timing and screen-edge flipping — none of which we
+   would otherwise owe an implementation, and §10.4 dropped the accessibility
+   spike as "THIN".
 
 **Struck from the draft's list:** the sidebar carousel (now D3, full parity) and
 `@pierre/diffs` as a webview stopgap (now native, §5.2).
