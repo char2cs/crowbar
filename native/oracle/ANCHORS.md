@@ -1,4 +1,4 @@
-# The anchor snapshot contract — v1.13
+# The anchor snapshot contract — v1.14
 
 > ## ‼️ CORRECTION: the reference engine is **WebKit**, not Blink
 >
@@ -11,6 +11,54 @@
 > reports **18.0**. Blink could not have produced that number, which is how the
 > discrepancy was caught — by running the same page through a real offscreen
 > `WKWebView` rather than assuming the two engines agree.
+
+> ## v1.14 — 2026-08-03. `state` names the CELL, not the CONFIGURATION *(a stated hole, not a rule)*
+>
+> `state` has four keys and they identify a §8.3 matrix cell: width, theme,
+> content, flags. **They do not identify the app configuration that produced the
+> reference**, and two references that agree on all four can describe components
+> the other side never renders.
+>
+> Measured, both on 2026-08-03, both against the live reference app:
+>
+> | surface | reference | the live app, same `state` |
+> |---|---|---|
+> | `tabs` | root `w` **278**, tabs **90 · 90 · 90** (equal — `flex-1`) | root `w` **328**, tabs **118.77 · 100.63 · 100.63** (content-sized) |
+> | `sidebar-header` | `visible: true` | `visible: false` — its only DOM instance sits in an **off-screen carousel panel**, `x: 2058` in a 1714px viewport |
+>
+> The `tabs` pair differ in **width and sizing mode**; the `sidebar-header` pair
+> differ in **exactly one boolean** and are byte-identical otherwise. Both pass
+> every check this file defines. Both are wrong to diff.
+>
+> ### Why this is a hole and not a field
+>
+> The obvious patch — a fifth `state` key naming the configuration — is refused
+> for the reason §2 gives for every other addition: **a field one extractor can
+> compute and the other cannot is invisible to the differ and worse than
+> useless.** The native side has no "carousel position"; its surfaces are
+> fixtures rendered in isolation, and that is the whole point of the driver. A
+> key only the DOM side could fill would look like coverage and be decoration.
+>
+> ### What is required instead
+>
+> 1. **A reference records the drive that produced it**, in that surface's
+>    `native/mapping/<surface>.md` — the selector, the scroll offset, the click,
+>    whatever put the app in that state. Prose, next to the surface, because
+>    that is where someone re-capturing will look.
+> 2. **Re-run a control cell whose verdict is already recorded, every time.**
+>    This is the only check that separates *"the port broke"* from *"I drove it
+>    wrong"*, and it costs one extra capture. On 2026-08-03 it is what caught
+>    both cases above: the `tabs` **dark** cell — a recorded pass — failed
+>    alongside the light one, which is not a shape a port defect produces.
+> 3. **A reference that cannot be reproduced is deleted, not shelved.** A
+>    plausible-looking snapshot in `/tmp` is how a wrong number gets diffed
+>    months later. This project has already had one *fabricated* reference; a
+>    merely mismatched one is quieter and no less wrong.
+>
+> **This is a hole in the contract, stated so nobody mistakes a green diff for a
+> comparable one.** It is not fixable inside the snapshot; it is fixable only by
+> discipline at capture time, which is exactly why it is written down here rather
+> than left as a field somebody will add later and nobody will fill.
 
 > **v1.6 — 2026-07-31. `line_sized`.** The last delta on the gate row, and it is
 > a *different shape* from `content_sized`.
@@ -730,6 +778,12 @@ will otherwise assume the oracle covers more than it does.
 - **Paint order / `z`.** DOM stacking contexts and GPUI paint order are not
   isomorphic. Diffing an index would generate noise, not signal, so `z` is
   **not** a field. Occlusion bugs are not caught here.
+- **Which app configuration a reference was captured from** *(v1.14)*. `state`
+  names the §8.3 cell and nothing else. Two snapshots agreeing on all four keys
+  can describe a 278px equal-width tab strip and a 328px content-sized one, or
+  the same element on-screen and two carousel pages away. **Neither the schema
+  nor the differ can tell.** See the v1.14 amendment for the two measured cases
+  and for the three rules that stand in for the field this cannot have.
 
 These fall to the secondary perceptual pixel oracle (§8.2), whose output is a
 **human-triaged score, not an agent gradient**.
