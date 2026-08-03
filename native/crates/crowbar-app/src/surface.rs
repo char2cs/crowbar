@@ -574,6 +574,9 @@ mod tests {
                 "dropdown-menu",
                 "file-tree-row",
                 "flicker-spinner",
+                // `fps_overlay.rs` sorts before `git_status_row.rs` — `f` < `g`
+                // (P3.52).
+                "fps-overlay",
                 "git-status-row",
                 "inline-error",
                 "input",

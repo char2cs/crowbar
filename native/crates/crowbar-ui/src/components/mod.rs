@@ -156,6 +156,14 @@ pub mod repo_import_dialog;
 pub mod dropdown;
 pub mod dropdown_menu;
 pub mod file_tree_row;
+// `fps_overlay` is unflattened for the same reason as the rest: its
+// `FrameStats`/`FpsTier` read correctly only with the module in front of
+// them, and its `CONTENT_SIZED`/`LINE_SIZED` would collide exactly as every
+// other surface's do. P3.52 — see the module docs for why it carries no
+// `data-oracle-id` at all, unlike this cluster's other two "no reference"
+// members, and for [`Color::BLACK`] (`theme/token.rs`), minted for this
+// component's one raw-colour inline style.
+pub mod fps_overlay;
 pub mod git_status_row;
 // `input` is unflattened for the same reason as the rest, and one further one:
 // its `Size`, `State` and `Text` are short names that only read correctly with
@@ -280,6 +288,17 @@ pub mod sheet;
 // this crate can hold, so neither can reach strict parity. The module docs and
 // `native/mapping/sidebar.md` carry the account and the quoted vendor code.
 pub mod sidebar;
+// The three P3.52 leaves are unflattened for the same reason as the rest.
+// `sidebar_project_header::ID_SIDEBAR_PROJECT_HEADER` and its siblings'
+// `ID_*` constants would sit next to every other surface's own with the same
+// shape of collision, and `sidebar_tab_bar::Tabs` (built from
+// `super::tabs::Tabs`) would read as a second, unrelated `Tabs` type without
+// the module in front of it. None of the three carries a reference — see
+// each module's own docs for why, and `native/mapping/layout-denominator.md`
+// §8 Cluster 3 for the survey that grouped them.
+pub mod sidebar_project_header;
+pub mod sidebar_skeleton;
+pub mod sidebar_tab_bar;
 pub mod sidebar_toggle_icon;
 pub mod skeleton;
 // `slider` is unflattened for the same reason as the rest, and one sharper:
