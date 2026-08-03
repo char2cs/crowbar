@@ -93,6 +93,11 @@ impl Params {
 /// `held`, the generic (no-holder, no-error) arm otherwise. `--content` moves
 /// the interpolated branch/path the same way it moves `inline-error`'s
 /// detail line, never introducing a real fourth string.
+///
+/// **Mutation run**: inverted the `if held` branch condition.
+/// `held_selects_the_checked_out_reason_and_unheld_the_generic_one` caught
+/// it — `assertion failed: held.contains("is checked out at")`, panicked at
+/// `placeholder_row_actions.rs:187`. Reverted.
 fn reason_of(held: bool, content: ContentLength) -> SharedString {
     let branch = match content {
         ContentLength::Short => "ci",
@@ -146,6 +151,14 @@ impl SurfaceParams for Params {
     /// same exclusion `unmodelled` already states.
     /// `workspace_branch_icon.rs`'s own declaration is the precedent this
     /// one follows.
+    ///
+    /// **Live-fired, not merely tested**: this method was first omitted
+    /// (default `false`), which `cargo test --workspace` caught immediately
+    /// on `surface::tests::no_surface_declares_its_entire_state_axis_
+    /// unmodelled` — `` assertion `left == right` failed: placeholder-row-
+    /// actions: 0 real flag(s), no_state_axis() = false ``, panicked at
+    /// `surface.rs:800`. Added in response; this is that fix, not a
+    /// synthetic mutation of it.
     fn no_state_axis(&self) -> bool {
         true
     }

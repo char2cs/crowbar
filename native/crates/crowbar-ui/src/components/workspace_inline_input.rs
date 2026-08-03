@@ -77,6 +77,12 @@ pub const ID_FIELD: &str = "workspace-inline-input-field";
 
 /// The `existingWsId` hint `<button>`, present only when a collision is being
 /// reported.
+///
+/// **Mutation run**: wrongly declared this anchor `.content_sized()` at its
+/// `render` call site — the §2 claim in reverse. `row_layout`'s
+/// `the_hint_sits_below_the_field_and_stretches_full_width` caught it:
+/// `"the hint stretches, it does not size to its text"`, panicked at
+/// `row_layout/workspace_inline_input.rs:99`. Reverted.
 pub const ID_HINT: &str = "workspace-inline-input-hint";
 
 /// Neither anchor declares it. The field has no text field to size to at all;
@@ -143,6 +149,12 @@ pub enum Kind {
 /// isolation from the component's own render path — the surface this
 /// component's mutation coverage leans on hardest, since it is the one string
 /// this port computes rather than merely relays.
+///
+/// **Mutation run**: dropped the `.trim()` call (`value` painted raw).
+/// `the_hint_text_trims_the_value` caught it —
+/// `` left: "'  main  ' already has a workspace — open it" right: "'main'
+/// already has a workspace — open it" `` — panicked at
+/// `workspace_inline_input.rs` line 423. Reverted.
 #[must_use]
 pub fn hint_text(value: &str) -> SharedString {
     SharedString::from(format!(

@@ -69,6 +69,17 @@ pub const LINE_SIZED: [&str; 0] = [];
 
 /// `gap-1.5` between the reason and the action row, and — reused — between the
 /// two buttons themselves.
+///
+/// **Mutation run**: changed `6.0` to `8.0`. Caught by the unit test
+/// `every_length_is_the_compiled_spacing_multiple` — `` left: 8px right: 6px
+/// ``, panicked at `placeholder_row_actions.rs:218`. **Not** caught by
+/// `row_layout`'s own `the_column_is_the_gap_below_the_wrapped_reason` or
+/// `the_actions_row_is_right_justified_with_the_gap_between` — both read
+/// this constant rather than a second, independent literal, so they hold
+/// under any wrong value that agrees with itself; the exact pixel figure is
+/// pinned by the unit test alone. Recorded rather than smoothed over: a
+/// worker relying on the layout suite to catch a wrong constant here would
+/// be wrong. Reverted.
 pub const GAP: Pixels = px(6.0);
 
 /// `text-xs` on the reason line — this crate's `--ui-text-*` trade
