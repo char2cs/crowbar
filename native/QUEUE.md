@@ -3375,7 +3375,35 @@ existed at all.
 | **P3.50** cluster 1 | `native/p3.50-layout-cluster1` @ `dd280377` | committed (code + 2 mapping docs). Implementing the state-axis exemption; **gates third** |
 | **P3.51** cluster 2 | `native/p3.51-layout-cluster2` @ `1509d677` | ✅ clippy fixed, committed, awaiting the integrated gate |
 | **P3.52** cluster 3 | `native/p3.52-layout-cluster3` @ `ba7ce636` | ✅ clippy fixed, committed, 4 of 5. Awaiting the integrated gate |
-| **P3.53** Tier A | ✅ **MERGED `aed95496`** | 1,299 lines. clippy 0 · **1683 passed** (was 1627) · `crowbar-core` **71 tests** (was 15) · **100.00% over 787 lines** (was 148) · 7/7 invariants |
+| **P3.53** Tier A | ✅ **MERGED `aed95496`** | 1,299 lines. clippy 0 · **1683 passed** (was 1627) · `crowbar-core` **71 tests** (was 15) · **100.00% over 787 lines** (was 148) · 7/7 invariants. See the mutation finding below |
+
+#### ‼️ P3.53's own mutation testing caught a vacuous test — and it fixed it unprompted
+
+Its first mutation removed the `id.is_empty()` guard in `get_workspace_scope`.
+**The test meant to cover that guard passed anyway** — it never inserted a scope
+keyed `""`, so the map lookup missed on its own whether or not the guard existed.
+A clean pass that proved nothing.
+
+It wrote `an_empty_string_id_does_not_resolve_even_when_a_scope_is_recorded_under_it`,
+which *does* insert under `""` and *does* fail on the mutation, and committed it
+as `706f8534` — **before I asked, and before anyone would have noticed.** This
+project has been bitten by vacuous guards badly enough to have a memory about it;
+this is the first time a worker found one in its own work by mutating rather than
+by reading.
+
+Two more things it reported that a tidier account would have omitted:
+
+- **`keep_alive.rs`'s cap mutation (6→7) was caught by the constant-check test but
+  NOT by the scenario test** that ostensibly covers eviction — that one passes at
+  either cap, because it never pins the value. Not a gap, since the constant check
+  exists, but it means one of the two tests is doing less than its name suggests.
+- **One of its own mutation reverts silently no-op'd** on a bad path with `2>/dev/null`
+  masking it, and it was caught by the harness's file-change reminder rather than
+  by its own re-check. It named that rather than burying it.
+
+The single uncovered region — 1244/1245 — is the `segments.next()?` in
+`parse_three_segments` whose module doc already records it as provably
+unreachable, *"confirmed rather than assumed"*.
 | **P3.54** layout anchors | dispatched | scope narrowed to the **seven** files that lack them |
 
 **I gated the two committed clusters myself** on a throwaway integration branch in
