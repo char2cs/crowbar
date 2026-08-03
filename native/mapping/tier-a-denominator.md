@@ -757,7 +757,112 @@ read the other way (giving 39).
 
 ## 7. Review threads
 
-*(pending)*
+### Where it lives
+
+| file | lines | shape |
+|---|---|---|
+| `features/workspace/stores/slices/branch-review-slice.ts` | 156 | **the model**: `ReviewMessage`/`ReviewThread`/`ReviewConversation` types + a zustand `StateCreator` with CRUD mutators |
+| `features/git/api/review-api.ts` | 288 | transport + **`mapThread`/`mapReply`/`mapConversation`**: wire (`ThreadDTO`/`ThreadReplyDTO`) → app-model reshape |
+| `features/git/components/diff/use-review-annotations.tsx` | 395 | ~140 lines of pure positioning helpers + a 250-line hook |
+| `features/workspace/stores/hooks/use-workspace-threads-stream.ts` | 61 | WS-stream subscription lifecycle (seed/subscribe/reconnect/cleanup) |
+| `features/git/components/review-thread-item.tsx` | — | component, not counted |
+
+**~900 lines total** across the four non-component files, of which roughly
+**300–320 lines are genuine model/mapping/positioning logic** once the
+transport and hook bodies are subtracted (see below).
+
+### What is genuine, portable review-thread-model logic
+
+- **`branch-review-slice.ts`'s types** — `ReviewMessage{id,author,isAgent,
+  body,createdAt}`, `ReviewThread{id,filePath,lineNumber,startLine,endLine,
+  side,messages,isResolved}`, `ReviewConversation{id,title,age,isActive}`.
+  This is "review-thread model" as named, almost verbatim.
+- **`branch-review-slice.ts`'s mutators** — `addReviewThread`,
+  `removeReviewThread`, `addReviewMessage`, `setReviewThreadResolved`,
+  `upsertReviewThread` (insert-or-replace-by-id), `addReviewConversation`.
+  Same D2 pattern as the file-tree-expansion store (§5) and the keymap store
+  (§3): underneath the `StateCreator`/immer wrapper, every mutator is a
+  trivial pure `ReviewThread[] → ReviewThread[]` transition (filter-by-id,
+  find-and-mutate, upsert-by-id). Portable as plain functions with the
+  reactive shell left to `crowbar-state`.
+- **`review-api.ts`'s `mapThread`/`mapReply`/`mapConversation`** — the
+  genuinely nontrivial piece: reshaping the wire's root-comment-at-top-level +
+  `replies[]` structure (`ThreadDTO`) into the app's uniform `messages[]`
+  array with the root prepended, including two real fallback rules (prefer
+  `t.messageId`, else synthesize `${t.id}:root`; prefer `startLine`/`endLine`,
+  else fall back to `line` for both). Pure, gpui-free, and the exact kind of
+  "wire shape ≠ app shape" reconciliation a `crowbar-core` model type should
+  own.
+- **`use-review-annotations.tsx`'s pure helpers (lines 58–115, ~90 lines)** —
+  `isDraftThread`, `toAnnotationSide`/`toThreadSide` (the `old`/`new` ↔
+  renderer's two-sided line addressing map — the file's own comment warns an
+  inversion here "puts every comment on the wrong half of the diff", i.e. a
+  correctness-critical mapping), `threadToAnnotation`/`annotationToThread`
+  (wrap/unwrap), `groupAnnotationsByPath` (bucket threads by file, sorted by
+  line), `countThreadsByPath` (per-file thread counts, deliberately computed
+  from the thread store alone so it is correct even for an unloaded file).
+  All pure, gpui-free — **but** typed against `@pierre/diffs`'s
+  `DiffLineAnnotation<T>`/`AnnotationSide`, the same library-type entanglement
+  found in §1/§2's placeholder-hunk-geometry functions. The concept (how a
+  thread anchors to a diff side/line, and how threads group per file) is
+  portable; these specific functions are not, verbatim, because their types
+  belong to a library `crowbar-diff` replaces.
+
+### What is Phase 4 or presentation
+
+- **`review-api.ts`'s transport functions** (`getReview`, `getReviewFiles`,
+  `mergeIntoParent`, `setMergeStrategy`, `listThreads`, `openThread`,
+  `replyToThread`, `setThreadResolved`, `deleteThread`, `deleteMessage`,
+  `editMessage`) — `crowbar-client` territory, not `crowbar-core`.
+- **`use-review-annotations.tsx`'s `useReviewAnnotations` hook (lines
+  142–390, ~250 lines)** — store subscription (`useWorkspaceStoreContext`),
+  draft-comment state (`useState`), submit/cancel handlers that call the
+  transport functions, and JSX renderers (`renderAnnotation`,
+  `renderGutterUtility`). Phase 4 + presentation, not core. `composerTitle`
+  (line 391) is a one-line label formatter — presentation.
+- **`use-workspace-threads-stream.ts`** — WS subscription lifecycle (seed,
+  subscribe, reconnect-triggered re-seed, cleanup on unmount/wsId change).
+  Textbook §7 "subscription, invalidation, effect ordering" — Phase 4 by the
+  brief's own test, unambiguously (unlike `activation-freshness.ts` in §6,
+  there's no ambiguity here: this file's substance is entirely the
+  subscribe/reconnect/cleanup lifecycle). Notable for what it reveals about
+  the daemon's push model though: threads arrive over a workspace-scoped WS
+  stream with a `deleted` tombstone flag for removal and a `{reconnected:
+  true}` sentinel that triggers a full re-seed — a real wire-protocol
+  behaviour `crowbar-client`/`crowbar-state` will need to reproduce, even
+  though the reconciliation code itself doesn't port as pure logic.
+
+### gpui-free?
+
+Yes for `branch-review-slice.ts`'s types + mutator bodies, `mapThread`/
+`mapReply`/`mapConversation`, and `use-review-annotations.tsx`'s six pure
+helpers (modulo the `@pierre/diffs` type entanglement noted above, which
+affects the concrete types but not the underlying logic).
+
+### Already done in `crowbar-proto`
+
+`native/crates/crowbar-proto/src/generated/api_v0_dto.rs` already has
+`ThreadDTO` (line 315), `ThreadReplyDTO` (line 342), and `ReviewThreadDTO`
+(line 268) — the wire shapes are generated. **What is not done, and has no
+counterpart, is the app-side `ReviewThread`/`ReviewMessage`/
+`ReviewConversation` model and the `mapThread` reshape between the two** —
+this is genuinely new Tier A content, not a duplicate, the same pattern seen
+in git model (§1: types mostly duplicate proto; mapping logic mostly does
+not).
+
+### Tests
+
+| test file | cases | covers |
+|---|---|---|
+| `features/workspace/stores/branch-review-slice.test.ts` | 11 | slice mutators (add/remove/upsert/resolve) |
+| `features/git/api/review-api.test.ts` | 21 total, **8** test `mapThread` specifically (the `describe('mapThread', …)` block); the other 13 test transport request shapes |
+| `features/git/components/diff/use-review-annotations.test.tsx` | 22 total, **8** test the pure helpers (`describe`s: "side map", "threadToAnnotation / annotationToThread", "grouping threads by file"); the other 14 test the hook/component |
+| `features/workspace/stores/hooks/use-workspace-threads-stream.test.ts` | 8 | (Phase 4, not core) |
+| `features/git/components/review-thread-item.test.tsx` | 19 | component, not core |
+| `features/panes/components/comment-composer.test.tsx` | 7 | component, not core |
+
+**Review-thread Tier A test total: 11+8+8 = 27 cases** across 3 files (slice
+CRUD, `mapThread`, annotation-positioning helpers).
 
 ---
 
