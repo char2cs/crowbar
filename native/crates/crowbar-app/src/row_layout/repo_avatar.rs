@@ -26,7 +26,16 @@ fn at(records: &[RawAnchor], id: &str) -> Bounds<Pixels> {
 }
 
 /// **The default cell is the letter fallback at `sm`**: `16 × 16`,
-/// `radius_sm` (6px, not `rounded-full`), `font-bold`, a `"R"` run.
+/// `radius_sm` (6px, not `rounded-full`), `font-bold`, an `"RE"` run.
+///
+/// `"RE"`, not `"R"`: `--content` defaults to `ContentLength::Normal`, the
+/// shared convention every `--content` surface uses (`git_status_row.rs`),
+/// not a repo-avatar-specific choice — the bare cell is
+/// `label_of(ContentLength::Normal)`, and `label_of`'s own match arm names
+/// it `"RE"`. `RepoAvatar::fixture`'s hardcoded `"R"` is not what this cell
+/// shows: `Params::repo_avatar` overrides `label` from `cell.content`
+/// unconditionally (only `--flags empty` beats it), so the fixture's literal
+/// string never survives past a bare `--surface repo-avatar`.
 ///
 /// The one-line mutation that turns this red: swap `theme.radius_sm.value()`
 /// for `FULL_RADIUS` in `RepoAvatar::letter_box` — `record.radius` would then
@@ -52,7 +61,7 @@ fn the_default_cell_is_the_letter_fallback(cx: &mut TestAppContext) {
     assert!(matches!(record.background, Paint::Solid(_)));
 
     let text = record.text.clone().expect("the letter fallback paints text");
-    assert_eq!(text.content, "R");
+    assert_eq!(text.content, "RE");
     assert_px(text.font.size, px(10.0)); // text-[10px], sm
     assert!((text.font.weight - 700.0).abs() < f32::EPSILON, "font-bold");
 }

@@ -337,6 +337,7 @@ pub trait Params: Debug {
     fn describe(&self, cell: &Cell, out: &mut String);
 
     /// See [`SurfaceParams::no_state_axis`].
+    #[cfg_attr(not(test), allow(dead_code))]
     fn no_state_axis(&self) -> bool;
 
     /// See [`SurfaceParams::render_ctx`].
