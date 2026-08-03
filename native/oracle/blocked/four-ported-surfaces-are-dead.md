@@ -4,8 +4,9 @@
 **Status:** needs a user product decision. **Nothing is deleted pending it.**
 
 The user's directive was *"only port components that ARE IN USE on the production
-app."* By then it had already been violated four times. This records what was
-found, why the four are not the same kind of thing, and what each choice costs.
+app."* By then it had already been violated four times — and a fifth landed
+afterwards, from work already in flight. This records what was found, why they
+are not all the same kind of thing, and what each choice costs.
 
 ## They split into two kinds, and the split is the decision
 
@@ -17,7 +18,8 @@ found, why the four are not the same kind of thing, and what each choice costs.
 | `sheet` | its only consumer is `sidebar.tsx`'s `Sidebar` (`isMobile` branch), and a repo-wide grep for `<Sidebar` returns **zero** JSX renders. |
 
 These are dead components. Porting them was wasted effort and keeping them
-overstates coverage — **48 surfaces is really 46**.
+overstates coverage — **50 surfaces is really 45**, once the three class-B cases
+below are counted too.
 
 ### B. Live components on a branch that cannot fire — `skeleton`, `sidebar-skeleton`, `inline-error`
 
@@ -39,7 +41,7 @@ error state a user should see and cannot, and a loading state that never appears
    are not — if the upstream defect is fixed, those surfaces become live and
    correct, and deleting them means porting them twice.
 2. **Or keep them and mark them?** Then the coverage number needs an asterisk and
-   §17.9's *"a user cannot tell the apps apart"* is trivially satisfied for four
+   §17.9's *"a user cannot tell the apps apart"* is trivially satisfied for five
    surfaces by neither app ever showing them.
 3. **And separately — are the two class-B cases bugs worth filing against the
    React app?** `getAllEntities` swallowing IndexedDB failures means the workspace
@@ -48,7 +50,8 @@ error state a user should see and cannot, and a loading state that never appears
 
 ## What is NOT in question
 
-The other 44 are fine: **30 LIVE, 14 CONDITIONAL** — the conditionals each sit
+The other 45 are fine: **30 LIVE, 14 CONDITIONAL**, plus `sidebar-project-header`
+which has since PASSED its verdict 0/5 — the conditionals each sit
 behind a named route, flag or toggle (`fps-overlay`'s Developer-tab switch, the
 `git` tab's home-route filter), which is a **cell axis the port must model**, not
 a reason to skip. That distinction was itself a finding: I would have collapsed
