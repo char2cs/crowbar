@@ -3515,6 +3515,38 @@ integration:
 **Three isolated green gates would have reported three green branches.** That is
 the entire argument for gating them together, and it paid on the first run.
 
+##### 🎯 (4) — a REAL PORT DEFECT, found only because the surfaces were merged
+
+`sidebar_tab_bar` builds **four** tabs; `tabs`' own fixture has **three**.
+
+```js
+// sidebar-tab-bar.tsx
+const isHomeRoute = useMatch({ from: '/_shell/ide/$projectId/home', shouldThrow: false })
+const visibleTabs = isHomeRoute ? TABS.filter((t) => t.tab !== 'git') : TABS
+```
+
+**`git` is route-conditional**, and the port renders it unconditionally. My own
+live capture corroborates it exactly: the running app sat at
+`…/#/ide/<id>/home` and showed **three** tabs beside **four** carousel panels —
+the panels are not filtered, the tabs are.
+
+**This is the finding that most justifies the integrated gate.** `sidebar_tab_bar`'s
+own tests pass on its own branch. The assertion that fails compares against
+`tabs`' fixture — **a different cluster's already-merged surface**. No isolated
+gate could see it, and the port would have shipped a component that renders half
+its states.
+
+**The fix is not "drop `git`".** React renders *both* shapes, so hardcoding either
+models half the component. It needs a **cell axis** — a surface option selecting
+home vs non-home, the way `--content` and `--flags` are — with both cells tested.
+The `useEffect` that *reassigns* the active tab to `workspaces` when landing on
+home while `git` is active is part of the behaviour, and whether a geometry
+oracle models that transition is a call to make explicitly.
+
+Also open: **`sidebar-carousel` is already ported with four panels.** If two
+ported surfaces read the same route condition differently, that is worth knowing
+before either takes a verdict.
+
 ##### On (2) I formed my own read before accepting an answer
 
 `fps-overlay.tsx` is `fixed bottom-8 right-3 … rounded-md px-2.5 py-1.5` — a
