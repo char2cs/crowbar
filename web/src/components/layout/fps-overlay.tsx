@@ -72,6 +72,8 @@ function FpsOverlayInner() {
       className="fixed bottom-8 right-3 z-[2147483647] pointer-events-none select-none rounded-md px-2.5 py-1.5 font-mono text-[11px] leading-none tabular-nums shadow-xl"
       style={{ background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(10px)' }}
       aria-hidden
+      data-oracle-id="fps-overlay"
+      data-oracle-content-sized="true"
     >
       <span className={cn('font-bold', fpsColor)}>{fps > 0 ? fps : '—'}</span>
       <span className="text-muted-foreground"> fps</span>

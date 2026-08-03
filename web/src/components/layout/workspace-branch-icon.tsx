@@ -25,34 +25,74 @@ export function WorkspaceBranchIcon({ status, working, isPlaceholder }: Workspac
         aria-label="Branch needs provisioning"
         className="size-4 shrink-0 text-amber-500"
         weight="fill"
+        data-oracle-id="workspace-branch-icon"
       />
     )
   }
 
   switch (status) {
     case 'locked':
-      return <Lock aria-hidden="true" className="size-4 shrink-0 text-foreground" weight="fill" />
+      return (
+        <Lock
+          aria-hidden="true"
+          className="size-4 shrink-0 text-foreground"
+          weight="fill"
+          data-oracle-id="workspace-branch-icon"
+        />
+      )
     case 'new':
       return (
-        <GitBranch aria-hidden="true" className="size-4 shrink-0 text-foreground" weight="fill" />
+        <GitBranch
+          aria-hidden="true"
+          className="size-4 shrink-0 text-foreground"
+          weight="fill"
+          data-oracle-id="workspace-branch-icon"
+        />
       )
     case 'pr-conflicts':
-      return <Warning aria-hidden="true" className="size-4 shrink-0 text-amber-500" weight="fill" />
+      return (
+        <Warning
+          aria-hidden="true"
+          className="size-4 shrink-0 text-amber-500"
+          weight="fill"
+          data-oracle-id="workspace-branch-icon"
+        />
+      )
     case 'deleted':
-      return <GitFork aria-hidden="true" className="size-4 shrink-0 text-red-500" weight="fill" />
+      return (
+        <GitFork
+          aria-hidden="true"
+          className="size-4 shrink-0 text-red-500"
+          weight="fill"
+          data-oracle-id="workspace-branch-icon"
+        />
+      )
     case 'pr-open':
       return (
         <GitPullRequest
           aria-hidden="true"
           className="size-4 shrink-0 text-green-500"
           weight="fill"
+          data-oracle-id="workspace-branch-icon"
         />
       )
     case 'pr-closed':
-      return <GitFork aria-hidden="true" className="size-4 shrink-0 text-red-500" weight="fill" />
+      return (
+        <GitFork
+          aria-hidden="true"
+          className="size-4 shrink-0 text-red-500"
+          weight="fill"
+          data-oracle-id="workspace-branch-icon"
+        />
+      )
     case 'pr-merged':
       return (
-        <GitMerge aria-hidden="true" className="size-4 shrink-0 text-violet-500" weight="fill" />
+        <GitMerge
+          aria-hidden="true"
+          className="size-4 shrink-0 text-violet-500"
+          weight="fill"
+          data-oracle-id="workspace-branch-icon"
+        />
       )
     default: {
       const _exhaustive: never = status
@@ -65,7 +105,10 @@ export function WorkspaceAgentSpinner() {
   // Theme-token colored, never a provider/hardcoded color; the <FlickerSpinner>
   // random-picks a flicker spinner and animates it.
   return (
-    <span className="flex size-4 shrink-0 items-center justify-center text-foreground">
+    <span
+      className="flex size-4 shrink-0 items-center justify-center text-foreground"
+      data-oracle-id="workspace-branch-icon"
+    >
       <FlickerSpinner className="size-3.5" />
     </span>
   )

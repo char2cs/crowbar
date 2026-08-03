@@ -123,6 +123,16 @@ function SidebarToastItem({
   )
 }
 
+// The two `Toast.Viewport`s are anchored (`sidebar-toast-viewport` /
+// `-fallback`, reusing this file's own `data-slot` names) so a future Rust
+// port has a root to measure — no port exists yet (P3.52 ported the other
+// four sidebar fragments and deliberately left this one), so these ids are
+// read off this component's own structure, not matched against any Rust
+// source (native/oracle/ANCHORS.md's own rule for that case). A
+// `SidebarToastItem` is deliberately left unanchored: its count is a live
+// toast queue's own size (0..SIDEBAR_TOAST_LIMIT), a property of the cell
+// rather than of the surface — the identical reason `select-item` is
+// undeclared in `oracleSurfaceScope` (see extract.ts).
 function SidebarToastOverlayInner({ sidebarOpen, sidebarSide }: SidebarToastOverlayProps) {
   const { toasts } = Toast.useToastManager()
   const swipeDirection: ('left' | 'right' | 'down')[] =
@@ -134,6 +144,7 @@ function SidebarToastOverlayInner({ sidebarOpen, sidebarSide }: SidebarToastOver
       <Toast.Viewport
         className="pointer-events-none absolute inset-x-0 bottom-0 z-50 flex w-full flex-col-reverse gap-2 p-2"
         data-slot="sidebar-toast-viewport"
+        data-oracle-id="sidebar-toast-viewport"
       >
         {visibleToasts.map((toast) => (
           <SidebarToastItem key={toast.id} toast={toast} swipeDirection={swipeDirection} />
@@ -149,6 +160,7 @@ function SidebarToastOverlayInner({ sidebarOpen, sidebarSide }: SidebarToastOver
       <Toast.Viewport
         className={`fixed bottom-4 z-[var(--z-overlay,60)] flex w-72 flex-col gap-2 ${fixedSideClass}`}
         data-slot="sidebar-toast-viewport-fallback"
+        data-oracle-id="sidebar-toast-viewport-fallback"
       >
         {toasts.map((toast) => (
           <SidebarToastItem key={toast.id} toast={toast} swipeDirection={swipeDirection} />

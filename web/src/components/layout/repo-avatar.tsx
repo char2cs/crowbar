@@ -31,6 +31,7 @@ function RepoAvatarImgAttempt({ src, alt, className, fallback }: RepoAvatarImgPr
       alt={alt}
       draggable={false}
       className={className}
+      data-oracle-id="repo-avatar"
       onError={() => setErrored(true)}
     />
   )
@@ -59,6 +60,7 @@ export function RepoAvatar({
     return (
       <span
         className={cn('inline-flex shrink-0 items-center justify-center leading-none', box, emoji)}
+        data-oracle-id="repo-avatar"
       >
         {avatar.url.slice(6)}
       </span>
@@ -72,6 +74,7 @@ export function RepoAvatar({
         text,
         avatar.color,
       )}
+      data-oracle-id="repo-avatar"
     >
       {avatar.label}
     </span>

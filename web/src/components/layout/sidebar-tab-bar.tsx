@@ -16,6 +16,14 @@ const TABS: {
   { tab: 'git', label: 'Git', Icon: GitBranch },
 ]
 
+// No `data-oracle-id` on this file's own wrapper `<div>`, deliberately.
+// `crowbar_ui::components::sidebar_tab_bar::SidebarTabBar::render` returns the
+// wrapped `Tabs` element directly rather than opting a second, fabricated root
+// into its anchor sink — the wrapper's own padding already shows up as the
+// *width* `Tabs`' own `w-full` resolves to, which is exactly what
+// `native/mapping/tabs.md` §9's reference (captured live from this call site)
+// already measured. Anchoring the wrapper here would add an id the Rust port
+// does not record — dead weight the differ can never compare against anything.
 export function SidebarTabBar() {
   const activeTab = useSidebarStore((s) => s.activeTab)
   const setActiveTab = useSidebarStore((s) => s.setActiveTab)
