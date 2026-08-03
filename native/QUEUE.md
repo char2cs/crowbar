@@ -279,7 +279,7 @@ session from prose scattered over 4,000 lines.
 
 | # | condition | status | evidence |
 |---|---|---|---|
-| 1 | strict-parity anchors converge across the §8.3 matrix | ❌ **not met** | 240/240 cells *runnable*; references exist for **one** cell of most surfaces. Viewport axis inert on all 40; theme axis vacuous on 10 of 40. **The gap is references.** |
+| 1 | strict-parity anchors converge across the §8.3 matrix | ❌ **not met, and further off than this row used to say** | **Two gaps, not one.** *(a)* **Denominator**: §5.1 covers `components/ui` **and** `components/layout`; the second is at **1 of 29** and was never counted — so "43 surfaces" measured against half the definition. *(b)* **References**: for the surfaces that do exist, 258/258 cells are *runnable* but references exist for **one** cell of most. Viewport axis inert on all of them, theme axis vacuous on 10, and v1.14 shows a reference is only comparable if the app is driven back into its original configuration — which nothing records. |
 | 2 | every §5.2 surface judged against Zed | ❌ **not met** | editor, diff and terminal are not built. Phase 4+. |
 | 3 | both coverage numbers met, reported separately | ⚠ **half met** | **line coverage MET** — re-measured 2026-08-03 across all six §12 crates: **99.64%** (4,978 lines, 18 missed) against a ≥98 gate. The corpus number is *reported* but thin — see row 1. Never averaged. |
 | 4 | zero `unsafe` outside `crowbar-platform`, every block there proved | ✅ **met — and now vacuous** | grepped 2026-08-03: **0** outside. P3.40 removed the last AppKit code, so there are **0 inside** too. Rule 3 of `check-invariants.sh` passes with nothing to check; the mutation evidence for it is historical. **Re-run that mutation the moment `unsafe` returns.** |
