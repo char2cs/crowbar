@@ -3374,7 +3374,7 @@ existed at all.
 |---|---|---|
 | **P3.50** cluster 1 | `native/p3.50-layout-cluster1` @ `dd280377` | committed (code + 2 mapping docs). Implementing the state-axis exemption; **gates third** |
 | **P3.51** cluster 2 | `native/p3.51-layout-cluster2` @ `1509d677` | ✅ clippy fixed, committed, awaiting the integrated gate |
-| **P3.52** cluster 3 | `native/p3.52-layout-cluster3` @ `2235eb0e` | committed, 4 of 5. **5 clippy errors**; gating now |
+| **P3.52** cluster 3 | `native/p3.52-layout-cluster3` @ `ba7ce636` | ✅ clippy fixed, committed, 4 of 5. Awaiting the integrated gate |
 | **P3.53** Tier A | ✅ **MERGED `aed95496`** | 1,299 lines. clippy 0 · **1683 passed** (was 1627) · `crowbar-core` **71 tests** (was 15) · **100.00% over 787 lines** (was 148) · 7/7 invariants |
 | **P3.54** layout anchors | dispatched | scope narrowed to the **seven** files that lack them |
 
@@ -3414,6 +3414,26 @@ is not alphabetical to begin with** — `flicker_spinner`/`loading_spinner`/`spi
 and `sidebar_carousel` all sit far from alphabetical position — so grouping the
 two modals beside `dialog` follows the file's existing precedent instead of
 breaking one.
+
+**Cluster 3, asked the same question, found a collision cluster 2 could not
+see:** `theme/token.rs`'s `impl Color` block. Cluster 1 adds `RED_500`/
+`GREEN_500`/`VIOLET_500`; cluster 3 adds `BLACK`; **both insert immediately after
+`WHITE`'s closing brace and before `fn to_srgba`.** Cluster 2 does not touch that
+file, so only the branch that shares the anchor could have spotted it.
+
+**Two forecasts, two different blind spots, and between them the whole picture.**
+Neither collision is semantic — both are independent additions at one textual
+anchor, and the resolution in each case is "keep both" — but git will very likely
+raise literal conflict markers rather than interleave, because neither side's
+diff carries enough context to auto-order. **Asking every worker to predict its
+own merge, rather than asking one, is what produced the complete list.**
+
+Its `float_cmp` reasoning is also worth keeping. It did not reach for
+`.to_bits()` by analogy — it proved `painted.value().l` is exactly `0.0` *by
+construction*: `color_mix_remainder` weights every channel by `c * a`, and both
+`BLACK` and `TRANSPARENT` have `r = g = b = 0`, so every product and the final
+division are exact. **There is no rounding step to tolerate**, which is the
+argument that makes an epsilon wrong rather than merely unnecessary.
 
 #### Two workers lost track of which worktree they were in
 
