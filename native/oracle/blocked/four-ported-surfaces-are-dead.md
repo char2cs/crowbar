@@ -1,4 +1,4 @@
-# Blocked — 4 of 48 ported surfaces measure code no user can reach
+# Blocked — 5 of 50 ported surfaces measure code no user can reach
 
 **Raised:** 2026-08-03, by the liveness audit (P3.56, `native/mapping/liveness-audit.md`).
 **Status:** needs a user product decision. **Nothing is deleted pending it.**
@@ -19,11 +19,12 @@ found, why the four are not the same kind of thing, and what each choice costs.
 These are dead components. Porting them was wasted effort and keeping them
 overstates coverage — **48 surfaces is really 46**.
 
-### B. Live components on a branch that cannot fire — `skeleton`, `inline-error`
+### B. Live components on a branch that cannot fire — `skeleton`, `sidebar-skeleton`, `inline-error`
 
 | surface | evidence |
 |---|---|
 | `skeleton` | its host is live — `<Suspense fallback={<SidebarSkeleton/>}>` at `sidebar-carousel.tsx:131` — but **nothing in the wrapped subtree ever suspends** (no `React.lazy`, no suspending hook), so the fallback is unreachable by construction. |
+| **`sidebar-skeleton`** | **the same fallback, one level up — and I registered a surface for it *after* the audit reported the host dead.** `SidebarSkeleton` is rendered in exactly one place: that `Suspense fallback`. Re-verified by me with a control — `FileExplorerTree` is a plain `memo()` component, and there is no `React.lazy`, no `use()` of a promise, and no `useSuspenseQuery`/`suspense: true` anywhere in `web/src`. |
 | `inline-error` | sole call site guards `wsListData.status === 'error' && repos.length === 0` (`workspace-tree.tsx:57`). The fetch chain bottoms out in `getAllEntities`, which is a bare `catch { return [] }` (`lib/persistence/entity-cache.ts:34`) — **it swallows every failure**, so `status` cannot become `'error'` from that source. |
 
 **These are not dead code in the same sense.** The component exists, the call site
@@ -33,7 +34,7 @@ error state a user should see and cannot, and a loading state that never appears
 
 ## The decision I am not making alone
 
-1. **Delete the four ports?** Recovers nothing already spent and removes verified
+1. **Delete the five ports?** Recovers nothing already spent and removes verified
    work. `toast` and `sheet` are clear candidates. `skeleton` and `inline-error`
    are not — if the upstream defect is fixed, those surfaces become live and
    correct, and deleting them means porting them twice.
@@ -62,3 +63,34 @@ their summaries, and that caught a guard misquoted as `||` which is really `&&`.
 My own first liveness scan reported a false *"0 importers"* for fifteen files by
 missing relative sibling imports. **Any liveness claim without a control is
 worthless**; that is now the standing rule.
+
+---
+
+## ‼️ AMENDED — `sidebar-skeleton` makes it five, and I built it *after* being told
+
+**2026-08-03, later the same hour.** P3.55 registered a `sidebar-skeleton`
+surface. The audit that found `skeleton` dead ran against the **48 surfaces
+registered at that moment**; `sidebar-skeleton` was not among them, because
+P3.55 was still building it.
+
+**When the audit came back saying the Suspense host never fires, I did not ask
+whether it implicated the surface being built one worktree over.** I merged
+P3.55 on its gates — clippy 0, 1848 tests, 7/7 invariants, and my own
+component/surface/row_layout/mapping audit table, all green — and every one of
+those checks is silent on whether the thing renders.
+
+**Re-verified by me before writing this**, with a control rather than a single
+grep: `SidebarSkeleton` appears in exactly one place, `sidebar-carousel.tsx:131`'s
+`<Suspense fallback>`; `FileExplorerTree` is a plain `memo()`; and there is no
+`React.lazy`, no `use()` of a promise, and no `useSuspenseQuery` or
+`suspense: true` anywhere in `web/src`.
+
+**Consequence for verification:** `sidebar-skeleton` **cannot be given a parity
+verdict at all.** A reference is captured from the running app, and this
+component never renders in it. Same for `toast` and `sheet`. That is three
+surfaces whose verdicts are not pending — they are *unobtainable*.
+
+**The lesson is narrower than "check liveness":** a finding that lands while work
+is in flight has to be re-applied to that work. The audit answered the question I
+asked it — *are the registered surfaces live?* — and I never asked the adjacent
+one, *does this invalidate what is being built right now?*
