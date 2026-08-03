@@ -4,9 +4,32 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 1 — the driver and the oracle. **THE GATE.**
-**Line coverage (logic crates):** `oracle` **100.00%** (2817/2817) · `crowbar-driver` **100.00%** (1134/1134) · `crowbar-core` **100.00%** (148/148) · `crowbar-client` **99.64%**. `proto`/`diff` still empty. **191 tests, 0 failed.** All measured by me.
-**Corpus coverage (view crates):** the gate row **PASSES on all 18 runnable cells** (3 widths × 2 themes × 3 content lengths). The 6 state flags are **vacuous on this component** — no live consumer sets them — so a stateful target is needed to close that axis.
+**Phase:** 3 — component port. **Tier B complete** (40 registered surfaces).
+Phase 1 closed 2026-07-31 (gate passed, see [PHASE1-REPORT.md](PHASE1-REPORT.md));
+Phase 2 closed 2026-07-31.
+
+**Line coverage (logic crates) — ⚠ STALE, last measured 2026-07-31 at 191 tests:**
+`oracle` **100.00%** (2817/2817) · `crowbar-driver` **100.00%** (1134/1134) ·
+`crowbar-core` **100.00%** (148/148) · `crowbar-client` **99.64%**. `proto`/`diff`
+still empty. The suite is now **~1600 tests**, so these percentages describe a
+tree that no longer exists. **Re-measuring is queued and is a §17.3 blocker** — a
+coverage number nobody has re-run is not a coverage number.
+
+**Corpus coverage (view crates) — the honest shape, measured 2026-08-03:**
+
+| axis | state |
+|---|---|
+| **cells runnable** | **240 / 240** — all 40 surfaces × {800, 1200, 1714} × {light, dark}. 0 refused, 0 hung. Verified by me. |
+| **cells with a reference** | **one** (`1714 · dark · normal`) for most surfaces, plus 4 light cells — of which only `sidebar-empty` carries information. |
+| **viewport axis** | **inert on all 40 surfaces** — 800 and 1714 are byte-identical. Measuring it three times measures it once. |
+| **theme axis** | **vacuous on 10 of 40** — every colour on every anchor is `#00000000`. |
+| **state flags** | vacuous on the Phase 1 row; live elsewhere (`switch`, `checkbox`, `slider`). |
+
+**So §17.1 is not met and the gap is references, not the native side.** See the
+§17.1 section under *In flight* for the measurements behind every row above.
+
+> **Two numbers, never combined** (§12). Anything that reports one blended
+> figure here is wrong by construction.
 
 ---
 
