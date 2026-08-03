@@ -283,7 +283,10 @@ impl WorkspaceBranchIcon {
                 empty: false,
             }
             .render(anchors);
-            anchors.boxed(AnchorId::from(ID), Self::spinner_wrapper(theme).child(spinner))
+            anchors.boxed(
+                AnchorId::from(ID),
+                Self::spinner_wrapper(theme).child(spinner),
+            )
         } else {
             anchors.boxed(AnchorId::from(ID), self.glyph_box(theme))
         }
@@ -328,7 +331,9 @@ impl WorkspaceBranchIcon {
 
 #[cfg(test)]
 mod tests {
-    use super::{ALL_STATUSES, CONTENT_SIZED, Glyph, ID, LINE_SIZED, SIZE_4, Status, WorkspaceBranchIcon};
+    use super::{
+        ALL_STATUSES, CONTENT_SIZED, Glyph, ID, LINE_SIZED, SIZE_4, Status, WorkspaceBranchIcon,
+    };
     use crate::theme::{Color, Theme};
     use gpui::px;
 
