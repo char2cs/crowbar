@@ -97,6 +97,10 @@ closes** unless a concrete need appears that the vendored one cannot serve. It i
 wired to **no** call site — only to its own driver surface — so it ships nothing
 today and costs only its own maintenance.
 
+**P3.40 retired the implementation.** No such need appeared — P3.38
+confirmed that every call site exercised needs the vendored menu already
+serves. See commit `bca7c3c9`.
+
 Two things it holds that the vendored one does not, and which decide the question
 if either turns out to matter:
 
