@@ -4,12 +4,13 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 3 — and its real remainder is now **measured**, not estimated:
+**Phase:** 3 — remainder **measured**, not estimated. **48 surfaces · 1815 tests ·
+clippy 0 · 7/7 invariants**, all verified by my own run.
 
 | tier | state |
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
-| **Tier B · `components/layout`** | **1 of 23 targets** (29 files, of which 4 are Phase 4/5, 1 app shell, 1 no-geometry). **22 to go**, wave 1 in flight |
+| **Tier B · `components/layout`** | **7 of 23 targets** — wave 1 merged (`e1b7ef4a`). **16 to go.** ⚠ all 7 are *built*, none has a **parity verdict** yet |
 | **Tier A · `crowbar-core`** | **1,648 lines of a ~3,170-line target** — first area merged (workspace scoping, P3.53). Coverage **100.00% over 787 lines**, up from 148 |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
@@ -3309,7 +3310,47 @@ progress number correspondingly too small.
 
 ## In flight
 
-### 🛑 WAVE 1 CANNOT BE VERIFIED — the layout tier has almost no anchors, and I dispatched anyway
+### ✅ WAVE 1 MERGED — `e1b7ef4a`. Six components, registry 43 → 48, 1815 tests.
+
+Gated as one tree rather than three, and **that decision found four defects no
+isolated run could reach** (the four are itemised below). Three isolated green
+gates would have reported three green branches.
+
+**Still owed: none of the six has a parity verdict.** They are built, tested,
+anchored and merged — and a verdict needs a reference captured from the live
+React app and diffed against a native capture, which is mine to take. Per
+ANCHORS **v1.14**, each reference must also record the app-state drive that
+produced it.
+
+#### ⚠ One correction to my own account of the tab defect
+
+I wrote that the port *"renders four unconditionally"*. **It does not.**
+`include_git` already existed and `tab_values()`/`tabs()` already branched on it
+correctly. The defect was narrower and more interesting: `SidebarTabBar::fixture()`
+set `include_git: true` while reusing `tabs.md`'s 294/278px capture — **a number
+measured on the home route, where that flag is false**. The fixture asserted a
+combination the live app never produces at once.
+
+So the port modelled both shapes and its *default cell* was incoherent. Worth
+getting right, because "the port ignores a condition" and "the fixture pins an
+impossible pair" call for different fixes.
+
+**I also prescribed the wrong remedy** — promoting `include_git` to a `--surface`
+option — and the worker declined with a concrete argument rather than complying:
+`sidebar-tab-bar.tsx`'s wrapper carries no `data-oracle-id`, so every anchor a
+rendered `SidebarTabBar` has belongs to `tabs::ID_ROOT`'s subtree, already
+registered as `--surface tabs`. `surface.rs`'s own
+`every_registered_surface_has_its_own_name_and_root` forbids a second surface on
+that root, and minting an unused one is the fabricated-anchor move this codebase
+refuses elsewhere. **No coverage is lost**: `--surface tabs --tabs
+workspaces,chats,files` and `…,git` already drive the identical geometry.
+
+And my `sidebar-carousel` worry was unfounded — it was **read, not inferred**:
+`sidebar-carousel.tsx` keeps its own unconditional four-entry `TABS` with no
+`isHomeRoute` check, and the merged port matches at `PANEL_COUNT = 4`. Two
+different React originals, deliberately different shapes.
+
+### 🛑 ~~WAVE 1 CANNOT BE VERIFIED~~ *(superseded — kept for the anchor finding)* — the layout tier has almost no anchors, and I dispatched anyway
 
 A worker reported that neither of its two files carries a `data-oracle-id`
 anywhere. I checked the whole tier:
