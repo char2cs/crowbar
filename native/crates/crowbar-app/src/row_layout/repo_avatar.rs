@@ -72,10 +72,13 @@ fn the_letter_shape_is_a_rounded_square_not_a_circle(cx: &mut TestAppContext) {
     let theme = Theme::DARK;
     let record = find(&records, "repo-avatar");
     assert_eq!(record.radius, theme.radius_sm.value());
-    assert_ne!(
-        f32::from(record.radius),
-        f32::from(crowbar_ui::components::avatar::FULL_RADIUS),
-    );
+    // `Pixels`, not the raw `f32` either side would convert to — the same
+    // typed comparison line 74 above already makes, and the one `avatar.rs`'s
+    // own `assert_eq!(FULL_RADIUS, px(f32::MAX))` makes too. Comparing the
+    // laid-out `Pixels` value directly is what avoids `clippy::float_cmp`
+    // here; converting both sides to `f32` first, the way this line used to,
+    // is what triggered it.
+    assert_ne!(record.radius, crowbar_ui::components::avatar::FULL_RADIUS);
 }
 
 /// Every size resolves to its own authored box — `16 × 16`, `20 × 20`,
