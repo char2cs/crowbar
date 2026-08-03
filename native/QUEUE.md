@@ -4,15 +4,15 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 3 — remainder **measured**, not estimated. **54 surfaces · 1951 tests ·
-clippy 0 · 7/7 invariants**, all verified by my own run. Of the 54, **5 measure
-dead code** (liveness audit + `sidebar-skeleton`) — so the honest figure is **49**,
+**Phase:** 3 — remainder **measured**, not estimated. **56 surfaces · 1998 tests ·
+clippy 0 · 7/7 invariants**, all verified by my own run. Of the 56, **5 measure
+dead code** (liveness audit + `sidebar-skeleton`) — so the honest figure is **51**,
 and three of the five can never receive a verdict at all.
 
 | tier | state |
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
-| **Tier B · `components/layout`** | **13 of 23 targets** — waves 1–3 merging. **10 to go.** ⚠ built ≠ verified: **2 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2), 1 FAIL (`fps-overlay` — a **contract** gap, not a port defect), the rest unverified |
+| **Tier B · `components/layout`** | **15 of 23 targets** — waves 1–3 merged. **8 to go.** ⚠ built ≠ verified: **2 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2), 1 FAIL (`fps-overlay` — a **contract** gap, not a port defect), the rest unverified |
 | **Tier A · `crowbar-core`** | **1,648 lines of a ~3,170-line target** — first area merged (workspace scoping, P3.53). Coverage **100.00% over 787 lines**, up from 148 |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
