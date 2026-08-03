@@ -1661,6 +1661,13 @@ mod tests {
         // "Five" to "Six". Neither was wrong on its own branch; the merged
         // answer is eight, and both reasons above survive because they are
         // genuinely different mechanisms rather than two phrasings of one.
+        //
+        // **Nine, as of P3.59.** `sidebar-peek` joins for the positioning
+        // reason `fps-overlay` already established: its `Closed`/`Peeking`
+        // states are `position: absolute` with no `.relative()` ancestor of
+        // their own, so reaching the window's true edges needs the same
+        // uninset immediate parent. `Docked` is unaffected either way — see
+        // `crowbar_app::surfaces::sidebar_peek`'s module docs.
         let bleeding: Vec<&str> = Surface::names()
             .into_iter()
             .filter(|name| a_surface(name).full_bleed)
@@ -1675,7 +1682,8 @@ mod tests {
                 "fps-overlay",
                 "repo-import-dialog",
                 "resizable",
-                "sheet"
+                "sheet",
+                "sidebar-peek",
             ]
         );
 

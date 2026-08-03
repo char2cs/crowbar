@@ -159,6 +159,13 @@ pub struct SidebarPeek {
     /// The window's own width — `100vw` in the card's `max-w` calc. Unread
     /// outside [`PeekState::Closed`]/[`PeekState::Peeking`].
     pub viewport_width: Pixels,
+    /// The window's own **content** height — the quantity `inset-y-2`'s
+    /// `top`/`bottom` resolve against in a real browser. Unread outside
+    /// [`PeekState::Closed`]/[`PeekState::Peeking`]. See
+    /// [`SidebarPeek::render`]'s own doc comment for why this is an
+    /// explicit field rather than gpui computing it from `top`+`bottom`
+    /// alone.
+    pub content_height: Pixels,
     /// The max-content width of a filler placed inside the card — see the
     /// module docs.
     pub content_width: Pixels,
@@ -171,6 +178,7 @@ impl Default for SidebarPeek {
             is_right: false,
             peek_width: px(280.0),
             viewport_width: px(1200.0),
+            content_height: px(600.0),
             content_width: px(0.0),
         }
     }
@@ -203,6 +211,24 @@ impl SidebarPeek {
     }
 
     /// Renders the card, opting [`ID_ROOT`] into `anchors`.
+    ///
+    /// # `top`+`bottom` alone do not stretch the height — taffy needs it explicit
+    ///
+    /// `inset-y-2` is `top: 0.5rem; bottom: 0.5rem` with no authored
+    /// `height`, and in a real browser that is enough: CSS's absolute-
+    /// positioning algorithm computes an auto height as the containing
+    /// block's own height minus `top` minus `bottom`. Measured live against
+    /// this port (`row_layout::sidebar_peek`): `.absolute().top(8px).bottom(8px)`
+    /// with no `.h()` call renders a box **2px tall** — exactly
+    /// [`BORDER_WIDTH`] doubled, i.e. taffy computed an auto height from the
+    /// (empty) *content*, the same shrink-to-fit answer it would give a
+    /// `position: relative` box, and never consulted `bottom` at all. So the
+    /// height is computed here instead, from [`SidebarPeek::content_height`]
+    /// — the quantity a real browser's own containing block would report —
+    /// and only `top` is set; `bottom` is dropped rather than kept
+    /// redundant, since an explicit height already fixes the box's own
+    /// extent and a taffy that silently preferred one input over the other
+    /// would be a second thing to go stale against.
     #[must_use]
     pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         let mut shell = div().flex().flex_col().min_h(px(0.0));
@@ -213,7 +239,7 @@ impl SidebarPeek {
             let mut card = shell
                 .absolute()
                 .top(PEEK_MARGIN)
-                .bottom(PEEK_MARGIN)
+                .h(self.content_height - PEEK_MARGIN * 2.0)
                 .w(self.peek_width)
                 .max_w(self.viewport_width - MAX_WIDTH_GAP)
                 .overflow_hidden()
@@ -290,11 +316,11 @@ mod tests {
     /// the two-cell picture `edge_offset` exists to compute rather than
     /// transform.
     ///
-    /// **Mutation:** swapping the `-` for a `+` before `self.peek_width` in
-    /// `edge_offset`'s `Closed` arm would move the parked card *toward* the
-    /// window instead of away from it — this test's own arithmetic,
-    /// duplicated independently below rather than called back into the
-    /// function under test, is what catches that.
+    /// **Mutation, run:** swapping the `-` for a `+` before `self.peek_width`
+    /// in `edge_offset`'s `Closed` arm moves the parked card *toward* the
+    /// window instead of away from it — confirmed red (`left: 272px, right:
+    /// -288px`) against this test's own arithmetic, duplicated independently
+    /// below rather than called back into the function under test.
     #[test]
     fn peeking_and_closed_are_a_fixed_distance_apart() {
         let width = px(280.0);

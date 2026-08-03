@@ -9,6 +9,7 @@
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
 use crowbar_ui::components::nav_stack;
+use crowbar_ui::components::sidebar_project_header::{HEIGHT_MAC, HEIGHT_OTHER};
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -110,7 +111,6 @@ fn the_pushed_screen_exactly_fills_the_root(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_header_height_matches_sidebar_project_header(cx: &mut TestAppContext) {
     crowbar_driver::leak_checked!(cx);
-    use crowbar_ui::components::sidebar_project_header::{HEIGHT_MAC, HEIGHT_OTHER};
 
     let mac = measure(cx, cell(&["--screen"]));
     assert_px(at(&mac, nav_stack::ID_HEADER).size.height, HEIGHT_MAC);
@@ -123,7 +123,17 @@ fn the_header_height_matches_sidebar_project_header(cx: &mut TestAppContext) {
 
 /// **The traffic-light spacer needs both mac and left-docked** — a `--right`
 /// cell's header starts closer to its own leading edge than a left-docked
-/// one, because the 72px spacer is gone.
+/// one, because the 72px spacer **and the gap beside it** are both gone.
+///
+/// **The expected gap is 80px, not 72.** Removing the spacer does not just
+/// remove its own 72px — it removes the `gap-2` (8px) that sat between it
+/// and the back button too, since `gap` only applies *between* rendered
+/// children. Left-docked: `HEADER_PADDING_X(12) + TRAFFIC_LIGHTS_WIDTH(72) +
+/// HEADER_GAP(8) = 92`. Right-docked: `HEADER_PADDING_X(12) = 12`.
+/// `92 − 12 = 80`. An earlier draft of this test asserted `72` and failed
+/// with "expected 72px, got 80px" — the component's own gating was already
+/// correct; the test's arithmetic had only counted the spacer's own width,
+/// not the gap that disappears alongside it.
 ///
 /// **Mutation:** dropping the `&& !isRight` half of the gate (rendering the
 /// spacer whenever `IS_MAC`, regardless of dock side) would leave the back
@@ -131,7 +141,10 @@ fn the_header_height_matches_sidebar_project_header(cx: &mut TestAppContext) {
 /// catches that; a mutation that only checked *presence* of the traffic
 /// light anchor could not, since neither cell anchors it at all (it is
 /// unpainted call-site geometry, matching `sidebar_project_header`'s own
-/// spacer).
+/// spacer). Run and confirmed: reverting `!self.is_right` to `true` in
+/// `NavStack::shows_traffic_lights` turns this red at
+/// "expected 80px, got 0px" (both cells now render the spacer, so the two
+/// `back` positions coincide).
 #[gpui::test]
 fn the_traffic_light_spacer_only_shows_up_mac_and_left_docked(cx: &mut TestAppContext) {
     crowbar_driver::leak_checked!(cx);
@@ -142,9 +155,7 @@ fn the_traffic_light_spacer_only_shows_up_mac_and_left_docked(cx: &mut TestAppCo
     let back_left = at(&left, nav_stack::ID_BACK).origin.x;
     let back_right = at(&right, nav_stack::ID_BACK).origin.x;
 
-    // 72px spacer's width is the whole of the difference: same padding,
-    // same gap, on both cells.
-    assert_px(back_left - back_right, px(72.0));
+    assert_px(back_left - back_right, px(80.0));
 }
 
 /// **The content filler moves nothing else** — the base layer's own box

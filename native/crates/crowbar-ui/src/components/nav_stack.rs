@@ -193,7 +193,9 @@ impl NavStack {
     #[must_use]
     pub fn showing(title: impl Into<SharedString>) -> Self {
         Self {
-            top: Some(Screen { title: title.into() }),
+            top: Some(Screen {
+                title: title.into(),
+            }),
             ..Self::default()
         }
     }
@@ -278,7 +280,7 @@ impl NavStack {
     /// The title span: `min-w-0 flex-1 truncate text-[13px] font-semibold
     /// text-foreground`. Constrained by `flex-1`, not sized to its own
     /// content — see the module docs for why this is not `content_sized`.
-    fn title_shell(&self, theme: &Theme) -> Div {
+    fn title_shell(theme: &Theme) -> Div {
         div()
             .min_w(px(0.0))
             .flex_1()
@@ -296,7 +298,12 @@ impl NavStack {
 
     /// Renders the pushed screen, opting [`ID_SCREEN`], [`ID_HEADER`],
     /// [`ID_BACK`], [`ID_TITLE`] and [`ID_BODY`] into `anchors`.
-    fn render_screen(&self, screen: &Screen, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+    fn render_screen(
+        &self,
+        screen: &Screen,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+    ) -> AnyElement {
         let mut header_children: Vec<AnyElement> = Vec::new();
         if self.shows_traffic_lights() {
             header_children.push(
@@ -309,7 +316,7 @@ impl NavStack {
         header_children.push(anchors.boxed(AnchorId::from(ID_BACK), Self::back_box(theme)));
         header_children.push(anchors.boxed_text(
             AnchorId::from(ID_TITLE),
-            self.title_shell(theme),
+            Self::title_shell(theme),
             screen.title.clone(),
         ));
 
@@ -349,7 +356,10 @@ impl NavStack {
             children.push(self.render_screen(screen, theme, anchors));
         }
 
-        anchors.root(AnchorId::from(ID_ROOT), Self::root_shell().children(children))
+        anchors.root(
+            AnchorId::from(ID_ROOT),
+            Self::root_shell().children(children),
+        )
     }
 }
 

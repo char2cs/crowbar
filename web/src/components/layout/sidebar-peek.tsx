@@ -95,6 +95,12 @@ export function SidebarPeek({ hidden, side, width, children }: SidebarPeekProps)
   }, [hidden, peeking, isRight, width])
 
   return (
+    // No `data-oracle-id` here: this wrapper is `display: contents` (no box
+    // at all, ANCHORS.md v1.11) whenever `hidden`, and in the one state
+    // where it *is* a box — `!hidden` — its class list
+    // (`flex min-h-0 flex-col h-full`) is byte-identical to its own sole
+    // child's below, so it would only ever report the same bounds as that
+    // child's `sidebar-peek` anchor. See `native/mapping/sidebar-peek.md`.
     <div
       data-sidebar-peek=""
       data-state={hidden ? (peeking ? 'peeking' : 'closed') : 'docked'}
@@ -105,6 +111,7 @@ export function SidebarPeek({ hidden, side, width, children }: SidebarPeekProps)
         // the editor walks into an invisible sidebar — and anything typed after
         // the card slides away keeps landing in a search field nobody can see.
         inert={hidden && !peeking}
+        data-oracle-id="sidebar-peek"
         className={cn(
           'flex min-h-0 flex-col',
           hidden

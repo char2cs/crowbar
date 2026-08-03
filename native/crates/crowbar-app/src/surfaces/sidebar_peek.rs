@@ -112,6 +112,26 @@ impl Default for Params {
 
 impl Params {
     /// The card this cell describes.
+    ///
+    /// `content_height` is **not** `self.height`, and **not** bare
+    /// [`Cell::window_extent`] either — both were tried and measured wrong.
+    /// `self.height` under-measures once the surface's own floor takes over
+    /// (`min_window_height` is 700 against a 600 default `--height`, so the
+    /// real window is taller than `self.height` says). Bare
+    /// `window_extent` measures the card 16px short at the bottom —
+    /// confirmed by running the `row_layout` test with the card's raw bounds
+    /// printed, not derived on paper — because `window_extent` is the room
+    /// *below* `RowSurface`'s own unconditional `pt(INSET_Y)`, and this
+    /// card's `top` offset is measured from that same already-inset edge
+    /// while its `bottom` is meant to reach the window's **true**, un-inset
+    /// bottom. `INSET_Y + window_extent` is `window.height - INSET_Y`
+    /// exactly — the room from the harness's inset top edge down to the
+    /// window's real bottom — and it is what makes the card's own bottom
+    /// edge land exactly `PEEK_MARGIN` off the window's true bottom, the
+    /// same gap its top edge would have if the harness itself did not
+    /// artificially inset every surface's top by `INSET_Y` regardless of
+    /// `full_bleed`. See `row_layout::sidebar_peek`'s own doc comments for
+    /// the arithmetic in full and the two wrong values it replaced.
     #[must_use]
     pub fn peek(&self, cell: &Cell) -> SidebarPeek {
         SidebarPeek {
@@ -119,6 +139,7 @@ impl Params {
             is_right: self.right,
             peek_width: px(f32::from(self.peek_width)),
             viewport_width: cell.viewport_width_px(),
+            content_height: px(crate::row_surface::INSET_Y + f32::from(cell.window_extent())),
             content_width: px(f32::from(self.content_width)),
         }
     }
