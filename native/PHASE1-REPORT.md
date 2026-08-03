@@ -284,7 +284,27 @@ Two caveats that must travel with those numbers rather than being dropped:
 - **`crowbar-diff-logic` does not exist.** §17 names it; it is a Phase 4+ crate,
   so there is nothing to measure yet — not a pass, an absence.
 
-### Condition 4 — verified, not asserted
+### Condition 4 — ⚠ now VACUOUS, and that is a weakening
+
+**As of P3.40, `crowbar-platform` contains no `unsafe` at all.** Retiring
+`crowbar-platform::native_menu` removed the last AppKit code; the only remaining
+mention in the crate is `lib.rs`'s `#![deny(unsafe_op_in_unsafe_fn)]` attribute.
+
+So §17 condition 4 — *"zero `unsafe` outside `crowbar-platform`, every block
+proved"* — is now **trivially true**, and invariant **rule 3** ("every `unsafe`
+in `crowbar-platform` carries a `# Safety` proof") **passes vacuously**.
+
+**This must not be read as the guarantee it used to be.** Rule 3 was previously
+mutation-tested by me: removing one `# Safety` heading from the AppKit code
+failed the build. That evidence is now historical — there is no `unsafe` left
+for it to bite on. A green rule 3 today proves only that there is nothing to
+check.
+
+**What to do when `unsafe` returns** (it will, the moment a platform surface
+needs AppKit again): re-run the mutation before trusting the rule — delete one
+`# Safety` heading and confirm the build fails. Do not infer from a green line.
+
+### Condition 4 — verified, not asserted (historical, while AppKit code existed)
 
 Rule 2 (14 crate roots) and rule 3 (`# Safety` on every `unsafe`) both pass, and
 rule 3 is **not vacuous**: removing one `# Safety` heading from
