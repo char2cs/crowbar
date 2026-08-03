@@ -299,9 +299,13 @@ mod tests {
     /// one row's worth of height (the import row itself), and each
     /// additional project row costs exactly one more.
     ///
-    /// **Mutation:** dropping the `+ 1` from `content_height`'s
-    /// `rows_and_import` would turn the floor assertion red — an empty
-    /// panel would then compute to just the wrapper padding, `0` rows tall.
+    /// **Mutation, run:** dropped the `+ 1` from `content_height`'s
+    /// `rows_and_import` (`self.rows.len() as f32`, no import row counted).
+    /// `cargo test -p crowbar-ui content_height_grows_by_one_row_per_project`
+    /// failed as predicted: `left: 8px, right: 48px` — the empty panel
+    /// computed to just the wrapper padding (`WRAPPER_PADDING_Y * 2.0` = 8),
+    /// zero rows tall, exactly the floor this test exists to catch. Reverted
+    /// after confirming.
     #[test]
     fn content_height_grows_by_one_row_per_project_and_floors_at_the_import_row() {
         use super::row_base;

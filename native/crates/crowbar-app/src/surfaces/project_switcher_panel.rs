@@ -226,9 +226,12 @@ mod tests {
     /// import row is not part of `ProjectSwitcherPanel::rows` at all, so
     /// this list alone going empty is the whole of what the flag does.
     ///
-    /// **Mutation:** deleting the `if cell.has(StateFlag::Empty)` branch in
-    /// `Params::panel` (always taking the `else`) would turn this test red
-    /// — `--flags empty` would then still render `--count`'s own rows.
+    /// **Mutation, run:** deleted the `if cell.has(StateFlag::Empty) { .. }
+    /// else { .. }` in `Params::panel`, keeping only the `else` arm's row
+    /// construction unconditionally. `cargo test -p crowbar-app --bin
+    /// crowbar-app flags_empty_forces_zero_rows_regardless_of_count` failed
+    /// as predicted: `left: 4, right: 0` — `--flags empty --count 4` still
+    /// rendered all four rows. Reverted after confirming.
     #[test]
     fn flags_empty_forces_zero_rows_regardless_of_count() {
         let full = cell(&["--count", "4"]);

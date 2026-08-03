@@ -174,9 +174,14 @@ mod tests {
 
     /// `--flags selected` is what drives `isActive` — not a bespoke option.
     ///
-    /// **Mutation:** swapping `StateFlag::Selected` for `StateFlag::Hover`
-    /// in `Params::row` would turn this test red — `--flags selected` would
-    /// then leave `is_active` false.
+    /// **Mutation, run:** swapped `StateFlag::Selected` for
+    /// `StateFlag::Hover` on line 72 (`Params::row`'s own `is_active` field
+    /// — `describe`'s separate `StateFlag::Selected` read on line 102 was
+    /// left untouched, isolating the one call site). `cargo test -p
+    /// crowbar-app --bin crowbar-app flags_selected_drives_is_active`
+    /// failed as predicted: `assertion failed:
+    /// params_of(&selected).row(&selected).is_active`. Reverted after
+    /// confirming.
     #[test]
     fn flags_selected_drives_is_active() {
         let resting = cell(&[]);

@@ -6,17 +6,15 @@
 //! [`row_base::GAP`] after it, and the working/selected axes each reaching
 //! the picture they claim to.
 //!
-//! **Gate status:** `cargo clippy --workspace --all-targets -- -D warnings`
-//! and `cargo test --workspace` have both now run against this module.
-//! Clippy was clean on the first pass after fixing one unrelated unused
-//! import. `cargo test` was not: two of the assertions this file originally
-//! carried were wrong, and the failures are what fixed them — see
-//! `the_icon_sits_flush_and_the_label_follows_the_gap`'s own doc comment for
-//! the one that lives here (the sibling bug, a missing margin-vs-width
-//! interaction, lived in `project_switcher_panel.rs` instead). The
-//! **mutations** noted below are still descriptions, not results — they
-//! have not been run, and say so at their own site rather than claiming a
-//! pass that did not happen.
+//! **Gate status:** `cargo clippy --workspace --all-targets -- -D warnings`,
+//! `cargo test --workspace` and `check-invariants.sh` have all run clean
+//! against this module (clippy needed one unrelated unused-import fix
+//! elsewhere; `cargo test` caught one real assertion bug here, fixed in
+//! `the_icon_sits_flush_and_the_label_follows_the_gap`'s own doc comment —
+//! a sibling bug, a missing margin-vs-width interaction, lived in
+//! `project_switcher_panel.rs` instead). **Every mutation this file names
+//! has now actually been run**, each with its own recorded result at its
+//! own call site — none is a bare prediction any more.
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
@@ -40,11 +38,12 @@ fn at(records: &[RawAnchor], id: &str) -> Bounds<Pixels> {
 /// **The default cell carries all five of this surface's own anchors, and
 /// never the working-only ones.**
 ///
-/// **Mutation (described, not yet run — this file has not been through
-/// `cargo test` at all):** removing either `.child(...)` call for the two
-/// trailing actions in `ProjectHomeRow::render` should turn this red, since
-/// it would drop `project-home-row-switch` (or `-import`) from the recorded
-/// ids. Flagged for whoever runs the gate next rather than claimed here.
+/// **Mutation, run:** removed the trailing `.child(Self::sub_action(theme,
+/// anchors, ID_SWITCH))` call from `ProjectHomeRow::render`. This exact
+/// test (`the_default_cell_carries_all_five_anchors_and_no_spinner`) failed
+/// as predicted: `project-home-row-switch missing from ["project-home-row",
+/// "project-home-row-icon", "project-home-row-label",
+/// "project-home-row-import"]`. Reverted after confirming.
 #[gpui::test]
 fn the_default_cell_carries_all_five_anchors_and_no_spinner(cx: &mut TestAppContext) {
     crowbar_driver::leak_checked!(cx);
@@ -67,10 +66,13 @@ fn the_default_cell_carries_all_five_anchors_and_no_spinner(cx: &mut TestAppCont
 /// nested one level deeper still, the same shape `context-pill`'s own
 /// `--working` cell already proved.
 ///
-/// **Mutation (described, not yet run):** swapping `self.working` for a
-/// literal `false` in `ProjectHomeRow::icon`'s guard should turn this red —
-/// `--working` would then never surface `workspace-branch-icon` in the
-/// recorded ids. Not executed; see the module-level note on why.
+/// **Mutation, run:** swapped `if self.working` for `if false` in
+/// `ProjectHomeRow::icon`'s guard. `working_swaps_the_icon_for_the_spinner`
+/// failed as predicted — the recorded ids never surfaced
+/// `workspace-branch-icon` at all, even with `--working` set: `["project-
+/// home-row", "project-home-row-icon", "project-home-row-label",
+/// "project-home-row-import", "project-home-row-switch"]`. Reverted after
+/// confirming.
 #[gpui::test]
 fn working_swaps_the_icon_for_the_spinner(cx: &mut TestAppContext) {
     crowbar_driver::leak_checked!(cx);
@@ -111,11 +113,10 @@ fn the_root_keeps_its_authored_height_whether_or_not_selected(cx: &mut TestAppCo
 /// button::BORDER_WIDTH` term below is that fix, re-derived from the
 /// failure rather than guessed.
 ///
-/// **Mutation (described, not yet run):** deleting `.gap(GAP)` from
-/// `row_base::base` entirely would collapse the icon/label/button spacing
-/// to zero and move `label.origin.x` back to `icon.origin.x +
-/// project_home_row::ICON_WRAPPER_SIZE` — a `row_base::GAP` (6px)
-/// difference the assertion below would catch. Not executed.
+/// **Mutation, run:** deleted `.gap(GAP)` from `row_base::base` entirely.
+/// This test failed as predicted: `expected 33px, got 27px` on the label's
+/// own `x` origin — exactly `row_base::GAP` (6px) short, since the
+/// icon/label/button spacing collapsed to zero. Reverted after confirming.
 #[gpui::test]
 fn the_icon_sits_flush_and_the_label_follows_the_gap(cx: &mut TestAppContext) {
     crowbar_driver::leak_checked!(cx);
