@@ -67,6 +67,17 @@ mod sidebar_tree;
 // that keeps `alert_dialog::HEADER_PADDING` from silently reading as
 // `dialog::HEADER_PADDING`'s one caller too many.
 pub mod alert_dialog;
+// P3.32's pair is unflattened for the same reason as the rest, and one
+// further one: `autocomplete::ID_INPUT` would collide with `input`'s own
+// `ID_FIELD` concept under a different name, and `autocomplete::ID_ITEM`
+// with `select`'s `select-item`/`command`'s own `ID_ITEM` — three modules'
+// readings of "one row in a list" that must not be confused with each
+// other. `command` reuses `autocomplete`'s `Input`/`List`/`Item`/`ListContent`
+// directly (see `command.rs`'s module docs for why: the two files build the
+// *same* DOM nodes, restyled through a call site's `className`, not
+// reimplemented), which is the one place in this list where one component
+// module imports another's types rather than merely avoiding a name clash.
+pub mod autocomplete;
 pub mod avatar;
 pub mod badge;
 pub mod button;
@@ -99,6 +110,11 @@ pub mod card;
 // one module apart, and a bare `BORDER_WIDTH` meaning either of them is the
 // mistake `ANCHORS.md` v1.6 warns about.
 pub mod checkbox;
+// `command` is unflattened for the same reason as the rest. See the note
+// above `pub mod autocomplete;`: it is `autocomplete`'s one importer, reuses
+// that module's structs for every box it does not build itself, and adds
+// its own dialog chrome (`command-dialog-popup`), panel and footer.
+pub mod command;
 pub mod crowbar_mark;
 pub mod crowbar_wordmark;
 // P3.21's two wraps are unflattened for the same reason as the rest, and one
