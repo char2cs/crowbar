@@ -1,5 +1,13 @@
 # §13 accepted delta — native menus, DECIDED BY THE USER
 
+> **✅ RESOLVED 2026-08-03 — nothing here is blocked any more.** The decision was
+> the user's and was made on 2026-07-31; the spec edit it implied was the only
+> thing outstanding, and it landed in `a4de9aef` (spec §13 entry 7, plus the §5.1
+> carve-out that phrase needed). The file stays at this path because the rest of
+> the project cites it, and because the reasoning — what the delta costs, what it
+> buys, and the four things `NSMenu` cannot express — is worth keeping. Under
+> §17.7 it is a **listed user decision**, not an open blocker.
+
 **Decided:** 2026-07-31, verbatim: *"Dropdown menus should be native, not
 'react' simulated."*
 **Status:** decided. What waits here is the **spec edit**, not the decision.
