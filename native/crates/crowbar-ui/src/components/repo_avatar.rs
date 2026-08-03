@@ -38,18 +38,27 @@
 //! [`RepoAvatar::fixture`] uses `theme.primary` as a placeholder with no claim
 //! to being any repo's actual colour.
 //!
-//! # No `data-oracle-id` exists on this file today
+//! # A reference now exists — P3.54 closed the gap this file was written against
 //!
-//! Checked rather than assumed: `repo-avatar.tsx` carries no `data-oracle-id`
-//! anywhere, on any element, in any branch — and neither does any call site
-//! that renders it. This is a different situation from every surface ported so
-//! far (`avatar.tsx`'s ids come from the primitive itself; `popover`/`select`
-//! had theirs landed by a dedicated prerequisite item, P3.15, before P3.18
-//! could declare their anchor sets). A live oracle capture of this surface
-//! needs the same kind of prerequisite — `data-oracle-id="repo-avatar"` landed
-//! on the React source — which this item does not do, since deciding *where*
-//! that id goes across four call sites is exactly the kind of call P3.15 made
-//! its own commit. Flagged rather than worked around.
+//! At the time this module was first written, `repo-avatar.tsx` carried no
+//! `data-oracle-id` anywhere, on any element, in any branch — a different
+//! situation from every surface ported so far (`avatar.tsx`'s ids come from
+//! the primitive itself; `popover`/`select` had theirs landed by a dedicated
+//! prerequisite item, P3.15, before P3.18 could declare their anchor sets),
+//! and this module's own docs said so and flagged the gap rather than working
+//! around it. P3.54 has since landed exactly that prerequisite:
+//! `repo-avatar.tsx` now carries `data-oracle-id="repo-avatar"` on all three
+//! of its own render branches (the emoji span, the `<img>` inside
+//! `RepoAvatarImg`, and the letter-fallback span), matching [`ID`] exactly —
+//! the same single shared id this module's own three [`Kind`] arms already
+//! opted into, in anticipation of this fix. `repo-icon-popover.tsx` reuses
+//! `RepoAvatarImg` for its own trigger's image case and so inherits the same
+//! id on a differently-styled box — see
+//! `crowbar_ui::components::repo_icon_popover`'s own module docs for that
+//! call site's account. No `oracleSurfaceScope` entry was needed for either
+//! composition: [`RepoAvatar::render`] paints the one anchor this module
+//! declares and nothing else, so an undeclared capture rooted here carries
+//! exactly that one id, on every call site.
 
 use gpui::{AnyElement, Div, FontWeight, Pixels, SharedString, Styled as _, div, px, relative};
 

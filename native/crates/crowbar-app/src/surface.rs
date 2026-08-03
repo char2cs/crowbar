@@ -586,6 +586,9 @@ mod tests {
                 "checkbox",
                 // `command.rs` sorts before `crowbar_mark.rs` — `co` < `cr`.
                 "command",
+                // `context_pill.rs` sorts before `crowbar_mark.rs` — `co` <
+                // `cr` (P3.58 — the sidebar's own "you are here" pill).
+                "context-pill",
                 "crowbar-mark",
                 "crowbar-wordmark",
                 // `detach_holder_modal.rs` sorts before `dialog.rs` — `d` =
@@ -619,6 +622,12 @@ mod tests {
                 // `res` (P3.50, cluster 1 — the `components/layout`
                 // foundation leaves).
                 "repo-avatar",
+                // `repo_avatar.rs` sorts before `repo_icon_popover.rs` —
+                // `repo_` common, then `a` < `i` (P3.58 — the repo avatar
+                // turned into a popover trigger for editing its icon).
+                // `repo_icon_popover.rs` sorts before `repo_import_dialog.rs`
+                // in turn — `repo_i` common, then `c` < `m`.
+                "repo-icon-popover",
                 // `repo_avatar.rs` sorts before `repo_import_dialog.rs` —
                 // `repo_` common, then `a` < `i`. Two clusters inserted here
                 // independently against the same `"resizable"` anchor and both
@@ -680,7 +689,15 @@ mod tests {
                 "tooltip",
                 // `workspace_branch_icon.rs` sorts last — `w` is the
                 // alphabetically latest surface file (P3.50, cluster 1's
-                // other leaf).
+                // other leaf). `workspace_switcher.rs` would sort here too
+                // (`workspace_b` < `workspace_s`) — but there is no
+                // `surfaces/workspace_switcher.rs` to sort: its own React
+                // wrapper is `display: contents` and generates no box, so
+                // there is no anchor for a `root` to name, and every real
+                // anchor its content reaches is `command`'s own
+                // `command-dialog-popup`/`autocomplete-item` (P3.58); see
+                // `crowbar_ui::components::workspace_switcher`'s own module
+                // docs and `native/mapping/workspace-switcher.md`.
                 "workspace-branch-icon",
             ],
         );

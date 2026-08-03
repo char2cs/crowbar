@@ -115,6 +115,14 @@ pub mod checkbox;
 // that module's structs for every box it does not build itself, and adds
 // its own dialog chrome (`command-dialog-popup`), panel and footer.
 pub mod command;
+// `context_pill` (P3.58) is unflattened for the same reason as the rest: its
+// `ID_ROOT`/`ID_TRIGGER` would sit next to every other surface's own with the
+// same shape of collision, and it composes `repo_avatar::RepoAvatar` and
+// `workspace_branch_icon::WorkspaceBranchIcon` directly rather than
+// re-deriving either — see the module docs for why it does not call
+// `button::Button::render` (the same reason `sidebar_project_header`
+// doesn't).
+pub mod context_pill;
 pub mod crowbar_mark;
 pub mod crowbar_wordmark;
 // P3.21's two wraps are unflattened for the same reason as the rest, and one
@@ -238,10 +246,16 @@ pub mod radio_group;
 // `CONTENT_SIZED` and `LINE_SIZED` would collide outright, and its `Size` —
 // `sm`/`lg`/`xl`, no `md` — would read as a table belonging to no component
 // without the module in front of it: `avatar::CallSite`'s three bundles
-// answer a different question. Neither this file nor `workspace_branch_icon`
-// carries a `data-oracle-id` on the React side yet — see each module's own
-// docs.
+// answer a different question. P3.54 landed `data-oracle-id`s on this file
+// and on `workspace_branch_icon`'s — see each module's own docs.
 pub mod repo_avatar;
+// `repo_icon_popover` (P3.58) is unflattened for the same reason as the rest:
+// its own `ID_TRIGGER`/`ID_POPUP` and its bespoke `Kind`/`ImageState` reuse
+// would read as belonging to no component without the module in front of
+// them, and its trigger's own `h-5 w-5 rounded-md` box is a genuinely
+// different shape from `repo_avatar::Size::Lg`'s `rounded-sm` one — see the
+// module docs for why it is not built by calling `RepoAvatar::render`.
+pub mod repo_icon_popover;
 pub mod resizable;
 // `scroll_area` is unflattened for the same reason as the rest, and one further
 // one: it is the second component in the tree whose vocabulary is *two*
@@ -393,6 +407,13 @@ pub mod toast;
 // directly rather than reimplementing the spinner it wraps — see its module
 // docs.
 pub mod workspace_branch_icon;
+// `workspace_switcher` (P3.58) is unflattened for the same reason as the
+// rest, and carries **no anchor of its own** — see the module docs. Its
+// `Row` reuses `autocomplete::ID_ITEM` directly (the one real, already-
+// registered anchor for a `command-item`'s content, which `autocomplete.rs`
+// itself leaves opaque) rather than fabricating a second id nothing on the
+// React side would ever produce.
+pub mod workspace_switcher;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
 pub use avatar::Avatar;
