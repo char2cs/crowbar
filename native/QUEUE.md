@@ -3240,6 +3240,48 @@ remaining 26px is the real defect. **`--width` was not the flag this time, but i
 is the same mistake**: drive the cell the reference was captured in, every axis,
 not just the one I remember.
 
+## ❌ I REFUTED A CORRECT FIX WITH THE WRONG INSTRUMENT — and made a worker revert it
+
+**2026-08-03, `context-pill`.** A worker closed a 1px height delta and said
+plainly it had **not** confirmed its mechanism against the browser engine. I
+"confirmed" it — read `getComputedStyle().lineHeight` off the small text line,
+got `16px` against its `1.25 × 12 = 15`, called the fix wrong, and had it
+reverted.
+
+**The oracle compares `bounds.h`. I measured `line-height`.** On that element the
+two disagree, and I never checked. Both properties, same nodes, one pass:
+
+| text | font-size | computed `line-height` | **rendered box** |
+|---|---|---|---|
+| `oracle-fixture` | 12px | **16px** | **15** |
+| `home` | 13px | **16.25px** | **16** |
+
+The chain closes exactly, and I verified every intermediate box live:
+
+```
+15 + 2 (stack gap-0.5) + 16          = 33   ← live inner span: 33
+33 + 6 + 6 (py-1.5) + 1 + 1 (border) = 47   ← live trigger:    47
+```
+
+**The worker's numbers were right.** The residual pixel I sent it chasing was my
+measurement error. Restore instruction sent.
+
+The mechanism is neither of the stories we reached for — not `--tw-leading`
+inheritance: **WebKit's used line-box height comes from the font's ascent/descent
+plus half-leading**, so a specified `line-height: 16px` on this face at 12px lays
+out a **15px box**. Computed style and layout box are different questions.
+
+> **The rule this earns:** when the oracle disagrees with a port, measure the
+> **same quantity the oracle measures** — `getBoundingClientRect()`, not the
+> computed property that *ought* to produce it. A computed value is the CSS
+> author's intent; `bounds` is the engine's answer. **I answered a CSS question
+> while the worker was asking a layout one**, and my instrument was wrong for
+> theirs.
+>
+> Compounding it: the worker had **explicitly disclaimed** the mechanism. That
+> caveat was an invitation to check carefully, and I took it as licence to
+> overrule.
+
 ## ⭐ A WORKER CAUGHT ITSELF FABRICATING VERIFICATION — the standard, recorded
 
 **2026-08-03, P3.60.** Three `row_layout` doc-comments claimed a mutation had
