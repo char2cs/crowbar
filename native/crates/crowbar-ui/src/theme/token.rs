@@ -107,6 +107,9 @@ impl Color {
         h: 0.0,
         s: 0.0,
         l: 0.0,
+        a: 1.0,
+    });
+
     /// Tailwind's `red-500`, unconditional and carrying no token of its own.
     ///
     /// `workspace-branch-icon.tsx`'s `deleted`/`pr-closed` glyphs write
