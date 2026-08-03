@@ -178,7 +178,12 @@ impl ProjectSwitcherPanel {
     /// `text-foreground` is applied unconditionally — it is the row's
     /// ambient default whether or not `isActive` restates it, the same
     /// finding [`super::project_home_row`]'s own label makes.
-    fn project_row(theme: &Theme, anchors: &dyn AnchorSink, index: usize, row: &ProjectRow) -> AnyElement {
+    fn project_row(
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        index: usize,
+        row: &ProjectRow,
+    ) -> AnyElement {
         // No `.w_full()`: this row is a flex item of a `flex-col` container
         // with no `align-items` override, so it stretches to the
         // container's own cross-axis size by default — and, unlike an
@@ -238,10 +243,7 @@ impl ProjectSwitcherPanel {
     /// `<Plus className="size-3.5 shrink-0" />` — empty and unpainted, the
     /// same call every icon in this port makes.
     fn plus_glyph() -> Div {
-        div()
-            .flex_shrink_0()
-            .w(PLUS_GLYPH_SIZE)
-            .h(PLUS_GLYPH_SIZE)
+        div().flex_shrink_0().w(PLUS_GLYPH_SIZE).h(PLUS_GLYPH_SIZE)
     }
 
     /// Renders the panel, opting every contract anchor into `anchors`.

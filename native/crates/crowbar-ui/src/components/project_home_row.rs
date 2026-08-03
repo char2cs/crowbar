@@ -87,7 +87,10 @@
 //! | `selected` | **real.** `isActive` (`useMatch`) selects [`row_base::active`] over [`row_base::inactive`] — a single row's own active/idle picture is exactly what this flag names (`native/oracle/ANCHORS.md` v1.1: `` `data-active='true'` ``). |
 //! | `empty`, `loading`, `error`, `hover`, `focus` | **unmodelled.** `empty`/`loading`/`error` have no rule on this component at all — `StateFlag::Empty` is `git-status-row`'s own "nothing on the trailing edge" concept and this row always paints both its glyph and its two actions. `hover`/`focus` are colour-only rules (`ROW_INACTIVE`'s `hover:bg-accent`, `ROW_SUB_ACTION`'s `hover:…`, both buttons' `focus-visible:ring-…`) with no runtime seam on this struct — [`row_base`]'s own module docs record why. |
 
-use gpui::{AnyElement, Div, IntoElement as _, ParentElement as _, Pixels, SharedString, Styled as _, div, px};
+use gpui::{
+    AnyElement, Div, IntoElement as _, ParentElement as _, Pixels, SharedString, Styled as _, div,
+    px,
+};
 
 use super::anchor::{AnchorId, AnchorSink};
 use super::row_base;
@@ -263,8 +266,14 @@ mod tests {
         for id in ids {
             assert!(id.starts_with(ID_ROOT), "{id}");
         }
-        assert_ne!(ID_IMPORT, "button", "must not collide with button.tsx's own default");
-        assert_ne!(ID_SWITCH, "button", "must not collide with button.tsx's own default");
+        assert_ne!(
+            ID_IMPORT, "button",
+            "must not collide with button.tsx's own default"
+        );
+        assert_ne!(
+            ID_SWITCH, "button",
+            "must not collide with button.tsx's own default"
+        );
         assert_ne!(ID_IMPORT, ID_SWITCH);
 
         let mut sorted = ids.to_vec();
