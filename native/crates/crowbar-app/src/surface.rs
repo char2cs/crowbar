@@ -650,6 +650,20 @@ mod tests {
                 "sidebar-carousel",
                 "sidebar-empty",
                 "sidebar-header",
+                // `sidebar_project_header.rs` sorts before `sidebar_skeleton.rs`
+                // — `sidebar_` common, then `p` < `s` (P3.55, Cluster 3 —
+                // the "standalone sidebar chrome" leaves).
+                "sidebar-project-header",
+                // `sidebar_skeleton.rs` sorts before `sidebar_toggle_icon.rs` —
+                // `sidebar_` common, then `s` < `t` (P3.55). `sidebar_tab_bar.rs`
+                // would sort here too (`s` = `s`, then `k` < `a`... no: `sk` vs
+                // `ta`, `s` < `t`, so it would sort *before* `sidebar_toggle_
+                // icon` and *after* `sidebar_skeleton` — but there is no
+                // `surfaces/sidebar_tab_bar.rs` to sort: its own wrapper carries
+                // no anchor of its own for a `root` to name, and this registry
+                // requires one; see `crowbar_ui::components::sidebar_tab_bar`'s
+                // own module docs and `native/mapping/sidebar-tab-bar.md`.
+                "sidebar-skeleton",
                 "sidebar-toggle-icon",
                 "skeleton",
                 // `slider.rs` sorts before `spinner.rs` — `sl` < `sp`.

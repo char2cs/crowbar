@@ -7,18 +7,29 @@
 //! utility as a candidate — the method `native/MAPPING.md` fixes. See
 //! `native/mapping/sidebar-project-header.md`.
 //!
-//! # Why there is no reference: **the wrapper carries no `data-oracle-id`,
-//! and its four `Button`s all default to the same one**
+//! # A reference now exists — P3.54 closed the gap this file was written against
 //!
-//! `fps_overlay`'s module docs already establish the plainer half of this
-//! finding: `sidebar-project-header.tsx`'s own `<div>` writes no oracle
-//! attribute of any kind. The sharper half is what happens to the four
-//! `<Button>`s it renders even if that were fixed. `button.tsx` writes
-//! `'data-oracle-id': 'button'` as a **default**, before `{...props}`
-//! (`button.rs`'s own module docs), and none of the four call sites in this
-//! file passes an override — so a hypothetical capture of this root would
-//! carry the same anchor id **four times**, which `ANCHORS.md` v1.8 refuses
-//! outright rather than picks between.
+//! At the time this module was first written, `sidebar-project-header.tsx`'s
+//! own `<div>` wrote no oracle attribute at all, and its four `<Button>`s all
+//! inherited `button.tsx`'s own `'data-oracle-id': 'button'` **default**,
+//! before `{...props}` (`button.rs`'s own module docs) — so a hypothetical
+//! capture of this root would have carried the same anchor id **four
+//! times**, which `ANCHORS.md` v1.8 refuses outright rather than picks
+//! between. [`SidebarProjectHeader`]'s own `toggle_id`/`back_id`/
+//! `forward_id`/`settings_id` fields were authored, not derived from a live
+//! id, in anticipation of exactly this fix — a bet this file's own history
+//! record made and P3.54 has since paid off: `sidebar-project-header.tsx` now
+//! carries `data-oracle-id="sidebar-project-header"` on the wrapper and a
+//! distinct id on each of the four buttons
+//! (`sidebar-project-header-toggle`/`-back`/`-forward`/`-settings`), matching
+//! [`ID_SIDEBAR_PROJECT_HEADER`] and [`SidebarProjectHeader::fixture`]'s own
+//! four ids exactly. `web/src/lib/oracle/extract.ts`'s own
+//! `oracleSurfaceScope` entry for `sidebar-project-header` records the same
+//! five ids, and its own comment is why `sidebar-toggle-icon` — the toggle's
+//! nested glyph, a *different*, already-separately-ported surface — is
+//! deliberately not a sixth. See `native/mapping/sidebar-project-header.md`
+//! and `crowbar_app::surfaces::sidebar_project_header` for the driver surface
+//! this now makes possible (P3.55).
 //!
 //! # This composition does not call `Button::render`, and that is deliberate
 //!
