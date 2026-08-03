@@ -8,12 +8,23 @@ Updated every orchestrator iteration. This file is how a cold session picks up.
 Phase 1 closed 2026-07-31 (gate passed, see [PHASE1-REPORT.md](PHASE1-REPORT.md));
 Phase 2 closed 2026-07-31.
 
-**Line coverage (logic crates) — ⚠ STALE, last measured 2026-07-31 at 191 tests:**
-`oracle` **100.00%** (2817/2817) · `crowbar-driver` **100.00%** (1134/1134) ·
-`crowbar-core` **100.00%** (148/148) · `crowbar-client` **99.64%**. `proto`/`diff`
-still empty. The suite is now **~1600 tests**, so these percentages describe a
-tree that no longer exists. **Re-measuring is queued and is a §17.3 blocker** — a
-coverage number nobody has re-run is not a coverage number.
+**Line coverage (logic crates) — re-measured by me 2026-08-03, all six §12 crates:**
+
+| set | lines | missed | **cover** |
+|---|---|---|---|
+| `proto` + `client` + `core` + `diff` | 431 | 1 | **99.77%** |
+| `oracle` + `driver` | 4,547 | 17 | **99.63%** |
+| **combined** | **4,978** | **18** | **99.64%** — gate is ≥98, **met** |
+
+The one file worth naming: **`crowbar-driver/src/frame.rs` is 94.77%** (8 of 153
+lines missed) — the settled-frame fixpoint, and the least-covered file in the
+gated set. That is the code the vendor-animation finding below turns out to lean
+on, so its uncovered lines are not uninteresting ones. `leak.rs` is 97.83%.
+Everything else in the set is 98–100%.
+
+> The previous numbers here were measured against a **191-test** tree and had
+> been quoted unchanged ever since. A coverage number nobody has re-run is not a
+> coverage number.
 
 **Corpus coverage (view crates) — the honest shape, measured 2026-08-03:**
 
@@ -40,7 +51,7 @@ session from prose scattered over 4,000 lines.
 |---|---|---|---|
 | 1 | strict-parity anchors converge across the §8.3 matrix | ❌ **not met** | 240/240 cells *runnable*; references exist for **one** cell of most surfaces. Viewport axis inert on all 40; theme axis vacuous on 10 of 40. **The gap is references.** |
 | 2 | every §5.2 surface judged against Zed | ❌ **not met** | editor, diff and terminal are not built. Phase 4+. |
-| 3 | both coverage numbers met, reported separately | ❌ **not met** | line coverage last measured against a **191-test** tree; the suite is now ~1600. Re-measure queued. |
+| 3 | both coverage numbers met, reported separately | ⚠ **half met** | **line coverage MET** — re-measured 2026-08-03 across all six §12 crates: **99.64%** (4,978 lines, 18 missed) against a ≥98 gate. The corpus number is *reported* but thin — see row 1. Never averaged. |
 | 4 | zero `unsafe` outside `crowbar-platform`, every block there proved | ✅ **met — and now vacuous** | grepped 2026-08-03: **0** outside. P3.40 removed the last AppKit code, so there are **0 inside** too. Rule 3 of `check-invariants.sh` passes with nothing to check; the mutation evidence for it is historical. **Re-run that mutation the moment `unsafe` returns.** |
 | 5 | zero `unwrap`/`expect`/`todo!` outside tests | ✅ **met, enforced by the compiler** | `[workspace.lints.clippy]` denies `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`; all 12 crates opt in via `[lints] workspace = true`; **0** per-site `#[allow]`s. Proved by mutation, both directions — see below. |
 | 6 | leak soak shows no RSS growth vs React | ❌ **not met** | there is no shared workload to soak yet. Sequencing, not neglect. |
