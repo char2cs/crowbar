@@ -621,6 +621,10 @@ mod tests {
                 // pair alongside `sidebar-peek`).
                 "nav-stack",
                 "number-input",
+                // `placeholder_row_actions.rs` sorts before `popover.rs` —
+                // `pl` < `po` (P3.62, cluster 7 — the placeholder row's
+                // reconstructed reason plus Retry/Detach… pair).
+                "placeholder-row-actions",
                 "popover",
                 // `project_home_row.rs` sorts before `project_switcher_
                 // panel.rs` — `project_h` < `project_s` (`h` < `s`) — and
@@ -707,10 +711,10 @@ mod tests {
                 // < `tooltip`: `to` common, then `a` < `o`.
                 "toast",
                 "tooltip",
-                // `workspace_branch_icon.rs` sorts last — `w` is the
-                // alphabetically latest surface file (P3.50, cluster 1's
-                // other leaf). `workspace_switcher.rs` would sort here too
-                // (`workspace_b` < `workspace_s`) — but there is no
+                // `workspace_branch_icon.rs` sorts before `workspace_inline_
+                // input.rs` — `workspace_` common, then `b` < `i` (P3.50,
+                // cluster 1's other leaf). `workspace_switcher.rs` would sort
+                // here too (`workspace_b` < `workspace_s`) — but there is no
                 // `surfaces/workspace_switcher.rs` to sort: its own React
                 // wrapper is `display: contents` and generates no box, so
                 // there is no anchor for a `root` to name, and every real
@@ -719,6 +723,10 @@ mod tests {
                 // `crowbar_ui::components::workspace_switcher`'s own module
                 // docs and `native/mapping/workspace-switcher.md`.
                 "workspace-branch-icon",
+                // `workspace_inline_input.rs` sorts last — `workspace_i` is
+                // the alphabetically latest surface file stem (P3.62, cluster
+                // 7 — the sidebar's rename/create field).
+                "workspace-inline-input",
             ],
         );
     }

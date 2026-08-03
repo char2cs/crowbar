@@ -453,6 +453,17 @@ pub mod nav_stack;
 // `workspace_switcher`'s own wrapper made, extended to a conditionally
 // `display: contents` element.
 pub mod sidebar_peek;
+// `workspace_inline_input` (P3.62) is unflattened for the same reason as the
+// rest — its `ID_ROOT`/`ID_FIELD`/`Kind` would read ambiguously without the
+// module in front of them. Its `<input>` field is `input.rs`'s own "box only,
+// no text field" finding one door over; see the module docs.
+pub mod workspace_inline_input;
+// `placeholder_row_actions` (P3.62) is unflattened for the same reason as the
+// rest, and one further one: `ID_RETRY` is a call-site rename of `button`'s
+// own default id, and a bare `ID_RETRY` next to `inline_error::ID_RETRY`
+// (the identical rename, a different surface) would be exactly the collision
+// this file's own docs warn a flattened namespace produces.
+pub mod placeholder_row_actions;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
 pub use avatar::Avatar;
