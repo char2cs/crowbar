@@ -198,7 +198,7 @@ surface registry and `native/mapping/`:
 
 | | |
 |---|---|
-| `components/layout/*.tsx` on disk | **29** (§16 says 36 — the spec's count is from 2026-07-30 and the tree has moved) |
+| `components/layout/*.tsx` on disk | **29** — ~~§16 says 36; the spec's count is stale~~ **wrong, see P3.48 below: 29 `.tsx` + 7 `.ts` = 36 exactly. The spec was right and I speculated.** |
 | ported — has a registered surface | **1** (`sidebar-carousel`) |
 | **neither a surface nor a mapping doc** | **28** |
 
@@ -231,6 +231,62 @@ work by their names alone (`placeholder-toast-watcher` is a watcher,
 exclusion has to be applied here as it was to `ui/`. **That classification is the
 next item and it is a measurement, not a guess** — dispatched as P3.48. The 28
 above is the *unclassified* count, not the port target.
+
+#### ✅ P3.48 — the layout denominator, measured. **22 remaining, not 28.**
+
+`native/mapping/layout-denominator.md` @ `c1df0dd1`. All 29 classified with
+evidence:
+
+| verdict | n | |
+|---|---|---|
+| **Tier B target** | **22** | the real remainder |
+| already ported | 1 | `sidebar-carousel` (the control) |
+| Phase 4 — state | 2 | `connection-indicator`, `placeholder-toast-watcher` — **both render `null`** |
+| Phase 5 — interaction | 2 | `drag-ghost`, `workspace-tree-footer` |
+| Phase 4/6 — app shell | 1 | `ide-shell` |
+| Phase 4/5, no geometry | 1 | `workspace-tree-context` |
+| dead · Plate-only · other out-of-scope | **0** | — |
+
+**So the layout tier is 23 targets, 1 done, 22 to go.**
+
+##### ‼️ My "the spec's count is stale" was wrong — and the spec was right
+
+I wrote above that §16's **36** disagreed with the 29 on disk because the tree
+had moved. It has not. **`components/layout/` holds 29 `.tsx` *and* 7 `.ts`
+helpers — exactly 36.** The spec counted both extensions all along; framing the
+survey `.tsx`-only was my choice, matching `ui/`'s convention, and the arithmetic
+followed from that choice rather than from drift. **I explained away a
+discrepancy I had not investigated**, which is the third boundary error in one
+day and the least excusable, because the check is `find … -name '*.ts' | wc -l`.
+
+Those 7 `.ts` files are not nothing: `workspace-row-base.ts`,
+`workspace-tree-utils.ts`, `context-pill-model.ts`, `workspace-switcher-model.ts`,
+`format-change-count.ts`, `workspace-tree-actions.ts`, `use-sidebar-panel.ts` —
+several are exactly the gpui-free model logic **Tier A**'s `crowbar-core` is
+supposed to hold. They belong in the Tier A survey's denominator, not this one.
+
+##### ‼️ `toast.rs` ported a component with no code path — and the live one is unported
+
+The survey checked "already covered" against **Rust source rather than names**,
+and caught two traps:
+
+- **`sidebar-toast-overlay.tsx` is NOT covered by `toast.rs`.** `toast.rs` ported
+  `ui/toast.tsx`'s `AnchoredToasts`, and `native/mapping/toast.md` **already
+  says**, in its own words, that this is *"a component with no code path in any
+  environment"*. **The toast users actually see is `sidebar-toast-overlay.tsx`'s
+  hand-rolled `SidebarToastItem`, and it has never been ported.** So one of the
+  43 "ported surfaces" measures something unreachable while the reachable thing
+  is missing — a green surface count concealing a hole, which is the same shape
+  as this iteration's other two findings.
+- **`workspace-branch-icon.tsx` is not ported either.** `flicker-spinner.md`
+  cites it only as *size provenance*, and `git_status_row.rs` is an unrelated
+  git-panel row.
+
+##### `fps-overlay` is not dev-only
+
+It is a **settings toggle** (`showFpsOverlay`, Developer tab) and ships in every
+build. I had guessed "dev-only, probably a build flag"; it is a real user-facing
+surface. Classified Tier B.
 
 ### ▶ ANCHORS.md is now **v1.14** — the app-state hole is in the contract
 
