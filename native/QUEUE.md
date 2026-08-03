@@ -4,7 +4,8 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 3 — component port. **Tier B complete** (40 registered surfaces).
+**Phase:** 3 — component port. **Tier B complete** (**43 registered surfaces**,
+**1627 tests**, clippy 0, all 7 invariant checks `ok`). **No held verdicts.**
 Phase 1 closed 2026-07-31 (gate passed, see [PHASE1-REPORT.md](PHASE1-REPORT.md));
 Phase 2 closed 2026-07-31.
 
@@ -41,6 +42,34 @@ Everything else in the set is 98–100%.
 
 > **Two numbers, never combined** (§12). Anything that reports one blended
 > figure here is wrong by construction.
+
+## ✅ 2026-08-03 — the held-verdict backlog is EMPTY
+
+Three surfaces had been carrying verdicts I could not take. All three are now
+taken, green, and merged, and I re-took every one of them **again on the merged
+tree** rather than trusting the pre-merge run:
+
+| surface | verdict on the merged tree |
+|---|---|
+| `search` | **PASS** — 0 deltas over 10 anchors |
+| `search-replace-row` | **PASS** — 0 deltas over 6, 5 forgiven by v1.5 content-sizing |
+| `command` | **PASS** — 0 deltas over 11 anchors |
+
+Merged tree, all measured by me: **clippy 0** · **1627 passed / 0 failed / 31
+`ok`** · **7 of 7** invariant rules `ok` · both Phase 1 canaries
+**byte-identical** · **258 of 258** matrix cells across **43 surfaces** render and
+emit, 0 refused, 0 hung.
+
+**The test-count arithmetic, because a drop needs explaining.** P3.44 reported
+1609 on its own branch and the merged tree reports 1590 before P3.32 and 1627
+after. P3.44 sat on a base predating P3.40, which deleted the 29 `native_menu`
+tests; P3.42 added 10. `1609 − 29 + 10 = 1590`, then P3.32 brings it to 1627. A
+suite that shrinks is either a deletion you can name or a failure you have not
+found yet.
+
+Merged this iteration: **P3.42** (recorder strictness), **P3.43** (§13 spec),
+**P3.44** (search, carrying P3.37 and P3.33), **P3.32** (command, carrying
+autocomplete).
 
 ## §17 scoreboard — where "done" actually stands
 
