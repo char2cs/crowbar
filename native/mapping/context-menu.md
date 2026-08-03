@@ -230,4 +230,40 @@ Two things, stated so a future item does not have to re-derive them:
   `crowbar_platform::native_menu` covers and the vendored menu does not** (or
   vice versa), that is the "concrete need" `s13` asks for and should be
   raised there, by name, against that call site — not inferred from this one,
-  which uses neither.
+  which uses neither. **Superseded by §7 below**: the first branch of this
+  bullet no longer has a target — there is nothing left in
+  `crowbar_platform::native_menu` to raise a need against.
+
+## 7. Retired at P3.40 — this file's own prediction, made good
+
+§3 above argued `crowbar_platform::native_menu` had no reason to survive past
+the "retire before Phase 3 closes" date `s13-native-menus-accepted-delta.md`
+set, and that this item — reading the two live call sites — removed one of
+the two candidate consumers that might have supplied a reason to keep it. At
+item P3.40, with no concrete need having appeared in the meantime, it was
+removed:
+
+- `crates/crowbar-platform/src/native_menu.rs` and `src/native_menu/appkit.rs`
+  (the `NSMenu` implementation, its `ContextMenu`/`MenuItem`/`ScreenPoint`
+  vocabulary, and its 13 unit tests + 1 doctest), the `pub mod native_menu;`
+  declaration and re-exports in `crates/crowbar-platform/src/lib.rs`, and the
+  `objc2`/`objc2-app-kit`/`objc2-foundation` dependencies that existed only to
+  build it (both in `crowbar-platform/Cargo.toml` and the workspace root
+  `Cargo.toml` — nothing else in the workspace named them).
+- `crates/crowbar-app/src/surfaces/native_menu.rs`, the `--surface
+  native-menu` driver this file cites throughout (§2, §5) as already
+  demonstrating the two call sites' required vocabulary — it drove
+  `crowbar_platform::native_menu` exclusively and had no other purpose, so it
+  went with it (15 more tests). `crates/crowbar-app/src/surface.rs`'s
+  hand-maintained registry list was updated to match.
+
+**What this means for §6 above:** the vendored `gpui_component::native_menu`
+is now the *only* native-menu implementation left in this workspace. The
+first bullet of §6 is unaffected — it already named the vendored menu as the
+right call for a future right-click handler. The second bullet's premise is
+gone, for the reason noted inline above.
+
+Nothing was wired to a call site by this retirement, and none was expected to
+be — per the brief that carried it out, "there is no host: neither `tabs.rs`
+nor `file_tree_row.rs` has right-click wiring, so a call site does not exist
+yet." That remains true after this item as it was before it.

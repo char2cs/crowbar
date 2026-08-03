@@ -534,7 +534,6 @@ mod tests {
                 "keybinding",
                 "label",
                 "loading-spinner",
-                "native-menu",
                 "number-input",
                 "popover",
                 "radio-group",
