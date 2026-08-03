@@ -20,7 +20,7 @@ use crate::row_surface::{Cell, RowSurface};
 /// A cell on this surface, with the selector already applied.
 ///
 /// `--width`/`--viewport-width` are driven equal — the full-bleed convention
-/// `command`'s and `dialog`'s own row_layout tests already establish: a
+/// `command`'s and `dialog`'s own `row_layout` tests already establish: a
 /// full-bleed surface's own width **is** the viewport's.
 fn cell(viewport: u16, args: &[&str]) -> Cell {
     let viewport = viewport.to_string();

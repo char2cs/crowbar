@@ -20,7 +20,7 @@
 //! row. `full_bleed` is what removes the ordinary [`crate::row_surface::INSET_X`]
 //! horizontal inset, so this surface's own `--right`/`--bottom` arithmetic
 //! reaches all the way to the window's true edges — the same reason `dialog`,
-//! `sheet` and `command` are all full-bleed. The row_layout test drives
+//! `sheet` and `command` are all full-bleed. The `row_layout` test drives
 //! `--width`/`--viewport-width` equal for the same reason those surfaces'
 //! tests do: a full-bleed surface's own width **is** the viewport's.
 //!
@@ -47,7 +47,7 @@
 //! nothing is lost tracking the other three edges). In the real app this
 //! surface mounts under `IDEShell`'s own window-sized root, where the
 //! question this section answers never comes up — it is purely an artefact
-//! of the row_layout harness's own wrapping, and it belongs here rather than
+//! of the `row_layout` harness's own wrapping, and it belongs here rather than
 //! in `crowbar_ui::components::fps_overlay`, which stays agnostic of it.
 
 use crowbar_ui::Theme;

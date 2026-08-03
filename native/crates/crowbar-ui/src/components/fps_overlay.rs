@@ -428,8 +428,20 @@ mod tests {
         // Alpha interpolates linearly regardless of colour space, so the
         // result is exactly 0.72 opaque-black, not an approximation.
         assert!((painted.value().a - 0.72).abs() < 0.001, "{painted:?}");
-        assert_eq!(painted.value().l, 0.0);
-        assert_eq!(SEPARATOR_ALPHA, 30.0);
+        // Unlike alpha, `l` is not approximately zero — it is exactly zero,
+        // with no rounding step that could perturb it: `color_mix_remainder`
+        // weights each channel by `c * a`, and `BLACK`/`TRANSPARENT` both
+        // have r=g=b=0, so every product and the final division are `0.0`
+        // exactly in IEEE 754. `to_bits` spells that equality so
+        // `clippy::float_cmp` sees it as deliberate, not an accidental `==`
+        // on a float — the same reasoning `crowbar-driver`'s `assert_px`
+        // helpers document for their own exact comparisons.
+        assert_eq!(painted.value().l.to_bits(), 0.0f32.to_bits());
+        // `SEPARATOR_ALPHA` is a literal `f32` constant, not a computed
+        // value, so this is a same-value comparison of two compile-time
+        // constants rather than anything that could drift by a rounding
+        // error — `to_bits` for the same reason as above.
+        assert_eq!(SEPARATOR_ALPHA.to_bits(), 30.0f32.to_bits());
     }
 
     #[test]
