@@ -3310,7 +3310,49 @@ progress number correspondingly too small.
 
 ## In flight
 
-### ✅ WAVE 1 MERGED — `e1b7ef4a`. Six components, registry 43 → 48, 1815 tests.
+### 🛑 I MERGED WAVE 1 ON GREEN GATES AND THREE COMPONENTS CANNOT BE VERIFIED
+
+**Found immediately after merging, by trying to take a verdict.** Driving
+`--surface sidebar-project-header` printed usage: **there is no such surface.**
+Audited all eight components the wave landed:
+
+| component | surface | `row_layout` | mapping doc |
+|---|---|---|---|
+| `repo_avatar` | ✅ | ✅ | ✅ |
+| `workspace_branch_icon` | ✅ | ✅ | ✅ |
+| `fps_overlay` | ✅ | ✅ | ✅ |
+| `detach_holder_modal` | ✅ | ✅ | **NO** |
+| `repo_import_dialog` | ✅ | ✅ | **NO** |
+| **`sidebar_project_header`** | **NO** | **NO** | **NO** |
+| **`sidebar_skeleton`** | **NO** | **NO** | **NO** |
+| **`sidebar_tab_bar`** | **NO** | **NO** | **NO** |
+
+**Three of eight can never be captured, diffed, or given a verdict.** They exist
+as `crowbar-ui` components and nothing more.
+
+#### This is my miss, and the gates could not have caught it
+
+clippy 0 · 1815 tests · 7/7 invariants — every one true, and **not one of them
+asks whether a ported component has a driver surface.** The registry test asserts
+that the *registered* set matches its list; three components simply never
+registered, so it had nothing to disagree with.
+
+**The arithmetic was in front of me.** The registry went **43 → 48** while the
+wave landed **eight** components. Five surfaces for eight components is a
+one-line check I did not do, and I wrote "six components" in the merge message
+without counting either.
+
+> **The rule this earns, and it is the loop's own words:** *never report
+> completion from a green build and a green suite.* I read that as being about
+> parity verdicts. It is also about **coverage of the deliverable** — a gate
+> answers the question it was built to ask, and "did this work produce the
+> artefacts it was supposed to" is not that question for any gate here.
+>
+> **Concrete check before any future port merge:** one row per component, four
+> columns — component, surface, `row_layout`, mapping doc. Any `NO` blocks the
+> merge. Dispatched as **P3.55**.
+
+### ✅ WAVE 1 MERGED — `e1b7ef4a`. Registry 43 → 48, 1815 tests.
 
 Gated as one tree rather than three, and **that decision found four defects no
 isolated run could reach** (the four are itemised below). Three isolated green
