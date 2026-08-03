@@ -2851,6 +2851,55 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### P3.37 — references repaired; verdicts BLOCKED by the screen lock
+
+`native/p3.37-reference-repair` @ `2c4ff053` (on a merge folding in the
+never-landed `native/p3.33-search`). Gates by my own run: clippy 0 · **1604
+passed / 0 failed** · 7 `ok`. **All three references now load cleanly** under
+P3.36's guard — no duplicate ids, no zero-area-visible anchors:
+
+| reference | root | anchors |
+|---|---|---|
+| `p3-ref-search.json` | `search-popover` | 10 |
+| `p3-ref-search-replace-row.json` | `search-replace-row` | 6 |
+| `p3-ref-command.json` | `command-dialog-popup` | 11 |
+
+**The verdicts were NOT taken.** The screen re-locked mid-run and every native
+capture hangs. AeroSpace was restored by hand afterwards — my `trap` could not
+fire while the capture hung, so the WM sat disabled until I killed the process.
+**Lesson: a `trap`-based restore does not protect against a command that never
+exits.** Kill first, restore second.
+
+#### ‼️ The two extractors disagree on v1.8 — one refuses, one shrugs
+
+Found while proving `search-replace-row` needs its own surface rather than a
+scope entry:
+
+- **DOM side**: a duplicated declared anchor id **throws**
+  (`oracleSelectDeclaredAnchors`).
+- **Native side**: `AnchorRegistry::record` **silently replaces** a repeated id,
+  and `Snapshot::build` copies every recorded anchor regardless of which id
+  `root` names.
+
+So a native capture asked for `root: "search-replace-row"` would still carry
+`search-popover` and the rest. That asymmetry is exactly the "one side shrugs
+where the other fails" shape ANCHORS exists to prevent, and it is **not** fixed
+by P3.36 (which guards the *loaded snapshot*, not the *recording*). Worth an item.
+
+#### ⚠ Two reservations about how P3.37 captured, recorded so they are not lost
+
+1. **It removed real DOM elements before capturing `command`** — four `kbd`s
+   (a separately-registered surface) and a live `input-control` — to reproduce
+   the original 11-anchor set. The reasoning is defensible, but **removing real
+   elements to make a capture match an expectation is the manipulation class
+   that produced the fabricated reference**. If a scope entry is the right
+   mechanism, it should be a scope entry, not surgery on the live DOM.
+2. **`command`'s original `visible: true` is explained only as "the file was
+   stale/bad".** It proved no *live* extractor bug — `bounds` and `visible` come
+   from the identical `box` on adjacent lines, and the area check has been there
+   since the first commit — which is the important half. But how the original
+   file acquired the contradiction is still unexplained.
+
 #### ✅ TIER B COMPLETE — `context-menu` closed by building nothing
 
 The last outstanding item, and the right answer was **no port**.
