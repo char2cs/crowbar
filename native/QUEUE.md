@@ -3255,6 +3255,43 @@ progress number correspondingly too small.
 
 ## In flight
 
+### ▶ Layout wave 1 — dispatched 2026-08-03, three clusters in parallel
+
+The survey's own dependency graph decides the order, not my guess at it.
+
+| item | branch | files |
+|---|---|---|
+| **P3.50** cluster 1 — the foundation | `native/p3.50-layout-cluster1` | `repo-avatar` · `workspace-branch-icon` |
+| **P3.51** cluster 2 — standalone modals | `native/p3.51-layout-cluster2` | `detach-holder-modal` · `repo-import-dialog` |
+| **P3.52** cluster 3 — sidebar chrome | `native/p3.52-layout-cluster3` | `sidebar-project-header` · `sidebar-tab-bar` · `sidebar-skeleton` · `fps-overlay` · `sidebar-toast-overlay` |
+
+**Cluster 1 blocks six other files** (`repo-icon-popover`, `context-pill`,
+`workspace-switcher`, `project-home-row`, `pending-create-row`,
+`workspace-tree-item`), which is why it goes first. Clusters 2 and 3 have no edge
+to it or to each other, so they run alongside.
+
+All three will touch `surface.rs`'s registry list and `components/mod.rs`; each
+was told to keep those edits minimal and additive so the conflict stays textual.
+
+**Held back deliberately:** cluster 4 (`nav-stack`, `sidebar-peek`) — the survey
+flags both as judgement calls following the `sidebar-carousel` precedent, and I
+would rather see how the first three land before committing to that reading.
+
+**P3.52 carries the two survey findings that would otherwise be re-derived
+wrongly**: `fps-overlay` ships in every build behind a settings toggle, and
+`sidebar-toast-overlay` is the toast users actually see. It is also the largest
+item I have dispatched in this tier, and it was told that **four clean plus an
+honest account of the fifth beats five rushed**.
+
+#### ⚠ One of the 43 finished surfaces measures something unreachable
+
+`toast.rs` ported `ui/toast.tsx`'s `AnchoredToasts`. `native/mapping/toast.md`
+already says that component has **no code path in any environment**. Its verdict
+was taken and is real; what it measures is not on screen for any user. The
+reachable toast is `sidebar-toast-overlay.tsx`, dispatched above as part of
+P3.52. **Not a defect to revert — a reminder that "ported and verified" answers a
+narrower question than "the user sees this."**
+
 ### ✅ `command` PASSES — 0 deltas over 11 anchors. The third held verdict, and it is green.
 
 **2026-08-03, my own run**, `native/p3.32-command-rebased` @ `21ea1ec6` built with
