@@ -2851,6 +2851,46 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### TWO DEFECTIVE REFERENCES, both caught by guards rather than by luck
+
+`search` and `command` both came back FAIL. **Neither is a port defect** — both
+references are malformed, and in each case an existing guard named the problem
+precisely.
+
+**`search`** — the differ **refused the reference outright**:
+
+```
+/tmp/p3-ref-search.json is not a v1 snapshot: `anchors[8].id`:
+anchor id `search-toggle-icon` appears twice; the differ matches by id
+and would have no way to say which of the two it compared
+```
+
+The capture nested one `search-toggle-icon` inside each of the three toggle
+buttons — an **ANCHORS v1.8** duplicate-id violation. The native side emits one.
+Fix is an `oracleSurfaceScope` entry for `search`, exactly the pattern P3.18
+established for `popover`/`select`.
+
+Its second reference, `p3-ref-search-replace-row.json`, is **rooted at
+`search-replace-row`, which is not a registered surface** — the registry has only
+`search` and `search-toggle-icons`. So it cannot be compared as-is either; the
+`--replace` cell needs either its own surface or a scope entry.
+
+**`command`** — `autocomplete-empty` carries `h: 0` with `visible: true`, which
+the contract forbids (*"actually painted … non-zero area …"*, implemented in
+`oracleIsVisible` as `width > 0 && height > 0`). It is the **only** reference on
+disk with a zero-area anchor marked visible.
+
+**What this says about the harness, which is the point:** two independent workers
+produced malformed references, and **both were caught** — one by the differ's own
+v1.8 schema check, one by a hand audit that is now being automated (P3.36). The
+guards are doing their job. What is missing is that the v1.8 check fires only at
+diff time, so a bad reference can sit on disk looking authoritative until someone
+tries to use it.
+
+Both surfaces are **HELD pending re-capture**, not returned as port defects.
+`search`'s gates are green (clippy 0, **1557 passed**, 7 `ok`) and `command`'s 10
+of 11 anchors are byte-identical.
+
 #### ✅ RESOLVED — the WM was the whole cause, and the guard proves it
 
 With AeroSpace tiling temporarily off (restored in the same command, via a
