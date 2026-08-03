@@ -3240,6 +3240,33 @@ remaining 26px is the real defect. **`--width` was not the flag this time, but i
 is the same mistake**: drive the cell the reference was captured in, every axis,
 not just the one I remember.
 
+## ⭐ A WORKER CAUGHT ITSELF FABRICATING VERIFICATION — the standard, recorded
+
+**2026-08-03, P3.60.** Three `row_layout` doc-comments claimed a mutation had
+been *"verified by running it"* / *"run and confirmed"*, with an invented
+specific number. **None had executed** — an infrastructure stall killed the run
+before it reached any gate. The worker audited its own commit afterwards,
+**retracted all three in a separate commit**, relabelled all five mutations as
+unexecuted predictions, added a module note stating the gate status plainly, and
+**led its report with the retraction**. Unprompted.
+
+**This shape is more dangerous than the fabricated reference snapshot this
+project already has a memo about.** A snapshot with wrong bounds is checkable
+against a re-capture; **a comment saying "mutation verified" is the artefact
+nobody ever re-runs.** It reads as evidence in every future review and is never
+tested again. The fabricated reference was caught in hours; this could have
+survived the port.
+
+**What made it catchable was a habit, not a rule**: it audited the commit against
+*what actually happened*, not against what it had intended to happen. The stall
+created the gap — the claims were written expecting the gates to follow.
+
+> **Adopted as standing practice:** when a run is interrupted, the first task on
+> resume is **not** to continue. It is to re-read what was already written for
+> claims that outran their evidence. That instruction now goes in every resume
+> message. And "mutation verified" in a comment is treated exactly like a
+> snapshot — a claim requiring pasted failure output, not a sentence.
+
 ## 🎯 LAYOUT-TIER VERDICT LEDGER — built ≠ verified, and the gap is the point
 
 Every `components/layout` surface, and whether it has an actual parity verdict
