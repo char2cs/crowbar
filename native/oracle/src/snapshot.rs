@@ -36,6 +36,13 @@
 //!   it and emits no font has asked for a comparison against nothing. Falling
 //!   back to `bounds.h` would turn the declaration into a silent no-op, which
 //!   is the one thing a declared flag must never be.
+//! - **A zero-area anchor cannot claim `visible: true`** (P3.36). §3 defines
+//!   `visible` as "Actually painted: … non-zero area, …", so `bounds.w == 0.0`
+//!   or `bounds.h == 0.0` together with `visible: true` is a snapshot
+//!   contradicting the field it declares — this is a self-consistency check on
+//!   *one* snapshot, not a comparison between two, and it exists because one
+//!   slipped past every other check and cost a full investigation before it
+//!   was traced to the reference rather than the port.
 //!
 //! No `f64` in this module is ever converted with a lossy `as` cast. The three
 //! integer-valued fields (`schema`, `state.width`, `font.weight`) go through
@@ -414,6 +421,16 @@ pub enum LoadErrorKind {
     MissingBackground(String),
     /// An anchor declared `line_sized` and emitted no `font` (v1.6).
     LineSizedWithoutFont(String),
+    /// An anchor claimed `visible: true` with a zero-area `bounds` (§3): the
+    /// field's own definition requires non-zero area.
+    VisibleWithZeroArea {
+        /// The anchor's id.
+        id: String,
+        /// Its `bounds.w`.
+        w: f64,
+        /// Its `bounds.h`.
+        h: f64,
+    },
 }
 
 impl fmt::Display for LoadErrorKind {
@@ -478,6 +495,14 @@ impl fmt::Display for LoadErrorKind {
                  without a font there is no target to compare against. Falling back to \
                  `bounds.h` would leave the declaration doing nothing and say so nowhere, which \
                  is the one outcome a declared flag must never have"
+            ),
+            Self::VisibleWithZeroArea { id, w, h } => write!(
+                f,
+                "anchor `{id}` has `visible: true` with bounds {w:?}x{h:?}. ANCHORS.md §3 \
+                 defines `visible` as \"Actually painted: … non-zero area, …\", so a zero-area \
+                 box cannot be `true` under the contract's own rule. The snapshot contradicts \
+                 the extractor that produced it, and correcting it silently would hide the \
+                 defect rather than fix it"
             ),
         }
     }
@@ -877,6 +902,25 @@ fn anchor_at(value: &Value, path: &Path) -> Result<Anchor, LoadError> {
         });
     }
 
+    // §3's own definition of `visible` is "Actually painted: … non-zero area,
+    // …". A box with `bounds.w == 0` or `bounds.h == 0` therefore cannot
+    // satisfy the field it claims — the snapshot contradicts the contract
+    // that produced it. Refused here by anchor id and both offending values
+    // (the zero dimension and the claimed `visible`), rather than silently
+    // corrected to `false`: a P3.36 investigation spent a full pass chasing a
+    // "port defect" that was actually this, because nothing checked it before
+    // the value reached the differ.
+    if anchor.visible && (anchor.bounds.w == 0.0 || anchor.bounds.h == 0.0) {
+        return Err(LoadError {
+            path: path.child("visible").0,
+            kind: LoadErrorKind::VisibleWithZeroArea {
+                id: anchor.id,
+                w: anchor.bounds.w,
+                h: anchor.bounds.h,
+            },
+        });
+    }
+
     Ok(anchor)
 }
 
@@ -1018,6 +1062,75 @@ mod tests {
             r##"{"id":"a","bounds":{"x":0,"y":0,"w":1,"h":19},"bg":"#00000000","visible":true}"##,
         );
         assert!(Snapshot::from_json(&plain).is_ok());
+    }
+
+    /// P3.36: `command` diffed a reference where `bounds` was `{x:1, y:50,
+    /// w:574, h:0}` — a zero-area box — and `visible` was `true`. §3 defines
+    /// `visible` as "Actually painted: … non-zero area, …", so that snapshot
+    /// contradicted the very extractor that produced it, and nothing caught
+    /// it before it reached the differ. This proves the loader now does,
+    /// naming the anchor and both offending values rather than silently
+    /// forcing `visible` to `false`.
+    ///
+    /// Mutation, not just declaration: every case here is a snapshot that the
+    /// pre-P3.36 loader accepted (bounds and `visible` are each independently
+    /// legal; only the combination is not), so a check that merely asserted
+    /// the field exists would not have caught its own absence.
+    #[test]
+    fn a_zero_area_anchor_claiming_visible_is_rejected_by_name() {
+        // A separate, origin-anchored root plus the offending anchor at the
+        // bug report's own coordinates — kept as two anchors, rather than
+        // making the offending one `root`, so this test cannot be satisfied
+        // by §4's unrelated root-at-origin check firing first.
+        for (w, h) in [(0.0, 0.0), (574.0, 0.0), (0.0, 24.0)] {
+            let json = format!(
+                r##"{{"schema":1,"surface":"s","state":{{"width":320,"theme":"dark",
+                   "content":"short","flags":[]}},"root":"root-anchor","anchors":[
+                   {{"id":"root-anchor","bounds":{{"x":0,"y":0,"w":1,"h":1}},
+                     "bg":"#00000000","visible":true}},
+                   {{"id":"autocomplete-empty","bounds":{{"x":1,"y":50,"w":{w},"h":{h}}},
+                     "bg":"#00000000","visible":true}}]}}"##
+            );
+            let e = err_of(&json);
+            assert_eq!(
+                e.kind,
+                LoadErrorKind::VisibleWithZeroArea {
+                    id: "autocomplete-empty".to_owned(),
+                    w,
+                    h,
+                },
+                "w={w} h={h}"
+            );
+            assert_eq!(e.path, "anchors[1].visible");
+            let rendered = e.to_string();
+            assert!(rendered.contains("autocomplete-empty"), "{rendered}");
+            assert!(rendered.contains("non-zero area"), "{rendered}");
+        }
+
+        // Control: the same zero-area box is legal once `visible` agrees with
+        // it — this is the resting case (e.g. a snapped-out carousel panel or
+        // a collapsed row), not an error. (`with_anchor`'s single anchor is
+        // also `root`, so bounds stay at the origin per §4 — a different rule
+        // this test is not exercising.)
+        let resting = with_anchor(
+            r##"{"id":"a","bounds":{"x":0,"y":0,"w":574,"h":0},"bg":"#00000000",
+                 "visible":false}"##,
+        );
+        assert!(
+            Snapshot::from_json(&resting).is_ok(),
+            "zero area + false must load"
+        );
+
+        // Control: a non-zero-area box claiming `visible: true` is untouched
+        // by this rule — proving it does not over-fire on the common case.
+        let painted = with_anchor(
+            r##"{"id":"a","bounds":{"x":0,"y":0,"w":574,"h":24},"bg":"#00000000",
+                 "visible":true}"##,
+        );
+        assert!(
+            Snapshot::from_json(&painted).is_ok(),
+            "non-zero area + true must load"
+        );
     }
 
     /// v1.5. Optional, defaults to `false`, and type-checked when present — an
@@ -1482,6 +1595,11 @@ mod tests {
             },
             LoadErrorKind::MissingBackground("git-row-badge".to_owned()),
             LoadErrorKind::LineSizedWithoutFont("git-row-name".to_owned()),
+            LoadErrorKind::VisibleWithZeroArea {
+                id: "autocomplete-empty".to_owned(),
+                w: 574.0,
+                h: 0.0,
+            },
         ];
         for k in kinds {
             assert!(!k.to_string().is_empty(), "{k:?} rendered empty");
