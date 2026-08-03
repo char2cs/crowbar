@@ -4,6 +4,7 @@ import { stripNewTabs } from './persisted-layout'
 import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
 import { useHistoryStore } from '@/features/editor/stores/history-store'
 import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
+import { useGitBlameStore } from '@/features/git/stores/git-blame-store'
 import type { TerminalContent } from '@/features/panes/types/pane-content'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { setActiveScopeWorkspaceId } from '@/lib/workspace-scope'
@@ -133,19 +134,19 @@ export function destroyWorkspaceStore(wsId: string): void {
     // Free cached git-blame for this workspace's open files. The blame store is a
     // global singleton keyed by file path, so clearAllBlame() would wipe blame for
     // OTHER still-active workspaces; we instead clear only this workspace's editor
-    // buffer paths. Dynamic import avoids a registry → git-feature cycle, mirroring
-    // the terminal branch above.
+    // buffer paths. Unlike the terminal branch above, git-blame-store has no path
+    // back into the workspace/registry layer (it only pulls in zustand + the git
+    // API layer), so there is no cycle here — a static import keeps this release
+    // synchronous, same as the history cleanup below.
     const editorPaths: string[] = []
     for (const b of buffers) {
       if (isEditorContent(b)) editorPaths.push(b.path)
     }
     if (editorPaths.length > 0) {
-      void import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
-        const { clearBlameForFile } = useGitBlameStore.getState()
-        for (const path of editorPaths) {
-          clearBlameForFile(path)
-        }
-      })
+      const { clearBlameForFile } = useGitBlameStore.getState()
+      for (const path of editorPaths) {
+        clearBlameForFile(path)
+      }
     }
 
     // Cleanup undo tracker and history for each buffer

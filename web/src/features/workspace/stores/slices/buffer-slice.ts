@@ -21,6 +21,7 @@ import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 import { useHistoryStore } from '@/features/editor/stores/history-store'
 import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
+import { useGitBlameStore } from '@/features/git/stores/git-blame-store'
 // Leaf module (zustand only, no Plate) — a static import here keeps the rich
 // editor's chunk out of the base bundle while still giving closeBuffer a
 // synchronous way to release the buffer's rich/source preference.
@@ -470,13 +471,13 @@ export const createBufferSlice: StateCreator<
           }
         }
         // Free git-blame data accumulated for this file so per-file Maps don't
-        // grow unbounded across a long session. Dynamic import mirrors the pattern
-        // used above for terminal/chat to avoid circular slice → git-feature deps.
+        // grow unbounded across a long session. Unlike the terminal/chat cleanups
+        // above, git-blame-store has no path back into the workspace/panes slices
+        // (it only pulls in zustand + the git API layer), so there is no cycle to
+        // dodge here — a static import keeps this release synchronous, same as
+        // the markdown-view and history cleanups below.
         if (buf && isEditorContent(buf)) {
-          const filePath = buf.path
-          void import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
-            useGitBlameStore.getState().clearBlameForFile(filePath)
-          })
+          useGitBlameStore.getState().clearBlameForFile(buf.path)
         }
         // Release this buffer's markdown rich/source preference. The view store
         // is keyed by bufferId and nothing else ever removes an entry, so
