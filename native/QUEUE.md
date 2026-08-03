@@ -3240,6 +3240,37 @@ remaining 26px is the real defect. **`--width` was not the flag this time, but i
 is the same mistake**: drive the cell the reference was captured in, every axis,
 not just the one I remember.
 
+## 🎯 LAYOUT-TIER VERDICT LEDGER — built ≠ verified, and the gap is the point
+
+Every `components/layout` surface, and whether it has an actual parity verdict
+taken by me against the live app. **A merge is not a verdict.**
+
+| surface | built | verdict | note |
+|---|---|---|---|
+| `sidebar-project-header` | ✅ | ✅ **PASS 0/5** | drive: `--right` — the reference is the **right-docked** cell |
+| `context-pill` | ✅ | ❌ **FAIL 3/2** | missing 1px transparent border; both boxes +1px. Returned |
+| `fps-overlay` | ✅ | ❌ **FAIL 1/1** | +3px — **contract gap**, not a port defect (7 runs × per-run `ceil`) |
+| `repo-avatar` | ✅ | ⏸ | not rendered on the current route |
+| `workspace-branch-icon` | ✅ | ⏸ | not rendered on the current route |
+| `detach-holder-modal` | ✅ | ⏸ | needs the modal driven open |
+| `repo-import-dialog` | ✅ | ⏸ | needs the dialog driven open |
+| `repo-icon-popover` | ✅ | ⏸ | needs the popup driven open |
+| `sidebar-tab-bar` | ✅ | n/a | no surface by design — measured through `--surface tabs` |
+| `workspace-switcher` | ✅ | n/a | no surface by design — `display: contents`, no box (v1.11) |
+| **`sidebar-skeleton`** | ✅ | 🚫 **UNOBTAINABLE** | never renders — its `Suspense` fallback cannot fire |
+
+**Three verdicts taken, one passing.** Eleven surfaces built in this tier; that
+ratio is the honest state and the reason the header now separates the two
+numbers.
+
+**Every ⏸ needs an app-state drive**, and per **v1.14** each records the drive
+alongside its reference. That is the work, not a formality: **two of the three
+verdicts taken so far were first driven at the wrong cell** — `sidebar-project-header`
+at the left-docked default against a right-docked reference, `context-pill` at
+`workspace` against a `home` reference. Both were caught by the **anchor-presence
+line**, which fires on a *set* difference before geometry ever disagrees. That
+line is the cheapest signal in the differ and I should read it first, every time.
+
 ## 📊 LIVENESS AUDIT COMPLETE — 4 of 48 ported surfaces are DEAD
 
 `native/mapping/liveness-audit.md`, merged `6f79a361`. **30 LIVE · 14
