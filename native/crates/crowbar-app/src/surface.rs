@@ -266,6 +266,12 @@ pub trait SurfaceParams: Clone + Debug + PartialEq + 'static {
     /// describes fails a test immediately, on the surface that got it
     /// wrong, and so does leaving it `false` on a surface that has genuinely
     /// run out of real flags.
+    ///
+    /// Only that invariant test reads it — unlike [`Surface::root`], nothing
+    /// in the driver/snapshot path calls it either, so in a plain build
+    /// (`driver` feature or not) this default is genuinely dead, not merely
+    /// dead by that feature's absence.
+    #[cfg_attr(not(test), allow(dead_code))]
     fn no_state_axis(&self) -> bool {
         false
     }
@@ -384,6 +390,9 @@ impl<T: SurfaceParams> Params for T {
         <T as SurfaceParams>::describe(self, cell, out);
     }
 
+    /// See [`SurfaceParams::no_state_axis`] for why this forward is dead in
+    /// a plain build the same way that default is.
+    #[cfg_attr(not(test), allow(dead_code))]
     fn no_state_axis(&self) -> bool {
         <T as SurfaceParams>::no_state_axis(self)
     }
