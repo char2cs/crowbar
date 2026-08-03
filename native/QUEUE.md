@@ -4,14 +4,15 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 3 — remainder **measured**, not estimated. **50 surfaces · 1848 tests ·
-clippy 0 · 7/7 invariants**, all verified by my own run. Of the 50, the liveness
-audit finds **4 measure dead code** — so the honest coverage figure is **46**.
+**Phase:** 3 — remainder **measured**, not estimated. **52 surfaces · 1911 tests ·
+clippy 0 · 7/7 invariants**, all verified by my own run. Of the 52, **5 measure
+dead code** (liveness audit + `sidebar-skeleton`) — so the honest figure is **47**,
+and three of the five can never receive a verdict at all.
 
 | tier | state |
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
-| **Tier B · `components/layout`** | **7 of 23 targets** — wave 1 merged (`e1b7ef4a`). **16 to go.** ⚠ all 7 are *built*, none has a **parity verdict** yet |
+| **Tier B · `components/layout`** | **11 of 23 targets** — waves 1–2 merged. **12 to go.** ⚠ built ≠ verified: **1 PASS** (`sidebar-project-header` 0/5), 1 FAIL (`fps-overlay`, +3px contract gap), the rest unverified |
 | **Tier A · `crowbar-core`** | **1,648 lines of a ~3,170-line target** — first area merged (workspace scoping, P3.53). Coverage **100.00% over 787 lines**, up from 148 |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
