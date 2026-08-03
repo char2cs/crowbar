@@ -283,7 +283,7 @@ impl WorkspaceBranchIcon {
                 empty: false,
             }
             .render(anchors);
-            anchors.boxed(AnchorId::from(ID), self.spinner_wrapper(theme).child(spinner))
+            anchors.boxed(AnchorId::from(ID), Self::spinner_wrapper(theme).child(spinner))
         } else {
             anchors.boxed(AnchorId::from(ID), self.glyph_box(theme))
         }
@@ -291,7 +291,14 @@ impl WorkspaceBranchIcon {
 
     /// `'flex size-4 shrink-0 items-center justify-center text-foreground'`
     /// around `<FlickerSpinner className="size-3.5" />` — `WorkspaceAgentSpinner`.
-    fn spinner_wrapper(self, theme: &Theme) -> Div {
+    ///
+    /// An associated function, not a method: the wrapper is `size-4` and
+    /// `theme.foreground` on every cell that reaches it — nothing on `self`
+    /// (`status`, `working`, `isPlaceholder`) changes it, unlike
+    /// [`Self::glyph_box`], which reads `self.color(theme)`. Taking `self`
+    /// here would be `clippy::unused_self`'s finding restated as a diff
+    /// rather than fixed.
+    fn spinner_wrapper(theme: &Theme) -> Div {
         div()
             .flex()
             .flex_shrink_0()
