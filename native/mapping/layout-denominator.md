@@ -4,8 +4,7 @@ Companion to QUEUE.md's "The real Tier B denominator" (the `components/ui`
 measurement), applied to the other half of §16 Phase 3 Tier B: *"the 46
 `components/ui` primitives **and 36 `components/layout` files**."*
 
-**Status: IN PROGRESS.** This is a checkpoint commit — rows below are final
-where marked, `TODO` where not yet measured. Survey only; nothing under
+**Status: COMPLETE.** All 29 files classified. Survey only; nothing under
 `native/crates/` was touched, the oracle was not run, `crowbar-app` was not
 launched.
 
@@ -90,11 +89,11 @@ resolved importers of either spelling, test or otherwise.
 | `workspace-branch-icon.tsx` | 72 | `context-pill.tsx`, `pending-create-row.tsx`, `project-home-row.tsx`, `repo-icon-popover.tsx`, `workspace-switcher.tsx`, `workspace-tree-item.tsx` | none | 0 | **Tier B target — NOT already covered**, see §5 |
 | `workspace-inline-input.tsx` | 98 | `agent-chat-row.tsx` (features/agent), `repo-section.tsx`, `workspace-tree-item.tsx` | none | 1 | **Tier B target** |
 | `workspace-switcher.tsx` | 217 | `context-pill.tsx` | `useProjectDataStore`, `useProjectStore`, `useSidebarStore` | 1 | **Tier B target** |
-| `pending-create-row.tsx` | 54 | TODO | TODO | 0 | TODO |
-| `workspace-tree-context.tsx` | 464 | `pending-create-row.tsx`, `repo-section.tsx`, `workspace-tree.tsx`, `workspace-tree-footer.tsx`, `workspace-tree-item.tsx`, `workspace-tree-actions.ts` | `useSidebarStore` | 1 | TODO |
-| `workspace-tree-footer.tsx` | 44 | `workspace-tree.tsx` | none | 0 | TODO |
-| `workspace-tree-item.tsx` | 318 | `repo-section.tsx` | `useSidebarStore` | 0 | TODO |
-| `workspace-tree.tsx` | 110 | `sidebar-carousel.tsx` | `useSidebarStore`, `useWorkspaceListStore` | 0 | TODO |
+| `pending-create-row.tsx` | 54 | `repo-section.tsx`, `workspace-tree-item.tsx` | none | 0 | **Tier B target** |
+| `workspace-tree-context.tsx` | 464 | `pending-create-row.tsx` (type only), `repo-section.tsx`, `workspace-tree.tsx`, `workspace-tree-footer.tsx`, `workspace-tree-item.tsx`, `workspace-tree-actions.ts` | `useSidebarStore` (inside handlers only) | 1 | **Phase 4 (state) / Phase 5 (interaction) — hybrid, no own geometry**, see §6 |
+| `workspace-tree-footer.tsx` | 44 | `workspace-tree.tsx` | none (reads `useWorkspaceTreeDrag()` context) | 0 | **Phase 5 (interaction — drag)**, see §6 |
+| `workspace-tree-item.tsx` | 318 | `repo-section.tsx` | `useSidebarStore` | 0 | **Tier B target** |
+| `workspace-tree.tsx` | 110 | `sidebar-carousel.tsx` | `useSidebarStore`, `useWorkspaceListStore` | 0 | **Tier B target** |
 
 No file among the 29 has **zero** resolved importers by either spelling —
 every one is reached from somewhere in `web/src`, so **no "dead" verdicts on
@@ -266,23 +265,205 @@ status switch (`locked`/`new`/`pr-conflicts`/`deleted`/`pr-open`/`pr-closed`/
 counterpart anywhere in the tree. **Verdict: Tier B target, not already
 covered.**
 
-## 6. Headline numbers (partial — 24 of 29 classified)
+## 6. The last five — the workspace-tree cluster, and where its drag machinery actually lives
 
-TODO — final count pending the remaining 5 rows (`pending-create-row`,
-`workspace-tree-context`, `workspace-tree-footer`, `workspace-tree-item`,
-`workspace-tree`).
+These five are one connected subsystem (`workspace-tree.tsx` → `repo-
+section.tsx` → `workspace-tree-item.tsx`, all three wrapped in
+`WorkspaceTreeProvider`), so read and classified together.
 
-Running tally through row 24:
+**`workspace-tree-context.tsx` (464 lines, the largest file in the
+directory) has no geometry of its own.** Read in full. It is a React Context
+provider exporting two contexts (`WorkspaceTreeActionsContext`,
+`WorkspaceTreeDragContext`) and its own JSX is exactly `{children}` plus a
+conditionally-rendered `<DragGhost>`. Its substance is two distinct kinds of
+non-layout work, both real and both large:
 
-| Verdict | Count so far |
-|---|---|
-| already ported (control) | 1 (`sidebar-carousel`) |
-| Tier B target | 20 |
-| Phase 4 (state) | 2 (`connection-indicator`, `placeholder-toast-watcher`) |
-| Phase 5 (interaction) | 1 (`drag-ghost`) |
-| Phase 4/6 (app shell) | 1 (`ide-shell`) |
-| dead | 0 |
-| Plate-only | 0 |
-| out of scope, other | 0 |
+- **Phase 4 shape**: the create/rename state machine — `pendingCreates`
+  map, optimistic-then-reconciled create (subscribes to `useSidebarStore`
+  waiting for the real workspace to arrive, only then clears the optimistic
+  row), rename confirm/cancel, all `useCallback`-stabilized and handed out
+  through context.
+- **Phase 5 shape**: a hand-built pointer-drag protocol — `onPointerDownDrag`
+  arms a pending ref, a `window`-level `pointermove` listener enforces a 5px
+  drag threshold before calling `setPointerCapture` (deliberately deferred so
+  it doesn't swallow the rename dblclick), `findDropTarget` hit-tests via
+  `document.elementsFromPoint` walking for `data-trash-drop`/`data-ws-drop`/
+  `data-repo-drop` attributes, the ghost position is written directly to
+  `ghostRef.current.style.left/top` (no React state, by its own comment, "no
+  tree re-render on every pixel"), and `onPointerUp` does the actual
+  reparent/delete API calls with optimistic-then-revert-on-failure.
 
-## 7. Wave split — TODO, pending final Tier B list
+Neither slice is "layout." Recorded as a **hybrid Phase 4 (state) / Phase 5
+(interaction) verdict, not Tier B**, and — unlike every Tier B row in this
+table — there is no anchorable box to omit-by-exclusion here: it paints
+nothing of its own.
+
+**`workspace-tree-footer.tsx` (44 lines) is the trash-drop target, and its
+only reason to exist is an active drag.** It reads `draggingWs`/
+`hoverTargetId` off `useWorkspaceTreeDrag()` (the Phase 5 context above) to
+decide (a) whether it's expanded at all (`max-h-16` vs `max-h-0`, "always
+rendered so the ScrollArea doesn't resize on drag start/end") and (b)
+whether the drop-target ring is on. It does have two static box states
+(collapsed sliver / expanded drop zone) that are technically drivable
+without a real drag — same "drive the cell" argument as `nav-stack`/
+`sidebar-peek` in §4 — but unlike those two, this component's *entire*
+purpose, not just its trigger, is DnD feedback: there is no meaningful state
+in which this row matters except mid-drag. Classified **Phase 5
+(interaction — drag)**, grouped with `drag-ghost.tsx` rather than with the
+`nav-stack`/`sidebar-peek` judgment calls, on the strength of that
+distinction — flagged as the closer of the two calls in this table after
+`ide-shell`.
+
+**`workspace-tree-item.tsx` (318 lines) is the actual tree row — the closest
+thing in this directory to the Phase 1 gate's `tree-row.tsx`, generalized to
+a workspace.** Recursive (renders itself for `children`), reads the drag
+context only to pick a class (`isDraggingThis && 'opacity-40'`,
+`isDropTarget && 'ring-1 ring-ring'`) the same way it reads `isActive` to
+pick `ROW_ACTIVE` vs `ROW_INACTIVE` — a plain boolean-to-class mapping, not
+orchestration. Every one of its many states (active/inactive, expanded/
+collapsed, renaming, creating-child, placeholder-with-details,
+dragging-opacity, drop-target-ring, moving) is driven by a prop or a context
+value it only reads, never one it computes by side effect — exactly the
+shape `sidebar-carousel`'s `selected` and `dropdown-menu`'s open/closed
+states were already accepted as: **drivable directly, without simulating the
+gesture that would organically produce them.** `useSidebarStore` here is a
+real top-level subscription (`collapsedWorkspaces`, `repos`), read for
+render, not `.getState()` in a handler — consistent with presentational data
+binding, not orchestration. **Tier B target.**
+
+**`workspace-tree.tsx` (110 lines) is the outer scaffold**: `Project-
+HomeRow` + a `ScrollArea` (`ui/scroll-area`, already ported — the entry in
+`native/crates/crowbar-app/src/surfaces/` confirms it) wrapping a `role=
+"tree"` list of `RepoSection`s, plus the footer and an error state
+(`InlineError`, already ported). Its own logic is a memoized tree-build
+(`buildWorkspaceTree`, a pure function in the `.ts` helper) and a navigate
+callback — no local `useEffect`, no local state beyond one `useState` for
+which repo is renaming. **Tier B target**, with one caveat carried into the
+wave split below: it directly renders `<WorkspaceTreeFooter />`, which this
+survey classifies Phase 5, not Tier B — so porting `workspace-tree.tsx` on
+its own terms means deciding what stands in for that child (omit, stub, or
+pull the footer in as a bonus item), a decision this survey is flagging, not
+making.
+
+## 7. Headline numbers — final, all 29 classified
+
+| Verdict | Count | Files |
+|---|---|---|
+| **already ported** (control) | 1 | `sidebar-carousel` |
+| **Tier B target** | **22** | `nav-stack`, `fps-overlay`, `detach-holder-modal`, `placeholder-row-actions`, `project-home-row`, `project-switcher-panel`, `repo-avatar`, `repo-icon-popover`, `repo-import-dialog`, `repo-section`, `sidebar-peek`, `sidebar-project-header`, `sidebar-skeleton`, `sidebar-tab-bar`, `sidebar-toast-overlay`, `context-pill`, `workspace-branch-icon`, `workspace-inline-input`, `workspace-switcher`, `pending-create-row`, `workspace-tree-item`, `workspace-tree` |
+| **Phase 4 (state)** | 2 | `connection-indicator`, `placeholder-toast-watcher` |
+| **Phase 5 (interaction)** | 2 | `drag-ghost`, `workspace-tree-footer` |
+| **Phase 4/6 (app shell)** | 1 | `ide-shell` |
+| **Phase 4 (state) / Phase 5 (interaction) hybrid** | 1 | `workspace-tree-context` |
+| **already covered** | 0 | — (two near-misses checked and REJECTED, §5: `sidebar-toast-overlay`, `workspace-branch-icon`) |
+| **dead** | 0 | — every file resolves at least one non-test importer, both spellings checked (§3) |
+| **Plate-only** | 0 | — this directory has no Plate-adjacent file; Plate's own 26-node exclusion lives entirely under `components/ui/` |
+| **out of scope, other** | 0 | — nothing here is §5.3 webview or §5.4 deleted-not-ported |
+
+**23 of 29 are genuine Tier B targets** (22 remaining + the 1 already done)
+— **not** the 28 QUEUE.md's 2026-08-03 entry carried as "neither a surface
+nor a mapping doc," and not the full 29. **6 of 29 are not Tier B at all**:
+`ide-shell` (app shell), `connection-indicator` + `placeholder-toast-watcher`
+(pure state watchers, both render `null`), `drag-ghost` +
+`workspace-tree-footer` (drag interaction), `workspace-tree-context` (state
++ drag hybrid, no geometry of its own).
+
+Two of the 22 remaining are judgment calls flagged rather than asserted
+(`nav-stack`, `sidebar-peek` — §4); one is the closest of the rejected-Tier-B
+calls (`workspace-tree-footer` — §6). A future worker who reads this table
+should re-open those three before treating them as settled, the way `ide-
+shell`'s is.
+
+## 8. Wave split — 22 Tier B targets, 6 clusters
+
+Grouped by actual coupling (shared imports, parent/child composition), not
+by arbitrary batch size — some clusters are large because their members are
+mutually independent leaves, not because they were forced together.
+"Must precede" notes a real render-time dependency (A imports/renders B),
+not just thematic similarity.
+
+**Cluster 1 — status icons and avatars (the foundation).**
+`repo-avatar.tsx` · `workspace-branch-icon.tsx`.
+Both are pure, zero-dependency leaves (no other file in this directory is
+imported by either). Six other Tier B files import one or both
+(`repo-icon-popover`, `context-pill`, `workspace-switcher`, `project-home-
+row`, `pending-create-row`, `workspace-tree-item`) — **land this cluster
+first**, everything downstream is blocked on it.
+
+**Cluster 2 — standalone modals.**
+`detach-holder-modal.tsx` · `repo-import-dialog.tsx`.
+Both wrap the already-ported `ui/dialog` with concrete, self-contained
+content; neither imports another file in this directory. Grouped because
+they're the same shape of work (a dialog instance with its own text/buttons/
+a request), not because of a dependency — either could land in any wave.
+
+**Cluster 3 — standalone sidebar chrome.**
+`sidebar-project-header.tsx` · `sidebar-tab-bar.tsx` · `sidebar-skeleton.tsx`
+· `fps-overlay.tsx` · `sidebar-toast-overlay.tsx`.
+Five independent single-purpose fragments mounted directly by `ide-shell`
+(out of scope), none importing another member of this list or of any other
+cluster. Grouped only as "small, self-contained sidebar furniture a worker
+can churn through in one sitting" — no ordering constraint among them or
+against any other cluster.
+
+**Cluster 4 — the two animation-adjacent shells.**
+`nav-stack.tsx` · `sidebar-peek.tsx`.
+Grouped because they are the two §4 judgment calls: both are store-driven
+wrappers whose CSS-transition end-states are the port target and whose
+transition itself is out of the oracle's reach, following the
+`sidebar-carousel` precedent directly. The same reasoning applies to both,
+so the same worker re-deriving it once (rather than two workers each
+re-litigating `sidebar-carousel`'s reasoning independently) is the point of
+the pairing. No dependency on any other cluster.
+
+**Cluster 5 — project navigation.**
+`project-switcher-panel.tsx` → `project-home-row.tsx`.
+`project-home-row.tsx` pushes `<ProjectSwitcherPanel />` onto the nav stack
+on click and also renders `WorkspaceAgentSpinner` — **must follow Cluster 1**
+(`workspace-branch-icon`) and should land `project-switcher-panel` first or
+alongside `project-home-row`, since the latter's switcher button has nothing
+to open otherwise.
+
+**Cluster 6 — identity readouts.**
+`workspace-switcher.tsx` → `context-pill.tsx`; `repo-icon-popover.tsx`
+(parallel, same cluster by theme not by edge).
+`context-pill.tsx` renders `<WorkspaceSwitcherMenu>` (exported by
+`workspace-switcher.tsx`) inside its command-dialog popup — **`workspace-
+switcher` must land before or with `context-pill`**. Both `workspace-
+switcher` and `repo-icon-popover` depend on Cluster 1's `repo-avatar` +
+`workspace-branch-icon`. `repo-icon-popover` has no edge to the other two —
+grouped here because all three are "compose an identity icon into a richer
+UI," the thematic pairing the brief allows alongside strict dependency.
+
+**Cluster 7 — small tree-row controls.**
+`workspace-inline-input.tsx` · `placeholder-row-actions.tsx`.
+Both are small leaf controls with no dependency on each other, consumed by
+Cluster 8 below (`workspace-inline-input` by `workspace-tree-item` and
+`repo-section`; `placeholder-row-actions` by `workspace-tree-item`). **Must
+precede Cluster 8.**
+
+**Cluster 8 — the workspace tree itself (last wave, one worker, strict
+chain).**
+`pending-create-row.tsx` → `workspace-tree-item.tsx` → `repo-section.tsx` →
+`workspace-tree.tsx`.
+A genuine dependency chain, not just a thematic grouping: `pending-create-
+row` is rendered by both `workspace-tree-item` and `repo-section`;
+`workspace-tree-item` is rendered (recursively) by `repo-section`;
+`repo-section` is rendered by `workspace-tree`, which also needs `project-
+home-row` (Cluster 5), `repo-icon-popover` and `repo-import-dialog`
+(Clusters 6 and 2) already landed. All four share the same row visual
+language (`workspace-row-base.ts`'s `ROW_BASE`/`ROW_ACTIVE`/`ROW_INACTIVE`
+constants) and the same indentation arithmetic (`depth * 14`px) — **one
+worker owning the full chain** avoids two workers each guessing at the
+other's row geometry and drifting on padding/indentation, which is exactly
+the class of seam mismatch `ANCHORS.md`'s ±0.5px tolerance would catch late
+rather than prevent early. **Depends on Clusters 1, 2, 5, 6, 7 all landing
+first.** Carries the `workspace-tree-footer.tsx` caveat from §6: `workspace-
+tree.tsx` renders that child directly, and this survey classifies it Phase 5
+— the worker taking this cluster needs a decision (omit / stub / pull the
+footer in as a bonus item) that this survey is flagging, not making.
+
+**Ordering summary**: Clusters 1 → {2, 3, 4 in any order, no dependencies} →
+5, 6, 7 (each depends only on Cluster 1) → 8 (depends on 1, 2, 5, 6, 7).
+Clusters 2, 3, 4 can run fully in parallel with each other and with the
+start of 5/6/7 once Cluster 1 is in.
