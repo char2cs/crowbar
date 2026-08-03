@@ -2815,6 +2815,104 @@ progress number correspondingly too small.
 
 ## In flight
 
+### ✅ §17.1 precondition — **240 of 240 matrix cells render and emit**, 0 refused, 0 hung
+
+**2026-08-03, my own run**, `rewrite/rust` @ `9a5b7f4d` built with `--features
+driver`. Every one of the **40 registered surfaces** × {800, 1200, 1714} ×
+{light, dark}:
+
+```
+cells: ok=240 refused=0 hung=0
+```
+
+The surface list is read from the binary's own `--help` rather than hand-copied,
+so a surface that appeared or vanished cannot silently drop out of the sweep.
+
+**What this is and is not.** It is the *precondition* for §17.1 and nothing more:
+every cell the matrix names can be produced, so no surface is unmeasurable and no
+cell refuses. It is **not** convergence — that needs a reference at each cell, and
+today the references are one cell (`1714 · dark · normal`) for most surfaces plus
+a light cell for four. **Condition 1 remains open, and the gap is references, not
+the native side.**
+
+Two things it settles that were open:
+
+- **The AeroSpace clamp does not bite at 1714 with the WM disabled.** 1714 was
+  granted in all 80 of its cells. P3.35's guard would have refused every one of
+  them otherwise, loudly — 0 refusals is a positive result about the window, not
+  an absence of checking.
+- **No surface hangs.** Which is what P3.41 should have been measured against
+  before I called a regression.
+
+### 🔍 §17.1's matrix is thinner than the record claims — measured, not suspected
+
+Having 240 native cells on disk made it cheap to ask what the matrix's two
+non-content axes actually *discriminate*. Both answers were worse than assumed.
+
+#### The viewport axis is inert on **every** surface
+
+All 40 surfaces produce a **byte-identical snapshot at `--viewport-width 800` and
+`1714`** (state block excluded). Not one field moves.
+
+This is not a defect: these are primitives laid out at `--width`, and
+`--viewport-width` only sizes the window. But it means **"≥3 viewport widths" from
+§8.3 is currently measuring nothing**, and a run that reports three viewport cells
+per surface is reporting one measurement three times. The one merged surface that
+would break the tie — `command`, whose root is `min(viewport − 2·padding,
+max_width)` — is **not merged** (see P3.32 above).
+
+**So §17.1's width axis is honestly one cell wide today.** Written down rather
+than left to be inferred from a green matrix.
+
+#### The theme axis is vacuous on **10 of 40** surfaces
+
+`button`, `crowbar-mark`, `crowbar-wordmark`, `flicker-spinner`, `resizable`,
+`scroll-area`, `sidebar-carousel`, `sidebar-header`, `sidebar-toggle-icon`,
+`spinner` are byte-identical in light and dark — because **every colour on every
+one of their anchors is `#00000000`**. `button`'s single anchor paints a fully
+transparent `bg` *and* a fully transparent 1px border at its default variant.
+
+The axis itself works: `tabs` flips `bg #f5f5f51c ↔ #2626260f` and
+`#1f1f1eff ↔ #fdfdfcff` exactly as it should. These ten simply have nothing that
+could flip.
+
+#### Two of the four recorded light-cell verdicts are **vacuous**, and one reference is defective
+
+I re-took all four myself rather than trusting the earlier record:
+
+| surface | light verdict | worth |
+|---|---|---|
+| `sidebar-empty` | **PASS**, 0 deltas / 2 anchors | ✅ **real** — `sidebar-empty-message.fg` flips `#a4a4a4ff → #484848ff`, a compared field |
+| `scroll-area` | **PASS**, 0 deltas / 2 anchors | ⚠ **vacuous** |
+| `sidebar-header` | **PASS**, 0 deltas / 1 anchor | ⚠ **vacuous** |
+| `dialog` | **FAIL**, 3 anchor-presence deltas | ‼ **the reference is defective** |
+
+**Why the two passes are vacuous, with the mechanism rather than a guess.** The
+reference *does* differ between themes on those surfaces — but only in
+`border.color`, `#ffffff0f → #00000014`, on a border whose **`w` is 0**. ANCHORS.md
+rule 2 says `border.color` is *"compared only when `w > 0`"*, because a zero-width
+border's computed style returns the inherited text colour and is junk;
+`diff.rs::compare_border` implements exactly that (`if e.w > 0.0 && a.w > 0.0`).
+The only other difference is a 0.02px width, inside tolerance. **So those two
+light cells could not have failed differently from their dark cells.** They are
+correct results that carry no information.
+
+**`/tmp/p3-ref-dialog-light.json` holds 1 anchor where the dark reference holds
+4** — `dialog-popup` only, missing `dialog-header`, `dialog-title` and
+`dialog-footer`. It is a partial capture. P3.36's guard cannot see this: it checks
+a snapshot against *itself*, and a truncated capture is internally consistent.
+**`dialog` therefore has no valid light-cell verdict** and needs a re-capture on
+the reference side. Its dark verdict is unaffected.
+
+#### ⚠ My `--width` / `--viewport-width` error, again
+
+Two of the four re-takes first came back FAIL with `w: 320.0, expected 343.98` —
+because I drove them at the default `--width 320` against references captured at
+344. Both passed once driven at `--width 344`. **This is the same mistake I have
+now made repeatedly**: `--width` is the surface, `--viewport-width` is the window,
+and the reference's own root bounds state which is which. Read the reference's
+`state` **and** its root `bounds` before driving. Every time.
+
 ### ⚖️ The two held verdicts are TAKEN — both FAIL, and the failures are narrow
 
 **2026-08-03, my own run**, on `native/p3.37-reference-repair` built with
