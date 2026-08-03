@@ -74,9 +74,14 @@ fn the_only_anchor_is_autocompletes_own_item_id(cx: &mut TestAppContext) {
 /// + 18 = 30px` — read off a real taffy layout rather than the reference's
 /// own hand arithmetic.
 ///
-/// **Mutation:** swapping `command::ITEM_PADDING_Y` for `autocomplete::
-/// ITEM_PADDING_Y` (4px, not 6) in `Row::shell` turns this red — the row
-/// would measure 26px, not 30.
+/// **Mutation, empirically checked:** swapping `command::ITEM_PADDING_Y`
+/// for `autocomplete::ITEM_PADDING_Y` (4px, not 6) in the `.h(…)` line of
+/// `Row::shell` turns this red — 26px, not 30 (confirmed by running the
+/// mutation). The `.py(…)` line one statement above is **not** the one to
+/// mutate: it moves the row's own padding but not its explicit `.h(…)`,
+/// which is authored independently rather than derived from it — mutating
+/// `.py(…)` alone leaves this test green, a real, checked trap in this
+/// component's own shape, not merely a hypothetical one.
 #[gpui::test]
 fn the_fixture_row_is_30px_tall(cx: &mut TestAppContext) {
     crowbar_driver::leak_checked!(cx);
