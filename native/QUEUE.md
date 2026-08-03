@@ -3404,7 +3404,37 @@ Two more things it reported that a tidier account would have omitted:
 The single uncovered region — 1244/1245 — is the `segments.next()?` in
 `parse_three_segments` whose module doc already records it as provably
 unreachable, *"confirmed rather than assumed"*.
-| **P3.54** layout anchors | dispatched | scope narrowed to the **seven** files that lack them |
+| **P3.54** layout anchors | ✅ **MERGED `1558ba87`** | 7 files anchored. Web suite **2714 tests, exit 0**, verified by me |
+
+#### ▶ P3.54 changed how I will dispatch the remaining 18 layout files
+
+I asked it whether the item should have existed at all. Its answer: **the port
+should own its own anchors.** Cluster 2 landed both sides itself, which closes
+the exact gap a separate prerequisite exists to catch — one person picks the ids,
+and there is no window in which React and Rust can drift. A standalone anchors
+item belongs to **already-merged or legacy** ports, not to new ones.
+
+**Adopted.** Wave 2's briefs will require the React ids as part of the port.
+
+Two of its judgements are worth carrying forward as precedent:
+
+- **`sidebar-tab-bar` gets NO id, plus an eight-line comment saying why.** The
+  Rust port returns the wrapped `Tabs` element directly instead of opting a
+  fabricated second root into its sink, so an id here would be one the native
+  side never records — dead weight the differ can never compare. **Documenting a
+  deliberate absence is what stops someone "fixing" it later.**
+- **The scope-entry calls, which I would have got wrong.**
+  `sidebar-project-header` needs one, because its toggle nests
+  `sidebar-toggle-icon` — separately ported, and deliberately not painted by this
+  composition. `workspace-branch-icon` does **not**, because its nested
+  `flicker-spinner` *is* part of the composition and that surface's own test
+  asserts exactly two anchors. Same nesting, opposite answers; the discriminator
+  is whether the nested anchor is **foreign content or composed content**.
+
+It also corrected the brief twice: it found cluster 2's ids before my correction
+reached it, and it reported that **`sidebar-toast-overlay` has no Rust port at
+all** — so anchoring it removes one prerequisite and not the blocking one. It
+said that rather than letting the file look ready.
 
 **I gated the two committed clusters myself** on a throwaway integration branch in
 the main worktree — warm cache, so no cold build — rather than paying three cold
