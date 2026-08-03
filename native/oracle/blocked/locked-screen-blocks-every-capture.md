@@ -31,7 +31,34 @@ other sessions wedged the same way at the same time**.
 **It is not a regression.** The control is the pristine binary on a cell nobody
 touched, and it hangs the same way.
 
-> ## ‼️ AMENDED 2026-08-03 — the lock was real, and the last line above was wrong
+> ## ❌ THE AMENDMENT BELOW IS RETRACTED — 2026-08-03, later the same day
+>
+> **There was no regression, and this file's original "It is not a regression"
+> was right after all.** The 2×2 I cite below compared a binary built **with**
+> `--features driver` against three built **without** it. `crowbar-app`'s whole
+> capture path is behind that feature and has been since the crate's first
+> commit; without it the binary opens an ordinary window and never exits, by
+> design. Rebuilt correctly, the branch tip captures in ~2s and reproduces both
+> Phase 1 canaries byte-identically — verified by me.
+>
+> So: **the screen lock recorded here was real, this file was correct as
+> written, and my amendment to it was not.** I criticised the original control
+> for containing the suspect, and then ran one that differed from the suspect in
+> a way I had not established. Both are the same error.
+>
+> What is worth keeping from the amendment: the two-cause caution is still sound
+> in principle, and the discriminating commands are still cheap. Run **three**
+> checks before blaming anything, in this order:
+>
+> 1. `strings <binary> | grep row_snapshot` — **is the driver feature even
+>    compiled in?** If not, nothing else matters; rebuild with
+>    `cargo build -p crowbar-app --bin crowbar-app --features driver`.
+> 2. The `CGSSessionScreenIsLocked` check below — is the screen locked?
+> 3. A control binary, **built the same way**, from a known-good commit.
+>
+> The amendment as originally written follows, struck through in substance.
+>
+> ## ~~‼️ AMENDED 2026-08-03 — the lock was real, and the last line above was wrong~~
 >
 > **The 2026-08-02 diagnosis stands on its own evidence.** `lsappinfo front`
 > returning `loginwindow` and `UserIsActive` at 0 are direct observations of a

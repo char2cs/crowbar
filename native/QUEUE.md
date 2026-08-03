@@ -2815,7 +2815,107 @@ progress number correspondingly too small.
 
 ## In flight
 
-### 🛑 P3.41 — THE CAPTURE PATH IS BROKEN ON THE MERGED BRANCH, AND I MIS-BLAMED THE LOCK
+### ⚖️ The two held verdicts are TAKEN — both FAIL, and the failures are narrow
+
+**2026-08-03, my own run**, on `native/p3.37-reference-repair` built with
+`--features driver`. Canaries first, as always: **both byte-identical**, so the
+gate itself is sound and the deltas below are the surfaces'.
+
+```
+native-short.json                IDENTICAL
+native-file-tree-selected.json   IDENTICAL
+
+search               FAIL — 4 deltas over 10 anchors (1 presence, 3 geometry)
+search-replace-row   FAIL — 5 deltas over  6 anchors (3 geometry, 2 typography),
+                            4 more forgiven by v1.5 content-sizing
+```
+
+**The ports are close.** `search` matches **9 of its 10 anchors byte-exactly** —
+root, `input-control`, `search-close`, both nav buttons, the replace toggle and
+all three toggle buttons. `search-replace-row` matches its root and its icon
+exactly, and its two labelled buttons converge on bounds. Every delta reduces to
+three causes:
+
+| # | defect | evidence |
+|---|---|---|
+| 1 | the `input` anchor is on the wrong box | reference insets it from `input-control` by **33px** a side in `search` and **1px** a side in `search-replace-row`; native uses **12px** in both. Vertically the reference sits it 5px below the control top, native 1px. Height (30) is right in both. |
+| 2 | line height on the two labelled buttons | `search-replace-all` and `search-replace-confirm`: native `font.line_height` **22.5** (= 15 × 1.5, a default multiplier), reference **20.0**. Bounds already converge, so this is typography only. |
+| 3 | `search-toggle-icon` cannot be a shared id | native carries **one** (the *last* of three drawn — `AnchorRegistry::record` silently replacing); the reference carries **none**, because P3.37 repaired its three duplicates by deleting all three. |
+
+Defect 1 is the interesting one: a **constant** 12px where the reference produces
+two different insets is the shape of a hardcoded padding standing in for
+something derived.
+
+Defect 3 is the v1.8 asymmetry showing up as a live parity failure rather than as
+a note — the DOM extractor throws on a duplicate declared id, the native recorder
+replaces. **Ruling: the toggle icons are not anchored inside `search` on either
+side.** `search-toggle-icons` is already its own registered surface, so no
+coverage is lost, and the three toggle *buttons* that contain them already
+converge to the pixel. Unique per-toggle ids are refused: they would grow the
+contract to describe geometry another surface already covers.
+
+Returned as **P3.44** (`native/p3.44-search-input`) with the numbers above.
+P3.42 owns making the recorder refuse duplicates rather than replace them; the
+two do not overlap.
+
+### ❌ P3.41 — RETRACTED. There was no regression. The fault was my build command.
+
+> **Retracted 2026-08-03, within the hour, by the worker I dispatched to bisect
+> it.** `crowbar-app`'s snapshot code lives behind a cargo feature:
+> `crowbar-app/Cargo.toml` has carried `default = []` and
+> `driver = ["dep:crowbar-driver"]` since the crate's **first commit**
+> (`1cf92296`) — one hunk in that file's entire history. Without it, `main.rs`
+> compiles the `#[cfg(not(feature = "driver"))]` branch, which never reads
+> `CROWBAR_ROW_SNAPSHOT` and never calls `cx.quit()`. It opens an ordinary
+> interactive window and sits in `-[NSApplication run]` for ever, **exactly as
+> designed**.
+>
+> Every "HUNG" cell below was built with `cargo build --bin crowbar-app`. The
+> preserved control was built, months of sessions ago, **with** `--features
+> driver`. So my 2×2 compared a driver build against three non-driver builds. The
+> binary *was* the variable — just not for the reason I gave.
+>
+> **Verified by me on the tip after the correction:**
+> ```
+> cargo build -p crowbar-app --bin crowbar-app --features driver
+> → capture exits in ~2s, and native-short.json is BYTE-IDENTICAL to the
+>   committed canary
+> ```
+> Both Phase 1 canaries then came back identical from the P3.37 build too, and I
+> took two real verdicts on it the same hour. **The capture path is healthy and
+> has been throughout.**
+>
+> ### The part that matters more than the mistake
+>
+> Two commits earlier I wrote, in `blocked/locked-screen-blocks-every-capture.md`,
+> that *"a control that contains the suspect is not a control"* — and then
+> immediately ran a control that differed from the suspect in a **way I had not
+> established**, and read the difference as proof of a regression. **I checked
+> that the two binaries came from different commits. I never checked they were
+> built the same way.** A control is only a control with respect to a variable you
+> have actually held fixed, and "built from an older commit" is not the same
+> statement as "built identically from an older commit".
+>
+> The worker also caught that my `sample` output contained **no `crowbar_driver`
+> frames at all** — which is what a binary with the driver feature compiled out
+> looks like, and which I had read as "never reaching the emit". The evidence was
+> already pointing at the answer.
+>
+> ### What survives
+>
+> - **`--features driver` is mandatory** for any capture build. It is now written
+>   down here, which it was not.
+> - The lock-vs-defect discriminator (`CGSSessionScreenIsLocked`) is still worth
+>   running, and is still cheap. Add a third question to it: **is this binary even
+>   built with the driver feature?** `strings <binary> | grep row_snapshot`
+>   answers it in one command.
+> - **The 2026-08-02 screen lock was real and my original record of it was
+>   correct.** `lsappinfo front` returning `loginwindow` is a direct observation.
+>   My retraction of it was the wrong call, and is itself retracted in
+>   `blocked/locked-screen-blocks-every-capture.md`.
+>
+> Everything below this line is **what I believed for about forty minutes**, kept
+> because the measurements in it are real and only the conclusion was wrong.
 
 **2026-08-03.** `crowbar-app` on `rewrite/rust` @ `5da59b8f` **cannot complete a
 capture at all.** Not the hard surfaces — the Phase 1 canary, the simplest
