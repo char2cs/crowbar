@@ -3368,6 +3368,63 @@ nobody was editing. A **built** port whose worker touches both sides may simply
 not need a separate anchors item. P3.54 was asked to say whether it should have
 existed at all.
 
+### ▶ Wave 1 status after the disk incident — all three checkpointed, gating serially
+
+| item | branch @ commit | state |
+|---|---|---|
+| **P3.50** cluster 1 | `native/p3.50-layout-cluster1` @ `dd280377` | committed (code + 2 mapping docs). Implementing the state-axis exemption; **gates third** |
+| **P3.51** cluster 2 | `native/p3.51-layout-cluster2` @ `ef933cbd` | committed. **1 clippy error**; gates second |
+| **P3.52** cluster 3 | `native/p3.52-layout-cluster3` @ `2235eb0e` | committed, 4 of 5. **5 clippy errors**; gating now |
+| **P3.53** Tier A | `native/p3.53-workspace-scoping` | **6 files, 1,276 lines uncommitted** — worker searched the shared tree and reported "nothing to commit" |
+| **P3.54** layout anchors | dispatched | scope narrowed to the **seven** files that lack them |
+
+**I gated the two committed clusters myself** on a throwaway integration branch in
+the main worktree — warm cache, so no cold build — rather than paying three cold
+vendored-gpui builds at ~8–13 GB each. Clippy found **6 errors**: three
+`float_cmp` and three `doc_markdown`, all `pedantic`, all denied workspace-wide.
+Each was routed to its owner with the exact file and line. **That is the cost of
+"do not run cargo", which I imposed, so it is expected rather than a lapse** —
+but it is why the branch does not move until they are green.
+
+#### Two workers lost track of which worktree they were in
+
+P3.53 ran a **full gate suite against the shared worktree** and reported it as
+its own: clean tree, `crowbar-core` still 349 lines, a warm 21 GB `target/`. Every
+number was true — about my tree. Its six files and 1,276 lines sat untouched in
+`/private/tmp/crowbar-p353-workspace-scoping` the whole time. P3.50 did the same
+thing first, then found the right directory by walking every path
+`git worktree list` names, **and said so in its report rather than quietly
+correcting course** — which is the only reason I can tell the two cases apart.
+
+**The shared branch was never written to** — I verified `rewrite/rust` at
+`e481b33f` while P3.53 was reporting. The fail-fast `rev-parse --show-toplevel`
+check at the top of every brief is what is supposed to prevent this; it catches a
+*failed setup*, and neither of these was that. Both drifted later, after a
+successful start. **The check has to be per-command, not per-brief**, and that is
+now in the wording.
+
+#### ✅ The synthetic `empty: bool` — the worker was right and the invariant changes
+
+`no_surface_declares_its_entire_state_axis_unmodelled` asserts `real > 0` for
+every surface. `workspace-branch-icon` has **no customization seam at all** — no
+`className`, no prop spread, no hover/focus/selected rule anywhere in its React
+source — so every §8.3 flag is genuinely unmodelled and the assertion can only be
+satisfied by inventing a field. The worker added one, **flagged the tension
+instead of hiding it**, and then argued for removing it.
+
+Its third reason is the decisive one: a public, tested, wired-through field for a
+behaviour nothing in the React contract can trigger is a trap for the next reader,
+and this port's documentation discipline exists to prevent exactly that. The
+invariant was built to catch a port that gives up on a **real** axis —
+`sidebar_empty.rs`'s tone/error conflation is the case it was made for.
+
+**Ruling: the exemption is the fix, and it must be loud.** Not a relaxed
+assertion — an explicit per-surface declaration that *every flag was considered
+and none applies*, with the test asserting that any surface at `real == 0`
+carries it, and that a surface carrying it while having a modelled flag is
+equally an error. Three mutations required, including a control proving the test
+still catches the failure it was built for.
+
 ### ▶ Layout wave 1 — dispatched 2026-08-03, three clusters in parallel
 
 The survey's own dependency graph decides the order, not my guess at it.
