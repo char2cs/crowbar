@@ -2851,6 +2851,56 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### ✅ RESOLVED — the WM was the whole cause, and the guard proves it
+
+With AeroSpace tiling temporarily off (restored in the same command, via a
+trap), on a correctly-granted window:
+
+```
+dialog    oracle: PASS — 0 deltas over 4 anchors compared
+command   root 576×142 — matches the reference exactly; all six geometry
+          deltas GONE
+```
+
+So the constant −39 was entirely the tiling WM shrinking the driver window, and
+**P3.35's guard is correct rather than over-strict**: it refuses exactly the
+surfaces whose layout reads `viewport_size()` (`dialog`, `alert-dialog`,
+`sheet`, and `command` on its branch) and lets every other surface through.
+
+**The durable fix is a float rule for the driver window in
+`~/.config/aerospace/aerospace.toml`** — scoped to our own binary, affecting
+nothing else the user runs. That is a change to the user's environment, so it is
+**recommended, not made**. Toggling `aerospace enable off/on` around a capture
+batch works meanwhile and is what I used.
+
+#### `command`'s last delta is a DEFECTIVE REFERENCE, not a port defect
+
+After the window was fixed, one delta remained:
+
+```
+autocomplete-empty.visible: false, expected true
+```
+
+Geometry is **identical on both sides** — `{x:1, y:50, w:574, h:0}`. A zero-area
+box. And the contract already rules on this: ANCHORS' field table defines
+`visible` as *"Actually painted: not `display:none`, not `visibility:hidden`,
+zero opacity …, **non-zero area**, not fully clipped"*, and `oracleIsVisible`
+implements it — `if (!(box.width > 0 && box.height > 0)) return false`.
+
+**So a reference anchor with `h: 0` and `visible: true` contradicts the
+extractor's own logic.** I audited every reference on disk:
+`/tmp/p3-ref-command.json` is the **only** one with a zero-area anchor marked
+visible. Every other reference is self-consistent.
+
+**The native side is right; the reference is wrong.** `command` is HELD pending a
+re-capture, not returned to the worker as a port defect — 10 of 11 anchors are
+byte-identical and the 11th is a bad reference field.
+
+**Worth keeping:** a reference can be internally inconsistent with the contract
+that produced it, and nothing checks that today. The audit above — *zero area
+must imply `visible: false`* — is cheap and should run over every reference
+before it is trusted.
+
 #### ‼️ THE DRIVER CAN CLAIM A CELL IT WAS NOT MEASURED IN
 
 `command` diffed **FAIL — 7 deltas**, six of them a **constant −39** on every
