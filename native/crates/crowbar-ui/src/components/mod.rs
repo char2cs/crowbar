@@ -129,6 +129,22 @@ pub mod crowbar_wordmark;
 // `SurfaceParams::render_ctx` for the seam that makes a cx-less call site
 // still reach them.
 pub mod dialog;
+// `detach_holder_modal` and `repo_import_dialog` (P3.51) are unflattened for
+// the same reason as the rest, and one sharper still: both are **call sites**
+// of `dialog.tsx`'s own primitive, not second React files, so the real DOM
+// each paints carries `dialog-*` ids — `dialog::ID_POPUP` and this module's
+// own `ID_POPUP` would collide *in fact*, not just in spelling, if this
+// module were flattened, which is a sharper version of the collision
+// `alert_dialog`'s own comment above already warns about. Each module's own
+// namespace (`detach-holder-modal-*` / `repo-import-dialog-*`) exists only
+// because `crowbar-app/src/surface.rs`'s own registry test requires every
+// surface's root anchor to be unique — see either module's own doc comment
+// for the finding in full. `detach_holder_modal::HEADER_PADDING_RIGHT` and
+// `repo_import_dialog::HEADER_PADDING`/`HEADER_PADDING_BOTTOM` are each call
+// site's own real `className` override and would read as belonging to no
+// component at all without its module in front of it.
+pub mod detach_holder_modal;
+pub mod repo_import_dialog;
 // `dropdown` is unflattened for the same reason as the rest, and one sharper
 // one: it sits right next to `dropdown_menu` in this list and is easy to
 // mistake for a second reading of it. It is not — see its module docs for the
