@@ -3263,7 +3263,47 @@ taken by me against the live app. **A merge is not a verdict.**
 ratio is the honest state and the reason the header now separates the two
 numbers.
 
-#### ‼️ Four ⏸ rows share one blocker: the fixture project has no repos
+#### ⚠ Citation correction: `liveness-audit.md` covers ONLY the 48 registered surfaces
+
+I briefed a worker that `nav-stack` and `sidebar-peek` were *"confirmed LIVE
+(`native/mapping/liveness-audit.md`)"*. **That file never mentions either** — it
+audits the 48 entries in `Surface::names()` as they stood, and neither was
+registered. Zero grep hits; the worker checked rather than accepted.
+
+The **conclusion** is right and the evidence is `layout-denominator.md` §2/§4:
+`nav-stack`'s sole importer is `sidebar-carousel.tsx` (itself audited LIVE), and
+`sidebar-peek`'s is `ide-shell.tsx`, the routed shell. **A right conclusion with
+a wrong citation is still a wrong brief** — and it is the shape that survives
+longest, because nobody re-checks a claim that turned out true.
+
+**The two documents answer different questions**: `liveness-audit.md` is
+*"are the registered surfaces live?"*; `layout-denominator.md` is *"is this
+candidate in scope and live?"*. Cite the second when dispatching a port.
+
+#### ‼️ Four ⏸ rows share one blocker — NOT missing data, a store desync
+
+**Corrected by measurement.** I wrote that the fixture project has no repos. The
+daemon disagrees:
+
+```
+GET /v0/projects/<id>/repos  →  {"id":"76ac2690…","name":"demo",
+                                 "avatarLabel":"D","avatarColor":"avatar-slate"}
+```
+
+**The repo exists.** `avatarLabel` and `avatarColor` are precisely what
+`repo-avatar` renders. What is empty is the *UI*: `useSidebarStore.getState()`
+reports **`repos: 0`**, and the workspaces panel's tree body
+(`scroll-area-viewport` → `div.pb-1`) has **no children at all**.
+
+So the blocker is a **store desync between the daemon and the sidebar**, not
+absent fixture data — and the unblock is the app's own sync path
+(`syncSidebarFromCache`, `lib/store/sidebar-sync.ts`), not creating anything.
+
+> **Worth flagging beyond this port:** the audit found `getAllEntities` swallows
+> every failure in a bare `catch { return [] }`, which is exactly what an empty
+> tree beside a populated daemon looks like from the outside. **I have not
+> established that they are the same event** — the desync may equally be a route
+> or hydration-ordering matter. Recorded as a lead, not a conclusion.
 
 Measured against the live app: the workspaces carousel panel contains
 `"oracle-fixture"` and a drop target, and **nothing else**. `repo-section`,
