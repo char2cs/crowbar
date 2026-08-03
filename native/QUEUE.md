@@ -12,7 +12,7 @@ and three of the five can never receive a verdict at all.
 | tier | state |
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
-| **Tier B · `components/layout`** | **15 of 23 targets** — waves 1–3 merged. **8 to go.** ⚠ built ≠ verified: **2 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2), 1 FAIL (`fps-overlay` — a **contract** gap, not a port defect), the rest unverified |
+| **Tier B · `components/layout`** | **15 of 23 targets** — waves 1–3 merged. **8 to go.** ⚠ built ≠ verified: **3 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5), 1 FAIL (`fps-overlay` — a **contract** gap, not a port defect), the rest unverified |
 | **Tier A · `crowbar-core`** | **1,648 lines of a ~3,170-line target** — first area merged (workspace scoping, P3.53). Coverage **100.00% over 787 lines**, up from 148 |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
@@ -3347,10 +3347,41 @@ taken by me against the live app. **A merge is not a verdict.**
 | `sidebar-tab-bar` | ✅ | n/a | no surface by design — measured through `--surface tabs` |
 | `workspace-switcher` | ✅ | n/a | no surface by design — `display: contents`, no box (v1.11) |
 | **`sidebar-skeleton`** | ✅ | 🚫 **UNOBTAINABLE** | never renders — its `Suspense` fallback cannot fire |
+| `project-home-row` | ✅ | ✅ **PASS 0/5** | P3.60; a real line-height defect, found live and fixed |
 
-**Four verdicts taken, two passing.** Eleven surfaces built in this tier; that
-ratio is the honest state and the reason the header now separates the two
+**Five verdicts taken, three passing.** Eleven surfaces built in this tier;
+that ratio is the honest state and the reason the header now separates the two
 numbers.
+
+#### ✅ P3.60 merged — `project-home-row` PASS 0/5, and a real defect the suite could not see
+
+`31035a39`. The worker's fix was right and the mechanism is now nailed down:
+`row_base::LINE_HEIGHT_RELATIVE` was `18.0 / 13.0`, **transferred** from
+`context_pill` rather than derived. The true value is Tailwind's own preflight
+default — `html { line-height: 1.5 }` at `preflight.css:30`, unitless, so it
+recomputes against each descendant's own font-size. `13 × 1.5 = 19.5`.
+Verified three independent ways: the file itself, the live DOM
+(`getComputedStyle(label).lineHeight === "19.5px"`), and the differ.
+
+**This is the fourth whole-port defect that a green suite could not see**
+(after tofu, weight-600 and the missing mono face). No `row_layout` assertion
+had ever measured a label's *own* line box — only the row's authored `h-9`. A
+wrong ratio therefore passed clippy, 1998 tests and 7/7 invariants, and fell
+over the first time a human compared it to the running app. The worker closed
+that gap with a mutation it actually ran, not one it described.
+
+Blast radius was checked before merging, not after: `row_base` has exactly two
+consumers (`project_home_row`, `project_switcher_panel`), both inside P3.60's
+own scope, and the sibling holds no recorded verdict that the change could
+invalidate. `loading_spinner::LINE_HEIGHT` independently already sat at `1.5`.
+
+**Three method traps fired during the verdict run itself**, all mine — a
+pre-fix *native* capture mistaken for a reference because the filename named
+no side; a hang from a missing `CROWBAR_ROW_SNAPSHOT` that is
+indistinguishable from a missing `--features driver`; and `extractSnapshot`
+defaulting `state.width` to the root's width instead of the viewport. All
+three are written up in `native/mapping/project-home-row.md` §3.1 and guarded
+in `native/oracle/README.md`.
 
 #### ⚠ Citation correction: `liveness-audit.md` covers ONLY the 48 registered surfaces
 

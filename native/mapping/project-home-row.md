@@ -5,10 +5,17 @@
 `crates/crowbar-app/src/surfaces/project_home_row.rs`,
 `crates/crowbar-app/src/row_layout/project_home_row.rs`.
 
-**No live reference.** This item does not run the oracle or capture a
-snapshot — per the item brief's hard constraints. Every number below is read
-off the app's own compiled Tailwind (`native/MAPPING.md`'s method) or
-transferred from an existing measurement, not off a live capture.
+**VERDICT: PASS — 0 deltas over 5 anchors compared** (2026-08-03, my own
+side-by-side run; the drive is in §3.1).
+
+The *worker* did not run the oracle — that is the item brief's hard
+constraint and it held. Every number below was originally read off the app's
+own compiled Tailwind (`native/MAPPING.md`'s method) or transferred from an
+existing measurement. **One of those transfers was wrong, and only the live
+run found it** (§3). This header used to read "No live reference. This item
+does not run the oracle" and stayed that way after the verdict was taken —
+a stale disclaimer sitting directly above a section reporting live oracle
+output. Corrected here.
 
 ## 0. What this file is, and what it is not
 
@@ -102,6 +109,43 @@ not create a second number to derive. `context_pill.rs`'s own
 `LARGE_LINE_HEIGHT` sits under a different ancestor chain and is not
 re-derived by this fix — only this file's claim on the number, and
 `row_base.rs`'s shared constant, were wrong.
+
+### 3.1 The confirming run, and how I nearly read it backwards
+
+Post-fix, both sides at `width=855 theme=dark content=normal
+flags=[selected]`:
+
+```
+oracle: project-home-row · width=855 theme=dark content=normal flags=[selected]
+oracle: PASS — 0 deltas over 5 anchors compared
+```
+
+Independently corroborated in the live DOM before the differ ran —
+`getComputedStyle(label).lineHeight` is **`19.5px`** at `fontSize: 13px`, so
+the ratio really is `1.5` and the fix is not merely a number that makes the
+differ happy.
+
+**Three method traps fired on this one run**, all mine, none the port's:
+
+1. **A pre-fix *native* capture was sitting in my scratchpad under a name
+   that read like a reference.** It reported the label at `18.0`, which is
+   the exact opposite of the recorded verdict (`18.0, expected 19.5`), and
+   for a moment I believed I had merged a regression. `diff.rs`'s own doc
+   settles the direction — `expected` is React, `actual` is native — but the
+   file itself carried nothing saying which side produced it. **A capture
+   file has to name its own side**; `native.json`/`ref.json`, never
+   `phr-selected.json`.
+2. **`CROWBAR_ROW_SNAPSHOT` is required, and omitting it is indistinguishable
+   from omitting `--features driver`.** Both leave `crowbar-app` sitting in
+   an ordinary window that never exits. I had the feature right and the
+   destination missing, and spent four rebuilds re-diagnosing a hang I have
+   already been bitten by once. `oracle/README.md` now names both gates
+   together.
+3. **`extractSnapshot` defaults `state.width` to the root's own width** when
+   the caller passes no `width`. That silently produced `width: 332` — the
+   surface, not the viewport (855) — which is the `--width`/`--viewport-width`
+   confusion arriving from the React side for the first time. Pass
+   `window.innerWidth` explicitly.
 
 ## 4. `size-6` wins over the `icon-xs` variant's own box at every width
 

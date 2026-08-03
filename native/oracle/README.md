@@ -16,6 +16,39 @@ reached from this app's webview at all, and a snapshot depends on app state
 the capture options say nothing about. Both are covered below, in "Why not the
 sink" and "The trap: app state isn't in `state`".
 
+## The native half needs **two** things, and they fail identically
+
+Before any of the reference-capture loop below matters, the *native* snapshot
+has to exist. It takes two independent switches, and **missing either one
+produces the exact same symptom**: `crowbar-app` starts, prints its banner and
+its loaded fonts to stderr, opens an ordinary window, and never exits. No
+error, no JSON, no clue which switch is missing.
+
+```sh
+CROWBAR_ROW_SNAPSHOT=- \
+  cargo run -p crowbar-app --bin crowbar-app --features driver -- --surface <name> ...
+```
+
+1. **`--features driver`.** Without it `main.rs`'s `#[cfg(not(feature =
+   "driver"))] fn open` is what runs, and that function's whole job is to open
+   the gate surface for a human to look at.
+2. **`CROWBAR_ROW_SNAPSHOT`.** With the feature but no destination,
+   `row_snapshot::Destination::from_env()` returns `None`, no registry is
+   installed, and the driver build falls through to the same window. `-` means
+   stdout; anything else is a file path.
+
+This has now cost two separate sessions. The first blamed a nonexistent
+capture regression on a build missing switch 1; this one had switch 1 right
+and switch 2 missing, and re-diagnosed the identical hang from scratch through
+four rebuilds. **Check the switches before the code**, and if you build a
+control to compare against, build it the same way — a control that differs in
+either switch tells you nothing.
+
+`cargo` also reports `Finished` for an already-fresh artifact, so a green build
+log is not evidence the binary on disk has the feature. `touch`ing the source
+does not reliably invalidate the fingerprint either. The only trustworthy probe
+is behavioural: run it and see whether JSON comes out.
+
 ## The loop
 
 Nothing here drives the app for you. A live Tauri instance and its MCP bridge
@@ -135,6 +168,22 @@ If that context does apply, the shape is still what it always was:
 
 4. **Read back the file** the sink wrote — `jq . /tmp/p3-ref-<surface>.json`
    or similar — before trusting it.
+
+### And `width` defaults to the root, not the viewport
+
+Omit `width` from `ExtractOptions.state` and the extractor fills it from the
+**root anchor's own width**. On `project-home-row` that produced `width: 332`
+— the surface — against a real viewport of `855`. It is the same
+`--width`/`--viewport-width` confusion this port keeps re-learning on the
+native side, arriving from the React side for the first time, and it is worse
+here because nothing looks wrong: the field is populated, plausible, and
+matches the surface's own geometry.
+
+Two ways it hurts. The differ **refuses** when the two `state` blocks
+disagree, which is the good case — loud and immediate. The bad case is
+driving the native side to *match* the fabricated number, at which point both
+snapshots agree on a cell that describes neither app. Always pass
+`width: window.innerWidth` explicitly.
 
 ## The trap: app state isn't in `state`
 
