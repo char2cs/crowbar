@@ -3117,7 +3117,72 @@ Both are `git-row-dir`'s precedent: rendered by the port, absent from the produc
 > duration — stayed, read from the sealed token, with a test that fails if the
 > token moves.
 
-## 🔴 THE NATIVE APP REGISTERS NO MONOSPACE FONT — a third whole-port font defect
+## ⚖️ NEW CONTRACT GAP — v1.5 models ONE ceil; a container of N runs accumulates N
+
+**Found taking `fps-overlay`'s verdict after P3.57 landed.** The font fix is
+right and the height defect is gone, but a **+3.0px** width delta survives:
+
+```
+fps-overlay.bounds.w: 206.0, expected 203.0 = ceil(202.41)  (Δ +3.0, content_sized)
+```
+
+**The port renders seven separate text children** — the fps value, `" fps"`, a
+separator, `"max "`, the max-dt value, a separator, and the drops text. ANCHORS
+**v1.5** records that *"GPUI `ceil()`s a text run's max-content width"*, and its
+allowance compares a content-sized box against **`ceil(reference)`** — **one**
+ceil, because the Phase 1 gate only ever had a single content-sized box.
+
+**A container of N content-sized runs accumulates N sub-pixel roundings.** Seven
+runs, ~0.4px each, ≈ +3px. The contract has no vocabulary for that, so the differ
+reports a real-looking delta for arithmetic it already predicts elsewhere.
+
+**This is mine, not the port's** — ANCHORS is the contract and I own it. Three
+options, and the middle one is what the codebase's own precedent argues for:
+
+1. **Extend v1.5 to a container allowance of `N × 1px`.** Refused as stated — a
+   forgiveness that *grows with child count* can absorb a real defect, and §5's
+   own rule is to loosen only with a measurement.
+2. **Anchor the runs individually**, so each compares against its own
+   `ceil(reference)` and nothing accumulates. Precise, adds no forgiveness, and is
+   the same move P3.18 made for floated overlays — *declare what you measure*.
+   Costs seven ids on a debug badge.
+3. **Accept it as a §13 delta** — refused; §13 is a closed list and a user
+   decision, and this is arithmetic, not a design choice.
+
+**Not decided this iteration.** It needs a measurement first: whether the residual
+really is Σ per-run ceil, which is testable by anchoring the runs and checking
+each against its own reference.
+
+## ✅ THE MONO FONT IS REGISTERED — third whole-port font defect, closed `d95c0c67`
+
+`fps-overlay` went **2 deltas → 1**: the height delta (30 against 23) is gone,
+and width moved **−26 → +3**. Both canaries byte-identical. clippy 0 · **1860
+passed** · 7/7 invariants, my own run.
+
+**The suite is blind to this fix.** `#[gpui::test]` uses a `NoopTextSystem` that
+never shapes a real glyph, so **no test expectation moved** — 1860 tests would
+have passed identically with the font still missing. **Only the capture-based
+verdict could confirm it**, which is the sharpest illustration yet of why §17's
+bar is a running app and not a green suite.
+
+#### Four corrections the worker made to my brief
+
+- **`command` never calls `theme.font_mono`** — only a doc comment mentions it.
+  **Three** call sites, not the four I claimed.
+- **P3.25's methodology does not transfer.** "A different advance proves a
+  distinct face" fails on a *uniformly monospaced* font where advance is equal by
+  design; it used `typographic_bounds` ink-bbox widening instead.
+- **A before/after-registration test is unsound**: `MacTextSystemState` memoizes
+  `font_id()` per exact `Font` and never invalidates on a later `add_fonts`, so it
+  returns the stale answer silently. Two sequential platform instances instead.
+- **The width gap was the font plus separator margins, not `tabular-nums`** —
+  implemented, then *proved inert*: JetBrains Mono's `GSUB` carries no `tnum`
+  feature, because every glyph already has the same 600-unit advance.
+
+Provenance established rather than assumed: `@fontsource-variable/jetbrains-mono`,
+pinned `5.2.8` in `web/bun.lock` — an npm dependency, not a machine artefact.
+OFL-1.1, licence shipped. The registered face measures WebKit's own 182.41px
+reference advance to **182.40001px**.
 
 **2026-08-03, found by taking `fps-overlay`'s verdict.** `UI_FONT_FILES` in
 `crowbar-app/src/main.rs` is **three CalSansUI faces and nothing else**. No mono
