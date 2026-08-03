@@ -2449,6 +2449,135 @@ describe('the scroll viewport declares its own anchors (P3.20)', () => {
   })
 })
 
+// ── surface scope: `sidebar-project-header` (P3.54) ──────────────────────────
+//
+// The toggle button always nests `<SidebarToggleIcon />`, which carries its
+// own unconditional `data-oracle-id="sidebar-toggle-icon"` — a real anchor,
+// but one belonging to a *different*, separately-ported surface. This
+// composition's own Rust port does not compose or paint that glyph, so an
+// undeclared capture drags in an anchor with no native counterpart —
+// `sidebar-header`'s own foreign-content shape, one level down.
+
+/**
+ * `sidebar-project-header.tsx` as it renders on a left-docked macOS window:
+ * the traffic-light spacer, the toggle (nesting the foreign
+ * `sidebar-toggle-icon`), a flex spacer, and the back/forward/settings
+ * cluster. Floated to `0,600`, matching the sidebar's own screen position, so
+ * §4's root-relative bounds have something other than the origin to prove
+ * they used it.
+ */
+function mountSidebarProjectHeader() {
+  document.documentElement.className = 'dark'
+
+  document.body.innerHTML = `
+    <div id="sph" data-oracle-id="sidebar-project-header">
+      <div id="traffic-lights"></div>
+      <button id="sph-toggle" data-oracle-id="sidebar-project-header-toggle">
+        <svg id="sph-toggle-icon" data-oracle-id="sidebar-toggle-icon"></svg>
+      </button>
+      <div id="sph-spacer"></div>
+      <div id="sph-cluster">
+        <button id="sph-back" data-oracle-id="sidebar-project-header-back"></button>
+        <button id="sph-forward" data-oracle-id="sidebar-project-header-forward"></button>
+        <button id="sph-settings" data-oracle-id="sidebar-project-header-settings"></button>
+      </div>
+    </div>`
+
+  const at = (id: string) => document.getElementById(id) as HTMLElement
+  const ORIGIN_X = 0
+  const ORIGIN_Y = 600
+  const place = (id: string, x: number, y: number, width: number, height: number) =>
+    stubRect(at(id), { left: ORIGIN_X + x, top: ORIGIN_Y + y, width, height })
+
+  place('sph', 0, 0, 294, 44)
+  place('traffic-lights', 0, 0, 72, 44)
+  place('sph-toggle', 76, 12, 20, 20)
+  place('sph-toggle-icon', 78, 14, 16, 16)
+  place('sph-spacer', 96, 0, 130, 44)
+  place('sph-cluster', 226, 0, 60, 44)
+  place('sph-back', 226, 12, 20, 20)
+  place('sph-forward', 246, 12, 20, 20)
+  place('sph-settings', 266, 12, 20, 20)
+
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(
+    ((_el: Element, pseudo?: string | null) =>
+      ({
+        ...BASE_STYLE,
+        ...(pseudo ? { content: 'none' } : {}),
+      }) as unknown as CSSStyleDeclaration) as typeof window.getComputedStyle,
+  )
+}
+
+describe('the sidebar project header drops a nested foreign anchor (P3.54)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+    document.documentElement.className = ''
+  })
+
+  it('keeps the wrapper and its four buttons, and drops the toggle glyph', () => {
+    mountSidebarProjectHeader()
+    const snapshot = extractSnapshot({ surface: 'sidebar-project-header' })
+    const ids = snapshot.anchors.map((a) => a.id)
+
+    expect(ids).toEqual([
+      'sidebar-project-header',
+      'sidebar-project-header-toggle',
+      'sidebar-project-header-back',
+      'sidebar-project-header-forward',
+      'sidebar-project-header-settings',
+    ])
+    // The load-bearing half: a named exclusion, not just a length. The glyph
+    // is in the document, under the root, and measured by the same walk — it
+    // is absent because the surface does not claim it.
+    expect(ids).not.toContain('sidebar-toggle-icon')
+    expect(snapshot.root).toBe('sidebar-project-header')
+  })
+
+  it('and the control: the identical tree, undeclared, still walks the glyph', () => {
+    // Without this the assertion above proves only that *something* came back
+    // with five entries. Same DOM, same code, no declaration.
+    mountSidebarProjectHeader()
+    const ids = extractSnapshot({
+      surface: 'sidebar-project-header-unscoped',
+      root: 'sidebar-project-header',
+    }).anchors.map((a) => a.id)
+
+    expect(ids).toContain('sidebar-toggle-icon')
+    expect(ids.length).toBeGreaterThan(5)
+  })
+
+  it('pins the root as part of the set, so two captures cannot disagree on it', () => {
+    mountSidebarProjectHeader()
+    expect(() =>
+      extractSnapshot({ surface: 'sidebar-project-header', root: 'sidebar-project-header-toggle' }),
+    ).toThrow(/is rooted on "sidebar-project-header", not on "sidebar-project-header-toggle"/)
+  })
+
+  it('refuses a capture missing an anchor the surface declares', () => {
+    mountSidebarProjectHeader()
+    ;(document.getElementById('sph-forward') as HTMLElement).removeAttribute('data-oracle-id')
+
+    let snapshot: OracleSnapshot | undefined
+    expect(() => {
+      snapshot = extractSnapshot({ surface: 'sidebar-project-header' })
+    }).toThrow(/declares the anchor\(s\) sidebar-project-header-forward, and the document has none/)
+    expect(snapshot).toBeUndefined()
+  })
+
+  it('leaves `fps-overlay` and `sidebar-skeleton` undeclared — their roots contain nothing foreign', () => {
+    // Both are leaf compositions in the P3.54 wave: `fps-overlay` is one
+    // anchored `<div>` with no anchored descendants at all (its seven text
+    // runs carry no `data-oracle-id`), and `sidebar-skeleton`'s only
+    // descendants are `<Skeleton>` bars this same item gave their own
+    // explicit, unique ids — no foreign primitive, no repeated id, nothing
+    // for a scope to filter out. Contrast `sidebar-project-header` above,
+    // whose root genuinely does contain another surface's anchor.
+    expect(oracleSurfaceScope('fps-overlay')).toBeNull()
+    expect(oracleSurfaceScope('sidebar-skeleton')).toBeNull()
+  })
+})
+
 // ── surface scope: `search` (P3.37) ──────────────────────────────────────────
 //
 // `search.tsx`'s three option toggles each wrap their icon content in

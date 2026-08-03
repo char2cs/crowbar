@@ -35,6 +35,7 @@ export function SidebarProjectHeader() {
       tooltip={sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
       tooltipSide="bottom"
       aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+      data-oracle-id="sidebar-project-header-toggle"
     >
       <SidebarToggleIcon />
     </Button>
@@ -51,6 +52,7 @@ export function SidebarProjectHeader() {
         tooltip="Go Back"
         tooltipSide="bottom"
         aria-label="Go back to previous location"
+        data-oracle-id="sidebar-project-header-back"
       >
         <ArrowLeft size={16} />
       </Button>
@@ -63,6 +65,7 @@ export function SidebarProjectHeader() {
         tooltip="Go Forward"
         tooltipSide="bottom"
         aria-label="Go forward to next location"
+        data-oracle-id="sidebar-project-header-forward"
       >
         <ArrowRight size={16} />
       </Button>
@@ -74,6 +77,7 @@ export function SidebarProjectHeader() {
         tooltip="Settings"
         tooltipSide="bottom"
         aria-label="Settings"
+        data-oracle-id="sidebar-project-header-settings"
       >
         <Settings size={16} />
       </Button>
@@ -92,6 +96,7 @@ export function SidebarProjectHeader() {
         isRight && 'flex-row-reverse',
       )}
       data-tauri-drag-region
+      data-oracle-id="sidebar-project-header"
     >
       {/* Reserve space for the macOS traffic lights on whichever side is
           top-left (only when the sidebar is on the left). */}

@@ -1470,6 +1470,34 @@ export function oracleSurfaceScope(
       root: 'sidebar-empty',
       anchors: ['sidebar-empty', 'sidebar-empty-message'],
     },
+    // `sidebar-project-header.tsx` (P3.54): the wrapper `<div>` plus its four
+    // `<Button>`s — the toggle, back, forward and settings — all unconditional
+    // on this one call site (no prop gates whether any of the five renders).
+    // `crowbar_ui::components::sidebar_project_header::SidebarProjectHeader`
+    // gives each button its own authored id and matches this set exactly.
+    //
+    // **Not declared: `sidebar-toggle-icon`.** The toggle `<Button>` always
+    // nests a `<SidebarToggleIcon />`, which carries its own unconditional
+    // `data-oracle-id="sidebar-toggle-icon"` — a real anchor, but one belonging
+    // to a *different*, already-separately-ported surface
+    // (`sidebar_toggle_icon.rs`, its own `Surface`). This composition's own
+    // Rust port deliberately does not compose or paint that glyph (its own
+    // module docs: "this file does not reach into another component's
+    // anchoring... the toggle's glyph is left unpainted"), so an undeclared
+    // capture rooted at `sidebar-project-header` would carry an anchor with no
+    // native counterpart in this surface's own render — exactly the class of
+    // delta v1.8 exists to prevent, `sidebar-header`'s own foreign-content
+    // reasoning one level down.
+    'sidebar-project-header': {
+      root: 'sidebar-project-header',
+      anchors: [
+        'sidebar-project-header',
+        'sidebar-project-header-toggle',
+        'sidebar-project-header-back',
+        'sidebar-project-header-forward',
+        'sidebar-project-header-settings',
+      ],
+    },
     // `command.tsx` (P3.32): `CommandDialogPopup` renders
     // `CommandDialogPrimitive.Popup` and nothing else unconditionally —
     // `dialog`'s own shape, one file over (`command` hand-rolls its own
