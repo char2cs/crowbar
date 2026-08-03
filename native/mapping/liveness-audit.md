@@ -21,7 +21,30 @@ row below for the full picture (Tooltip/TooltipTrigger content usage too).
 
 ## Headline
 
-(filled in as rows complete; final tally at the bottom)
+All 48 registered surfaces (`Surface::names()`) audited. Verdicts:
+**30 LIVE, 14 CONDITIONAL, 4 DEAD, 0 UNCERTAIN.**
+
+- **LIVE (30):** button, crowbar-wordmark, dialog, dropdown, dropdown-menu,
+  file-tree-row, git-status-row, input, kbd, keybinding, label,
+  loading-spinner, number-input, popover, repo-avatar, repo-import-dialog,
+  resizable, scroll-area, search, search-replace-row, search-toggle-icons,
+  sidebar-carousel, sidebar-empty, sidebar-header, sidebar-toggle-icon,
+  spinner, switch, tabs, tooltip, workspace-branch-icon.
+- **CONDITIONAL (14):** avatar, badge, card, checkbox, command, crowbar-mark,
+  detach-holder-modal, flicker-spinner, fps-overlay, radio-group, separator,
+  slider, textarea, alert-dialog.
+- **DEAD (4):** inline-error, sheet, skeleton, toast.
+- **UNCERTAIN (0):** none — every surface resolved to a definite verdict
+  with concrete file/line evidence, no unresolved cases.
+
+### The 4 DEAD rows, summarized
+
+| Surface | Why dead |
+|---|---|
+| `toast` | Already known (see brief). Confirmed independently: `AnchoredToasts`'s manager (`anchoredToastManager`) has zero `.add()` calls anywhere in `web/src`; every real toast targets the sibling `toastManager`, consumed by the un-ported `SidebarToastItem`. |
+| `inline-error` | Its one call site guards a store `status === 'error'` that a traced fetcher chain (`workspace-list.ts` → `entity-cache.ts`'s `try{…}catch{return []}` → `build-repo-tree.ts`) proves can never occur — the catch arm always returns success. Confirmed live with two independent IndexedDB fault injections that both resolved through the catch arm instead of erroring. |
+| `sheet` | Its only consumer, `components/ui/sidebar.tsx`'s `Sidebar` (the `isMobile` responsive branch), is never JSX-rendered anywhere in `web/src` by any import spelling — confirmed by a repo-wide `<Sidebar` grep returning zero hits outside its own declaration. |
+| `skeleton` | Its `<Suspense fallback={<SidebarSkeleton/>}>` host (`sidebar-carousel.tsx:131`) *is* mounted and live, but nothing in the wrapped `FileExplorerTree` subtree ever suspends (no `React.lazy`, no suspending data hook), so the fallback branch is unreachable by construction — a live host with a structurally dead fallback. |
 
 ## Rows
 
@@ -67,6 +90,14 @@ row below for the full picture (Tooltip/TooltipTrigger content usage too).
 | sidebar-header | `web/src/components/ui/sidebar.tsx` export `SidebarHeader` | LIVE | One call site, `file-explorer-tree.tsx:1139`-`1194`. Same reachability chain as `sidebar-empty` (`FileExplorerTree` inside `sidebar-carousel.tsx:132`, live). |
 | sidebar-toggle-icon | `web/src/components/ui/sidebar-toggle-icon.tsx` (`SidebarToggleIcon`) | LIVE | Rendered at `components/layout/sidebar-project-header.tsx:40`. `SidebarProjectHeader` renders at `ide-shell.tsx:149` guarded by `{!hasNavScreen && ...}`, where `hasNavScreen = useSidebarNavStore((s) => s.stack.length > 0)` (`ide-shell.tsx:120`) — the nav-screen stack is empty by default, so this is the ordinary/initial-state render, not a rarely-hit branch. A second call site (`tab-navigation-buttons.tsx:40`) has 0 live renders per `native/mapping/sidebar-toggle-icon.md` §4 (only swaps in while the sidebar is hidden). |
 | skeleton | `web/src/components/ui/skeleton.tsx` (`Skeleton`), used only via `web/src/components/layout/sidebar-skeleton.tsx` (`SidebarSkeleton`) | DEAD | `Skeleton`'s only importer is `sidebar-skeleton.tsx:1`; `SidebarSkeleton`'s only usage is `sidebar-carousel.tsx:131` as a `<Suspense fallback={<SidebarSkeleton />}>` around `<FileExplorerTree>`. `FileExplorerTree`'s subtree is entirely statically imported (`grep -rn "React\.lazy\|lazy(\|useSuspenseQuery\|use(" web/src/features/file-explorer/` returns zero hits) so nothing in it can suspend — the fallback is constructed on every render (because `sidebar-carousel.tsx` itself is live) but structurally can never paint. Matches `native/mapping/skeleton.md` §0's live count of 0 in every state. Distinguishable from `sheet`: `sheet`'s dead branch is a one-hop "never mounted" component; `skeleton`'s host *is* mounted, the fallback is just unreachable by construction (no suspending descendant). |
+| slider | `web/src/components/ui/slider.tsx` (`Slider`) | CONDITIONAL | Only importer in `web/src`: `features/settings/components/tabs/developer-settings.tsx:337`, inside the "Fault Injection" section, itself wrapped by `{import.meta.env.VITE_USE_MOCK === 'true' && (...)}` (`developer-settings.tsx:269`). `web/.env.mock` sets `VITE_USE_MOCK=true`; `web/.env.development` sets it `false`; there is no `.env.production` and the `build` script never passes `--mode mock`. Gate: **`VITE_USE_MOCK === 'true'`**, true only under `bun run dev:mock`, false in normal dev and every prod build. |
+| spinner | `web/src/components/ui/spinner.tsx` (`Spinner`, wrapped by `loading-spinner.tsx`'s `LoadingSpinner`) | LIVE | Two importers: `loading-spinner.tsx` and `button.tsx`. `Button`'s `loading` prop is never passed truthy anywhere in `web/src` (checked — the two `loading`-named hits found are unrelated local state passed to `disabled`, not to `Button`). But `LoadingSpinner` itself renders unconditionally (while a fetch is in flight, not behind a dead flag) in `features/editor/components/toolbar/editor-status-actions.tsx:62,532` (always-mounted editor toolbar "Connecting" indicator) and `review-diff-tab.tsx:110,172`, both on the already-established live `ide-shell.tsx` chain. |
+| switch | `web/src/components/ui/switch.tsx` (`Switch`) | LIVE | 19 call sites across 6 Settings-tab files (matches mapping doc exactly), the first being `developer-settings.tsx:95` — **before**, and independent of, that file's `VITE_USE_MOCK` gate at line 269. Chain: `ide-shell.tsx:14,269` renders `SettingsDialog` → `settings-dialog.tsx:17-18,73,77` renders `EditorSettings`/`GitSettings`/etc. |
+| tabs | `web/src/components/ui/tabs.tsx` (`Tabs`/`TabsList`/`TabsTab` — **not** the file's other export `Tab`) | LIVE | 3 importers: `sidebar-tab-bar.tsx` and `git-panel.tsx` import `Tabs`/`TabsList`/`TabsTab`; `tab-bar-item.tsx` imports only the unrelated `Tab` export (confirmed, matches mapping doc §0 — not double-counted as this surface). `sidebar-tab-bar.tsx` ← `ide-shell.tsx` directly; `git-panel.tsx` ← `sidebar-carousel.tsx` ← `ide-shell.tsx`. |
+| textarea | `web/src/components/ui/textarea.tsx` (`Textarea`) | CONDITIONAL | Exactly one importer: `features/git/components/commit-popover.tsx:106`. `CommitPopover` is used only by `branch-section.tsx:5,117`, rendered when `action.kind === 'commit'` (dirty working tree), and paints its `<Textarea>` only once the popover is opened via the "Commit changes" trigger. `branch-section.tsx` ← `git-panel.tsx` ← `sidebar-carousel.tsx` ← `ide-shell.tsx`. Gate: dirty working tree + commit popover opened — ordinary, frequent states, but genuinely conditional on repo state. Note: `textarea.md`'s "0 reachable" language describes a session-specific oracle-capture staleness bug, not a structurally dead path — the doc says so itself. |
+| toast | `web/src/components/ui/toast.tsx`'s `AnchoredToasts` (exported indirectly via `AnchoredToastProvider`) | DEAD | `AnchoredToastProvider` **is** mounted app-wide (`routes/__root.tsx:6,19-22`, wraps every route), but `AnchoredToasts` only paints when `Toast.useToastManager()` bound to `anchoredToastManager` returns non-empty toasts. Exhaustive `grep -rn anchoredToastManager web/src` finds exactly 3 lines (its own declaration + `lib/toast-manager.ts`'s passthrough) and **zero** `.add()` calls on it — every real toast (`features/window/stores/toast-store.ts:30,34,36,38,40`) targets the *other* manager, `toastManager`. The toast users see, `SidebarToastItem` (`components/layout/sidebar-toast-overlay.tsx`, imports `toastManager` — the live one), mounts via `SidebarToastOverlay` at `ide-shell.tsx:24,155` (root-reachable) and has **no Rust port**: `grep` across `native/` for `SidebarToastItem`/`sidebar-toast-overlay`/`SidebarToastOverlay` finds it only in prose, never as a ported module; `native/mapping/layout-denominator.md:87,226-246` lists it as a **"Tier B target — NOT already covered."** Refinement, not a contradiction: the *wrapper* (`AnchoredToastProvider`) is reachable from root even though the ported *popup markup* it wraps never paints. |
+| tooltip | `web/src/components/ui/tooltip.tsx` — the surface ports `tooltipContentBase` (the shared content-box class string used by both the default-export `TooltipCompound` and `button.tsx`'s inline duplicate), **not** `TooltipProvider` | LIVE | `main.tsx:7,104-106` imports `TooltipProvider` and wraps `<RouterProvider>` in it (the control). Independently confirmed real tooltip-prop usage beyond the provider: `button.tsx:12,22-23,81-96` uses `tooltipContentBase` for its `tooltip?: string` prop; `grep -rl "tooltip="` finds 21 non-test files (15 outside the Plate editor tree), matching the mapping doc's count. Standalone default-export `Tooltip` confirmed at `terminal-settings.tsx:17` and `path-breadcrumb.tsx:5`. |
+| workspace-branch-icon | `web/src/components/layout/workspace-branch-icon.tsx` (`WorkspaceBranchIcon`) | LIVE | 7 importers; shortest chain: `context-pill.tsx:10,79` renders `<WorkspaceBranchIcon status working>`, and `context-pill.tsx` is imported directly by `ide-shell.tsx:9,150` (`{!hasNavScreen && <ContextPill />}`, the `_shell.tsx` route's default state). Checked the render condition (`context-pill.tsx:76-80`, `context-pill-model.ts:47-59`): `repoAvatar` is only ever set for the special "imported folder" workspace case, so for an *ordinary* Crowbar-managed workspace, `WorkspaceBranchIcon` — not `RepoAvatar` — is the default icon shown in the sidebar context pill. |
 
 ## Notes and contradictions (accumulated as batches land)
 
@@ -94,3 +125,37 @@ row below for the full picture (Tooltip/TooltipTrigger content usage too).
   (P3.30) is a later finding that the standalone `tree-row.tsx` primitive
   needed no surface of its own, since `file-tree-row` and `git-status-row`
   already cover its only DOM output. Both docs agree.
+- **toast is dead, independently re-derived (not taken on the brief's
+  word)**: `anchoredToastManager` has exactly 3 references anywhere in
+  `web/src` and zero `.add()` calls; `SidebarToastItem`
+  (`components/layout/sidebar-toast-overlay.tsx`) is genuinely what users
+  see (real `toastManager.add()` calls in `toast-store.ts`) and genuinely
+  has no Rust port — `native/mapping/layout-denominator.md:87,226-246`
+  itself lists it as a "Tier B target — NOT already covered." One
+  refinement: `AnchoredToastProvider` (the wrapper, distinct from the
+  ported `AnchoredToasts` popup JSX it wraps) *is* mounted on every route
+  (`routes/__root.tsx:6,19-22`) — so "unreachable" is true of the ported
+  popup markup specifically, not of every symbol `toast.tsx` exports.
+- **tooltip control, independently re-derived**: `main.tsx:7,104-106`
+  confirmed directly. The surface ports `tooltipContentBase` (shared by
+  `TooltipCompound` and `button.tsx`'s inline duplicate), not
+  `TooltipProvider` itself — worth flagging since a literal reading of the
+  brief's phrasing could suggest the provider is what's ported.
+- **select.md / popover**: `select` is not one of the 48 registered surface
+  names. `native/mapping/select.md` records that `web/src/components/ui/
+  select.tsx` was investigated and found not to need (or not to get) its
+  own surface — its content renders through the same floated-overlay
+  primitive `popover` already covers (see the two P3.18 queue entries on
+  this branch's own history: "popover and select declare their own anchor
+  sets" / "record the two meanings of surface `select`"). Not a dead-code
+  finding and not a contradiction: it's a doc for a component that was
+  evaluated and deliberately not built as a 49th surface.
+- **textarea.md / workspace-branch-icon.md framing**: both docs use "0
+  reachable" / "no live oracle capture" language that is scoped to
+  *oracle-capture* reachability this session (a staleness bug blocked one
+  capture attempt; no `data-oracle-id` exists to snapshot against) — a
+  narrower claim than "does the component ever render." Both docs are
+  careful to scope this themselves; this audit's independent trace confirms
+  the underlying React code paths are real and reachable (textarea:
+  CONDITIONAL; workspace-branch-icon: LIVE), so there is no contradiction,
+  just a precision note.
