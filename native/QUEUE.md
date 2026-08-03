@@ -4,8 +4,11 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 3 — component port. **Tier B complete** (**43 registered surfaces**,
-**1627 tests**, clippy 0, all 7 invariant checks `ok`). **No held verdicts.**
+**Phase:** 3 — component port. **Tier B is HALF done, not complete.** The
+`components/ui` half is finished (**43 registered surfaces**, **1627 tests**,
+clippy 0, 7/7 invariant checks `ok`, **no held verdicts**). The
+`components/layout` half — which §16 names in the same breath — stands at
+**1 of 29** and was never in the recorded denominator. See the correction below.
 Phase 1 closed 2026-07-31 (gate passed, see [PHASE1-REPORT.md](PHASE1-REPORT.md));
 Phase 2 closed 2026-07-31.
 
@@ -137,6 +140,54 @@ down anywhere the snapshot can check.
 **Consequence for the §17.1 push:** the references are recapturable, and I have
 now done one end to end and reproduced it byte-for-byte. What each one needs is
 its own app-state drive, and those need recording next to the surface.
+
+### 🛑 "TIER B COMPLETE" WAS WRONG — the `components/layout` half was never counted
+
+**2026-08-03.** Spec §16 defines Phase 3 Tier B as *"the 46 `components/ui`
+primitives **and 36 `components/layout` files**"*, and §5.1 puts both under strict
+parity. **The denominator recorded in this file counts only `components/ui`** —
+72 files, 43 real targets — and says nothing about `layout`. Every "Tier B
+complete" claim in this file, including the one I wrote on 2026-08-02, covers
+half the definition.
+
+Measured just now, by resolving every `components/layout/*.tsx` against the
+surface registry and `native/mapping/`:
+
+| | |
+|---|---|
+| `components/layout/*.tsx` on disk | **29** (§16 says 36 — the spec's count is from 2026-07-30 and the tree has moved) |
+| ported — has a registered surface | **1** (`sidebar-carousel`) |
+| **neither a surface nor a mapping doc** | **28** |
+
+```
+connection-indicator · context-pill · detach-holder-modal · drag-ghost ·
+fps-overlay · ide-shell · nav-stack · pending-create-row ·
+placeholder-row-actions · placeholder-toast-watcher · project-home-row ·
+project-switcher-panel · repo-avatar · repo-icon-popover · repo-import-dialog ·
+repo-section · sidebar-peek · sidebar-project-header · sidebar-skeleton ·
+sidebar-tab-bar · sidebar-toast-overlay · workspace-branch-icon ·
+workspace-inline-input · workspace-switcher · workspace-tree-context ·
+workspace-tree-footer · workspace-tree-item · workspace-tree
+```
+
+**So Phase 3 is roughly half done, not done.** The `components/ui` half is
+genuinely complete and its verdicts stand; the `layout` half is at 1 of 29.
+
+**How this got past me:** the Tier B denominator was measured carefully — the
+Plate-by-filename rule, the three Plate-by-dependency corrections, `separator`'s
+out-of-scope note — and *all of that care went into one directory*. A denominator
+that is rigorous about the files it counts is still wrong if it counts the wrong
+set, and being able to recite `72 → 26 → 3 → 43` made it feel settled. **I
+checked my arithmetic and never re-checked my scope**, which is the same
+failure as reading the head of a 300-line file: precision inside a boundary
+nobody re-derived.
+
+**Not all 28 are necessarily port targets.** Several look like Phase 4 or Phase 5
+work by their names alone (`placeholder-toast-watcher` is a watcher,
+`drag-ghost` is interaction, `fps-overlay` may be dev-only), and §3.2's Plate
+exclusion has to be applied here as it was to `ui/`. **That classification is the
+next item and it is a measurement, not a guess** — dispatched as P3.48. The 28
+above is the *unclassified* count, not the port target.
 
 ### ▶ ANCHORS.md is now **v1.14** — the app-state hole is in the contract
 
