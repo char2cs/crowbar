@@ -36,7 +36,7 @@ sidebar column.
 | `mx-1.5` / `my-0.5` (`ROW_BASE`) | 6px / 2px | **not modelled on this row** — see §2 |
 | `rounded-lg` (`ROW_BASE`) | `theme.radius_lg` (10px, not Tailwind's stock 8 — `theme.css` redefines it) | reused, not re-derived |
 | `border` (`ROW_BASE`) | 1px, unconditional | `button::BORDER_WIDTH` — `button.rs`'s own headline finding reproduced here |
-| `text-[13px] font-medium` (`ROW_BASE`) | 13px font, `normal` line height | `row_base::TEXT` / `row_base::LINE_HEIGHT_RELATIVE` — see §3 |
+| `text-[13px] font-medium` (`ROW_BASE`) | 13px font, `19.5px` line height (`1.5` unitless, Tailwind's own preflight default — **not** `normal`) | `row_base::TEXT` / `row_base::LINE_HEIGHT_RELATIVE` — see §3 |
 | `border-background bg-background text-foreground` (`ROW_ACTIVE`) | — | `row_base::active` |
 | `border-transparent text-foreground` (`ROW_INACTIVE`) | — | `row_base::inactive` |
 | `shadow-xs shadow-black/10`, `inset-shadow-[…]` (`ROW_ACTIVE`) | box-shadows | not modelled — `ANCHORS.md` §6 has no field |
@@ -68,15 +68,40 @@ actual spacing mechanism between them. `row_base.rs`'s own module docs
 record both halves of this so a future consumer does not have to re-derive
 which case it is in.
 
-## 3. `text-[13px]`'s own line height is transferred, not re-measured
+## 3. `text-[13px]`'s own line height — wrong on the first pass, caught by the oracle
 
-`text-[13px]` carries no paired `line-height` utility, so its box is CSS
-`normal`, resolved through the font's own metrics. `project-home-row.tsx`'s
-label is `font-mono` (`var(--editor-font-family)`) at this exact size —
-the same combination `context_pill.rs`'s own `LARGE_LINE_HEIGHT` (18px) and
-`workspace_switcher.rs`'s own `CONTENT_HEIGHT` already measured. Carried
-over as `row_base::LINE_HEIGHT_RELATIVE` (`18.0 / 13.0`), not re-derived
-from a second measurement of the same font at the same size.
+**This section originally said `text-[13px]` carries no paired
+`line-height` utility, so its box is CSS `normal`, resolved through the
+font's own metrics, and transferred `row_base::LINE_HEIGHT_RELATIVE` from
+`context_pill::LARGE_LINE_HEIGHT` (18px) on that basis. That was wrong.**
+P3.60's own parity run against the live app reported it directly:
+
+```
+project-home-row-label.bounds.h:         18.0, expected 19.5   (Δ -1.5, tol ±0.5, line_sized)
+project-home-row-label.font.line_height: 18.0, expected 19.5   (Δ -1.5, tol ±0.5)
+```
+
+Both reference fields agree at 19.5 — this is **not**
+`context_pill.rs`'s own trap (a computed-style value disagreeing with the
+rendered box); the reference was never in doubt, this port's own number
+was. `19.5 = 13 × 1.5`, and `1.5` is not `normal` at all: Tailwind's own
+preflight sets `html { line-height: 1.5; }`
+(`node_modules/tailwindcss/preflight.css:30`), a **unitless** ratio that is
+inherited and recomputed against each descendant's own font-size. Neither
+`ROW_BASE` nor either label span in this file (or `project-switcher-
+panel.tsx`'s) sets a `leading-*` class or a paired `text-*` size utility to
+override it, so the inherited `1.5` reaches the label unchanged —
+`13 × 1.5 = 19.5px`, matching the reference on both fields.
+
+`row_base::LINE_HEIGHT_RELATIVE` is now `1.5`, with the full derivation and
+correction in its own doc comment. It applies identically to
+`project-switcher-panel.tsx`'s two label shapes too: unitless
+`line-height` is font-*size*-dependent, not font-*family*-dependent, so the
+`font-mono`/default-sans split between that surface's two row kinds does
+not create a second number to derive. `context_pill.rs`'s own
+`LARGE_LINE_HEIGHT` sits under a different ancestor chain and is not
+re-derived by this fix — only this file's claim on the number, and
+`row_base.rs`'s shared constant, were wrong.
 
 ## 4. `size-6` wins over the `icon-xs` variant's own box at every width
 
@@ -194,6 +219,10 @@ to match.
   surface in this port)
 * the icon sits flush against `row_base::PADDING_X`; the label follows by
   `row_base::GAP`
+* the label's own line box is `13 × row_base::LINE_HEIGHT_RELATIVE` (19.5px)
+  — added after the live oracle caught this constant at the wrong value; no
+  assertion here had checked the label's own height before, which is why a
+  wrong ratio passed every gate in this file (see §3)
 * the root's own width tracks `--width` exactly
 
 ## 10. Reachability

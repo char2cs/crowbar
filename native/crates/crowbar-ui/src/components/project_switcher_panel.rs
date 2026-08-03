@@ -216,11 +216,12 @@ impl ProjectSwitcherPanel {
     /// text-muted-foreground hover:bg-accent hover:text-foreground`, a
     /// leading `Plus` glyph (empty, unpainted — no native equivalent) and a
     /// label that, unlike every project row's, is **not** `font-mono` — the
-    /// React source carries no such class on this one span. Its own
-    /// `normal` line height under the default UI sans stack has no live
-    /// measurement to transfer; [`row_base::LINE_HEIGHT_RELATIVE`] is
-    /// carried over as the best available approximation, flagged in that
-    /// constant's own doc comment.
+    /// React source carries no such class on this one span. That split does
+    /// **not** need a second [`row_base::LINE_HEIGHT_RELATIVE`]: the ratio
+    /// is Tailwind's own preflight default, inherited unitless, so it
+    /// resolves against this label's own 13px font-*size* the same way
+    /// regardless of font-*family* — see that constant's own doc comment
+    /// for the full derivation and the oracle failure that corrected it.
     fn import_row(theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         // No `.w_full()` — see `Self::project_row`'s own comment.
         let shell = row_base::base(theme)

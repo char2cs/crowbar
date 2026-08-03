@@ -65,25 +65,54 @@ pub const MARGIN_X: Pixels = px(SPACING * 1.5);
 /// `my-0.5` — not applied by [`base`]. See the module docs.
 pub const MARGIN_Y: Pixels = px(SPACING * 0.5);
 
-/// `text-[13px]` — an arbitrary literal, no paired `line-height` utility, so
-/// the box is CSS `normal` and the differ compares it against the
-/// reference's own measured line box (v1.6) rather than against a number
-/// this port asserts. A concrete ratio is still supplied below
-/// ([`LINE_HEIGHT_RELATIVE`]) because gpui still has to paint *something*.
+/// `text-[13px]` — an arbitrary literal, no *paired* Tailwind line-height
+/// utility of its own. That does **not** mean the box is CSS `normal`
+/// resolved through the font's own metrics — see [`LINE_HEIGHT_RELATIVE`]
+/// for what it actually inherits, and for the wrong assumption this
+/// constant used to encode. The anchor is still declared `line_sized`
+/// (v1.6) regardless, so the differ compares this port's own painted box
+/// against the reference's own measured one rather than against a number
+/// either side merely asserts.
 pub const TEXT: Pixels = px(13.0);
 /// The ratio [`base`] paints `text-[13px]` at.
 ///
-/// `text-[13px]` under `font-mono` (`var(--editor-font-family)`) is the
-/// combination `context_pill::LARGE_LINE_HEIGHT`/`workspace_switcher::
-/// CONTENT_HEIGHT` already measured at 18px — `18.0 / 13.0`, transferred
-/// rather than re-derived. The one label in this item that is *not*
-/// `font-mono` (`project-switcher-panel.tsx`'s "Import project" row) has no
-/// equivalent live measurement for the default UI sans stack at this size;
-/// the same ratio is carried over as the best available approximation,
-/// flagged here rather than silently asserted, and the anchor it paints is
-/// still declared `line_sized` so the differ compares against whatever the
-/// reference's own font metrics actually produce.
-pub const LINE_HEIGHT_RELATIVE: f32 = 18.0 / 13.0;
+/// # This was wrong, and the oracle is what caught it
+///
+/// Held `18.0 / 13.0` — transferred from `context_pill::LARGE_LINE_HEIGHT`
+/// — until P3.60's own parity run against the live app reported
+/// `project-home-row-label.bounds.h` **and** `.font.line_height` both
+/// `18.0` against a reference `19.5`, a 1.5px delta on both fields at once.
+/// Not a computed-style-vs-rendered-box disagreement (`context_pill.rs`'s
+/// own trap, where the two fields told different stories) — here both
+/// reference fields agree at 19.5, so the reference itself was never in
+/// question; this port's own number was.
+///
+/// # `13 × 1.5`, Tailwind's own preflight default, not `context_pill`'s
+///
+/// `text-[13px]` carries no *paired* line-height utility, but "no pairing"
+/// does not mean the cascade falls back to CSS `normal` — it means the
+/// property is whatever is **inherited**, and Tailwind's own preflight sets
+/// it at the root: `html { line-height: 1.5; }`
+/// (`node_modules/tailwindcss/preflight.css:30`), a **unitless** ratio that
+/// recomputes against each descendant's own font-size rather than carrying
+/// a fixed px value down the tree. Neither `ROW_BASE` nor either label span
+/// sets a `leading-*` class or a paired `text-*` size utility to override
+/// it, so the inherited `1.5` reaches every label in this file unchanged —
+/// `13 × 1.5 = 19.5px`, matching the reference on both fields, for **both**
+/// the `font-mono` project-row labels and the plain-sans "Import project"
+/// label alike: unitless `line-height` is font-*size*-dependent, not
+/// font-*family*-dependent, so the family split this module's own docs
+/// draw elsewhere does not create a second case here. `context_pill.rs`'s
+/// own `text-[13px]` sits under a *different* ancestor chain and is not
+/// re-derived by this fix — only this module's own claim on the number was
+/// wrong.
+///
+/// This is one layer further up the cascade from `search`'s own fix
+/// ("read the same type-scale table every ordinary `Button::render` uses,
+/// not hand-picking a number") — not a component-level table, but
+/// Tailwind's own global preflight default, which is exactly as much "an
+/// existing, established number" as a component's own type scale is.
+pub const LINE_HEIGHT_RELATIVE: f32 = 1.5;
 
 /// `ROW_SUB_ACTION`'s call-site override in this item: a fixed `size-6`
 /// (24px) box at every width — see [`super::project_home_row`]'s module
@@ -234,10 +263,15 @@ mod tests {
         assert_eq!(TEXT, px(13.0));
     }
 
-    /// `18.0 / 13.0`, the transferred ratio, not re-derived.
+    /// Tailwind's own preflight default (`html { line-height: 1.5 }`),
+    /// inherited because nothing in `ROW_BASE` or either label overrides
+    /// it — not the `18.0 / 13.0` this constant held before the oracle
+    /// caught it (P3.60's own parity run: `bounds.h` and `font.line_height`
+    /// both `18.0` against a reference `19.5`). See
+    /// [`super::LINE_HEIGHT_RELATIVE`]'s own doc comment for the full
+    /// account.
     #[test]
-    fn the_line_height_ratio_matches_the_transferred_measurement() {
-        let expected = 18.0_f32 / 13.0_f32;
-        assert!((LINE_HEIGHT_RELATIVE - expected).abs() < f32::EPSILON);
+    fn the_line_height_ratio_is_tailwinds_own_preflight_default() {
+        assert!((LINE_HEIGHT_RELATIVE - 1.5).abs() < f32::EPSILON);
     }
 }
