@@ -5,6 +5,13 @@
 //! box sitting flush against [`row_base::PADDING_X`], the label following
 //! [`row_base::GAP`] after it, and the working/selected axes each reaching
 //! the picture they claim to.
+//!
+//! **Gate status, honestly: none of this has been through `cargo test`
+//! yet.** This module (and its siblings landed alongside it) was written,
+//! then interrupted before the workspace's first `cargo clippy`/`cargo
+//! test` run — so every mutation noted below is a description of what
+//! *should* happen, not a result. Each one says so at its own site rather
+//! than claiming a run that did not happen.
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
@@ -28,10 +35,11 @@ fn at(records: &[RawAnchor], id: &str) -> Bounds<Pixels> {
 /// **The default cell carries all five of this surface's own anchors, and
 /// never the working-only ones.**
 ///
-/// **Mutation:** removing either `.child(...)` call for the two trailing
-/// actions in `ProjectHomeRow::render` would turn this red — verified by
-/// running it against a version with the switch button's `.child(...)`
-/// deleted, which drops `project-home-row-switch` from the recorded ids.
+/// **Mutation (described, not yet run — this file has not been through
+/// `cargo test` at all):** removing either `.child(...)` call for the two
+/// trailing actions in `ProjectHomeRow::render` should turn this red, since
+/// it would drop `project-home-row-switch` (or `-import`) from the recorded
+/// ids. Flagged for whoever runs the gate next rather than claimed here.
 #[gpui::test]
 fn the_default_cell_carries_all_five_anchors_and_no_spinner(cx: &mut TestAppContext) {
     crowbar_driver::leak_checked!(cx);
@@ -54,10 +62,10 @@ fn the_default_cell_carries_all_five_anchors_and_no_spinner(cx: &mut TestAppCont
 /// nested one level deeper still, the same shape `context-pill`'s own
 /// `--working` cell already proved.
 ///
-/// **Mutation:** swapping `self.working` for a literal `false` in
-/// `ProjectHomeRow::icon`'s guard turns this red — run and confirmed: with
-/// that change, `--working` no longer surfaces `workspace-branch-icon` in
-/// the recorded ids.
+/// **Mutation (described, not yet run):** swapping `self.working` for a
+/// literal `false` in `ProjectHomeRow::icon`'s guard should turn this red —
+/// `--working` would then never surface `workspace-branch-icon` in the
+/// recorded ids. Not executed; see the module-level note on why.
 #[gpui::test]
 fn working_swaps_the_icon_for_the_spinner(cx: &mut TestAppContext) {
     crowbar_driver::leak_checked!(cx);
@@ -90,13 +98,15 @@ fn the_root_keeps_its_authored_height_whether_or_not_selected(cx: &mut TestAppCo
 /// label follows it by `gap-1.5`** — read off a real taffy layout rather
 /// than hand arithmetic.
 ///
-/// **Mutation:** swapping `row_base::GAP` for `row_base::PADDING_X` in
-/// `ProjectHomeRow::icon_wrapper` (a plausible typo, since both are 6px
-/// today) would **not** turn this red — the two constants share a value.
-/// The mutation that does: adding a second `row_base::GAP` to the row's own
-/// `.gap(...)` call, which taffy would apply between *every* child, not
-/// just after the icon — confirmed by running it: the label's own `x`
-/// origin moves from 32 to 38, and the assertion below catches it.
+/// **Mutation (described, not yet run):** swapping `row_base::GAP` for
+/// `row_base::PADDING_X` in `ProjectHomeRow::icon_wrapper` (a plausible
+/// typo, since both happen to be `SPACING * 1.5` today) would **not** turn
+/// this red on its own — the two constants share a value, so that swap is a
+/// null mutation here and would need a different pair of numbers to be
+/// worth writing. A mutation that should catch something real: deleting
+/// `.gap(GAP)` from `row_base::base` entirely, which would collapse the
+/// icon/label/button spacing to zero and move `label.origin.x` down by
+/// `GAP`. Neither has been run — see the module-level note.
 #[gpui::test]
 fn the_icon_sits_flush_and_the_label_follows_the_gap(cx: &mut TestAppContext) {
     crowbar_driver::leak_checked!(cx);
