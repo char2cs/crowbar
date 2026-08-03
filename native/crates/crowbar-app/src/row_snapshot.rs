@@ -170,6 +170,84 @@ fn cut_by_the_window(records: &[RawAnchor], cell: &Cell, viewport: Size<Pixels>)
     None
 }
 
+/// Why this frame cannot be emitted: the platform did not grant the window
+/// this cell asked for.
+///
+/// # Why `cut_by_the_window` does not already cover this
+///
+/// That guard refuses when the granted window is short enough to slice an
+/// anchor off — a fact visible in the anchors themselves, and [`emit`] runs it
+/// first so its more specific, anchor-naming message wins whenever something
+/// really is cut. A granted viewport can differ from the requested one
+/// **without** cutting anything: a surface whose own width derives from
+/// `window.viewport_size()` (`command`'s root is `min(viewport -
+/// 2*VIEWPORT_PADDING, max_width)`) simply lays out narrower in a narrower
+/// window, with every anchor safely inside the new, smaller edge.
+/// `cut_by_the_window` has nothing to find in that picture — and yet
+/// [`state_of`] reports `cell.viewport_width`, the number this cell **asked**
+/// for, while every box in the frame answers to the number the platform
+/// **granted**. Unrefused, the snapshot would claim to be a measurement of one
+/// cell while its geometry belongs to another, and the two disagree by a
+/// constant that reads exactly like a port defect: `command`'s root landing
+/// at 537 regardless of `--width` (576/700/1200) *and* regardless of
+/// `--viewport-width` (800/1200/1714) is what proved that one environmental
+/// rather than a port bug — invariance under both flags is not a coincidence
+/// a real layout defect would produce.
+///
+/// # Refuse, never correct
+///
+/// The obvious alternative — rewrite `state.width` to the granted value — is
+/// wrong. The cell the operator asked for is the cell they meant: silently
+/// relabelling it would produce a snapshot that disagrees with the
+/// *reference*, which was captured at the requested size, not the granted
+/// one, and a relabelled snapshot would go on to fail the differ in a way
+/// that reads as an ordinary port defect the next time someone diffs it.
+///
+/// # Both axes
+///
+/// [`RowSurface::window_size`] derives its width from `cell.viewport_width`
+/// and its height from [`Cell::window_extent`], and a platform can shrink
+/// either — a tiling window manager is what this item found it on, but
+/// nothing here assumes which axis or which cause.
+///
+/// # Tolerance, and why not bit-for-bit equality
+///
+/// [`EDGE_TOLERANCE`] (half a logical pixel), the same constant
+/// `cut_by_the_window` already uses and for the same reason: both sides of
+/// this comparison are `f32`s that have passed through the device-pixel snap
+/// gpui performs when it resolves a window's actual size, so demanding exact
+/// equality would flag a difference the platform's own rounding introduced —
+/// one no anchor bound would ever show — as if it were a real mismatch. A
+/// whole pixel of difference is not rounding; it is the platform having
+/// granted a window this cell did not ask for.
+fn granted_matches_requested(cell: &Cell, granted: Size<Pixels>) -> Option<String> {
+    let requested = RowSurface::window_size(cell);
+    let width_off = (requested.width - granted.width).abs();
+    let height_off = (requested.height - granted.height).abs();
+    if width_off <= EDGE_TOLERANCE && height_off <= EDGE_TOLERANCE {
+        return None;
+    }
+
+    let name = cell.surface.name;
+    let requested_width = f32::from(requested.width);
+    let requested_height = f32::from(requested.height);
+    let granted_width = f32::from(granted.width);
+    let granted_height = f32::from(granted.height);
+    let asked_viewport = cell.viewport_width;
+    Some(format!(
+        "`{name}` asked for a {requested_width}×{requested_height}px window \
+         (`--viewport-width {asked_viewport}`) but the platform granted \
+         {granted_width}×{granted_height}px. Every anchor in this frame was laid out against the \
+         {granted_width}×{granted_height}px window the platform actually gave it, not the \
+         {requested_width}×{requested_height}px one this cell asked for — so a snapshot built \
+         from it would report `state.width: {asked_viewport}` while its geometry belongs to a \
+         {granted_width}px viewport instead, which is a snapshot labelled with a cell it was not \
+         measured in. A tiling window manager resizing the window after it opened is a common \
+         cause; free up space for a {requested_width}×{requested_height}px window (or move it \
+         off the tiler) and re-run. Nothing was written.",
+    ))
+}
+
 /// Serialises the recorded frame and writes it where it was asked for.
 ///
 /// `viewport` is the drawable area the platform **granted**, not the one the
@@ -180,8 +258,10 @@ fn cut_by_the_window(records: &[RawAnchor], cell: &Cell, viewport: Size<Pixels>)
 ///
 /// # Errors
 ///
-/// The window cut the surface, the snapshot could not be built (no root anchor
-/// was recorded), could not be serialised, or could not be written.
+/// The window cut the surface, the platform did not grant the window this
+/// cell asked for ([`granted_matches_requested`]), the snapshot could not be
+/// built (no root anchor was recorded), could not be serialised, or could not
+/// be written.
 pub fn emit(
     anchors: &AnchorRegistry,
     cell: &Cell,
@@ -200,6 +280,16 @@ pub fn emit(
     // Before anything is built, let alone written: a frame the window cut is
     // not a measurement of the port.
     if let Some(complaint) = cut_by_the_window(&records, cell, viewport) {
+        return Err(complaint);
+    }
+
+    // A frame that was not cut can still have been measured in the wrong
+    // cell: see `granted_matches_requested`. This runs second because it is
+    // the more general of the two checks — anything `cut_by_the_window`
+    // would have caught is also a granted/requested mismatch, so letting the
+    // more specific, anchor-naming refusal go first keeps its message intact
+    // for the case both guards could explain.
+    if let Some(complaint) = granted_matches_requested(cell, viewport) {
         return Err(complaint);
     }
 
@@ -236,8 +326,10 @@ pub fn report(outcome: &Result<PathBuf, String>) {
 
 #[cfg(test)]
 mod tests {
-    use super::state_of;
-    use crate::row_surface::Cell;
+    use gpui::{px, size};
+
+    use super::{granted_matches_requested, state_of};
+    use crate::row_surface::{Cell, RowSurface};
     use crate::surface::Surface;
 
     fn a_cell(args: &[&str]) -> Cell {
@@ -311,5 +403,95 @@ mod tests {
         let rendered = format!("{:?}", state_of(&narrow_surface));
         assert!(rendered.contains("width: 800"), "{rendered}");
         assert!(!rendered.contains("294"), "{rendered}");
+    }
+
+    /// **The defect this item exists to close.** Before `granted_matches_requested`
+    /// existed, nothing compared `cell.viewport_width` against the window the
+    /// platform actually granted — `state_of` reports the former
+    /// unconditionally (see its own doc comment) and `cut_by_the_window` only
+    /// ever looks at anchor bounds, never at the window's own width. A
+    /// platform that grants a narrower window than `--viewport-width` asked
+    /// for — measured for real at 1714px requested against a 569px granted
+    /// window — produced no error at all: `emit` ran straight through to
+    /// `Snapshot::build` and wrote a snapshot whose `state.width` was 1714
+    /// while its layout was the 569px one. Reverting `granted_matches_requested`
+    /// to `|_, _| None` reproduces exactly that: this test fails with "a 569px
+    /// granted viewport must not pass for a 1714px request" because the call
+    /// returns `None` instead of `Some(_)`.
+    #[test]
+    fn a_granted_width_narrower_than_the_cell_requested_is_refused() {
+        let cell = a_cell(&["--width", "294", "--viewport-width", "1714"]);
+        let requested = RowSurface::window_size(&cell);
+        // The exact numbers this item measured `command` at, so this test
+        // pins the real failure rather than an invented one.
+        let granted = size(px(569.0), requested.height);
+
+        let complaint = granted_matches_requested(&cell, granted)
+            .expect("a 569px granted viewport must not pass for a 1714px request");
+        assert!(complaint.contains("git-status-row"), "{complaint}");
+        assert!(complaint.contains("1714"), "{complaint}");
+        assert!(complaint.contains("569"), "{complaint}");
+    }
+
+    /// The height counterpart: **not** an anchor-cut, so `cut_by_the_window`
+    /// would not catch it either — a granted window taller than the surface
+    /// needs cuts nothing, it just answers to a viewport this cell never
+    /// asked for.
+    #[test]
+    fn a_granted_height_that_disagrees_with_the_request_is_refused() {
+        let cell = a_cell(&[
+            "--surface",
+            "resizable",
+            "--width",
+            "600",
+            "--viewport-width",
+            "700",
+            "--shell-height",
+            "500",
+        ]);
+        let requested = RowSurface::window_size(&cell);
+        // Taller, not shorter — so nothing could possibly be cut, which is
+        // the point: this is not `cut_by_the_window`'s case.
+        let granted = size(requested.width, requested.height + px(50.0));
+
+        let complaint = granted_matches_requested(&cell, granted)
+            .expect("a granted height 50px taller than requested must not pass");
+        assert!(complaint.contains("resizable"), "{complaint}");
+        assert!(complaint.contains("700"), "{complaint}");
+    }
+
+    /// **The control.** Without it, "the guard fires" would also pass on a
+    /// guard that refuses unconditionally — which is the shape of vacuous
+    /// test this project has already shipped eight of. The identical cell,
+    /// granted exactly the window it asked for, passes.
+    #[test]
+    fn a_granted_viewport_matching_the_request_is_not_refused() {
+        let cell = a_cell(&["--width", "294", "--viewport-width", "800"]);
+        let requested = RowSurface::window_size(&cell);
+
+        assert_eq!(granted_matches_requested(&cell, requested), None);
+    }
+
+    /// **Mutation evidence for the ±0.5px tolerance**, not just its shape:
+    /// exactly the tolerance passes, one whole pixel past it does not. Both
+    /// sides are stated so that a guard which quietly widened or narrowed the
+    /// tolerance would fail one assertion or the other.
+    #[test]
+    fn the_tolerance_absorbs_half_a_pixel_but_not_a_whole_one() {
+        let cell = a_cell(&["--width", "294", "--viewport-width", "800"]);
+        let requested = RowSurface::window_size(&cell);
+
+        let half_pixel_over = size(requested.width + px(0.5), requested.height);
+        assert_eq!(
+            granted_matches_requested(&cell, half_pixel_over),
+            None,
+            "half a logical pixel is `ANCHORS.md` §5's own bounds tolerance",
+        );
+
+        let one_pixel_over = size(requested.width + px(1.0), requested.height);
+        assert!(
+            granted_matches_requested(&cell, one_pixel_over).is_some(),
+            "a whole pixel is a real disagreement, not device-pixel rounding",
+        );
     }
 }
