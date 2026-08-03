@@ -409,15 +409,15 @@ pub mod toast;
 pub mod workspace_branch_icon;
 // `row_base` carries no anchor of its own — no `data-oracle-id` anywhere in
 // `workspace-row-base.ts`, and it paints nothing by itself — so it is not a
-// surface, and, like `anchor`/`sidebar_tree` above, it is private rather
-// than `pub`: only [`project_home_row`] and [`project_switcher_panel`],
-// this module's own siblings, reach its constants and helpers directly.
-// `crowbar-app` never needs to (it only calls the composed `render`/
-// `content_height` those two modules already expose), so there is nothing
-// for a wider visibility to buy. See its own module docs for the "keep
-// both in sync here, never inline" reasoning `workspace-row-base.ts`'s own
-// comment states.
-mod row_base;
+// surface. It is `pub`, unlike `anchor`/`sidebar_tree` above: this crate's
+// own [`project_home_row`]/[`project_switcher_panel`] reach it as siblings
+// either way, but `crowbar-app`'s `row_layout` tests for both also assert
+// against its constants directly (`row_base::HEIGHT`,
+// `row_base::MARGIN_Y`, …) to pin the real taffy layout against the same
+// numbers the components themselves were built from, rather than against a
+// second, hand-copied literal — the same reason `git_status_row`'s own
+// constants are `pub` and reached the same way from that crate's tests.
+pub mod row_base;
 // `project_home_row` (P3.60) is unflattened for the same reason as the
 // rest — its `ID_ROOT`/`ID_ICON`/`ID_LABEL` would collide with other
 // surfaces' generic-sounding names under a different shape of the same

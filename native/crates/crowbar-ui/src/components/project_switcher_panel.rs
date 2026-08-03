@@ -68,7 +68,7 @@
 //! | `empty` | **real.** Zero projects is a genuinely reachable picture — a fresh install with nothing imported yet — and it swaps [`ProjectSwitcherPanel::rows`] for an empty list, leaving only the always-present import row. The same shape `command.rs`'s own `Empty`/`Item` swap is. |
 //! | `loading`, `error`, `hover`, `focus`, `selected` | **unmodelled.** `loading`/`error` have no rule on this component at all. `hover:bg-accent` (both row kinds) is colour-only with no runtime seam here — [`super::row_base`]'s own module docs record why. `focus`/`selected` (`aria-current`) carry no styling rule on either row: `aria-current` is an accessibility attribute, not a CSS selector target anywhere in this file's class strings. |
 
-use gpui::{AnyElement, Div, IntoElement as _, ParentElement as _, Pixels, SharedString, Styled as _, div, px};
+use gpui::{AnyElement, Div, ParentElement as _, Pixels, SharedString, Styled as _, div, px};
 
 use super::anchor::{AnchorId, AnchorSink};
 use super::row_base;
@@ -179,10 +179,18 @@ impl ProjectSwitcherPanel {
     /// ambient default whether or not `isActive` restates it, the same
     /// finding [`super::project_home_row`]'s own label makes.
     fn project_row(theme: &Theme, anchors: &dyn AnchorSink, index: usize, row: &ProjectRow) -> AnyElement {
+        // No `.w_full()`: this row is a flex item of a `flex-col` container
+        // with no `align-items` override, so it stretches to the
+        // container's own cross-axis size by default — and, unlike an
+        // explicit `width: 100%`, a stretched size is computed *net of* the
+        // item's own margin. `.w_full()` here was a real bug, caught by
+        // `row_layout`'s own `every_row_is_inset_by_the_same_margin_on_both_
+        // edges`: it reported 240px (root's own full width, margin added on
+        // top and clipped/ignored rather than subtracted) against the
+        // expected 228px (240 minus `row_base::MARGIN_X * 2`).
         let mut shell = row_base::base(theme)
             .border_color(Color::TRANSPARENT)
             .text_color(theme.foreground)
-            .w_full()
             .mx(row_base::MARGIN_X)
             .my(row_base::MARGIN_Y);
         if row.is_active {
@@ -209,10 +217,10 @@ impl ProjectSwitcherPanel {
     /// carried over as the best available approximation, flagged in that
     /// constant's own doc comment.
     fn import_row(theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+        // No `.w_full()` — see `Self::project_row`'s own comment.
         let shell = row_base::base(theme)
             .border_color(Color::TRANSPARENT)
             .text_color(theme.muted_foreground)
-            .w_full()
             .mx(row_base::MARGIN_X)
             .my(row_base::MARGIN_Y)
             .child(Self::plus_glyph());

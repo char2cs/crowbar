@@ -6,16 +6,21 @@
 //! [`row_base::GAP`] after it, and the working/selected axes each reaching
 //! the picture they claim to.
 //!
-//! **Gate status, honestly: none of this has been through `cargo test`
-//! yet.** This module (and its siblings landed alongside it) was written,
-//! then interrupted before the workspace's first `cargo clippy`/`cargo
-//! test` run — so every mutation noted below is a description of what
-//! *should* happen, not a result. Each one says so at its own site rather
-//! than claiming a run that did not happen.
+//! **Gate status:** `cargo clippy --workspace --all-targets -- -D warnings`
+//! and `cargo test --workspace` have both now run against this module.
+//! Clippy was clean on the first pass after fixing one unrelated unused
+//! import. `cargo test` was not: two of the assertions this file originally
+//! carried were wrong, and the failures are what fixed them — see
+//! `the_icon_sits_flush_and_the_label_follows_the_gap`'s own doc comment for
+//! the one that lives here (the sibling bug, a missing margin-vs-width
+//! interaction, lived in `project_switcher_panel.rs` instead). The
+//! **mutations** noted below are still descriptions, not results — they
+//! have not been run, and say so at their own site rather than claiming a
+//! pass that did not happen.
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
-use crowbar_ui::components::{project_home_row, row_base};
+use crowbar_ui::components::{button, project_home_row, row_base};
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -94,19 +99,23 @@ fn the_root_keeps_its_authored_height_whether_or_not_selected(cx: &mut TestAppCo
     }
 }
 
-/// **The icon sits flush against the row's own leading `px-1.5`, and the
-/// label follows it by `gap-1.5`** — read off a real taffy layout rather
-/// than hand arithmetic.
+/// **The icon sits flush against the row's own leading `px-1.5`, one pixel
+/// further in than the padding alone because `border-box` sizing puts the
+/// content box after the border, and the label follows it by `gap-1.5`** —
+/// read off a real taffy layout rather than hand arithmetic.
 ///
-/// **Mutation (described, not yet run):** swapping `row_base::GAP` for
-/// `row_base::PADDING_X` in `ProjectHomeRow::icon_wrapper` (a plausible
-/// typo, since both happen to be `SPACING * 1.5` today) would **not** turn
-/// this red on its own — the two constants share a value, so that swap is a
-/// null mutation here and would need a different pair of numbers to be
-/// worth writing. A mutation that should catch something real: deleting
-/// `.gap(GAP)` from `row_base::base` entirely, which would collapse the
-/// icon/label/button spacing to zero and move `label.origin.x` down by
-/// `GAP`. Neither has been run — see the module-level note.
+/// **Run once already, and it caught a real bug**: the first version of
+/// this assertion expected `icon.origin.x == row_base::PADDING_X` (6px) —
+/// forgetting `row_base::base`'s own `border(button::BORDER_WIDTH)` — and
+/// `cargo test` reported `expected 6px, got 7px`. The `+
+/// button::BORDER_WIDTH` term below is that fix, re-derived from the
+/// failure rather than guessed.
+///
+/// **Mutation (described, not yet run):** deleting `.gap(GAP)` from
+/// `row_base::base` entirely would collapse the icon/label/button spacing
+/// to zero and move `label.origin.x` back to `icon.origin.x +
+/// project_home_row::ICON_WRAPPER_SIZE` — a `row_base::GAP` (6px)
+/// difference the assertion below would catch. Not executed.
 #[gpui::test]
 fn the_icon_sits_flush_and_the_label_follows_the_gap(cx: &mut TestAppContext) {
     crowbar_driver::leak_checked!(cx);
@@ -115,11 +124,12 @@ fn the_icon_sits_flush_and_the_label_follows_the_gap(cx: &mut TestAppContext) {
     let icon = at(&records, project_home_row::ID_ICON);
     let label = at(&records, project_home_row::ID_LABEL);
 
-    assert_px(icon.origin.x, row_base::PADDING_X);
+    let leading_edge = button::BORDER_WIDTH + row_base::PADDING_X;
+    assert_px(icon.origin.x, leading_edge);
     assert_px(icon.size.width, project_home_row::ICON_WRAPPER_SIZE);
     assert_px(
         label.origin.x,
-        row_base::PADDING_X + project_home_row::ICON_WRAPPER_SIZE + row_base::GAP,
+        leading_edge + project_home_row::ICON_WRAPPER_SIZE + row_base::GAP,
     );
 }
 
