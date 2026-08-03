@@ -53,6 +53,7 @@ export function ProjectHomeRow() {
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') handleClick()
         }}
+        data-oracle-id="project-home-row"
       >
         {/* Match the repo-header rows: the mark sits in the same 20px (h-5 w-5)
             box the repo avatar uses, so the label lines up with the repo names
@@ -65,10 +66,24 @@ export function ProjectHomeRow() {
             Outline in both states — the row already signals selection with its
             raised surface (ROW_ACTIVE), so a filled glyph was a second, louder
             signal and the only solid mark in an otherwise all-outline sidebar. */}
-        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+        <span
+          className="inline-flex h-5 w-5 shrink-0 items-center justify-center"
+          data-oracle-id="project-home-row-icon"
+        >
           {working ? <WorkspaceAgentSpinner /> : <Library size={16} />}
         </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-left">
+        {/*
+          `data-oracle-line-sized`, per `native/oracle/ANCHORS.md` v1.6: this
+          span is a blockified flex item (`items-center`, not `stretch`) with
+          no explicit height, so its border box *is* its own line box
+          regardless of the row's own authored `h-9`. Declared to match
+          `crowbar-ui`'s `project_home_row::LINE_SIZED` on the GPUI side.
+        */}
+        <span
+          className="min-w-0 flex-1 truncate font-mono text-left"
+          data-oracle-id="project-home-row-label"
+          data-oracle-line-sized="true"
+        >
           {activeProject?.name ?? 'home'}
         </span>
         {/* Trailing actions: the shared UI Button (so they get a real tooltip —
@@ -96,6 +111,12 @@ export function ProjectHomeRow() {
           tooltip="Import repository"
           aria-label="Import repository"
           onClick={handleAddRepo}
+          // Overrides button.tsx's own 'data-oracle-id': 'button' default —
+          // two Buttons render in this one row, and the default id would
+          // collide with both the generic `button` surface and this row's
+          // own second trailing action (sidebar-project-header.tsx's four
+          // buttons needed the same fix).
+          data-oracle-id="project-home-row-import"
         >
           {/* Arrow-into-folder, not folder-plus: this brings an existing repo in
               rather than creating an empty one. (Lucide's name says symlink;
@@ -109,6 +130,7 @@ export function ProjectHomeRow() {
           tooltip="Switch project"
           aria-label="Switch project"
           onClick={handleOpenSwitcher}
+          data-oracle-id="project-home-row-switch"
         >
           <LayoutGrid className="size-3" />
         </Button>
