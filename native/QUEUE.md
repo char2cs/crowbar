@@ -2917,6 +2917,45 @@ chain, P3.25 weight 600), both of which move measured text widths.
 `native/p3.37-reference-repair` is 10 commits behind for the same reason and
 needs the same treatment before its verdict counts.
 
+#### ⚠ P3.32 rebased — and my own gate run caught a flake the worker's did not
+
+`native/p3.32-command-rebased` @ `ed4f8f7d` merges the never-landed
+`native/p3.32-autocomplete-command` onto `native/p3.37-reference-repair`. One new
+surface: **`command`**. `autocomplete` is deliberately *not* its own surface —
+its anchor ids are folded into `command`'s declared scope, because `command.tsx`
+restyles `autocomplete.tsx`'s boxes by `className` and never overrides their
+`data-slot`.
+
+The worker reported **1641 passed / 0 failed / 31 `ok`**. My own run of the same
+commit reported **716 passed / 1 failed / 1 `ok`**:
+
+```
+row_layout::command::selected_is_unmodelled_and_renders_the_same_picture
+  left:  origin.y 58.5px
+  right: origin.y 58px      — size and x identical
+```
+
+| how I ran it | result |
+|---|---|
+| filtered to that test, ×3 | **ok** every time |
+| the whole `--bin crowbar-app` set, ×3 | **FAILED · FAILED · ok** |
+
+**It passes alone and fails in company, about two runs in three.** Half a pixel
+of `origin.y` with the size unchanged is shared state or ordering between tests
+in one process, not a layout defect.
+
+**The worker was not wrong to report what it saw — it got a lucky run.** And the
+numbers were themselves the tell, which I nearly missed: `cargo test --workspace`
+**aborts at the first failing binary**, so on a bad run only 716 of ~1641 tests
+execute. 1641/31-`ok` and 716/1-`ok` are not two samples of the same population;
+the high total is only *reachable* on a run where the flake passed. A lower total
+from my own run means "aborted", not "different suite".
+
+Returned to the worker with the tally, `--test-threads=1` and `--shuffle-seed` as
+the discriminators, and a requirement of **10 consecutive green full-binary runs**
+before I look again. Widening the tolerance, retrying, or serialising the binary
+to hide it are all refused in advance.
+
 ### Wave 4 (P3.15–P3.18) — dispatched 2026-07-31
 
 | Item | Branch | State |
