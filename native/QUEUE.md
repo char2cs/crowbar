@@ -2851,6 +2851,36 @@ Exactly one registry surface changed: **`inline-error`**, whose `⚠` U+26A0 is
 `16.884`. It has **no reference** (its mapping records refusing to fabricate
 one), so no verified pair moved.
 
+#### ✅ P3.36 merged — a malformed reference can no longer reach a verdict
+
+The check runs at **load** time, on **both** snapshots, before either reaches the
+differ, and **refuses** rather than warns — matching every other rule in that
+loader, whose stated principle is that anywhere it could shrug is somewhere the
+two extractors could disagree without the gate noticing.
+
+Verified by me against the **real** defective reference, not a synthetic one:
+
+```
+oracle: /tmp/p3-ref-command.json is not a v1 snapshot: `anchors[5].visible`:
+anchor `autocomplete-empty` has `visible: true` with bounds 574.0x0.0 …
+```
+
+and a known-good archived pair still diffs normally (PASS, 0 deltas over 8
+anchors). clippy 0 · **1562 passed** · 7 `ok`.
+
+**The rejections are what make it trustworthy.** I listed six candidate rules; it
+implemented one, confirmed two already existed (duplicate id, root-at-origin) and
+**refused four**, each with the contract sentence that makes adding it wrong:
+`text_width`/`text` mismatch is a `FieldPresence` delta per v1.1 ruling 5, not a
+load error; `content_sized`/`line_sized` on a textless anchor is ungrounded;
+`border.color` with `w == 0` is explicitly legal per v1.3 #2; nothing orders
+`root` relative to array position. A false refusal on a valid reference would
+have been worse than the gap being closed.
+
+It swept all **107** archived files as **52** pairs, before and after,
+byte-for-byte — zero differences — and scanned every anchor in `runs/` and
+`corpus/` for the violating combination: zero hits.
+
 #### TWO DEFECTIVE REFERENCES, both caught by guards rather than by luck
 
 `search` and `command` both came back FAIL. **Neither is a port defect** — both
