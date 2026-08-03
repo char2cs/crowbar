@@ -617,6 +617,13 @@ mod tests {
                 "loading-spinner",
                 "number-input",
                 "popover",
+                // `project_home_row.rs` sorts before `project_switcher_
+                // panel.rs` — `project_h` < `project_s` (`h` < `s`) — and
+                // both sort between `popover.rs` and `radio_group.rs`:
+                // `po` < `pr` < `ra` (P3.60, cluster 5 — the pushed
+                // "Projects" sidebar screen and the row that opens it).
+                "project-home-row",
+                "project-switcher-panel",
                 "radio-group",
                 // `repo_avatar.rs` sorts before `resizable.rs` — `rep` <
                 // `res` (P3.50, cluster 1 — the `components/layout`
