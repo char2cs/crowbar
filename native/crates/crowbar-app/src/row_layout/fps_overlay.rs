@@ -150,3 +150,41 @@ fn the_box_carries_its_own_padding_and_radius(cx: &mut TestAppContext) {
     // anchor of its own — see the component's module docs.
     assert!(record.text.is_none());
 }
+
+/// **`leading-none`, exercised through gpui's own layout arithmetic —** not
+/// asserted from the constant `fps_overlay::LINE_HEIGHT` (`crowbar-ui`'s own
+/// unit test already pins that value; `super::assert_px(record.bounds.size.height,
+/// …LINE_HEIGHT…)` here would be the guard-that-tests-its-own-declaration
+/// trap `the_badge_sits_a_fixed_distance_off_the_windows_own_corner`'s own
+/// doc comment names, since the component paints with the same constant this
+/// test would be comparing it to.
+///
+/// `#[gpui::test]` never shapes a real glyph (`ui_font_fallback.rs`'s module
+/// docs) — `TestPlatform` hardcodes a `NoopTextSystem` — but `line-height: 1`
+/// is a **multiplier of the font size**, a `Style`-level quantity taffy
+/// resolves from layout data alone, not from the shaped face's own metrics.
+/// So this *is* something a `#[gpui::test]` can see, unlike the font-family
+/// registration fix this same item makes (which needs the real-platform
+/// harness in `crowbar-app/src/ui_font_mono.rs` instead).
+///
+/// **Before this item, there was no assertion of this box's total height at
+/// all.** Written and run against the pre-fix code (no `.line_height()` call
+/// on `FpsOverlay::shell`) with the literal below already in place: it failed
+/// as `padding(12) + line(11×1) = 23px, but the badge measured 30px` — gpui's
+/// own default line-height multiplier under an unset `.line_height()`,
+/// exactly the 30 this item's brief measured live against the reference's
+/// 23. Restoring `.line_height(relative(LINE_HEIGHT))` turns it green at the
+/// literal `px(23.0)` below.
+#[gpui::test]
+fn the_badge_is_exactly_the_padding_plus_a_leading_none_line(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(600, &[]));
+    let record = find(&records, fps_overlay::ID_FPS_OVERLAY);
+
+    // `py-1.5` (6px) × 2 plus an 11px line at `leading-none` (line-height: 1,
+    // i.e. exactly the font size) — `6 + 11 + 6`. Typed in directly rather
+    // than built from `fps_overlay::PADDING_Y`/`FONT_SIZE`/`LINE_HEIGHT`, for
+    // the same reason the corner-distance test above types in `px(12.0)`/
+    // `px(32.0)` rather than `RIGHT`/`BOTTOM`.
+    super::assert_px(record.bounds.size.height, px(23.0));
+}

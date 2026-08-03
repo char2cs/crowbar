@@ -81,7 +81,12 @@
 //! `crowbar-app/src/surfaces/fps_overlay.rs`'s module docs carry the
 //! registry side of the same account.
 
-use gpui::{AnyElement, Div, FontWeight, ParentElement as _, Pixels, Styled as _, div, px};
+use std::sync::Arc;
+
+use gpui::{
+    AnyElement, Div, FontFeatures, FontWeight, ParentElement as _, Pixels, Styled as _, div, px,
+    relative,
+};
 
 use super::anchor::{AnchorId, AnchorSink};
 use crate::theme::{Color, Theme};
@@ -125,11 +130,42 @@ pub const SEPARATOR_MARGIN_X: Pixels = px(SPACING * 1.5);
 /// carry.
 pub const FONT_SIZE: Pixels = px(11.0);
 
+/// `leading-none` — `line-height: 1`, i.e. exactly [`FONT_SIZE`] with no
+/// extra leading. Previously unmodelled: with no `.line_height()` call at
+/// all, gpui fell back to its own default multiplier and painted an 18px
+/// line box under an 11px run — 30px of total badge height (`2×6` padding
+/// plus 18) against the reference's 23 (`2×6` plus 11). The same idiom
+/// `file_tree_row::STATUS_LETTER_LINE_HEIGHT` already establishes for its
+/// own `leading-none` span, and the same *method* `search.rs`'s P3.44 fix
+/// uses for its own missing-line-height defect: a real number the CSS
+/// declares (`line-height: 1` is a multiplier, not a font metric), not one
+/// hand-picked to make a total come out right.
+pub const LINE_HEIGHT: f32 = 1.0;
+
 /// `rgba(0,0,0,0.72)`'s alpha, as the percentage [`Color::mix`] takes.
 pub const BACKGROUND_ALPHA: f32 = 72.0;
 
 /// `text-muted-foreground/30` on the two `·` separators.
 pub const SEPARATOR_ALPHA: f32 = 30.0;
+
+/// `tabular-nums` — `font-variant-numeric: tabular-nums`, the OpenType
+/// `tnum` feature at value `1`. `[gpui::FontFeatures]` is a real, working
+/// mechanism for this: `apply_features_and_fallbacks`
+/// (`vendor/zed-deps/gpui_macos/src/open_type.rs`) hands the tag straight to
+/// CoreText as `kCTFontOpenTypeFeatureTag`/`...Value`. Applied here even
+/// though it is **provably inert on `theme.font_mono`'s own registered
+/// face** — `JetBrainsMonoVariable-Regular.ttf`'s `GSUB` table carries no
+/// `tnum` feature at all, because tabular figures are this font's *only*
+/// figures (every glyph, not only the ten digits, already carries the same
+/// 600-unit advance; `native/crates/crowbar-app/src/ui_font_mono.rs`'s
+/// `tabular_nums_reaches_the_shaper_and_is_measurably_inert_on_this_font`
+/// measures that directly). CoreText silently ignores a feature tag the
+/// resolved face does not carry, so declaring it costs nothing and stays
+/// honest to the CSS if `--editor-font-family` is ever pointed at a face
+/// that does distinguish proportional and tabular figures.
+fn tabular_nums() -> FontFeatures {
+    FontFeatures(Arc::new(vec![("tnum".to_owned(), 1)]))
+}
 
 /// The three-way colour threshold `fpsColor` computes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -328,7 +364,9 @@ impl FpsOverlay {
             // *first* stack entry, not the fallback chain `--editor-font-family`
             // resolves through.
             .font_family(theme.font_mono.primary().unwrap_or("monospace"))
+            .font_features(tabular_nums())
             .text_size(FONT_SIZE)
+            .line_height(relative(LINE_HEIGHT))
             .shadow_xl()
             .child(
                 div()
@@ -361,7 +399,8 @@ impl FpsOverlay {
 mod tests {
     use super::{
         BACKGROUND_ALPHA, BOTTOM, CONTENT_SIZED, FONT_SIZE, FpsOverlay, FpsTier, FrameStats,
-        LINE_SIZED, PADDING_X, PADDING_Y, RIGHT, SEPARATOR_ALPHA, SEPARATOR_MARGIN_X,
+        LINE_HEIGHT, LINE_SIZED, PADDING_X, PADDING_Y, RIGHT, SEPARATOR_ALPHA, SEPARATOR_MARGIN_X,
+        tabular_nums,
     };
     use crate::theme::{Color, Theme};
     use gpui::px;
@@ -486,5 +525,36 @@ mod tests {
         let overlay = FpsOverlay::fixture();
         assert_eq!(overlay.stats, FrameStats::fixture());
         assert_eq!(overlay.stats.tier(), FpsTier::Idle);
+    }
+
+    /// `leading-none` is `line-height: 1` — a multiplier of the font size,
+    /// not a hand-picked pixel value. `row_layout::fps_overlay`'s
+    /// `the_badge_is_exactly_the_padding_plus_a_leading_none_line` is the
+    /// test that actually exercises this through gpui's layout arithmetic
+    /// (padding `2×6` plus an 11px line at this multiplier is 23px, not the
+    /// pre-fix default multiplier's 30); this pins the value the CSS itself
+    /// declares.
+    #[test]
+    fn the_line_height_is_leading_none() {
+        assert!(
+            (LINE_HEIGHT - 1.0).abs() < f32::EPSILON,
+            "leading-none is line-height: 1, got {LINE_HEIGHT}"
+        );
+    }
+
+    /// `tabular-nums` compiles to exactly one OpenType feature: `tnum`
+    /// turned on. Whether it moves anything on `theme.font_mono`'s own
+    /// registered face is a question about that *font*, answered (measured,
+    /// not merely declared not to matter) in
+    /// `native/crates/crowbar-app/src/ui_font_mono.rs`'s
+    /// `tabular_nums_reaches_the_shaper_and_is_measurably_inert_on_this_font`
+    /// — this only pins what gets sent to the shaper.
+    #[test]
+    fn tabular_nums_is_exactly_one_feature_turned_on() {
+        assert_eq!(
+            tabular_nums().tag_value_list(),
+            &[("tnum".to_owned(), 1)],
+            "expected exactly the tnum=1 OpenType feature, nothing more and nothing less",
+        );
     }
 }
