@@ -3173,6 +3173,49 @@ remaining 26px is the real defect. **`--width` was not the flag this time, but i
 is the same mistake**: drive the cell the reference was captured in, every axis,
 not just the one I remember.
 
+## 📊 LIVENESS AUDIT COMPLETE — 4 of 48 ported surfaces are DEAD
+
+`native/mapping/liveness-audit.md`, merged `6f79a361`. **30 LIVE · 14
+CONDITIONAL · 4 DEAD · 0 UNCERTAIN.**
+
+**DEAD: `toast`, `sheet`, `skeleton`, `inline-error`** — and they are **two
+different kinds of thing**, which is the whole decision:
+
+- **No render path at all** — `toast` (its manager has zero `.add()` calls;
+  the real toast renderer is unported) and `sheet` (`<Sidebar` is never rendered
+  anywhere). Dead components. **48 surfaces is really 46.**
+- **Live components on a branch that cannot fire** — `skeleton` (its `Suspense`
+  host is live but nothing in the subtree ever suspends) and `inline-error` (its
+  guard needs `status === 'error'`, and `getAllEntities` is a bare
+  `catch { return [] }` that swallows every failure). **These are arguably
+  defects in the React app**, not dead code: an error state a user should see and
+  cannot.
+
+**Nothing deleted.** Written to
+`blocked/four-ported-surfaces-are-dead.md` as a user product decision — deleting
+`skeleton`/`inline-error` means porting them twice if the upstream defect is ever
+fixed.
+
+**I verified the two load-bearing claims myself**: the `inline-error` guard is
+`&&` (as the audit's own correction said), and the swallow is at
+`entity-cache.ts:34`.
+
+#### The 14 CONDITIONAL rows are the finding I would have got wrong
+
+Each sits behind a named route, flag or toggle. **I would have collapsed
+CONDITIONAL into DEAD and been wrong about fourteen surfaces.** A condition is a
+**cell axis the port must model** — exactly what the home-route `git` tab turned
+out to be — not a reason to skip.
+
+#### Method: a liveness claim without a control is worthless
+
+The audit ran one (`tooltip`, wrapped around `<RouterProvider>` in `main.tsx`), so
+a method reporting everything dead would have been caught. It also re-verified
+its **own** sub-agents instead of trusting their summaries, catching a guard
+misquoted as `||` that is really `&&`. **My own first scan reported a false
+"0 importers" for fifteen files** by missing relative sibling imports. Standing
+rule from here.
+
 ## ⛔ LIVENESS GATE — a component must be IN USE before it is ported *(2026-08-03, user)*
 
 > **"Only port components that ARE IN USE on the production app. There may be
