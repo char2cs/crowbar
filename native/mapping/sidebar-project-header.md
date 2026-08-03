@@ -157,3 +157,36 @@ assuming it.
 `ide-shell.tsx` is the one importer
 (`native/mapping/layout-denominator.md` §2) — mounted unconditionally as the
 sidebar's own top bar.
+
+---
+
+## ✅ VERDICT — PASS, 0 deltas over 5 anchors (2026-08-03, taken by me)
+
+```
+oracle: sidebar-project-header · width=1714 theme=dark content=normal flags=[]
+oracle: PASS — 0 deltas over 5 anchors compared
+```
+
+Phase 1 canary `native-short.json` re-captured byte-identical immediately before.
+
+### The drive that produced the reference — required by ANCHORS **v1.14**
+
+`state` records the §8.3 cell and **cannot express which side the sidebar is
+docked on**. This reference is the **right-docked** cell, and diffing it against
+the surface's own left-docked default fails on every horizontal number.
+
+```
+reference:  live Tauri app, sidebar docked RIGHT, dark, viewport 1714
+            (window.innerWidth 1714 — read, not assumed)
+            captured via import('/src/lib/oracle/extract.ts') from the page
+native:     crowbar-app --surface sidebar-project-header \
+                        --width 344 --viewport-width 1714 --theme dark --right
+```
+
+**`--right` is the whole point of this note.** I supplied this capture to P3.55 as
+if it were the default cell; the worker hand-derived the arithmetic, proved it was
+right-docked, and kept the surface's default left-docked per convention. Without
+`--right` the native side is a mirror image and every button x is wrong.
+
+The left-docked cell — the surface's actual default — **has no reference yet**
+and is not covered by this verdict.
