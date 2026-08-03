@@ -244,7 +244,11 @@ impl FrameStats {
     /// `` {drops} {drops === 1 ? 'drop' : 'drops'} ``.
     #[must_use]
     pub fn drops_text(self) -> String {
-        format!("{} {}", self.drops, if self.drops == 1 { "drop" } else { "drops" })
+        format!(
+            "{} {}",
+            self.drops,
+            if self.drops == 1 { "drop" } else { "drops" }
+        )
     }
 
     /// `drops > 0` — the one boolean that picks both the drop count's colour
@@ -276,7 +280,11 @@ impl FpsOverlay {
     fn separator(theme: &Theme) -> Div {
         div()
             .mx(SEPARATOR_MARGIN_X)
-            .text_color(theme.muted_foreground.mix(SEPARATOR_ALPHA, Color::TRANSPARENT))
+            .text_color(
+                theme
+                    .muted_foreground
+                    .mix(SEPARATOR_ALPHA, Color::TRANSPARENT),
+            )
             .child("·")
     }
 
@@ -331,14 +339,21 @@ impl FpsOverlay {
             .child(div().text_color(theme.muted_foreground).child(" fps"))
             .child(Self::separator(theme))
             .child(div().text_color(theme.muted_foreground).child("max "))
-            .child(div().text_color(theme.foreground).child(stats.max_dt_text()))
+            .child(
+                div()
+                    .text_color(theme.foreground)
+                    .child(stats.max_dt_text()),
+            )
             .child(Self::separator(theme))
             .child(drops.child(stats.drops_text()))
     }
 
     /// The element, with its one anchor.
     pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
-        anchors.boxed(AnchorId::new(ID_FPS_OVERLAY).content_sized(), self.shell(theme))
+        anchors.boxed(
+            AnchorId::new(ID_FPS_OVERLAY).content_sized(),
+            self.shell(theme),
+        )
     }
 }
 

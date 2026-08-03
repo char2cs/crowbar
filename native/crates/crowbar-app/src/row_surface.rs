@@ -1634,14 +1634,33 @@ mod tests {
             assert_eq!(cell.minimum_viewport(), cell.width + expected * 2, "{name}");
         }
 
-        // Seven surfaces are full-bleed today: `resizable`, whose reference is
-        // the IDE shell root, and `alert-dialog`/`command`/`detach-holder-
-        // modal`/`dialog`/`repo-import-dialog`/`sheet`, whose `fixed inset-0`
-        // viewport makes the popup's own width a function of the window —
-        // see their surfaces' module docs. `detach-holder-modal` and
-        // `repo-import-dialog` (P3.51) are call sites of `dialog`'s own
-        // primitive and share its `DialogViewport`, so they share its
-        // full-bleed declaration too.
+        // Eight surfaces are full-bleed today, for two different reasons.
+        //
+        // **The width reason.** `resizable`, whose reference is the IDE shell
+        // root, and `alert-dialog`/`command`/`detach-holder-modal`/`dialog`/
+        // `repo-import-dialog`/`sheet`, whose `fixed inset-0` viewport makes
+        // the popup's own width a function of the window — see their surfaces'
+        // module docs. `detach-holder-modal` and `repo-import-dialog` (P3.51)
+        // are call sites of `dialog`'s own primitive and share its
+        // `DialogViewport`, so they share its full-bleed declaration too.
+        //
+        // **The positioning reason.** `fps-overlay` (P3.52) is full-bleed for
+        // a *different* reason, and it is the one that makes this flag's name
+        // slightly misleading: its own painted box is a small, content-sized
+        // corner badge, not a viewport-filling one. But taffy resolves
+        // `position: absolute` against the immediate parent **unconditionally**
+        // — not the nearest CSS-positioned ancestor, and not the window the way
+        // real CSS `position: fixed` falls back — so the badge's
+        // `.bottom()`/`.right()` land against the window's true edges only if
+        // its own parent is given the full, uninset window width to sit in. See
+        // `crowbar_app::surfaces::fps_overlay`'s module docs and
+        // `Surface::full_bleed`'s doc comment, which now names both shapes.
+        //
+        // Three clusters edited this list simultaneously (P3.50/P3.51/P3.52) and
+        // two of them rewrote this count independently — "Five" to "Seven" and
+        // "Five" to "Six". Neither was wrong on its own branch; the merged
+        // answer is eight, and both reasons above survive because they are
+        // genuinely different mechanisms rather than two phrasings of one.
         let bleeding: Vec<&str> = Surface::names()
             .into_iter()
             .filter(|name| a_surface(name).full_bleed)
@@ -1653,6 +1672,7 @@ mod tests {
                 "command",
                 "detach-holder-modal",
                 "dialog",
+                "fps-overlay",
                 "repo-import-dialog",
                 "resizable",
                 "sheet"

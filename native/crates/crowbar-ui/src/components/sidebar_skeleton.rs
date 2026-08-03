@@ -150,7 +150,13 @@ impl SidebarSkeleton {
     /// One bar: `bg-muted`, a corner, a fixed extent on one or both axes, or
     /// `flex-1` where the source's does. Mirrors `skeleton::Skeleton::shell`'s
     /// own paint without going through its fixed `id` — see the module docs.
-    fn bar(theme: &Theme, radius: Pixels, height: Pixels, width: Option<Pixels>, grows: bool) -> Div {
+    fn bar(
+        theme: &Theme,
+        radius: Pixels,
+        height: Pixels,
+        width: Option<Pixels>,
+        grows: bool,
+    ) -> Div {
         let mut element = div().bg(theme.color_muted).rounded(radius).h(height);
         if let Some(width) = width {
             element = element.w(width);
@@ -162,7 +168,14 @@ impl SidebarSkeleton {
     }
 
     fn icon_bar(theme: &Theme) -> Div {
-        Self::bar(theme, theme.radius_md.value(), ICON_EXTENT, Some(ICON_EXTENT), false).flex_shrink_0()
+        Self::bar(
+            theme,
+            theme.radius_md.value(),
+            ICON_EXTENT,
+            Some(ICON_EXTENT),
+            false,
+        )
+        .flex_shrink_0()
     }
 
     fn title_bar(theme: &Theme) -> Div {
@@ -272,7 +285,9 @@ pub const ID_DIVIDER: &str = "sidebar-skeleton-divider";
 
 /// Builds a bar's anchor id: `sidebar-skeleton-{row}-{i}-{slot}`.
 fn bar_id(row: &str, i: usize, slot: &str) -> AnchorId {
-    AnchorId::new(SharedString::from(format!("sidebar-skeleton-{row}-{i}-{slot}")))
+    AnchorId::new(SharedString::from(format!(
+        "sidebar-skeleton-{row}-{i}-{slot}"
+    )))
 }
 
 #[cfg(test)]
@@ -280,8 +295,8 @@ mod tests {
     use super::{
         CHAT_META_WIDTH, CHAT_ROWS, DIVIDER_HEIGHT, DIVIDER_MARGIN_X, DIVIDER_MARGIN_Y, GROUP_GAP,
         ICON_EXTENT, OUTER_GAP, OUTER_PADDING_X, OUTER_PADDING_Y, REPO_GROUPS, REPO_NAME_WIDTH,
-        ROW_GAP, ROW_HEIGHT, ROW_MARGIN_X, ROW_PADDING_X, TEXT_BAR_HEIGHT,
-        WORKSPACE_META_WIDTH, WORKSPACE_ROWS_PER_GROUP, WORKSPACE_ROW_PADDING_LEFT,
+        ROW_GAP, ROW_HEIGHT, ROW_MARGIN_X, ROW_PADDING_X, TEXT_BAR_HEIGHT, WORKSPACE_META_WIDTH,
+        WORKSPACE_ROW_PADDING_LEFT, WORKSPACE_ROWS_PER_GROUP,
     };
     use gpui::px;
 

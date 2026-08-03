@@ -56,7 +56,9 @@
 //! treats a prop-driven boolean as this port's business while the `useEffect`
 //! that sets it stays someone else's.
 
-use gpui::{AnyElement, IntoElement as _, ParentElement as _, Pixels, SharedString, Styled as _, div, px};
+use gpui::{
+    AnyElement, IntoElement as _, ParentElement as _, Pixels, SharedString, Styled as _, div, px,
+};
 
 use super::anchor::AnchorSink;
 use super::git_status_row::Breakpoint;
@@ -279,7 +281,10 @@ mod tests {
     #[test]
     fn include_git_adds_or_removes_the_fourth_tab() {
         let with_git = SidebarTabBar::fixture();
-        assert_eq!(with_git.tab_values(), ["workspaces", "chats", "files", "git"]);
+        assert_eq!(
+            with_git.tab_values(),
+            ["workspaces", "chats", "files", "git"]
+        );
 
         let without_git = SidebarTabBar {
             include_git: false,

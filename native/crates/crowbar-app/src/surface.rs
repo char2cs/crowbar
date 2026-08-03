@@ -112,6 +112,24 @@ pub struct Surface {
     /// that measures the same flex division at another width. What the flag says
     /// is that the surface takes **no horizontal inset**, so a cell that does set
     /// the two equal is drawable rather than refused.
+    ///
+    /// **A second, narrower shape also qualifies:** a surface whose own
+    /// painted box is *not* viewport-width at all, but whose taffy
+    /// **positioning context** must be, because taffy resolves
+    /// `position: absolute` against the immediate parent unconditionally —
+    /// not against the nearest CSS-positioned ancestor, and not against the
+    /// window directly the way CSS `position: fixed` falls back when
+    /// nothing establishes a containing block. `fps-overlay` (P3.52) is
+    /// this shape: `fps-overlay.tsx`'s own `<div>` is a small, content-sized
+    /// `fixed bottom-8 right-3` corner badge, nothing like `resizable`'s or
+    /// the four dialogs' viewport-filling references, but its `.bottom()`/
+    /// `.right()` only land against the window's *true* edges — the picture
+    /// CSS `fixed` actually produces — if its own immediate parent is given
+    /// the full, uninset window width to sit in first. Dropping the flag
+    /// here does not merely change what the root anchor's x = 0 proves; it
+    /// changes where the badge is drawn, by exactly [`crate::row_surface::INSET_X`].
+    /// See `crowbar_app::surfaces::fps_overlay`'s own module docs for the
+    /// account in full, including the first attempt that got this wrong.
     pub full_bleed: bool,
     /// This surface's own options, as `(spelling, description)`, for `--help`.
     ///
