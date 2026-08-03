@@ -541,11 +541,17 @@ mod tests {
                 "resizable",
                 // `scroll_area.rs` sorts before `search.rs` — `build.rs`
                 // orders by **file** name, and `sc` < `se`. `search.rs`
-                // sorts before `search_toggle_icons.rs` in turn: `search` is
-                // a prefix of `search_toggle_icons`, and the shorter name
-                // ends the comparison first.
+                // sorts before `search_replace_row.rs` in turn: `search` is
+                // a prefix of `search_replace_row`, and the shorter name
+                // ends the comparison first. `search_replace_row.rs` sorts
+                // before `search_toggle_icons.rs`: `search_` common, then
+                // `r` < `t` (P3.37 — the standalone row surface, registered
+                // because `search`'s own registry cannot stand in for it;
+                // see `crowbar_ui::components::search::SearchReplaceRow::
+                // render_root`'s doc comment).
                 "scroll-area",
                 "search",
+                "search-replace-row",
                 "search-toggle-icons",
                 "separator",
                 "sheet",

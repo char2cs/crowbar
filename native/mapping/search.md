@@ -358,3 +358,52 @@ never a stand-in built to match an expected geometry.
   unmodelled for `button`'s own reason: no reference (synthetic pointer
   events are denied on this project's machines), and a focus ring is two
   box-shadows `ANCHORS.md` §6 has no field for.
+
+## 12. P3.37 — `search-replace-row` becomes a second, standalone surface
+
+This item's own §9 already named the problem `/tmp/p3-ref-search-replace-row.json`
+turned out to have: its `root` is `search-replace-row`, but nothing registered
+under that root existed to compare it against — `surfaces/search.rs`'s own
+module docs (added alongside this file) said as much and called the missing
+piece "a second, scoped capture … not a flag on this one," without building
+it. P3.37 built it: `surfaces/search_replace_row.rs`, root
+`search::ID_REPLACE_ROW`, reusing `SearchReplaceRow` unmodified via a new
+`render_root` method (`AnchorSink::root`, the sibling of the existing
+`render`'s `AnchorSink::boxed`) rather than a second implementation.
+
+**Why folding the row's anchors into `search`'s own declared scope was not
+available**, checked both directions:
+
+* On the DOM side, expanding the replace row mounts a *second* `<Input>`
+  while `SearchPopover`'s own is still mounted, and `input.tsx` hard-codes
+  `data-oracle-id="input-control"`/`"input"` with no override prop — a
+  document spanning both carries the id twice, which `ANCHORS.md` v1.8
+  refuses outright regardless of what any scope declares.
+* On the driver side, `AnchorRegistry::record` **replaces** rather than
+  refuses a repeated id, so `--surface search --replace` does not crash — but
+  its recorded `"input-control"` silently becomes whichever `Input`
+  prepainted last (this row's own, narrower one), and `Snapshot::build`
+  copies *every* recorded anchor into a snapshot regardless of which id
+  `root` names — it re-origins, it does not filter by subtree. So even asking
+  that same run for `root: "search-replace-row"` would still carry
+  `search-popover`, `search-close` and the rest, not the six-anchor shape the
+  reference has.
+
+Only a render pass that paints **nothing but** `SearchReplaceRow` produces a
+registry `Snapshot::build` can turn into the reference's own shape, which is
+what the new surface is for. Verified directly:
+`row_layout/search_replace_row.rs`'s
+`the_registry_holds_only_this_rows_own_six_anchors` measures the surface and
+asserts the six ids and nothing else — in particular not `search-popover` —
+which is the property this whole section argues for, not merely asserted.
+
+**The state axis.** An early draft carried `can_replace`/`can_replace_all` as
+two CLI flags and declared all six `StateFlag`s unmodelled, which
+`surface::tests::no_surface_declares_its_entire_state_axis_unmodelled`
+correctly refused: a surface with no real axis at all is one whose whole
+matrix cannot fail. The fix reads `StateFlag::Empty` — "the search that feeds
+this row found nothing, so neither action has anything to do" — the same
+fact `search`'s own default cell already encodes as `can_navigate: false` for
+an empty query, and the same flag `sidebar_header`/`scroll_area`/
+`sidebar_empty` each fall back to for their own domain's "nothing here" when
+no other flag fits.

@@ -2449,6 +2449,256 @@ describe('the scroll viewport declares its own anchors (P3.20)', () => {
   })
 })
 
+// ── surface scope: `search` (P3.37) ──────────────────────────────────────────
+//
+// `search.tsx`'s three option toggles each wrap their icon content in
+// `SEARCH_TOGGLE_ICONS`, which is `search-toggle-icons.tsx` — a different,
+// already-verified surface (P3.8) reused unmodified here — so every one of
+// them carries `data-oracle-id="search-toggle-icon"`. An undeclared capture of
+// `search-popover` therefore records that one id three times, which
+// ANCHORS.md v1.8 refuses outright: `/tmp/p3-ref-search.json`'s own defect.
+//
+// `search-toggle-preserve-case` and `search-replace-row` (with everything
+// under it) are real DOM content too, gated by `--replace`, and are also
+// exercised here — dropped without comment, the same way the icon is, because
+// neither is declared.
+
+/**
+ * `search.tsx`'s popup as `find-bar.tsx` renders it: the shell, the leading
+ * replace toggle, the input, the close button, the three always-live option
+ * toggles (each wrapping a `search-toggle-icon`, `search-toggle-icons.tsx`'s
+ * own content) and both nav chevrons — the shape `/tmp/p3-ref-search.json`
+ * should have been.
+ *
+ * `replace` additionally mounts the fourth (`preserve-case`) toggle and a
+ * `SearchReplaceRow`, complete with its own second `input-control`/`input` —
+ * the shape that made `/tmp/p3-ref-search-replace-row.json` need its own root
+ * in the first place (`native/mapping/search.md` §9).
+ *
+ * Floated to `1133,82`, matching the live capture, so §4's root-relative
+ * bounds have something other than the origin to prove they used it.
+ */
+function mountSearch(options?: { replace?: boolean }) {
+  document.documentElement.className = 'dark'
+  const replace = options?.replace ?? false
+
+  const preserveCase = replace
+    ? `<button id="tog-preserve" data-oracle-id="search-toggle-preserve-case">
+         <span id="tog-preserve-icon" data-oracle-id="search-toggle-icon"></span>
+       </button>`
+    : ''
+  const replaceRow = replace
+    ? `<div id="replace-row" data-oracle-id="search-replace-row">
+         <span id="replace-icon" data-oracle-id="search-replace-icon"></span>
+         <span id="replace-input-control" data-oracle-id="input-control">
+           <input id="replace-input" data-oracle-id="input" />
+         </span>
+         <button id="replace-confirm" data-oracle-id="search-replace-confirm"></button>
+         <button id="replace-all" data-oracle-id="search-replace-all"></button>
+       </div>`
+    : ''
+
+  document.body.innerHTML = `
+    <div id="pop" data-oracle-id="search-popover">
+      <div id="row1">
+        <button id="leading" data-oracle-id="search-replace-toggle"></button>
+        <span id="input-control" data-oracle-id="input-control">
+          <input id="input" data-oracle-id="input" />
+        </span>
+        <button id="close" data-oracle-id="search-close"></button>
+      </div>
+      <div id="row2">
+        <button id="tog-case" data-oracle-id="search-toggle-case-sensitive">
+          <span id="tog-case-icon" data-oracle-id="search-toggle-icon"></span>
+        </button>
+        <button id="tog-word" data-oracle-id="search-toggle-whole-word">
+          <span id="tog-word-icon" data-oracle-id="search-toggle-icon"></span>
+        </button>
+        <button id="tog-regex" data-oracle-id="search-toggle-regex">
+          <span id="tog-regex-icon" data-oracle-id="search-toggle-icon"></span>
+        </button>
+        ${preserveCase}
+        <button id="nav-prev" data-oracle-id="search-nav-previous"></button>
+        <button id="nav-next" data-oracle-id="search-nav-next"></button>
+      </div>
+      ${replaceRow}
+    </div>`
+
+  const at = (id: string) => document.getElementById(id) as HTMLElement
+  const ORIGIN_X = 1133
+  const ORIGIN_Y = 82
+  const place = (id: string, x: number, y: number, width: number, height: number) =>
+    stubRect(at(id), { left: ORIGIN_X + x, top: ORIGIN_Y + y, width, height })
+
+  place('pop', 0, 0, 320, replace ? 159 : 84)
+  place('leading', 7, 7, 24, 32)
+  place('input-control', 37, 7, 246, 32)
+  place('input', 70, 12, 180, 30)
+  place('close', 289, 7, 24, 32)
+  place('tog-case', 7, 45, 24, 32)
+  place('tog-case-icon', 11, 53, 16, 16)
+  place('tog-word', 37, 45, 24, 32)
+  place('tog-word-icon', 41, 53, 16, 16)
+  place('tog-regex', 67, 45, 24, 32)
+  place('tog-regex-icon', 71, 53, 16, 16)
+  if (replace) {
+    place('tog-preserve', 97, 45, 24, 32)
+    place('tog-preserve-icon', 101, 53, 16, 16)
+  }
+  place('nav-prev', 265, 45, 24, 32)
+  place('nav-next', 289, 45, 24, 32)
+  if (replace) {
+    place('replace-row', 7, 84, 306, 39)
+    place('replace-icon', 7, 91, 32, 32)
+    place('replace-input-control', 45, 91, 141, 32)
+    place('replace-input', 46, 96, 139, 30)
+    place('replace-confirm', 192, 91, 76, 32)
+    place('replace-all', 274, 91, 39, 32)
+  }
+
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(
+    ((_el: Element, pseudo?: string | null) =>
+      ({
+        ...BASE_STYLE,
+        ...(pseudo ? { content: 'none' } : {}),
+      }) as unknown as CSSStyleDeclaration) as typeof window.getComputedStyle,
+  )
+}
+
+const SEARCH_ANCHORS = [
+  'search-popover',
+  'search-replace-toggle',
+  'input-control',
+  'input',
+  'search-close',
+  'search-toggle-case-sensitive',
+  'search-toggle-whole-word',
+  'search-toggle-regex',
+  'search-nav-previous',
+  'search-nav-next',
+]
+
+describe('search declares its own anchors, dropping search-toggle-icons content (P3.37)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+    document.documentElement.className = ''
+  })
+
+  it('drops the repeated search-toggle-icon the option toggles each wrap', () => {
+    mountSearch()
+    expect(document.querySelectorAll('[data-oracle-id="search-toggle-icon"]')).toHaveLength(3)
+
+    const snapshot = extractSnapshot({ surface: 'search' })
+    const ids = snapshot.anchors.map((a) => a.id)
+
+    expect(ids).toEqual(SEARCH_ANCHORS)
+    expect(ids).not.toContain('search-toggle-icon')
+    // §4: relative to the root, which sits at 1133,82 in the fixture.
+    expect(snapshot.root).toBe('search-popover')
+    expect(snapshot.anchors[0].bounds).toEqual({ x: 0, y: 0, w: 320, h: 84 })
+  })
+
+  it('and the control: undeclared, the same tree is a duplicate-id document', () => {
+    // Without this the assertion above proves only that *something* came back
+    // ten long. Same DOM, same code, no declaration — the defect P3.37
+    // diagnosed, reproduced directly.
+    mountSearch()
+    const ids = extractSnapshot({ surface: 'find-bar-search', root: 'search-popover' }).anchors.map(
+      (a) => a.id,
+    )
+
+    expect(ids.filter((id) => id === 'search-toggle-icon')).toHaveLength(3)
+    expect(ids.length).toBeGreaterThan(SEARCH_ANCHORS.length)
+  })
+
+  it('drops replace-only content it does not declare, when nothing declared collides', () => {
+    // `search-toggle-preserve-case` and `search-replace-row` (rooted
+    // elsewhere in the DOM from `input-control`/`input`) are real, present
+    // content when `replace` is true. To isolate that half of the claim from
+    // the collision the next test is about, this fixture mounts replace's
+    // fourth toggle without also mounting `SearchReplaceRow`'s own second
+    // `Input` — a shape `find-bar.tsx` cannot actually produce (the two are
+    // always mounted together), used here only to show the drop is silent
+    // when nothing declared is duplicated.
+    document.documentElement.className = 'dark'
+    document.body.innerHTML = `
+      <div id="pop" data-oracle-id="search-popover">
+        <button id="leading" data-oracle-id="search-replace-toggle"></button>
+        <span id="input-control" data-oracle-id="input-control">
+          <input id="input" data-oracle-id="input" />
+        </span>
+        <button id="close" data-oracle-id="search-close"></button>
+        <button id="tog-case" data-oracle-id="search-toggle-case-sensitive"></button>
+        <button id="tog-word" data-oracle-id="search-toggle-whole-word"></button>
+        <button id="tog-regex" data-oracle-id="search-toggle-regex"></button>
+        <button id="tog-preserve" data-oracle-id="search-toggle-preserve-case"></button>
+        <button id="nav-prev" data-oracle-id="search-nav-previous"></button>
+        <button id="nav-next" data-oracle-id="search-nav-next"></button>
+      </div>`
+    const at = (id: string) => document.getElementById(id) as HTMLElement
+    for (const id of [
+      'pop',
+      'leading',
+      'input-control',
+      'input',
+      'close',
+      'tog-case',
+      'tog-word',
+      'tog-regex',
+      'tog-preserve',
+      'nav-prev',
+      'nav-next',
+    ]) {
+      stubRect(at(id), { left: 0, top: 0, width: 24, height: 24 })
+    }
+    vi.spyOn(window, 'getComputedStyle').mockImplementation(
+      (() => BASE_STYLE) as unknown as typeof window.getComputedStyle,
+    )
+
+    const ids = extractSnapshot({ surface: 'search' }).anchors.map((a) => a.id)
+    expect(ids).toEqual(SEARCH_ANCHORS)
+    expect(ids).not.toContain('search-toggle-preserve-case')
+  })
+
+  it('refuses the real replace-expanded document, because its second Input collides with the declared one', () => {
+    // The shape `find-bar.tsx` actually produces: expanding replace mounts a
+    // *second* `input-control`/`input` while `SearchPopover`'s own is still
+    // mounted (`native/mapping/search.md` §9). Both are declared — they have
+    // to be, `search`'s own row-1 field is core to the surface — so the walk
+    // now finds the declared id twice and refuses by v1.8's own rule, the
+    // same refusal `/tmp/p3-ref-search-replace-row.json`'s existence as a
+    // *separate* capture exists to avoid. This is exactly why
+    // `search-replace-row` needs its own root and its own registered surface
+    // (P3.37's other half) rather than a wider `search` declaration: no
+    // scope here could ever make this document capturable.
+    mountSearch({ replace: true })
+    expect(document.querySelectorAll('[data-oracle-id="input-control"]')).toHaveLength(2)
+
+    expect(() => extractSnapshot({ surface: 'search' })).toThrow(
+      /more than one element carrying the declared anchor id\(s\) input-control ×2, input ×2/,
+    )
+  })
+
+  it('pins search to its own root, so a capture cannot be taken from elsewhere', () => {
+    mountSearch()
+    expect(() => extractSnapshot({ surface: 'search', root: 'search-close' })).toThrow(
+      /is rooted on "search-popover", not on "search-close"/,
+    )
+  })
+
+  it('refuses a capture missing an anchor the surface declares', () => {
+    mountSearch()
+    ;(document.getElementById('close') as HTMLElement).removeAttribute('data-oracle-id')
+
+    let snapshot: OracleSnapshot | undefined
+    expect(() => {
+      snapshot = extractSnapshot({ surface: 'search' })
+    }).toThrow(/declares the anchor\(s\) search-close, and the document has none/)
+    expect(snapshot).toBeUndefined()
+  })
+})
+
 // ── injectability ────────────────────────────────────────────────────────────
 
 describe('extractSnapshotSource', () => {

@@ -1166,10 +1166,10 @@ export function oracleAssertComparableOpacity(elements: Element[]): void {
  * `surface` string §2 puts in the snapshot, so the two are readable against each
  * other by a human — which is all three implementations ever had.
  *
- * ## Why only these four surfaces are here
+ * ## Why only these seven surfaces are here
  *
  * A surface may declare a set only when the set is a property of the *surface*
- * rather than of the *cell*, and all four of these are:
+ * rather than of the *cell*, and all seven of these are:
  *
  * | surface | its set |
  * |---|---|
@@ -1179,13 +1179,14 @@ export function oracleAssertComparableOpacity(elements: Element[]): void {
  * | `select` | the popup, the panel and the list — the three boxes `SelectPopup` builds on every render, whatever items the call site passes |
  * | `dialog` | the popup alone — `DialogPopup`'s one unconditional box. `dialog-header`/`dialog-title`/`dialog-description`/`dialog-footer` are all call-site-optional (P3.21's `import-project-modal` reference has a header and a footer; `add-repository-modal` — same primitive — has no description; a bare `<DialogContent>` has none of the four), so none of them is "a property of the surface" in the sense this table requires — see the point right below about `popover-title`, which the same reasoning already covers |
  * | `sheet` | the popup alone, for the same reason `dialog`'s is just the popup — and doubly so here: `sheet.tsx` has no live call site at all (`crowbar_ui::components::sheet`'s module docs), so there is no reference to derive a fuller set from even if the primitive's own shape allowed one |
+ * | `search` | (P3.37) ten of `search.tsx`'s own ids: the root, the leading replace toggle, the input control and field, the close button, the three always-live option toggles and both nav chevrons — every box `SearchPopover` and its `leadingControl` build on the one reachable call site, `find-bar.tsx`. See the dedicated subsection below; this row alone needed a ruling long enough to earn one |
  *
  * Each set is read off the component that builds the boxes — `popover.tsx`,
  * `select.tsx`, `sidebar-carousel.tsx`, `resizable.tsx` + `ide-shell.tsx`,
- * `dialog.tsx`, `sheet.tsx` — and never off a capture. A capture shows what one
- * call site produced, which is the very thing being filtered out; deriving the
- * set from it would encode the call site into the surface and the filter would
- * then be a no-op by construction.
+ * `dialog.tsx`, `sheet.tsx`, `search.tsx` — and never off a capture. A capture
+ * shows what one call site produced, which is the very thing being filtered
+ * out; deriving the set from it would encode the call site into the surface
+ * and the filter would then be a no-op by construction.
  *
  * ### The two overlays, and what each of them had to drop
  *
@@ -1238,6 +1239,91 @@ export function oracleAssertComparableOpacity(elements: Element[]): void {
  * `dialog-description`/`dialog-footer` aside, which no declaration here could
  * ever safely cover — the two entries below are live from the start.
  *
+ * ### `search` (P3.37), and the one call it needed that the others didn't
+ *
+ * The defect this closes: `/tmp/p3-ref-search.json`'s anchor list nested
+ * `search-toggle-icon` inside each of the three always-live option toggles
+ * (`search.tsx`'s `options` prop takes `SearchToggleOption.icon: ReactNode`,
+ * and every live call site fills it from `SEARCH_TOGGLE_ICONS`, which is
+ * `search-toggle-icons.tsx` — a **different, already-verified surface**
+ * (P3.8), reused unmodified here). Walking undeclared therefore recorded the
+ * same id three times under one root, and the differ refuses a repeated id
+ * for the reason `ANCHORS.md` v1.8 states — it cannot say which of the three
+ * it compared. Declaring `search`'s own ids and leaving `search-toggle-icon`
+ * off this list is what removes it: an anchor the surface does not declare is
+ * dropped without comment (see the "loud-missing" walk below), and dropping
+ * all three of a duplicate is exactly as sound as dropping none of a unique
+ * one — the rule does not know or care how many instances it is discarding.
+ *
+ * The other two things left off, and why each is a *cell* property rather
+ * than a *surface* one:
+ *
+ * * **`search-toggle-preserve-case`** exists only while `--replace` is
+ *   passed (`find-bar.tsx`'s single `isReplaceVisible` gates it, exactly as
+ *   `SearchPopover::replace: Option<SearchReplaceRow>` does on the native
+ *   side). The reference this surface is validated against on every ordinary
+ *   run — `/tmp/p3-ref-search.json`, replace collapsed — does not have it, so
+ *   declaring it would refuse that capture by the loud-missing rule below.
+ *   Exactly `popover-title`'s shape, one surface over.
+ * * **`search-replace-row` and everything under it** (`search-replace-icon`,
+ *   the row's own second `input-control`/`input`, `search-replace-confirm`,
+ *   `search-replace-all`) are excluded for the identical cell-conditional
+ *   reason, **and** for a second, structural one that would still apply even
+ *   if `--replace` were somehow a surface-level constant: expanding the
+ *   replace row mounts a *second* `<Input>` while `SearchPopover`'s own is
+ *   still mounted, and `input.tsx` hard-codes `data-oracle-id="input-control"`/
+ *   `"input"` with no override prop (unlike `button.tsx`'s own
+ *   `'data-oracle-id': 'button', ...props`, which a call site can shadow). A
+ *   document spanning both mounted `Input`s carries the id twice regardless
+ *   of what any scope declares — declaring is a *filter*, and a duplicate
+ *   *within* the declared set still trips `oracleSelectDeclaredAnchors`' own
+ *   "two elements carry one declared id" rule. So `search-replace-row` is
+ *   its own registered surface instead (`crowbar-app/src/surfaces/
+ *   search_replace_row.rs`, P3.37) — reachable only as a second, sibling-
+ *   rooted capture, `/tmp/p3-ref-search-replace-row.json`, never nested
+ *   inside this one. See that surface's module docs for the driver-side half
+ *   of the identical argument: `AnchorRegistry::record` *replaces* rather
+ *   than refuses a repeated id, so `--surface search --replace` does not
+ *   crash, but its `"input-control"` record silently becomes whichever
+ *   `Input` prepainted last, and `Snapshot::build` copies every recorded
+ *   anchor into a snapshot regardless of which id `root` names — so even a
+ *   snapshot asked for that same run with `root: "search-replace-row"` would
+ *   still carry `search-popover` and the rest, not the six-anchor shape the
+ *   reference has. Two structurally independent proofs, converging on one
+ *   answer: this row cannot be reached by widening `search`'s own scope, on
+ *   either side of the contract.
+ *
+ * **Why `search-replace-toggle` *is* declared, unlike the two above, even
+ * though it too arrives through a generic prop (`leadingControl`).** The
+ * v1.8 test is "a property of the surface", and the operative question a
+ * reader should check before trusting either answer in this file is whether
+ * declaring costs the one real, reachable capture anything. `popover-title`
+ * and `dialog-header` fail that test — the one live popover and one of the
+ * two live dialogs render *without* the optional slot, so declaring it would
+ * refuse a capture that exists today. `search-replace-toggle` does not fail
+ * it: `find-bar.tsx` — the only call site a `search` capture is ever taken
+ * from, because it is the only one `crowbar_ui::components::search::
+ * SearchPopover`'s Rust struct models (its own doc comment: *"the struct
+ * models the **reachable** configuration: a leading `SearchReplaceToggle`…"*,
+ * with no field to omit it) — passes `leadingControl` unconditionally, and
+ * `/tmp/p3-ref-search.json` already has it. `terminal-search.tsx` is real and
+ * does not pass one, but no `search` capture will ever be taken from it: the
+ * native side has no parameter that renders that shape, so such a capture
+ * would already be incomparable regardless of this declaration. Leaving
+ * `search-replace-toggle` off, by contrast, would cost something concrete —
+ * the native side renders it on *every* cell this surface can produce, so an
+ * undeclared-but-always-present anchor would either leak in through the
+ * undeclared path (fine, but then the declared/undeclared paths disagree on
+ * what "the surface" is) or, declared-elsewhere-but-missing-here, manufacture
+ * a permanent, un-fixable "present on one side only" delta on every
+ * comparison this surface will ever run. `SearchReplaceToggle` is also, unlike
+ * `PopoverTitle` or a dialog's header slot, authored in `search.tsx` itself —
+ * a sibling export of the same file, not a call site's own unrelated markup —
+ * which is the same-file test `sidebar-header`'s exclusion of its own
+ * call-site `<Input>`/`<Button>` does *not* get to lean on (those really are
+ * foreign to `sidebar.tsx`). Both facts point the same way; neither alone
+ * would have been enough to overturn the general rule.
+ *
  * `git-status-row`, `file-tree-row` and `dropdown-menu` are deliberately absent,
  * and not for want of getting to them. Their anchor sets are functions of the
  * cell — `git-row-guide-{n}` exists once per depth level, `git-row-dir` and
@@ -1287,6 +1373,31 @@ export function oracleSurfaceScope(
     select: {
       root: 'select-popup',
       anchors: ['select-popup', 'select-panel', 'select-list'],
+    },
+    // `search.tsx` (P3.37): `SearchPopover` renders its own root, a leading
+    // `SearchReplaceToggle` (via `leadingControl`), an `Input`, a close
+    // button, three always-live option toggles and two nav chevrons —
+    // unconditionally, on the one reachable call site (`find-bar.tsx`).
+    // `search-toggle-icon` (the option toggles' own icon content) belongs to
+    // `search-toggle-icons`, a different, already-verified surface, and is
+    // deliberately not here; neither is `search-toggle-preserve-case`
+    // (`--replace`-only) nor `search-replace-row` and its own children
+    // (`--replace`-only, and its own registered surface besides) — see the
+    // module docs above for the full ruling on all three.
+    search: {
+      root: 'search-popover',
+      anchors: [
+        'search-popover',
+        'search-replace-toggle',
+        'input-control',
+        'input',
+        'search-close',
+        'search-toggle-case-sensitive',
+        'search-toggle-whole-word',
+        'search-toggle-regex',
+        'search-nav-previous',
+        'search-nav-next',
+      ],
     },
     // `scroll-area.tsx`: `ScrollArea` renders `Root` wrapping exactly one
     // `Viewport`, unconditionally. `children` — a whole file tree, a diff list,

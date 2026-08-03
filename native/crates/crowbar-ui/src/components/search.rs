@@ -443,28 +443,13 @@ impl SearchReplaceRow {
         }
     }
 
-    /// Renders the row, opting [`ID_REPLACE_ROW`] and its children into
-    /// `anchors`.
-    ///
-    /// **`AnchorSink::boxed`, never `AnchorSink::root`.** `SearchPopover`
-    /// always renders this row nested inside its own tree (`search.tsx` has
-    /// no call site that mounts `SearchReplaceRow` on its own), and
-    /// `AnchorSink::root`'s own doc comment is explicit that reaching it
-    /// "starts a new frame's worth of records" — i.e. clears whatever the
-    /// enclosing `SearchPopover::render` already recorded.
-    /// `button::Button::render`'s module docs name the identical trap
-    /// ("`Button::render` cannot be nested — `AnchorSink::root` clears the
-    /// registry"), and an early draft of this method hit it exactly: driving
-    /// `--surface search --replace` recorded only this row's six anchors and
-    /// silently dropped `search-popover` and everything else in it,
-    /// caught by `row_layout/search.rs`'s own
-    /// `replace_mounts_the_fourth_toggle` test. [`ID_REPLACE_ROW`] still
-    /// works as a measurement origin either way — `relative_to` (the
-    /// `row_layout` harness's own helper) locates an anchor by id and
-    /// subtracts its bounds, regardless of which `AnchorSink` method
-    /// produced it.
-    #[must_use]
-    pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+    /// The row's own shell and its four children, built but not yet opted
+    /// into `anchors` under [`ID_REPLACE_ROW`] itself — [`Self::render`] and
+    /// [`Self::render_root`] each do that last step differently. Shared here
+    /// so the two cannot drift: every child anchor (`ID_REPLACE_ICON`, the
+    /// input, the two action buttons) is recorded identically either way,
+    /// and only the row's own frame-boundary-or-not differs.
+    fn shell_and_children(&self, theme: &Theme, anchors: &dyn AnchorSink) -> Div {
         let shell = div()
             .flex()
             .items_center()
@@ -487,9 +472,67 @@ impl SearchReplaceRow {
         );
         let all = action_button(ID_REPLACE_ALL, "All", self.can_replace_all, theme, anchors);
 
+        shell.child(icon).child(input).child(confirm).child(all)
+    }
+
+    /// Renders the row, opting [`ID_REPLACE_ROW`] and its children into
+    /// `anchors`.
+    ///
+    /// **`AnchorSink::boxed`, never `AnchorSink::root`.** `SearchPopover`
+    /// always renders this row nested inside its own tree (`search.tsx` has
+    /// no call site that mounts `SearchReplaceRow` on its own), and
+    /// `AnchorSink::root`'s own doc comment is explicit that reaching it
+    /// "starts a new frame's worth of records" — i.e. clears whatever the
+    /// enclosing `SearchPopover::render` already recorded.
+    /// `button::Button::render`'s module docs name the identical trap
+    /// ("`Button::render` cannot be nested — `AnchorSink::root` clears the
+    /// registry"), and an early draft of this method hit it exactly: driving
+    /// `--surface search --replace` recorded only this row's six anchors and
+    /// silently dropped `search-popover` and everything else in it,
+    /// caught by `row_layout/search.rs`'s own
+    /// `replace_mounts_the_fourth_toggle` test. [`ID_REPLACE_ROW`] still
+    /// works as a measurement origin either way — `relative_to` (the
+    /// `row_layout` harness's own helper) locates an anchor by id and
+    /// subtracts its bounds, regardless of which `AnchorSink` method
+    /// produced it.
+    #[must_use]
+    pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         anchors.boxed(
             AnchorId::from(ID_REPLACE_ROW),
-            shell.child(icon).child(input).child(confirm).child(all),
+            self.shell_and_children(theme, anchors),
+        )
+    }
+
+    /// As [`Self::render`], but **`AnchorSink::root`** — the frame boundary,
+    /// for the one caller allowed to reach for it: `--surface
+    /// search-replace-row` (P3.37), a *second, standalone* surface over this
+    /// same struct, registered because `--surface search --replace`'s own
+    /// registry cannot stand in for it.
+    ///
+    /// `search.tsx`'s `input.tsx` hard-codes `data-oracle-id="input-control"`/
+    /// `"input"` with no override prop, and the DOM reference this row is
+    /// compared against (`/tmp/p3-ref-search-replace-row.json`) was captured
+    /// scoped to `search-replace-row` alone *because* a document with both
+    /// `Input`s mounted carries that id twice — `native/oracle/ANCHORS.md`
+    /// v1.8 refuses a snapshot on exactly that shape. The driver's own
+    /// registry does not refuse a duplicate id, it **replaces** the earlier
+    /// record (`AnchorRegistry::record`'s own doc comment) — so `--surface
+    /// search --replace` does not crash, but its recorded `"input-control"`
+    /// silently becomes whichever of the two `Input`s prepainted last (this
+    /// row's own, narrower one), and `Snapshot::build` copies **every**
+    /// recorded anchor into any snapshot cut from that registry regardless of
+    /// which id its `root` names (it re-origins, it does not filter by
+    /// subtree) — so a snapshot asked for the same run with `root:
+    /// "search-replace-row"` would still carry `search-popover`,
+    /// `search-close` and the rest, not the six-anchor shape the reference
+    /// has. Only a render pass that paints **nothing else** produces a
+    /// registry [`Snapshot::build`] can turn into that shape, which is what
+    /// `crate::surfaces::search_replace_row` exists to drive.
+    #[must_use]
+    pub fn render_root(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+        anchors.root(
+            AnchorId::from(ID_REPLACE_ROW),
+            self.shell_and_children(theme, anchors),
         )
     }
 
