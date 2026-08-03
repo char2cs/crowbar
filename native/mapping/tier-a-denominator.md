@@ -8,8 +8,9 @@ schema, file-tree model, workspace scoping, review threads."** Today it is
 `color.rs` + `lib.rs`, 349 lines, 100% coverage over a crate that holds none of
 that domain logic (QUEUE.md, 2026-08-03).
 
-**Status: IN PROGRESS. This skeleton is committed first per the interruption
-protocol; each area below is filled in and committed as it completes.**
+**Status: COMPLETE.** All seven named areas plus theme tokens measured,
+committed incrementally per the interruption protocol as each finished. The
+headline denominator is at the end of this file.
 
 Method, per area: (1) where the logic lives today in `web/src`, with line
 counts: (2) what if anything is already ported into `crowbar-proto` /
@@ -868,16 +869,266 @@ CRUD, `mapThread`, annotation-positioning helpers).
 
 ## Theme tokens (also named in §16 Phase 3 Tier A, alongside `core`/`proto`/`client`)
 
-*(pending — cross-check against §3.3's 274 measured `--` declarations and
-whatever token-adjacent logic, if any, sits outside `styles/*.css`)*
+### ‼️ Finding: "theme tokens" as named cannot be `crowbar-core` work, by the spec's own §6.1
+
+§16 lists Tier A as *"`core`, `proto`, `client`, theme tokens — gated by
+ported tests"* — grouping theme tokens with the three crates that share D2's
+gpui-free constraint. But §6.1 defines the token types themselves as **gpui
+wrappers**:
+
+```rust
+pub struct Color(gpui::Hsla);          // inner field PRIVATE
+```
+
+A type whose only field is `gpui::Hsla` cannot exist in a crate that
+`scripts/check-invariants.sh` greps for a `gpui` dependency and fails the
+build on a match (§4.3 rule 1). §4.2's own crate table agrees:
+`crowbar-ui` — not `crowbar-core` — is described as *"design system: `Theme`,
+token newtypes, primitives over `gpui-component`"* and may depend on `core,
+gpui, gpui-component`; its coverage gate is **"oracle corpus,"** not the
+≥98%-lines hard-fail gate §16's phrasing implies. So "theme tokens" named
+alongside `core`/`proto`/`client` in §16 is misleading as written: the sealed
+token *types* are `crowbar-ui` work under a different, non-line-coverage gate.
+**What legitimately belongs in `crowbar-core` is the gpui-free arithmetic
+`crowbar-ui` converts at its boundary** — and `crowbar-core/src/color.rs`
+already states this split explicitly in its own module doc: *"It lives here
+rather than in `crowbar-ui` because it is arithmetic on four floats: no
+window, no framework, no `gpui` … `crowbar-ui` converts at its boundary."*
+`color.rs` is not a stray inclusion; it is the template for exactly this
+area, already applied once.
+
+### Where the React-side token-adjacent logic lives
+
+| file | lines | shape |
+|---|---|---|
+| `styles/theme.css` | 479 | 264 `--` declarations (§3.3) — **static CSS data, not code** |
+| `styles/zen.css` | 30 | 9 declarations |
+| `styles/editor-theme.css` | 71 | 1 declaration |
+| `extensions/themes/theme-registry.ts` | 123 | `ThemeRegistry` class — DOM-driven (`document.documentElement`), calls the already-out-of-scope `appearance-bootstrap.ts` |
+| `extensions/themes/types.ts` | 91 | `ThemeTokens` (dead stub, never imported outside its own file) + `ThemeDefinition` (real, but embeds `React.ReactNode` for `icon`) |
+| `features/editor/theme/resolve-css-color.ts` | 188 | **`cssColorToHex`/`oklchToHex`** (pure) + `resolveCssVar`/`readSyntaxPalette`/`readTerminalPalette` (DOM-entangled) |
+
+### What is genuine, portable, gpui-free color arithmetic — and a real gap
+
+- **`cssColorToHex`/`oklchToHex`/`gammaEncode`/`expandShortHex`/`parseAlpha`/
+  `toHexByte`/`clamp255`** in `resolve-css-color.ts` — pure string/float
+  parsing and an OKLCH→sRGB conversion (Björn Ottosson's reference algorithm),
+  zero DOM, zero framework. This is the *other half* of the CSS-color-math
+  problem `crowbar-core/src/color.rs` already solves one piece of.
+- **`theme.css` uses `oklch()` 37 times and `color-mix()` 6 times** (measured
+  directly with `grep -c`). `crowbar-core/src/color.rs` (309 lines, 13
+  `#[test]`s, part of the crate's 100%-but-vacuous coverage per QUEUE.md)
+  implements `color-mix(in srgb, …)` per CSS Color 5 §3, exactly — but **has
+  no OKLCH-to-sRGB conversion**. Since the majority of `theme.css`'s actual
+  color *values* are authored in `oklch()`, not `color-mix()`, **the existing
+  `crowbar-core` color arithmetic cannot evaluate most of the tokens it will
+  need to seal into `crowbar-ui::Color` without this second, currently-
+  unported conversion.** This is a concrete, actionable gap in what little
+  Tier A work already exists, not a hypothetical.
+- **`ThemeDefinition`'s non-color fields** (`id`, `name`, `type`, `isDark`,
+  `category`) are a legitimate small schema (theme metadata), gpui-free
+  once `icon?: React.ReactNode` and the dead `tokens?: ThemeTokens` field are
+  dropped.
+
+### What is not core
+
+- **`ThemeRegistry`** — DOM class-toggling (`data-theme`, `.dark`), calls
+  into `appearance-bootstrap.ts` (§4, flagged out of scope as a webview FOUC
+  mechanism). §6.1 replaces this entire mechanism: a native `Theme` struct is
+  resolved once into `crowbar-ui`, not looked up via `[data-theme]` CSS
+  selectors at paint time.
+- **`resolveCssVar`/`readSyntaxPalette`/`readTerminalPalette`** — exist only
+  because "Monaco and xterm cannot read CSS variables" (the file's own
+  comment) and so must resolve them off the live DOM via
+  `getComputedStyle()` and a temporary-element `var()`-resolution trick. This
+  entire class of problem is a webview artifact with no native counterpart:
+  `crowbar-terminal`/`crowbar-editor` read `theme.foreground`/
+  `theme.syntax.keyword` directly off the sealed `Theme` struct, never off a
+  computed style.
+- **`ThemeTokens`** — dead. Marked `// Stub` in its own source, never
+  imported outside `types.ts`. Not a port target; noted so it is not mistaken
+  for an existing "strongly-typed token map" that merely needs translating —
+  it was never wired up in the first place.
+- **`274` (§3.3) is a count of CSS custom-property *declarations*, i.e.
+  data**, not lines of logic. It sets the size of the `Theme` struct's field
+  list in `crowbar-ui`, which is not this survey's crate.
+
+### Tests
+
+| test file | cases | covers |
+|---|---|---|
+| `resolve-css-color.test.ts` | 13 total, **8** (`describe('cssColorToHex', …)`) test the pure parser/converter; **5** (`describe('DOM resolver', …)`) test the DOM-entangled half |
+
+**Theme-tokens-adjacent Tier A test total: 8 cases**, all in one file, all
+already-portable color-math tests that would extend `crowbar-core/src/
+color.rs`'s existing 13 `#[test]`s rather than start a new file.
 
 ---
 
 ## The headline denominator
 
-*(pending — files / lines / test cases, split by bucket: Tier A core ·
-Phase 4 state · already done (proto/client) · presentation · out of scope)*
+**Status: COMPLETE.** All seven named areas plus theme tokens measured.
+Method note on precision: whole-file line counts below are exact `wc -l`
+measurements. Several files are *mixed* — genuine Tier A logic sitting beside
+presentation, DOM code, or a React component in the same file (`
+review-code-view.tsx`, `review-api.ts`, `use-review-annotations.tsx`,
+`resolve-css-color.ts`, `file-tree-git-status.ts`, `file-tree-density.ts`,
+`settings-download.ts`). For those, the line count given is an estimate of
+the pure-logic region only, stated as such — flagged rather than folded
+silently into an exact-looking total, per this survey's own standard for
+evidence.
+
+### Total surveyed (all seven areas + theme tokens, non-component-total)
+
+| area | lines surveyed | files touched |
+|---|---|---|
+| Git model + diff algebra | ~1,190 | 9 (incl. embedded region) |
+| Keymap resolution | 733 | 10 |
+| Settings schema | 2,277 | 22 |
+| File-tree model | ~2,002 | 18 |
+| Workspace scoping | 544 | 12 |
+| Review threads | ~900 | 4 |
+| Theme tokens (React-side) | ~402 (+580 CSS data, not code) | 3 |
+| **Total** | **~8,048 lines, ~78 files** | |
+
+### Split by bucket
+
+| bucket | files | lines (approx. where noted) | ported-able test cases |
+|---|---|---|---|
+| **Tier A core** (genuine, gpui-free, portable) | **36** (30 whole-file + 6 with an embedded pure region) | **~3,170** (2,396 exact whole-file + ~773 estimated embedded) | **221** |
+| Phase 4 state (`crowbar-state`, reactive/subscription/effect-ordering) | ~30 (illustrative, not exhaustively itemized — see note) | ~2,760 | not tallied (component/hook tests, not portable as unit logic) |
+| Already done (`crowbar-proto` generated DTOs) | 0 new — 3 of 7 areas' type files duplicate existing generated types | n/a (see below) | n/a |
+| Belongs to a different Tier-A-adjacent crate (`crowbar-diff` logic, §12) | 2 | 316 | 32 |
+| Presentation (labels, CSS classes, static copy) | ~7 | ~460 | not tallied |
+| Out of scope (D6 persistence, webview-only DOM/FOUC mechanisms, deleted IPC) | 8 | ~882 | not tallied |
+
+**Tier A core: 36 files, ~3,170 lines, 221 ported-able test cases.** This is
+the number the survey exists to produce. Per area:
+
+| area | Tier A files | Tier A lines (approx.) | Tier A test cases |
+|---|---|---|---|
+| Git model (incl. diff-algebra's real content) | 6 whole + 1 embedded (`review-code-view.tsx`, ~368 lines) | 241 + ~368 = ~609 | 46 |
+| Diff algebra (standalone) | 0 — folded into git model above | 0 | 0 |
+| Keymap resolution | 5 | 516 | 16 |
+| Settings schema | 9 | 629 | 41 |
+| File-tree model | 4 whole + 2 embedded (`file-tree-git-status.ts` ~110, `file-tree-density.ts` ~15) | 593 + ~125 = ~718 | 51 |
+| Workspace scoping | 5 | 261 | 32 |
+| Review threads | 1 whole (`branch-review-slice.ts`) + 2 embedded (`review-api.ts` ~60, `use-review-annotations.tsx` ~90) | 156 + ~150 = ~306 | 27 |
+| Theme tokens (React-side color math) | 1 embedded (`resolve-css-color.ts` ~130) | ~130 | 8 |
+| **Total** | **36** | **~3,170** | **221** |
+
+**Phase 4 note:** the Phase-4 bucket total (~2,760 lines, ~30 files) is
+illustrative, built from the files this survey actually opened and
+classified — it is not a floor-to-ceiling audit of every hook and store
+touching these seven areas (e.g. individual drag-drop/inline-editing DOM
+handlers were read but not line-audited component-by-component). Where the
+brief's own boundary is ambiguous (`activation-freshness.ts`, §6), the case
+is counted toward Phase 4 in this table but the ambiguity is preserved in
+prose.
+
+**"Already done" has no line count because it isn't new lines — it's
+evidence that three of seven areas' hand-written TS type files (`git-types.ts`
++`git-diff-types.ts`, `file-tree-api.ts`'s `FileNodeDTO`, `review-api.ts`'s
+`ThreadDTO`/`ThreadReplyDTO`) restate shapes `crowbar-proto` already generated
+from the Go handlers** (`domain_git.rs`, `domain.rs`, `api_v0_dto.rs`).
+Keymap resolution, settings schema, workspace scoping and theme tokens have
+**no** daemon-side counterpart — they are frontend-local concepts with
+nothing to duplicate, which is itself worth knowing before scoping a Tier A
+work item as "port the types."
 
 ## Findings — corrections to the brief
 
-*(pending)*
+1. **§10.1's `features/git/utils/git-diff-parser.ts` does not exist.** No
+   file by that name anywhere in `web/src`, and no hand-rolled unified-diff
+   string parser exists at all. The daemon returns structured diff data
+   (`GitDiff.lines`) for the sidebar/status path — no parser needed there —
+   and the one place raw patch text *is* parsed (the windowed Branch Review
+   surface) delegates to the third-party `@pierre/diffs` library's
+   `parsePatchFiles`, not first-party code. §10.1's conditional resolves
+   correctly ("no algorithm needed") but names a mechanism that isn't real.
+
+2. **"Diff algebra" barely exists as a distinct area.** What looks like it in
+   the React app splits three ways: (a) small, real file-status
+   classification logic, already counted under git model; (b) placeholder
+   hunk-geometry sizing math whose *concept* is portable but whose types
+   belong to `@pierre/diffs`, a library being deleted; (c) viewport
+   windowing (`patch-window.ts`) and diff-text search (`diff-search.ts`) that
+   are genuinely pure and gpui-free but scoped to `crowbar-diff`'s own logic
+   partition per §4.2/§12, not `crowbar-core` — 316 lines and 32 tests that
+   are real Tier-A-*shaped* work, just not this crate's.
+
+3. **"Theme tokens" named in §16 alongside `core`/`proto`/`client` cannot be
+   `crowbar-core` work, by the spec's own §6.1.** The sealed token types are
+   literal `gpui::Hsla` wrappers (`pub struct Color(gpui::Hsla)`), so they
+   cannot exist in a crate `check-invariants.sh` greps for `gpui` and fails
+   the build on a match. §4.2 independently assigns theme/token work to
+   `crowbar-ui` (may depend on `gpui`), gated by "oracle corpus," not the
+   line-coverage bar §16's phrasing implies for Tier A. What legitimately
+   lives in `crowbar-core` is the *arithmetic* `crowbar-ui` converts at its
+   boundary — and `crowbar-core/src/color.rs` already says so in its own
+   module doc, making it the template for this split rather than a stray
+   inclusion. **A concrete, currently-real gap follows from this**:
+   `theme.css` uses `oklch()` 37 times and `color-mix()` 6 times, but
+   `color.rs` only implements `color-mix()` — the OKLCH→sRGB conversion that
+   most of the app's actual color *values* need is unported, and exists
+   today as pure, tested TS (`resolve-css-color.ts`'s `oklchToHex`, 8
+   ported-able test cases) that nobody has looked at yet.
+
+4. **D2's own named example is real and findable.** §1 of the spec says pulling
+   "selection logic, tree-expansion state, and similar" out of components
+   into core is a consequence of D2. `features/file-explorer/file-explorer/
+   stores/file-explorer-tree-store.ts` is exactly this: a zustand store whose
+   mutator bodies, underneath the `create/immer/combine` wrapper, are plain
+   `Set<string> → Set<string>` transitions. The same pattern repeats in
+   `features/workspace/stores/slices/branch-review-slice.ts` (review-thread
+   CRUD) and `features/keymaps/stores/store.ts` (override CRUD) — three
+   independent zustand stores across three different areas whose *mutator
+   logic* is Tier A even though the file as a whole is a Phase 4 store. This
+   is a recurring shape worth naming as a pattern, not three coincidences.
+
+5. **§7.1 and the brief's own bucket-3 test disagree at the margin, and
+   `activation-freshness.ts` sits exactly on it.** §7.1: *"If a store's logic
+   can be tested without gpui, it belongs in core."* The brief: *"if its
+   substance is subscription, invalidation or effect ordering, it is not Tier
+   A."* `activation-freshness.ts` (§6) is gpui-free by the first test and
+   substantively invalidation-timing by the second. I read it as Phase 4, but
+   this is a real, not manufactured, ambiguity in the governing rules and
+   should be resolved explicitly rather than by whichever surveyor hits it
+   first.
+
+6. **A nested re-export shim tree exists under `features/file-explorer/`,
+   the file-tree analogue of "don't trust a directory listing."**
+   `features/file-explorer/{lib,stores,utils}/*.ts` are all 1-line
+   `export * from '../file-explorer/…'` shims over
+   `features/file-explorer/file-explorer/{lib,stores,utils}/*.ts`, which hold
+   the real content. An `ls`-driven count of the outer directory would double
+   every line in this area.
+
+7. **Three areas (git model, file-tree model, review threads) mostly
+   duplicate DTOs `crowbar-proto` already generated; four areas (keymap
+   resolution, settings schema, workspace scoping, theme tokens) have no
+   daemon-side counterpart at all.** A work item that reads "port `git-types.
+   ts`" is mostly re-typing what Phase 0's codegen already produced; a work
+   item that reads "port `types/settings.ts`" is genuinely new surface. These
+   are different-sized and different-shaped tasks even though both are
+   "types," and the crate description's flat list of seven areas doesn't
+   distinguish them.
+
+8. **Two load-bearing functions have zero dedicated tests**, despite §16
+   gating Tier A on "ported tests": `features/keymaps/utils/effective-
+   keymaps.ts` (the literal keymap-resolution algorithm —
+   `resolveBinding`/`getEffectiveBindings`/`findConflictingCommands`) and
+   `lib/workspace-scope-url.ts` (`workspaceBase`, which every
+   workspace-scoped API call in the app runs through). Both would need new
+   tests authored, not ported — a materially different kind of Tier A work
+   than the 221-case core this survey otherwise found.
+
+9. **The brief's fourth bucket (presentation fused with logic) shows up
+   repeatedly, in the same shape each time**: a function returns a real
+   classification (git file status, tree-row density) *and* a hardcoded
+   CSS-class/color string in the same return value
+   (`file-tree-git-status.ts`'s `getFileTreeGitStatusDecoration`,
+   `git-diff-helpers.ts`'s `getFileStatus`/`getImgSrc` sharing one 11-line
+   file). §6.1's sealed token types are precisely what separates these two
+   concerns at the type-system level in the port; today's React code has no
+   such enforcement and mixes them by convenience.
