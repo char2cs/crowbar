@@ -147,6 +147,23 @@ exactly as drivable as any other state-driven primitive; only the raw
 frame-timing number itself is real-time instrumentation the oracle cannot
 reproduce identically, and nothing here tries to.
 
+Checked exhaustively rather than assumed, the same standard
+`workspace-branch-icon.md` sets: `export function FpsOverlay()` takes **no
+props at all** — no `className`, no prop spread, nothing a call site could
+merge down to an edge value the way `avatar.rs`'s `--tone error` or
+`flicker_spinner.rs`'s unreached `empty` still can. Every `className` in
+`fps-overlay.tsx` is a fixed string. `Empty` does not apply on its own
+narrower terms either: its §8.3 meaning is a *row's* trailing edge carrying
+no badge or count, modelled on `git-status-row` alone, and this surface is
+not a row. So all four non-mandatory flags are unmodelled with no seam left
+to reach through any hypothetical caller — a stronger case than
+`workspace-branch-icon`'s, which still forwards three real props
+(`status`/`working`/`isPlaceholder`) it merely never routes to a
+`className`. `fps-overlay`'s `Params` therefore declares
+`SurfaceParams::no_state_axis() -> true`, the same declaration
+`workspace_branch_icon.rs` introduced (P3.50) and the shared invariant in
+`surface.rs` now requires of every surface with zero real flags.
+
 ## 8. Declarations
 
 `CONTENT_SIZED = [fps-overlay]`. `LINE_SIZED = []`. See §5.

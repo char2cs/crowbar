@@ -53,7 +53,7 @@
 //! same substitution for `TabsList`'s CSS defaults, and `toast.rs` §5 records
 //! it for `Toast.Positioner`'s shrink-to-fit box.
 //!
-//! # The state axis
+//! # The state axis, and why this is a `no_state_axis` surface
 //!
 //! `fps`, `max_dt_ms` and `drops` are `FrameStats`' own fields rather than the
 //! §8.3 vocabulary: this component has no `hover`/`focus`/`selected` original
@@ -64,6 +64,22 @@
 //! *anchors* (badge position, the three colour thresholds, the drop counter)
 //! are exactly as drivable as any other state-driven primitive; only the raw
 //! frame-timing number itself is not, and nothing here tries to reproduce it.
+//!
+//! Checked exhaustively, the same way `workspace_branch_icon`'s module docs
+//! do: `export function FpsOverlay()` takes **no props at all** — not
+//! `status`/`working`-shaped real props left unforwarded the way that
+//! component's are, but literally zero arguments, on both `FpsOverlay` and
+//! its own `FpsOverlayInner`. There is no `className` prop, no prop spread,
+//! and every `className` on every element below it is a fixed string (the
+//! one `cn()` call only switches `fpsColor`, itself computed from `fps`, not
+//! from anything a caller passes in). `Empty` does not apply either: its
+//! §8.3 meaning is a *row's* trailing edge having no badge or count,
+//! modelled on `git-status-row` alone, and this is not a row. So all four
+//! non-mandatory flags are unmodelled with no edge value left to reach
+//! through any hypothetical caller, `crowbar-app`'s own
+//! `SurfaceParams::no_state_axis` declares it, and
+//! `crowbar-app/src/surfaces/fps_overlay.rs`'s module docs carry the
+//! registry side of the same account.
 
 use gpui::{AnyElement, Div, FontWeight, ParentElement as _, Pixels, Styled as _, div, px};
 
