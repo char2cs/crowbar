@@ -76,9 +76,17 @@ pub enum KindWord {
     /// `avatar.url` starts with `"emoji:"`.
     Emoji,
     /// `avatar.url` is a real URL — see `--image`.
-    #[default]
     Image,
-    /// No `avatar.url` at all.
+    /// No `avatar.url` at all — the letter fallback, `RepoAvatar::fixture`'s
+    /// own kind and the one `--surface repo-avatar`'s bare cell has to
+    /// produce (module docs, this file's own tests). `#[default]` belongs
+    /// here rather than on `Image`: `Params` derives `Default` field-wise
+    /// (there is no `Theme` at `Default::default()`'s call site to hand
+    /// `RepoAvatar::fixture` the way `workspace-branch-icon.rs`'s `Params`
+    /// hands its own fixture one), so whichever `KindWord` variant carries
+    /// this attribute *is* the bare cell's kind — it was `Image` before this
+    /// fix, which is what the four failing tests were reporting.
+    #[default]
     Letter,
 }
 
