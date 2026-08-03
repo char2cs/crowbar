@@ -1634,17 +1634,34 @@ mod tests {
             assert_eq!(cell.minimum_viewport(), cell.width + expected * 2, "{name}");
         }
 
-        // Five surfaces are full-bleed today: `resizable`, whose reference is
-        // the IDE shell root, and `alert-dialog`/`command`/`dialog`/`sheet`,
-        // whose `fixed inset-0` viewport makes the popup's own width a
-        // function of the window — see their surfaces' module docs.
+        // Six surfaces are full-bleed today, for two different reasons.
+        // `resizable`, whose reference is the IDE shell root, and
+        // `alert-dialog`/`command`/`dialog`/`sheet`, whose `fixed inset-0`
+        // viewport makes the popup's own width a function of the window,
+        // are the shape this comment used to describe alone — see their
+        // surfaces' module docs. `fps-overlay` (P3.52) is full-bleed for a
+        // *different* reason: its own painted box is a small, content-sized
+        // corner badge, not a viewport-filling one, but taffy resolves
+        // `position: absolute` against the immediate parent unconditionally
+        // rather than the nearest CSS-positioned ancestor — so the badge's
+        // `.bottom()`/`.right()` land against the window's true edges only
+        // if its own parent is given the full, uninset window width to sit
+        // in. See `crowbar_app::surfaces::fps_overlay`'s own module docs and
+        // `Surface::full_bleed`'s doc comment, which now names both shapes.
         let bleeding: Vec<&str> = Surface::names()
             .into_iter()
             .filter(|name| a_surface(name).full_bleed)
             .collect();
         assert_eq!(
             bleeding,
-            vec!["alert-dialog", "command", "dialog", "resizable", "sheet"]
+            vec![
+                "alert-dialog",
+                "command",
+                "dialog",
+                "fps-overlay",
+                "resizable",
+                "sheet"
+            ]
         );
 
         // And the two Phase 1 surfaces' number is unchanged, stated as the

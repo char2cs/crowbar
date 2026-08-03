@@ -25,16 +25,33 @@
 //! module docs for the component-side half of the same check.
 //! [`SurfaceParams::no_state_axis`] below is that declaration.
 //!
-//! # `full_bleed`, and why: this is a `fixed`-positioned badge, not a row
+//! # `full_bleed`, and why: not because the badge fills the window — because
+//! its positioning **context** has to
 //!
-//! `fps-overlay.tsx`'s own `<div>` is `fixed bottom-8 right-3` — positioned
-//! against the **window**, not against whatever would ordinarily contain a
-//! row. `full_bleed` is what removes the ordinary [`crate::row_surface::INSET_X`]
-//! horizontal inset, so this surface's own `--right`/`--bottom` arithmetic
-//! reaches all the way to the window's true edges — the same reason `dialog`,
-//! `sheet` and `command` are all full-bleed. The `row_layout` test drives
-//! `--width`/`--viewport-width` equal for the same reason those surfaces'
-//! tests do: a full-bleed surface's own width **is** the viewport's.
+//! **This is not `dialog`'s/`command`'s reason.** Their own reference is a
+//! `fixed inset-0` backdrop that genuinely *is* viewport-width; `fps-overlay.tsx`'s
+//! own `<div>` is `fixed bottom-8 right-3` — a small, content-sized corner
+//! badge, nothing like a backdrop. Read `Surface::full_bleed`'s own doc
+//! comment before assuming this surface therefore does not qualify: it
+//! names this as the second, narrower shape the flag also covers. Taffy
+//! resolves `position: absolute` against the **immediate parent
+//! unconditionally**, not against the nearest CSS-positioned ancestor and
+//! not against the window directly the way CSS `position: fixed` falls back
+//! to when nothing establishes a containing block (`row_layout::fps_overlay`
+//! proves this the hard way — see below). So for the badge's `.bottom()`/
+//! `.right()` to land against the window's *true* edges, its own immediate
+//! parent — this file's own `stage` function — has to be given the full, uninset
+//! window width to sit in, which is exactly what `full_bleed` provides by
+//! zeroing [`crate::row_surface::INSET_X`]. The `row_layout` test drives
+//! `--width`/`--viewport-width` equal for the same reason `dialog`'s and
+//! `command`'s do — a full-bleed surface's own declared width **is** the
+//! viewport's — even though what that width sizes here is the stage, not
+//! anything `fps-overlay.tsx` itself paints. Dropping the flag was checked,
+//! not assumed: it moves `stage`'s own origin [`crate::row_surface::INSET_X`]
+//! px right of the window's true left edge without moving its declared
+//! width to compensate, which moves the badge's landing point by the same
+//! amount — a real geometry change, confirmed by the arithmetic below
+//! before it was confirmed by a run.
 //!
 //! # The stage this surface builds, and why: taffy's containing block is the
 //! **immediate parent**, always — not "the nearest `.relative()` ancestor"

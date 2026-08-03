@@ -197,7 +197,10 @@ impl SidebarProjectHeader {
             .gap(GAP)
             .h(self.height());
         if self.is_right {
-            element.pr(PADDING_OUTER).pl(PADDING_INNER).flex_row_reverse()
+            element
+                .pr(PADDING_OUTER)
+                .pl(PADDING_INNER)
+                .flex_row_reverse()
         } else {
             element.pl(PADDING_OUTER).pr(PADDING_INNER)
         }
@@ -232,7 +235,12 @@ impl SidebarProjectHeader {
         let mut children: Vec<AnyElement> = Vec::new();
 
         if self.shows_traffic_lights() {
-            children.push(div().flex_shrink_0().w(TRAFFIC_LIGHTS_WIDTH).into_any_element());
+            children.push(
+                div()
+                    .flex_shrink_0()
+                    .w(TRAFFIC_LIGHTS_WIDTH)
+                    .into_any_element(),
+            );
         }
         children.push(anchors.boxed(
             AnchorId::new(self.toggle_id.clone()),
@@ -241,7 +249,10 @@ impl SidebarProjectHeader {
         children.push(div().flex_grow_1().into_any_element());
         children.push(self.cluster(theme, anchors));
 
-        anchors.root(ID_SIDEBAR_PROJECT_HEADER.into(), self.shell().children(children))
+        anchors.root(
+            ID_SIDEBAR_PROJECT_HEADER.into(),
+            self.shell().children(children),
+        )
     }
 }
 
