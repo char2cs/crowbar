@@ -7,11 +7,23 @@
 //! `crowbar_ui::components::fps_overlay`'s module docs and
 //! `native/mapping/fps-overlay.md`.
 //!
-//! # The state axis
+//! # The state axis, and why this is a `no_state_axis` surface
 //!
 //! | flag | here |
 //! |---|---|
 //! | every one of the six | **unmodelled.** `fps-overlay.tsx` has no `hover`/`focus`/`selected`/`empty`/`loading`/`error` original: `pointer-events-none`, `aria-hidden`, and its own content is three independently-guarded numbers rather than a §8.3-shaped state. `--fps`/`--max-dt`/`--drops` are this surface's own axis instead, the same way `tabs`' `--tabs`/`--active` are. |
+//!
+//! Checked exhaustively, the same way `workspace-branch-icon`'s own module
+//! docs do: `export function FpsOverlay()` takes **no props at all**, not
+//! even a `status`/`working`-shaped real prop left unforwarded — every
+//! `className` on every element `fps-overlay.tsx` renders is a fixed
+//! string, there is no prop spread anywhere, and `Empty`'s §8.3 meaning (a
+//! *row's* trailing edge with no badge or count, modelled on
+//! `git-status-row` alone) does not apply to a fixed-position badge that is
+//! not a row. So there is no edge value left to reach through any
+//! hypothetical caller — see `crowbar_ui::components::fps_overlay`'s own
+//! module docs for the component-side half of the same check.
+//! [`SurfaceParams::no_state_axis`] below is that declaration.
 //!
 //! # `full_bleed`, and why: this is a `fixed`-positioned badge, not a row
 //!
@@ -63,6 +75,11 @@ pub static SURFACE: Surface = Surface {
     name: "fps-overlay",
     root: crowbar_ui::components::fps_overlay::ID_FPS_OVERLAY,
     unmodelled: &[
+        // All four non-mandatory flags, including `Empty` — this component
+        // has no seam of any kind, checked exhaustively (module docs), so
+        // there is no edge value left to reach through. `Params::
+        // no_state_axis` below is the declaration that makes this
+        // deliberate rather than an oversight.
         StateFlag::Empty,
         StateFlag::Loading,
         StateFlag::Error,
@@ -158,6 +175,15 @@ impl SurfaceParams for Params {
         let _ = cell; // every flag on this surface is unmodelled; nothing else to say per-cell
     }
 
+    /// **`true`, unconditionally.** See the module docs and this surface's
+    /// own `unmodelled` list: every §8.3 flag is checked and none applies —
+    /// `fps-overlay.tsx` takes no props at all, so there is no `--flags`
+    /// branch, real or reachable-by-construction, left for a cell to drive
+    /// on this surface.
+    fn no_state_axis(&self) -> bool {
+        true
+    }
+
     fn render(&self, cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         stage(cell)
             .child(self.overlay().render(theme, anchors))
@@ -211,6 +237,7 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{Params, SURFACE, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
+    use crate::surface::SurfaceParams;
     use crowbar_ui::components::fps_overlay::{FpsTier, ID_FPS_OVERLAY};
 
     fn cell(args: &[&str]) -> Cell {
@@ -269,10 +296,13 @@ mod tests {
         }
     }
 
-    /// Every flag on this surface is unmodelled — there is no state axis at
-    /// all, `--fps`/`--max-dt`/`--drops` are this surface's own instead.
+    /// Every flag on this surface is unmodelled, and the surface declares
+    /// that on purpose — the two facts
+    /// `no_surface_declares_its_entire_state_axis_unmodelled` (`surface.rs`)
+    /// requires to agree with each other. There is no state axis at all;
+    /// `--fps`/`--max-dt`/`--drops` are this surface's own instead.
     #[test]
-    fn every_state_flag_is_unmodelled() {
+    fn every_flag_is_unmodelled_and_the_surface_declares_it() {
         for flag in [
             StateFlag::Empty,
             StateFlag::Loading,
@@ -283,6 +313,7 @@ mod tests {
         ] {
             assert!(SURFACE.unmodelled(flag), "{flag:?}");
         }
+        assert!(Params::default().no_state_axis());
     }
 
     #[test]
