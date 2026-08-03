@@ -1,4 +1,18 @@
-# Blocked — `hover` and `focus` are not observable on the reference while the screen is locked
+# ~~Blocked~~ — `hover` and `focus` are not observable on the reference while the screen is locked
+
+> ## ✅ RESOLVED 2026-07-31. Nothing here is blocked.
+>
+> Both cells were captured from the live reference and diffed by me — `hover`
+> **PASS, 0 deltas over 8 anchors**, `focus` **PASS, 0 deltas over 8 anchors**.
+> The full account, including three of my own conclusions that turned out to be
+> wrong, is under **"RESOLVED 2026-07-31"** near the end of this file.
+>
+> **This banner exists because the resolution was 230 lines down and the title
+> still said "Blocked".** On 2026-08-03 I classified this file for §17.7 by
+> reading its first eight lines and recorded it as the one outstanding item
+> standing between that condition and met. It had been done for three days.
+> **A file's first screen has to carry its own verdict**, or the directory name
+> becomes the only thing anyone reads.
 
 **Found:** 2026-07-31, Phase 1, closing the §8.3 state axis · **Environmental, not a spec failure.**
 **Status:** waits for a session with the screen unlocked. Everything needed to
