@@ -138,6 +138,56 @@ down anywhere the snapshot can check.
 now done one end to end and reproduced it byte-for-byte. What each one needs is
 its own app-state drive, and those need recording next to the surface.
 
+## ‼️ I captured a light `tabs` reference, then DELETED it — and that is the finding
+
+Having proved the capture loop, I went after a real §17.1 cell: `tabs` is the
+surface I had already shown is genuinely theme-sensitive, and its light cell had
+never been taken. The capture worked. **The reference it produced is invalid, and
+I deleted it rather than bank it.**
+
+| | root `w` | per-tab widths |
+|---|---|---|
+| stored **dark** reference | **278** | 90 · 90 · 90 — equal, i.e. `flex-1` |
+| the **live app**, today | **328** | 118.77 · 100.63 · 100.63 — unequal, i.e. content-sized |
+| native fixture | 278 | 90 · 90 · 90 |
+
+**The live reference app is not in the configuration its own stored references
+were captured in.** The tabs are a different width *and a different sizing mode*.
+A light reference taken from today's app describes a component the native
+fixture never renders, so diffing against it would produce six geometry deltas
+that are not defects — which is precisely what happened.
+
+**The control is what settled it.** I re-ran the *dark* cell, whose verdict is
+already recorded as a pass, and it failed too — 8 deltas. That is the signal that
+the fault was mine, not the port's. At the reference's own width:
+
+```
+tabs dark, --width 278:  oracle: PASS — 0 deltas over 6 anchors compared
+```
+
+**Two separate errors of mine in one run**, both worth naming:
+
+1. **`--width` again.** I drove at 328 — the *live app's* width — against a
+   reference whose root is 278. Reading the reference's root `bounds.w` before
+   driving is a rule I have now written down twice and broken twice more.
+2. **I assumed "the app is running" meant "the app is in the reference's
+   state".** It is not, and nothing in the snapshot can tell you: `state` records
+   width, theme, content and flags, none of which distinguish a 278px
+   equal-width tab strip from a 328px content-sized one.
+
+**So the §17.1 push is harder than "the harness works".** Every stored reference
+was captured from an app configuration that is not written down, and today's app
+does not reproduce it. Recapturing the matrix means either reconstructing each
+configuration or re-capturing **every** cell of a surface together — including
+the ones that already pass — so a surface's references are at least
+self-consistent. That is a real design question and it belongs in ANCHORS.md, not
+in a worker brief.
+
+**Why the invalid file is gone rather than kept "for later":** a plausible-looking
+reference sitting in `/tmp` is exactly how a wrong number gets diffed against six
+weeks from now. This project has already had one fabricated reference; a merely
+*mismatched* one is quieter and no less wrong.
+
 ## §17 scoreboard — where "done" actually stands
 
 Nine conditions. **Two are met.** Kept here rather than reconstructed each
