@@ -3493,7 +3493,41 @@ construction*: `color_mix_remainder` weights every channel by `c * a`, and both
 division are exact. **There is no rounding step to tolerate**, which is the
 argument that makes an epsilon wrong rather than merely unnecessary.
 
-#### ✅ The integrated gate earned itself — it found what no isolated run could
+#### ✅ The integrated gate earned itself — **three** findings no isolated run could reach
+
+`native/gate-wave1` holds all three clusters. Beyond the two predicted merge
+collisions, the combined run surfaced three failures that exist **only** in the
+integration:
+
+1. **`fps-overlay: 0 real flag(s), no_state_axis() = false`.** Cluster 1's new
+   biconditional judged **cluster 3's** surface and found a *second* axis-free
+   case. Cluster 1 had surveyed for candidates and correctly found none — *in its
+   own tree, where cluster 3's four surfaces did not exist* — and had said plainly
+   it had not behaviourally re-audited the existing 45.
+2. **`only_a_full_bleed_surface_gives_up_the_horizontal_inset`.** `fps-overlay`
+   declares `full_bleed: true` but is absent from `row_surface.rs`'s
+   hand-maintained list — a file **cluster 3 never touched**, while cluster 2 was
+   independently rewriting its prose count from "Five" to "Seven" for its own two
+   modals.
+3. **Three (in fact four) `repo_avatar` test failures** on their first-ever
+   execution, since no cargo had run on that branch.
+
+**Three isolated green gates would have reported three green branches.** That is
+the entire argument for gating them together, and it paid on the first run.
+
+##### On (2) I formed my own read before accepting an answer
+
+`fps-overlay.tsx` is `fixed bottom-8 right-3 … rounded-md px-2.5 py-1.5` — a
+corner badge whose width is its **content's**, not the viewport's.
+`Surface::full_bleed`'s doc says the flag means the surface *fills its window* so
+that "surface width and viewport width are one quantity", citing `resizable`'s
+IDE-shell root. On that reading the flag is **wrong** and the fix is to drop it,
+not to extend the list — which would also leave cluster 2's "Seven" correct.
+
+Sent to cluster 3 as a data point to **reconcile, not defer to**, with the two
+things that would make me wrong stated explicitly. Two of my premises today were
+wrong in exactly this shape and the worker catching it was worth more than the
+task both times.
 
 `native/gate-wave1` holds all three clusters. Beyond the two predicted merge
 collisions, the combined run surfaced **a failure that exists only in the
