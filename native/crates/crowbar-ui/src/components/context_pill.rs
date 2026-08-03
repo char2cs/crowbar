@@ -68,10 +68,11 @@
 
 use gpui::{
     AnyElement, Div, FontWeight, IntoElement as _, ParentElement as _, Pixels, SharedString,
-    Styled as _, div, px,
+    Styled as _, div, px, relative,
 };
 
 use super::anchor::{AnchorId, AnchorSink};
+use super::button;
 use super::repo_avatar::RepoAvatar;
 use super::workspace_branch_icon::{self, WorkspaceBranchIcon};
 use crate::theme::{Color, Theme};
@@ -107,24 +108,64 @@ pub const TRIGGER_PADDING_Y: Pixels = px(SPACING * 1.5);
 /// `gap-0.5` between the two stacked label lines.
 pub const STACK_GAP: Pixels = px(SPACING * 0.5);
 
-/// `text-xs` on the small (repo/project) line. Tailwind pairs `text-xs`
-/// (`0.75rem` = 12px) with `line-height: calc(1 / 0.75)`, a **CSS** value
-/// independent of the font's own metrics — 16px regardless of family.
-pub const SMALL_LINE_HEIGHT: Pixels = px(16.0);
-/// `text-xs`'s own font size.
+/// `text-xs`'s own font size, on the small (repo/project) line.
 pub const SMALL_TEXT: Pixels = px(12.0);
 
-/// `text-[13px]` on the large (branch/home/project) line — an arbitrary
-/// literal with no paired `line-height` utility, so its box is `normal`,
-/// which resolves through the font's own metrics. `command.tsx`'s own
-/// `font-editor` and this trigger's `font-mono` are the *same* custom
-/// property read through two names (`command.rs`'s own module docs: both
-/// are `var(--editor-font-family)`), so `workspace_switcher::CONTENT_HEIGHT`'s
-/// measured 18px for the identical `text-[13px]` combination transfers here
-/// unchanged rather than being re-derived.
-pub const LARGE_LINE_HEIGHT: Pixels = px(18.0);
+/// `leading-tight`'s own ratio — `--leading-tight: 1.25`, compiled directly
+/// (`@tailwindcss/node`'s `__unstable__loadDesignSystem` against this app's
+/// own `index.css`, the same method a live capture would need a browser
+/// for) rather than taken as Tailwind's stock value on trust.
+///
+/// # A live parity run caught two wrong numbers here, in two passes
+///
+/// **First:** [`Self::stack`]'s large line used to read `px(18.0)`, borrowed
+/// from `workspace_switcher::CONTENT_HEIGHT`'s own measured 18px for
+/// `text-[13px]` under the same font family — reasoning that holds for
+/// *that* file (`command-item`'s own text has no ancestor `leading-*` class)
+/// and does not hold here: `context-pill.tsx`'s stack wrapper carries
+/// `leading-tight`, and `text-[13px]` is an **arbitrary** value — compiled
+/// to confirm: `.text-\[13px\] { font-size: 13px; }`, no paired
+/// `line-height` at all. Fixed to `relative(LEADING_TIGHT)` and reasoned as
+/// `1.25 × 13 = 16.25px` (rounded to 16 by gpui's own `line_height_in_
+/// pixels`, `text_system.rs`'s `.round()`) — a real improvement, but the
+/// trigger's own border-box height was still 1px over tolerance against the
+/// live reference, because this pass also added the missing 1px border
+/// (§`trigger_shell`) without yet revisiting the small line.
+///
+/// **Second, closing the gap:** the small line's own `text-xs` class
+/// compiles to `line-height: var(--tw-leading, var(--text-xs--line-
+/// height))` — a rule that, read by the `@property --tw-leading {
+/// inherits: false }` declaration sitting next to it, should **not** pick
+/// up the ancestor's `leading-tight` and should fall back to `text-xs`'s
+/// own `calc(1 / 0.75)` (16px on a 12px line) instead. That reading does
+/// not match the reference: driving `--kind home` through a real layout
+/// with the large line fixed and the small line still at its own `4/3`
+/// ratio produced 48px, not the reference's 47. Setting the small line to
+/// `LEADING_TIGHT` too — the same ratio the large line already uses —
+/// reproduces the reference exactly (47/51,
+/// `row_layout::context_pill::the_live_parity_cell_matches_the_reference_
+/// within_tolerance`). Recorded as a finding rather than papered over: the
+/// `@property`-registered, non-inheriting reading is what the CSS spec
+/// says, and it is not what this live reference shows, which is the
+/// stronger authority of the two. The most likely account is that the
+/// `WKWebView` build this reference was captured from does not implement
+/// `@property`'s `inherits: false` for this custom property — an
+/// unregistered custom property inherits by default, which would let
+/// `--tw-leading`'s `1.25` reach the small span after all and win there too
+/// (`var()`'s first argument, once present, is used over the fallback). Not
+/// independently confirmed against the browser engine itself — the
+/// reference's own numbers are the evidence for it, not a second, checked
+/// source.
+pub const LEADING_TIGHT: f32 = 1.25;
 /// `text-[13px]`'s own font size.
 pub const LARGE_TEXT: Pixels = px(13.0);
+/// The lone `text-[13px]` line on [`ContextPill::Project`] — no
+/// `leading-tight` ancestor on that branch (no stack wrapper at all), so it
+/// inherits the trigger's own ambient line-height instead:
+/// `sm:text-sm`'s own `--text-sm--line-height: calc(1.25 / 0.875)`, the
+/// ratio every cell this port drives resolves to (`sm:` is always active —
+/// `autocomplete.rs`'s own `BP` states the same "≥640px always" posture).
+pub const PROJECT_LINE_HEIGHT: f32 = 1.25 / 0.875; // calc(1.25 / 0.875)
 
 /// `Library`'s own `size={14}` on the home row.
 pub const LIBRARY_SIZE: Pixels = px(14.0);
@@ -186,7 +227,17 @@ impl ContextPill {
 
     /// The trigger's own box: `h-auto w-full justify-start items-center
     /// gap-2 rounded-lg bg-sidebar-element-idle px-3 py-1.5 font-mono
-    /// font-normal`.
+    /// font-normal`, plus the **real** 1px border every `<Button>` carries
+    /// unconditionally — `button-variants.ts`'s own base class list
+    /// (`"...rounded-lg border font-medium..."`), coloured per variant
+    /// (`ghost: 'border-transparent ...'`). Confirmed live: `getComputedStyle`
+    /// on the real trigger reports `border: 1px solid rgba(0, 0, 0, 0)` — a
+    /// real width, a transparent colour. `box-sizing: border-box` means this
+    /// border sits *inside* the box's own height, not outside it, so it is
+    /// reused from `button::BORDER_WIDTH` rather than a border-less box with
+    /// a bigger height compensating — the two are not interchangeable once
+    /// `border.w` is a field the differ compares **exactly** (`ANCHORS.md`
+    /// §5).
     fn trigger_shell(theme: &Theme) -> Div {
         div()
             .flex()
@@ -197,12 +248,17 @@ impl ContextPill {
             .bg(theme.sidebar_element_idle)
             .px(TRIGGER_PADDING_X)
             .py(TRIGGER_PADDING_Y)
+            .border(button::BORDER_WIDTH)
+            .border_color(Color::TRANSPARENT)
             .font_family(theme.font_mono.primary().unwrap_or("monospace"))
     }
 
     /// The two-line `flex min-w-0 flex-1 flex-col items-start gap-0.5
     /// text-left leading-tight` label stack shared by [`Self::Workspace`]
-    /// and [`Self::Home`].
+    /// and [`Self::Home`]. **Both** lines render at [`LEADING_TIGHT`] — see
+    /// that constant's own doc for why the small line does *not* keep
+    /// `text-xs`'s own bundled ratio, which is what the CSS spec's
+    /// `@property inherits: false` reading would otherwise say.
     fn stack(theme: &Theme, small: SharedString, large: SharedString) -> Div {
         div()
             .min_w(px(0.0))
@@ -216,7 +272,7 @@ impl ContextPill {
                     .w_full()
                     .overflow_hidden()
                     .text_size(SMALL_TEXT)
-                    .line_height(SMALL_LINE_HEIGHT)
+                    .line_height(relative(LEADING_TIGHT))
                     .text_color(theme.foreground.mix(70.0, Color::TRANSPARENT))
                     .child(small),
             )
@@ -225,7 +281,7 @@ impl ContextPill {
                     .w_full()
                     .overflow_hidden()
                     .text_size(LARGE_TEXT)
-                    .line_height(LARGE_LINE_HEIGHT)
+                    .line_height(relative(LEADING_TIGHT))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme.foreground)
                     .child(large),
@@ -316,6 +372,7 @@ impl ContextPill {
                 div()
                     .overflow_hidden()
                     .text_size(LARGE_TEXT)
+                    .line_height(relative(PROJECT_LINE_HEIGHT))
                     .text_color(theme.foreground)
                     .child(project_name.clone()),
             ),
@@ -331,10 +388,11 @@ impl ContextPill {
 #[cfg(test)]
 mod tests {
     use super::{
-        CONTENT_SIZED, ContextPill, ID_ROOT, ID_TRIGGER, LARGE_LINE_HEIGHT, LARGE_TEXT,
-        LIBRARY_SIZE, LINE_SIZED, OUTER_PADDING_BOTTOM, OUTER_PADDING_X, SMALL_LINE_HEIGHT,
-        SMALL_TEXT, STACK_GAP, TRIGGER_GAP, TRIGGER_PADDING_X, TRIGGER_PADDING_Y,
+        CONTENT_SIZED, ContextPill, ID_ROOT, ID_TRIGGER, LARGE_TEXT, LEADING_TIGHT, LIBRARY_SIZE,
+        LINE_SIZED, OUTER_PADDING_BOTTOM, OUTER_PADDING_X, PROJECT_LINE_HEIGHT, SMALL_TEXT,
+        STACK_GAP, TRIGGER_GAP, TRIGGER_PADDING_X, TRIGGER_PADDING_Y,
     };
+    use crate::components::button;
     use crate::components::workspace_branch_icon::Status;
     use gpui::px;
 
@@ -347,12 +405,27 @@ mod tests {
         assert_eq!(TRIGGER_PADDING_X, px(STEP * 3.0)); // px-3
         assert_eq!(TRIGGER_PADDING_Y, px(STEP * 1.5)); // py-1.5
         assert_eq!(STACK_GAP, px(STEP * 0.5)); // gap-0.5
-        // The three literals, not spacing multiples.
+        // The two text sizes, literals rather than spacing multiples.
         assert_eq!(SMALL_TEXT, px(12.0));
-        assert_eq!(SMALL_LINE_HEIGHT, px(16.0));
         assert_eq!(LARGE_TEXT, px(13.0));
-        assert_eq!(LARGE_LINE_HEIGHT, px(18.0));
         assert_eq!(LIBRARY_SIZE, px(14.0));
+        // The compiled line-height ratios — see LEADING_TIGHT's own doc for
+        // why both stack lines share this one ratio.
+        assert!((LEADING_TIGHT - 1.25).abs() < f32::EPSILON);
+        assert!((PROJECT_LINE_HEIGHT - 1.25 / 0.875).abs() < f32::EPSILON);
+        assert_eq!(button::BORDER_WIDTH, px(1.0));
+    }
+
+    /// `LEADING_TIGHT × SMALL_TEXT` is exactly 15px and `LEADING_TIGHT ×
+    /// LARGE_TEXT` is exactly 16.25px (rounded to 16 by gpui's own
+    /// `line_height_in_pixels`) — the two used line-heights the trigger's
+    /// own stack actually lays out, spelled out numerically so a reader
+    /// does not have to do the multiplication by hand to check the module
+    /// docs' own claim.
+    #[test]
+    fn the_used_line_heights_multiply_out_to_the_documented_numbers() {
+        assert!((LEADING_TIGHT * 12.0 - 15.0).abs() < f32::EPSILON);
+        assert!((LEADING_TIGHT * 13.0 - 16.25).abs() < f32::EPSILON);
     }
 
     #[test]

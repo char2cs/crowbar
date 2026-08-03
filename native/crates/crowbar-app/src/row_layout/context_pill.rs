@@ -5,7 +5,7 @@
 //! heights, the trailing glyph's own precedence (avatar beats status icon,
 //! spinner beats avatar), and the wrapper's own outer padding.
 
-use super::{a_cell, assert_px, find, ids, measure, relative_to};
+use super::{a_cell, assert_px, assert_within_tolerance, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
 use crowbar_ui::components::context_pill;
 use gpui::{Bounds, Pixels, TestAppContext, px};
@@ -131,4 +131,40 @@ fn the_root_fills_whatever_width_it_is_given(cx: &mut TestAppContext) {
         let root = find(&records, context_pill::ID_ROOT);
         assert_px(root.bounds.size.width, px(f32::from(width)));
     }
+}
+
+/// **The live parity cell this surface once failed on**
+/// (`--kind home --width 344`, a 1714px viewport, dark) — the trigger's own
+/// border-box height is `47px` and it carries a real, transparent 1px
+/// border, both confirmed against the live app's own `getComputedStyle`.
+///
+/// This is the regression the mismatched `LEADING_TIGHT` constant (once a
+/// borrowed, wrong `px(18.0)`) and the missing `button::BORDER_WIDTH` both
+/// produced together — see [`context_pill::LEADING_TIGHT`]'s own doc for
+/// the arithmetic. `assert_within_tolerance` is `ANCHORS.md` §5's own ±0.5,
+/// the same slack a sub-pixel line-height computation is allowed; the
+/// border width is asserted exactly, because `ANCHORS.md` compares
+/// `border.w` exactly regardless of tolerance elsewhere.
+///
+/// **Mutation:** reverting `LEADING_TIGHT` to the old borrowed `px(18.0)`
+/// (as a fixed line height rather than the `relative(1.25)` ratio) turns
+/// the height assertion red again — 48px, a whole pixel outside the ±0.5
+/// window.
+#[gpui::test]
+fn the_live_parity_cell_matches_the_reference_within_tolerance(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&["--kind", "home", "--width", "344"]));
+
+    let trigger = find(&records, context_pill::ID_TRIGGER);
+    assert_within_tolerance(trigger.bounds.size.height, px(47.0));
+    assert_px(trigger.border_width, px(1.0));
+    assert_eq!(
+        trigger.border_color.map(|c| c.a),
+        Some(0.0),
+        "the border is real width, transparent colour — {:?}",
+        trigger.border_color,
+    );
+
+    let root = find(&records, context_pill::ID_ROOT);
+    assert_within_tolerance(root.bounds.size.height, px(51.0));
 }
