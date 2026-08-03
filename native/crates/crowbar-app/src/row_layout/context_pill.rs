@@ -134,27 +134,30 @@ fn the_root_fills_whatever_width_it_is_given(cx: &mut TestAppContext) {
 }
 
 /// **The live parity cell this surface failed on, driven directly.**
-/// (`--kind home --width 344`, a 1714px viewport, dark). Two real defects
-/// found by that run are fixed and held here for good: a missing 1px
-/// transparent border (`button::BORDER_WIDTH`, `trigger_shell`) and a
+/// (`--kind home --width 344`, a 1714px viewport, dark). Three real
+/// defects found by that run are fixed and held here for good: a missing
+/// 1px transparent border (`button::BORDER_WIDTH`, `trigger_shell`), a
 /// wrong line-height on the stack's large line (`LEADING_TIGHT`, replacing
-/// a borrowed, wrong `px(18.0)`) — see `context_pill::LEADING_TIGHT`'s own
-/// doc for both.
+/// a borrowed, wrong `px(18.0)`), and — the one that took two more passes
+/// to separate from a real fix that looked identical — the small line
+/// needing its own **rendered box height** (`SMALL_LINE_BOX_HEIGHT`,
+/// `15px`) rather than its own, differently-numbered **computed
+/// `line-height` property** (`TEXT_XS_LINE_HEIGHT`, `16px`). See
+/// `context_pill::SMALL_LINE_BOX_HEIGHT`'s own doc for the CSS mechanism
+/// (a font's ascent/descent/half-leading, not the property value) and for
+/// the two wrong turns this file's own history took before a
+/// `getBoundingClientRect` read — not `getComputedStyle` — on both live
+/// text leaves settled it.
 ///
-/// **This test is currently expected to fail, and that is deliberate.**
-/// Fixing those two alone still leaves the trigger at 48px against the
-/// live reference's 47 — a real, open, one-pixel residual, not yet
-/// explained. An intermediate attempt closed the gap by also moving the
-/// *small* line onto `LEADING_TIGHT`; a live `getComputedStyle` read of
-/// both text leaves (`12px / 16px`, ratio `1.3333` — `text-xs`'s own
-/// bundled ratio, not the ancestor's) proved that wrong and it was
-/// reverted (`context_pill::TEXT_XS_LINE_HEIGHT`'s own doc carries the
-/// account). Weakening this assertion to pass on the wrong mechanism would
-/// hide a real defect rather than record it — the residual stays open,
-/// and this test stays red until whatever produces the missing pixel is
-/// actually found. `assert_within_tolerance` is `ANCHORS.md` §5's own
-/// ±0.5; the border fields are asserted exactly, and both already pass —
-/// only the height line is expected to fail right now.
+/// `assert_within_tolerance` is `ANCHORS.md` §5's own ±0.5; the border
+/// fields are asserted exactly, because `ANCHORS.md` compares `border.w`
+/// exactly regardless of tolerance elsewhere.
+///
+/// **Mutation:** reverting `stack()`'s small line from
+/// `SMALL_LINE_BOX_HEIGHT` back to `relative(TEXT_XS_LINE_HEIGHT)` (the
+/// small line's own genuinely correct *computed* ratio, and the wrong
+/// quantity for this purpose) turns the height assertion red again —
+/// `48px`, a whole pixel outside the ±0.5 window.
 #[gpui::test]
 fn the_live_parity_cell_matches_the_reference_within_tolerance(cx: &mut TestAppContext) {
     crowbar_driver::leak_checked!(cx);
