@@ -111,51 +111,51 @@ pub const STACK_GAP: Pixels = px(SPACING * 0.5);
 /// `text-xs`'s own font size, on the small (repo/project) line.
 pub const SMALL_TEXT: Pixels = px(12.0);
 
-/// `leading-tight`'s own ratio — `--leading-tight: 1.25`, compiled directly
+/// `text-xs`'s own bundled ratio — `calc(1 / 0.75)`, compiled directly
 /// (`@tailwindcss/node`'s `__unstable__loadDesignSystem` against this app's
-/// own `index.css`, the same method a live capture would need a browser
-/// for) rather than taken as Tailwind's stock value on trust.
+/// own `index.css`) — and confirmed against the live DOM as this line's
+/// own `getComputedStyle`: `font-size 12px, line-height 16px`, ratio
+/// `1.3333`. `@property --tw-leading { inherits: false }` sits right next
+/// to `.text-xs`'s own `line-height: var(--tw-leading, var(--text-xs--
+/// line-height))`, and the live reading confirms that declaration is
+/// honoured exactly: the ancestor `leading-tight`'s ratio does **not**
+/// reach this line. An earlier pass on this file set this line to
+/// `LEADING_TIGHT` instead, on the theory that the reference's numbers
+/// required it — that theory was wrong (see [`LEADING_TIGHT`]'s own doc:
+/// the 1px it was chasing was a second, unrelated defect, and forcing this
+/// line to the wrong ratio only cancelled it by coincidence).
+pub const TEXT_XS_LINE_HEIGHT: f32 = 4.0 / 3.0; // calc(1 / 0.75)
+
+/// `leading-tight`'s own ratio — `--leading-tight: 1.25`, compiled the same
+/// way [`TEXT_XS_LINE_HEIGHT`] was, and confirmed against the live DOM as
+/// the **large** line's own `getComputedStyle`: `font-size 13px, line-
+/// height 16.25px`, ratio `1.25` exactly.
 ///
-/// # A live parity run caught two wrong numbers here, in two passes
+/// # A live parity run caught a wrong number here, and a second pass caught a wrong fix
 ///
-/// **First:** [`Self::stack`]'s large line used to read `px(18.0)`, borrowed
-/// from `workspace_switcher::CONTENT_HEIGHT`'s own measured 18px for
-/// `text-[13px]` under the same font family — reasoning that holds for
-/// *that* file (`command-item`'s own text has no ancestor `leading-*` class)
-/// and does not hold here: `context-pill.tsx`'s stack wrapper carries
+/// [`Self::stack`]'s large line used to read `px(18.0)`, borrowed from
+/// `workspace_switcher::CONTENT_HEIGHT`'s own measured 18px for `text-
+/// [13px]` under the same font family — reasoning that holds for *that*
+/// file (`command-item`'s own text has no ancestor `leading-*` class) and
+/// does not hold here: `context-pill.tsx`'s stack wrapper carries
 /// `leading-tight`, and `text-[13px]` is an **arbitrary** value — compiled
 /// to confirm: `.text-\[13px\] { font-size: 13px; }`, no paired
-/// `line-height` at all. Fixed to `relative(LEADING_TIGHT)` and reasoned as
-/// `1.25 × 13 = 16.25px` (rounded to 16 by gpui's own `line_height_in_
-/// pixels`, `text_system.rs`'s `.round()`) — a real improvement, but the
-/// trigger's own border-box height was still 1px over tolerance against the
-/// live reference, because this pass also added the missing 1px border
-/// (§`trigger_shell`) without yet revisiting the small line.
+/// `line-height` at all — so it inherits the ancestor's unitless `1.25`
+/// and resolves to `1.25 × 13 = 16.25px`, not 18. Fixing this line alone
+/// (plus the missing border, `trigger_shell`'s own finding) still left the
+/// trigger 1px over the live reference — 48px, not 47.
 ///
-/// **Second, closing the gap:** the small line's own `text-xs` class
-/// compiles to `line-height: var(--tw-leading, var(--text-xs--line-
-/// height))` — a rule that, read by the `@property --tw-leading {
-/// inherits: false }` declaration sitting next to it, should **not** pick
-/// up the ancestor's `leading-tight` and should fall back to `text-xs`'s
-/// own `calc(1 / 0.75)` (16px on a 12px line) instead. That reading does
-/// not match the reference: driving `--kind home` through a real layout
-/// with the large line fixed and the small line still at its own `4/3`
-/// ratio produced 48px, not the reference's 47. Setting the small line to
-/// `LEADING_TIGHT` too — the same ratio the large line already uses —
-/// reproduces the reference exactly (47/51,
-/// `row_layout::context_pill::the_live_parity_cell_matches_the_reference_
-/// within_tolerance`). Recorded as a finding rather than papered over: the
-/// `@property`-registered, non-inheriting reading is what the CSS spec
-/// says, and it is not what this live reference shows, which is the
-/// stronger authority of the two. The most likely account is that the
-/// `WKWebView` build this reference was captured from does not implement
-/// `@property`'s `inherits: false` for this custom property — an
-/// unregistered custom property inherits by default, which would let
-/// `--tw-leading`'s `1.25` reach the small span after all and win there too
-/// (`var()`'s first argument, once present, is used over the fallback). Not
-/// independently confirmed against the browser engine itself — the
-/// reference's own numbers are the evidence for it, not a second, checked
-/// source.
+/// A first attempt at that residual 1px moved [`TEXT_XS_LINE_HEIGHT`] onto
+/// this same ratio for *both* lines, which produced 47 — and was wrong. It
+/// contradicted `@property --tw-leading { inherits: false }` on the small
+/// line's own declaration, was never checked against the browser engine,
+/// and a direct read of the live DOM (`getComputedStyle` on both text
+/// leaves) showed the small line really is `1.3333`, not `1.25` — a
+/// 15px-vs-16px, 1px-short line, cancelled against some *other*, still
+/// unidentified 1px the trigger is over by. Reverted. The residual 1px is
+/// open — see `context-pill.md` §2's own account of what was checked and
+/// ruled out, and `row_layout::context_pill::the_live_parity_cell_matches_
+/// the_reference_within_tolerance`'s own current status.
 pub const LEADING_TIGHT: f32 = 1.25;
 /// `text-[13px]`'s own font size.
 pub const LARGE_TEXT: Pixels = px(13.0);
@@ -255,10 +255,14 @@ impl ContextPill {
 
     /// The two-line `flex min-w-0 flex-1 flex-col items-start gap-0.5
     /// text-left leading-tight` label stack shared by [`Self::Workspace`]
-    /// and [`Self::Home`]. **Both** lines render at [`LEADING_TIGHT`] — see
-    /// that constant's own doc for why the small line does *not* keep
-    /// `text-xs`'s own bundled ratio, which is what the CSS spec's
-    /// `@property inherits: false` reading would otherwise say.
+    /// and [`Self::Home`]. The two lines do **not** share one ratio: the
+    /// small line keeps `text-xs`'s own bundled [`TEXT_XS_LINE_HEIGHT`]
+    /// (confirmed live — the ancestor's `leading-tight` does not reach it,
+    /// exactly as `@property --tw-leading { inherits: false }` says), and
+    /// the large line reads the ancestor's [`LEADING_TIGHT`] (confirmed
+    /// live too — `text-[13px]` has no line-height of its own to keep it
+    /// out). See [`LEADING_TIGHT`]'s own doc for the finding that separated
+    /// the two after they were briefly, wrongly, the same constant.
     fn stack(theme: &Theme, small: SharedString, large: SharedString) -> Div {
         div()
             .min_w(px(0.0))
@@ -272,7 +276,7 @@ impl ContextPill {
                     .w_full()
                     .overflow_hidden()
                     .text_size(SMALL_TEXT)
-                    .line_height(relative(LEADING_TIGHT))
+                    .line_height(relative(TEXT_XS_LINE_HEIGHT))
                     .text_color(theme.foreground.mix(70.0, Color::TRANSPARENT))
                     .child(small),
             )
@@ -390,7 +394,7 @@ mod tests {
     use super::{
         CONTENT_SIZED, ContextPill, ID_ROOT, ID_TRIGGER, LARGE_TEXT, LEADING_TIGHT, LIBRARY_SIZE,
         LINE_SIZED, OUTER_PADDING_BOTTOM, OUTER_PADDING_X, PROJECT_LINE_HEIGHT, SMALL_TEXT,
-        STACK_GAP, TRIGGER_GAP, TRIGGER_PADDING_X, TRIGGER_PADDING_Y,
+        STACK_GAP, TEXT_XS_LINE_HEIGHT, TRIGGER_GAP, TRIGGER_PADDING_X, TRIGGER_PADDING_Y,
     };
     use crate::components::button;
     use crate::components::workspace_branch_icon::Status;
@@ -409,22 +413,25 @@ mod tests {
         assert_eq!(SMALL_TEXT, px(12.0));
         assert_eq!(LARGE_TEXT, px(13.0));
         assert_eq!(LIBRARY_SIZE, px(14.0));
-        // The compiled line-height ratios — see LEADING_TIGHT's own doc for
-        // why both stack lines share this one ratio.
+        // The compiled line-height ratios — two different ones, confirmed
+        // live against the two text leaves separately. See TEXT_XS_LINE_
+        // HEIGHT's and LEADING_TIGHT's own docs for why they differ.
+        assert!((TEXT_XS_LINE_HEIGHT - 4.0 / 3.0).abs() < f32::EPSILON);
         assert!((LEADING_TIGHT - 1.25).abs() < f32::EPSILON);
         assert!((PROJECT_LINE_HEIGHT - 1.25 / 0.875).abs() < f32::EPSILON);
         assert_eq!(button::BORDER_WIDTH, px(1.0));
     }
 
-    /// `LEADING_TIGHT × SMALL_TEXT` is exactly 15px and `LEADING_TIGHT ×
-    /// LARGE_TEXT` is exactly 16.25px (rounded to 16 by gpui's own
-    /// `line_height_in_pixels`) — the two used line-heights the trigger's
-    /// own stack actually lays out, spelled out numerically so a reader
-    /// does not have to do the multiplication by hand to check the module
-    /// docs' own claim.
+    /// `TEXT_XS_LINE_HEIGHT × SMALL_TEXT` is exactly 16px and
+    /// `LEADING_TIGHT × LARGE_TEXT` is exactly 16.25px (which gpui's own
+    /// `line_height_in_pixels` rounds to 16) — the two used line-heights
+    /// the trigger's own stack actually lays out, spelled out numerically
+    /// so a reader does not have to do the multiplication by hand to check
+    /// the module docs' own claim. Both numbers are confirmed against the
+    /// live DOM's own `getComputedStyle`, not derived alone.
     #[test]
     fn the_used_line_heights_multiply_out_to_the_documented_numbers() {
-        assert!((LEADING_TIGHT * 12.0 - 15.0).abs() < f32::EPSILON);
+        assert!((TEXT_XS_LINE_HEIGHT * 12.0 - 16.0).abs() < f32::EPSILON);
         assert!((LEADING_TIGHT * 13.0 - 16.25).abs() < f32::EPSILON);
     }
 

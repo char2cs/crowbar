@@ -6,16 +6,24 @@
 `crates/crowbar-app/src/row_layout/context_pill.rs`.
 
 **A live reference exists — not captured by this item, but landed against
-it.** The item that ported this surface drove no oracle and captured no
-snapshot, and every number in the first version of this file was read off
-the app's own compiled Tailwind alone. A parity run taken afterward, against
-`--surface context-pill --kind home --width 344`, found two real defects: a
+it — and it is not fully reconciled yet.** The item that ported this
+surface drove no oracle and captured no snapshot, and every number in the
+first version of this file was read off the app's own compiled Tailwind
+alone. A parity run taken afterward, against `--surface context-pill --kind
+home --width 344`, found the trigger 1px taller than the reference and
+missing a real border. Two real, confirmed defects are fixed (§2): a
 missing 1px transparent border, and a wrong line-height on the label
-stack's large line (see §2). Both are fixed and covered by
-`row_layout::context_pill::the_live_parity_cell_matches_the_reference_
-within_tolerance`, which reproduces the reference's own numbers — root
-51px, trigger 47px, `border.w` 1 — to the pixel. This file is corrected in
-place rather than left describing the pre-fix state.
+stack's large line. **A third, one-pixel residual is open and unexplained**
+— fixing those two alone still leaves the trigger at 48px against the
+reference's 47. An intermediate attempt closed that gap by also moving the
+stack's *small* line onto the large line's ratio; a direct
+`getComputedStyle` read of the live DOM proved that wrong (the small line
+really does keep its own `text-xs` ratio) and it was reverted rather than
+kept as a passing test with a disproved mechanism. §2 carries the account
+in full, and `row_layout::context_pill::the_live_parity_cell_matches_the_
+reference_within_tolerance` is **currently failing on purpose** — height
+48px against an expected 47±0.5 — until whatever produces the missing
+pixel is found for real.
 
 ## 0. What this file is, and what it is not
 
@@ -42,13 +50,13 @@ content is `workspace-switcher.md`. This file's own job is the pill itself.
 | `bg-sidebar-element-idle` | `theme.sidebar_element_idle` | reused |
 | `border` (trigger, real width, `border-transparent` colour) | 1px, transparent | `button::BORDER_WIDTH` reused, `Color::TRANSPARENT` — see §2 |
 | `gap-0.5` (label stack) | 2px | `STACK_GAP` |
-| `text-xs` (small line) | 12px font, **15px line** — not `text-xs`'s own bundled ratio; see §2 | `SMALL_TEXT`, `relative(LEADING_TIGHT)` |
-| `text-[13px]` (large line) | 13px font, **16.25px line → rounds to 16** — see §2 | `LARGE_TEXT`, `relative(LEADING_TIGHT)` |
+| `text-xs` (small line) | 12px font, **16px line** — `text-xs`'s own bundled ratio, confirmed live (`getComputedStyle`: `1.3333`); the ancestor `leading-tight` does *not* reach it | `SMALL_TEXT`, `relative(TEXT_XS_LINE_HEIGHT)` |
+| `text-[13px]` (large line) | 13px font, **16.25px line → rounds to 16** — confirmed live (`getComputedStyle`: `1.25`); see §2 | `LARGE_TEXT`, `relative(LEADING_TIGHT)` |
 | `size="lg"` on `<RepoAvatar>` | `repo_avatar::Size::Lg` | reused directly (`RepoAvatar::render`) |
 | `<Library size={14}>` | 14px, unpainted | `LIBRARY_SIZE` |
 | `hover:bg-sidebar-element-hover` | a colour-only rule | not modelled — no field on this contract |
 
-## 2. Two defects a live parity run found, and the arithmetic that resolved them
+## 2. Two confirmed defects, and one residual pixel still open
 
 **The border.** `button-variants.ts`'s own base class list is
 `"...rounded-lg border font-medium..."` — every `<Button>`, `ghost`
@@ -79,27 +87,50 @@ file's own `text-[13px]` has no `leading-*` ancestor, so its 18px answers a
 different question than this one's `1.25 × 13 = 16.25px` (gpui rounds to
 16, `text_system.rs`'s own `line_height_in_pixels`).
 
-**Both fixes together still left the trigger 1px over the reference.**
-Driving `--kind home` with the border added and the large line corrected
-produced 48px against the reference's 47 — not 50 (border alone) and not
-47 (the fix in full), a real, distinct third finding: the *small* line
-also needed `LEADING_TIGHT`, not `text-xs`'s own bundled `calc(1 / 0.75)`
-ratio. Per the CSS spec, that should not happen — `text-xs`'s own
-`line-height: var(--tw-leading, var(--text-xs--line-height))` is declared
-next to `@property --tw-leading { inherits: false }`, which should keep
-the ancestor's `leading-tight` from reaching it at all and leave `text-xs`
-reading its own fallback ratio. It does not match what the reference
-shows. The most likely account: the WKWebView build the reference was
-captured from does not implement `@property`'s `inherits: false` for this
-property, so `--tw-leading` inherits as an ordinary (unregistered) custom
-property would, and reaches the small span after all. **Not independently
-confirmed against the browser engine** — the reference's own numbers are
-the evidence for this account, not a second, checked source, and it is
-recorded as a finding rather than papered over. Both stack lines now
-render at `relative(LEADING_TIGHT)`, and the live cell matches to the
-pixel: root 51px, trigger 47px, `border.w` 1
-(`row_layout::context_pill::the_live_parity_cell_matches_the_reference_
-within_tolerance`).
+**Both fixes together still leave the trigger 1px over the reference, and
+that residual is open.** Driving `--kind home` with the border added and
+the large line corrected produces 48px against the reference's 47 — not 50
+(border alone), so the two fixes above are real progress, but not the
+whole story.
+
+An intermediate attempt closed the gap anyway, by also moving the *small*
+line onto `LEADING_TIGHT` (`1.25 × 12 = 15px`, against `text-xs`'s own
+`calc(1 / 0.75)` → `16px`). That produced an exact 47/51 match and was
+**wrong**: a direct `getComputedStyle` read of both live text leaves gives
+
+```
+"oracle-fixture"   font-size 12px   line-height 16px      ratio 1.3333
+"home"             font-size 13px   line-height 16.25px   ratio 1.2500
+```
+
+— the small line really is `text-xs`'s own `1.3333`, exactly as
+`@property --tw-leading { inherits: false }` says it should be (the large
+line's `1.25` is confirmed correct the same way — `text-[13px]` has no
+line-height of its own to keep the ancestor's ratio out). Forcing the small
+line to `1.25` made it 1px *short* (`15` vs the real `16`) in a way that
+happened to cancel a *second*, still-unidentified 1px the trigger is over
+by elsewhere — two errors reading as zero. Reverted: both lines are back to
+their own confirmed-live ratios (`context_pill.rs`'s own `stack` method),
+and `row_layout::context_pill::the_live_parity_cell_matches_the_reference_
+within_tolerance` is failing again, on purpose, at 48px against 47±0.5.
+
+**What has been ruled out, for whoever picks the residual pixel up next:**
+the border (confirmed 1px, transparent, both sides — not a rounding
+question), the vertical padding (`py-1.5`, 6px each side, no competing
+`py-*` class anywhere in `button-variants.ts` to contest it), the stack's
+own `gap-0.5` (2px, uncontested), and both line-heights individually
+(`16` and `16.25`, both confirmed against the live DOM, not derived alone).
+None of those four is where the missing pixel is. Worth checking next,
+roughly in order of how cheaply each can be ruled out: whether gpui's own
+`.round()` in `line_height_in_pixels` (which turns the large line's
+`16.25` into `16`) is the right direction, given the reference's own
+`bounds.h` is an exact `47` and a fractional line box is being resolved to
+a whole pixel *somewhere*, on one side of the port or the other; and the
+outer flex row's own structure — `context-pill.tsx`'s `--kind home` branch
+nests the stack and the glyph inside a *second* `flex items-center gap-2`
+span this port collapses into `trigger_shell`'s own single row, which
+should be geometrically inert (no border/padding/background of its own)
+but has not been independently checked.
 
 ## 3. `scale-110` is not modelled
 
@@ -165,10 +196,12 @@ instead, the `fps-overlay` shape. `Params::no_state_axis()` returns `true`.
 * `--kind home`/`--kind project` never carry `repo-avatar`
 * the trigger sits inset by the wrapper's own `px-2`/`pt-0`
 * the root's own width tracks `--width` exactly
-* the live parity cell (`--kind home --width 344`) matches the reference to
-  the pixel: trigger `47px` (±0.5), root `51px` (±0.5), `border.w` exactly
-  `1`, `border.color.a` exactly `0` — §2's own finding, held as a permanent
-  regression
+* the live parity cell (`--kind home --width 344`) is driven and checked
+  against the reference on every run — `border.w` exactly `1` and
+  `border.color.a` exactly `0` both pass; the height assertions (trigger
+  `47px` ±0.5, root `51px` ±0.5) **currently fail**, by design, recording
+  §2's own open one-pixel residual rather than a passing test built on a
+  mechanism the live DOM disproved
 
 ## 9. Reachability
 
