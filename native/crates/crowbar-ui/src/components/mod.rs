@@ -205,6 +205,17 @@ pub mod resizable;
 // `f32::MAX` where `kbd::RADIUS` is 4. A bare `Overflow`, `ScrollBar` or
 // `Corner` would say which component's picture it is nowhere.
 pub mod scroll_area;
+// `search` is unflattened for the same reason as the rest, and one further
+// one: `search::ID_POPOVER`'s neighbours (`ID_CLOSE`, `ID_TOGGLE_*`,
+// `ID_NAV_*`, `ID_REPLACE_*`) would sit next to every other surface's own
+// `ID_*` constants with the same shape of collision, and `search::
+// CONTENT_SIZED`/`LINE_SIZED` would silently mean this surface's declaration
+// list on every other module's behalf — the `ANCHORS.md` v1.6 mistake this
+// file has warned about since `dropdown_menu`. **Built, not wrapped** — see
+// `search.rs`'s module docs: `search.tsx` renders through no `gpui-component`
+// primitive at all, so every box is this crate's own to anchor and there is
+// no vendor seam to test.
+pub mod search;
 pub mod search_toggle_icons;
 pub mod select;
 pub mod separator;

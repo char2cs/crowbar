@@ -110,7 +110,7 @@ export function SearchPopover({
   className,
 }: SearchPopoverProps) {
   return (
-    <div className={cn(searchSurfaceVariants(), className)}>
+    <div data-oracle-id="search-popover" className={cn(searchSurfaceVariants(), className)}>
       <div className="flex items-center gap-1.5">
         {leadingControl}
 
@@ -159,6 +159,7 @@ export function SearchPopover({
           variant="ghost"
           className={searchIconButtonVariants()}
           aria-label="Close search"
+          data-oracle-id="search-close"
           compact
         >
           <X />
@@ -180,6 +181,7 @@ export function SearchPopover({
                 tooltip={option.label}
                 aria-label={option.label}
                 aria-pressed={option.active}
+                data-oracle-id={`search-toggle-${option.id}`}
                 compact
               >
                 {option.icon}
@@ -199,6 +201,7 @@ export function SearchPopover({
                     disabled: !canNavigate,
                   })}
                   aria-label="Previous match"
+                  data-oracle-id="search-nav-previous"
                   compact
                 >
                   <ChevronUp />
@@ -214,6 +217,7 @@ export function SearchPopover({
                     disabled: !canNavigate,
                   })}
                   aria-label="Next match"
+                  data-oracle-id="search-nav-next"
                   compact
                 >
                   <ChevronDown />
@@ -250,6 +254,7 @@ export function SearchReplaceToggle({
       className={searchIconButtonVariants()}
       tooltip={label}
       aria-label={label}
+      data-oracle-id="search-replace-toggle"
       compact
     >
       <ChevronRight className={cn('transition-transform', isExpanded && 'rotate-90')} />
@@ -279,8 +284,14 @@ export function SearchReplaceRow({
   replaceAllTooltip?: string
 }) {
   return (
-    <div className="flex items-center gap-1.5 border-border/60 border-t pt-1.5">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground">
+    <div
+      data-oracle-id="search-replace-row"
+      className="flex items-center gap-1.5 border-border/60 border-t pt-1.5"
+    >
+      <span
+        data-oracle-id="search-replace-icon"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground"
+      >
         <Replace />
       </span>
 
@@ -300,6 +311,8 @@ export function SearchReplaceRow({
         disabled={!canReplace}
         variant="ghost"
         className={searchActionButtonVariants({ disabled: !canReplace })}
+        data-oracle-id="search-replace-confirm"
+        data-oracle-content-sized="true"
         compact
       >
         Replace
@@ -311,6 +324,8 @@ export function SearchReplaceRow({
         variant="ghost"
         className={searchActionButtonVariants({ disabled: !canReplaceAll })}
         tooltip={replaceAllTooltip}
+        data-oracle-id="search-replace-all"
+        data-oracle-content-sized="true"
         compact
       >
         All
