@@ -260,8 +260,8 @@ fn granted_matches_requested(cell: &Cell, granted: Size<Pixels>) -> Option<Strin
 ///
 /// The window cut the surface, the platform did not grant the window this
 /// cell asked for ([`granted_matches_requested`]), the snapshot could not be
-/// built (no root anchor was recorded), could not be serialised, or could not
-/// be written.
+/// built (no root anchor was recorded, or some anchor id was recorded more
+/// than once), could not be serialised, or could not be written.
 pub fn emit(
     anchors: &AnchorRegistry,
     cell: &Cell,

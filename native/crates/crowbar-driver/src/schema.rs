@@ -17,7 +17,7 @@
 //!   [`Content`] and [`Flag`] are enums: the wrong spelling is not
 //!   representable, which is stronger than validating it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use crowbar_ui::gpui::{Bounds, Pixels};
 use serde::Serialize;
@@ -248,6 +248,39 @@ pub enum SnapshotError {
         /// The anchors that were actually recorded, in the order seen.
         recorded: Vec<String>,
     },
+    /// One anchor id was recorded more than once in the frame, **with
+    /// disagreeing content** — different bounds, paint, text, or any other
+    /// field.
+    ///
+    /// `native/oracle/ANCHORS.md` v1.8: "a snapshot contains exactly the
+    /// surface's own anchors, each **at most once**." The differ matches by
+    /// id, so two records under one id leave it no way to say which one it
+    /// compared — taking the first would make that choice invisible, which
+    /// v1.8 is explicit is worse than refusing outright. This is the native
+    /// side's half of the same rule `oracleSelectDeclaredAnchors` enforces on
+    /// the DOM side ("two elements carry one declared id → throws").
+    ///
+    /// "With disagreeing content" is load-bearing, not incidental:
+    /// [`AnchorRegistry::record`](crate::AnchorRegistry::record) folds a
+    /// repeat with **identical** content into the one record already held —
+    /// which is what lets a surface with no per-draw reset boundary of its own
+    /// (`spinner`, `loading-spinner`) still converge to a stable snapshot
+    /// across the many draws its own animation causes — so only a genuine,
+    /// differing-content collision ever reaches here at all.
+    ///
+    /// [`AnchorRegistry::record`](crate::AnchorRegistry::record) never
+    /// resolves such a collision itself — it cannot: it is called from an
+    /// `Element::prepaint` callback, which returns `()`, not a `Result`, and
+    /// panicking there would take the window down rather than fail one
+    /// capture. So a colliding anchor reaches [`Snapshot::build`] exactly as
+    /// recorded, and this is the check — and the only point in the pipeline
+    /// with a `Result` to refuse through — that catches it.
+    DuplicateAnchor {
+        /// The id that was recorded more than once.
+        id: String,
+        /// How many times it was recorded.
+        count: usize,
+    },
 }
 
 impl std::fmt::Display for SnapshotError {
@@ -257,6 +290,15 @@ impl std::fmt::Display for SnapshotError {
                 f,
                 "the root anchor {root:?} was not recorded this frame; \
                  the anchors that were: {recorded:?}",
+            ),
+            Self::DuplicateAnchor { id, count } => write!(
+                f,
+                "anchor {id:?} was recorded {count} times in this frame; the differ \
+                 matches anchors by id and would have no way to say which occurrence \
+                 it compared. Taking the first would make that choice invisible, which \
+                 is worse than refusing — give the repeated elements distinct ids, or, \
+                 if they are legitimately two instances of the same component, confirm \
+                 only one of them belongs to this surface.",
             ),
         }
     }
@@ -269,14 +311,20 @@ impl Snapshot {
     ///
     /// # Errors
     ///
-    /// [`SnapshotError::MissingRoot`] when no recorded anchor carries the
-    /// declared root id.
+    /// [`SnapshotError::DuplicateAnchor`] when any id was recorded more than
+    /// once — checked first, because a frame in that shape has no well-defined
+    /// anchor set to look a root up in. [`SnapshotError::MissingRoot`] when no
+    /// recorded anchor carries the declared root id.
     pub fn build(
         surface: impl Into<String>,
         state: SurfaceState,
         root: &str,
         records: &[RawAnchor],
     ) -> Result<Self, SnapshotError> {
+        if let Some((id, count)) = duplicate_id(records) {
+            return Err(SnapshotError::DuplicateAnchor { id, count });
+        }
+
         let origin = records
             .iter()
             .find(|record| record.id == root)
@@ -308,6 +356,26 @@ impl Snapshot {
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
+}
+
+/// The first id, in recorded order, that appears more than once — and how
+/// many times — or `None` when every id is unique.
+///
+/// A plain scan over `&[RawAnchor]` rather than a method on
+/// [`AnchorRegistry`](crate::AnchorRegistry): `Snapshot::build` is the one
+/// place both production paths meet — `AnchorRegistry::snapshot` and
+/// `crowbar-app`'s `row_snapshot::emit` both call it directly — so a check
+/// living anywhere else would be a check one of the two paths could route
+/// around.
+fn duplicate_id(records: &[RawAnchor]) -> Option<(String, usize)> {
+    let mut seen: HashSet<&str> = HashSet::with_capacity(records.len());
+    for record in records {
+        if !seen.insert(record.id.as_ref()) {
+            let count = records.iter().filter(|other| other.id == record.id).count();
+            return Some((record.id.to_string(), count));
+        }
+    }
+    None
 }
 
 /// Shifts one record into the root's coordinate space and serialises it.
@@ -510,6 +578,102 @@ mod tests {
         );
         assert!(error.to_string().contains("\"root\""));
         assert!(error.to_string().contains("icon"));
+    }
+
+    /// **The refusal, at the pure boundary.** `element.rs`'s
+    /// `a_repeated_anchor_id_is_refused_when_the_snapshot_is_built` drives the
+    /// identical shape through a real gpui frame; this is the same rule
+    /// stated as arithmetic over `&[RawAnchor]`, with no `Window` involved —
+    /// exactly the split this module's own docs describe.
+    #[test]
+    fn a_repeated_id_is_refused_rather_than_compared() {
+        let records = [
+            a_box("root", 0.0, 0.0, 320.0, 22.0),
+            a_box("badge", 10.0, 10.0, 8.0, 8.0),
+            a_box("badge", 20.0, 10.0, 8.0, 8.0),
+        ];
+
+        let error = Snapshot::build("row", a_state(), "root", &records)
+            .expect_err("two records share the id \"badge\"");
+
+        assert_eq!(
+            error,
+            SnapshotError::DuplicateAnchor {
+                id: "badge".to_owned(),
+                count: 2,
+            },
+        );
+        assert!(error.to_string().contains("\"badge\""), "{error}");
+        assert!(error.to_string().contains('2'), "{error}");
+    }
+
+    /// The count in the refusal is a real count, not a hard-coded "twice" —
+    /// three occurrences are reported as three.
+    #[test]
+    fn the_duplicate_count_is_exact() {
+        let records = [
+            a_box("root", 0.0, 0.0, 320.0, 22.0),
+            a_box("badge", 10.0, 10.0, 8.0, 8.0),
+            a_box("badge", 20.0, 10.0, 8.0, 8.0),
+            a_box("badge", 30.0, 10.0, 8.0, 8.0),
+        ];
+
+        let error = Snapshot::build("row", a_state(), "root", &records)
+            .expect_err("three records share the id \"badge\"");
+
+        assert_eq!(
+            error,
+            SnapshotError::DuplicateAnchor {
+                id: "badge".to_owned(),
+                count: 3,
+            },
+        );
+    }
+
+    /// **The control.** Without it, "a colliding frame is refused" would also
+    /// pass on a `build` that refused every frame unconditionally — the shape
+    /// of vacuous guard this project has already shipped eight of. Every
+    /// other test in this module builds a snapshot from records with distinct
+    /// ids and expects success; this one states that expectation directly, on
+    /// a frame shaped like the ones the two tests above refuse except for the
+    /// one thing that matters.
+    #[test]
+    fn distinct_ids_are_not_refused() {
+        let records = [
+            a_box("root", 0.0, 0.0, 320.0, 22.0),
+            a_box("badge-a", 10.0, 10.0, 8.0, 8.0),
+            a_box("badge-b", 20.0, 10.0, 8.0, 8.0),
+        ];
+
+        let snapshot =
+            Snapshot::build("row", a_state(), "root", &records).expect("every id here is unique");
+        assert_eq!(snapshot.anchors.len(), 3);
+    }
+
+    /// v1.8 is explicit that a repeat is refused **outright**, not resolved by
+    /// keeping the first — so the duplicate check has to run before the root
+    /// lookup even gets a chance to succeed on the survivor. A version that
+    /// checked in the other order would report `DuplicateAnchor` here too
+    /// (the root itself is what repeats), but for the wrong reason if the
+    /// check ever changed to "keep the first, refuse only if it disagrees
+    /// with the second" — this fixture is the one that would expose that.
+    #[test]
+    fn a_duplicated_root_is_refused_rather_than_resolved_by_taking_the_first() {
+        let records = [
+            a_box("root", 0.0, 0.0, 320.0, 22.0),
+            a_box("root", 100.0, 100.0, 320.0, 22.0),
+        ];
+
+        let error = Snapshot::build("row", a_state(), "root", &records)
+            .expect_err("two records share the root id");
+
+        assert_eq!(
+            error,
+            SnapshotError::DuplicateAnchor {
+                id: "root".to_owned(),
+                count: 2,
+            },
+        );
     }
 
     #[test]

@@ -13,11 +13,13 @@ use gpui::{AnyElement, Div, IntoElement as _, SharedString};
 /// What [`DriverAnchors::boxed_text`] appends to an id to record the run inside
 /// the box under an id of its own.
 ///
-/// The driver's registry **replaces** a record when a second one arrives under
-/// the same id — deliberately, so that a subtree prepainted twice in one frame
-/// cannot make the snapshot depend on which record the differ happened to read.
-/// A box and the run inside it are two records, so they cannot share an id on
-/// the way in; [`fold_text_halves`] puts them back together on the way out.
+/// The driver's registry now **refuses** a frame in which two records share
+/// an id — `crowbar_driver::Snapshot::build`'s duplicate-id check (v1.8) —
+/// rather than picking one of them, so a box and the run inside it must not
+/// share an id on the way in or `boxed_text` would make every one of its
+/// callers unrepresentable. [`fold_text_halves`] is what puts the two halves
+/// back together, on the way out, into the single anchor the contract
+/// describes.
 ///
 /// Not a character an anchor id would ever contain, so a half that escaped the
 /// fold would reach the snapshot as an unknown anchor and be rejected by name

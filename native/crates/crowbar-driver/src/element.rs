@@ -85,7 +85,17 @@ impl AnchorRegistry {
     }
 
     /// The anchors recorded in the current frame, in the order `prepaint`
-    /// reached them.
+    /// first reached them.
+    ///
+    /// **Not deduplicated by id, except where two recordings agree.**
+    /// [`AnchorRegistry::record`]'s docs cover the two cases: a repeat with
+    /// identical content is folded into the one record already held, but a
+    /// second, differing recording under the same id is kept alongside the
+    /// first — [`Snapshot::build`]'s duplicate-id check (v1.8) is what refuses
+    /// that, and every path that turns a frame into a snapshot goes through
+    /// it. A caller that reads `records()` directly, as
+    /// [`crate::frame::Settling`] does, is comparing raw frames rather than
+    /// building a snapshot and is unaffected either way.
     #[must_use]
     pub fn records(&self) -> Vec<RawAnchor> {
         self.records.borrow().clone()
@@ -117,8 +127,9 @@ impl AnchorRegistry {
     ///
     /// # Errors
     ///
-    /// [`SnapshotError::MissingRoot`] when the named root anchor was not one of
-    /// them.
+    /// [`SnapshotError::DuplicateAnchor`] when some id was recorded more than
+    /// once, or [`SnapshotError::MissingRoot`] when the named root anchor was
+    /// not one of them.
     pub fn snapshot(
         &self,
         surface: impl Into<String>,
@@ -128,16 +139,65 @@ impl AnchorRegistry {
         Snapshot::build(surface, state, root, self.records.borrow().as_slice())
     }
 
-    /// Records one anchor, replacing any earlier record with the same id.
+    /// Records one anchor.
     ///
-    /// Replacement rather than a second entry because gpui may prepaint a
-    /// subtree more than once in a frame; two rows for one id would make the
-    /// snapshot depend on which one the differ happened to read.
+    /// This is called from [`AnchoredBox::prepaint`] and
+    /// [`AnchoredText::prepaint`] — `Element` callbacks that return `()`, not a
+    /// `Result`, and that gpui calls from inside its own draw loop, where
+    /// panicking would take the window down with it rather than fail one
+    /// capture. Neither mechanism a caller would reach for — `?` or `panic!` —
+    /// is reachable from here, so this function cannot itself refuse anything;
+    /// it can only decide what to remember.
+    ///
+    /// # Same id, same content: folded away, not a conflict
+    ///
+    /// [`AnchorRegistry::clear`]'s own docs say `anchor_root` is "what makes a
+    /// snapshot one frame" — which is only true of an anchor that calls
+    /// [`anchor_root`]/[`anchor_root_declared`]. A **leaf, embeddable**
+    /// component — `spinner`, `loading-spinner` — deliberately does not: its own
+    /// root is a plain [`anchor`]/[`anchor_declared`] (`crowbar_ui::components`'s
+    /// `spinner.rs` docs explain why — the same nested-root-wipes-the-ancestor
+    /// hazard `inline_error.rs` documents for `Button`), so nothing ever calls
+    /// `clear` while its window is open. `spinner`'s glyph rotates once a
+    /// second, so gpui redraws it forever, and every one of those draws records
+    /// the same id again with the same `bounds` — gpui rotates at **paint**
+    /// time, so *layout* never moves. Refusing on a second recording,
+    /// unconditionally, would refuse `spinner` and `loading-spinner` on their
+    /// second draw, always — not a v1.8 violation, a surface with no frame
+    /// boundary of its own being asked to have one anyway. So a new record that
+    /// is `==` the most recent record already held under the same id is treated
+    /// as another observation of the same anchor and does not extend the
+    /// vector — which is also what keeps [`crate::frame::Settling`] able to
+    /// converge on such a surface at all: it settles by comparing successive
+    /// `records()` for equality, and a vector one entry longer on every draw
+    /// would never repeat.
+    ///
+    /// # Same id, different content: kept, both of them
+    ///
+    /// If the most recent record under an id is **not** identical to the new
+    /// one, the new one is pushed anyway rather than replacing it — this is the
+    /// real collision `native/oracle/ANCHORS.md` v1.8 refuses: two distinct
+    /// anchors sharing an id, which cannot be resolved here because
+    /// *"taking the first would make that choice invisible, which is worse
+    /// than the ambiguity"* (`oracleSelectDeclaredAnchors`, the DOM extractor's
+    /// wording for the identical shape). An earlier version of this function
+    /// replaced unconditionally, on the reasoning that gpui might prepaint a
+    /// subtree more than once in a frame; that reasoning covered only the
+    /// identical-content case above; it also silently discarded the *evidence*
+    /// of a real, differing-content collision along with the collision itself.
+    /// Keeping both is what lets [`crate::schema::Snapshot::build`] — the
+    /// function that actually refuses it, because it is the one with a
+    /// `Result` to refuse through, and every path that turns a frame into a
+    /// snapshot (`AnchorRegistry::snapshot` and `crowbar-app`'s
+    /// `row_snapshot::emit`) funnels through it — see the collision at all.
     fn record(&self, raw: RawAnchor) {
         let mut records = self.records.borrow_mut();
-        if let Some(existing) = records.iter_mut().find(|record| record.id == raw.id) {
-            *existing = raw;
-        } else {
+        let unchanged = records
+            .iter()
+            .rev()
+            .find(|record| record.id == raw.id)
+            .is_some_and(|existing| *existing == raw);
+        if !unchanged {
             records.push(raw);
         }
     }
@@ -599,11 +659,28 @@ mod tests {
     };
 
     use super::{
-        Declared, anchor, anchor_declared, anchor_root, anchor_root_declared, anchor_text, install,
-        registry,
+        AnchorRegistry, Declared, anchor, anchor_declared, anchor_root, anchor_root_declared,
+        anchor_text, install, registry,
     };
-    use crate::record::Paint;
+    use crate::record::{Paint, RawAnchor};
     use crate::schema::{Content, SurfaceState, Theme};
+
+    /// A bare box record, for testing [`AnchorRegistry::record`] directly
+    /// without a window.
+    fn a_box_record(id: &str, x: f32, y: f32, w: f32, h: f32) -> RawAnchor {
+        RawAnchor {
+            id: id.into(),
+            bounds: gpui::bounds(gpui::point(px(x), px(y)), size(px(w), px(h))),
+            background: Paint::None,
+            text: None,
+            visible: true,
+            radius: px(0.0),
+            border_width: px(0.0),
+            border_color: None,
+            content_sized: false,
+            line_sized: false,
+        }
+    }
 
     /// A padded, offset, nested surface. The outer, *unanchored* div is what
     /// makes the root-relative arithmetic in `schema.rs` observable end to end
@@ -677,8 +754,8 @@ mod tests {
         }
     }
 
-    /// Two anchors under one id, deliberately different sizes so which one
-    /// survived is observable.
+    /// Two anchors under one id, deliberately different sizes so which record
+    /// is which is observable.
     struct CollidingSurface;
 
     impl Render for CollidingSurface {
@@ -690,6 +767,23 @@ mod tests {
                     .flex_col()
                     .child(anchor("twice", div().w(px(40.0)).h(px(10.0))))
                     .child(anchor("twice", div().w(px(60.0)).h(px(20.0)))),
+            )
+        }
+    }
+
+    /// Three anchors under one id, for [`a_repeated_anchor_id_names_how_many_times_it_was_seen`].
+    struct TriplyCollidingSurface;
+
+    impl Render for TriplyCollidingSurface {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            anchor_root(
+                "root",
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(anchor("thrice", div().w(px(10.0)).h(px(10.0))))
+                    .child(anchor("thrice", div().w(px(20.0)).h(px(10.0))))
+                    .child(anchor("thrice", div().w(px(30.0)).h(px(10.0)))),
             )
         }
     }
@@ -964,10 +1058,58 @@ mod tests {
         );
     }
 
-    /// Two rows for one id would make the snapshot depend on which one the
-    /// differ happened to read, so the later record wins outright.
+    /// **The discovery that shaped this item's design.** `spinner` and
+    /// `loading-spinner` record their own root through a plain
+    /// [`anchor`]/[`anchor_declared`], not [`anchor_root`] — see `record`'s own
+    /// docs for why — so nothing ever clears their registry between draws, and
+    /// `spinner`'s glyph redraws once a second forever. A `record` that treated
+    /// every repeat as a conflict, unconditionally, refused both surfaces on
+    /// their second draw, always: this reproduces that in miniature, no window
+    /// required, directly against the method the redraw goes through.
+    #[test]
+    fn recording_the_identical_content_twice_does_not_grow_the_frame() {
+        let registry = AnchorRegistry::default();
+        registry.record(a_box_record("spinner", 0.0, 0.0, 16.0, 16.0));
+        registry.record(a_box_record("spinner", 0.0, 0.0, 16.0, 16.0));
+
+        assert_eq!(registry.records().len(), 1);
+    }
+
+    /// **The control for the test above.** Without it, "an identical repeat is
+    /// folded away" would also pass on a `record` that folds away *every*
+    /// repeat regardless of content — which is the old, replace-unconditionally
+    /// behaviour this item removed, and precisely what let `CollidingSurface`
+    /// (two boxes, one id, different sizes) go unnoticed. A repeat under the
+    /// same id with different bounds is kept as a second row.
+    #[test]
+    fn recording_different_content_under_the_same_id_keeps_both() {
+        let registry = AnchorRegistry::default();
+        registry.record(a_box_record("twice", 0.0, 0.0, 40.0, 10.0));
+        registry.record(a_box_record("twice", 0.0, 10.0, 60.0, 20.0));
+
+        assert_eq!(registry.records().len(), 2);
+    }
+
+    /// However many times an *unchanged* value is re-observed, the frame stays
+    /// at one record — not "the first two collapse and the third does not".
+    #[test]
+    fn many_identical_observations_still_fold_to_one() {
+        let registry = AnchorRegistry::default();
+        for _ in 0..300 {
+            registry.record(a_box_record("spinner", 0.0, 0.0, 16.0, 16.0));
+        }
+
+        assert_eq!(registry.records().len(), 1);
+    }
+
+    /// **`record` keeps both anchors rather than picking one.** The evidence
+    /// of the collision — two distinct boxes, both claiming `twice` — has to
+    /// survive as far as [`crate::schema::Snapshot::build`], which is the
+    /// function that actually refuses it (see the next test); if `record`
+    /// silently replaced the first with the second, as it once did, there
+    /// would be nothing left downstream to detect.
     #[gpui::test]
-    fn a_repeated_anchor_id_replaces_rather_than_duplicates(cx: &mut TestAppContext) {
+    fn a_repeated_anchor_id_is_recorded_as_two_rows_not_one(cx: &mut TestAppContext) {
         crate::leak_checked!(cx);
         let anchors = cx.update(install);
         let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| CollidingSurface);
@@ -975,9 +1117,85 @@ mod tests {
 
         let records = anchors.records();
 
-        assert_eq!(records.len(), 2);
-        assert_eq!(records[1].id, "twice");
-        assert_eq!(records[1].bounds.size, size(px(60.0), px(20.0)));
+        assert_eq!(records.len(), 3, "{records:?}");
+        let twice: Vec<_> = records.iter().filter(|r| r.id == "twice").collect();
+        assert_eq!(twice.len(), 2, "{records:?}");
+        assert_eq!(twice[0].bounds.size, size(px(40.0), px(10.0)));
+        assert_eq!(twice[1].bounds.size, size(px(60.0), px(20.0)));
+    }
+
+    /// **The refusal itself**, taken at the boundary that can actually return
+    /// one: building a snapshot from a frame that recorded `twice` twice
+    /// fails by name rather than silently picking a record, matching
+    /// `oracleSelectDeclaredAnchors`'s refusal for the identical shape on the
+    /// DOM side ("two elements carry one declared id → throws").
+    ///
+    /// This is the mutation target for P3.42: reverting `AnchorRegistry::record`
+    /// to its old replace-on-collision behaviour makes `records()` report a
+    /// single `twice` entry again, `Snapshot::build` never sees a repeat, and
+    /// this assertion fails with "the frame recorded a collision" — see the
+    /// worker's report for the exact diff and the failing output it produces.
+    #[gpui::test]
+    fn a_repeated_anchor_id_is_refused_when_the_snapshot_is_built(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
+        let anchors = cx.update(install);
+        let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| CollidingSurface);
+        cx.run_until_parked();
+
+        let error = anchors
+            .snapshot("driver-surface", a_state(), "root")
+            .expect_err("the frame recorded a collision");
+
+        assert_eq!(
+            error,
+            crate::schema::SnapshotError::DuplicateAnchor {
+                id: "twice".to_owned(),
+                count: 2,
+            },
+        );
+        assert!(error.to_string().contains("\"twice\""), "{error}");
+    }
+
+    /// However many times an id repeats, the count in the refusal is the real
+    /// count and not a hard-coded "twice" — otherwise this would be a guard
+    /// that happens to work on exactly the fixture it was written against.
+    #[gpui::test]
+    fn a_repeated_anchor_id_names_how_many_times_it_was_seen(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
+        let anchors = cx.update(install);
+        let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| TriplyCollidingSurface);
+        cx.run_until_parked();
+
+        let error = anchors
+            .snapshot("driver-surface", a_state(), "root")
+            .expect_err("the frame recorded a collision");
+
+        assert_eq!(
+            error,
+            crate::schema::SnapshotError::DuplicateAnchor {
+                id: "thrice".to_owned(),
+                count: 3,
+            },
+        );
+    }
+
+    /// **The control.** Without it, "a colliding surface is refused" would
+    /// also pass on a `snapshot` that refuses every frame unconditionally —
+    /// the shape of vacuous guard this project has already shipped eight of.
+    /// The ordinary two-anchor surface from the very first test in this
+    /// module, which shares no id between its two anchors, still snapshots
+    /// cleanly.
+    #[gpui::test]
+    fn a_surface_with_no_repeated_id_is_not_refused(cx: &mut TestAppContext) {
+        crate::leak_checked!(cx);
+        let anchors = cx.update(install);
+        let _window = cx.open_window(size(px(800.0), px(600.0)), |_, _| Surface);
+        cx.run_until_parked();
+
+        let snapshot = anchors
+            .snapshot("driver-surface", a_state(), "root")
+            .expect("root and child use distinct ids");
+        assert_eq!(snapshot.anchors.len(), 2);
     }
 
     /// `corpus/001`, driven: **every** anchor under a zero-opacity layer

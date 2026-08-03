@@ -146,9 +146,25 @@ fn the_empty_cell_is_a_bare_cap_on_its_floor(cx: &mut TestAppContext) {
     }
 }
 
-/// `--group` changes the cap's layout context and **not** the anchor set: the
-/// group carries no id, so the snapshot still holds exactly one record. That is
-/// `ANCHORS.md` v1.8 — two `kbd` ids under one root would be a refusal.
+/// `--group` changes the cap's layout context and **not the group's own
+/// anchor set** — the group carries no id of its own — but it does add a
+/// *second* `kbd`: `KbdGroup`'s docs are explicit that "every keycap inside a
+/// group carries the id `kbd`", precisely because the primitive, not the
+/// group, is what carries `data-oracle-id`. Two elements, one id, is exactly
+/// `ANCHORS.md` v1.8's refusal shape — so a real capture of this cell (rooted
+/// at either `kbd` or at a hypothetical group root) would refuse rather than
+/// emit, which `element::tests` and `schema::tests` in `crowbar-driver` cover
+/// directly. This test's own job is narrower: the *first* cap — the one this
+/// surface roots on — still lands at the origin once a sibling cap exists to
+/// its right, which is the one thing `--group` is here to prove.
+///
+/// This used to assert `ids(&records) == ["kbd"]`, on the belief that the
+/// registry recorded only one. It did not — `AnchorRegistry::record` replaced
+/// the first `kbd` with the second, so the test could not see the collision
+/// its own comment already predicted ("two `kbd` ids under one root would be a
+/// refusal"). `find`, which every assertion below goes through, returns the
+/// *first* match, so nothing else here needed to change: the geometry it reads
+/// off is the first cap's, exactly as before.
 #[gpui::test]
 fn a_group_adds_no_anchor_and_leaves_the_cap_at_the_origin(cx: &mut TestAppContext) {
     crowbar_driver::leak_checked!(cx);
@@ -156,8 +172,9 @@ fn a_group_adds_no_anchor_and_leaves_the_cap_at_the_origin(cx: &mut TestAppConte
 
     assert_eq!(
         ids(&records),
-        vec!["kbd".to_owned()],
-        "the group is not an anchor, and the second cap is not the root's",
+        vec!["kbd".to_owned(), "kbd".to_owned()],
+        "the group adds no id of its own, but its second cap carries the same \
+         `kbd` id as the first — the collision `ANCHORS.md` v1.8 refuses",
     );
     let root = at(&records, "kbd");
     assert_px(root.origin.x, px(0.0));
