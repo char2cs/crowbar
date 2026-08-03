@@ -1634,17 +1634,29 @@ mod tests {
             assert_eq!(cell.minimum_viewport(), cell.width + expected * 2, "{name}");
         }
 
-        // Five surfaces are full-bleed today: `resizable`, whose reference is
-        // the IDE shell root, and `alert-dialog`/`command`/`dialog`/`sheet`,
-        // whose `fixed inset-0` viewport makes the popup's own width a
-        // function of the window — see their surfaces' module docs.
+        // Seven surfaces are full-bleed today: `resizable`, whose reference is
+        // the IDE shell root, and `alert-dialog`/`command`/`detach-holder-
+        // modal`/`dialog`/`repo-import-dialog`/`sheet`, whose `fixed inset-0`
+        // viewport makes the popup's own width a function of the window —
+        // see their surfaces' module docs. `detach-holder-modal` and
+        // `repo-import-dialog` (P3.51) are call sites of `dialog`'s own
+        // primitive and share its `DialogViewport`, so they share its
+        // full-bleed declaration too.
         let bleeding: Vec<&str> = Surface::names()
             .into_iter()
             .filter(|name| a_surface(name).full_bleed)
             .collect();
         assert_eq!(
             bleeding,
-            vec!["alert-dialog", "command", "dialog", "resizable", "sheet"]
+            vec![
+                "alert-dialog",
+                "command",
+                "detach-holder-modal",
+                "dialog",
+                "repo-import-dialog",
+                "resizable",
+                "sheet"
+            ]
         );
 
         // And the two Phase 1 surfaces' number is unchanged, stated as the

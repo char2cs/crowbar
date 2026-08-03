@@ -45,10 +45,15 @@ export function DetachHolderModal() {
         if (!open) close()
       }}
     >
-      <DialogPopup className="max-w-md">
-        <DialogHeader className="pr-10">
-          <DialogTitle>Detach to manage {target.branch}</DialogTitle>
-          <DialogDescription className="leading-relaxed">
+      <DialogPopup className="max-w-md" data-oracle-id="detach-holder-modal-popup">
+        <DialogHeader className="pr-10" data-oracle-id="detach-holder-modal-header">
+          <DialogTitle data-oracle-id="detach-holder-modal-title">
+            Detach to manage {target.branch}
+          </DialogTitle>
+          <DialogDescription
+            className="leading-relaxed"
+            data-oracle-id="detach-holder-modal-description"
+          >
             The checkout at <span className="font-mono text-foreground">{target.heldByPath}</span>{' '}
             will move to a detached HEAD, releasing{' '}
             <span className="font-mono text-foreground">{target.branch}</span> so Crowbar can manage
@@ -56,7 +61,7 @@ export function DetachHolderModal() {
             branch changes; uncommitted changes and commits are preserved.
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter>
+        <DialogFooter data-oracle-id="detach-holder-modal-footer">
           <Button variant="ghost" onClick={close}>
             Cancel
           </Button>

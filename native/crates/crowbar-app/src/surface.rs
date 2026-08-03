@@ -560,6 +560,13 @@ mod tests {
                 "command",
                 "crowbar-mark",
                 "crowbar-wordmark",
+                // `detach_holder_modal.rs` sorts before `dialog.rs` — `d` =
+                // `d`, then `e` < `i` (P3.51 — a call site of `dialog`'s own
+                // primitive, registered separately only because this
+                // registry requires a unique root anchor; see
+                // `crowbar_ui::components::detach_holder_modal`'s module
+                // docs).
+                "detach-holder-modal",
                 "dialog",
                 // `dropdown.rs` sorts before `dropdown_menu.rs` — `d` = `d`,
                 // then the bare filename ends before `_menu` continues it.
@@ -581,6 +588,17 @@ mod tests {
                 // `res` (P3.50, cluster 1 — the `components/layout`
                 // foundation leaves).
                 "repo-avatar",
+                // `repo_avatar.rs` sorts before `repo_import_dialog.rs` —
+                // `repo_` common, then `a` < `i`. Two clusters inserted here
+                // independently against the same `"resizable"` anchor and both
+                // predicted the collision before the merge; the resolution is
+                // keep-both, in `build.rs`'s **file**-name order.
+                //
+                // `repo_import_dialog.rs` sorts before `resizable.rs` — `r` =
+                // `r`, `e` = `e`, then `p` < `s` (P3.51 — the same call-site
+                // shape as `detach-holder-modal`'s, see that entry's
+                // comment).
+                "repo-import-dialog",
                 "resizable",
                 // `scroll_area.rs` sorts before `search.rs` — `build.rs`
                 // orders by **file** name, and `sc` < `se`. `search.rs`
