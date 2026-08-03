@@ -456,8 +456,15 @@ mod tests {
         // `dialog::DESCRIPTION_LINE_HEIGHT` is private to that module (not
         // `pub`), so this compares against its known literal value —
         // `1.25 / 0.875`, restated in `dialog.rs`'s own doc comment — rather
-        // than importing it directly.
-        assert_ne!(super::DESCRIPTION_LINE_HEIGHT, 1.25 / 0.875);
+        // than importing it directly. Both sides are `const` expressions with
+        // no layout or runtime computation behind them, so there is no
+        // imprecision to tolerate — this asks for exact bit inequality, the
+        // same way `select::BORDER_WIDTH_BITS` asks for exact bit identity,
+        // so `clippy::float_cmp` sees a `u32` comparison and not a float one.
+        assert_ne!(
+            super::DESCRIPTION_LINE_HEIGHT.to_bits(),
+            (1.25f32 / 0.875f32).to_bits()
+        );
         assert!((super::DESCRIPTION_LINE_HEIGHT - 1.625).abs() < f32::EPSILON);
     }
 
