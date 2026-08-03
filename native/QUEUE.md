@@ -3116,6 +3116,44 @@ Both are `git-row-dir`'s precedent: rendered by the port, absent from the produc
 > duration — stayed, read from the sealed token, with a test that fails if the
 > token moves.
 
+## ⛔ LIVENESS GATE — a component must be IN USE before it is ported *(2026-08-03, user)*
+
+> **"Only port components that ARE IN USE on the production app. There may be
+> some components that are in the codebase, but are essentially dead code."**
+
+**It had already happened.** `toast.rs` is merged, verified and carries a parity
+verdict — and `native/mapping/toast.md` says in its own words that what it
+measures is *"a component with no code path in any environment."* The toast users
+see is `sidebar-toast-overlay.tsx`'s hand-rolled `SidebarToastItem`, never ported.
+
+#### "Has an importer" is NOT the test
+
+`ui/toast.tsx` **is** imported. The dead thing was one **export** inside a live
+file — and symmetrically a live export can be reached only from a file that is
+itself dead. The question is **"does a path from the app entry point render
+this?"**, answered per exported symbol.
+
+| verdict | meaning |
+|---|---|
+| **LIVE** | renders from the app root — record the chain |
+| **CONDITIONAL** | behind a named route/flag/toggle. **Still in scope** — and the condition is usually a **cell axis the port must model**, as the home-route `git` tab turned out to be |
+| **DEAD** | no path renders it — do not port |
+| **UNCERTAIN** | say what would settle it |
+
+#### Measured today, before dispatching wave 2
+
+- **Wave 1's eight components: all LIVE.** Every one traces to `ide-shell.tsx`
+  (the app shell) or through `workspace-tree` → `repo-section` → `workspace-tree-item`.
+- **The 15 remaining layout targets: all LIVE**, same chains.
+- **The 48 already-ported surfaces: unknown.** `toast` is one confirmed DEAD out
+  of 48 and I do not know how many more. **Dispatched as P3.56**, an audit — with
+  a required control, because my first liveness scan reported a false "0
+  importers" for fifteen files by missing relative sibling imports.
+
+**This belongs in the denominator survey, before dispatch** — the same table that
+resolves Plate-only and Phase-4 exclusions. A component's row is not complete
+without a liveness verdict.
+
 ## ⛔ SCOPE GATE — read this BEFORE writing any worker brief
 
 Added 2026-07-31 after I dispatched a worker to port four **Plate** markdown
