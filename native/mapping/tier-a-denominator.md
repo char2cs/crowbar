@@ -468,7 +468,149 @@ areas measured so far.
 
 ## 5. File-tree model
 
-*(pending)*
+### ‼️ Methodological note: a nested nearly-duplicate directory tree
+
+`features/file-explorer/{lib,stores,utils}/*.ts` are **all 1-line re-export
+shims** (`export * from '../file-explorer/lib/X'`) pointing at the real
+content under `features/file-explorer/file-explorer/{lib,stores,utils}/*.ts`.
+`ls`-driven counting would double the real total; every line count below is
+from the real (nested) files only. This is the file-tree analogue of the
+QUEUE.md lesson about not trusting a directory listing as scope.
+
+### Where it lives
+
+| file | lines | shape |
+|---|---|---|
+| `file-explorer/lib/visible-file-tree-rows.ts` | 238 | flatten nested tree → visible virtualised rows, given expand state; search/filter with ancestor-expansion; sticky/guide ancestor computation |
+| `file-explorer/lib/file-tree-gitignore.ts` | 237 | cascading `.gitignore` rule resolution across nested directories (via the `ignore` npm package) |
+| `file-explorer/lib/file-tree-git-status.ts` | 122 | git-status → per-row decoration, with directory-level status propagated from the highest-priority child |
+| `file-explorer/lib/env-template.ts` | 90 | `.env` file template generation + comment-preserving KEY=VALUE parsing (narrow, not really tree-shaped) |
+| `file-explorer/lib/file-tree-density.ts` | 38 | density enum + `normalizeFileTreeDensity` (real) + `FILE_TREE_DENSITY_CONFIG` row-height/className map (presentation) |
+| `file-explorer/utils/file-explorer-tree-utils.ts` | 96 | immutable tree mutations: `filterHiddenFiles`, `addNewItemToTree`, `removeEditingItemsFromTree`, `getAncestorDirectoryPaths` |
+| `file-explorer/stores/file-explorer-tree-store.ts` | 146 | zustand store — expand/select/collapse state (**D2-named**, see below) |
+| `file-explorer/stores/file-explorer-clipboard-store.ts` | 110 | zustand store — copy/cut/paste, network calls |
+| `file-explorer/hooks/use-file-explorer-drag-drop.ts` | 315 | drag/drop DOM handlers |
+| `file-explorer/hooks/use-file-explorer-inline-editing.ts` | 231 | inline rename/create DOM+state handlers |
+| `file-explorer/hooks/use-file-explorer-gitignore.ts` | 79 | wires `file-tree-gitignore.ts` to store state |
+| `file-explorer/hooks/use-file-explorer-sync.ts` | 50 | reconciliation glue |
+| `file-explorer/hooks/use-file-explorer-visible-rows.ts` | 87 | wires `visible-file-tree-rows.ts` to store state |
+| `file-explorer/hooks/use-file-explorer-context-menu.tsx` | — (not counted, component-adjacent) | |
+| `features/files/lib/file-tree-api.ts` | 141 | transport (fetch calls) + `toAppFile` DTO mapping |
+| `features/files/lib/file-upload.ts` | — | transport |
+| `features/file-system/controllers/file-tree-utils.ts` | 22 | `findFileInTree` — depth-first lookup |
+| `features/file-system/controllers/file-utils.ts` | — | mixed |
+| `features/file-system/types/app.ts` | — | `FileEntry`/`AppFile` type definitions |
+
+### What is genuine, portable file-tree-model logic
+
+- **`visible-file-tree-rows.ts`** — the closest thing to a canonical
+  "file-tree model" in the app: `buildVisibleFileTreeRows` (nested tree + expand
+  set → flat visible-row list, with compact single-child-folder collapsing),
+  `computeFileTreeSearchHits`/`filterFileTreeForFffHits` (name-substring search
+  with ancestor auto-expansion), `getStickyAncestorRow(s)`/`getGuideAncestorRows`
+  (breadcrumb/indent-guide support for virtualized rendering). All pure,
+  gpui-free, no DOM.
+- **`file-tree-gitignore.ts`** — real algorithmic weight: reference collection
+  (`collectGitIgnoreFileReferences`), depth-ordered rule-set construction
+  (`createFileTreeGitIgnoreRules`), and cascading ignore resolution that walks
+  every ancestor directory before testing the target path itself
+  (`isPathGitIgnoredByFileTreeRules`) — because a directory ignored by a parent
+  rule ignores everything under it regardless of its own `.gitignore`. Uses the
+  npm `ignore` package for pattern matching; Rust has a well-known equivalent
+  (`ignore`, from ripgrep's author) that the port would reach for instead of a
+  hand-rolled matcher.
+- **`file-explorer-tree-utils.ts`** — immutable tree editing: filter/insert/
+  remove/ancestor-walk, all recursive pure functions over `FileEntry[]`.
+- **`features/file-system/controllers/file-tree-utils.ts`'s
+  `findFileInTree`** — pure depth-first lookup, 22 lines, its own bug history
+  documented in the file (used to unconditionally return null).
+- **`file-tree-git-status.ts`'s logic half** — `createFileTreeGitStatusLookup`
+  (propagate the highest-priority status up every ancestor directory, with an
+  explicit priority table) and `resolveActiveWorkspaceGitStatus` (workspace-
+  scope validity guard against a documented past bug where the comparison was
+  always false). Real domain rules.
+- **`file-tree-density.ts`'s `normalizeFileTreeDensity`/`isFileTreeDensity`** —
+  small but genuine settings-schema-adjacent validation (already called from
+  `settings-normalization.ts`, §4).
+
+### What is presentation or not core
+
+- **`file-tree-git-status.ts`'s `getFileTreeGitStatusDecoration`** returns a
+  hardcoded Tailwind `colorClassName` string (`'text-git-modified-staged'`
+  etc.) alongside the genuine `statusLetter`/`label` classification — a clean
+  example of the brief's fourth bucket: real logic (which status wins,
+  M/A/D/U/R) fused in the same function with presentation (which CSS class).
+  §6.1's sealed `Color` tokens are exactly what replaces the class-string half.
+- **`file-tree-density.ts`'s `FILE_TREE_DENSITY_CONFIG`** — row heights and
+  Tailwind class strings per density mode. Presentation, belongs with the row
+  component.
+- **`env-template.ts`** — real, tested, pure logic (KEY=VALUE parsing with
+  quote/escape/inline-comment awareness), but it is `.env`-file-content
+  domain, not tree-shape domain. Doesn't fit any of the seven named areas
+  cleanly; flagging it as an unclassified pure-logic pocket rather than
+  forcing it into "file-tree model."
+- **`file-explorer-tree-store.ts`** — a zustand store for
+  expanded/selected-paths state. **This is the literal case D2 names as its
+  own example**: *"Selection logic, tree-expansion state, and similar get
+  pulled out of components into core."* The store's mutator bodies
+  (toggle/select/expand-to-path/collapse-path/expand-all) are, underneath the
+  `create/immer/combine` wrapper, pure `Set<string> → Set<string>`
+  transitions — genuinely portable into `crowbar-core` as plain functions,
+  with only the reactive-subscription shell going to `crowbar-state`. This is
+  the one file in the whole survey the spec itself pre-classifies.
+- **`file-explorer-clipboard-store.ts`** — network calls
+  (`renameFileNode`/`copyFileNode`) and workspace lookup; Phase 4. One small
+  embedded rule (a failed cut's entries stay staged, a successful cut's don't)
+  is buried in an async function rather than factored out.
+- **`use-file-explorer-drag-drop.ts`, `use-file-explorer-inline-editing.ts`,
+  `use-file-explorer-gitignore.ts`, `use-file-explorer-sync.ts`,
+  `use-file-explorer-visible-rows.ts`** — all `useEffect`/DOM-event/store-glue
+  hooks (546 lines across the two largest). Phase 4/presentation-glue, not
+  core, though the two "wire the pure lib function to store state" hooks
+  (`use-file-explorer-gitignore.ts`, `use-file-explorer-visible-rows.ts`)
+  confirm the lib functions above are already factored out cleanly.
+- **`features/files/lib/file-tree-api.ts`** — transport (`fetchFileTree`,
+  `createFileNode`, `renameFileNode`, `deleteFileNode`, `writeFileContent`):
+  `crowbar-client` territory, not `crowbar-core`. Its `toAppFile` mapping
+  function is the only logic-shaped piece, and it maps a DTO
+  (`crowbar-proto` already generates `FileNode`, see below) to a display
+  model — thin, not new domain logic.
+
+### gpui-free?
+
+Yes for the genuine set: `visible-file-tree-rows.ts`, `file-tree-gitignore.ts`,
+`file-explorer-tree-utils.ts`, `file-tree-utils.ts`'s `findFileInTree`, and
+the classification half of `file-tree-git-status.ts`. No DOM, no React, no
+store import in any of them (the two hooks that *use* them are the
+DOM/store-entangled layer, kept separate).
+
+### Already done in `crowbar-proto`
+
+`native/crates/crowbar-proto/src/generated/domain.rs` already has `FileNode`
+(line 30) and `FileContent` (line 22) — generated DTOs matching
+`FileNodeDTO`/`AppFile`. The transport-layer DTO shapes are done; the
+tree-shape *algorithms* (visible-row flattening, gitignore cascade, status
+propagation) have no counterpart and are the real Tier A content here.
+
+### Tests
+
+| test file | cases | covers |
+|---|---|---|
+| `file-tree-gitignore.test.ts` | 16 | gitignore cascade |
+| `visible-file-tree-rows.test.ts` | 12 | row flattening/search/ancestors |
+| `file-tree-git-status.test.ts` | 9 | status decoration + propagation |
+| `file-tree-search-hits.test.ts` | 5 | (overlaps `visible-file-tree-rows`'s search half — separate file) |
+| `file-explorer-tree-utils.test.ts` | 4 | immutable tree edits |
+| `env-template.test.ts` | 3 | (not tree-shape, see above) |
+| `file-explorer/hooks/*.test.{ts,tsx}` (2 files) | 13 | hook/DOM wiring, not core |
+| `file-explorer-clipboard-store.test.ts` + `clipboard-paste-mapping.test.ts` | 11 | Phase 4, not core |
+| `file-explorer-tree-item.test.tsx` | 6 | component, not core |
+| `file-system/controllers/file-tree-utils.test.ts` | 5 | `findFileInTree` |
+| `files/lib/file-tree-api.test.ts` + `files/file-tree-api.test.ts` | 15 | transport (**two test files for one source file — a mirror-structure drift CLAUDE.md's rule would not produce; likely one is stale**) |
+
+**File-tree-model Tier A test total: 16+12+9+5+4+5 = 51 cases** across 6 files
+(gitignore, row-building/search, status, tree-edit utils, tree lookup). The
+largest single-area test base measured so far, ahead even of settings.
 
 ## 6. Workspace scoping
 
