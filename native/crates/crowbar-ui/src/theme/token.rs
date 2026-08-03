@@ -90,6 +90,60 @@ impl Color {
         a: 1.0,
     });
 
+    /// Tailwind's `red-500`, unconditional and carrying no token of its own.
+    ///
+    /// `workspace-branch-icon.tsx`'s `deleted`/`pr-closed` glyphs write
+    /// `text-red-500` directly — `theme.css` has no `--` custom property this
+    /// reaches, and it is **not** interchangeable with [`Theme`](super::Theme)'s
+    /// `destructive`: the light table's `--destructive` is `var(--color-red-500)`,
+    /// the same colour, but the dark table redefines it to
+    /// `oklch(0.65 0.22 24)`, a different number. Minted here the way
+    /// [`Color::WHITE`] is: a literal out of Tailwind's own default palette, not
+    /// a value out of `theme.css`.
+    ///
+    /// `oklch(63.7% 0.237 25.331)`, Tailwind's own hex `#fb2c36` —
+    /// `crowbar-ui/tools/gen-theme.py`'s `TAILWIND` table already carries this
+    /// entry (to resolve `--destructive`'s light-mode value) and its
+    /// `check_palette()` proves it against Tailwind's published hex.
+    pub const RED_500: Self = Self(Hsla {
+        h: 0.991_516_65,
+        s: 0.958_988_25,
+        l: 0.577_229_26,
+        a: 1.0,
+    });
+
+    /// Tailwind's `green-500` — **not** the same family as
+    /// [`Theme`](super::Theme)'s `success`, which is `var(--color-emerald-500)`
+    /// in both tables. `workspace-branch-icon.tsx`'s `pr-open` glyph writes
+    /// `text-green-500` directly, and no `--` custom property in `theme.css`
+    /// ever aliases Tailwind's green family, so there is no token to read this
+    /// number from. Minted here the way [`Color::WHITE`] is.
+    ///
+    /// `oklch(72.3% 0.219 149.579)`, resolved through the same `OKLab` pipeline
+    /// `gen-theme.py` uses, and checked against Tailwind's own published hex
+    /// `#00c950`.
+    pub const GREEN_500: Self = Self(Hsla {
+        h: 0.400_160_82,
+        s: 1.0,
+        l: 0.393_577_8,
+        a: 1.0,
+    });
+
+    /// Tailwind's `violet-500`. `workspace-branch-icon.tsx`'s `pr-merged`
+    /// glyph writes `text-violet-500` directly; `theme.css` has no violet
+    /// token at all — not even one this could coincide with by accident, the
+    /// way `warning` coincides with `amber-500`. Minted here the way
+    /// [`Color::WHITE`] is.
+    ///
+    /// `oklch(60.6% 0.25 292.717)`, resolved the same way, checked against
+    /// Tailwind's own published hex `#8e51ff`.
+    pub const VIOLET_500: Self = Self(Hsla {
+        h: 0.724_784_85,
+        s: 1.0,
+        l: 0.659_081_9,
+        a: 1.0,
+    });
+
     fn to_srgba(self) -> Srgba {
         let rgba = Rgba::from(self.0);
         Srgba::new(rgba.r, rgba.g, rgba.b, rgba.a)

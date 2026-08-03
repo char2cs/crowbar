@@ -239,6 +239,37 @@ pub trait SurfaceParams: Clone + Debug + PartialEq + 'static {
     /// surface has no prop for would be describing something nothing painted.
     fn describe(&self, cell: &Cell, out: &mut String);
 
+    /// Whether every §8.3 flag has been checked and found to have **no seam
+    /// at all** — not merely unreached by a live caller, but with no
+    /// hypothetical one either.
+    ///
+    /// Every other "no live reference" flag in this port is still a real,
+    /// checkable prop at an edge value no caller happens to choose:
+    /// `avatar.rs`'s `--tone error`, `flicker_spinner.rs`'s own `empty` at an
+    /// unreached `size-0` — the primitive genuinely accepts a `className`
+    /// merge or a passed-through value, and some hypothetical caller could
+    /// reach the edge even though none does. This method is for the rarer,
+    /// narrower claim that no such prop exists to have an edge value at
+    /// all: no `className`/prop passthrough anywhere in the React original,
+    /// and no `hover:`/`focus:`/`data-active`/selection rule either,
+    /// checked exhaustively rather than assumed. `workspace_branch_icon.rs`
+    /// is the first surface that qualifies, and its own module docs carry
+    /// the exhaustive check.
+    ///
+    /// Defaulted to `false`, so every surface registered before this method
+    /// needs no line changed — the same shape [`Self::render_ctx`] takes
+    /// against [`Self::render`]. Backs the other half of
+    /// `no_surface_declares_its_entire_state_axis_unmodelled`: that
+    /// assertion requires this to be `true` exactly when none of the four
+    /// non-mandatory §8.3 flags is modelled, and `false` whenever one is —
+    /// so returning `true` without the exhaustive check the paragraph above
+    /// describes fails a test immediately, on the surface that got it
+    /// wrong, and so does leaving it `false` on a surface that has genuinely
+    /// run out of real flags.
+    fn no_state_axis(&self) -> bool {
+        false
+    }
+
     /// The element tree this cell means.
     fn render(&self, cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement;
 
@@ -299,6 +330,9 @@ pub trait Params: Debug {
     /// See [`SurfaceParams::describe`].
     fn describe(&self, cell: &Cell, out: &mut String);
 
+    /// See [`SurfaceParams::no_state_axis`].
+    fn no_state_axis(&self) -> bool;
+
     /// See [`SurfaceParams::render_ctx`].
     ///
     /// **Not [`SurfaceParams::render`]** — that method stays on the typed
@@ -348,6 +382,10 @@ impl<T: SurfaceParams> Params for T {
 
     fn describe(&self, cell: &Cell, out: &mut String) {
         <T as SurfaceParams>::describe(self, cell, out);
+    }
+
+    fn no_state_axis(&self) -> bool {
+        <T as SurfaceParams>::no_state_axis(self)
     }
 
     fn render_ctx(
@@ -539,6 +577,10 @@ mod tests {
                 "number-input",
                 "popover",
                 "radio-group",
+                // `repo_avatar.rs` sorts before `resizable.rs` — `rep` <
+                // `res` (P3.50, cluster 1 — the `components/layout`
+                // foundation leaves).
+                "repo-avatar",
                 "resizable",
                 // `scroll_area.rs` sorts before `search.rs` — `build.rs`
                 // orders by **file** name, and `sc` < `se`. `search.rs`
@@ -573,6 +615,10 @@ mod tests {
                 // < `tooltip`: `to` common, then `a` < `o`.
                 "toast",
                 "tooltip",
+                // `workspace_branch_icon.rs` sorts last — `w` is the
+                // alphabetically latest surface file (P3.50, cluster 1's
+                // other leaf).
+                "workspace-branch-icon",
             ],
         );
     }
@@ -627,9 +673,14 @@ mod tests {
         assert_ne!(driven, Cell::default());
     }
 
-    /// Every surface's unmodelled list is a subset of the §8.3 vocabulary, and
-    /// no surface claims *every* flag is unmodelled — a surface with no real
-    /// state axis at all would be one whose whole matrix cannot fail.
+    /// Every surface's unmodelled list is a subset of the §8.3 vocabulary,
+    /// and no surface claims *every* flag is unmodelled by accident — a
+    /// surface with no real state axis at all would be one whose whole
+    /// matrix cannot fail, and that is only acceptable when the surface has
+    /// said so on purpose. [`Params::no_state_axis`] is that declaration,
+    /// and this checks it **both ways**: a surface with zero real flags and
+    /// no declaration is caught the same as a surface with a declaration
+    /// and a real flag.
     #[test]
     fn no_surface_declares_its_entire_state_axis_unmodelled() {
         for surface in crate::surfaces::ALL {
@@ -637,7 +688,13 @@ mod tests {
                 .iter()
                 .filter(|flag| !surface.unmodelled(**flag))
                 .count();
-            assert!(real > 0, "{}", surface.name);
+            let declares_no_state_axis = (surface.params)().no_state_axis();
+            assert_eq!(
+                real == 0,
+                declares_no_state_axis,
+                "{}: {real} real flag(s), no_state_axis() = {declares_no_state_axis}",
+                surface.name,
+            );
             assert!(surface.unmodelled(StateFlag::Loading), "{}", surface.name);
             assert!(surface.unmodelled(StateFlag::Error), "{}", surface.name);
         }

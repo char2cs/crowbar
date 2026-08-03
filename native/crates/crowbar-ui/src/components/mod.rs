@@ -210,6 +210,14 @@ pub mod popover;
 // branch with an unprotected local parent, and this item's dev environment
 // has none).
 pub mod radio_group;
+// `repo_avatar` is unflattened for the same reason as the rest. Its `ID`,
+// `CONTENT_SIZED` and `LINE_SIZED` would collide outright, and its `Size` —
+// `sm`/`lg`/`xl`, no `md` — would read as a table belonging to no component
+// without the module in front of it: `avatar::CallSite`'s three bundles
+// answer a different question. Neither this file nor `workspace_branch_icon`
+// carries a `data-oracle-id` on the React side yet — see each module's own
+// docs.
+pub mod repo_avatar;
 pub mod resizable;
 // `scroll_area` is unflattened for the same reason as the rest, and one further
 // one: it is the second component in the tree whose vocabulary is *two*
@@ -343,6 +351,13 @@ pub mod textarea;
 // can put a toast in `toast.tsx`'s own render path — has zero call sites
 // anywhere in `web/src`).
 pub mod toast;
+// `workspace_branch_icon` is unflattened for the same reason as the rest. Its
+// `Status`, `Glyph` and `ID` would collide with `file_tree_row`'s `GitStatus`
+// and `git_status_row`'s `ID_ICON` neighbours under a different shape of the
+// same mistake, and it reuses `flicker_spinner::CallSite::WorkspaceIcon`
+// directly rather than reimplementing the spinner it wraps — see its module
+// docs.
+pub mod workspace_branch_icon;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
 pub use avatar::Avatar;
