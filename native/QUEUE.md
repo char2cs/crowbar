@@ -3493,6 +3493,31 @@ construction*: `color_mix_remainder` weights every channel by `c * a`, and both
 division are exact. **There is no rounding step to tolerate**, which is the
 argument that makes an epsilon wrong rather than merely unnecessary.
 
+#### ✅ The integrated gate earned itself — it found what no isolated run could
+
+`native/gate-wave1` holds all three clusters. Beyond the two predicted merge
+collisions, the combined run surfaced **a failure that exists only in the
+integration**:
+
+```
+assertion `left == right` failed: fps-overlay: 0 real flag(s), no_state_axis() = false
+```
+
+Cluster 1's new biconditional invariant judged **cluster 3's** `fps-overlay`
+surface and found a **second** surface with no real state axis. Cluster 1 had
+surveyed for other candidates and correctly found none — *in its own tree, where
+cluster 3's four surfaces did not exist*. It also said plainly that it had not
+behaviourally re-audited the 45 existing surfaces and flagged that as a separate
+item.
+
+**Neither worker could have found this alone, and three isolated green gates
+would have reported three green branches.** That is the entire argument for
+gating them together, and it paid on the first run.
+
+The same run also caught **three failing `repo_avatar` tests** — their first-ever
+execution, since no cargo had run on that branch — and a **third**
+`no_state_axis` dead-code site the earlier errors had masked.
+
 #### ✅ Both predicted collisions happened, exactly as described — and I fumbled one
 
 `native/gate-wave1` holds all three clusters. Both forecasts landed:
