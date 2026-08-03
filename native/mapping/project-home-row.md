@@ -202,3 +202,48 @@ to match.
 `routes/_shell.tsx`. Always mounted above the repo tree, per
 `native/mapping/layout-denominator.md`'s own table (`project-home-row.tsx`,
 119 lines, sole importer `workspace-tree.tsx`).
+
+---
+
+## ❌ VERDICT — FAIL, 2 deltas over 5 anchors (2026-08-03, taken by me)
+
+```
+project-home-row-label.bounds.h:         18.0, expected 19.5   (line_sized)
+project-home-row-label.font.line_height: 18.0, expected 19.5
+```
+
+**Two lines, one defect.** Everything else matches to the pixel: root `332×36`
+with `bg`/`border` `#1f1f1eff`, icon `20×20` at `(7,8)`, both buttons `24×24` at
+x271/x301, and `text_width` **109.2** exactly.
+
+`19.5` is `13 × 1.5`. Because the anchor is `line_sized`, the differ compares
+`bounds.h` against the reference's **`font.line_height`**, not its `bounds.h`
+of 19.0 — so both deltas close together.
+
+**The font fix is confirmed by a surface it was not written for**: the reference
+reports `font.family: "JetBrains Mono Variable"` and the port matches it, with
+`text_width` agreeing to 0.0. P3.57 registered that face for `fps-overlay`.
+
+### The drive — ANCHORS **v1.14** — and three driving errors of mine
+
+```
+reference:  live Tauri app, route #/ide/<id>/home, dark, viewport 1714,
+            project row ACTIVE (isActive true on the home route),
+            project name "oracle-fixture"
+native:     crowbar-app --surface project-home-row --project-name oracle-fixture \
+                        --width 332 --viewport-width 1714 --theme dark --flags selected
+```
+
+I got there through three wrong cells, and each was caught by a different guard:
+
+1. **No `--project-name`** → `text: "home"` against `"oracle-fixture"`, and a
+   78px `text_width` delta following from it. Caught by the **text** comparison.
+2. **`flags: []` in the reference I wrote**, against a row that is visibly
+   active → the differ **refused outright**: *"the two snapshots are not the same
+   §8.3 matrix cell… comparing across them is the easiest possible way to fake
+   convergence."* The state block is mine to fill and I filled it wrong; the
+   refusal is the guard working on its author.
+3. Consequently two spurious **colour** deltas (`bg`, `border.color`) that
+   vanished the moment the cell was right.
+
+**Four of the six original deltas were mine.** The surviving two are the port's.
