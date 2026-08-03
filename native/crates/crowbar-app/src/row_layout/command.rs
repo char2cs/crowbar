@@ -160,6 +160,24 @@ fn the_item_is_highlighted_by_default_and_its_own_measured_box(cx: &mut TestAppC
 /// plus one row means the item is highlighted on every reachable cell, so
 /// the flag renders byte-for-byte the same picture as the resting cell
 /// rather than a second, unreached one.
+///
+/// **Compared `at` the popup root, not `find`'s window-absolute bounds.**
+/// `GpuiDialog` (`gpui_component::dialog::Dialog`) plays an unconditional
+/// 250ms slide-down + fade-in on every mount
+/// (`vendor/gpui-component/src/dialog/dialog.rs`'s `ANIMATION_DURATION`,
+/// `.with_animation("slide-down", …, |this, delta| this.top(y * delta) …)`)
+/// — there is no field on the wrap that turns it off, unlike `.overlay`/
+/// `.close_button`. `resting` and `flagged` are two *separate* windows, each
+/// riding its own instance of that animation on its own wall-clock schedule,
+/// so a `find`-style window-absolute comparison caught the two mid-slide at
+/// different, independently-rounded offsets — flaky by real time elapsed
+/// between `simulate_next_frame` calls, not by anything either cell renders
+/// wrong (reproduced: identical flakiness measuring the same `cell(&[])`
+/// twice in a row, `--flags` held constant). `at` subtracts the popup's own
+/// origin first, and the item and the popup it is measured against share the
+/// same animated ancestor, so the in-flight slide offset is on both sides of
+/// the subtraction and cancels — exactly why every *other* assertion in this
+/// file already measures `at` rather than `find`.
 #[gpui::test]
 fn selected_is_unmodelled_and_renders_the_same_picture(cx: &mut TestAppContext) {
     crowbar_driver::leak_checked!(cx);
@@ -170,7 +188,10 @@ fn selected_is_unmodelled_and_renders_the_same_picture(cx: &mut TestAppContext) 
     let flagged_item = find(&flagged, autocomplete::ID_ITEM);
     assert_eq!(resting_item.background, flagged_item.background);
     assert_eq!(resting_item.background, Paint::Solid(Theme::DARK.accent.value()));
-    assert_eq!(resting_item.bounds, flagged_item.bounds);
+    assert_eq!(
+        at(&resting, autocomplete::ID_ITEM),
+        at(&flagged, autocomplete::ID_ITEM),
+    );
 }
 
 /// The footer sits flush against the panel's bottom border, its own height
