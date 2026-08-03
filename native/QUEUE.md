@@ -138,6 +138,39 @@ down anywhere the snapshot can check.
 now done one end to end and reproduced it byte-for-byte. What each one needs is
 its own app-state drive, and those need recording next to the surface.
 
+### ▶ ANCHORS.md is now **v1.14** — the app-state hole is in the contract
+
+`9770cc07`. The finding below is no longer only a queue note: `state` names the
+§8.3 cell and **not** the app configuration, and the contract says so, in the
+"stated hole" shape v1.9 already uses. A fifth `state` key was **refused** — the
+native side has no "carousel position", so a key only the DOM side could fill
+would look like coverage and be decoration.
+
+Three rules replace the field it cannot have: a reference **records its drive**
+in that surface's mapping doc; **a control cell with an already-recorded verdict
+is re-run every time**; and an unreproducible reference is **deleted, not
+shelved**.
+
+**Briefs quote this header as the contract version — say v1.14 from here.**
+
+### ‼️ The web suite exits 1 on a fully green run — reproduced by me
+
+```
+Test Files  363 passed (363)     Tests  2709 passed (2709)
+Errors      1 error              error: script "test" exited with code 1
+```
+
+An `EnvironmentTeardownError`: `git-blame-api.ts` loading `git-repo-api.ts`
+**after the environment was torn down**, reached through
+`workspace-store-editor-arm.test.ts → workspace-store → buffer-slice →
+git-blame-store`. Vitest's own warning is *"This might cause false positive
+tests"* — which is the real cost, not the exit code.
+
+**Two workers hit this before me and both filed it as unrelated flake noise.** It
+is neither: a suite whose exit code is 1 on a green run cannot gate anything, and
+one that may be reporting some of its 2709 passes wrongly is worse than one that
+fails honestly. Dispatched as **P3.47**.
+
 ## ‼️ I captured a light `tabs` reference, then DELETED it — and that is the finding
 
 Having proved the capture loop, I went after a real §17.1 cell: `tabs` is the
