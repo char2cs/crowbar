@@ -3250,8 +3250,8 @@ taken by me against the live app. **A merge is not a verdict.**
 | `sidebar-project-header` | ✅ | ✅ **PASS 0/5** | drive: `--right` — the reference is the **right-docked** cell |
 | `context-pill` | ✅ | ❌ **FAIL 3/2** | missing 1px transparent border; both boxes +1px. Returned |
 | `fps-overlay` | ✅ | ❌ **FAIL 1/1** | +3px — **contract gap**, not a port defect (7 runs × per-run `ceil`) |
-| `repo-avatar` | ✅ | ⏸ | not rendered on the current route |
-| `workspace-branch-icon` | ✅ | ⏸ | not rendered on the current route |
+| `repo-avatar` | ✅ | ⏸ | **needs a repo in the fixture** — see below |
+| `workspace-branch-icon` | ✅ | ⏸ | **needs a repo in the fixture** — see below |
 | `detach-holder-modal` | ✅ | ⏸ | needs the modal driven open |
 | `repo-import-dialog` | ✅ | ⏸ | needs the dialog driven open |
 | `repo-icon-popover` | ✅ | ⏸ | needs the popup driven open |
@@ -3262,6 +3262,22 @@ taken by me against the live app. **A merge is not a verdict.**
 **Three verdicts taken, one passing.** Eleven surfaces built in this tier; that
 ratio is the honest state and the reason the header now separates the two
 numbers.
+
+#### ‼️ Four ⏸ rows share one blocker: the fixture project has no repos
+
+Measured against the live app: the workspaces carousel panel contains
+`"oracle-fixture"` and a drop target, and **nothing else**. `repo-section`,
+`repo-avatar`, `workspace-branch-icon` and `repo-icon-popover` all hang off a
+**repo**, and this dev instance has a project with none.
+
+So their verdicts are not blocked on porting or on anchors — **they are blocked
+on fixture data**. The unblock is to create a repo in the fixture project through
+the daemon's own API, exactly as an earlier session posted a review reply through
+it to make the only capturable `Badge` exist (see the wave-2 note in *Done*: *"a
+reply with `isAgent:true` was posted through the app's own API — data-only"*).
+
+**That is one drive that unblocks four verdicts**, and it is the next
+verification step, not a porting item.
 
 **Every ⏸ needs an app-state drive**, and per **v1.14** each records the drive
 alongside its reference. That is the work, not a formality: **two of the three
