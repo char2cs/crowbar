@@ -112,6 +112,24 @@ pub struct Surface {
     /// that measures the same flex division at another width. What the flag says
     /// is that the surface takes **no horizontal inset**, so a cell that does set
     /// the two equal is drawable rather than refused.
+    ///
+    /// **A second, narrower shape also qualifies:** a surface whose own
+    /// painted box is *not* viewport-width at all, but whose taffy
+    /// **positioning context** must be, because taffy resolves
+    /// `position: absolute` against the immediate parent unconditionally —
+    /// not against the nearest CSS-positioned ancestor, and not against the
+    /// window directly the way CSS `position: fixed` falls back when
+    /// nothing establishes a containing block. `fps-overlay` (P3.52) is
+    /// this shape: `fps-overlay.tsx`'s own `<div>` is a small, content-sized
+    /// `fixed bottom-8 right-3` corner badge, nothing like `resizable`'s or
+    /// the four dialogs' viewport-filling references, but its `.bottom()`/
+    /// `.right()` only land against the window's *true* edges — the picture
+    /// CSS `fixed` actually produces — if its own immediate parent is given
+    /// the full, uninset window width to sit in first. Dropping the flag
+    /// here does not merely change what the root anchor's x = 0 proves; it
+    /// changes where the badge is drawn, by exactly [`crate::row_surface::INSET_X`].
+    /// See `crowbar_app::surfaces::fps_overlay`'s own module docs for the
+    /// account in full, including the first attempt that got this wrong.
     pub full_bleed: bool,
     /// This surface's own options, as `(spelling, description)`, for `--help`.
     ///
@@ -239,6 +257,43 @@ pub trait SurfaceParams: Clone + Debug + PartialEq + 'static {
     /// surface has no prop for would be describing something nothing painted.
     fn describe(&self, cell: &Cell, out: &mut String);
 
+    /// Whether every §8.3 flag has been checked and found to have **no seam
+    /// at all** — not merely unreached by a live caller, but with no
+    /// hypothetical one either.
+    ///
+    /// Every other "no live reference" flag in this port is still a real,
+    /// checkable prop at an edge value no caller happens to choose:
+    /// `avatar.rs`'s `--tone error`, `flicker_spinner.rs`'s own `empty` at an
+    /// unreached `size-0` — the primitive genuinely accepts a `className`
+    /// merge or a passed-through value, and some hypothetical caller could
+    /// reach the edge even though none does. This method is for the rarer,
+    /// narrower claim that no such prop exists to have an edge value at
+    /// all: no `className`/prop passthrough anywhere in the React original,
+    /// and no `hover:`/`focus:`/`data-active`/selection rule either,
+    /// checked exhaustively rather than assumed. `workspace_branch_icon.rs`
+    /// is the first surface that qualifies, and its own module docs carry
+    /// the exhaustive check.
+    ///
+    /// Defaulted to `false`, so every surface registered before this method
+    /// needs no line changed — the same shape [`Self::render_ctx`] takes
+    /// against [`Self::render`]. Backs the other half of
+    /// `no_surface_declares_its_entire_state_axis_unmodelled`: that
+    /// assertion requires this to be `true` exactly when none of the four
+    /// non-mandatory §8.3 flags is modelled, and `false` whenever one is —
+    /// so returning `true` without the exhaustive check the paragraph above
+    /// describes fails a test immediately, on the surface that got it
+    /// wrong, and so does leaving it `false` on a surface that has genuinely
+    /// run out of real flags.
+    ///
+    /// Only that invariant test reads it — unlike [`Surface::root`], nothing
+    /// in the driver/snapshot path calls it either, so in a plain build
+    /// (`driver` feature or not) this default is genuinely dead, not merely
+    /// dead by that feature's absence.
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn no_state_axis(&self) -> bool {
+        false
+    }
+
     /// The element tree this cell means.
     fn render(&self, cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement;
 
@@ -299,6 +354,10 @@ pub trait Params: Debug {
     /// See [`SurfaceParams::describe`].
     fn describe(&self, cell: &Cell, out: &mut String);
 
+    /// See [`SurfaceParams::no_state_axis`].
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn no_state_axis(&self) -> bool;
+
     /// See [`SurfaceParams::render_ctx`].
     ///
     /// **Not [`SurfaceParams::render`]** — that method stays on the typed
@@ -348,6 +407,13 @@ impl<T: SurfaceParams> Params for T {
 
     fn describe(&self, cell: &Cell, out: &mut String) {
         <T as SurfaceParams>::describe(self, cell, out);
+    }
+
+    /// See [`SurfaceParams::no_state_axis`] for why this forward is dead in
+    /// a plain build the same way that default is.
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn no_state_axis(&self) -> bool {
+        <T as SurfaceParams>::no_state_axis(self)
     }
 
     fn render_ctx(
@@ -522,6 +588,13 @@ mod tests {
                 "command",
                 "crowbar-mark",
                 "crowbar-wordmark",
+                // `detach_holder_modal.rs` sorts before `dialog.rs` — `d` =
+                // `d`, then `e` < `i` (P3.51 — a call site of `dialog`'s own
+                // primitive, registered separately only because this
+                // registry requires a unique root anchor; see
+                // `crowbar_ui::components::detach_holder_modal`'s module
+                // docs).
+                "detach-holder-modal",
                 "dialog",
                 // `dropdown.rs` sorts before `dropdown_menu.rs` — `d` = `d`,
                 // then the bare filename ends before `_menu` continues it.
@@ -529,6 +602,9 @@ mod tests {
                 "dropdown-menu",
                 "file-tree-row",
                 "flicker-spinner",
+                // `fps_overlay.rs` sorts before `git_status_row.rs` — `f` < `g`
+                // (P3.52).
+                "fps-overlay",
                 "git-status-row",
                 "inline-error",
                 "input",
@@ -539,6 +615,21 @@ mod tests {
                 "number-input",
                 "popover",
                 "radio-group",
+                // `repo_avatar.rs` sorts before `resizable.rs` — `rep` <
+                // `res` (P3.50, cluster 1 — the `components/layout`
+                // foundation leaves).
+                "repo-avatar",
+                // `repo_avatar.rs` sorts before `repo_import_dialog.rs` —
+                // `repo_` common, then `a` < `i`. Two clusters inserted here
+                // independently against the same `"resizable"` anchor and both
+                // predicted the collision before the merge; the resolution is
+                // keep-both, in `build.rs`'s **file**-name order.
+                //
+                // `repo_import_dialog.rs` sorts before `resizable.rs` — `r` =
+                // `r`, `e` = `e`, then `p` < `s` (P3.51 — the same call-site
+                // shape as `detach-holder-modal`'s, see that entry's
+                // comment).
+                "repo-import-dialog",
                 "resizable",
                 // `scroll_area.rs` sorts before `search.rs` — `build.rs`
                 // orders by **file** name, and `sc` < `se`. `search.rs`
@@ -573,6 +664,10 @@ mod tests {
                 // < `tooltip`: `to` common, then `a` < `o`.
                 "toast",
                 "tooltip",
+                // `workspace_branch_icon.rs` sorts last — `w` is the
+                // alphabetically latest surface file (P3.50, cluster 1's
+                // other leaf).
+                "workspace-branch-icon",
             ],
         );
     }
@@ -627,9 +722,14 @@ mod tests {
         assert_ne!(driven, Cell::default());
     }
 
-    /// Every surface's unmodelled list is a subset of the §8.3 vocabulary, and
-    /// no surface claims *every* flag is unmodelled — a surface with no real
-    /// state axis at all would be one whose whole matrix cannot fail.
+    /// Every surface's unmodelled list is a subset of the §8.3 vocabulary,
+    /// and no surface claims *every* flag is unmodelled by accident — a
+    /// surface with no real state axis at all would be one whose whole
+    /// matrix cannot fail, and that is only acceptable when the surface has
+    /// said so on purpose. [`Params::no_state_axis`] is that declaration,
+    /// and this checks it **both ways**: a surface with zero real flags and
+    /// no declaration is caught the same as a surface with a declaration
+    /// and a real flag.
     #[test]
     fn no_surface_declares_its_entire_state_axis_unmodelled() {
         for surface in crate::surfaces::ALL {
@@ -637,7 +737,13 @@ mod tests {
                 .iter()
                 .filter(|flag| !surface.unmodelled(**flag))
                 .count();
-            assert!(real > 0, "{}", surface.name);
+            let declares_no_state_axis = (surface.params)().no_state_axis();
+            assert_eq!(
+                real == 0,
+                declares_no_state_axis,
+                "{}: {real} real flag(s), no_state_axis() = {declares_no_state_axis}",
+                surface.name,
+            );
             assert!(surface.unmodelled(StateFlag::Loading), "{}", surface.name);
             assert!(surface.unmodelled(StateFlag::Error), "{}", surface.name);
         }

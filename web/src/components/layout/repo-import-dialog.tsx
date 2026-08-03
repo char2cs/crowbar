@@ -123,10 +123,15 @@ export function RepoImportDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup className="flex h-[70vh] max-w-md flex-col p-0">
-        <DialogHeader className="p-4 pb-2">
-          <DialogTitle>Import branches</DialogTitle>
-          <DialogDescription>Bring remote branches into Crowbar as workspaces.</DialogDescription>
+      <DialogPopup
+        className="flex h-[70vh] max-w-md flex-col p-0"
+        data-oracle-id="repo-import-dialog-popup"
+      >
+        <DialogHeader className="p-4 pb-2" data-oracle-id="repo-import-dialog-header">
+          <DialogTitle data-oracle-id="repo-import-dialog-title">Import branches</DialogTitle>
+          <DialogDescription data-oracle-id="repo-import-dialog-description">
+            Bring remote branches into Crowbar as workspaces.
+          </DialogDescription>
         </DialogHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-2 px-4 pb-4">
           <Input
