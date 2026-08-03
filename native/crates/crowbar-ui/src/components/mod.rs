@@ -453,6 +453,19 @@ pub mod nav_stack;
 // `workspace_switcher`'s own wrapper made, extended to a conditionally
 // `display: contents` element.
 pub mod sidebar_peek;
+// `pending_create_row` → `workspace_tree_item` → `repo_section` →
+// `workspace_tree` (P3.61) is `native/mapping/layout-denominator.md` §8's
+// Cluster 8 — a genuine dependency chain, landed together by one item. Each
+// is unflattened for the usual reason (`ID_ROOT`/`ID_LABEL` would collide
+// with other surfaces' generic-sounding names otherwise). Only
+// `workspace_tree` calls `AnchorSink::root`; the other three are always
+// composed — by a parent, or by `workspace_tree_item` itself, recursively —
+// and use `AnchorSink::boxed` for their own root, `workspace_branch_icon`'s
+// own precedent. See each module's own docs.
+pub mod pending_create_row;
+pub mod workspace_tree_item;
+pub mod repo_section;
+pub mod workspace_tree;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
 pub use avatar::Avatar;

@@ -21,21 +21,43 @@ interface PendingCreateRowProps {
  */
 export function PendingCreateRow({ tempId, pending, paddingLeft, onClear }: PendingCreateRowProps) {
   return (
+    // The outer padding div carries no id of its own: it is a plain
+    // positioning wrapper (native/mapping/layout-denominator.md's `depth *
+    // 14` indentation), and the inner row below already reports its own
+    // absolute origin including that offset — a second anchor here would not
+    // tell the differ anything the row's own bounds do not already carry.
     <div style={{ paddingLeft }}>
-      <div className={cn(ROW_BASE, 'border-transparent opacity-60 pointer-events-none')}>
+      <div
+        className={cn(ROW_BASE, 'border-transparent opacity-60 pointer-events-none')}
+        data-oracle-id="pending-create-row"
+      >
         {pending.error ? (
           <>
-            <span className="flex size-4 shrink-0 items-center justify-center text-xs text-destructive">
+            {/* Shares one id with the spinner branch below — the two are
+                mutually exclusive pictures in the same slot, the same
+                shape workspace-branch-icon.tsx's own seven branches share
+                `workspace-branch-icon` under. */}
+            <span
+              className="flex size-4 shrink-0 items-center justify-center text-xs text-destructive"
+              data-oracle-id="pending-create-row-icon"
+            >
               ✕
             </span>
-            <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-muted-foreground">
+            <span
+              className="min-w-0 flex-1 truncate font-mono text-[13px] text-muted-foreground"
+              data-oracle-id="pending-create-row-label"
+              data-oracle-line-sized="true"
+            >
               {pending.branch}
             </span>
-            <span className="text-xs text-destructive">failed</span>
+            <span className="text-xs text-destructive" data-oracle-id="pending-create-row-status">
+              failed
+            </span>
             <button
               type="button"
               className="pointer-events-auto ml-1 text-xs text-muted-foreground hover:text-foreground"
               onClick={() => onClear(tempId)}
+              data-oracle-id="pending-create-row-dismiss"
             >
               ✕
             </button>
@@ -43,7 +65,11 @@ export function PendingCreateRow({ tempId, pending, paddingLeft, onClear }: Pend
         ) : (
           <>
             <WorkspaceAgentSpinner />
-            <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-muted-foreground">
+            <span
+              className="min-w-0 flex-1 truncate font-mono text-[13px] text-muted-foreground"
+              data-oracle-id="pending-create-row-label"
+              data-oracle-line-sized="true"
+            >
               {pending.branch}
             </span>
           </>

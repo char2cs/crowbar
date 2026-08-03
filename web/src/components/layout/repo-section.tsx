@@ -105,6 +105,7 @@ export function RepoSection({
         )}
         data-repo-drop={repo.id}
         aria-label={`Open ${repo.name}`}
+        data-oracle-id="repo-section"
         onClick={() => {
           // Clicks inside the inline rename editor must not navigate.
           if (renamingRepoId === repo.id) return
@@ -128,6 +129,10 @@ export function RepoSection({
             name's double-click below. */}
         <RepoIconPopover repo={repo} />
         {renamingRepoId === repo.id ? (
+          // No data-oracle-id: workspace-inline-input.tsx is a separate,
+          // not-yet-ported Tier B target and carries none of its own — see
+          // workspace-tree-item.tsx's identical rename slot for the full
+          // reasoning.
           <WorkspaceInlineInput
             defaultValue={repo.name}
             placeholder="repository-name"
@@ -160,6 +165,8 @@ export function RepoSection({
                 them straight off the row and out of reach. */}
             <span
               className="min-w-0 truncate font-mono text-foreground"
+              data-oracle-id="repo-section-label"
+              data-oracle-line-sized="true"
               onDoubleClick={(e) => {
                 e.stopPropagation()
                 setRenamingRepoId(repo.id)
@@ -184,6 +191,7 @@ export function RepoSection({
             e.stopPropagation()
             setImportOpen(true)
           }}
+          data-oracle-id="repo-section-import"
         >
           <DownloadCloud className="size-3" />
         </button>
@@ -198,6 +206,7 @@ export function RepoSection({
               if (collapsedRepos.has(repo.id)) useSidebarStore.getState().toggleRepo(repo.id)
               startCreating(repo.id, repo.defaultWorkspaceId!)
             }}
+            data-oracle-id="repo-section-add-child"
           >
             <svg
               aria-hidden="true"
@@ -221,6 +230,7 @@ export function RepoSection({
             e.stopPropagation()
             useSidebarStore.getState().toggleRepo(repo.id)
           }}
+          data-oracle-id="repo-section-collapse"
         >
           <svg
             aria-hidden="true"
@@ -240,7 +250,12 @@ export function RepoSection({
           {creatingChildOf?.repoId === repo.id &&
             creatingChildOf?.parentId === repo.defaultWorkspaceId && (
               <div style={{ paddingLeft: 14 }}>
-                <div className={cn(ROW_BASE, 'border-transparent text-foreground')}>
+                {/* This row's own chrome is anchored; WorkspaceInlineInput
+                    inside it is not — see the rename slot above. */}
+                <div
+                  className={cn(ROW_BASE, 'border-transparent text-foreground')}
+                  data-oracle-id="repo-section-create-input"
+                >
                   <svg
                     aria-hidden="true"
                     className={cn('size-4', ROW_SUB_ACTION_GLYPH)}

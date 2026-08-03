@@ -63,7 +63,7 @@ function WorkspaceTreeInner() {
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden" data-oracle-id="workspace-tree">
       <ProjectHomeRow />
       <ScrollArea className="flex-1">
         {/* A real tree, declared as one. The rows were `role="button"`, which
