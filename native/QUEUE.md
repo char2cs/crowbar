@@ -2815,6 +2815,108 @@ progress number correspondingly too small.
 
 ## In flight
 
+### 🛑 P3.41 — THE CAPTURE PATH IS BROKEN ON THE MERGED BRANCH, AND I MIS-BLAMED THE LOCK
+
+**2026-08-03.** `crowbar-app` on `rewrite/rust` @ `5da59b8f` **cannot complete a
+capture at all.** Not the hard surfaces — the Phase 1 canary, the simplest
+invocation in the project:
+
+```
+crowbar-app --width 294 --content short --added 1 --deleted 0 --no-directory
+```
+
+It prints its two startup lines and then never exits.
+
+#### What I measured, before inferring anything
+
+Two binaries × two window-manager states, the **same** invocation in all four
+cells, run back to back within two minutes:
+
+| binary | AeroSpace enabled | AeroSpace disabled |
+|---|---|---|
+| built ~2026-07-31 (preserved as `scratchpad/control-jul31-crowbar-app`) | **exit 0, snapshot written** | **exit 0, snapshot written** |
+| `rewrite/rust` @ `5da59b8f` | **HUNG** | **HUNG** |
+
+A third binary, `native/p3.37-reference-repair` @ `2c4ff053`, also hangs. That
+branch is **missing the last 10 commits** of `rewrite/rust`, so the regression is
+at or before its merge base — it is not P3.38/P3.39/P3.40.
+
+**The window manager is not the variable and the screen is not locked** — I
+checked `IOConsoleUsers` for `CGSSessionScreenIsLocked` immediately before and
+after, and the key is absent, which is what an unlocked session looks like. The
+**binary** is the variable.
+
+#### ‼️ Which means several "blocked by the screen lock" entries above are wrong
+
+I have repeatedly recorded hung captures as *"the screen re-locked"*. At least
+the most recent ones were **this defect wearing the lock's signature**, and the
+two are indistinguishable from the outside: both leave the process alive in
+`-[NSApplication run]` with no snapshot and no error. **I did not have evidence
+for the attribution I wrote down** — I had a hang and a prior. The distinguishing
+test costs one command and I did not run it:
+
+```
+python3 -c "import subprocess,plistlib; \
+  print([k for u in plistlib.loads(subprocess.run(['ioreg','-n','Root','-d1','-a'],\
+  capture_output=True).stdout)['IOConsoleUsers'] for k in u if 'Lock' in k])"
+```
+
+Empty list → **not locked** → a hang is the app's fault. Run it before writing
+"the lock" in this file ever again. The control binary is the second half of the
+test: if it captures and the tree's binary does not, the tree is at fault.
+
+#### Where it is stuck — `sample`, not a guess
+
+3s of `sample` on the hung process, main thread:
+
+```
+-[NSApplication run] → _DPSNextEvent → __CFRunLoopServiceMachPort → mach_msg   1994/2005
+__CFRUNLOOP_IS_SERVICING_THE_MAIN_DISPATCH_QUEUE__
+  → gpui_macos::window::step → gpui::window::Window::new::{{closure}}            10/2005
+```
+
+So it is **not deadlocked and not idle**: frames are still ticking through
+`window::step`, and the process is simply never reaching the emit. That points at
+the fixpoint in `crowbar-driver::frame`, whose whole contract is *"capture the
+first completed draw that reproduced the previous draw's recorded anchors"*:
+
+- `arm()` re-registers via `Window::on_next_frame`, which fires on the next frame
+  **request**. It does not itself request one.
+- `Settling::observe()` only increments `changed` when a draw is *observed*, so
+  `UNSETTLED_FRAME_LIMIT = 300` — the guard whose doc says *"a hang is the
+  incorrect outcome"* — **cannot fire if the observations stop arriving.** The
+  limit counts changing draws, not elapsed time, and the failure mode here is
+  the absence of the second draw rather than three hundred different ones.
+
+That is a hypothesis from the stack and the source, not a verdict. **P3.41 is
+dispatched to bisect it** (`git bisect` over build+probe, with the control binary
+re-run between steps as an environment canary so a real lock cannot be mistaken
+for a bad commit a second time).
+
+#### What this does and does not invalidate
+
+- **Verdicts already taken remain valid.** A capture that *completed* completed
+  on a settled frame; this defect withholds snapshots, it does not corrupt them.
+  Nothing here says a recorded PASS was wrong.
+- **The "blocked" attributions are what is unreliable**, and with them my claim
+  that the only thing standing between this port and its remaining verdicts was
+  the user unlocking a machine. Some of that was mine to fix and I filed it under
+  someone else's inconvenience.
+- The three held verdicts (`search`, `search-replace-row`, `command`) are
+  **still held**, now for a stated and reproducible reason.
+
+#### Also found while setting this up — `command` was never on this branch
+
+`native/p3.32-autocomplete-command` (@ `1118c994`) is **28 commits behind** and
+was never merged, so `command` is absent from the surface registry on both
+`rewrite/rust` and `native/p3.37-reference-repair`. Its verdict could not have
+been taken from either, lock or no lock. Rebasing it is dispatched separately;
+its verdict has to be taken on a tree carrying the two font fixes (P3.24 fallback
+chain, P3.25 weight 600), both of which move measured text widths.
+
+`native/p3.37-reference-repair` is 10 commits behind for the same reason and
+needs the same treatment before its verdict counts.
+
 ### Wave 4 (P3.15–P3.18) — dispatched 2026-07-31
 
 | Item | Branch | State |
