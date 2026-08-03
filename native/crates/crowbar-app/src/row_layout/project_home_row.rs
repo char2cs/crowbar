@@ -15,6 +15,15 @@
 //! `project_switcher_panel.rs` instead). **Every mutation this file names
 //! has now actually been run**, each with its own recorded result at its
 //! own call site — none is a bare prediction any more.
+//!
+//! **A parity run against the live app subsequently found a real defect
+//! this file's own gates had not caught**: `crowbar_ui::components::
+//! row_base::LINE_HEIGHT_RELATIVE` was wrong (`row_base.rs`'s own doc
+//! comment has the full derivation and the oracle's exact output). Nothing
+//! in this file asserted the label's own line-box height at the time, so a
+//! wrong ratio compiled, passed clippy, and passed every test here without
+//! ever being checked — `the_labels_own_line_box_is_13px_times_the_row_
+//! base_ratio` closes that specific gap now.
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
@@ -132,6 +141,34 @@ fn the_icon_sits_flush_and_the_label_follows_the_gap(cx: &mut TestAppContext) {
         label.origin.x,
         leading_edge + project_home_row::ICON_WRAPPER_SIZE + row_base::GAP,
     );
+}
+
+/// **The label's own line box is `13 × row_base::LINE_HEIGHT_RELATIVE`
+/// (19.5px), not the row's authored `h-9`** — the assertion this file did
+/// not carry when the live oracle caught this component's own
+/// `LINE_HEIGHT_RELATIVE` at the wrong value (`row_base.rs`'s own doc
+/// comment has the full account: `bounds.h` and `font.line_height` both
+/// reported `18.0` against a reference `19.5`). Closing that gap here so a
+/// future regression on this constant fails `cargo test`, not only a live
+/// parity run.
+///
+/// **Mutation, run:** reverted `row_base::LINE_HEIGHT_RELATIVE` to its
+/// pre-fix value (`18.0 / 13.0`) to confirm this test would have caught the
+/// original bug. `cargo test -p crowbar-app --bin crowbar-app
+/// the_labels_own_line_box_is_13px_times_the_row_base_ratio` failed as
+/// expected: `expected 19.5px, got 18px`. Reverted to `1.5` after
+/// confirming.
+#[gpui::test]
+fn the_labels_own_line_box_is_13px_times_the_row_base_ratio(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+    let label = at(&records, project_home_row::ID_LABEL);
+
+    assert_px(
+        label.size.height,
+        row_base::TEXT * row_base::LINE_HEIGHT_RELATIVE,
+    );
+    assert_px(label.size.height, px(19.5));
 }
 
 /// **The root's own width tracks `--width` exactly** — `w_full()` fills
