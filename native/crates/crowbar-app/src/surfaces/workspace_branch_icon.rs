@@ -2,9 +2,9 @@
 //! two P3.50 foundation leaves. See
 //! `crowbar_ui::components::workspace_branch_icon`'s module docs for the
 //! shape (single swapped element, no persistent wrapper), the "seven statuses,
-//! five pictures" finding, and — the reason this surface's `empty` cell is
-//! synthetic rather than a real branch — the finding that this component
-//! takes no `className` and spreads no props anywhere.
+//! five pictures" finding, and the exhaustive check backing this surface's
+//! [`SurfaceParams::no_state_axis`] declaration below: this component takes
+//! no `className` and spreads no props anywhere.
 //!
 //! # What each axis can and cannot do here
 //!
@@ -16,10 +16,14 @@
 //!
 //! # The state axis
 //!
-//! `empty` is the one flag kept modelled, and it is **synthetic** — see the
-//! component's own module docs and its `empty` field's doc comment for why:
-//! measured exhaustively, none of the six §8.3 flags has a real branch on
-//! this surface. `hover`/`focus`/`selected` stay unmodelled.
+//! **None of the six §8.3 flags is modelled**, checked exhaustively rather
+//! than assumed — see the component's own module docs. Earlier this surface
+//! kept a synthetic `empty` flag alive purely to satisfy the registry
+//! invariant that used to require at least one non-mandatory flag to be
+//! real; that field is gone (P3.50 follow-up). In its place, `Params` below
+//! declares [`SurfaceParams::no_state_axis`] — "every flag considered, none
+//! applicable" — which the invariant now checks is present exactly when it
+//! is true, and absent exactly when it is not.
 
 use std::fmt::Write as _;
 
@@ -38,8 +42,12 @@ pub static SURFACE: Surface = Surface {
     unmodelled: &[
         StateFlag::Loading,
         StateFlag::Error,
-        // No `hover:`/`focus:`/`data-active` rule anywhere in
-        // `workspace-branch-icon.tsx` — see the module docs.
+        // All four non-mandatory flags, including `Empty` — this component
+        // has no seam of any kind, checked exhaustively (module docs), so
+        // there is no edge value left to reach through. `Params::no_state_axis`
+        // below is the declaration that makes this deliberate rather than an
+        // oversight.
+        StateFlag::Empty,
         StateFlag::Hover,
         StateFlag::Focus,
         StateFlag::Selected,
@@ -80,13 +88,16 @@ impl Default for Params {
 
 impl Params {
     /// The icon this cell describes.
+    ///
+    /// Takes no `cell` state beyond `self`'s own fields — unlike every other
+    /// surface with a `describe`-driven cell, there is no flag left on this
+    /// one to read. See [`SurfaceParams::no_state_axis`].
     #[must_use]
-    pub fn icon(&self, cell: &Cell) -> WorkspaceBranchIcon {
+    pub fn icon(&self) -> WorkspaceBranchIcon {
         WorkspaceBranchIcon {
             status: self.status,
             working: self.working,
             is_placeholder: self.placeholder,
-            empty: cell.has(StateFlag::Empty),
         }
     }
 }
@@ -111,8 +122,8 @@ impl SurfaceParams for Params {
         None
     }
 
-    fn describe(&self, cell: &Cell, out: &mut String) {
-        let icon = self.icon(cell);
+    fn describe(&self, _cell: &Cell, out: &mut String) {
+        let icon = self.icon();
         if let Some(glyph) = icon.glyph() {
             let _ = write!(out, " · glyph {}", glyph.name());
         } else {
@@ -124,22 +135,24 @@ impl SurfaceParams for Params {
         if self.working {
             out.push_str(" · working beats isPlaceholder and the status switch");
         }
-        if cell.has(StateFlag::Empty) {
-            out.push_str(
-                " · empty: synthetic — this component spreads no prop anywhere, so no \
-                 live call site can collapse the box; see the module docs",
-            );
-        }
+    }
+
+    /// **`true`, unconditionally.** See the module docs and this surface's
+    /// own `unmodelled` list: every §8.3 flag is checked and none applies,
+    /// there is no `--flags empty` (or any other) branch left for a cell to
+    /// drive on this surface.
+    fn no_state_axis(&self) -> bool {
+        true
     }
 
     /// The icon, inside the flex row that makes it a flex item — every live
     /// call site renders it as a sibling of a workspace name.
-    fn render(&self, cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+    fn render(&self, _cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         div()
             .flex()
             .flex_row()
             .items_start()
-            .child(self.icon(cell).render(theme, anchors))
+            .child(self.icon().render(theme, anchors))
             .into_any_element()
     }
 }
@@ -190,6 +203,7 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{Params, SURFACE};
     use crate::row_surface::{Cell, StateFlag};
+    use crate::surface::SurfaceParams;
     use crowbar_ui::components::workspace_branch_icon::{self, Glyph, Status};
 
     fn a_cell(args: &[&str]) -> Cell {
@@ -216,7 +230,7 @@ mod tests {
     #[test]
     fn the_default_cell_is_the_components_own_fixture() {
         let cell = a_cell(&[]);
-        let icon = params(&cell).icon(&cell);
+        let icon = params(&cell).icon();
         assert_eq!(icon.status, Status::New);
         assert!(!icon.working);
         assert!(!icon.is_placeholder);
@@ -228,25 +242,26 @@ mod tests {
     #[test]
     fn working_beats_placeholder_beats_status() {
         let cell = a_cell(&["--status", "locked", "--placeholder", "--working"]);
-        assert_eq!(params(&cell).icon(&cell).glyph(), None);
+        assert_eq!(params(&cell).icon().glyph(), None);
 
         let cell = a_cell(&["--status", "locked", "--placeholder"]);
-        assert_eq!(params(&cell).icon(&cell).glyph(), Some(Glyph::Warning));
+        assert_eq!(params(&cell).icon().glyph(), Some(Glyph::Warning));
 
         let cell = a_cell(&["--status", "locked"]);
-        assert_eq!(params(&cell).icon(&cell).glyph(), Some(Glyph::Lock));
+        assert_eq!(params(&cell).icon().glyph(), Some(Glyph::Lock));
     }
 
-    /// `empty` is read straight through to the component's own synthetic
-    /// field.
+    /// `--flags empty` parses (the vocabulary is shared across every
+    /// surface) but reaches nothing here — there is no field left on
+    /// [`crowbar_ui::components::workspace_branch_icon::WorkspaceBranchIcon`]
+    /// for it to drive, and `Params::icon` never reads `cell` at all. The
+    /// cell still cannot fail, which is exactly what an unmodelled flag
+    /// means.
     #[test]
-    fn empty_reaches_the_components_own_field() {
+    fn empty_parses_but_reaches_nothing() {
         let plain = a_cell(&[]);
-        assert!(!params(&plain).icon(&plain).empty);
-
         let flagged = a_cell(&["--flags", "empty"]);
-        assert!(params(&flagged).icon(&flagged).empty);
-        assert_eq!(params(&flagged).icon(&flagged).extent(), gpui::px(0.0));
+        assert_eq!(params(&plain).icon(), params(&flagged).icon());
     }
 
     /// Every status parses, and the vocabulary is closed.
@@ -270,19 +285,21 @@ mod tests {
         };
     }
 
-    /// Five of the six flags are unmodelled; `empty` is the one kept real,
-    /// and it is synthetic — see the module docs.
+    /// All six flags are unmodelled, and the surface declares that on
+    /// purpose — the two facts `no_surface_declares_its_entire_state_axis_
+    /// unmodelled` (`surface.rs`) requires to agree with each other.
     #[test]
-    fn only_empty_is_modelled() {
+    fn every_flag_is_unmodelled_and_the_surface_declares_it() {
         for flag in [
             StateFlag::Loading,
             StateFlag::Error,
+            StateFlag::Empty,
             StateFlag::Hover,
             StateFlag::Focus,
             StateFlag::Selected,
         ] {
             assert!(SURFACE.unmodelled(flag), "{}", flag.name());
         }
-        assert!(!SURFACE.unmodelled(StateFlag::Empty));
+        assert!(Params::default().no_state_axis());
     }
 }

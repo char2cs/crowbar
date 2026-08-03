@@ -16,7 +16,7 @@ around either — the same "root is the swapped element" shape `repo-avatar.md`
 Every "Compiles to" below came from running the app's own `web/src/index.css`
 through its own `tailwindcss` 4.3.0 with the utility as a candidate.
 
-## 0. The headline: seven statuses, five pictures, and a state axis with no live branch at all
+## 0. The headline: seven statuses, five pictures, and a state axis with no branch at all
 
 `deleted` and `pr-closed` both render `<GitFork ... text-red-500>` —
 pixel-identical boxes from two different statuses, the same shape of finding
@@ -38,8 +38,15 @@ primitives accept a `className`/prop passthrough a call site could —
 hypothetically — merge down to zero, even where none does live. This
 component has no such seam anywhere, so it is the **first surface in the
 port whose entire six-flag state axis is vacuous by construction** — not
-"not modelled yet," but structurally unreachable, real or hypothetical. See
-§7 and the tension that forces.
+"not modelled yet," but structurally unreachable, real or hypothetical.
+
+This surface first shipped with a synthetic `WorkspaceBranchIcon::empty`
+field anyway, added only to satisfy the registry invariant that then
+required at least one non-mandatory flag to be real on every surface. A
+follow-up (still P3.50) removed it and gave the invariant a second half
+instead: `SurfaceParams::no_state_axis`, a declaration a surface makes on
+purpose rather than a field with no seam behind it. See §7 for the shipped
+shape and the mutations that back it.
 
 ## 1. Values
 
@@ -64,7 +71,7 @@ etc.) already are.
 |---|---|---|---|
 | `shrink-0` (every glyph, the wrapper) | `flex-shrink: 0` | `.flex_shrink_0()` | no reference |
 | `flex items-center justify-center` (`WorkspaceAgentSpinner`'s wrapper only) | flex, both axes centred | `.flex().items_center().justify_center()` | no reference |
-| the six glyph SVGs themselves | **no wrapping span.** `<GitBranch>` etc. render directly, with `size-4 shrink-0` on the SVG; Tailwind's preflight sets `svg { display: block }` | a **plain block `div`** — `.flex_shrink_0().w(extent).h(extent)`, no `.flex()` — `dropdown-menu.md`'s "a plain div child of a div" case, not `git_status_row`'s icon (which *is* wrapped) | no reference |
+| the six glyph SVGs themselves | **no wrapping span.** `<GitBranch>` etc. render directly, with `size-4 shrink-0` on the SVG; Tailwind's preflight sets `svg { display: block }` | a **plain block `div`** — `.flex_shrink_0().w(SIZE_4).h(SIZE_4)`, no `.flex()` — `dropdown-menu.md`'s "a plain div child of a div" case, not `git_status_row`'s icon (which *is* wrapped) | no reference |
 | every glyph SVG (a Phosphor icon component) | a vector line drawing | an **empty box** — no native equivalent exists (see §3) | no reference |
 
 ## 3. No gpui equivalent / not ported
@@ -99,8 +106,8 @@ disagree about the interior of.
 | **Treating the eight branches as eight pictures.** | `deleted`/`pr-closed` share `GitFork`; the placeholder case and `pr-conflicts` share `Warning`. Five pictures, not eight — see §0 |
 | **Assuming `text-red-500`/`text-green-500`/`text-violet-500` read a `Theme` field.** | None of the three has a `--` custom property in `theme.css` to read. `text-amber-500` is the **one** exception (`--warning` aliases it in both tables) — treating all four colours the same way is the trap `RED_500`/`GREEN_500`/`VIOLET_500` exist to avoid |
 | **Assuming `theme.destructive` is `red-500`.** | It is `red-500` in the *light* table only; the dark table redefines `--destructive` to `oklch(0.65 0.22 24)`, a different number. `Color::RED_500` is unconditional, the way `Color::WHITE` is |
-| **Believing `empty` on this surface is a real branch, because every other `empty` in the port is.** | It is not — see §7. `avatar.rs`'s, `flicker_spinner.rs`'s, and `crowbar_mark.rs`'s own `empty` fields each read a real, checkable prop the primitive genuinely accepts at an edge value no live caller chooses. This one is the port's own addition, not a reading of anything in the source |
-| **Forgetting `self.empty` has to reach the nested `FlickerSpinner` too.** | A wrapper merged to zero area with a non-zero child inside it is a picture no live call site — real or hypothetical — can produce. `WorkspaceBranchIcon::render` threads `empty` onto the nested spinner's own `empty` field for exactly this reason; dropping that wiring collapses the wrapper while leaving a 14×14 glyph floating inside a 0×0 box |
+| **Believing `--flags empty` moves anything on this surface, because every other `empty` in the port is real.** | It does not — see §7. `avatar.rs`'s, `flicker_spinner.rs`'s, and `crowbar_mark.rs`'s own `empty` fields each read a real, checkable prop the primitive genuinely accepts at an edge value no live caller chooses. This surface has no such prop, `WorkspaceBranchIcon` has no `empty` field at all, and `Params::icon` does not read `cell` — `--flags empty` parses (the vocabulary is shared) and renders the resting picture, full size, on both sides |
+| **Expecting an earlier vendored copy of this port to compile.** | Before the P3.50 follow-up, `WorkspaceBranchIcon` carried a synthetic `empty: bool` field wired through to the nested `FlickerSpinner`'s own `empty`. Both are gone; `SpinnerCallSite::WorkspaceIcon`'s `FlickerSpinner` is now constructed with `empty: false`, unconditionally |
 
 ## 7. What this surface cannot show the differ
 
@@ -113,24 +120,24 @@ to record than most.
   branch, and no call site adds one either. A follow-up prerequisite is
   required before a parity run can reach this surface — see
   `repo-avatar.md` §7 for the shape of that item.
-- **The state axis is structurally vacuous, and the port declares one flag
-  real anyway.** §0 already establishes that none of the six §8.3 flags has
-  even a *hypothetical* live branch here — this component takes no
-  `className`, spreads no props, and (checked exhaustively) has no
-  `hover:`/`focus:`/`data-active` rule anywhere. `surface.rs`'s own registry
-  invariant, `no_surface_declares_its_entire_state_axis_unmodelled`,
-  requires every registered surface to keep at least one of the four
-  non-mandatory flags (`empty`, `hover`, `focus`, `selected`) modelled — a
-  rule every earlier surface in the port satisfied by finding a real one.
-  This surface cannot: `WorkspaceBranchIcon::empty` exists only so the
-  generic `--flags empty` cell has a defined, non-degenerate picture, not
-  because collapsing the box to zero is a state `workspace-branch-icon.tsx`
-  itself can reach. It is documented as synthetic at both call sites — the
-  field's own doc comment and this surface's module docs — rather than
-  presented as a reading of the source. Whether the honest fix is instead an
-  exemption in the shared invariant for a component with no customization
-  seam at all is a design question this item raises but does not resolve on
-  its own authority.
+- **The state axis is structurally vacuous, and the registry now says so on
+  purpose rather than through a fabricated field.** §0 already establishes
+  that none of the six §8.3 flags has even a *hypothetical* live branch here
+  — this component takes no `className`, spreads no props, and (checked
+  exhaustively) has no `hover:`/`focus:`/`data-active` rule anywhere. This
+  surface first shipped keeping `WorkspaceBranchIcon::empty` real anyway,
+  purely so `surface.rs`'s registry invariant — which then required at least
+  one non-mandatory flag to be real on every surface — passed. A follow-up
+  removed the field and gave the invariant a second half instead:
+  `SurfaceParams::no_state_axis`, which this surface's `Params` returns
+  `true` from, and which `crate::surfaces::ALL`'s own test now requires be
+  `true` exactly when zero flags are real and `false` whenever one is — so
+  it cannot be added carelessly, and it cannot go stale after a later real
+  flag lands without failing a test. `FlickerSpinner`/`Avatar`'s own `empty`
+  fields do **not** qualify for it: each reads a real, checkable prop the
+  primitive genuinely accepts at an edge value no live caller chooses, which
+  is a different thing from having no seam at all. See
+  `surface.rs`'s `no_state_axis` doc comment for the exhaustive account.
 - **Five of seven statuses have no reference either way**, for the same
   reason as `repo-avatar.md`'s entire §1: no anchor exists to capture
   against.
@@ -142,5 +149,5 @@ Things learned here that are **not** about `workspace-branch-icon`.
 | Note | |
 |---|---|
 | A component can have **no** hypothetical state branch, not just no live one | every earlier "no interaction rule" surface (`crowbar-mark`, `kbd`, `label`, `separator`, `avatar`) still kept one §8.3 flag real through a prop the primitive accepts but no live caller exercises. This is the first surface where that escape hatch does not exist — the prop surface itself is closed |
-| A synthetic state flag, honestly labelled, is not the same defect as an invented one | the registry invariant this surface cannot satisfy honestly still gets satisfied, but the field's doc comment says exactly why and does not claim a state the source has. Whether that is the right call, or whether the invariant needs its own exemption clause instead, is exactly the P3.50 open question — see §7 |
-| Sharing one anchor id across every branch of a swapped-root component (`repo-avatar.md` §8's finding) generalises to a component with a **nested** anchor too | a working cell here carries two anchors (`workspace-branch-icon` and `flicker-spinner`), and both have to collapse together under `empty` — sharing the root id does not exempt a surface from wiring state through to everything it nests |
+| A registry invariant that requires a declaration, not just a count, survives the case that broke the count | `real > 0` alone cannot distinguish "this surface genuinely has no seam" from "this surface's real flag was dropped by accident" — both read as `real == 0`. `SurfaceParams::no_state_axis` adds the second fact the count was missing, checked both directions, so the failure mode the original assertion caught (a real axis silently marked unmodelled) stays caught, and the new one it could not express (a fabricated flag with no seam behind it) is caught too |
+| Sharing one anchor id across every branch of a swapped-root component (`repo-avatar.md` §8's finding) generalises to a component with a **nested** anchor too | a working cell here carries two anchors (`workspace-branch-icon` and `flicker-spinner`); now that neither field collapses, both simply render at their own authored size, but the wiring precedent — a parent's declared state reaching everything it nests, not just its own box — still holds for whichever surface needs it next |

@@ -81,22 +81,30 @@
 //! `data-oracle-id="workspace-branch-icon"` landed on the React source.
 //!
 //! # This component takes no `className` and spreads no props — checked, and
-//! it changes what `empty` can mean
+//! it is the first surface with no state axis at all
 //!
 //! Every other "no interaction rule" surface in this port (`crowbar-mark`,
-//! `kbd`, `label`, `separator`, …) still keeps `StateFlag::Empty` real,
-//! because their React primitives accept a `className`/prop passthrough a
-//! call site could — hypothetically — merge down to zero, even where none
+//! `kbd`, `label`, `separator`, …) still keeps one §8.3 flag real, because
+//! their React primitives accept a `className`/prop passthrough a call site
+//! could — hypothetically — merge down to an edge value, even where none
 //! does. `workspace-branch-icon.tsx` has no such seam anywhere: its three
 //! props are `status`/`working`/`isPlaceholder`, none of them forwarded, and
-//! every returned element's `className` is a fixed string. So this is the
-//! first surface in the port whose entire six-flag state axis is vacuous by
-//! construction — not "not modelled yet," but structurally unreachable.
-//! [`WorkspaceBranchIcon::empty`] exists anyway, collapsing every branch's box
-//! to zero the way [`crate::components::flicker_spinner::FlickerSpinner::empty`]
-//! does, purely so the generic `--flags empty` cell has a defined picture —
-//! see that field's own doc comment for the full account, and report this
-//! finding rather than take the field as evidence of a real prop.
+//! every returned element's `className` is a fixed string. Checked
+//! exhaustively: none of `hover`/`focus`/`selected` has a rule either, so
+//! every one of the six live pictures this component can produce paints a
+//! fully-sized, fully-coloured box — there is no branch, real or
+//! reachable-by-construction, where a §8.3 flag would change anything.
+//!
+//! This component used to carry a synthetic `empty` field anyway, purely to
+//! satisfy the registry invariant that once required at least one
+//! non-mandatory flag to be real on every surface. That field is gone:
+//! `crowbar-app`'s `--surface workspace-branch-icon` (which is what owns the
+//! §8.3 vocabulary — this crate has no `StateFlag` of its own) now declares
+//! `SurfaceParams::no_state_axis` instead, "every §8.3 flag considered, none
+//! applicable," rather than inventing a struct field with no seam behind it.
+//! See `crowbar-app/src/surfaces/workspace_branch_icon.rs` and
+//! `crowbar-app/src/surface.rs`'s `no_state_axis` doc comment for the full
+//! account of why that is the honest fix and this field was not.
 
 use gpui::{AnyElement, Div, ParentElement as _, Pixels, Styled as _, div, px};
 
@@ -116,7 +124,7 @@ pub const CONTENT_SIZED: [&str; 0] = [];
 pub const LINE_SIZED: [&str; 0] = [];
 
 /// `size-4` — the one box every branch of this component renders, glyph or
-/// spinner alike.
+/// spinner alike. Unconditional: nothing on this surface collapses it.
 pub const SIZE_4: Pixels = px(16.0);
 
 /// `WorkspaceStatus`'s seven members, spelled exactly as the TypeScript union
@@ -216,27 +224,6 @@ pub struct WorkspaceBranchIcon {
     pub working: bool,
     /// `isPlaceholder` — checked **second**, ahead of the status switch.
     pub is_placeholder: bool,
-    /// §8.3's `empty`: forces every branch's box to zero, the way
-    /// [`FlickerSpinner::empty`] forces its own.
-    ///
-    /// **Unlike every other `empty` in this port, there is no hypothetical
-    /// live call site this models.** `avatar.rs`'s, `flicker_spinner.rs`'s
-    /// and `crowbar_mark.rs`'s own `empty` cells each read a real prop the
-    /// React primitive genuinely accepts (a merged `className`, a passed-through
-    /// `width`) at an edge value no live caller happens to choose.
-    /// `workspace-branch-icon.tsx` takes exactly three props — `status`,
-    /// `working`, `isPlaceholder` — spreads none of them onward, and merges no
-    /// `className` anywhere in its own source or `WorkspaceAgentSpinner`'s.
-    /// Checked exhaustively (module docs): none of `hover`/`focus`/`selected`
-    /// has a rule either, so every one of the six live pictures this component
-    /// can produce paints a fully-sized, fully-coloured box — there is no
-    /// branch, real or reachable-by-construction, where nothing is drawn.
-    /// This field exists only so the generic `--flags empty` cell has a
-    /// defined, non-degenerate picture on this surface — `surface.rs`'s own
-    /// `no_surface_declares_its_entire_state_axis_unmodelled` requires at
-    /// least one of the four non-mandatory flags to be real — rather than
-    /// claiming a state the source does not have.
-    pub empty: bool,
 }
 
 impl WorkspaceBranchIcon {
@@ -248,15 +235,7 @@ impl WorkspaceBranchIcon {
             status: Status::New,
             working: false,
             is_placeholder: false,
-            empty: false,
         }
-    }
-
-    /// The box every branch draws, in logical px — `size-4` (16px), or zero
-    /// once [`Self::empty`] collapses it.
-    #[must_use]
-    pub fn extent(self) -> Pixels {
-        if self.empty { px(0.0) } else { SIZE_4 }
     }
 
     /// Which glyph this cell draws, or `None` for the spinner branch —
@@ -299,12 +278,9 @@ impl WorkspaceBranchIcon {
     #[must_use]
     pub fn render(self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         if self.working {
-            // `self.empty` collapses the spinner's own box too — a wrapper
-            // merged to zero area with a non-zero child inside it would be a
-            // picture no live call site (real or hypothetical) can produce.
             let spinner = FlickerSpinner {
                 call_site: SpinnerCallSite::WorkspaceIcon,
-                empty: self.empty,
+                empty: false,
             }
             .render(anchors);
             anchors.boxed(AnchorId::from(ID), self.spinner_wrapper(theme).child(spinner))
@@ -316,14 +292,13 @@ impl WorkspaceBranchIcon {
     /// `'flex size-4 shrink-0 items-center justify-center text-foreground'`
     /// around `<FlickerSpinner className="size-3.5" />` — `WorkspaceAgentSpinner`.
     fn spinner_wrapper(self, theme: &Theme) -> Div {
-        let extent = self.extent();
         div()
             .flex()
             .flex_shrink_0()
             .items_center()
             .justify_center()
-            .w(extent)
-            .h(extent)
+            .w(SIZE_4)
+            .h(SIZE_4)
             .text_color(theme.foreground)
     }
 
@@ -336,8 +311,7 @@ impl WorkspaceBranchIcon {
     /// `inline-flex` child, and nothing here is one. `dropdown-menu.md`'s "a
     /// plain div child of a div" case, not `git_status_row`'s icon.
     fn glyph_box(self, theme: &Theme) -> Div {
-        let extent = self.extent();
-        let mut node = div().flex_shrink_0().w(extent).h(extent);
+        let mut node = div().flex_shrink_0().w(SIZE_4).h(SIZE_4);
         if let Some(color) = self.color(theme) {
             node = node.text_color(color);
         }
@@ -347,9 +321,7 @@ impl WorkspaceBranchIcon {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ALL_STATUSES, CONTENT_SIZED, Glyph, ID, LINE_SIZED, SIZE_4, Status, WorkspaceBranchIcon,
-    };
+    use super::{ALL_STATUSES, CONTENT_SIZED, Glyph, ID, LINE_SIZED, SIZE_4, Status, WorkspaceBranchIcon};
     use crate::theme::{Color, Theme};
     use gpui::px;
 
@@ -370,7 +342,6 @@ mod tests {
             status: Status::Locked,
             working: true,
             is_placeholder: true,
-            empty: false,
         };
         assert_eq!(icon.glyph(), None, "working wins over both");
 
@@ -408,7 +379,6 @@ mod tests {
                 status,
                 working: false,
                 is_placeholder: false,
-                empty: false,
             };
             assert_eq!(icon.glyph(), Some(glyph), "{}", status.name());
         }
@@ -423,13 +393,11 @@ mod tests {
             status: Status::New,
             working: false,
             is_placeholder: true,
-            empty: false,
         };
         let conflicts = WorkspaceBranchIcon {
             status: Status::PrConflicts,
             working: false,
             is_placeholder: false,
-            empty: false,
         };
         assert_eq!(placeholder.glyph(), conflicts.glyph());
         assert_eq!(placeholder.color(&theme), conflicts.color(&theme));
@@ -444,13 +412,11 @@ mod tests {
             status: Status::Deleted,
             working: false,
             is_placeholder: false,
-            empty: false,
         };
         let pr_closed = WorkspaceBranchIcon {
             status: Status::PrClosed,
             working: false,
             is_placeholder: false,
-            empty: false,
         };
         assert_eq!(deleted.glyph(), pr_closed.glyph());
         assert_eq!(deleted.color(&theme), pr_closed.color(&theme));
@@ -468,7 +434,6 @@ mod tests {
                 status,
                 working: false,
                 is_placeholder: placeholder,
-                empty: false,
             }
             .color(&theme)
             .expect("a non-working cell always draws a glyph")
@@ -498,7 +463,6 @@ mod tests {
             status: Status::New,
             working: true,
             is_placeholder: false,
-            empty: false,
         };
         assert_eq!(icon.color(&Theme::DARK), None);
     }
@@ -538,24 +502,28 @@ mod tests {
         assert_eq!(ID, "workspace-branch-icon");
     }
 
-    /// `empty` collapses every branch's box to zero — glyph and spinner
-    /// alike — the synthetic reading the struct field's own doc comment
-    /// explains.
+    /// Every field on this struct is a `bool`/`Status` read straight off the
+    /// eight-way branch — there is no fourth field left to collapse a box,
+    /// and every value this struct can hold draws a fully-sized picture.
+    /// `no_state_axis` (declared on this surface's `Params`, in
+    /// `crowbar-app`) is where that fact is now recorded, not a field here.
     #[test]
-    fn empty_collapses_every_branchs_box_to_zero() {
+    fn every_value_this_struct_can_hold_draws_a_fully_sized_box() {
         for working in [false, true] {
-            let full = WorkspaceBranchIcon {
-                status: Status::New,
-                working,
-                is_placeholder: false,
-                empty: false,
-            };
-            let collapsed = WorkspaceBranchIcon {
-                empty: true,
-                ..full
-            };
-            assert!(full.extent() > px(0.0), "{working}");
-            assert_eq!(collapsed.extent(), px(0.0), "{working}");
+            for is_placeholder in [false, true] {
+                for status in ALL_STATUSES {
+                    let icon = WorkspaceBranchIcon {
+                        status,
+                        working,
+                        is_placeholder,
+                    };
+                    if working {
+                        assert_eq!(icon.glyph(), None);
+                    } else {
+                        assert!(icon.glyph().is_some());
+                    }
+                }
+            }
         }
     }
 }

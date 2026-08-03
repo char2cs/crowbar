@@ -150,27 +150,29 @@ fn only_a_working_cell_carries_two_anchors(cx: &mut TestAppContext) {
     assert_eq!(ids(&status).len(), 1, "a plain glyph cell");
 }
 
-/// **`empty` collapses every branch's box to zero** — the glyph cell's own
-/// box, and both anchors of the spinner cell alike.
+/// **`--flags empty` is inert on this surface, glyph cell and spinner cell
+/// alike** — `StateFlag::Empty` is unmodelled here (this surface declares
+/// `no_state_axis`, `surface.rs`'s own module docs), so driving it has to
+/// render the resting picture on both sides rather than collapsing anything.
 ///
-/// The one-line mutation: in `WorkspaceBranchIcon::render`, change `empty:
-/// self.empty` to `empty: false` on the nested `FlickerSpinner` — the
-/// `flicker-spinner` anchor would then measure `14 × 14` against this test's
-/// `0 × 0`, even though its own wrapper correctly collapsed.
+/// The one-line mutation: reintroducing an `empty: cell.has(StateFlag::Empty)`
+/// read in `Params::icon` (removed in the P3.50 follow-up that deleted
+/// `WorkspaceBranchIcon::empty`) would make the flagged glyph cell measure
+/// `0 × 0` against this test's `16 × 16`.
 #[gpui::test]
-fn empty_collapses_both_the_glyph_and_the_spinner_cells(cx: &mut TestAppContext) {
+fn empty_is_inert_on_both_the_glyph_and_the_spinner_cells(cx: &mut TestAppContext) {
     crowbar_driver::leak_checked!(cx);
 
     let glyph = measure(cx, cell(&["--flags", "empty"]));
     let root = at(&glyph, "workspace-branch-icon");
-    assert_px(root.size.width, px(0.0));
-    assert_px(root.size.height, px(0.0));
+    assert_px(root.size.width, px(16.0));
+    assert_px(root.size.height, px(16.0));
 
     let spinner = measure(cx, cell(&["--working", "--flags", "empty"]));
     let wrapper = at(&spinner, "workspace-branch-icon");
-    assert_px(wrapper.size.width, px(0.0));
-    assert_px(wrapper.size.height, px(0.0));
+    assert_px(wrapper.size.width, px(16.0));
+    assert_px(wrapper.size.height, px(16.0));
     let nested = at(&spinner, "flicker-spinner");
-    assert_px(nested.size.width, px(0.0));
-    assert_px(nested.size.height, px(0.0));
+    assert_px(nested.size.width, px(14.0));
+    assert_px(nested.size.height, px(14.0));
 }
