@@ -614,7 +614,146 @@ largest single-area test base measured so far, ahead even of settings.
 
 ## 6. Workspace scoping
 
-*(pending)*
+### Where it lives
+
+Split across `web/src/lib/` and `web/src/features/workspace/lib/` — **not
+concentrated in `features/workspace/` alone**, unlike the other six areas
+which each live under one feature directory:
+
+| file | lines | shape |
+|---|---|---|
+| `lib/workspace-scope.ts` | 87 | `WorkspaceScope{projectId,repoId,wsId}` + registry (`Map`) + route-path parse |
+| `lib/workspace-scope-url.ts` | 28 | scope → REST base-path construction, home-workspace detection |
+| `lib/workspace/resolve-root-path.ts` | 31 | active workspace → on-disk root path (store-entangled) |
+| `lib/workspace/placeholder.ts` | 32 | placeholder-workspace detection + reason string |
+| `lib/workspace/branch-workspace.ts` | 16 | branch → owning-workspace-id lookup within a repo |
+| `features/workspace/lib/keep-alive-policy.ts` | 98 | **pure** retention/eviction policy for mounted workspaces |
+| `features/workspace/lib/activation-freshness.ts` | 90 | warm-reactivation freshness ledger (borderline, see below) |
+| `features/workspace/lib/home-workspace-resolver.ts` | 89 | async-fetch + cache + `useSyncExternalStore` — Phase 4 |
+| `features/workspace/lib/external-buffer-sync.ts` | 90 | external-disk-change reconciliation for open editor buffers |
+| `features/workspace/lib/reset-workspace-scoped-stores.ts` | 47 | store-reset-on-activation glue |
+| `features/workspace/lib/open-file-content.ts` | 46 | fetch+decode+open orchestration |
+| `features/workspace/lib/workspace-slot-style.ts` | 36 | DOM mount-strategy styling (webview artifact) |
+
+**544 lines total** across these 12 files.
+
+### What is genuine, portable workspace-scoping logic
+
+- **`workspace-scope.ts`'s pure half** — `parseWorkspaceScopeFromPath` (regex
+  match of `/ide/:projectId/:repoId/:wsId` into a `WorkspaceScope`) is exactly
+  "workspace/path scoping" as named. The registry half (`_scopes: Map`,
+  `setWorkspaceScope`/`recordWorkspaceScope`/`getWorkspaceScope`,
+  module-level `_activeWorkspaceId`) is a **plain, framework-free lookup
+  table** — no React, no zustand, no gpui — explicitly documented as living
+  outside the store graph *on purpose*. This is a clean, ready-made example of
+  the kind of small stateful registry D2 wants moved into `crowbar-core`
+  directly rather than wrapped as `Entity<T>`.
+- **`workspace-scope-url.ts`** — `workspaceBase(wsId)` (scope → REST path,
+  including the home-workspace special case with no `repoId`) and
+  `isHomeWorkspace(wsId)`. Real scoping rules (hierarchical URL construction,
+  what makes a workspace a "home" workspace), gpui-free. Note: §4.2's
+  dependency table lets `crowbar-core` depend on `crowbar-client`, so this is
+  a legitimate `crowbar-core` responsibility even though its output is a URL
+  path string that `crowbar-client` ultimately sends over the wire — no
+  crate-graph cycle.
+- **`lib/workspace/placeholder.ts`** — `isPlaceholderWorkspace` (a workspace
+  with no on-disk worktree, keyed on a documented *absence-of-field* signal,
+  not a status enum) and `placeholderReason` (precedence: live-holder path >
+  daemon-recorded error > generic retry message). Pure, gpui-free, though
+  `placeholderReason`'s output is a user-facing sentence — logic and copy
+  fused in one function, the brief's fourth-bucket pattern again, but small
+  enough that separating them buys little.
+- **`lib/workspace/branch-workspace.ts`** — `findWorkspaceForBranch`: exact
+  case-sensitive branch→workspace-id lookup within a repo, explicitly
+  excluding the default/main-worktree workspace. Small, pure, real git×
+  workspace domain rule.
+- **`keep-alive-policy.ts`'s `planRetention`** — the strongest Tier A
+  candidate in this area: explicitly injected-clock, pure, documented
+  invariants (active workspace always retained; window + hard-cap eviction;
+  deterministic tie-breaking). Same shape as `patch-window.ts`'s
+  `planWindow` (§1/§2) — a resource-retention scheduler, not merely
+  subscription glue. Unlike `patch-window.ts`, there is no sibling crate this
+  obviously belongs to instead (no `crowbar-workspace` crate exists), so
+  `crowbar-core` is the natural home.
+
+### What is entangled, Phase 4, or presentation
+
+- **`resolve-root-path.ts`** — reads directly from two other zustand stores'
+  `.getState()` and `window.location.hash`. Not pure; Phase 4/glue, though the
+  underlying question ("what is this view's on-disk root") is a real
+  workspace-scoping *concept* whose implementation today is entangled.
+- **`home-workspace-resolver.ts`** — async fetch, an in-memory cache Map, and
+  `useSyncExternalStore` subscription plumbing. This is the SAME
+  "dependency-free module singleton" architectural pattern as
+  `workspace-scope.ts` (the file's own comment says so), but doing network
+  I/O + subscription rather than pure parsing — squarely Phase 4.
+- **`activation-freshness.ts` — a genuine ambiguity, flagged rather than
+  silently resolved.** Every function in it is technically gpui-free (Maps,
+  timestamps, no framework import), which by §7.1's literal text ("if a
+  store's logic can be tested without gpui, it belongs in core") would argue
+  Tier A. But the brief's own bucket-3 test says *"if its substance is
+  subscription, invalidation or effect ordering, it is not Tier A"* — and
+  this file's entire purpose is deciding whether a re-subscribe should re-seed
+  or reuse cached data, i.e. invalidation timing for the reactive graph. I
+  read it as Phase 4 under the brief's substance test, but flag the tension
+  with §7.1's more permissive wording explicitly: **the spec's own two
+  statements of this rule do not agree at the margin**, and
+  `activation-freshness.ts` sits exactly on that margin.
+- **`external-buffer-sync.ts`** — real rules (own-write-echo suppression,
+  clean-vs-dirty reconciliation, disk-equals-saved-content detection) but
+  every function reads/writes a `WorkspaceStore`'s `.getState()`/`.setState()`
+  and fires toasts. This is editor-buffer domain logic more than workspace
+  *scoping*, and it is Phase-4-entangled in its current form — noted here
+  because it doesn't fit any of the seven named areas cleanly and is real
+  logic, not because it belongs in this bucket.
+- **`reset-workspace-scoped-stores.ts`, `open-file-content.ts`** — Phase 4
+  store-lifecycle and fetch-orchestration glue.
+- **`workspace-slot-style.ts`** — despite being "pure" and unit-tested as
+  such, its output is CSS (`display:none`/`display:contents`) and a DOM
+  `inert` flag for a webview mounting strategy. Out of scope for the same
+  reason as `appearance-bootstrap.ts` (§4): GPUI has no DOM to hide via CSS
+  display — an inactive workspace's `Entity<T>` simply isn't rendered this
+  frame. Not a port target even though the code itself is trivially pure.
+
+### gpui-free?
+
+Yes for the genuine set: `workspace-scope.ts`, `workspace-scope-url.ts`,
+`placeholder.ts`, `branch-workspace.ts`, `keep-alive-policy.ts`. No DOM, no
+React, no store import. `activation-freshness.ts` is gpui-free in the same
+narrow sense but is Phase-4-shaped by substance (see above).
+
+### Already done in `crowbar-proto`/`crowbar-client`
+
+None. `WorkspaceScope` has no generated counterpart — unsurprising, since it
+is a purely frontend-side derivation from the router URL, not a daemon
+response shape.
+
+### Tests
+
+| test file | cases | covers |
+|---|---|---|
+| `lib/workspace-scope.test.ts` | 7 | registry + path parsing |
+| `lib/workspace/placeholder.test.ts` | 8 | placeholder detection + reason |
+| `lib/workspace/branch-workspace.test.ts` | 6 | branch→workspace lookup |
+| `lib/workspace/resolve-root-path.test.ts` | 4 | (store-entangled, not core) |
+| `features/workspace/lib/keep-alive-policy.test.ts` | 11 | `planRetention` |
+| `features/workspace/lib/activation-freshness.test.ts` | 7 | (borderline, see above) |
+| `features/workspace/lib/home-workspace-resolver.test.ts` | 5 | (Phase 4, not core) |
+| `features/workspace/lib/external-buffer-sync.test.ts` | 7 | (Phase 4/editor-buffer, not core) |
+| `features/workspace/lib/reset-workspace-scoped-stores.test.ts` | 3 | (Phase 4, not core) |
+| `features/workspace/lib/workspace-slot-style.test.ts` | 3 | (presentation, not core) |
+
+**‼️ Finding: `workspace-scope-url.ts` (`workspaceBase`, `isHomeWorkspace`) has
+no dedicated test file** — no `workspace-scope-url.test.ts` exists anywhere
+under `__tests__/`. Every workspace-scoped API call in the app runs through
+`workspaceBase`, making it one of the most load-bearing functions in this
+whole survey, and it is untested in isolation (only indirectly, through
+whatever calls it in other suites).
+
+**Workspace-scoping Tier A test total: 7+8+6+11 = 32 cases** across 4 files
+(registry/parsing, placeholder, branch-lookup, retention policy) — plus
+`activation-freshness.test.ts`'s 7 cases if the borderline call above is
+read the other way (giving 39).
 
 ## 7. Review threads
 
