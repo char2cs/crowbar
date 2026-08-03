@@ -30,7 +30,7 @@
 //!
 //! | Axis | Here |
 //! |---|---|
-//! | `--width` | **weak.** Nine of the ten sizes author their own box; only the five non-icon sizes take their width from their content, and no live call site renders a Button with a label (see [`Label`]) |
+//! | `--width` | **weak.** Nine of the ten sizes author their own box; only the five non-icon sizes take their width from their content, and no live call site renders a Button with a label — `Label` is closed (see [`Label`]), so labelled controls are hand-built |
 //! | `--viewport-width` | **real, and the strongest axis this surface has.** Every one of the ten sizes carries an `sm:` variant that changes its box, and two of them change the type scale as well |
 //! | `--theme` | **real** for six of the seven variants — `bg`, `fg` and `border.color` all move. Vacuous on `link`, which paints no background and no border colour |
 //! | `--content` | real **only with `--label`**, which is off by default because the reference's nine buttons are all icon-only |
@@ -55,7 +55,7 @@
 //! not add: its remit on that file is `data-oracle-id` and nothing else. Leaving
 //! both sides undeclared is the safe direction rather than a blind spot: it can
 //! manufacture a delta of at most the ceil excess (< 1px) and cannot hide one.
-//! It also cannot fire today — no live call site renders a Button with a label.
+//! It also cannot fire today — no live call site renders a Button with a label (`Label` is closed; labelled controls are hand-built).
 
 use gpui::{
     AnyElement, BoxShadow, Div, FontWeight, IntoElement as _, ParentElement as _, Pixels, Rems,
