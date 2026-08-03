@@ -84,9 +84,27 @@ session from prose scattered over 4,000 lines.
 | 4 | zero `unsafe` outside `crowbar-platform`, every block there proved | ✅ **met — and now vacuous** | grepped 2026-08-03: **0** outside. P3.40 removed the last AppKit code, so there are **0 inside** too. Rule 3 of `check-invariants.sh` passes with nothing to check; the mutation evidence for it is historical. **Re-run that mutation the moment `unsafe` returns.** |
 | 5 | zero `unwrap`/`expect`/`todo!` outside tests | ✅ **met, enforced by the compiler** | `[workspace.lints.clippy]` denies `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`; all 12 crates opt in via `[lints] workspace = true`; **0** per-site `#[allow]`s. Proved by mutation, both directions — see below. |
 | 6 | leak soak shows no RSS growth vs React | ❌ **not met** | there is no shared workload to soak yet. Sequencing, not neglect. |
-| 7 | `blocked/` empty, or every item a listed user decision | ⚠ **partial** | 6 items; `s13-native-menus` resolved 2026-08-03. The rest need classifying — two are environmental, not decisions. |
+| 7 | `blocked/` empty, or every item a listed user decision | ⚠ **partial — 1 of 6 is neither** | classified 2026-08-03, see below. |
 | 8 | terminal conformance suite green | ❌ **not met** | the terminal is not ported. |
 | 9 | a user cannot tell the apps apart, except §13 | ❌ **not met** | follows from 1, 2 and 8. |
+
+### §17.7 — `blocked/` classified, 2026-08-03
+
+§17.7 is met when every remaining item is **a user decision, listed**. So each
+one has to be sorted into "waiting on the user" or "waiting on me", and until
+today nobody had.
+
+| item | class | standing |
+|---|---|---|
+| `cla-policy.md` | **user decision** | AGPL-only relicense left the CLA requirement open. Blocks nothing. ✅ qualifies |
+| `vendored-crates-without-a-licence.md` | **user decision** | `gpui_shared_string` and `gpui_util` declare no licence upstream. Needs confirmation with Zed or an accepted risk. ✅ qualifies |
+| `route-audit-red-at-head.md` | **user decision** | two `api/` routes registered but not declared; `api/` is out of this port's scope per §0. **Re-checked today and it has drifted further: 161 → 163**, so the gate is now two routes staler than when it was raised. ✅ qualifies |
+| `resizable-needs-a-taller-display.md` | **user decision** *(or a bigger display)* | needs a measurement-window ruling I cannot make. ✅ qualifies |
+| `s13-native-menus-accepted-delta.md` | **resolved** | decision made 07-31, spec edit landed `a4de9aef`. ✅ |
+| `hover-and-focus-need-an-unlocked-screen.md` | ❌ **mine, and now unblocked** | its own text says *"about ten minutes of work"* once the screen is unlocked. **It is unlocked.** This is the one item standing between §17.7 and met, and it is not a user decision — it is work I owe. It needs the reference-capture harness (P3.45, in flight), then the two flags. |
+
+**So §17.7 turns on one item, and that item is mine.** Recorded plainly rather
+than left in a folder whose name implies someone else is the holdup.
 
 ### The §17.5 mutation, run by me 2026-08-03 — both directions
 
