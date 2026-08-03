@@ -10,7 +10,7 @@ Updated every orchestrator iteration. This file is how a cold session picks up.
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
 | **Tier B · `components/layout`** | **1 of 23 targets** (29 files, of which 4 are Phase 4/5, 1 app shell, 1 no-geometry). **22 to go**, wave 1 in flight |
-| **Tier A · `crowbar-core`** | **349 lines of a ~3,170-line target** — 36 files, 221 ported-able test cases. First item in flight |
+| **Tier A · `crowbar-core`** | **1,648 lines of a ~3,170-line target** — first area merged (workspace scoping, P3.53). Coverage **100.00% over 787 lines**, up from 148 |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
 Both denominators come from surveys committed this iteration
@@ -3375,7 +3375,7 @@ existed at all.
 | **P3.50** cluster 1 | `native/p3.50-layout-cluster1` @ `dd280377` | committed (code + 2 mapping docs). Implementing the state-axis exemption; **gates third** |
 | **P3.51** cluster 2 | `native/p3.51-layout-cluster2` @ `ef933cbd` | committed. **1 clippy error**; gates second |
 | **P3.52** cluster 3 | `native/p3.52-layout-cluster3` @ `2235eb0e` | committed, 4 of 5. **5 clippy errors**; gating now |
-| **P3.53** Tier A | `native/p3.53-workspace-scoping` | **6 files, 1,276 lines uncommitted** — worker searched the shared tree and reported "nothing to commit" |
+| **P3.53** Tier A | ✅ **MERGED `aed95496`** | 1,299 lines. clippy 0 · **1683 passed** (was 1627) · `crowbar-core` **71 tests** (was 15) · **100.00% over 787 lines** (was 148) · 7/7 invariants |
 | **P3.54** layout anchors | dispatched | scope narrowed to the **seven** files that lack them |
 
 **I gated the two committed clusters myself** on a throwaway integration branch in
