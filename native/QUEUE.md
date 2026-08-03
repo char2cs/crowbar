@@ -3373,7 +3373,7 @@ existed at all.
 | item | branch @ commit | state |
 |---|---|---|
 | **P3.50** cluster 1 | `native/p3.50-layout-cluster1` @ `dd280377` | committed (code + 2 mapping docs). Implementing the state-axis exemption; **gates third** |
-| **P3.51** cluster 2 | `native/p3.51-layout-cluster2` @ `ef933cbd` | committed. **1 clippy error**; gates second |
+| **P3.51** cluster 2 | `native/p3.51-layout-cluster2` @ `1509d677` | ✅ clippy fixed, committed, awaiting the integrated gate |
 | **P3.52** cluster 3 | `native/p3.52-layout-cluster3` @ `2235eb0e` | committed, 4 of 5. **5 clippy errors**; gating now |
 | **P3.53** Tier A | ✅ **MERGED `aed95496`** | 1,299 lines. clippy 0 · **1683 passed** (was 1627) · `crowbar-core` **71 tests** (was 15) · **100.00% over 787 lines** (was 148) · 7/7 invariants |
 | **P3.54** layout anchors | dispatched | scope narrowed to the **seven** files that lack them |
@@ -3385,6 +3385,35 @@ vendored-gpui builds at ~8–13 GB each. Clippy found **6 errors**: three
 Each was routed to its owner with the exact file and line. **That is the cost of
 "do not run cargo", which I imposed, so it is expected rather than a lapse** —
 but it is why the branch does not move until they are green.
+
+#### One integrated gate, not three — and a worker's merge forecast, half confirmed
+
+Three isolated gate runs would mean three cold vendored-gpui builds at 8–13 GB
+each in worktrees whose `target/` was wiped: ~30 GB and ~25 minutes to establish
+that each branch is green **in isolation**, which is not the question. All three
+edit `surface.rs`'s registry and `components/mod.rs`. *Green together* is the
+only useful answer, and it costs one warm build.
+
+Asked to forecast the merge, cluster 2 gave two specific predictions. I checked
+both against the other branches' diffs:
+
+| its prediction | outcome |
+|---|---|
+| `surface.rs`'s alphabetical list is the risk — `repo-avatar` (cluster 1) and `repo-import-dialog` both anchor on the `"resizable"` line, so two independent insertions will likely apply *without* a conflict marker but may land out of order | **stands.** Worth noting it fails **loudly** either way: `the_registry_is_sorted_and_holds_every_surface` asserts the exact sequence, so a silent misordering is not among the outcomes |
+| `row_surface.rs`'s full-bleed list — it rewrote "Five surfaces" to "Seven"; if cluster 3's `fps-overlay` is also full-bleed, that is a real conflict | **does not materialise.** Cluster 3 never touches `row_surface.rs` |
+
+**The forecast was worth asking for even where it was wrong.** It named the exact
+mechanism (same anchor line, independent insertions, no marker) and it named what
+it could not see rather than guessing — *"I can't confirm this without seeing
+their diff, but I'd flag it as plausible."* Checking a stated hypothesis against
+two branches took one command; reconstructing the same risk after a bad merge
+would not have.
+
+Its third answer is the one I would have got wrong myself: **`components/mod.rs`
+is not alphabetical to begin with** — `flicker_spinner`/`loading_spinner`/`spinner`
+and `sidebar_carousel` all sit far from alphabetical position — so grouping the
+two modals beside `dialog` follows the file's existing precedent instead of
+breaking one.
 
 #### Two workers lost track of which worktree they were in
 
