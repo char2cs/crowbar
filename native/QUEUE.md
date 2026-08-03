@@ -26,6 +26,14 @@ gated set. That is the code the vendor-animation finding below turns out to lean
 on, so its uncovered lines are not uninteresting ones. `leak.rs` is 97.83%.
 Everything else in the set is 98–100%.
 
+> **⚠ Read the percentage next to the crate size.** `crowbar-core` is at
+> **100.00%** over **148 lines** — and its `Cargo.toml` says it holds *"all
+> Crowbar domain logic"*. It holds a colour helper. `crowbar-diff` is 16 lines
+> and `crowbar-proto`'s covered portion is 6. **A gate that passes over an
+> almost-empty crate passes vacuously**, the same way §17.4's `unsafe` rule now
+> does. The 99.64% is honest about what exists and says nothing about what is
+> missing — see the Tier A finding below.
+
 > The previous numbers here were measured against a **191-test** tree and had
 > been quoted unchanged ever since. A coverage number nobody has re-run is not a
 > coverage number.
@@ -140,6 +148,41 @@ down anywhere the snapshot can check.
 **Consequence for the §17.1 push:** the references are recapturable, and I have
 now done one end to end and reproduced it byte-for-byte. What each one needs is
 its own app-state drive, and those need recording next to the surface.
+
+### 🛑 AND TIER **A** IS BARELY STARTED — `crowbar-core` is 349 lines in 2 files
+
+Having found the Tier B boundary wrong, I measured the other one rather than
+assume it. §16 Phase 3 is *"Tier A (`core`, `proto`, `client`, theme tokens —
+gated by ported tests) **and** Tier B"*. Raw `.rs` totals across the workspace:
+
+| crate | lines | files | reading |
+|---|---|---|---|
+| `crowbar-proto` | 10,127 | 26 | ✅ generated DTOs, Phase 0 output |
+| `crowbar-client` | 696 | 3 | ✅ socket + health |
+| **`crowbar-core`** | **349** | **2** | ❌ **`color.rs` and `lib.rs`. That is all.** |
+| `crowbar-diff` | 16 | 1 | stub |
+| `crowbar-state` | 13 | 1 | stub — Phase 4 |
+| `crowbar-editor` / `crowbar-terminal` / `crowbar-webview` | 9 / 12 / 11 | 1 each | stubs — §5.2, Phase 4+ |
+| `crowbar-ui` | 33,630 | 51 | the component ports |
+| `crowbar-app` | 32,689 | 98 | driver surfaces + `row_layout` tests |
+
+`crowbar-core`'s own `Cargo.toml` describes it as **"all Crowbar domain logic:
+git model, diff algebra, keymap resolution, settings schema, file-tree model,
+workspace scoping, review threads."** It contains a `color-mix` helper. **None of
+that domain logic is ported.**
+
+**Its 100.00% coverage is therefore true and meaningless** — 148 covered lines of
+a crate that should hold the model. This is the same trap as §17.4's vacuous
+`unsafe` rule: a green number over an empty set. The header now says so.
+
+**So Phase 3 is not "nearly done with a layout tail".** Tier A's largest member
+is unported, Tier B's `layout` half is at 1 of 29, and the part that *is* finished
+— `components/ui`, 43 surfaces, every verdict taken by me — is genuinely
+finished. Three different states, and I had been reporting the third as the whole.
+
+Tier A's real denominator is the next measurement after the layout one. **I am
+not estimating it here**, because writing a number I have not measured is exactly
+how the last two boundaries went wrong.
 
 ### 🛑 "TIER B COMPLETE" WAS WRONG — the `components/layout` half was never counted
 
