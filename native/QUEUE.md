@@ -3732,6 +3732,28 @@ that area needs an **export-level** scoping pass first, and `file-tree-gitignore
 additionally depends on the `ignore` npm package — a Rust-equivalent decision,
 not a translation.
 
+## 🔧 Orchestration: tell survey/audit workers to COMMIT PER SECTION
+
+P3.73 (the export-level liveness audit) died twice to API errors mid-response.
+Both times I checked its branch and **nothing survived** — no commits, no
+uncommitted changes. Two full runs of analysis existed only in a transcript.
+
+Neither failure was the worker's doing, but the *shape of the brief* made them
+fatal: I asked for one large document and it landed everything in a single
+append at the end. A survey or audit item has no partial-credit structure unless
+the brief gives it one.
+
+**Standing instruction for any item whose output is a document:** commit after
+each section, not at the end. Three small commits that survive beat one perfect
+commit that does not exist — and a resumed worker restarts from its last commit
+rather than from zero.
+
+This does not apply the same way to *port* items: those have a compiler and a
+test suite forcing incremental correctness, and a half-ported module is not
+useful on its own. It is specifically the analysis/documentation items — the
+denominator survey, the liveness passes, the reconciliations — where an
+interruption currently costs everything.
+
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
 ```
