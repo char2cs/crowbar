@@ -3377,7 +3377,9 @@ taken by me against the live app. **A merge is not a verdict.**
 | `sidebar-carousel` | ✅ | ✅ **PASS 0/5** | drive: `--height 976 --active-tab workspaces`. See the `visible` note below |
 | `project-switcher-panel` | ✅ | ❌ **FAIL 5/5** | **only 1 real** — import label `font.weight` 400 vs 500. Also confirms P3.60 on its 2nd consumer |
 | `repo-section` | ✅ | ❌ **FAIL 5/5** | 3 port defects + **1 contract bug**: the scope entry drops `repo-section-add-child`, which is live |
-| `pending-create-row` · `workspace-tree-item` · `workspace-tree` | ✅ | ⏸ | P3.61, merged this iteration — no verdicts yet |
+| `workspace-tree-item` | ✅ | ❌ **FAIL 1/3** | **the contract's fault** — would PASS 0/3; scope drops `-add-child`. Every other field exact |
+| `workspace-tree` | ✅ | ❌ **FAIL 19/8** | 3 causes; 13 deltas are one omission — the list consumer never applies `MARGIN_X/Y` |
+| `pending-create-row` | ✅ | ⏸ | P3.61 — no verdict yet (no pending row in the live app to capture) |
 | `workspace-inline-input` · `placeholder-row-actions` · `sidebar-toast-overlay`(+`-fallback`) | ✅ | ⏸ | P3.62, merged this iteration — no verdicts yet |
 
 #### ✅ RESOLVED — the four "needs a repo in the fixture" verdicts were never about the repo
@@ -3476,7 +3478,25 @@ is **not** the number to pass.
 The other four were `--roots 1` rendering a child row the reference's own scope
 excludes.
 
-**Ten verdicts taken, five passing** (plus one refused outright). Eleven
+#### 🔁 The fixture-string gap is now **four** surfaces, and it is not cosmetic
+
+`project-switcher-panel`, `repo-avatar`, `repo-icon-popover` and
+`workspace-tree` each hard-code a string the live app does not show — a project
+name, an avatar letter. `text` is compared **exactly**, so each is
+**permanently un-passable** against any real app state until it grows a flag.
+`repo-section`'s `--name` is the model: with it, that surface's label matched
+the live repo on the first try.
+
+#### 🔁 Two scope entries under-declare their own `-add-child` chrome
+
+`repo-section` and `workspace-tree-item` both omit a live 24×24 button from
+their `oracleSurfaceScope` anchor list, so the port emits a correct anchor the
+reference is told to drop. Same commit, same kind of anchor — one systematic
+slip, not two coincidences. `workspace-tree-item` is otherwise a **perfect**
+match, which makes this the only thing between it and a pass. Fix dispatched
+(P3.65, TypeScript only).
+
+**Twelve verdicts taken, five passing** (plus one refused outright). Eleven
 surfaces built in this tier;
 that ratio is the honest state and the reason the header now separates the two
 numbers.
