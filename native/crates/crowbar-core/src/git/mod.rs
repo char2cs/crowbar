@@ -16,6 +16,7 @@
 //! | [`normalize_diff`] | `utils/normalize-diff.ts` (see its module doc — ported as an invariant + regression test, not two pass-through functions) |
 //! | [`diff_buffer_path`] | `utils/diff-buffer-path.ts` |
 //! | [`branch_action`] | `lib/branch-action.ts` |
+//! | [`get_file_status`] | `utils/git-diff-helpers.ts` (P3.79 — see that module's doc for why it lands here and not `crowbar-diff`, despite sharing a source file with the `crowbar-diff`-bound placeholder-hunk algebra) |
 //!
 //! # Types: what was reused from `crowbar-proto`, what was hand-rolled
 //!
@@ -62,6 +63,7 @@
 pub mod branch_action;
 pub mod build_git_folder_tree;
 pub mod diff_buffer_path;
+pub mod get_file_status;
 pub mod git_status_to_changed_files;
 pub mod normalize_diff;
 pub mod review_file_summary_to_git_diff;
@@ -75,6 +77,22 @@ pub use build_git_folder_tree::{
     normalize_path_segments, sort_files_by_path, sort_folders_by_name,
 };
 pub use diff_buffer_path::get_diff_buffer_file_path;
+pub use get_file_status::get_file_status;
 pub use git_status_to_changed_files::git_status_to_changed_files;
 pub use review_file_summary_to_git_diff::review_files_summary_to_changed_files;
 pub use types::GitDiff;
+
+/// Re-exported for `crowbar-diff`, whose own §4.2 dependency contract
+/// (`native/README.md` / spec §4.2's crate-contracts table) is `ui`/
+/// `state`/`core` — no direct `crowbar-proto` edge. That crate's ported
+/// placeholder-hunk-geometry algebra
+/// (`native/mapping/tier-a-denominator.md` §2, P3.79) is typed directly
+/// against these three DTOs rather than against `@pierre/diffs`'s `Hunk`/
+/// `FileDiffMetadata` (see `crowbar_diff::review_placeholder`'s module doc
+/// for the full retyping rationale and where the shapes diverge). Passing
+/// them through `crowbar-core` — which already depends on `crowbar-proto`
+/// directly — is the same pattern `crowbar-ui` already uses for `gpui`
+/// (`pub use gpui;`, `native/README.md`): one crate becomes the sanctioned
+/// gateway so a framework/DTO-generator bump is one edit here, not one per
+/// leaf crate.
+pub use crowbar_proto::domain_git::{FileDiff, FileOutline, HunkShape};
