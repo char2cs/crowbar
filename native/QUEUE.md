@@ -4,7 +4,7 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 3 — remainder **measured**, not estimated. **64 surfaces · 2422 tests ·
+**Phase:** 3 — remainder **measured**, not estimated. **64 surfaces · 2469 tests ·
 clippy 0 · 7/7 invariants**, all verified by my own run. Of the 64, **5 measure
 dead code** (liveness audit + `sidebar-skeleton`) — so the honest figure is **59**,
 and three of the five can never receive a verdict at all.
@@ -13,7 +13,7 @@ and three of the five can never receive a verdict at all.
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
 | **Tier B · `components/layout`** | **22 of 23 targets** (P3.64 closed 3 defects + 3 fixture flags) — P3.61 (tree chain ×4) and P3.62 (last three) merged. **1 to go.** ⚠ built ≠ verified: **5 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1, `sidebar-carousel` 0/5), **4 FAIL** (`fps-overlay` — a **contract** gap; `repo-icon-popover` 36/6 — one missing wrapper; `repo-avatar` 4/1 — only 1 real; `project-switcher-panel` 5/5 — only 1 real), **1 REFUSED** (`repo-import-dialog` — duplicate `button` anchor id), the rest unverified |
-| **Tier A · `crowbar-core`** | **five areas merged** — workspace scoping (P3.53) + git (P3.67) + keymap (P3.70) + settings (P3.72) + file-tree (P3.75) + gitignore (P3.76). **Completion, one unit throughout (P3.77, updated for P3.76): 2,196 of ~3,169 TS lines ported = 69.3% net** (2,258/3,169 = 71.3% raw, before subtracting the 2 dead git modules). §2 diff algebra and §7 review threads are untouched (0%); see "P3.77" below for the full per-area breakdown and what remains. Coverage is separately **99.75% over 4,319 Rust lines** (11 missed, all in `gitignore.rs` — first time below 100%, still over the ≥98 gate) — a statement about the Rust crate, not comparable to the TS-line completion figure (ratio of those two RETRACTED, see below); 2 of the 6 git files measure dead code, priced into the net figure above. |
+| **Tier A · `crowbar-core`** | **five areas merged** — workspace scoping (P3.53) + git (P3.67) + keymap (P3.70) + settings (P3.72) + file-tree (P3.75) + gitignore (P3.76). **Completion, one unit throughout (P3.77, updated for P3.76): 2,196 of ~3,169 TS lines ported = 69.3% net** (2,258/3,169 = 71.3% raw, before subtracting the 2 dead git modules). §2 diff algebra and §7 review threads are untouched (0%); see "P3.77" below for the full per-area breakdown and what remains. Coverage is separately **99.78% over 4,982 Rust lines** (11 missed, all pre-existing — the new `review` module is 663 lines at 100.00%) — a statement about the Rust crate, not comparable to the TS-line completion figure (ratio of those two RETRACTED, see below); 2 of the 6 git files measure dead code, priced into the net figure above. |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
 Both denominators come from surveys committed this iteration
@@ -4242,7 +4242,7 @@ carried into the brief anyway:
 
 | item | area | note |
 |---|---|---|
-| **P3.78** | §7 review threads (306 TS lines) | died mid-gates to an API error with the module **written but uncommitted**; resumed with *commit first, gate second* |
+| ~~**P3.78**~~ | §7 review threads | ✅ **merged** — 663 Rust lines at 100.00%, 47 new tests |
 | **P3.79** | §2 diff algebra (368 TS lines) | the `review-code-view.tsx` region ports **whole** — its 7 private helpers are unreachable except through the 2 public functions, so "port the 2, skip the 7" is not available |
 
 **P3.79 also carries a required dependency substitution**, not optional
@@ -4257,6 +4257,50 @@ shape of failure to watch for.
 Everything else of substance needs the oracle, and the oracle needs an unlocked
 screen. That is the §17.7-shaped stop condition: work remaining, but only the
 user can unblock it.
+
+## ✅ P3.78 — review threads merged, and the backend's DECLARED domain is not its real one
+
+663 Rust lines at **100.00%**; crate now **99.78% over 4,982**; **2,469** tests;
+7/7 invariants. §7 is done.
+
+### The self-review replaced a justification, not just a typo
+
+Its first draft justified `parse_side`'s fallback from the *shape of a
+TypeScript ternary* — a weak inference. Checking the **Go backend** instead
+turned up something better and stranger:
+
+```go
+// api/internal/domain/review_side.go
+ReviewSideLeft  ReviewSide = "left"
+ReviewSideRight ReviewSide = "right"
+```
+
+…while the only real client sends **`"old"`/`"new"`**, and every real write
+path passes the client's string through **unvalidated**.
+
+**I verified the load-bearing half myself: those two constants appear in FIVE
+test files and ZERO production files.** Fourth test-only declaration found in
+this project — and the **first in Go**, so this is a codebase-wide habit rather
+than a TypeScript quirk.
+
+It is also a *semantic* finding, not merely dead code: **the declared domain and
+the flowing domain differ.** A port written against the backend's own constants
+would have been wrong about every value that actually crosses the wire.
+
+### Two judgment calls, reasoned rather than defaulted
+
+- **12 mutators → 11 free functions.** They are not separately exported in TS
+  (properties of one factory's return), so the export audit could not verify
+  them individually and the brief left the shape open. Extracted, because
+  `crowbar-core` has no reactive shell for a closure-factory to close over, and
+  giving Phase 4 two different contracts for one state struct is worse than
+  porting uniformly.
+- **`resolveReviewThread` NOT shipped.** `@deprecated` in its own doc,
+  behaviourally identical to `set_review_thread_resolved(.., true)` (verified by
+  reading both bodies), zero callers outside its definition and one legacy test.
+  Porting it would have **manufactured dead code on day one** — the failure this
+  project has already committed three times. Its legacy test was not ported
+  either; the behaviour is covered by the surviving function's own test.
 
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
