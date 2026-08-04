@@ -4,7 +4,7 @@
 //! through the shared harness instead, the `sidebar_tab_bar.rs` shape.
 
 use super::{a_cell, assert_px, find, ids, lay_out, measure, relative_to};
-use crowbar_driver::RawAnchor;
+use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
 use crowbar_ui::components::button;
 use crowbar_ui::components::popover;
@@ -380,6 +380,73 @@ fn the_three_action_buttons_line_height_is_text_xss_paired_ratio(cx: &mut TestAp
         let text = find(&records, id).text.expect("carries text");
         assert_px(text.font.line_height, px(16.0));
     }
+}
+
+/// **Re-verdict round 2: the three always-visible buttons declare
+/// `content_sized`; `Reset to default` does not.** `Upload`/`Emoji`/`GitHub`
+/// are `flex-1` with no authored width — their own used width *is* their
+/// content's max-content width (`ANCHORS.md` v1.5) — while `Reset` authors
+/// `w-full`, a real, definite width. Before this fix none of the three
+/// declared it, which left v1.5's own ceil-excess allowance inert and a
+/// `github.bounds.x` delta (`171.0` against `170.39`) uncaught.
+///
+/// **Mutation, run and reverted:** removing the `anchor_id =
+/// anchor_id.content_sized();` line from `ActionButton::render` and running
+/// this test gives (actual output, this mutation was run and reverted):
+///
+/// ```text
+/// thread 'row_layout::repo_icon_popover::the_three_action_buttons_declare_content_sized_and_reset_does_not' (278512012) panicked at crates/crowbar-app/src/row_layout/repo_icon_popover.rs:410:9:
+/// repo-icon-popover-upload
+/// ```
+#[gpui::test]
+fn the_three_action_buttons_declare_content_sized_and_reset_does_not(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&["--reset"]));
+
+    for id in [
+        repo_icon_popover::ID_UPLOAD,
+        repo_icon_popover::ID_EMOJI,
+        repo_icon_popover::ID_GITHUB,
+    ] {
+        assert!(find(&records, id).content_sized, "{id}");
+    }
+    assert!(
+        !find(&records, repo_icon_popover::ID_RESET).content_sized,
+        "Reset authors w-full and must not declare content_sized"
+    );
+}
+
+/// **Re-verdict round 2: `avatar-fallback` paints `theme.muted` when the
+/// repo has no `avatarColor`**, not nothing. Before this fix the fixture's
+/// `background: None` still painted fully transparent
+/// (`#00000000`) against a live reference of `#ffffff0a` — `bg-muted`,
+/// `AvatarFallback`'s own base class, showing through because `cn(...,
+/// '')` drops a falsy `avatarColor` silently. `avatar::Avatar::fallback`
+/// already paints exactly `theme.muted` unconditionally for every call site
+/// that goes through it; this box reuses the same token rather than
+/// re-deriving it (`PreviewAvatar::render`'s own doc comment carries the
+/// account, including why the fix belongs here and not in `avatar.rs`).
+///
+/// **Mutation, run and reverted:** changing
+/// `background.unwrap_or(theme.muted)` to `background.unwrap_or(Color::
+/// TRANSPARENT)` in `PreviewAvatar::render`'s `Self::Letter` arm and running
+/// this test gives (actual output, this mutation was run and reverted —
+/// `theme.muted` really is white at 4% alpha, `Hsla { h: 0, s: 0, l: 1.0, a:
+/// 0.04 }`, confirming `#ffffff0a`):
+///
+/// ```text
+/// thread 'row_layout::repo_icon_popover::avatar_fallback_paints_theme_muted_with_no_avatar_color' (278515792) panicked at crates/crowbar-app/src/row_layout/repo_icon_popover.rs:443:5:
+/// assertion `left == right` failed
+///   left: Solid(Hsla { h: 0.0, s: 0.0, l: 0.0, a: 0.0 })
+///  right: Solid(Hsla { h: 0.0, s: 0.0, l: 1.0, a: 0.04 })
+/// ```
+#[gpui::test]
+fn avatar_fallback_paints_theme_muted_with_no_avatar_color(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+
+    let fallback = find(&records, "avatar-fallback");
+    assert_eq!(fallback.background, Paint::Solid(Theme::DARK.muted.value()));
 }
 
 /// **P3.63: `avatar-fallback`'s line height is `text-sm`'s own `1.25/0.875`

@@ -482,3 +482,79 @@ The port paints no background on the avatar fallback. Possibly belongs in
 `avatar.rs` rather than here, since this is the shared primitive's fallback
 rendered inside this popover — returned with that question rather than a
 prescription.
+
+## 11. FIXED — round 2's two deltas
+
+Same cell as §10, addressed in full. `ActionButton::render`'s and
+`PreviewAvatar::render`'s own doc comments (`crowbar_ui::components::
+repo_icon_popover`) carry the account; this section is the index. §10's own
+correction stands as written — `row_layout`'s `#[gpui::test]` harness really
+does never shape a real glyph (`vendor/gpui/src/platform/test/platform.rs`'s
+`TestPlatform` hardcodes a `NoopTextSystem`), and that limitation is now
+recorded in this file's own code, not just this doc, so a future edit here
+does not re-learn it: a number measured under `#[gpui::test]` bounds what
+this port's own tests can verify and nothing about what the oracle will see
+for a text-shaped field.
+
+**Delta 1 — `github.bounds.x: 171.0` against `170.39` (`Δ +0.61`, tol
+`±0.5`) — a missing declaration, not a layout bug.** v1.5's own allowance
+(`Σ(ceil excess)` over `content_sized`-declared anchors) already covers
+this — `upload`'s and `emoji`'s combined ceil excess (`0.37 + 0.23 = 0.60`)
+pushes `github`'s own `x` right by almost exactly the observed delta — but
+`content_sized` is an authored argument on **both** extractors and neither
+side declared it. Fixed: `data-oracle-content-sized="true"` on
+`repo-icon-popover.tsx`'s three `<Button>` elements (Upload/Emoji/GitHub —
+`Reset` authors `w-full`, a real width, and stays undeclared; `Set` is not
+part of this item's own verdict cell and stays undeclared too), and
+`.content_sized()` on the matching Rust anchors, `ActionButton::render`'s
+own doc comment carries the account in full.
+
+**The fix is per call site, not in `button.tsx`, and that turned out to
+matter.** The first attempt reached for the shared primitive on
+`button.rs`'s own module-doc claim that no live call site renders a
+labelled Button. **That claim is stale** — a direct audit found **74**
+other live, non-icon-sized `<Button>`s with visible text across the app
+(plus a fifth inside this popover, "Set", the doc's own count missed).
+Declaring `content_sized` inside `button.tsx` would have put it on all 74
+unconditionally, each a fresh one-sided declaration (React `true`, no
+matching Rust declaration on that page's own port) — new deltas on dozens
+of otherwise-passing, unrelated surfaces, exactly what v1.5 and the
+differ's own test suite call a contract defect that forgives nothing.
+Reverted that attempt entirely; the shipped fix uses the same per-call-site
+override five other call sites (`inline-error.tsx`, `search.tsx` ×2,
+`placeholder-row-actions.tsx` ×2) already carry by hand for the identical
+reason — `button.tsx` itself is untouched.
+
+**Delta 2 — `avatar-fallback.bg: #00000000` against `#ffffff0a`.** Not a
+port defect in `avatar.rs`: checked directly, `avatar::Avatar::fallback`
+already paints `theme.muted` unconditionally for every call site that goes
+through it, so `--surface avatar`'s own verdict is untouched by this fix.
+The bug was local to this file's own `PreviewAvatar`, which cannot call
+`Avatar::render` (see the module docs) and so reproduces `AvatarFallback`'s
+box by hand — and its `Letter` arm's fixture/driver default for "no
+`avatarColor`" was `Color::TRANSPARENT`, an invented placeholder rather
+than the primitive's own real default. `#ffffff0a` is `bg-muted` in the
+dark theme showing through because `cn(..., '')` drops a falsy
+`avatarColor` silently, the same "no override" case `avatar::Avatar::
+fallback` already models. Fixed: `PreviewAvatar::Letter::background` is now
+`Option<Color>` — `None` reads as "no `avatarColor`" — and
+`PreviewAvatar::render` resolves it with `background.unwrap_or(theme.
+muted)`, reusing `avatar.rs`'s own token. Confirmed by mutation:
+`theme.muted` is exactly `Hsla { h: 0, s: 0, l: 1.0, a: 0.04 }` — white at
+4% alpha, `#ffffff0a`.
+
+Two more `row_layout` tests added, each with its mutation actually run and
+the real output kept in the doc comment: one confirming `content_sized` on
+the three buttons and its absence on `Reset`, one confirming the resolved
+`theme.muted` paint.
+
+**36 → 15 → 2, both of which have a fix in this round — not independently
+re-verdicted by this item, which does not run the oracle.** Both fixes are
+implemented and each has its own mutation actually run against `row_layout`
+(above); the live-binary confirmation that they close is the coordinator's
+to make, the same way §9's own convergence was confirmed. The only thing
+this file's own scope still has open, and only because it was named out of
+scope from the start (§6), is `avatar-fallback.text` (`"R"` in the fixture
+vs the live repo's own letter) — and even that looks closed independently,
+by the `--letter` flag another item landed, though this item has not
+verified that either.
