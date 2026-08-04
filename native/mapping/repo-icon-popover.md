@@ -323,3 +323,42 @@ close it by driving. Left alone, as §6 already scoped.
 unset-leaf bug and was fixed alongside the letter fallback's, on the same
 evidence, even though `--preview emoji` has no live cell to verify it
 against (§0) — preventive, not measured, and named as such in the code.
+
+## 8. RE-VERDICT after P3.63 — FAIL 15/7, root cause closed
+
+My own run, same cell as §6 (`--letter D` now available, so `avatar-fallback.text`
+matches and is no longer a delta).
+
+**36 → 15.** Everything §6 identified as the one root cause is gone: the popup
+measures **256×177**, `popover-viewport` is present at **254×175** (one border
+in on both axes), the avatar is back at **y=56**, and every position delta with
+it. §6's arithmetic table now resolves identically on both sides.
+
+All 15 survivors sit on the three action buttons:
+
+```
+{upload,github,emoji}.bounds.w:        65.0 / 65.0 / 56.0,  expected 69.63 / 69.56 / 59.77
+{upload,emoji,github}.border.w:        0.0,   expected 1.0   (exact)
+{upload,emoji,github}.font.weight:     400,   expected 500   (exact)
+{upload,emoji,github}.font.line_height: 19.5, expected 16.0  (Δ +3.5)
+```
+
+**None of these is a regression.** Before P3.63 those anchors emitted no `text`,
+`fg`, `text_width`, `font` or `clipped` at all — they were 15 *field-presence*
+deltas. Painting the labels through `boxed_text` made the fields comparable, and
+that is what exposed the values. **This is the second time today that fixing a
+visibility problem surfaced a real defect** (the first: `workspace-tree-item`'s
+`-add-child` border, invisible while the anchor was undeclared). Worth stating as
+a rule: a field that is not compared cannot be wrong, and the count of
+*comparable* fields is a better progress measure than the count of deltas.
+
+`font.line_height` **19.5 against 16.0** is almost certainly the transfer this
+port keeps re-learning. The reference reports `font.size: 12` — that is
+`text-xs`, a **named** Tailwind step, and named steps ship a *paired*
+line-height (`12px/16px`, ratio 1.333). `1.5` is what an **arbitrary**
+`text-[Npx]` inherits when nothing overrides. The caption fix at 10px→15px was
+right for exactly the reason these buttons are wrong.
+
+Returned to the worker with all four, the `text-xs` pairing spelled out, and
+P3.64's `Styled::font`-resets-weight finding flagged as the likely cause of the
+400.
