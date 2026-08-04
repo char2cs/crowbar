@@ -5,8 +5,9 @@
 //!
 //! Git model, diff algebra, keymap resolution, settings schema and
 //! validation, file-tree model, workspace/path scoping and the review-thread
-//! model all land here (spec §4.2). [`workspace`] is the first of these to
-//! land, item P3.53 — see its module doc for what was ported and what wasn't.
+//! model all land here (spec §4.2). [`workspace`] was the first of these to
+//! land, item P3.53. [`git`] is the second — see its module doc for what was
+//! ported and what wasn't.
 //!
 //! Dependency contract (§4.2): `crowbar-proto`, `crowbar-client`.
 //!
@@ -15,6 +16,7 @@
 //! into `crowbar-ui` or `crowbar-state` and leave the decision here.
 
 pub mod color;
+pub mod git;
 pub mod workspace;
 
 #[cfg(test)]
