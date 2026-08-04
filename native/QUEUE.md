@@ -3339,15 +3339,43 @@ taken by me against the live app. **A merge is not a verdict.**
 | `sidebar-project-header` | ✅ | ✅ **PASS 0/5** | drive: `--right` — the reference is the **right-docked** cell |
 | `context-pill` | ✅ | ✅ **PASS 0/2** | drive: `--kind home`. Fixed a missing 1px transparent border and a font-metrics line box — see the instrument-mismatch note |
 | `fps-overlay` | ✅ | ❌ **FAIL 1/1** | +3px — **contract gap**, not a port defect (7 runs × per-run `ceil`) |
-| `repo-avatar` | ✅ | ⏸ | **needs a repo in the fixture** — see below |
-| `workspace-branch-icon` | ✅ | ⏸ | **needs a repo in the fixture** — see below |
+| `repo-avatar` | ✅ | ⏸ | ✅ **UNBLOCKED** — the repo was never the problem, see below |
+| `workspace-branch-icon` | ✅ | ⏸ | ✅ **UNBLOCKED** — now live in the DOM |
 | `detach-holder-modal` | ✅ | ⏸ | needs the modal driven open |
-| `repo-import-dialog` | ✅ | ⏸ | needs the dialog driven open |
-| `repo-icon-popover` | ✅ | ⏸ | needs the popup driven open |
+| `repo-import-dialog` | ✅ | ⏸ | ✅ **UNBLOCKED** — trigger is in `repo-section`, now rendered |
+| `repo-icon-popover` | ✅ | ⏸ | ✅ **UNBLOCKED** — `repo-icon-popover-trigger` now live |
 | `sidebar-tab-bar` | ✅ | n/a | no surface by design — measured through `--surface tabs` |
 | `workspace-switcher` | ✅ | n/a | no surface by design — `display: contents`, no box (v1.11) |
 | **`sidebar-skeleton`** | ✅ | 🚫 **UNOBTAINABLE** | never renders — its `Suspense` fallback cannot fire |
 | `project-home-row` | ✅ | ✅ **PASS 0/5** | P3.60; a real line-height defect, found live and fixed |
+
+#### ✅ RESOLVED — the four "needs a repo in the fixture" verdicts were never about the repo
+
+Full account: `native/oracle/blocked/four-verdicts-needed-a-repo.md`. The
+daemon had the repo all along and `/v0/projects/:id/repos` was serving it
+correctly. **The webview could not open its own IndexedDB**: this build calls
+`openDB('crowbar', 7)` and the database on `localhost:5173` was at **version
+9**, written by a newer build sharing the origin. IndexedDB refuses a lower
+version, so `getDB()` threw `VersionError` on every call — and because every
+entity-cache entry point swallows its exception (`catch {}` on write, `catch {
+return [] }` on read), the sidebar rendered no repos, for ever, with no error
+anywhere.
+
+**What broke it open** was asking why a *write* did not land and then running
+the same write through raw `indexedDB` — which succeeded where the app's own
+`upsertEntity` silently did nothing. That contrast localised the fault to how
+the app *opens* the database. I had previously recorded "the cache is empty and
+every read path reads the cache" and stopped, which restated the symptom in the
+words of a diagnosis and cost several iterations.
+
+The cache was **not** empty, which is why the sync path kept looking plausible:
+`crowbar_repos: 0`, `crowbar_projects: 0`, `crowbar_workspaces: **80** across
+~20 foreign `projectId`s`. Partly-full-of-someone-else's-data reads as
+"half-synced".
+
+Recovery, needed before any capture on this instance: delete the `crowbar`
+IndexedDB, reload, confirm `getDB()` resolves at version 7. Any build sharing
+the origin can put it back at 9.
 
 **Five verdicts taken, three passing.** Eleven surfaces built in this tier;
 that ratio is the honest state and the reason the header now separates the two
