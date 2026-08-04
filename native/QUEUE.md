@@ -3444,8 +3444,23 @@ worker found it and said so; I had not checked.
 **The rule I broke is my own.** The liveness verdict belongs *in* the
 denominator survey, before any dispatch — that is written down precisely so a
 brief cannot be built from a file list alone. I took these six straight from
-`tier-a-denominator.md`, which counts lines and never asked whether anything
-reaches them.
+`tier-a-denominator.md`'s table, which counts lines and never asked whether
+anything reaches them.
+
+> ### ⚠ Correction — that account was the flattering half
+>
+> P3.69 found that the survey's **prose already excluded one of them.** Two
+> separate passages ruled `diff-buffer-path.ts` out of the git-model area:
+> *"Pure, but it's tab/buffer identity logic (editor/tabs feature), **not git
+> model**"*, and *"…which are **not core**"*. It ruled out `diff-search.ts`
+> the same way.
+>
+> So this was not simply a missing column. **The document contained the
+> argument that would have stopped me, and I read the table without reading
+> the argument underneath it.** A survey is not a lookup table; the prose is
+> where its scope decisions live. Adding the column is still right — it makes
+> the verdict impossible to skim past — but it is a guard against my reading
+> habit, not a fix for the document.
 
 Verified myself with a control rather than accepting the report:
 
@@ -3544,6 +3559,39 @@ tests; those three would need tests authored, not ported. Not recommending
 or the four keyboard-event hooks (LIVE but GPUI replaces this dispatch layer
 natively, doesn't translate it) — both already correctly scoped out by the
 original survey, unaffected by this liveness pass.
+
+## ✅ Tier A survey now carries liveness on all 90 rows (P3.69)
+
+**61 LIVE · 25 CONDITIONAL · 4 DEAD · 0 UNCERTAIN.** Cross-checked two
+independent ways — a per-file grep over **four** import spellings (`@/` alias,
+relative, re-export shim, dynamic `import()`) and a Python BFS over the
+compile-time import graph seeded at `main.tsx` + `routeTree.gen.ts` (654 files
+visited). The two agreed on all 90 rows, and four controls (two known-live, two
+known-dead) each returned the expected verdict. That is the standard a liveness
+claim has to meet here.
+
+**A third dead file, caught before dispatch:** `utils/diff-search.ts` (72
+lines). Never briefed — which is exactly what the column is for.
+
+**⚠ The Tier A denominator is also wrong in the other direction.**
+LIVE + CONDITIONAL totals **9,447 lines**, against the **~3,170** this file has
+been quoting as the target. Recorded, not quietly adopted: I do not yet know
+whether the old figure was scoped to a narrower "core" than the survey's seven
+areas, or was simply wrong. **Reconcile before quoting either number again** —
+a denominator that moved by 3× is not a rounding difference, and the honest
+position until then is that Tier A's remaining size is *unsettled*.
+
+### Next Tier A area, scoped from LIVE rows only
+
+**Keymap resolution — 5 files, 516 lines, all confirmed LIVE**, reached through
+`new-tab-view.tsx`'s and `workspace-view.tsx`'s always-mounted keyboard hooks
+(no dialog, pane or flag required — the cleanest chain in the survey):
+`features/keymaps/{types,registry}.ts`, `defaults/keybinding-presets.ts`,
+`utils/{chord,effective-keymaps}.ts`.
+
+**Caveat to carry into the brief:** three of the five have **zero existing
+tests**, so that item authors tests rather than porting them — a different and
+slower job than the git area, and one where "100% coverage" would say much less.
 
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
