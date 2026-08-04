@@ -225,6 +225,23 @@ pub fn inactive(theme: &Theme) -> Div {
 /// `native/mapping/repo-section.md`'s and `workspace-tree-item.md`'s own
 /// verdicts, `border.w: 1.0, expected 0.0` on three anchors, two surfaces,
 /// traced back to this one shared function.
+///
+/// # `project_home_row.rs`'s two call sites are the exception, and restore
+/// their own border on top of this function's result
+///
+/// This removal regressed `project-home-row` (`PASS 0/5` → `FAIL 2/5`),
+/// because that surface's two trailing actions are **not** raw
+/// `<button className={ROW_SUB_ACTION}>` elements — they are
+/// `<Button variant="ghost" size="icon-xs">`, the shared React primitive,
+/// with `ROW_SUB_ACTION` merged on top as a call-site override. The analogy
+/// this doc comment argues against (`ROW_BASE`'s own bare `border`) *does*
+/// hold for that pair, because it is `button.tsx`'s base class carrying the
+/// border, not `ROW_SUB_ACTION`'s — the same finding, just one layer
+/// further up the two components' own DOM. `super::project_home_row::
+/// ProjectHomeRow::sub_action` chains `.border(button::BORDER_WIDTH)
+/// .border_color(Color::TRANSPARENT)` onto this function's own box for
+/// exactly that reason; this function itself stays borderless, correct for
+/// its other two, genuinely-raw-`<button>` consumers.
 #[must_use]
 pub fn sub_action_box(theme: &Theme) -> Div {
     div()

@@ -253,3 +253,33 @@ fn the_add_child_action_paints_no_border(cx: &mut TestAppContext) {
 
     assert_px(add_child.border_width, px(0.0));
 }
+
+/// **The label does NOT declare `content_sized`** — confirmed, not assumed
+/// symmetric with `repo-section-label`'s own P3.81 fix. `label()`
+/// (`crates/crowbar-ui/src/components/workspace_tree_item.rs`) builds this
+/// span from `row_base::label_container` directly, `flex-1` on the *same*
+/// anchored span rather than `repo-section.rs`'s two-level
+/// spacer-plus-content-sized-inner split — so this label genuinely
+/// stretches to the row's own leftover width (`252px` against a `31.2px`
+/// `text_width`, `repo-section.rs`'s own module docs) and declaring
+/// `content_sized` on it would be wrong: v1.5's ceil-excess allowance is
+/// for a box that already equals its own text run's width, not one that
+/// fills whatever room a `flex-1` container hands it.
+///
+/// **Mutation, run:** added `.content_sized()` to the anchor in
+/// `WorkspaceTreeItem::label`. `the_label_does_not_declare_content_sized`
+/// failed as predicted:
+///
+/// ```text
+/// thread 'row_layout::workspace_tree_item::the_label_does_not_declare_content_sized' panicked at crates/crowbar-app/src/row_layout/workspace_tree_item.rs:284:5:
+/// assertion failed: !super::find(&records, workspace_tree_item::ID_LABEL).content_sized
+/// ```
+///
+/// Reverted after confirming.
+#[gpui::test]
+fn the_label_does_not_declare_content_sized(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+
+    assert!(!super::find(&records, workspace_tree_item::ID_LABEL).content_sized);
+}

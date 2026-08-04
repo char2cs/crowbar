@@ -40,6 +40,17 @@
 //! own module docs put it — the collision this reasoning warns about is
 //! avoided on both sides at once.
 //!
+//! **Hand-building off `sub_action_box` does not mean hand-building off
+//! nothing.** These are still real `<Button>`s underneath, and `button.tsx`'s
+//! base class carries a bare, unconditional `border` that `ROW_SUB_ACTION`
+//! never overrides (`button.rs`'s own headline finding). `ProjectHomeRow::
+//! sub_action` restores that border explicitly at this call site —
+//! `repo-section.tsx`'s and `workspace-tree-item.tsx`'s own trailing
+//! actions are raw `<button className={ROW_SUB_ACTION}>` elements with no
+//! `<Button>` underneath them at all, so `row_base::sub_action_box` itself
+//! stays borderless; only *this* composition needs one added back on top of
+//! it.
+//!
 //! ## `size-6` beats the `icon-xs` variant's own box at every width
 //!
 //! `button.tsx` composes `cn(buttonVariants({ className, size, variant }),
@@ -93,9 +104,10 @@ use gpui::{
 };
 
 use super::anchor::{AnchorId, AnchorSink};
+use super::button;
 use super::row_base;
 use super::workspace_branch_icon::{self, WorkspaceBranchIcon};
-use crate::theme::Theme;
+use crate::theme::{Color, Theme};
 
 /// The row's own anchor — every other bound on this surface is reported
 /// relative to it.
@@ -212,10 +224,31 @@ impl ProjectHomeRow {
     /// One trailing action button — a hand-built [`row_base::sub_action_box`]
     /// wrapping an empty, unpainted glyph. See the module docs for why this
     /// does not call `Button::render`.
+    ///
+    /// # The border is restored here, not on [`row_base::sub_action_box`]
+    ///
+    /// This row's two actions are `<Button variant="ghost" size="icon-xs">`
+    /// in the React source (the module docs above), not the raw
+    /// `<button className={ROW_SUB_ACTION}>` elements `repo-section.tsx`'s
+    /// and `workspace-tree-item.tsx`'s own trailing actions are.
+    /// `button.tsx`'s base class carries a bare, unconditional `border` —
+    /// `button.rs`'s own headline finding — and `ROW_SUB_ACTION` (the
+    /// call-site override merged on top via `cn(...)`) has no
+    /// `border`/`border-color` utility of its own to touch it, so the
+    /// primitive's own `border border-transparent` (`ghost`'s own colour)
+    /// survives untouched into the live DOM. `row_base::sub_action_box`
+    /// itself carries none — correct for its other two consumers, whose
+    /// buttons are raw elements with no `<Button>` underneath them at all —
+    /// so the border this call site needs is added here, mirroring
+    /// `Button::render`'s own `shell()`: [`button::BORDER_WIDTH`] wide,
+    /// [`Color::TRANSPARENT`] (`Variant::Ghost`'s own resting colour).
     fn sub_action(theme: &Theme, anchors: &dyn AnchorSink, id: &'static str) -> AnyElement {
         anchors.boxed(
             AnchorId::from(id),
-            row_base::sub_action_box(theme).child(row_base::sub_action_glyph()),
+            row_base::sub_action_box(theme)
+                .border(button::BORDER_WIDTH)
+                .border_color(Color::TRANSPARENT)
+                .child(row_base::sub_action_glyph()),
         )
     }
 

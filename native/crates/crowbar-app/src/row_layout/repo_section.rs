@@ -192,6 +192,44 @@ fn the_trailing_actions_paint_no_border(cx: &mut TestAppContext) {
     }
 }
 
+/// **The label declares `content_sized`** — GPUI ceils a text run's own
+/// max-content width (`ANCHORS.md` v1.5), and `repo-section-label`'s box
+/// equals its own `text_width` exactly (the previous test), so a reference
+/// at a fractional width (e.g. `31.2`) is legitimately compared against
+/// `ceil(31.2) == 32.0` rather than failing a whole-pixel-vs-fractional
+/// mismatch outright — but only once both sides declare the anchor
+/// `content_sized`, `repo_icon_popover.rs`'s own P3.63 precedent. Before
+/// this fix the geometry was already right (the two-box split above) but
+/// the *declaration* was still missing, leaving v1.5's own ceil-excess
+/// allowance inert — exactly the gap that precedent closed for
+/// `repo-icon-popover`'s three buttons.
+///
+/// `project-home-row-label` and `workspace-tree-item-label` are **not**
+/// this shape — both put `flex-1` directly on their own anchored span (this
+/// file's own `label` doc comment), so neither stretches to a text-run
+/// width and neither may declare `content_sized`.
+/// `row_layout::workspace_tree_item::the_labels_own_box_does_not_declare_
+/// content_sized` confirms the second one directly rather than assuming the
+/// two labels are symmetric.
+///
+/// **Mutation, run:** removed the `.content_sized()` call from
+/// `RepoSection::label`'s anchor. `the_label_declares_content_sized` failed
+/// as predicted:
+///
+/// ```text
+/// thread 'row_layout::repo_section::the_label_declares_content_sized' panicked at crates/crowbar-app/src/row_layout/repo_section.rs:230:5:
+/// assertion failed: super::find(&records, repo_section::ID_LABEL).content_sized
+/// ```
+///
+/// Reverted after confirming.
+#[gpui::test]
+fn the_label_declares_content_sized(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+
+    assert!(super::find(&records, repo_section::ID_LABEL).content_sized);
+}
+
 /// **The composed `repo-icon-popover-trigger` renders rounded
 /// (`theme.radius_md`) inside a real row** — the outer `<PopoverTrigger>`
 /// span carries `rounded-md` in the live source, which the port's own

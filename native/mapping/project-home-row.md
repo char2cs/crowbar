@@ -320,3 +320,76 @@ I got there through three wrong cells, and each was caught by a different guard:
    vanished the moment the cell was right.
 
 **Four of the six original deltas were mine.** The surviving two are the port's.
+
+---
+
+## ⛔ REGRESSED (2026-08-04) — a shared-helper fix elsewhere broke this surface's PASS
+
+P3.66 fixed a real phantom-border defect on `repo-section-import`/
+`-collapse` and `workspace-tree-item-add-child` by removing
+`.border(button::BORDER_WIDTH).border_color(Color::TRANSPARENT)` from
+`row_base::sub_action_box` **globally**. Correct for those three — **and
+wrong for this surface**, whose two trailing actions genuinely carry that
+same border in the live DOM: `PASS 0/5` → `FAIL 2/5`.
+
+```
+project-home-row-import.border.w:  0.0, expected 1.0
+project-home-row-switch.border.w:  0.0, expected 1.0
+```
+
+## FIXED (P3.81)
+
+**Root cause, established from the React source rather than assumed:** this
+surface's two actions are **not** the same shape as `repo-section.tsx`'s and
+`workspace-tree-item.tsx`'s own trailing actions. Those two render raw
+`<button className={ROW_SUB_ACTION}>` elements — no `<Button>` primitive at
+all — and `ROW_SUB_ACTION`'s own class list (`workspace-row-base.ts`) never
+carries a `border` utility, so P3.66's removal is correct for them.
+`project-home-row.tsx`'s two actions are `<Button variant="ghost"
+size="icon-xs" className={cn(ROW_SUB_ACTION, 'size-6')}>` — the **shared**
+`Button` primitive, whose base class (`button.tsx`, `buttonVariants`)
+carries a bare, unconditional `border` (`button.rs`'s own headline finding).
+`ROW_SUB_ACTION` has no `border`/`border-color` utility to override it with,
+so tailwind-merge leaves the primitive's own `border border-transparent`
+(`ghost`'s own colour) in the final class string untouched. **One shared
+`row_base::sub_action_box`, two different DOM shapes underneath it** — a raw
+element with no border ever, and a `<Button>` whose border only its colour
+varies.
+
+Fixed by restoring the border **at this surface's own call site**
+(`ProjectHomeRow::sub_action`,
+`crates/crowbar-ui/src/components/project_home_row.rs`) rather than putting
+it back on the shared helper: `.border(button::BORDER_WIDTH)
+.border_color(Color::TRANSPARENT)` chained onto `row_base::sub_action_box`'s
+own result, mirroring `Button::render`'s own `shell()` (`.border_1()` +
+`Variant::Ghost`'s own `Color::TRANSPARENT`). `row_base::sub_action_box`
+itself is untouched and stays correct — no border — for its other two,
+genuinely-raw-`<button>` consumers.
+
+### The full `sub_action_box` consumer list, and what each paints
+
+| consumer | React shape | `border.w` |
+|---|---|---|
+| `repo-section-import`/`-add-child`/`-collapse` | raw `<button className={ROW_SUB_ACTION}>` | **0** — unchanged by this fix |
+| `workspace-tree-item-expand`/`-add-child` | raw `<button className={ROW_SUB_ACTION}>` | **0** — unchanged by this fix |
+| `project-home-row-import`/`-switch` | `<Button variant="ghost" size="icon-xs">` merging `ROW_SUB_ACTION` | **1**, `#00000000` — restored by this fix |
+
+No fourth consumer exists (`grep -rn "sub_action_box"` over `native/`,
+excluding `target/`, turns up exactly these three files' six call sites —
+`crates/crowbar-app/src/row_layout/{workspace_tree_item,repo_section}.rs`
+only *mention* the function in doc comments, they do not call it).
+
+### Regression guarded
+
+`crates/crowbar-app/src/row_layout/project_home_row.rs` gained
+`the_two_actions_paint_a_transparent_border`, run against a real reversion
+of the fix (removed the `.border(...).border_color(...)` chain) and
+confirmed to fail (`expected 1px, got 0px`) before being reverted back to
+the fix.
+
+### `workspace-tree` inherits this fix with no code change of its own
+
+`native/mapping/workspace-tree.md`'s own two `FAIL` survivors
+(`project-home-row-import`/`-switch` `border.w`) are this exact regression,
+reached through the row it composes — closed by this same fix, nothing
+further needed in `workspace_tree.rs`.

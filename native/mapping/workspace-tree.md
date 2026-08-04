@@ -272,3 +272,29 @@ both_axes` and `the_scroll_area_starts_below_the_home_rows_own_margin`
 failed). `crates/crowbar-app/src/surfaces/workspace_tree.rs` gained matching
 unit-level coverage (`project_name_overrides_the_composed_home_row`,
 `home_active_reaches_the_composed_row`).
+
+---
+
+## ⛔→✅ A later, shared-helper regression carried through this surface, and is now fixed (P3.81)
+
+P3.66 (landed after the `FIXED` section above) removed a phantom border from
+`row_base::sub_action_box` to close a real defect on `repo-section`'s and
+`workspace-tree-item`'s own trailing actions — correct for those, and wrong
+for `project-home-row`'s two actions, which carry a real transparent 1px
+border in the live DOM (they render through the shared `<Button
+variant="ghost">` primitive, not a raw `ROW_SUB_ACTION`-only element). This
+surface composes `project-home-row` (`WorkspaceTree::home_row`), so the
+regression carried straight through:
+
+```
+project-home-row-import.border.w:  0.0, expected 1.0
+project-home-row-switch.border.w:  0.0, expected 1.0
+```
+
+**Fixed at the source** (`native/mapping/project-home-row.md`'s own
+`REGRESSED`/`FIXED` sections) — `ProjectHomeRow::sub_action`
+(`crates/crowbar-ui/src/components/project_home_row.rs`) now restores the
+border at its own call site rather than on the shared
+`row_base::sub_action_box`. No code change was needed in `workspace_tree.rs`
+itself; the fix reaches this surface entirely through composition, the same
+way the regression did.

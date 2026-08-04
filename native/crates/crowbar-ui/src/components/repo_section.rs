@@ -91,8 +91,12 @@ pub const ID_COLLAPSE: &str = "repo-section-collapse";
 /// The root-level inline create row's own chrome. `is_creating_child` only.
 pub const ID_CREATE_INPUT: &str = "repo-section-create-input";
 
-/// **Empty.** Every box on this surface is authored or `flex-1`.
-pub const CONTENT_SIZED: [&str; 0] = [];
+/// [`ID_LABEL`] only — its box equals its own text run's max-content width
+/// exactly (see [`RepoSection::label`]'s own doc comment for the two-level
+/// structure that makes this true), the `repo_icon_popover.rs` v1.5
+/// precedent applied here. Every other box on this surface is authored or
+/// `flex-1`.
+pub const CONTENT_SIZED: [&str; 1] = [ID_LABEL];
 /// [`ID_LABEL`] only — a blockified flex item with no explicit height of
 /// its own, [`super::project_home_row::LINE_SIZED`]'s own shape.
 pub const LINE_SIZED: [&str; 1] = [ID_LABEL];
@@ -201,6 +205,20 @@ impl RepoSection {
     /// against 31.2px — and neither is touched by this fix. Only this
     /// file's own call site was reading a *wrapper's* class list onto the
     /// wrong element.
+    ///
+    /// # `content_sized` is declared, not merely true
+    ///
+    /// The two-level structure above makes `bounds.w` equal `text_width`
+    /// exactly, but GPUI still ceils a text run's own max-content width
+    /// (`ANCHORS.md` v1.5), so a fractional reference (`31.2`) compares
+    /// against this port's own integral `32.0` — a real, if tiny, gap that
+    /// the differ can only forgive once the anchor is declared
+    /// `content_sized` on **both** sides, `repo_icon_popover.rs`'s own P3.63
+    /// precedent. Declared here via `AnchorId::content_sized()`, and on the
+    /// React side via `data-oracle-content-sized="true"`
+    /// (`repo-section.tsx`). [`super::project_home_row`]'s and
+    /// `workspace_tree_item.rs`'s own labels stay undeclared — the
+    /// paragraph above is why.
     fn label(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         // The outer, unanchored spacer: `<span className="flex min-w-0
         // flex-1 items-baseline gap-1.5">`. `items_baseline` rather than
@@ -230,9 +248,10 @@ impl RepoSection {
             .font_family(theme.font_mono.primary().unwrap_or("monospace"));
 
         outer
-            .child(
-                inner.child(anchors.text(AnchorId::new(ID_LABEL).line_sized(), self.name.clone())),
-            )
+            .child(inner.child(anchors.text(
+                AnchorId::new(ID_LABEL).line_sized().content_sized(),
+                self.name.clone(),
+            )))
             .into_any_element()
     }
 
@@ -335,7 +354,7 @@ mod tests {
 
     #[test]
     fn the_declaration_lists_match_what_render_actually_declares() {
-        assert!(CONTENT_SIZED.is_empty());
+        assert_eq!(CONTENT_SIZED, [ID_LABEL]);
         assert_eq!(LINE_SIZED, [ID_LABEL]);
     }
 
