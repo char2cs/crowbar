@@ -7,5 +7,27 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+# macOS only (§4.2's declared dependency contract for this crate). `apply_vibrancy`
+# does the `NSVisualEffectView` construction itself and is a SAFE function despite
+# doing unsafe AppKit work internally — item S0.5 needs no unsafe of its own for
+# that half. The appearance pin (`pin_appearance`, S0.5) is this crate's own
+# hand-written unsafe, because window-vibrancy exposes no equivalent: it inserts
+# the tagged view but never calls `setAppearance:` on it.
+[target.'cfg(target_os = "macos")'.dependencies]
+raw-window-handle.workspace = true
+window-vibrancy.workspace = true
+objc2.workspace = true
+# features on top of the workspace pin: only the four classes `pin_appearance`
+# actually touches (`NSView`/`NSWindow` for the tagged-view walk, `NSAppearance`
+# for the named appearance, `NSResponder` because `NSAppearanceCustomization`'s
+# `impl`s for both are gated on it) — not the whole of AppKit.
+objc2-app-kit = { workspace = true, features = [
+    "std",
+    "NSAppearance",
+    "NSResponder",
+    "NSView",
+    "NSWindow",
+] }
+
 [lints]
 workspace = true

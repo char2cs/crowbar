@@ -78,6 +78,26 @@ sysinfo = "0.31"
 # `sysinfo`'s own unix backend both pull it in) before this item.
 libc = { version = "0.2", default-features = false }
 
+# S0.5 (spec §5.4): `crowbar-platform`'s window chrome, macOS only — gated at
+# that crate's own `[target.'cfg(target_os = "macos")'.dependencies]`, not
+# here; centralized here only for the version pin, matching every other
+# external dependency in this table. `window-vibrancy` builds and pins the
+# `NSVisualEffectView` (`apply_vibrancy` is itself a safe function — the
+# unsafe AppKit calls are inside it, not at crowbar-platform's call site).
+# `raw-window-handle` is the trait GPUI's own `Window` already implements
+# (`vendor/gpui/src/window.rs:6130`) and `window-vibrancy` expects, so no
+# adapter type is needed between the two. `objc2`/`objc2-app-kit` are for the
+# appearance pin the desktop reference calls `set_vibrancy_appearance`, which
+# `window-vibrancy` has no equivalent of: it never calls `setAppearance:` on
+# the view it inserts, so the frost would otherwise always follow the OS
+# appearance rather than the app's own theme.
+# `std` for `impl std::error::Error for HandleError`, which `PinAppearanceError`
+# wraps and needs as an `Error::source`.
+raw-window-handle = { version = "0.6", features = ["std"] }
+window-vibrancy = "0.8"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false }
+
 # §4.3 rule 4. Every member carries `[lints] workspace = true`; the per-test
 # exemptions live in `clippy.toml` so no crate needs `#[allow]` noise.
 [workspace.lints.clippy]
