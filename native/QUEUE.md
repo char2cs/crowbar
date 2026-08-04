@@ -13,7 +13,7 @@ and three of the five can never receive a verdict at all.
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
 | **Tier B · `components/layout`** | **22 of 23 targets** (P3.64 closed 3 defects + 3 fixture flags) — P3.61 (tree chain ×4) and P3.62 (last three) merged. **1 to go.** ⚠ built ≠ verified: **5 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1, `sidebar-carousel` 0/5), **4 FAIL** (`fps-overlay` — a **contract** gap; `repo-icon-popover` 36/6 — one missing wrapper; `repo-avatar` 4/1 — only 1 real; `project-switcher-panel` 5/5 — only 1 real), **1 REFUSED** (`repo-import-dialog` — duplicate `button` anchor id), the rest unverified |
-| **Tier A · `crowbar-core`** | **five areas merged** — workspace scoping (P3.53) + git (P3.67) + keymap (P3.70) + settings (P3.72) + file-tree (P3.75). Coverage **100.00% over 3,683 lines**, up from 2,531 → 1,882 → 1,435 → 787. ⚠ 2 of the 6 git files measure **dead code** — my scoping error, see below. **Denominator settled (P3.71): ~3,170-line Tier A core target confirmed**, not the 9,447-line figure that briefly displaced it — that number measures all seven surveyed areas' *entire* reachable surface (Phase 4 state, `crowbar-diff` logic, presentation, out-of-scope code included), not `crowbar-core`'s alone. **ratio RETRACTED — see below.** Coverage is 100.00% over **3,683 Rust lines**; the ~3,170 target counts **TypeScript** lines, so the two do not divide — see `tier-a-denominator.md`'s "Denominator reconciliation (P3.71)". Keymap was that next area and is now merged |
+| **Tier A · `crowbar-core`** | **five areas merged** — workspace scoping (P3.53) + git (P3.67) + keymap (P3.70) + settings (P3.72) + file-tree (P3.75, partial — gitignore in flight on `native/p3.76-core-gitignore`). **Completion, one unit throughout (P3.77): 1,959 of ~3,169 TS lines ported = 61.8% net** (2,021/3,169 = 63.8% raw, before subtracting the 2 dead git modules). §2 diff algebra and §7 review threads are untouched (0%); see "P3.77" below for the full per-area breakdown and what remains. Coverage is separately **100.00% over 3,683 Rust lines** — a statement about the Rust crate, not comparable to the TS-line completion figure (ratio of those two RETRACTED, see below); 2 of the 6 git files measure dead code, priced into the net figure above. |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
 Both denominators come from surveys committed this iteration
@@ -3935,6 +3935,11 @@ Dispatched as its own item.
 
 **Until that lands, this file quotes no Tier A percentage.** "Five of seven
 areas merged, `crowbar-core` 100% over 3,683 lines" is true and sufficient.
+
+**Settled by P3.77, below: 1,959 of ~3,169 TS lines ported, net of the two
+dead git modules — 61.8%.** Both sides of the ratio are TypeScript lines now;
+see the next section for the per-area breakdown, what was and wasn't
+recounted, and what still remains.
 
 ## ✅ P3.77 — the Tier A completion figure, in one unit (2026-08-04)
 
