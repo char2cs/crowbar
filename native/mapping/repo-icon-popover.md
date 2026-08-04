@@ -155,3 +155,62 @@ list lives on the buttons inside it, `button`'s own surface's business.
 The repo section's own row (`repo-section.tsx` → `ide-shell.tsx` →
 `workspace-tree`), one per repo — confirmed live in
 `native/mapping/liveness-audit.md`.
+
+---
+
+## 6. VERDICT: FAIL — 36 deltas over 6 anchors (2026-08-03, my own run)
+
+Drive: `--surface repo-icon-popover --width 256 --viewport-width 1714 --theme
+dark --content normal --preview letter`, against the live popover opened by
+clicking `repo-icon-popover-trigger`. **The cell is right** — I checked the
+live popup's own text content (`IconDUploadEmojiGitHub`) against the fixture's
+before reading a single delta, so neither `--emoji` nor `--reset` belongs in
+this cell and the deltas are not another wrong-cell run.
+
+### The one root cause behind 17 of the geometry deltas
+
+The popup's own box arithmetic resolves exactly on both sides, which is what
+makes this diagnosable rather than a pile of numbers:
+
+| | React | port |
+|---|---|---|
+| border | **1** | 0 |
+| `popover-viewport` padding | **16** | **not modelled at all** |
+| inner `p-3` | 12 | 12 |
+| caption line box | 15 | 15 |
+| `gap-3` | 12 | 12 |
+| **= avatar `y`** | **56** ✓ | **40** ✓ |
+| **popup `h`** | **177** ✓ | **144** ✓ |
+
+Both columns are internally consistent, so nothing here is a measurement
+artefact. The port is missing exactly two things — the popup's **1px border
+and 10px radius**, and the **`popover-viewport` element and its 16px
+padding**. `1 + 16 = 17` accounts for the 16px `y` shift on every child, and
+`2 + 32 = 34` accounts for the 33px height delta.
+
+`popover-viewport` is also absent as an *anchor*, which is the single anchor-
+presence delta. The port hand-rolls this popup instead of composing the
+`popover` primitive the React call site actually uses.
+
+### The remaining deltas, by kind
+
+- **15 field-presence**: the three action buttons emit no `text`, `fg`,
+  `text_width`, `font` or `clipped`. The port paints their labels as unanchored
+  children, so the contract can see the boxes but not the text.
+- **3 button widths** (73.5 vs 69.63/59.77/69.56): the port gives all three
+  buttons one shared width; React content-sizes each. `Emoji` is the tell —
+  59.77 against the port's flat 73.0.
+- **`avatar-fallback`**: `line_height` 22.5 vs 20, `text_width` 8.946 vs 10.64.
+  Font metrics on the letter, not layout.
+- **`avatar-fallback.text: "R", expected "D"`** — **a fixture gap, not a port
+  defect.** The native fixture hard-codes `R`; the live repo is `demo`. There
+  is no `--letter`/`--name` flag to drive it, so this delta cannot be closed by
+  driving. It needs a flag.
+
+### Corroboration worth keeping
+
+The caption's own line box measures **15px at `text-[10px]`** —
+`10 × 1.5`, Tailwind's preflight default, on an element with no paired
+line-height utility. That is P3.60's `row_base` finding reproduced
+independently on a different component at a different font size, which is
+about as good as confirmation gets for that ratio.
