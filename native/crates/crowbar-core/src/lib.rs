@@ -7,8 +7,9 @@
 //! validation, file-tree model, workspace/path scoping and the review-thread
 //! model all land here (spec §4.2). [`workspace`] was the first of these to
 //! land, item P3.53. [`git`] was the second. [`keymap`] was the third.
-//! [`settings`] is the fourth — see its module doc for what was ported and
-//! what wasn't.
+//! [`settings`] was the fourth. [`file_tree`] is the fifth — see its module
+//! doc for what was ported and what wasn't, including the settings/file-tree
+//! `FileTreeDensity` reconciliation `settings`'s own doc had flagged.
 //!
 //! Dependency contract (§4.2): `crowbar-proto`, `crowbar-client`.
 //!
@@ -17,6 +18,7 @@
 //! into `crowbar-ui` or `crowbar-state` and leave the decision here.
 
 pub mod color;
+pub mod file_tree;
 pub mod git;
 pub mod keymap;
 pub mod settings;
