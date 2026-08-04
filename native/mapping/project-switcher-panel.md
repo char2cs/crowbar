@@ -153,3 +153,71 @@ own call site, just not nameable in a fixed-size array — see §4.
 <ProjectSwitcherPanel /> })`, rendered by `nav-stack.tsx` once pushed.
 `project-home-row.tsx` is itself reachable per `project-home-row.md` §10, so
 this panel is one click away from the resting sidebar.
+
+---
+
+## VERDICT: FAIL — 5 deltas over 5 anchors, **1 real defect** (2026-08-03, my own run)
+
+Drive: `--surface project-switcher-panel --width 344 --viewport-width 1200
+--theme dark --content normal --count 1 --active-index 0`, against the panel
+opened by clicking `project-home-row-switch`.
+
+```
+row-0-label.text:          "crowbar", expected "oracle-fixture"  (exact)
+panel.bounds.h:            88.0,      expected 756.0             (Δ -668.0)
+row-0-label.text_width:    54.6,      expected 109.2             (Δ -54.6)
+import-label.text_width:   88.959,    expected 90.96             (Δ -2.001, tol ±1.0)
+import-label.font.weight:  400,       expected 500               (exact)
+```
+
+### ✅ First, what this run CONFIRMS — P3.60 on its second consumer
+
+**`font.line_height` does not appear in the delta list at all.** Both labels
+match at **19.5**, and the label boxes (`h`, `y`) are inside tolerance. This
+surface is the *other* consumer of `row_base::LINE_HEIGHT_RELATIVE`, and it was
+never driven when that constant was fixed — so this is the first independent
+check of it.
+
+It also settles the question the P3.60 worker raised and answered on reasoning
+alone: the **"Import project" label is CalSansUI, not `font-mono`**, and it
+reports `line_height: 19.5` exactly like the mono label beside it. Unitless
+line-height really is font-*size*-driven, not font-*family*-driven. No family
+split was needed, and now that is measured rather than argued.
+
+### The one real defect
+
+**`import-label.font.weight` — 400 against 500.** §1's own table records
+`ROW_BASE` as `… text-[13px] font-medium` for **both row kinds**, so the import
+row should be 500 like the project row (which is correct at 500). The port
+drops the weight on this one label.
+
+**`import-label.text_width` is the same defect, not a second one**: 88.959
+against 90.96 is a 2px shortfall on a 14-character string, which is what
+shaping the same text at 400 instead of 500 produces. Fixing the weight should
+close both.
+
+### The two fixture gaps
+
+`row-0-label.text` (`"crowbar"` vs `"oracle-fixture"`) and its `text_width` are
+one gap: **`--project-name` exists on `project-home-row` but not on this
+surface**, so no drive can make the fixture say what the live app says. Third
+surface today blocked on a hard-coded fixture string (`repo-icon-popover`'s
+`"R"`, `repo-avatar`'s `"RE"`). These want one flag each.
+
+### ⚠ `panel.bounds.h` — §3's reasoning describes the fixture, not the app
+
+§3 above argues `h-full` is unmodelled because the parent has "**no height
+style at all** — `display: block`, auto height — so a percentage height
+resolves … as `auto`". **That is true of the context §3 was written against and
+false of the running app**: live, `NavStack` gives the panel a definite height
+and `h-full` stretches it to **756px** against the port's content-sized 88.
+
+So this is not the port miscomputing a height — it is the port modelling a
+containing block the app does not have, and the surface having **no height
+axis** to express the one it does. Same shape as `repo-import-dialog`'s
+`--window-height`, which exists precisely because that surface's height comes
+from outside it. This surface needs the equivalent before its root's `h` can be
+compared at all.
+
+Until then the root's height delta is **not evidence about the port**, and
+should not be counted as one.
