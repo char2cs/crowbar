@@ -192,3 +192,31 @@ That last one is worth stating plainly: **the port implemented a feature the
 React app does not have.** The daemon assigns an avatar colour, the frontend
 puts it in `className`, and nothing consumes it. That is a real (small) defect
 in the React app, outside this port's scope.
+
+### ⚠ Correction to the reasoning above — "arbitrary size ⇒ 1.5" is NOT a law
+
+Written the same hour, before briefing anyone on it. The paragraph above says
+`text-[13px]` has no paired utility "so it inherits preflight's unitless 1.5".
+**The measured conclusion (19.5) is right — I read it off the live node — but
+that justification is over-general, and applied as a rule it produces wrong
+fixes.**
+
+The counter-example was already in hand: `context-pill`'s own
+`text-[13px] font-semibold` element, which **passed** its verdict, computes
+
+```
+fontSize: 13px   lineHeight: 16.25px   ratio 1.25
+```
+
+with no `leading-*` class on the element itself. A unitless `line-height` is
+inherited from the **nearest ancestor that sets one** and recomputed against
+each descendant's own font-size. Preflight's `html { line-height: 1.5 }` is
+only the value that survives when *nothing* between `html` and the element
+overrides it — and a parent carrying any `text-*` utility (which ships a paired
+line-height) or a `leading-*` class does exactly that.
+
+So the correct rule is: **resolve the ancestor chain, or measure the live
+node.** `row_base` is 1.5 because nothing in its chain overrides; this avatar
+is 1.5 because nothing in its chain overrides; the context pill is 1.25 because
+something does. All three are consistent, and none of them follows from the
+font size alone.
