@@ -443,6 +443,30 @@ mod tests {
     }
 
     #[test]
+    fn root_message_author_falls_back_to_none_when_wire_author_is_empty() {
+        let dto = ThreadDTO {
+            author: String::new(),
+            ..wire_thread_dto()
+        };
+        assert_eq!(map_thread(&dto).messages[0].author, None);
+    }
+
+    #[test]
+    fn reply_author_falls_back_to_none_when_wire_author_is_empty() {
+        // map_reply is private, unreachable except through map_thread — see
+        // its own doc comment — so this exercises it the same way the rest
+        // of the module's callers do.
+        let dto = ThreadDTO {
+            replies: vec![ThreadReplyDTO {
+                author: String::new(),
+                ..wire_reply_dto()
+            }],
+            ..wire_thread_dto()
+        };
+        assert_eq!(map_thread(&dto).messages[1].author, None);
+    }
+
+    #[test]
     fn build_review_state_passes_description_through_unchanged() {
         let raw = WireBranchReview {
             description: "a review".to_string(),
