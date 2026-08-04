@@ -220,6 +220,27 @@ impl ProjectHomeRow {
     }
 
     /// Renders the row, opting every contract anchor into `anchors`.
+    ///
+    /// **`.boxed`, not `.root`** — a fix made by P3.61 (`workspace_tree.rs`,
+    /// `native/mapping/layout-denominator.md` §8's Cluster 8), the first
+    /// item to actually compose this row inside a parent surface
+    /// (`workspace-tree.tsx`'s own sole importer of `project-home-row.tsx`,
+    /// per this file's own module docs, was always this one — nothing in
+    /// this port reached it before Cluster 8 landed). `AnchorSink::root`
+    /// clears every anchor recorded so far on entry
+    /// (`AnchorRegistry::clear`'s own docs: "what makes a snapshot one
+    /// frame"), which is correct for a genuinely top-level surface and
+    /// silently wrong for one nested inside another: composing this row
+    /// inside `WorkspaceTree::render` reproducibly dropped `workspace-
+    /// tree`'s own root anchor from every capture, found by `row_layout::
+    /// workspace_tree`'s own tests failing with the outer root missing
+    /// while every anchor nested *beneath* this row's own composition
+    /// still appeared. `.boxed` records the same anchor without the reset,
+    /// the same posture every other frequently-composed leaf in this port
+    /// (`workspace_branch_icon`, `repo_avatar`, …) already takes; nothing
+    /// about `--surface project-home-row`'s own standalone capture depends
+    /// on the reset either, since `row_layout.rs`'s own harness opens a
+    /// fresh, empty registry per test.
     #[must_use]
     pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         let shell = if self.is_active {
@@ -228,8 +249,8 @@ impl ProjectHomeRow {
             row_base::inactive(theme)
         };
 
-        anchors.root(
-            ID_ROOT.into(),
+        anchors.boxed(
+            AnchorId::from(ID_ROOT),
             shell
                 .w_full()
                 .child(self.icon(theme, anchors))

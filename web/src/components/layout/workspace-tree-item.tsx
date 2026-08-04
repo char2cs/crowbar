@@ -110,6 +110,7 @@ export function WorkspaceTreeItem({
             isDropTarget && 'ring-1 ring-ring',
             showPlaceholderDetails && 'mb-0 rounded-b-none',
           )}
+          data-oracle-id="workspace-tree-item"
           onClick={() => !isRenaming && onWorkspaceClick(workspace.id, projectId, repoId)}
           onKeyDown={(e) => {
             if (!isRenaming && (e.key === 'Enter' || e.key === ' ')) {
@@ -130,6 +131,13 @@ export function WorkspaceTreeItem({
           />
 
           {isRenaming ? (
+            // No data-oracle-id here: workspace-inline-input.tsx is a separate,
+            // not-yet-ported Tier B target (native/mapping/layout-denominator.md
+            // §8's Cluster 7) and carries no data-oracle-id of its own anywhere
+            // in its source. Anchoring this call site would invent a React-side
+            // id with nothing on the other side of the port to compare against;
+            // the item that ports workspace-inline-input.tsx is better placed to
+            // decide where its own anchor goes.
             <WorkspaceInlineInput
               defaultValue={workspace.branch}
               onConfirm={confirmRename}
@@ -147,6 +155,8 @@ export function WorkspaceTreeItem({
             // single-click contract on its name, so it stops the clicks there.
             <span
               className="min-w-0 flex-1 truncate font-mono text-left"
+              data-oracle-id="workspace-tree-item-label"
+              data-oracle-line-sized="true"
               onDoubleClick={(e) => {
                 if (isLocked) return
                 e.stopPropagation()
@@ -163,10 +173,14 @@ export function WorkspaceTreeItem({
             (workspace.added !== undefined || workspace.deleted !== undefined) && (
               <span className="flex shrink-0 gap-1 font-mono">
                 {workspace.added !== undefined && workspace.added > 0 && (
-                  <span className="text-green-300">+{formatChangeCount(workspace.added)}</span>
+                  <span className="text-green-300" data-oracle-id="workspace-tree-item-added">
+                    +{formatChangeCount(workspace.added)}
+                  </span>
                 )}
                 {workspace.deleted !== undefined && workspace.deleted > 0 && (
-                  <span className="text-red-300">-{formatChangeCount(workspace.deleted)}</span>
+                  <span className="text-red-300" data-oracle-id="workspace-tree-item-deleted">
+                    -{formatChangeCount(workspace.deleted)}
+                  </span>
                 )}
               </span>
             )}
@@ -181,6 +195,7 @@ export function WorkspaceTreeItem({
               }}
               onPointerDown={(e) => e.stopPropagation()}
               aria-label={expanded ? 'Collapse' : 'Expand'}
+              data-oracle-id="workspace-tree-item-expand"
             >
               <svg
                 aria-hidden="true"
@@ -205,6 +220,7 @@ export function WorkspaceTreeItem({
               }}
               onPointerDown={(e) => e.stopPropagation()}
               aria-label="Add child workspace"
+              data-oracle-id="workspace-tree-item-add-child"
             >
               <svg
                 aria-hidden="true"
@@ -229,6 +245,15 @@ export function WorkspaceTreeItem({
               // as one card (the row squares its bottom corners while shown).
               'bg-background shadow-xs shadow-black/10',
             )}
+            // This wrapper div is workspace-tree-item.tsx's own chrome (the
+            // continued raised surface, background, padding) — anchored here
+            // even though placeholder-row-actions.tsx's own content inside it
+            // is a separate, not-yet-ported Tier B target carrying no
+            // data-oracle-id of its own. Unlike the WorkspaceInlineInput slots
+            // below, this div is not invented around foreign content: it is
+            // this component's own real markup regardless of what renders
+            // inside it.
+            data-oracle-id="workspace-tree-item-placeholder-details"
           >
             <PlaceholderRowActions workspace={workspace} />
           </div>
@@ -261,7 +286,14 @@ export function WorkspaceTreeItem({
               NewChatRow; this is its twin). */}
           <div className="flex flex-col" style={{ paddingLeft: (depth + 2) * 14 }}>
             {isCreatingChild ? (
-              <div className={cn(ROW_BASE, 'border-transparent text-foreground')}>
+              // This row's own chrome (border-transparent ROW_BASE plus the
+              // leading add-glyph) is this component's own markup, anchored
+              // below; WorkspaceInlineInput inside it is not (same reasoning
+              // as the rename slot above).
+              <div
+                className={cn(ROW_BASE, 'border-transparent text-foreground')}
+                data-oracle-id="workspace-tree-item-create-input"
+              >
                 <svg
                   aria-hidden="true"
                   className={cn('size-4', ROW_SUB_ACTION_GLYPH)}
@@ -295,6 +327,7 @@ export function WorkspaceTreeItem({
                   'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
                 )}
                 onClick={() => startCreating(repoId, workspace.id)}
+                data-oracle-id="workspace-tree-item-new-button"
               >
                 <svg
                   aria-hidden="true"

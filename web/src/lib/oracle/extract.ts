@@ -1540,6 +1540,85 @@ export function oracleSurfaceScope(
         'autocomplete-list',
       ],
     },
+    // `workspace-tree-item.tsx` (P3.61, `layout-denominator.md` §8's Cluster
+    // 8): the row itself. **This declared scope is only sound for a LEAF
+    // cell — no children, no pending creates.** The component recurses (it
+    // renders itself for `children`), and both `workspace-tree-item` and the
+    // composed `workspace-branch-icon` are the SAME literal id at every
+    // depth — `select-item`'s own "count is a cell property" reasoning means
+    // neither the recursive family nor `pending-create-row` (its own
+    // registered surface) is declared, but unlike `repo-section`/`workspace-
+    // tree` below, the repeated id here is not confined to an excluded
+    // child: it is this surface's OWN root and its OWN icon. A capture taken
+    // with any child present would carry two elements under `workspace-tree-
+    // item` (and, if either row is working/placeholder, two under
+    // `workspace-branch-icon` too) and `oracleSelectDeclaredAnchors`' "two
+    // elements carry one declared id" rule refuses it outright — the
+    // identical shape `search --replace`'s two `Input`s hit, documented
+    // above. So the one reachable reference this scope can validate is a
+    // childless row; a deeper cell is a future worker's problem to solve the
+    // way `search-replace-row` did (its own registered surface, captured
+    // separately), not something this declaration can paper over.
+    //
+    // The row's own conditional slots — `workspace-tree-item-added`/`-deleted`
+    // (active + has changes only), `workspace-tree-item-expand` (has children
+    // only, mutually exclusive with `-add-child`), `-placeholder-details`
+    // (placeholder + active only) and `-create-input` (creating a child only,
+    // mutually exclusive with `-new-button`) — are also left undeclared,
+    // `dialog-header`'s own reason: each is real on some reachable cell and
+    // absent on others, and declaring one would refuse every capture where
+    // that particular cell does not happen to show it.
+    'workspace-tree-item': {
+      root: 'workspace-tree-item',
+      anchors: ['workspace-tree-item', 'workspace-branch-icon', 'workspace-tree-item-label'],
+    },
+    // `repo-section.tsx` (P3.61, Cluster 8): the repo header row's own
+    // unconditional chrome. `repo-icon-popover-trigger` is real and painted
+    // by this composition (not foreign — `repo-icon-popover.tsx`'s own
+    // finding, reused here), so it is declared rather than excluded.
+    //
+    // Not declared, `workspace-tree-item`'s own two reasons: `workspace-tree-
+    // item` (recursive, one per root workspace — count is a cell property)
+    // and `pending-create-row` (one per in-flight create at this repo's root
+    // — same). `repo-section-label` is declared (present on every capture
+    // that is not mid-rename, which is the overwhelmingly common and only
+    // currently-reachable shape); `repo-section-add-child` is cell-
+    // conditional on `repo.defaultWorkspaceId` and left undeclared,
+    // `popover-title`'s own reason.
+    'repo-section': {
+      root: 'repo-section',
+      anchors: [
+        'repo-section',
+        'repo-icon-popover-trigger',
+        'repo-section-label',
+        'repo-section-import',
+        'repo-section-collapse',
+      ],
+    },
+    // `workspace-tree.tsx` (P3.61, Cluster 8): the outer scaffold only —
+    // `ProjectHomeRow` (already declared under its own five ids, reused
+    // rather than repeated here — `command`'s own `scroll-area-*` reuse) and
+    // the `ScrollArea` shell it wraps around the repo list. `repo-section`
+    // is excluded for `select-item`'s reason one level up: the repo count is
+    // a property of the workspace list, not of this surface. Whatever a
+    // `repo-section` capture nests (in turn excluding its own `workspace-
+    // tree-item`/`pending-create-row` families) is verified through that
+    // surface's own root, never through this one — `resizable`'s own
+    // precedent for a container whose repeated content is somebody else's
+    // surface.
+    'workspace-tree': {
+      root: 'workspace-tree',
+      anchors: [
+        'workspace-tree',
+        'project-home-row',
+        'project-home-row-icon',
+        'project-home-row-label',
+        'project-home-row-import',
+        'project-home-row-switch',
+        'scroll-area-root',
+        'scroll-area-viewport',
+      ],
+    },
   }
   const key = String(surface === null || surface === undefined ? '' : surface)
   // Own properties only: `declared['constructor']` would otherwise hand back a

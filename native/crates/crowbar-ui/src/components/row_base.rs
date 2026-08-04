@@ -254,11 +254,52 @@ pub fn label_container(color: Color) -> Div {
         .text_color(color)
 }
 
+/// Which inline editor, if any, a row shows in place of its own label —
+/// `workspace-tree-item.tsx`'s `isRenaming`/`isCreatingChild` and
+/// `repo-section.tsx`'s `renamingRepoId === repo.id`/`creatingChildOf`
+/// gates, unified into one three-way state rather than two independent
+/// bools on each consumer's own struct.
+///
+/// Shared here rather than duplicated on
+/// [`super::workspace_tree_item::WorkspaceTreeItem`] and
+/// [`super::repo_section::RepoSection`] for two reasons at once: the two
+/// consumers mean the identical thing by it (a row cannot show both an
+/// inline rename field and an inline create-child field at once — they
+/// occupy the same slot), and folding two `bool`s into one three-way enum
+/// on each struct is what keeps both under clippy's `struct_excessive_bools`
+/// — `button.rs`'s own `Props`/`Interaction` split, `Props`'s own doc
+/// comment: *"a flat six-field bag would have hidden a real division."*
+/// This is that division, named once instead of twice.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RowMode {
+    /// Neither editor is showing — the ordinary label/name paints.
+    #[default]
+    Normal,
+    /// The row's own name/branch is being renamed inline.
+    Renaming,
+    /// A child is being created inline, under this row.
+    CreatingChild,
+}
+
+impl RowMode {
+    /// `isRenaming`/`renamingRepoId === repo.id`.
+    #[must_use]
+    pub const fn is_renaming(self) -> bool {
+        matches!(self, Self::Renaming)
+    }
+
+    /// `isCreatingChild`/`creatingChildOf?.parentId === …`.
+    #[must_use]
+    pub const fn is_creating_child(self) -> bool {
+        matches!(self, Self::CreatingChild)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        GAP, HEIGHT, LINE_HEIGHT_RELATIVE, MARGIN_X, MARGIN_Y, PADDING_X, SUB_ACTION_GLYPH,
-        SUB_ACTION_SIZE, TEXT,
+        GAP, HEIGHT, LINE_HEIGHT_RELATIVE, MARGIN_X, MARGIN_Y, PADDING_X, RowMode,
+        SUB_ACTION_GLYPH, SUB_ACTION_SIZE, TEXT,
     };
     use gpui::px;
 
@@ -286,5 +327,19 @@ mod tests {
     #[test]
     fn the_line_height_ratio_is_tailwinds_own_preflight_default() {
         assert!((LINE_HEIGHT_RELATIVE - 1.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn row_mode_defaults_to_normal_and_the_three_variants_are_mutually_exclusive() {
+        assert_eq!(RowMode::default(), RowMode::Normal);
+
+        assert!(!RowMode::Normal.is_renaming());
+        assert!(!RowMode::Normal.is_creating_child());
+
+        assert!(RowMode::Renaming.is_renaming());
+        assert!(!RowMode::Renaming.is_creating_child());
+
+        assert!(!RowMode::CreatingChild.is_renaming());
+        assert!(RowMode::CreatingChild.is_creating_child());
     }
 }

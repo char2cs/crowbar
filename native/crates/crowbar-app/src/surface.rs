@@ -621,6 +621,11 @@ mod tests {
                 // pair alongside `sidebar-peek`).
                 "nav-stack",
                 "number-input",
+                // `pending_create_row.rs` sorts before `popover.rs` — `pe` <
+                // `po` (P3.61, cluster 8 — the first link of the
+                // `pending-create-row` → `workspace-tree-item` →
+                // `repo-section` → `workspace-tree` chain).
+                "pending-create-row",
                 "popover",
                 // `project_home_row.rs` sorts before `project_switcher_
                 // panel.rs` — `project_h` < `project_s` (`h` < `s`) — and
@@ -651,6 +656,10 @@ mod tests {
                 // shape as `detach-holder-modal`'s, see that entry's
                 // comment).
                 "repo-import-dialog",
+                // `repo_section.rs` sorts before `resizable.rs` — `rep` <
+                // `res` (P3.61, cluster 8's third link — the repo header
+                // row plus its own workspace-tree-item list).
+                "repo-section",
                 "resizable",
                 // `scroll_area.rs` sorts before `search.rs` — `build.rs`
                 // orders by **file** name, and `sc` < `se`. `search.rs`
@@ -719,6 +728,14 @@ mod tests {
                 // `crowbar_ui::components::workspace_switcher`'s own module
                 // docs and `native/mapping/workspace-switcher.md`.
                 "workspace-branch-icon",
+                // `workspace_tree.rs` sorts last of all — `w` is the
+                // alphabetically latest surface file, and `workspace_tree`
+                // is a prefix of `workspace_tree_item` so the shorter name
+                // ends the comparison first, `search.rs`/`search_replace_
+                // row.rs`'s own shape (P3.61, cluster 8's own root — the
+                // chain's fourth and last link).
+                "workspace-tree",
+                "workspace-tree-item",
             ],
         );
     }
