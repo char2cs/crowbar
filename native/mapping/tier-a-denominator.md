@@ -1754,3 +1754,199 @@ reachable React logic across the seven surveyed areas" — never "Tier A."
       unreachable original — the same "tested but unreachable" shape
       `native/mapping/core-git.md` documents for the already-ported
       `diff-buffer-path.ts`.
+
+---
+
+## 8. Export-level liveness (P3.73) — the file-level verdict is not enough to scope a port
+
+### Why this exists
+
+§0 (P3.69) gave every row above a **file-level** LIVE/CONDITIONAL/DEAD verdict.
+One row proved that is not sufficient to scope a port: `file-explorer/utils/
+file-explorer-tree-utils.ts` (§5) is file-level **LIVE**, and **4 of its 5
+exports are dead or test-only** — `filterHiddenFiles` and
+`removeEditingItemsFromTree` have zero references anywhere including tests;
+`addNewItemToTree` and `getAncestorDirectoryPaths` are each independently
+redeclared locally in the file that needs them, so the exports are never
+called; `getAncestorDirectoryPaths` even has a dedicated test exercising the
+unreachable copy. Worse, this document's own "genuine, portable" prose for
+that file (§5, above) describes exactly those four dead exports and never
+names the one live one (`getExplorerTargetPath`). A worker scoping a port off
+the file-level table alone would have ported ~4/5 dead lines. This section
+re-audits **every exported value/function/type** in the three still-unported
+areas named in the item brief — §2 Diff algebra, §5 File-tree model, §7
+Review threads — restricted to rows already marked LIVE or CONDITIONAL in §0
+(DEAD rows, e.g. `diff-search.ts`, are excluded per the brief; they are
+already correctly scoped to zero).
+
+**This section is committed incrementally, one area at a time, per this
+document's own interruption protocol** (see §0's headline "committed
+incrementally per the interruption protocol as each finished") — each of §2,
+§5, §7 lands as its own commit below, then a final commit adds the
+cross-area line-count reconciliation and scope recommendations.
+
+### Method
+
+**Tool: the TypeScript compiler API (`typescript@5.9.3`), not regex.** A
+single `ts.Program` is built over all of `web/src`'s ~1,019 root files
+(`tsconfig.json`'s own `paths`/`baseUrl` resolve the `@/` alias). For each
+target file: `checker.getExportsOfModule` enumerates its real exports; for
+each export, every `Identifier` node in every non-declaration source file
+(including the declaring file itself) is checked with
+`checker.getSymbolAtLocation`, following alias chains
+(`checker.getAliasedSymbol`, which is what resolves an `export * from` shim
+or a renamed `import { x as y }` back to the original declaration) — a hit
+counts only if the **resolved symbol's declaration position** matches the
+target's, not if the text merely matches. This is what tells a real import
+apart from a same-named local redeclaration (the `addNewItemToTree` shape):
+both look identical as text; only one resolves to the target symbol.
+
+**The crux of an export-level audit, stated explicitly so the next worker
+does not have to re-derive it: self-file references must be counted, not
+skipped, but two different self-file shapes must be told apart.**
+
+- **An export with zero references anywhere, including inside its own
+  file, is dead.** `chord.ts`'s `MOD_ORDER` (outside this item's three
+  areas, used here only as a calibration case) is the clean illustration:
+  declared once, then only ever appearing again in `export { MOD_ORDER }` —
+  which resolves to the same symbol as a real call site would under naive
+  symbol-matching, self-file included, but is a re-export specifier, not an
+  execution. Zero real uses, full stop.
+- **An export consumed only by a sibling export in the same file is
+  live.** `use-review-annotations.tsx`'s `useReviewAnnotations` hook calls
+  its own file's `groupAnnotationsByPath`, `countThreadsByPath`,
+  `threadToAnnotation`, `annotationToThread`, `toThreadSide`, and
+  `isDraftThread` helpers directly, with no import involved anywhere in the
+  program. **A cross-file reference search that skips the declaring file —
+  the natural first instinct, since "importers are what matter" — reports
+  all six as DEAD or TEST-ONLY. They are CONDITIONAL**, alive through the
+  hook that calls them, exactly as alive as if some other file had imported
+  them directly. Skipping self-file references was the single biggest
+  source of false-DEAD verdicts in this pass; see §7 below for how many of
+  `use-review-annotations.tsx`'s 11 exports that would have cost.
+- **Getting these two apart requires distinguishing three things at every
+  self-file occurrence, not two:** (1) declaration-site and
+  import/export-specifier positions (`export function foo(){}`'s own name,
+  `export { foo }`'s name) are never uses, regardless of file; (2) a use
+  whose nearest enclosing named declaration is the target's **own**
+  declaration is the function calling itself (recursion) — evidence of
+  nothing, since nothing is shown to have invoked it the first time
+  (`file-explorer-tree-utils.ts`'s `filterHiddenFiles`/`addNewItemToTree`/
+  `removeEditingItemsFromTree` all show exactly this shape: a lone self-file
+  hit that is pure recursion, correctly excluded, still DEAD); (3) a use
+  whose enclosing declaration is a **different**, sibling export in the same
+  file is real evidence of life, contingent on that sibling itself being
+  reachable (`groupAnnotationsByPath` inside `useReviewAnnotations`, above).
+
+**A fourth, narrower gap found by explicit sweep, not by the script:**
+identifier-text pre-filtering (used for performance, over symbol-resolving
+every identifier in every file for every export) cannot see a **renamed**
+import (`import { setMergeStrategy as patchMergeStrategy }`) — the call site
+reads `patchMergeStrategy(...)`, so a search seeded on the name
+`setMergeStrategy` never reaches it. `grep -rnE "import\s*\{[^}]*\bas\b[^}]*\}
+\s*from"` across all of non-test `web/src` found every renamed named import
+in the codebase (~50 hits); manually cross-checking each against the ~120
+export names audited here found exactly **one** collision (`review-api.ts`'s
+`setMergeStrategy`, aliased in `merge-popover.tsx`), confirmed by reading the
+call site (`await patchMergeStrategy(wsId, next)`, `merge-popover.tsx:60`) —
+a real call, not a false alarm. Stated limit of the method, not hidden: this
+gap was closed by an exhaustive grep sweep for the one known failure shape,
+each hit verified by hand, not by trusting either tool alone.
+
+**Failure mode of the method, stated rather than assumed away:** this is a
+static import-graph + symbol-binding analysis. It cannot see
+`new Worker(new URL(...))`-style dynamic loading (none of the 27 files in
+this pass load that way — checked by hand) or any other
+non-statically-analyzable path, and a "real use" hit proves the compiler can
+reach a call/type site from a reachable declaration, not that the line
+executes under some specific input at runtime. Every DEAD/TEST-ONLY/
+ambiguous verdict below was additionally confirmed by reading the source
+directly, not accepted on the tool's count alone.
+
+### Controls
+
+Four — one known-live, one known-dead (per the brief), plus the two
+calibration cases for the self-file distinction above:
+
+| control | expected | corrected method's result |
+|---|---|---|
+| `getExplorerTargetPath` (`file-explorer-tree-utils.ts`) — brief's own stated LIVE control | LIVE | **LIVE** — `use-file-explorer-sync.ts`: `useMemo(() => getExplorerTargetPath(activeBuffer), …)`, non-test, non-self |
+| `filterHiddenFiles` (same file) — brief's own stated DEAD control | DEAD | **DEAD** — zero non-test, non-self hits; the one self-file hit (line 16) is the function calling **itself** (recursion), correctly excluded |
+| `MOD_ORDER` (`chord.ts`, outside the three areas — calibration case) | DEAD | **DEAD** — zero real uses anywhere including its own file; the only self-file hit is `export { MOD_ORDER }`, a binding position, correctly excluded |
+| `groupAnnotationsByPath` / `isDraftThread` (`use-review-annotations.tsx` — calibration case, the mirror of the `filterHiddenFiles` shape) | LIVE (self-file, cross-export) | **LIVE** — both called inside `useReviewAnnotations` (a *different* export in the same file); correctly counted, not excluded, since the enclosing declaration differs from the target's own |
+
+All four pass. The last two are the load-bearing pair: get self-file
+handling wrong in either direction and one of the two flips to the wrong
+verdict.
+
+### §2 Diff algebra — per-export table
+
+§2 has no "Where it lives" table of its own (see its prose above); its
+content is three rows of §1's table: `git-diff-helpers.ts`,
+`lib/patch-window.ts`, and the ~368-line embedded pure region of
+`components/diff/review-code-view.tsx`. `diff-search.ts` is excluded — it is
+the one DEAD row in this cluster (§0/§1), out of scope per the brief.
+
+**`features/git/utils/git-diff-helpers.ts`** (11 lines, gate: `git-diff-image.tsx`, itself only reachable inside the CONDITIONAL `review-code-view.tsx`):
+
+| export | verdict | evidence |
+|---|---|---|
+| `getFileStatus` | CONDITIONAL | called in `git-diff-image.tsx` |
+| `getImgSrc` | CONDITIONAL | called in `git-diff-image.tsx` (presentation — formats a `data:` URI; not logic, see Deliverable 3) |
+
+**`features/git/lib/patch-window.ts`** (244 lines, gate: `review-code-view.tsx`'s `planWindow` call):
+
+| export | verdict | evidence |
+|---|---|---|
+| `planWindow` | CONDITIONAL | called in `review-code-view.tsx`; 28-case test suite |
+| `LOOKAHEAD_FILES` | CONDITIONAL | used inside `planWindow`'s own body (self-file, cross-export: a module constant consumed by the file's one real function, not the declaration site) |
+| `EVICT_BEYOND_FILES` | CONDITIONAL | used inside `planWindow`'s body |
+| `MAX_MATERIALIZED_FILES` | CONDITIONAL | used inside `planWindow`'s body |
+| `MAX_MATERIALIZED_LINES` | CONDITIONAL | used inside `planWindow`'s body **and** directly re-exported as `review-code-view.tsx`'s `REVIEW_TOKENIZE_MAX_LENGTH` |
+| `PATCH_LINE_CAP` | CONDITIONAL | used inside `planWindow`'s body **and** directly in `review-code-view.tsx` |
+| `WindowInput` (type) | CONDITIONAL | `planWindow`'s parameter type |
+| `WindowPlan` (type) | CONDITIONAL | `planWindow`'s return type |
+
+Zero dead exports. Every one of the 8 exports is reachable through the same
+single gate (`planWindow`'s one call site).
+
+**`features/git/components/diff/review-code-view.tsx`** — full export list (not just the diff-algebra-relevant subset, since the file is one of "those files" per the brief), gate: dynamic `import('./diff/review-code-view')` from `review-diff-tab.tsx`, mounted only inside a commit-diff/branch-review pane:
+
+| export | verdict | evidence |
+|---|---|---|
+| `partitionReviewFiles` | CONDITIONAL | called inside `ReviewCodeView`'s own render body (self-file, cross-export) |
+| `buildPlaceholderFileDiff` | CONDITIONAL | called inside `ReviewCodeView`'s render body |
+| `ReviewCodeView` (the component) | CONDITIONAL | imported by `review-diff-tab.tsx` |
+| `REVIEW_TOKENIZE_MAX_LINE_LENGTH` | CONDITIONAL | used inside `ReviewCodeView`'s body |
+| `REVIEW_TOKENIZE_MAX_LENGTH` | CONDITIONAL | used inside `ReviewCodeView`'s body |
+| `ReviewFileKind` (type) | CONDITIONAL | field type inside `ReviewFileEntry`, consumed by `partitionReviewFiles` |
+| `ReviewFileEntry` (type) | CONDITIONAL | `partitionReviewFiles`'s return-element type |
+| `ReviewCodeViewHandle` (type) | CONDITIONAL | imperative-handle type, imported by `review-diff-tab.tsx` |
+| `ReviewCodeViewProps` (type) | CONDITIONAL | the component's own prop type |
+
+Zero dead exports here either. **But a real finding: this document's own
+prose (§1) names 9 "pure functions" in this file's embedded region
+(`partitionReviewFiles`, `buildPlaceholderFileDiff`, `distributeContext`,
+`buildPlaceholderHunks`, `buildTailHunk`, `trimToPatchCap`, `reserveAtMost`,
+`parseSingleFilePatch`, `patchCacheKey`) as if they were all equally
+reachable, importable units. Only 2 of the 9 (`partitionReviewFiles`,
+`buildPlaceholderFileDiff`) carry an `export` keyword — verified directly
+(`grep -n "^export " review-code-view.tsx`).** The other 7 are module-private
+helpers, reachable only by calling into the two exported entry points (or by
+`ReviewCodeView`'s render body directly), not individually importable. They
+are not dead — `buildPlaceholderFileDiff` calls `trimToPatchCap`/
+`reserveAtMost`/`distributeContext`/`buildPlaceholderHunks`/`buildTailHunk`,
+and `ReviewCodeView`'s render calls `parseSingleFilePatch`/`patchCacheKey`
+directly — but a porter reading this document's "9 pure functions" bullet
+and trying to `import buildPlaceholderHunks` the way one would
+`buildPlaceholderFileDiff` would find no such export.
+
+**§2 line-count summary:** 11 + 244 + 368 (embedded region, this document's
+own estimate, §1) = **623 lines, all 623 CONDITIONAL, 0 dead, 0 test-only.**
+This area passes clean at export granularity — the one real risk is not a
+dead export, it is the 7-of-9 non-exported-helper naming mismatch above,
+which is a *porting-unit* risk, not a *line-count* risk (all 623 lines are
+still genuinely reachable and worth porting; a porter just cannot cherry-pick
+the 7 private helpers by name and must treat the ~368-line embedded region as
+one inseparable unit). Full line-count reconciliation across all three areas,
+and scope recommendations, follow in the commits below.
