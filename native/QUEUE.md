@@ -4430,6 +4430,49 @@ would have been wrong about every value that actually crosses the wire.
   project has already committed three times. Its legacy test was not ported
   either; the behaviour is covered by the surviving function's own test.
 
+## 🔓 UNLOCKED 2026-08-04 — verdict backlog reopened, and P3.66 regressed a passing surface
+
+`CGSSessionScreenIsLocked` absent. Control first, per the rule: `--surface
+button` emitted 455 bytes of JSON. Capture works.
+
+### Verdicts taken immediately
+
+| surface | result | note |
+|---|---|---|
+| `repo-icon-popover` | ✅ **PASS 0/7** | **36 → 15 → 2 → 0.** The differ now *shows its work*: names each content-sized anchor's ceil excess (+0.37, +0.23, +0.44 = 1.04) and forgives the 0.61 drift under v1.5 — enforced by the tool, not argued in prose |
+| `workspace-tree-item` | ✅ **PASS 0/4** | phantom 1px border gone |
+| `repo-section` | ❌ FAIL **1**/6 (was 5) | `label.bounds.w` 32.0 vs 31.2 — `ceil(31.2)`, GPUI's text ceil. Needs the `content_sized` declaration on **both** sides, exactly as P3.63 did for the popover buttons |
+| `workspace-tree` | ❌ FAIL **2**/8 (was 19) | margins/`--project-name`/`--home-active` all landed; the 2 survivors are the regression below |
+| **`project-home-row`** | ⛔ **REGRESSED — PASS 0/5 → FAIL 2/5** | see below |
+
+### ‼️ P3.66 fixed three anchors and broke two, and every gate stayed green
+
+`repo-section-import/collapse` and `workspace-tree-item-add-child` painted a 1px
+border React does not have. P3.66 removed it from the **shared**
+`row_base::sub_action_box`. Correct for those three — **and wrong for
+`project-home-row`, whose actions genuinely DO carry a 1px transparent border.**
+Measured in the reference, both families side by side:
+
+```
+repo-section-import        border.w = 0     project-home-row-import  border.w = 1
+repo-section-collapse      border.w = 0     project-home-row-switch  border.w = 1
+```
+
+**Two row families, different chrome, one shared helper.** The port now paints
+`0` for both.
+
+**What makes this the sharpest case of the session's core rule:** P3.66's gates
+were *all green* — clippy clean, 2,394 tests, 7/7 invariants — and its mutation
+evidence was real, not described. It even verified the other three consumers of
+`label_container` before touching that. None of it could see this, because
+**nothing in the Rust suite knows what React paints.** Only the side-by-side run
+does, and I did not re-verify `project-home-row` at merge time; I took the
+"shared path" framing from my own brief and did not ask which consumers
+disagreed.
+
+**Standing consequence: when a fix lands on a SHARED helper, re-verify every
+surface that consumes it — not just the ones named in the defect.**
+
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
 ```
