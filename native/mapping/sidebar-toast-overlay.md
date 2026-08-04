@@ -208,3 +208,54 @@ surface does not measure.
 
 One importer: `ide-shell.tsx`, mounted unconditionally as part of the
 running sidebar (§0).
+
+---
+
+## VERDICT: PASS — 0 deltas over 1 anchor (2026-08-03, my own run)
+
+Drive: `--surface sidebar-toast-overlay --width 344 --viewport-width 1200
+--theme dark --content normal --height 800 --toasts single`, against the live
+app holding exactly one toast.
+
+```
+oracle: sidebar-toast-overlay · width=1200 theme=dark content=normal flags=[]
+oracle: PASS — 0 deltas over 1 anchor compared
+```
+
+**One anchor compared is not as thin as it looks here.** `SidebarToastItem`
+carries no `data-oracle-id` by design (§ above, the `select-item` precedent), so
+the viewport's own height is the *only* place the item's geometry can show up —
+and it agrees at **84px** with one toast queued. A port whose toast were the
+wrong height could not produce that number.
+
+### Liveness confirmed by driving it, not by reading imports
+
+§0 claims `SidebarToastItem` is the toast users actually see, while the merged
+`toast` surface measures the dead `AnchoredToasts` sibling. **I checked that by
+firing a real toast through the real manager** rather than trusting the import
+graph:
+
+```js
+import('/src/lib/toast-manager.ts')
+  .then(m => m.toastManager.add({ title: …, description: …, timeout: 0 }))
+// -> returns "toast-6v5i-2"; viewport goes 16px/0 children -> 84px/1 child
+```
+
+That is the strongest form of the liveness check this port has: not "an
+importer exists", but "the live component rendered when the live API was
+called". Given `toast.rs` was ported for a component with **zero** `.add()`
+call sites, this one deserved the stronger test.
+
+**`timeout: 0` is required.** My first attempt used the default and the toast
+auto-dismissed before I could look, which reads exactly like "nothing
+rendered" — I nearly recorded this component as dead on that evidence.
+
+### Two cell notes
+
+- **The first drive was refused by the driver, correctly**: at the app's
+  1119px window this bottom-docked viewport reaches 1135px down a window the
+  display caps at 1098px. Resizing the app to 800px high cleared it. Second
+  `vh`-scale surface to hit this after `repo-import-dialog`.
+- **Toasts accumulate.** A second capture found the queue at 2 (an earlier
+  `timeout: 0` toast had never expired) against the port's `single`, which is a
+  cell mismatch, not a defect. Reload before capturing, then add exactly one.
