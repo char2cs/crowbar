@@ -1,0 +1,223 @@
+# `workspace-tree-item` (P3.61)
+
+`web/src/components/layout/workspace-tree-item.tsx` →
+`crates/crowbar-ui/src/components/workspace_tree_item.rs`,
+`crates/crowbar-app/src/surfaces/workspace_tree_item.rs`,
+`crates/crowbar-app/src/row_layout/workspace_tree_item.rs`.
+
+**No live reference.** This item does not run the oracle or capture a
+snapshot — per the item brief's hard constraints. Every number below is read
+off the app's own compiled Tailwind (`native/MAPPING.md`'s method) or
+transferred from an existing measurement, not off a live capture.
+
+Second of `native/mapping/layout-denominator.md` §8's Cluster 8.
+
+## 0. What this file is, and what it is not
+
+`workspace-tree-item.tsx` is `WorkspaceTreeItem()`: one row of the
+workspace tree — a status icon, the branch name (or an inline rename
+field), an optional change-count cluster, a trailing expand/collapse or
+add-child control, and, recursively, its own children plus any in-flight
+creates beneath it. It is the closest thing in `components/layout` to the
+Phase 1 gate's `tree-row.tsx`, generalized to a workspace, per
+`native/mapping/layout-denominator.md` §6's own reading.
+
+Confirmed **LIVE** by `native/mapping/layout-denominator.md` §2/§4, not by
+`liveness-audit.md`.
+
+## 1. Values
+
+| React / Tailwind | Compiles to | gpui / `crowbar-ui` |
+|---|---|---|
+| `ROW_BASE` + `mx-1.5 my-0.5` | — | `row_base::base` + `.mx(MARGIN_X).my(MARGIN_Y)` — see §2 |
+| `ROW_ACTIVE`/`ROW_INACTIVE` | — | `row_base::active`/`inactive` |
+| `(depth + 1) * 14` (row's own `paddingLeft`) | — | `WorkspaceTreeItem::row_padding_left` |
+| `(depth + 2) * 14` (children/pending `paddingLeft`) | — | `WorkspaceTreeItem::nested_padding_left` |
+| `gap-1` (change-count cluster) | 4px | `CHANGES_GAP` |
+| `mx-1.5 mb-0.5 rounded-b-lg px-2.5 pb-2 pt-0.5` (placeholder details) | 6/2/10/8/2px | hand-built in `placeholder_details` |
+| `size-4` (`<Plus>` in the "+ New" row) | 16px | literal `px(16.0)` — see §3 |
+
+## 2. `mx-1.5`/`my-0.5` ARE modelled — a row always sits beside siblings
+
+Every real workspace-tree-item instance is a member of a list: siblings
+under the same `repo-section`'s root, or recursive children under a parent
+row. `row_base.rs`'s own module docs put this in the "applies `MARGIN_X`/
+`MARGIN_Y`" bucket (`project_switcher_panel.rs`'s own shape), never the
+"standalone root" one (`project_home_row.rs`'s). [`WorkspaceTreeItem::row`]
+applies both, and its own padding wrapper is `flex flex-col` so the row
+stretches to fill it net of that margin — no `.w_full()` — the exact bug
+the item brief calls out by name, and the one `row_layout::
+workspace_tree_item::the_row_is_inset_by_margin_x_on_both_edges` guards
+with a run mutation (§8).
+
+## 3. `icon: WorkspaceBranchIcon` and `mode: RowMode` — folded fields, not
+bools
+
+Two clippy-motivated foldings, both real divisions rather than dodges:
+
+* **`icon`** bundles `status`/`working`/`isPlaceholder` — exactly
+  `WorkspaceBranchIcon`'s own three-way input, reused as a single field
+  rather than three loose ones this component only ever forwards unchanged
+  to [`WorkspaceBranchIcon::render`].
+* **`mode`** bundles `isRenaming`/`isCreatingChild` into
+  [`row_base::RowMode`] — a row cannot show both an inline rename field and
+  an inline create-child field at once (they occupy the same slot), and
+  `repo-section.tsx`'s own row needs the identical fold, so it lives on
+  `row_base` rather than being invented twice.
+
+Both keep [`WorkspaceTreeItem`] at two `bool`s (`is_active`, `expanded`),
+under clippy's `struct_excessive_bools` without hiding a real distinction —
+`button.rs`'s own `Props`/`Interaction` split, restated here.
+
+## 4. `hasChildren`/`isCreatingChild`/`showPlaceholderDetails` are derived, not stored
+
+* `WorkspaceTreeItem::has_children()` is `!self.children.is_empty()` —
+  `hasChildren` is itself `children.length > 0` in the React source, so
+  storing it as an independent field would let a fixture disagree with its
+  own children list.
+* `WorkspaceTreeItem::show_placeholder_details()` is `self.icon.is_placeholder
+  && self.is_active`.
+* `is_renaming`/`is_creating_child` read through `self.mode.is_renaming()`/
+  `is_creating_child()` (§3).
+
+## 5. The status icon composition is oracle-safe only for a leaf cell
+
+Unlike [`super::pending_create_row`] (a genuine leaf), this component
+recurses, so a cell with children present paints the shared literal
+`workspace-branch-icon` id more than once. Sound for `cargo test`'s own
+`row_layout` harness (`AnchorRegistry::record` keeps differing records
+rather than refusing them; `Snapshot::build`'s v1.8 refusal is never
+reached because `row_layout` tests never call `.snapshot()`), not sound for
+a live oracle capture with children present — recorded in full in
+`web/src/lib/oracle/extract.ts`'s own `workspace-tree-item` entry (§6).
+
+## 6. Two foreign, not-yet-ported children, two different treatments
+
+`placeholder-row-actions.tsx` (Retry/Detach…) and `workspace-inline-
+input.tsx` (the rename/create-child text field) are each a **separate,
+not-yet-landed Tier B target** — neither is this item's to port.
+
+* **The placeholder-details wrapper is anchored.** Its `mx-1.5 mb-0.5
+  rounded-b-lg … bg-background …` box is this component's own real chrome
+  (background continuation, padding) regardless of what renders inside it,
+  so [`ID_PLACEHOLDER_DETAILS`] is a real anchor and `PlaceholderRow-
+  Actions`'s own content inside it is left empty.
+* **The rename label and the create-child input are not.** Neither has a
+  wrapper of its own in the React source — `WorkspaceInlineInput` sits
+  directly in the row's children list — so this port paints an empty,
+  unanchored box in that slot rather than inventing a wrapper (and an id)
+  around content it does not own. The **rows** that would host the
+  create-child input (`ID_CREATE_INPUT`) and the static "+ New" button
+  (`ID_NEW_BUTTON`) *are* anchored — that chrome is this component's own —
+  but the input itself, inside the former, is not.
+
+Neither foreign component carries any `data-oracle-id` of its own (checked
+against both sources), so no `oracleSurfaceScope` exclusion is needed for
+either — there is nothing for a live capture to leak that this port's own
+tree does not already omit by construction.
+
+## 7. Anchoring
+
+`workspace-tree-item.tsx` carried no `data-oracle-id` before this item.
+Nine are added:
+
+* `workspace-tree-item` — the `role="treeitem"` div, this surface's own
+  root. Recurses: every nested child row carries the same literal id — see
+  §5 and §8.
+* `workspace-tree-item-label` — the truncating branch-name span. Renaming
+  branch only (§6).
+* `workspace-tree-item-added`/`-deleted` — the `+N`/`-N` change-count
+  spans. Active, not renaming, not locked, positive count only.
+* `workspace-tree-item-expand` — the chevron. `hasChildren` only, mutually
+  exclusive with `-add-child`.
+* `workspace-tree-item-add-child` — the leaf row's add-child action.
+  `!hasChildren && !isCreatingChild` only.
+* `workspace-tree-item-placeholder-details` — see §6.
+* `workspace-tree-item-create-input` — the inline create-child row's own
+  chrome. `isCreatingChild` only, mutually exclusive with `-new-button`.
+* `workspace-tree-item-new-button` — the static "+ New" button.
+
+The composed `workspace-branch-icon` (and, one level deeper on a
+working/placeholder cell, `flicker-spinner`) reuses `workspace-branch-
+icon.tsx`'s own existing id, unmodified by this item.
+
+### The scope-entry decision, argued in full
+
+**`web/src/lib/oracle/extract.ts` declares `workspace-tree-item`, and the
+declared scope is sound for a leaf cell only.** The component recurses (it
+renders itself for `children`), and both the root and the composed icon are
+the same literal id at every depth — `select-item`'s own "count is a cell
+property" reasoning means neither the recursive family nor `pending-
+create-row` (its own registered surface) is declared. Unlike `repo-
+section`/`workspace-tree` below, the repeated id here is not confined to
+an *excluded* child: it is this surface's own root and its own icon, so a
+capture with any child present carries two elements under one declared id
+and `oracleSelectDeclaredAnchors`' "two elements carry one declared id"
+rule refuses it outright, the identical shape `search --replace`'s two
+`Input`s hit. The one reachable reference this scope can validate is a
+childless row; a deeper cell is a future worker's problem (its own
+registered surface, `search-replace-row`'s own precedent), not something
+declared here.
+
+The row's own conditional slots (`-added`/`-deleted`, `-expand`,
+`-placeholder-details`, `-create-input`) are left undeclared too,
+`dialog-header`'s own reason: each is real on some reachable cell and
+absent on others.
+
+## 8. Declarations
+
+`CONTENT_SIZED = []`. `LINE_SIZED = [workspace-tree-item-label,
+workspace-tree-item-added, workspace-tree-item-deleted]` — three
+blockified flex items with no explicit height of their own,
+`project_home_row::LINE_SIZED`'s own shape.
+
+## 9. The state axis
+
+| flag | here |
+|---|---|
+| `selected` | **real.** `isActive` selects `row_base::active` over `row_base::inactive`, the same reading every other row-shaped surface in this port gives it. |
+| `empty`, `loading`, `error`, `hover`, `focus` | **unmodelled.** `empty` has no `git-status-row`-shaped "nothing on the trailing edge" concept here. `hover`/`focus` are colour-only ([`row_base`]'s own module docs). Dragging (`opacity-40`), moving (`opacity-50`) and being a drop target (`ring-1`) are real props on the React source but are sourced entirely from `workspace-tree-context.tsx`'s pointer-drag protocol, which `native/mapping/layout-denominator.md` §6 classifies **Phase 5 (interaction), not Tier B, with no geometry of its own** — out of this item's scope, so none of the three has a field here. |
+
+`Params::no_state_axis()` returns `false` — one real flag (`selected`).
+
+## 10. `row_layout` coverage
+
+* the default (leaf) cell carries the root, icon, label and add-child
+  action — never the expand chevron
+* `--children 1` swaps the leaf's add-child for the expand chevron and
+  recurses: a second `workspace-tree-item` root is recorded
+* a child sits exactly one indent level (`14px`) to the right of its parent
+  — the mutation record shows the first attempt (mutating `depth_padding`'s
+  own multiplier) did **not** bite, because an additive shift cancels in a
+  delta between two calls at consecutive levels; the real assertion is
+  carried by the surface's own `depth + 1` increment on generated children
+* `--pending 1` nests a `pending-create-row` at `(depth + 2) * 14`
+* the row is inset by `MARGIN_X` on both edges, net of its own indentation
+  — the `.w_full()` trap, guarded by a run mutation
+* the root keeps its authored `row_base::HEIGHT` whether or not selected
+* the icon sits flush against the row's own leading edge; the label
+  follows by `GAP`
+* the label's own line box is `13 × LINE_HEIGHT_RELATIVE` (19.5px), not the
+  row's authored height — closing the gap a live parity run found in
+  `project_home_row.rs`'s identical composition (§11)
+
+## 11. `row_base::LINE_HEIGHT_RELATIVE` — inherited, not re-derived
+
+A live parity run (after this item's own first pass landed) found
+`row_base::LINE_HEIGHT_RELATIVE` was `18.0 / 13.0` where Tailwind's own
+inherited preflight `line-height: 1.5` (unitless, so it recomputes against
+each descendant's own font-size) gives `19.5px` at `13px`, not `18px` —
+confirmed against the live DOM. That fix landed in `row_base.rs` itself
+(P3.60), so every consumer of `row_base::label_container` — this file
+included — inherited the correction automatically; nothing in this file's
+own arithmetic needed to change. What this file's own `row_layout` module
+*did* need, and did not have before the parity run: an assertion on the
+label's own line-box height, not only the row's authored height — added in
+§10, run against the wrong ratio to confirm it would have caught the
+original defect.
+
+## 12. Reachability
+
+`repo-section.tsx` → `workspace-tree.tsx` → `sidebar-carousel.tsx` →
+`ide-shell.tsx` → `routes/_shell.tsx`. Recursively self-reachable for every
+workspace with children.
