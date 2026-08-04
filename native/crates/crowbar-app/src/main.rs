@@ -28,6 +28,16 @@
 //! the only crate that talks to the daemon, and that stays true from the first
 //! commit: a `UnixStream` here would be a hole in the layering that later items
 //! would build on.
+//!
+//! S0.3 adds the piece item 0.4 deliberately deferred: the shipping `main`
+//! (not the driver/capture-harness one — a parity run over hundreds of matrix
+//! cells has no business spawning or supervising a daemon per invocation, and
+//! stays a read-only client exactly as 0.4 left it) now calls
+//! [`crowbar_sidecar::ensure_daemon`] before opening its window, so
+//! `cargo run -p crowbar-app` no longer needs Crowbar-React to have started
+//! the daemon first. `crowbar-sidecar` reaches the daemon through
+//! `crowbar-client` too, so this does not reopen the hole the paragraph above
+//! describes.
 
 use std::borrow::Cow;
 use std::path::PathBuf;
@@ -155,11 +165,45 @@ fn main() -> ExitCode {
 /// 0.4's daemon round trip, probed before the window opens and shown in its
 /// caption, so the transport stays exercised by an ordinary `cargo run`.
 ///
+/// S0.3 adds the other half of that round trip: [`crowbar_sidecar::ensure_daemon`]
+/// runs first, adopting a daemon Crowbar-React already started or spawning one
+/// of its own — `crowbar-app` no longer needs another app to have opened first
+/// (`native/README.md`'s old "start Crowbar-React first" instruction is gone
+/// because of this). `daemon` is bound in `main`'s own scope and shared
+/// (`Rc`, not `Arc` — gpui callbacks are same-thread) with the
+/// [`gpui::App::on_app_quit`] hook registered below, so a daemon this call
+/// *spawned* is stopped on a graceful quit (Cmd+Q or the last window
+/// closing) and not just when `run` happens to return — verified live
+/// 2026-08-04: without this hook, killing the owning instance (as opposed to
+/// letting it quit normally) orphaned the daemon it had spawned, because a
+/// killed process runs no destructors at all. `Handle::shutdown` is a no-op
+/// for an *adopted* daemon regardless of how this process ends — see
+/// `crowbar_sidecar::Handle`'s own doc comment — which is what makes
+/// "quitting the adopting app leaves the other one working" true even for an
+/// abrupt kill, confirmed by the same live run.
+///
 /// The window itself is a placeholder on purpose. Later slices build the real
 /// frame; this one only proves the app opens a window that is not the capture
 /// harness.
 #[cfg(not(feature = "driver"))]
 fn main() -> ExitCode {
+    // Blocking, before the window exists, and on purpose: adopting an
+    // already-healthy daemon is one local request, and spawning one still
+    // has to finish before there is anything for the window to show.
+    let daemon = std::rc::Rc::new(
+        match crowbar_sidecar::ensure_daemon(&crowbar_sidecar::Options::default()) {
+            Ok(handle) => Some(handle),
+            Err(err) => {
+                // Not fatal: the window still opens, and `Report::probe` below
+                // renders the same "daemon unreachable" state it always has —
+                // a missing sidecar binary or a daemon that never comes up is a
+                // displayed state, not a crash.
+                eprintln!("crowbar-app: could not ensure a daemon: {err}");
+                None
+            }
+        },
+    );
+
     // Blocking, before the window exists, and on purpose: the daemon is a local
     // unix socket a few hundred microseconds away and this is a single request.
     let report = Report::probe();
@@ -173,6 +217,20 @@ fn main() -> ExitCode {
         // shaping with a fallback face would produce `text_width` deltas with
         // no visible cause.
         eprintln!("crowbar-app: {fonts}");
+
+        // `on_quit`'s body runs synchronously before it returns a future, so
+        // the blocking SIGTERM-then-grace-then-SIGKILL sequence inside
+        // `shutdown` completes before this closure hands anything back to
+        // gpui — `App::SHUTDOWN_TIMEOUT` (200ms) budgets the *future*, which
+        // by then is already `Ready`, so it never has to race the shutdown.
+        let quit_daemon = std::rc::Rc::clone(&daemon);
+        cx.on_app_quit(move |_cx| {
+            if let Some(handle) = quit_daemon.as_ref() {
+                handle.shutdown("app quit");
+            }
+            std::future::ready(())
+        })
+        .detach();
 
         let caption = format!("{} · {fonts}", report.summary());
         if let Err(err) = open_placeholder(caption, cx) {

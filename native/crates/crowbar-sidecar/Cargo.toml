@@ -1,0 +1,36 @@
+[package]
+name = "crowbar-sidecar"
+description = "crowbar-app's own daemon lifecycle: locate, spawn-or-adopt, supervise and shut down the Go daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# S0.3 (spec §5.2): reproduces the behaviours `desktop/src-tauri/src/sidecar/`
+# encodes, for `crowbar-app` alone — corrected mid-item from an earlier draft
+# that made this a crate shared with `desktop/`, which pointed the dependency
+# backwards (the Tauri app is scheduled for deletion; the Rust app is not).
+# `desktop/`'s own sidecar is untouched. Not in §4.2's original table because
+# the table predates this item; the edge it needs is `client` only — the same
+# one `crowbar-app`'s own daemon probe already has — because §4.2 makes
+# `crowbar-client` the only crate that talks to the daemon over the socket. No
+# generic process-supervisor crate: the logic (CROWBAR_HOME resolution, the
+# macOS 104-byte sun_path cap, the daemon's own stale-socket reclaim, the
+# wedge/respawn policy) is Crowbar-specific and a generic supervisor would
+# replace none of it. `sysinfo` is the one addition, and it exists only to
+# send a *named* signal (SIGTERM/SIGQUIT) without `unsafe` — std's
+# `Child::kill` only ever sends SIGKILL.
+[dependencies]
+crowbar-client.workspace = true
+sysinfo.workspace = true
+libc.workspace = true
+
+[dev-dependencies]
+# Only for tests: a canned-response daemon (mirroring crowbar-client's own
+# `OneShot` test fixture) and JSON fixtures for the health/probe bodies the
+# fake daemon answers with.
+serde_json.workspace = true
+
+[lints]
+workspace = true
