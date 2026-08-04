@@ -3355,6 +3355,42 @@ created the gap — the claims were written expecting the gates to follow.
 > message. And "mutation verified" in a comment is treated exactly like a
 > snapshot — a claim requiring pasted failure output, not a sentence.
 
+## ‼️ `button.rs` carries a FALSE load-bearing claim — caught twice, still there
+
+Its module docs say, twice (lines ~33 and ~58):
+
+> *"no live call site renders a Button with a label — `Label` is closed, so
+> labelled controls are hand-built"*
+
+**That is false, and two workers have independently caught it.** P3.62 found it
+already undercounted by two (`detach-holder-modal`, `repo-import-dialog`).
+P3.63's third pass audited properly — it was about to add `content_sized` to
+the shared `button.tsx` primitive and checked this claim first — and reported
+**74** other live, non-icon-sized Buttons with visible text.
+
+**I verified falsity myself but NOT the number.** One concrete counter-example,
+read by eye:
+
+```tsx
+// features/settings/components/tabs/developer-settings.tsx:178
+<Button type="button" variant="outline" size="sm" onClick={handleExport}>
+  Export settings
+```
+
+My own attempt to count them with a regex produced 93 and was **wrong** —
+`<Button\b(.*?)>` matches into the middle of an attribute because JSX arrow
+bodies (`onClick={() => …}`) contain `>`. That is the *same* regex failure that
+produced a bogus duplicate-`button` table earlier this session. So `74` stands
+as the worker's figure, not mine.
+
+**Why this one matters more than a stale comment usually would.** The claim is
+load-bearing: P3.63 nearly used it to justify declaring `content_sized` on the
+shared primitive, which would have put a one-sided declaration (React `true`,
+no Rust counterpart) on every one of those call sites and broken dozens of
+currently-passing surfaces. The claim did not merely mislead a reader — it
+almost authorised a change across the whole button surface area. It survived
+being caught once. **Correcting both lines goes in the next dispatch.**
+
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
 ```
@@ -3402,7 +3438,7 @@ taken by me against the live app. **A merge is not a verdict.**
 | `workspace-branch-icon` | ✅ | ✅ **PASS 0/1** | one anchor, geometry only — a thin verdict, but a real one |
 | `detach-holder-modal` | ✅ | ⏸ | needs the modal driven open |
 | `repo-import-dialog` | ✅ | 🚫 **REFUSED** | reference emits **two `button` anchors** — React-side prerequisite, not a port defect |
-| `repo-icon-popover` | ✅ | ❌ **FAIL 2/7** | 36→15→2. Survivors: a missing `content_sized` **declaration** and one avatar `bg` |
+| `repo-icon-popover` | ✅ | ⏳ **fixes merged, UNVERIFIED** | 36→15→2→? Both survivors fixed in P3.63's 3rd pass. **Re-verdict blocked by the screen lock** |
 | `sidebar-tab-bar` | ✅ | n/a | no surface by design — measured through `--surface tabs` |
 | `workspace-switcher` | ✅ | n/a | no surface by design — `display: contents`, no box (v1.11) |
 | **`sidebar-skeleton`** | ✅ | 🚫 **UNOBTAINABLE** | never renders — its `Suspense` fallback cannot fire |
