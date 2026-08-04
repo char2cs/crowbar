@@ -31,8 +31,8 @@ use gpui::{
     div, px, relative, rems,
 };
 
-use crate::anchor::{AnchorId, AnchorSink};
 use super::sidebar_tree::{self, ICON_SIZE, RowState};
+use crate::anchor::{AnchorId, AnchorSink};
 use crate::theme::{Color, Theme, ui_sans_font};
 
 /// The root anchor: the `.file-tree-item` wrapper. All other geometry is

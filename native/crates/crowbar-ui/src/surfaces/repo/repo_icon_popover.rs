@@ -108,12 +108,12 @@ use gpui::{
     Styled as _, div, px, relative,
 };
 
+use super::repo_avatar::{self, ImageState, Kind};
 use crate::anchor::{AnchorId, AnchorSink};
 use crate::primitives::avatar;
 use crate::primitives::button;
-use crate::surfaces::rows::git_status_row::Breakpoint;
 use crate::primitives::popover;
-use super::repo_avatar::{self, ImageState, Kind};
+use crate::surfaces::rows::git_status_row::Breakpoint;
 use crate::surfaces::workspace::workspace_branch_icon::{self, WorkspaceBranchIcon};
 use crate::theme::{Color, Theme, ui_sans_font};
 

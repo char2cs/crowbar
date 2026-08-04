@@ -75,8 +75,8 @@ use gpui::{
 
 use crate::anchor::{AnchorId, AnchorSink};
 use crate::primitives::button;
-use crate::surfaces::rows::git_status_row::Breakpoint;
 use crate::primitives::keybinding::Platform;
+use crate::surfaces::rows::git_status_row::Breakpoint;
 use crate::theme::{Color, Theme};
 
 /// The single anchor this surface's own wrapper carries. The four buttons

@@ -123,8 +123,8 @@ use gpui::{
 };
 
 use crate::anchor::AnchorSink;
-use crate::surfaces::rows::git_status_row::Breakpoint;
 use crate::primitives::tabs::{ListBackground, Orientation, Tab, TabSizing, Tabs, Variant};
+use crate::surfaces::rows::git_status_row::Breakpoint;
 use crate::theme::Theme;
 
 /// **This anchor never renders.** `sidebar-tab-bar.tsx`'s own wrapper `<div>`

@@ -49,8 +49,8 @@ use gpui::{
     AnyElement, Div, FontWeight, Pixels, Rems, SharedString, Styled as _, div, px, relative,
 };
 
-use crate::anchor::{AnchorId, AnchorSink};
 use super::badge::TypeStep;
+use crate::anchor::{AnchorId, AnchorSink};
 use crate::surfaces::rows::git_status_row::Breakpoint;
 use crate::theme::{Theme, ui_sans_font};
 

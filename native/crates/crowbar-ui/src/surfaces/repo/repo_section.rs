@@ -69,9 +69,9 @@ use gpui::{
     Styled as _, div, px, relative,
 };
 
+use super::repo_icon_popover::Trigger;
 use crate::anchor::{AnchorId, AnchorSink};
 use crate::surfaces::rows::pending_create_row::PendingCreateRow;
-use super::repo_icon_popover::Trigger;
 use crate::surfaces::rows::row_base;
 use crate::surfaces::workspace::workspace_tree_item::WorkspaceTreeItem;
 use crate::theme::{Color, Theme};

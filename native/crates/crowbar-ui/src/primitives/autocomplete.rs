@@ -75,9 +75,9 @@ use gpui::{
     Styled as _, div, px, relative,
 };
 
+use super::input::Size as InputSize;
 use crate::anchor::AnchorSink;
 use crate::surfaces::rows::git_status_row::Breakpoint;
-use super::input::Size as InputSize;
 use crate::theme::{Color, Theme};
 
 /// The root anchor when this surface is captured on its own: `AutocompleteInputGroup`.
@@ -645,8 +645,8 @@ mod tests {
         ITEM_PADDING_Y, ITEM_RADIUS, Input, Item, LINE_SIZED, LIST_PADDING, List, ListContent,
         addon_gutter, trailing_gutter,
     };
-    use crate::surfaces::rows::git_status_row::Breakpoint;
     use crate::primitives::input::Size as InputSize;
+    use crate::surfaces::rows::git_status_row::Breakpoint;
     use crate::theme::Theme;
     use gpui::{FontWeight, px};
 

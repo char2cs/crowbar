@@ -72,8 +72,8 @@ use gpui::{
     AnyElement, Div, FontWeight, ParentElement as _, Pixels, SharedString, Styled as _, div, px,
 };
 
-use crate::anchor::{AnchorId, AnchorSink};
 use super::row_base;
+use crate::anchor::{AnchorId, AnchorSink};
 use crate::theme::{Color, Theme, ui_sans_font};
 
 /// The panel's own anchor — every other bound on this surface is reported

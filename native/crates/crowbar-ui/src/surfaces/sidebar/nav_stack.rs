@@ -95,11 +95,11 @@ use gpui::{
     Styled as _, div, px, relative,
 };
 
+use super::sidebar_project_header;
 use crate::anchor::{AnchorId, AnchorSink};
 use crate::primitives::button;
-use crate::surfaces::rows::git_status_row::Breakpoint;
 use crate::primitives::keybinding::Platform;
-use super::sidebar_project_header;
+use crate::surfaces::rows::git_status_row::Breakpoint;
 use crate::theme::{Color, Theme};
 
 /// The outer wrapper's own anchor — every other bound on this surface is

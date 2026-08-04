@@ -54,9 +54,9 @@ use gpui::{
     px, relative,
 };
 
+use super::spinner::{self, Extent, Spinner};
 use crate::anchor::{AnchorId, AnchorSink};
 use crate::surfaces::rows::git_status_row::Breakpoint;
-use super::spinner::{self, Extent, Spinner};
 use crate::theme::{Theme, ui_sans_font};
 
 /// The wrapper, and this surface's root anchor.

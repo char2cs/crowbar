@@ -103,9 +103,9 @@ use gpui::{
     px,
 };
 
+use super::row_base;
 use crate::anchor::{AnchorId, AnchorSink};
 use crate::primitives::button;
-use super::row_base;
 use crate::surfaces::workspace::workspace_branch_icon::{self, WorkspaceBranchIcon};
 use crate::theme::{Color, Theme};
 

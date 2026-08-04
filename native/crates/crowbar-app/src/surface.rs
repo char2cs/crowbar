@@ -35,8 +35,8 @@
 use std::any::Any;
 use std::fmt::Debug;
 
-use crowbar_ui::Theme;
 use crowbar_ui::AnchorSink;
+use crowbar_ui::Theme;
 use gpui::{AnyElement, App, Window};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

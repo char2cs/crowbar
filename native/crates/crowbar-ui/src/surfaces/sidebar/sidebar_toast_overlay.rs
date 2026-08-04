@@ -523,7 +523,8 @@ mod tests {
 
         // The estimate must be built from the right one: two lines (title +
         // description) plus the column gap plus padding plus border.
-        let expected = 2.0 * f32::from(crate::surfaces::sidebar::sidebar_toast_overlay::ITEM_BORDER_WIDTH)
+        let expected = 2.0
+            * f32::from(crate::surfaces::sidebar::sidebar_toast_overlay::ITEM_BORDER_WIDTH)
             + 2.0 * f32::from(crate::surfaces::sidebar::sidebar_toast_overlay::ITEM_PADDING_Y)
             + f32::from(crate::surfaces::sidebar::sidebar_toast_overlay::ITEM_COLUMN_GAP)
             + 2.0 * right_line;

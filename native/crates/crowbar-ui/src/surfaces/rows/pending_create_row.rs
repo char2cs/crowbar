@@ -75,8 +75,8 @@ use gpui::{
     px,
 };
 
-use crate::anchor::{AnchorId, AnchorSink};
 use super::row_base;
+use crate::anchor::{AnchorId, AnchorSink};
 use crate::surfaces::workspace::workspace_branch_icon::{self, WorkspaceBranchIcon};
 use crate::theme::{Color, Theme};
 

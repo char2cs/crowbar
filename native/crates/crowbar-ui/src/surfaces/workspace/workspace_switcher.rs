@@ -80,11 +80,11 @@ use gpui::{
     AnyElement, Div, FontWeight, ParentElement as _, Pixels, SharedString, Styled as _, div, px,
 };
 
+use super::workspace_branch_icon::{self, WorkspaceBranchIcon};
 use crate::anchor::{AnchorId, AnchorSink};
 use crate::primitives::autocomplete;
 use crate::primitives::command;
 use crate::surfaces::repo::repo_avatar::RepoAvatar;
-use super::workspace_branch_icon::{self, WorkspaceBranchIcon};
 use crate::theme::{Color, Theme};
 
 /// `gap-2` between the leading glyph, the label and the trailing content.

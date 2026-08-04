@@ -114,8 +114,8 @@ use gpui::{
 };
 use gpui_component::dialog::Dialog as GpuiDialog;
 
-use crate::anchor::AnchorSink;
 use super::autocomplete::{self, Input as AutocompleteInput, List as AutocompleteList};
+use crate::anchor::AnchorSink;
 use crate::theme::{Color, Theme};
 
 /// The root anchor: `CommandDialogPrimitive.Popup`. Every other bound on

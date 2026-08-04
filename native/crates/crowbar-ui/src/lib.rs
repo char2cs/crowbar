@@ -42,9 +42,9 @@ pub mod surfaces;
 pub mod theme;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
-pub use surfaces::rows::{GitStatusRow, RowState};
 pub use gpui;
 pub use gpui_component;
+pub use surfaces::rows::{GitStatusRow, RowState};
 pub use theme::{
     Appearance, Color, Duration, FontFamily, FontSize, Radius, Scale, Space, Theme, ui_sans_font,
 };

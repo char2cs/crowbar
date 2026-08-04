@@ -37,5 +37,5 @@ pub mod workspace_inline_input;
 // their own root, `workspace_branch_icon`'s own precedent. See each module's
 // own docs, and [`super::rows`]'s module docs for `workspace_tree`'s own
 // place in the chain.
-pub mod workspace_tree_item;
 pub mod workspace_tree;
+pub mod workspace_tree_item;

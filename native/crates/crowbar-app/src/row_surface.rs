@@ -67,14 +67,14 @@
 
 use std::fmt::Write as _;
 
-use crowbar_ui::surfaces::rows::ALL_GIT_STATUSES;
 use crowbar_ui::AnchorSink;
+use crowbar_ui::GitStatusRow;
+use crowbar_ui::RowState;
+use crowbar_ui::surfaces::rows::ALL_GIT_STATUSES;
 use crowbar_ui::surfaces::rows::Breakpoint;
 use crowbar_ui::surfaces::rows::ContentLength;
 use crowbar_ui::surfaces::rows::FileTreeRow;
 use crowbar_ui::surfaces::rows::GitStatus;
-use crowbar_ui::GitStatusRow;
-use crowbar_ui::RowState;
 use crowbar_ui::surfaces::rows::TrailingContent;
 use crowbar_ui::{Appearance, Theme, ui_sans_font};
 use gpui::{
@@ -996,10 +996,10 @@ mod tests {
     };
     use crowbar_ui::Appearance;
     use crowbar_ui::surfaces::rows::ALL_GIT_STATUSES;
-use crowbar_ui::surfaces::rows::BREAKPOINT_SM;
-use crowbar_ui::surfaces::rows::Breakpoint;
-use crowbar_ui::surfaces::rows::ContentLength;
-use crowbar_ui::surfaces::rows::GitStatus;
+    use crowbar_ui::surfaces::rows::BREAKPOINT_SM;
+    use crowbar_ui::surfaces::rows::Breakpoint;
+    use crowbar_ui::surfaces::rows::ContentLength;
+    use crowbar_ui::surfaces::rows::GitStatus;
 
     fn parse(args: &[&str]) -> Result<Cell, ParseError> {
         Cell::parse(args.iter().map(|arg| (*arg).to_owned()))

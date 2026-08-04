@@ -233,11 +233,11 @@ use gpui::{
     relative,
 };
 
+use super::search_toggle_icons::{SearchToggleIcon, Toggle};
 use crate::anchor::{AnchorId, AnchorSink, Unanchored};
 use crate::primitives::button::{self, DISABLED_OPACITY};
-use crate::surfaces::rows::git_status_row::Breakpoint;
 use crate::primitives::input;
-use super::search_toggle_icons::{SearchToggleIcon, Toggle};
+use crate::surfaces::rows::git_status_row::Breakpoint;
 use crate::theme::{Color, Theme, ui_sans_font};
 
 /// The root anchor: `SearchPopover`'s own `w-[320px] rounded-xl …` box.

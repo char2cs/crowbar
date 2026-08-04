@@ -48,8 +48,8 @@ use gpui::{
     Styled as _, div, px, relative,
 };
 
-use crate::anchor::{AnchorId, AnchorSink};
 use super::badge::TypeStep;
+use crate::anchor::{AnchorId, AnchorSink};
 use crate::theme::{Theme, ui_sans_font};
 
 /// The keycap anchor — the only one this surface carries.

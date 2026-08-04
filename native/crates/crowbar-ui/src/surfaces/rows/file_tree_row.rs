@@ -78,9 +78,9 @@ use gpui::{
     Styled as _, div, px, relative,
 };
 
-use crate::anchor::{AnchorId, AnchorSink};
 use super::sidebar_tree::{self, BASE_INDENT, GUIDE_SHIFT, ICON_SIZE, ITEM_RADIUS, ROW_HEIGHT};
 use super::sidebar_tree::{GuideInset, RowState, guide_inset};
+use crate::anchor::{AnchorId, AnchorSink};
 use crate::theme::{Color, Theme, ui_sans_font};
 
 /// The root anchor: the `.file-tree-item` wrapper. Every other bound is reported

@@ -549,10 +549,7 @@ impl DropdownMenu {
             // `className="min-w-40"`.
             min_width: POPUP_MIN_WIDTH_LG,
             entries: vec![
-                MenuEntry::Row(MenuRow::item(
-                    "menu-item-edit",
-                    label(ContentLength::Short),
-                )),
+                MenuEntry::Row(MenuRow::item("menu-item-edit", label(ContentLength::Short))),
                 MenuEntry::Row(MenuRow::item("menu-item-copy", label(content))),
                 MenuEntry::Separator {
                     id: SharedString::new_static(ID_SEPARATOR),

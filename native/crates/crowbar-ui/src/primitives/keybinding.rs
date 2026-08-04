@@ -76,8 +76,8 @@
 use gpui::{AnyElement, Div, FontWeight, ParentElement as _, Pixels, Rems, SharedString};
 use gpui::{Styled as _, div, px, relative};
 
-use crate::anchor::{AnchorId, AnchorSink};
 use super::badge::TypeStep;
+use crate::anchor::{AnchorId, AnchorSink};
 use crate::theme::Theme;
 
 /// The keycap anchor — the only one this surface carries.

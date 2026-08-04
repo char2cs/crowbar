@@ -87,9 +87,9 @@ use gpui::{
     Styled as _, div, px, relative,
 };
 
-use crate::anchor::{AnchorId, AnchorSink};
 use super::badge::TypeStep;
 use super::button::{ButtonState, Size, Variant};
+use crate::anchor::{AnchorId, AnchorSink};
 use crate::surfaces::rows::git_status_row::Breakpoint;
 use crate::theme::{Theme, ui_sans_font};
 

@@ -139,10 +139,10 @@
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Pixels, Styled as _, div, px};
 
 use crate::anchor::{AnchorId, AnchorSink};
-use crate::surfaces::rows::project_home_row::ProjectHomeRow;
-use crate::surfaces::repo::repo_section::RepoSection;
-use crate::surfaces::rows::row_base;
 use crate::primitives::scroll_area;
+use crate::surfaces::repo::repo_section::RepoSection;
+use crate::surfaces::rows::project_home_row::ProjectHomeRow;
+use crate::surfaces::rows::row_base;
 use crate::theme::Theme;
 
 /// The tree's own anchor. See the module docs for why this is the one

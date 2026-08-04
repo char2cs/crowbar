@@ -49,7 +49,7 @@ use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
 use crowbar_ui::AnchorSink;
-use crowbar_ui::surfaces::sidebar::shell::{self, EmptyActionState, Tone};
+use crowbar_ui::surfaces::sidebar::shell::{self as sidebar, EmptyActionState, Tone};
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, SharedString, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

@@ -82,10 +82,10 @@ use gpui::{
     px,
 };
 
+use super::workspace_branch_icon::{self, WorkspaceBranchIcon};
 use crate::anchor::{AnchorId, AnchorSink};
 use crate::surfaces::rows::pending_create_row::PendingCreateRow;
 use crate::surfaces::rows::row_base;
-use super::workspace_branch_icon::{self, WorkspaceBranchIcon};
 use crate::theme::{Color, Theme};
 
 /// The row's own anchor. See the module docs for why it is `.boxed`, not

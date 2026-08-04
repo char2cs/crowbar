@@ -33,7 +33,7 @@ use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
 use crowbar_ui::AnchorSink;
-use crowbar_ui::surfaces::sidebar::shell::{self, Header};
+use crowbar_ui::surfaces::sidebar::shell::{self as sidebar, Header};
 use gpui::{AnyElement, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
