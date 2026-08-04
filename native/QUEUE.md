@@ -3387,7 +3387,7 @@ capture"* is the whole value of that correction — the first is a property of
 the code, the second is a property of my fixture, and only the second is one
 capture away from changing.
 
-## ‼️ `button.rs` carries a FALSE load-bearing claim — caught twice, still there
+## ✅ FIXED (P3.68) — `button.rs`'s false load-bearing claim, and the real number
 
 Its module docs say, twice (lines ~33 and ~58):
 
@@ -3421,7 +3421,19 @@ shared primitive, which would have put a one-sided declaration (React `true`,
 no Rust counterpart) on every one of those call sites and broken dozens of
 currently-passing surfaces. The claim did not merely mislead a reader — it
 almost authorised a change across the whole button surface area. It survived
-being caught once. **Correcting both lines goes in the next dispatch.**
+being caught once. **Corrected in P3.68**, along with `mapping/button.md:197`, which carried the
+same sentence near-verbatim (the worker flagged it and correctly declined to
+edit a verdict record; I did that myself).
+
+**The established number is "at least 72", and the method is why it is
+trustworthy.** The worker parsed `web/src`'s JSX with the **TypeScript compiler
+API**, validated the script against four named ambiguous cases *before* trusting
+it, then hand-checked all 27 non-literal children individually — a pass that
+caught a false positive of its own (`code-block-node.tsx:391`'s only "label" is
+an `sr-only` span: textual, not visible). 72 unambiguous; 74 if two genuinely
+debatable cases count. It put the **floor** in the doc with exclusions named
+rather than a precise-looking single number — the right call after a regex had
+already produced two confident wrong answers on this exact question.
 
 ## ⚠ I dispatched two DEAD files — my scoping error, not the worker's
 
