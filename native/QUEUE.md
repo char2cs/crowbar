@@ -3377,7 +3377,7 @@ taken by me against the live app. **A merge is not a verdict.**
 | `sidebar-carousel` | ✅ | ✅ **PASS 0/5** | drive: `--height 976 --active-tab workspaces`. See the `visible` note below |
 | `project-switcher-panel` | ✅ | ❌ **FAIL 5/5** | **only 1 real** — import label `font.weight` 400 vs 500. Also confirms P3.60 on its 2nd consumer |
 | `repo-section` | ✅ | ❌ **FAIL 5/5** | 3 port defects + **1 contract bug**: the scope entry drops `repo-section-add-child`, which is live |
-| `workspace-tree-item` | ✅ | ❌ **FAIL 1/3** | **the contract's fault** — would PASS 0/3; scope drops `-add-child`. Every other field exact |
+| `workspace-tree-item` | ✅ | ❌ **FAIL 1/4** | scope fixed (P3.65); the remaining delta is the **shared 1px row-button border** |
 | `workspace-tree` | ✅ | ❌ **FAIL 19/8** | 3 causes; 13 deltas are one omission — the list consumer never applies `MARGIN_X/Y` |
 | `pending-create-row` | ✅ | ⏸ | P3.61 — no verdict yet (no pending row in the live app to capture) |
 | `sidebar-toast-overlay` | ✅ | ✅ **PASS 0/1** | liveness proven by firing a real toast; viewport height agrees at 84px |
@@ -3488,14 +3488,29 @@ name, an avatar letter. `text` is compared **exactly**, so each is
 `repo-section`'s `--name` is the model: with it, that surface's label matched
 the live repo on the first try.
 
-#### 🔁 Two scope entries under-declare their own `-add-child` chrome
+#### ✅ FIXED (P3.65) — and fixing the contract exposed a real defect
+
+Two scope entries under-declared their own `-add-child` chrome
 
 `repo-section` and `workspace-tree-item` both omit a live 24×24 button from
 their `oracleSurfaceScope` anchor list, so the port emits a correct anchor the
 reference is told to drop. Same commit, same kind of anchor — one systematic
-slip, not two coincidences. `workspace-tree-item` is otherwise a **perfect**
-match, which makes this the only thing between it and a pass. Fix dispatched
-(P3.65, TypeScript only).
+slip, not two coincidences.
+
+**Merged, and the result is worth the space.** With the anchor declared,
+`workspace-tree-item-add-child` matches on position, size and radius exactly —
+and reveals `border.w: 1.0` against `0.0`, **a real port defect that could not
+have failed before, because the anchor was never compared.** Fixing the
+contract did not just clear a false delta; it surfaced a true one. That is the
+argument for declaring every anchor that renders, not the ones a surface
+happens to care about.
+
+#### 🔁 One defect, three anchors, two surfaces: the 1px row-button border
+
+`repo-section-import`, `repo-section-collapse` and
+`workspace-tree-item-add-child` all report `border.w` **1.0 against 0.0**. The
+port paints a 1px border on row action buttons where React paints none. Fix
+once at the shared button path rather than per surface.
 
 **Thirteen verdicts taken, six passing** (plus one refused outright). Eleven
 surfaces built in this tier;
