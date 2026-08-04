@@ -3761,8 +3761,9 @@ lock costs schedule, not progress:
 
 | item | branch | what it does |
 |---|---|---|
-| **P3.72** settings schema | `native/p3.72-core-settings` | the 554-line LIVE cluster (`settings-normalization` and friends), scoped off a boot-time chain the survey evidences at `main.tsx:11-12` |
-| **P3.73** export-level liveness | `native/p3.73-export-liveness` | per-**export** verdicts for §2 diff algebra, §5 file-tree, §7 review threads. Died twice to API errors with nothing committed; re-briefed to commit per section |
+| ~~**P3.72** settings schema~~ | **merged** | Tier A → ≈80% |
+| **P3.75** file-tree model | `native/p3.75-core-filetree` | first item scoped from **export-level** verdicts rather than file rows — six exports named individually, four dead/test-only siblings named as exclusions |
+| ~~**P3.73** export-level liveness~~ | **merged** | per-export verdicts landed; its Deliverable 3 is now the scoping source for every remaining Tier A item |
 | **P3.74** dialog close id | `native/p3.74-dialog-close` | names the `Dialog` primitive's close Button, which today collides with any body Button and makes `repo-import-dialog` and `detach-holder-modal` **uncapturable** |
 
 **P3.74 is not additive and its brief says so.** Every dialog's close button
