@@ -259,3 +259,34 @@ rendered" — I nearly recorded this component as dead on that evidence.
 - **Toasts accumulate.** A second capture found the queue at 2 (an earlier
   `timeout: 0` toast had never expired) against the port's `single`, which is a
   cell mismatch, not a defect. Reload before capturing, then add exactly one.
+
+## VERDICT (fallback mode): PASS — 0 deltas over 1 anchor (2026-08-03, my own run)
+
+Reached by collapsing the sidebar (`sidebar-project-header-toggle`), which is
+what swaps `SidebarToastOverlay` into its fallback layout: the viewport
+un-docks from the sidebar column and anchors to the window corner, coming up
+`288×68` with one toast against the inline mode's `344×84`.
+
+Drive: `--surface sidebar-toast-overlay-fallback --width 288 --viewport-width
+1200 --theme dark --content normal --toasts single`.
+
+As with the inline mode, one anchor is less thin than it looks: `SidebarToastItem`
+carries no id, so the viewport's own height is the only place the item's
+geometry surfaces, and **68px** is the port reproducing the fallback's
+different padding and width from the inline mode's 84.
+
+### ⚠ It passes at `--side left` AND `--side right`, and that is a finding
+
+Both values give 0 deltas. That is **not** evidence the docking logic is
+correct — it is evidence the contract cannot see it. Every bound in a snapshot
+is relative to the **root** (ANCHORS §4), and the root here *is* the viewport,
+so its own `x`/`y` are 0 by construction whichever corner it docks to. The
+`--side` axis moves the viewport within the *window*, and the window is not in
+the frame.
+
+This is the measurement rule again, one level up from fields: **an axis whose
+effect no anchor can express is an axis the oracle cannot verify.** The port
+may be right or wrong about `sidebarSide` and this surface will pass either
+way. Options are to declare `--side` unmodelled for this surface, or to capture
+it rooted at something that contains both corners. Recorded rather than
+silently counted as coverage.
