@@ -98,3 +98,26 @@ test('Import hands the selection to onImport and closes the dialog', async () =>
   expect(onImport).toHaveBeenCalledWith(['feat/9324'])
   expect(onOpenChange).toHaveBeenCalledWith(false)
 })
+
+// Regression for `native/oracle/blocked/repo-import-dialog-duplicate-button-id.md`:
+// this dialog's own "Import" button and the Dialog primitive's built-in close
+// button both used to inherit `button.tsx`'s default `data-oracle-id="button"`,
+// so a capture rooted at this dialog carried two `button`-id anchors and the
+// oracle differ refused it outright (it matches by id and cannot say which of
+// the two it compared). The close button now names itself `dialog-close`.
+//
+// Mutation actually run (`data-oracle-id="dialog-close"` deleted from
+// `dialog.tsx`'s `DialogPopup` close button, then reverted):
+//
+//   AssertionError: expected …(2) to have a length of 1 but got 2
+//   - Expected: 1
+//   + Received: 2
+//   at expect(document.querySelectorAll('[data-oracle-id="button"]')).toHaveLength(1)
+//
+// i.e. exactly the "two `button` anchors" collision the blocked doc names.
+test('the close button and the Import button do not collide on data-oracle-id', () => {
+  renderDialog()
+
+  expect(document.querySelectorAll('[data-oracle-id="button"]')).toHaveLength(1)
+  expect(document.querySelectorAll('[data-oracle-id="dialog-close"]')).toHaveLength(1)
+})

@@ -81,7 +81,7 @@ export function DialogPopup({
             <DialogPrimitive.Close
               aria-label="Close"
               className="absolute end-2 top-2"
-              render={<Button size="icon" variant="ghost" />}
+              render={<Button size="icon" variant="ghost" data-oracle-id="dialog-close" />}
               {...closeProps}
             >
               <XIcon />
@@ -256,7 +256,14 @@ export function AppDialog({
                 )}
                 <DialogPrimitive.Close
                   data-slot="dialog-close"
-                  render={<Button variant="ghost" className="ml-auto shrink-0" size="icon-sm" />}
+                  render={
+                    <Button
+                      variant="ghost"
+                      className="ml-auto shrink-0"
+                      size="icon-sm"
+                      data-oracle-id="dialog-close"
+                    />
+                  }
                   onClick={onClose}
                 >
                   <XIcon />
