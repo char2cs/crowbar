@@ -293,3 +293,29 @@ It is also **the same defect already recorded on `repo-section`**
 0.0). Three anchors, two surfaces, one cause: the port paints a 1px border on
 row action buttons where React paints none. Worth fixing once, at whatever
 shared button path these three go through, rather than per surface.
+
+---
+
+## FIXED (2026-08-04, follow-up item)
+
+The shared cause was confirmed and fixed once, at `row_base::sub_action_box`
+(`crates/crowbar-ui/src/components/row_base.rs`), the single function backing
+every `ROW_SUB_ACTION` box in this port: this surface's own
+`workspace-tree-item-add-child`, plus `repo-section`'s `repo-section-import`,
+`repo-section-add-child` and `repo-section-collapse`. The function used to
+chain `.border(button::BORDER_WIDTH).border_color(Color::TRANSPARENT)` onto
+every box it returned — copied, by analogy, from `ROW_BASE`'s own shell
+(`row_base::base`) and from `button.tsx`'s "every anchored button reports
+`border.w: 1`" finding, neither of which applies here.
+`ROW_SUB_ACTION`'s own class list (`workspace-row-base.ts`) is `inline-flex
+shrink-0 cursor-pointer rounded-lg p-1.5 text-muted-foreground hover:…
+focus-visible:…` — no `border` utility anywhere in it, so the live DOM paints
+no border at all on any of these four buttons. The two lines were removed.
+
+**Regression guard, run against a real mutation:** restoring those two lines
+and running `cargo test -p crowbar-app --bin crowbar-app
+row_layout::workspace_tree_item::the_add_child_action_paints_no_border`
+failed as predicted (`expected 0px, got 1px`,
+`crates/crowbar-app/src/row_layout/workspace_tree_item.rs`); reverted after
+confirming. `repo_section.rs`'s own sibling test
+(`the_trailing_actions_paint_no_border`) guards the other three call sites.

@@ -65,7 +65,8 @@
 //! | `empty`, `loading`, `error`, `hover`, `focus` | **unmodelled.** `empty` has no trailing-edge concept on this row. `hover`/`focus` are colour-only ([`row_base`]'s own module docs). `isRepoDragOver` (`ring-1 ring-ring`) is sourced from `workspace-tree-context.tsx`'s Phase 5 drag protocol — out of this item's scope, `workspace_tree_item.rs`'s own dragging/moving/drop-target reasoning, restated once for this surface. |
 
 use gpui::{
-    AnyElement, IntoElement as _, ParentElement as _, Pixels, SharedString, Styled as _, div, px,
+    AnyElement, FontWeight, IntoElement as _, ParentElement as _, Pixels, SharedString,
+    Styled as _, div, px, relative,
 };
 
 use super::anchor::{AnchorId, AnchorSink};
@@ -149,23 +150,90 @@ impl RepoSection {
     /// The label slot: the repo name, or — while renaming — an empty,
     /// unanchored placeholder standing in for `WorkspaceInlineInput`.
     ///
-    /// The React source wraps the name in a second, `flex-1` span (to leave
-    /// room for a hover-only "- default" hint beside it) — that wrapper is
-    /// not modelled, `row_base`'s own hover restraint applied one level up:
-    /// with nothing rendered beside it, [`row_base::label_container`]'s own
-    /// `min-w-0 flex-1` is exactly the wrapper's own box, and stacking a
-    /// second identical one around it would record the same bounds twice,
-    /// `row_base.rs`'s own `label_container` doc comment.
+    /// # Two nested boxes, not [`row_base::label_container`]'s one
+    ///
+    /// `repo-section.tsx` wraps the name in an *outer*, unanchored `flex
+    /// min-w-0 flex-1 items-baseline gap-1.5` span (room for a hover-only
+    /// "- default" hint beside it, itself unmodelled — `row_base`'s own
+    /// hover restraint applied one level up). The **anchored** name span
+    /// nested inside it carries only `min-w-0 truncate font-mono
+    /// text-foreground` — no `flex-1` of its own:
+    /// `<span className="min-w-0 truncate font-mono text-foreground"
+    /// data-oracle-id="repo-section-label">`.
+    ///
+    /// This file used to reuse [`row_base::label_container`] (`min-w-0
+    /// flex-1 truncate`, `flex-1` included) directly for the *anchored* box,
+    /// on the reasoning that — with nothing else rendered beside the label —
+    /// the wrapper's own box and the label's own box coincide. **That
+    /// reasoning was wrong.** Taffy stretches a block-level in-flow child to
+    /// fill its own *immediate* container's width regardless of what else
+    /// that container holds (`git_status_row.rs`'s own `name_and_directory`
+    /// finding: "a flex item is blockified and its text is inline content;
+    /// taffy stretches a block-level in-flow child to the container's inner
+    /// width"), so a text run placed inside a `flex-1` box reports *that
+    /// box's* stretched width, not its own content width, whether or not a
+    /// sibling is competing for the leftover space. Measured:
+    /// `repo-section-label.bounds.w: 202.0` against a reference `31.2` —
+    /// exactly that anchor's own `text_width`, i.e. content-sized
+    /// (`native/mapping/repo-section.md`'s own verdict, defect 2).
+    ///
+    /// The fix restores the two-level structure the source actually has: an
+    /// *outer*, unanchored `flex-1` spacer — so the trailing action buttons
+    /// still land at the row's own trailing edge exactly as they do today;
+    /// dropping the spacer outright would pull them in against a short
+    /// label instead — wrapping an *inner*, content-sized box that carries
+    /// the anchor. The inner box is a flex item of the outer
+    /// (`display:flex`) container with no `flex-grow` of its own (gpui's
+    /// own default, `Style::default()`'s `flex_grow: 0.0`), so it sizes to
+    /// its own content rather than the row's leftover space, while still
+    /// shrinking and truncating if the name is too long for what the
+    /// spacer has left — `min-w-0 truncate` on both sides.
+    ///
+    /// **`project-home-row` and `workspace-tree-item` are not this shape**
+    /// — do not "fix" this by making every row label content-sized. Both
+    /// put `flex-1` directly on the *same* span that carries their own
+    /// label anchor (`project-home-row.tsx`'s label;
+    /// `workspace-tree-item.tsx`'s `className="min-w-0 flex-1 truncate
+    /// font-mono text-left" data-oracle-id="workspace-tree-item-label"`),
+    /// so [`row_base::label_container`] is exactly right for both — a
+    /// `project-home-row-label` legitimately at 232px against a 109.2px
+    /// `text_width`, a `workspace-tree-item-label` legitimately at 252px
+    /// against 31.2px — and neither is touched by this fix. Only this
+    /// file's own call site was reading a *wrapper's* class list onto the
+    /// wrong element.
     fn label(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
-        let container = row_base::label_container(theme.foreground)
-            .font_family(theme.font_mono.primary().unwrap_or("monospace"));
+        // The outer, unanchored spacer: `<span className="flex min-w-0
+        // flex-1 items-baseline gap-1.5">`. `items_baseline` rather than
+        // `items_center`: the source's own class says baseline, and for a
+        // single-line label the two render identically, but they are free
+        // to diverge if a second child (the "- default" hint) is ever
+        // modelled here.
+        let outer = div().flex().min_w(px(0.0)).flex_1().items_baseline();
+
         if self.mode.is_renaming() {
-            container.into_any_element()
-        } else {
-            container
-                .child(anchors.text(AnchorId::new(ID_LABEL).line_sized(), self.name.clone()))
-                .into_any_element()
+            return outer.into_any_element();
         }
+
+        // The inner, anchored, content-sized name span: `<span
+        // className="min-w-0 truncate font-mono text-foreground"
+        // data-oracle-id="repo-section-label">`. Same type as
+        // `row_base::label_container` (`row_base::TEXT` /
+        // `LINE_HEIGHT_RELATIVE` / `FontWeight::MEDIUM`) but no
+        // `.flex_1()` — see this function's own doc comment.
+        let inner = div()
+            .min_w(px(0.0))
+            .truncate()
+            .text_size(row_base::TEXT)
+            .line_height(relative(row_base::LINE_HEIGHT_RELATIVE))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(theme.foreground)
+            .font_family(theme.font_mono.primary().unwrap_or("monospace"));
+
+        outer
+            .child(
+                inner.child(anchors.text(AnchorId::new(ID_LABEL).line_sized(), self.name.clone())),
+            )
+            .into_any_element()
     }
 
     /// The header row: trigger, label, and up to three trailing actions.

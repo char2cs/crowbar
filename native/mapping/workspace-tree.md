@@ -218,3 +218,57 @@ real app state until each grows a flag.
 `scroll-area-*` pair matches exactly in width. The row's *internal* layout is
 correct — every delta above is about where the row sits, what state it is in, or
 what string it holds, not how it is built.
+
+---
+
+## FIXED (2026-08-04, follow-up item)
+
+All three causes are closed.
+
+### Cause A — `row_base::MARGIN_X`/`MARGIN_Y` now applied at the one call site that needed them
+
+`WorkspaceTree::render` used to call `self.project_home.render(theme,
+anchors)` straight into its own column. `ProjectHomeRow::render`'s own
+`.w_full()` (no margin) is correct for its *own* standalone
+`--surface project-home-row` capture — see that file's own PASS verdict — but
+wrong once composed beside `repo-section`'s own list, exactly the shape
+`row_base.rs`'s own module docs predicted for this file by name. Fixed by a
+new `WorkspaceTree::home_row` (`crates/crowbar-ui/src/components/
+workspace_tree.rs`) that wraps the composed row in an outer, unanchored
+`flex flex-col` container carrying `.mx(row_base::MARGIN_X)
+.my(row_base::MARGIN_Y)` — without touching `ProjectHomeRow::render` itself,
+avoiding the "no `.w_full()` next to `.mx()`" trap by putting the margin on a
+*different* div than the one that already carries `.w_full()`. Closes all 13
+of cause A's deltas, including the two that follow from it without further
+code (`scroll-area-{root,viewport}.bounds.y` and `workspace-tree.bounds.h`,
+both `+4px` from `MARGIN_Y * 2` now being in the flow).
+
+### Cause B — `--home-active` added
+
+`--surface workspace-tree` had no axis to say the composed home row is
+active — `project-switcher-panel`'s `--active-index`/`--no-active`
+precedent, simplified to a bare switch (`--home-active`) because this
+surface composes exactly one such row. Added to `Params`
+(`crates/crowbar-app/src/surfaces/workspace_tree.rs`); defaults to the row's
+own idle/inactive fixture, so a bare `--surface workspace-tree` is
+unchanged.
+
+### Cause C — `--project-name` added
+
+Threaded the same way `project-home-row`'s own surface and (per P3.64)
+`project-switcher-panel`'s row 0 already do: `Params::tree` now overrides
+the composed row's own `project_name` field when `--project-name` is passed,
+leaving it on the `'home'` fixture fallback otherwise.
+
+### Regressions guarded
+
+`crates/crowbar-app/src/row_layout/workspace_tree.rs` gained four tests, each
+run against a real mutation of the fix it guards and reverted after
+confirming the real failure: `project_home_is_inset_by_row_base_margin_on_
+both_axes` and `the_scroll_area_starts_below_the_home_rows_own_margin`
+(cause A, one mutation, both failed);
+`project_name_reaches_the_composed_home_rows_label` and
+`home_active_paints_the_composed_row_active` (causes B/C, one mutation, both
+failed). `crates/crowbar-app/src/surfaces/workspace_tree.rs` gained matching
+unit-level coverage (`project_name_overrides_the_composed_home_row`,
+`home_active_reaches_the_composed_row`).

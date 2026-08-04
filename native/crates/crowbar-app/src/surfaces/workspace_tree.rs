@@ -5,16 +5,44 @@
 //! `WorkspaceTreeFooter` is omitted, why `ScrollArea::render` is not
 //! called); this file is the cell.
 //!
+//! # Two cell axes on the composed `project-home-row`
+//!
+//! Before this item, this cell had no way to drive either of the composed
+//! home row's two real fields, which made this surface permanently
+//! un-passable against a live app on both:
+//!
+//! * **`--project-name`** overrides the row's own name, the same flag
+//!   `project-home-row`'s own surface (`surfaces/project_home_row.rs`)
+//!   takes, threaded through this composition — the shape P3.64 already
+//!   established for `project-switcher-panel`'s row 0
+//!   (`surfaces/project_switcher_panel.rs`'s own `project_name` field).
+//!   Without it, `project-home-row-label.text` could only ever read the
+//!   `'home'` fixture fallback (`native/mapping/workspace-tree.md`'s own
+//!   verdict, cause C: `text: "home", expected "oracle-fixture"`).
+//! * **`--home-active`** sets the row's own `isActive`, `project-switcher-
+//!   panel`'s `--active-index`/`--no-active` precedent — simplified to a
+//!   bare switch because this surface composes exactly *one* such row
+//!   rather than a list of them, so there is nothing for an index to
+//!   select between. Without it, `project-home-row.bg`/`border.color` could
+//!   only ever read `row_base::inactive`'s transparent resting picture,
+//!   never the live app's `#1f1f1eff` active one
+//!   (`native/mapping/workspace-tree.md`'s own verdict, cause B).
+//!
+//! Both default to the composed row's own idle fixture (`'home'`,
+//! inactive) — a bare `--surface workspace-tree` is unchanged by either
+//! flag's existence.
+//!
 //! # The state axis
 //!
 //! | flag | here |
 //! |---|---|
-//! | `loading`, `error`, `hover`, `focus`, `selected`, `empty` | **unmodelled** — see `crowbar_ui::components::workspace_tree`'s own module docs. |
+//! | `loading`, `error`, `hover`, `focus`, `selected`, `empty` | **unmodelled** — see `crowbar_ui::components::workspace_tree`'s own module docs. `--home-active` above is a bespoke, surface-specific option rather than a rule on `StateFlag::Selected`, exactly as `project-switcher-panel`'s `--active-index` is: this container's own `selected` stays unmodelled (it has no selection picture of its own), and the flag is about the *row it composes*, not about itself. |
 
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
 use crowbar_ui::components::AnchorSink;
+use crowbar_ui::components::project_home_row::ProjectHomeRow;
 use crowbar_ui::components::repo_section::RepoSection;
 use crowbar_ui::components::workspace_tree::WorkspaceTree;
 use gpui::{AnyElement, SharedString, px};
@@ -51,16 +79,29 @@ pub struct Params {
     /// unconditionally, `resizable`'s own precedent for a container whose
     /// repeated content is verified through that content's own surface.
     pub repos: u8,
+    /// `--project-name`: overrides the composed `project-home-row`'s own
+    /// name. `None` leaves it on `ProjectHomeRow::fixture`'s own `'home'`
+    /// fallback. See the module docs.
+    pub project_name: Option<SharedString>,
+    /// `--home-active`: the composed `project-home-row`'s own `isActive`.
+    /// See the module docs.
+    pub home_active: bool,
 }
 
 impl Default for Params {
     fn default() -> Self {
-        Self { repos: 1 }
+        Self {
+            repos: 1,
+            project_name: None,
+            home_active: false,
+        }
     }
 }
 
 impl Params {
-    /// The tree this cell describes.
+    /// The tree this cell describes. `--project-name`/`--home-active`
+    /// override the composed home row's own two fields; see the module
+    /// docs.
     #[must_use]
     pub fn tree(&self, theme: &Theme) -> WorkspaceTree {
         let sections = (0..self.repos)
@@ -70,12 +111,18 @@ impl Params {
             })
             .collect();
 
+        let mut project_home = ProjectHomeRow::fixture();
+        project_home.is_active = self.home_active;
+        if let Some(name) = &self.project_name {
+            project_home.project_name = name.clone();
+        }
+
         WorkspaceTree {
+            project_home,
             sections,
             // `ScrollArea::fixture`'s own live `workspace-tree` measurement.
             scroll_width: px(344.0),
             scroll_height: px(936.0),
-            ..WorkspaceTree::fixture(theme)
         }
     }
 }
@@ -88,6 +135,8 @@ impl SurfaceParams for Params {
     ) -> Result<bool, ParseError> {
         match option {
             "--repos" => self.repos = parse_u8(&value(args, option)?, option)?,
+            "--project-name" => self.project_name = Some(value(args, option)?.into()),
+            "--home-active" => self.home_active = true,
             _ => return Ok(false),
         }
         Ok(true)
@@ -99,6 +148,12 @@ impl SurfaceParams for Params {
 
     fn describe(&self, _cell: &Cell, out: &mut String) {
         let _ = write!(out, " · {} repo(s)", self.repos);
+        if let Some(name) = &self.project_name {
+            let _ = write!(out, " · home named {name}");
+        }
+        if self.home_active {
+            out.push_str(" · home active");
+        }
     }
 
     /// **`true`.** None of the six §8.3 flags has a rule on this surface —
@@ -117,9 +172,21 @@ fn parse_u8(raw: &str, option: &str) -> Result<u8, ParseError> {
 }
 
 fn options() -> Vec<(String, String)> {
-    [("--repos <n>".to_owned(), "how many repo sections to render [1]".to_owned())]
-        .into_iter()
-        .collect()
+    [
+        ("--repos <n>".to_owned(), "how many repo sections to render [1]".to_owned()),
+        (
+            "--project-name <name>".to_owned(),
+            "overrides the composed project-home-row's own name — the live app's real \
+             project name, since the fixture otherwise reads 'home' [home]"
+                .to_owned(),
+        ),
+        (
+            "--home-active".to_owned(),
+            "the composed project-home-row renders active (isActive true) [inactive]".to_owned(),
+        ),
+    ]
+    .into_iter()
+    .collect()
 }
 
 #[cfg(test)]
@@ -141,11 +208,17 @@ mod tests {
     }
 
     #[test]
-    fn the_default_is_one_repo() {
+    fn the_default_is_one_repo_and_the_home_row_stays_on_its_own_idle_fixture() {
         let theme = Theme::DARK;
+        let bag = Params::default();
+        assert_eq!(bag.project_name, None);
+        assert!(!bag.home_active);
+
         let tree = params_of(&cell(&[])).tree(&theme);
         assert_eq!(tree.sections.len(), 1);
         assert_eq!(tree.sections[0].name, "repo-0");
+        assert_eq!(tree.project_home.project_name, "home");
+        assert!(!tree.project_home.is_active);
     }
 
     #[test]
@@ -155,6 +228,42 @@ mod tests {
         let tree = params_of(&three_repos).tree(&theme);
         assert_eq!(tree.sections.len(), 3);
         assert_eq!(tree.sections[2].name, "repo-2");
+    }
+
+    /// **`--project-name` overrides the composed home row's own name only**
+    /// — the exact gap `native/mapping/workspace-tree.md`'s own verdict
+    /// hit: `project-home-row-label.text: "home", expected
+    /// "oracle-fixture"`, with no flag able to close it.
+    #[test]
+    fn project_name_overrides_the_composed_home_row() {
+        let theme = Theme::DARK;
+        let named = cell(&["--project-name", "oracle-fixture"]);
+        assert_eq!(
+            params_of(&named).tree(&theme).project_home.project_name,
+            "oracle-fixture"
+        );
+
+        let unset = cell(&[]);
+        assert_eq!(
+            params_of(&unset).tree(&theme).project_home.project_name,
+            "home",
+            "no --project-name leaves the composed row on its own fixture fallback",
+        );
+    }
+
+    /// **`--home-active` sets the composed home row's own `isActive`** —
+    /// the exact gap `native/mapping/workspace-tree.md`'s own verdict hit:
+    /// `project-home-row.bg`/`border.color` could only ever read
+    /// `row_base::inactive`'s resting picture, never the live app's active
+    /// one.
+    #[test]
+    fn home_active_reaches_the_composed_row() {
+        let theme = Theme::DARK;
+        let inactive = cell(&[]);
+        assert!(!params_of(&inactive).tree(&theme).project_home.is_active);
+
+        let active = cell(&["--home-active"]);
+        assert!(params_of(&active).tree(&theme).project_home.is_active);
     }
 
     #[test]
@@ -174,8 +283,13 @@ mod tests {
 
     #[test]
     fn this_surfaces_options_are_rejected_on_another_surface() {
-        let line = ["--surface", "skeleton", "--repos"];
-        assert!(Cell::parse(line.iter().map(|arg| (*arg).to_owned())).is_err());
+        for option in ["--repos", "--project-name", "--home-active"] {
+            let line = ["--surface", "skeleton", option];
+            assert!(
+                Cell::parse(line.iter().map(|arg| (*arg).to_owned())).is_err(),
+                "{option} should not be a skeleton option",
+            );
+        }
     }
 
     #[test]

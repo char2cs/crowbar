@@ -6,6 +6,7 @@
 //! width.
 
 use super::{a_cell, assert_px, ids, measure};
+use crowbar_ui::Theme;
 use crowbar_ui::components::{repo_section, row_base};
 use gpui::{TestAppContext, px};
 
@@ -128,4 +129,90 @@ fn the_labels_own_line_box_is_13px_times_the_row_base_ratio(cx: &mut TestAppCont
 
     assert_px(label.bounds.size.height, row_base::TEXT * row_base::LINE_HEIGHT_RELATIVE);
     assert_px(label.bounds.size.height, px(19.5));
+}
+
+/// **The label content-sizes to its own text — it does not stretch to fill
+/// the row.** A wide `--width` makes the two shapes unmistakable: a
+/// `flex-1` label would grow toward the container's own leftover width
+/// (hundreds of pixels here), while a content-sized one stays at its own
+/// `text_width` regardless of how much room the row has.
+///
+/// **Mutation, run:** reverted `RepoSection::label` to call
+/// `row_base::label_container(theme.foreground)` directly (the pre-fix
+/// single-box shape, `flex-1` included) rather than building the two-level
+/// outer-spacer/inner-content-sized structure.
+/// `the_label_content_sizes_rather_than_stretching_to_fill_the_row` failed
+/// as predicted:
+///
+/// ```text
+/// thread 'row_layout::repo_section::the_label_content_sizes_rather_than_stretching_to_fill_the_row' panicked at /private/tmp/crowbar-p366-tree/native/crates/crowbar-app/src/row_layout/repo_section.rs:162:5:
+/// expected 55px, got 458px
+/// ```
+///
+/// (55px is the default `"crowbar"` fixture name's own `text_width` at
+/// this font; 458px is the row's own leftover width at `--width 600` —
+/// exactly the flex-1 stretch this fix removes.) Reverted to the two-level
+/// structure after confirming.
+#[gpui::test]
+fn the_label_content_sizes_rather_than_stretching_to_fill_the_row(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&["--width", "600"]));
+    let label = super::find(&records, repo_section::ID_LABEL);
+    let text = label.text.as_ref().expect("the label paints text");
+
+    assert_px(label.bounds.size.width, text.width.ceil());
+}
+
+/// **The three `ROW_SUB_ACTION` trailing buttons paint no border** —
+/// `workspace-row-base.ts`'s own `ROW_SUB_ACTION` class list carries no
+/// `border` utility, unlike `ROW_BASE`'s.
+///
+/// **Mutation, run:** restored `.border(button::BORDER_WIDTH)
+/// .border_color(Color::TRANSPARENT)` on `row_base::sub_action_box`.
+/// `the_trailing_actions_paint_no_border` failed as predicted:
+///
+/// ```text
+/// thread 'row_layout::repo_section::the_trailing_actions_paint_no_border' panicked at /private/tmp/crowbar-p366-tree/native/crates/crowbar-app/src/row_layout/repo_section.rs:191:9:
+/// expected 0px, got 1px
+/// ```
+///
+/// Reverted after confirming.
+#[gpui::test]
+fn the_trailing_actions_paint_no_border(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+
+    for id in [
+        repo_section::ID_IMPORT,
+        repo_section::ID_ADD_CHILD,
+        repo_section::ID_COLLAPSE,
+    ] {
+        let record = super::find(&records, id);
+        assert_px(record.border_width, px(0.0));
+    }
+}
+
+/// **The composed `repo-icon-popover-trigger` renders rounded
+/// (`theme.radius_md`) inside a real row** — the outer `<PopoverTrigger>`
+/// span carries `rounded-md` in the live source, which the port's own
+/// `Trigger::render` used to drop entirely.
+///
+/// **Mutation, run:** removed `.rounded(theme.radius_md.value())` from the
+/// non-working `shell` in `repo_icon_popover::Trigger::render`.
+/// `the_composed_trigger_is_rounded` failed as predicted:
+///
+/// ```text
+/// thread 'row_layout::repo_section::the_composed_trigger_is_rounded' panicked at /private/tmp/crowbar-p366-tree/native/crates/crowbar-app/src/row_layout/repo_section.rs:216:5:
+/// expected 8px, got 0px
+/// ```
+///
+/// Reverted after confirming.
+#[gpui::test]
+fn the_composed_trigger_is_rounded(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+    let trigger = super::find(&records, "repo-icon-popover-trigger");
+
+    assert_px(trigger.radius, Theme::DARK.radius_md.value());
+    assert_px(trigger.radius, px(8.0));
 }

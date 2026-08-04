@@ -278,6 +278,25 @@ impl Trigger {
 
     /// Renders the trigger, opting [`ID_TRIGGER`] in on both rest states —
     /// see the module docs.
+    ///
+    /// # The non-working shell is rounded; the working one is not
+    ///
+    /// `repo-icon-popover.tsx` gives these two rest states **different**
+    /// class lists on the very element this function anchors as
+    /// [`ID_TRIGGER`]: the `repo.defaultWorking` early return's `<span
+    /// className="pointer-events-none inline-flex h-5 w-5 shrink-0
+    /// items-center justify-center">` carries no `rounded-*` utility at
+    /// all, while the ordinary `<PopoverTrigger className="…inline-flex h-5
+    /// w-5 shrink-0 items-center justify-center rounded-md outline-none">`
+    /// does. So the working branch below stays unrounded (correct, matching
+    /// the spinner span) and only the non-working `shell` gets
+    /// `theme.radius_md` — `repo_icon_popover.rs`'s own `image_box`/
+    /// `letter_box` already read the same token for the picture *inside*
+    /// this shell; this is the outer `<PopoverTrigger>` box catching up to
+    /// them. Before this fix the outer shell carried no `.rounded()` call
+    /// at all, so `repo-icon-popover-trigger.radius` read `0.0` against a
+    /// live `8.0` whenever this trigger renders inside a real row
+    /// (`native/mapping/repo-section.md`'s own verdict, defect 3).
     #[must_use]
     pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         if self.working {
@@ -302,7 +321,8 @@ impl Trigger {
             .relative()
             .flex_shrink_0()
             .w(TRIGGER_SIZE)
-            .h(TRIGGER_SIZE);
+            .h(TRIGGER_SIZE)
+            .rounded(theme.radius_md.value());
         let shell = match self.picture {
             Kind::Emoji => shell.child(Self::emoji_box(theme).child(self.emoji.clone())),
             Kind::Image(ImageState::Loaded) => {

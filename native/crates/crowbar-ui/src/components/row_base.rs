@@ -199,6 +199,32 @@ pub fn inactive(theme: &Theme) -> Div {
 /// `sidebar_project_header.rs`'s precedent, for the same reason: nesting a
 /// second `anchors.root(…)` inside this surface's own would contest which
 /// anchor `ANCHORS.md` §4 means.
+///
+/// # No border — `ROW_SUB_ACTION`'s own class list never carries one
+///
+/// This function used to chain `.border(button::BORDER_WIDTH)
+/// .border_color(Color::TRANSPARENT)` onto the box below, `button.rs`'s own
+/// "every anchored button reports `border.w: 1`" headline finding applied
+/// here by analogy. The analogy does not hold: that finding is specifically
+/// about `button.tsx`'s base class carrying a bare `border` unconditionally
+/// (`native/mapping/button.md`), and `ROW_BASE` (this row's own shell) does
+/// too — but `ROW_SUB_ACTION` (`workspace-row-base.ts`) does not. Its full
+/// class list, transcribed in this function's own doc comment above, is
+/// `inline-flex shrink-0 cursor-pointer rounded-lg p-1.5
+/// text-muted-foreground hover:… focus-visible:…` — no `border` utility
+/// anywhere in it. Tailwind's `border-*-width` only takes effect once
+/// `border-style` is non-`none`, and only the bare `border` utility (or an
+/// explicit `border-style`) sets that; a bare `border-color` with no
+/// `border-style` computes to `border-width: 0` regardless of what the
+/// color is. So the live DOM's every `ROW_SUB_ACTION` button built from
+/// this function — `repo_section.rs`'s `repo-section-import`,
+/// `repo-section-add-child`, `repo-section-collapse`, and
+/// `workspace_tree_item.rs`'s `workspace-tree-item-add-child` one call site
+/// over — paints **no** border at all, and the removed two lines were
+/// manufacturing a phantom 1px one on every one of them —
+/// `native/mapping/repo-section.md`'s and `workspace-tree-item.md`'s own
+/// verdicts, `border.w: 1.0, expected 0.0` on three anchors, two surfaces,
+/// traced back to this one shared function.
 #[must_use]
 pub fn sub_action_box(theme: &Theme) -> Div {
     div()
@@ -209,8 +235,6 @@ pub fn sub_action_box(theme: &Theme) -> Div {
         .w(SUB_ACTION_SIZE)
         .h(SUB_ACTION_SIZE)
         .rounded(button::RadiusClass::Lg.value(theme))
-        .border(button::BORDER_WIDTH)
-        .border_color(Color::TRANSPARENT)
         .text_color(theme.muted_foreground)
 }
 
