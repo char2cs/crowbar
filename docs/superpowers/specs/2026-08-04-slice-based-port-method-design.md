@@ -247,19 +247,32 @@ What it must reproduce, from `desktop/src-tauri/src/lib.rs`:
 
 **This is the one part of Slice 0 that is not cheap, and it is scheduled first.**
 
-#### The spike, run before the rest of Slice 0 is scheduled
+#### ✅ The spike was answered by reading, 2026-08-04 — Path A is open
 
-`window_vibrancy::apply_vibrancy` needs a raw `NSWindow` handle. Whether GPUI
-hands one out cleanly is **unverified**. Two paths, and the spike picks one:
+It was scheduled as the one expensive unknown. It cost a grep.
 
-- **A.** GPUI exposes a `raw-window-handle` — take `window-vibrancy` as a dep.
-- **B.** It does not — insert the `NSVisualEffectView` directly with `objc2`,
-  which is `crowbar-platform`'s declared dependency contract anyway (§4.2:
-  "`objc2`, macOS only. Nothing from the rest of the workspace").
+```
+vendor/zed-deps/gpui_macos/src/window.rs:1916
+    impl rwh::HasWindowHandle for MacWindow
+        → rwh::RawWindowHandle::AppKit(AppKitWindowHandle::new(native_view))
 
-The spike is timeboxed and reports which path, with evidence. If neither works,
-that is a finding that reshapes Slice 0 and is worth knowing on day one rather
-than day ten.
+vendor/gpui/src/window.rs:6130
+    impl HasWindowHandle for Window  → forwards to platform_window
+```
+
+`gpui` already depends on `raw-window-handle = "0.6"` — the same major
+`window-vibrancy` 0.8 expects — so `apply_vibrancy` can take the `gpui::Window`
+directly. Path B (`objc2` by hand) is not needed.
+
+**Two caveats that keep this from being finished.** The handle wraps the
+`NSView`, not the `NSWindow`, so anything reaching for window-level properties
+must walk `view.window()` itself. And the appearance pin is main-thread-only,
+which is a real constraint in GPUI's threading model, not a formality.
+
+**So the risk moved rather than vanished: it is no longer "can we get a
+handle" but "does the frost actually render."** S0.5 is therefore gated on a
+screenshot, not on a clean compile — a build that links `apply_vibrancy` and
+shows no blur is the exact failure this distinction exists to catch.
 
 #### `unsafe` returns, under the existing rules
 
