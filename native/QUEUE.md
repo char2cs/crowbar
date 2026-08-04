@@ -12,7 +12,7 @@ and three of the five can never receive a verdict at all.
 | tier | state |
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
-| **Tier B · `components/layout`** | **15 of 23 targets** — waves 1–3 merged. **8 to go.** ⚠ built ≠ verified: **4 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1), **2 FAIL** (`fps-overlay` — a **contract** gap, not a port defect; `repo-icon-popover` 36/6 — a real one), the rest unverified |
+| **Tier B · `components/layout`** | **15 of 23 targets** — waves 1–3 merged. **8 to go.** ⚠ built ≠ verified: **4 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1), **3 FAIL** (`fps-overlay` — a **contract** gap; `repo-icon-popover` 36/6 — one missing wrapper; `repo-avatar` 4/1 — only 1 real), **1 REFUSED** (`repo-import-dialog` — duplicate `button` anchor id), the rest unverified |
 | **Tier A · `crowbar-core`** | **1,648 lines of a ~3,170-line target** — first area merged (workspace scoping, P3.53). Coverage **100.00% over 787 lines**, up from 148 |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
@@ -3339,10 +3339,10 @@ taken by me against the live app. **A merge is not a verdict.**
 | `sidebar-project-header` | ✅ | ✅ **PASS 0/5** | drive: `--right` — the reference is the **right-docked** cell |
 | `context-pill` | ✅ | ✅ **PASS 0/2** | drive: `--kind home`. Fixed a missing 1px transparent border and a font-metrics line box — see the instrument-mismatch note |
 | `fps-overlay` | ✅ | ❌ **FAIL 1/1** | +3px — **contract gap**, not a port defect (7 runs × per-run `ceil`) |
-| `repo-avatar` | ✅ | ⏸ | ✅ **UNBLOCKED** — the repo was never the problem, see below |
+| `repo-avatar` | ✅ | ❌ **FAIL 4/1** | **only 1 real** — `line_height` 21 vs 19.5. Other 3 are fixture gaps (2 documented) |
 | `workspace-branch-icon` | ✅ | ✅ **PASS 0/1** | one anchor, geometry only — a thin verdict, but a real one |
 | `detach-holder-modal` | ✅ | ⏸ | needs the modal driven open |
-| `repo-import-dialog` | ✅ | ⏸ | ✅ **UNBLOCKED** — trigger is in `repo-section`, now rendered |
+| `repo-import-dialog` | ✅ | 🚫 **REFUSED** | reference emits **two `button` anchors** — React-side prerequisite, not a port defect |
 | `repo-icon-popover` | ✅ | ❌ **FAIL 36/6** | port hand-rolls the popup — no border, no radius, no `popover-viewport`. Needs a worker |
 | `sidebar-tab-bar` | ✅ | n/a | no surface by design — measured through `--surface tabs` |
 | `workspace-switcher` | ✅ | n/a | no surface by design — `display: contents`, no box (v1.11) |
@@ -3377,7 +3377,28 @@ Recovery, needed before any capture on this instance: delete the `crowbar`
 IndexedDB, reload, confirm `getDB()` resolves at version 7. Any build sharing
 the origin can put it back at 9.
 
-**Seven verdicts taken, four passing.** Eleven surfaces built in this tier;
+#### ⚠ A surface with two un-named `Button`s cannot be captured at all
+
+`repo-import-dialog`'s verdict ended in a **refusal by the differ**, not a
+FAIL: `ui/button.tsx:69` sets `'data-oracle-id': 'button'` as the primitive's
+**default**, so a call site rendering two Buttons without overriding produces
+two anchors with the same id, and matching by id is the whole contract.
+
+**This is a scheduling check, not a per-surface bug.** Before scheduling any
+surface for a verdict, count its un-named `Button`s. `repo-icon-popover` was
+fine only because its call site names all three (`-upload`, `-emoji`,
+`-github`). `detach-holder-modal` is from the same P3.51 cluster and should be
+checked in the same pass rather than discovered one verdict later. Full write-up
+and the two-line fix: `oracle/blocked/repo-import-dialog-duplicate-button-id.md`.
+
+Also learned there: **a `vh`-sized surface's cell depends on the display.** The
+driver first refused this one because `h-[70vh]` at the app's 1119px window
+needs 868px against a display granting 829px — it declined rather than emit a
+snapshot whose every `visible` would be an artefact of window size. Resizing the
+app to 800px high cleared it.
+
+**Seven verdicts taken, four passing** (plus one refused outright). Eleven
+surfaces built in this tier;
 that ratio is the honest state and the reason the header now separates the two
 numbers.
 
