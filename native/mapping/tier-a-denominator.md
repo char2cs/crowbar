@@ -1754,3 +1754,471 @@ reachable React logic across the seven surveyed areas" — never "Tier A."
       unreachable original — the same "tested but unreachable" shape
       `native/mapping/core-git.md` documents for the already-ported
       `diff-buffer-path.ts`.
+
+---
+
+## 8. Export-level liveness (P3.73) — the file-level verdict is not enough to scope a port
+
+### Why this exists
+
+§0 (P3.69) gave every row above a **file-level** LIVE/CONDITIONAL/DEAD verdict.
+One row proved that is not sufficient to scope a port: `file-explorer/utils/
+file-explorer-tree-utils.ts` (§5) is file-level **LIVE**, and **4 of its 5
+exports are dead or test-only** — `filterHiddenFiles` and
+`removeEditingItemsFromTree` have zero references anywhere including tests;
+`addNewItemToTree` and `getAncestorDirectoryPaths` are each independently
+redeclared locally in the file that needs them, so the exports are never
+called; `getAncestorDirectoryPaths` even has a dedicated test exercising the
+unreachable copy. Worse, this document's own "genuine, portable" prose for
+that file (§5, above) describes exactly those four dead exports and never
+names the one live one (`getExplorerTargetPath`). A worker scoping a port off
+the file-level table alone would have ported ~4/5 dead lines. This section
+re-audits **every exported value/function/type** in the three still-unported
+areas named in the item brief — §2 Diff algebra, §5 File-tree model, §7
+Review threads — restricted to rows already marked LIVE or CONDITIONAL in §0
+(DEAD rows, e.g. `diff-search.ts`, are excluded per the brief; they are
+already correctly scoped to zero).
+
+**This section is committed incrementally, one area at a time, per this
+document's own interruption protocol** (see §0's headline "committed
+incrementally per the interruption protocol as each finished") — each of §2,
+§5, §7 lands as its own commit below, then a final commit adds the
+cross-area line-count reconciliation and scope recommendations.
+
+### Method
+
+**Tool: the TypeScript compiler API (`typescript@5.9.3`), not regex.** A
+single `ts.Program` is built over all of `web/src`'s ~1,019 root files
+(`tsconfig.json`'s own `paths`/`baseUrl` resolve the `@/` alias). For each
+target file: `checker.getExportsOfModule` enumerates its real exports; for
+each export, every `Identifier` node in every non-declaration source file
+(including the declaring file itself) is checked with
+`checker.getSymbolAtLocation`, following alias chains
+(`checker.getAliasedSymbol`, which is what resolves an `export * from` shim
+or a renamed `import { x as y }` back to the original declaration) — a hit
+counts only if the **resolved symbol's declaration position** matches the
+target's, not if the text merely matches. This is what tells a real import
+apart from a same-named local redeclaration (the `addNewItemToTree` shape):
+both look identical as text; only one resolves to the target symbol.
+
+**The crux of an export-level audit, stated explicitly so the next worker
+does not have to re-derive it: self-file references must be counted, not
+skipped, but two different self-file shapes must be told apart.**
+
+- **An export with zero references anywhere, including inside its own
+  file, is dead.** `chord.ts`'s `MOD_ORDER` (outside this item's three
+  areas, used here only as a calibration case) is the clean illustration:
+  declared once, then only ever appearing again in `export { MOD_ORDER }` —
+  which resolves to the same symbol as a real call site would under naive
+  symbol-matching, self-file included, but is a re-export specifier, not an
+  execution. Zero real uses, full stop.
+- **An export consumed only by a sibling export in the same file is
+  live.** `use-review-annotations.tsx`'s `useReviewAnnotations` hook calls
+  its own file's `groupAnnotationsByPath`, `countThreadsByPath`,
+  `threadToAnnotation`, `annotationToThread`, `toThreadSide`, and
+  `isDraftThread` helpers directly, with no import involved anywhere in the
+  program. **A cross-file reference search that skips the declaring file —
+  the natural first instinct, since "importers are what matter" — reports
+  all six as DEAD or TEST-ONLY. They are CONDITIONAL**, alive through the
+  hook that calls them, exactly as alive as if some other file had imported
+  them directly. Skipping self-file references was the single biggest
+  source of false-DEAD verdicts in this pass; see §7 below for how many of
+  `use-review-annotations.tsx`'s 11 exports that would have cost.
+- **Getting these two apart requires distinguishing three things at every
+  self-file occurrence, not two:** (1) declaration-site and
+  import/export-specifier positions (`export function foo(){}`'s own name,
+  `export { foo }`'s name) are never uses, regardless of file; (2) a use
+  whose nearest enclosing named declaration is the target's **own**
+  declaration is the function calling itself (recursion) — evidence of
+  nothing, since nothing is shown to have invoked it the first time
+  (`file-explorer-tree-utils.ts`'s `filterHiddenFiles`/`addNewItemToTree`/
+  `removeEditingItemsFromTree` all show exactly this shape: a lone self-file
+  hit that is pure recursion, correctly excluded, still DEAD); (3) a use
+  whose enclosing declaration is a **different**, sibling export in the same
+  file is real evidence of life, contingent on that sibling itself being
+  reachable (`groupAnnotationsByPath` inside `useReviewAnnotations`, above).
+
+**A fourth, narrower gap found by explicit sweep, not by the script:**
+identifier-text pre-filtering (used for performance, over symbol-resolving
+every identifier in every file for every export) cannot see a **renamed**
+import (`import { setMergeStrategy as patchMergeStrategy }`) — the call site
+reads `patchMergeStrategy(...)`, so a search seeded on the name
+`setMergeStrategy` never reaches it. `grep -rnE "import\s*\{[^}]*\bas\b[^}]*\}
+\s*from"` across all of non-test `web/src` found every renamed named import
+in the codebase (~50 hits); manually cross-checking each against the ~120
+export names audited here found exactly **one** collision (`review-api.ts`'s
+`setMergeStrategy`, aliased in `merge-popover.tsx`), confirmed by reading the
+call site (`await patchMergeStrategy(wsId, next)`, `merge-popover.tsx:60`) —
+a real call, not a false alarm. Stated limit of the method, not hidden: this
+gap was closed by an exhaustive grep sweep for the one known failure shape,
+each hit verified by hand, not by trusting either tool alone.
+
+**Failure mode of the method, stated rather than assumed away:** this is a
+static import-graph + symbol-binding analysis. It cannot see
+`new Worker(new URL(...))`-style dynamic loading (none of the 27 files in
+this pass load that way — checked by hand) or any other
+non-statically-analyzable path, and a "real use" hit proves the compiler can
+reach a call/type site from a reachable declaration, not that the line
+executes under some specific input at runtime. Every DEAD/TEST-ONLY/
+ambiguous verdict below was additionally confirmed by reading the source
+directly, not accepted on the tool's count alone.
+
+### Controls
+
+Four — one known-live, one known-dead (per the brief), plus the two
+calibration cases for the self-file distinction above:
+
+| control | expected | corrected method's result |
+|---|---|---|
+| `getExplorerTargetPath` (`file-explorer-tree-utils.ts`) — brief's own stated LIVE control | LIVE | **LIVE** — `use-file-explorer-sync.ts`: `useMemo(() => getExplorerTargetPath(activeBuffer), …)`, non-test, non-self |
+| `filterHiddenFiles` (same file) — brief's own stated DEAD control | DEAD | **DEAD** — zero non-test, non-self hits; the one self-file hit (line 16) is the function calling **itself** (recursion), correctly excluded |
+| `MOD_ORDER` (`chord.ts`, outside the three areas — calibration case) | DEAD | **DEAD** — zero real uses anywhere including its own file; the only self-file hit is `export { MOD_ORDER }`, a binding position, correctly excluded |
+| `groupAnnotationsByPath` / `isDraftThread` (`use-review-annotations.tsx` — calibration case, the mirror of the `filterHiddenFiles` shape) | LIVE (self-file, cross-export) | **LIVE** — both called inside `useReviewAnnotations` (a *different* export in the same file); correctly counted, not excluded, since the enclosing declaration differs from the target's own |
+
+All four pass. The last two are the load-bearing pair: get self-file
+handling wrong in either direction and one of the two flips to the wrong
+verdict.
+
+### §2 Diff algebra — per-export table
+
+§2 has no "Where it lives" table of its own (see its prose above); its
+content is three rows of §1's table: `git-diff-helpers.ts`,
+`lib/patch-window.ts`, and the ~368-line embedded pure region of
+`components/diff/review-code-view.tsx`. `diff-search.ts` is excluded — it is
+the one DEAD row in this cluster (§0/§1), out of scope per the brief.
+
+**`features/git/utils/git-diff-helpers.ts`** (11 lines, gate: `git-diff-image.tsx`, itself only reachable inside the CONDITIONAL `review-code-view.tsx`):
+
+| export | verdict | evidence |
+|---|---|---|
+| `getFileStatus` | CONDITIONAL | called in `git-diff-image.tsx` |
+| `getImgSrc` | CONDITIONAL | called in `git-diff-image.tsx` (presentation — formats a `data:` URI; not logic, see Deliverable 3) |
+
+**`features/git/lib/patch-window.ts`** (244 lines, gate: `review-code-view.tsx`'s `planWindow` call):
+
+| export | verdict | evidence |
+|---|---|---|
+| `planWindow` | CONDITIONAL | called in `review-code-view.tsx`; 28-case test suite |
+| `LOOKAHEAD_FILES` | CONDITIONAL | used inside `planWindow`'s own body (self-file, cross-export: a module constant consumed by the file's one real function, not the declaration site) |
+| `EVICT_BEYOND_FILES` | CONDITIONAL | used inside `planWindow`'s body |
+| `MAX_MATERIALIZED_FILES` | CONDITIONAL | used inside `planWindow`'s body |
+| `MAX_MATERIALIZED_LINES` | CONDITIONAL | used inside `planWindow`'s body **and** directly re-exported as `review-code-view.tsx`'s `REVIEW_TOKENIZE_MAX_LENGTH` |
+| `PATCH_LINE_CAP` | CONDITIONAL | used inside `planWindow`'s body **and** directly in `review-code-view.tsx` |
+| `WindowInput` (type) | CONDITIONAL | `planWindow`'s parameter type |
+| `WindowPlan` (type) | CONDITIONAL | `planWindow`'s return type |
+
+Zero dead exports. Every one of the 8 exports is reachable through the same
+single gate (`planWindow`'s one call site).
+
+**`features/git/components/diff/review-code-view.tsx`** — full export list (not just the diff-algebra-relevant subset, since the file is one of "those files" per the brief), gate: dynamic `import('./diff/review-code-view')` from `review-diff-tab.tsx`, mounted only inside a commit-diff/branch-review pane:
+
+| export | verdict | evidence |
+|---|---|---|
+| `partitionReviewFiles` | CONDITIONAL | called inside `ReviewCodeView`'s own render body (self-file, cross-export) |
+| `buildPlaceholderFileDiff` | CONDITIONAL | called inside `ReviewCodeView`'s render body |
+| `ReviewCodeView` (the component) | CONDITIONAL | imported by `review-diff-tab.tsx` |
+| `REVIEW_TOKENIZE_MAX_LINE_LENGTH` | CONDITIONAL | used inside `ReviewCodeView`'s body |
+| `REVIEW_TOKENIZE_MAX_LENGTH` | CONDITIONAL | used inside `ReviewCodeView`'s body |
+| `ReviewFileKind` (type) | CONDITIONAL | field type inside `ReviewFileEntry`, consumed by `partitionReviewFiles` |
+| `ReviewFileEntry` (type) | CONDITIONAL | `partitionReviewFiles`'s return-element type |
+| `ReviewCodeViewHandle` (type) | CONDITIONAL | imperative-handle type, imported by `review-diff-tab.tsx` |
+| `ReviewCodeViewProps` (type) | CONDITIONAL | the component's own prop type |
+
+Zero dead exports here either. **But a real finding: this document's own
+prose (§1) names 9 "pure functions" in this file's embedded region
+(`partitionReviewFiles`, `buildPlaceholderFileDiff`, `distributeContext`,
+`buildPlaceholderHunks`, `buildTailHunk`, `trimToPatchCap`, `reserveAtMost`,
+`parseSingleFilePatch`, `patchCacheKey`) as if they were all equally
+reachable, importable units. Only 2 of the 9 (`partitionReviewFiles`,
+`buildPlaceholderFileDiff`) carry an `export` keyword — verified directly
+(`grep -n "^export " review-code-view.tsx`).** The other 7 are module-private
+helpers, reachable only by calling into the two exported entry points (or by
+`ReviewCodeView`'s render body directly), not individually importable. They
+are not dead — `buildPlaceholderFileDiff` calls `trimToPatchCap`/
+`reserveAtMost`/`distributeContext`/`buildPlaceholderHunks`/`buildTailHunk`,
+and `ReviewCodeView`'s render calls `parseSingleFilePatch`/`patchCacheKey`
+directly — but a porter reading this document's "9 pure functions" bullet
+and trying to `import buildPlaceholderHunks` the way one would
+`buildPlaceholderFileDiff` would find no such export.
+
+**§2 line-count summary:** 11 + 244 + 368 (embedded region, this document's
+own estimate, §1) = **623 lines, all 623 CONDITIONAL, 0 dead, 0 test-only.**
+This area passes clean at export granularity — the one real risk is not a
+dead export, it is the 7-of-9 non-exported-helper naming mismatch above,
+which is a *porting-unit* risk, not a *line-count* risk (all 623 lines are
+still genuinely reachable and worth porting; a porter just cannot cherry-pick
+the 7 private helpers by name and must treat the ~368-line embedded region as
+one inseparable unit). Full line-count reconciliation across all three areas,
+and scope recommendations, follow in the commits below.
+
+### §5 File-tree model — per-export table
+
+All 19 rows in §5's own Liveness table are LIVE or CONDITIONAL (zero DEAD
+rows at file level), so every file in §5's "Where it lives" table is in
+scope here. Per §5's own methodological note, the *nested* path
+(`file-explorer/file-explorer/{lib,stores,utils}/*.ts`) is treated as real;
+the outer `file-explorer/{lib,stores,utils}/*.ts` files are 1-line
+`export * from '../file-explorer/…'` shims — confirmed again here rather
+than re-trusted, and confirmed that at least two production importers
+(`sidebar-carousel.tsx`, `use-workspace-effects.ts`) actually import through
+the **outer shim path** for `file-explorer-tree-store.ts`'s
+`useFileTreeStore` — the shim is not merely theoretical, it is the path at
+least two real call sites use, and the compiler's alias-resolution (used
+throughout this method) follows it transparently to the same underlying
+declaration either way.
+
+**`file-explorer/lib/visible-file-tree-rows.ts`** (238 lines):
+
+| export | verdict | evidence |
+|---|---|---|
+| `buildVisibleFileTreeRows` | LIVE | `use-file-explorer-visible-rows.ts` (LIVE hook, every render) |
+| `computeFileTreeSearchHits` | CONDITIONAL | called unconditionally every render inside `file-explorer-tree.tsx`'s `useMemo`, but is a no-op (`if (!q) return []`) until the tree-search box has a query — same "wiring runs always, substance is interaction-gated" shape this document already uses for `use-file-explorer-drag-drop.ts` |
+| `filterFileTreeForFffHits` | CONDITIONAL | same `useMemo`, same gate |
+| `getStickyAncestorRow` (singular) | **TEST-ONLY** — new finding | zero non-test callers; `file-explorer-tree.tsx` calls only the **plural** `getStickyAncestorRows` (confirmed by reading `file-explorer-tree.tsx`'s imports); the singular exists only to be tested |
+| `getStickyAncestorRows` (plural) | LIVE | called directly in `file-explorer-tree.tsx`; also called by the singular's own body (irrelevant to its own verdict) |
+| `getGuideAncestorRows` | LIVE | called directly in `file-explorer-tree.tsx` |
+| `VisibleFileTreeRow`, `BuildVisibleFileTreeRowsOptions`, `FilterFileTreeForSearchResult`, `FileTreeSearchHit` (types) | LIVE/CONDITIONAL | signature types of the functions above, same gates respectively |
+
+**`file-explorer/lib/file-tree-gitignore.ts`** (237 lines) — all 7 exports LIVE (`collectGitIgnoreFileReferences` called directly in `file-explorer-tree.tsx`; the rest called from `use-file-explorer-gitignore.ts`'s unconditional-every-mount `useEffect`). Zero dead exports.
+
+**`file-explorer/lib/file-tree-git-status.ts`** (122 lines) — all 6 exports LIVE (`getFileTreeGitStatusDecoration` verified called inside `createFileTreeGitStatusLookup`'s own body, a sibling export, itself called directly in `file-explorer-tree.tsx`; the other 3 functions and 2 types all called/used directly in `file-explorer-tree.tsx`/`file-explorer-tree-item.tsx`). Zero dead exports.
+
+**`file-explorer/lib/env-template.ts`** (90 lines, gate: right-click "create `.env` file" context-menu action):
+
+| export | verdict | evidence |
+|---|---|---|
+| `isEnvFileName` | CONDITIONAL | called in `use-file-explorer-context-menu.tsx` |
+| `buildEnvTemplateContent` | CONDITIONAL | called in `use-file-explorer-context-menu.tsx` |
+| `normalizeEnvTargetFileName` | **TEST-ONLY** — new finding | zero non-test, zero self-file callers, verified directly by reading the file: nothing in `env-template.ts` or `use-file-explorer-context-menu.tsx` calls it. It reads like the filename-sanitizer the "create custom `.env.X`" flow *should* call on user-typed input — worth flagging to the team as a possible wiring gap, not just "don't port it" |
+| `EnvTemplateTarget` (type) | CONDITIONAL | `ENV_TEMPLATE_TARGETS`'s element type |
+| `ENV_TEMPLATE_TARGETS` | CONDITIONAL | used in `use-file-explorer-context-menu.tsx`'s submenu build |
+
+**`file-explorer/lib/file-tree-density.ts`** (38 lines) — 6 exports, **5 LIVE + 1 CONDITIONAL, zero dead**: `isFileTreeDensity`/`DEFAULT_FILE_TREE_DENSITY` LIVE (verified called inside `normalizeFileTreeDensity`'s own body, itself called from `settings-normalization.ts`'s boot chain); `FileTreeDensity` (type) LIVE (used by both the always-mounted `file-explorer-tree-item.tsx` and the CONDITIONAL `file-tree-settings.tsx` — mixed, but LIVE via the stronger caller, same convention this document uses elsewhere for mixed files, e.g. `store.ts` in §4); `FILE_TREE_DENSITY_CONFIG` LIVE (called directly in three always-mounted-tree files). `FILE_TREE_DENSITY_OPTIONS` alone is CONDITIONAL (Settings → File Tree tab only).
+
+**`file-explorer/utils/file-explorer-tree-utils.ts`** (96 lines) — the file this whole item is named after, re-verified with the corrected method:
+
+| export | verdict | evidence |
+|---|---|---|
+| `filterHiddenFiles` | **DEAD** | zero non-test references; self-file hit is pure recursion (line 16, calls itself) |
+| `addNewItemToTree` | **DEAD** | zero non-test references; self-file hit is pure recursion (line 38); **separately**, `use-file-explorer-inline-editing.ts` declares its own local `const addNewItemToTree = (...) => …` (verified by reading the file, line 84) that shadows the name — the exported original is never called from there either |
+| `removeEditingItemsFromTree` | **DEAD** | zero non-test references; self-file hit is pure recursion (line 51) |
+| `getAncestorDirectoryPaths` | **TEST-ONLY** | zero non-test, zero self-file references; `__tests__/features/file-explorer/file-explorer-tree-utils.test.ts` exercises it directly; **separately**, `file-tree-gitignore.ts` declares its own local `function getAncestorDirectoryPaths(...)` (line 206) that does the real ancestor-walk work for gitignore resolution — a second, independent implementation of the same idea, the one that's actually live |
+| `getExplorerTargetPath` | LIVE | called in `use-file-explorer-sync.ts`'s every-render `useMemo` |
+
+**One export live, four dead-or-test-only — confirms the finding this item was opened to fix, re-derived from a corrected, controls-passing method rather than re-quoted from §5.**
+
+**`file-explorer/stores/file-explorer-tree-store.ts`** (146 lines) — sole export `useFileTreeStore`, LIVE (6 non-test importers incl. the always-mounted `sidebar-carousel.tsx`). The mutator bodies this document's prose praises as "pure `Set<string>→Set<string>` transitions" are *properties of the store's returned object*, not separate module exports — there is exactly one export-level unit here to audit, and it is live.
+
+**`file-explorer/stores/file-explorer-clipboard-store.ts`** (110 lines) — `ClipboardEntry`/`FileClipboardState`/`PastedEntry` (types) CONDITIONAL (self-used in `useFileClipboardStore`'s own definition); `useFileClipboardStore` CONDITIONAL (read via `.getState()` inside a cut/copy/paste action handler, not subscribed for every-render display — §5's own established gate). Zero dead exports.
+
+**Hooks** (`use-file-explorer-drag-drop.ts` 315, `use-file-explorer-inline-editing.ts` 231, `use-file-explorer-gitignore.ts` 79, `use-file-explorer-sync.ts` 50, `use-file-explorer-visible-rows.ts` 87, `use-file-explorer-context-menu.tsx` 612) — each exports exactly one hook; all confirmed called directly in `file-explorer-tree.tsx`. Verdicts match §5's file-level table exactly (gitignore/sync/visible-rows LIVE; drag-drop/inline-editing/context-menu CONDITIONAL). Zero dead exports — these are Phase-4 glue regardless of liveness (see Deliverable 3), but none of them are *dead* glue.
+
+**`features/files/lib/file-tree-api.ts`** (141 lines) — 11 exports, all LIVE or CONDITIONAL: `toAppFile` LIVE (called inside `fetchFileTree`'s own body, line 36, a sibling export); `fetchFileTree`/`filesWsEndpoint`/`createFileNode`/`deleteFileNode`/`findNode`/`mergeChildren`/`renameFileNode`/`copyFileNode`/`FileNodeDTO` all LIVE via `use-workspace-effects.ts` (always-mounted); `writeFileContent` CONDITIONAL-only (its sole caller is `file-upload.ts`'s CONDITIONAL `pickAndUploadFiles`). 10 LIVE + 1 CONDITIONAL, zero dead exports.
+
+**`features/files/lib/file-upload.ts`** (60 lines) — both exports CONDITIONAL: `pickAndUploadFiles` (right-click "Upload Files"; its call site is actually in `sidebar-carousel.tsx`'s `handleUploadFile` callback, wired down as a prop through `FileExplorerTree` to `useFileExplorerContextMenu`'s `onUploadFile` — a **correction** to this document's own §5 prose, which says the sole importer is the context-menu hook; the hook only *invokes* the callback, the import and top-level call live in `sidebar-carousel.tsx`) and `readFileAsBase64` (called inside `pickAndUploadFiles`'s own body, a sibling export). Zero dead exports.
+
+**`features/file-system/controllers/file-tree-utils.ts`** (22 lines) — sole export `findFileInTree`. **Verdict correction: §5's file-level table calls this LIVE ("called directly in `file-explorer-tree.tsx:614`"); at call-site granularity it is CONDITIONAL.** Both of its two real call sites are gated: `use-file-explorer-inline-editing.ts` (already CONDITIONAL) and, in `file-explorer-tree.tsx`, inside `collectLoadedFilesInDirectory` — which is itself only called from `handleOpenAllFilesInDirectory`, the handler for the **"Open All Files in Directory"** context-menu action (verified by reading `file-explorer-tree.tsx:603-729` directly). §5's own file-level LIVE verdict took the existence of a direct call in the tree component at face value without checking that call's enclosing context was itself gated — precisely the class of error §0's own "Sidebar panels are an off-viewport carousel" finding already warns about, now caught at a deeper call depth.
+
+**`features/file-system/controllers/file-utils.ts`** (5 lines) — `getFileName` and `getFilenameFromPath` are the same function under two names (`export const getFilenameFromPath = getFileName`, a literal alias). Both LIVE (`getFilenameFromPath` called unconditionally in `editor-status-actions.tsx`'s render). Zero dead exports.
+
+**`features/file-system/types/app.ts`** (38 lines) — 3 exports, **2 LIVE + 1 CONDITIONAL, zero dead**: `AppFile` and `FileEntry` LIVE (each flows into at least one already-LIVE consumer above); `ContextMenuState` CONDITIONAL (its sole use is `use-file-explorer-context-menu.tsx`'s own CONDITIONAL hook, above — not LIVE, despite sitting in the same file as two LIVE types).
+
+**§5 line-count summary (full reconciliation in the final commit below):** DEAD/TEST-ONLY lines total **95** — 71 in `file-explorer-tree-utils.ts` (`filterHiddenFiles` 18 + `addNewItemToTree` 21 + `removeEditingItemsFromTree` 11 + the private `getParentPath` helper 7, itself only reachable from the now-TEST-ONLY `getAncestorDirectoryPaths` + `getAncestorDirectoryPaths` 14), 7 in `visible-file-tree-rows.ts` (`getStickyAncestorRow`), 17 in `env-template.ts` (`normalizeEnvTargetFileName`). Every other file in §5 is 100% LIVE/CONDITIONAL at export level.
+
+### §7 Review threads — per-export table
+
+All rows in §7's Liveness table are LIVE or CONDITIONAL (zero DEAD).
+`review-thread-item.tsx` is a component (§7's own convention: "not counted"
+toward the area's line total) — audited for completeness, excluded from the
+line-count denominator, consistent with §7's own convention.
+
+**`features/workspace/stores/slices/branch-review-slice.ts`** (156 lines) — 8 exports, **all LIVE**, re-verified by reading the file directly: `MergeStrategy`/`ReviewMessage`/`ReviewThread`/`ReviewConversation` are all used as field/parameter types inside `BranchReviewState`/`BranchReviewSlice` (lines 32-68), both of which are the shape of `createBranchReviewSlice`'s return value; `createBranchReviewSlice` itself is called directly in `workspace-store.ts` (every workspace). Note: the 12 "pure `ReviewThread[]→ReviewThread[]` transition" mutators this document's prose praises (`addReviewThread`, `upsertReviewThread`, etc., §7 above) are **properties of `createBranchReviewSlice`'s returned object literal**, not separate module exports — same shape as `file-explorer-tree-store.ts` above (§5). `resolveReviewThread` is marked `@deprecated` in its own doc-comment ("Kept for backward compat... Use setReviewThreadResolved instead") — still part of the live interface, but a porter should confirm nothing still calls it before carrying it forward (a store-method-level question this export-level method cannot answer, since it is not itself an ES-module export).
+
+**`features/git/api/review-api.ts`** (288 lines) — 18 exports, **all LIVE or CONDITIONAL after one correction**:
+
+| export | verdict | evidence |
+|---|---|---|
+| `mapThread` | LIVE | called in `use-workspace-threads-stream.ts` (always-mounted) |
+| `listThreads` | LIVE | called in `use-workspace-threads-stream.ts` |
+| `ThreadDTO`, `ThreadReplyDTO` | LIVE | `ThreadDTO` used directly in `use-workspace-threads-stream.ts`; `ThreadReplyDTO` is `ThreadDTO`'s nested reply-element type |
+| `getReview` | CONDITIONAL | `branch-review-pane.tsx` |
+| `getReviewFiles` | CONDITIONAL | `use-review-files-summary.ts` → `review-diff-tab.tsx` |
+| `mergeIntoParent` | CONDITIONAL | `merge-popover.tsx` |
+| `setMergeStrategy` | CONDITIONAL — **corrected from an initial false TEST-ONLY reading** | `merge-popover.tsx:60`, imported renamed (`setMergeStrategy as patchMergeStrategy`) — see the renamed-import method gap above; a plain identifier-text search misses this entirely |
+| `openThread`, `replyToThread`, `setThreadResolved`, `deleteThread`, `deleteMessage`, `editMessage` | CONDITIONAL | all called in `use-review-annotations.tsx` |
+| `ReviewState` (type) | CONDITIONAL | `getReview`'s return type |
+| `ReviewFileSummary` (type) | CONDITIONAL | used in `review-file-summary-to-git-diff.ts` (§1: CONDITIONAL) |
+| `OpenThreadInput`, `ReplyToThreadInput` (types) | CONDITIONAL | `openThread`/`replyToThread`'s parameter types |
+
+Zero dead exports (after the rename correction). **Same non-exported-helper
+shape as `review-code-view.tsx` (§2), found independently here**: the doc's
+prose above (§7) says "`review-api.ts`'s `mapThread`/`mapReply`/
+`mapConversation`" as if all three were exported. Only `mapThread` carries
+`export`; `mapReply` (line 52, called inside `mapThread`) and
+`mapConversation` (line 87, called inside `getReview`) are module-private.
+Not dead — both are genuinely reachable through their respective exported
+callers — but, again, not individually importable the way the prose implies.
+
+**`features/git/components/diff/use-review-annotations.tsx`** (395 lines) — 11 exports, **all CONDITIONAL, zero dead** — this is the file the self-file method correction above exists for. `isDraftThread`, `toThreadSide`, `threadToAnnotation`, `annotationToThread`, `groupAnnotationsByPath`, `countThreadsByPath` are each called inside `useReviewAnnotations`'s own body (self-file, cross-export); `toAnnotationSide` additionally has a direct external caller (`review-code-view.tsx`); `useReviewAnnotations` itself, `ReviewAnnotation` (type), `DRAFT_THREAD_ID`, `ReviewAnnotationLayer` (type) are all likewise reachable. **Without the self-file correction, a naive tool would have reported 6 of these 11 exports as DEAD or TEST-ONLY** — the mirror-image failure to `file-explorer-tree-utils.ts`'s real dead exports (§5): false negatives (wrongly-DEAD) are exactly as costly to a scoping decision as false positives (wrongly-LIVE, the `addNewItemToTree` shape), because both cause a porter to skip code that should ship or ship code that shouldn't.
+
+**`features/workspace/stores/hooks/use-workspace-threads-stream.ts`** (61 lines) — sole export `useWorkspaceThreadsStream`, LIVE (called in `use-workspace-effects.ts`, always-mounted).
+
+**`features/git/components/review-thread-item.tsx`** (424 lines, component, not counted toward the line total per §7's own convention) — both exports CONDITIONAL (`ReviewThreadItem` called in `use-review-annotations.tsx`; `ReviewThreadItemProps` its own prop type). Zero dead.
+
+**§7 line-count summary:** 156 + 288 + 395 + 61 = **900 lines** (matches §7's
+own stated total exactly), **all 900 LIVE or CONDITIONAL, zero dead, zero
+test-only.** This is the one area of the three where the export-level pass
+found nothing to prune — the two risks found here are not line-count risks:
+the non-exported-helper naming mismatch (`mapReply`/`mapConversation`) and
+the one renamed-import blind spot (`setMergeStrategy`), both already folded
+into the table above. Full cross-area line-count reconciliation and scope
+recommendations follow below.
+
+### Deliverable 2 — portable LIVE+CONDITIONAL lines vs. total lines, per area
+
+"Portable" here means "attributable to an export that is LIVE or
+CONDITIONAL" (i.e. reachable) as opposed to DEAD or TEST-ONLY — this is the
+axis this item exists to check (reachability), not a re-run of the original
+doc's separate logic-vs-presentation/Phase-4 classification (already done
+per-file above and in §1/§5/§7's prose). The gap below is exactly what a
+file-level scoping (stop at §0's verdicts) would have over-ported.
+
+| area | total lines (files in scope) | DEAD/TEST-ONLY lines | LIVE+CONDITIONAL lines | over-port risk |
+|---|---|---|---|---|
+| §2 Diff algebra | 623 (3 files: 11 + 244 + 368-embedded) | 0 | 623 | **0%** |
+| §5 File-tree model | 2,717 (19 files, exact `wc -l`†) | 95 | 2,622 | **3.5%** |
+| §7 Review threads | 900 (4 non-component files, matches §7's own total) | 0 | 900 | **0%** |
+| **All three areas** | **4,240** | **95** | **4,145** | **2.2%** |
+
+†**§5's total-lines reconciliation.** §5's own prose states "**2,002** lines"
+as its area total — that figure sums only the 15 of 19 rows that carry a
+line count in §5's own "Where it lives" table (`238+237+122+90+38+96+146+
+110+315+231+79+50+87+141+22 = 2,002`, verified by direct re-addition). Four
+rows were left uncounted in that table: `use-file-explorer-context-menu.tsx`
+(612 lines, marked "not counted, component-adjacent"), `file-upload.ts` (60),
+`file-utils.ts` (5), and `types/app.ts` (38) — `612+60+5+38 = 715`, and
+`2,002 + 715 = 2,717`, exactly this section's recount. Not an arithmetic
+error (unlike the §6 146-line miscount §0 already found) — a deliberate
+exclusion of four small/component-adjacent files from the original headline
+sum. Since the brief asks for **every** row marked LIVE/CONDITIONAL, all 19
+are counted here; `95/2,717 = 3.5%` is the honest area-level figure. Using
+§5's own narrower 2,002 instead, the same 95 dead/test-only lines (none of
+which sit in the 4 excluded files) would read `95/2,002 = 4.7%` — the
+direction of the correction is the same either way, only the percentage
+moves.
+
+**The risk is concentrated, not diffuse — reported per file because an
+area-level percentage alone hides where the risk actually is:**
+
+| file | total | dead/test-only | waste % |
+|---|---|---|---|
+| `file-explorer-tree-utils.ts` | 96 | 71 | **74%** |
+| `env-template.ts` | 90 | 17 | **19%** |
+| `visible-file-tree-rows.ts` | 238 | 7 | **3%** |
+| every other file in all 3 areas (23 of 26 files) | 3,816 | 0 | **0%** |
+
+(26 = 3 files in §2 + 19 in §5 + 4 non-component files in §7; 23 = 26 minus
+the 3 named above.)
+
+A file-level scoping of §5 would have looked clean by area (96.5%
+LIVE+CONDITIONAL) while still shipping 71 fully-dead lines from one
+96-line file — the same near-miss the original `tier-a-denominator.md`
+already made once, at file granularity, for `normalize-diff.ts` and
+`diff-buffer-path.ts` (§0/§1).
+
+### Deliverable 3 — scope recommendation per area
+
+**§2 Diff algebra — port:**
+- `getFileStatus` (`git-diff-helpers.ts`) — genuine classification logic.
+- `planWindow` + `LOOKAHEAD_FILES`/`EVICT_BEYOND_FILES`/`MAX_MATERIALIZED_FILES`/`MAX_MATERIALIZED_LINES`/`PATCH_LINE_CAP`/`WindowInput`/`WindowPlan` (`patch-window.ts`, all 8 exports, all CONDITIONAL) — to `crowbar-diff`, not `crowbar-core`, per this document's own §1/§2 crate-boundary finding (unchanged by this pass — liveness confirms it is worth porting *somewhere*, not which crate).
+- The full ~368-line embedded region of `review-code-view.tsx` **as one unit** — `partitionReviewFiles` and `buildPlaceholderFileDiff` plus their 7 non-exported private helpers (`trimToPatchCap`, `reserveAtMost`, `distributeContext`, `buildPlaceholderHunks`, `buildTailHunk`, `patchCacheKey`, `parseSingleFilePatch`) cannot be split into "port these 2, skip those 7" — the 7 are unreachable except through the 2. Re-type against `crowbar-proto`'s `Hunk` instead of `@pierre/diffs`'s (already flagged, §1) — a required dependency substitution, not optional cleanup.
+
+**§2 — skip:**
+- `getImgSrc` (`git-diff-helpers.ts`) — CONDITIONAL-live, but presentation (a `data:` URI formatter), not logic.
+- `diff-search.ts` — DEAD, excluded from this pass per the brief, unchanged.
+- `ReviewCodeView`/`ReviewCodeViewHandle`/`ReviewCodeViewProps` — the component itself and its React-facing types; GPUI does not port a React component 1:1.
+
+**External dependency:** none new. `@pierre/diffs`'s `Hunk`/`FileDiffMetadata` type entanglement, already named in §1, is the only one in this area.
+
+---
+
+**§5 File-tree model — port:**
+- `buildVisibleFileTreeRows`, `getStickyAncestorRows` (**plural only** — the singular `getStickyAncestorRow` is test-only, do not port it as a separate function; if a single-ancestor accessor is wanted, call the plural and take the last element, exactly as the dead singular already does), `getGuideAncestorRows`, and — modelling "tree search is active" as an explicit state, not an always-on default — `computeFileTreeSearchHits`/`filterFileTreeForFffHits`, plus all 4 supporting types, from `visible-file-tree-rows.ts`.
+- All of `file-tree-gitignore.ts` (7 exports, 237 lines, all LIVE) — see the `ignore`-crate decision below.
+- All of `file-tree-git-status.ts` (6 exports, 122 lines, all LIVE) — but split `getFileTreeGitStatusDecoration`'s `colorClassName` (a hardcoded Tailwind string) from its `statusLetter`/`label` classification at the type level; the former becomes a `crowbar-ui::Color` seal, not a string, per this document's own bucket-4 finding (§5 above).
+- `normalizeFileTreeDensity`, `isFileTreeDensity`, `DEFAULT_FILE_TREE_DENSITY`, `FileTreeDensity` (type), and `FILE_TREE_DENSITY_CONFIG`'s `rowHeight` field only (its `rowClassName` field is presentation, skip) from `file-tree-density.ts`. `FILE_TREE_DENSITY_OPTIONS` is Settings-tab-only presentation copy — skip.
+- **`getExplorerTargetPath` only** from `file-explorer-tree-utils.ts` — the file's one live export. Do not port `filterHiddenFiles`, `addNewItemToTree`, or `removeEditingItemsFromTree` (dead). Do not port the exported `getAncestorDirectoryPaths` either — it is test-only; if this logic is needed, port `file-tree-gitignore.ts`'s own local `getAncestorDirectoryPaths` (line 206), the copy that is actually live, and drop the redundant dead twin rather than carrying two implementations of the same idea into the port.
+- `findFileInTree` from `file-system/controllers/file-tree-utils.ts` — port, but model it as CONDITIONAL (behind "Open All Files in Directory" and inline-rename/create), not as always-reachable core logic, correcting §5's file-level LIVE verdict.
+- `getFileName`/`getFilenameFromPath` (`file-utils.ts`) — port once, under one name; they are the same function.
+- `AppFile`, `FileEntry`, `ContextMenuState` (`types/app.ts`) — the shared record types every function above needs.
+- `file-tree-api.ts`'s transport functions and `FileNodeDTO` (`fetchFileTree`, `filesWsEndpoint`, `createFileNode`, `renameFileNode`, `deleteFileNode`, `copyFileNode`, `findNode`, `mergeChildren`, `toAppFile`, `FileNodeDTO` — 10 of the file's 11 exports) — to `crowbar-client`, not `crowbar-core`, per this document's own existing classification; liveness confirms all 10 are worth porting somewhere. `writeFileContent` (the 11th) is CONDITIONAL-only (upload path) but equally a transport function — same crate, same recommendation.
+
+**§5 — skip:**
+- All 7 hook/store files (`file-explorer-tree-store.ts`, `file-explorer-clipboard-store.ts`, and the 5 `use-file-explorer-*` hooks, 1,478 lines combined) — Phase-4/glue by this document's own bucket rule, regardless of the fact that none of their exports are individually dead. GPUI replaces this hook-wiring shape wholesale (per this document's established D2 pattern); the *mutator bodies* inside `file-explorer-tree-store.ts` are worth extracting as plain functions (already flagged, §5 above), but that is a refactor of Phase-4 code, not a Tier A port item.
+- `env-template.ts` in full — small (90 lines), genuinely CONDITIONAL logic, but niche (one context-menu action) and one of its 5 exports (`normalizeEnvTargetFileName`) looks like a wiring bug rather than dead-by-design (flag to the team; do not silently drop the finding along with the line).
+- `file-upload.ts` — `readFileAsBase64`/`pickAndUploadFiles` are `FileReader`/`<input type=file>`-bound; native file-picker is `crowbar-platform` territory (same convention as `diagnostics-export.ts`, §4), not `crowbar-core`.
+
+**External dependency decision — `file-tree-gitignore.ts`'s `ignore@5.3.2`:**
+this file uses the npm package for two things: (a) `.gitignore`-syntax
+pattern parsing — glob with `**`, leading-`/` anchoring, trailing-`/`
+directory-only matches, `#` comments, `\`-escapes — and negation (`!pattern`)
+via a `matcher.test(path)` call returning `{ignored, unignored}`; and (b) one
+matcher **per directory** that has a `.gitignore` (`createFileTreeGitIgnoreRules`
+builds a `ruleSets` array, one `ignore()` instance per file). The Rust
+`ignore` crate (docs.rs/ignore, ripgrep's own crate) implements the identical
+`.gitignore` semantics through `ignore::gitignore::GitignoreBuilder`/
+`Gitignore`, whose `matched()` returns `Match::{Ignore, Whitelist, None}` — a
+direct structural match for `{ignored, unignored}`. **Recommendation: use the
+Rust `ignore` crate's `Gitignore` type, one instance per directory, mirroring
+this file's own `ruleSets` shape — do not hand-roll a matcher.** What the
+crate does **not** provide, and what this file's own original contribution
+is, is the **cascade**: `isPathGitIgnoredByFileTreeRules` walks every
+ancestor directory (`getAncestorDirectoryPaths`, the live local copy, not the
+dead exported one) and tests each ancestor's own rules *before* testing the
+target path itself, because a directory ignored by a parent rule ignores
+everything under it regardless of its own `.gitignore` content. That
+ancestor-first cascade algorithm has no crate equivalent and must be
+reimplemented in Rust exactly as it exists here, driving one `Gitignore`
+matcher per directory rather than one matcher for the whole tree.
+
+---
+
+**§7 Review threads — port, no skips found:**
+this is the one area where the export-level pass found nothing to prune —
+all 900 lines across all 4 files are LIVE or CONDITIONAL at export
+granularity, confirming §7's own "genuine, portable" prose was correct in
+substance (though not in exact function-naming — see the `mapReply`/
+`mapConversation` finding above).
+- `ReviewMessage`/`ReviewThread`/`ReviewConversation` (types) + `createBranchReviewSlice` as one unit (`branch-review-slice.ts`) — the 12 individual "pure mutator" functions this document's prose names are properties of that one factory's return value today, not separately exported; extracting them into standalone `ReviewThread[] → ReviewThread[]` functions during the port (as the doc already recommends) is a refactor choice a porter is free to make, not something this audit can verify export-by-export since they are not distinct compiler-visible symbols yet. Confirm before porting that `resolveReviewThread` (marked `@deprecated` in its own source) still needs to ship, or whether it can be dropped in favor of `setReviewThreadResolved`.
+- `mapThread` + its private `mapReply` helper, and `getReview` + its private `mapConversation` helper (`review-api.ts`) — port each pair as one unit, same reasoning as `review-code-view.tsx` above. All of `review-api.ts`'s other 16 exports — `listThreads`, the 9 CRUD/mutation transport functions (`getReviewFiles`, `mergeIntoParent`, `setMergeStrategy`, `openThread`, `replyToThread`, `setThreadResolved`, `deleteThread`, `deleteMessage`, `editMessage`), and its 6 supporting types (`ThreadDTO`, `ThreadReplyDTO`, `ReviewState`, `ReviewFileSummary`, `OpenThreadInput`, `ReplyToThreadInput`) — go to `crowbar-client`, not `crowbar-core`, per this document's existing convention (transport, not model) — liveness confirms every one of the file's 18 exports is worth porting somewhere, `setMergeStrategy` included despite its near-miss TEST-ONLY misread.
+- 10 of `use-review-annotations.tsx`'s 11 exports — its pure-helper half: 7 functions (`isDraftThread`, `toAnnotationSide`, `toThreadSide`, `threadToAnnotation`, `annotationToThread`, `groupAnnotationsByPath`, `countThreadsByPath`) plus their 3 supporting types (`ReviewAnnotation`, `DRAFT_THREAD_ID`, `ReviewAnnotationLayer`) — genuinely reachable, genuinely gpui-free (modulo the already-flagged `@pierre/diffs` `DiffLineAnnotation<T>` type entanglement, §7 above, which needs the same `crowbar-diff`-native retyping as §2's placeholder algebra). The 11th export, `useReviewAnnotations` itself (the hook), is Phase-4/presentation — not ported as such.
+
+**External dependency:** none new beyond the already-flagged `@pierre/diffs` annotation-type entanglement.
+
+### Verdict tally, this pass
+
+Counted by re-tallying every per-export table above directly (not carried
+over from the export-liveness script's raw category labels, which predate
+the LIVE-vs-CONDITIONAL gate-tracing done by hand per file) — an earlier
+draft of this table underused that re-tally and undercounted every area's
+export total; the figures below are the corrected count, and the process
+that caught the mismatch is worth keeping: sum the per-file export counts
+named in each area's own tables above and check they equal the total. `§7`'s
+`review-thread-item.tsx` (component, 2 exports) is excluded here, matching
+the same "not counted" convention §7 already applies to its line total.
+
+| area | exports audited | LIVE | CONDITIONAL | DEAD | TEST-ONLY |
+|---|---|---|---|---|---|
+| §2 Diff algebra (3 files) | 19 | 0 | 19 | 0 | 0 |
+| §5 File-tree model (19 files) | 69 | 42 | 21 | 3 | 3 |
+| §7 Review threads (4 non-component files) | 38 | 13 | 25 | 0 | 0 |
+| **Total** | **126** | **55** | **65** | **3** | **3** |
+
+Zero UNCERTAIN verdicts — every export resolved to a definite answer with a
+concrete caller and, for every DEAD/TEST-ONLY verdict, a direct read of the
+source confirming it (not just the tool's count taken on faith, per the
+`setMergeStrategy` near-miss above). The 6 DEAD+TEST-ONLY exports are
+exactly the 3 files named in Deliverable 2's per-file waste table
+(`file-explorer-tree-utils.ts`'s 3 DEAD + 1 TEST-ONLY, `visible-file-tree-
+rows.ts`'s 1 TEST-ONLY, `env-template.ts`'s 1 TEST-ONLY) — the export-count
+and line-count views of this pass agree on where the risk sits.
