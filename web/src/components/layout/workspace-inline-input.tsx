@@ -19,6 +19,18 @@ interface WorkspaceInlineInputProps {
   onOpenExisting?: (wsId: string) => void
 }
 
+/*
+ * Oracle anchors (native/oracle/ANCHORS.md).
+ *
+ * The root `<div>` paints no fill of its own (no `bg`/`border`) but is a real
+ * flex box with real geometry, not a `display: contents` wrapper — v1.11
+ * excludes only the latter, so it is anchored like every other surface root.
+ *
+ * `data-oracle-id` on the hint `<button>` is conditional on `existingWsId`,
+ * the same shape `inline-error.tsx`'s dev-only detail line takes: a real
+ * branch in the anchor *set*, not a declared-but-missing anchor, which is why
+ * no `oracleSurfaceScope` entry is needed for either side of that branch.
+ */
 export function WorkspaceInlineInput({
   defaultValue = '',
   placeholder = 'branch-name',
@@ -65,7 +77,7 @@ export function WorkspaceInlineInput({
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
+    <div className="flex min-w-0 flex-1 flex-col" data-oracle-id="workspace-inline-input">
       <input
         ref={ref}
         type="text"
@@ -74,6 +86,7 @@ export function WorkspaceInlineInput({
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
         placeholder={placeholder}
+        data-oracle-id="workspace-inline-input-field"
         className={cn(
           'min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground/40',
           kind === 'identifier' && 'font-mono',
@@ -88,6 +101,7 @@ export function WorkspaceInlineInput({
             handledRef.current = true
             onOpenExisting?.(existingWsId)
           }}
+          data-oracle-id="workspace-inline-input-hint"
           className="mt-0.5 text-left font-mono text-[11px] text-muted-foreground/70 hover:text-foreground"
         >
           {`'${value.trim()}' already has a workspace — open it`}

@@ -10,6 +10,18 @@ import { toast } from '@/features/window/stores/toast-store'
 // consent modal (only when a holder path is known — an unknown holder can only be
 // retried). Reason + gating are derived from heldByPath; there is no persisted
 // lastError (spec §4/B7).
+//
+// Oracle anchors (native/oracle/ANCHORS.md): `data-oracle-content-sized="true"`
+// is on both `<Button>`s — `size="sm"` authors no width, so each button's used
+// width is its own label's, the same v1.5 declaration `inline-error.tsx`'s
+// retry control carries for the identical reason. Neither carries
+// `data-oracle-line-sized`: `size="sm"` authors `h-8 sm:h-7`, so the box is not
+// derived from the label's line box (`badge`/`inline-error`'s rule). Both ids
+// are renamed away from `button`'s own default (v1.8, `git-row-badge`'s
+// precedent) into this call site's own namespace, so no `oracleSurfaceScope`
+// entry is needed — the port composes these boxes from `button`'s public
+// values rather than nesting a second `Button::render`, so there is no
+// foreign content left to filter.
 export function PlaceholderRowActions({ workspace }: { workspace: Workspace }) {
   const openDetach = useDetachModalStore((s) => s.open)
 
@@ -35,21 +47,32 @@ export function PlaceholderRowActions({ workspace }: { workspace: Workspace }) {
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <p className="text-xs leading-relaxed text-muted-foreground">
+    <div className="flex flex-col gap-1.5" data-oracle-id="placeholder-row-actions">
+      <p
+        className="text-xs leading-relaxed text-muted-foreground"
+        data-oracle-id="placeholder-row-actions-reason"
+      >
         {placeholderReason(workspace)}
       </p>
-      <div className="flex justify-end gap-1.5">
+      <div className="flex justify-end gap-1.5" data-oracle-id="placeholder-row-actions-actions">
         <Button
           variant="outline"
           size="sm"
           onClick={onRetry}
           onPointerDown={(e) => e.stopPropagation()}
+          data-oracle-id="placeholder-row-actions-retry"
+          data-oracle-content-sized="true"
         >
           Retry
         </Button>
         {workspace.heldByPath ? (
-          <Button size="sm" onClick={onDetach} onPointerDown={(e) => e.stopPropagation()}>
+          <Button
+            size="sm"
+            onClick={onDetach}
+            onPointerDown={(e) => e.stopPropagation()}
+            data-oracle-id="placeholder-row-actions-detach"
+            data-oracle-content-sized="true"
+          >
             Detach…
           </Button>
         ) : null}

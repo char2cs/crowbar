@@ -621,11 +621,13 @@ mod tests {
                 // pair alongside `sidebar-peek`).
                 "nav-stack",
                 "number-input",
-                // `pending_create_row.rs` sorts before `popover.rs` — `pe` <
-                // `po` (P3.61, cluster 8 — the first link of the
-                // `pending-create-row` → `workspace-tree-item` →
-                // `repo-section` → `workspace-tree` chain).
+                // `pending_create_row.rs` sorts before
+                // `placeholder_row_actions.rs`, and both before `popover.rs`
+                // — `pe` < `pl` < `po` (P3.61's cluster 8 chain head, then
+                // P3.62's cluster 7 placeholder pair; the two items landed
+                // adjacent entries and this order is the merge of both).
                 "pending-create-row",
+                "placeholder-row-actions",
                 "popover",
                 // `project_home_row.rs` sorts before `project_switcher_
                 // panel.rs` — `project_h` < `project_s` (`h` < `s`) — and
@@ -702,6 +704,17 @@ mod tests {
                 // requires one; see `crowbar_ui::components::sidebar_tab_bar`'s
                 // own module docs and `native/mapping/sidebar-tab-bar.md`.
                 "sidebar-skeleton",
+                // `sidebar_toast_overlay.rs` sorts before `sidebar_toggle_
+                // icon.rs` — `sidebar_to` common, then `a` < `g` (P3.62 —
+                // the live, hand-rolled toast surface `toast.rs`'s own
+                // reference is unreachable from; see that module's own
+                // module docs §0). `sidebar_toast_overlay_fallback.rs`
+                // sorts immediately after it in turn: same stem, then the
+                // shorter name ends the comparison first — the `Toast.
+                // Portal`'d fixed-corner viewport the registry's
+                // unique-root constraint splits into its own entry.
+                "sidebar-toast-overlay",
+                "sidebar-toast-overlay-fallback",
                 "sidebar-toggle-icon",
                 "skeleton",
                 // `slider.rs` sorts before `spinner.rs` — `sl` < `sp`.
@@ -716,10 +729,10 @@ mod tests {
                 // < `tooltip`: `to` common, then `a` < `o`.
                 "toast",
                 "tooltip",
-                // `workspace_branch_icon.rs` sorts last — `w` is the
-                // alphabetically latest surface file (P3.50, cluster 1's
-                // other leaf). `workspace_switcher.rs` would sort here too
-                // (`workspace_b` < `workspace_s`) — but there is no
+                // `workspace_branch_icon.rs` sorts before `workspace_inline_
+                // input.rs` — `workspace_` common, then `b` < `i` (P3.50,
+                // cluster 1's other leaf). `workspace_switcher.rs` would sort
+                // here too (`workspace_b` < `workspace_s`) — but there is no
                 // `surfaces/workspace_switcher.rs` to sort: its own React
                 // wrapper is `display: contents` and generates no box, so
                 // there is no anchor for a `root` to name, and every real
@@ -728,12 +741,19 @@ mod tests {
                 // `crowbar_ui::components::workspace_switcher`'s own module
                 // docs and `native/mapping/workspace-switcher.md`.
                 "workspace-branch-icon",
-                // `workspace_tree.rs` sorts last of all — `w` is the
-                // alphabetically latest surface file, and `workspace_tree`
-                // is a prefix of `workspace_tree_item` so the shorter name
-                // ends the comparison first, `search.rs`/`search_replace_
-                // row.rs`'s own shape (P3.61, cluster 8's own root — the
-                // chain's fourth and last link).
+                // `workspace_inline_input.rs` then `workspace_tree.rs` —
+                // `workspace_i` < `workspace_t` (P3.62 cluster 7's
+                // rename/create field, then P3.61 cluster 8's own root).
+                // `workspace_tree` is a prefix of `workspace_tree_item`, so
+                // the shorter name ends the comparison first —
+                // `search.rs`/`search_replace_row.rs`'s own shape — which
+                // makes `workspace-tree-item` the last entry of all.
+                //
+                // Both items' own comments claimed to "sort last"; they were
+                // each written against a tree without the other, and only
+                // one can be right. Resolved here by re-deriving the order
+                // rather than keeping either claim.
+                "workspace-inline-input",
                 "workspace-tree",
                 "workspace-tree-item",
             ],
