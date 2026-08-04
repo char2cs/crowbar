@@ -443,7 +443,7 @@ session from prose scattered over 4,000 lines.
 | 6 | leak soak shows no RSS growth vs React | ❌ **not met** | there is no shared workload to soak yet. Sequencing, not neglect. |
 | 7 | `blocked/` empty, or every item a listed user decision | ⚠ **effectively met — 4 user decisions, 2 resolved, 1 hazard note** | classified 2026-08-03, then corrected the same day when one "outstanding" item turned out to have been resolved for three days. See below. |
 | 8 | terminal conformance suite green | ❌ **not met** | the terminal is not ported. |
-| 9 | a user cannot tell the apps apart, except §13 | ❌ **not met** | follows from 1, 2 and 8. |
+| 9 | a user cannot tell the apps apart, except §13 | ❌ **not met — now DEMONSTRATED, not merely sequenced** | was "follows from 1, 2 and 8". **2026-08-04: an artifact now exists and the user told them apart in one glance** — P3.83's shell renders real data as a bare text list beside the real app's styled sidebar, while ten of its components hold PASS verdicts. See the component-parity-is-not-app-parity finding. |
 
 ### §17.7 — `blocked/` classified, 2026-08-03
 
@@ -4657,6 +4657,127 @@ every reference capture and pass it as `state.width`, and derive the container
 `--width` from the reference root's own `bounds.w` rather than from a number
 recorded in an earlier run. Two surfaces were re-driven this session purely
 because the window had moved underneath a remembered figure.
+
+## 🛑 THE FINDING THAT MATTERS MOST THIS SESSION — component parity is NOT app parity
+
+**2026-08-04, from the user, holding the running Rust shell beside the real
+app.** P3.83's shell puts real daemon data on screen. It also looks nothing like
+Crowbar. The user's words: *"The styling is still very much FAR from what the
+current app has."* They are right.
+
+### The uncomfortable number
+
+**Ten `components/layout` surfaces hold a PASS verdict, and the assembled app is
+a bare text list.** No row backgrounds, no selected row, no row icons, no
+trailing actions, no header, no tab row.
+
+Those verdicts are not false. They measure **much less than the count implies**,
+and I have been reporting a rising surface count as though it trends toward
+§17.9 ("a user cannot tell the apps apart"). It does not. It trends toward
+*"each brick is individually the right size."*
+
+### What the oracle structurally CANNOT see — a fourth blind spot
+
+The three recorded blind spots are all about a *missing measurement* (an
+undeclared anchor, an unemitted field, an uncaptured cell). This is a different
+shape: **the measurement is present and correct, and still says nothing about
+the app.**
+
+| invisible to every verdict taken so far | why |
+|---|---|
+| **window chrome** — vibrancy, rounded pane edges, the titlebar | no surface has an anchor for it; the driver opens a plain window |
+| **the sidebar header and tab row** | never composed by any surface, so never captured |
+| **spacing and composition BETWEEN components** | every capture is **rooted at the component**, so the gaps between them are unmeasured *by construction* |
+| **whether the app puts a component in the right STATE** | the sharpest one — see below |
+
+### ‼️ The sharpest case: a component can be perfect in a cell the app never enters
+
+The reference's project row renders **selected**, with an icon and two trailing
+actions. `project-home-row` holds **PASS 0/5 in the `selected` cell** — I took
+that verdict myself today. And the shell renders the same component **inactive
+and bare**, because nothing in the shell models which row is active.
+
+**Both facts are true at once.** The component is pixel-correct in `selected`;
+the application never selects. A per-component oracle cannot detect that,
+because the state is an *input* the harness supplies — the driver is told
+`--flags selected`, so the cell always exists, and the app that never produces
+it is out of frame.
+
+> **The oracle measures whether a component CAN render a cell. Nothing measures
+> whether the app EVER DOES.**
+
+### What this changes
+
+1. **§17.9 stays ❌ and its evidence line is now honest.** It was "follows from
+   1, 2 and 8" — sequencing. It is now *demonstrated*: an artifact exists and a
+   user told the two apps apart in one glance.
+2. **The surface count needs the same asterisk the coverage number carries.**
+   "10 of 22 PASS" means ten components are individually correct in the cells
+   measured. It does not mean 45% of the sidebar looks right.
+3. **An app-level parity check has to become a real item**, not a Phase 6
+   afterthought — the first thing in this port to test the wall instead of the
+   bricks. Compose the shell, capture it whole against the reference's whole
+   sidebar, root the capture *above* the components.
+4. **This validates amending the phase order**, and more sharply than the
+   argument I wrote for it. The shell was justified as *parallel work on an
+   untouched risk*. Its real value showed up within hours: it is the only thing
+   that has ever revealed what the parity oracle is blind to.
+
+**P3.83 redirected**, not merged: compose the components with real props and
+real states, and produce an honest two-column list of what the reference has
+that the shell does not (out-of-scope vs in-scope-and-missing). It was also
+asked to confirm or refute that the components are individually fine and only
+the composition is bare — because the alternative, that verified components
+render differently outside the driver harness, would invalidate every verdict in
+this file and needs to be settled explicitly.
+
+## ✅ P3.82 MERGED — `workspace-tree` PASS 0/8, proven at three widths
+
+Verified by my own run. Cell `width=569 theme=light content=normal`, container
+`--width 294`:
+
+```
+oracle: PASS — 0 deltas over 8 anchors compared
+```
+
+**Defect A proven the way the defect demanded.** One width is exactly what hid
+it, so I drove three:
+
+```
+--width 252  ->  scroll.w 252      --width 344  ->  scroll.w 344
+--width 500  ->  scroll.w 500
+```
+
+Before the fix all three reported 344. `scroll_width` now reads
+`cell.width_px()`.
+
+**Defect B** gives back `row_base::MARGIN_Y * 2`. P3.66 added the margin to the
+port's `home_row` wrapper without adjusting the sibling fixture, so the two grew
+the tree's height additively instead of redistributing it.
+
+**Sweep re-run by me** (the worker delegated it to a subagent, so I did not take
+it on trust), excluding `#[cfg(test)]` modules: **zero** production
+width-assigned-to-literal remain in `surfaces/`. Every other `px()` literal is a
+test asserting a documented option default.
+
+Gates, run by me: clippy clean, invariants 7/7, **2524 passed / 0 failed**.
+
+### 🩹 …and I contaminated my own first reference for it
+
+My first run of this verdict reported `FAIL 11/8` including *eight* `visible:
+false` deltas and a 147px height gap. **The reference was wrong, not the port.**
+The nav-stack was stuck mid-transition at `x: -63` from a project-switcher I had
+opened earlier, which both slid the tree off its container (making the extractor
+mark five anchors invisible) and changed its height.
+
+I had explicitly reasoned that the `-63` was harmless "because every bound is
+relative to the root, and the tree *is* the root". **That is true of `bounds`
+and false of `visible`**, which is an absolute-viewport property. A reload
+settled it and the same drive passed 0/8.
+
+**Rule: capture only from a settled app.** After driving any nav-stack push,
+carousel scroll, or modal, reload before capturing — and treat a cluster of
+`visible: false` on the REFERENCE side as a contaminated capture, not a finding.
 
 ## 🚧 IN FLIGHT + NEXT (2026-08-04, after P3.81)
 
