@@ -1950,3 +1950,77 @@ still genuinely reachable and worth porting; a porter just cannot cherry-pick
 the 7 private helpers by name and must treat the ~368-line embedded region as
 one inseparable unit). Full line-count reconciliation across all three areas,
 and scope recommendations, follow in the commits below.
+
+### §5 File-tree model — per-export table
+
+All 19 rows in §5's own Liveness table are LIVE or CONDITIONAL (zero DEAD
+rows at file level), so every file in §5's "Where it lives" table is in
+scope here. Per §5's own methodological note, the *nested* path
+(`file-explorer/file-explorer/{lib,stores,utils}/*.ts`) is treated as real;
+the outer `file-explorer/{lib,stores,utils}/*.ts` files are 1-line
+`export * from '../file-explorer/…'` shims — confirmed again here rather
+than re-trusted, and confirmed that at least two production importers
+(`sidebar-carousel.tsx`, `use-workspace-effects.ts`) actually import through
+the **outer shim path** for `file-explorer-tree-store.ts`'s
+`useFileTreeStore` — the shim is not merely theoretical, it is the path at
+least two real call sites use, and the compiler's alias-resolution (used
+throughout this method) follows it transparently to the same underlying
+declaration either way.
+
+**`file-explorer/lib/visible-file-tree-rows.ts`** (238 lines):
+
+| export | verdict | evidence |
+|---|---|---|
+| `buildVisibleFileTreeRows` | LIVE | `use-file-explorer-visible-rows.ts` (LIVE hook, every render) |
+| `computeFileTreeSearchHits` | CONDITIONAL | called unconditionally every render inside `file-explorer-tree.tsx`'s `useMemo`, but is a no-op (`if (!q) return []`) until the tree-search box has a query — same "wiring runs always, substance is interaction-gated" shape this document already uses for `use-file-explorer-drag-drop.ts` |
+| `filterFileTreeForFffHits` | CONDITIONAL | same `useMemo`, same gate |
+| `getStickyAncestorRow` (singular) | **TEST-ONLY** — new finding | zero non-test callers; `file-explorer-tree.tsx` calls only the **plural** `getStickyAncestorRows` (confirmed by reading `file-explorer-tree.tsx`'s imports); the singular exists only to be tested |
+| `getStickyAncestorRows` (plural) | LIVE | called directly in `file-explorer-tree.tsx`; also called by the singular's own body (irrelevant to its own verdict) |
+| `getGuideAncestorRows` | LIVE | called directly in `file-explorer-tree.tsx` |
+| `VisibleFileTreeRow`, `BuildVisibleFileTreeRowsOptions`, `FilterFileTreeForSearchResult`, `FileTreeSearchHit` (types) | LIVE/CONDITIONAL | signature types of the functions above, same gates respectively |
+
+**`file-explorer/lib/file-tree-gitignore.ts`** (237 lines) — all 7 exports LIVE (`collectGitIgnoreFileReferences` called directly in `file-explorer-tree.tsx`; the rest called from `use-file-explorer-gitignore.ts`'s unconditional-every-mount `useEffect`). Zero dead exports.
+
+**`file-explorer/lib/file-tree-git-status.ts`** (122 lines) — all 6 exports LIVE (`getFileTreeGitStatusDecoration` verified called inside `createFileTreeGitStatusLookup`'s own body, a sibling export, itself called directly in `file-explorer-tree.tsx`; the other 3 functions and 2 types all called/used directly in `file-explorer-tree.tsx`/`file-explorer-tree-item.tsx`). Zero dead exports.
+
+**`file-explorer/lib/env-template.ts`** (90 lines, gate: right-click "create `.env` file" context-menu action):
+
+| export | verdict | evidence |
+|---|---|---|
+| `isEnvFileName` | CONDITIONAL | called in `use-file-explorer-context-menu.tsx` |
+| `buildEnvTemplateContent` | CONDITIONAL | called in `use-file-explorer-context-menu.tsx` |
+| `normalizeEnvTargetFileName` | **TEST-ONLY** — new finding | zero non-test, zero self-file callers, verified directly by reading the file: nothing in `env-template.ts` or `use-file-explorer-context-menu.tsx` calls it. It reads like the filename-sanitizer the "create custom `.env.X`" flow *should* call on user-typed input — worth flagging to the team as a possible wiring gap, not just "don't port it" |
+| `EnvTemplateTarget` (type) | CONDITIONAL | `ENV_TEMPLATE_TARGETS`'s element type |
+| `ENV_TEMPLATE_TARGETS` | CONDITIONAL | used in `use-file-explorer-context-menu.tsx`'s submenu build |
+
+**`file-explorer/lib/file-tree-density.ts`** (38 lines) — all 6 exports LIVE (`isFileTreeDensity`/`DEFAULT_FILE_TREE_DENSITY` verified called inside `normalizeFileTreeDensity`'s own body, itself called from `settings-normalization.ts`'s boot chain; `FILE_TREE_DENSITY_CONFIG` called directly in three always-mounted-tree files). `FILE_TREE_DENSITY_OPTIONS` is CONDITIONAL alone (Settings → File Tree tab only) but still counted LIVE-or-CONDITIONAL, not dead. Zero dead exports.
+
+**`file-explorer/utils/file-explorer-tree-utils.ts`** (96 lines) — the file this whole item is named after, re-verified with the corrected method:
+
+| export | verdict | evidence |
+|---|---|---|
+| `filterHiddenFiles` | **DEAD** | zero non-test references; self-file hit is pure recursion (line 16, calls itself) |
+| `addNewItemToTree` | **DEAD** | zero non-test references; self-file hit is pure recursion (line 38); **separately**, `use-file-explorer-inline-editing.ts` declares its own local `const addNewItemToTree = (...) => …` (verified by reading the file, line 84) that shadows the name — the exported original is never called from there either |
+| `removeEditingItemsFromTree` | **DEAD** | zero non-test references; self-file hit is pure recursion (line 51) |
+| `getAncestorDirectoryPaths` | **TEST-ONLY** | zero non-test, zero self-file references; `__tests__/features/file-explorer/file-explorer-tree-utils.test.ts` exercises it directly; **separately**, `file-tree-gitignore.ts` declares its own local `function getAncestorDirectoryPaths(...)` (line 206) that does the real ancestor-walk work for gitignore resolution — a second, independent implementation of the same idea, the one that's actually live |
+| `getExplorerTargetPath` | LIVE | called in `use-file-explorer-sync.ts`'s every-render `useMemo` |
+
+**One export live, four dead-or-test-only — confirms the finding this item was opened to fix, re-derived from a corrected, controls-passing method rather than re-quoted from §5.**
+
+**`file-explorer/stores/file-explorer-tree-store.ts`** (146 lines) — sole export `useFileTreeStore`, LIVE (6 non-test importers incl. the always-mounted `sidebar-carousel.tsx`). The mutator bodies this document's prose praises as "pure `Set<string>→Set<string>` transitions" are *properties of the store's returned object*, not separate module exports — there is exactly one export-level unit here to audit, and it is live.
+
+**`file-explorer/stores/file-explorer-clipboard-store.ts`** (110 lines) — `ClipboardEntry`/`FileClipboardState`/`PastedEntry` (types) CONDITIONAL (self-used in `useFileClipboardStore`'s own definition); `useFileClipboardStore` CONDITIONAL (read via `.getState()` inside a cut/copy/paste action handler, not subscribed for every-render display — §5's own established gate). Zero dead exports.
+
+**Hooks** (`use-file-explorer-drag-drop.ts` 315, `use-file-explorer-inline-editing.ts` 231, `use-file-explorer-gitignore.ts` 79, `use-file-explorer-sync.ts` 50, `use-file-explorer-visible-rows.ts` 87, `use-file-explorer-context-menu.tsx` 612) — each exports exactly one hook; all confirmed called directly in `file-explorer-tree.tsx`. Verdicts match §5's file-level table exactly (gitignore/sync/visible-rows LIVE; drag-drop/inline-editing/context-menu CONDITIONAL). Zero dead exports — these are Phase-4 glue regardless of liveness (see Deliverable 3), but none of them are *dead* glue.
+
+**`features/files/lib/file-tree-api.ts`** (141 lines) — 10 exports, all LIVE or CONDITIONAL: `toAppFile` LIVE (called inside `fetchFileTree`'s own body, line 36, a sibling export); `fetchFileTree`/`filesWsEndpoint`/`createFileNode`/`deleteFileNode`/`findNode`/`mergeChildren`/`renameFileNode`/`copyFileNode`/`FileNodeDTO` all LIVE via `use-workspace-effects.ts` (always-mounted); `writeFileContent` CONDITIONAL-only (its sole caller is `file-upload.ts`'s CONDITIONAL `pickAndUploadFiles`). Zero dead exports.
+
+**`features/files/lib/file-upload.ts`** (60 lines) — both exports CONDITIONAL: `pickAndUploadFiles` (right-click "Upload Files"; its call site is actually in `sidebar-carousel.tsx`'s `handleUploadFile` callback, wired down as a prop through `FileExplorerTree` to `useFileExplorerContextMenu`'s `onUploadFile` — a **correction** to this document's own §5 prose, which says the sole importer is the context-menu hook; the hook only *invokes* the callback, the import and top-level call live in `sidebar-carousel.tsx`) and `readFileAsBase64` (called inside `pickAndUploadFiles`'s own body, a sibling export). Zero dead exports.
+
+**`features/file-system/controllers/file-tree-utils.ts`** (22 lines) — sole export `findFileInTree`. **Verdict correction: §5's file-level table calls this LIVE ("called directly in `file-explorer-tree.tsx:614`"); at call-site granularity it is CONDITIONAL.** Both of its two real call sites are gated: `use-file-explorer-inline-editing.ts` (already CONDITIONAL) and, in `file-explorer-tree.tsx`, inside `collectLoadedFilesInDirectory` — which is itself only called from `handleOpenAllFilesInDirectory`, the handler for the **"Open All Files in Directory"** context-menu action (verified by reading `file-explorer-tree.tsx:603-729` directly). §5's own file-level LIVE verdict took the existence of a direct call in the tree component at face value without checking that call's enclosing context was itself gated — precisely the class of error §0's own "Sidebar panels are an off-viewport carousel" finding already warns about, now caught at a deeper call depth.
+
+**`features/file-system/controllers/file-utils.ts`** (5 lines) — `getFileName` and `getFilenameFromPath` are the same function under two names (`export const getFilenameFromPath = getFileName`, a literal alias). Both LIVE (`getFilenameFromPath` called unconditionally in `editor-status-actions.tsx`'s render). Zero dead exports.
+
+**`features/file-system/types/app.ts`** (38 lines) — `AppFile`, `FileEntry`, `ContextMenuState`, all LIVE (each flows into at least one already-LIVE consumer above). Zero dead exports.
+
+**§5 line-count summary (full reconciliation in the final commit below):** DEAD/TEST-ONLY lines total **95** — 71 in `file-explorer-tree-utils.ts` (`filterHiddenFiles` 18 + `addNewItemToTree` 21 + `removeEditingItemsFromTree` 11 + the private `getParentPath` helper 7, itself only reachable from the now-TEST-ONLY `getAncestorDirectoryPaths` + `getAncestorDirectoryPaths` 14), 7 in `visible-file-tree-rows.ts` (`getStickyAncestorRow`), 17 in `env-template.ts` (`normalizeEnvTargetFileName`). Every other file in §5 is 100% LIVE/CONDITIONAL at export level.
