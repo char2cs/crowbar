@@ -459,7 +459,10 @@ fn round_ratio(numerator: i64, denominator: i64) -> i64 {
 
 /// Mirrors `distributeContext`. See the module doc's branch enumeration.
 fn distribute_context(shapes: &[HunkShape], deletions: i64) -> Vec<i64> {
-    let caps: Vec<i64> = shapes.iter().map(|s| s.old_lines.min(s.new_lines)).collect();
+    let caps: Vec<i64> = shapes
+        .iter()
+        .map(|s| s.old_lines.min(s.new_lines))
+        .collect();
     let cap_total: i64 = caps.iter().sum();
     if cap_total == 0 || deletions == 0 {
         return caps.iter().map(|_| 0).collect();
@@ -556,7 +559,8 @@ fn reserve_at_most(hunk: PlaceholderHunk, room: i64) -> PlaceholderHunk {
     if hunk.unified_line_count <= room || room <= 0 {
         return hunk;
     }
-    let split_line_count = round_ratio(hunk.split_line_count * room, hunk.unified_line_count).max(1);
+    let split_line_count =
+        round_ratio(hunk.split_line_count * room, hunk.unified_line_count).max(1);
     PlaceholderHunk {
         unified_line_count: room,
         split_line_count,
@@ -665,7 +669,11 @@ pub fn build_placeholder_file_diff(
 /// caching behaves correctly.
 #[must_use]
 pub fn patch_cache_key(ws_id: &str, commit: Option<&str>, path: &str, patch_text: &str) -> String {
-    format!("{ws_id}:{}:{path}:{}", commit.unwrap_or(""), patch_text.len())
+    format!(
+        "{ws_id}:{}:{path}:{}",
+        commit.unwrap_or(""),
+        patch_text.len()
+    )
 }
 
 /// The wrapper-only half of `parseSingleFilePatch` — see the module doc's
@@ -765,7 +773,10 @@ mod tests {
         assert_eq!(entries.len(), files.len());
         assert_eq!(
             entries.iter().map(|e| e.path.clone()).collect::<Vec<_>>(),
-            files.iter().map(|f| f.file_path.clone()).collect::<Vec<_>>()
+            files
+                .iter()
+                .map(|f| f.file_path.clone())
+                .collect::<Vec<_>>()
         );
         assert!(entries.iter().all(|e| e.kind == ReviewFileKind::Diff));
     }
@@ -1164,8 +1175,14 @@ mod tests {
         let hunks = build_placeholder_hunks(&shapes, &[0]);
         let tail = build_tail_hunk(&hunks, 5, 2);
         let prev = &hunks[0];
-        assert_eq!(tail.addition_start, prev.addition_start + prev.addition_count);
-        assert_eq!(tail.deletion_start, prev.deletion_start + prev.deletion_count);
+        assert_eq!(
+            tail.addition_start,
+            prev.addition_start + prev.addition_count
+        );
+        assert_eq!(
+            tail.deletion_start,
+            prev.deletion_start + prev.deletion_count
+        );
         assert_eq!(
             tail.unified_line_start,
             prev.unified_line_start + prev.unified_line_count
