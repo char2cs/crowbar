@@ -11,42 +11,34 @@
 //! `tauri` — a GPUI binary cannot link it, and §4.2 does not grant this crate
 //! an edge to it regardless. So this module reproduces the *outcome* of that
 //! resolution (a binary named `crowbar-api` beside the running executable)
-//! without the dependency, and adds one more candidate: the triple-suffixed
-//! file `desktop/scripts/fetch-sidecar.sh` already builds for local
-//! development, so a developer who has run it once (directly, or via `make
-//! dev-desktop`) does not have to build it again for `crowbar-app`.
+//! without the dependency.
+//!
+//! **S0.8 removed a third candidate** that used to fall back to
+//! `<repo root>/desktop/src-tauri/binaries/crowbar-api-<target-triple>` —
+//! `fetch-sidecar.sh`'s own output — as a migration convenience: reuse
+//! whatever a `make dev-desktop` had already built, so a developer would not
+//! have to build the daemon a second time for `crowbar-app`. That convenience
+//! was never worth what it cost: `desktop/` is deleted the day `native/`
+//! replaces it (§4.3 rule 7), at which point the candidate is permanently
+//! absent and the advice this module's error used to print — "run
+//! `desktop/scripts/fetch-sidecar.sh`" — sends a developer into a directory
+//! that no longer exists, in the *one* message a broken checkout is
+//! guaranteed to surface. `api/` is the daemon's actual source and survives
+//! the deletion, so [`NotFound`]'s message below tells a developer how to
+//! build straight from there instead — the same `go build` invocation
+//! `fetch-sidecar.sh` already runs, minus the `desktop/`-owned destination.
 //!
 //! Search order:
 //! 1. `CROWBAR_SIDECAR_BIN` env override — explicit, for tests and packaging.
 //! 2. `<dir of the running executable>/crowbar-api[.exe]` — the packaged/dev
-//!    convention `tauri-build` already produces for `desktop/`.
-//! 3. `<repo root>/desktop/src-tauri/binaries/crowbar-api-<target-triple>` —
-//!    `fetch-sidecar.sh`'s own output, for `crowbar-app`'s dev use.
+//!    convention `tauri-build` already produces for `desktop/`, reproduced
+//!    here without linking `tauri`.
 //!
 //! Each candidate is checked with a real filesystem probe rather than assumed
 //! present, so a stale or half-built checkout gets a specific "none of these
 //! exist" error rather than a spawn failure with no context.
 
 use std::path::{Path, PathBuf};
-
-/// This platform's Rust target triple, in the form `fetch-sidecar.sh` names
-/// its output with. `None` on a platform that script does not build for
-/// (candidate 3 is simply skipped there; candidates 1 and 2 still apply).
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-const TARGET_TRIPLE: Option<&str> = Some("aarch64-apple-darwin");
-#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-const TARGET_TRIPLE: Option<&str> = Some("x86_64-apple-darwin");
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-const TARGET_TRIPLE: Option<&str> = Some("x86_64-unknown-linux-gnu");
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-const TARGET_TRIPLE: Option<&str> = Some("aarch64-unknown-linux-gnu");
-#[cfg(not(any(
-    all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "macos", target_arch = "x86_64"),
-    all(target_os = "linux", target_arch = "x86_64"),
-    all(target_os = "linux", target_arch = "aarch64"),
-)))]
-const TARGET_TRIPLE: Option<&str> = None;
 
 /// The bare executable name, platform-adjusted.
 #[cfg(windows)]
@@ -66,8 +58,10 @@ impl std::fmt::Display for NotFound {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "no crowbar-api binary found. Checked: {}. Set CROWBAR_SIDECAR_BIN, \
-             or run desktop/scripts/fetch-sidecar.sh to build one.",
+            "no crowbar-api binary found. Checked: {}. Build one from the \
+             daemon's own source (`cd api && go build -tags noEmbed -o <path> \
+             ./cmd/crowbar`) and set CROWBAR_SIDECAR_BIN to it, or place a \
+             `crowbar-api` beside this executable.",
             self.checked
                 .iter()
                 .map(|p| p.display().to_string())
@@ -87,10 +81,10 @@ fn first_existing(candidates: &[PathBuf], exists: impl Fn(&Path) -> bool) -> Opt
 }
 
 /// The env-override and packaged-convention candidates, in priority order —
-/// everything [`locate`] checks except the dev fallback, which needs the repo
-/// root threaded in separately (see [`locate`]'s body).
+/// the complete set [`locate`] checks (see that function's doc comment for
+/// why there are only two, as of S0.8).
 fn candidates(env_override: Option<PathBuf>, exe_dir: Option<&Path>) -> Vec<PathBuf> {
-    let mut out = Vec::with_capacity(3);
+    let mut out = Vec::with_capacity(2);
     if let Some(path) = env_override {
         out.push(path);
     }
@@ -98,17 +92,6 @@ fn candidates(env_override: Option<PathBuf>, exe_dir: Option<&Path>) -> Vec<Path
         out.push(dir.join(BINARY_NAME));
     }
     out
-}
-
-/// Candidate 3: `fetch-sidecar.sh`'s own output, given the repo root.
-fn dev_fallback_candidate(repo_root: &Path) -> Option<PathBuf> {
-    TARGET_TRIPLE.map(|triple| {
-        repo_root
-            .join("desktop")
-            .join("src-tauri")
-            .join("binaries")
-            .join(format!("crowbar-api-{triple}"))
-    })
 }
 
 /// Finds the daemon binary using the search order this module documents.
@@ -122,19 +105,7 @@ pub fn locate() -> Result<PathBuf, NotFound> {
         .ok()
         .and_then(|exe| exe.parent().map(Path::to_path_buf));
 
-    let mut checked = candidates(env_override, exe_dir.as_deref());
-    // `native/crates/crowbar-sidecar` sits three directories under the repo
-    // root — the same derivation `crate::home`'s dev fallback uses, kept
-    // independent of it deliberately: the daemon *binary* location and the
-    // daemon *home* are different questions that happen to share a landmark.
-    if let Some(repo_root) = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .and_then(Path::parent)
-        && let Some(candidate) = dev_fallback_candidate(repo_root)
-    {
-        checked.push(candidate);
-    }
+    let checked = candidates(env_override, exe_dir.as_deref());
 
     match first_existing(&checked, Path::is_file) {
         Some(found) => Ok(found),
@@ -146,7 +117,7 @@ pub fn locate() -> Result<PathBuf, NotFound> {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{candidates, dev_fallback_candidate, first_existing};
+    use super::{candidates, first_existing};
 
     #[test]
     fn the_env_override_is_checked_before_the_exe_dir_candidate() {
@@ -194,23 +165,6 @@ mod tests {
         assert_eq!(first_existing(&list, |_| false), None);
     }
 
-    /// Pinned so a platform this repo does not build a sidecar for (this
-    /// function returns `None` there) does not silently claim a path nothing
-    /// ever writes to.
-    #[test]
-    fn the_dev_fallback_candidate_names_fetch_sidecars_own_output_layout() {
-        if let Some(candidate) = dev_fallback_candidate(Path::new("/repo")) {
-            assert!(candidate.starts_with("/repo/desktop/src-tauri/binaries"));
-            assert!(
-                candidate
-                    .file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .starts_with("crowbar-api-")
-            );
-        }
-    }
-
     /// `locate()`'s real edge: in this dev checkout, whether or not a binary
     /// has been built, the *search itself* must not panic and must report a
     /// specific, checkable list on failure — the one thing a developer needs
@@ -224,5 +178,27 @@ mod tests {
                 assert!(not_found.to_string().contains("CROWBAR_SIDECAR_BIN"));
             }
         }
+    }
+
+    /// **S0.8 regression.** The old message's advice — "run
+    /// `desktop/scripts/fetch-sidecar.sh`" — became a dead end pointing at a
+    /// deleted directory once `desktop/` stopped being a real candidate. This
+    /// builds a [`super::NotFound`] directly (rather than depending on
+    /// whatever `locate()` happens to find or not find on the machine
+    /// actually running the test) so the assertion is about the message
+    /// *this module constructs*, unconditionally, not about this checkout's
+    /// filesystem state.
+    #[test]
+    fn the_not_found_message_never_points_at_desktop() {
+        let not_found = super::NotFound {
+            checked: vec![PathBuf::from("/does/not/exist/crowbar-api")],
+        };
+        let msg = not_found.to_string();
+        assert!(
+            !msg.to_ascii_lowercase().contains("desktop"),
+            "error message must not send anyone to a deleted directory: {msg}"
+        );
+        assert!(msg.contains("CROWBAR_SIDECAR_BIN"), "{msg}");
+        assert!(msg.contains("api"), "{msg}");
     }
 }
