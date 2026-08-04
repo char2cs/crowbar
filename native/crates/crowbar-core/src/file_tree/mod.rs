@@ -81,15 +81,15 @@ pub use density::{
     row_height as file_tree_row_height,
 };
 pub use file_name::get_file_name;
-pub use gitignore::{
-    FileTreeGitIgnoreRules, GitIgnoreFileContent, GitIgnoreFileReference, GitIgnoreTreeEntry,
-    collect_git_ignore_file_references, create_file_tree_git_ignore_rules,
-    is_path_git_ignored_by_file_tree_rules, is_workspace_relative_path,
-};
 pub use git_status::{
     FileTreeGitStatusDecoration, FileTreeGitStatusLookup, GitStatusColor,
     create_file_tree_git_status_lookup, get_file_tree_entry_git_status_decoration,
     get_file_tree_git_status_decoration, resolve_active_workspace_git_status,
+};
+pub use gitignore::{
+    FileTreeGitIgnoreRules, GitIgnoreFileContent, GitIgnoreFileReference, GitIgnoreTreeEntry,
+    collect_git_ignore_file_references, create_file_tree_git_ignore_rules,
+    is_path_git_ignored_by_file_tree_rules, is_workspace_relative_path,
 };
 pub use tree_utils::{ExplorerTargetBuffer, get_explorer_target_path};
 pub use types::{AppFile, ContextMenuPosition, ContextMenuState, FileEntry};
