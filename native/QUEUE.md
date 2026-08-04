@@ -3133,6 +3133,32 @@ separator, `"max "`, the max-dt value, a separator, and the drops text. ANCHORS
 allowance compares a content-sized box against **`ceil(reference)`** — **one**
 ceil, because the Phase 1 gate only ever had a single content-sized box.
 
+### ✅ RESOLVED by measurement, 2026-08-03 — ANCHORS **v1.15**
+
+I stopped arguing about whether to forgive it and measured the live DOM's own
+runs:
+
+```
+8 runs: 19.8  26.4  6.6  26.4  26.4  6.6  6.6  33
+Σ raw = 151.8    ceil(Σ) = 152    Σ ceil = 155    Σceil − ceilΣ = 3
+```
+
+**Exactly 3, first measurement, no fitted parameter.** The residual is fully
+accounted for, so this is a contract gap and the port was right.
+
+Two corrections to the paragraph above, both from counting instead of reading:
+there are **8** runs, not seven — I had enumerated them from the port's source
+— and v1.5 *does* already sum ceil excess, but **across anchors**, whereas
+these eight sit inside **one**.
+
+The v1.15 rule takes the run widths from the **reference** (`text_runs` on a
+text anchor), never from the port: a port-declared count would make the
+allowance a function of the thing under test, and splitting text into more runs
+would silently widen its own tolerance.
+
+**Specified, not implemented — `fps-overlay` stays FAIL.** Nothing emits or
+reads `text_runs` yet, and a rule written down is not a rule enforced.
+
 **A container of N content-sized runs accumulates N sub-pixel roundings.** Seven
 runs, ~0.4px each, ≈ +3px. The contract has no vocabulary for that, so the differ
 reports a real-looking delta for arithmetic it already predicts elsewhere.
