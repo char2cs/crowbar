@@ -3763,6 +3763,7 @@ lock costs schedule, not progress:
 |---|---|---|
 | ~~**P3.72** settings schema~~ | **merged** | Tier A → ≈80% |
 | **P3.75** file-tree model | `native/p3.75-core-filetree` | first item scoped from **export-level** verdicts rather than file rows — six exports named individually, four dead/test-only siblings named as exclusions |
+| **P3.76** gitignore cascade | `native/p3.76-core-gitignore` | `file-tree-gitignore.ts`, 7 LIVE exports. Carries the **dependency decision**: use ripgrep's `ignore` crate for matching, **reimplement the ancestor-first cascade** — the crate has no equivalent |
 | ~~**P3.73** export-level liveness~~ | **merged** | per-export verdicts landed; its Deliverable 3 is now the scoping source for every remaining Tier A item |
 | ~~**P3.74** dialog close id~~ | **merged** | `dialog-close` named on both call sites; unblocks `repo-import-dialog` and `detach-holder-modal`. **Zero Rust changes needed — my brief was wrong, see below** |
 
