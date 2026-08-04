@@ -766,6 +766,25 @@ Anything taken lands under `native/vendor/zed/` ~~with its GPL header intact~~.
 > `settings`, *not* by `project`/`workspace`/`multi_buffer`. Same verdicts,
 > different mechanisms — recorded so they are not re-litigated.
 
+> **Correction 2026-08-04 (item 0.13, P3.80). This section's own bullet list
+> was incomplete — it never named `git` or `git_ui`, and 0.9 audited exactly
+> the list above and nothing more.** That gap went unnoticed until asked about
+> directly: why build `crowbar-diff` (§5.2) rather than take Zed's diff
+> machinery? 0.13 answers it. Verdict: **none of it is extractable, at any of
+> three tiers** — the diff-hunk *model* (`buffer_diff::DiffHunk`) is a
+> `gpui::Entity`-backed type welded to `language`'s already-NOT-EXTRACTABLE
+> closure, not to `editor`; a *second*, independently NOT-EXTRACTABLE tier
+> (`multi_buffer::MultiBufferDiffHunk`) maps hunks into multi-file coordinates;
+> and diff *rendering* is welded to `editor` exactly as this section already
+> expected, now confirmed with file/line citations rather than assumed. `git_ui`
+> itself has a larger closure (115 crates / 764,595 lines) than `editor`. The
+> one shallow, `gpui`-light crate found (`git`, blame/commit/remote/stash/status
+> porcelain) owns no diff hunks at all and would duplicate what the daemon
+> already does. `crowbar-diff`'s scope — data shapes from `crowbar-proto`,
+> placeholder hunk-geometry estimation, `patch-window.ts`'s viewport windowing,
+> and the review view — has nothing to take from any of them. See `native/QUEUE.md`
+> item 0.13 for the closure table and evidence.
+
 ---
 
 ## 11. The execution loop
