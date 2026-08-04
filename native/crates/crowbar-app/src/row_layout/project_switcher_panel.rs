@@ -138,3 +138,46 @@ fn the_root_fills_whatever_width_it_is_given(cx: &mut TestAppContext) {
         assert_px(root.bounds.size.width, px(f32::from(width)));
     }
 }
+
+/// **The import row's own label is `font-medium` (500), the same weight as
+/// a project row's label beside it** — `ROW_BASE`'s own `text-[13px]
+/// font-medium` applies to both row kinds
+/// (`crowbar_ui::components::row_base`'s own module docs, and this
+/// component's own §1 table in `native/mapping/project-switcher-panel.md`).
+///
+/// **Mutation, run:** in `ProjectSwitcherPanel::import_row`
+/// (`crates/crowbar-ui/src/components/project_switcher_panel.rs`), deleted
+/// the `.font_weight(FontWeight::MEDIUM)` call that follows
+/// `.font(ui_sans_font(theme))` — reproducing the pre-fix ordering, where
+/// `.font(...)` silently overwrote the weight `row_base::label_container`
+/// had already set. `cargo test -p crowbar-app --bin crowbar-app
+/// row_layout::project_switcher_panel::the_import_labels_weight_matches_the_project_rows`
+/// failed as predicted, with the real output:
+///
+/// ```text
+/// thread 'row_layout::project_switcher_panel::the_import_labels_weight_matches_the_project_rows' (277878257) panicked at /private/tmp/crowbar-p364-fixtures/native/crates/crowbar-app/src/row_layout/project_switcher_panel.rs:180:5:
+/// import label should be font-medium (500) same as the project row, got 400
+/// ```
+///
+/// Reverted after confirming.
+#[gpui::test]
+fn the_import_labels_weight_matches_the_project_rows(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&["--count", "1"]));
+
+    let row_label = find(&records, "project-switcher-panel-row-0-label");
+    let row_text = row_label.text.expect("a project row's label paints text");
+    assert!(
+        (row_text.font.weight - 500.0).abs() < f32::EPSILON,
+        "project row should be font-medium (500): {}",
+        row_text.font.weight,
+    );
+
+    let import_label = find(&records, project_switcher_panel::ID_IMPORT_LABEL);
+    let import_text = import_label.text.expect("the import row's label paints text");
+    assert!(
+        (import_text.font.weight - row_text.font.weight).abs() < f32::EPSILON,
+        "import label should be font-medium (500) same as the project row, got {}",
+        import_text.font.weight,
+    );
+}

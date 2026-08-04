@@ -221,3 +221,50 @@ compared at all.
 
 Until then the root's height delta is **not evidence about the port**, and
 should not be counted as one.
+
+---
+
+## FIXED (2026-08-03, follow-up item)
+
+Two of the four addressable deltas above are closed. `panel.bounds.h` stays
+out of scope, exactly as ruled above — it needs a `--height` axis, a separate
+design question.
+
+### `import-label.font.weight` — root cause found and fixed
+
+Not "the weight was dropped" in the abstract — a specific ordering bug in
+`ProjectSwitcherPanel::import_row`
+(`crates/crowbar-ui/src/components/project_switcher_panel.rs`):
+
+```rust
+let label = row_base::label_container(theme.muted_foreground)
+    .font(ui_sans_font(theme))                  // <- ran second
+    .child(...)
+```
+
+`row_base::label_container` already calls `.font_weight(FontWeight::MEDIUM)`
+internally. gpui's `Styled::font(Font)` writes **every** field of the `Font`
+it is given — including `weight` — so calling `.font(...)` *after*
+`.font_weight(...)` silently clobbers the weight back to whatever
+`ui_sans_font`'s own `gpui::font(family)` constructor defaults to (`400`).
+`RepoAvatar::letter_box` already had the ordering right
+(`.font(...)` then `.font_weight(BOLD)` after); `Self::project_row`'s own
+label never hits this at all, because it uses `.font_family(&str)` (family
+only) instead of `.font(Font)`. Fixed by adding
+`.font_weight(FontWeight::MEDIUM)` back **after** `.font(ui_sans_font(theme))`
+in `import_row`.
+
+Confirmed, not assumed, that this closes `text_width` too: with the ordering
+bug reproduced, `crates/crowbar-app/src/row_layout/project_switcher_panel.rs`'s
+`the_import_labels_weight_matches_the_project_rows` failed with the real
+weight read back as `400` against the project row's `500` — the same
+one-weight-lighter shaping the live drive's `text_width` delta (88.959 vs
+90.96) reported. One fix, one root cause, both deltas.
+
+### The fixture gap — `--project-name` added
+
+`--surface project-switcher-panel` now takes `--project-name <name>`,
+matching `project-home-row`'s own flag's naming and doc style. It overrides
+row 0's own name only (the row this item's live drive actually compared);
+rows past 0 keep cycling `FIXTURE_NAMES` exactly as before. See
+`crates/crowbar-app/src/surfaces/project_switcher_panel.rs`.

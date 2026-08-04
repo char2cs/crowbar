@@ -100,6 +100,63 @@ const LETTER_TEXT_XL: f32 = 13.0;
 /// `BADGE_TEXT_SM` is.
 const EMOJI_TEXT_LG_REM: f32 = 1.125;
 
+/// The letter fallback's own unitless line-height ratio, **at `xl` only**.
+///
+/// `13 × 1.5 = 19.5px`, matching the live app exactly: this item's own drive
+/// (`native/mapping/repo-avatar.md`'s VERDICT) ran `getComputedStyle` on the
+/// live `text-[13px]` node and read back `fontSize: 13px, lineHeight:
+/// 19.5px`. `1.5` is Tailwind preflight's unitless default (`html {
+/// line-height: 1.5 }`), inherited because nothing between the `xl` call
+/// site (`new-tab-view.tsx`'s heading cluster — `pane-cq relative flex …` /
+/// `relative grid …` / `flex flex-col items-start gap-4` / `flex
+/// items-center gap-2.5 px-2.5`, checked line by line) and this span sets a
+/// paired `text-*` utility or a `leading-*` class; `text-[13px]` itself is
+/// an arbitrary value with no *paired* line-height of its own, exactly
+/// `row_base::LINE_HEIGHT_RELATIVE`'s own situation (see that constant's
+/// doc comment for the general shape of this defect — P3.60 fixed the same
+/// class of bug there, and this module used to make the identical mistake
+/// by omission: [`RepoAvatar::letter_box`] set no explicit `line_height` at
+/// all, so gpui's own internal default (`TextStyle::default()`'s `phi()`,
+/// the golden ratio ≈ 1.618) leaked through instead — `13 × φ ≈ 21.03`,
+/// device-pixel snapped to exactly the `21.0` this item's own drive
+/// recorded **from the port itself** (`repo-avatar.md`'s VERDICT table:
+/// `font.line_height: 21.0, expected 19.5` — `21.0` is the port's own
+/// output, `19.5` is the live app's). Confirmed directly, not inferred:
+/// `crowbar-app`'s own
+/// `row_layout::repo_avatar::xl_letter_line_height_is_19_5_matching_the_live_capture`
+/// reproduces the pre-fix code as a mutation and reads back `21px` exactly.
+/// Not "picked by hand and wrong"; picked by *nobody*, defaulted by the
+/// framework.
+///
+/// # `sm`/`lg` are deliberately **not** given the same fix
+///
+/// Checked, not assumed — resolving each one's own ancestor chain rather
+/// than transferring this ratio:
+///
+/// * `sm` (`workspace-switcher.tsx`'s `<RepoAvatar>`, inside `CommandItem`
+///   → `AutocompleteItem`, no default className) sits under
+///   `CommandDialogPopup`'s own `text-popover-foreground` (a colour, not a
+///   size) and no `text-*`/`leading-*` utility anywhere else in that chain
+///   — so it *tentatively* resolves to the same `1.5`, but there is no live
+///   capture to confirm it: `repo-avatar.md` §1 marks `sm` "no reference",
+///   same as `lg` below.
+/// * `lg` (`context-pill.tsx`'s `<RepoAvatar … size="lg" />`) is worse than
+///   merely unconfirmed: its ancestor chain runs through
+///   `<Button variant="ghost">`, and `buttonVariants`
+///   (`button-variants.ts`) carries `text-base sm:text-sm` on **every**
+///   button — a real, paired line-height override that beats preflight,
+///   and it is itself gated on Tailwind's `sm:` viewport breakpoint
+///   (640px: `text-base` → ratio `1.5` below it, `text-sm` → ratio
+///   `20/14 ≈ 1.4286` at or above it). A single Rust constant cannot
+///   represent a value that depends on a viewport width this port has no
+///   axis for on this surface (`--width`/`--viewport-width` are already
+///   vacuous here — see the module docs).
+///
+/// Per this item's own brief: never invent a number neither the source's
+/// own cascade nor a live capture establishes. `sm`/`lg` keep gpui's
+/// default line-height, exactly as before this fix — only `xl` is touched.
+const LETTER_LINE_HEIGHT_XL_RELATIVE: f32 = 1.5;
+
 /// `sm` / `lg` / `xl` — `repo-avatar.tsx`'s own `sizeClasses` keys, verbatim.
 /// **There is no `md`**: the scale jumps from `sm` straight to `lg`, which is
 /// a fact about the source, not an omission here.
@@ -313,9 +370,14 @@ impl RepoAvatar {
     /// `rounded-sm`, not `rounded-full`: unlike `avatar.tsx`'s circular
     /// fallback, this one is a small rounded square — a real shape difference
     /// between the two components, not an approximation.
+    ///
+    /// The line-height is set explicitly **only at [`Size::Xl`]** — see
+    /// [`LETTER_LINE_HEIGHT_XL_RELATIVE`] for where `1.5` came from and why
+    /// `sm`/`lg` are left to fall through to gpui's own default instead of
+    /// guessing.
     fn letter_box(&self, theme: &Theme) -> Div {
         let extent = self.size.extent();
-        div()
+        let cell = div()
             .flex()
             .flex_shrink_0()
             .items_center()
@@ -328,7 +390,12 @@ impl RepoAvatar {
             .font(ui_sans_font(theme))
             .text_size(self.size.letter_text())
             .font_weight(FontWeight::BOLD)
-            .text_color(theme.primary_foreground)
+            .text_color(theme.primary_foreground);
+        if self.size == Size::Xl {
+            cell.line_height(relative(LETTER_LINE_HEIGHT_XL_RELATIVE))
+        } else {
+            cell
+        }
     }
 }
 

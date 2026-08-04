@@ -30,7 +30,7 @@ use crowbar_ui::components::repo_avatar::{
     ALL_IMAGE_STATES, ALL_SIZES, ImageState, Kind, RepoAvatar, Size,
 };
 use crowbar_ui::components::{AnchorSink, ContentLength};
-use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div};
+use gpui::{AnyElement, IntoElement as _, ParentElement as _, SharedString, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
 use crate::surface::{Surface, SurfaceParams, value};
@@ -67,6 +67,15 @@ pub struct Params {
     /// `--image`: `RepoAvatarImgAttempt`'s `errored` state, read only when
     /// `--kind` is `image`.
     pub image: ImageState,
+    /// `--letter`: overrides `avatar.label` outright, beating `--content`.
+    /// `label_of` only ever produces the three fixture strings
+    /// `"R"`/`"RE"`/`"REPOSITORY"` — none of them any real repo's own
+    /// initial — so no drive of a bare `--content` could ever match a live
+    /// app showing a different repo (this item's own live run hit exactly
+    /// that: the fixture read `"RE"`, the live repo's letter was `"D"`,
+    /// and `text` is compared exactly). `None` leaves `--content` in
+    /// charge, unchanged.
+    pub letter: Option<SharedString>,
 }
 
 /// `--kind`'s vocabulary — `Kind` minus the state [`ImageState`] carries, so
@@ -119,9 +128,11 @@ impl Params {
     /// The avatar this cell describes.
     ///
     /// `empty` overrides the label to an empty string regardless of
-    /// `--content` — the one real state this surface has, reached through the
-    /// real `label` prop at its edge value rather than through an invented
-    /// mechanism. See the module docs.
+    /// `--content` or `--letter` — the one real state this surface has,
+    /// reached through the real `label` prop at its edge value rather than
+    /// through an invented mechanism. See the module docs. `--letter`, when
+    /// set and the cell is not `empty`, beats `--content`'s own fixture
+    /// strings — see [`Params::letter`]'s own doc comment.
     #[must_use]
     pub fn repo_avatar(&self, cell: &Cell, theme: &Theme) -> RepoAvatar {
         let mut avatar = RepoAvatar::fixture(theme);
@@ -133,6 +144,8 @@ impl Params {
         };
         avatar.label = if cell.has(StateFlag::Empty) {
             String::new().into()
+        } else if let Some(letter) = &self.letter {
+            letter.clone()
         } else {
             label_of(cell.content).into()
         };
@@ -150,6 +163,7 @@ impl SurfaceParams for Params {
             "--size" => self.size = parse_size(&value(args, option)?)?,
             "--kind" => self.kind = parse_kind(&value(args, option)?)?,
             "--image" => self.image = parse_image(&value(args, option)?)?,
+            "--letter" => self.letter = Some(value(args, option)?.into()),
             _ => return Ok(false),
         }
         Ok(true)
@@ -170,6 +184,9 @@ impl SurfaceParams for Params {
         );
         if self.kind == KindWord::Image {
             let _ = write!(out, " ({})", self.image.name());
+        }
+        if let Some(letter) = &self.letter {
+            let _ = write!(out, " · letter {letter:?} (beats --content)");
         }
         if cell.has(StateFlag::Empty) {
             out.push_str(
@@ -266,6 +283,13 @@ fn options() -> Vec<(String, String)> {
                 ImageState::default().name(),
             ),
         ),
+        (
+            "--letter <text>".to_owned(),
+            "overrides the letter fallback's own label (avatar.label), beating --content \
+             — the live repo's own initial, since --content only ever produces the fixture \
+             strings R / RE / REPOSITORY [none]"
+                .to_owned(),
+        ),
     ]
     .into_iter()
     .collect()
@@ -337,6 +361,43 @@ mod tests {
         assert_eq!(
             params(&not_empty).repo_avatar(&not_empty, &theme).label,
             "REPOSITORY",
+        );
+    }
+
+    /// **`--letter` overrides the label outright, beating `--content`** —
+    /// the gap this item's own live drive hit: the fixture always read
+    /// `"RE"`, the live repo's own letter was `"D"`, and no drive of
+    /// `--content` could ever reach it (`label_of` has a closed
+    /// three-string vocabulary, none of them any real repo's own initial).
+    /// `empty` still beats `--letter` — it is the surface's one real state
+    /// flag, reached through the same `avatar.label` prop at its edge
+    /// value, and `--letter` is not a second, competing state.
+    #[test]
+    fn letter_overrides_content_and_empty_still_wins() {
+        let theme = Theme::DARK;
+
+        let lettered = a_cell(&["--letter", "D"]);
+        assert_eq!(params(&lettered).repo_avatar(&lettered, &theme).label, "D");
+
+        let contradicted = a_cell(&["--letter", "D", "--content", "overflow"]);
+        assert_eq!(
+            params(&contradicted).repo_avatar(&contradicted, &theme).label,
+            "D",
+            "--letter beats --content",
+        );
+
+        let emptied = a_cell(&["--letter", "D", "--flags", "empty"]);
+        assert_eq!(
+            params(&emptied).repo_avatar(&emptied, &theme).label,
+            "",
+            "empty still beats --letter",
+        );
+
+        let unset = a_cell(&[]);
+        assert_eq!(
+            params(&unset).repo_avatar(&unset, &theme).label,
+            "RE",
+            "no --letter leaves --content in charge, unchanged",
         );
     }
 

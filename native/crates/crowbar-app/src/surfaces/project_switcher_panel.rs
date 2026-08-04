@@ -56,6 +56,18 @@ pub struct Params {
     pub count: u8,
     /// `--active-index`: which row (if any) is the active project.
     pub active_index: Option<usize>,
+    /// `--project-name`: overrides row 0's own name — `project-home-row`'s
+    /// own `--project-name` (`surfaces/project_home_row.rs`), ported to this
+    /// surface's row list. That surface has exactly one row, so its flag
+    /// names the row outright; this one has `--count` many, so the flag
+    /// names row 0 specifically — the row this item's own live drive
+    /// actually compared (`row-0-label.text`), and the only row a fixed
+    /// single name can stand for without inventing a name for every other
+    /// row too. Rows past 0 keep cycling [`FIXTURE_NAMES`] exactly as
+    /// before. `None` leaves row 0 on the cycle as well, so a bare
+    /// `--surface project-switcher-panel` is unchanged by this flag's
+    /// existence.
+    pub project_name: Option<SharedString>,
 }
 
 impl Default for Params {
@@ -63,6 +75,7 @@ impl Default for Params {
         Self {
             count: 2,
             active_index: Some(0),
+            project_name: None,
         }
     }
 }
@@ -71,15 +84,24 @@ impl Params {
     /// The panel this cell describes. `--flags empty` forces zero rows
     /// regardless of `--count` — the same swap `command.rs`'s own
     /// `Params::command` makes for its `ListContent::Empty` arm.
+    /// `--project-name` overrides row 0's own name only — see the field's
+    /// own doc comment.
     #[must_use]
     pub fn panel(&self, cell: &Cell) -> ProjectSwitcherPanel {
         let rows = if cell.has(StateFlag::Empty) {
             Vec::new()
         } else {
             (0..self.count)
-                .map(|i| ProjectRow {
-                    name: fixture_name(i),
-                    is_active: self.active_index == Some(usize::from(i)),
+                .map(|i| {
+                    let name = if i == 0 {
+                        self.project_name.clone().unwrap_or_else(|| fixture_name(i))
+                    } else {
+                        fixture_name(i)
+                    };
+                    ProjectRow {
+                        name,
+                        is_active: self.active_index == Some(usize::from(i)),
+                    }
                 })
                 .collect()
         };
@@ -115,6 +137,7 @@ impl SurfaceParams for Params {
             "--count" => self.count = parse_count(&value(args, option)?)?,
             "--active-index" => self.active_index = Some(index(&value(args, option)?, option)?),
             "--no-active" => self.active_index = None,
+            "--project-name" => self.project_name = Some(value(args, option)?.into()),
             _ => return Ok(false),
         }
         Ok(true)
@@ -132,6 +155,9 @@ impl SurfaceParams for Params {
         let _ = write!(out, " · {} project(s)", self.count);
         if let Some(i) = self.active_index {
             let _ = write!(out, " · active {i}");
+        }
+        if let Some(name) = &self.project_name {
+            let _ = write!(out, " · row 0 named {name}");
         }
     }
 
@@ -172,6 +198,12 @@ fn options() -> Vec<(String, String)> {
             "--no-active".to_owned(),
             "no row is the active project".to_owned(),
         ),
+        (
+            "--project-name <name>".to_owned(),
+            "overrides row 0's own name — the live app's real project name, since --count \
+             otherwise cycles a placeholder list [crowbar]"
+                .to_owned(),
+        ),
     ]
     .into_iter()
     .collect()
@@ -199,6 +231,7 @@ mod tests {
         let bag = Params::default();
         assert_eq!(bag.count, 2);
         assert_eq!(bag.active_index, Some(0));
+        assert_eq!(bag.project_name, None);
 
         let default_cell = cell(&[]);
         let panel = params_of(&default_cell).panel(&default_cell);
@@ -207,6 +240,27 @@ mod tests {
         assert!(!panel.rows[1].is_active);
         assert_eq!(panel.rows[0].name, FIXTURE_NAMES[0]);
         assert_eq!(panel.rows[1].name, FIXTURE_NAMES[1]);
+    }
+
+    /// **`--project-name` overrides row 0's own name only** — the exact gap
+    /// this item's own live drive hit: `row-0-label.text: "crowbar",
+    /// expected "oracle-fixture"`, with no flag able to close it. Row 1
+    /// keeps cycling [`FIXTURE_NAMES`] untouched, so the flag names the one
+    /// row a live drive can actually compare without inventing names for
+    /// every other row too.
+    #[test]
+    fn project_name_overrides_only_row_0() {
+        let named = cell(&["--count", "2", "--project-name", "oracle-fixture"]);
+        let panel = params_of(&named).panel(&named);
+        assert_eq!(panel.rows[0].name, "oracle-fixture");
+        assert_eq!(panel.rows[1].name, FIXTURE_NAMES[1], "row 1 is untouched");
+
+        let unset = cell(&[]);
+        assert_eq!(
+            params_of(&unset).panel(&unset).rows[0].name,
+            FIXTURE_NAMES[0],
+            "no --project-name leaves row 0 on the cycle, unchanged",
+        );
     }
 
     #[test]
@@ -274,7 +328,7 @@ mod tests {
 
     #[test]
     fn this_surfaces_options_are_rejected_on_another_surface() {
-        for option in ["--count", "--active-index", "--no-active"] {
+        for option in ["--count", "--active-index", "--no-active", "--project-name"] {
             let line = ["--surface", "skeleton", option];
             assert!(
                 Cell::parse(line.iter().map(|arg| (*arg).to_owned())).is_err(),

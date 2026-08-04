@@ -68,6 +68,14 @@ pub struct Params {
     pub show_emoji_input: bool,
     /// `--reset`: mounts the "Reset to default" button.
     pub has_avatar_url: bool,
+    /// `--letter`: overrides the letter preview's own label
+    /// (`repo.avatarLabel`), read only when `--preview` is `letter`.
+    /// Hard-coded to `"R"` before this flag existed, which — like
+    /// `repo-avatar`'s identical gap — made this preview permanently
+    /// un-comparable against any live app state whose repo's own initial
+    /// is not literally `"R"` (`text` is compared exactly by the differ).
+    /// `None` keeps the old `"R"` placeholder.
+    pub letter: Option<SharedString>,
 }
 
 impl Default for Params {
@@ -76,6 +84,7 @@ impl Default for Params {
             preview: PreviewKind::Letter,
             show_emoji_input: false,
             has_avatar_url: false,
+            letter: None,
         }
     }
 }
@@ -87,7 +96,10 @@ impl Params {
         PopupContent {
             preview: match self.preview {
                 PreviewKind::Letter => PreviewAvatar::Letter {
-                    label: SharedString::new_static("R"),
+                    label: self
+                        .letter
+                        .clone()
+                        .unwrap_or_else(|| SharedString::new_static("R")),
                     background: crowbar_ui::Color::TRANSPARENT,
                 },
                 PreviewKind::Emoji => PreviewAvatar::Emoji(SharedString::new_static("\u{1f98a}")),
@@ -109,6 +121,7 @@ impl SurfaceParams for Params {
             "--preview" => self.preview = parse_preview(&value(args, option)?)?,
             "--emoji" => self.show_emoji_input = true,
             "--reset" => self.has_avatar_url = true,
+            "--letter" => self.letter = Some(value(args, option)?.into()),
             _ => return Ok(false),
         }
         Ok(true)
@@ -125,6 +138,9 @@ impl SurfaceParams for Params {
         }
         if self.has_avatar_url {
             out.push_str(" · reset button");
+        }
+        if let Some(letter) = &self.letter {
+            let _ = write!(out, " · letter {letter:?}");
         }
     }
 
@@ -174,6 +190,13 @@ fn options() -> Vec<(String, String)> {
             "--reset".to_owned(),
             "mounts the Reset to default button [not mounted]".to_owned(),
         ),
+        (
+            "--letter <text>".to_owned(),
+            "overrides the letter preview's own label (repo.avatarLabel), read only with \
+             --preview letter — the live repo's own initial, since the fixture is a \
+             hard-coded placeholder [R]"
+                .to_owned(),
+        ),
     ]
     .into_iter()
     .collect()
@@ -203,11 +226,35 @@ mod tests {
         assert_eq!(bag.preview, PreviewKind::Letter);
         assert!(!bag.show_emoji_input);
         assert!(!bag.has_avatar_url);
+        assert_eq!(bag.letter, None);
 
         let content = params_of(&cell(&[])).content();
         assert!(matches!(content.preview, PreviewAvatar::Letter { .. }));
         assert!(!content.show_emoji_input);
         assert!(!content.has_avatar_url);
+        let PreviewAvatar::Letter { label, .. } = content.preview else {
+            panic!("the default preview is the letter fallback");
+        };
+        assert_eq!(label, "R", "the old hard-coded placeholder, unchanged with no --letter");
+    }
+
+    /// **`--letter` overrides the letter preview's own label, read only
+    /// with `--preview letter`** — the gap this item's own live drive hit
+    /// (`repo-avatar`'s identical finding, the same day): the preview was
+    /// hard-coded to `"R"` with no flag able to move it.
+    #[test]
+    fn letter_overrides_the_letter_previews_label_only() {
+        let lettered = params_of(&cell(&["--letter", "D"])).content();
+        let PreviewAvatar::Letter { label, .. } = lettered.preview else {
+            panic!("--preview defaults to letter");
+        };
+        assert_eq!(label, "D");
+
+        // `--letter` with a non-letter preview is accepted (nothing rejects
+        // an option irrelevant to the current --preview elsewhere on this
+        // surface either) but has nothing to override.
+        let emoji = params_of(&cell(&["--preview", "emoji", "--letter", "D"])).content();
+        assert!(matches!(emoji.preview, PreviewAvatar::Emoji(_)));
     }
 
     #[test]
@@ -257,7 +304,7 @@ mod tests {
 
     #[test]
     fn this_surfaces_options_are_rejected_on_another_surface() {
-        for option in ["--preview", "--emoji", "--reset"] {
+        for option in ["--preview", "--emoji", "--reset", "--letter"] {
             let line = ["--surface", "skeleton", option];
             assert!(
                 matches!(

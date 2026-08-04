@@ -220,3 +220,60 @@ node.** `row_base` is 1.5 because nothing in its chain overrides; this avatar
 is 1.5 because nothing in its chain overrides; the context pill is 1.25 because
 something does. All three are consistent, and none of them follows from the
 font size alone.
+
+---
+
+## FIXED (2026-08-03, follow-up item)
+
+Two of the three findings above are closed.
+
+### `font.line_height` at `xl` — fixed, `sm`/`lg` deliberately untouched
+
+`RepoAvatar::letter_box` (`crates/crowbar-ui/src/components/repo_avatar.rs`)
+set no explicit `line_height` at all, so gpui's own internal default
+(`TextStyle::default()`'s `phi()`, the golden ratio ≈ 1.618) leaked through:
+`13 × φ ≈ 21.03`, snapped to the `21.0` the drive above measured. Not "picked
+by hand and wrong" as first written — picked by nobody, defaulted by the
+framework. Fixed by setting `.line_height(relative(1.5))` explicitly, but
+**only at `Size::Xl`**.
+
+`sm`/`lg` were checked, not left alone by default: resolving each one's own
+live ancestor chain (not this file's — the call sites) rather than
+transferring `xl`'s ratio.
+
+* `sm` (`workspace-switcher.tsx`, inside `CommandItem` → `AutocompleteItem`,
+  no default className) has no `text-*`/`leading-*` utility anywhere between
+  the avatar and `CommandDialogPopup`'s own `text-popover-foreground` (a
+  colour, not a size) — so it *tentatively* resolves to `1.5` too, but there
+  is still no live capture to confirm it. Left at gpui's default, unset.
+* `lg` (`context-pill.tsx`) sits inside `<Button variant="ghost">`, and
+  `buttonVariants` (`web/src/components/ui/button-variants.ts`) carries
+  `text-base sm:text-sm` on **every** button — a real, paired line-height
+  override, itself gated on Tailwind's `sm:` viewport breakpoint (640px:
+  ratio `1.5` below it, `20/14 ≈ 1.4286` at or above it). A single Rust
+  constant cannot represent a value gated on a viewport width this surface
+  has no axis for (`--width`/`--viewport-width` are already vacuous here).
+  Left at gpui's default, unset.
+
+See `RepoAvatar::letter_box`'s and `LETTER_LINE_HEIGHT_XL_RELATIVE`'s own doc
+comments in `repo_avatar.rs` for the full derivation, and
+`crates/crowbar-app/src/row_layout/repo_avatar.rs`'s
+`xl_letter_line_height_is_19_5_matching_the_live_capture` for the mutation-
+verified regression test (real failure captured: `expected 19.5px, got
+21px`).
+
+### The fixture-string gap — `--letter` added
+
+`--surface repo-avatar` now takes `--letter <text>`, overriding
+`avatar.label` outright (beats `--content`; `--flags empty` still beats
+`--letter`) — see `crates/crowbar-app/src/surfaces/repo_avatar.rs`.
+`repo-icon-popover` got the equivalent (`--letter`, gating its own letter
+preview) in the same pass — see that surface's own file. Neither fixture is
+permanently un-passable against a live app any more.
+
+### `bg` — still not a defect, untouched
+
+No change. See the ruling above: the reference's `#00000000` is correct: the
+React app renders no background for a `.avatar-*` palette name, and the
+fixture's placeholder colour is the thing that would need to change, which
+is out of this item's scope (a React-app-side finding, not a port defect).
