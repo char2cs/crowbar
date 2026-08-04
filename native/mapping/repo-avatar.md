@@ -141,3 +141,54 @@ Things learned here that are **not** about `repo-avatar`.
 |---|---|
 | A component's root can **be** the swapped element, not wrap it | `avatar.tsx`'s `AvatarPrimitive.Root` stays mounted while its children swap; `repo-avatar.tsx` has no such root — the anchor has to be shared across branches rather than fixed to a wrapper. `workspace-branch-icon.tsx` is the same shape |
 | A stored-as-data class name is a recurring finding, not a one-off | `avatar.md` found it first for `repo-icon-popover.tsx`'s fallback (unreachable, so omitted); this component makes the same finding on a **dominant, live** path, which changes the answer from "omit it" to "take it as a caller-supplied value with no fixture reference" |
+
+---
+
+## VERDICT: FAIL — 4 deltas over 1 anchor, but only **one** is a port defect (2026-08-03)
+
+Drive: `--surface repo-avatar --width 24 --viewport-width 1714 --theme dark
+--content normal --size xl --kind letter`. The cell was found by measurement,
+not assumption — `sm`/`lg`/`xl` render 16/20/24px, and the live element is
+24×24 at `text-[13px]`, so `xl` is the only candidate.
+
+Reaching this surface at all took driving: `repo-avatar` renders in the context
+pill only once a **repo workspace** is open, so the sidebar tree had to be
+populated first (see `oracle/blocked/four-verdicts-needed-a-repo.md`) and a
+workspace row clicked.
+
+```
+repo-avatar.text:             "RE",      expected "D"        (exact)
+repo-avatar.bg:               #516a36ff, expected #00000000  (Δ g +106)
+repo-avatar.text_width:       15.821,    expected 9.88       (Δ +5.941, tol ±1.0)
+repo-avatar.font.line_height: 21.0,      expected 19.5       (Δ +1.5,   tol ±0.5)
+```
+
+### The one real defect
+
+**`font.line_height` — 21.0 against 19.5.** `19.5 = 13 × 1.5`: the live element
+carries `text-[13px]`, an **arbitrary** size with no paired Tailwind
+line-height utility, so it inherits preflight's unitless `1.5`. Confirmed
+directly on the live node — `getComputedStyle` reports `fontSize: 13px`,
+`lineHeight: 19.5px`. This is the **same defect class P3.60 fixed in
+`row_base`**, in a different component: a per-size line height picked by hand
+where the cascade supplies one.
+
+### The other three are fixture gaps, and two were already documented
+
+- **`text` and `text_width`** — the fixture hard-codes `"RE"`; the live repo's
+  letter is `"D"`. There is no `--letter`/`--label` flag, so **no drive can
+  close this**. `repo-icon-popover` hit the identical wall the same day
+  (`"R"` vs `"D"`). Both fixtures need a flag.
+- **`bg`** — **not a defect, and this module's own header already says so**: it
+  paints `theme.primary` as an explicit placeholder "with no claim to being any
+  repo's actual colour", because the daemon hands out palette names like
+  `avatar-slate` and **no `.avatar-*` rule exists anywhere in the stylesheets**.
+  Re-verified here: the live node carries `class="… avatar-slate"` and computes
+  `background-color: rgba(0, 0, 0, 0)`. The app renders **no** background, so
+  the reference's `#00000000` is correct and the fixture's colour is the thing
+  that should change.
+
+That last one is worth stating plainly: **the port implemented a feature the
+React app does not have.** The daemon assigns an avatar colour, the frontend
+puts it in `className`, and nothing consumes it. That is a real (small) defect
+in the React app, outside this port's scope.
