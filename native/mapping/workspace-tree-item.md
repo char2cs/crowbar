@@ -221,3 +221,51 @@ original defect.
 `repo-section.tsx` → `workspace-tree.tsx` → `sidebar-carousel.tsx` →
 `ide-shell.tsx` → `routes/_shell.tsx`. Recursively self-reachable for every
 workspace with children.
+
+---
+
+## VERDICT: FAIL — 1 delta over 3 anchors, and it is the **contract's**, not the port's (2026-08-03)
+
+Drive: `--surface workspace-tree-item --width 344 --viewport-width 1684 --theme
+dark --content normal --branch main --row-depth 0`.
+
+```
+workspace-tree-item-add-child: anchor present in the native snapshot but not in the reference
+
+oracle: FAIL — 1 delta over 3 anchors compared (1 anchor presence)
+```
+
+**Every geometry, colour and typography field matches exactly.** Root, branch
+icon and label — position, size, radius, border, font size, weight, family and
+`line_height` (19.5) — all inside tolerance on the first correctly-driven run.
+This surface would be **PASS 0/3** if the reference carried the anchor the port
+emits.
+
+### The delta is an under-declared scope entry
+
+`extract.ts`'s entry declares three anchors:
+
+```ts
+'workspace-tree-item': {
+  root: 'workspace-tree-item',
+  anchors: ['workspace-tree-item', 'workspace-branch-icon', 'workspace-tree-item-label'],
+},
+```
+
+`workspace-tree-item-add-child` is missing. I checked the live DOM rather than
+reasoning about it: **two instances, each 24×24, `display: flex`, `visibility:
+visible`, `opacity: 1`.** It is this row's own chrome, not a repeated child-row
+family, so the `select-item` precedent the neighbouring entries cite does not
+reach it.
+
+**`repo-section` has the identical omission** (`repo-section-add-child`, also a
+live 24×24 box). Two surfaces, same missing anchor kind, same commit — so this
+is one systematic slip in P3.61's scope entries, not two coincidences.
+
+### The drive, and the width trap's third spelling
+
+The first run reported `bounds.w` 304 against 318 on both the root and the
+label. `--width` is the **container**: at `--row-depth 0` the port insets the
+row by 26px total, so a 318px row needs `--width 344` — the sidebar panel's own
+width. Passing the reference's root `bounds.w` (318) is exactly wrong. Both
+deltas closed at 344 and nothing else moved.
