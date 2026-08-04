@@ -295,7 +295,7 @@ parent commit (802fa0f3) for "before," removed immediately after measuring:
 
 | crate | before | after |
 |---|---|---|
-| `crowbar-diff` (whole crate — scaffold-only before this item) | 0 lines instrumented | 648 lines, **100.00%** line coverage (99.90% region, 100% function) |
+| `crowbar-diff` (whole crate — scaffold-only before this item) | 0 lines instrumented | 657 lines, **100.00%** line coverage (99.90% region, 100% function) — re-measured at the final commit, after `cargo fmt` shifted the line count slightly from the 648 measured pre-format |
 | `crowbar-core` (whole crate) | 6,457 lines, 99.33% (43 missed) | 6,504 lines, 99.34% (43 missed — unchanged; all new code fully covered) |
 
 The three lines `cargo llvm-cov --show-missing-lines` initially flagged in
