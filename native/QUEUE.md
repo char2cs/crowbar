@@ -3355,6 +3355,38 @@ created the gap — the claims were written expecting the gates to follow.
 > message. And "mutation verified" in a comment is treated exactly like a
 > snapshot — a claim requiring pasted failure output, not a sentence.
 
+## 📏 …and the REFERENCE's own cell selection bounds what can be tested at all
+
+P3.68's correction turned up the sharpest version of this session's measurement
+theme. `button.rs` justified a dormant rule with *"no live call site renders a
+Button with a label"*. That premise is false — **at least 72** live call sites
+do (a defensible floor, exclusions named, counted by parsing rather than by the
+regex that has lied four times).
+
+**But the rule really is dormant, for a narrower and more fragile reason:**
+none of those 72 is in *this surface's own captured reference*. The fixture
+workspace's nine `[data-slot=button]` elements are **all icon-only**, so the
+content-sized width path is real in the product and simply never exercised by
+this differ.
+
+That is a **third kind of blind spot**, alongside the two already recorded:
+
+| blind spot | what is invisible |
+|---|---|
+| an undeclared **anchor** | every field on it |
+| a **field** the anchor does not emit | that field's value |
+| **a cell the reference never captures** | the entire code path that cell would exercise |
+
+The third is the worst, because nothing in the snapshot hints at it. An
+undeclared anchor shows up as a presence delta; a missing field shows up as a
+field-presence delta; **an uncaptured cell shows up as nothing at all.** The
+port can be arbitrarily wrong about labelled Buttons and every run stays green.
+
+Distinguishing *"cannot happen"* from *"does not happen in the cell we
+capture"* is the whole value of that correction — the first is a property of
+the code, the second is a property of my fixture, and only the second is one
+capture away from changing.
+
 ## ‼️ `button.rs` carries a FALSE load-bearing claim — caught twice, still there
 
 Its module docs say, twice (lines ~33 and ~58):
