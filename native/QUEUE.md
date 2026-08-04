@@ -13,7 +13,7 @@ and three of the five can never receive a verdict at all.
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
 | **Tier B · `components/layout`** | **22 of 23 targets** (P3.64 closed 3 defects + 3 fixture flags) — P3.61 (tree chain ×4) and P3.62 (last three) merged. **1 to go.** ⚠ built ≠ verified: **5 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1, `sidebar-carousel` 0/5), **4 FAIL** (`fps-overlay` — a **contract** gap; `repo-icon-popover` 36/6 — one missing wrapper; `repo-avatar` 4/1 — only 1 real; `project-switcher-panel` 5/5 — only 1 real), **1 REFUSED** (`repo-import-dialog` — duplicate `button` anchor id), the rest unverified |
-| **Tier A · `crowbar-core`** | **two areas merged** — workspace scoping (P3.53) + git logic (P3.67). Coverage **100.00% over 1,435 lines**, up from 787. ⚠ 2 of the 6 git files measure **dead code** — my scoping error, see below. **`tier-a-denominator.md` now carries a liveness verdict on every row (P3.69)**: 61 LIVE, 25 CONDITIONAL, 4 DEAD, 0 UNCERTAIN — next recommended area: keymap resolution, 5 files / 516 lines, all LIVE, see below |
+| **Tier A · `crowbar-core`** | **two areas merged** — workspace scoping (P3.53) + git logic (P3.67). Coverage **100.00% over 1,435 lines**, up from 787. ⚠ 2 of the 6 git files measure **dead code** — my scoping error, see below. **Denominator settled (P3.71): ~3,170-line Tier A core target confirmed**, not the 9,447-line figure that briefly displaced it — that number measures all seven surveyed areas' *entire* reachable surface (Phase 4 state, `crowbar-diff` logic, presentation, out-of-scope code included), not `crowbar-core`'s alone. **1,435 / ~3,170 ≈ 45%** raw, **~43%** once the 62 known-dead/out-of-scope lines are backed out of the numerator — see `tier-a-denominator.md`'s "Denominator reconciliation (P3.71)". Next recommended area: keymap resolution, 5 files / 516 lines, all LIVE |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
 Both denominators come from surveys committed this iteration
@@ -3573,13 +3573,58 @@ claim has to meet here.
 **A third dead file, caught before dispatch:** `utils/diff-search.ts` (72
 lines). Never briefed — which is exactly what the column is for.
 
-**⚠ The Tier A denominator is also wrong in the other direction.**
-LIVE + CONDITIONAL totals **9,447 lines**, against the **~3,170** this file has
-been quoting as the target. Recorded, not quietly adopted: I do not yet know
-whether the old figure was scoped to a narrower "core" than the survey's seven
-areas, or was simply wrong. **Reconcile before quoting either number again** —
-a denominator that moved by 3× is not a rounding difference, and the honest
-position until then is that Tier A's remaining size is *unsettled*.
+**⚠ The Tier A denominator briefly looked wrong in the other direction —
+settled below.** LIVE + CONDITIONAL totals **9,447 lines**, against the
+**~3,170** this file has been quoting as the target. At the time this was
+recorded rather than quietly adopted, because a denominator that moved by 3×
+is not a rounding difference.
+
+## ✅ P3.71 — the 3,170-vs-9,447 denominator settled: **~3,170 stands**
+
+Reconciled in full in `native/mapping/tier-a-denominator.md`'s "Denominator
+reconciliation (P3.71)" section — table, method, and evidence there; headline
+here. **Checked, not picked**: double-counting across areas (ruled out —
+zero of 89 file paths repeat across the seven areas' tables), "~3,170 was
+git-model-only" (ruled out — all seven areas contributed to it originally),
+"~3,170 only counted tested files" (ruled out — `effective-keymaps.ts` and
+`workspace-scope-url.ts`, zero tests each, were counted anyway), and "~3,170
+was simply wrong" (ruled out — cross-referencing every Tier A core file
+against its own P3.69 liveness verdict shows **at least 3,131 of ~3,169 core
+lines, 98.8%, are LIVE or CONDITIONAL**).
+
+**The two figures measure different things, both legitimately:** ~3,170 is
+the **Tier A core** bucket only (genuine, portable, gpui-free `crowbar-core`
+logic), using a reduced pure-region estimate for six mixed files. 9,447 is
+LIVE+CONDITIONAL summed across **every** bucket the seven-area survey
+touched — Tier A core *and* ~2,760 lines of Phase 4 state (`crowbar-state`'s
+job), *and* 316 lines of `crowbar-diff`-adjacent logic, *and* ~460 lines of
+presentation, *and* ~882 lines that are out of scope entirely (D6
+persistence, webview-only FOUC mechanisms this port deletes by design) —
+using whole-file counts for the same mixed files. Most of the 9,447 was never
+a Tier A candidate; it was surveyed because the file sits under one of the
+seven feature directories, not because it was ever classified as
+`crowbar-core` work.
+
+**Defensible figure: ~3,170 lines, scope = `crowbar-core` Tier A core only.**
+This is what `native/QUEUE.md`'s progress table keeps quoting. 9,447 is real
+and separately useful (it is the true size of everything these seven areas'
+file trees can reach) but is not a `crowbar-core` denominator and should not
+be labelled "Tier A" if quoted again — see the reconciliation section for the
+full per-area breakdown, including a second, unrelated 146-line arithmetic
+error found in §6's own "workspace scoping" subtotal while building this
+table (690 actual vs. 544 claimed — corrected there, does not touch the
+~3,170 figure).
+
+**Completion against the settled denominator.** `crowbar-core` is at
+**1,435 covered lines (100.00%)** against **~3,170** → **≈45.3%** raw. Of
+those 1,435, 38 lines (`normalize_diff.rs`) measure dead code that was
+legitimately inside the ~3,170 scope, and a further 24 (`diff_buffer_path.rs`)
+were ported despite being explicitly outside that scope by the survey's own
+prose (a scoping error, not a liveness one — see `core-git.md`). Backing out
+both: **1,373 / 3,170 ≈ 43.3%** is the more honest figure. Neither number
+should be read as "45% of Tier A is done and reachable" without that
+asterisk — two full Tier A areas (workspace scoping, git model) are merged,
+but part of what shipped in the second one doesn't run in production.
 
 ### Next Tier A area, scoped from LIVE rows only
 
