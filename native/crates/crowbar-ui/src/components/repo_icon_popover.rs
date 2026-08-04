@@ -136,9 +136,17 @@ pub const ID_EMOJI_SUBMIT: &str = "repo-icon-popover-emoji-submit";
 /// [`PopupContent::has_avatar_url`] is `true`.
 pub const ID_RESET: &str = "repo-icon-popover-reset";
 
-/// **Empty.** Every box on this surface is authored; nothing sizes to a text
-/// run's own max-content width.
-pub const CONTENT_SIZED: [&str; 0] = [];
+/// **The three always-visible buttons — `ID_UPLOAD`/`ID_EMOJI`/`ID_GITHUB`.**
+/// Each is `flex-1` with no authored width, so its used width *is* its own
+/// content's max-content width (`native/oracle/ANCHORS.md` v1.5); `ID_RESET`
+/// (`w-full`, a definite width) and `ID_EMOJI_SUBMIT`/`"Set"` (not part of
+/// this item's own verdict cell) stay undeclared. `ActionButton::render`'s
+/// own doc comment carries the re-verdict this closes: a 0.61px `bounds.x`
+/// delta on `github`, the accumulated ceil excess of the two buttons before
+/// it, live on both sides only once `repo-icon-popover.tsx`'s own three
+/// `<Button>`s carry `data-oracle-content-sized="true"` too — v1.5 is
+/// explicit that this is an authored pair, never detected on either side.
+pub const CONTENT_SIZED: [&str; 3] = [ID_UPLOAD, ID_EMOJI, ID_GITHUB];
 /// **Empty**, for the same reason.
 pub const LINE_SIZED: [&str; 0] = [];
 
@@ -353,8 +361,18 @@ pub enum PreviewAvatar {
     Letter {
         /// `repo.avatarLabel`.
         label: SharedString,
-        /// `repo.avatarColor`, caller-resolved.
-        background: Color,
+        /// `repo.avatarColor`, caller-resolved — `Some` when the repo has
+        /// one assigned, `None` when it does not.
+        ///
+        /// **`None` is a real, modelled state, not "unknown."** `cn(...,
+        /// repo.avatarColor)` drops a falsy `avatarColor` silently, and
+        /// `AvatarFallback`'s own base class list is `bg-muted`
+        /// (`avatar.rs`'s own [`avatar::Avatar::fallback`] paints exactly
+        /// `theme.muted` for the identical reason) — so a repo with no
+        /// assigned colour shows the primitive's own muted background, not
+        /// nothing. [`PreviewAvatar::render`] resolves that fallback here,
+        /// reusing `avatar.rs`'s own token rather than re-deriving it.
+        background: Option<Color>,
     },
 }
 
@@ -408,6 +426,31 @@ impl PreviewAvatar {
     /// ID_FALLBACK`]) — never both, `base-ui`'s own arrangement, the
     /// identical shape `avatar.rs`'s own `Avatar::render` documents for
     /// every other call site.
+    ///
+    /// # The fix: `Self::Letter`'s "no colour" default is `theme.muted`, not transparent
+    ///
+    /// A live check (`--surface repo-icon-popover`, the default cell) found
+    /// `avatar-fallback.bg` painting nothing (`#00000000`) against a live
+    /// reference of `#ffffff0a` — 4% white. That number is not an arbitrary
+    /// colour: it is `bg-muted` in the dark theme, `AvatarFallback`'s own
+    /// unconditional base class, showing through because the driven
+    /// fixture's repo has no `avatarColor` at all, and `cn(..., '')` drops a
+    /// falsy class silently — the same "no override" case
+    /// `avatar::Avatar::fallback` already models for every call site that
+    /// goes through it (`.bg(theme.muted)`, unconditional).
+    ///
+    /// **This belongs here, not in `avatar.rs`.** `avatar::Avatar::fallback`
+    /// is already correct — checked directly, it paints `theme.muted`
+    /// unconditionally and nothing about it needed to change, so `--surface
+    /// avatar`'s own verdict is untouched by this fix. The bug was local to
+    /// this file's own reimplementation (`PreviewAvatar` cannot call
+    /// `Avatar::render` — see the module docs — so it reproduces the box by
+    /// hand): [`PreviewAvatar::Letter::background`] used to be a plain
+    /// `Color` whose fixture/driver default was `Color::TRANSPARENT`, a
+    /// placeholder invented rather than read off the primitive it stands in
+    /// for. It is now `Option<Color>`, `None` reads as "no `avatarColor`,"
+    /// and this function resolves that the same way `avatar.rs`'s own
+    /// primitive does: `background.unwrap_or(theme.muted)`.
     #[must_use]
     pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         let extent = avatar::CallSite::RepoIcon.extent();
@@ -447,7 +490,7 @@ impl PreviewAvatar {
                     .items_center()
                     .justify_center()
                     .rounded(radius)
-                    .bg(*background)
+                    .bg(background.unwrap_or(theme.muted))
                     .font(ui_sans_font(theme))
                     .font_weight(FontWeight::BOLD)
                     .line_height(relative(Self::LETTER_LINE_HEIGHT))
@@ -578,24 +621,66 @@ impl ActionButton {
     ///   is this box's own in-flow width (8px), height unchanged (the
     ///   margin is inline-axis only).
     ///
-    /// # `bounds.w` — closed as far as arithmetic can close it
+    /// # `bounds.w`/`bounds.x` — a declaration, not a residual
     ///
-    /// Every non-text term above is now `button.rs`'s own already-verified
-    /// number: border, padding, icon margin, gap. What is left over is the
-    /// label's own **shaped** advance width, and `row_layout`'s own harness
-    /// cannot verify that term at all — `#[gpui::test]`'s `TestPlatform`
-    /// hardcodes a `NoopTextSystem` (`vendor/gpui/src/platform/test/
-    /// platform.rs`), so *no* `#[gpui::test]` in this workspace ever shapes
-    /// a real glyph; text width here is measured against a synthetic
-    /// stand-in font, never `CalSansUI`. That is exactly why `row_layout::
-    /// badge`'s own default-cell test declares its width **not** asserted
-    /// against the reference's pixel value — "the shaped advance of \"agent\"
-    /// … and the two engines shape independently" — and why the assertion
-    /// below checks that these widths are content-ordered rather than
-    /// pinning a magnitude: the live binary (which *does* load real
-    /// `CalSansUI`, through the same `MacTextSystem` `main.rs` registers it
-    /// into) is the only thing that can verify the shaped term, and this
-    /// item does not run it.
+    /// Every non-text term above is `button.rs`'s own already-verified
+    /// number: border, padding, icon margin, gap. What is left is the
+    /// label's own **shaped** advance width, which `row_layout`'s own
+    /// harness cannot verify — `#[gpui::test]`'s `TestPlatform` hardcodes a
+    /// `NoopTextSystem` (`vendor/gpui/src/platform/test/platform.rs`), so
+    /// *no* `#[gpui::test]` in this workspace ever shapes a real glyph; a
+    /// width measured there is against a synthetic stand-in font, never
+    /// `CalSansUI` — the same reason `row_layout::badge`'s own default-cell
+    /// test declines to assert its own width to the pixel.
+    ///
+    /// **A first pass over-read that limitation.** It does mean this file's
+    /// own tests cannot pin a magnitude — true, and why the width-ordering
+    /// test below stays directional. It does **not** mean the width itself
+    /// has an unclosable residual: the live binary *does* shape a real
+    /// glyph, through the same `MacTextSystem` `main.rs` registers
+    /// `CalSansUI` into, and re-verdicted there the three widths land on
+    /// **exactly** `ceil()` of the reference — `ceil(69.63) = 70`,
+    /// `ceil(59.77) = 60`, `ceil(69.56) = 70` — which is `ANCHORS.md` v1.5's
+    /// own documented GPUI behaviour (`elements/text.rs` ceils a text run's
+    /// max-content width where `WebKit` keeps the fraction), not noise.
+    ///
+    /// v1.5 already has an allowance for exactly this — every other
+    /// geometry field in the snapshot gets `Σ(ceil excess)` over the anchors
+    /// declared `content_sized` — **but only once both sides author the
+    /// declaration**, and neither did: `content_sized` never detects, it is
+    /// an authored argument on both extractors by design (v1.5's own text:
+    /// "two extractors each guessing is the silent divergence this file
+    /// exists to prevent"). Undeclared, `upload`'s and `emoji`'s own ceil
+    /// excess (`0.37 + 0.23`) pushed `github`'s own `x` right by it:
+    /// `github.bounds.x: 171.0` against `170.39`, a `0.61px` delta — real,
+    /// if small, and exactly the shape the allowance exists to forgive, but
+    /// inert for want of the two attributes. `data-oracle-content-sized="true"`
+    /// on `repo-icon-popover.tsx`'s three `<Button>` elements (the existing
+    /// pattern `inline-error.tsx`/`search.tsx`/`placeholder-row-actions.tsx`
+    /// already use per call site, *not* a change to `button.tsx` itself —
+    /// see the note below) and [`AnchorId::content_sized`] here close it.
+    ///
+    /// **Why the declaration is per call site, not in `button.tsx`.** The
+    /// first attempt reached for the shared primitive, on button.rs's own
+    /// module-doc claim that "no live call site renders a Button with a
+    /// label." That claim is stale: a direct audit found **74 other** live,
+    /// non-icon-sized `<Button>`s with visible text across the app, none of
+    /// whose own Rust ports declare `content_sized` for their own anchors.
+    /// Adding the attribute inside `button.tsx` would have put it on all 74
+    /// unconditionally — new one-sided declarations (React `true`, Rust
+    /// absent) on dozens of otherwise-passing, unrelated surfaces, which
+    /// `ANCHORS.md` v1.5 and the differ's own test suite both treat as a
+    /// contract defect that forgives nothing. Five call sites already carry
+    /// this exact prop by hand for the identical reason; this file's three
+    /// buttons now join them the same way, scoped to what this item
+    /// verified rather than what a stale doc comment assumed.
+    ///
+    /// **`Reset to default` and `Set` are not declared, on the same
+    /// discipline.** `Reset` (`full_width: true`) authors `w-full` — a real,
+    /// definite width, not content-sized — so [`Self::render`] only opts
+    /// `!full_width` in. `Set` (`emoji_row`, below) is not part of this
+    /// item's own verdict cell either and is left undeclared rather than
+    /// assumed.
     fn render(
         theme: &Theme,
         anchors: &dyn AnchorSink,
@@ -624,12 +709,17 @@ impl ActionButton {
                     .w(BUTTON_ICON_SIZE + button::ICON_MARGIN_X * 2.0)
                     .h(BUTTON_ICON_SIZE),
             );
+        let mut anchor_id = AnchorId::from(id);
         shell = if full_width {
             shell.w_full()
         } else {
+            // `flex-1` with no authored width — content-sized (`ANCHORS.md`
+            // v1.5). `Reset to default` (`full_width: true`, `w-full`) is a
+            // real, definite width and stays undeclared.
+            anchor_id = anchor_id.content_sized();
             shell.flex_1()
         };
-        anchors.boxed_text(AnchorId::from(id), shell, SharedString::new_static(label))
+        anchors.boxed_text(anchor_id, shell, SharedString::new_static(label))
     }
 }
 
@@ -648,13 +738,15 @@ pub struct PopupContent {
 impl PopupContent {
     /// The live reachable cell: the letter fallback, neither optional row
     /// mounted (`showEmojiInput` starts `false`; the fixture repo has no
-    /// `avatarURL`).
+    /// `avatarURL`). No `avatarColor` either — `None`, matching the live
+    /// reference's own `avatar-fallback.bg: #ffffff0a` (`theme.muted`, see
+    /// [`PreviewAvatar::render`]'s own doc comment).
     #[must_use]
     pub fn fixture() -> Self {
         Self {
             preview: PreviewAvatar::Letter {
                 label: SharedString::new_static("R"),
-                background: Color::TRANSPARENT,
+                background: None,
             },
             show_emoji_input: false,
             has_avatar_url: false,
@@ -896,9 +988,14 @@ mod tests {
         assert_eq!(CAPTION_TEXT, px(10.0));
     }
 
+    /// `CONTENT_SIZED` carries exactly the three always-visible buttons —
+    /// `Reset`/`Set` stay out, on the same discipline `ActionButton::
+    /// render`'s own doc comment states. `LINE_SIZED` stays empty: no box
+    /// here is a leading-none line box (`ANCHORS.md` v1.6).
     #[test]
-    fn neither_declaration_list_has_an_entry() {
-        assert!(CONTENT_SIZED.is_empty());
+    fn content_sized_names_the_three_flex_1_buttons_only() {
+        assert_eq!(CONTENT_SIZED, [ID_UPLOAD, ID_EMOJI, ID_GITHUB]);
+        assert!(!CONTENT_SIZED.contains(&ID_RESET));
         assert!(LINE_SIZED.is_empty());
     }
 

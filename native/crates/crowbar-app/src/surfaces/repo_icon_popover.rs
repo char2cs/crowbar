@@ -100,7 +100,15 @@ impl Params {
                         .letter
                         .clone()
                         .unwrap_or_else(|| SharedString::new_static("R")),
-                    background: crowbar_ui::Color::TRANSPARENT,
+                    // `None`: no `--avatar-color` flag exists on this
+                    // surface, and the live reference this cell is driven
+                    // against has no `avatarColor` either — `avatar-
+                    // fallback.bg` resolves to `theme.muted` through
+                    // `PreviewAvatar::render`'s own fallback, matching
+                    // `avatar.rs`'s `Avatar::fallback` (see that function's
+                    // own doc comment for the fix and the live delta it
+                    // closes: `#00000000` against a reference `#ffffff0a`).
+                    background: None,
                 },
                 PreviewKind::Emoji => PreviewAvatar::Emoji(SharedString::new_static("\u{1f98a}")),
                 PreviewKind::Image => PreviewAvatar::Image,

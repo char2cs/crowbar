@@ -249,6 +249,7 @@ export function RepoIconPopover({ repo }: { repo: Repo }) {
                 void handleUpload()
               }}
               className="flex-1 gap-1 text-muted-foreground hover:text-foreground"
+              data-oracle-content-sized="true"
               data-oracle-id="repo-icon-popover-upload"
             >
               <Upload className="size-3" />
@@ -260,6 +261,7 @@ export function RepoIconPopover({ repo }: { repo: Repo }) {
               disabled={iconLoading}
               onClick={() => setShowEmojiInput((v) => !v)}
               className="flex-1 gap-1 text-muted-foreground hover:text-foreground"
+              data-oracle-content-sized="true"
               data-oracle-id="repo-icon-popover-emoji"
             >
               <Smile className="size-3" />
@@ -274,6 +276,7 @@ export function RepoIconPopover({ repo }: { repo: Repo }) {
                 void handleGithubAvatar()
               }}
               className="flex-1 gap-1 text-muted-foreground hover:text-foreground"
+              data-oracle-content-sized="true"
               data-oracle-id="repo-icon-popover-github"
             >
               <Star className="size-3" />
