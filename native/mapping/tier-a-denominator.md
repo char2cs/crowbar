@@ -2024,3 +2024,52 @@ declaration either way.
 **`features/file-system/types/app.ts`** (38 lines) — `AppFile`, `FileEntry`, `ContextMenuState`, all LIVE (each flows into at least one already-LIVE consumer above). Zero dead exports.
 
 **§5 line-count summary (full reconciliation in the final commit below):** DEAD/TEST-ONLY lines total **95** — 71 in `file-explorer-tree-utils.ts` (`filterHiddenFiles` 18 + `addNewItemToTree` 21 + `removeEditingItemsFromTree` 11 + the private `getParentPath` helper 7, itself only reachable from the now-TEST-ONLY `getAncestorDirectoryPaths` + `getAncestorDirectoryPaths` 14), 7 in `visible-file-tree-rows.ts` (`getStickyAncestorRow`), 17 in `env-template.ts` (`normalizeEnvTargetFileName`). Every other file in §5 is 100% LIVE/CONDITIONAL at export level.
+
+### §7 Review threads — per-export table
+
+All rows in §7's Liveness table are LIVE or CONDITIONAL (zero DEAD).
+`review-thread-item.tsx` is a component (§7's own convention: "not counted"
+toward the area's line total) — audited for completeness, excluded from the
+line-count denominator, consistent with §7's own convention.
+
+**`features/workspace/stores/slices/branch-review-slice.ts`** (156 lines) — 8 exports, **all LIVE**, re-verified by reading the file directly: `MergeStrategy`/`ReviewMessage`/`ReviewThread`/`ReviewConversation` are all used as field/parameter types inside `BranchReviewState`/`BranchReviewSlice` (lines 32-68), both of which are the shape of `createBranchReviewSlice`'s return value; `createBranchReviewSlice` itself is called directly in `workspace-store.ts` (every workspace). Note: the 12 "pure `ReviewThread[]→ReviewThread[]` transition" mutators this document's prose praises (`addReviewThread`, `upsertReviewThread`, etc., §7 above) are **properties of `createBranchReviewSlice`'s returned object literal**, not separate module exports — same shape as `file-explorer-tree-store.ts` above (§5). `resolveReviewThread` is marked `@deprecated` in its own doc-comment ("Kept for backward compat... Use setReviewThreadResolved instead") — still part of the live interface, but a porter should confirm nothing still calls it before carrying it forward (a store-method-level question this export-level method cannot answer, since it is not itself an ES-module export).
+
+**`features/git/api/review-api.ts`** (288 lines) — 18 exports, **all LIVE or CONDITIONAL after one correction**:
+
+| export | verdict | evidence |
+|---|---|---|
+| `mapThread` | LIVE | called in `use-workspace-threads-stream.ts` (always-mounted) |
+| `listThreads` | LIVE | called in `use-workspace-threads-stream.ts` |
+| `ThreadDTO`, `ThreadReplyDTO` | LIVE | `ThreadDTO` used directly in `use-workspace-threads-stream.ts`; `ThreadReplyDTO` is `ThreadDTO`'s nested reply-element type |
+| `getReview` | CONDITIONAL | `branch-review-pane.tsx` |
+| `getReviewFiles` | CONDITIONAL | `use-review-files-summary.ts` → `review-diff-tab.tsx` |
+| `mergeIntoParent` | CONDITIONAL | `merge-popover.tsx` |
+| `setMergeStrategy` | CONDITIONAL — **corrected from an initial false TEST-ONLY reading** | `merge-popover.tsx:60`, imported renamed (`setMergeStrategy as patchMergeStrategy`) — see the renamed-import method gap above; a plain identifier-text search misses this entirely |
+| `openThread`, `replyToThread`, `setThreadResolved`, `deleteThread`, `deleteMessage`, `editMessage` | CONDITIONAL | all called in `use-review-annotations.tsx` |
+| `ReviewState` (type) | CONDITIONAL | `getReview`'s return type |
+| `ReviewFileSummary` (type) | CONDITIONAL | used in `review-file-summary-to-git-diff.ts` (§1: CONDITIONAL) |
+| `OpenThreadInput`, `ReplyToThreadInput` (types) | CONDITIONAL | `openThread`/`replyToThread`'s parameter types |
+
+Zero dead exports (after the rename correction). **Same non-exported-helper
+shape as `review-code-view.tsx` (§2), found independently here**: the doc's
+prose above (§7) says "`review-api.ts`'s `mapThread`/`mapReply`/
+`mapConversation`" as if all three were exported. Only `mapThread` carries
+`export`; `mapReply` (line 52, called inside `mapThread`) and
+`mapConversation` (line 87, called inside `getReview`) are module-private.
+Not dead — both are genuinely reachable through their respective exported
+callers — but, again, not individually importable the way the prose implies.
+
+**`features/git/components/diff/use-review-annotations.tsx`** (395 lines) — 11 exports, **all CONDITIONAL, zero dead** — this is the file the self-file method correction above exists for. `isDraftThread`, `toThreadSide`, `threadToAnnotation`, `annotationToThread`, `groupAnnotationsByPath`, `countThreadsByPath` are each called inside `useReviewAnnotations`'s own body (self-file, cross-export); `toAnnotationSide` additionally has a direct external caller (`review-code-view.tsx`); `useReviewAnnotations` itself, `ReviewAnnotation` (type), `DRAFT_THREAD_ID`, `ReviewAnnotationLayer` (type) are all likewise reachable. **Without the self-file correction, a naive tool would have reported 6 of these 11 exports as DEAD or TEST-ONLY** — the mirror-image failure to `file-explorer-tree-utils.ts`'s real dead exports (§5): false negatives (wrongly-DEAD) are exactly as costly to a scoping decision as false positives (wrongly-LIVE, the `addNewItemToTree` shape), because both cause a porter to skip code that should ship or ship code that shouldn't.
+
+**`features/workspace/stores/hooks/use-workspace-threads-stream.ts`** (61 lines) — sole export `useWorkspaceThreadsStream`, LIVE (called in `use-workspace-effects.ts`, always-mounted).
+
+**`features/git/components/review-thread-item.tsx`** (424 lines, component, not counted toward the line total per §7's own convention) — both exports CONDITIONAL (`ReviewThreadItem` called in `use-review-annotations.tsx`; `ReviewThreadItemProps` its own prop type). Zero dead.
+
+**§7 line-count summary:** 156 + 288 + 395 + 61 = **900 lines** (matches §7's
+own stated total exactly), **all 900 LIVE or CONDITIONAL, zero dead, zero
+test-only.** This is the one area of the three where the export-level pass
+found nothing to prune — the two risks found here are not line-count risks:
+the non-exported-helper naming mismatch (`mapReply`/`mapConversation`) and
+the one renamed-import blind spot (`setMergeStrategy`), both already folded
+into the table above. Full cross-area line-count reconciliation and scope
+recommendations follow in the next commit.
