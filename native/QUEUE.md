@@ -4,7 +4,7 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 3 — remainder **measured**, not estimated. **64 surfaces · 2331 tests ·
+**Phase:** 3 — remainder **measured**, not estimated. **64 surfaces · 2394 tests ·
 clippy 0 · 7/7 invariants**, all verified by my own run. Of the 64, **5 measure
 dead code** (liveness audit + `sidebar-skeleton`) — so the honest figure is **59**,
 and three of the five can never receive a verdict at all.
@@ -13,7 +13,7 @@ and three of the five can never receive a verdict at all.
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
 | **Tier B · `components/layout`** | **22 of 23 targets** (P3.64 closed 3 defects + 3 fixture flags) — P3.61 (tree chain ×4) and P3.62 (last three) merged. **1 to go.** ⚠ built ≠ verified: **5 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1, `sidebar-carousel` 0/5), **4 FAIL** (`fps-overlay` — a **contract** gap; `repo-icon-popover` 36/6 — one missing wrapper; `repo-avatar` 4/1 — only 1 real; `project-switcher-panel` 5/5 — only 1 real), **1 REFUSED** (`repo-import-dialog` — duplicate `button` anchor id), the rest unverified |
-| **Tier A · `crowbar-core`** | **four areas merged** — workspace scoping (P3.53) + git logic (P3.67) + keymap resolution (P3.70) + settings schema (P3.72). Coverage **100.00% over 2,531 lines**, up from 1,882 → 1,435 → 787. ⚠ 2 of the 6 git files measure **dead code** — my scoping error, see below. **Denominator settled (P3.71): ~3,170-line Tier A core target confirmed**, not the 9,447-line figure that briefly displaced it — that number measures all seven surveyed areas' *entire* reachable surface (Phase 4 state, `crowbar-diff` logic, presentation, out-of-scope code included), not `crowbar-core`'s alone. **2,531 / ~3,170 ≈ 80%** raw, **~78%** once the 62 known-dead/out-of-scope lines are backed out of the numerator — see `tier-a-denominator.md`'s "Denominator reconciliation (P3.71)". Keymap was that next area and is now merged |
+| **Tier A · `crowbar-core`** | **five areas merged** — workspace scoping (P3.53) + git (P3.67) + keymap (P3.70) + settings (P3.72) + file-tree (P3.75). Coverage **100.00% over 3,683 lines**, up from 2,531 → 1,882 → 1,435 → 787. ⚠ 2 of the 6 git files measure **dead code** — my scoping error, see below. **Denominator settled (P3.71): ~3,170-line Tier A core target confirmed**, not the 9,447-line figure that briefly displaced it — that number measures all seven surveyed areas' *entire* reachable surface (Phase 4 state, `crowbar-diff` logic, presentation, out-of-scope code included), not `crowbar-core`'s alone. **ratio RETRACTED — see below.** Coverage is 100.00% over **3,683 Rust lines**; the ~3,170 target counts **TypeScript** lines, so the two do not divide — see `tier-a-denominator.md`'s "Denominator reconciliation (P3.71)". Keymap was that next area and is now merged |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
 Both denominators come from surveys committed this iteration
@@ -3888,6 +3888,53 @@ This is the first trap here that produces a **false negative in the mutation
 evidence itself**, i.e. it attacks the instrument this project uses to decide
 whether a test is real. Caught through unexpected results rather than assumed
 away. Use `cp` back (fresh mtime) or `touch` the file after restoring.
+
+## ‼️ RETRACTED — "Tier A ≈80%" was a ratio of two different units
+
+**Every Tier A percentage in this file has been wrong**, including ones I wrote
+in my own voice. P3.75 exposed it by making the number absurd:
+
+```
+numerator     3,683   RUST covered lines      (cargo llvm-cov -p crowbar-core)
+denominator  ~3,170   TYPESCRIPT source lines (tier-a-denominator.md)
+ratio           116%
+```
+
+A port cannot be 116% done. The two numbers were never comparable: one counts
+Rust lines the port *emitted*, the other counts TypeScript lines the port must
+*consume*. Rust is more verbose than the TypeScript it replaces, so the
+numerator grows faster than the work does — the ratio was always flattering and
+became impossible only when it crossed 100%.
+
+**This is my own rule, broken by me.** I wrote *"report the DENOMINATOR beside
+every ratio, and check two denominators are the same KIND before comparing"*
+into this file's measurement rules **and into the loop's standing instructions**
+— then kept publishing 45% → 59% → 80% without once asking what the numerator
+counted. Writing a rule down is not the same as applying it, and being the
+author is no protection.
+
+### What is actually defensible right now
+
+| claim | status |
+|---|---|
+| `crowbar-core` is **100.00% line-covered over 3,683 lines** | ✅ verified, and a statement about the *Rust crate* |
+| Tier A core target is **~3,170 TypeScript lines** | ✅ verified by P3.71's reconciliation |
+| **the ratio between them** | ❌ **meaningless — do not quote it** |
+| areas merged: workspace scoping, git, keymap, settings, file-tree (part) | ✅ 5 of 7 surveyed areas touched; §2 diff algebra and §7 review threads untouched |
+
+### The correct metric, and why I am not publishing a number yet
+
+Completion must be **TypeScript source lines ported ÷ TypeScript source lines
+in scope** — same unit both sides, counted the way the survey counted (`wc -l`).
+
+My own quick recount got 1,468 TS lines for keymap + settings + file-tree, then
+returned **0** for the git area because those paths did not resolve from the
+root I used. **An incomplete count is exactly the failure this section is
+about**, so it is recorded as evidence of the shape and not as an answer.
+Dispatched as its own item.
+
+**Until that lands, this file quotes no Tier A percentage.** "Five of seven
+areas merged, `crowbar-core` 100% over 3,683 lines" is true and sufficient.
 
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
