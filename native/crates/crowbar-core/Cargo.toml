@@ -13,6 +13,10 @@ publish.workspace = true
 [dependencies]
 crowbar-proto.workspace = true
 crowbar-client.workspace = true
+# `filetree::gitignore`'s per-directory `.gitignore` matcher — ripgrep's own
+# crate, not gpui-adjacent. See that module's doc comment for the dependency
+# decision and the `Match`-vs-npm-`ignore` equivalence check.
+ignore.workspace = true
 
 # `crowbar-core::git::normalize_diff`'s regression test needs to deserialise a
 # raw wire fixture (the exact stale-persisted-shape bug it documents) to prove

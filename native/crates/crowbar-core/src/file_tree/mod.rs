@@ -71,6 +71,7 @@
 pub mod density;
 pub mod file_name;
 pub mod git_status;
+pub mod gitignore;
 pub mod tree_utils;
 pub mod types;
 pub mod visible_rows;
@@ -80,6 +81,11 @@ pub use density::{
     row_height as file_tree_row_height,
 };
 pub use file_name::get_file_name;
+pub use gitignore::{
+    FileTreeGitIgnoreRules, GitIgnoreFileContent, GitIgnoreFileReference, GitIgnoreTreeEntry,
+    collect_git_ignore_file_references, create_file_tree_git_ignore_rules,
+    is_path_git_ignored_by_file_tree_rules, is_workspace_relative_path,
+};
 pub use git_status::{
     FileTreeGitStatusDecoration, FileTreeGitStatusLookup, GitStatusColor,
     create_file_tree_git_status_lookup, get_file_tree_entry_git_status_decoration,
