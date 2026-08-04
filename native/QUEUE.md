@@ -3369,7 +3369,7 @@ taken by me against the live app. **A merge is not a verdict.**
 | `workspace-branch-icon` | ✅ | ✅ **PASS 0/1** | one anchor, geometry only — a thin verdict, but a real one |
 | `detach-holder-modal` | ✅ | ⏸ | needs the modal driven open |
 | `repo-import-dialog` | ✅ | 🚫 **REFUSED** | reference emits **two `button` anchors** — React-side prerequisite, not a port defect |
-| `repo-icon-popover` | ✅ | ❌ **FAIL 15/7** | P3.63 closed the root cause (36→15); survivors are the 3 action buttons, returned to the worker |
+| `repo-icon-popover` | ✅ | ❌ **FAIL 2/7** | 36→15→2. Survivors: a missing `content_sized` **declaration** and one avatar `bg` |
 | `sidebar-tab-bar` | ✅ | n/a | no surface by design — measured through `--surface tabs` |
 | `workspace-switcher` | ✅ | n/a | no surface by design — `display: contents`, no box (v1.11) |
 | **`sidebar-skeleton`** | ✅ | 🚫 **UNOBTAINABLE** | never renders — its `Suspense` fallback cannot fire |
@@ -3516,6 +3516,22 @@ have failed before, because the anchor was never compared.** Fixing the
 contract did not just clear a false delta; it surfaced a true one. That is the
 argument for declaring every anchor that renders, not the ones a surface
 happens to care about.
+
+#### ⚠ `#[gpui::test]` cannot predict the oracle for anything TEXT-SHAPED
+
+P3.63's worker measured its button widths at **72/64/72** under
+`#[gpui::test]`, concluded the gap to `69.63/59.77/69.56` was unclosable
+because `TestPlatform` uses `NoopTextSystem`, and said so honestly. **The
+limitation is real and the conclusion was wrong.** The oracle runs the real
+binary with `--features driver`, which shapes through the real text system —
+there the widths are **70/60/70** and every width delta is gone.
+
+`NoopTextSystem` already made both whole-port font defects invisible to the
+suite. This is the same blindness pointing the other way: it can also invent a
+delta that does not exist. **A number measured under `#[gpui::test]` is not a
+prediction of what the oracle will see for anything text-shaped** — in either
+direction. Workers should stop at "the harness cannot answer this" rather than
+reporting the harness's number as the answer.
 
 #### 📏 …and an AXIS whose effect no anchor expresses is unverifiable too
 
