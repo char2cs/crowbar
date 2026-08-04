@@ -4210,6 +4210,34 @@ this table has a LIVE or CONDITIONAL verdict from `tier-a-denominator.md`'s
 own liveness passes (§0/§8), re-cited here rather than re-derived, and none
 of it needs a fresh liveness check to justify porting it next.
 
+## 🚧 Tier A remainder — dispatched 2026-08-04
+
+P3.77's recount says what is actually left. Both remaining areas are **0%
+ported** and both are now scoped from **export-level** verdicts:
+
+| area | TS lines | state |
+|---|---|---|
+| §7 review threads | 306 (of 900 surveyed; the rest is transport → `crowbar-client`) | **P3.78 in flight**, module named `crowbar_core::review` |
+| §2 diff algebra | 368 | not yet dispatched — ports as **one inseparable unit** |
+
+**Module names are now in the brief.** P3.75 and P3.76 independently created
+`file_tree` and `filetree` for the same domain and I merged them by hand,
+because neither brief said which spelling. P3.78's brief names
+`crowbar_core::review` explicitly.
+
+§7 is the one area where the export audit **found nothing to prune** — all four
+non-component files are LIVE or CONDITIONAL at export granularity. Two traps
+carried into the brief anyway:
+
+- the survey's prose names **12 "pure mutator" functions** that **are not
+  separately exported** — they are properties of one factory's return value, so
+  they are not compiler-visible symbols and the audit could not verify them
+  export-by-export. Extracting them is a defensible refactor, but it is the
+  porter's call to justify, not a finding to inherit.
+- `resolveReviewThread` is marked **`@deprecated` in its own source**. The brief
+  asks whether it still needs to ship at all before it is ported — porting a
+  deprecated function silently is how dead code arrives with a straight face.
+
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
 ```
