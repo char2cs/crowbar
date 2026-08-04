@@ -4127,6 +4127,8 @@ done"):
 | Settings schema | 554 | 629 | **88.1%** | remaining 75 = `settings-import-export.ts`, correctly CONDITIONAL, not forgotten |
 | File-tree model | 436 | 718 | **60.7%** | see §3 for the breakdown of what's left |
 
+## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
+
 ```
 CGSSessionScreenIsLocked: True
 ```
