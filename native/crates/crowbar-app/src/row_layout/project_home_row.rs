@@ -182,3 +182,58 @@ fn the_root_fills_whatever_width_it_is_given(cx: &mut TestAppContext) {
         assert_px(root.bounds.size.width, px(f32::from(width)));
     }
 }
+
+/// **The two trailing actions carry a real, transparent-coloured 1px
+/// border** — unlike `repo-section`'s and `workspace-tree-item`'s own
+/// trailing actions, which are raw `<button className={ROW_SUB_ACTION}>`
+/// elements with no border utility anywhere in their class list.
+/// `project-home-row.tsx`'s two actions are `<Button variant="ghost"
+/// size="icon-xs">` — the shared primitive, whose base class (`button.tsx`)
+/// carries a bare, unconditional `border`, `button.rs`'s own headline
+/// finding. `ROW_SUB_ACTION` (the call-site override merged on top via
+/// `cn(...)`) has no `border`/`border-color` utility of its own, so
+/// tailwind-merge leaves the primitive's own `border border-transparent`
+/// (the `ghost` variant's colour) untouched in the final class string —
+/// this is a real, painted, 1px, `#00000000` border, confirmed live
+/// (`native/mapping/project-home-row.md`'s original PASS verdict: `both
+/// buttons 24×24 at x271/x301`, taken while `row_base::sub_action_box`
+/// still carried the border).
+///
+/// P3.66 removed that border from `row_base::sub_action_box` **globally**
+/// to fix `repo-section`'s and `workspace-tree-item`'s three raw-`<button>`
+/// actions (correct for those three) without noticing this surface's own
+/// two call sites go through the `<Button>` primitive instead and lost a
+/// border they actually paint — `PASS 0/5` regressed to `FAIL 2/5`. The fix
+/// restores the border at *this* call site only (`ProjectHomeRow::
+/// sub_action`), mirroring `Button::render`'s own `shell()` — `.border_1()`
+/// width, `Variant::Ghost`'s own `Color::TRANSPARENT` colour — rather than
+/// putting it back on the shared `row_base::sub_action_box`, which stays
+/// correct (no border) for its other two consumers.
+///
+/// **Mutation, run:** removed the `.border(button::BORDER_WIDTH)
+/// .border_color(Color::TRANSPARENT)` chain from `ProjectHomeRow::
+/// sub_action`. `the_two_actions_paint_a_transparent_border` failed as
+/// predicted:
+///
+/// ```text
+/// thread 'row_layout::project_home_row::the_two_actions_paint_a_transparent_border' panicked at crates/crowbar-app/src/row_layout/project_home_row.rs:222:9:
+/// expected 1px, got 0px
+/// ```
+///
+/// Reverted after confirming.
+#[gpui::test]
+fn the_two_actions_paint_a_transparent_border(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+
+    for id in [project_home_row::ID_IMPORT, project_home_row::ID_SWITCH] {
+        let record = find(&records, id);
+        assert_px(record.border_width, button::BORDER_WIDTH);
+        assert_eq!(
+            record.border_color.map(|c| c.a),
+            Some(0.0),
+            "the border is real width, transparent colour — {:?}",
+            record.border_color,
+        );
+    }
+}

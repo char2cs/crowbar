@@ -165,6 +165,7 @@ export function RepoSection({
                 them straight off the row and out of reach. */}
             <span
               className="min-w-0 truncate font-mono text-foreground"
+              data-oracle-content-sized="true"
               data-oracle-id="repo-section-label"
               data-oracle-line-sized="true"
               onDoubleClick={(e) => {

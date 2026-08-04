@@ -131,8 +131,9 @@ undeclared, `popover-title`'s own reason.
 
 ## 9. Declarations
 
-`CONTENT_SIZED = []`. `LINE_SIZED = [repo-section-label]` — a blockified
-flex item with no explicit height of its own.
+`CONTENT_SIZED = [repo-section-label]` (P3.81 — see the tail of this
+document for why it was `[]` at first). `LINE_SIZED = [repo-section-label]`
+— a blockified flex item with no explicit height of its own.
 
 ## 10. The state axis
 
@@ -291,3 +292,50 @@ confirming the real failure: `the_trailing_actions_paint_no_border`,
 `the_add_child_action_paints_no_border`, for the same shared
 `row_base::sub_action_box` fix reached through this surface's own composed
 row.
+
+---
+
+## FIXED (P3.81) — the `content_sized` declaration itself, still missing after the geometry fix
+
+The two-level split above (this document's own "FIXED" section, finding 2)
+made `repo-section-label.bounds.w` equal its own `text_width` exactly, but
+GPUI still **ceils** a text run's own max-content width (`ANCHORS.md` v1.5),
+so a fractional reference (`31.2`) compared against this port's own
+integral `32.0` — `ceil(31.2)` exactly, a real 0.8px gap invisible until a
+live re-verdict:
+
+```
+repo-section-label.bounds.w: 32.0, expected 31.2
+```
+
+v1.5's own Σ(ceil excess) allowance exists for exactly this, but stays
+**inert** until the anchor is declared `content_sized` on both sides —
+`repo_icon_popover.rs`'s own P3.63 precedent, copied here rather than
+re-derived: `AnchorId::new(ID_LABEL).line_sized().content_sized()` in
+`RepoSection::label`, `CONTENT_SIZED = [ID_LABEL]`
+(`crates/crowbar-ui/src/components/repo_section.rs`), and
+`data-oracle-content-sized="true"` on the label span
+(`web/src/components/layout/repo-section.tsx`).
+
+**`workspace-tree-item-label` was checked, not assumed symmetric.** It
+builds from `row_base::label_container` directly — `flex-1` on the *same*
+anchored span, not this file's own outer-spacer/inner-content-sized split —
+so it genuinely stretches (`252px` against a `31.2px` `text_width`, this
+document's own §9/finding-2 account) and must **not** declare
+`content_sized`. Confirmed by a new guard,
+`row_layout::workspace_tree_item::the_label_does_not_declare_content_sized`,
+run against a real mutation (added `.content_sized()` to that file's own
+label anchor) and confirmed to fail before being reverted.
+
+### Declarations, corrected
+
+`CONTENT_SIZED = [repo-section-label]` (was `[]`). `LINE_SIZED =
+[repo-section-label]`, unchanged.
+
+### Regression guarded
+
+`crates/crowbar-app/src/row_layout/repo_section.rs` gained
+`the_label_declares_content_sized`, run against a real reversion of the fix
+(removed `.content_sized()` from the anchor) and confirmed to fail
+(`assertion failed: ...content_sized`) before being reverted back to the
+fix.
