@@ -33,8 +33,13 @@
 //!
 //! # What is here now
 //!
-//! Nothing yet. `native_menu` — a real macOS context menu (`NSMenu`), item
-//! P2.14 — lived here and was retired at item P3.40: `native/oracle/blocked/
+//! [`vibrancy`] (item S0.5, macOS only): the `HudWindow` blur behind
+//! Crowbar's window and the appearance pin that keeps its frost per-theme.
+//! The first `unsafe` this crate has held since P3.40 retired `native_menu` —
+//! see [`vibrancy::pin_appearance`]'s doc comment for the proof.
+//!
+//! `native_menu` — a real macOS context menu (`NSMenu`), item P2.14 — lived
+//! here and was retired at item P3.40: `native/oracle/blocked/
 //! s13-native-menus-accepted-delta.md` retained it only until Phase 3 closed
 //! "unless a concrete need appears that the vendored one cannot serve", P3.38
 //! found no such need, and the module was wired to no call site — only to its
@@ -42,3 +47,9 @@
 //! menus in this port go through the vendored `gpui_component::native_menu`
 //! instead, once something is wired to one (`native/mapping/context-menu.md`
 //! §6).
+
+#[cfg(target_os = "macos")]
+mod vibrancy;
+
+#[cfg(target_os = "macos")]
+pub use vibrancy::{Inspection, PinAppearanceError, apply_vibrancy, inspect, pin_appearance};

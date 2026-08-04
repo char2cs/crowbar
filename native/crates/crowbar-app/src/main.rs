@@ -48,6 +48,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use crowbar_client::{Health, HealthError, Probe};
+/// Only the shipping (non-driver) window options need this — the driver
+/// build's own `window_options` below never sets `window_background`, so
+/// under `--features driver` this import would otherwise be unused.
+#[cfg(not(feature = "driver"))]
+use gpui::WindowBackgroundAppearance;
 use gpui::{App, AppContext as _, SharedString, TitlebarOptions, WindowOptions};
 
 /// Only the driver build's `main` parses a command line into a [`Cell`]; a
@@ -343,13 +348,21 @@ fn window_options(cell: &Cell) -> WindowOptions {
 
 /// Opens the shipping build's placeholder window (item S0.2).
 ///
-/// **Deliberately minimal.** This is Slice 0's frame, not a surface: no row,
-/// no anchors, no design-system chrome — those are later slices' work. All it
-/// draws is `caption`, which is item 0.4's daemon round trip, so a bare
-/// `cargo run -p crowbar-app` still proves the transport works.
+/// **Deliberately minimal** in its *content*: this is Slice 0's frame, not a
+/// surface — no row, no anchors, no sidebar/tabs/panes, those are later
+/// slices' work. All it draws is `caption`, which is item 0.4's daemon round
+/// trip, so a bare `cargo run -p crowbar-app` still proves the transport
+/// works. Its *chrome* is not a placeholder, though (item S0.5, spec §5.4):
+/// [`decorate_window`] applies the real vibrancy blur and appearance pin
+/// immediately after the window exists, before the root view is built —
+/// mirroring `Window::new` returning before `build_root_view` runs (see
+/// `gpui::App::open_window`'s own body) — so every later slice's content
+/// drops into the real Crowbar frame from its first frame, not a bare one a
+/// later item would have to retrofit.
 #[cfg(not(feature = "driver"))]
 fn open_placeholder(caption: String, cx: &mut App) -> gpui::Result<()> {
-    cx.open_window(placeholder_window_options(), move |_window, cx| {
+    cx.open_window(placeholder_window_options(), move |window, cx| {
+        decorate_window(window);
         cx.new(|_| Placeholder {
             caption: caption.into(),
         })
@@ -360,17 +373,84 @@ fn open_placeholder(caption: String, cx: &mut App) -> gpui::Result<()> {
 
 /// [`open_placeholder`]'s window: no cell to size against, so this asks the
 /// platform for its own default bounds rather than choosing a number that
-/// would be this item's own invented chrome.
+/// would be this item's own invented chrome. The chrome itself (item S0.5)
+/// mirrors `desktop/src-tauri/tauri.conf.json`'s `app.windows[0]` entry:
+/// `transparent: true` → [`WindowBackgroundAppearance::Transparent`] (so
+/// [`decorate_window`]'s vibrancy view is visible rather than painted over —
+/// see `crowbar_platform::vibrancy::apply_vibrancy`'s own doc comment for why
+/// this has to be set here, at window-creation time, rather than by the
+/// vibrancy call itself); `titleBarStyle: "Overlay"` + `hiddenTitle: true` →
+/// `appears_transparent: true` (GPUI's `gpui_macos` backend turns this into
+/// `NSFullSizeContentViewWindowMask` + `titlebarAppearsTransparent` +
+/// `NSWindowTitleHidden` itself — see `vendor/zed-deps/gpui_macos/src/
+/// window.rs` around its `titlebar.appears_transparent` checks — so nothing
+/// in this crate has to reach for `unsafe` to get the overlay titlebar);
+/// `trafficLightPosition: {x: 12, y: 23}` → the identical `traffic_light_
+/// position`. Rounded window edges need no setting at all: they are what a
+/// normal titled `NSWindow` (`titlebar: Some(...)`, not `None` — the
+/// borderless-window shape `gpui_macos` builds when `titlebar` is absent)
+/// already draws; nothing about `appears_transparent` or the vibrancy view
+/// changes the window's own corner shape.
 #[cfg(not(feature = "driver"))]
 fn placeholder_window_options() -> WindowOptions {
     WindowOptions {
         titlebar: Some(TitlebarOptions {
             title: Some(SharedString::new_static("Crowbar (native)")),
-            ..TitlebarOptions::default()
+            appears_transparent: true,
+            traffic_light_position: Some(gpui::point(gpui::px(12.0), gpui::px(23.0))),
         }),
+        window_background: WindowBackgroundAppearance::Transparent,
         ..WindowOptions::default()
     }
 }
+
+/// Applies Crowbar-React's window chrome (item S0.5, spec §5.4) to a freshly
+/// created window: the `HudWindow` vibrancy blur, then the appearance pin
+/// that keeps its frost matching the app's own theme instead of the OS's.
+/// Both live in `crowbar-platform` — see `crowbar_platform::vibrancy`'s
+/// module doc comment for why this crate needs no `unsafe` of its own to
+/// call them (`apply_vibrancy` is safe at its call boundary; `pin_appearance`
+/// and `inspect` are `crowbar-platform`'s own, proven unsafe).
+///
+/// `dark: true` is hardcoded rather than read from a theme store because
+/// Slice 0 builds no settings surface and [`Placeholder::render`] itself
+/// hardcodes `crowbar_ui::Theme::DARK` — pinning the frost to match is
+/// "theme applied at app level" for exactly as much theme as this slice has.
+/// A real theme switcher (slice 2) re-pins on change; nothing here prevents
+/// that.
+///
+/// Every step is logged rather than silently swallowed, on failure *and* on
+/// success: a build that links `apply_vibrancy` and renders no blur is
+/// exactly the failure this item's acceptance gate exists to catch (spec
+/// §5.4), so [`crowbar_platform::inspect`] reads the state back from `AppKit`
+/// itself and reports it — this is also the non-pixel evidence this item's
+/// own acceptance report leans on where a screenshot could not be taken (see
+/// `crowbar_platform::vibrancy::Inspection`'s doc comment).
+#[cfg(all(not(feature = "driver"), target_os = "macos"))]
+fn decorate_window(window: &gpui::Window) {
+    if let Err(err) = crowbar_platform::apply_vibrancy(window) {
+        eprintln!("crowbar-app: failed to apply window vibrancy: {err}");
+        return;
+    }
+    if let Err(err) = crowbar_platform::pin_appearance(window, true) {
+        eprintln!("crowbar-app: failed to pin the vibrancy appearance: {err}");
+        return;
+    }
+    match crowbar_platform::inspect(window) {
+        Ok(inspection) => eprintln!(
+            "crowbar-app: window chrome: blur_view_present={} window_is_opaque={}",
+            inspection.blur_view_present, inspection.window_is_opaque
+        ),
+        Err(err) => eprintln!("crowbar-app: could not inspect the window chrome: {err}"),
+    }
+}
+
+/// Off macOS, `crowbar-platform`'s vibrancy module does not exist at all (see
+/// its `#[cfg(target_os = "macos")]`), so there is nothing to call here —
+/// mirrors `desktop/src-tauri/src/lib.rs`'s own `#[cfg(not(target_os =
+/// "macos"))] fn decorate_window` no-op.
+#[cfg(all(not(feature = "driver"), not(target_os = "macos")))]
+fn decorate_window(_window: &gpui::Window) {}
 
 /// The shipping build's whole view: [`Report::summary`] and the loaded font
 /// names, centred in the window. Nothing else — see [`open_placeholder`]'s
