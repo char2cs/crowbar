@@ -3764,13 +3764,32 @@ lock costs schedule, not progress:
 | ~~**P3.72** settings schema~~ | **merged** | Tier A → ≈80% |
 | **P3.75** file-tree model | `native/p3.75-core-filetree` | first item scoped from **export-level** verdicts rather than file rows — six exports named individually, four dead/test-only siblings named as exclusions |
 | ~~**P3.73** export-level liveness~~ | **merged** | per-export verdicts landed; its Deliverable 3 is now the scoping source for every remaining Tier A item |
-| **P3.74** dialog close id | `native/p3.74-dialog-close` | names the `Dialog` primitive's close Button, which today collides with any body Button and makes `repo-import-dialog` and `detach-holder-modal` **uncapturable** |
+| ~~**P3.74** dialog close id~~ | **merged** | `dialog-close` named on both call sites; unblocks `repo-import-dialog` and `detach-holder-modal`. **Zero Rust changes needed — my brief was wrong, see below** |
 
-**P3.74 is not additive and its brief says so.** Every dialog's close button
-currently emits `button`; after the change it emits `dialog-close`. The
-`dialog` surface *passes* today, so the Rust side has to move with it or a
-passing surface breaks. Blast radius on both sides was made a numbered
-deliverable rather than left to notice.
+**~~P3.74 is not additive~~ — I was wrong, and the worker checked instead of
+complying.** I briefed it that the Rust side had to move with the rename or a
+passing surface would break. It found that **no Rust change was required
+anywhere**, and I verified all four call sites myself:
+
+```
+dialog.rs:308  alert_dialog.rs:367  repo_import_dialog.rs:258  detach_holder_modal.rs:297
+    .close_button(false)   ← all four. The port never renders a close button at all.
+```
+
+Neither do any of them anchor a body `Button` — footers render as one opaque
+unanchored box. And `oracleSurfaceScope` declares only each dialog's own root,
+so the close was never in the compared set on either side of the change.
+
+**It also chased the apparent contradiction rather than routing around it.**
+`dialog`'s recorded "PASS 0/4" traces to a **hand-assembled** reference
+(P3.21), not a tool capture — so nothing about this fix could have broken it. I
+checked that record too: the reference was *declared* hand-assembled and then
+verified against the live DOM, ten numbers exact after dividing out a uniform
+`0.98` frozen mount transition. The record is sound and the contradiction
+dissolves.
+
+**A worker finding "nothing breaks" is a finding, not silence** — and it said
+so in those words rather than quietly shipping.
 
 **And P3.74 ships without my verdict.** I cannot capture while the screen is
 locked, so its mutation evidence and blast-radius grep are the only checks it
