@@ -10,6 +10,8 @@
 //! [`settings`] was the fourth. [`file_tree`] is the fifth — see its module
 //! doc for what was ported and what wasn't, including the settings/file-tree
 //! `FileTreeDensity` reconciliation `settings`'s own doc had flagged.
+//! [`review`] is the sixth — see its module doc for what was ported and what
+//! wasn't.
 //!
 //! Dependency contract (§4.2): `crowbar-proto`, `crowbar-client`.
 //!
@@ -21,6 +23,7 @@ pub mod color;
 pub mod file_tree;
 pub mod git;
 pub mod keymap;
+pub mod review;
 pub mod settings;
 pub mod workspace;
 
