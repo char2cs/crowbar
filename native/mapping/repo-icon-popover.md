@@ -435,3 +435,50 @@ line-height, and a refreshed width-ordering test whose real mutation is now
 stripping the border/padding back off, which reopens the flat-split bug),
 each with its mutation actually run and the real failure output kept in the
 doc comment.
+
+## 10. RE-VERDICT after P3.63's second pass — FAIL 2/7 (36 → 15 → 2)
+
+Same cell. Gates green by my own run: clippy clean, **2159 tests**, 7/7
+invariants.
+
+### ‼️ The width residual was an artefact of the worker's instrument, not a real delta
+
+P3.63's second pass reported the button widths as "much closer, not exact"
+(**72 / 64 / 72** against `69.63 / 59.77 / 69.56`) and established that the gap
+could not be closed because `#[gpui::test]`'s `TestPlatform` uses
+`NoopTextSystem` and never shapes a real glyph. **The limitation is real; the
+conclusion did not carry.** The oracle runs the actual `crowbar-app` binary
+with `--features driver`, which shapes through the real text system. Measured
+there the widths are **70 / 60 / 70** and **every width delta is gone.**
+
+Standing consequence: **a number measured under `#[gpui::test]` is not a
+prediction of what the oracle will see for anything text-shaped.** This is the
+same family as `NoopTextSystem` making both font defects invisible to the suite
+— a green `cargo test` cannot speak about shaped text, in either direction.
+
+### Delta 1 — a missing DECLARATION, not a layout bug
+
+```
+repo-icon-popover-github.bounds.x: 171.0, expected 170.39 (Δ +0.61, tol ±0.5)
+```
+
+The port's three widths are `ceil()` of the reference's **exactly**:
+`ceil(69.63)=70`, `ceil(59.77)=60`, `ceil(69.56)=70`. That is the GPUI
+behaviour ANCHORS **v1.5** documents, and each ceil pushes the next button's
+`x` right until the third accumulates **0.61**.
+
+v1.5 already covers this: every other geometry field gets an allowance of
+**Σ(ceil excess) over the anchors declared `content_sized`** — here **1.04**,
+which comfortably contains 0.61. **But neither snapshot declares it.** I checked
+both: `content_sized` is absent from every anchor on both sides, so the rule is
+inert and the differ compares raw.
+
+The port is right, the contract has the answer, and nobody wrote the
+declaration down. Fix is the authored argument on both sides.
+
+### Delta 2 — `avatar-fallback.bg` `#00000000` against `#ffffff0a`
+
+The port paints no background on the avatar fallback. Possibly belongs in
+`avatar.rs` rather than here, since this is the shared primitive's fallback
+rendered inside this popover — returned with that question rather than a
+prescription.
