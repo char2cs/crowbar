@@ -4568,6 +4568,53 @@ it. 4 = 2 × `MARGIN_Y`.
 Neither is P3.81's — both predate it and neither was in its brief. Dispatched
 as its own item.
 
+## 🚧 IN FLIGHT + NEXT (2026-08-04, after P3.81)
+
+**Running now (worker cap = 2):**
+
+| item | branch | what |
+|---|---|---|
+| **P3.82** | `native/p3.82-tree-scroll-geometry` | `workspace-tree`'s hardcoded `scroll_width: px(344.0)` + the 4px height overshoot, **plus a sweep of every `surfaces/*.rs` for the same class of hardcoded `px()`** |
+| **P3.83** | `native/p3.83-shell-slice` | **The first real application shell.** `crowbar-state` `Entity<T>` stores fed by `crowbar-client`, and a `crowbar-shell` binary rendering the live sidebar from real daemon data |
+
+### Why P3.83 exists, and why the phase order is being amended
+
+The port has ~70 components in `crowbar-ui` and **no application**.
+`crowbar-app` is a capture harness — one component per process invocation.
+`crowbar-state/src/lib.rs` is **13 lines, all doc comment, zero code**.
+
+Every risk retired so far is a **layout** risk. The reactive graph — spec §7's
+44 stores → `Entity<T>` and 229 `useEffect`s → event wiring — is untouched, and
+it is the largest remaining unknown. Meanwhile the component lane is gated on
+**my** verification throughput, not on worker availability, so a second worker
+on layout adds nothing while a second worker on the shell attacks a different
+critical path with a different gate (`#[gpui::test]` + differential behaviour,
+not the oracle).
+
+The spec's own Phase 3 justification — "only 25 of 238 `.tsx` under
+`components/` touch a store" — argues that **components do not need the
+stores**. It says nothing about the stores needing the components, and that
+dependency has been treated as mutual when it is one-directional.
+
+Scope is deliberately one thin vertical slice: window + state + the **already
+parity-verified** sidebar components, composed, not modified. Explicitly NOT
+tabs, panes, settings, palette, editor, diff or terminal.
+
+### Queued next — `core:window:allow-set-size` unblocks THREE surfaces
+
+`resizable` (blocked since 2026-07-31), `repo-import-dialog` and
+`detach-holder-modal` are all blocked on window sizing, and the direct cause is
+now known: the capability is absent from the app's allow-list, so
+`window.set_size` is refused and the MCP bridge's own resize reports
+`success: true` while doing nothing.
+
+**Not a one-line fix to `capabilities/default.json`** — that file ships to
+production, and widening the packaged app's capability set for measurement
+convenience is a decision, not a convenience. The item is: add a **dev-only**
+capability (separate file or a `--config` override on the dev launch), prove it
+is absent from a packaged build, and re-verdict all three surfaces. Sized as its
+own worker item because it touches `desktop/`.
+
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
 ```
@@ -4613,8 +4660,8 @@ taken by me against the live app. **A merge is not a verdict.**
 | `fps-overlay` | ✅ | ❌ **FAIL 1/1** | +3px — **contract gap**, not a port defect (7 runs × per-run `ceil`) |
 | `repo-avatar` | ✅ | ❌ **FAIL 4/1** | **only 1 real** — `line_height` 21 vs 19.5. Other 3 are fixture gaps (2 documented) |
 | `workspace-branch-icon` | ✅ | ✅ **PASS 0/1** | one anchor, geometry only — a thin verdict, but a real one |
-| `detach-holder-modal` | ✅ | ⏸ | needs the modal driven open |
-| `repo-import-dialog` | ✅ | 🚫 **REFUSED** | reference emits **two `button` anchors** — React-side prerequisite, not a port defect |
+| `detach-holder-modal` | ✅ | ⏸ **width-blocked** | modal now drives open (via the dev module graph, recipe in blocked/); popup is viewport-clamped at 458px so `max-w-md` never binds |
+| `repo-import-dialog` | ✅ | ⏸ **height-blocked** | 🎉 **P3.74 CONFIRMED**: reference captures cleanly, 8 anchors, one `button` + one `dialog-close`. Native cell short by 38px of display |
 | `repo-icon-popover` | ✅ | ✅ **PASS 0/7** | 36→15→2→**0**; v1.5 forgave 0.61 of 1.04px ceil excess |
 | `sidebar-tab-bar` | ✅ | n/a | no surface by design — measured through `--surface tabs` |
 | `workspace-switcher` | ✅ | n/a | no surface by design — `display: contents`, no box (v1.11) |
