@@ -4,6 +4,23 @@
  * `extractSnapshotSource(options)` into something a human can actually run
  * against the live app, and gets its answer back onto disk.
  *
+ * ── PORT-TIME TOOL — requires `web/` to exist, and dies with it ────────────
+ *
+ * This is a capture harness for measuring the *reference* the Rust port is
+ * built to match, and importing straight from `web/src/lib/oracle/extract`
+ * (below) is therefore correct here, not a defect: there is no other way to
+ * run the React app's own extraction logic against the React app's own live
+ * DOM. Once `web/` is deleted this script has nothing left to import and
+ * should be deleted with it; nothing else in `native/` invokes it.
+ *
+ * **Nothing in a shipping build depends on it.** What this script produces —
+ * the captured JSON under `native/oracle/runs/*/` — is committed to the
+ * repository, and `oracle/tests/differ.rs` reads those committed files with
+ * `include_str!` at compile time. `cargo build`/`cargo test`/`cargo clippy`
+ * never shell out to `bun` or touch this file; a checkout with no `web/` and
+ * no Bun installed builds and tests identically. Re-run this script by hand
+ * only to capture a *new* reference snapshot for a not-yet-ported surface.
+ *
  * This has existed twice before as an ad-hoc scratchpad pair
  * (`gen-extract.ts` + a `Bun.serve` sink) and evaporated both times because
  * neither was committed. Every `native/mapping/*.md` §6/§7/§10 capture

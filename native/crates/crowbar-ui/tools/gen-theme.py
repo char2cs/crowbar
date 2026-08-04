@@ -1,6 +1,24 @@
 #!/usr/bin/env python3
 """Generate `src/theme/generated.rs` from the React app's `web/src/styles/theme.css`.
 
+PORT-TIME TOOL — requires `web/` to exist, and dies with it.
+
+This script's entire job is parity against the React app: it reads
+`web/src/styles/theme.css` (and file-explorer-tree.css) and transcribes their
+resolved values into Rust. That makes a `web/` reference correct here, not a
+defect to fix — S0.7's item is about `native/` *shipping* without `web/`, and
+this tool is not part of what ships (see `nothing in a shipping build depends
+on it`, below). Once `web/` is deleted, this script stops running and this
+file should be deleted alongside it; nothing else in `native/` calls it.
+
+**Nothing in a shipping build depends on it.** This script's *output*,
+`crates/crowbar-ui/src/theme/generated.rs`, is committed to the repository —
+`cargo build`/`cargo test`/`cargo clippy` read that committed file and never
+invoke Python, so a checkout with no `web/` and no Python interpreter builds
+and tests identically. Re-run this script by hand only when `theme.css`
+itself changes and `generated.rs` needs to be regenerated to match; nothing in
+the Rust toolchain does that automatically.
+
 The port's design tokens are not re-authored: they are the *same* tokens the
 React app ships, resolved once at generation time into concrete values. This
 script is the transcription, so that nobody hand-copies 180 colours and gets one
