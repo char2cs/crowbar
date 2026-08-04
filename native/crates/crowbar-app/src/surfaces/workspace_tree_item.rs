@@ -18,7 +18,8 @@ use std::fmt::Write as _;
 use crowbar_ui::Theme;
 use crowbar_ui::components::AnchorSink;
 use crowbar_ui::components::pending_create_row::PendingCreateRow;
-use crowbar_ui::components::workspace_branch_icon::Status;
+use crowbar_ui::components::row_base::RowMode;
+use crowbar_ui::components::workspace_branch_icon::{Status, WorkspaceBranchIcon};
 use crowbar_ui::components::workspace_tree_item::WorkspaceTreeItem;
 use gpui::{AnyElement, SharedString, px};
 
@@ -54,10 +55,13 @@ pub struct Params {
     pub is_placeholder: bool,
     /// `--expanded`.
     pub expanded: bool,
-    /// `--renaming`.
-    pub is_renaming: bool,
-    /// `--creating-child`.
-    pub is_creating_child: bool,
+    /// `--renaming`/`--creating-child` (mutually exclusive; the last one
+    /// given wins), folded into
+    /// [`crowbar_ui::components::row_base::RowMode`] directly rather than
+    /// kept as two independent bools, to keep this struct under clippy's
+    /// `struct_excessive_bools` (`working`/`is_placeholder`/`expanded`
+    /// alone are exactly three).
+    pub mode: RowMode,
     /// `--added-count`.
     pub added: Option<u32>,
     /// `--deleted-count`.
@@ -82,8 +86,7 @@ impl Default for Params {
             working: false,
             is_placeholder: false,
             expanded: true,
-            is_renaming: false,
-            is_creating_child: false,
+            mode: RowMode::Normal,
             added: None,
             deleted: None,
             children: 0,
@@ -122,13 +125,14 @@ impl Params {
         WorkspaceTreeItem {
             branch: self.branch.clone(),
             depth: u32::from(self.depth),
-            status: self.status,
-            working: self.working,
-            is_placeholder: self.is_placeholder,
+            icon: WorkspaceBranchIcon {
+                status: self.status,
+                working: self.working,
+                is_placeholder: self.is_placeholder,
+            },
             is_active: cell.has(StateFlag::Selected),
             expanded: self.expanded,
-            is_renaming: self.is_renaming,
-            is_creating_child: self.is_creating_child,
+            mode: self.mode,
             added: self.added,
             deleted: self.deleted,
             children,
@@ -151,8 +155,8 @@ impl SurfaceParams for Params {
             "--placeholder" => self.is_placeholder = true,
             "--expanded" => self.expanded = true,
             "--collapsed" => self.expanded = false,
-            "--renaming" => self.is_renaming = true,
-            "--creating-child" => self.is_creating_child = true,
+            "--renaming" => self.mode = RowMode::Renaming,
+            "--creating-child" => self.mode = RowMode::CreatingChild,
             "--added-count" => self.added = Some(parse_u32(&value(args, option)?, option)?),
             "--deleted-count" => self.deleted = Some(parse_u32(&value(args, option)?, option)?),
             "--children" => self.children = parse_u8(&value(args, option)?, option)?,
@@ -180,11 +184,10 @@ impl SurfaceParams for Params {
         if self.expanded {
             out.push_str(" · expanded");
         }
-        if self.is_renaming {
-            out.push_str(" · renaming");
-        }
-        if self.is_creating_child {
-            out.push_str(" · creating-child");
+        match self.mode {
+            RowMode::Renaming => out.push_str(" · renaming"),
+            RowMode::CreatingChild => out.push_str(" · creating-child"),
+            RowMode::Normal => {}
         }
         if let Some(n) = self.added {
             let _ = write!(out, " · +{n}");
@@ -260,6 +263,7 @@ mod tests {
     use super::{Params, SURFACE, options};
     use crate::row_surface::{Cell, StateFlag};
     use crate::surface::SurfaceParams;
+    use crowbar_ui::components::row_base::RowMode;
     use crowbar_ui::components::workspace_branch_icon::Status;
     use crowbar_ui::components::workspace_tree_item::WorkspaceTreeItem;
     use gpui::px;
@@ -281,8 +285,8 @@ mod tests {
         let row = params_of(&default_cell).row(&default_cell);
         assert_eq!(row.branch, WorkspaceTreeItem::fixture().branch);
         assert_eq!(row.depth, 0);
-        assert_eq!(row.status, Status::New);
-        assert!(!row.working);
+        assert_eq!(row.icon.status, Status::New);
+        assert!(!row.icon.working);
         assert!(!row.is_active);
         assert!(!row.has_children());
         assert!(row.pending_creates.is_empty());
@@ -326,11 +330,15 @@ mod tests {
 
     #[test]
     fn every_bool_option_reaches_the_row_independently() {
-        assert!(params_of(&cell(&["--working"])).row(&cell(&["--working"])).working);
-        assert!(params_of(&cell(&["--placeholder"])).row(&cell(&["--placeholder"])).is_placeholder);
-        assert!(params_of(&cell(&["--renaming"])).row(&cell(&["--renaming"])).is_renaming);
-        assert!(
-            params_of(&cell(&["--creating-child"])).row(&cell(&["--creating-child"])).is_creating_child
+        assert!(params_of(&cell(&["--working"])).row(&cell(&["--working"])).icon.working);
+        assert!(params_of(&cell(&["--placeholder"])).row(&cell(&["--placeholder"])).icon.is_placeholder);
+        assert_eq!(
+            params_of(&cell(&["--renaming"])).row(&cell(&["--renaming"])).mode,
+            RowMode::Renaming
+        );
+        assert_eq!(
+            params_of(&cell(&["--creating-child"])).row(&cell(&["--creating-child"])).mode,
+            RowMode::CreatingChild
         );
         assert!(!params_of(&cell(&["--collapsed"])).row(&cell(&["--collapsed"])).expanded);
         assert_eq!(params_of(&cell(&["--added-count", "12"])).row(&cell(&["--added-count", "12"])).added, Some(12));

@@ -463,9 +463,9 @@ pub mod sidebar_peek;
 // and use `AnchorSink::boxed` for their own root, `workspace_branch_icon`'s
 // own precedent. See each module's own docs.
 pub mod pending_create_row;
-pub mod workspace_tree_item;
 pub mod repo_section;
 pub mod workspace_tree;
+pub mod workspace_tree_item;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
 pub use avatar::Avatar;

@@ -219,7 +219,9 @@ impl WorkspaceTreeItem {
     /// `(hasChildren && expanded) || isCreatingChild || hasPendingChild`.
     #[must_use]
     pub fn show_children_section(&self) -> bool {
-        (self.has_children() && self.expanded) || self.mode.is_creating_child() || self.has_pending_child()
+        (self.has_children() && self.expanded)
+            || self.mode.is_creating_child()
+            || self.has_pending_child()
     }
 
     /// `(depth + 1) * 14` — this row's own indentation.
@@ -279,9 +281,11 @@ impl WorkspaceTreeItem {
             return None;
         }
 
-        let mut cluster = div().flex().flex_shrink_0().gap(CHANGES_GAP).font_family(
-            theme.font_mono.primary().unwrap_or("monospace"),
-        );
+        let mut cluster = div()
+            .flex()
+            .flex_shrink_0()
+            .gap(CHANGES_GAP)
+            .font_family(theme.font_mono.primary().unwrap_or("monospace"));
         if let Some(n) = added {
             cluster = cluster.child(anchors.boxed_text(
                 AnchorId::new(ID_ADDED).line_sized(),
@@ -305,7 +309,10 @@ impl WorkspaceTreeItem {
     /// instead).
     fn trailing_button(&self, theme: &Theme, anchors: &dyn AnchorSink) -> Option<AnyElement> {
         if self.has_children() {
-            Some(anchors.boxed(AnchorId::from(ID_EXPAND), row_base::sub_action_box(theme).child(row_base::sub_action_glyph())))
+            Some(anchors.boxed(
+                AnchorId::from(ID_EXPAND),
+                row_base::sub_action_box(theme).child(row_base::sub_action_glyph()),
+            ))
         } else if !self.mode.is_creating_child() {
             Some(anchors.boxed(
                 AnchorId::from(ID_ADD_CHILD),
@@ -322,17 +329,19 @@ impl WorkspaceTreeItem {
         if !self.show_placeholder_details() {
             return None;
         }
-        Some(anchors.boxed(
-            AnchorId::from(ID_PLACEHOLDER_DETAILS),
-            div()
-                .mx(row_base::MARGIN_X)
-                .mb(px(2.0))
-                .rounded_b(theme.radius_lg.value())
-                .px(px(10.0))
-                .pb(px(8.0))
-                .pt(px(2.0))
-                .bg(theme.background),
-        ))
+        Some(
+            anchors.boxed(
+                AnchorId::from(ID_PLACEHOLDER_DETAILS),
+                div()
+                    .mx(row_base::MARGIN_X)
+                    .mb(px(2.0))
+                    .rounded_b(theme.radius_lg.value())
+                    .px(px(10.0))
+                    .pb(px(8.0))
+                    .pt(px(2.0))
+                    .bg(theme.background),
+            ),
+        )
     }
 
     /// The row itself: icon, label, changes, trailing action — everything
@@ -427,7 +436,11 @@ impl WorkspaceTreeItem {
     /// every contract anchor into `anchors`.
     #[must_use]
     pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
-        let mut padded = div().flex().flex_col().pl(self.row_padding_left()).child(self.row(theme, anchors));
+        let mut padded = div()
+            .flex()
+            .flex_col()
+            .pl(self.row_padding_left())
+            .child(self.row(theme, anchors));
         if let Some(details) = self.placeholder_details(theme, anchors) {
             padded = padded.child(details);
         }
@@ -443,8 +456,8 @@ impl WorkspaceTreeItem {
 #[cfg(test)]
 mod tests {
     use super::{
-        CHANGES_GAP, CONTENT_SIZED, ID_ADD_CHILD, ID_ADDED, ID_CREATE_INPUT, ID_DELETED,
-        ID_EXPAND, ID_LABEL, ID_NEW_BUTTON, ID_PLACEHOLDER_DETAILS, ID_ROOT, INDENT, LINE_SIZED,
+        CHANGES_GAP, CONTENT_SIZED, ID_ADD_CHILD, ID_ADDED, ID_CREATE_INPUT, ID_DELETED, ID_EXPAND,
+        ID_LABEL, ID_NEW_BUTTON, ID_PLACEHOLDER_DETAILS, ID_ROOT, INDENT, LINE_SIZED,
         WorkspaceTreeItem, row_base,
     };
     use crate::components::workspace_branch_icon::Status;
@@ -517,7 +530,10 @@ mod tests {
     fn show_placeholder_details_requires_both_placeholder_and_active() {
         let mut row = WorkspaceTreeItem::fixture();
         row.icon.is_placeholder = true;
-        assert!(!row.show_placeholder_details(), "placeholder alone is not enough");
+        assert!(
+            !row.show_placeholder_details(),
+            "placeholder alone is not enough"
+        );
         row.is_active = true;
         assert!(row.show_placeholder_details());
     }
@@ -540,7 +556,9 @@ mod tests {
         assert!(creating.show_children_section());
 
         let mut pending = WorkspaceTreeItem::fixture();
-        pending.pending_creates.push(super::super::pending_create_row::PendingCreateRow::fixture());
+        pending
+            .pending_creates
+            .push(super::super::pending_create_row::PendingCreateRow::fixture());
         assert!(pending.show_children_section());
     }
 

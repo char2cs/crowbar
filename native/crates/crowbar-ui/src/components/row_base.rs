@@ -285,8 +285,8 @@ impl RowMode {
 #[cfg(test)]
 mod tests {
     use super::{
-        GAP, HEIGHT, LINE_HEIGHT_RELATIVE, MARGIN_X, MARGIN_Y, PADDING_X, RowMode, SUB_ACTION_GLYPH,
-        SUB_ACTION_SIZE, TEXT,
+        GAP, HEIGHT, LINE_HEIGHT_RELATIVE, MARGIN_X, MARGIN_Y, PADDING_X, RowMode,
+        SUB_ACTION_GLYPH, SUB_ACTION_SIZE, TEXT,
     };
     use gpui::px;
 

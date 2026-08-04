@@ -70,7 +70,10 @@
 //! |---|---|
 //! | `loading`, `error`, `hover`, `focus`, `selected`, `empty` | **unmodelled.** This row has no selection/hover/focus rule of its own (`pointer-events-none`, in fact) and no `StateFlag::Empty`-shaped trailing-edge concept. `error` here names [`PendingCreateRow::error`], a domain field (`pending.error`) entirely orthogonal to `StateFlag::Error` — the §8.3 flag stays mandatorily unmodelled, per `crowbar-app/src/surface.rs`'s own invariant, on every surface in this port including this one. |
 
-use gpui::{AnyElement, Div, IntoElement as _, ParentElement as _, Pixels, SharedString, Styled as _, div, px};
+use gpui::{
+    AnyElement, Div, IntoElement as _, ParentElement as _, Pixels, SharedString, Styled as _, div,
+    px,
+};
 
 use super::anchor::{AnchorId, AnchorSink};
 use super::row_base;
@@ -145,7 +148,9 @@ impl PendingCreateRow {
         if self.error {
             anchors.boxed_text(
                 AnchorId::new(ID_ICON),
-                Self::icon_wrapper().text_size(TEXT_XS).text_color(theme.destructive),
+                Self::icon_wrapper()
+                    .text_size(TEXT_XS)
+                    .text_color(theme.destructive),
                 SharedString::new_static("\u{2715}"),
             )
         } else {
@@ -160,7 +165,13 @@ impl PendingCreateRow {
 
     /// `'flex size-4 shrink-0 items-center justify-center'`.
     fn icon_wrapper() -> Div {
-        div().flex().flex_shrink_0().items_center().justify_center().w(ICON_SIZE).h(ICON_SIZE)
+        div()
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .justify_center()
+            .w(ICON_SIZE)
+            .h(ICON_SIZE)
     }
 
     /// The truncating branch-name label — `text-muted-foreground` on both
@@ -180,7 +191,10 @@ impl PendingCreateRow {
         div()
             .text_size(TEXT_XS)
             .text_color(theme.destructive)
-            .child(anchors.text(AnchorId::new(ID_STATUS).line_sized(), SharedString::new_static("failed")))
+            .child(anchors.text(
+                AnchorId::new(ID_STATUS).line_sized(),
+                SharedString::new_static("failed"),
+            ))
             .into_any_element()
     }
 
@@ -191,7 +205,10 @@ impl PendingCreateRow {
     fn dismiss(theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         anchors.boxed_text(
             AnchorId::new(ID_DISMISS).content_sized(),
-            div().ml(DISMISS_MARGIN_LEFT).text_size(TEXT_XS).text_color(theme.muted_foreground),
+            div()
+                .ml(DISMISS_MARGIN_LEFT)
+                .text_size(TEXT_XS)
+                .text_color(theme.muted_foreground),
             SharedString::new_static("\u{2715}"),
         )
     }
@@ -210,7 +227,9 @@ impl PendingCreateRow {
             .child(self.label(theme, anchors));
 
         if self.error {
-            row = row.child(Self::status(theme, anchors)).child(Self::dismiss(theme, anchors));
+            row = row
+                .child(Self::status(theme, anchors))
+                .child(Self::dismiss(theme, anchors));
         }
 
         div()

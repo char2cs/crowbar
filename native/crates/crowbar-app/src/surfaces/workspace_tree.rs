@@ -151,8 +151,8 @@ mod tests {
     #[test]
     fn repos_reaches_the_tree() {
         let theme = Theme::DARK;
-        let three = cell(&["--repos", "3"]);
-        let tree = params_of(&three).tree(&theme);
+        let three_repos = cell(&["--repos", "3"]);
+        let tree = params_of(&three_repos).tree(&theme);
         assert_eq!(tree.sections.len(), 3);
         assert_eq!(tree.sections[2].name, "repo-2");
     }

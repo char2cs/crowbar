@@ -19,6 +19,7 @@ use crowbar_ui::components::AnchorSink;
 use crowbar_ui::components::pending_create_row::PendingCreateRow;
 use crowbar_ui::components::repo_icon_popover::Trigger;
 use crowbar_ui::components::repo_section::RepoSection;
+use crowbar_ui::components::row_base::RowMode;
 use crowbar_ui::components::workspace_tree_item::WorkspaceTreeItem;
 use gpui::{AnyElement, SharedString, px};
 
@@ -46,10 +47,13 @@ pub struct Params {
     pub name: SharedString,
     /// `--collapsed`.
     pub is_collapsed: bool,
-    /// `--renaming`.
-    pub is_renaming: bool,
-    /// `--creating-child`.
-    pub is_creating_child: bool,
+    /// `--renaming`/`--creating-child` (mutually exclusive; the last one
+    /// given wins), folded into
+    /// [`crowbar_ui::components::row_base::RowMode`] directly rather than
+    /// kept as two independent bools — the same fold `crowbar-app/src/
+    /// surfaces/workspace_tree_item.rs` makes, needed here too to keep this
+    /// struct under clippy's `struct_excessive_bools`.
+    pub mode: RowMode,
     /// `--no-default-workspace`.
     pub has_default_workspace: bool,
     /// `--roots`: how many leaf root workspace rows this cell renders.
@@ -68,8 +72,7 @@ impl Default for Params {
         Self {
             name: SharedString::new_static("crowbar"),
             is_collapsed: false,
-            is_renaming: false,
-            is_creating_child: false,
+            mode: RowMode::Normal,
             has_default_workspace: true,
             roots: 1,
             pending: 0,
@@ -101,8 +104,7 @@ impl Params {
             name: self.name.clone(),
             is_active: cell.has(StateFlag::Selected),
             is_collapsed: self.is_collapsed,
-            is_renaming: self.is_renaming,
-            is_creating_child: self.is_creating_child,
+            mode: self.mode,
             has_default_workspace: self.has_default_workspace,
             trigger: Trigger::fixture(theme),
             roots,
@@ -120,8 +122,8 @@ impl SurfaceParams for Params {
         match option {
             "--name" => self.name = value(args, option)?.into(),
             "--collapsed" => self.is_collapsed = true,
-            "--renaming" => self.is_renaming = true,
-            "--creating-child" => self.is_creating_child = true,
+            "--renaming" => self.mode = RowMode::Renaming,
+            "--creating-child" => self.mode = RowMode::CreatingChild,
             "--no-default-workspace" => self.has_default_workspace = false,
             "--roots" => self.roots = parse_u8(&value(args, option)?, option)?,
             "--pending" => self.pending = parse_u8(&value(args, option)?, option)?,
@@ -142,11 +144,10 @@ impl SurfaceParams for Params {
         if self.is_collapsed {
             out.push_str(" · collapsed");
         }
-        if self.is_renaming {
-            out.push_str(" · renaming");
-        }
-        if self.is_creating_child {
-            out.push_str(" · creating-child");
+        match self.mode {
+            RowMode::Renaming => out.push_str(" · renaming"),
+            RowMode::CreatingChild => out.push_str(" · creating-child"),
+            RowMode::Normal => {}
         }
         if !self.has_default_workspace {
             out.push_str(" · no default workspace");
@@ -192,6 +193,7 @@ mod tests {
     use crate::row_surface::{Cell, StateFlag};
     use crate::surface::SurfaceParams;
     use crowbar_ui::Theme;
+    use crowbar_ui::components::row_base::RowMode;
 
     fn cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "repo-section"];
@@ -257,11 +259,15 @@ mod tests {
     fn every_bool_option_reaches_the_section_independently() {
         let theme = Theme::DARK;
         assert!(params_of(&cell(&["--collapsed"])).section(&cell(&["--collapsed"]), &theme).is_collapsed);
-        assert!(params_of(&cell(&["--renaming"])).section(&cell(&["--renaming"]), &theme).is_renaming);
-        assert!(
+        assert_eq!(
+            params_of(&cell(&["--renaming"])).section(&cell(&["--renaming"]), &theme).mode,
+            RowMode::Renaming
+        );
+        assert_eq!(
             params_of(&cell(&["--creating-child"]))
                 .section(&cell(&["--creating-child"]), &theme)
-                .is_creating_child
+                .mode,
+            RowMode::CreatingChild
         );
         assert!(
             !params_of(&cell(&["--no-default-workspace"]))

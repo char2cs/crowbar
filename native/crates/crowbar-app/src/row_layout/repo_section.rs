@@ -110,3 +110,22 @@ fn the_header_keeps_its_authored_height_whether_or_not_selected(cx: &mut TestApp
         assert_px(root.bounds.size.height, row_base::HEIGHT);
     }
 }
+
+/// **The label's own line box is `13 × row_base::LINE_HEIGHT_RELATIVE`
+/// (19.5px), not the row's authored `h-9`** — `project_home_row.rs`'s own
+/// gap-closing test, one label over.
+///
+/// **Mutation, run:** temporarily set `row_base::LINE_HEIGHT_RELATIVE`
+/// back to its pre-fix value (`18.0 / 13.0`). `cargo test -p crowbar-app
+/// --bin crowbar-app the_labels_own_line_box_is_13px_times_the_row_base_
+/// ratio` failed as expected: `expected 19.5px, got 18px`. Reverted to
+/// `1.5` after confirming.
+#[gpui::test]
+fn the_labels_own_line_box_is_13px_times_the_row_base_ratio(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+    let label = super::find(&records, repo_section::ID_LABEL);
+
+    assert_px(label.bounds.size.height, row_base::TEXT * row_base::LINE_HEIGHT_RELATIVE);
+    assert_px(label.bounds.size.height, px(19.5));
+}

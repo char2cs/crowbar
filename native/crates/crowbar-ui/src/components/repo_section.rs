@@ -64,7 +64,9 @@
 //! | `selected` | **real.** `activeWorkspaceId === repo.defaultWorkspaceId` selects [`row_base::active`] over [`row_base::inactive`], the same reading every other row-shaped surface in this port gives it. |
 //! | `empty`, `loading`, `error`, `hover`, `focus` | **unmodelled.** `empty` has no trailing-edge concept on this row. `hover`/`focus` are colour-only ([`row_base`]'s own module docs). `isRepoDragOver` (`ring-1 ring-ring`) is sourced from `workspace-tree-context.tsx`'s Phase 5 drag protocol — out of this item's scope, `workspace_tree_item.rs`'s own dragging/moving/drop-target reasoning, restated once for this surface. |
 
-use gpui::{AnyElement, IntoElement as _, ParentElement as _, Pixels, SharedString, Styled as _, div, px};
+use gpui::{
+    AnyElement, IntoElement as _, ParentElement as _, Pixels, SharedString, Styled as _, div, px,
+};
 
 use super::anchor::{AnchorId, AnchorSink};
 use super::pending_create_row::PendingCreateRow;
@@ -195,7 +197,11 @@ impl RepoSection {
             row_base::sub_action_box(theme).child(row_base::sub_action_glyph()),
         ));
 
-        div().flex().flex_col().child(anchors.boxed(AnchorId::from(ID_ROOT), shell)).into_any_element()
+        div()
+            .flex()
+            .flex_col()
+            .child(anchors.boxed(AnchorId::from(ID_ROOT), shell))
+            .into_any_element()
     }
 
     /// The root-level inline create row. `None` unless
@@ -209,13 +215,15 @@ impl RepoSection {
                 .flex()
                 .flex_col()
                 .pl(ROOT_PADDING_LEFT)
-                .child(anchors.boxed(
-                    AnchorId::from(ID_CREATE_INPUT),
-                    row_base::base(theme)
-                        .border_color(Color::TRANSPARENT)
-                        .text_color(theme.foreground)
-                        .child(row_base::sub_action_glyph()),
-                ))
+                .child(
+                    anchors.boxed(
+                        AnchorId::from(ID_CREATE_INPUT),
+                        row_base::base(theme)
+                            .border_color(Color::TRANSPARENT)
+                            .text_color(theme.foreground)
+                            .child(row_base::sub_action_glyph()),
+                    ),
+                )
                 .into_any_element(),
         )
     }
@@ -265,7 +273,14 @@ mod tests {
 
     #[test]
     fn the_six_anchor_ids_are_distinct_and_namespaced() {
-        let ids = [ID_ROOT, ID_LABEL, ID_IMPORT, ID_ADD_CHILD, ID_COLLAPSE, ID_CREATE_INPUT];
+        let ids = [
+            ID_ROOT,
+            ID_LABEL,
+            ID_IMPORT,
+            ID_ADD_CHILD,
+            ID_COLLAPSE,
+            ID_CREATE_INPUT,
+        ];
         for id in ids {
             assert!(id.starts_with(ID_ROOT), "{id}");
         }

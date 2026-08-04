@@ -2384,8 +2384,13 @@ describe('the scroll viewport declares its own anchors (P3.20)', () => {
 
     // The control, without which the assertion above proves only that *some*
     // reduction happened: the identical tree captured as a surface that
-    // declares nothing still walks every scrolled row.
-    const unscoped = extractSnapshot({ surface: 'workspace-tree', root: 'scroll-area-root' })
+    // declares nothing still walks every scrolled row. `'undeclared-control'`
+    // rather than a real surface name on purpose — this was `'workspace-tree'`
+    // until P3.61 gave that name its own real `oracleSurfaceScope` entry
+    // (Cluster 8's own outer scaffold, `native/mapping/layout-denominator.md`
+    // §8), which made a *declared* surface a bad stand-in for an *undeclared*
+    // one.
+    const unscoped = extractSnapshot({ surface: 'undeclared-control', root: 'scroll-area-root' })
     const ids = unscoped.anchors.map((a) => a.id)
 
     expect(ids.length).toBeGreaterThan(2)

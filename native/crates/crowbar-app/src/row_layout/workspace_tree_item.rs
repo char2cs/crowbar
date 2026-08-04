@@ -203,3 +203,25 @@ fn the_icon_sits_flush_and_the_label_follows_the_gap(cx: &mut TestAppContext) {
     assert_px(icon.origin.x, leading_edge);
     assert_px(label.origin.x, leading_edge + px(16.0) + row_base::GAP);
 }
+
+/// **The label's own line box is `13 × row_base::LINE_HEIGHT_RELATIVE`
+/// (19.5px), not the row's authored `h-9`** — `project_home_row.rs`'s own
+/// gap-closing test, one label over. See that file's own `row_layout` module
+/// for the full account of the regression this closes; the same mutation
+/// is repeated here since this file's own `ID_LABEL` is a second place
+/// that ratio could silently drift.
+///
+/// **Mutation, run:** temporarily set `row_base::LINE_HEIGHT_RELATIVE`
+/// back to its pre-fix value (`18.0 / 13.0`). `cargo test -p crowbar-app
+/// --bin crowbar-app the_labels_own_line_box_is_13px_times_the_row_base_
+/// ratio` failed as expected: `expected 19.5px, got 18px`. Reverted to
+/// `1.5` after confirming.
+#[gpui::test]
+fn the_labels_own_line_box_is_13px_times_the_row_base_ratio(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+    let label = at(&records, workspace_tree_item::ID_LABEL);
+
+    assert_px(label.size.height, row_base::TEXT * row_base::LINE_HEIGHT_RELATIVE);
+    assert_px(label.size.height, px(19.5));
+}

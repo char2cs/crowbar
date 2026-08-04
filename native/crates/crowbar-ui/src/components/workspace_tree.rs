@@ -144,7 +144,13 @@ impl WorkspaceTree {
 
         anchors.boxed(
             AnchorId::from(scroll_area::ID_ROOT),
-            div().relative().flex_1().min_h(px(0.0)).w(self.scroll_width).h(self.scroll_height).child(viewport),
+            div()
+                .relative()
+                .flex_1()
+                .min_h(px(0.0))
+                .w(self.scroll_width)
+                .h(self.scroll_height)
+                .child(viewport),
         )
     }
 

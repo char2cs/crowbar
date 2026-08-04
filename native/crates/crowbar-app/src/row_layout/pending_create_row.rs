@@ -109,3 +109,31 @@ fn the_root_keeps_its_authored_height_idle_or_failed(cx: &mut TestAppContext) {
         assert_px(root.bounds.size.height, crowbar_ui::components::row_base::HEIGHT);
     }
 }
+
+/// **The label's own line box is `13 × row_base::LINE_HEIGHT_RELATIVE`
+/// (19.5px), not the row's authored `h-9`** — `project_home_row.rs`'s own
+/// gap-closing test, one label over: a wrong `LINE_HEIGHT_RELATIVE`
+/// compiled, passed clippy and passed every other test in this tree before
+/// a live parity run caught it (`row_base.rs`'s own doc comment has the
+/// full account), because nothing here measured a label's own box, only
+/// the row's.
+///
+/// **Mutation, run:** temporarily set
+/// `crowbar_ui::components::row_base::LINE_HEIGHT_RELATIVE` back to its
+/// pre-fix value (`18.0 / 13.0`, ≈ `1.3846`) to confirm this test would
+/// have caught that exact regression. `cargo test -p crowbar-app --bin
+/// crowbar-app the_labels_own_line_box_is_13px_times_the_row_base_ratio`
+/// failed as expected: `expected 19.5px, got 18px`. Reverted to `1.5`
+/// after confirming.
+#[gpui::test]
+fn the_labels_own_line_box_is_13px_times_the_row_base_ratio(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+    let label = find(&records, pending_create_row::ID_LABEL);
+
+    assert_px(
+        label.bounds.size.height,
+        crowbar_ui::components::row_base::TEXT * crowbar_ui::components::row_base::LINE_HEIGHT_RELATIVE,
+    );
+    assert_px(label.bounds.size.height, px(19.5));
+}
