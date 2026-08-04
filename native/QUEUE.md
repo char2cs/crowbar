@@ -3754,6 +3754,29 @@ useful on its own. It is specifically the analysis/documentation items — the
 denominator survey, the liveness passes, the reconciliations — where an
 interruption currently costs everything.
 
+## 🚧 In flight while the screen is locked (2026-08-04)
+
+Three items, none of which needs a native capture — chosen deliberately so the
+lock costs schedule, not progress:
+
+| item | branch | what it does |
+|---|---|---|
+| **P3.72** settings schema | `native/p3.72-core-settings` | the 554-line LIVE cluster (`settings-normalization` and friends), scoped off a boot-time chain the survey evidences at `main.tsx:11-12` |
+| **P3.73** export-level liveness | `native/p3.73-export-liveness` | per-**export** verdicts for §2 diff algebra, §5 file-tree, §7 review threads. Died twice to API errors with nothing committed; re-briefed to commit per section |
+| **P3.74** dialog close id | `native/p3.74-dialog-close` | names the `Dialog` primitive's close Button, which today collides with any body Button and makes `repo-import-dialog` and `detach-holder-modal` **uncapturable** |
+
+**P3.74 is not additive and its brief says so.** Every dialog's close button
+currently emits `button`; after the change it emits `dialog-close`. The
+`dialog` surface *passes* today, so the Rust side has to move with it or a
+passing surface breaks. Blast radius on both sides was made a numbered
+deliverable rather than left to notice.
+
+**And P3.74 ships without my verdict.** I cannot capture while the screen is
+locked, so its mutation evidence and blast-radius grep are the only checks it
+gets until that clears. Its brief states that explicitly and asks it to write
+for a reader who cannot re-run the work — which is the honest description of
+what I am able to offer it right now.
+
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
 ```
