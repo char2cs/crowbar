@@ -3409,9 +3409,9 @@ taken by me against the live app. **A merge is not a verdict.**
 | `project-home-row` | ✅ | ✅ **PASS 0/5** | P3.60; a real line-height defect, found live and fixed |
 | `sidebar-carousel` | ✅ | ✅ **PASS 0/5** | drive: `--height 976 --active-tab workspaces`. See the `visible` note below |
 | `project-switcher-panel` | ✅ | ❌ **FAIL 5/5** | **only 1 real** — import label `font.weight` 400 vs 500. Also confirms P3.60 on its 2nd consumer |
-| `repo-section` | ✅ | ❌ **FAIL 5/5** | 3 port defects + **1 contract bug**: the scope entry drops `repo-section-add-child`, which is live |
-| `workspace-tree-item` | ✅ | ❌ **FAIL 1/4** | scope fixed (P3.65); the remaining delta is the **shared 1px row-button border** |
-| `workspace-tree` | ✅ | ❌ **FAIL 19/8** | 3 causes; 13 deltas are one omission — the list consumer never applies `MARGIN_X/Y` |
+| `repo-section` | ✅ | ⏳ **fixes merged, UNVERIFIED** | P3.66 closed all 3 port defects; scope bug closed by P3.65. **Re-verdict blocked by the screen lock** |
+| `workspace-tree-item` | ✅ | ⏳ **fix merged, UNVERIFIED** | P3.66 removed the phantom border at the shared path. **Re-verdict blocked** |
+| `workspace-tree` | ✅ | ⏳ **fixes merged, UNVERIFIED** | P3.66 added the margins + `--project-name` + `--home-active`. **Re-verdict blocked** |
 | `pending-create-row` | ✅ | ⏸ | P3.61 — no verdict yet (no pending row in the live app to capture) |
 | `sidebar-toast-overlay` | ✅ | ✅ **PASS 0/1** | liveness proven by firing a real toast; viewport height agrees at 84px |
 | `workspace-inline-input` | ✅ | ⚠ **PASS 0/2 / FAIL 6/3** | plain cell passes (thin — box-only anchors); `--hint` cell has **1 real defect** |

@@ -264,14 +264,21 @@ inner, content-sized, anchored span. `project-home-row` and
 `workspace-tree-item` are not this shape — both put `flex-1` directly on
 their own anchored label — and neither was touched.
 
-### Not fixed — finding 1, `repo-section-add-child`'s scope omission
+### ~~Not fixed — finding 1, `repo-section-add-child`'s scope omission~~
 
-Still open. `web/src/lib/oracle/extract.ts`'s own `repo-section` entry omits
-`repo-section-add-child` from its declared anchor set; the fix is a change to
-the oracle's own extraction contract, out of this item's remit (code fixes
-only — the item brief's hard constraints bar touching
-`native/oracle/corpus/` and running the oracle at all). Recorded here so a
-future worker does not have to re-find it.
+**⚠ This paragraph was already stale when written.** It said the scope omission
+was "still open" and out of the item's remit. **P3.65 had already closed it**,
+and merged into `rewrite/rust` *before* this item branched — `extract.ts`'s
+`repo-section` entry has declared `repo-section-add-child` since then
+(`extract.ts:1598`). The worker reasoned about the omission from the verdict
+write-up it was handed rather than from the tree it was standing in.
+
+Harmless here, but the shape is worth naming: **a "still open" claim about a
+neighbouring file needs a look at the file, not at the document that reported
+it.** My own brief carried the finding forward without noting it had been
+fixed, so the stale premise was mine to begin with.
+
+The declaration is live and this surface's capture now carries the anchor.
 
 ### Regressions guarded
 
