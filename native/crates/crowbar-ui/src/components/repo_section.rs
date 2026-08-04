@@ -108,11 +108,11 @@ pub struct RepoSection {
     pub is_active: bool,
     /// `isCollapsed`.
     pub is_collapsed: bool,
-    /// `renamingRepoId === repo.id`.
-    pub is_renaming: bool,
-    /// `creatingChildOf?.repoId === repo.id && creatingChildOf?.parentId ===
-    /// repo.defaultWorkspaceId`, already resolved by the caller.
-    pub is_creating_child: bool,
+    /// `renamingRepoId === repo.id`/`creatingChildOf?.repoId === repo.id &&
+    /// creatingChildOf?.parentId === repo.defaultWorkspaceId` (already
+    /// resolved by the caller), folded into one three-way state — see
+    /// [`row_base::RowMode`]'s own doc comment.
+    pub mode: row_base::RowMode,
     /// `!!repo.defaultWorkspaceId` — gates the add-child action and the
     /// root-level create row.
     pub has_default_workspace: bool,
@@ -136,8 +136,7 @@ impl RepoSection {
             name: SharedString::new_static("crowbar"),
             is_active: false,
             is_collapsed: false,
-            is_renaming: false,
-            is_creating_child: false,
+            mode: row_base::RowMode::Normal,
             has_default_workspace: true,
             trigger: Trigger::fixture(theme),
             roots: vec![WorkspaceTreeItem::fixture()],
@@ -158,7 +157,7 @@ impl RepoSection {
     fn label(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         let container = row_base::label_container(theme.foreground)
             .font_family(theme.font_mono.primary().unwrap_or("monospace"));
-        if self.is_renaming {
+        if self.mode.is_renaming() {
             container.into_any_element()
         } else {
             container
@@ -200,9 +199,9 @@ impl RepoSection {
     }
 
     /// The root-level inline create row. `None` unless
-    /// [`Self::is_creating_child`].
+    /// `self.mode.is_creating_child()`.
     fn create_row(&self, theme: &Theme, anchors: &dyn AnchorSink) -> Option<AnyElement> {
-        if !self.is_creating_child {
+        if !self.mode.is_creating_child() {
             return None;
         }
         Some(
@@ -248,7 +247,7 @@ impl RepoSection {
 mod tests {
     use super::{
         CONTENT_SIZED, ID_ADD_CHILD, ID_COLLAPSE, ID_CREATE_INPUT, ID_IMPORT, ID_LABEL, ID_ROOT,
-        LINE_SIZED, ROOT_PADDING_LEFT, RepoSection,
+        LINE_SIZED, ROOT_PADDING_LEFT, RepoSection, row_base,
     };
     use crate::theme::Theme;
     use gpui::px;
@@ -283,8 +282,7 @@ mod tests {
         let section = RepoSection::fixture(&theme);
         assert!(!section.is_active);
         assert!(!section.is_collapsed);
-        assert!(!section.is_renaming);
-        assert!(!section.is_creating_child);
+        assert_eq!(section.mode, row_base::RowMode::Normal);
         assert!(section.has_default_workspace);
         assert_eq!(section.roots.len(), 1);
         assert!(section.pending_creates.is_empty());

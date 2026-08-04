@@ -25,7 +25,7 @@
 //! # `WorkspaceTreeFooter` is omitted, not stubbed
 //!
 //! `workspace-tree.tsx` renders `<WorkspaceTreeFooter />` as a sibling of
-//! the scroll area, always mounted ("always rendered so the ScrollArea
+//! the scroll area, always mounted ("always rendered so the `ScrollArea`
 //! doesn't resize on drag start/end", the source's own comment).
 //! `native/mapping/layout-denominator.md` §6 classifies it **Phase 5
 //! (interaction — drag), not Tier B**, and flags the resulting composition

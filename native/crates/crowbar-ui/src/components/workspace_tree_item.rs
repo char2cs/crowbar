@@ -137,20 +137,23 @@ pub struct WorkspaceTreeItem {
     pub branch: SharedString,
     /// How many ancestors this row has — `0` for a repo root.
     pub depth: u32,
-    /// `workspace.status ?? 'new'`.
-    pub status: workspace_branch_icon::Status,
-    /// `workspace.working || isMoving`.
-    pub working: bool,
-    /// `isPlaceholderWorkspace(workspace)`.
-    pub is_placeholder: bool,
+    /// `workspace.status ?? 'new'` / `workspace.working || isMoving` /
+    /// `isPlaceholderWorkspace(workspace)`, bundled into one field —
+    /// `WorkspaceBranchIcon` already models exactly this three-way input,
+    /// and reusing its own struct (rather than three loose fields this
+    /// component would just forward unchanged to
+    /// [`WorkspaceBranchIcon::render`]) is what keeps this struct under
+    /// clippy's `struct_excessive_bools` without inventing a division that
+    /// is not already there — see [`row_base::RowMode`]'s own doc comment
+    /// for the sibling fold, one field down.
+    pub icon: WorkspaceBranchIcon,
     /// `workspace.id === activeWorkspaceId`.
     pub is_active: bool,
     /// `!isCollapsed`.
     pub expanded: bool,
-    /// `renamingId === workspace.id`.
-    pub is_renaming: bool,
-    /// `creatingChildOf?.parentId === workspace.id`.
-    pub is_creating_child: bool,
+    /// `isRenaming`/`isCreatingChild`, folded into one three-way state —
+    /// see [`row_base::RowMode`]'s own doc comment.
+    pub mode: row_base::RowMode,
     /// `workspace.added`, already resolved.
     pub added: Option<u32>,
     /// `workspace.deleted`, already resolved.
@@ -173,13 +176,14 @@ impl WorkspaceTreeItem {
         Self {
             branch: SharedString::new_static("feature/example"),
             depth: 0,
-            status: workspace_branch_icon::Status::New,
-            working: false,
-            is_placeholder: false,
+            icon: WorkspaceBranchIcon {
+                status: workspace_branch_icon::Status::New,
+                working: false,
+                is_placeholder: false,
+            },
             is_active: false,
             expanded: false,
-            is_renaming: false,
-            is_creating_child: false,
+            mode: row_base::RowMode::Normal,
             added: None,
             deleted: None,
             children: Vec::new(),
@@ -190,13 +194,13 @@ impl WorkspaceTreeItem {
     /// `status === 'locked'` — derived, not stored. See the module docs.
     #[must_use]
     pub fn is_locked(&self) -> bool {
-        self.status == workspace_branch_icon::Status::Locked
+        self.icon.status == workspace_branch_icon::Status::Locked
     }
 
     /// `isPlaceholder && isActive` — derived, not stored.
     #[must_use]
     pub fn show_placeholder_details(&self) -> bool {
-        self.is_placeholder && self.is_active
+        self.icon.is_placeholder && self.is_active
     }
 
     /// `hasChildren` — `children.length > 0` — derived, not stored, so a
@@ -215,7 +219,7 @@ impl WorkspaceTreeItem {
     /// `(hasChildren && expanded) || isCreatingChild || hasPendingChild`.
     #[must_use]
     pub fn show_children_section(&self) -> bool {
-        (self.has_children() && self.expanded) || self.is_creating_child || self.has_pending_child()
+        (self.has_children() && self.expanded) || self.mode.is_creating_child() || self.has_pending_child()
     }
 
     /// `(depth + 1) * 14` — this row's own indentation.
@@ -245,12 +249,7 @@ impl WorkspaceTreeItem {
     /// row's OWN icon) but not compositionally free of a caveat once
     /// children are present.
     fn icon(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
-        WorkspaceBranchIcon {
-            status: self.status,
-            working: self.working,
-            is_placeholder: self.is_placeholder,
-        }
-        .render(theme, anchors)
+        self.icon.render(theme, anchors)
     }
 
     /// The label slot: the branch name, or — while renaming — an empty,
@@ -259,7 +258,7 @@ impl WorkspaceTreeItem {
     fn label(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         let container = row_base::label_container(theme.foreground)
             .font_family(theme.font_mono.primary().unwrap_or("monospace"));
-        if self.is_renaming {
+        if self.mode.is_renaming() {
             container.into_any_element()
         } else {
             container
@@ -271,7 +270,7 @@ impl WorkspaceTreeItem {
     /// The change-count cluster. `None` unless active, not renaming, not
     /// locked, and at least one of added/deleted is a positive count.
     fn changes(&self, theme: &Theme, anchors: &dyn AnchorSink) -> Option<AnyElement> {
-        if !(self.is_active && !self.is_renaming && !self.is_locked()) {
+        if !(self.is_active && !self.mode.is_renaming() && !self.is_locked()) {
             return None;
         }
         let added = self.added.filter(|n| *n > 0);
@@ -307,7 +306,7 @@ impl WorkspaceTreeItem {
     fn trailing_button(&self, theme: &Theme, anchors: &dyn AnchorSink) -> Option<AnyElement> {
         if self.has_children() {
             Some(anchors.boxed(AnchorId::from(ID_EXPAND), row_base::sub_action_box(theme).child(row_base::sub_action_glyph())))
-        } else if !self.is_creating_child {
+        } else if !self.mode.is_creating_child() {
             Some(anchors.boxed(
                 AnchorId::from(ID_ADD_CHILD),
                 row_base::sub_action_box(theme).child(row_base::sub_action_glyph()),
@@ -371,7 +370,7 @@ impl WorkspaceTreeItem {
     /// pictures: the input row (own chrome anchored, `WorkspaceInlineInput`
     /// inside left empty) or the static "+ New" button.
     fn create_or_new_row(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
-        if self.is_creating_child {
+        if self.mode.is_creating_child() {
             anchors.boxed(
                 AnchorId::from(ID_CREATE_INPUT),
                 row_base::base(theme)
@@ -446,7 +445,7 @@ mod tests {
     use super::{
         CHANGES_GAP, CONTENT_SIZED, ID_ADD_CHILD, ID_ADDED, ID_CREATE_INPUT, ID_DELETED,
         ID_EXPAND, ID_LABEL, ID_NEW_BUTTON, ID_PLACEHOLDER_DETAILS, ID_ROOT, INDENT, LINE_SIZED,
-        WorkspaceTreeItem,
+        WorkspaceTreeItem, row_base,
     };
     use crate::components::workspace_branch_icon::Status;
     use gpui::px;
@@ -490,9 +489,9 @@ mod tests {
     fn the_fixture_is_a_leaf_root_row() {
         let row = WorkspaceTreeItem::fixture();
         assert_eq!(row.depth, 0);
-        assert_eq!(row.status, Status::New);
-        assert!(!row.working);
-        assert!(!row.is_placeholder);
+        assert_eq!(row.icon.status, Status::New);
+        assert!(!row.icon.working);
+        assert!(!row.icon.is_placeholder);
         assert!(!row.is_active);
         assert!(!row.has_children());
         assert!(row.children.is_empty());
@@ -508,7 +507,7 @@ mod tests {
     fn is_locked_tracks_the_status_field() {
         let mut row = WorkspaceTreeItem::fixture();
         assert!(!row.is_locked());
-        row.status = Status::Locked;
+        row.icon.status = Status::Locked;
         assert!(row.is_locked());
     }
 
@@ -517,7 +516,7 @@ mod tests {
     #[test]
     fn show_placeholder_details_requires_both_placeholder_and_active() {
         let mut row = WorkspaceTreeItem::fixture();
-        row.is_placeholder = true;
+        row.icon.is_placeholder = true;
         assert!(!row.show_placeholder_details(), "placeholder alone is not enough");
         row.is_active = true;
         assert!(row.show_placeholder_details());
@@ -537,7 +536,7 @@ mod tests {
         assert!(row.show_children_section());
 
         let mut creating = WorkspaceTreeItem::fixture();
-        creating.is_creating_child = true;
+        creating.mode = row_base::RowMode::CreatingChild;
         assert!(creating.show_children_section());
 
         let mut pending = WorkspaceTreeItem::fixture();

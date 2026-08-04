@@ -172,8 +172,11 @@ impl PendingCreateRow {
             .into_any_element()
     }
 
-    /// The `"failed"` caption. Error branch only.
-    fn status(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+    /// The `"failed"` caption. Error branch only. An associated function,
+    /// not a method: nothing about it reads `self` — the caption text is
+    /// fixed — the same `clippy::unused_self` shape
+    /// [`row_base::sub_action_glyph`] already is.
+    fn status(theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         div()
             .text_size(TEXT_XS)
             .text_color(theme.destructive)
@@ -183,8 +186,9 @@ impl PendingCreateRow {
 
     /// The dismiss `✕` button. Error branch only. Content-sized: unlike
     /// every other box on this surface, nothing about it is authored beyond
-    /// `ml-1` — its own box is its own text run's advance width.
-    fn dismiss(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+    /// `ml-1` — its own box is its own text run's advance width. An
+    /// associated function for the same reason [`Self::status`] is.
+    fn dismiss(theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         anchors.boxed_text(
             AnchorId::new(ID_DISMISS).content_sized(),
             div().ml(DISMISS_MARGIN_LEFT).text_size(TEXT_XS).text_color(theme.muted_foreground),
@@ -206,7 +210,7 @@ impl PendingCreateRow {
             .child(self.label(theme, anchors));
 
         if self.error {
-            row = row.child(self.status(theme, anchors)).child(self.dismiss(theme, anchors));
+            row = row.child(Self::status(theme, anchors)).child(Self::dismiss(theme, anchors));
         }
 
         div()
