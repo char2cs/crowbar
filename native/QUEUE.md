@@ -4617,8 +4617,24 @@ import('/src/features/window/stores/detach-modal-store.ts')
 ```
 
 This opened `detach-holder-modal` on demand — a surface that had never been
-captured. It should also reach `pending-create-row` and
-`placeholder-row-actions`, both ⏸ for the same class of reason.
+captured.
+
+### ‼️ …and it does NOT generalise. I wrote that it would, then checked
+
+The first version of this entry said the recipe "should also reach
+`pending-create-row` and `placeholder-row-actions`, both ⏸ for the same class of
+reason." **Both are false, and they fail for two *different* reasons** — so the
+useful thing here is the taxonomy, not the recipe:
+
+| gate | example | reachable this way? |
+|---|---|---|
+| **zustand store** (module-level const) | `detach-modal-store` | ✅ yes — the module graph reaches it |
+| **React local state** in a provider | `pendingCreates` is `useState` inside `workspace-tree-context.tsx:130` | ❌ no — there is no module-level handle, and the state is *transient*: it exists only while a create is in flight |
+| **daemon data** | `placeholder-row-actions` needs a workspace with **no `localPath`** | ❌ no — it needs a fixture written through the API, not a poke |
+
+"⏸ needs the thing driven open" was one label over three unrelated problems, and
+flattening them is what made the recipe look general. **Before claiming a gate
+is reachable, find out what kind of gate it is.**
 
 **Two caveats, both learned the hard way:**
 
