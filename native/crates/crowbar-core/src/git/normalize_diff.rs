@@ -8,15 +8,27 @@
 //! (`diff.lines.length`, `for (const line of diff.lines)`). The API used to
 //! be able to send `lines: null` for some diffs (the TS source's own comment
 //! names binary files); a fix on the daemon side stopped that
-//! (`FileDiff.MarshalJSON`). But an **opened diff tab is persisted with its
-//! payload embedded** — `web/src/lib/persistence/` — so a tab opened before
-//! that fix keeps reappearing with the stale `lines: null` shape on every
-//! relaunch: there is no refetch to correct it, only a `JSON.parse` of
-//! whatever was written to disk months earlier. `normalizeGitDiff` /
-//! `normalizeMultiFileDiff` existed to catch that one field, on every read,
-//! forever — a graceful fallback (stale value reads as empty) rather than a
-//! migration, per this project's own stated preference for pre-production
-//! code.
+//! (`FileDiff.MarshalJSON`). The TS source's own comment says an **opened
+//! diff tab is persisted with its payload embedded**, so a tab opened before
+//! that fix would keep reappearing with the stale `lines: null` shape on
+//! every relaunch — there is no refetch to correct it, only a `JSON.parse`
+//! of whatever was written to disk. `normalizeGitDiff` / `normalizeMultiFileDiff`
+//! existed to catch that one field, on every read, forever — a graceful
+//! fallback (stale value reads as empty) rather than a migration, per this
+//! project's own stated preference for pre-production code.
+//!
+//! **Checked, not assumed, and worth stating precisely:** the currently
+//! persisted shape (`web/src/lib/persistence/schemas.ts`'s
+//! `WorkspaceLayout.buffers: PaneContent[]`) does not actually embed a raw
+//! `GitDiff` anywhere today — `web/src/features/panes/types/pane-content.ts`'s
+//! diff-carrying variants, `CommitDiffContent`/`BranchReviewContent`, persist
+//! only an id (`sha`/`wsId`) and fetch the diff body lazily per the viewport,
+//! by their own doc comments. So the *precondition* the TS comment describes
+//! does not appear to be reachable in the app as it stands today either —
+//! consistent with, and probably the reason for, `normalize-diff.ts` having
+//! zero production importers (§ below). This port cannot rule out an older
+//! persisted-tab shape or a code path this search missed; it states what was
+//! actually found rather than assuming the TS comment's history still holds.
 //!
 //! # Why this doesn't port as two functions
 //!

@@ -90,10 +90,26 @@ temporarily removing `null_default.rs`'s guard and re-running it; see
 **Liveness note, independent of the above:** `normalize-diff.ts` has zero
 production importers anywhere in the current `web/src` tree — `git grep`
 finds only its own test file. Confirmed before deciding how to port it, not
-after, per this project's "port only live components" lesson. `lib/persistence/`
-— the mechanism the TS bug lived downstream of — is also deleted wholesale by
-D6 (spec §5.4) and not part of the native port at all, so even the bug's
-original precondition has no Rust-side equivalent to reconstruct.
+after, per this project's "port only live components" lesson.
+
+**A claim checked and corrected during this item, not merely assumed:** an
+earlier draft of this reasoning said the TS bug's precondition (an opened
+diff tab persisted with its `GitDiff` payload embedded) is "deleted by D6" in
+the native port. Checked directly instead: it does not appear to be
+reachable in the *current* TS app either. `web/src/lib/persistence/schemas.ts`'s
+`WorkspaceLayout.buffers: PaneContent[]` is what actually gets persisted, and
+`pane-content.ts`'s two diff-carrying variants —
+`CommitDiffContent`/`BranchReviewContent` — persist only an id (`sha`/`wsId`)
+and fetch the diff body lazily; neither embeds a `GitDiff`/`lines[]` payload
+at all today. So the persisted-embedded-diff shape the TS comment describes
+looks like it predates a refactor to lazy, id-only pane content, which is
+plausibly *why* nothing calls `normalizeGitDiff`/`normalizeMultiFileDiff`
+anymore rather than a coincidence. `lib/persistence/` being D6-deleted (spec
+§5.4) is real and independently true, but citing it as *the* reason the bug's
+precondition has no native counterpart overstated the case — the precondition
+looks gone already, before D6 ever enters the picture. Not fully provable
+either way (a missed code path can't be ruled out by search), so stated as
+what was found, not as an established fact.
 
 ## 3. `diff-buffer-path.ts` — real logic, but also currently dead in `web/src`
 
