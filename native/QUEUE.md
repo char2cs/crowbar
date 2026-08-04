@@ -3579,6 +3579,24 @@ settled below.** LIVE + CONDITIONAL totals **9,447 lines**, against the
 recorded rather than quietly adopted, because a denominator that moved by 3×
 is not a rounding difference.
 
+> **The alarm was mine, and it is worth naming as an error rather than as
+> caution.** I compared a **filtered subset** (`~3,170` — explicitly "genuine,
+> portable, gpui-free `crowbar-core` domain logic", excluding Phase 4 state,
+> presentation and `crowbar-diff` work *when it was introduced*) against an
+> **unfiltered total** (`9,447` — every reachable line across all seven
+> surveyed areas), and called the difference a defect that might invalidate
+> every completion estimate published here.
+>
+> Being cautious about the number was right. Framing it as "the denominator is
+> wrong" was not — the scope difference was recoverable from the commit that
+> introduced `~3,170`, which I did not read before raising it.
+>
+> **Same lesson this project keeps relearning in new costume.** I had already
+> written *"report the DENOMINATOR beside every ratio"* — and then failed to
+> check that two denominators were the same **kind** of thing before declaring
+> one broken. A number is only comparable to another of the same scope, and
+> "which scope?" is a question to ask **before** the alarm, not after.
+
 ## ✅ P3.71 — the 3,170-vs-9,447 denominator settled: **~3,170 stands**
 
 Reconciled in full in `native/mapping/tier-a-denominator.md`'s "Denominator
