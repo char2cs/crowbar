@@ -7,6 +7,59 @@ TS source and any surprising behaviour; this file is the cross-module index
 the task asked for: what each module models, and what was deliberately not
 ported, with the reason.
 
+## ⚠ Two of the six modules measure code no user can reach — same shape as `native/oracle/blocked/four-ported-surfaces-are-dead.md`, recorded here rather than there because the port target is a logic crate, not a surface
+
+**`normalize_diff.rs` and `diff_buffer_path.rs` port TS source
+(`normalize-diff.ts`, `diff-buffer-path.ts`) that has zero non-test importers
+anywhere in the current `web/src` tree.** Nothing in the shipping app can
+reach either one. This was found by the worker during P3.67 itself, confirmed
+independently with a control (`native/QUEUE.md`, "I dispatched two DEAD
+files": 0 importers for both, versus 1–2 for four sibling files ported in the
+same item — the asymmetry a method that returns 0 uniformly would not show),
+and re-confirmed again, by a different method (an import-reachability BFS
+seeded at `main.tsx`/`routeTree.gen.ts`), during the P3.69 liveness pass over
+`native/mapping/tier-a-denominator.md` that this note itself is part of. Three
+independent checks, same answer, each time.
+
+**This is not a case of "the worker missed it."** The worker found it and
+said so; the survey these six files were dispatched from never asked the
+question, and `diff_buffer_path.rs` specifically was never even in the
+survey's own "genuine, portable git-model logic" scope to begin with — the
+survey's own prose classifies `diff-buffer-path.ts` under "What is not
+git-model logic" ("tab/buffer identity logic..., not git model"), yet it was
+one of the six names the dispatch pulled from the file-list table anyway. Two
+independent failures compounded: a scope error (porting a file the survey had
+already ruled out) and a liveness error (porting a file nothing reaches).
+
+**Following `four-ported-surfaces-are-dead.md`'s precedent exactly: nothing is
+deleted pending a decision, because these are not the same kind of dead as
+each other, and the choice has a real cost either way.**
+
+- **`normalize_diff.rs`** ported as a structural invariant plus a
+  cross-crate regression test, not as two pass-through wrappers (§2 below) —
+  genuinely better Rust than a literal translation would have produced, dead
+  TS source or not. Deleting it recovers a few lines and one test module;
+  keeping it costs nothing except an asterisk on the coverage number.
+- **`diff_buffer_path.rs`** ports real, non-trivial, mutation-tested parsing
+  logic (§3 below) that happens to have no live caller today — closer to
+  `four-ported-surfaces-are-dead.md`'s class-B case (`skeleton`,
+  `inline-error`: real code, a plausible reason to exist, made unreachable by
+  something else) than its class-A case (`toast`, `sheet`: no render path at
+  all, ever). If a `use-git-diff-data.ts` hook is ever built — the test file
+  that exercises this module (`use-git-diff-data.test.ts`) implies one was
+  meant to exist — this becomes live without being re-ported.
+
+**Consequence for the coverage number, stated exactly as
+`four-ported-surfaces-are-dead.md` states it for the 64-surfaces count:**
+`crowbar-core`'s 1,435 covered lines (100.00%) includes 62 lines
+(`normalize_diff.rs`'s TS source is 38 lines, `diff_buffer_path.rs`'s is 24)
+that measure code no user can reach — the same asterisk the surface count
+already carries for its 5 dead-of-64. **The decision to delete, keep-and-mark,
+or wait for a real caller is the user's, not this or any other item's** — see
+`native/oracle/blocked/four-ported-surfaces-are-dead.md` for the fuller
+discussion of why that choice belongs to the user and what each option costs,
+which applies here without modification.
+
 `wc -l` on each Rust file (doc comments, tests and all) against the TS
 source's line count from `tier-a-denominator.md`:
 

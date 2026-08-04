@@ -13,7 +13,7 @@ and three of the five can never receive a verdict at all.
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
 | **Tier B · `components/layout`** | **22 of 23 targets** (P3.64 closed 3 defects + 3 fixture flags) — P3.61 (tree chain ×4) and P3.62 (last three) merged. **1 to go.** ⚠ built ≠ verified: **5 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1, `sidebar-carousel` 0/5), **4 FAIL** (`fps-overlay` — a **contract** gap; `repo-icon-popover` 36/6 — one missing wrapper; `repo-avatar` 4/1 — only 1 real; `project-switcher-panel` 5/5 — only 1 real), **1 REFUSED** (`repo-import-dialog` — duplicate `button` anchor id), the rest unverified |
-| **Tier A · `crowbar-core`** | **two areas merged** — workspace scoping (P3.53) + git logic (P3.67). Coverage **100.00% over 1,435 lines**, up from 787. ⚠ 2 of the 6 git files measure **dead code** — my scoping error, see below |
+| **Tier A · `crowbar-core`** | **two areas merged** — workspace scoping (P3.53) + git logic (P3.67). Coverage **100.00% over 1,435 lines**, up from 787. ⚠ 2 of the 6 git files measure **dead code** — my scoping error, see below. **`tier-a-denominator.md` now carries a liveness verdict on every row (P3.69)**: 61 LIVE, 25 CONDITIONAL, 4 DEAD, 0 UNCERTAIN — next recommended area: keymap resolution, 5 files / 516 lines, all LIVE, see below |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
 Both denominators come from surveys committed this iteration
@@ -3433,6 +3433,73 @@ pass-through wrappers with declaration-only tests.
 
 **Before the next Tier A dispatch: add a liveness column to
 `tier-a-denominator.md`.** The survey is the artefact that failed here.
+
+## ✅ P3.69 — the liveness column is added. Every row of `tier-a-denominator.md` carries a verdict
+
+`native/mapping/tier-a-denominator.md` §0, all seven areas + theme tokens.
+**Method:** per-file grep across all four import spellings (`@/` alias,
+relative, re-export shim, dynamic `import()`), excluding `__tests__/`,
+cross-checked against an independent compile-time import-reachability BFS
+seeded at `main.tsx` + `routeTree.gen.ts` (654 files visited, agreed with the
+manual pass on all 90 rows, zero conflicts). Four controls (two known-live,
+two known-dead, reusing this section's own P3.67 findings) all returned the
+expected verdict.
+
+**Verdicts: 61 LIVE, 25 CONDITIONAL, 4 DEAD, 0 UNCERTAIN, across 90 rows.**
+DEAD: `normalize-diff.ts` (38 lines, already known), `diff-buffer-path.ts` (24
+lines, already known — **and, newly found, never actually in the survey's own
+git-model scope**: its own §1 prose classifies it "not git-model logic," yet
+it was one of the six names P3.67's dispatch pulled from the file-list table
+anyway — a second, independent failure on top of the liveness one),
+`diff-search.ts` (72 lines, **new finding** — never dispatched, but discussed
+in §2 as real reachable logic with no liveness check), and
+`hooks/use-command-shortcut.ts` (4-line dead-by-construction stub, already
+correctly called a stub in the original prose but never given a verdict).
+**138 of 9,585 surveyed lines (1.4%) are dead; of the original ~3,170-line
+Tier A core figure, at minimum 62 lines (2.0%) were dead code already
+dispatched for porting** — see the survey's own "Liveness reconciliation"
+section for the full arithmetic and its limits (the historical 241-line
+git-model subtotal is not uniquely reconstructable to prove which 6 of 13
+rows composed it — stated as a plausible reconstruction, not a proven one).
+
+Also found: a live file can hold entirely dead exports, not just an unused
+default parameter — `file-explorer-tree-utils.ts` (§5) is LIVE only via
+`getExplorerTargetPath`, an export the survey's own "genuine, portable"
+bullet for the file never names; the four functions that bullet *does* name
+are either called nowhere (`filterHiddenFiles`, `removeEditingItemsFromTree`)
+or shadowed by an unrelated same-named function elsewhere
+(`addNewItemToTree`, `getAncestorDirectoryPaths` — the latter even has its
+own passing test exercising the unreachable original, the same
+"tested-but-unreachable" shape as the already-ported `diff-buffer-path.ts`).
+
+`native/mapping/core-git.md` now carries a top-level "⚠" section (mirroring
+`native/oracle/blocked/four-ported-surfaces-are-dead.md`'s treatment of the
+same situation for surfaces) documenting that `normalize_diff.rs` and
+`diff_buffer_path.rs` measure code no user can reach. **Nothing is deleted
+pending a user decision** — same standing as the four dead surfaces.
+
+**Recommended next Tier A area: keymap resolution — 5 files, 516 lines, all
+five independently LIVE this pass** (via `new-tab-view.tsx`'s and
+`workspace-view.tsx`'s always-mounted keyboard hooks — no dialog, pane, or
+flag required, the cleanest LIVE chain in the whole survey):
+
+| file | lines | what it does |
+|---|---|---|
+| `features/keymaps/types.ts` | 52 | The schema: `Command`, `CommandCategory`, `KeymapPreset(Id)`, `KeymapOverrides`, `EffectiveBinding`. |
+| `features/keymaps/registry.ts` | 220 | The static command table — 19 `COMMANDS` with default chords and categories, plus `getCommand`/`CATEGORY_ORDER` lookups. |
+| `features/keymaps/defaults/keybinding-presets.ts` | 49 | The two built-in presets (`default`, `compact`) plus `getPreset`/`isKeymapPresetId`. |
+| `features/keymaps/utils/chord.ts` | 124 | Chord grammar: `parseChord`/`stringifyChord`/`normalizeChord`/`formatChord` over `[mod+][shift+][alt+]<key>`. Only these 4 of the file's 6 exports port — `chordFromEvent`/`eventMatchesChord` consume a DOM `KeyboardEvent` directly and don't survive translation (GPUI has its own key-event shape). |
+| `features/keymaps/utils/effective-keymaps.ts` | 71 | The resolution algorithm itself: `resolveBinding`/`getEffectiveBindings`/`getEffectiveChordMap` merge default → preset → user-override by precedence; `findConflictingCommands` detects collisions. |
+
+16 ported-able tests exist already (`chord.test.ts` 7, `registry.test.ts` 9).
+**Caveat carried over from the original survey's Finding 8, unchanged by this
+pass:** `types.ts`, `keybinding-presets.ts`, and `effective-keymaps.ts` — the
+file that most literally *is* "keymap resolution" — have zero dedicated
+tests; those three would need tests authored, not ported. Not recommending
+`stores/store.ts` (LIVE but Phase 4/localStorage-persisted — D6 territory)
+or the four keyboard-event hooks (LIVE but GPUI replaces this dispatch layer
+natively, doesn't translate it) — both already correctly scoped out by the
+original survey, unaffected by this liveness pass.
 
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 

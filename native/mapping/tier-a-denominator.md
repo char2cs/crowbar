@@ -10,7 +10,9 @@ that domain logic (QUEUE.md, 2026-08-03).
 
 **Status: COMPLETE.** All seven named areas plus theme tokens measured,
 committed incrementally per the interruption protocol as each finished. The
-headline denominator is at the end of this file.
+headline denominator is at the end of this file. **Amended 2026-08-04 (P3.69)
+to add a liveness verdict to every row — see the next section for why, and
+"Liveness" below each area's file table for the per-row verdicts.**
 
 Method, per area: (1) where the logic lives today in `web/src`, with line
 counts: (2) what if anything is already ported into `crowbar-proto` /
@@ -18,6 +20,168 @@ counts: (2) what if anything is already ported into `crowbar-proto` /
 store or framework (gpui-free, D2); (4) the bucket — Tier A core / Phase 4
 state / already done / presentation / out of scope; (5) existing test files
 and case counts, since §16 gates Tier A on ported tests.
+
+---
+
+## 0. Liveness verification (P3.69) — why this exists, method, controls
+
+**This survey shipped without ever asking whether anything reaches the files
+it lists.** P3.67 took six file names straight from §1's table below and
+dispatched them for porting. Two — `utils/normalize-diff.ts` and
+`utils/diff-buffer-path.ts` — have **zero non-test importers**: nothing in the
+shipping app can reach them. They were ported, tested to 100% coverage, and
+merged before anyone checked (`native/QUEUE.md`, "I dispatched two DEAD
+files"). The user's standing directive is *"only port components that ARE IN
+USE on the production app."* Line counts and shape do not answer that
+question; only tracing reachability does. This section is the fix: every row
+in every table below now carries a verdict.
+
+### The four verdicts
+
+- **LIVE** — something reachable from the app entry point (`web/src/main.tsx`
+  → its boot-time calls, or → `routeTree.gen.ts` → the mounted route tree)
+  uses it, with no dialog/pane/route selection required beyond whatever the
+  app already shows by default. Evidence is a concrete import/call chain.
+- **CONDITIONAL** — reachable only once the user (or a build flag) selects a
+  *named* state the port has to model as a distinct thing: opening a specific
+  dialog (Settings), a specific pane type (commit/branch review diff), a
+  right-click context-menu action, a settings toggle, or a build-time flag
+  (`VITE_USE_MOCK`). Still in scope for porting — the condition is a state the
+  port's own UI has to reproduce, not a reason to skip the logic.
+- **DEAD** — nothing reaches it by any import spelling. Do not port (and, for
+  the two already-ported cases, do not silently keep pretending otherwise —
+  see `native/mapping/core-git.md`).
+- **UNCERTAIN** — none needed this pass. Every one of the 90 rows below
+  resolved to a definite verdict with a concrete file/line/chain citation; see
+  the tally at the end of this section.
+
+**A note on where this draws the LIVE/CONDITIONAL line, and why it differs
+from `native/mapping/liveness-audit.md`'s convention for UI surfaces.** That
+audit (component primitives — buttons, dialogs, rows) treated "open the
+Settings dialog" or "click a commit in History" as **LIVE**, reasoning that an
+always-available UI action is ordinary use, the same bucket as any button
+click. This survey's rows are *logic functions*, not UI primitives, and for a
+logic function the question that actually matters is different: **does this
+code run without the user doing anything beyond what the default IDE chrome
+already does, or does it require navigating to a distinct, nameable state
+first?** Opening Settings, opening a commit-diff pane, or right-clicking a
+file are each a state the *port* has to build as an explicit thing (a dialog
+open/closed flag, a pane-kind enum, a context-menu model) — exactly the
+category CONDITIONAL exists to flag, per this item's brief. So this survey
+uses a narrower LIVE than the surface audit does. Both are internally
+consistent; they are answering slightly different questions, and the
+divergence is called out here rather than silently reconciled, per this
+document's own standing practice (see Finding 5, below the headline table,
+for the earlier instance of the same kind of tension).
+
+### Method
+
+For every file named in every "Where it lives" table below: search
+`web/src` (excluding `__tests__/`, stated per the brief's requirement) for
+every spelling that could import it —
+
+1. `@/`-aliased absolute (`@/features/git/utils/foo`)
+2. relative, any depth (`./foo`, `../foo`, `../../utils/foo`)
+3. bare re-export through an intermediate `index.ts` or shim file (the
+   `features/file-explorer/{lib,stores,utils}/*.ts` one-line
+   `export * from '../file-explorer/...'` shims, per Finding 6 below, are
+   exactly this case — a naive same-directory grep misses the real importer
+   sitting one level deeper)
+4. dynamic `import()` (`review-code-view.tsx` is lazy-loaded this way from
+   `review-diff-tab.tsx`)
+
+then, for whatever imports it, trace **one more hop** toward the app root to
+find the condition (if any) that gates that importer, using the same
+four-spelling search at each hop. This was done two ways, cross-checked
+against each other:
+
+- **Manual, per-file `grep`**, tracing each hop by hand and reading the
+  gating code (a `Tabs defaultValue=`, an `isOpen` prop's store default, a
+  `useEffect` vs. an event-handler `.getState()` call) — this is what
+  produced every verdict and chain cited below.
+- **An automated compile-time import-reachability BFS** (`reach.py`,
+  scratch script, not committed — see below), seeded at `main.tsx` **and**
+  `routeTree.gen.ts` (TanStack Router's codegen; a route can be
+  root-reachable without `main.tsx` naming it directly), that resolves all
+  four spellings above via `os.path` resolution (alias, relative, directory
+  `index.*`) and follows every `from`/`import(` edge — 654 files visited
+  (642 of 653 non-test `.ts`/`.tsx` files in `web/src`, plus CSS `@import`
+  chains, which the same regex happens to also catch). This is a **second,
+  independent test of the DEAD verdicts specifically**: a file absent from
+  this reachable set cannot be LIVE or CONDITIONAL by any import spelling,
+  full stop, which is a stronger claim than "I did not personally find an
+  importer." Of the 653 files, only 11 are unreachable; 3 of those 11 are
+  rows in this survey (`normalize-diff.ts`, `diff-buffer-path.ts`,
+  `diff-search.ts` — see below); the other 8 are outside this survey's scope
+  (ambient `.d.ts` files that need no import to be real, a Web Worker loaded
+  via `new Worker(new URL(...))` syntax the regex doesn't parse — confirmed
+  by hand that it does have a real caller — a dev-only oracle-extraction
+  script, and one more dead component (`diff-review-header.tsx`) noted here
+  but not chased further, out of scope for this item).
+- **Known limitation of the BFS, stated rather than hidden:** it cannot see
+  `new Worker(new URL('./x.ts', import.meta.url))` (regex matches `from`/
+  `import(`, not `new Worker`) or any other non-static-analyzable loading
+  path. None of this survey's 90 rows load that way — checked — but the tool
+  is not a universal liveness oracle, only an import-graph one.
+
+### Controls
+
+A method that reports everything LIVE, or everything DEAD, is not evidence
+(per this project's standing rule). Four controls, two in each direction:
+
+| control | expected | method's result |
+|---|---|---|
+| `lib/branch-action.ts` — already independently confirmed live in `native/QUEUE.md`'s own P3.67 correction table (1 importer) | LIVE | **LIVE** — `branch-section.tsx:7`, which mounts unconditionally inside `GitPanel` (`sidebar-carousel.tsx:168`, itself always-rendered regardless of the active sidebar tab — see below) |
+| `lib/workspace-scope-url.ts` — the survey's own §6 already calls `workspaceBase` "one of the most load-bearing functions in this whole survey" | LIVE | **LIVE** — 20 non-test importers across every git/file/agent API module; re-confirmed independently rather than taken on the original prose's word |
+| `utils/normalize-diff.ts` — already independently confirmed dead in `native/QUEUE.md`'s P3.67 correction table (0 importers) | DEAD | **DEAD** — 0 importers by any spelling; absent from the BFS reachable set |
+| `utils/diff-buffer-path.ts` — same table, same finding | DEAD | **DEAD** — 0 importers by any spelling; absent from the BFS reachable set |
+
+All four controls returned the expected verdict. A fifth, unplanned control
+fell out of the work itself: the BFS's reachable-set check and the manual
+per-file grep were run independently and agreed on all 90 rows without a
+single conflict requiring arbitration — the strongest evidence available that
+neither method has a systematic blind spot the other shares.
+
+### One methodological finding that nearly reproduced this item's own mistake
+
+Sidebar panels (`sidebar-carousel.tsx`) are an **off-viewport scroll-snap
+carousel**, not conditionally-mounted tabs: `<GitPanel />` and
+`<FileExplorerTree />` are both rendered unconditionally at all times (just
+panned off-screen via CSS when another tab is active — confirmed by reading
+the JSX directly, not inferred). A first pass assumed "select the Git tab"
+was a CONDITIONAL gate, by analogy with `liveness-audit.md`'s treatment of
+`checkbox`/`textarea` (gated on opening a commit popover *inside* the git
+panel). That would have been wrong: the git panel itself, and everything it
+renders by default (`branch-section.tsx`, `changed-files-tree.tsx`), executes
+on every render with a workspace open, regardless of which carousel page is
+scrolled into view. Caught by reading `sidebar-carousel.tsx:126-169` directly
+instead of assuming from the "carousel" framing. This is the same class of
+error the brief warns about — a plausible-sounding gate that is not actually
+what the code does — just caught before it produced a wrong verdict rather
+than after.
+
+### Verdict tally (all 90 rows, every "Where it lives" table below)
+
+| verdict | rows | lines (of rows with a stated line count) |
+|---|---|---|
+| **LIVE** | **61** | **5,751** (+2 rows with no stated line count) |
+| **CONDITIONAL** | **25** | **3,696** (+3 rows with no stated line count) |
+| **DEAD** | **4** | **138** |
+| **UNCERTAIN** | **0** | — |
+| **Total** | **90** | **9,585** |
+
+(Row and line totals include every file table across all seven areas plus
+theme tokens, using the exact per-row line counts already printed in each
+"Where it lives" table — including full-file counts for mixed files like
+`review-code-view.tsx`'s 1,179 and `patch-window.ts`'s 244, which is *larger*
+than the doc's own "~8,048 lines surveyed" headline figure below, because
+that figure deliberately used reduced embedded-region estimates for mixed
+files instead of whole-file counts. Both figures are legitimate; they are
+answering different questions, and both are kept rather than silently
+reconciled into one number that would overclaim precision it doesn't have.)
+
+See "The headline denominator" → "Liveness reconciliation" at the end of this
+file for what this means for the ~3,170-line Tier A core figure specifically.
 
 ---
 
@@ -45,6 +209,31 @@ and case counts, since §16 gates Tier A on ported tests.
 
 **822 lines of `utils/`+`lib/`, plus ~368 pure lines embedded in a 1,179-line
 component** = **~1,190 lines of git/diff logic outside stores and components proper.**
+
+### Liveness
+
+Method and controls: see §0. `GitPanel` mounts unconditionally inside
+`sidebar-carousel.tsx:168` regardless of the active carousel page (confirmed
+by reading the JSX — this is *not* gated on "Git tab selected"); its default
+tab (`Tabs defaultValue="changes"`, `git-panel.tsx:59`) renders
+`ChangedFilesTree` immediately. Opening a commit/branch-review pane, by
+contrast, is a distinct pane-kind the port must model — CONDITIONAL.
+
+| file | verdict | evidence |
+|---|---|---|
+| `types/git-types.ts` | LIVE | Used directly by `git-status-to-changed-files.ts`, `build-git-folder-tree.ts`, `branch-section.tsx`, `changed-files-tree.tsx` — all on the default-mounted `GitPanel` chain. (Also flows into the CONDITIONAL review path; the type itself is exercised by both.) |
+| `types/git-diff-types.ts` | CONDITIONAL | Its two component-prop interfaces are used only by `git-diff-image.tsx` (image-diff viewer, only reachable inside `review-code-view.tsx`); `MultiFileDiff` is used by `review-api.ts`'s `getReview`/`getReviewFiles` (review-pane-only); `ParsedHunk` is declared, never constructed anywhere — dead type within a CONDITIONAL file. |
+| `lib/branch-action.ts` | LIVE | Control — see §0. `branch-section.tsx:7`, unconditional inside default-mounted `GitPanel`. |
+| `utils/git-status-to-changed-files.ts` | LIVE | `use-sidebar-changed-files.ts` → `git-panel.tsx` (default-mounted). **Correction to `native/QUEUE.md`'s own P3.67 table**: that table states 2 non-test importers; independently re-grepped here and found only 1 (`use-sidebar-changed-files.ts`; the second hit in the original count was almost certainly the test file). Immaterial to the verdict — still LIVE — but stated because this item's whole point is not taking prior counts on faith. |
+| `utils/review-file-summary-to-git-diff.ts` | CONDITIONAL | `use-review-files-summary.ts` → `review-diff-tab.tsx`, mounted only inside a commit-diff/branch-review pane (`commit-diff-pane.tsx`, `branch-review-pane.tsx`). |
+| `utils/build-git-folder-tree.ts` | LIVE | `changed-files-tree.tsx:9-10`, the default tab content of the default-mounted `GitPanel`. |
+| `utils/git-diff-helpers.ts` | CONDITIONAL | Sole importer `git-diff-image.tsx`, rendered only for image files inside `review-code-view.tsx` (CONDITIONAL, see below). |
+| `utils/normalize-diff.ts` | **DEAD** | Control — see §0. 0 non-test importers; absent from the BFS-reachable set. Already ported; see `native/mapping/core-git.md` §2 and the note in "The headline denominator" below. |
+| `utils/diff-buffer-path.ts` | **DEAD** | Control — see §0. 0 non-test importers; absent from the BFS-reachable set. Already ported; see `native/mapping/core-git.md` §3. |
+| `utils/diff-search.ts` | **DEAD** — new finding, not previously flagged | 0 non-test importers for `computeDiffMatches`/`MAX_DIFF_MATCHES`/`DiffSearchMatch`/`DiffSearchResult` anywhere in `web/src`; absent from the BFS-reachable set. The natural consumer, `review-search-bar.tsx` (imported by the live `review-diff-tab.tsx`), never imports this module — it implements search some other way. **Not ported** (it was never dispatched — it sat in the separate `crowbar-diff`-logic 316-line bucket, not the 3,170-line Tier A core bucket — so there is no Rust module to correct for this one, only the survey's own prose in §2 below, which discussed it as real logic without ever checking liveness). |
+| `utils/git-diff-cache.ts` | CONDITIONAL | Sole importer `editor-app-store.ts`; `gitDiffCache.invalidate(...)` fires only inside the save-file action, i.e. only once a file buffer is open (not the default new-tab state). |
+| `lib/patch-window.ts` | CONDITIONAL | `planWindow` used only by `review-code-view.tsx` (below). |
+| `components/diff/review-code-view.tsx` | CONDITIONAL | Dynamically imported (`import('./diff/review-code-view')`) from `review-diff-tab.tsx`, mounted only via `commit-diff-pane.tsx` / `branch-review-pane.tsx` (a commit-diff or branch-review pane open). The ~368 embedded pure-function lines this survey counts toward Tier A core execute only when this component does. |
 
 ### ‼️ Finding: `features/git/utils/git-diff-parser.ts` does not exist
 
@@ -179,6 +368,19 @@ exercised only incidentally through the two projection tests above.
 
 ## 2. Diff algebra
 
+**Liveness note (P3.69, see §0 for method):** this section has no "Where it
+lives" table of its own — everything it discusses is a row in §1's table
+above, and the liveness verdicts live there. One correction specifically:
+item 3 below (`diff-search.ts`) is discussed here as "pure, well-tested"
+crowbar-diff-scoped logic with no liveness caveat attached — independently
+re-checked for this item and found to be **DEAD** (0 non-test importers,
+absent from the reachability BFS; see §1's table). It was never dispatched
+for porting (unlike `patch-window.ts`, its sibling in the same 316-line
+bucket, which is CONDITIONAL-live via `review-code-view.tsx`), so there is no
+Rust code to correct — but the survey's own characterization of it as real,
+reachable logic was never checked against the app, the same gap this whole
+item exists to close.
+
 **Finding: as a distinct area, "diff algebra" barely exists as first-party
 code.** The daemon does the actual diffing (git itself, via the Go layer) and
 returns structured `FileDiff`/`Hunk`/`DiffLine` shapes already generated into
@@ -231,6 +433,30 @@ exactly — no keymap logic found anywhere outside this directory):
 | `hooks/use-save-keyboard.ts` | 31 | `useEffect` + `window.addEventListener('keydown', …)` |
 | `hooks/use-sidebar-tab-keyboard.ts` | 40 | same pattern |
 | `hooks/use-workspace-switcher-keyboard.ts` | 25 | same pattern |
+
+### Liveness
+
+Method and controls: see §0. `use-effective-keymap.ts`'s `useEffectiveChordMap`
+is called directly from `new-tab-view.tsx` (the default pane state, live per
+`native/mapping/crowbar-wordmark.md`'s own chain) and from
+`workspace-view.tsx`'s two always-mounted keyboard hooks — both root-reachable
+without opening anything. That single fact carries almost the whole area
+LIVE, since `effective-keymaps.ts` pulls in `registry.ts`, `chord.ts`,
+`keybinding-presets.ts`, `types.ts`, and `stores/store.ts` directly.
+
+| file | verdict | evidence |
+|---|---|---|
+| `types.ts` | LIVE | Imported by `effective-keymaps.ts` (below), reached from `new-tab-view.tsx`. |
+| `registry.ts` | LIVE | `COMMANDS` imported directly by `effective-keymaps.ts`. |
+| `defaults/keybinding-presets.ts` | LIVE | `getPreset`/`isKeymapPresetId` imported directly by `effective-keymaps.ts` and `stores/store.ts`. |
+| `utils/chord.ts` | LIVE | `normalizeChord` imported by both `effective-keymaps.ts` and `stores/store.ts`. |
+| `utils/effective-keymaps.ts` | LIVE | Called from `use-effective-keymap.ts`, which `new-tab-view.tsx:11` (default pane state) and `use-pane-keyboard.ts`/`use-sidebar-tab-keyboard.ts`/`use-workspace-switcher-keyboard.ts` all import directly. |
+| `stores/store.ts` | LIVE | Imported by `use-effective-keymap.ts` (above) for active preset + user overrides. |
+| `hooks/use-effective-keymap.ts` | LIVE | Direct importers include `new-tab-view.tsx` (default pane state) and `agent-chat-pane.tsx`. |
+| `hooks/use-command-shortcut.ts` | **DEAD** | Verified directly (`cat`'d the file): unconditionally `return undefined`. Its one importer, `editor-status-actions.tsx`, is itself live (always-mounted editor toolbar), but calling a function that only ever returns `undefined` executes no real behaviour — a live call site around a dead-by-construction stub, matching the doc's own original "stub" note. |
+| `hooks/use-save-keyboard.ts` | LIVE | `workspace-view.tsx:12`, unconditional inside the always-mounted `WorkspaceHost` chain. |
+| `hooks/use-sidebar-tab-keyboard.ts` | LIVE | `workspace-view.tsx:14`, same chain. |
+| `hooks/use-workspace-switcher-keyboard.ts` | LIVE | `context-pill.tsx:15`, mounted by default (`{!hasNavScreen && <ContextPill/>}`, `hasNavScreen` defaults false). |
 
 ### What is genuine, portable keymap-resolution logic
 
@@ -345,6 +571,50 @@ The 17 hook-test cases are Phase 4/glue, not core.
 
 **2,277 lines total** across these 22 files (matches `wc -l`, measured
 directly).
+
+### Liveness
+
+Method and controls: see §0. `main.tsx:11-12` calls `initializeSettingsStore`
+(`store.ts` → `settings-bootstrap.ts`) and `ensureStartupAppearanceApplied`
+(`appearance-bootstrap.ts`) **directly at boot**, before any dialog exists to
+open — this is root-reachable in the strongest sense, not merely "inside
+default IDE chrome." `settings-bootstrap.ts`'s `resolveInitialSettings`/
+`initializeSettingsState` call `default-settings.ts`, `settings-persistence.ts`
+(load/save), `normalizeSettings` (`settings-normalization.ts`), and
+`applySettingsSideEffects` (`settings-effects.ts`) unconditionally; `settings-
+normalization.ts` in turn imports `theme-registry.ts`, `file-tree-density.ts`,
+`font-family-resolution.ts`, `markdown-font-size.ts`, `ui-font-size.ts`, and
+`typography-defaults.ts` directly — all LIVE by the same boot-time chain.
+Everything else in this area lives only inside the Settings dialog
+(`isSettingsOpen: false` by default, confirmed in `ui-state-store.ts:82`) or a
+specific tab within it — CONDITIONAL, per §0's rule.
+
+| file | verdict | evidence |
+|---|---|---|
+| `types/settings.ts` | LIVE | The `Settings` type flowing through the boot chain above; imports `types/feature.ts`'s `CoreFeaturesState` directly. |
+| `types/feature.ts` | LIVE | Sole importer `types/settings.ts` (above). |
+| `types/search.ts` | CONDITIONAL | Used only by `store.ts`'s settings-search slice (`SearchResult`/`SearchState`), exercised only when the Settings dialog's search box is used. |
+| `config/default-settings.ts` | LIVE | Called directly in `settings-bootstrap.ts`'s boot path. |
+| `config/typography-defaults.ts` | LIVE | Imported by `default-settings.ts`, `settings-normalization.ts`, `appearance-bootstrap.ts`, `ui-font-size.ts`, `markdown-font-size.ts` — all boot-chain LIVE files. |
+| `config/search-index.ts` | CONDITIONAL | `settingsSearchIndex` used only by `store.ts`'s search slice (search box). |
+| `lib/settings-normalization.ts` | LIVE | Called directly in `settings-bootstrap.ts`'s boot path. |
+| `lib/font-family-resolution.ts` | LIVE | Imported directly by `settings-normalization.ts` (boot). |
+| `lib/markdown-font-size.ts` | LIVE | Imported directly by `settings-normalization.ts` (boot). |
+| `lib/ui-font-size.ts` | LIVE | Imported directly by `settings-normalization.ts` (boot). |
+| `lib/settings-import-export.ts` | CONDITIONAL | Both call sites — `settings-download.ts` and `store.ts`'s `updateSettingsFromJSON` — are invoked only from `developer-settings.tsx` (Settings → Developer tab's export/import buttons). |
+| `lib/settings-download.ts` | CONDITIONAL | Sole importer `developer-settings.tsx` (Settings → Developer tab, download button). |
+| `lib/settings-bootstrap.ts` | LIVE | Called directly from `main.tsx:11` via `store.ts`. |
+| `lib/settings-persistence.ts` | LIVE | `loadSettingsFromStore`/`saveSettingsToStore` called directly inside `settings-bootstrap.ts`'s boot path. (Liveness ≠ port-worthiness: this is still the D6-deleted persistence mechanism per the doc's original classification — LIVE today, out of scope regardless.) |
+| `lib/settings-effects.ts` | LIVE | `applySettingsSideEffects` called directly inside `settings-bootstrap.ts`'s boot path. |
+| `lib/appearance-bootstrap.ts` | LIVE | Called directly from `main.tsx:12`. |
+| `lib/settings-row-search.ts` | CONDITIONAL | Sole importer `settings-section.tsx`, only relevant while the Settings dialog's search box is in use. |
+| `lib/settings-tab-visibility.ts` | CONDITIONAL | Importers `settings-vertical-tabs.tsx`/`settings-dialog.tsx`, same search-box scope. |
+| `lib/diagnostics-export.ts` | CONDITIONAL | Sole importer `developer-settings.tsx` (Settings → Developer tab, export button). |
+| `utils/theme-upload.ts` | CONDITIONAL | Dynamically imported only from `appearance-settings.tsx`'s upload action (Settings → Appearance tab). |
+| `store.ts` | LIVE — mixed | The base store is read outside the Settings dialog entirely: `FpsOverlay` (unconditionally mounted, `ide-shell.tsx:276`) reads `useSettingsStore((s) => s.settings.showFpsOverlay)`, and `tab-bar.tsx` (always-visible tab strip) reads it too. But this one file also carries the search slice and `updateSettingsFromJSON` (both CONDITIONAL, see `types/search.ts`/`settings-import-export.ts` above) — a mixed file in the same shape the doc's own "brief's fourth bucket" pattern already names elsewhere. |
+| `stores/agent-providers-store.ts` | LIVE — mixed | Two importers: `providers-settings.tsx` (Settings tab, CONDITIONAL) and `use-workspace-agent-chats-stream.ts`, which `agent-chats-panel.tsx` calls directly. `agent-chats-panel.tsx` is rendered unconditionally at `sidebar-carousel.tsx:122` (`data-oracle-id="carousel-panel-chats"`), the same always-mounted-carousel-page pattern already established for `GitPanel`/`FileExplorerTree` in §1 — confirmed by reading the JSX, not assumed. Verdict is LIVE via that chain even though the Settings-tab chain is separately CONDITIONAL. |
+| `stores/font-store.ts` | CONDITIONAL | Importers `terminal-settings.tsx` and `font-selector.tsx` (used by `appearance-settings.tsx`/`editor-settings.tsx`) — all Settings-dialog-tab scope. |
+| `stores/types/font.ts` | CONDITIONAL | `FontInfo` type flows only through `font-store.ts` (above). |
 
 ### What is genuine settings-schema logic
 
@@ -502,6 +772,42 @@ QUEUE.md lesson about not trusting a directory listing as scope.
 | `features/file-system/controllers/file-utils.ts` | — | mixed |
 | `features/file-system/types/app.ts` | — | `FileEntry`/`AppFile` type definitions |
 
+### Liveness
+
+Method and controls: see §0. `FileExplorerTree` mounts unconditionally at
+`sidebar-carousel.tsx:132` (`data-oracle-id="carousel-panel-files"`, same
+always-mounted-carousel-page pattern as `GitPanel` in §1) inside a `Suspense`
+that never actually suspends (confirmed already in
+`native/mapping/liveness-audit.md`'s `skeleton` row — no `React.lazy`/
+suspending hook anywhere under `features/file-explorer/`), so it renders
+synchronously on every app load with a workspace open. `file-explorer-tree.tsx`
+imports all six of its interaction hooks directly and unconditionally (React's
+own rule: hooks cannot be called behind an `if`), which wires them up on every
+render even though several only do something meaningful once the user drags,
+renames, or right-clicks.
+
+| file | verdict | evidence |
+|---|---|---|
+| `file-explorer/lib/visible-file-tree-rows.ts` | LIVE | `buildVisibleFileTreeRows` called directly in `file-explorer-tree.tsx`'s render body (also via `use-file-explorer-visible-rows.ts`). |
+| `file-explorer/lib/file-tree-gitignore.ts` | LIVE | `collectGitIgnoreFileReferences` imported directly into `file-explorer-tree.tsx`; `use-file-explorer-gitignore.ts`'s `useEffect` computes the ignore rule set on every mount, not behind a toggle. |
+| `file-explorer/lib/file-tree-git-status.ts` | LIVE | Imported directly by `file-explorer-tree.tsx` and `file-explorer-tree-item.tsx`, applying status decoration to every row whenever a repo exists (the ordinary case). |
+| `file-explorer/lib/env-template.ts` | CONDITIONAL | Sole importer `use-file-explorer-context-menu.tsx` — only exercised by a specific right-click "create/parse .env" context-menu action. |
+| `file-explorer/lib/file-tree-density.ts` | LIVE | `normalizeFileTreeDensity` reached via `settings-normalization.ts` (boot, §4); `FILE_TREE_DENSITY_CONFIG` also imported directly into `file-explorer-tree.tsx`. |
+| `file-explorer/utils/file-explorer-tree-utils.ts` | **LIVE — but 4 of its 5 exports are dead, a "live file with a dead export" case worth flagging on its own.** | Re-checked every exported name individually (not just the file): `getExplorerTargetPath` has one real importer, `use-file-explorer-sync.ts` (called via `useMemo` on every render, reached through the always-mounted tree). But `filterHiddenFiles` and `removeEditingItemsFromTree` have **zero references anywhere in `web/src`, including tests** — dead on arrival. `addNewItemToTree` and `getAncestorDirectoryPaths` each have a same-named function **independently redeclared locally** inside `use-file-explorer-inline-editing.ts` and `file-tree-gitignore.ts` respectively — the exported originals are never called; `getAncestorDirectoryPaths` even has its own dedicated test (`__tests__/features/file-explorer/file-explorer-tree-utils.test.ts`, 2 of its 4 cases) that exercises the exported-but-unreachable version, matching the shape `native/mapping/core-git.md` §3 already documents for `diff-buffer-path.ts` ("its only importer... is a test file"). **The doc's own "genuine, portable" prose for this file (below) describes exactly the four dead exports and never mentions the one live one.** |
+| `file-explorer/stores/file-explorer-tree-store.ts` | LIVE | `useFileTreeStore` read directly in `file-explorer-tree.tsx`'s render (expand/select state) and `sidebar-carousel.tsx`. |
+| `file-explorer/stores/file-explorer-clipboard-store.ts` | CONDITIONAL | Read via `.getState()` inside a specific paste/cut/copy action handler (`file-explorer-tree.tsx:986`), not subscribed for every-render display; content only populates after a cut/copy action. |
+| `file-explorer/hooks/use-file-explorer-drag-drop.ts` | CONDITIONAL | Hook wiring runs every render (React rule), but its substantive behaviour fires only on an actual drag interaction. |
+| `file-explorer/hooks/use-file-explorer-inline-editing.ts` | CONDITIONAL | Same shape — substantive behaviour only on a rename/create action. |
+| `file-explorer/hooks/use-file-explorer-gitignore.ts` | LIVE | Its `useEffect` computes gitignore rules on every mount (see `file-tree-gitignore.ts` row). |
+| `file-explorer/hooks/use-file-explorer-sync.ts` | LIVE | `useMemo(() => getExplorerTargetPath(activeBuffer), [activeBuffer])`, recomputed on every render. |
+| `file-explorer/hooks/use-file-explorer-visible-rows.ts` | LIVE | Calls `buildVisibleFileTreeRows` directly in its return (see above). |
+| `file-explorer/hooks/use-file-explorer-context-menu.tsx` | CONDITIONAL | Meaningful content (the menu's item list) only matters once right-clicked. |
+| `features/files/lib/file-tree-api.ts` | LIVE | `fetchFileTree`/etc. called from `use-workspace-effects.ts`, itself called from `workspace-view.tsx` (always-mounted `WorkspaceHost` chain) — loading the tree for the active workspace is not optional. |
+| `features/files/lib/file-upload.ts` | CONDITIONAL | `pickAndUploadFiles` wired only into `useFileExplorerContextMenu`'s `onUploadFile` — a right-click action, same scope as `env-template.ts`. |
+| `features/file-system/controllers/file-tree-utils.ts` | LIVE | `findFileInTree` called directly in `file-explorer-tree.tsx:614` and `use-file-explorer-inline-editing.ts`. |
+| `features/file-system/controllers/file-utils.ts` | LIVE | `getFilenameFromPath` called unconditionally in `editor-status-actions.tsx`'s render (`rootFolderPath ? getFilenameFromPath(rootFolderPath) : 'No Project'`) — the always-mounted editor toolbar's project-name display, not gated on a file being open. |
+| `features/file-system/types/app.ts` | LIVE | `AppFile` flows through `file-tree-api.ts`, `file-explorer-tree-store.ts`, and the tree component itself — all LIVE above. |
+
 ### What is genuine, portable file-tree-model logic
 
 - **`visible-file-tree-rows.ts`** — the closest thing to a canonical
@@ -522,6 +828,14 @@ QUEUE.md lesson about not trusting a directory listing as scope.
   hand-rolled matcher.
 - **`file-explorer-tree-utils.ts`** — immutable tree editing: filter/insert/
   remove/ancestor-walk, all recursive pure functions over `FileEntry[]`.
+  **Liveness amendment (P3.69, see "Liveness" above):** of these, only
+  `getExplorerTargetPath` — not even named in this bullet — has a production
+  importer. `filterHiddenFiles` and `removeEditingItemsFromTree` are called
+  nowhere, including tests; `addNewItemToTree` and `getAncestorDirectoryPaths`
+  each have an unrelated, independently-declared same-named function
+  elsewhere that shadows them in practice. This bullet describes the file's
+  intent, not what actually runs — a "live file holding dead exports" case,
+  not a "genuine, portable, and reachable" one as originally framed.
 - **`features/file-system/controllers/file-tree-utils.ts`'s
   `findFileInTree`** — pure depth-first lookup, 22 lines, its own bug history
   documented in the file (used to unconditionally return null).
@@ -637,6 +951,32 @@ which each live under one feature directory:
 | `features/workspace/lib/workspace-slot-style.ts` | 36 | DOM mount-strategy styling (webview artifact) |
 
 **544 lines total** across these 12 files.
+
+### Liveness
+
+Method and controls: see §0 (`workspace-scope-url.ts` is one of the four
+stated controls). Everything in this area routes through `ide-shell.tsx`,
+`workspace-host.tsx`, `workspace-view.tsx`, or `use-workspace-effects.ts` —
+all part of the `WorkspaceHost` chain mounted unconditionally at
+`ide-shell.tsx:184` (already established LIVE via the `crowbar-wordmark`
+chain in `native/mapping/liveness-audit.md`). All 12 files verify LIVE; this
+is the one area of the seven where every row lands the same way, because
+workspace scoping is infrastructure every other area sits on top of.
+
+| file | verdict | evidence |
+|---|---|---|
+| `lib/workspace-scope.ts` | LIVE | `recordWorkspaceScopeFromPath`/`setWorkspaceScope` called directly in `ide-shell.tsx:28`, on every navigation. |
+| `lib/workspace-scope-url.ts` | LIVE | Control — see §0. `workspaceBase` has 20 non-test importers across every git/file/agent API module. |
+| `lib/workspace/resolve-root-path.ts` | LIVE | `use-workspace-effects.ts` (always-mounted chain) and `terminal.tsx` (`TerminalHost` unconditionally mounted, `ide-shell.tsx`). |
+| `lib/workspace/placeholder.ts` | LIVE | `isPlaceholderWorkspace` checked for every row in `workspace-tree-item.tsx` (the always-visible workspace list) and by `placeholder-toast-watcher.tsx`, unconditionally mounted at `ide-shell.tsx`. `placeholderReason`'s message specifically only renders for a placeholder row — a CONDITIONAL sub-case within a LIVE file, noted rather than folded away. |
+| `lib/workspace/branch-workspace.ts` | LIVE | `findWorkspaceForBranch` used in `workspace-tree-item.tsx` and `repo-section.tsx`, both on the always-mounted workspace-tree chain. |
+| `features/workspace/lib/keep-alive-policy.ts` | LIVE | `planRetention` called directly inside `workspace-host.tsx`'s armed-timer eviction logic — read the call site directly (`workspace-host.tsx:146-151`); fires routinely on workspace switches, not behind a rare toggle. |
+| `features/workspace/lib/activation-freshness.ts` | LIVE | Called from `use-workspace-effects.ts`, `workspace-store-registry.ts`, and `workspace-view.tsx` — all on ordinary workspace-activation/-deactivation, ordinary use. (The doc's own Phase-4-vs-Tier-A boundary tension for this file, Finding 5 below, is a separate question from whether it's *reached* — it is.) |
+| `features/workspace/lib/home-workspace-resolver.ts` | LIVE | `useHomeWorkspaceState`/`ensureHomeWorkspaceResolved` called directly and unconditionally in `ide-shell.tsx:84-86` (builds `homeWsIds` for the sidebar), **not only** from the home route (`routes/_shell/ide/$projectId/home.tsx`) as the file's own name might suggest — checked directly rather than assumed from the name. |
+| `features/workspace/lib/external-buffer-sync.ts` | LIVE | `syncBufferWithDisk` called from `use-workspace-effects.ts` (always-mounted) and `lib/persistence/hydrate.ts`. |
+| `features/workspace/lib/reset-workspace-scoped-stores.ts` | LIVE | Called directly in `workspace-view.tsx`, on every workspace switch. |
+| `features/workspace/lib/open-file-content.ts` | LIVE | Called directly in `use-workspace-effects.ts`, ordinary file-open path. |
+| `features/workspace/lib/workspace-slot-style.ts` | LIVE | `workspaceSlotStyling` called directly in `workspace-host.tsx` for every mounted workspace slot, including the one active workspace that always exists. |
 
 ### What is genuine, portable workspace-scoping logic
 
@@ -771,6 +1111,29 @@ read the other way (giving 39).
 **~900 lines total** across the four non-component files, of which roughly
 **300–320 lines are genuine model/mapping/positioning logic** once the
 transport and hook bodies are subtracted (see below).
+
+### Liveness
+
+Method and controls: see §0. The key check here is whether the thread *store*
+and its *WS subscription* are live independent of whether a review pane is
+currently open — they are: `use-workspace-threads-stream.ts` is imported by
+`use-workspace-effects.ts` (the always-mounted `WorkspaceHost` chain, §6), so
+every open workspace subscribes to its thread stream regardless of whether
+any diff pane is visible, and `branch-review-slice.ts` is one of the slices
+composed into `workspace-store.ts` for every workspace. Only the *display* of
+threads (`review-thread-item.tsx`, `use-review-annotations.tsx`) is gated on
+opening a review pane — matching `native/mapping/liveness-audit.md`'s own
+already-published verdict for `review-thread-item.tsx` (used there as the
+CONDITIONAL chain for the `alert-dialog`/`avatar`/`badge` surfaces), confirmed
+consistent here rather than re-derived from scratch.
+
+| file | verdict | evidence |
+|---|---|---|
+| `features/workspace/stores/slices/branch-review-slice.ts` | LIVE | `createBranchReviewSlice` composed into `workspace-store.ts` for every workspace (`workspace-store.ts:11`), independent of any pane being open. |
+| `features/git/api/review-api.ts` | LIVE — mixed | `mapThread`/`listThreads` called directly from `use-workspace-threads-stream.ts` (LIVE, above) — genuinely exercised for every open workspace. The transport-only functions (`getReview`, `mergeIntoParent`, `setMergeStrategy`) are CONDITIONAL within the same file (only from `branch-review-pane.tsx`/`merge-popover.tsx`) — another mixed-file case. |
+| `features/git/components/diff/use-review-annotations.tsx` | CONDITIONAL | Sole importer `review-code-view.tsx` (CONDITIONAL, §1 — only mounted inside a commit-diff/branch-review pane). |
+| `features/workspace/stores/hooks/use-workspace-threads-stream.ts` | LIVE | Imported directly by `use-workspace-effects.ts` (always-mounted chain) — subscribes for every open workspace, not only while a review pane is visible. |
+| `features/git/components/review-thread-item.tsx` | CONDITIONAL | Matches `native/mapping/liveness-audit.md`'s already-published verdict (its `alert-dialog`/`avatar`/`badge` rows trace this exact chain): sole importer `use-review-annotations.tsx` (CONDITIONAL, above). |
 
 ### What is genuine, portable review-thread-model logic
 
@@ -908,6 +1271,21 @@ area, already applied once.
 | `extensions/themes/types.ts` | 91 | `ThemeTokens` (dead stub, never imported outside its own file) + `ThemeDefinition` (real, but embeds `React.ReactNode` for `icon`) |
 | `features/editor/theme/resolve-css-color.ts` | 188 | **`cssColorToHex`/`oklchToHex`** (pure) + `resolveCssVar`/`readSyntaxPalette`/`readTerminalPalette` (DOM-entangled) |
 
+### Liveness
+
+Method and controls: see §0. `theme-registry.ts` is imported directly by
+`settings-normalization.ts` (boot-time, §4), settling this whole area's
+anchor file as LIVE by the same chain that settled most of Settings.
+
+| file | verdict | evidence |
+|---|---|---|
+| `styles/theme.css` | LIVE | `index.css` `@import`s it unconditionally (`index.css:3`); `index.css` is the app's base stylesheet. Base `:root`/`.dark` selectors apply regardless of the active theme. |
+| `styles/zen.css` | CONDITIONAL | Its declarations are scoped entirely under `[data-theme='zen']:not(.dark)` etc. — always shipped in the bundle, but only takes effect once the user selects the "Zen" theme specifically (confirmed by reading the file's own selectors, not the doc's prose). |
+| `styles/editor-theme.css` | LIVE | `index.css:5`, unconditional; mostly `@font-face` declarations that apply regardless of theme. |
+| `extensions/themes/theme-registry.ts` | LIVE | `themeRegistry` imported directly by `settings-normalization.ts` (boot chain, §4) and by the always-mounted terminal (`use-terminal-connection.ts`). |
+| `extensions/themes/types.ts` | LIVE — but one dead export | `ThemeDefinition` is real and live (flows through `theme-registry.ts`, above). `ThemeTokens` is confirmed dead exactly as the doc's own prose already says — grepped independently: it appears only in its own declaration and as an unused optional field (`tokens?: ThemeTokens`) on `ThemeDefinition`, never populated or read anywhere. Another "live file, dead export" case, consistent with the doc's own prior note. |
+| `features/editor/theme/resolve-css-color.ts` | LIVE | `use-terminal-theme.ts` imports it directly; the terminal is unconditionally mounted (`TerminalHost`, `ide-shell.tsx`). (Its other two consumers — `mermaid-theme.ts` for Plate markdown mermaid blocks, `monaco/define-theme.ts` for the Monaco engine — are each their own CONDITIONAL sub-case, immaterial to the file-level verdict since the terminal chain alone makes it LIVE.) |
+
 ### What is genuine, portable, gpui-free color arithmetic — and a real gap
 
 - **`cssColorToHex`/`oklchToHex`/`gammaEncode`/`expandShortHex`/`parseAlpha`/
@@ -968,6 +1346,11 @@ color.rs`'s existing 13 `#[test]`s rather than start a new file.
 ## The headline denominator
 
 **Status: COMPLETE.** All seven named areas plus theme tokens measured.
+**Amended 2026-08-04 (P3.69): the ~3,170-line "Tier A core" figure below
+predates this file's liveness pass (§0) and was computed from line counts and
+classification alone — the same gap that let two dead files ship. See
+"Liveness reconciliation" after the per-area breakdown for what that figure
+looks like once every row carries a verdict.**
 Method note on precision: whole-file line counts below are exact `wc -l`
 measurements. Several files are *mixed* — genuine Tier A logic sitting beside
 presentation, DOM code, or a React component in the same file (`
@@ -1035,6 +1418,57 @@ Keymap resolution, settings schema, workspace scoping and theme tokens have
 **no** daemon-side counterpart — they are frontend-local concepts with
 nothing to duplicate, which is itself worth knowing before scoping a Tier A
 work item as "port the types."
+
+### Liveness reconciliation (P3.69)
+
+The ~3,170-line figure above was never checked against reachability — that is
+this whole item's reason for existing (see §0). Two independent questions,
+kept separate rather than blended into one adjusted total:
+
+**1. How much of the ~3,170 was dead code, by the figure's own internal math?**
+The git-model per-area row states "6 whole files, 241 lines." The prose's own
+"genuine, portable git-model logic" bullets name exactly five things —
+`resolveBranchAction`, the two changed-files projections, `buildGitFolderTree`,
+and `getFileStatus` — which are `branch-action.ts`(49) +
+`git-status-to-changed-files.ts`(45) + `review-file-summary-to-git-diff.ts`(41)
++ `build-git-folder-tree.ts`(57) + `git-diff-helpers.ts`(11) = **203 lines**,
+38 short of 241. `normalize-diff.ts` is exactly 38 lines and is the file P3.67
+dispatched alongside the five named ones. **This is offered as the most
+textually plausible reconstruction of the sixth file, not a proven one** —
+checked computationally, 9 different subsets of git model's 13 rows sum to
+241, so the arithmetic alone does not uniquely determine it. If this
+reconstruction is right, **38 of the ~3,170 lines were counted as Tier A core
+and are DEAD** (`normalize-diff.ts`). `diff-buffer-path.ts` (24 lines) is
+*not* part of any plausible reading of the 241 — the prose explicitly places
+it under "What is not git-model logic" ("tab/buffer identity logic..., not
+git model") — yet P3.67 dispatched it for porting anyway, alongside
+`normalize-diff.ts`. That is a second, independent failure on top of the
+liveness gap: a file the survey itself had already ruled out of scope got
+ported regardless, evidently because the dispatch pulled six names from the
+file-list table (§1's "Where it lives") rather than from the survey's own
+classification — exactly `native/QUEUE.md`'s own diagnosis ("I took these six
+straight from `tier-a-denominator.md`, which counts lines and never asked
+whether anything reaches them").
+
+**2. How much of the whole survey (not just the 3,170 bucket) is dead, now
+that every row has been checked?** **138 of 9,585 lined rows (1.4%) — see §0's
+tally.** This is the number that matters going forward, because it is not
+retrospective bookkeeping about one already-superseded subtotal: `normalize-
+diff.ts`(38) and `diff-buffer-path.ts`(24) are the two files already ported
+(§0, `native/mapping/core-git.md` §§2–3); `diff-search.ts`(72) is a **new
+finding** from this pass — never dispatched, sitting in the separate
+`crowbar-diff`-logic 316-line bucket, but discussed in §2 as real reachable
+logic without the liveness check that would have caught it; `hooks/use-
+command-shortcut.ts`(4) is a dead-by-construction stub the original doc
+already correctly called out as a stub but never gave a DEAD verdict to.
+
+**The conservative, fully-defensible headline: at minimum 62 lines (2.0% of
+the original 3,170) of what was labelled "Tier A core" and dispatched for
+porting was dead code — both files QUEUE.md's own P3.67 section already named.
+Across the full, now-liveness-checked survey, 138 of 9,585 surveyed lines
+(1.4%) are dead.** Small in proportion either way — but the size was never
+the point; the point is that the number was never checked, and now every row
+has been.
 
 ## Findings — corrections to the brief
 
@@ -1132,3 +1566,31 @@ work item as "port the types."
    file). §6.1's sealed token types are precisely what separates these two
    concerns at the type-system level in the port; today's React code has no
    such enforcement and mixes them by convenience.
+
+10. **This survey shipped without a liveness check, and that gap reached
+    production.** §0 (P3.69) is the fix: every row in every table above now
+    carries a LIVE/CONDITIONAL/DEAD/UNCERTAIN verdict, with evidence. Three
+    things fell out of doing that work that would not otherwise have
+    surfaced:
+    - **`diff-buffer-path.ts` was dispatched for porting despite this
+      survey's own §1 prose explicitly ruling it "not git-model logic."**
+      `normalize-diff.ts` and `diff-buffer-path.ts` are the two files
+      `native/QUEUE.md`'s P3.67 section already found dead; this pass adds
+      that the second one was never even in-scope by the survey's own
+      classification, only by its file-list table — the file list and the
+      classification disagreed, and the dispatch followed the list.
+    - **`diff-search.ts` is a third dead file** (§1/§2), never dispatched
+      (it wasn't in the 3,170-line bucket to begin with) but discussed in §2
+      as real, reachable logic with no liveness caveat.
+    - **A live file can hold entirely dead exports**, and this survey's own
+      prose was fooled by it once: `file-explorer-tree-utils.ts` (§5) is
+      LIVE only because of `getExplorerTargetPath`, an export the original
+      "genuine, portable" bullet for this file never names — the four
+      functions that bullet *does* name (`filterHiddenFiles`,
+      `addNewItemToTree`, `removeEditingItemsFromTree`,
+      `getAncestorDirectoryPaths`) are either called nowhere at all or
+      shadowed by an unrelated same-named function elsewhere. `getAncestor-
+      DirectoryPaths` even has its own passing test exercising the
+      unreachable original — the same "tested but unreachable" shape
+      `native/mapping/core-git.md` documents for the already-ported
+      `diff-buffer-path.ts`.
