@@ -4,7 +4,7 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 3 — remainder **measured**, not estimated. **64 surfaces · 2143 tests ·
+**Phase:** 3 — remainder **measured**, not estimated. **64 surfaces · 2230 tests ·
 clippy 0 · 7/7 invariants**, all verified by my own run. Of the 64, **5 measure
 dead code** (liveness audit + `sidebar-skeleton`) — so the honest figure is **59**,
 and three of the five can never receive a verdict at all.
@@ -13,7 +13,7 @@ and three of the five can never receive a verdict at all.
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
 | **Tier B · `components/layout`** | **22 of 23 targets** (P3.64 closed 3 defects + 3 fixture flags) — P3.61 (tree chain ×4) and P3.62 (last three) merged. **1 to go.** ⚠ built ≠ verified: **5 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1, `sidebar-carousel` 0/5), **4 FAIL** (`fps-overlay` — a **contract** gap; `repo-icon-popover` 36/6 — one missing wrapper; `repo-avatar` 4/1 — only 1 real; `project-switcher-panel` 5/5 — only 1 real), **1 REFUSED** (`repo-import-dialog` — duplicate `button` anchor id), the rest unverified |
-| **Tier A · `crowbar-core`** | **1,648 lines of a ~3,170-line target** — first area merged (workspace scoping, P3.53). Coverage **100.00% over 787 lines**, up from 148 |
+| **Tier A · `crowbar-core`** | **two areas merged** — workspace scoping (P3.53) + git logic (P3.67). Coverage **100.00% over 1,435 lines**, up from 787. ⚠ 2 of the 6 git files measure **dead code** — my scoping error, see below |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
 Both denominators come from surveys committed this iteration
@@ -3390,6 +3390,49 @@ no Rust counterpart) on every one of those call sites and broken dozens of
 currently-passing surfaces. The claim did not merely mislead a reader — it
 almost authorised a change across the whole button surface area. It survived
 being caught once. **Correcting both lines goes in the next dispatch.**
+
+## ⚠ I dispatched two DEAD files — my scoping error, not the worker's
+
+P3.67's brief named six `web/src` files to port. **Two have zero non-test
+importers**: `utils/normalize-diff.ts` and `utils/diff-buffer-path.ts`. The
+worker found it and said so; I had not checked.
+
+**The rule I broke is my own.** The liveness verdict belongs *in* the
+denominator survey, before any dispatch — that is written down precisely so a
+brief cannot be built from a file list alone. I took these six straight from
+`tier-a-denominator.md`, which counts lines and never asked whether anything
+reaches them.
+
+Verified myself with a control rather than accepting the report:
+
+| file | non-test importers |
+|---|---|
+| `normalize-diff.ts` | **0** |
+| `diff-buffer-path.ts` | **0** |
+| `build-git-folder-tree.ts` | 1 |
+| `git-status-to-changed-files.ts` | 2 |
+| `branch-action.ts` | 1 |
+| `review-file-summary-to-git-diff.ts` | 1 |
+
+A method returning 1–2 for the controls and 0 for these is measuring something
+real. (Note the asymmetry: "has an importer" is too weak to prove *live* — a
+live file can hold a dead export — but **zero** importers is strong evidence of
+dead, because nothing can reach it at all.)
+
+**Consequence for the coverage number.** 1,435 covered lines includes two
+modules no user can reach, exactly as 64 surfaces includes 5 that measure dead
+components. The honest Tier A figure needs the same asterisk the surface count
+carries.
+
+The worker did handle the dead one well rather than mechanically:
+`normalize-diff`'s defended bug (`GitDiff.lines` arriving `null`) is
+*structurally impossible* in Rust — `Vec<T>` cannot be null — and independently
+guarded by `crowbar-proto`'s `null_to_default` at the deserialize boundary, so
+it ported as an invariant plus a cross-crate regression test rather than two
+pass-through wrappers with declaration-only tests.
+
+**Before the next Tier A dispatch: add a liveness column to
+`tier-a-denominator.md`.** The survey is the artefact that failed here.
 
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
