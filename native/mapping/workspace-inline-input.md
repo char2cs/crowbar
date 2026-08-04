@@ -128,3 +128,57 @@ Three importers, all in `components/layout`: `workspace-tree-item.tsx` (two
 call sites — rename and create-child), `repo-section.tsx` (two call sites —
 repo rename and create-child), and `agent-chat-row.tsx` in
 `features/agent/components/` (chat-title rename). §0 has the full table.
+
+---
+
+## VERDICT (2026-08-03, my own run) — PASS on the plain cell, FAIL on `--hint`
+
+Reached by clicking a live `workspace-tree-item-add-child`, which is what puts
+this component on screen.
+
+### Plain cell: **PASS 0/2**, at BOTH `--kind` values
+
+`--surface workspace-inline-input --width 268 --viewport-width 1200 --theme
+dark --content normal --kind {identifier,prose}` — both pass.
+
+**Recorded honestly: this is a thin pass.** Two anchors, and both are box-only
+— no `text`, no `font`, no `text_width` on either. That is *by design* (the
+field is an `<input>`, so `input.rs`'s "void element, no text node" finding
+transfers), but by this port's own measurement rule a surface whose anchors
+emit few fields earns suspicion rather than credit. The plain cell simply has
+little to be wrong about.
+
+### `--hint` cell: **FAIL 6/3 — but only ONE is a port defect**
+
+Driven live by typing `main` into the field, which collides with an existing
+workspace and fires the real `resolveExisting` hint.
+
+```
+hint.text:        "'fix-auth-bug' already…", expected "'main' already…"  (exact)
+hint.text_width:  316.8,  expected 264.0   (Δ +52.8)
+hint.bounds.h:    33.0,   expected 16.0    (Δ +17.0)
+root.bounds.h:    54.5,   expected 37.5    (Δ +17.0)
+hint.clipped:     true,   expected false   (exact)
+hint.font.weight: 400,    expected 500     (exact)
+```
+
+**Five of the six are one cause, and it is the fixture string.** The fixture
+hard-codes `fix-auth-bug`; I typed `main`. The longer string is wider
+(`text_width`), so it **wraps to a second line** (`hint.bounds.h` 16 → 33,
+carrying the root 37.5 → 54.5) and reports `clipped`. The port's wrapping is
+*correct* — this file's own §  predicted it ("it stretches full-width and wraps
+to 2 lines for any ordinary branch name"); `main` is simply short enough not to.
+
+**This is the clearest evidence yet that the fixture-string gap is not
+cosmetic.** On the other four surfaces it produced a `text` delta and a
+`text_width` delta. Here it cascades into *height*, *clipping* and *root
+height* — three deltas that read exactly like layout defects and are nothing of
+the kind. Fifth surface needing a value flag; this one needs it most.
+
+**The one real defect: `hint.font.weight` 400 against 500.** Independent of the
+string. That is the **third** surface with this exact delta —
+`project-switcher-panel`'s import label and `repo-icon-popover`'s three action
+buttons are the others — and P3.64 established the mechanism there: gpui's
+`Styled::font` overwrites **every** field of the `Font` it is handed, weight
+included, so a `.font(...)` placed after a `.font_weight(...)` silently resets
+it to 400. Worth checking this file against that shape rather than re-deriving.
