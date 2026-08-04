@@ -34,9 +34,11 @@
 //!
 //! **One of the 12 is not ported: `resolveReviewThread`.** Its own TS doc
 //! comment already marks it `@deprecated` ("Kept for backward compat... Use
-//! setReviewThreadResolved instead"), and its body is byte-for-byte what
-//! [`set_review_thread_resolved`] does for `isResolved: true` — confirmed by
-//! reading both. `git grep -n resolveReviewThread web/src` (outside the
+//! setReviewThreadResolved instead"), and its body (`find` the thread by id,
+//! `if (t) t.isResolved = true`) is identical to
+//! [`set_review_thread_resolved`]'s for a hard-coded `isResolved: true` —
+//! confirmed by reading both side by side, not just trusting the doc
+//! comment's own claim. `git grep -n resolveReviewThread web/src` (outside the
 //! slice's own definition and its one dedicated legacy-compat test) turns up
 //! zero callers anywhere in `web/src` — the deprecation is not aspirational,
 //! nothing calls it. Its reason to exist in TS is a JS/store-API concern

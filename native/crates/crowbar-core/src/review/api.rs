@@ -84,10 +84,30 @@ use super::state::{ReviewConversation, ReviewMessage, ReviewThread, ThreadSide};
 /// only ever sends `"old"` or `"new"`; TS's own `ThreadDTO.side: 'old' | 'new'`
 /// is a compile-time-only promise `mapThread` never checks at runtime, it
 /// just copies `t.side` straight through. This makes that promise explicit
-/// at the one point it crosses the wire: anything other than the literal
-/// `"old"` becomes [`ThreadSide::New`], mirroring `toAnnotationSide`'s own
-/// `side === 'old' ? 'deletions' : 'additions'` — the one place the original
-/// source reveals what "anything else" was already assumed to mean.
+/// at the one point it crosses the wire.
+///
+/// **Checked, not just inferred from the TS types, that "old"/"new" really
+/// is all the wire ever carries.** `api/internal/domain/review_side.go`
+/// declares `type ReviewSide string` with exactly two constants,
+/// `ReviewSideLeft = "left"` / `ReviewSideRight = "right"` — a *different*
+/// vocabulary than "old"/"new". `git grep -n
+/// 'ReviewSideLeft\|ReviewSideRight' api/internal` finds both constants used
+/// **only inside `_test.go` files** — zero production callers. Every real
+/// write path (`api/internal/api/v0/endpoints/threads/handlers/threads.go`'s
+/// request binding through `api/internal/app/repositories/reviewthread/`'s
+/// storage layer) passes whatever string the client's JSON body supplied
+/// straight through, unvalidated against those two constants — `Side:
+/// c.Side` / `Side: in.Side`, no coercion anywhere. Since the only real
+/// client is this frontend, and TS's `OpenThreadInput.side: 'old' | 'new'`
+/// is the only thing that ever originates a value, "old"/"new" is genuinely
+/// the whole real-world domain of this field end to end, despite the Go
+/// domain type's own "canonical" constants naming a vocabulary
+/// (`"left"`/`"right"`) that no production code path ever actually
+/// constructs. Given that, anything other than the literal `"old"` becomes
+/// [`ThreadSide::New`] below — matching `toAnnotationSide`'s own `side ===
+/// 'old' ? 'deletions' : 'additions'` fallback shape, now for a case this
+/// port has confirmed is unreachable with real data rather than merely
+/// assumed to be.
 fn parse_side(side: &str) -> ThreadSide {
     if side == "old" {
         ThreadSide::Old
