@@ -14,5 +14,15 @@ publish.workspace = true
 crowbar-proto.workspace = true
 crowbar-client.workspace = true
 
+# `crowbar-core::git::normalize_diff`'s regression test needs to deserialise a
+# raw wire fixture (the exact stale-persisted-shape bug it documents) to prove
+# `crowbar-proto`'s null-to-default guard still handles it — a dev-dependency
+# is not part of the crate's public dependency graph and nothing outside
+# `tests`/`#[cfg(test)]` modules can reach it. Same reasoning, same wording, as
+# `crowbar-proto`'s own dev-dependency on `serde_json` for its round-trip
+# suite, and `crowbar-driver`'s dev-dependency on gpui's `test-support`.
+[dev-dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true
