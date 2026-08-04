@@ -112,28 +112,19 @@ pub enum ExternalEditorMode {
 
 /// `Settings['fileTreeDensity']` (`'compact' | 'default' | 'comfortable'`).
 ///
-/// **Cross-area forward reference, not yet reconciled.** The real type and
-/// its normalizer live in `web/src/features/file-explorer/lib/
-/// file-tree-density.ts` — `native/mapping/tier-a-denominator.md`'s own
-/// "File-tree model" area (§5), not "Settings schema" (§4), and file-tree
-/// model has not been ported to `crowbar-core` as of this item. Because
+/// **Reconciled (P3.75).** This was, until the file-tree-model item, a
+/// narrow, deliberately-flagged local duplicate of `web/src/features/
+/// file-explorer/lib/file-tree-density.ts`'s own type — needed because
 /// `settings-normalization.ts` imports `normalizeFileTreeDensity` directly
 /// and calls it unconditionally in the boot-time `normalizeSettings` path
-/// (§4's own Liveness section says so explicitly), this port needs *a*
-/// `FileTreeDensity` type and normalizer to compile and to reproduce that
-/// boot-time behaviour now, rather than waiting on a separate item. This
-/// definition is a narrow, deliberate duplicate of the 3-variant TS type —
-/// when file-tree model is ported, this type should be deleted in favour of
-/// that module's, and every reference here repointed. Flagged rather than
-/// silently left as a permanent fork, per this project's own standing
-/// practice for exactly this situation (see `crate::git`'s module doc for
-/// the analogous git-model/`crowbar-proto` reuse precedent).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FileTreeDensity {
-    Compact,
-    Default,
-    Comfortable,
-}
+/// (§4's own Liveness section), so this crate needed *a* `FileTreeDensity`
+/// type and normalizer to compile before file-tree model was itself ported.
+/// That item has now landed: [`crate::file_tree::density::FileTreeDensity`]
+/// is the one definition in the crate, and this is a re-export of it, not a
+/// second declaration — see that module's doc for the full reconciliation
+/// account, matching `crate::git`'s module doc precedent for the analogous
+/// git-model/`crowbar-proto` reuse situation.
+pub use crate::file_tree::density::FileTreeDensity;
 
 /// Mirrors `types/settings.ts`'s `Settings` interface — the schema itself,
 /// ~50 fields spanning general/editor/terminal/UI/theme/layout/language/
@@ -231,59 +222,8 @@ pub struct Settings {
     pub compact_git_status_badges: bool,
 }
 
-/// Mirrors `isFileTreeDensity` + `normalizeFileTreeDensity` from
-/// `file-tree-density.ts` (see [`FileTreeDensity`]'s doc for why this is a
-/// narrow local duplicate). Unlike this port's other enum-fallback
-/// normalizers, the TS source's own signature takes `string`, not
-/// `unknown` — so this takes `&str` directly rather than `Option<&str>`; an
-/// empty string is simply a string that fails to match, not a distinguished
-/// "missing" case.
-#[must_use]
-pub fn normalize_file_tree_density(value: &str) -> FileTreeDensity {
-    match value {
-        "compact" => FileTreeDensity::Compact,
-        "comfortable" => FileTreeDensity::Comfortable,
-        _ => FileTreeDensity::Default,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{FileTreeDensity, normalize_file_tree_density};
-
-    // --- ported from web/src/__tests__/features/settings/settings-normalization.test.ts
-    //     ("normalizes unsupported file tree density values" — that test
-    //     calls normalizeSettingValue('fileTreeDensity', ...), which for
-    //     this field is a pure pass-through to normalizeFileTreeDensity) ---
-
-    #[test]
-    fn accepts_a_known_density_unchanged() {
-        assert_eq!(
-            normalize_file_tree_density("compact"),
-            FileTreeDensity::Compact
-        );
-    }
-
-    #[test]
-    fn falls_back_to_default_for_an_unknown_density() {
-        assert_eq!(
-            normalize_file_tree_density("dense"),
-            FileTreeDensity::Default
-        );
-    }
-
-    // --- new: not exercised by the TS suite ---
-
-    #[test]
-    fn falls_back_to_default_for_an_empty_string() {
-        assert_eq!(normalize_file_tree_density(""), FileTreeDensity::Default);
-    }
-
-    #[test]
-    fn is_case_sensitive_matching_the_ts_strict_equality_checks() {
-        assert_eq!(
-            normalize_file_tree_density("Compact"),
-            FileTreeDensity::Default
-        );
-    }
-}
+/// Re-export of [`crate::file_tree::density::normalize_file_tree_density`]
+/// — see [`FileTreeDensity`]'s doc. Tests for this function now live in
+/// `crate::file_tree::density`, the module that owns the definition; this
+/// file no longer carries its own copy of them.
+pub use crate::file_tree::density::normalize_file_tree_density;

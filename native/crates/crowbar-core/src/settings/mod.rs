@@ -66,19 +66,22 @@
 //!   `crate::workspace`'s own precedent for why reactive state does not
 //!   belong here.
 //!
-//! # A cross-area dependency this item could not defer
+//! # A cross-area dependency this item could not defer — reconciled (P3.75)
 //!
 //! `settings-normalization.ts` imports `normalizeFileTreeDensity` from
 //! `web/src/features/file-explorer/lib/file-tree-density.ts` — File-tree
-//! model (§5), a *different* Tier A area, not yet ported to `crowbar-core`
-//! as of this item. Since that import is unconditional in the boot-time
-//! `normalizeSettings` path, this item could not simply omit it without
-//! leaving `normalize_settings` unable to reproduce real boot behaviour.
-//! [`types::FileTreeDensity`] and [`types::normalize_file_tree_density`] are
-//! a narrow, explicitly-flagged local duplicate of that file's 3-variant
-//! type + normalizer — see [`types`]'s module doc for the full reasoning and
-//! the reconciliation this leaves for whichever item ports file-tree model
-//! next.
+//! model (§5), a *different* Tier A area, which had not yet been ported to
+//! `crowbar-core` as of this item. Since that import is unconditional in the
+//! boot-time `normalizeSettings` path, this item could not simply omit it
+//! without leaving `normalize_settings` unable to reproduce real boot
+//! behaviour, so [`types::FileTreeDensity`] and
+//! [`types::normalize_file_tree_density`] started as a narrow,
+//! explicitly-flagged local duplicate of that file's 3-variant type +
+//! normalizer. **File-tree model has since landed** (`crate::file_tree`,
+//! P3.75) and reclaimed this duplicate: both names are now re-exports of
+//! [`crate::file_tree::density`]'s definitions, not a second declaration —
+//! see [`types`]'s module doc and `crate::file_tree::density`'s module doc
+//! for the full reconciliation account.
 
 pub mod defaults;
 pub mod font_family;
