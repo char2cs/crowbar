@@ -3686,6 +3686,52 @@ worth preserving: an empty-string override still means `source: 'user'` —
 platform global; the TS test file has to `vi.mock` that global, so the seam was
 already a known irritant rather than a gratuitous change.
 
+## ‼️ A LIVE file whose portable-looking exports are ALL dead — the sharpest case yet
+
+`features/file-explorer/utils/file-explorer-tree-utils.ts` is **LIVE**, and I
+was one dispatch away from porting it. P3.69's liveness pass re-checked every
+exported *name* rather than the file, and found **4 of its 5 exports dead**:
+
+| export | status |
+|---|---|
+| `getExplorerTargetPath` | **the only live one** — `use-file-explorer-sync.ts`, `useMemo` on every render |
+| `filterHiddenFiles` | zero references anywhere in `web/src`, tests included |
+| `removeEditingItemsFromTree` | zero references anywhere |
+| `addNewItemToTree` | independently **redeclared locally** in `use-file-explorer-inline-editing.ts`; the export is never called |
+| `getAncestorDirectoryPaths` | independently **redeclared locally** in `file-tree-gitignore.ts`; the export is never called — **and has its own dedicated test exercising the unreachable copy** |
+
+**The detail that should stop anyone scoping from this document:** the survey's
+own "genuine, portable" prose for this file *describes exactly the four dead
+exports and never mentions the one live one*. A file-level LIVE verdict plus a
+plausible prose description would have sent a worker to port 96 lines of which
+~4/5 is unreachable — the third time this project would have ported dead code,
+after `toast`/`sheet` and `normalize_diff`/`diff_buffer_path`.
+
+### What this changes about the survey's own guarantee
+
+The liveness column is **file-level**, and this file proves file-level is not
+enough. My own standing rule already said *"'has an importer' is too weak — a
+live file can hold a dead export"*; here is that exact case, with a **test**
+covering the dead export to make it look maintained.
+
+**Rule for every remaining Tier A dispatch: resolve liveness at the EXPORT
+level for any file whose exports will be ported individually.** The file-level
+verdict answers "is this file reachable", which is a different question from
+"is this function reachable", and only the second one scopes a port.
+
+`getAncestorDirectoryPaths`'s dedicated test is the same shape `core-git.md` §3
+already records for `diff_buffer_path` — *"its only importer is a test file"*.
+A test is not a code path. **Two independent instances now: a test suite can
+keep dead code looking alive, and coverage over it reads as diligence.**
+
+### Consequence for the file-tree area
+
+**Not dispatched.** Its remaining pure logic (`visible-file-tree-rows` 238,
+`file-tree-git-status` 122, `file-tree-gitignore` 237) is genuinely LIVE, but
+that area needs an **export-level** scoping pass first, and `file-tree-gitignore`
+additionally depends on the `ignore` npm package — a Rust-equivalent decision,
+not a translation.
+
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
 ```
