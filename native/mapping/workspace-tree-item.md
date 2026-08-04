@@ -269,3 +269,27 @@ label. `--width` is the **container**: at `--row-depth 0` the port insets the
 row by 26px total, so a 318px row needs `--width 344` — the sidebar panel's own
 width. Passing the reference's root `bounds.w` (318) is exactly wrong. Both
 deltas closed at 344 and nothing else moved.
+
+### Re-verified after P3.65 — the contract fix exposed a real defect
+
+With `workspace-tree-item-add-child` declared, the presence delta is gone and
+the newly-compared anchor matches on **position, size and radius exactly**
+(`x 287, y 6, w 24, h 24, radius 10`). One delta remains:
+
+```
+workspace-tree-item-add-child.border.w: 1.0, expected 0.0 (exact)
+
+oracle: FAIL — 1 delta over 4 anchors compared (1 geometry)
+```
+
+**This is a genuine port defect that the under-declaration was hiding.** The
+anchor was not being compared at all, so a wrong border width could not fail.
+Fixing the contract did not just clear a false delta — it surfaced a true one,
+which is the argument for declaring every anchor that renders rather than the
+ones a surface happens to care about.
+
+It is also **the same defect already recorded on `repo-section`**
+(`repo-section-import` and `repo-section-collapse`, both `border.w` 1.0 against
+0.0). Three anchors, two surfaces, one cause: the port paints a 1px border on
+row action buttons where React paints none. Worth fixing once, at whatever
+shared button path these three go through, rather than per surface.
