@@ -1308,6 +1308,7 @@ dependencies = [
  "crowbar-editor",
  "crowbar-platform",
  "crowbar-proto",
+ "crowbar-sidecar",
  "crowbar-state",
  "crowbar-terminal",
  "crowbar-ui",

@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 crowbar-proto.workspace = true
 crowbar-client.workspace = true
+crowbar-sidecar.workspace = true
 crowbar-core.workspace = true
 crowbar-ui.workspace = true
 crowbar-state.workspace = true

@@ -28,6 +28,16 @@
 //! the only crate that talks to the daemon, and that stays true from the first
 //! commit: a `UnixStream` here would be a hole in the layering that later items
 //! would build on.
+//!
+//! S0.3 adds the piece item 0.4 deliberately deferred: the shipping `main`
+//! (not the driver/capture-harness one — a parity run over hundreds of matrix
+//! cells has no business spawning or supervising a daemon per invocation, and
+//! stays a read-only client exactly as 0.4 left it) now calls
+//! [`crowbar_sidecar::ensure_daemon`] before opening its window, so
+//! `cargo run -p crowbar-app` no longer needs Crowbar-React to have started
+//! the daemon first. `crowbar-sidecar` reaches the daemon through
+//! `crowbar-client` too, so this does not reopen the hole the paragraph above
+//! describes.
 
 use std::borrow::Cow;
 use std::path::PathBuf;
@@ -155,11 +165,35 @@ fn main() -> ExitCode {
 /// 0.4's daemon round trip, probed before the window opens and shown in its
 /// caption, so the transport stays exercised by an ordinary `cargo run`.
 ///
+/// S0.3 adds the other half of that round trip: [`crowbar_sidecar::ensure_daemon`]
+/// runs first, adopting a daemon Crowbar-React already started or spawning one
+/// of its own — `crowbar-app` no longer needs another app to have opened first
+/// (`native/README.md`'s old "start Crowbar-React first" instruction is gone
+/// because of this). `_daemon` is bound in `main`'s own scope, not
+/// discarded, specifically so it lives for the process's whole lifetime and
+/// only drops (stopping a daemon this call *spawned*, never one it adopted —
+/// see `crowbar_sidecar::Handle`'s own doc comment) after `run` returns.
+///
 /// The window itself is a placeholder on purpose. Later slices build the real
 /// frame; this one only proves the app opens a window that is not the capture
 /// harness.
 #[cfg(not(feature = "driver"))]
 fn main() -> ExitCode {
+    // Blocking, before the window exists, and on purpose: adopting an
+    // already-healthy daemon is one local request, and spawning one still
+    // has to finish before there is anything for the window to show.
+    let _daemon = match crowbar_sidecar::ensure_daemon(&crowbar_sidecar::Options::default()) {
+        Ok(handle) => Some(handle),
+        Err(err) => {
+            // Not fatal: the window still opens, and `Report::probe` below
+            // renders the same "daemon unreachable" state it always has —
+            // a missing sidecar binary or a daemon that never comes up is a
+            // displayed state, not a crash.
+            eprintln!("crowbar-app: could not ensure a daemon: {err}");
+            None
+        }
+    };
+
     // Blocking, before the window exists, and on purpose: the daemon is a local
     // unix socket a few hundred microseconds away and this is a single request.
     let report = Report::probe();
