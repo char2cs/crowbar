@@ -1,3 +1,56 @@
+# The anchor snapshot contract — v1.15
+
+> ## v1.15 — 2026-08-03. One anchor, **N** text runs, **N** ceils.
+>
+> **v1.5 already models this — but it sums ceil excess across *anchors*, and
+> this is N ceils inside *one*.** `fps-overlay`'s residual `+3px` sat unresolved
+> for several iterations while I argued about whether to forgive it. It is now
+> measured, and the argument was unnecessary:
+>
+> ```
+> 8 runs: 19.8  26.4  6.6  26.4  26.4  6.6  6.6  33
+> Σ raw            = 151.8      ceil(Σ raw) = 152
+> Σ ceil(run)      = 155
+> Σceil − ceilΣ    = 3          ← the residual, exactly
+> ```
+>
+> Not approximately 3. Exactly 3, on the first measurement, with no fitted
+> parameter. (I had also assumed **7** runs from reading the port; there are
+> **8**. Another reason to count rather than reason.)
+>
+> **So it is a contract gap, not a port defect**, and the port was right all
+> along: GPUI ceils *each* run's width, the overlay is one anchor containing
+> eight of them, and v1.5's allowance models a single ceil.
+>
+> ### The rule, and why the count comes from the **reference**
+>
+> An anchor's `bounds.w` allowance is widened by **`Σceil(run) − ceil(Σrun)`
+> over the run widths the *reference* reports**, via a new optional
+> `text_runs: number[]` on a text anchor.
+>
+> **The count must come from the reference side, and that is the whole design
+> decision.** The tempting alternative — let the port declare how many runs it
+> paints — makes the allowance a function of the thing being tested: a port
+> could widen its own tolerance by splitting text into more runs, and every
+> split would look like a legitimate declaration. Taking the run widths from
+> the DOM removes the vector completely, because the extractor counts text
+> nodes it did not author. The port gets no say, which is the point.
+>
+> This keeps every property v1.5 was careful about: a single scalar per anchor,
+> computed from the anchor list alone, **no flow order and no tree**, so §1's
+> rejection of tree-diffing stands.
+>
+> **Bounded, and falsifiably so.** The allowance can never exceed `N − 1` px
+> (each ceil contributes `<1`, and `ceil(Σ)` absorbs one of them), so a
+> genuine multi-pixel defect still fails. Here that ceiling is 7px against an
+> observed 3px — the surface is not sitting anywhere near the limit, which is
+> what a forgiveness rule has to be able to say about itself.
+>
+> **Status: specified, not implemented.** Neither the extractor nor the differ
+> emits or reads `text_runs` yet. `fps-overlay` stays **FAIL** until they do —
+> a rule written down is not a rule enforced, and this file has been wrong
+> before in exactly the direction of believing its own prose.
+
 # The anchor snapshot contract — v1.14
 
 > ## ‼️ CORRECTION: the reference engine is **WebKit**, not Blink
