@@ -4218,7 +4218,7 @@ ported** and both are now scoped from **export-level** verdicts:
 | area | TS lines | state |
 |---|---|---|
 | §7 review threads | 306 (of 900 surveyed; the rest is transport → `crowbar-client`) | **P3.78 in flight**, module named `crowbar_core::review` |
-| §2 diff algebra | 368 | not yet dispatched — ports as **one inseparable unit** |
+| §2 diff algebra | 368 | **P3.79 in flight** — ports as **one inseparable unit** into `crowbar-diff` |
 
 **Module names are now in the brief.** P3.75 and P3.76 independently created
 `file_tree` and `filetree` for the same domain and I merged them by hand,
@@ -4237,6 +4237,26 @@ carried into the brief anyway:
 - `resolveReviewThread` is marked **`@deprecated` in its own source**. The brief
   asks whether it still needs to ship at all before it is ported — porting a
   deprecated function silently is how dead code arrives with a straight face.
+
+## 📌 Both remaining Tier A areas are now dispatched — the non-capture backlog is nearly out
+
+| item | area | note |
+|---|---|---|
+| **P3.78** | §7 review threads (306 TS lines) | died mid-gates to an API error with the module **written but uncommitted**; resumed with *commit first, gate second* |
+| **P3.79** | §2 diff algebra (368 TS lines) | the `review-code-view.tsx` region ports **whole** — its 7 private helpers are unreachable except through the 2 public functions, so "port the 2, skip the 7" is not available |
+
+**P3.79 also carries a required dependency substitution**, not optional
+cleanup: the region is typed against `@pierre/diffs`'s `Hunk`/
+`FileDiffMetadata` and must be re-typed against `crowbar-proto`'s own `Hunk`.
+Its brief points at the near-miss from P3.76 — where TS signalled "directory"
+by appending a trailing slash and the Rust crate used a separate boolean, so a
+verbatim port would have silently broken every directory-only pattern — as the
+shape of failure to watch for.
+
+**⚠ When these two land, the non-capture backlog is essentially exhausted.**
+Everything else of substance needs the oracle, and the oracle needs an unlocked
+screen. That is the §17.7-shaped stop condition: work remaining, but only the
+user can unblock it.
 
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
