@@ -3369,7 +3369,7 @@ taken by me against the live app. **A merge is not a verdict.**
 | `workspace-branch-icon` | ✅ | ✅ **PASS 0/1** | one anchor, geometry only — a thin verdict, but a real one |
 | `detach-holder-modal` | ✅ | ⏸ | needs the modal driven open |
 | `repo-import-dialog` | ✅ | 🚫 **REFUSED** | reference emits **two `button` anchors** — React-side prerequisite, not a port defect |
-| `repo-icon-popover` | ✅ | ❌ **FAIL 36/6** | port hand-rolls the popup — no border, no radius, no `popover-viewport`. Needs a worker |
+| `repo-icon-popover` | ✅ | ❌ **FAIL 15/7** | P3.63 closed the root cause (36→15); survivors are the 3 action buttons, returned to the worker |
 | `sidebar-tab-bar` | ✅ | n/a | no surface by design — measured through `--surface tabs` |
 | `workspace-switcher` | ✅ | n/a | no surface by design — `display: contents`, no box (v1.11) |
 | **`sidebar-skeleton`** | ✅ | 🚫 **UNOBTAINABLE** | never renders — its `Suspense` fallback cannot fire |
@@ -3504,6 +3504,24 @@ have failed before, because the anchor was never compared.** Fixing the
 contract did not just clear a false delta; it surfaced a true one. That is the
 argument for declaring every anchor that renders, not the ones a surface
 happens to care about.
+
+#### 📏 A field that is not compared cannot be wrong
+
+**Twice today, fixing a *visibility* problem surfaced a real defect** that had
+been sitting there unmeasured:
+
+- `workspace-tree-item-add-child` was undeclared in `oracleSurfaceScope`. Once
+  declared, it matched on position, size and radius — and revealed a wrong
+  `border.w`.
+- `repo-icon-popover`'s three action buttons emitted no `text`/`font`/
+  `text_width` at all (15 field-presence deltas). Once painted through
+  `boxed_text`, they matched on nothing *new* being broken — but exposed wrong
+  width, border, weight and line height.
+
+So a falling delta count can mean the port improved **or** that fewer fields
+are being looked at. **The count of *comparable* fields is the better progress
+measure**, and a surface whose anchors emit few fields deserves suspicion
+rather than credit.
 
 #### 🔁 One defect, three anchors, two surfaces: the 1px row-button border
 
