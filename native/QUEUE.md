@@ -3382,7 +3382,8 @@ taken by me against the live app. **A merge is not a verdict.**
 | `pending-create-row` | ✅ | ⏸ | P3.61 — no verdict yet (no pending row in the live app to capture) |
 | `sidebar-toast-overlay` | ✅ | ✅ **PASS 0/1** | liveness proven by firing a real toast; viewport height agrees at 84px |
 | `workspace-inline-input` | ✅ | ⚠ **PASS 0/2 / FAIL 6/3** | plain cell passes (thin — box-only anchors); `--hint` cell has **1 real defect** |
-| `placeholder-row-actions` · `sidebar-toast-overlay-fallback` | ✅ | ⏸ | P3.62 — need driving into their states |
+| `sidebar-toast-overlay-fallback` | ✅ | ✅ **PASS 0/1** | ⚠ passes at BOTH `--side` values — that axis is **unverifiable**, see below |
+| `placeholder-row-actions` | ✅ | ⏸ | needs a placeholder workspace in the live app |
 
 #### ✅ RESOLVED — the four "needs a repo in the fixture" verdicts were never about the repo
 
@@ -3516,6 +3517,19 @@ contract did not just clear a false delta; it surfaced a true one. That is the
 argument for declaring every anchor that renders, not the ones a surface
 happens to care about.
 
+#### 📏 …and an AXIS whose effect no anchor expresses is unverifiable too
+
+`sidebar-toast-overlay-fallback` passes at **both** `--side left` and `--side
+right`. Not because the docking is right — because the contract cannot see it.
+Every bound is relative to the **root** (ANCHORS §4) and the root *is* the
+viewport, so its own `x`/`y` are `0` whichever corner it docks to. The axis
+moves the viewport within the **window**, and the window is not in the frame.
+
+So the rule below extends past fields: **a declared `--flag` that no anchor can
+express buys no coverage.** Either declare it unmodelled or root the capture at
+something containing both positions. Worth auditing the other surfaces' axes
+for the same shape.
+
 #### 📏 A field that is not compared cannot be wrong
 
 **Twice today, fixing a *visibility* problem surfaced a real defect** that had
@@ -3550,7 +3564,7 @@ it each time.
 port paints a 1px border on row action buttons where React paints none. Fix
 once at the shared button path rather than per surface.
 
-**Fourteen verdicts taken, six passing, one split** (plus one refused outright). Eleven
+**Fifteen verdicts taken, seven passing, one split** (plus one refused outright). Eleven
 surfaces built in this tier;
 that ratio is the honest state and the reason the header now separates the two
 numbers.
