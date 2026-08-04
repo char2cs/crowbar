@@ -4127,6 +4127,24 @@ done"):
 | Settings schema | 554 | 629 | **88.1%** | remaining 75 = `settings-import-export.ts`, correctly CONDITIONAL, not forgotten |
 | File-tree model | 436 | 718 | **60.7%** | see §3 for the breakdown of what's left |
 
+### 3. What remains, per area — none of it overstated
+
+| area | remaining | shape |
+|---|---|---|
+| **§2 Diff algebra** | ~368 lines (`review-code-view.tsx`'s embedded pure region) + `git-diff-helpers.ts`'s `getFileStatus` (11) | **Entirely untouched** — confirmed: no `crowbar-core` module for either. `tier-a-denominator.md` §8 already scoped this precisely: the 368-line region ports as **one inseparable unit** (2 exported functions + 7 module-private helpers only reachable through them), and its own types need retyping against `crowbar-proto::Hunk` instead of the `@pierre/diffs` types being deleted — real work, not a formality. `patch-window.ts` (244 lines, also untouched) is **not** part of this figure — it's `crowbar-diff`-crate scope per the survey's own crate-boundary finding, not `crowbar-core`. |
+| **§7 Review threads** | 306 lines (`branch-review-slice.ts` whole + `review-api.ts`'s `mapThread`/`mapReply` + `use-review-annotations.tsx`'s pure-helper half) | **Entirely untouched** — confirmed: no `crowbar-core::review` module exists (`lib.rs`'s own module doc lists "review-thread model" among the crate's mandate but only 5 of the 7 areas have landed). `tier-a-denominator.md` §8 found **zero dead exports** here — this is the one area where a straight file-level port would not have over-shipped anything. |
+| **File-tree model** | ~282 of 718 (436 ported) | `file-tree-gitignore.ts` (237, all LIVE) — **in flight**, `native/p3.76-core-gitignore`; `findFileInTree` (22, CONDITIONAL) — not dispatched; `file-tree-density.ts`'s presentation half (`rowClassName`, `FILE_TREE_DENSITY_OPTIONS`, ~23 lines) — correctly out of scope, not core logic. **None of this remainder is dead** — every line is LIVE or CONDITIONAL per `tier-a-denominator.md` §8's own export audit. |
+| **Git model** | `getFileStatus` (11 lines, `git-diff-helpers.ts`) | CONDITIONAL, a third near-duplicate of classification logic already ported twice (`git_status_to_changed_files`, `review_file_summary_to_git_diff`) — `core-git.md` §5 recommends a single `crowbar-core` type eventually collapse all three, not porting a third copy. Small, not urgent, not dead. |
+| **Keymap resolution** | 0 lines of *core* logic; 2 functions (`chordFromEvent`, `eventMatchesChord`) belong to a different layer | Not core-crate remaining work — GPUI's own action/keybinding dispatch replaces this wiring wholesale (`core-keymap.md` §2); tracked as Phase 3 `crowbar-app`/`crowbar-ui` work, not a Tier A core gap. |
+| **Settings schema** | `settings-import-export.ts` (75 lines) | CONDITIONAL — gated behind Settings → Developer tab's export/import buttons. Real, portable logic (`core-settings.md` §0 confirms it's the survey's own correctly-excluded "ninth file"), just not yet dispatched. |
+| **Workspace scoping** | 0 | Fully ported; `activation-freshness.ts` (90 lines) remains flagged as an unresolved Phase-4-vs-Tier-A boundary tension in `tier-a-denominator.md` §6, not as remaining Tier A core work — the survey itself calls this a margin the spec's own two statements of the rule don't agree on, not a gap in this port. |
+
+**Nothing above is TEST-ONLY or dead-and-remaining** — the two dead git
+modules (§1) are already shipped, not outstanding; every other line named in
+this table has a LIVE or CONDITIONAL verdict from `tier-a-denominator.md`'s
+own liveness passes (§0/§8), re-cited here rather than re-derived, and none
+of it needs a fresh liveness check to justify porting it next.
+
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
 ```
