@@ -119,18 +119,23 @@ implementations.
 | | TS lines | Rust lines |
 |---|---|---|
 | Pure region ported (`resolve-css-color.ts` lines 1–85) | **85** | — |
-| `color.rs` net growth (`git diff --stat`: +367/−1) | — | **366** |
+| `color.rs` net growth (`git diff --stat` against this item's base commit) | — | **415** |
 | … of which: module-doc extension | — | ~11 |
 | … of which: `parse_css_color` + 6 private helpers (incl. doc comments, banner) | — | ~192 |
-| … of which: tests (8 ported + 2 authored, incl. banners) | — | ~162 |
+| … of which: tests (8 ported + 2 authored, incl. banners) | — | ~211 |
 
 Both units stated explicitly, per this survey's own standing correction
 (`tier-a-denominator.md`'s note on a past report that divided Rust lines by
-TypeScript lines and got 116%): **85 TS lines of pure logic ported; 366 net
+TypeScript lines and got 116%): **85 TS lines of pure logic ported; 415 net
 new Rust lines**, the large ratio explained the same way `core-keymap.md`
 §0 explains it for `keymap` — doc comments citing the TS source line-for-
-line, ported-vs-authored test provenance notes, and (here) the extra
-cross-check against `gen-theme.py`'s independent implementation.
+line, ported-vs-authored test provenance notes, and (here) a nine-swatch
+cross-check against `gen-theme.py`'s independent implementation plus the
+mutation-sweep record in §7 below (the tests section grew from ~162 to
+~211 lines specifically because of that rewrite — a one-swatch,
+hex-byte-tolerance test is short; a nine-swatch, tight-epsilon one with its
+reasoning documented inline is not, and that extra length is the fix, not
+overhead incidental to it).
 
 ## 5. A design decision: `Srgba`, not a hex string
 
@@ -171,42 +176,118 @@ Two more are authored, not translated from the TS suite:
   a missing `oklch()` component, an unparseable `oklch()` alpha, a trailing
   token past `oklch()`'s alpha), but that this hand-written parser reaches
   as separate branches worth confirming individually.
-- `cross_checks_a_tailwind_swatch_against_gen_theme_pys_fixture` — reuses
-  one fixture from `gen-theme.py`'s own `TAILWIND` table (Tailwind's
-  published `red-500`: `oklch(63.7% 0.237 25.331)` → `#fb2c36`) as an
-  independent check against a wholly separate implementation of the same
-  reference algorithm (§2).
+- `cross_checks_nine_swatches_against_gen_theme_pys_oklch_to_srgb` — checks
+  `oklch_to_srgb` directly against `gen-theme.py`'s own, independently-
+  authored `oklch_to_srgb`, at nine points spanning low/mid/high lightness
+  and low/mid/high chroma, chosen so no channel sits near 0 or 255. §7
+  explains why that specific shape, and why the first version of this test
+  (one saturated Tailwind swatch, compared through an 8-bit hex byte) was
+  replaced rather than kept.
 
-## 7. Mutation testing, actually performed
+## 7. Mutation testing — first pass was too weak; here is the actual floor
 
-Two mutations were made, run, confirmed red, and reverted (both diffs
-inspected before and after; `git diff` was clean afterward):
+**This section was rewritten after review.** The first version of this item
+made one mutation to `oklch_to_srgb`'s red coefficient (`4.076_741_7` →
+`4.176_741_7`, +2.45%) and reported it caught. That was true but incomplete:
+the coordinator's own follow-up sweep on the same single-swatch test found
+survivors as small as +0.57%, and diagnosed why — `red-500`'s red channel
+saturates to `1.0`, and a saturated (or near-zero) channel absorbs a
+coefficient error until it's large enough to pull the pre-clamp value back
+under the saturation threshold. A single high-chroma, near-gamut-boundary
+swatch cannot detect a small coefficient error **by construction**, no
+matter how tight the comparison tolerance is set — the earlier report's
+"caught" claim was correct for the one mutation tried and not
+representative of the guard's actual sensitivity, which is exactly the
+"vacuous-until-swept" shape this project's own QUEUE.md history warns about.
 
-1. **`oklch_to_srgb`'s red-channel coefficient**, `4.076_741_7` →
-   `4.176_741_7` (a plausible transcription slip in a hand-copied magic
-   constant). Result: 22 of 23 tests in `color::tests` still passed —
-   including both `converts_oklch_endpoints_exactly` (saturates to `1.0`
-   either way once clamped) and `converts_a_known_chromatic_oklch_within_
-   tolerance_of_srgb_red` (the mutated value is still `> 250/255`, so the
-   TS-ported test's own loose tolerance does not catch it either). Only
-   `cross_checks_a_tailwind_swatch_against_gen_theme_pys_fixture` failed:
-   `r: got 1 (~255), want 0.9843137 (~251) — off by more than 1/255`. This
-   is a genuine, honest finding, not a tidied-up story: the 8 ported TS
-   tests alone would not have caught this specific mutation, because two of
-   them saturate or tolerate it — the authored cross-check test is the one
-   that actually exercises the coefficient's exact value against an
-   independently-sourced answer. Reverted; `cargo test -p crowbar-core
-   color::` back to 23/23.
-2. **The trailing-token guard in `parse_rgb_functional`** (`if
-   tokens.next().is_some() { return None }`) — removed entirely, since it
-   has no TS-regex equivalent and is exactly the kind of hand-written guard
-   this project's own history has previously shipped vacuous (`QUEUE.md`'s
-   "Vacuous Guard Tests" finding: eight guards tested the declaration, not
-   the behaviour). Result:
-   `rejects_malformed_input_in_every_recognised_prefix` failed immediately —
-   `left: Some(Srgba { r: 1.0, g: 0.0, b: 0.0, a: 0.5 })`, `right: None`,
-   labelled `"trailing token past rgb()'s alpha"`. The guard is real, not
-   vacuous. Reverted; `cargo test -p crowbar-core color::` back to 23/23.
+**The fix, in two parts:**
+
+1. **New swatches.** Nine points, a full low/mid/high-L × low/mid/high-C
+   grid (§ the test's own doc comment lists them), each chosen by a search
+   over a grid of `(L, C, H)` for points whose three channels are all
+   comfortably mid-range — the tightest of the nine keeps every channel
+   between 55 and 225 of 255, none closer than 32/255 to either end. No
+   channel at any of the nine points is within clamping or near-zero
+   distance of the pre-gamma computation.
+2. **A tighter, non-quantised comparison.** The old test compared against a
+   *hex byte* (`#fb2c36`, Tailwind's published, 8-bit-precise colour), which
+   caps detection at roughly 1 part in 255 **no matter how many swatches are
+   added** — the reference itself has no more precision than that. The new
+   test compares `oklch_to_srgb`'s raw `f32` output against `gen-theme.py`'s
+   raw `f64` output (not clamped, not gamma-thresholded to a hex string,
+   not read back off a byte) at `EPSILON = 1e-5` — chosen with headroom over
+   the measured `f32`-vs-`f64` computation noise (worst case `2.98e-7`
+   across the nine swatches, measured directly with `eprintln!` before the
+   epsilon was picked, not guessed).
+
+**The measured floor**, from an automated percentage sweep (script:
+`/scratch/sweep.py`, not committed — see the raw output pasted below),
+perturbing one coefficient at a time by `coeff *= 1 + pct/100`, restoring
+after every run, `git diff --stat` confirmed clean afterward:
+
+| coefficient | magnitude | floor (survives → caught) |
+|---|---|---|
+| `red`'s `l3` term, `4.076_741_7` | ~4.08 | **0.00045% → 0.00048%** |
+| `red`'s `m3` term, `3.307_711_6` | ~3.31 | **0.0003% → 0.0005%** |
+| `l2`'s `a` term (the l2/m2/s2 row), `0.396_337_78` | ~0.396 | **0.002% → 0.003%** |
+
+Three coefficients, not one, and not all from the red channel's own final
+row — one is from the `l2`/`m2`/`s2` row the coordinator flagged as
+unprobed. The floor is not a single number across all six coefficients: the
+two `red`-row terms (large magnitude, direct linear contribution to the
+output channel) sit near **0.0005%**; `l2`'s `a` term (smaller magnitude,
+and — because these swatches use moderate chroma, `c ≈ 0.03–0.14`, well
+under `l ≈ 0.35–0.75` — a proportionally smaller contribution to `l2` before
+that value is cubed) sits an order of magnitude higher, near **0.003%**.
+Reporting one number would flatten a real difference between coefficients;
+both are stated.
+
+**Both floors are well under the coordinator's own worked example** — a
+transposed digit, `4.076_741_7` → `4.076_417_7` (≈0.008%, computed:
+`|4.0767417 − 4.0764177| / 4.0767417`). That exact mutation was made,
+run, and confirmed red:
+
+```
+thread 'color::tests::cross_checks_nine_swatches_against_gen_theme_pys_oklch_to_srgb'
+panicked at crates/crowbar-core/src/color.rs:714:17:
+L=0.35 C=0.03 H=270 r: got 0.20494187, want 0.20498286
+  (diff 0.000040993094, epsilon 0.00001)
+```
+
+— caught with margin of roughly 4x epsilon, on the very first (lowest-index)
+swatch in the table, not a favourable cherry-pick. Reverted; `git diff
+--stat` on `color.rs` matched the pre-sweep state exactly (confirmed both
+after the coefficient sweeps and after this specific check).
+
+**Two further mutations, run and reverted the same way, both still hold:**
+
+- **The trailing-token guard in `parse_rgb_functional`** (`if
+  tokens.next().is_some() { return None }`) — removed entirely, since it has
+  no TS-regex equivalent and is exactly the kind of hand-written guard this
+  project's own history has previously shipped vacuous (`QUEUE.md`'s
+  "Vacuous Guard Tests" finding: eight guards tested the declaration, not
+  the behaviour). Result: `rejects_malformed_input_in_every_recognised_
+  prefix` failed immediately — `left: Some(Srgba { r: 1.0, g: 0.0, b: 0.0,
+  a: 0.5 })`, `right: None`, labelled `"trailing token past rgb()'s
+  alpha"`. The guard is real, not vacuous.
+- A **+22.65% gross mutation** on the same red coefficient (the top of the
+  coordinator's own sweep table) still fails loudly, as a sanity check that
+  the rewritten test has not become *less* sensitive at the high end while
+  being tightened at the low end.
+
+**What was not achieved, stated rather than glossed over:** the floor is
+not zero. Below roughly 0.0003–0.002% (coefficient-dependent), a mutation
+survives — this is the `f32`-representable-precision wall, not a gap this
+test's tolerance could close by being set tighter: at `EPSILON` below the
+measured `f32`-vs-`f64` noise ceiling (`2.98e-7`), the test would fail on
+the *unmutated* implementation, which is a worse failure mode (a flaky gate
+that cries wolf) than a floor of a few parts in a million on a coefficient
+whose own decimal literal in the source already carries 11 significant
+digits. Given `f32`'s ~7.2-decimal-digit precision, a few-parts-in-a-million
+floor is close to the practical ceiling for this comparison method without
+moving the implementation itself to `f64` — which `Srgba`'s existing fields
+(and every other function in this file) are `f32`, so that would be a
+larger, unrequested change to make for this alone.
 
 ## 8. Gates
 
@@ -225,3 +306,14 @@ Run from `native/`, `PATH` including `$HOME/.cargo/bin`:
   `Srgba`) and rule 5 (`cargo fmt --check`), which needed one `cargo fmt -p
   crowbar-core` — safe to run un-scoped-by-hand because `git status` showed
   only this item's own file, `color.rs`, dirty at the time.
+
+All four re-run and re-pasted after §7's rewrite (test count, names, and
+literals all changed there): build clean, clippy clean, **2534 passed / 0
+failed** again (§7's rewrite replaced one authored test with another,
+1-for-1 — the total stays 10 new, not 11), invariants 7/7, `cargo fmt
+--check` clean (one more `cargo fmt -p crowbar-core` was needed after the
+rewrite, for the same reason and under the same "only this file was dirty"
+check as before). `git diff --stat` on `color.rs` was also checked
+immediately after every mutation-sweep run in §7, not only at the end —
+each of the ~35 individual sweep iterations restored the file from an
+in-memory copy of its pre-sweep content before the next one ran.

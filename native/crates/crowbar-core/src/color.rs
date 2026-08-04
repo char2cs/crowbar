@@ -311,7 +311,7 @@ fn gamma_encode(c: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{Srgba, color_mix, color_mix_remainder, parse_css_color};
+    use super::{Srgba, color_mix, color_mix_remainder, oklch_to_srgb, parse_css_color};
 
     /// Asserts to within half an 8-bit step, which is the precision anything
     /// downstream of this can actually paint.
@@ -643,33 +643,82 @@ mod tests {
         );
     }
 
-    /// Cross-checks this implementation against a fixture from
-    /// `crowbar-ui/tools/gen-theme.py`'s `TAILWIND` table — Tailwind's own
-    /// published `red-500`, `oklch(63.7% 0.237 25.331)` → `#fb2c36`. That
-    /// script's `check_palette()` proves the same `OKLab` matrices against
-    /// Tailwind's published hex through a wholly separate implementation
-    /// (Python, not generated from or by this file, and not itself part of
-    /// this port). Two independent implementations of the same reference
-    /// algorithm agreeing on a real published colour is stronger evidence
-    /// than either one's own tests alone. Tolerance matches
-    /// `check_palette()`'s own: within 1 of 255 per channel, looser than
-    /// `assert_close`'s half-a-step used everywhere else in this file.
+    /// Cross-checks `oklch_to_srgb` directly against
+    /// `crowbar-ui/tools/gen-theme.py`'s own, independently-authored
+    /// `oklch_to_srgb` (Python, not generated from or by this file) — at
+    /// nine points spanning low/mid/high lightness *and* low/mid/high
+    /// chroma, deliberately chosen so **no channel at any point sits near 0
+    /// or 255**.
+    ///
+    /// That constraint is the point, not decoration: an earlier version of
+    /// this test used a single highly-saturated Tailwind swatch
+    /// (`red-500`), and a mutation sweep found its red channel saturates to
+    /// `1.0` — a wrong `OKLab` coefficient has to be wrong by several percent
+    /// before the pre-clamp value drops back under the saturation
+    /// threshold, so the test was blind to smaller, more realistic
+    /// transcription errors by construction. See
+    /// `native/mapping/core-color-parse.md` §7 for the measured floor
+    /// before and after this test was rewritten.
+    ///
+    /// The expected values are `gen-theme.py`'s `oklch_to_srgb` called
+    /// directly and printed at full `f64` precision — the function's raw,
+    /// **un-clamped, un-quantised** output, not a hex byte read back off a
+    /// published swatch. Comparing against a hex byte (as
+    /// `check_palette()` itself does, and as this test used to) caps
+    /// detection at roughly 1 part in 255 no matter how many swatches are
+    /// added, because the reference value itself is only 8-bit precise.
+    /// Comparing continuous floats has no such floor; `EPSILON` below is
+    /// chosen from the actual observed `f32`-vs-`f64` computation noise
+    /// (see the comment on it), not from a hex byte's resolution.
     #[test]
-    fn cross_checks_a_tailwind_swatch_against_gen_theme_pys_fixture() {
-        let got = parse_css_color("oklch(63.7% 0.237 25.331)").expect("oklch parses");
-        let want = parse_css_color("#fb2c36").expect("hex parses");
-        for (label, g, w) in [
-            ("r", got.r, want.r),
-            ("g", got.g, want.g),
-            ("b", got.b, want.b),
-        ] {
-            let diff = ((g * 255.0).round() - (w * 255.0).round()).abs();
-            assert!(
-                diff <= 1.0,
-                "{label}: got {g} (~{}), want {w} (~{}) — off by more than 1/255",
-                (g * 255.0).round(),
-                (w * 255.0).round()
-            );
+    fn cross_checks_nine_swatches_against_gen_theme_pys_oklch_to_srgb() {
+        /// `f32` arithmetic through nine multiplications and three
+        /// `powi(3)`/`powf` calls disagrees with the `f64` reference by at
+        /// most `2.98e-7` across these nine swatches on the unmutated
+        /// implementation (measured directly: every one of the 27
+        /// channel-diffs printed with `eprintln!` before this epsilon was
+        /// chosen; the worst was `L=0.75 C=0.14 H=150 r`). `1e-5` is over
+        /// 33x that observed noise ceiling — comfortable headroom against a
+        /// false failure from ordinary `f32` rounding — and still ~200x
+        /// tighter than `assert_close`'s `0.5/255 ≈ 2e-3` used elsewhere in
+        /// this file, which is itself already tighter than any hex-byte
+        /// comparison could be. See `native/mapping/core-color-parse.md` §7
+        /// for the mutation sweep that measures what this actually buys in
+        /// coefficient-error terms.
+        const EPSILON: f32 = 1e-5;
+
+        // (L, C, H, expected r, g, b) — `l`/`c`/`h` chosen so every channel
+        // lands comfortably mid-range (55–225 of 255) at all nine points;
+        // expected values are `gen-theme.py`'s `oklch_to_srgb(l, c, h)`,
+        // called directly, `repr()`-precision.
+        let swatches: [(f32, f32, f32, f32, f32, f32); 9] = [
+            // low L
+            (0.35, 0.03, 270.0, 0.204_982_86, 0.227_327_4, 0.292_316_05),
+            (0.35, 0.08, 270.0, 0.166_372_77, 0.216_090_97, 0.392_132_74),
+            (0.35, 0.14, 270.0, 0.127_840_81, 0.183_375_31, 0.509_270_4),
+            // mid L
+            (0.55, 0.03, 270.0, 0.417_737_1, 0.443_506_9, 0.516_406_36),
+            (0.55, 0.08, 270.0, 0.373_410_37, 0.435_923_33, 0.630_422),
+            (0.55, 0.14, 30.0, 0.708_765_7, 0.296_092_73, 0.240_072_94),
+            // high L
+            (0.75, 0.03, 150.0, 0.632_078_44, 0.704_428_9, 0.643_566_11),
+            (0.75, 0.08, 150.0, 0.539_243_1, 0.739_878_6, 0.577_67),
+            (0.75, 0.14, 150.0, 0.396_147, 0.778_219_9, 0.491_561_76),
+        ];
+
+        for (l, c, h, want_r, want_g, want_b) in swatches {
+            let got = oklch_to_srgb(l, c, h, 1.0);
+            for (label, g, w) in [
+                ("r", got.r, want_r),
+                ("g", got.g, want_g),
+                ("b", got.b, want_b),
+            ] {
+                let diff = (g - w).abs();
+                assert!(
+                    diff < EPSILON,
+                    "L={l} C={c} H={h} {label}: got {g}, want {w} (diff {diff}, epsilon {EPSILON})"
+                );
+            }
         }
     }
 }
