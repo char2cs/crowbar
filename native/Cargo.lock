@@ -1387,6 +1387,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "crowbar-sidecar"
+version = "0.1.0"
+dependencies = [
+ "crowbar-client",
+ "libc",
+ "serde_json",
+ "sysinfo",
+]
+
+[[package]]
 name = "crowbar-state"
 version = "0.1.0"
 dependencies = [

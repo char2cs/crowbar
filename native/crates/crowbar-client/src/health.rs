@@ -93,10 +93,38 @@ const UNIX_AUTHORITY: &str = "http://localhost";
 /// answer with a body this build cannot read. All three are reportable states,
 /// not faults.
 pub fn fetch_health(socket: &Path) -> Result<Health, HealthError> {
-    let client = reqwest::blocking::Client::builder()
-        .unix_socket(socket)
-        .build()
-        .map_err(HealthError::Transport)?;
+    fetch_health_inner(socket, None)
+}
+
+/// [`fetch_health`], budgeted to `timeout`. Added for `crowbar-sidecar`
+/// (S0.3): the original's startup probe and adopt-if-healthy check both bound
+/// every attempt (a booting daemon answers immediately or not at all, so this
+/// only has to outlast a loaded machine, never a slow request), which the
+/// unbounded [`fetch_health`] cannot express. Kept as a sibling rather than
+/// changed into it, so `fetch_health`'s existing behaviour for its existing
+/// callers (`crowbar-app`'s own startup probe, item 0.4) does not shift under
+/// them as a side effect of this addition.
+///
+/// # Errors
+///
+/// Same as [`fetch_health`], plus [`HealthError::Transport`] when the request
+/// does not complete within `timeout`.
+pub fn fetch_health_with_timeout(
+    socket: &Path,
+    timeout: std::time::Duration,
+) -> Result<Health, HealthError> {
+    fetch_health_inner(socket, Some(timeout))
+}
+
+fn fetch_health_inner(
+    socket: &Path,
+    timeout: Option<std::time::Duration>,
+) -> Result<Health, HealthError> {
+    let mut builder = reqwest::blocking::Client::builder().unix_socket(socket);
+    if let Some(timeout) = timeout {
+        builder = builder.timeout(timeout);
+    }
+    let client = builder.build().map_err(HealthError::Transport)?;
 
     let response = client
         .get(format!("{UNIX_AUTHORITY}/v0/health"))
@@ -214,6 +242,17 @@ mod tests {
         );
         assert!(!format!("{health:?}").is_empty());
         assert_eq!(health.clone(), health);
+    }
+
+    #[test]
+    fn fetch_health_with_timeout_reaches_the_same_daemon_as_fetch_health() {
+        let body = r#"{"success":true,"data":{"status":"ok","version":"0.1.0-dev","pid":1}}"#;
+        let server = OneShot::serving(http("HTTP/1.1 200 OK", body));
+
+        let health = fetch_health_with_timeout(&server.socket, std::time::Duration::from_secs(5))
+            .expect("the canned daemon answered");
+
+        assert_eq!(health.pid, 1);
     }
 
     #[test]

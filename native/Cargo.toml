@@ -37,6 +37,7 @@ crowbar-diff = { path = "crates/crowbar-diff", version = "0.1.0" }
 crowbar-webview = { path = "crates/crowbar-webview", version = "0.1.0" }
 crowbar-platform = { path = "crates/crowbar-platform", version = "0.1.0" }
 crowbar-driver = { path = "crates/crowbar-driver", version = "0.1.0" }
+crowbar-sidecar = { path = "crates/crowbar-sidecar", version = "0.1.0" }
 
 # Vendored + SHA-pinned; see vendor/PINNED.md for the pins, the licence
 # provenance and the re-pin procedure. `gpui` alone is the framework with no
@@ -64,6 +65,18 @@ ignore = "0.4"
 # crate is needed. `blocking` because gpui does not run a tokio reactor and the
 # daemon is a local socket; no TLS features — the transport is a unix socket.
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
+# `crowbar-sidecar`'s safe substitute for `libc::kill` (S0.3): every other
+# crate root forbids `unsafe_code`, so sending SIGTERM/SIGQUIT/SIGKILL to the
+# daemon needs a crate that wraps the syscall rather than a per-site exemption.
+# Already present in the lockfile transitively before this item, so pinning it
+# as a direct dependency adds no new fetch.
+sysinfo = "0.31"
+# `crowbar-sidecar`'s EMFILE/ENFILE constants (for telling "this process is
+# out of descriptors" apart from "the daemon is unserved" in a probe
+# failure) — the constant lookup only, no FFI call, so no `unsafe` is
+# involved. Already present in the lockfile transitively (`desktop/` and
+# `sysinfo`'s own unix backend both pull it in) before this item.
+libc = { version = "0.2", default-features = false }
 
 # §4.3 rule 4. Every member carries `[lints] workspace = true`; the per-test
 # exemptions live in `clippy.toml` so no crate needs `#[allow]` noise.

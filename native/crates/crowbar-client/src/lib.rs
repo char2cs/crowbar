@@ -18,13 +18,17 @@
 //! it sits under the same ≥98% line gate either way.
 //!
 //! Item 0.4 scope: one `GET /v0/health`. The rest of §9.1 arrives with a caller
-//! that needs it.
+//! that needs it — [`transport::get`] is S0.3's: `crowbar-sidecar`'s watchdog
+//! needs a deep-readiness probe and a goroutine-dump capture, neither of which
+//! is `/v0/health`'s fixed JSON envelope.
 
 pub mod health;
 pub mod socket;
+pub mod transport;
 
-pub use health::{Health, HealthError, fetch_health};
+pub use health::{Health, HealthError, fetch_health, fetch_health_with_timeout};
 pub use socket::{Location, NoHome, RawEnv, fnv1a64};
+pub use transport::{RawResponse, TransportError, get};
 
 use std::fmt;
 use std::path::PathBuf;
