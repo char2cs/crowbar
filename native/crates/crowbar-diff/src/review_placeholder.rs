@@ -322,9 +322,7 @@ pub fn partition_review_files(files: &[FileDiff], outline: &[FileOutline]) -> Ve
         .map(|file| {
             let path = file.file_path.clone();
             let shape = by_path.get(path.as_str()).copied();
-            let binary = shape
-                .map(|s| s.is_binary)
-                .unwrap_or_else(|| file.is_binary.unwrap_or(false));
+            let binary = shape.map_or_else(|| file.is_binary.unwrap_or(false), |s| s.is_binary);
 
             let kind = if !binary {
                 ReviewFileKind::Diff
@@ -617,14 +615,15 @@ pub fn build_placeholder_file_diff(
     // one unified row, so the summary's ± counts are a floor the outline
     // must be topped up to.
     let room = patch_line_cap - sum_by(&hunks, |h| h.unified_line_count);
-    if let Some(o) = outline {
-        if o.is_partial && room > 0 {
-            let missing_additions = (additions - sum_by(&hunks, |h| h.addition_lines)).max(0);
-            let missing_deletions = (deletions - sum_by(&hunks, |h| h.deletion_lines)).max(0);
-            if missing_additions + missing_deletions > 0 {
-                let tail = build_tail_hunk(&hunks, missing_additions, missing_deletions);
-                hunks.push(reserve_at_most(tail, room));
-            }
+    if let Some(o) = outline
+        && o.is_partial
+        && room > 0
+    {
+        let missing_additions = (additions - sum_by(&hunks, |h| h.addition_lines)).max(0);
+        let missing_deletions = (deletions - sum_by(&hunks, |h| h.deletion_lines)).max(0);
+        if missing_additions + missing_deletions > 0 {
+            let tail = build_tail_hunk(&hunks, missing_additions, missing_deletions);
+            hunks.push(reserve_at_most(tail, room));
         }
     }
 
@@ -665,8 +664,8 @@ pub fn build_placeholder_file_diff(
 /// this divergence changes what the key's digits look like, never whether
 /// caching behaves correctly.
 #[must_use]
-pub fn patch_cache_key(ws_id: &str, commit: Option<&str>, path: &str, patch: &str) -> String {
-    format!("{ws_id}:{}:{path}:{}", commit.unwrap_or(""), patch.len())
+pub fn patch_cache_key(ws_id: &str, commit: Option<&str>, path: &str, patch_text: &str) -> String {
+    format!("{ws_id}:{}:{path}:{}", commit.unwrap_or(""), patch_text.len())
 }
 
 /// The wrapper-only half of `parseSingleFilePatch` — see the module doc's
@@ -697,9 +696,10 @@ pub fn first_parsed_file(
 #[cfg(test)]
 mod tests {
     use super::{
-        ChangeKind, FileDiff, FileOutline, HunkShape, ReviewFileKind, build_placeholder_file_diff,
-        build_placeholder_hunks, build_tail_hunk, count_of, distribute_context, first_parsed_file,
-        partition_review_files, patch_cache_key, reserve_at_most, round_ratio, trim_to_patch_cap,
+        ChangeKind, FileDiff, FileOutline, HunkShape, PlaceholderFileDiff, ReviewFileKind,
+        build_placeholder_file_diff, build_placeholder_hunks, build_tail_hunk, count_of,
+        distribute_context, first_parsed_file, partition_review_files, patch_cache_key,
+        reserve_at_most, round_ratio, trim_to_patch_cap,
     };
 
     const PATCH_LINE_CAP: i64 = 20_000;
@@ -841,6 +841,19 @@ mod tests {
         let outline = vec![text_outline(0)]; // is_binary: false
         let entries = partition_review_files(&[file], &outline);
         assert_eq!(entries[0].kind, ReviewFileKind::Diff);
+    }
+
+    #[test]
+    fn partition_binary_with_no_extension_at_all_is_not_an_image() {
+        // is_image_path's `None` branch: a path with no `.` anywhere has no
+        // extension to match against IMAGE_EXTENSIONS, full stop.
+        let file = FileDiff {
+            file_path: "assets/LICENSE".to_string(),
+            is_binary: Some(true),
+            ..text_file(0)
+        };
+        let entries = partition_review_files(&[file], &[]);
+        assert_eq!(entries[0].kind, ReviewFileKind::Binary);
     }
 
     // === buildPlaceholderFileDiff ===
@@ -1045,6 +1058,16 @@ mod tests {
         assert_eq!(round_ratio(3, 2), 2);
         // Math.round(0.5) === 1.
         assert_eq!(round_ratio(1, 2), 1);
+    }
+
+    #[test]
+    fn round_ratio_of_a_zero_denominator_is_zero_not_a_panic() {
+        // Every real caller already guards against denominator == 0 before
+        // calling in (see the module-level callers' own gates); this is the
+        // defensive belt round_ratio's own doc comment says the arithmetic
+        // does not strictly need but the signature should not silently
+        // assume — exercised directly since nothing else reaches it.
+        assert_eq!(round_ratio(5, 0), 0);
     }
 
     // === buildPlaceholderHunks — the other substantive algorithm ===
@@ -1277,6 +1300,14 @@ mod tests {
         let placeholder = build_placeholder_file_diff(&text_file(0), None, PATCH_LINE_CAP);
         let batches = vec![vec![], vec![placeholder.clone()]];
         assert_eq!(first_parsed_file(Some(batches)), Some(placeholder));
+    }
+
+    #[test]
+    fn first_parsed_file_returns_none_when_every_batch_is_empty() {
+        // Successfully parsed (Some), but nothing at index 0 of any batch —
+        // distinct from the None-on-failed-parse case above.
+        let batches: Vec<Vec<PlaceholderFileDiff>> = vec![vec![], vec![]];
+        assert_eq!(first_parsed_file(Some(batches)), None);
     }
 
     #[test]

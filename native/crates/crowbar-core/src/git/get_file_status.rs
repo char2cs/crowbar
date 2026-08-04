@@ -13,13 +13,13 @@
 //! doc's own §1/§2 crate-boundary finding (placeholder-hunk geometry is
 //! virtualiser sizing, not domain structure). `getFileStatus` is not part of
 //! that finding: §2's own text is explicit that "file-status classification
-//! (is_new/is_deleted/is_renamed → label) [is] genuine, tiny, **git-model**
-//! logic, counted in §1" — and §1's own "genuine, portable git-model logic"
-//! list names `getFileStatus` directly, alongside the two near-duplicate
-//! classifiers already ported here
+//! (`is_new`/`is_deleted`/`is_renamed` → label) [is] genuine, tiny,
+//! **git-model** logic, counted in §1" — and §1's own "genuine, portable
+//! git-model logic" list names `getFileStatus` directly, alongside the two
+//! near-duplicate classifiers already ported here
 //! ([`super::git_status_to_changed_files`], [`super::review_file_summary_to_git_diff`]):
-//! "a third, smaller restatement of the same is_new/is_deleted/is_renamed →
-//! label mapping already done twice above. Three near-duplicate
+//! "a third, smaller restatement of the same `is_new`/`is_deleted`/
+//! `is_renamed` → label mapping already done twice above. Three near-duplicate
 //! implementations... is itself a finding: a single `crowbar-core` type
 //! should collapse all three." So this function lands beside its two
 //! siblings, in `crowbar-core::git`, not in `crowbar-diff` — a correction to
