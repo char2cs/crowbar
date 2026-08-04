@@ -1470,6 +1470,166 @@ Across the full, now-liveness-checked survey, 138 of 9,585 surveyed lines
 the point; the point is that the number was never checked, and now every row
 has been.
 
+**Correction to the 62-line figure above, found while building the
+reconciliation below: it isn't a clean "dead-in-scope" number.** Of the two
+files it names, only `normalize-diff.ts` (38 lines) is a plausible member of
+the ~3,170 Tier A core bucket at all (§1's own "genuine, portable" bullets
+don't name it, but its 38 lines are the only unaccounted balance in the
+git-model subtotal — see above). `diff-buffer-path.ts` (24 lines) was **never
+in the 3,170 bucket to begin with**, by this document's own §1 prose ("What is
+not git-model logic … tab/buffer identity logic … not git model"); it was
+ported despite being explicitly ruled out, which is a scope error independent
+of whether the ported code is reachable. So "62 lines of the 3,170 were dead"
+overstates the denominator-specific damage: at most 38 of the ~3,170 (1.2%)
+were both (a) inside the bucket and (b) dead; the other 24 were never inside
+the bucket, dead or not.
+
+### Denominator reconciliation (P3.71) — settling the ~3,170-vs-9,447 discrepancy
+
+`native/QUEUE.md`'s P3.69 entry flagged, and refused to quote past, a
+denominator that "moved by 3×": ~3,170 (this file's own "Tier A core"
+headline, above) against **9,447** (LIVE + CONDITIONAL from §0's tally, 5,751
++ 3,696). This section settles it, checking the four candidate explanations
+QUEUE.md's own brief for this item listed, in turn, rather than picking one.
+
+**Double-counting, checked first and ruled out.** Every file path in every
+"Where it lives" table across all seven areas plus theme tokens (89 rows,
+9,585 lines by direct re-extraction — one row off the tally's stated 90,
+immaterial, the line total matches exactly) was collected and compared
+pairwise across areas. **Zero paths repeat.** No file is counted twice under
+two different area headings; the discrepancy is not double-counting.
+
+**Not "~3,170 was scoped to git model alone."** The headline's own per-area
+breakdown (above) already shows all seven areas plus theme tokens
+contributing to the ~3,170 — git model (~609), keymap (516), settings (629),
+file-tree (~718), workspace (261), review threads (~306), theme tokens
+(~130). It was never narrower than "all seven areas," just narrower in *what
+counts as core within each*.
+
+**Not "~3,170 only counted tested files."** The opposite is closer to true:
+`effective-keymaps.ts` and `workspace-scope-url.ts` — zero dedicated tests
+each — were counted in Tier A core anyway (Findings 8, and QUEUE.md's own
+recommendation to dispatch keymap resolution next despite this). Test
+coverage was never the filter.
+
+**Not "~3,170 was simply wrong."** Cross-referencing every Tier A core file
+against its P3.69 liveness verdict (table below) shows **at least 3,131 of
+the ~3,169 core lines (98.8%) are LIVE or CONDITIONAL** — real, reachable
+code, not a stale or invented figure. The one open question is a single
+ambiguous 38-line file in git model (§ above — "the most textually plausible
+reconstruction, not a proven one"), the same ambiguity already on record, not
+a new one.
+
+**The real explanation is scope *and* method, together, and both are
+legitimate — the two figures answer different questions on purpose:**
+
+1. **Scope.** ~3,170 is the **Tier A core** bucket only — the subset of all
+   seven areas' surveyed surface classified as genuine, portable, gpui-free
+   `crowbar-core` domain logic (the "Split by bucket" table, above). 9,447 is
+   LIVE + CONDITIONAL summed over **every** bucket in the same seven areas:
+   Tier A core **and** Phase 4 state (~2,760 lines — `crowbar-state`'s job,
+   not `crowbar-core`'s), **and** the `crowbar-diff`-adjacent logic bucket
+   (316 lines — a different crate, §12), **and** presentation (~460 lines —
+   not portable at all), **and** out-of-scope webview/D6 mechanisms (~882
+   lines — deleted by design, ported to *nothing*). Most of the 9,447 was
+   never a candidate for the Tier A denominator; it was surveyed because the
+   file happened to sit under one of the seven feature directories, not
+   because it was ever classified as `crowbar-core` work.
+2. **Counting method for mixed files.** ~3,170 uses a **reduced estimate of
+   the pure-logic region only** for six mixed files (e.g. `review-code-
+   view.tsx`'s Tier A content is counted as ~368 of its 1,179 lines). The §0
+   tally that produces 9,447/9,585 uses the **whole-file** count for the same
+   files (all 1,179 of `review-code-view.tsx`), stated explicitly at the top
+   of §0's tally note. Both are legitimate measurements of different things,
+   kept separate rather than blended, per this document's own standing
+   practice.
+
+**Reconciliation table.** Two views of the same 89 rows: (A) the whole
+survey, all buckets, whole-file basis — what §0's tally measures; (B) the
+Tier A core subset only, the ~3,170 that was and should continue to be
+labelled the Tier A target — cross-referenced here for the first time against
+its own P3.69 liveness verdicts, file by file.
+
+**(A) Whole survey, all buckets (matches §0's tally exactly):**
+
+| area | total lines | LIVE | CONDITIONAL | DEAD |
+|---|---|---|---|---|
+| Git model + diff algebra | 2,001 | 229 | 1,638 | 134 |
+| Keymap resolution | 733 | 729 | 0 | 4 |
+| Settings schema | 2,277 | 1,390 | 887 | 0 |
+| File-tree model | 2,002 | 1,256 | 746 | 0 |
+| Workspace scoping | 690† | 690 | 0 | 0 |
+| Review threads | 900 | 505 | 395 | 0 |
+| Theme tokens | 982 | 952 | 30 | 0 |
+| **Total** | **9,585** | **5,751** | **3,696** | **138** |
+
+†**A second line-counting bug, found while building this table.** §6's own
+prose states "**544 lines total** across these 12 files," but the 12 rows in
+§6's own "Where it lives" table sum to **690** (87+28+31+32+16+98+90+89+90+47
++46+36 = 690), not 544 — a 146-line arithmetic error in the original survey,
+propagated into the "~8,048 lines surveyed" headline below. It does **not**
+touch the ~3,170 Tier A core figure, which was computed independently from a
+named 5-file subset (261 lines, verified separately) rather than from this
+mis-summed area total. Left as further evidence for the method warning this
+whole item was issued under: even a survey that logged its work in six
+committed increments got one `+` wrong.
+
+**(B) Tier A core only (⊂ the ~3,170), cross-referenced against P3.69's
+verdicts, file by file:**
+
+| area | Tier A core lines | LIVE | CONDITIONAL | DEAD / ambiguous |
+|---|---|---|---|---|
+| Git model + diff algebra | 609 | 151 (`branch-action.ts` 49, `git-status-to-changed-files.ts` 45, `build-git-folder-tree.ts` 57) | 420 (`review-file-summary-to-git-diff.ts` 41, `git-diff-helpers.ts` 11, `review-code-view.tsx` embedded ~368) | ≤38 — the 6th, unnamed whole file; 9 subsets of the area's 13 rows sum to 241, so this is not uniquely provable, but `normalize-diff.ts` (exactly 38 lines, independently confirmed DEAD) is the most textually plausible candidate |
+| Keymap resolution | 516 | 516 (all 5 files: `types.ts`, `registry.ts`, `keybinding-presets.ts`, `chord.ts`, `effective-keymaps.ts`) | 0 | 0 |
+| Settings schema | 629 | 554 (`types/settings.ts` 81, `types/feature.ts` 3, `default-settings.ts` 98, `typography-defaults.ts` 25, `settings-normalization.ts` 249, `font-family-resolution.ts` 40, `markdown-font-size.ts` 26, `ui-font-size.ts` 32) | 75 (`settings-import-export.ts`) | 0 — **unlike git model, this 9-file reconstruction is unique**: no other pair of the area's remaining 17 rows sums to the required 28-line balance |
+| File-tree model | 718 | 718* (4 whole: `visible-file-tree-rows.ts` 238, `file-tree-gitignore.ts` 237, `file-explorer-tree-utils.ts` 96, `file-tree-utils.ts`'s `findFileInTree` 22; 2 embedded: `file-tree-git-status.ts` ~110, `file-tree-density.ts` ~15) | 0 | 0 |
+| Workspace scoping | 261 | 261 (all 5 files: `workspace-scope.ts`, `workspace-scope-url.ts`, `placeholder.ts`, `branch-workspace.ts`, `keep-alive-policy.ts`) | 0 | 0 |
+| Review threads | 306 | 216 (`branch-review-slice.ts` 156 + `review-api.ts`'s `mapThread` embedded ~60, both reached via the always-subscribed thread stream) | 90 (`use-review-annotations.tsx` embedded pure helpers, CONDITIONAL — sole importer is the CONDITIONAL `review-code-view.tsx`) | 0 |
+| Theme tokens | 130 | 130 (`resolve-css-color.ts` embedded — LIVE via the always-mounted terminal's `use-terminal-theme.ts`) | 0 | 0 |
+| **Total** | **~3,169** (≈3,170) | **2,546** | **585** | **≤38** |
+
+\*File-tree model caveat, carried forward rather than smoothed over:
+`file-explorer-tree-utils.ts` contributes 96 of these 718 lines and is
+verdict LIVE — but only through `getExplorerTargetPath`, the one export this
+document's own "genuine, portable" bullet for the file **never names**. The
+four functions the bullet *does* name (`filterHiddenFiles`,
+`addNewItemToTree`, `removeEditingItemsFromTree`, `getAncestorDirectoryPaths`)
+are dead-on-arrival or shadowed by locally-redeclared duplicates elsewhere
+(§5's Liveness table). File-level LIVE does not mean the specific content
+counted toward Tier A core is the reachable part — flagged here because this
+area has not been dispatched yet, so the mistake `normalize-diff.ts` already
+made in git model is still avoidable here.
+
+**LIVE + CONDITIONAL across Tier A core: 3,131 of ~3,169 (98.8%) minimum,
+3,169 (100%) maximum** depending on the single unresolved git-model
+ambiguity. **The ~3,170 figure was never wrong in the way a "moved by 3×"
+denominator implies — it is a narrowly-scoped, almost-entirely-reachable
+figure, measuring a different and much smaller thing than 9,447 does.**
+
+### The defensible figure(s) — two scopes, not averaged
+
+**Narrow scope — "Tier A core": `crowbar-core` domain logic only, the
+original and correct meaning of "Tier A remaining" in this project's crate
+boundaries (§4.2 assigns Phase 4 state to `crowbar-state`, diff-window/search
+to `crowbar-diff`, tokens to `crowbar-ui`). Figure: ~3,170 lines**,
+essentially unchanged and now cross-checked: ≥98.8% of it is confirmed
+LIVE/CONDITIONAL, ≤1.2% is one ambiguous file already known to be dead
+regardless of which bucket it's attributed to. **This is the number
+`native/QUEUE.md`'s progress table should keep quoting as "N lines of a
+~3,170-line target."**
+
+**Broad scope — "everything reachable across the seven Tier-A-adjacent
+feature areas' full file trees, every bucket." Figure: 9,447 lines**
+(LIVE + CONDITIONAL) or 9,585 including the 138 confirmed-dead lines. This
+figure is real and correctly measured (§0), but **it is not the Tier A
+denominator** — quoting it as one folds ~2,760 lines of a different crate's
+work (`crowbar-state`), 316 lines of another (`crowbar-diff`), ~460 lines of
+non-portable presentation, and ~882 lines that will be ported to *no* crate
+(D6 persistence, webview-only FOUC mechanisms this port deletes by design)
+into a number that is supposed to represent one crate's remaining surface. If
+this number is ever quoted going forward, it needs its own label — "total
+reachable React logic across the seven surveyed areas" — never "Tier A."
+
 ## Findings — corrections to the brief
 
 1. **§10.1's `features/git/utils/git-diff-parser.ts` does not exist.** No
