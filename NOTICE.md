@@ -19,7 +19,17 @@ Copyright 2021 The Cal Sans Project Authors (https://github.com/calcom/font)
 Licensed under the SIL Open Font License, Version 1.1.
 Full license text: [`licenses/CalSans-OFL-1.1.txt`](licenses/CalSans-OFL-1.1.txt)
 
-### JetBrains Mono — `web/public/fonts/JetBrainsMonoVariable-{Regular,Medium,Bold}.ttf`
+Three static instances derived from `CalSansUI.woff2` above —
+`CalSansUI-{Regular,Medium,SemiBold}.ttf` — are what the Rust-native client
+actually ships: vendored at `native/assets/fonts/` (S0.7; mirrored from
+`web/public/fonts/`, where the same three files also still sit for the React
+app's own build) and embedded directly into the `crowbar-app` binary at
+compile time via `include_bytes!`. Same copyright, same license, no
+additional attribution owed; the derivation method (weight instancing, family
+rename, WOFF2 → bare sfnt) is documented in
+`native/crates/crowbar-app/src/main.rs`.
+
+### JetBrains Mono — `web/public/fonts/JetBrainsMonoVariable-{Regular,Medium,Bold}.ttf`, also vendored at `native/assets/fonts/`
 
 Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
 
@@ -34,7 +44,9 @@ same `fontTools` method `licenses/CalSans-OFL-1.1.txt`'s sibling note in
 `native/crates/crowbar-app/src/main.rs` documents for `CalSansUI`. Only the
 `name` table (to declare the family `JetBrains Mono Variable`, matching the
 CSS token) and the WOFF2 container (dropped; gpui/font-kit cannot parse it)
-were changed — the outlines are the upstream project's own.
+were changed — the outlines are the upstream project's own. The Rust-native
+client embeds the same three files (byte-identical) directly into the
+`crowbar-app` binary at compile time (S0.7; `native/assets/fonts/`).
 
 ### Symbols Nerd Font Mono — `web/public/fonts/SymbolsNerdFontMono-Regular.woff2`
 

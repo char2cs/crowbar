@@ -30,6 +30,10 @@
 //! would build on.
 
 use std::borrow::Cow;
+/// Only [`ui_font_paths`]/[`ui_mono_font_paths`] need this — both test-only,
+/// see their own doc comments — so it would be unused outside `cargo test`
+/// without the same gate.
+#[cfg(test)]
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -344,10 +348,17 @@ impl gpui::Render for Placeholder {
 /// The family the row declares, and therefore the family the snapshot reports.
 ///
 /// It is the *stylesheet's* `@font-face` name (`web/src/styles/theme.css`), not
-/// the name inside the original font file — see [`UI_FONT_FILES`].
+/// the name inside the original font file — see [`UI_FONT_BYTES`].
 const UI_FONT_FAMILY: &str = "CalSansUI";
 
-/// The faces the React app renders the row with, converted for CoreText.
+/// The three source files [`UI_FONT_BYTES`] is embedded from — test-only.
+/// Nothing in the shipping binary reads these filenames at runtime; they exist
+/// so a test can (a) assert the vendored files genuinely sit at
+/// `native/assets/fonts/`, the location [`ui_font_paths`]'s own doc comment
+/// explains, and (b) hand real paths to [`crate::ui_font_fallback`] /
+/// [`crate::ui_font_mono`], which need a *second*, freshly built platform text
+/// system loaded from something other than the one `Vec` [`load_ui_font`]
+/// already consumed.
 ///
 /// **Provenance, because these are derived files.** All three are produced from
 /// the repo's own `web/public/fonts/CalSansUI.woff2` — which stays, and which
@@ -396,24 +407,64 @@ const UI_FONT_FAMILY: &str = "CalSansUI";
 /// variable source's inherited `192`) — the source font's `OS/2` table is the
 /// *default* instance's (`wght: 400`, `REGULAR`), and `instantiateVariableFont`
 /// does not revise it for a pinned non-Regular weight on its own.
+#[cfg(test)]
 const UI_FONT_FILES: [&str; 3] = [
     "CalSansUI-Regular.ttf",
     "CalSansUI-Medium.ttf",
     "CalSansUI-SemiBold.ttf",
 ];
 
-/// Where the row's faces live, unless `CROWBAR_ROW_FONT` says otherwise.
+/// Where [`UI_FONT_FILES`]' faces live on disk — test-only; see
+/// [`UI_FONT_BYTES`] for what the shipping binary actually loads and why it is
+/// not this.
 ///
-/// The override takes a **single** path — it exists so a parity run can point
-/// the row at some other face to prove a suspected shaping difference, and one
-/// file is enough for that.
+/// `CROWBAR_ROW_FONT` is still honoured here (mirroring [`load_ui_font`]'s own
+/// override check) purely so a test run made under a parity session that has
+/// the variable already exported does not silently read two different faces
+/// from its two loaders.
+#[cfg(test)]
 fn ui_font_paths() -> Vec<PathBuf> {
     if let Ok(overridden) = std::env::var("CROWBAR_ROW_FONT") {
         return vec![PathBuf::from(overridden)];
     }
-    let fonts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../web/public/fonts");
+    let fonts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/fonts");
     UI_FONT_FILES.iter().map(|file| fonts.join(file)).collect()
 }
+
+/// The three faces [`load_ui_font`] actually registers by default, embedded
+/// into the binary at compile time from `native/assets/fonts/` — the same
+/// three files [`UI_FONT_FILES`] names and [`ui_font_paths`] resolves on disk
+/// (proved equal by `the_embedded_bytes_match_the_vendored_files` below), not
+/// read from a filesystem path at startup.
+///
+/// **Why embedded, and not `env!("CARGO_MANIFEST_DIR")).join(...)` the way
+/// this read `web/public/fonts` before S0.7.** That join is a *runtime*
+/// filesystem read of a *compile-time* absolute path: it resolves on the
+/// machine that built the binary, for as long as that machine's checkout
+/// still has the joined-to directory sitting next to it. S0.7 exists because
+/// that stopped being good enough on two counts — `native/`'s whole point is
+/// to stop needing `web/` to exist at all (the eventual plan is to delete it),
+/// and a *packaged* build is not run on the machine that built it, so even a
+/// path that stayed under `native/` would still break the moment the binary
+/// is copied anywhere else without its `assets/` directory in tow.
+/// `include_bytes!` sidesteps both: the six files (~560KB total, measured)
+/// are folded into the compiled artifact at build time, so the binary itself
+/// is the only thing a shipped build has to carry. This is not a novel
+/// choice — `vendor/gpui/examples/text.rs` embeds its own default face the
+/// identical way
+/// (`include_bytes!("../../../assets/fonts/lilex/Lilex-Regular.ttf")`), so
+/// this follows gpui's own idiom for a default font rather than inventing one.
+///
+/// `CROWBAR_ROW_FONT` still reads an arbitrary file from *disk* at runtime
+/// (see [`load_ui_font`]) — deliberately not embedded, because the override
+/// exists so a parity run can point the row at some other face **without a
+/// rebuild**, which is a different requirement from "the shipping default
+/// must not depend on a path surviving."
+const UI_FONT_BYTES: [&[u8]; 3] = [
+    include_bytes!("../../../assets/fonts/CalSansUI-Regular.ttf"),
+    include_bytes!("../../../assets/fonts/CalSansUI-Medium.ttf"),
+    include_bytes!("../../../assets/fonts/CalSansUI-SemiBold.ttf"),
+];
 
 /// Gives gpui the same faces the React app renders with, and says plainly
 /// whether it worked.
@@ -432,15 +483,23 @@ fn ui_font_paths() -> Vec<PathBuf> {
 /// agreement: the one field that would reveal the problem is the field that
 /// matches. So the family is looked up by name afterwards and a miss is a
 /// different message, not a quieter one.
+///
+/// **`CROWBAR_ROW_FONT`** overrides the default entirely with a single file
+/// read from disk at startup — for a parity run that wants to point the row
+/// at some other face to prove a suspected shaping difference, without a
+/// rebuild. One file is enough for that; it is not a general multi-face
+/// mechanism.
 fn load_ui_font(cx: &mut App) -> String {
-    let paths = ui_font_paths();
-    let mut faces = Vec::with_capacity(paths.len());
-    for path in &paths {
-        match std::fs::read(path) {
-            Ok(bytes) => faces.push(Cow::Owned(bytes)),
-            Err(err) => return format!("font: {} not read ({err})", path.display()),
-        }
-    }
+    let faces: Vec<Cow<'static, [u8]>> = match std::env::var("CROWBAR_ROW_FONT") {
+        Ok(overridden) => match std::fs::read(&overridden) {
+            Ok(bytes) => vec![Cow::Owned(bytes)],
+            Err(err) => return format!("font: {overridden} not read ({err})"),
+        },
+        Err(_) => UI_FONT_BYTES
+            .iter()
+            .map(|bytes| Cow::Borrowed(*bytes))
+            .collect(),
+    };
 
     if let Err(err) = cx.text_system().add_fonts(faces) {
         return format!("font: {UI_FONT_FAMILY} rejected ({err})");
@@ -459,7 +518,7 @@ fn load_ui_font(cx: &mut App) -> String {
 /// `theme.font_mono`'s primary stack entry (`theme/generated.rs`) — the
 /// *stylesheet's* `--font-mono: var(--editor-font-family, 'JetBrains Mono
 /// Variable', …)` name, not the family the source npm package's own `name`
-/// table carries before this item renames it (see [`UI_MONO_FONT_FILES`]).
+/// table carries before this item renames it (see [`UI_MONO_FONT_BYTES`]).
 ///
 /// # This item's defect, and the two it repeats the shape of
 ///
@@ -552,37 +611,50 @@ const UI_MONO_FONT_FAMILY: &str = "JetBrains Mono Variable";
 /// `CalSansUI-Medium.ttf` already carries, and for the same reason: the
 /// upstream package's own pre-baked 500 cut (not used here — see above)
 /// leaves that bit set, which this conversion does not inherit.
+#[cfg(test)]
 const UI_MONO_FONT_FILES: [&str; 3] = [
     "JetBrainsMonoVariable-Regular.ttf",
     "JetBrainsMonoVariable-Medium.ttf",
     "JetBrainsMonoVariable-Bold.ttf",
 ];
 
-/// Where the row's mono faces live, unless `CROWBAR_ROW_MONO_FONT` says
-/// otherwise — [`ui_font_paths`]'s exact shape, one override env var each so
-/// a parity run can swap either face independently of the other.
+/// [`ui_font_paths`]'s mono sibling — test-only, see [`UI_MONO_FONT_BYTES`]
+/// for what actually ships.
+#[cfg(test)]
 fn ui_mono_font_paths() -> Vec<PathBuf> {
     if let Ok(overridden) = std::env::var("CROWBAR_ROW_MONO_FONT") {
         return vec![PathBuf::from(overridden)];
     }
-    let fonts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../web/public/fonts");
+    let fonts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/fonts");
     UI_MONO_FONT_FILES
         .iter()
         .map(|file| fonts.join(file))
         .collect()
 }
 
+/// [`UI_FONT_BYTES`]'s mono sibling — same embedding, same reasoning (see that
+/// constant's own doc comment for why `include_bytes!` and not a runtime
+/// path), a separate family.
+const UI_MONO_FONT_BYTES: [&[u8]; 3] = [
+    include_bytes!("../../../assets/fonts/JetBrainsMonoVariable-Regular.ttf"),
+    include_bytes!("../../../assets/fonts/JetBrainsMonoVariable-Medium.ttf"),
+    include_bytes!("../../../assets/fonts/JetBrainsMonoVariable-Bold.ttf"),
+];
+
 /// [`load_ui_font`]'s mono sibling — same registration, same "checked as well
-/// as attempted" discipline, a separate family.
+/// as attempted" discipline, same `CROWBAR_ROW_MONO_FONT` override shape (one
+/// file, read from disk, no rebuild required), a separate family.
 fn load_ui_mono_font(cx: &mut App) -> String {
-    let paths = ui_mono_font_paths();
-    let mut faces = Vec::with_capacity(paths.len());
-    for path in &paths {
-        match std::fs::read(path) {
-            Ok(bytes) => faces.push(Cow::Owned(bytes)),
-            Err(err) => return format!("font: {} not read ({err})", path.display()),
-        }
-    }
+    let faces: Vec<Cow<'static, [u8]>> = match std::env::var("CROWBAR_ROW_MONO_FONT") {
+        Ok(overridden) => match std::fs::read(&overridden) {
+            Ok(bytes) => vec![Cow::Owned(bytes)],
+            Err(err) => return format!("font: {overridden} not read ({err})"),
+        },
+        Err(_) => UI_MONO_FONT_BYTES
+            .iter()
+            .map(|bytes| Cow::Borrowed(*bytes))
+            .collect(),
+    };
 
     if let Err(err) = cx.text_system().add_fonts(faces) {
         return format!("font: {UI_MONO_FONT_FAMILY} rejected ({err})");
@@ -666,8 +738,8 @@ mod tests {
     use gpui::SharedString;
 
     use super::{
-        Cell, Report, RowSurface, UI_FONT_FAMILY, UI_MONO_FONT_FAMILY, ui_font_paths,
-        ui_mono_font_paths, window_options,
+        Cell, Report, RowSurface, UI_FONT_BYTES, UI_FONT_FAMILY, UI_MONO_FONT_BYTES,
+        UI_MONO_FONT_FAMILY, ui_font_paths, ui_mono_font_paths, window_options,
     };
 
     /// Pins what the daemon probe reports, because the window itself cannot be
@@ -739,29 +811,31 @@ mod tests {
         }
     }
 
-    /// The defaults point at the React app's own font directory, so a checkout
-    /// is the only setup a parity run needs — and all three faces are there:
-    /// the badge's weight 500, and P3.25's weight 600.
+    /// The vendored files sit at `native/assets/fonts/` (S0.7 moved them out of
+    /// `web/public/fonts/`, so `native/` no longer needs `web/` to have text) —
+    /// and all three faces are there: the badge's weight 500, and P3.25's
+    /// weight 600. Canonicalized rather than compared as constructed, so the
+    /// assertion is about where the file actually *resolves*, not about the
+    /// literal `..` components [`ui_font_paths`] happened to join with.
     #[test]
-    fn the_font_paths_default_into_the_react_app() {
+    fn the_font_paths_default_into_native_assets() {
         let paths = ui_font_paths();
 
         assert_eq!(paths.len(), 3, "{paths:?}");
-        assert!(
-            paths[0].ends_with("web/public/fonts/CalSansUI-Regular.ttf"),
-            "{}",
-            paths[0].display(),
-        );
-        assert!(
-            paths[1].ends_with("web/public/fonts/CalSansUI-Medium.ttf"),
-            "{}",
-            paths[1].display(),
-        );
-        assert!(
-            paths[2].ends_with("web/public/fonts/CalSansUI-SemiBold.ttf"),
-            "{}",
-            paths[2].display(),
-        );
+        for (path, want) in paths.iter().zip([
+            "CalSansUI-Regular.ttf",
+            "CalSansUI-Medium.ttf",
+            "CalSansUI-SemiBold.ttf",
+        ]) {
+            let canonical = path
+                .canonicalize()
+                .unwrap_or_else(|err| panic!("{} does not resolve: {err}", path.display()));
+            assert!(
+                canonical.ends_with(format!("native/assets/fonts/{want}")),
+                "{} did not resolve under native/assets/fonts/",
+                canonical.display(),
+            );
+        }
     }
 
     /// The faces exist in the checkout and are what CoreText will accept: a
@@ -807,28 +881,63 @@ mod tests {
         }
     }
 
-    /// [`the_font_paths_default_into_the_react_app`]'s mono sibling: the
+    /// **What actually ships.** `UI_FONT_BYTES` is what [`load_ui_font`]
+    /// registers by default; this proves those `include_bytes!` literals
+    /// resolved to the exact same six — well, three, for the sans family —
+    /// files [`ui_font_paths`] computes from `CARGO_MANIFEST_DIR`, so the
+    /// embedded copy and the vendored-on-disk copy cannot silently diverge
+    /// (a hand-edit to one `include_bytes!` path, or a stale file left behind
+    /// by a future re-vendor, would fail here rather than ship silently).
+    #[test]
+    fn the_embedded_bytes_match_the_vendored_files() {
+        for (embedded, path) in UI_FONT_BYTES.iter().zip(ui_font_paths()) {
+            let disk = std::fs::read(&path)
+                .unwrap_or_else(|err| panic!("{} is missing: {err}", path.display()));
+            assert_eq!(
+                *embedded,
+                disk.as_slice(),
+                "{} diverges from the bytes main.rs embeds",
+                path.display(),
+            );
+        }
+    }
+
+    /// [`the_font_paths_default_into_native_assets`]'s mono sibling: the
     /// three weights `theme.font_mono` text is ever painted at.
     #[test]
-    fn the_mono_font_paths_default_into_the_react_app() {
+    fn the_mono_font_paths_default_into_native_assets() {
         let paths = ui_mono_font_paths();
 
         assert_eq!(paths.len(), 3, "{paths:?}");
-        assert!(
-            paths[0].ends_with("web/public/fonts/JetBrainsMonoVariable-Regular.ttf"),
-            "{}",
-            paths[0].display(),
-        );
-        assert!(
-            paths[1].ends_with("web/public/fonts/JetBrainsMonoVariable-Medium.ttf"),
-            "{}",
-            paths[1].display(),
-        );
-        assert!(
-            paths[2].ends_with("web/public/fonts/JetBrainsMonoVariable-Bold.ttf"),
-            "{}",
-            paths[2].display(),
-        );
+        for (path, want) in paths.iter().zip([
+            "JetBrainsMonoVariable-Regular.ttf",
+            "JetBrainsMonoVariable-Medium.ttf",
+            "JetBrainsMonoVariable-Bold.ttf",
+        ]) {
+            let canonical = path
+                .canonicalize()
+                .unwrap_or_else(|err| panic!("{} does not resolve: {err}", path.display()));
+            assert!(
+                canonical.ends_with(format!("native/assets/fonts/{want}")),
+                "{} did not resolve under native/assets/fonts/",
+                canonical.display(),
+            );
+        }
+    }
+
+    /// [`the_embedded_bytes_match_the_vendored_files`]'s mono sibling.
+    #[test]
+    fn the_embedded_mono_bytes_match_the_vendored_files() {
+        for (embedded, path) in UI_MONO_FONT_BYTES.iter().zip(ui_mono_font_paths()) {
+            let disk = std::fs::read(&path)
+                .unwrap_or_else(|err| panic!("{} is missing: {err}", path.display()));
+            assert_eq!(
+                *embedded,
+                disk.as_slice(),
+                "{} diverges from the bytes main.rs embeds",
+                path.display(),
+            );
+        }
     }
 
     /// [`the_default_faces_are_present_and_are_not_woff2`]'s mono sibling.
