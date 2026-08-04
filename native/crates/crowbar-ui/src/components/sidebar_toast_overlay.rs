@@ -164,7 +164,18 @@ pub const ITEM_ICON_SIZE: Pixels = px(16.0);
 /// [`SidebarToastOverlay::item_height_estimate`] has a value to add rather
 /// than a magic number.
 pub const ITEM_BORDER_WIDTH: Pixels = px(1.0);
-/// `text-sm` on the item.
+/// `text-sm` on the item — this crate's `--ui-text-*` trade
+/// (`native/MAPPING.md`'s own table): Tailwind's `text-sm` is
+/// `theme.ui_text_base`'s number (14px), **not** `theme.ui_text_sm`'s
+/// (12px) — the mirror image of `placeholder_row_actions::REASON_TEXT_SIZE`'s
+/// own note for `text-xs`. A first pass read `theme.ui_text_sm` here by
+/// exactly the naming trap that file warns about, caught writing this
+/// file's own mapping doc rather than by a test that existed at the time.
+///
+/// **Regression-checked**: reverted to `theme.ui_text_sm` after adding
+/// `the_item_text_size_is_the_ui_text_base_number_not_ui_text_sm` below, and
+/// the test caught it — `` 62.285713 against 68 ``, panicked at
+/// `sidebar_toast_overlay.rs:528`. Re-fixed.
 const ITEM_LINE_HEIGHT: f32 = 1.25 / 0.875;
 
 /// `toast.type` — selects the icon's tint. Unanchored (module docs), painted
@@ -234,6 +245,23 @@ impl ToastFixture {
 /// `selectVisibleToasts`, ported statement for statement — see the module
 /// docs §2. `toasts` is assumed newest-first, the manager's own insertion
 /// order; the port makes no attempt to sort it.
+///
+/// **Three mutations run, all reverted after.**
+///
+/// 1. Replaced `toast.pinned` in the loop's own guard with `false`, so no
+///    toast is ever treated as pinned. `every_pinned_toast_is_kept_even_
+///    past_the_limit` caught it — `` left: 0 right: 4 ``, panicked at
+///    `sidebar_toast_overlay.rs:553`.
+/// 2. Replaced `limit.saturating_sub(pinned_count)` with `limit`, so a
+///    pinned toast no longer shrinks the transient budget.
+///    `a_pinned_toast_survives_a_wave_of_transient_failures` caught it —
+///    `` left: 4 right: 3 ``, panicked at `sidebar_toast_overlay.rs:530`.
+/// 3. Walked `toasts.iter().rev()` instead of `toasts` — the historical
+///    `old_toasts.slice(0, 3)` bug's own shape, dropping the newest
+///    transient toasts instead of the oldest.
+///    `over_the_limit_with_no_pinned_toasts_keeps_the_newest` caught it —
+///    `` left: ["oldest", "third", "middle"] right: ["newest", "middle",
+///    "third"] ``, panicked at `sidebar_toast_overlay.rs:513`.
 #[must_use]
 pub fn select_visible(toasts: &[ToastFixture], limit: usize) -> Vec<&ToastFixture> {
     let pinned_count = toasts.iter().filter(|toast| toast.pinned).count();
@@ -328,7 +356,7 @@ impl SidebarToastOverlay {
     /// sub-pixel rounding.
     #[must_use]
     pub fn item_height_estimate(toast: &ToastFixture, theme: &Theme) -> Pixels {
-        let line = theme.ui_text_sm.value().0 * 16.0 * ITEM_LINE_HEIGHT;
+        let line = theme.ui_text_base.value().0 * 16.0 * ITEM_LINE_HEIGHT;
         let mut column = line;
         if toast.description.is_some() {
             column += f32::from(ITEM_COLUMN_GAP) + line;
@@ -459,7 +487,7 @@ impl SidebarToastOverlay {
             .py(ITEM_PADDING_Y)
             .shadow_lg()
             .font(ui_sans_font(theme))
-            .text_size(theme.ui_text_sm.value())
+            .text_size(theme.ui_text_base.value())
             .line_height(relative(ITEM_LINE_HEIGHT))
             .child(row)
     }
@@ -472,7 +500,38 @@ mod tests {
         SIDEBAR_TOAST_LIMIT, Side, SidebarToastOverlay, ToastFixture, VIEWPORT_GAP,
         VIEWPORT_PADDING, select_visible,
     };
+    use crate::theme::Theme;
     use gpui::px;
+
+    /// `text-sm` is `theme.ui_text_base`'s own number under this crate's
+    /// shifted `--ui-text-*` naming (`native/MAPPING.md`'s table), not
+    /// `theme.ui_text_sm`'s — the mirror image of `placeholder_row_actions`'s
+    /// identical check for `text-xs`/`ui_text_sm`. Checked through
+    /// `item_height_estimate`'s own output, since the size is read inline at
+    /// two call sites rather than named as one exported constant.
+    #[test]
+    fn the_item_text_size_is_the_ui_text_base_number_not_ui_text_sm() {
+        let theme = Theme::DARK;
+        let toast = ToastFixture::transient(Kind::Info, "t", "d");
+
+        let base_height = f32::from(SidebarToastOverlay::item_height_estimate(&toast, &theme));
+        // The line contribution using the WRONG token, hand-computed, to
+        // prove the two really do disagree rather than coincide.
+        let wrong_line = theme.ui_text_sm.value().0 * 16.0 * (1.25 / 0.875);
+        let right_line = theme.ui_text_base.value().0 * 16.0 * (1.25 / 0.875);
+        assert_ne!(wrong_line.to_bits(), right_line.to_bits());
+
+        // The estimate must be built from the right one: two lines (title +
+        // description) plus the column gap plus padding plus border.
+        let expected = 2.0 * f32::from(crate::components::sidebar_toast_overlay::ITEM_BORDER_WIDTH)
+            + 2.0 * f32::from(crate::components::sidebar_toast_overlay::ITEM_PADDING_Y)
+            + f32::from(crate::components::sidebar_toast_overlay::ITEM_COLUMN_GAP)
+            + 2.0 * right_line;
+        assert!(
+            (base_height - expected).abs() < 1e-3,
+            "{base_height} against {expected}"
+        );
+    }
 
     /// Every length, against the compiled `calc(var(--spacing) * n)`.
     #[test]
