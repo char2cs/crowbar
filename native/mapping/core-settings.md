@@ -340,18 +340,35 @@ the remaining region misses are wildcard-arm bookkeeping (e.g.
 explicit `Some("none")` arm clippy flagged as redundant), not uncovered
 behaviour.
 
-231 tests in `crowbar-core`'s lib target (up from 228 before this item, +3
-from closing the region gaps above — 60 total in `settings::*`, since
-several other tests were added during the initial branch-enumeration pass
-too): 15 ported from `settings-normalization.test.ts`, 4 from
-`settings-normalization-theme.test.ts`, 6 from
+231 tests in `crowbar-core`'s lib target — **171 before this item** (the
+P3.70 keymap baseline) **-> 231 after**, 60 new, all in `settings::*`: 57
+from this item's initial port (the branch-by-branch enumeration in §4-§5),
+plus 3 more added after the first `cargo llvm-cov` run (99.33% line
+coverage, 5 missed lines) surfaced three real uncovered branches — closed
+with tests asserting the actual mapped value, not left as an unexplained
+percentage (§9). Of the 60: 15 TS cases from `settings-normalization.test.ts`,
+4 from `settings-normalization-theme.test.ts`, 6 from
 `font-family-resolution.test.ts`, 6 from `markdown-font-size.test.ts`, 5
-from `ui-font-size.test.ts` (36 ported cases total), plus 24 authored —
-either "new: not exercised by the TS suite" boundary/branch cases noted in
-each test module, or cases relocated from a TS test that targeted a now-
-sealed field (§5). `typography.rs`/`defaults.rs`/`types.rs` had no TS test
-files to port from at all (`typography-defaults.ts` and
-`default-settings.ts` have none; `types/settings.ts` has none either) — all
+from `ui-font-size.test.ts` have a ported counterpart (36 TS cases total),
+plus 24 authored — either "new: not exercised by the TS suite"
+boundary/branch cases noted in each test module, or cases relocated from a
+TS test that targeted a now-sealed field (§5). **A caveat on that 15,
+stated precisely rather than implied:** two of `settings-normalization.test.ts`'s
+15 cases (`'preserves font updates before persisting'`,
+`'falls back for empty font updates'`) call `normalizeSettingValue` for
+`fontFamily`/`terminalFontFamily`/`uiFontFamily`, which is a direct,
+unconditional forward to `normalizeConfiguredFontFamily` with no
+`normalization.rs`-specific logic in between — the exact function
+`font-family-resolution.test.ts`'s own
+`preserves_configured_font_names_that_may_exist_on_the_system` /
+`falls_back_when_the_configured_font_is_empty` already exercise with the
+same inputs. Those two TS cases have no *separate* Rust test in
+`normalization.rs`; their behaviour is exercised via `font_family.rs`'s
+suite instead of a redundant copy. Counted as "ported" because the
+behaviour is genuinely tested, not because a duplicate exists in this file.
+`typography.rs`/`defaults.rs`/`types.rs` had no TS test files to port from
+at all (`typography-defaults.ts` and `default-settings.ts` have none;
+`types/settings.ts` has none either) — all
 of `defaults.rs`'s 2 tests and `types.rs`'s 4 tests are authored.
 
 Full-workspace gates, run in the foreground: `cargo clippy --workspace
