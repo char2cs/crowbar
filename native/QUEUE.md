@@ -13,7 +13,7 @@ and three of the five can never receive a verdict at all.
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
 | **Tier B · `components/layout`** | **22 of 23 targets** (P3.64 closed 3 defects + 3 fixture flags) — P3.61 (tree chain ×4) and P3.62 (last three) merged. **1 to go.** ⚠ built ≠ verified: **5 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1, `sidebar-carousel` 0/5), **4 FAIL** (`fps-overlay` — a **contract** gap; `repo-icon-popover` 36/6 — one missing wrapper; `repo-avatar` 4/1 — only 1 real; `project-switcher-panel` 5/5 — only 1 real), **1 REFUSED** (`repo-import-dialog` — duplicate `button` anchor id), the rest unverified |
-| **Tier A · `crowbar-core`** | **five areas merged** — workspace scoping (P3.53) + git (P3.67) + keymap (P3.70) + settings (P3.72) + file-tree (P3.75). Coverage **99.75% over 4,319 lines** (11 missed, all in `gitignore.rs`) — up from 3,683 → 2,531 → 1,882 → 1,435 → 787. **First time below 100%**; still well over the ≥98 gate. ⚠ 2 of the 6 git files measure **dead code** — my scoping error, see below. **Denominator settled (P3.71): ~3,170-line Tier A core target confirmed**, not the 9,447-line figure that briefly displaced it — that number measures all seven surveyed areas' *entire* reachable surface (Phase 4 state, `crowbar-diff` logic, presentation, out-of-scope code included), not `crowbar-core`'s alone. **ratio RETRACTED — see below.** Coverage is 100.00% over **3,683 Rust lines**; the ~3,170 target counts **TypeScript** lines, so the two do not divide — see `tier-a-denominator.md`'s "Denominator reconciliation (P3.71)". Keymap was that next area and is now merged |
+| **Tier A · `crowbar-core`** | **five areas merged** — workspace scoping (P3.53) + git (P3.67) + keymap (P3.70) + settings (P3.72) + file-tree (P3.75) + gitignore (P3.76). **Completion, one unit throughout (P3.77, updated for P3.76): 2,196 of ~3,169 TS lines ported = 69.3% net** (2,258/3,169 = 71.3% raw, before subtracting the 2 dead git modules). §2 diff algebra and §7 review threads are untouched (0%); see "P3.77" below for the full per-area breakdown and what remains. Coverage is separately **99.75% over 4,319 Rust lines** (11 missed, all in `gitignore.rs` — first time below 100%, still over the ≥98 gate) — a statement about the Rust crate, not comparable to the TS-line completion figure (ratio of those two RETRACTED, see below); 2 of the 6 git files measure dead code, priced into the net figure above. |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
 Both denominators come from surveys committed this iteration
@@ -3987,6 +3987,228 @@ the claim**: a branch genuinely unreachable by construction should be
 `unreachable!()` rather than untested defensive code inflating the denominator.
 Not acted on now — 99.75% clears the ≥98 gate comfortably and diverging from
 the TS source's own shape needs a better reason than a coverage percentage.
+
+**Settled by P3.77, below: 1,959 of ~3,169 TS lines ported, net of the two
+dead git modules — 61.8%.** Both sides of the ratio are TypeScript lines now;
+see the next section for the per-area breakdown, what was and wasn't
+recounted, and what still remains.
+
+> **Updated the same day:** P3.77 counted while `file-tree-gitignore.ts` was
+> still in flight. **P3.76 has since merged it — +237 TS lines** (line count
+> verified by my own `wc -l`, not taken from the report), giving
+> **2,196 / 3,169 = 69.3% net** (2,258 = 71.3% raw). The summary row at the top
+> of this file carries the updated figure; P3.77's own section below is left at
+> the number it actually measured, because a survey that silently absorbs later
+> work stops being a record of what was checked.
+
+## ✅ P3.77 — the Tier A completion figure, in one unit (2026-08-04)
+
+The item this section's own predecessor dispatched itself. Documentation and
+analysis only — no Rust touched, no port work done. Every path below was
+verified to exist and every line count re-measured with `wc -l` before being
+used (the brief's own warning: a quick attempt at this already returned a
+silent, wrong 0 for the git area once).
+
+**Method, stated once so it isn't re-litigated per area:** for each of the
+five merged areas' mapping docs (`core-git.md`, `core-keymap.md`,
+`core-settings.md`, `core-filetree.md`; workspace scoping has no dedicated
+mapping doc, so its module doc comment — `crates/crowbar-core/src/workspace
+/mod.rs`, which cites `tier-a-denominator.md`'s own 5-file, 261-line figure
+directly — stands in for one), a file counts toward the numerator when the
+doc states its content was ported. Four areas' docs give this per-file as a
+**whole-`wc -l`-file** figure (matching how `tier-a-denominator.md` itself
+counted) — every one of those whole-file counts was independently
+re-`wc -l`'d against the live `web/src` tree and matched exactly, with zero
+exceptions. File-tree is the one area whose own mapping doc (`core-filetree.md`)
+states the port was scoped at **export level**, not file level ("five files'
+**worth of exports**" — its own words) — because the file-level table alone
+already shipped a live-file-holding-dead-exports mistake once
+(`file-explorer-tree-utils.ts`, §8 of `tier-a-denominator.md`). Using
+whole-file counts for file-tree would recreate exactly that mistake here, so
+its numerator instead uses `tier-a-denominator.md` §8's own hand-verified
+export-level line spans — re-verified by hand below, not re-trusted.
+
+### 1. Per-area table — TS lines ported into `crowbar-core`
+
+| area | item | files → Rust module | TS lines ported |
+|---|---|---|---|
+| Workspace scoping | P3.53 | 5 files → `workspace::{scope,scope_url,placeholder,branch,keep_alive}` | **261** |
+| Git model | P3.67 | 6 files → `git::*` (2 measure dead code) | **254** |
+| Keymap resolution | P3.70 | 5 files → `keymap::{types,registry,presets,chord,effective_keymaps}` | **516** |
+| Settings schema | P3.72 | 8 files → `settings::{types,typography,defaults,normalization,font_family,markdown_font_size,ui_font_size}` | **554** |
+| File-tree model | P3.75 | 6 files (export-level) → `file_tree::{types,visible_rows,git_status,density,tree_utils,file_name}` | **436** |
+| **Total (raw)** | | | **2,021** |
+
+**Workspace scoping — 261, all whole-file, all LIVE, zero exclusions**
+(`crates/crowbar-core/src/workspace/mod.rs`'s own doc comment names exactly
+these five and this line total):
+
+| file | lines | → |
+|---|---|---|
+| `lib/workspace-scope.ts` | 87 | `workspace::scope` |
+| `lib/workspace-scope-url.ts` | 28 | `workspace::scope_url` |
+| `lib/workspace/placeholder.ts` | 32 | `workspace::placeholder` |
+| `lib/workspace/branch-workspace.ts` | 16 | `workspace::branch` |
+| `features/workspace/lib/keep-alive-policy.ts` | 98 | `workspace::keep_alive` |
+
+**Git model — 254 raw (192 net of dead), 6 files, per `core-git.md`:**
+
+| file | lines | → | note |
+|---|---|---|---|
+| `utils/git-status-to-changed-files.ts` | 45 | `git::git_status_to_changed_files` | |
+| `utils/build-git-folder-tree.ts` | 57 | `git::build_git_folder_tree` | |
+| `utils/review-file-summary-to-git-diff.ts` | 41 | `git::review_file_summary_to_git_diff` | |
+| `lib/branch-action.ts` | 49 | `git::branch_action` | |
+| `utils/normalize-diff.ts` | 38 | `git::normalize_diff` | **DEAD** — 0 non-test importers |
+| `utils/diff-buffer-path.ts` | 24 | `git::diff_buffer_path` | **DEAD**, and was never in the Tier A core denominator's scope to begin with (`tier-a-denominator.md` §1 places it under "What is not git-model logic") |
+
+`types/git-types.ts` (78 lines) is **not** in this sum: `git::types.rs`'s own
+doc comment says it ports "fields of `types/git-types.ts`'s `GitDiff` this
+item uses (subset of 78)" — a real but unquantified fraction of the file, not
+a countable whole. Left out rather than guessed at. **Not ported at all:**
+`git-diff-helpers.ts`'s `getFileStatus` (11 lines) — `core-git.md` §5 records
+this explicitly ("not in this item's SETUP-defined scope... not ported here").
+
+**Keymap resolution — 516, 5 files, per `core-keymap.md`'s own "TS lines" table:**
+
+| file | lines | → |
+|---|---|---|
+| `types.ts` | 52 | `keymap::types` |
+| `registry.ts` | 220 | `keymap::registry` |
+| `defaults/keybinding-presets.ts` | 49 | `keymap::presets` |
+| `utils/chord.ts` | 124 | `keymap::chord` |
+| `utils/effective-keymaps.ts` | 71 | `keymap::effective_keymaps` |
+
+**Flagged, not subtracted:** of `chord.ts`'s 124 lines, hand-counting the
+function/export spans directly against the live source shows **~30 lines**
+(`chordFromEvent` 18 incl. its doc comment, `eventMatchesChord` 10 incl. its
+doc comment, `MOD_ORDER` 2 incl. its re-export) are **not** reflected as
+ported logic in `crowbar-core` at all: the two `KeyboardEvent`-consuming
+functions are live in the app but belong at the GPUI action-dispatch layer
+per `core-keymap.md` §2, not this crate; `MOD_ORDER` is a dead export
+(0 non-test importers, confirmed by `core-keymap.md` §2 itself). Counted at
+the full 124 here because that is the figure `core-keymap.md`'s own module
+table states for `chord.rs` — an export-level reading would put this area at
+486, not 516. Both numbers are reported so neither is silently chosen.
+
+**Settings schema — 554, 8 files, all whole, per `core-settings.md` §0's own
+reconciliation** ("exactly the eight files this item was scoped to, summing
+to exactly 554"):
+
+| file | lines | → |
+|---|---|---|
+| `types/settings.ts` | 81 | `settings::types` |
+| `types/feature.ts` | 3 | `settings::types` |
+| `config/default-settings.ts` | 98 | `settings::defaults` |
+| `config/typography-defaults.ts` | 25 | `settings::typography` |
+| `lib/settings-normalization.ts` | 249 | `settings::normalization` |
+| `lib/font-family-resolution.ts` | 40 | `settings::font_family` |
+| `lib/markdown-font-size.ts` | 26 | `settings::markdown_font_size` |
+| `lib/ui-font-size.ts` | 32 | `settings::ui_font_size` |
+
+**File-tree model — 436, 6 files, export-level per `tier-a-denominator.md`
+§8's audit, hand-verified against the live source (2 of the 4 adjustments
+below independently re-counted by reading the file directly, not taken on
+the audit's word):**
+
+| file | file lines | ported | note |
+|---|---|---|---|
+| `file-system/types/app.ts` | 38 | 38 | all 3 exports |
+| `.../lib/visible-file-tree-rows.ts` | 238 | 231 | minus 7 (singular `getStickyAncestorRow`, TEST-ONLY — re-counted by hand: lines 183–189, exactly 7) |
+| `.../lib/file-tree-git-status.ts` | 122 | 122 | all 6 exports |
+| `.../lib/file-tree-density.ts` | 38 | ~15 | **estimate**, carried forward from `tier-a-denominator.md`'s own embedded-pure-region convention for this exact file (only the enum + normalizer + `rowHeight` were ported; `rowClassName`/`FILE_TREE_DENSITY_OPTIONS` are presentation and were not) |
+| `.../utils/file-explorer-tree-utils.ts` | 96 | 25 | minus 71 (re-counted by hand against the live source: `filterHiddenFiles` 18 + `addNewItemToTree` 21 + `removeEditingItemsFromTree` 11 + `getParentPath` 7 + `getAncestorDirectoryPaths` 14 = 71, all DEAD or TEST-ONLY; only `getExplorerTargetPath` is live and ported) |
+| `file-system/controllers/file-utils.ts` | 5 | 5 | `getFileName`/`getFilenameFromPath` — one function, two names |
+
+**Not ported this pass, both confirmed absent from `crowbar-core/src/file_tree/`:**
+`file-tree-gitignore.ts` (237 lines, all 7 exports LIVE) — confirmed **in
+flight** on `native/p3.76-core-gitignore`, an existing branch (`git branch -a`
+shows it checked out elsewhere); and `file-system/controllers/file-tree-utils.ts`'s
+`findFileInTree` (22 lines, CONDITIONAL) — not dispatched.
+
+Two files this port explicitly built as export-level dead-code prevention
+are worth restating: `file-explorer-tree-utils.ts` would have shipped 71
+fully-dead lines (74% of the file) if scoped at file level — exactly the
+mistake `tier-a-denominator.md` §8 was opened to catch, and `core-filetree.md`
+confirms it did not happen here.
+
+### 2. The defensible completion figure — one unit, denominator beside it
+
+**Denominator: ~3,170 TypeScript lines — the exact figure this file already
+quotes, counted the exact way `tier-a-denominator.md` counted it (§"The
+headline denominator"): whole-`wc -l`-file counts for fully-portable files,
+reduced pure-region *estimates* for six mixed files (`review-code-view.tsx`,
+`review-api.ts`, `use-review-annotations.tsx`, `resolve-css-color.ts`,
+`file-tree-git-status.ts`, `file-tree-density.ts`).** Not recounted, not
+adjusted — re-summed from that document's own per-area breakdown as a check:
+609 (git model, incl. diff algebra) + 516 (keymap) + 629 (settings) + 718
+(file-tree) + 261 (workspace) + 306 (review threads) + 130 (theme tokens) =
+**3,169**, matching the "~3,170" already in use to the line.
+
+**Numerator: 2,021 TS lines (raw), 1,959 net of the two dead git modules** —
+Deliverable 1, above.
+
+| | raw | net of dead git modules |
+|---|---|---|
+| numerator | 2,021 | 1,959 (2,021 − 38 `normalize_diff` − 24 `diff_buffer_path`) |
+| denominator | 3,169 | 3,169 (unchanged — the denominator is a target, not a ledger of what shipped) |
+| **Tier A core completion** | **63.8%** | **61.8%** |
+
+**Both figures are defensible; neither is rounded up.** The net figure is the
+one to quote going forward — it does not credit the port for code nothing can
+reach, the exact asterisk `core-git.md` already carries on the coverage
+number. The raw figure is kept alongside it, not discarded, because "dead
+code shipped" and "TS lines not yet ported" are different findings and
+blending them would hide the first one again.
+
+**A wrinkle in the denominator itself, found while building this table and
+reported rather than fixed:** the ~3,170 figure predates `tier-a-denominator.md`
+§8's export-level audit (P3.73) and still counts `file-explorer-tree-utils.ts`
+and `visible-file-tree-rows.ts` as **whole files** inside file-tree's 718-line
+Tier A core sub-total — i.e. it still includes the same 71 + 7 = 78 dead/
+test-only lines §8 found and this item's own file-tree numerator (above)
+correctly excludes from what was *ported*. Those 78 lines will never be
+ported, by design, because they are dead. The denominator was left exactly as
+`tier-a-denominator.md` counted it per this item's own instruction ("count
+the same way on both sides… a recount that silently changes the counting rule
+reproduces the exact bug it is fixing") — so **the true, fully-reachable Tier
+A core denominator is closer to ~3,091 (3,169 − 78) than ~3,170**, and that
+correction is recorded here for whoever next touches this figure rather than
+made unilaterally. It moves the net completion figure from 61.8% to 63.4% —
+directionally the same story, not a large swing, and not applied to the
+headline number above because doing so here would be exactly the kind of
+silent denominator edit this section exists to avoid.
+
+**Per-area completion, against each area's own Tier A core sub-figure** (a
+different, narrower question than the 3,170-wide figure above — "how much of
+*this area's* assigned scope is done," not "how much of all Tier A core is
+done"):
+
+| area | ported | area denominator | % | note |
+|---|---|---|---|---|
+| Workspace scoping | 261 | 261 | **100%** | |
+| Git model (proper, excl. diff algebra) | 230 | 241 | **95.4%** | includes the dead `normalize_diff` (38, the most textually plausible 6th file of this 241 target per `tier-a-denominator.md`'s own reconciliation); excludes `diff_buffer_path` (never in this sub-target's scope) and the untouched 368-line diff-algebra region; missing `getFileStatus`, 11 lines |
+| Keymap resolution | 516 | 516 | **100%** | by the whole-file convention; 486/516 = 94.2% at export granularity (see §1) |
+| Settings schema | 554 | 629 | **88.1%** | remaining 75 = `settings-import-export.ts`, correctly CONDITIONAL, not forgotten |
+| File-tree model | 436 | 718 | **60.7%** | see §3 for the breakdown of what's left |
+
+### 3. What remains, per area — none of it overstated
+
+| area | remaining | shape |
+|---|---|---|
+| **§2 Diff algebra** | ~368 lines (`review-code-view.tsx`'s embedded pure region) | **Entirely untouched** — confirmed: no `crowbar-core` module for it. `tier-a-denominator.md` §2 itself notes diff algebra has **no separate line count of its own** in the Tier A core total ("folded into git model above... 0") — its only other content, file-status classification, *is* `getFileStatus`, already listed under the Git model row below, not double-counted here. `tier-a-denominator.md` §8 already scoped the 368-line region precisely: it ports as **one inseparable unit** (2 exported functions + 7 module-private helpers only reachable through them), and its own types need retyping against `crowbar-proto::Hunk` instead of the `@pierre/diffs` types being deleted — real work, not a formality. `patch-window.ts` (244 lines, also untouched) is **not** part of this figure — it's `crowbar-diff`-crate scope per the survey's own crate-boundary finding, not `crowbar-core`. |
+| **§7 Review threads** | 306 lines (`branch-review-slice.ts` whole + `review-api.ts`'s `mapThread`/`mapReply` + `use-review-annotations.tsx`'s pure-helper half) | **Entirely untouched** — confirmed: no `crowbar-core::review` module exists (`lib.rs`'s own module doc lists "review-thread model" among the crate's mandate but only 5 of the 7 areas have landed). `tier-a-denominator.md` §8 found **zero dead exports** here — this is the one area where a straight file-level port would not have over-shipped anything. |
+| **File-tree model** | ~282 of 718 (436 ported) | `file-tree-gitignore.ts` (237, all LIVE) — **in flight**, `native/p3.76-core-gitignore`; `findFileInTree` (22, CONDITIONAL) — not dispatched; `file-tree-density.ts`'s presentation half (`rowClassName`, `FILE_TREE_DENSITY_OPTIONS`, ~23 lines) — correctly out of scope, not core logic. **None of this remainder is dead** — every line is LIVE or CONDITIONAL per `tier-a-denominator.md` §8's own export audit. |
+| **Git model** | `getFileStatus` (11 lines, `git-diff-helpers.ts`) | CONDITIONAL, a third near-duplicate of classification logic already ported twice (`git_status_to_changed_files`, `review_file_summary_to_git_diff`) — `core-git.md` §5 recommends a single `crowbar-core` type eventually collapse all three, not porting a third copy. Small, not urgent, not dead. |
+| **Keymap resolution** | 0 lines of *core* logic; 2 functions (`chordFromEvent`, `eventMatchesChord`) belong to a different layer | Not core-crate remaining work — GPUI's own action/keybinding dispatch replaces this wiring wholesale (`core-keymap.md` §2); tracked as Phase 3 `crowbar-app`/`crowbar-ui` work, not a Tier A core gap. |
+| **Settings schema** | `settings-import-export.ts` (75 lines) | CONDITIONAL — gated behind Settings → Developer tab's export/import buttons. Real, portable logic (`core-settings.md` §0 confirms it's the survey's own correctly-excluded "ninth file"), just not yet dispatched. |
+| **Workspace scoping** | 0 | Fully ported; `activation-freshness.ts` (90 lines) remains flagged as an unresolved Phase-4-vs-Tier-A boundary tension in `tier-a-denominator.md` §6, not as remaining Tier A core work — the survey itself calls this a margin the spec's own two statements of the rule don't agree on, not a gap in this port. |
+
+**Nothing above is TEST-ONLY or dead-and-remaining** — the two dead git
+modules (§1) are already shipped, not outstanding; every other line named in
+this table has a LIVE or CONDITIONAL verdict from `tier-a-denominator.md`'s
+own liveness passes (§0/§8), re-cited here rather than re-derived, and none
+of it needs a fresh liveness check to justify porting it next.
 
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 

@@ -1630,6 +1630,47 @@ into a number that is supposed to represent one crate's remaining surface. If
 this number is ever quoted going forward, it needs its own label — "total
 reachable React logic across the seven surveyed areas" — never "Tier A."
 
+### Numerator reconciliation (P3.77) — the completion ratio, finally in one unit
+
+`native/QUEUE.md`'s own retraction ("RETRACTED — 'Tier A ≈80%' was a ratio of
+two different units") found that every Tier A percentage this project had
+published divided `cargo llvm-cov`'s **Rust** covered-line count by this
+file's **TypeScript** denominator — different units, never comparable,
+flattering throughout until it crossed 100%. P3.77 built the missing
+numerator: TypeScript lines actually ported into `crowbar-core`, counted file
+by file against each merged area's own mapping doc (`core-git.md`,
+`core-keymap.md`, `core-settings.md`, `core-filetree.md`; workspace scoping's
+`crates/crowbar-core/src/workspace/mod.rs` doc comment stands in for a
+missing fifth mapping doc, citing this file's own 5-file, 261-line figure
+directly). Full per-file table: `native/QUEUE.md`, "P3.77 — the Tier A
+completion figure, in one unit".
+
+**Result: 1,959 of ~3,169 TS lines ported, net of the two dead git modules —
+61.8%** (2,021/3,169 = 63.8% raw, before subtracting `normalize_diff.rs`'s and
+`diff_buffer_path.rs`'s 62 dead source lines). The denominator above was used
+**unchanged** — re-summed from this file's own per-area breakdown (609 + 516
++ 629 + 718 + 261 + 306 + 130 = 3,169) as a check, not recounted, per this
+item's own instruction against silently changing a counting rule mid-fix.
+
+**One correction this file owes back, found while building that
+reconciliation and worth recording here rather than only in `QUEUE.md`:** the
+~3,170/3,169 figure predates §8's export-level audit (P3.73, above) and still
+counts `file-explorer-tree-utils.ts` (96 lines) and `visible-file-tree-rows.ts`
+(238 lines) as **whole files** inside file-tree's 718-line Tier A core
+sub-total — i.e. it still includes the 71 + 7 = 78 lines §8 itself proved are
+DEAD/TEST-ONLY within those two files (`file-explorer-tree-utils.ts`'s
+`filterHiddenFiles`/`addNewItemToTree`/`removeEditingItemsFromTree`/the
+private `getParentPath`/the exported `getAncestorDirectoryPaths`;
+`visible-file-tree-rows.ts`'s singular `getStickyAncestorRow`). Those 78 lines
+will never be ported, by design, because they are dead — `core-filetree.md`
+confirms P3.75 correctly excluded every one of them. **The true,
+fully-reachable Tier A core denominator is therefore closer to ~3,091
+(3,169 − 78) than ~3,170.** Not applied to this file's own headline figure
+above, because doing so here — after the fact, in the same document whose
+counting rule P3.77 was told to hold fixed — would be exactly the kind of
+silent denominator edit the brief warned against; recorded instead so
+whoever next touches "~3,170" applies it deliberately.
+
 ## Findings — corrections to the brief
 
 1. **§10.1's `features/git/utils/git-diff-parser.ts` does not exist.** No
