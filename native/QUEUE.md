@@ -3355,6 +3355,39 @@ created the gap — the claims were written expecting the gates to follow.
 > message. And "mutation verified" in a comment is treated exactly like a
 > snapshot — a claim requiring pasted failure output, not a sentence.
 
+## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
+
+```
+CGSSessionScreenIsLocked: True
+```
+
+`crowbar-app --features driver` with `CROWBAR_ROW_SNAPSHOT` set starts, prints
+its banner and its loaded fonts, and then **never emits and never quits**. GPUI
+cannot get a drawable surface, so no frame ever settles and the driver's own
+`never_settled` refusal never fires either.
+
+**Confirmed it is the lock, not the P3.66 merge**, before blaming either: the
+`--surface button` **control hangs identically**, and that control captured fine
+forty minutes earlier on the same binary lineage. Rebuilding with an
+invalidated fingerprint did not change it. The lock is the only variable that
+moved.
+
+### What this blocks, and what it does not
+
+| still works | blocked |
+|---|---|
+| React-side reference capture (driven over the MCP bridge, not the display) | **every native snapshot** |
+| `cargo clippy` / `cargo test` / `check-invariants.sh` | **therefore every new parity verdict** |
+| merging, dispatching workers, all code review | re-verifying P3.66's five fixes |
+
+**Verdicts are mine alone and cannot be delegated around this.** P3.66 is
+merged and gated (2169 tests, 7/7) but its five fixes are **unverified against
+the running app** — that is exactly the state this project treats as "built, not
+verified", and it stays that way until the screen unlocks.
+
+Re-test on unlock with the `--surface button` control **first**, not with the
+surface under test.
+
 ## 🎯 LAYOUT-TIER VERDICT LEDGER — built ≠ verified, and the gap is the point
 
 Every `components/layout` surface, and whether it has an actual parity verdict
