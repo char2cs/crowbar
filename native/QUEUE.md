@@ -3381,7 +3381,8 @@ taken by me against the live app. **A merge is not a verdict.**
 | `workspace-tree` | ✅ | ❌ **FAIL 19/8** | 3 causes; 13 deltas are one omission — the list consumer never applies `MARGIN_X/Y` |
 | `pending-create-row` | ✅ | ⏸ | P3.61 — no verdict yet (no pending row in the live app to capture) |
 | `sidebar-toast-overlay` | ✅ | ✅ **PASS 0/1** | liveness proven by firing a real toast; viewport height agrees at 84px |
-| `workspace-inline-input` · `placeholder-row-actions` · `sidebar-toast-overlay-fallback` | ✅ | ⏸ | P3.62 — need driving into their states |
+| `workspace-inline-input` | ✅ | ⚠ **PASS 0/2 / FAIL 6/3** | plain cell passes (thin — box-only anchors); `--hint` cell has **1 real defect** |
+| `placeholder-row-actions` · `sidebar-toast-overlay-fallback` | ✅ | ⏸ | P3.62 — need driving into their states |
 
 #### ✅ RESOLVED — the four "needs a repo in the fixture" verdicts were never about the repo
 
@@ -3479,14 +3480,24 @@ is **not** the number to pass.
 The other four were `--roots 1` rendering a child row the reference's own scope
 excludes.
 
-#### 🔁 The fixture-string gap is now **four** surfaces, and it is not cosmetic
+#### 🔁 The fixture-string gap is now **five** surfaces, and one shows its real cost
 
 `project-switcher-panel`, `repo-avatar`, `repo-icon-popover` and
 `workspace-tree` each hard-code a string the live app does not show — a project
 name, an avatar letter. `text` is compared **exactly**, so each is
 **permanently un-passable** against any real app state until it grows a flag.
 `repo-section`'s `--name` is the model: with it, that surface's label matched
-the live repo on the first try.
+the live repo on the first try. **P3.64 closed three of the five**
+(`project-switcher-panel`, `repo-avatar`, `repo-icon-popover`); `workspace-tree`
+and `workspace-inline-input` remain.
+
+**`workspace-inline-input` shows why this is not a cosmetic gap.** Its fixture
+string is *longer* than the one I typed live, so it wrapped to a second line —
+turning one text mismatch into **five** deltas: `text`, `text_width`,
+`bounds.h` on the hint, `bounds.h` on the root, and `clipped`. Three of those
+read exactly like layout defects and are nothing of the kind. A hard-coded
+fixture string does not just fail the `text` comparison; it can move the
+geometry.
 
 #### ✅ FIXED (P3.65) — and fixing the contract exposed a real defect
 
@@ -3523,6 +3534,15 @@ are being looked at. **The count of *comparable* fields is the better progress
 measure**, and a surface whose anchors emit few fields deserves suspicion
 rather than credit.
 
+#### 🔁 `font.weight` 400 where React paints 500 — now THREE surfaces
+
+`project-switcher-panel`'s import label, `repo-icon-popover`'s three action
+buttons, and `workspace-inline-input`'s hint. P3.64 established the mechanism
+on the first: **gpui's `Styled::font` overwrites every field of the `Font` it is
+handed, weight included**, so `.font(...)` after `.font_weight(...)` silently
+resets to 400. Check every call site against that shape rather than re-deriving
+it each time.
+
 #### 🔁 One defect, three anchors, two surfaces: the 1px row-button border
 
 `repo-section-import`, `repo-section-collapse` and
@@ -3530,7 +3550,7 @@ rather than credit.
 port paints a 1px border on row action buttons where React paints none. Fix
 once at the shared button path rather than per surface.
 
-**Thirteen verdicts taken, six passing** (plus one refused outright). Eleven
+**Fourteen verdicts taken, six passing, one split** (plus one refused outright). Eleven
 surfaces built in this tier;
 that ratio is the honest state and the reason the header now separates the two
 numbers.
