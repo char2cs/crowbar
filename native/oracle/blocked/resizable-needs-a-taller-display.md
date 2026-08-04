@@ -163,3 +163,100 @@ Well past three attempts. It stays filed. But the diagnosis is now **ours to
 fix** rather than the platform's to grant, which is a materially better place
 than the last two versions of this note — both of which blamed the environment
 and were wrong.
+
+---
+
+## 2026-08-04 — two dialog surfaces join this item, and one good result came out of it
+
+### ✅ First: P3.74 is CONFIRMED WORKING, measured, not assumed
+
+`repo-import-dialog`'s reference **captured cleanly for the first time ever** —
+8 anchors, no refusal from the differ:
+
+```
+repo-import-dialog-popup        x=0    y=0     w=448  h=783.3
+repo-import-dialog-header       x=1    y=1     w=446  h=72
+repo-import-dialog-title        x=17   y=17    w=414  h=20
+repo-import-dialog-description  x=17   y=45    w=414  h=20
+input-control                   x=17   y=73    w=414  h=28
+input                           x=18   y=74    w=412  h=30
+button                          x=17   y=738.3 w=414  h=28
+dialog-close                    x=407  y=9     w=32   h=32
+```
+
+Exactly **one `button` and one `dialog-close`** — the two anchors that used to
+collide on the id `button` and made the differ refuse the reference outright.
+That refusal is gone. The fix did what it claimed, and this is the measurement
+that says so rather than the reasoning that predicted it.
+
+### ⛔ But the native side of that cell cannot be driven here
+
+```
+crowbar-app: no snapshot: `repo-import-dialog-popup` reaches 867.5px down the
+window but its drawable area is only 845px tall … This window holds a surface
+up to 829px tall. Nothing was written.
+```
+
+`h-[70vh]` against the reference's 1119px window is 783.3px, and 783.3 + 84.2
+of insets = 867.5 against 829 granted. **Short by 38px** — the same order as
+`resizable`'s 37px, which is why this belongs here and not in its own file.
+
+The arithmetic fix is a reference window ~55px shorter (`0.7H + 84 ≤ 829` needs
+`H ≤ 1064`; the window is 1119). **I cannot make one.**
+
+### ⛔ `detach-holder-modal`: opens fine, but its cell cannot be composed either
+
+Reached by opening the store directly through Vite's dev module graph, which
+works and is worth reusing:
+
+```js
+import('/src/features/window/stores/detach-modal-store.ts')
+  .then(m => m.useDetachModalStore.getState().open({
+    wsId: '…', branch: 'main', heldByPath: '…' }))
+```
+
+All five anchors render (`-popup`, `-header`, `-title`, `-description`,
+`-footer`). It is `max-w-md` with **no `vh` sizing**, so it is not
+height-blocked. It is blocked on **width**: the popup measured 458px in a 458px
+viewport — viewport-clamped, so `max-w-md` (448) was never the binding
+constraint and the cell is degenerate.
+
+### ‼️ The tool that made this expensive: `manage_window resize` reports success while doing nothing
+
+This cost more attempts than the blocker itself, so record it as an
+instrument fault rather than an app fault:
+
+| requested | actual | `success` |
+|---|---|---|
+| 1684 × 976 | 1684 × 976 | true — **worked** (first call after launch) |
+| 1684 × 800 | 744 × 1119 | true — no-op |
+| 1200 × 700 | 744 × 1119 | true — no-op |
+| 1684 × 500 | 458 × 1119 | true — width moved, wrong value; height ignored |
+| 1400 × 1000 | 316 × 1119 | true — **smaller than before**, after a fresh restart |
+
+**`success: true` is not evidence the window resized.** Always read
+`window.innerWidth`/`innerHeight` back from the webview afterwards. Height never
+moved off 1119 at all (`screen.availHeight` is 1130, so the window sits at the
+display's limit); width moved erratically and monotonically *downwards* across
+restarts.
+
+Direct `setSize` from inside the webview is refused outright, which is at least
+honest:
+
+```
+window.set_size not allowed. Permissions associated with this command:
+core:window:allow-set-size
+```
+
+So the capability is genuinely absent from the app's allow-list, and the bridge
+appears to swallow the same denial and report success anyway.
+
+### What would unblock all three
+
+Any one of: a taller display; `core:window:allow-set-size` added to the dev
+capability set (a one-line `desktop/src-tauri/capabilities/*.json` change,
+**dev-only** — it must not ship in the packaged app); or a user decision to
+accept a measurement window smaller than the live shell for `vh`-scaled cells,
+with the cell recorded as such.
+
+**This is a user decision, and it now gates three surfaces, not one.**
