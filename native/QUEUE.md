@@ -3410,12 +3410,26 @@ FAIL: `ui/button.tsx:69` sets `'data-oracle-id': 'button'` as the primitive's
 **default**, so a call site rendering two Buttons without overriding produces
 two anchors with the same id, and matching by id is the whole contract.
 
-**This is a scheduling check, not a per-surface bug.** Before scheduling any
-surface for a verdict, count its un-named `Button`s. `repo-icon-popover` was
-fine only because its call site names all three (`-upload`, `-emoji`,
-`-github`). `detach-holder-modal` is from the same P3.51 cluster and should be
-checked in the same pass rather than discovered one verdict later. Full write-up
-and the two-line fix: `oracle/blocked/repo-import-dialog-duplicate-button-id.md`.
+**The second button is not in the dialog's own file — it is the `Dialog`
+primitive's built-in close** (`ui/dialog.tsx:84`, and again at `:259`), which
+renders `<Button size="icon" variant="ghost" />` with no id. So:
+
+> A `Dialog` surface is uncapturable **iff its body holds at least one un-named
+> `Button`**, because the primitive's close already occupies `button`. That is
+> why the `dialog` surface itself passes — its fixture has only the close, with
+> nothing to collide with.
+
+**The fix is therefore one line in `ui/dialog.tsx` and it unblocks every dialog
+surface at once** (`data-oracle-id="dialog-close"`), rather than the
+per-call-site change I first wrote down. `detach-holder-modal` has two un-named
+body Buttons and is affected.
+
+⚠ **A regex pre-screen for this was wrong in both directions** — it cleared
+`repo-import-dialog` (the one that failed) and condemned `repo-icon-popover`
+and `sidebar-project-header` (both already captured fine). `<Button\b[^>]*?>`
+truncates at the `>` inside `onClick={() => …}`. Fourth broken grep of this
+port. Chasing the contradiction is what found the real one-line fix. Full
+write-up: `oracle/blocked/repo-import-dialog-duplicate-button-id.md`.
 
 Also learned there: **a `vh`-sized surface's cell depends on the display.** The
 driver first refused this one because `h-[70vh]` at the app's 1119px window
