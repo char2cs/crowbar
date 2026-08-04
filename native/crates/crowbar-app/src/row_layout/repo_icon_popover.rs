@@ -6,6 +6,7 @@
 use super::{a_cell, assert_px, find, ids, lay_out, measure, relative_to};
 use crowbar_driver::RawAnchor;
 use crowbar_ui::Theme;
+use crowbar_ui::components::button;
 use crowbar_ui::components::popover;
 use crowbar_ui::components::repo_avatar::{ImageState, Kind};
 use crowbar_ui::components::repo_icon_popover::{self, Trigger};
@@ -245,24 +246,29 @@ fn the_three_action_buttons_carry_their_own_text(cx: &mut TestAppContext) {
 /// **P3.63: the three buttons no longer share one flat width.** `Upload` and
 /// `GitHub` (six letters each) come out equal, and both wider than `Emoji`
 /// (five) — content-driven, not a three-way equal split that cannot see the
-/// labels at all. Before this fix all three measured within half a pixel of
-/// each other (`73.5`/`73`/`73.5`) regardless of their own text —
-/// `.flex_1()`'s `flex-basis: 0%` grows every item on an equal share without
-/// first clamping any of them to their own min-content, which is the
-/// "automatic minimum size" step a browser applies and this layout engine
-/// does not (`ActionButton::render`'s own doc comment carries the measured
-/// before/after).
+/// labels at all. Before P3.63's field-presence fix, all three measured
+/// within half a pixel of each other (`73.5`/`73`/`73.5`) regardless of
+/// their own text.
 ///
-/// **Mutation, run and reverted:** reverting `.flex_auto()` back to
-/// `.flex_1()` and running this test gives (actual output, this mutation was
-/// run and reverted — the equal-share width is `62px` here rather than the
-/// `73.5px` `repo-icon-popover.md` §6 measured, because this test runs
-/// *after* the border/viewport fix narrowed the row's own available width;
-/// the point the mutation demonstrates — equal regardless of label — is the
-/// same either way):
+/// **What actually guards this now: the button's own border and padding.**
+/// `.flex_1()`'s `flex-basis: 0%` grows every item on an equal share without
+/// first clamping any of them to their own min-content — the CSS "automatic
+/// minimum size" step a browser applies and this layout engine does not
+/// (`ActionButton::render`'s own doc comment carries the account in full).
+/// With the button's real border, padding and icon margin all in place, the
+/// three buttons' own combined floor already exceeds the row's available
+/// width, so there is no leftover space left for the missing clamp to have
+/// mattered — but strip that floor back down (no border, no padding, a
+/// full-size icon) and the row stops overflowing, `flex_1`'s content-blind
+/// equal split has room to run again, and the three go flat.
+///
+/// **Mutation, run and reverted:** commenting out
+/// `.px(button::Size::Xs.padding_x())` and `.border(button::BORDER_WIDTH)`
+/// in `ActionButton::render` and running this test gives (actual output,
+/// this mutation was run and reverted):
 ///
 /// ```text
-/// thread 'row_layout::repo_icon_popover::the_three_action_buttons_size_to_their_own_label' (278041756) panicked at crates/crowbar-app/src/row_layout/repo_icon_popover.rs:278:5:
+/// thread 'row_layout::repo_icon_popover::the_three_action_buttons_size_to_their_own_label' (278211505) panicked at crates/crowbar-app/src/row_layout/repo_icon_popover.rs:278:5:
 /// upload=62px emoji=62px
 /// ```
 #[gpui::test]
@@ -277,6 +283,103 @@ fn the_three_action_buttons_size_to_their_own_label(cx: &mut TestAppContext) {
     assert_px(upload, github);
     assert!(upload > emoji, "upload={upload:?} emoji={emoji:?}");
     assert!(github > emoji, "github={github:?} emoji={emoji:?}");
+}
+
+/// **Re-verdict round: the three buttons carry a real 1px border,
+/// `button.tsx`'s own bare `border` class — colour transparent on `ghost`,
+/// width never zero.** Before this fix these boxes carried no border at
+/// all: `button::BORDER_WIDTH`/`button::Variant::border` are reused
+/// directly from the already gate-tested primitive rather than re-derived.
+///
+/// **Mutation, run and reverted:** commenting out
+/// `.border(button::BORDER_WIDTH)` in `ActionButton::render` and running
+/// this test gives (actual output, this mutation was run and reverted):
+///
+/// ```text
+/// thread 'row_layout::repo_icon_popover::the_three_action_buttons_carry_a_real_one_pixel_border' (278238516) panicked at crates/crowbar-app/src/row_layout/repo_icon_popover.rs:314:9:
+/// expected 1px, got 0px
+/// ```
+#[gpui::test]
+fn the_three_action_buttons_carry_a_real_one_pixel_border(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+    let theme = Theme::DARK;
+    let expected_color = button::Variant::Ghost.border(&theme, button::ButtonState::resting());
+
+    for id in [
+        repo_icon_popover::ID_UPLOAD,
+        repo_icon_popover::ID_EMOJI,
+        repo_icon_popover::ID_GITHUB,
+    ] {
+        let button_anchor = find(&records, id);
+        assert_px(button_anchor.border_width, button::BORDER_WIDTH);
+        assert_eq!(
+            button_anchor.border_color,
+            Some(expected_color.value()),
+            "{id}"
+        );
+    }
+}
+
+/// **Re-verdict round: the three buttons paint `font-medium` (`FontWeight::
+/// MEDIUM`, 500) — `button.tsx`'s base class list, on every variant.**
+/// Before this fix the weight was never set at all (not a `Styled::font`
+/// overwrite — this box never called `.font(…)` — simply missing).
+///
+/// **Mutation, run and reverted:** commenting out
+/// `.font_weight(FontWeight::MEDIUM)` in `ActionButton::render` and running
+/// this test gives (actual output, this mutation was run and reverted):
+///
+/// ```text
+/// thread 'row_layout::repo_icon_popover::the_three_action_buttons_are_font_medium' (278241905) panicked at crates/crowbar-app/src/row_layout/repo_icon_popover.rs:346:9:
+/// repo-icon-popover-upload: TextFacts { content: "Upload", width: 43.2px, clipped: false, color: Hsla { h: 0.0, s: 0.0, l: 0.64471, a: 1.0 }, font: FontFacts { size: 12px, weight: 400.0, family: "CalSansUI", line_height: 16px } }
+/// ```
+#[gpui::test]
+fn the_three_action_buttons_are_font_medium(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+
+    for id in [
+        repo_icon_popover::ID_UPLOAD,
+        repo_icon_popover::ID_EMOJI,
+        repo_icon_popover::ID_GITHUB,
+    ] {
+        let text = find(&records, id).text.expect("carries text");
+        assert!((text.font.weight - 500.0).abs() < f32::EPSILON, "{id}: {text:?}");
+    }
+}
+
+/// **Re-verdict round: the three buttons' own line height is `text-xs`'s
+/// paired ratio (12px/16px, `1.333…`), not the `1.5` an *arbitrary*
+/// `text-[Npx]` inherits.** `font.size: 12` is a **named** Tailwind step —
+/// `button::Size::Xs.type_step(theme, BP)` already carries this exact
+/// ratio (`button::LINE_HEIGHT_XS`) and this box had computed `step` for
+/// its own font size but never read `step.line_height` at all, so it fell
+/// back to gpui's golden-ratio default the same way the caption and
+/// `avatar-fallback` did before their own fixes.
+///
+/// **Mutation, run and reverted:** commenting out
+/// `.line_height(relative(step.line_height))` in `ActionButton::render` and
+/// running this test gives (actual output, this mutation was run and
+/// reverted):
+///
+/// ```text
+/// thread 'row_layout::repo_icon_popover::the_three_action_buttons_line_height_is_text_xss_paired_ratio' (278247683) panicked at crates/crowbar-app/src/row_layout/repo_icon_popover.rs:378:9:
+/// expected 16px, got 19.5px
+/// ```
+#[gpui::test]
+fn the_three_action_buttons_line_height_is_text_xss_paired_ratio(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+
+    for id in [
+        repo_icon_popover::ID_UPLOAD,
+        repo_icon_popover::ID_EMOJI,
+        repo_icon_popover::ID_GITHUB,
+    ] {
+        let text = find(&records, id).text.expect("carries text");
+        assert_px(text.font.line_height, px(16.0));
+    }
 }
 
 /// **P3.63: `avatar-fallback`'s line height is `text-sm`'s own `1.25/0.875`

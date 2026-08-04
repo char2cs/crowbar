@@ -362,3 +362,76 @@ right for exactly the reason these buttons are wrong.
 Returned to the worker with all four, the `text-xs` pairing spelled out, and
 P3.64's `Styled::font`-resets-weight finding flagged as the likely cause of the
 400.
+
+## 9. FIXED — the four §8 fields, all reused from `button.rs`
+
+`ActionButton::render`'s own doc comment (`crowbar_ui::components::
+repo_icon_popover`) carries the account in full; this section is the index.
+
+**`border.w` and `font.weight` — exact fixes, both reused rather than
+re-derived.** `button::BORDER_WIDTH` (1px) and `button::Variant::border` on
+`Variant::Ghost` (`Color::TRANSPARENT`) give the button its real, always-1px
+border; `FontWeight::MEDIUM`, `button.tsx`'s own unconditional `font-medium`,
+gives it the right weight. **Not** the `Styled::font`-resets-weight footgun
+P3.64 found and this round's brief flagged as the likely cause: checked
+directly, this box never called `.font(…)` at all, so there was nothing to
+overwrite — the weight was simply never set. The stray `.font(ui_sans_font
+(theme))` P3.63 had added here (defensive, not load-bearing — the family
+already reached this leaf by ordinary inheritance, measured correctly before
+this fix too) is dropped, one keystroke from being that exact footgun on a
+future edit.
+
+**`font.line_height` 19.5 → 16 — the brief's own read confirmed.** `button::
+Size::Xs.type_step(theme, BP)` already carries `text-xs`'s paired ratio
+(`button::LINE_HEIGHT_XS`, `1/0.75`) in its own `line_height` field; this box
+computed `step` for its font *size* and never read `step.line_height` at
+all, so it fell back to gpui's golden-ratio default the same way the caption
+and `avatar-fallback` did before their own P3.63 fixes — confirmed by
+mutation: dropping the line-height call reproduces `19.5px` exactly.
+
+**`bounds.w` — closed as far as arithmetic can close it, not byte-exact.**
+Two sub-fixes, both `button::Size::Xs`'s own already-verified numbers:
+
+* `button::Size::padding_x()` (7px each side, `px-[calc(--spacing(2)-1px)]`)
+  — this box had never called it, carrying no horizontal padding at all.
+* the icon's own `[&_svg]:-mx-0.5`, resolved into the glyph's box rather than
+  declared as a margin — `button.rs`'s own module docs call this **"the
+  largest finding in this port"**: a negative inline margin on an in-flow,
+  content-sized flex item breaks taffy's main-size resolution outright, and
+  `button::Button::glyph`'s established fix is to shrink the box and apply
+  no margin at all. This surface's own icon is call-site-sized (`size-3`,
+  not `button.rs`'s own computed size), so the same arithmetic is applied by
+  hand: `BUTTON_ICON_SIZE + button::ICON_MARGIN_X * 2.0` = 8px in-flow,
+  height unchanged.
+
+Measured after both: `72 / 64 / 72`, against the reference's `69.63 / 59.77
+/ 69.56` — much closer than the pre-fix `65.0 / 65.0 / 56.0` (§8), but not
+exact, and **that residual is not chased further, on evidence rather than a
+shrug**: `row_layout`'s own harness never shapes a real glyph.
+`#[gpui::test]`'s `TestPlatform` hardcodes a `NoopTextSystem`
+(`vendor/gpui/src/platform/test/platform.rs`), so every text width this
+port's own tests can measure is against a synthetic stand-in font, never the
+live app's real `CalSansUI` — the exact reason `row_layout::badge`'s own
+default-cell test already declines to assert its width against the
+reference's pixel value ("the shaped advance … and the two engines shape
+independently"). Only the live binary (`--features driver`, which *does*
+load real `CalSansUI` through the same `MacTextSystem` `main.rs` registers
+it into) can verify the shaped term, and this item does not run it. What
+this fix closes is everything upstream of the glyph shape — border, padding,
+icon margin, gap — all now `button.rs`'s own numbers rather than re-derived.
+
+**A flex-mode footnote, corrected mid-item.** A first pass swapped
+`.flex_1()` for `.flex_auto()` to route around the missing automatic-
+minimum-size clamp (§8's `border.w`/`padding` finding). Once the button's
+real chrome is in place, the three buttons' own combined footprint (220px
+with gaps) already exceeds the row's 198px share of the popup, so neither
+flex mode has anything left to distribute — measured identical under both,
+`72/64/72`. The literal, faithful `.flex_1()` (matching `repo-icon-
+popover.tsx` exactly) is what shipped; `.flex_auto()` was a workaround the
+border/padding fix made unnecessary.
+
+Four `row_layout` tests added for this round (border+colour, weight,
+line-height, and a refreshed width-ordering test whose real mutation is now
+stripping the border/padding back off, which reopens the flat-split bug),
+each with its mutation actually run and the real failure output kept in the
+doc comment.
