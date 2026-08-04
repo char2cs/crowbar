@@ -4568,6 +4568,40 @@ it. 4 = 2 × `MARGIN_Y`.
 Neither is P3.81's — both predate it and neither was in its brief. Dispatched
 as its own item.
 
+## ✅ P3.64 VERIFIED — `project-switcher-panel` 5 deltas → 1, and the survivor is the fixture's
+
+Drive: `--surface project-switcher-panel --width 252 --viewport-width 316
+--theme light --content normal --count 1 --project-name oracle-fixture`.
+
+```
+project-switcher-panel.bounds.h: 88.0, expected 1075.0 (Δ -987.0, tol ±0.5)
+
+oracle: FAIL — 1 delta over 5 anchors compared (1 geometry)
+```
+
+**P3.64's fix is confirmed by measurement**: `project-switcher-panel-import-
+label` now reports `font.weight: 500` and matches the reference exactly, along
+with its size, family, `line_height` (19.5), colour, position and box. Four of
+the five anchors are exact.
+
+**The survivor is a fixture gap, not a port defect.**
+`project-switcher-panel.tsx:46` is `className="flex h-full flex-col"` — the
+panel is `h-full`, so its height is *entirely its parent's*. The reference's
+1075 is the enclosing column; the port, given no column, hugs its content at 88.
+
+The surface has **no height axis**. `sidebar`, `sidebar-peek` and `nav-stack`
+all take `--height` ("the column `flex-1` resolves against"); this one does not,
+and `--height` is rejected as an unknown option. So the one thing that would
+make the comparison meaningful cannot be expressed.
+
+> **Queued: give `project-switcher-panel` a `--height` axis** and re-verdict.
+> Worth stating precisely — this is not the "unverifiable axis" family, where no
+> anchor expresses an axis's effect. Here the anchor *does* express it (the
+> root's own `bounds.h`); it is the **driver** that cannot set it. A surface
+> whose root is `h-full` and whose harness has no column height will always
+> report its content height against the reference's parent height, and that
+> delta is guaranteed, meaningless, and permanent until the axis exists.
+
 ## 🚧 IN FLIGHT + NEXT (2026-08-04, after P3.81)
 
 **Running now (worker cap = 2):**
@@ -4668,7 +4702,7 @@ taken by me against the live app. **A merge is not a verdict.**
 | **`sidebar-skeleton`** | ✅ | 🚫 **UNOBTAINABLE** | never renders — its `Suspense` fallback cannot fire |
 | `project-home-row` | ✅ | ✅ **PASS 0/5** | P3.60 → regressed by P3.66 → **re-verified PASS after P3.81** (`light`, w=1684) |
 | `sidebar-carousel` | ✅ | ✅ **PASS 0/5** | drive: `--height 976 --active-tab workspaces`. See the `visible` note below |
-| `project-switcher-panel` | ✅ | ❌ **FAIL 5/5** | **only 1 real** — import label `font.weight` 400 vs 500. Also confirms P3.60 on its 2nd consumer |
+| `project-switcher-panel` | ✅ | ⚠ **FAIL 1/5** | **5→1.** P3.64's `font.weight` fix **VERIFIED** (import label now 500). Sole survivor is a **fixture gap**: the panel is `h-full` and the surface has no column-height axis |
 | `repo-section` | ✅ | ✅ **PASS 0/6** | P3.81 declared `repo-section-label` `content_sized` on **both** sides; 0.8px ceil forgiven by v1.5 |
 | `workspace-tree-item` | ✅ | ✅ **PASS 0/4** | held as the **control** across P3.81 — raw `<button>`, correctly borderless |
 | `workspace-tree` | ✅ | ❌ **FAIL 5/8** | 19→2→**5** *at a new width*: `scroll_width: px(344.0)` is **hardcoded** and every prior run drove exactly 344. Plus a 4px height overshoot |
