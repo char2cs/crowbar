@@ -1,4 +1,4 @@
-# Blocked on a React-side prerequisite — `repo-import-dialog` emits two `button` anchors
+# ✅ FIXED (P3.74) — ~~`repo-import-dialog` emits two `button` anchors~~
 
 **Raised:** 2026-08-03, taking `repo-import-dialog`'s verdict.
 **Fixed:** 2026-08-04, `native/p3.74-dialog-close`. **Not a port defect.**
