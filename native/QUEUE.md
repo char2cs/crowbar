@@ -3376,7 +3376,8 @@ taken by me against the live app. **A merge is not a verdict.**
 | `project-home-row` | ✅ | ✅ **PASS 0/5** | P3.60; a real line-height defect, found live and fixed |
 | `sidebar-carousel` | ✅ | ✅ **PASS 0/5** | drive: `--height 976 --active-tab workspaces`. See the `visible` note below |
 | `project-switcher-panel` | ✅ | ❌ **FAIL 5/5** | **only 1 real** — import label `font.weight` 400 vs 500. Also confirms P3.60 on its 2nd consumer |
-| `pending-create-row` · `workspace-tree-item` · `repo-section` · `workspace-tree` | ✅ | ⏸ | P3.61, merged this iteration — no verdicts yet |
+| `repo-section` | ✅ | ❌ **FAIL 5/5** | 3 port defects + **1 contract bug**: the scope entry drops `repo-section-add-child`, which is live |
+| `pending-create-row` · `workspace-tree-item` · `workspace-tree` | ✅ | ⏸ | P3.61, merged this iteration — no verdicts yet |
 | `workspace-inline-input` · `placeholder-row-actions` · `sidebar-toast-overlay`(+`-fallback`) | ✅ | ⏸ | P3.62, merged this iteration — no verdicts yet |
 
 #### ✅ RESOLVED — the four "needs a repo in the fixture" verdicts were never about the repo
@@ -3458,7 +3459,24 @@ The generalisation: `visible: false` on **every** anchor at once is a signal
 about the *capture*, not the component. A real invisibility finding is
 selective.
 
-**Nine verdicts taken, five passing** (plus one refused outright). Eleven
+#### ⚠ `--width` is the CONTAINER on `row_base` surfaces, not the row
+
+`repo-section`'s first drive produced 12 deltas; **seven were mine.** I passed
+`--width 332` — the reference root's own `bounds.w` — and the port rendered
+**320**, because it applies `row_base::MARGIN_X` (`mx-1.5`, 6px a side) *inside*
+the width it is given. The reference row is 332 **because its container is
+344**. So on any surface composing `row_base`, read the root's `bounds.w` and
+add `2 × MARGIN_X` before passing it.
+
+That is the third distinct spelling of this trap: `--width` vs
+`--viewport-width`, then `extractSnapshot` defaulting `state.width` to the
+root, now `--width` meaning the container. The reference's own root `bounds.w`
+is **not** the number to pass.
+
+The other four were `--roots 1` rendering a child row the reference's own scope
+excludes.
+
+**Ten verdicts taken, five passing** (plus one refused outright). Eleven
 surfaces built in this tier;
 that ratio is the honest state and the reason the header now separates the two
 numbers.
