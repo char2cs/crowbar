@@ -4067,6 +4067,66 @@ fully-dead lines (74% of the file) if scoped at file level — exactly the
 mistake `tier-a-denominator.md` §8 was opened to catch, and `core-filetree.md`
 confirms it did not happen here.
 
+### 2. The defensible completion figure — one unit, denominator beside it
+
+**Denominator: ~3,170 TypeScript lines — the exact figure this file already
+quotes, counted the exact way `tier-a-denominator.md` counted it (§"The
+headline denominator"): whole-`wc -l`-file counts for fully-portable files,
+reduced pure-region *estimates* for six mixed files (`review-code-view.tsx`,
+`review-api.ts`, `use-review-annotations.tsx`, `resolve-css-color.ts`,
+`file-tree-git-status.ts`, `file-tree-density.ts`).** Not recounted, not
+adjusted — re-summed from that document's own per-area breakdown as a check:
+609 (git model, incl. diff algebra) + 516 (keymap) + 629 (settings) + 718
+(file-tree) + 261 (workspace) + 306 (review threads) + 130 (theme tokens) =
+**3,169**, matching the "~3,170" already in use to the line.
+
+**Numerator: 2,021 TS lines (raw), 1,959 net of the two dead git modules** —
+Deliverable 1, above.
+
+| | raw | net of dead git modules |
+|---|---|---|
+| numerator | 2,021 | 1,959 (2,021 − 38 `normalize_diff` − 24 `diff_buffer_path`) |
+| denominator | 3,169 | 3,169 (unchanged — the denominator is a target, not a ledger of what shipped) |
+| **Tier A core completion** | **63.8%** | **61.8%** |
+
+**Both figures are defensible; neither is rounded up.** The net figure is the
+one to quote going forward — it does not credit the port for code nothing can
+reach, the exact asterisk `core-git.md` already carries on the coverage
+number. The raw figure is kept alongside it, not discarded, because "dead
+code shipped" and "TS lines not yet ported" are different findings and
+blending them would hide the first one again.
+
+**A wrinkle in the denominator itself, found while building this table and
+reported rather than fixed:** the ~3,170 figure predates `tier-a-denominator.md`
+§8's export-level audit (P3.73) and still counts `file-explorer-tree-utils.ts`
+and `visible-file-tree-rows.ts` as **whole files** inside file-tree's 718-line
+Tier A core sub-total — i.e. it still includes the same 71 + 7 = 78 dead/
+test-only lines §8 found and this item's own file-tree numerator (above)
+correctly excludes from what was *ported*. Those 78 lines will never be
+ported, by design, because they are dead. The denominator was left exactly as
+`tier-a-denominator.md` counted it per this item's own instruction ("count
+the same way on both sides… a recount that silently changes the counting rule
+reproduces the exact bug it is fixing") — so **the true, fully-reachable Tier
+A core denominator is closer to ~3,091 (3,169 − 78) than ~3,170**, and that
+correction is recorded here for whoever next touches this figure rather than
+made unilaterally. It moves the net completion figure from 61.8% to 63.4% —
+directionally the same story, not a large swing, and not applied to the
+headline number above because doing so here would be exactly the kind of
+silent denominator edit this section exists to avoid.
+
+**Per-area completion, against each area's own Tier A core sub-figure** (a
+different, narrower question than the 3,170-wide figure above — "how much of
+*this area's* assigned scope is done," not "how much of all Tier A core is
+done"):
+
+| area | ported | area denominator | % | note |
+|---|---|---|---|---|
+| Workspace scoping | 261 | 261 | **100%** | |
+| Git model (proper, excl. diff algebra) | 230 (net) | 241 | **95.4%** | missing `getFileStatus`, 11 lines |
+| Keymap resolution | 516 | 516 | **100%** | by the whole-file convention; 486/516 = 94.2% at export granularity (see §1) |
+| Settings schema | 554 | 629 | **88.1%** | remaining 75 = `settings-import-export.ts`, correctly CONDITIONAL, not forgotten |
+| File-tree model | 436 | 718 | **60.7%** | see §3 for the breakdown of what's left |
+
 ```
 CGSSessionScreenIsLocked: True
 ```
