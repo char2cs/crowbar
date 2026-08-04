@@ -456,42 +456,126 @@ impl ActionButton {
     /// One button's own box: `flex-1 gap-1`, an icon and a label, at
     /// `button::Size::Xs`'s own type step and radius.
     ///
-    /// # Two P3.63 fixes on this box
+    /// # P3.63: the label carries its own anchor fields
     ///
-    /// **The label now carries its own anchor fields.** It used to be a bare
-    /// `.child(label)` — a string with no anchor of its own, so a snapshot
-    /// rooted on this button's id saw its box and nothing about what it
-    /// painted: no `text`, `fg`, `text_width`, `font` or `clipped`
-    /// (`native/mapping/repo-icon-popover.md` §6, "15 field-presence" over
-    /// the three always-visible buttons). [`AnchorSink::boxed_text`] is the
-    /// primitive every other labelled anchor in this file already uses (the
-    /// caption, the preview fallback) — it records the string under the same
-    /// id as the box, so what the differ sees is what is actually painted.
+    /// It used to be a bare `.child(label)` — a string with no anchor of its
+    /// own, so a snapshot rooted on this button's id saw its box and nothing
+    /// about what it painted: no `text`, `fg`, `text_width`, `font` or
+    /// `clipped` (`native/mapping/repo-icon-popover.md` §6, "15
+    /// field-presence" over the three always-visible buttons).
+    /// [`AnchorSink::boxed_text`] is the primitive every other labelled
+    /// anchor in this file already uses (the caption, the preview fallback)
+    /// — it records the string under the same id as the box, so what the
+    /// differ sees is what is actually painted.
     ///
-    /// **The three buttons no longer share one flat width regardless of
-    /// their own label.** Measured before this fix, the default cell
-    /// (`--surface repo-icon-popover`): Upload, Emoji and GitHub all landed
-    /// at ~73px, whatever their own text said (`73.5`/`73`/`73.5` — the 0.5px
-    /// spread is pixel-snap on an equal three-way split, not content).
-    /// `.flex_1()` is CSS `flex: 1 1 0%`, and growing every item on a `0%`
-    /// basis by an equal share **without first clamping any of them to their
-    /// own min-content** is exactly what this crate's layout engine did here
-    /// — confirmed by swapping in `.flex_none()` (no grow at all) on the same
-    /// cell and watching the three diverge by content alone: Upload 60px,
-    /// Emoji 52px, GitHub 60px. A browser applies that clamp (the CSS
-    /// "automatic minimum size" step) before it distributes leftover space,
-    /// which is why React's own `flex-1` buttons *do* come out different
-    /// (69.63/59.77/69.56 — `repo-icon-popover.md` §6) even though the class
-    /// is identical on both sides. `.flex_auto()` (`flex: 1 1 auto`) reaches
-    /// the same outcome without depending on a clamp this engine does not
-    /// apply: every label here is a single, non-wrapping line, so its
-    /// min-content and max-content are the same width, and seeding growth
-    /// from that width instead of a bare `0%` one lands on the floor a
-    /// working clamp would have produced. Measured after the change, same
-    /// cell: Upload 64.5px, Emoji 57px, GitHub 64.5px — Upload and GitHub
-    /// (six letters each) agree, Emoji (five) is 7.5px narrower, the same
-    /// shape the reference's ~10px Upload/GitHub-vs-Emoji gap has, rather
-    /// than a flat three-way split that cannot see the labels at all.
+    /// # P3.63: the width follows the label, not a flat three-way split
+    ///
+    /// Measured before this fix, the default cell (`--surface repo-icon-
+    /// popover`), with none of the box's own chrome (no border, no padding,
+    /// a full-size icon): Upload, Emoji and GitHub all landed at ~73px,
+    /// whatever their own text said. `.flex_1()` is CSS `flex: 1 1 0%`, and
+    /// growing every item on a `0%` basis by an equal share **without first
+    /// clamping any of them to their own min-content** is what this crate's
+    /// layout engine did — the CSS "automatic minimum size" step a browser
+    /// applies before distributing leftover space, which this engine skips.
+    ///
+    /// **Still `.flex_1()`, not a substitute.** A first pass reached for
+    /// `.flex_auto()` (`flex: 1 1 auto`) to route around the missing clamp —
+    /// plausible in isolation, but not what `repo-icon-popover.tsx` writes,
+    /// and once the box carries its own real border, padding and icon
+    /// margin (below), the three buttons' own combined footprint
+    /// (**220px**: `72 + 64 + 72 = 208`, plus the row's own two 6px gaps)
+    /// already **exceeds** the row's own 198px share of the popup, so there
+    /// is no leftover space for either `.flex_1()` or `.flex_auto()` to
+    /// distribute — measured identical under both, `72/64/72`, once that
+    /// floor is in place. With nothing left for the flex algorithm to
+    /// decide, the literal, faithful class wins on the tie: `.flex_1()`,
+    /// matching `repo-icon-popover.tsx` exactly rather than a workaround the
+    /// fix upstream made unnecessary.
+    ///
+    /// # The re-verdict round: the surviving fields, all reused from `button.rs`
+    ///
+    /// The field-presence fix made `text`/`font`/`border`/`bounds.w`
+    /// *comparable* for the first time, which is what surfaced these four —
+    /// none is a regression (`repo-icon-popover.md` §8). `bounds.w` took two
+    /// separate sub-fixes (padding, icon margin); the other three are one
+    /// each. Every number below is `button::Size::Xs`'s own, already
+    /// measured and gate-tested in `button.rs`; none is re-derived by hand,
+    /// which is the mistake this port keeps re-learning (`native/
+    /// MAPPING.md`'s own repeated warning about transferring a number
+    /// instead of reading the type-scale table it actually belongs to).
+    ///
+    /// * **`border.w` 0 → 1.** `button.tsx`'s base class list carries a bare
+    ///   `border` unconditionally, on every variant — `button.rs`'s own
+    ///   module docs record this as "the opposite of every earlier trap":
+    ///   `ghost`'s `border-transparent` changes the *colour*, never the
+    ///   *width*. [`button::BORDER_WIDTH`] (1px) plus [`button::Variant::
+    ///   border`] on `Variant::Ghost` (the colour, `Color::TRANSPARENT`) are
+    ///   reused directly rather than re-typed.
+    /// * **No horizontal padding at all.** `size="xs"` carries `px-[calc(
+    ///   --spacing(2)-1px)]` — [`button::Size::padding_x`] returns this
+    ///   already computed (7px), and this box had never called it.
+    /// * **`font.weight` 400 → 500.** `button.tsx`'s base class list is
+    ///   `font-medium`, on every button — `button::Button`'s own private
+    ///   `shell` paints `FontWeight::MEDIUM` unconditionally, reused here as
+    ///   the same literal. **Not** a `Styled::font`-overwrite footgun (P3.64's
+    ///   finding, checked and ruled out): this box never called `.font(…)`
+    ///   at all, so there was nothing to overwrite — the weight was simply
+    ///   never set. The stray `.font(ui_sans_font(theme))` this box *did*
+    ///   carry is dropped for the same reason `button::Button::shell` never
+    ///   calls it: the family already reaches every leaf here by ordinary
+    ///   inheritance from the harness's own root (`row_surface.rs`/
+    ///   `row_layout.rs`), measured correctly on this exact box before this
+    ///   fix (`family: "CalSansUI"`) — an explicit call was never load-
+    ///   bearing and, on this box specifically, was one keystroke from being
+    ///   the exact footgun P3.64 found.
+    /// * **`font.line_height` 19.5 → 16.** The coordinator's own read is the
+    ///   one that matters here: `font.size: 12` is `text-xs`, a **named**
+    ///   Tailwind step with a *paired* line-height (`12/16`, ratio
+    ///   `1.333…`) — not the `1.5` an *arbitrary* `text-[Npx]` inherits,
+    ///   which is what the caption's own fix (`CAPTION_LINE_HEIGHT`) was
+    ///   right to use and this box would have been wrong to copy. The step
+    ///   this box already computed (`button::Size::Xs.type_step(theme,
+    ///   BP).line_height`) *carries this exact ratio* — `button::
+    ///   LINE_HEIGHT_XS` is `1.0 / 0.75` — and this box had computed `step`
+    ///   for its own font *size* but never read `step.line_height` at all,
+    ///   so the box fell back to gpui's golden-ratio default the same way
+    ///   the caption and `avatar-fallback` did (`14 × phi` there; `12 ×
+    ///   phi ≈ 19.42`, device-snapped to `19.5`, here).
+    /// * **The icon's own margin, folded into its box rather than
+    ///   declared.** `[&_svg]:-mx-0.5` pulls every button icon's neighbours
+    ///   in by 2px a side — `button.rs`'s own module docs record this as
+    ///   *"the largest finding in this port"*: a negative inline margin on
+    ///   an in-flow, content-sized flex item breaks taffy's main-size
+    ///   resolution outright, not by a fixed offset, so it cannot be
+    ///   declared as a margin at all. `button::Button::glyph` resolves it by
+    ///   shrinking the glyph's own box instead and applying **no** margin —
+    ///   [`button::ICON_MARGIN_X`] is the measurement. This surface's own
+    ///   icon is call-site-sized (`size-3`, [`BUTTON_ICON_SIZE`]) rather
+    ///   than `button.rs`'s own computed [`button::Size::icon`], so
+    ///   [`button::Size::glyph_box`] does not apply directly — the same
+    ///   arithmetic does: `BUTTON_ICON_SIZE + button::ICON_MARGIN_X * 2.0`
+    ///   is this box's own in-flow width (8px), height unchanged (the
+    ///   margin is inline-axis only).
+    ///
+    /// # `bounds.w` — closed as far as arithmetic can close it
+    ///
+    /// Every non-text term above is now `button.rs`'s own already-verified
+    /// number: border, padding, icon margin, gap. What is left over is the
+    /// label's own **shaped** advance width, and `row_layout`'s own harness
+    /// cannot verify that term at all — `#[gpui::test]`'s `TestPlatform`
+    /// hardcodes a `NoopTextSystem` (`vendor/gpui/src/platform/test/
+    /// platform.rs`), so *no* `#[gpui::test]` in this workspace ever shapes
+    /// a real glyph; text width here is measured against a synthetic
+    /// stand-in font, never `CalSansUI`. That is exactly why `row_layout::
+    /// badge`'s own default-cell test declares its width **not** asserted
+    /// against the reference's pixel value — "the shaped advance of \"agent\"
+    /// … and the two engines shape independently" — and why the assertion
+    /// below checks that these widths are content-ordered rather than
+    /// pinning a magnitude: the live binary (which *does* load real
+    /// `CalSansUI`, through the same `MacTextSystem` `main.rs` registers it
+    /// into) is the only thing that can verify the shaped term, and this
+    /// item does not run it.
     fn render(
         theme: &Theme,
         anchors: &dyn AnchorSink,
@@ -507,19 +591,23 @@ impl ActionButton {
             .gap(button::Size::Xs.gap())
             .h(Self::height())
             .rounded(button::Size::Xs.radius(theme))
+            .px(button::Size::Xs.padding_x())
+            .border(button::BORDER_WIDTH)
+            .border_color(button::Variant::Ghost.border(theme, button::ButtonState::resting()))
             .text_color(theme.muted_foreground)
-            .font(ui_sans_font(theme))
             .text_size(step.size.to_pixels(px(16.0)))
+            .line_height(relative(step.line_height))
+            .font_weight(FontWeight::MEDIUM)
             .child(
                 div()
                     .flex_shrink_0()
-                    .w(BUTTON_ICON_SIZE)
+                    .w(BUTTON_ICON_SIZE + button::ICON_MARGIN_X * 2.0)
                     .h(BUTTON_ICON_SIZE),
             );
         shell = if full_width {
             shell.w_full()
         } else {
-            shell.flex_auto()
+            shell.flex_1()
         };
         anchors.boxed_text(AnchorId::from(id), shell, SharedString::new_static(label))
     }
@@ -668,8 +756,8 @@ impl PopupContent {
     /// golden-ratio line height, the same bug [`PreviewAvatar::
     /// LETTER_LINE_HEIGHT`]'s own doc comment fixes, landing on `16px` rather
     /// than `15`; `0 + 0 + 12 + 16 + 12` is the arithmetic that actually
-    /// reaches `40`. [`PopupContent::CAPTION_LINE_HEIGHT`] closes that one
-    /// too, alongside the border/viewport fix below.)
+    /// reaches `40`. [`CAPTION_LINE_HEIGHT`] closes that one too, alongside
+    /// the border/viewport fix below.)
     ///
     /// `1 + 16 = 17` is the 16px `y` shift the border and viewport contribute
     /// to every child; `2 + 32 = 34` is most of the popup's own 33px height
