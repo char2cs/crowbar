@@ -214,3 +214,20 @@ The caption's own line box measures **15px at `text-[10px]`** —
 line-height utility. That is P3.60's `row_base` finding reproduced
 independently on a different component at a different font size, which is
 about as good as confirmation gets for that ratio.
+
+---
+
+## FIXED (2026-08-03, follow-up item) — the fixture gap only
+
+`--surface repo-icon-popover` now takes `--letter <text>`, read only with
+`--preview letter`, overriding `PreviewAvatar::Letter`'s own label (it was
+hard-coded to `"R"`) — see
+`crates/crowbar-app/src/surfaces/repo_icon_popover.rs`. `avatar-fallback.text`
+above can now be driven to match a live repo's own initial.
+
+Every other delta this VERDICT records (the 17-delta box-arithmetic root
+cause, `popover-viewport` missing as a composed primitive and an anchor, the
+15 field-presence deltas on the action buttons, the 3 button-width deltas,
+and the `avatar-fallback` font-metric deltas) is **untouched** — out of
+scope for this follow-up item, which addressed only the one hard-coded
+fixture string named in its brief.

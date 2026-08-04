@@ -68,7 +68,9 @@
 //! | `empty` | **real.** Zero projects is a genuinely reachable picture — a fresh install with nothing imported yet — and it swaps [`ProjectSwitcherPanel::rows`] for an empty list, leaving only the always-present import row. The same shape `command.rs`'s own `Empty`/`Item` swap is. |
 //! | `loading`, `error`, `hover`, `focus`, `selected` | **unmodelled.** `loading`/`error` have no rule on this component at all. `hover:bg-accent` (both row kinds) is colour-only with no runtime seam here — [`super::row_base`]'s own module docs record why. `focus`/`selected` (`aria-current`) carry no styling rule on either row: `aria-current` is an accessibility attribute, not a CSS selector target anywhere in this file's class strings. |
 
-use gpui::{AnyElement, Div, ParentElement as _, Pixels, SharedString, Styled as _, div, px};
+use gpui::{
+    AnyElement, Div, FontWeight, ParentElement as _, Pixels, SharedString, Styled as _, div, px,
+};
 
 use super::anchor::{AnchorId, AnchorSink};
 use super::row_base;
@@ -222,6 +224,24 @@ impl ProjectSwitcherPanel {
     /// resolves against this label's own 13px font-*size* the same way
     /// regardless of font-*family* — see that constant's own doc comment
     /// for the full derivation and the oracle failure that corrected it.
+    ///
+    /// `.font_weight(FontWeight::MEDIUM)` is repeated **after**
+    /// `.font(ui_sans_font(theme))` on purpose, not decoration:
+    /// [`row_base::label_container`] already sets `FontWeight::MEDIUM`
+    /// (`ROW_BASE`'s own `font-medium`), but gpui's `Styled::font` writes
+    /// every field of the `Font` it is given — including `weight`, which
+    /// `ui_sans_font`'s own `gpui::font(family)` constructor leaves at its
+    /// default (`400`) — so calling `.font(...)` *after* `.font_weight(...)`
+    /// silently clobbers it back to `400`. `RepoAvatar::letter_box` already
+    /// gets this ordering right (`.font(...)` then `.font_weight(BOLD)`);
+    /// this call site had it backwards until this fix — matched live:
+    /// `native/mapping/project-switcher-panel.md`'s VERDICT recorded
+    /// `import-label.font.weight: 400, expected 500` and a `text_width`
+    /// shortfall from shaping the same string one weight lighter than the
+    /// project row beside it, which is correct at `500` because
+    /// [`Self::project_row`]'s own label uses `.font_family(&str)` (only the
+    /// family, not a whole `Font`) instead of `.font(Font)` and so never
+    /// clobbers the weight [`row_base::label_container`] already set.
     fn import_row(theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         // No `.w_full()` — see `Self::project_row`'s own comment.
         let shell = row_base::base(theme)
@@ -233,6 +253,7 @@ impl ProjectSwitcherPanel {
 
         let label = row_base::label_container(theme.muted_foreground)
             .font(ui_sans_font(theme))
+            .font_weight(FontWeight::MEDIUM)
             .child(anchors.text(
                 AnchorId::from(ID_IMPORT_LABEL).line_sized(),
                 SharedString::new_static("Import project"),

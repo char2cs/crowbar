@@ -105,6 +105,64 @@ fn every_size_resolves_to_its_own_box(cx: &mut TestAppContext) {
     }
 }
 
+/// **`xl`'s letter fallback paints `font.line_height` at `19.5px`** — `13 ×
+/// 1.5`, matching `getComputedStyle` on the live node
+/// (`native/mapping/repo-avatar.md`'s VERDICT: `fontSize: 13px, lineHeight:
+/// 19.5px` — that is the live app's own number, not the port's). Before this
+/// fix, `RepoAvatar::letter_box` set no explicit `line_height` at all, so
+/// gpui's own internal default (`phi()`, the golden ratio) leaked through:
+/// `13 × φ ≈ 21.03`, snapped to the `21.0` this item's own drive read back
+/// **from the port**.
+///
+/// **Mutation, run:** in `RepoAvatar::letter_box`
+/// (`crates/crowbar-ui/src/components/repo_avatar.rs`), changed the guard to
+/// `if false && self.size == Size::Xl { … }`, so `cell` is returned
+/// unconditionally with no explicit line-height call — reproducing the
+/// pre-fix behaviour exactly. `cargo test -p crowbar-app --bin crowbar-app
+/// row_layout::repo_avatar::xl_letter_line_height_is_19_5_matching_the_live_capture`
+/// failed as predicted, with the real output:
+///
+/// ```text
+/// thread 'row_layout::repo_avatar::xl_letter_line_height_is_19_5_matching_the_live_capture' (277808014) panicked at /private/tmp/crowbar-p364-fixtures/native/crates/crowbar-app/src/row_layout/repo_avatar.rs:138:5:
+/// expected 19.5px, got 21px
+/// ```
+///
+/// `21px` is exactly `13 × φ` (gpui's default `phi()` line-height ratio)
+/// device-pixel-snapped — the same number the live drive's own delta
+/// reported (`font.line_height: 21.0, expected 19.5`). Reverted after
+/// confirming.
+#[gpui::test]
+fn xl_letter_line_height_is_19_5_matching_the_live_capture(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&["--size", "xl"]));
+    let record = find(&records, "repo-avatar");
+    let text = record.text.expect("the letter fallback paints text");
+    assert_px(text.font.line_height, px(19.5));
+}
+
+/// **`sm`/`lg` are deliberately left alone.** This is not a claim that
+/// `16.0`/`18.0` (gpui's own `phi()` default, rounded) are *correct* — see
+/// `RepoAvatar::letter_box`'s own doc comment for why neither size has an
+/// established number to assert instead. This test exists so a future
+/// change that starts asserting a specific `sm`/`lg` ratio has to touch
+/// this file and explain where the number came from, rather than silently
+/// inheriting whatever `xl`'s fix happens to produce.
+#[gpui::test]
+fn sm_and_lg_are_unchanged_by_the_xl_fix(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    for (word, size_px) in [("sm", 10.0_f32), ("lg", 11.0_f32)] {
+        let records = measure(cx, cell(&["--size", word]));
+        let record = find(&records, "repo-avatar");
+        let text = record.text.expect("the letter fallback paints text");
+        assert_px(text.font.size, px(size_px));
+        // Not `19.5` (the xl ratio) and not the arbitrary phi default
+        // asserted as if it were meaningful — just: whatever gpui's own
+        // unset default currently resolves to, unasserted beyond "some
+        // positive value", because no reference establishes a number here.
+        assert!(text.font.line_height > px(0.0));
+    }
+}
+
 /// **The loaded image is `rounded-sm` too** — unlike `avatar.tsx`'s own
 /// image, which carries no radius class at all (`0`). A real, measured
 /// difference between the two ports' image boxes.
