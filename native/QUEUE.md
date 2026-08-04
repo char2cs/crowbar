@@ -4,7 +4,7 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 3 — remainder **measured**, not estimated. **64 surfaces · 2394 tests ·
+**Phase:** 3 — remainder **measured**, not estimated. **64 surfaces · 2422 tests ·
 clippy 0 · 7/7 invariants**, all verified by my own run. Of the 64, **5 measure
 dead code** (liveness audit + `sidebar-skeleton`) — so the honest figure is **59**,
 and three of the five can never receive a verdict at all.
@@ -13,7 +13,7 @@ and three of the five can never receive a verdict at all.
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
 | **Tier B · `components/layout`** | **22 of 23 targets** (P3.64 closed 3 defects + 3 fixture flags) — P3.61 (tree chain ×4) and P3.62 (last three) merged. **1 to go.** ⚠ built ≠ verified: **5 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1, `sidebar-carousel` 0/5), **4 FAIL** (`fps-overlay` — a **contract** gap; `repo-icon-popover` 36/6 — one missing wrapper; `repo-avatar` 4/1 — only 1 real; `project-switcher-panel` 5/5 — only 1 real), **1 REFUSED** (`repo-import-dialog` — duplicate `button` anchor id), the rest unverified |
-| **Tier A · `crowbar-core`** | **five areas merged** — workspace scoping (P3.53) + git (P3.67) + keymap (P3.70) + settings (P3.72) + file-tree (P3.75). Coverage **100.00% over 3,683 lines**, up from 2,531 → 1,882 → 1,435 → 787. ⚠ 2 of the 6 git files measure **dead code** — my scoping error, see below. **Denominator settled (P3.71): ~3,170-line Tier A core target confirmed**, not the 9,447-line figure that briefly displaced it — that number measures all seven surveyed areas' *entire* reachable surface (Phase 4 state, `crowbar-diff` logic, presentation, out-of-scope code included), not `crowbar-core`'s alone. **ratio RETRACTED — see below.** Coverage is 100.00% over **3,683 Rust lines**; the ~3,170 target counts **TypeScript** lines, so the two do not divide — see `tier-a-denominator.md`'s "Denominator reconciliation (P3.71)". Keymap was that next area and is now merged |
+| **Tier A · `crowbar-core`** | **five areas merged** — workspace scoping (P3.53) + git (P3.67) + keymap (P3.70) + settings (P3.72) + file-tree (P3.75). Coverage **99.75% over 4,319 lines** (11 missed, all in `gitignore.rs`) — up from 3,683 → 2,531 → 1,882 → 1,435 → 787. **First time below 100%**; still well over the ≥98 gate. ⚠ 2 of the 6 git files measure **dead code** — my scoping error, see below. **Denominator settled (P3.71): ~3,170-line Tier A core target confirmed**, not the 9,447-line figure that briefly displaced it — that number measures all seven surveyed areas' *entire* reachable surface (Phase 4 state, `crowbar-diff` logic, presentation, out-of-scope code included), not `crowbar-core`'s alone. **ratio RETRACTED — see below.** Coverage is 100.00% over **3,683 Rust lines**; the ~3,170 target counts **TypeScript** lines, so the two do not divide — see `tier-a-denominator.md`'s "Denominator reconciliation (P3.71)". Keymap was that next area and is now merged |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
 Both denominators come from surveys committed this iteration
@@ -3935,6 +3935,58 @@ Dispatched as its own item.
 
 **Until that lands, this file quotes no Tier A percentage.** "Five of seven
 areas merged, `crowbar-core` 100% over 3,683 lines" is true and sufficient.
+
+## ✅ P3.76 — gitignore cascade merged, plus a module collision I caused
+
+`crowbar-core` reaches **4,319 covered lines, 99.75%** (2422 workspace tests,
+7/7 invariants). Six of seven §5 file-tree files now ported.
+
+### The dependency check earned its place in the brief
+
+I asked the worker to *verify* the recommended `ignore`-crate equivalence
+rather than assume it, and to say so if anything diverged. It read the vendored
+crate source instead of the docs, confirmed `Match::{None,Ignore,Whitelist}`
+maps to npm-`ignore`'s `{ignored, unignored}` — **and found a real divergence**:
+
+> the TS signals "this is a directory" by **appending a trailing `/`** to the
+> matcher path; the Rust crate takes a separate **`is_dir: bool`** and does not
+> expect the separator.
+
+Porting the append verbatim would have **silently broken every directory-only
+pattern** — no error, just wrong answers on `build/`-style rules. It threaded
+`is_dir` through instead and pinned it with a dedicated test. That is the
+difference between a dependency *swap* and a *port*, and it is precisely what
+the brief was worried about.
+
+It also measured its "before" coverage by `git stash push -u` on the untouched
+tree rather than quoting a remembered figure.
+
+### ⚠ MY ERROR — two workers, one domain, no agreed module name
+
+P3.75 created `crowbar-core::file_tree`; P3.76 created
+`crowbar-core::filetree`. Same domain, two spellings, merge conflict in
+`lib.rs`. **I dispatched them concurrently without specifying the module
+name.** P3.76 had even anticipated the collision — its `mod.rs` says the list
+is "kept minimal and additive on purpose so the two merge cleanly" — it simply
+had no way to know which spelling to use.
+
+Resolved by hand into `file_tree`, `filetree/` deleted. **When two items land in
+the same area, the brief must name the module.**
+
+### 📉 First drop below 100% — recorded, not waved through
+
+All **11** missed lines are in `gitignore.rs` (636 lines, 98.27%); every other
+file in the crate is 100%. The worker's stated reason is that they are
+defensive branches unreachable through the public API, mirroring redundant
+checks the TS source itself carries.
+
+That is a *defensible* reason and a *plausible* one — but "unreachable through
+the public API" is a claim, not a measurement, and it is the same family as the
+vacuous-guard problem this project has been bitten by. **If this recurs, test
+the claim**: a branch genuinely unreachable by construction should be
+`unreachable!()` rather than untested defensive code inflating the denominator.
+Not acted on now — 99.75% clears the ≥98 gate comfortably and diverging from
+the TS source's own shape needs a better reason than a coverage percentage.
 
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
