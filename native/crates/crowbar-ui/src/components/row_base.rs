@@ -87,12 +87,25 @@ pub const TEXT: Pixels = px(13.0);
 /// reference fields agree at 19.5, so the reference itself was never in
 /// question; this port's own number was.
 ///
-/// # `13 × 1.5`, Tailwind's own preflight default, not `context_pill`'s
+/// # `13 × 1.5` — because *this element's* chain overrides nothing
+///
+/// ⚠ **Read the qualifier before reusing this number anywhere.** `1.5` is not
+/// a property of `text-[13px]`; it is what this element happens to inherit.
+/// `context_pill`'s own `text-[13px]` element measures a ratio of **1.25**
+/// (`lineHeight: 16.25px`) on the live node and passes its verdict at that
+/// value. Both are correct: a unitless `line-height` is inherited from the
+/// **nearest ancestor that sets one** and recomputed against each
+/// descendant's own font-size, and any ancestor carrying a `text-*` utility
+/// (they all ship a paired line-height) or a `leading-*` class is such an
+/// ancestor. Transferring `1.5` to another component without resolving its
+/// chain repeats exactly the mistake this constant is a monument to — the old
+/// value was itself a transfer from `context_pill`.
 ///
 /// `text-[13px]` carries no *paired* line-height utility, but "no pairing"
 /// does not mean the cascade falls back to CSS `normal` — it means the
-/// property is whatever is **inherited**, and Tailwind's own preflight sets
-/// it at the root: `html { line-height: 1.5; }`
+/// property is whatever is **inherited**, and here nothing between the root
+/// and this label overrides Tailwind's own preflight: `html { line-height:
+/// 1.5; }`
 /// (`node_modules/tailwindcss/preflight.css:30`), a **unitless** ratio that
 /// recomputes against each descendant's own font-size rather than carrying
 /// a fixed px value down the tree. Neither `ROW_BASE` nor either label span
