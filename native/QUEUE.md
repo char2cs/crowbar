@@ -4,15 +4,15 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 3 — remainder **measured**, not estimated. **56 surfaces · 1998 tests ·
-clippy 0 · 7/7 invariants**, all verified by my own run. Of the 56, **5 measure
-dead code** (liveness audit + `sidebar-skeleton`) — so the honest figure is **51**,
+**Phase:** 3 — remainder **measured**, not estimated. **64 surfaces · 2143 tests ·
+clippy 0 · 7/7 invariants**, all verified by my own run. Of the 64, **5 measure
+dead code** (liveness audit + `sidebar-skeleton`) — so the honest figure is **59**,
 and three of the five can never receive a verdict at all.
 
 | tier | state |
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
-| **Tier B · `components/layout`** | **15 of 23 targets** — waves 1–3 merged. **8 to go.** ⚠ built ≠ verified: **4 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1), **3 FAIL** (`fps-overlay` — a **contract** gap; `repo-icon-popover` 36/6 — one missing wrapper; `repo-avatar` 4/1 — only 1 real), **1 REFUSED** (`repo-import-dialog` — duplicate `button` anchor id), the rest unverified |
+| **Tier B · `components/layout`** | **22 of 23 targets** — P3.61 (tree chain ×4) and P3.62 (last three) merged. **1 to go.** ⚠ built ≠ verified: **5 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1, `sidebar-carousel` 0/5), **4 FAIL** (`fps-overlay` — a **contract** gap; `repo-icon-popover` 36/6 — one missing wrapper; `repo-avatar` 4/1 — only 1 real; `project-switcher-panel` 5/5 — only 1 real), **1 REFUSED** (`repo-import-dialog` — duplicate `button` anchor id), the rest unverified |
 | **Tier A · `crowbar-core`** | **1,648 lines of a ~3,170-line target** — first area merged (workspace scoping, P3.53). Coverage **100.00% over 787 lines**, up from 148 |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
@@ -3374,6 +3374,10 @@ taken by me against the live app. **A merge is not a verdict.**
 | `workspace-switcher` | ✅ | n/a | no surface by design — `display: contents`, no box (v1.11) |
 | **`sidebar-skeleton`** | ✅ | 🚫 **UNOBTAINABLE** | never renders — its `Suspense` fallback cannot fire |
 | `project-home-row` | ✅ | ✅ **PASS 0/5** | P3.60; a real line-height defect, found live and fixed |
+| `sidebar-carousel` | ✅ | ✅ **PASS 0/5** | drive: `--height 976 --active-tab workspaces`. See the `visible` note below |
+| `project-switcher-panel` | ✅ | ❌ **FAIL 5/5** | **only 1 real** — import label `font.weight` 400 vs 500. Also confirms P3.60 on its 2nd consumer |
+| `pending-create-row` · `workspace-tree-item` · `repo-section` · `workspace-tree` | ✅ | ⏸ | P3.61, merged this iteration — no verdicts yet |
+| `workspace-inline-input` · `placeholder-row-actions` · `sidebar-toast-overlay`(+`-fallback`) | ✅ | ⏸ | P3.62, merged this iteration — no verdicts yet |
 
 #### ✅ RESOLVED — the four "needs a repo in the fixture" verdicts were never about the repo
 
@@ -3437,7 +3441,24 @@ needs 868px against a display granting 829px — it declined rather than emit a
 snapshot whose every `visible` would be an artefact of window size. Resizing the
 app to 800px high cleared it.
 
-**Seven verdicts taken, four passing** (plus one refused outright). Eleven
+#### ⚠ `sidebar-carousel`'s first reference was captured with an `opacity: 0` ancestor
+
+Worth its own line because the snapshot looked **plausible**, not broken: every
+anchor present, every bound correct, and `visible: false` on all five. ANCHORS
+v1.7 makes `visible` false at zero opacity on the element **or any ancestor**,
+and the project-switcher panel was still pushed on the nav stack, holding the
+carousel's wrapper at `opacity: 0`.
+
+**Nothing about the geometry was wrong — only the app state.** Dismissing the
+switcher (`nav-stack-back`) and re-capturing gave the right picture: scrollport
+and the active panel `true`, the three scrolled-out panels `false`. Then PASS
+0/5.
+
+The generalisation: `visible: false` on **every** anchor at once is a signal
+about the *capture*, not the component. A real invisibility finding is
+selective.
+
+**Nine verdicts taken, five passing** (plus one refused outright). Eleven
 surfaces built in this tier;
 that ratio is the honest state and the reason the header now separates the two
 numbers.
