@@ -239,21 +239,32 @@ framework. Fixed by setting `.line_height(relative(1.5))` explicitly, but
 
 `sm`/`lg` were checked, not left alone by default: resolving each one's own
 live ancestor chain (not this file's — the call sites) rather than
-transferring `xl`'s ratio.
+transferring `xl`'s ratio. **A first pass here got `sm` wrong**, by reading
+only `CommandItem`'s own className (`workspace-switcher.tsx`'s
+`"flex items-center gap-2 font-editor"`) and stopping there instead of
+reading what `CommandItem` itself renders. Corrected before this was
+committed: both sizes turn out to have the *same* shape of blocker, not two
+different ones.
 
-* `sm` (`workspace-switcher.tsx`, inside `CommandItem` → `AutocompleteItem`,
-  no default className) has no `text-*`/`leading-*` utility anywhere between
-  the avatar and `CommandDialogPopup`'s own `text-popover-foreground` (a
-  colour, not a size) — so it *tentatively* resolves to `1.5` too, but there
-  is still no live capture to confirm it. Left at gpui's default, unset.
+* `sm` (`workspace-switcher.tsx`'s `<RepoAvatar>`, inside `CommandItem` →
+  `AutocompleteItem`) sits under `AutocompleteItem`'s own default className
+  (`web/src/components/ui/autocomplete.tsx`): `… text-base outline-none …
+  sm:min-h-7 sm:text-sm` — a real, paired line-height override on **every**
+  autocomplete item, gated on Tailwind's `sm:` viewport breakpoint (640px).
 * `lg` (`context-pill.tsx`) sits inside `<Button variant="ghost">`, and
-  `buttonVariants` (`web/src/components/ui/button-variants.ts`) carries
-  `text-base sm:text-sm` on **every** button — a real, paired line-height
-  override, itself gated on Tailwind's `sm:` viewport breakpoint (640px:
-  ratio `1.5` below it, `20/14 ≈ 1.4286` at or above it). A single Rust
-  constant cannot represent a value gated on a viewport width this surface
-  has no axis for (`--width`/`--viewport-width` are already vacuous here).
-  Left at gpui's default, unset.
+  `buttonVariants` (`web/src/components/ui/button-variants.ts`) carries the
+  identical `text-base sm:text-sm` on **every** button.
+
+Both resolve the same two ratios at the same breakpoint — `text-base` → `1.5`
+below 640px, `text-sm` → `20/14 ≈ 1.4286` at or above it, verified against
+this project's own compiled `tailwindcss` 4.3.0 output (`bun install` +
+`compile(['text-base', 'text-sm'])`), not assumed:
+`--text-base--line-height: calc(1.5 / 1)`, `--text-sm--line-height: calc(1.25
+/ 0.875)`. A single Rust constant cannot represent a value gated on a
+viewport width this surface has no axis for (`--width`/`--viewport-width` are
+already vacuous here). Neither size has a live capture either
+(`repo-avatar.md` §1 marks both "no reference"). Both left at gpui's default,
+unset.
 
 See `RepoAvatar::letter_box`'s and `LETTER_LINE_HEIGHT_XL_RELATIVE`'s own doc
 comments in `repo_avatar.rs` for the full derivation, and

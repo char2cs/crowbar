@@ -131,26 +131,32 @@ const EMOJI_TEXT_LG_REM: f32 = 1.125;
 /// # `sm`/`lg` are deliberately **not** given the same fix
 ///
 /// Checked, not assumed — resolving each one's own ancestor chain rather
-/// than transferring this ratio:
+/// than transferring this ratio, and both come back the same shape, not
+/// two different ones (an earlier pass here got `sm` wrong the first time,
+/// by not reading past `CommandItem` to what it wraps; corrected before
+/// this landed):
 ///
 /// * `sm` (`workspace-switcher.tsx`'s `<RepoAvatar>`, inside `CommandItem`
-///   → `AutocompleteItem`, no default className) sits under
-///   `CommandDialogPopup`'s own `text-popover-foreground` (a colour, not a
-///   size) and no `text-*`/`leading-*` utility anywhere else in that chain
-///   — so it *tentatively* resolves to the same `1.5`, but there is no live
-///   capture to confirm it: `repo-avatar.md` §1 marks `sm` "no reference",
-///   same as `lg` below.
-/// * `lg` (`context-pill.tsx`'s `<RepoAvatar … size="lg" />`) is worse than
-///   merely unconfirmed: its ancestor chain runs through
+///   → `AutocompleteItem`) sits under `AutocompleteItem`'s own default
+///   className (`web/src/components/ui/autocomplete.tsx`): `… text-base
+///   outline-none … sm:min-h-7 sm:text-sm` — a real, paired line-height
+///   override on **every** autocomplete item, gated on Tailwind's `sm:`
+///   viewport breakpoint (640px) exactly like `lg` below.
+/// * `lg` (`context-pill.tsx`'s `<RepoAvatar … size="lg" />`) sits inside
 ///   `<Button variant="ghost">`, and `buttonVariants`
-///   (`button-variants.ts`) carries `text-base sm:text-sm` on **every**
-///   button — a real, paired line-height override that beats preflight,
-///   and it is itself gated on Tailwind's `sm:` viewport breakpoint
-///   (640px: `text-base` → ratio `1.5` below it, `text-sm` → ratio
-///   `20/14 ≈ 1.4286` at or above it). A single Rust constant cannot
-///   represent a value that depends on a viewport width this port has no
-///   axis for on this surface (`--width`/`--viewport-width` are already
-///   vacuous here — see the module docs).
+///   (`button-variants.ts`) carries the identical `text-base sm:text-sm`
+///   on **every** button.
+///
+/// Both ancestors resolve the same two ratios at the same breakpoint:
+/// `text-base` → `1.5` below 640px, `text-sm` → `20/14 ≈ 1.4286` at or
+/// above it (verified against this project's own compiled
+/// `tailwindcss` 4.3.0 output, not assumed: `--text-base--line-height:
+/// calc(1.5 / 1)`, `--text-sm--line-height: calc(1.25 / 0.875)`). Neither
+/// size gets a live capture either (`repo-avatar.md` §1 marks both "no
+/// reference"). A single Rust constant cannot represent a value that
+/// depends on a viewport width this port has no axis for on this surface
+/// (`--width`/`--viewport-width` are already vacuous here — see the module
+/// docs).
 ///
 /// Per this item's own brief: never invent a number neither the source's
 /// own cascade nor a live capture establishes. `sm`/`lg` keep gpui's
