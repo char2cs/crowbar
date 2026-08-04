@@ -3936,7 +3936,136 @@ Dispatched as its own item.
 **Until that lands, this file quotes no Tier A percentage.** "Five of seven
 areas merged, `crowbar-core` 100% over 3,683 lines" is true and sufficient.
 
-## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
+## ✅ P3.77 — the Tier A completion figure, in one unit (2026-08-04)
+
+The item this section's own predecessor dispatched itself. Documentation and
+analysis only — no Rust touched, no port work done. Every path below was
+verified to exist and every line count re-measured with `wc -l` before being
+used (the brief's own warning: a quick attempt at this already returned a
+silent, wrong 0 for the git area once).
+
+**Method, stated once so it isn't re-litigated per area:** for each of the
+five merged areas' mapping docs (`core-git.md`, `core-keymap.md`,
+`core-settings.md`, `core-filetree.md`; workspace scoping has no dedicated
+mapping doc, so its module doc comment — `crates/crowbar-core/src/workspace
+/mod.rs`, which cites `tier-a-denominator.md`'s own 5-file, 261-line figure
+directly — stands in for one), a file counts toward the numerator when the
+doc states its content was ported. Four areas' docs give this per-file as a
+**whole-`wc -l`-file** figure (matching how `tier-a-denominator.md` itself
+counted) — every one of those whole-file counts was independently
+re-`wc -l`'d against the live `web/src` tree and matched exactly, with zero
+exceptions. File-tree is the one area whose own mapping doc (`core-filetree.md`)
+states the port was scoped at **export level**, not file level ("five files'
+**worth of exports**" — its own words) — because the file-level table alone
+already shipped a live-file-holding-dead-exports mistake once
+(`file-explorer-tree-utils.ts`, §8 of `tier-a-denominator.md`). Using
+whole-file counts for file-tree would recreate exactly that mistake here, so
+its numerator instead uses `tier-a-denominator.md` §8's own hand-verified
+export-level line spans — re-verified by hand below, not re-trusted.
+
+### 1. Per-area table — TS lines ported into `crowbar-core`
+
+| area | item | files → Rust module | TS lines ported |
+|---|---|---|---|
+| Workspace scoping | P3.53 | 5 files → `workspace::{scope,scope_url,placeholder,branch,keep_alive}` | **261** |
+| Git model | P3.67 | 6 files → `git::*` (2 measure dead code) | **254** |
+| Keymap resolution | P3.70 | 5 files → `keymap::{types,registry,presets,chord,effective_keymaps}` | **516** |
+| Settings schema | P3.72 | 8 files → `settings::{types,typography,defaults,normalization,font_family,markdown_font_size,ui_font_size}` | **554** |
+| File-tree model | P3.75 | 6 files (export-level) → `file_tree::{types,visible_rows,git_status,density,tree_utils,file_name}` | **436** |
+| **Total (raw)** | | | **2,021** |
+
+**Workspace scoping — 261, all whole-file, all LIVE, zero exclusions**
+(`crates/crowbar-core/src/workspace/mod.rs`'s own doc comment names exactly
+these five and this line total):
+
+| file | lines | → |
+|---|---|---|
+| `lib/workspace-scope.ts` | 87 | `workspace::scope` |
+| `lib/workspace-scope-url.ts` | 28 | `workspace::scope_url` |
+| `lib/workspace/placeholder.ts` | 32 | `workspace::placeholder` |
+| `lib/workspace/branch-workspace.ts` | 16 | `workspace::branch` |
+| `features/workspace/lib/keep-alive-policy.ts` | 98 | `workspace::keep_alive` |
+
+**Git model — 254 raw (192 net of dead), 6 files, per `core-git.md`:**
+
+| file | lines | → | note |
+|---|---|---|---|
+| `utils/git-status-to-changed-files.ts` | 45 | `git::git_status_to_changed_files` | |
+| `utils/build-git-folder-tree.ts` | 57 | `git::build_git_folder_tree` | |
+| `utils/review-file-summary-to-git-diff.ts` | 41 | `git::review_file_summary_to_git_diff` | |
+| `lib/branch-action.ts` | 49 | `git::branch_action` | |
+| `utils/normalize-diff.ts` | 38 | `git::normalize_diff` | **DEAD** — 0 non-test importers |
+| `utils/diff-buffer-path.ts` | 24 | `git::diff_buffer_path` | **DEAD**, and was never in the Tier A core denominator's scope to begin with (`tier-a-denominator.md` §1 places it under "What is not git-model logic") |
+
+`types/git-types.ts` (78 lines) is **not** in this sum: `git::types.rs`'s own
+doc comment says it ports "fields of `types/git-types.ts`'s `GitDiff` this
+item uses (subset of 78)" — a real but unquantified fraction of the file, not
+a countable whole. Left out rather than guessed at. **Not ported at all:**
+`git-diff-helpers.ts`'s `getFileStatus` (11 lines) — `core-git.md` §5 records
+this explicitly ("not in this item's SETUP-defined scope... not ported here").
+
+**Keymap resolution — 516, 5 files, per `core-keymap.md`'s own "TS lines" table:**
+
+| file | lines | → |
+|---|---|---|
+| `types.ts` | 52 | `keymap::types` |
+| `registry.ts` | 220 | `keymap::registry` |
+| `defaults/keybinding-presets.ts` | 49 | `keymap::presets` |
+| `utils/chord.ts` | 124 | `keymap::chord` |
+| `utils/effective-keymaps.ts` | 71 | `keymap::effective_keymaps` |
+
+**Flagged, not subtracted:** of `chord.ts`'s 124 lines, hand-counting the
+function/export spans directly against the live source shows **~30 lines**
+(`chordFromEvent` 18 incl. its doc comment, `eventMatchesChord` 10 incl. its
+doc comment, `MOD_ORDER` 2 incl. its re-export) are **not** reflected as
+ported logic in `crowbar-core` at all: the two `KeyboardEvent`-consuming
+functions are live in the app but belong at the GPUI action-dispatch layer
+per `core-keymap.md` §2, not this crate; `MOD_ORDER` is a dead export
+(0 non-test importers, confirmed by `core-keymap.md` §2 itself). Counted at
+the full 124 here because that is the figure `core-keymap.md`'s own module
+table states for `chord.rs` — an export-level reading would put this area at
+486, not 516. Both numbers are reported so neither is silently chosen.
+
+**Settings schema — 554, 8 files, all whole, per `core-settings.md` §0's own
+reconciliation** ("exactly the eight files this item was scoped to, summing
+to exactly 554"):
+
+| file | lines | → |
+|---|---|---|
+| `types/settings.ts` | 81 | `settings::types` |
+| `types/feature.ts` | 3 | `settings::types` |
+| `config/default-settings.ts` | 98 | `settings::defaults` |
+| `config/typography-defaults.ts` | 25 | `settings::typography` |
+| `lib/settings-normalization.ts` | 249 | `settings::normalization` |
+| `lib/font-family-resolution.ts` | 40 | `settings::font_family` |
+| `lib/markdown-font-size.ts` | 26 | `settings::markdown_font_size` |
+| `lib/ui-font-size.ts` | 32 | `settings::ui_font_size` |
+
+**File-tree model — 436, 6 files, export-level per `tier-a-denominator.md`
+§8's audit, hand-verified against the live source (2 of the 4 adjustments
+below independently re-counted by reading the file directly, not taken on
+the audit's word):**
+
+| file | file lines | ported | note |
+|---|---|---|---|
+| `file-system/types/app.ts` | 38 | 38 | all 3 exports |
+| `.../lib/visible-file-tree-rows.ts` | 238 | 231 | minus 7 (singular `getStickyAncestorRow`, TEST-ONLY — re-counted by hand: lines 183–189, exactly 7) |
+| `.../lib/file-tree-git-status.ts` | 122 | 122 | all 6 exports |
+| `.../lib/file-tree-density.ts` | 38 | ~15 | **estimate**, carried forward from `tier-a-denominator.md`'s own embedded-pure-region convention for this exact file (only the enum + normalizer + `rowHeight` were ported; `rowClassName`/`FILE_TREE_DENSITY_OPTIONS` are presentation and were not) |
+| `.../utils/file-explorer-tree-utils.ts` | 96 | 25 | minus 71 (re-counted by hand against the live source: `filterHiddenFiles` 18 + `addNewItemToTree` 21 + `removeEditingItemsFromTree` 11 + `getParentPath` 7 + `getAncestorDirectoryPaths` 14 = 71, all DEAD or TEST-ONLY; only `getExplorerTargetPath` is live and ported) |
+| `file-system/controllers/file-utils.ts` | 5 | 5 | `getFileName`/`getFilenameFromPath` — one function, two names |
+
+**Not ported this pass, both confirmed absent from `crowbar-core/src/file_tree/`:**
+`file-tree-gitignore.ts` (237 lines, all 7 exports LIVE) — confirmed **in
+flight** on `native/p3.76-core-gitignore`, an existing branch (`git branch -a`
+shows it checked out elsewhere); and `file-system/controllers/file-tree-utils.ts`'s
+`findFileInTree` (22 lines, CONDITIONAL) — not dispatched.
+
+Two files this port explicitly built as export-level dead-code prevention
+are worth restating: `file-explorer-tree-utils.ts` would have shipped 71
+fully-dead lines (74% of the file) if scoped at file level — exactly the
+mistake `tier-a-denominator.md` §8 was opened to catch, and `core-filetree.md`
+confirms it did not happen here.
 
 ```
 CGSSessionScreenIsLocked: True
