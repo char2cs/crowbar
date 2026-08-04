@@ -15,13 +15,15 @@
 #      (§4.3 rule 3, §6.1).
 #   5. `cargo fmt --check` is clean.
 #   6. Every `#[gpui::test]` arms `leak_checked!` as its first statement (§17).
+#   7. No `native/crates/` (or `oracle/`) source escapes into `web/` or
+#      `desktop/` in a way the shipping build depends on (S0.7).
 #
 # Known limits, stated so nobody mistakes this for a parser: check 3 is a line
 # scanner. It does not understand block comments, and a string literal
 # containing the text `unsafe {` will be reported. Both failure modes are
 # loud rather than silent, which is the correct direction for a gate. Check 4
 # has its own scanner and its own stated limits; see its section, and so does
-# check 6.
+# check 6. So does check 7.
 
 set -euo pipefail
 
@@ -513,6 +515,84 @@ elif [ "$armed" -eq 0 ]; then
 	printf '      pattern stopped matching, not that the tests stopped existing.\n' >&2
 else
 	pass "rule 6: all $armed #[gpui::test] tests arm leak_checked! first"
+fi
+
+# ---------------------------------------------------------------------------
+# 7. native/crates/ (and oracle/) sources do not escape into web/ or desktop/
+#    in a way the shipping build depends on.
+# ---------------------------------------------------------------------------
+# S0.7 (native/ self-contained): `native/` is meant to become Crowbar's only
+# frontend, at which point `desktop/` (the Tauri app) and `web/` (the React
+# app) both get deleted. A path from inside `native/crates/` that reaches
+# either one is a path that breaks on deletion day. S0.7's own hard break was
+# exactly this shape: `crates/crowbar-app/src/main.rs` read its typefaces at
+# runtime from `env!("CARGO_MANIFEST_DIR")).join("../../../web/public/fonts")`
+# — delete `web/` and the app has no text — fixed by vendoring the six files
+# into `native/assets/fonts/` and embedding them with `include_bytes!`.
+#
+# What this looks for: a `../` escape (one or more) followed, later on the
+# *same physical source line*, by a literal `web/` or `desktop/` path
+# component — the shape the fixed reference above took, and the shape any
+# code has to take to reach a sibling of `native/` from underneath `crates/`
+# using a string literal.
+#
+# One file is exempt **by path, not by pattern** — its whole job is parity
+# against the React reference, it dies the day `web/` does, and S0.7 proved
+# (by running the full workspace build and test suite with a tripwire in
+# place of `python3`, and observing zero invocations) that no shipping build
+# step reaches it:
+#
+#   * `crates/crowbar-ui/tools/gen-theme.py` reads `web/src/styles/theme.css`
+#     and commits its output (`crowbar-ui/src/theme/generated.rs`) instead of
+#     regenerating it at build time. `.py` already fails this rule's own
+#     `-name '*.rs'` filter below, so the exclusion below is currently a
+#     belt-and-suspenders statement of intent rather than a live save — kept
+#     explicit anyway, so the exemption is an auditable fact and not an
+#     accident of the file-type filter that would silently stop protecting
+#     anything the day someone widens the scan.
+#
+# `native/scripts/gen-extract.ts` (the other port-time tool named in S0.7) is
+# outside `crates/` entirely, so this rule's own `find` never reaches it —
+# not listed here for that reason, not because it was overlooked. See its own
+# file header for the same "nothing shipping depends on it" proof.
+#
+# Known limits, stated rather than discovered later: this is a per-line
+# scanner. A path assembled across several `.join("..")` calls with no single
+# literal containing both the escape and `web`/`desktop`, or a `.parent()`
+# walk with a bare `"web"` joined on afterwards, would not be caught — every
+# reference S0.7's audit found, and the one this rule was written against,
+# put `../` and the destination on one line. A differently-shaped evasion is
+# a gap to close when it is found, not a reason to leave this shape ungated.
+
+rule7_exempt='crates/crowbar-ui/tools/gen-theme.py'
+
+escape_report=$(
+	find crates oracle -name '*.rs' -type f 2>/dev/null |
+		grep -v -F "$rule7_exempt" |
+		sort |
+		while IFS= read -r f; do
+			# `|| true`: grep exits 1 on a file with no match, which is the
+			# common, expected case — without the guard, `set -o pipefail`
+			# would fail this pipeline and `set -e` would abort the whole
+			# script right here, silently, before rule 7 ever printed a
+			# result. (Reproduced while writing this rule.)
+			grep -nE '\.\./.*(web|desktop)/' "$f" 2>/dev/null | sed "s#^#$f:#" || true
+		done
+)
+if [ -n "$escape_report" ]; then
+	fail 'rule 7 (S0.7): a native/crates or oracle source escapes into web/ or desktop/'
+	printf '%s\n' "$escape_report" >&2
+	printf '      native/ has to be self-contained: everything the shipping build\n' >&2
+	printf '      needs has to live under native/ — vendor the asset and load it from\n' >&2
+	printf '      there (crates/crowbar-app/src/main.rs'"'"'s UI_FONT_BYTES is the pattern:\n' >&2
+	printf '      vendored under native/assets/, embedded with include_bytes!), because\n' >&2
+	printf '      desktop/ and web/ are both slated for deletion once native/ replaces\n' >&2
+	printf '      them. If this genuinely is a port-time tool whose only job is parity\n' >&2
+	printf '      against the React reference, exempt it by path at the top of this\n' >&2
+	printf '      rule (and prove nothing shipping depends on it) instead of routing\n' >&2
+	printf '      around the check.\n' >&2
+else
+	pass 'rule 7: no crates/oracle source escapes into web/ or desktop/'
 fi
 
 if [ "$status" -ne 0 ]; then
