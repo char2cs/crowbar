@@ -157,3 +157,64 @@ this surface paints no text run of its own for such an assertion to name.
 `sidebar-carousel.tsx` → `ide-shell.tsx` → `routes/_shell.tsx`. Always
 mounted above the repo tree, per `native/mapping/layout-denominator.md`'s
 own table.
+
+---
+
+## VERDICT: FAIL — 19 deltas over 8 anchors, **three causes** (2026-08-03)
+
+Drive: `--surface workspace-tree --width 344 --viewport-width 1684 --theme dark
+--content normal --repos 0`. (`--repos 1` adds ten anchor-presence deltas the
+reference's own scope excludes — the repo count is declared a cell property one
+level up, so `0` is the cell that matches this surface's declared anchor set.)
+
+### A. The port does not apply `row_base::MARGIN_X`/`MARGIN_Y` to the row it composes — **13 of the deltas**
+
+```
+project-home-row.bounds.x:        0.0,  expected 6.0    (mx-1.5)
+project-home-row.bounds.y:        0.0,  expected 2.0    (my-0.5)
+project-home-row.bounds.w:      344.0,  expected 332.0  (344 − 2×6)
+project-home-row-{icon,label}.x:  ±6                    (carried by the row)
+project-home-row-{import,switch}.x: ±6
+project-home-row-{icon,label,import,switch}.y: ±2 / 2.5
+scroll-area-{root,viewport}.y:   36.0,  expected 40.0   (2 above + 2 below)
+workspace-tree.bounds.h:        972.0,  expected 976.0
+```
+
+**`row_base`'s own module documentation predicted this exact consumer.** It
+says `mx-1.5`/`my-0.5` are "not baked into [`base`]" because a row captured as
+its own root has no anchor they could move, and that they are exported "as the
+numbers a *list*-shaped consumer (`project-switcher-panel`, **eventually
+`workspace-tree`**) applies to each row itself". `workspace-tree` is that
+consumer, and it does not apply them. Every one of these thirteen is that single
+omission observed through a different anchor.
+
+### B. The composed home row renders **inactive**; the live one is active
+
+```
+project-home-row.bg:           #00000000, expected #1f1f1eff
+project-home-row.border.color: #00000000, expected #1f1f1eff
+```
+
+`row_base::active` is `border-background bg-background` and that is what the
+reference shows. The surface has **no axis** to say which row is active —
+unlike `project-switcher-panel`, which has `--active-index`/`--no-active`. Not a
+paint bug: a missing cell axis.
+
+### C. No `--project-name`, so the label can never match — the **fourth** surface
+
+```
+project-home-row-label.text:       "home", expected "oracle-fixture"
+project-home-row-label.text_width: 31.2,   expected 109.2
+```
+
+`project-home-row` has the flag; this surface composes that row and cannot pass
+a name through. Same gap as `project-switcher-panel`, `repo-avatar` and
+`repo-icon-popover` — four surfaces now, all permanently un-passable against any
+real app state until each grows a flag.
+
+### What passed
+
+`project-home-row-label.font.line_height` is **19.5** on both sides, and the
+`scroll-area-*` pair matches exactly in width. The row's *internal* layout is
+correct — every delta above is about where the row sits, what state it is in, or
+what string it holds, not how it is built.
