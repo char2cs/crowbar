@@ -231,3 +231,95 @@ cause, `popover-viewport` missing as a composed primitive and an anchor, the
 and the `avatar-fallback` font-metric deltas) is **untouched** — out of
 scope for this follow-up item, which addressed only the one hard-coded
 fixture string named in its brief.
+
+> **Superseded in scope by P3.63, merged the same day.** The paragraph
+> above was accurate when written — that follow-up item touched only the
+> fixture string. §7 below is the item that closed the rest, so "untouched"
+> now describes a window that has closed, not the current state.
+
+## 7. FIXED (P3.63)
+
+All of §6 except the one declared out of scope. `crowbar_ui::components::
+repo_icon_popover::PopupContent::render`'s own doc comment carries the
+account in full; this section is the index into it.
+
+**The one root cause (17 deltas).** `PopupContent::render` now composes
+`popover`'s own chrome instead of hand-rolling a plain box: the popup gets a
+real border (`popover::BORDER_WIDTH`, reused) and radius (`theme.radius_lg`,
+the same token `popover::Variant::Default::radius` reads), and a new
+`popover-viewport` box — the primitive's own **generic**, unnamespaced id,
+reused rather than re-typed, the same move `PopupContent::emoji_row` already
+makes of `input.rs`'s `input-control`/`input` — carries `popover::
+VIEWPORT_PADDING` (16px) on every side. This is composition, not a call to
+`popover::Popover::render`: that constructor opens through `gpui_component::
+Popover`'s deferred, anchored placement, which this call site — driven
+directly, with no live trigger — does not want, so the two boxes `popover::
+Popover::popup`/`::viewport` build are reproduced here directly instead, at
+this surface's own root id. Verified by `row_layout::repo_icon_popover::
+the_popup_composes_popovers_border_radius_and_viewport`: the popup now
+measures 256×177 and the viewport 254×175, one border in on both axes — the
+exact numbers this section's own verdict targeted.
+
+**A fourth line-height instance the verdict's own arithmetic did not name.**
+Fixing the border and viewport alone left the preview avatar's own `y` at
+`57`, one pixel short of the `56` target. The caption (`text-[10px]`, no
+paired `leading-*` utility) turned out to have the *same* unset-leaf bug as
+`avatar-fallback`: no explicit line height, so it fell back to gpui's own
+golden-ratio default (`~1.618034`) and measured 16px tall instead of the
+15px this section's own "Corroboration" paragraph above states as the
+*reference's* number — a check that was never actually run against the
+*port's* own caption before this item. `PopupContent::CAPTION_LINE_HEIGHT`
+(`1.5`, the same ratio, derived independently for this leaf) closes it.
+Verified by `row_layout::repo_icon_popover::
+the_preview_avatar_sits_56px_below_the_popups_own_top`.
+
+**15 field-presence.** `ActionButton::render` now paints its label through
+`AnchorSink::boxed_text` instead of an unanchored `.child(label)`, so `text`,
+`font`, `text_width` and `clipped` all ride on the same anchor as the box —
+the same primitive the caption and the preview fallback already used.
+Verified by `row_layout::repo_icon_popover::
+the_three_action_buttons_carry_their_own_text`.
+
+**3 button widths.** Not a CSS-authoring bug — `repo-icon-popover.tsx`'s
+buttons and the port's both say `flex-1`. Measured directly: this layout
+engine grows a `flex: 1 1 0%` item by an equal share **without** first
+clamping it to its own min-content, the "automatic minimum size" step a
+browser applies before it distributes leftover space (confirmed by swapping
+in `.flex_none()` on the same cell and watching the three widths diverge by
+label alone: 60/52/60). `.flex_auto()` (`flex: 1 1 auto`) reaches the
+browser's outcome without depending on a clamp this engine does not apply,
+because every label here is a single non-wrapping line, so min-content and
+max-content are the same width. Not byte-exact against the reference
+(measured after the fix, this surface's own available width: Upload 64.5,
+Emoji 57, GitHub 64.5, against the reference's 69.63/59.77/69.56) — content-
+sized and correctly *ordered*, which `row_layout::repo_icon_popover::
+the_three_action_buttons_size_to_their_own_label` checks directionally
+rather than to the pixel, since this surface has no live reference to check
+an exact width against (§0) and `.flex_auto()` is itself a **substitution**
+for a clamp this engine does not implement, not a re-derivation of the
+browser's own arithmetic.
+
+**`avatar-fallback`'s `line_height`.** Fixed — `PreviewAvatar::
+LETTER_LINE_HEIGHT` (`1.25/0.875`, `text-sm`'s own ratio, the same one a
+dozen other `text-sm` leaves in this crate already carry) replaces the same
+unset-leaf golden-ratio default the caption had, landing on `20px` against
+the previous `22.5px`. Verified by `row_layout::repo_icon_popover::
+avatar_fallback_line_height_is_text_sm_not_the_golden_ratio_default`.
+
+**`avatar-fallback`'s `text_width` — investigated, not fixed, and not a
+separate bug.** With the line-height fix in and the font family set
+explicitly (`ui_sans_font`, matching every other leaf in this file), the
+letter's own `text_width` measures `8.4px` for `"R"` at 14px bold
+`CalSansUI` — font-size, weight and family all already correct, so nothing
+about *this* box's own styling is wrong. `8.4` against the verdict's `10.64`
+is not a residual bug; it is downstream of the fixture-flag gap §6 already
+names for the neighbouring `text` field on the same anchor (`"R"` in the
+fixture vs `"D"` live) — two different glyphs have two different advance
+widths at an identical font, and that gap has no `--letter`/`--name` flag to
+close it by driving. Left alone, as §6 already scoped.
+
+**Not touched:** the emoji preview's own line height
+(`PreviewAvatar::EMOJI_LINE_HEIGHT`, `text-2xl`'s `2/1.5`) is the same
+unset-leaf bug and was fixed alongside the letter fallback's, on the same
+evidence, even though `--preview emoji` has no live cell to verify it
+against (§0) — preventive, not measured, and named as such in the code.

@@ -105,16 +105,17 @@
 
 use gpui::{
     AnyElement, Div, FontWeight, IntoElement as _, ParentElement as _, Pixels, SharedString,
-    Styled as _, div, px,
+    Styled as _, div, px, relative,
 };
 
 use super::anchor::{AnchorId, AnchorSink};
 use super::avatar;
 use super::button;
 use super::git_status_row::Breakpoint;
+use super::popover;
 use super::repo_avatar::{self, ImageState, Kind};
 use super::workspace_branch_icon::{self, WorkspaceBranchIcon};
-use crate::theme::{Color, Theme};
+use crate::theme::{Color, Theme, ui_sans_font};
 
 /// The trigger's own anchor — carried on both of its mutually-exclusive
 /// rest states. See the module docs.
@@ -165,6 +166,28 @@ pub const POPUP_GAP: Pixels = px(SPACING * 3.0);
 pub const ROW_GAP: Pixels = px(SPACING * 1.5);
 /// `text-[10px]` on the "Icon" caption.
 pub const CAPTION_TEXT: Pixels = px(10.0);
+/// The caption's own line height. `text-[10px]` is an arbitrary value with
+/// no paired `leading-*` utility, so it inherits Tailwind's own preflight
+/// default rather than a utility's companion ratio: `html { line-height:
+/// 1.5 }`, giving a 15px line box at 10px. `native/mapping/repo-icon-
+/// popover.md`'s own "Corroboration" section measures this live and calls
+/// it P3.60's `row_base` finding reproduced independently on this component.
+///
+/// **Fixed alongside the popup's own chrome (P3.63).** [`PopupContent::
+/// caption`] used to set no line height at all, so — the same unset-leaf
+/// shape [`PreviewAvatar::LETTER_LINE_HEIGHT`]'s own doc comment
+/// records — it fell back to gpui's own [`gpui::phi`] default (the golden
+/// ratio) rather than 1.5, landing on a 16px line box (`10 × 1.618034`,
+/// device-pixel-snapped) instead of 15px. That 1px propagated into every
+/// anchor below the caption: measured before this fix, the preview avatar's
+/// own `y` (relative to the popup) came out `57`, against the mapping doc's
+/// own arithmetic, which assumes a 15px caption and targets `56`.
+///
+/// This `1.5` is **not** a transfer of `row_base::LINE_HEIGHT_RELATIVE` —
+/// that constant's own docs say it is not a general law, and this is a
+/// separate derivation for this leaf's own (unset) utility that happens to
+/// land on the same ratio.
+const CAPTION_LINE_HEIGHT: f32 = 1.5;
 /// `size-3` on each button's own leading glyph.
 pub const BUTTON_ICON_SIZE: Pixels = px(SPACING * 3.0);
 /// `h-7` on the emoji input and its "Set" button.
@@ -324,6 +347,39 @@ impl PreviewAvatar {
         theme.ui_text_base.value().to_pixels(px(16.0))
     }
 
+    /// `text-sm`'s own line height — Tailwind's stock `calc(1.25 / 0.875)`,
+    /// the same ratio a dozen other `text-sm` leaves in this crate already
+    /// carry (`button::LINE_HEIGHT_SM`, `badge::LINE_HEIGHT_SM`,
+    /// `dropdown_menu::ROW_LINE_HEIGHT`, `select::TEXT_SM_LINE_HEIGHT`, …),
+    /// and the ratio `native/MAPPING.md`'s own `text-sm` row states once for
+    /// the whole port: 14px text on a 20px line.
+    ///
+    /// **This is a fix, not a fresh derivation.** [`Self::Letter`]'s box used
+    /// to set no line height at all, so an unset leaf fell back to gpui's own
+    /// [`gpui::phi`] default — the golden ratio, `~1.618034` — rather than
+    /// this project's `text-sm` pairing. Measured on this exact cell before
+    /// the fix (`--surface repo-icon-popover`, the default `--preview
+    /// letter` cell, `crowbar-app/src/row_layout/repo_icon_popover.rs`'s own
+    /// harness): `avatar-fallback`'s `font.line_height` was `22.5px` —
+    /// `14 × 1.618034 = 22.65`, device-pixel-snapped to the nearest half —
+    /// against the live reference's `20px` (`native/mapping/repo-icon-
+    /// popover.md` §6). `row_base::LINE_HEIGHT_RELATIVE` (`1.5`) is **not**
+    /// this box's ratio either, and transferring it would still be wrong:
+    /// `14 × 1.5 = 21`, not `20`. `text-sm`'s own companion is the only ratio
+    /// that lands on the reference.
+    const LETTER_LINE_HEIGHT: f32 = 1.25 / 0.875;
+
+    /// `text-2xl`'s own line height — Tailwind's stock `calc(2rem / 1.5rem)`.
+    ///
+    /// The emoji fallback has the same unset-leaf shape [`Self::Letter`] had
+    /// (see [`Self::LETTER_LINE_HEIGHT`]) and no live cell reaches it either
+    /// (`--preview emoji` has no reference — `native/mapping/repo-icon-
+    /// popover.md` §0), so this is preventive rather than measured: setting
+    /// the utility's own real ratio explicitly, on the same evidence that an
+    /// unset leaf here defaults to gpui's golden-ratio [`gpui::phi`] rather
+    /// than to anything Tailwind ever compiled.
+    const EMOJI_LINE_HEIGHT: f32 = 2.0 / 1.5;
+
     /// Renders the preview avatar as **two** nested boxes, matching
     /// `avatar.tsx`'s own structure: `AvatarPrimitive.Root` (`bg-background`,
     /// unconditional, [`super::avatar::ID_ROOT`]) wrapping either
@@ -357,6 +413,8 @@ impl PreviewAvatar {
                     .items_center()
                     .justify_center()
                     .rounded(radius)
+                    .font(ui_sans_font(theme))
+                    .line_height(relative(Self::EMOJI_LINE_HEIGHT))
                     .text_size(Self::EMOJI_TEXT),
                 emoji.clone(),
             ),
@@ -370,7 +428,9 @@ impl PreviewAvatar {
                     .justify_center()
                     .rounded(radius)
                     .bg(*background)
+                    .font(ui_sans_font(theme))
                     .font_weight(FontWeight::BOLD)
+                    .line_height(relative(Self::LETTER_LINE_HEIGHT))
                     .text_size(Self::letter_text(theme))
                     .text_color(theme.primary_foreground),
                 label.clone(),
@@ -393,8 +453,45 @@ impl ActionButton {
         button::Size::Xs.extent(BP)
     }
 
-    /// One button's own box: `flex-1 gap-1`, an empty leading glyph and a
-    /// label, at `button::Size::Xs`'s own type step and radius.
+    /// One button's own box: `flex-1 gap-1`, an icon and a label, at
+    /// `button::Size::Xs`'s own type step and radius.
+    ///
+    /// # Two P3.63 fixes on this box
+    ///
+    /// **The label now carries its own anchor fields.** It used to be a bare
+    /// `.child(label)` — a string with no anchor of its own, so a snapshot
+    /// rooted on this button's id saw its box and nothing about what it
+    /// painted: no `text`, `fg`, `text_width`, `font` or `clipped`
+    /// (`native/mapping/repo-icon-popover.md` §6, "15 field-presence" over
+    /// the three always-visible buttons). [`AnchorSink::boxed_text`] is the
+    /// primitive every other labelled anchor in this file already uses (the
+    /// caption, the preview fallback) — it records the string under the same
+    /// id as the box, so what the differ sees is what is actually painted.
+    ///
+    /// **The three buttons no longer share one flat width regardless of
+    /// their own label.** Measured before this fix, the default cell
+    /// (`--surface repo-icon-popover`): Upload, Emoji and GitHub all landed
+    /// at ~73px, whatever their own text said (`73.5`/`73`/`73.5` — the 0.5px
+    /// spread is pixel-snap on an equal three-way split, not content).
+    /// `.flex_1()` is CSS `flex: 1 1 0%`, and growing every item on a `0%`
+    /// basis by an equal share **without first clamping any of them to their
+    /// own min-content** is exactly what this crate's layout engine did here
+    /// — confirmed by swapping in `.flex_none()` (no grow at all) on the same
+    /// cell and watching the three diverge by content alone: Upload 60px,
+    /// Emoji 52px, GitHub 60px. A browser applies that clamp (the CSS
+    /// "automatic minimum size" step) before it distributes leftover space,
+    /// which is why React's own `flex-1` buttons *do* come out different
+    /// (69.63/59.77/69.56 — `repo-icon-popover.md` §6) even though the class
+    /// is identical on both sides. `.flex_auto()` (`flex: 1 1 auto`) reaches
+    /// the same outcome without depending on a clamp this engine does not
+    /// apply: every label here is a single, non-wrapping line, so its
+    /// min-content and max-content are the same width, and seeding growth
+    /// from that width instead of a bare `0%` one lands on the floor a
+    /// working clamp would have produced. Measured after the change, same
+    /// cell: Upload 64.5px, Emoji 57px, GitHub 64.5px — Upload and GitHub
+    /// (six letters each) agree, Emoji (five) is 7.5px narrower, the same
+    /// shape the reference's ~10px Upload/GitHub-vs-Emoji gap has, rather
+    /// than a flat three-way split that cannot see the labels at all.
     fn render(
         theme: &Theme,
         anchors: &dyn AnchorSink,
@@ -411,20 +508,20 @@ impl ActionButton {
             .h(Self::height())
             .rounded(button::Size::Xs.radius(theme))
             .text_color(theme.muted_foreground)
+            .font(ui_sans_font(theme))
             .text_size(step.size.to_pixels(px(16.0)))
             .child(
                 div()
                     .flex_shrink_0()
                     .w(BUTTON_ICON_SIZE)
                     .h(BUTTON_ICON_SIZE),
-            )
-            .child(label);
+            );
         shell = if full_width {
             shell.w_full()
         } else {
-            shell.flex_1()
+            shell.flex_auto()
         };
-        anchors.boxed(AnchorId::from(id), shell)
+        anchors.boxed_text(AnchorId::from(id), shell, SharedString::new_static(label))
     }
 }
 
@@ -462,6 +559,8 @@ impl PopupContent {
     /// limitation `native/MAPPING.md`'s `dropdown-menu` row already states.
     fn caption(theme: &Theme) -> Div {
         div()
+            .font(ui_sans_font(theme))
+            .line_height(relative(CAPTION_LINE_HEIGHT))
             .text_size(CAPTION_TEXT)
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(theme.muted_foreground)
@@ -536,6 +635,72 @@ impl PopupContent {
 
     /// Renders the popup's own inner column, opting every button's contract
     /// anchor into `anchors`.
+    ///
+    /// # The popup composes `popover`'s own chrome instead of hand-rolling a
+    /// plain box — the P3.63 fix
+    ///
+    /// `repo-icon-popover.tsx`'s `<PopoverContent>` **is** a
+    /// `PopoverPrimitive.Popup` wrapping a `PopoverPrimitive.Viewport`
+    /// (`web/src/components/ui/popover.tsx`); the call site's own
+    /// `className="w-64 p-0"` only sets the popup's width and zeroes a
+    /// padding utility the popup never had in the first place. Every other
+    /// class on the popup — the **border**, the **radius** — and the
+    /// viewport's own **16px padding** belong to the shared primitive,
+    /// unconditionally, on every call site that uses it.
+    ///
+    /// This box used to skip both: a plain `div().w(POPUP_WIDTH)
+    /// .bg(theme.popover)` with no border, no radius, and `inner` (the `p-3`
+    /// column) sitting directly against it — no viewport box, and no
+    /// `popover-viewport` anchor at all. A live check of this exact popup
+    /// (`native/mapping/repo-icon-popover.md` §6, the P3.63 verdict) found
+    /// both box arithmetics resolve exactly once the two missing terms are
+    /// put back:
+    ///
+    /// ```text
+    /// React: 1 (border) + 16 (viewport padding) + 12 (inner p-3) + 15 (caption) + 12 (gap) = 56 = avatar y ; popup h = 177
+    /// port:  0          + 0                      + 12             + 16 (caption) + 12       = 40 = avatar y ; popup h = 144
+    /// ```
+    ///
+    /// (`native/mapping/repo-icon-popover.md` §6's own version of the port's
+    /// row writes `15` for the caption there too, which is off by one against
+    /// the `40` it sums to — measured independently, on the actual pre-fix
+    /// code, the port's caption was **also** unset and defaulted to gpui's
+    /// golden-ratio line height, the same bug [`PreviewAvatar::
+    /// LETTER_LINE_HEIGHT`]'s own doc comment fixes, landing on `16px` rather
+    /// than `15`; `0 + 0 + 12 + 16 + 12` is the arithmetic that actually
+    /// reaches `40`. [`PopupContent::CAPTION_LINE_HEIGHT`] closes that one
+    /// too, alongside the border/viewport fix below.)
+    ///
+    /// `1 + 16 = 17` is the 16px `y` shift the border and viewport contribute
+    /// to every child; `2 + 32 = 34` is most of the popup's own 33px height
+    /// shortfall (`177 − 144`), the last pixel of which is the caption fix
+    /// above.
+    ///
+    /// This reuses [`popover::BORDER_WIDTH`], [`popover::VIEWPORT_PADDING`]
+    /// and [`popover::ID_VIEWPORT`] rather than re-deriving them, because
+    /// they are not this surface's own numbers — they are `popover.tsx`'s,
+    /// already measured live in `native/mapping/popover.md` §1–2 (`border`:
+    /// `border-width: 1px`; the viewport: `py-4` / `px-(--viewport-inline-
+    /// padding)`, both `--spacing(4)` = 16px). `popover-viewport` in
+    /// particular is the primitive's own **generic**, unnamespaced id — not
+    /// `repo-icon-popover-*` — the same reuse [`Self::emoji_row`] already
+    /// makes of `input.rs`'s `input-control`/`input` two rows up, for the
+    /// same reason: it is the id the real DOM actually carries, not a second
+    /// name for it. `theme.radius_lg` is `popover::Variant::Default::radius`'s
+    /// own token (10px), and `theme.border` is the same border colour
+    /// [`popover::Popover::popup`] paints.
+    ///
+    /// **This is composition, not a call to [`popover::Popover::render`].**
+    /// That constructor roots itself at [`popover::ID_POPUP`] (`"popover-
+    /// popup"`, collides with this surface's own namespaced
+    /// [`ID_POPUP`]) and opens through `gpui_component::Popover`'s deferred,
+    /// anchored placement — real machinery this call site does not want: per
+    /// the module docs, the popup is driven directly, with no live trigger,
+    /// through `row_layout`'s own harness. So the two boxes
+    /// `popover::Popover::popup`/`::viewport` build are reproduced here
+    /// directly, at this surface's own root id, rather than reached through
+    /// the wrapped primitive — the same "sibling wraps stay independent"
+    /// posture `dropdown.rs`'s module docs record for its own trigger.
     #[must_use]
     pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         let mut children: Vec<AnyElement> = vec![
@@ -567,21 +732,44 @@ impl PopupContent {
             .p(POPUP_PADDING)
             .children(children);
 
-        anchors.root(
-            AnchorId::from(ID_POPUP),
-            div().w(POPUP_WIDTH).bg(theme.popover).child(inner),
-        )
+        // `PopoverPrimitive.Viewport`: `relative size-full overflow-clip`
+        // with `popover.tsx`'s own 16px padding on every side. See the
+        // method's own doc comment for the measurement this closes.
+        let viewport = anchors.boxed(
+            AnchorId::from(popover::ID_VIEWPORT),
+            div()
+                .relative()
+                .w_full()
+                .px(popover::VIEWPORT_PADDING)
+                .py(popover::VIEWPORT_PADDING)
+                .overflow_hidden()
+                .child(inner),
+        );
+
+        // `PopoverPrimitive.Popup`: `rounded-lg border bg-popover`, `w-64`
+        // from this call site's own `className`.
+        let popup = div()
+            .flex()
+            .w(POPUP_WIDTH)
+            .rounded(theme.radius_lg.value())
+            .border(popover::BORDER_WIDTH)
+            .border_color(theme.border)
+            .bg(theme.popover)
+            .child(viewport);
+
+        anchors.root(AnchorId::from(ID_POPUP), popup)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        CAPTION_TEXT, CONTENT_SIZED, EMOJI_ROW_HEIGHT, ID_EMOJI, ID_EMOJI_SUBMIT, ID_GITHUB,
-        ID_POPUP, ID_RESET, ID_TRIGGER, ID_UPLOAD, LINE_SIZED, POPUP_GAP, POPUP_PADDING,
-        POPUP_WIDTH, PopupContent, ROW_GAP, TRIGGER_EMOJI_TEXT, TRIGGER_LETTER_TEXT, TRIGGER_SIZE,
-        Trigger,
+        CAPTION_LINE_HEIGHT, CAPTION_TEXT, CONTENT_SIZED, EMOJI_ROW_HEIGHT, ID_EMOJI,
+        ID_EMOJI_SUBMIT, ID_GITHUB, ID_POPUP, ID_RESET, ID_TRIGGER, ID_UPLOAD, LINE_SIZED,
+        POPUP_GAP, POPUP_PADDING, POPUP_WIDTH, PopupContent, PreviewAvatar, ROW_GAP,
+        TRIGGER_EMOJI_TEXT, TRIGGER_LETTER_TEXT, TRIGGER_SIZE, Trigger,
     };
+    use crate::components::popover;
     use crate::components::repo_avatar::Kind;
     use crate::theme::Theme;
     use gpui::px;
@@ -644,5 +832,55 @@ mod tests {
         let content = PopupContent::fixture();
         assert!(!content.show_emoji_input);
         assert!(!content.has_avatar_url);
+    }
+
+    /// **The three P3.63 line-height fixes each land on their own utility's
+    /// real ratio** — `text-sm` (14×20), `text-2xl` (24×32), and the
+    /// caption's own Tailwind-preflight default (10×15) — and none of them
+    /// is gpui's golden-ratio default (`~1.618034`) for a leaf that never set
+    /// one, which is the bug each of the three closes.
+    #[test]
+    fn the_three_line_height_fixes_land_on_their_own_utilitys_ratio() {
+        // gpui's own unset-leaf default (`gpui::phi()`) is the golden ratio,
+        // `~1.618034` — measured, on this exact surface, to produce a
+        // `22.5px` line box at `avatar-fallback`'s 14px against a live
+        // reference of `20px` (`native/mapping/repo-icon-popover.md` §6).
+        const GOLDEN_RATIO: f32 = 1.618_034;
+
+        assert!((PreviewAvatar::LETTER_LINE_HEIGHT - 1.25 / 0.875).abs() < f32::EPSILON);
+        assert!((PreviewAvatar::EMOJI_LINE_HEIGHT - 2.0 / 1.5).abs() < f32::EPSILON);
+        assert!((CAPTION_LINE_HEIGHT - 1.5).abs() < f32::EPSILON);
+
+        let letter_box = 14.0 * PreviewAvatar::LETTER_LINE_HEIGHT;
+        assert!((letter_box - 20.0).abs() < 0.001, "{letter_box}");
+        let emoji_box = 24.0 * PreviewAvatar::EMOJI_LINE_HEIGHT;
+        assert!((emoji_box - 32.0).abs() < 0.001, "{emoji_box}");
+        let caption_box = 10.0 * CAPTION_LINE_HEIGHT;
+        assert!((caption_box - 15.0).abs() < 0.001, "{caption_box}");
+
+        // None of the three fixed ratios is anywhere near the golden ratio.
+        for ratio in [
+            PreviewAvatar::LETTER_LINE_HEIGHT,
+            PreviewAvatar::EMOJI_LINE_HEIGHT,
+            CAPTION_LINE_HEIGHT,
+        ] {
+            assert!((ratio - GOLDEN_RATIO).abs() > 0.05, "{ratio}");
+        }
+    }
+
+    /// **The popup composition reuses `popover`'s own constants rather than
+    /// re-deriving them** — `BORDER_WIDTH` (1px) and `VIEWPORT_PADDING`
+    /// (16px) are the values `popover.md` §1–2 already measured live on this
+    /// exact popup.
+    #[test]
+    fn the_popup_reuses_popovers_own_border_and_viewport_constants() {
+        assert_eq!(popover::BORDER_WIDTH, px(1.0));
+        assert_eq!(popover::VIEWPORT_PADDING, px(16.0));
+        // `popover-viewport` is the primitive's own **generic** id — not
+        // namespaced under this surface's own prefix, unlike every id
+        // `every_anchor_id_is_distinct_and_namespaced` checks above, because
+        // it is the id the real DOM actually carries on this call site.
+        assert!(!popover::ID_VIEWPORT.starts_with("repo-icon-popover"));
+        assert_ne!(popover::ID_VIEWPORT, ID_POPUP);
     }
 }
