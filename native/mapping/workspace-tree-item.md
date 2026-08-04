@@ -319,3 +319,30 @@ failed as predicted (`expected 0px, got 1px`,
 `crates/crowbar-app/src/row_layout/workspace_tree_item.rs`); reverted after
 confirming. `repo_section.rs`'s own sibling test
 (`the_trailing_actions_paint_no_border`) guards the other three call sites.
+
+**⚠ That removal regressed a fourth, un-named consumer** —
+`project-home-row`'s two trailing actions, which are `<Button variant="ghost"
+size="icon-xs">` rather than a raw `<button className={ROW_SUB_ACTION}>`, and
+genuinely do carry a real, transparent-coloured border in the live DOM
+(`button.tsx`'s own unconditional base-class `border`, which `ROW_SUB_ACTION`
+never overrides). Fixed at that surface's own call site — see
+`native/mapping/project-home-row.md`'s own `REGRESSED`/`FIXED` sections —
+without touching `row_base::sub_action_box` again. This surface's own
+`workspace-tree-item-add-child`/`-expand` are unaffected either way: both
+are raw elements with no `<Button>` underneath them, so they stay borderless.
+
+---
+
+## CONFIRMED (P3.81) — `workspace-tree-item-label` does not declare `content_sized`
+
+Checked directly rather than assumed symmetric with `repo-section-label`'s
+own P3.81 `content_sized` fix (`native/mapping/repo-section.md`): this
+surface's label (`WorkspaceTreeItem::label`,
+`crates/crowbar-ui/src/components/workspace_tree_item.rs`) builds from
+`row_base::label_container` directly, `flex-1` on the *same* anchored span —
+not `repo-section.rs`'s own two-level spacer/content-sized-inner split — so
+it genuinely stretches to the row's leftover width (`252px` against a
+`31.2px` `text_width`) and must stay undeclared. A new guard,
+`row_layout::workspace_tree_item::the_label_does_not_declare_content_sized`,
+was run against a real mutation (added `.content_sized()` to this label's own
+anchor) and failed as predicted before being reverted.
