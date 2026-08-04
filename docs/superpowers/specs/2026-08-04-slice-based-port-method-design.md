@@ -93,8 +93,36 @@ that produced a 45k-line harness and no app.
 The application is now a serial spine, so fan-out comes from:
 
 - **The Tier A lane** — one background worker on the remaining ~31% of
-  `crowbar-core` (§2 diff algebra, §7 review threads). Independent of every
-  slice, gated by ported tests, not by the oracle. **Runs continuously.**
+  `crowbar-core`. Independent of every slice, gated by ported tests, not by the
+  oracle. **Runs continuously.**
+
+  > **Corrected 2026-08-04, before the first dispatch.** An earlier draft of this
+  > line named "§2 diff algebra and §7 review threads" as the untouched areas,
+  > copied from `QUEUE.md`'s tier table. **Both are wrong.** Review threads
+  > merged at P3.78 (`crowbar-core/src/review/`, 663 Rust lines at 100.00%), and
+  > `tier-a-denominator.md` §2 records that standalone diff algebra is **0 files,
+  > 0 lines** — the daemon does the diffing, `crowbar-proto` already carries the
+  > shapes, and what looks like diff algebra in the React app (windowing, search,
+  > placeholder sizing) is scoped to `crowbar-diff`, where P3.79 already landed
+  > it. Dispatching against that line would have sent a worker to port something
+  > already ported and something that does not exist.
+
+  The real remainder, from `tier-a-denominator.md`'s per-area table measured
+  against the five merged items:
+
+  | area | Tier A lines | ported | remaining |
+  |---|---|---|---|
+  | Git model incl. the `review-code-view.tsx` embedded region | ~609 | 241 | **~368** |
+  | File-tree model | ~718 | 436 | **~282** |
+  | Settings schema | 629 | 554 | **~75** |
+  | Theme tokens — `resolve-css-color.ts` colour math | ~130 | 0 | **~130** |
+  | Keymap resolution | 516 | 516 | ✅ 0 |
+  | Workspace scoping | 261 | 261 | ✅ 0 |
+  | Review threads | ~306 | P3.78 | ✅ 0 |
+  | Diff algebra (standalone) | **0** | — | — |
+
+  Report completion in **one unit throughout**. The retracted "Tier A ≈80%" was
+  a ratio of Rust lines to TypeScript lines.
 - **Within a slice** — one worker on state/wiring, one on view composition,
   against an interface agreed before either starts.
 
