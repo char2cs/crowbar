@@ -30,7 +30,7 @@
 //!
 //! | Axis | Here |
 //! |---|---|
-//! | `--width` | **weak.** Nine of the ten sizes author their own box; only the five non-icon sizes take their width from their content, and no live call site renders a Button with a label — `Label` is closed (see [`Label`]), so labelled controls are hand-built |
+//! | `--width` | **weak, but not for the reason this row used to give.** Nine of the ten sizes author their own box; only the five non-icon sizes take their width from their content — and that path is exercised in the product, not never: **at least 72** live, non-test `web/src/` call sites render a `<Button>` with *visible* text (counted by parsing the JSX, not by a regex — a naive `<Button\b(.*?)>` walks into an arrow body's `>` and lies; `developer-settings.tsx:178`'s "Export settings" is one). That 72 is a floor, not a point estimate: it excludes every case that took a judgment call to classify — e.g. `code-block-node.tsx:391`'s icon button, whose only child text is an `sr-only` span and so isn't *visible*, and a couple of icon-plus-glyph buttons where "label" itself is debatable. None of the 72 is *this surface's own* reference, though: the fixture workspace's nine captured `[data-slot=button]` elements are all icon-only (`native/mapping/button.md` §9), so the content-sized path stays real in the app and unexercised by this differ specifically |
 //! | `--viewport-width` | **real, and the strongest axis this surface has.** Every one of the ten sizes carries an `sm:` variant that changes its box, and two of them change the type scale as well |
 //! | `--theme` | **real** for six of the seven variants — `bg`, `fg` and `border.color` all move. Vacuous on `link`, which paints no background and no border colour |
 //! | `--content` | real **only with `--label`**, which is off by default because the reference's nine buttons are all icon-only |
@@ -55,7 +55,17 @@
 //! not add: its remit on that file is `data-oracle-id` and nothing else. Leaving
 //! both sides undeclared is the safe direction rather than a blind spot: it can
 //! manufacture a delta of at most the ceil excess (< 1px) and cannot hide one.
-//! It also cannot fire today — no live call site renders a Button with a label (`Label` is closed; labelled controls are hand-built).
+//! It does not fire today, but the reason this sentence used to give was false:
+//! **at least 72** live, non-test call sites in `web/src/` render a `<Button>`
+//! with visible text (see the `--width` row above for how that floor was
+//! counted and what it deliberately excludes) — `developer-settings.tsx:178`
+//! is one. Labelled Buttons are ordinary, not hand-built exceptions. What
+//! actually keeps the rule quiet is narrower: none of them was *captured* for
+//! this surface's own reference — the fixture workspace's nine
+//! `[data-slot=button]` elements are all icon-only (`native/mapping/button.md`
+//! §9). That is one differently-scoped capture away from changing, so it is
+//! the bound above, not this absence, that makes leaving both sides
+//! undeclared safe.
 
 use gpui::{
     AnyElement, BoxShadow, Div, FontWeight, IntoElement as _, ParentElement as _, Pixels, Rems,
