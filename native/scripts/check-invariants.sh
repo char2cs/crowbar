@@ -16,7 +16,8 @@
 #   5. `cargo fmt --check` is clean.
 #   6. Every `#[gpui::test]` arms `leak_checked!` as its first statement (§17).
 #   7. No `native/crates/` (or `oracle/`) source escapes into `web/` or
-#      `desktop/` in a way the shipping build depends on (S0.7).
+#      `desktop/` in a way the shipping build depends on — a literal `../…`
+#      path or one built segment-by-segment with `.join`/`.push` (S0.7, S0.8).
 #
 # Known limits, stated so nobody mistakes this for a parser: check 3 is a line
 # scanner. It does not understand block comments, and a string literal
@@ -530,11 +531,32 @@ fi
 # — delete `web/` and the app has no text — fixed by vendoring the six files
 # into `native/assets/fonts/` and embedding them with `include_bytes!`.
 #
-# What this looks for: a `../` escape (one or more) followed, later on the
-# *same physical source line*, by a literal `web/` or `desktop/` path
-# component — the shape the fixed reference above took, and the shape any
-# code has to take to reach a sibling of `native/` from underneath `crates/`
-# using a string literal.
+# What this looks for, in two independent passes over each source line:
+#
+#   A. A `../` escape (one or more) followed, later on the *same physical
+#      source line*, by a literal `web/` or `desktop/` path component — the
+#      shape the fixed reference above took, and the shape any code has to
+#      take to reach a sibling of `native/` from underneath `crates/` using a
+#      single string literal.
+#
+#   B. (S0.8) A path built **segment-by-segment** with `.join("desktop")`,
+#      `.join('web')`, `.push("desktop")`, etc. — the shape that defeated
+#      pass A outright: `crates/crowbar-sidecar/src/binary.rs` reached
+#      `desktop/` by walking `.parent()` three times (never a literal `../`)
+#      and then `.join("desktop")`, so no physical line ever contained both
+#      an escape token and the destination, and rule 7 reported `ok` on the
+#      exact code it exists to catch. Pass B does not require an escape token
+#      on the same line at all — a bare `.join("desktop")` inside `crates/`
+#      or `oracle/` has no legitimate target other than the sibling
+#      `desktop/` directory, escape spelled out or not.
+#
+# Comments are stripped (to end of line, from the first `//`) before pass B
+# runs, so a doc comment that quotes this exact call shape while explaining
+# the bug — as this rule's own history now does — cannot fail the build over
+# English. Pass A does *not* strip comments, unchanged from S0.7: every
+# provenance comment in this tree (`Ported from web/src/...`) names its
+# source directly, with no literal `../` before it, so pass A has never had
+# to distinguish prose from code to stay quiet on them.
 #
 # One file is exempt **by path, not by pattern** — its whole job is parity
 # against the React reference, it dies the day `web/` does, and S0.7 proved
@@ -557,12 +579,19 @@ fi
 # file header for the same "nothing shipping depends on it" proof.
 #
 # Known limits, stated rather than discovered later: this is a per-line
-# scanner. A path assembled across several `.join("..")` calls with no single
-# literal containing both the escape and `web`/`desktop`, or a `.parent()`
-# walk with a bare `"web"` joined on afterwards, would not be caught — every
-# reference S0.7's audit found, and the one this rule was written against,
-# put `../` and the destination on one line. A differently-shaped evasion is
-# a gap to close when it is found, not a reason to leave this shape ungated.
+# scanner, on both passes. Pass A: a path assembled across several
+# `.join("..")` calls with no single literal containing both the escape and
+# `web`/`desktop` is invisible to it — that gap is exactly what pass B closes
+# for the `.join`/`.push` shape specifically. Pass B: only recognises
+# `.join`/`.push` called with the bare literal `"web"`/`"desktop"` (or
+# `'web'`/`'desktop'`) as the sole argument; a name built from a `const`, a
+# variable, `format!`, or split across `.push("desk").push("top")` is
+# invisible to it, and so is a segment split across two physical lines (e.g.
+# a line break between `.join(` and `"desktop")`). Neither pass understands
+# block comments, and pass B's end-of-line comment strip does not know a `//`
+# inside a string literal isn't a comment starting. A differently-shaped
+# evasion of either pass is a gap to close when it is found, not a reason to
+# leave the shapes both already catch ungated.
 
 rule7_exempt='crates/crowbar-ui/tools/gen-theme.py'
 
@@ -577,10 +606,16 @@ escape_report=$(
 			# script right here, silently, before rule 7 ever printed a
 			# result. (Reproduced while writing this rule.)
 			grep -nE '\.\./.*(web|desktop)/' "$f" 2>/dev/null | sed "s#^#$f:#" || true
+			# Pass B (S0.8): strip end-of-line comments first, then look for
+			# the segment-built shape itself — see the comment above this
+			# loop for exactly what this can and cannot see.
+			sed 's#//.*##' "$f" 2>/dev/null |
+				grep -nE "\.(join|push)\([\"'](web|desktop)[\"']\)" |
+				sed "s#^#$f:#" || true
 		done
 )
 if [ -n "$escape_report" ]; then
-	fail 'rule 7 (S0.7): a native/crates or oracle source escapes into web/ or desktop/'
+	fail 'rule 7 (S0.7/S0.8): a native/crates or oracle source escapes into web/ or desktop/'
 	printf '%s\n' "$escape_report" >&2
 	printf '      native/ has to be self-contained: everything the shipping build\n' >&2
 	printf '      needs has to live under native/ — vendor the asset and load it from\n' >&2
@@ -592,7 +627,7 @@ if [ -n "$escape_report" ]; then
 	printf '      rule (and prove nothing shipping depends on it) instead of routing\n' >&2
 	printf '      around the check.\n' >&2
 else
-	pass 'rule 7: no crates/oracle source escapes into web/ or desktop/'
+	pass 'rule 7: no crates/oracle source escapes into web/ or desktop/ (literal or segment-built)'
 fi
 
 if [ "$status" -ne 0 ]; then
