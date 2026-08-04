@@ -14,8 +14,8 @@
 use super::{a_cell, assert_px, assert_within_tolerance, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::number_input;
-use crowbar_ui::components::number_input::{ALL_SIZES, ALL_WIDTHS, Width};
+use crowbar_ui::primitives::number_input;
+use crowbar_ui::primitives::number_input::{ALL_SIZES, ALL_WIDTHS, Width};
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

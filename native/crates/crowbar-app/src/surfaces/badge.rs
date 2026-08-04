@@ -28,7 +28,7 @@
 //!
 //! | Axis | Here |
 //! |---|---|
-//! | `--viewport-width` | **the strongest axis this surface has.** All three sizes carry `sm:h-*`, `sm:min-w-*` and `sm:text-*`, and on a merged call site the breakpoint decides *whose* height wins — see [`crowbar_ui::components::badge::CallSite::height`] |
+//! | `--viewport-width` | **the strongest axis this surface has.** All three sizes carry `sm:h-*`, `sm:min-w-*` and `sm:text-*`, and on a merged call site the breakpoint decides *whose* height wins — see [`crowbar_ui::primitives::badge::CallSite::height`] |
 //! | `--content` | **real**, and the only axis that moves `bounds.w`: the badge is content-sized, so the label's advance is the box |
 //! | `--width` | **vacuous.** A badge authors no width and takes none from its parent; `--width` is room to be laid out in and nothing else |
 //! | `--theme` | **real** on every variant — `bg`, `fg` and `border.color` all move, and on `outline` the background swaps token entirely (`bg-background` → `dark:bg-input/32`) |
@@ -51,10 +51,12 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::badge::{
+use crowbar_ui::primitives::badge::{
     ALL_CALL_SITES, ALL_SIZES, ALL_VARIANTS, Badge, BadgeState, CallSite, Label, Size, Variant,
 };
-use crowbar_ui::components::{AnchorSink, ContentLength, badge};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::ContentLength;
+use crowbar_ui::primitives::badge;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -426,10 +428,11 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{Params, SURFACE};
     use crate::row_surface::{Cell, ParseError, StateFlag};
-    use crowbar_ui::components::badge::{
+    use crowbar_ui::primitives::badge::{
         ALL_CALL_SITES, ALL_SIZES, ALL_VARIANTS, CallSite, Size, Variant,
     };
-    use crowbar_ui::components::{Breakpoint, badge};
+    use crowbar_ui::surfaces::rows::Breakpoint;
+use crowbar_ui::primitives::badge;
 
     fn a_cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "badge"];
@@ -450,7 +453,7 @@ mod tests {
     fn the_root_anchor_is_the_primitives_own_id() {
         assert_eq!(SURFACE.root, "badge");
         assert_eq!(badge::ID_BADGE, "badge");
-        assert_ne!(SURFACE.root, crowbar_ui::components::ID_BADGE);
+        assert_ne!(SURFACE.root, crowbar_ui::surfaces::rows::ID_BADGE);
     }
 
     /// A bare `--surface badge` is the live `agent` badge.

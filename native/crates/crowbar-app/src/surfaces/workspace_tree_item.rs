@@ -1,7 +1,7 @@
 //! `--surface workspace-tree-item` — one row of the workspace tree, plus,
 //! via `--children`/`--pending`, its own nested rows.
 //!
-//! `crowbar_ui::components::workspace_tree_item` carries the composition
+//! `crowbar_ui::surfaces::workspace::workspace_tree_item` carries the composition
 //! (why the status icon composition is only oracle-safe for a leaf cell,
 //! why `hasChildren`/`isCreatingChild`/`showPlaceholderDetails` are derived
 //! rather than stored); this file is the cell.
@@ -11,16 +11,16 @@
 //! | flag | here |
 //! |---|---|
 //! | `selected` | **real**, via `--flags selected` — `isActive`, the same reading every other row-shaped surface in this port gives it. |
-//! | `empty`, `loading`, `error`, `hover`, `focus` | **unmodelled** — see `crowbar_ui::components::workspace_tree_item`'s own module docs. |
+//! | `empty`, `loading`, `error`, `hover`, `focus` | **unmodelled** — see `crowbar_ui::surfaces::workspace::workspace_tree_item`'s own module docs. |
 
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::pending_create_row::PendingCreateRow;
-use crowbar_ui::components::row_base::RowMode;
-use crowbar_ui::components::workspace_branch_icon::{Status, WorkspaceBranchIcon};
-use crowbar_ui::components::workspace_tree_item::WorkspaceTreeItem;
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::pending_create_row::PendingCreateRow;
+use crowbar_ui::surfaces::rows::row_base::RowMode;
+use crowbar_ui::surfaces::workspace::workspace_branch_icon::{Status, WorkspaceBranchIcon};
+use crowbar_ui::surfaces::workspace::workspace_tree_item::WorkspaceTreeItem;
 use gpui::{AnyElement, SharedString, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -29,7 +29,7 @@ use crate::surface::{Surface, SurfaceParams, value};
 /// The registry entry `build.rs` collects.
 pub static SURFACE: Surface = Surface {
     name: "workspace-tree-item",
-    root: crowbar_ui::components::workspace_tree_item::ID_ROOT,
+    root: crowbar_ui::surfaces::workspace::workspace_tree_item::ID_ROOT,
     unmodelled: &[StateFlag::Empty, StateFlag::Loading, StateFlag::Error, StateFlag::Hover, StateFlag::Focus],
     // The row's own `h-9` plus enough room for a few nested children and
     // pending rows at the default `--children`/`--pending` — a floor, not a
@@ -57,7 +57,7 @@ pub struct Params {
     pub expanded: bool,
     /// `--renaming`/`--creating-child` (mutually exclusive; the last one
     /// given wins), folded into
-    /// [`crowbar_ui::components::row_base::RowMode`] directly rather than
+    /// [`crowbar_ui::surfaces::rows::row_base::RowMode`] directly rather than
     /// kept as two independent bools, to keep this struct under clippy's
     /// `struct_excessive_bools` (`working`/`is_placeholder`/`expanded`
     /// alone are exactly three).
@@ -68,7 +68,7 @@ pub struct Params {
     pub deleted: Option<u32>,
     /// `--children`: how many leaf child rows this cell renders. **Non-zero
     /// values are outside `web/src/lib/oracle/extract.ts`'s own declared
-    /// `workspace-tree-item` scope** — `crowbar_ui::components::
+    /// `workspace-tree-item` scope** — `crowbar_ui::surfaces::workspace::
     /// workspace_tree_item`'s own module docs record why (the recursive
     /// `workspace-tree-item`/`workspace-branch-icon` ids repeat).
     pub children: u8,
@@ -223,13 +223,13 @@ fn parse_u32(raw: &str, option: &str) -> Result<u32, ParseError> {
 }
 
 fn parse_status(raw: &str) -> Result<Status, ParseError> {
-    crowbar_ui::components::workspace_branch_icon::ALL_STATUSES
+    crowbar_ui::surfaces::workspace::workspace_branch_icon::ALL_STATUSES
         .into_iter()
         .find(|s| s.name() == raw)
         .ok_or_else(|| {
             ParseError::Rejected(format!(
                 "--status takes one of {}, not {raw}",
-                crowbar_ui::components::workspace_branch_icon::ALL_STATUSES
+                crowbar_ui::surfaces::workspace::workspace_branch_icon::ALL_STATUSES
                     .iter()
                     .map(|s| s.name())
                     .collect::<Vec<_>>()
@@ -263,9 +263,9 @@ mod tests {
     use super::{Params, SURFACE, options};
     use crate::row_surface::{Cell, StateFlag};
     use crate::surface::SurfaceParams;
-    use crowbar_ui::components::row_base::RowMode;
-    use crowbar_ui::components::workspace_branch_icon::Status;
-    use crowbar_ui::components::workspace_tree_item::WorkspaceTreeItem;
+    use crowbar_ui::surfaces::rows::row_base::RowMode;
+    use crowbar_ui::surfaces::workspace::workspace_branch_icon::Status;
+    use crowbar_ui::surfaces::workspace::workspace_tree_item::WorkspaceTreeItem;
     use gpui::px;
 
     fn cell(args: &[&str]) -> Cell {
@@ -388,7 +388,7 @@ mod tests {
     #[test]
     fn the_surface_names_itself_and_its_root_anchor() {
         assert_eq!(SURFACE.name, "workspace-tree-item");
-        assert_eq!(SURFACE.root, crowbar_ui::components::workspace_tree_item::ID_ROOT);
+        assert_eq!(SURFACE.root, crowbar_ui::surfaces::workspace::workspace_tree_item::ID_ROOT);
         assert!(!SURFACE.full_bleed);
     }
 }

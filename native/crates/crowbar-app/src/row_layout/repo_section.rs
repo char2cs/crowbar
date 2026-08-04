@@ -1,13 +1,14 @@
 //! `--surface repo-section`, laid out in a real window.
 //!
-//! Pins the arithmetic `crowbar_ui::components::repo_section`'s module docs
+//! Pins the arithmetic `crowbar_ui::surfaces::repo::repo_section`'s module docs
 //! describe: the header's own trailing-action set, `--collapsed` hiding the
 //! workspace list entirely, and the header row's own `mx-1.5`-net-of-margin
 //! width.
 
 use super::{a_cell, assert_px, ids, measure};
 use crowbar_ui::Theme;
-use crowbar_ui::components::{repo_section, row_base};
+use crowbar_ui::surfaces::repo::repo_section;
+use crowbar_ui::surfaces::rows::row_base;
 use gpui::{TestAppContext, px};
 
 use crate::row_surface::Cell;

@@ -44,8 +44,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::flicker_spinner::{self, ALL_CALL_SITES, CallSite, FlickerSpinner};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::flicker_spinner::{self, ALL_CALL_SITES, CallSite, FlickerSpinner};
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

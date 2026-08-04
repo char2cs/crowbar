@@ -4,7 +4,7 @@
 //! The **only component in `sidebar.tsx` with no `gpui-component` equivalent**,
 //! so it is built from `div()`. That is not a §6.2 exception: the instruction is
 //! not to rebuild what the library provides, and it provides no empty state.
-//! `crowbar_ui::components::sidebar` carries the values.
+//! `crowbar_ui::surfaces::sidebar::shell` carries the values.
 //!
 //! # How its one reachable cell is reached
 //!
@@ -20,7 +20,7 @@
 //! `<Button variant="ghost" compact className="ui-text-xs h-6 px-2 …">`. It is
 //! **not** modelled here, for two reasons that both stand on their own:
 //!
-//! * `crowbar_ui::components::Button::render` reaches `AnchorSink::root`, and
+//! * `crowbar_ui::primitives::Button::render` reaches `AnchorSink::root`, and
 //!   the root anchor **clears the registry** — so a button nested inside this
 //!   surface would take this surface's anchors with it. The way round it is to
 //!   render the nested primitive through `Unanchored`, which is a real option
@@ -48,8 +48,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::sidebar::{self, EmptyActionState, Tone};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::sidebar::shell::{self as sidebar, EmptyActionState, Tone};
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, SharedString, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -253,7 +253,7 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{DEFAULT_MESSAGE, Params, SURFACE, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
-    use crowbar_ui::components::sidebar::Tone;
+    use crowbar_ui::surfaces::sidebar::shell::Tone;
 
     fn cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "sidebar-empty"];

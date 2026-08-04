@@ -1,7 +1,7 @@
 //! `--surface sheet` — the third surface drawn by a **wrapped**
 //! `gpui-component` widget, and the first with **no live reference at all**.
 //!
-//! `crowbar_ui::components::sheet` carries the finding in full: the one
+//! `crowbar_ui::primitives::sheet` carries the finding in full: the one
 //! React consumer (`sidebar.tsx`'s `Sidebar`) is never mounted anywhere in
 //! `web/src`, and the vendor widget this crate wraps cannot be driven past
 //! `Placement::Right` without a `Root` this measurement harness does not
@@ -17,8 +17,8 @@
 //! | `empty` | **real**, on the same construction `dialog`'s is: removes the header (and the title/description under it), which is a picture `SheetPopup` genuinely has when a call site nests no `SheetHeader`. |
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::sheet::{self, Sheet};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::sheet::{self, Sheet};
 use gpui::{AnyElement, App, SharedString, Window, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -51,7 +51,7 @@ pub const DEFAULT_BODY_HEIGHT: u16 = 200;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Params {
     /// `--body-height`: how tall the call site's own content is. Rendered,
-    /// but — see `crowbar_ui::components::sheet`'s module docs, point 4 —
+    /// but — see `crowbar_ui::primitives::sheet`'s module docs, point 4 —
     /// does not drive `sheet-popup`'s own height, which the vendor's
     /// placement-based positioning fixes regardless of content.
     pub body_height: u16,

@@ -7,7 +7,7 @@
 //! same `--width == --viewport-width` convention its own test establishes.
 
 use super::{a_cell, assert_px, find, ids, measure};
-use crowbar_ui::components::sidebar_peek;
+use crowbar_ui::surfaces::sidebar::sidebar_peek;
 use gpui::{Pixels, TestAppContext, px};
 
 use crate::row_surface::{Cell, INSET_Y, RowSurface};

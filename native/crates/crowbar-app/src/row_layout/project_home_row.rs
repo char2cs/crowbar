@@ -1,6 +1,6 @@
 //! `--surface project-home-row`, laid out in a real window.
 //!
-//! What follows pins the arithmetic `crowbar_ui::components::
+//! What follows pins the arithmetic `crowbar_ui::surfaces::rows::
 //! project_home_row`'s module docs describe: the icon wrapper's own 20px
 //! box sitting flush against [`row_base::PADDING_X`], the label following
 //! [`row_base::GAP`] after it, and the working/selected axes each reaching
@@ -17,7 +17,7 @@
 //! own call site — none is a bare prediction any more.
 //!
 //! **A parity run against the live app subsequently found a real defect
-//! this file's own gates had not caught**: `crowbar_ui::components::
+//! this file's own gates had not caught**: `crowbar_ui::surfaces::rows::
 //! row_base::LINE_HEIGHT_RELATIVE` was wrong (`row_base.rs`'s own doc
 //! comment has the full derivation and the oracle's exact output). Nothing
 //! in this file asserted the label's own line-box height at the time, so a
@@ -27,7 +27,9 @@
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
-use crowbar_ui::components::{button, project_home_row, row_base};
+use crowbar_ui::primitives::button;
+use crowbar_ui::surfaces::rows::project_home_row;
+use crowbar_ui::surfaces::rows::row_base;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

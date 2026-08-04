@@ -1,7 +1,7 @@
 //! `--surface sidebar-skeleton`, laid out in a real window.
 //!
 //! No reference exists to compare these against —
-//! `crowbar_ui::components::sidebar_skeleton`'s own module docs record why
+//! `crowbar_ui::surfaces::sidebar::sidebar_skeleton`'s own module docs record why
 //! the composition can never mount. What follows instead pins the one thing
 //! worth pinning: that eighteen bars across five row shapes actually stack
 //! the way the source's three `[1, 2].map` calls say they should, through a
@@ -9,7 +9,7 @@
 //! module docs.
 
 use super::{a_cell, assert_px, find, ids, measure};
-use crowbar_ui::components::sidebar_skeleton;
+use crowbar_ui::surfaces::sidebar::sidebar_skeleton;
 use gpui::{TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -69,7 +69,7 @@ fn every_anchor_appears_exactly_once_and_the_count_is_twenty(cx: &mut TestAppCon
 /// asserted from the arithmetic that predicts it.
 ///
 /// **Mutation:** changing `OUTER_GAP` from `SPACING * 0.5` to `SPACING` in
-/// `crowbar_ui::components::sidebar_skeleton` turns this red — four gaps
+/// `crowbar_ui::surfaces::sidebar::sidebar_skeleton` turns this red — four gaps
 /// widen from 2px to 4px each, an 8px increase, so the root's own height
 /// becomes 329px, not 321.
 #[gpui::test]
@@ -185,7 +185,7 @@ fn the_divider_sits_between_the_chats_and_the_repos_and_is_one_pixel_tall(
 
 /// **The two bars `skeleton::CallSite` does not carry stay fixed as the
 /// column widens; the two `flex-1` title bars grow with it, 1:1.** This is
-/// the row-layout half of the claim `crowbar_ui::components::
+/// the row-layout half of the claim `crowbar_ui::surfaces::sidebar::
 /// sidebar_skeleton`'s own module docs make about the two "not in
 /// `CallSite`" shapes — a bar that hardcoded `w-24`/`w-12` in the browser and
 /// was accidentally ported `flex-1` (or the reverse) would be caught here,

@@ -1,7 +1,7 @@
 //! `--surface pending-create-row` — the optimistic row shown while a
 //! workspace create is in flight.
 //!
-//! `crowbar_ui::components::pending_create_row` carries the composition
+//! `crowbar_ui::surfaces::rows::pending_create_row` carries the composition
 //! (why this surface is always `AnchorSink::boxed`, why the spinner branch
 //! composes `workspace-branch-icon` directly); this file is the cell.
 //!
@@ -9,13 +9,13 @@
 //!
 //! | flag | here |
 //! |---|---|
-//! | `loading`, `error`, `hover`, `focus`, `selected`, `empty` | **unmodelled** — see `crowbar_ui::components::pending_create_row`'s own module docs. `--error` (below) is a domain option, not `StateFlag::Error`. |
+//! | `loading`, `error`, `hover`, `focus`, `selected`, `empty` | **unmodelled** — see `crowbar_ui::surfaces::rows::pending_create_row`'s own module docs. `--error` (below) is a domain option, not `StateFlag::Error`. |
 
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::pending_create_row::PendingCreateRow;
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::pending_create_row::PendingCreateRow;
 use gpui::{AnyElement, SharedString, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -24,7 +24,7 @@ use crate::surface::{Surface, SurfaceParams, value};
 /// The registry entry `build.rs` collects.
 pub static SURFACE: Surface = Surface {
     name: "pending-create-row",
-    root: crowbar_ui::components::pending_create_row::ID_ROOT,
+    root: crowbar_ui::surfaces::rows::pending_create_row::ID_ROOT,
     unmodelled: &[
         StateFlag::Empty,
         StateFlag::Loading,
@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn the_surface_names_itself_and_its_root_anchor() {
         assert_eq!(SURFACE.name, "pending-create-row");
-        assert_eq!(SURFACE.root, crowbar_ui::components::pending_create_row::ID_ROOT);
+        assert_eq!(SURFACE.root, crowbar_ui::surfaces::rows::pending_create_row::ID_ROOT);
         assert!(!SURFACE.full_bleed);
     }
 }

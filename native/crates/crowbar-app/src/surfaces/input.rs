@@ -93,10 +93,12 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::input::{
+use crowbar_ui::primitives::input::{
     ALL_LEADING_PADS, ALL_SIZES, Input, LeadingPad, Size, State, Text,
 };
-use crowbar_ui::components::{AnchorSink, ContentLength, input};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::ContentLength;
+use crowbar_ui::primitives::input;
 use gpui::AnyElement;
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -135,7 +137,7 @@ pub static SURFACE: Surface = Surface {
 /// The two props §8.3's own vocabulary has no usable word for.
 ///
 /// A struct rather than two fields on [`Params`] for the reason
-/// [`crowbar_ui::components::input::State`] is one: they are one kind of thing —
+/// [`crowbar_ui::primitives::input::State`] is one: they are one kind of thing —
 /// conditions the control's `has-*` chain reads — and keeping them together is
 /// what makes it obvious that `--invalid` is the `error` flag under another name.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -421,7 +423,7 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{Params, SURFACE, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
-    use crowbar_ui::components::input::{ID_CONTROL, ID_FIELD, Input, LeadingPad, Size, Text};
+    use crowbar_ui::primitives::input::{ID_CONTROL, ID_FIELD, Input, LeadingPad, Size, Text};
 
     fn cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "input"];

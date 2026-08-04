@@ -1,7 +1,7 @@
 //! `--surface sidebar-toast-overlay-fallback` — the `Toast.Portal`'d,
 //! fixed-corner viewport `sidebarOpen === false` renders instead.
 //!
-//! See `crowbar_ui::components::sidebar_toast_overlay` for the port (this
+//! See `crowbar_ui::surfaces::sidebar::sidebar_toast_overlay` for the port (this
 //! surface calls its `render_fallback`) and
 //! `native/mapping/sidebar-toast-overlay.md` for the measurement. The
 //! sibling surface `sidebar-toast-overlay` is the inline half of the same
@@ -43,7 +43,7 @@
 //! reasons.
 //!
 //! **Uncapped, unlike the sibling surface** —
-//! `crowbar_ui::components::sidebar_toast_overlay`'s own module docs §2:
+//! `crowbar_ui::surfaces::sidebar::sidebar_toast_overlay`'s own module docs §2:
 //! only the inline viewport windows through `select_visible`. `--toasts
 //! outage` on this surface therefore renders **all five** fixture toasts,
 //! not three.
@@ -51,8 +51,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::sidebar_toast_overlay::{self, Side, SidebarToastOverlay};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::sidebar::sidebar_toast_overlay::{self, Side, SidebarToastOverlay};
 use gpui::{AnyElement, Div, IntoElement as _, ParentElement as _, Styled as _, div, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -212,7 +212,7 @@ fn stage(cell: &Cell) -> Div {
 mod tests {
     use super::{Params, Preset, parse_side};
     use crate::row_surface::{Cell, StateFlag};
-    use crowbar_ui::components::sidebar_toast_overlay::{SIDEBAR_TOAST_LIMIT, Side};
+    use crowbar_ui::surfaces::sidebar::sidebar_toast_overlay::{SIDEBAR_TOAST_LIMIT, Side};
 
     fn cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "sidebar-toast-overlay-fallback"];

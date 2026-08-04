@@ -38,8 +38,9 @@
 //! `visible: false`. No live call site does it.
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::sidebar_toggle_icon::{ALL_CALL_SITES, CallSite, SidebarToggleIcon};
-use crowbar_ui::components::{AnchorSink, sidebar_toggle_icon};
+use crowbar_ui::surfaces::sidebar::sidebar_toggle_icon::{ALL_CALL_SITES, CallSite, SidebarToggleIcon};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::sidebar::sidebar_toggle_icon;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

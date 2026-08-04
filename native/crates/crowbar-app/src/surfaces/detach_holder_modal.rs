@@ -1,7 +1,7 @@
 //! `--surface detach-holder-modal` — a **call site** of the wrap `--surface
 //! dialog` already measures, with two `className` overrides of its own.
 //!
-//! `crowbar_ui::components::detach_holder_modal` carries the full account of
+//! `crowbar_ui::surfaces::detach_holder_modal` carries the full account of
 //! why this is its own module rather than a second construction of
 //! `dialog::Dialog`; this file is the cell, in exactly the shape `dialog.rs`'s
 //! own surface takes.
@@ -22,8 +22,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::detach_holder_modal::{self, DetachHolderModal};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::detach_holder_modal::{self, DetachHolderModal};
 use gpui::{AnyElement, App, SharedString, Window, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -44,7 +44,7 @@ pub static SURFACE: Surface = Surface {
     // lines at this call site's own narrower (`pr-10`) content width — a
     // floor generous enough that the fixed floor, not the estimate, decides
     // the window's height on every cell this surface's tests drive. See
-    // `crowbar_ui::components::detach_holder_modal::DetachHolderModal::
+    // `crowbar_ui::surfaces::detach_holder_modal::DetachHolderModal::
     // popup_height_estimate`'s own doc comment for why the estimate
     // undercounts a wrapped description on purpose.
     min_window_height: 500,

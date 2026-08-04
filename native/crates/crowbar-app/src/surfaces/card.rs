@@ -1,7 +1,7 @@
 //! `--surface card` — a slotted container with **no reference**, because the
 //! only thing that renders one is a caught render throw.
 //!
-//! See `crowbar_ui::components::card` for the reachability finding, and
+//! See `crowbar_ui::primitives::card` for the reachability finding, and
 //! `native/mapping/card.md`. The short form: `[data-slot=card]` has zero live
 //! instances, the sole importer is `error-boundary.tsx`'s fallback, and reaching
 //! that means introducing a defect in one of the three boundaries that pass no
@@ -45,8 +45,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::card::{self, ALL_CALL_SITES, ALL_SLOTS, CallSite, Card, Slots};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::card::{self, ALL_CALL_SITES, ALL_SLOTS, CallSite, Card, Slots};
 use gpui::AnyElement;
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

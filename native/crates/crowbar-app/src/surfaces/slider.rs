@@ -8,7 +8,7 @@
 //! `<Slider value={…} min={0} max={100} step={5} className="min-w-0 flex-1" />`
 //! — measured at `668px` (the row's own width) at `innerWidth` 1714.
 //!
-//! See `crowbar_ui::components::slider`'s module docs for the wrap-or-build
+//! See `crowbar_ui::primitives::slider`'s module docs for the wrap-or-build
 //! seam test and the full derivation, and `native/mapping/slider.md` for the
 //! §6.2 row and the pseudo-inset finding.
 //!
@@ -18,7 +18,7 @@
 //! |---|---|
 //! | `--width` | **real, and the whole reason this surface is worth having**: `slider.tsx`'s `Control` is `w-full`, so this surface's `--width` is the track's own width, not a column an authored component sits inside (`number_input`'s own vacuous case, inverted) |
 //! | `--viewport-width` | real: `size-5 sm:size-4` moves the thumb's extent and, through it, the inset both the indicator and the thumb are computed from |
-//! | `--theme` | real, but **not uniformly** — `bg-input` (track) and the thumb's border move; `bg-primary` (indicator) and the thumb's `bg-white` fill do not. See `crowbar_ui::components::slider`'s colour docs |
+//! | `--theme` | real, but **not uniformly** — `bg-input` (track) and the thumb's border move; `bg-primary` (indicator) and the thumb's `bg-white` fill do not. See `crowbar_ui::primitives::slider`'s colour docs |
 //! | `--content` | **vacuous.** No anchor on this surface paints text |
 //!
 //! # The state axis
@@ -35,8 +35,9 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::slider::Slider;
-use crowbar_ui::components::{AnchorSink, slider};
+use crowbar_ui::primitives::slider::Slider;
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::slider;
 use gpui::AnyElement;
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -224,8 +225,8 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{Params, SURFACE, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
-    use crowbar_ui::components::Breakpoint;
-    use crowbar_ui::components::slider::{ID_INDICATOR, ID_ROOT, ID_THUMB, ID_TRACK, Slider};
+    use crowbar_ui::surfaces::rows::Breakpoint;
+    use crowbar_ui::primitives::slider::{ID_INDICATOR, ID_ROOT, ID_THUMB, ID_TRACK, Slider};
     use gpui::px;
 
     fn cell(args: &[&str]) -> Cell {

@@ -27,7 +27,8 @@
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::{autocomplete, command};
+use crowbar_ui::primitives::autocomplete;
+use crowbar_ui::primitives::command;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -156,7 +157,7 @@ fn the_item_is_highlighted_by_default_and_its_own_measured_box(cx: &mut TestAppC
 }
 
 /// `--flags selected` is declared unmodelled (see
-/// `crowbar_ui::components::command`'s surface module docs): `autoHighlight`
+/// `crowbar_ui::primitives::command`'s surface module docs): `autoHighlight`
 /// plus one row means the item is highlighted on every reachable cell, so
 /// the flag renders byte-for-byte the same picture as the resting cell
 /// rather than a second, unreached one.

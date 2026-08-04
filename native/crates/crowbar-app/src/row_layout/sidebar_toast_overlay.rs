@@ -7,12 +7,12 @@
 //! width of `--width` and the height of `--height` stands in for the real
 //! sidebar column, and the viewport docks to its bottom edge and stretches
 //! to its width — plus the windowing claim
-//! `crowbar_ui::components::sidebar_toast_overlay`'s own module docs make in
+//! `crowbar_ui::surfaces::sidebar::sidebar_toast_overlay`'s own module docs make in
 //! full (§2), cross-checked against the sibling surface here rather than
 //! merely trusted.
 
 use super::{a_cell, find, measure};
-use crowbar_ui::components::sidebar_toast_overlay;
+use crowbar_ui::surfaces::sidebar::sidebar_toast_overlay;
 use gpui::{Pixels, TestAppContext, px};
 
 use crate::row_surface::{Cell, RowSurface};
@@ -103,7 +103,7 @@ fn empty_renders_a_padding_only_viewport(cx: &mut TestAppContext) {
 
 /// **The outage fixture is genuinely windowed here** — cross-checked against
 /// the sibling (uncapped) surface, not merely trusted from the unit tests.
-/// `crowbar_ui::components::sidebar_toast_overlay`'s own `select_visible`
+/// `crowbar_ui::surfaces::sidebar::sidebar_toast_overlay`'s own `select_visible`
 /// already proves the *value* is right at the Rust level (three deliberate
 /// mutations, all caught — see that function's own doc comment); this
 /// proves the render path actually threads the windowed list through

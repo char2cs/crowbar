@@ -1,14 +1,14 @@
 //! `--surface search` — `SearchPopover`, rooted the way `find-bar.tsx` and
 //! `terminal-search.tsx` both mount it.
 //!
-//! `crowbar_ui::components::search` carries the full division of labour (the
+//! `crowbar_ui::surfaces::search` carries the full division of labour (the
 //! size-6/`sm:h-8` trap, the `button.rs`-overturning content-sized finding
 //! on the replace row's two buttons, and why the two boxes are built by hand
 //! rather than through `Input::render`); this file is the cell.
 //!
 //! # Two references, one surface
 //!
-//! `--replace` mounts [`crowbar_ui::components::search::SearchReplaceRow`]
+//! `--replace` mounts [`crowbar_ui::surfaces::search::SearchReplaceRow`]
 //! beneath the options/nav row and adds the `preserve-case` toggle — the
 //! shape `/tmp/p3-ref-search-replace-row.json` was captured from, rooted at
 //! `search-replace-row` rather than `search-popover` for the reason the
@@ -31,8 +31,8 @@
 //! | `loading`, `error` | unmodelled, as on every surface so far. |
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::search::{self, SearchPopover, SearchReplaceRow, ToggleState};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::search::{self, SearchPopover, SearchReplaceRow, ToggleState};
 use gpui::AnyElement;
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -190,11 +190,11 @@ mod tests {
         assert!(!popover.can_navigate);
         assert_eq!(
             popover.toggles,
-            crowbar_ui::components::search::ToggleState::default()
+            crowbar_ui::surfaces::search::ToggleState::default()
         );
         assert_eq!(
             popover.breakpoint,
-            crowbar_ui::components::git_status_row::Breakpoint::Sm
+            crowbar_ui::surfaces::rows::git_status_row::Breakpoint::Sm
         );
     }
 

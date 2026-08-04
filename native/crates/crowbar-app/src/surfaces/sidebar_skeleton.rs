@@ -2,7 +2,7 @@
 //! rows, a divider, and two repo groups of a header row plus two workspace
 //! rows.
 //!
-//! `crowbar_ui::components::sidebar_skeleton` carries the full account of
+//! `crowbar_ui::surfaces::sidebar::sidebar_skeleton` carries the full account of
 //! this composition's own eighteen bars and why it does not extend
 //! `skeleton::CallSite`. This file is the cell — and an unusually thin one,
 //! because [`SidebarSkeleton`] is a unit struct with no fields at all:
@@ -12,7 +12,7 @@
 //!
 //! # No reference — the composition is proven never to mount, not merely unobserved
 //!
-//! `crowbar_ui::components::sidebar_skeleton`'s own module docs record the
+//! `crowbar_ui::surfaces::sidebar::sidebar_skeleton`'s own module docs record the
 //! finding in full: `<SidebarSkeleton>`'s one call site is a `<Suspense
 //! fallback={<SidebarSkeleton />}>` wrapping a statically-imported
 //! `FileExplorerTree`, so the fallback never mounts on any build — a live
@@ -39,8 +39,8 @@
 //! `Params` therefore carries no fields and no options.
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::sidebar_skeleton::{self, SidebarSkeleton};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::sidebar::sidebar_skeleton::{self, SidebarSkeleton};
 use gpui::AnyElement;
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

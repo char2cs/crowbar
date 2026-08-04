@@ -9,13 +9,13 @@
 //!
 //! The thumb's slide is the one place the two engines express the same picture
 //! differently — `translate` there, layout here (see
-//! `crowbar_ui::components::switch`) — so the test that matters most is that the
+//! `crowbar_ui::primitives::switch`) — so the test that matters most is that the
 //! **recorded box** lands where `WebKit`'s does, on both cells.
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::switch;
+use crowbar_ui::primitives::switch;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

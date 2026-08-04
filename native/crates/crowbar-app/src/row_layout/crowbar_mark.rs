@@ -9,7 +9,7 @@
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
-use crowbar_ui::components::crowbar_mark;
+use crowbar_ui::surfaces::crowbar_mark;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

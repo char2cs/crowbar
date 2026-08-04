@@ -29,10 +29,11 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::dropdown_menu::{
+use crowbar_ui::primitives::dropdown_menu::{
     DropdownMenu, ID_CHECKBOX_ITEM, ID_LABEL, ID_RADIO_ITEM, MenuEntry, RowKind,
 };
-use crowbar_ui::components::{AnchorSink, dropdown_menu};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::dropdown_menu;
 use gpui::{AnyElement, SharedString, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -326,7 +327,7 @@ mod tests {
         DEFAULT_ANCHOR_WIDTH, DEFAULT_FOCUS_ROW, DEFAULT_MIN_WIDTH, Params, SURFACE, Tick, options,
     };
     use crate::row_surface::{Cell, ParseError};
-    use crowbar_ui::components::dropdown_menu::{MenuEntry, MenuRow, RowKind, RowVariant};
+    use crowbar_ui::primitives::dropdown_menu::{MenuEntry, MenuRow, RowKind, RowVariant};
     use gpui::px;
 
     fn cell(args: &[&str]) -> Cell {

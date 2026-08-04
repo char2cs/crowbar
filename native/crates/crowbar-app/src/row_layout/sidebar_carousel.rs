@@ -10,7 +10,7 @@
 
 use super::{a_cell, assert_px, find, ids, measure};
 use crowbar_driver::{Paint, RawAnchor};
-use crowbar_ui::components::sidebar_carousel::{ID_SCROLLPORT, SidebarTab, TABS};
+use crowbar_ui::surfaces::sidebar::sidebar_carousel::{ID_SCROLLPORT, SidebarTab, TABS};
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

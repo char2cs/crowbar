@@ -1,7 +1,7 @@
 //! `--surface popover` — the first surface drawn by a **wrapped**
 //! `gpui-component` widget rather than by this design system's own `div()`s.
 //!
-//! An **open** popover popup. `crowbar_ui::components::popover` carries the
+//! An **open** popover popup. `crowbar_ui::primitives::popover` carries the
 //! division of labour and what had to be overridden to reach it; this file is
 //! the cell.
 //!
@@ -72,8 +72,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::popover::{self, Popover, Variant};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::popover::{self, Popover, Variant};
 use gpui::{AnyElement, SharedString, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -274,7 +274,7 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{DEFAULT_BODY_HEIGHT, DEFAULT_POPUP_WIDTH, Params, SURFACE, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
-    use crowbar_ui::components::popover::Variant;
+    use crowbar_ui::primitives::popover::Variant;
     use gpui::px;
 
     fn cell(args: &[&str]) -> Cell {

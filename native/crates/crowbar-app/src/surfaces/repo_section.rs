@@ -1,7 +1,7 @@
 //! `--surface repo-section` — one repo's header row plus, via `--roots`/
 //! `--pending`, its own top-level workspace rows.
 //!
-//! `crowbar_ui::components::repo_section` carries the composition (why
+//! `crowbar_ui::surfaces::repo::repo_section` carries the composition (why
 //! `RepoImportDialog` is not composed, why the trigger composition is
 //! collision-free); this file is the cell.
 //!
@@ -10,17 +10,17 @@
 //! | flag | here |
 //! |---|---|
 //! | `selected` | **real**, via `--flags selected` — `activeWorkspaceId === repo.defaultWorkspaceId`, the same reading every other row-shaped surface in this port gives it. |
-//! | `empty`, `loading`, `error`, `hover`, `focus` | **unmodelled** — see `crowbar_ui::components::repo_section`'s own module docs. |
+//! | `empty`, `loading`, `error`, `hover`, `focus` | **unmodelled** — see `crowbar_ui::surfaces::repo::repo_section`'s own module docs. |
 
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::pending_create_row::PendingCreateRow;
-use crowbar_ui::components::repo_icon_popover::Trigger;
-use crowbar_ui::components::repo_section::RepoSection;
-use crowbar_ui::components::row_base::RowMode;
-use crowbar_ui::components::workspace_tree_item::WorkspaceTreeItem;
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::pending_create_row::PendingCreateRow;
+use crowbar_ui::surfaces::repo::repo_icon_popover::Trigger;
+use crowbar_ui::surfaces::repo::repo_section::RepoSection;
+use crowbar_ui::surfaces::rows::row_base::RowMode;
+use crowbar_ui::surfaces::workspace::workspace_tree_item::WorkspaceTreeItem;
 use gpui::{AnyElement, SharedString, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -29,7 +29,7 @@ use crate::surface::{Surface, SurfaceParams, value};
 /// The registry entry `build.rs` collects.
 pub static SURFACE: Surface = Surface {
     name: "repo-section",
-    root: crowbar_ui::components::repo_section::ID_ROOT,
+    root: crowbar_ui::surfaces::repo::repo_section::ID_ROOT,
     unmodelled: &[StateFlag::Empty, StateFlag::Loading, StateFlag::Error, StateFlag::Hover, StateFlag::Focus],
     // The header row plus room for a handful of root workspaces at the
     // default `--roots` — a floor, not a ceiling; `driven_height` returns
@@ -49,7 +49,7 @@ pub struct Params {
     pub is_collapsed: bool,
     /// `--renaming`/`--creating-child` (mutually exclusive; the last one
     /// given wins), folded into
-    /// [`crowbar_ui::components::row_base::RowMode`] directly rather than
+    /// [`crowbar_ui::surfaces::rows::row_base::RowMode`] directly rather than
     /// kept as two independent bools — the same fold `crowbar-app/src/
     /// surfaces/workspace_tree_item.rs` makes, needed here too to keep this
     /// struct under clippy's `struct_excessive_bools`.
@@ -193,7 +193,7 @@ mod tests {
     use crate::row_surface::{Cell, StateFlag};
     use crate::surface::SurfaceParams;
     use crowbar_ui::Theme;
-    use crowbar_ui::components::row_base::RowMode;
+    use crowbar_ui::surfaces::rows::row_base::RowMode;
 
     fn cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "repo-section"];
@@ -307,7 +307,7 @@ mod tests {
     #[test]
     fn the_surface_names_itself_and_its_root_anchor() {
         assert_eq!(SURFACE.name, "repo-section");
-        assert_eq!(SURFACE.root, crowbar_ui::components::repo_section::ID_ROOT);
+        assert_eq!(SURFACE.root, crowbar_ui::surfaces::repo::repo_section::ID_ROOT);
         assert!(!SURFACE.full_bleed);
     }
 }

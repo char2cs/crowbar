@@ -1,7 +1,7 @@
 //! `--surface workspace-tree` — the project-home row plus, via `--repos`, a
 //! scrolling column of repo sections.
 //!
-//! `crowbar_ui::components::workspace_tree` carries the composition (why
+//! `crowbar_ui::surfaces::workspace::workspace_tree` carries the composition (why
 //! `WorkspaceTreeFooter` is omitted, why `ScrollArea::render` is not
 //! called); this file is the cell.
 //!
@@ -36,16 +36,16 @@
 //!
 //! | flag | here |
 //! |---|---|
-//! | `loading`, `error`, `hover`, `focus`, `selected`, `empty` | **unmodelled** — see `crowbar_ui::components::workspace_tree`'s own module docs. `--home-active` above is a bespoke, surface-specific option rather than a rule on `StateFlag::Selected`, exactly as `project-switcher-panel`'s `--active-index` is: this container's own `selected` stays unmodelled (it has no selection picture of its own), and the flag is about the *row it composes*, not about itself. |
+//! | `loading`, `error`, `hover`, `focus`, `selected`, `empty` | **unmodelled** — see `crowbar_ui::surfaces::workspace::workspace_tree`'s own module docs. `--home-active` above is a bespoke, surface-specific option rather than a rule on `StateFlag::Selected`, exactly as `project-switcher-panel`'s `--active-index` is: this container's own `selected` stays unmodelled (it has no selection picture of its own), and the flag is about the *row it composes*, not about itself. |
 
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::project_home_row::ProjectHomeRow;
-use crowbar_ui::components::repo_section::RepoSection;
-use crowbar_ui::components::row_base;
-use crowbar_ui::components::workspace_tree::WorkspaceTree;
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::project_home_row::ProjectHomeRow;
+use crowbar_ui::surfaces::repo::repo_section::RepoSection;
+use crowbar_ui::surfaces::rows::row_base;
+use crowbar_ui::surfaces::workspace::workspace_tree::WorkspaceTree;
 use gpui::{AnyElement, SharedString, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -54,7 +54,7 @@ use crate::surface::{Surface, SurfaceParams, value};
 /// The registry entry `build.rs` collects.
 pub static SURFACE: Surface = Surface {
     name: "workspace-tree",
-    root: crowbar_ui::components::workspace_tree::ID_ROOT,
+    root: crowbar_ui::surfaces::workspace::workspace_tree::ID_ROOT,
     unmodelled: &[
         StateFlag::Empty,
         StateFlag::Loading,
@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn the_surface_names_itself_and_its_root_anchor() {
         assert_eq!(SURFACE.name, "workspace-tree");
-        assert_eq!(SURFACE.root, crowbar_ui::components::workspace_tree::ID_ROOT);
+        assert_eq!(SURFACE.root, crowbar_ui::surfaces::workspace::workspace_tree::ID_ROOT);
         assert!(!SURFACE.full_bleed);
     }
 }

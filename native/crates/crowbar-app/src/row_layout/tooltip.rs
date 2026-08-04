@@ -7,7 +7,7 @@
 //!
 //! Unlike `popover`, this surface renders on the **first** frame: it is a
 //! plain `div()` tree with no vendor deferred/anchored positioning behind it
-//! (see `crowbar_ui::components::tooltip`'s module docs for why — the build
+//! (see `crowbar_ui::primitives::tooltip`'s module docs for why — the build
 //! verdict means there is no `gpui_component::Popover`-style trigger-bound
 //! capture to wait on). `super::measure`'s shared `on_settled_frame` signal
 //! still applies and still passes; it simply settles on the first draw.
@@ -15,7 +15,7 @@
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::tooltip;
+use crowbar_ui::primitives::tooltip;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

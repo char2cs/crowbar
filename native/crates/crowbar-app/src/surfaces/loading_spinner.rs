@@ -48,8 +48,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::loading_spinner::{self, ALL_CALL_SITES, CallSite, LoadingSpinner};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::loading_spinner::{self, ALL_CALL_SITES, CallSite, LoadingSpinner};
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

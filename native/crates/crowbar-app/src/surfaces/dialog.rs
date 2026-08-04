@@ -4,7 +4,7 @@
 //!
 //! An **open** dialog popup: `DialogPopup` (`DialogContent`) plus whichever
 //! of `DialogHeader`/`DialogTitle`/`DialogDescription`/`DialogFooter` a call
-//! site nests. `crowbar_ui::components::dialog` carries the division of
+//! site nests. `crowbar_ui::primitives::dialog` carries the division of
 //! labour and what had to be overridden; this file is the cell.
 //!
 //! # Full-bleed, and why that is arithmetic rather than a style choice
@@ -15,7 +15,7 @@
 //! [`Surface::full_bleed`] is what makes that true here too: the surface
 //! takes no horizontal inset, so `--width` (drawn flush at `x = 0`) and
 //! `--viewport-width` (the window) can be driven equal, which is the
-//! configuration `crowbar_ui::components::dialog::Dialog::render` assumes
+//! configuration `crowbar_ui::primitives::dialog::Dialog::render` assumes
 //! when it reads `window.viewport_size()`.
 //!
 //! # The state axis
@@ -32,8 +32,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::dialog::{self, Dialog};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::dialog::{self, Dialog};
 use gpui::{AnyElement, App, SharedString, Window, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

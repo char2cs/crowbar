@@ -62,7 +62,7 @@ mod driver_surface;
 #[cfg(any(feature = "driver", test))]
 mod row_snapshot;
 
-/// The driver-backed [`crowbar_ui::components::AnchorSink`]. A driver build
+/// The driver-backed [`crowbar_ui::AnchorSink`]. A driver build
 /// emits through it; `row_layout.rs` measures through it under a plain
 /// `cargo test`, which is why it is not behind the feature alone.
 #[cfg(any(feature = "driver", test))]

@@ -1,13 +1,13 @@
 //! `--surface context-pill`, laid out in a real window.
 //!
-//! What follows pins the arithmetic `crowbar_ui::components::context_pill`'s
+//! What follows pins the arithmetic `crowbar_ui::surfaces::context_pill`'s
 //! module docs describe: the two-line label stack's own gap and line
 //! heights, the trailing glyph's own precedence (avatar beats status icon,
 //! spinner beats avatar), and the wrapper's own outer padding.
 
 use super::{a_cell, assert_px, assert_within_tolerance, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
-use crowbar_ui::components::context_pill;
+use crowbar_ui::surfaces::context_pill;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

@@ -41,11 +41,12 @@
 //! zero area and report `visible: false`. No live call site does it; the
 //! rendering is comparable if one ever does, which is more than can be said for
 //! the *bare* primitive, whose SVG `width: auto` default this port deliberately
-//! does not model (see `crowbar_ui::components::crowbar_mark`).
+//! does not model (see `crowbar_ui::surfaces::crowbar_mark`).
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::crowbar_mark::CrowbarMark;
-use crowbar_ui::components::{AnchorSink, crowbar_mark};
+use crowbar_ui::surfaces::crowbar_mark::CrowbarMark;
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::crowbar_mark;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -78,7 +79,7 @@ pub static SURFACE: Surface = Surface {
 /// **No `--call-site`**, and that is the measurement: `tab-bar-item.tsx` is the
 /// only importer of `<CrowbarMark>` in the tree, so a vocabulary here would be
 /// one word with nothing to choose between. The 18px extent lives in
-/// `crowbar_ui::components::crowbar_mark`, where it is reviewable, rather than
+/// `crowbar_ui::surfaces::crowbar_mark`, where it is reviewable, rather than
 /// on a command line where it would hand the port the reference's answer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Params {

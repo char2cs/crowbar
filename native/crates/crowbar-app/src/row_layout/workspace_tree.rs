@@ -1,6 +1,6 @@
 //! `--surface workspace-tree`, laid out in a real window.
 //!
-//! Pins `crowbar_ui::components::workspace_tree`'s module docs: the
+//! Pins `crowbar_ui::surfaces::workspace::workspace_tree`'s module docs: the
 //! `project-home-row` family composed unconditionally, the hand-built
 //! `scroll-area-root`/`scroll-area-viewport` pair standing in for
 //! `ScrollArea::render`, and `--repos` nesting the right number of
@@ -9,7 +9,8 @@
 use super::{a_cell, assert_px, ids, measure};
 use crowbar_driver::Paint;
 use crowbar_ui::Theme;
-use crowbar_ui::components::{row_base, workspace_tree};
+use crowbar_ui::surfaces::rows::row_base;
+use crowbar_ui::surfaces::workspace::workspace_tree;
 use gpui::{TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -80,7 +81,7 @@ fn repos_0_carries_the_scaffold_with_no_repo_sections(cx: &mut TestAppContext) {
 }
 
 /// **The composed `project-home-row` is inset by `row_base::MARGIN_X`/
-/// `MARGIN_Y` on both axes** — `crowbar_ui::components::workspace_tree`'s
+/// `MARGIN_Y` on both axes** — `crowbar_ui::surfaces::workspace::workspace_tree`'s
 /// own module docs, and `native/mapping/workspace-tree.md`'s own verdict
 /// (cause A): `project-home-row.bounds.{x,y,w}` read `0, 0, 344` against a
 /// reference `6, 2, 332`.

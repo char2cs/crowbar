@@ -1,15 +1,15 @@
 //! `--surface repo-icon-popover`, laid out in a real window — plus
-//! `crowbar_ui::components::repo_icon_popover::Trigger`, which carries no
+//! `crowbar_ui::surfaces::repo::repo_icon_popover::Trigger`, which carries no
 //! `--surface` of its own (see that module's docs) and is driven directly
 //! through the shared harness instead, the `sidebar_tab_bar.rs` shape.
 
 use super::{a_cell, assert_px, find, ids, lay_out, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::button;
-use crowbar_ui::components::popover;
-use crowbar_ui::components::repo_avatar::{ImageState, Kind};
-use crowbar_ui::components::repo_icon_popover::{self, Trigger};
+use crowbar_ui::primitives::button;
+use crowbar_ui::primitives::popover;
+use crowbar_ui::surfaces::repo::repo_avatar::{ImageState, Kind};
+use crowbar_ui::surfaces::repo::repo_icon_popover::{self, Trigger};
 use crowbar_ui::ui_sans_font;
 use gpui::{
     Bounds, Context, IntoElement, ParentElement as _, Pixels, Render, Styled as _, TestAppContext,

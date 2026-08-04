@@ -1,7 +1,7 @@
 //! `--surface scroll-area` — a scroll viewport, and the surface where
 //! **`--width` is finally real**.
 //!
-//! `crowbar_ui::components::scroll_area` carries the wrap-versus-build seam
+//! `crowbar_ui::primitives::scroll_area` carries the wrap-versus-build seam
 //! evidence and what the vendor could not supply; this file is the cell.
 //!
 //! # `--width` drives the root, because `size-full` means it does
@@ -66,8 +66,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::scroll_area::{self, Overflow, ScrollArea};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::scroll_area::{self, Overflow, ScrollArea};
 use gpui::{AnyElement, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -255,7 +255,7 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{DEFAULT_AREA_HEIGHT, Params, REFERENCE_WIDTH, SURFACE, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
-    use crowbar_ui::components::scroll_area::{GUTTER, Overflow};
+    use crowbar_ui::primitives::scroll_area::{GUTTER, Overflow};
     use gpui::px;
 
     fn cell(args: &[&str]) -> Cell {

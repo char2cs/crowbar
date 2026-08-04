@@ -2,7 +2,7 @@
 //! caption, a preview avatar, an upload/emoji/GitHub row and two
 //! call-site-conditional rows.
 //!
-//! `crowbar_ui::components::repo_icon_popover` carries the full account of
+//! `crowbar_ui::surfaces::repo::repo_icon_popover` carries the full account of
 //! this composition's own arithmetic, of why it reuses
 //! `avatar::CallSite::RepoIcon`'s numbers rather than its render path, and
 //! of why the trigger's own two rest states are driven without a second
@@ -18,8 +18,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::repo_icon_popover::{self, PopupContent, PreviewAvatar};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::repo::repo_icon_popover::{self, PopupContent, PreviewAvatar};
 use gpui::{AnyElement, SharedString};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -215,7 +215,7 @@ mod tests {
     use super::{Params, PreviewKind, SURFACE, options, parse_preview};
     use crate::row_surface::{Cell, ParseError, StateFlag};
     use crate::surface::SurfaceParams;
-    use crowbar_ui::components::repo_icon_popover::PreviewAvatar;
+    use crowbar_ui::surfaces::repo::repo_icon_popover::PreviewAvatar;
 
     fn cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "repo-icon-popover"];

@@ -15,7 +15,7 @@
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
-use crowbar_ui::components::search_toggle_icons;
+use crowbar_ui::surfaces::search_toggle_icons;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

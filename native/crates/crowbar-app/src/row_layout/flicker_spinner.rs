@@ -8,7 +8,7 @@
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
-use crowbar_ui::components::flicker_spinner;
+use crowbar_ui::primitives::flicker_spinner;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

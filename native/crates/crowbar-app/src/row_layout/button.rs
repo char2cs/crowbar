@@ -11,8 +11,8 @@
 use super::{a_cell, assert_px, assert_within_tolerance, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::button;
-use crowbar_ui::components::button::{
+use crowbar_ui::primitives::button;
+use crowbar_ui::primitives::button::{
     ALL_RADIUS_CLASSES, ALL_SIZES, ALL_VARIANTS, ButtonState, RadiusClass, Size,
 };
 use gpui::{Bounds, Pixels, TestAppContext, px};
@@ -145,8 +145,8 @@ fn every_size_resolves_to_its_compiled_box(cx: &mut TestAppContext) {
 
     for size in ALL_SIZES {
         for (viewport, breakpoint) in [
-            ("800", crowbar_ui::components::Breakpoint::Sm),
-            ("600", crowbar_ui::components::Breakpoint::Base),
+            ("800", crowbar_ui::surfaces::rows::Breakpoint::Sm),
+            ("600", crowbar_ui::surfaces::rows::Breakpoint::Base),
         ] {
             // `--class-radius none` because this test is about the size
             // *variant's* own `rounded-*`; the default cell carries the tab
@@ -219,7 +219,7 @@ fn a_labelled_button_is_its_contents_wide(cx: &mut TestAppContext) {
             subject.bounds.size.width,
             px(2.0)
                 + size.padding_x() * 2.0
-                + size.glyph_box(crowbar_ui::components::Breakpoint::Sm)
+                + size.glyph_box(crowbar_ui::surfaces::rows::Breakpoint::Sm)
                 + size.gap()
                 + px(run),
         );
@@ -391,7 +391,7 @@ fn the_variants_paint_the_backgrounds_their_class_lists_name(cx: &mut TestAppCon
 
 /// A bare flex row with one fixed-size item carrying an inline margin, and
 /// nothing else — the smallest tree that exhibits the taffy defect
-/// `crowbar_ui::components::button::ICON_MARGIN_X` describes.
+/// `crowbar_ui::primitives::button::ICON_MARGIN_X` describes.
 ///
 /// At module scope rather than inside its test, because the two gates
 /// disagree about where an item may go: `check-invariants.sh` rule 6 wants

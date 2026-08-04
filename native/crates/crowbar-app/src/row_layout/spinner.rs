@@ -19,7 +19,7 @@ use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crate::driver_anchors::fold_text_halves;
 use crate::row_surface::{Cell, RowSurface};
 use crowbar_driver::{AnchorRegistry, Paint, RawAnchor};
-use crowbar_ui::components::spinner::{self, Spinner};
+use crowbar_ui::primitives::spinner::{self, Spinner};
 use gpui::{Bounds, Pixels, TestAppContext, px};
 use std::cell::RefCell;
 use std::rc::Rc;

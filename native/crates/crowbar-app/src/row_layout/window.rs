@@ -20,8 +20,8 @@
 
 use super::{a_cell, assert_px, find, ids, measure};
 use crowbar_driver::{AnchorRegistry, RawAnchor};
-use crowbar_ui::components::resizable;
-use crowbar_ui::components::sidebar_carousel::{ID_SCROLLPORT, SidebarTab, TABS};
+use crowbar_ui::primitives::resizable;
+use crowbar_ui::surfaces::sidebar::sidebar_carousel::{ID_SCROLLPORT, SidebarTab, TABS};
 use gpui::{Pixels, Size, TestAppContext, px, size};
 
 use crate::driver_anchors::{DriverAnchors, fold_text_halves};

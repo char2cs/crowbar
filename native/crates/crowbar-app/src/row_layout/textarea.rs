@@ -5,18 +5,18 @@
 //! list would not populate in this item's dev environment even after a real
 //! `git/stage` API call and a full reload, confirmed against the backend's
 //! own `git/status` response showing six real dirty files. See
-//! `crowbar_ui::components::textarea` and `native/mapping/textarea.md`. What
+//! `crowbar_ui::primitives::textarea` and `native/mapping/textarea.md`. What
 //! this file establishes instead is the arithmetic against `textarea.tsx`'s
 //! own compiled classes, measured by injecting them into the live app's DOM
-//! — the same values `crowbar_ui::components::textarea`'s constants carry,
+//! — the same values `crowbar_ui::primitives::textarea`'s constants carry,
 //! laid out here in a real window rather than only unit-tested against the
 //! theme.
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::textarea;
-use crowbar_ui::components::textarea::ALL_SIZES;
+use crowbar_ui::primitives::textarea;
+use crowbar_ui::primitives::textarea::ALL_SIZES;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

@@ -1,5 +1,5 @@
 //! `--surface repo-avatar` — a repo's identity mark, one of two P3.50
-//! foundation leaves. See `crowbar_ui::components::repo_avatar`'s module docs
+//! foundation leaves. See `crowbar_ui::surfaces::repo::repo_avatar`'s module docs
 //! for the shape (single swapped element, no persistent wrapper) and for the
 //! `avatar.color` finding this surface's `--background` cannot resolve.
 //!
@@ -26,10 +26,11 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::repo_avatar::{
+use crowbar_ui::surfaces::repo::repo_avatar::{
     ALL_IMAGE_STATES, ALL_SIZES, ImageState, Kind, RepoAvatar, Size,
 };
-use crowbar_ui::components::{AnchorSink, ContentLength};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::ContentLength;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, SharedString, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -38,7 +39,7 @@ use crate::surface::{Surface, SurfaceParams, value};
 /// The registry entry `build.rs` collects.
 pub static SURFACE: Surface = Surface {
     name: "repo-avatar",
-    root: crowbar_ui::components::repo_avatar::ID,
+    root: crowbar_ui::surfaces::repo::repo_avatar::ID,
     unmodelled: &[
         StateFlag::Loading,
         StateFlag::Error,
@@ -300,7 +301,7 @@ mod tests {
     use super::{ALL_KIND_WORDS, Params, SURFACE};
     use crate::row_surface::{Cell, ParseError, StateFlag};
     use crowbar_ui::Theme;
-    use crowbar_ui::components::repo_avatar::{self, ImageState, Kind};
+    use crowbar_ui::surfaces::repo::repo_avatar::{self, ImageState, Kind};
 
     fn a_cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "repo-avatar"];

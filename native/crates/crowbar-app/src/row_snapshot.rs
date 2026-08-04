@@ -19,7 +19,7 @@ use crowbar_driver::{
     AnchorRegistry, Content, Flag, RawAnchor, Snapshot, SurfaceState, Theme as SnapshotTheme,
 };
 use crowbar_ui::Appearance;
-use crowbar_ui::components::ContentLength;
+use crowbar_ui::surfaces::rows::ContentLength;
 use gpui::{Pixels, Size, px};
 
 use crate::driver_anchors::fold_text_halves;

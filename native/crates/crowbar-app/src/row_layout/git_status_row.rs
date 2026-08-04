@@ -8,17 +8,21 @@
 use super::{a_cell, assert_px, assert_within_tolerance, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
 use crowbar_ui::Theme;
-use crowbar_ui::components::{
-    BASE_INDENT, GUIDE_END_INSET, GUIDE_WIDTH, ICON_SIZE, INDENT_SIZE, ROW_HEIGHT, guide_id,
-    leading_padding,
-};
+use crowbar_ui::surfaces::rows::BASE_INDENT;
+use crowbar_ui::surfaces::rows::GUIDE_END_INSET;
+use crowbar_ui::surfaces::rows::GUIDE_WIDTH;
+use crowbar_ui::surfaces::rows::ICON_SIZE;
+use crowbar_ui::surfaces::rows::INDENT_SIZE;
+use crowbar_ui::surfaces::rows::ROW_HEIGHT;
+use crowbar_ui::surfaces::rows::guide_id;
+use crowbar_ui::surfaces::rows::leading_padding;
 use gpui::{Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;
 
 /// [`relative_to`] against the git status row's root.
 fn relative(records: &[RawAnchor], id: &str) -> gpui::Bounds<Pixels> {
-    relative_to(records, crowbar_ui::components::ID_ITEM, id)
+    relative_to(records, crowbar_ui::surfaces::rows::ID_ITEM, id)
 }
 
 /// All nine contract anchors, at the default cell. Anchor presence is what the
@@ -344,7 +348,7 @@ fn every_text_anchor_names_its_family_and_its_size(cx: &mut TestAppContext) {
 fn the_trailing_group_declares_itself_content_sized_and_lands_on_whole_pixels(
     cx: &mut TestAppContext,
 ) {
-    use crowbar_ui::components::CONTENT_SIZED;
+    use crowbar_ui::surfaces::rows::CONTENT_SIZED;
     crowbar_driver::leak_checked!(cx);
 
     let records = measure(cx, Cell::default());
@@ -388,7 +392,7 @@ fn the_trailing_group_declares_itself_content_sized_and_lands_on_whole_pixels(
 /// archived gate run has both sides at exactly 16.
 #[gpui::test]
 fn every_bare_text_span_declares_line_sized_and_its_box_is_its_line_box(cx: &mut TestAppContext) {
-    use crowbar_ui::components::LINE_SIZED;
+    use crowbar_ui::surfaces::rows::LINE_SIZED;
     crowbar_driver::leak_checked!(cx);
 
     let records = measure(cx, Cell::default());
@@ -586,7 +590,7 @@ fn the_badge_anchor_carries_its_box_and_its_text(cx: &mut TestAppContext) {
 
     // The text half, on the same record.
     let text = badge.text.expect("the badge paints its label");
-    assert_eq!(text.content, crowbar_ui::components::BADGE_LABEL);
+    assert_eq!(text.content, crowbar_ui::surfaces::rows::BADGE_LABEL);
     assert!(text.width > px(0.0));
     assert!(!text.clipped, "the badge is shrink-to-fit and nowrap");
     assert_eq!(text.font.family, "CalSansUI");

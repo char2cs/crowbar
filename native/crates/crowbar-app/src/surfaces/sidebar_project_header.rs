@@ -3,7 +3,7 @@
 //! and a macOS traffic-light spacer that only exists on one side of one
 //! platform.
 //!
-//! `crowbar_ui::components::sidebar_project_header` carries the full account
+//! `crowbar_ui::surfaces::sidebar::sidebar_project_header` carries the full account
 //! of this composition's own arithmetic and of why it does not compose
 //! `button::Button::render` or `SidebarToggleIcon` directly. This file is the
 //! cell.
@@ -56,9 +56,9 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::keybinding::Platform;
-use crowbar_ui::components::sidebar_project_header::{self, SidebarProjectHeader};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::keybinding::Platform;
+use crowbar_ui::surfaces::sidebar::sidebar_project_header::{self, SidebarProjectHeader};
 use gpui::AnyElement;
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -241,8 +241,8 @@ mod tests {
     use super::{Params, SURFACE, options, parse_platform};
     use crate::row_surface::{Cell, ParseError, StateFlag};
     use crate::surface::SurfaceParams;
-    use crowbar_ui::components::keybinding::Platform;
-    use crowbar_ui::components::sidebar_project_header::SidebarProjectHeader;
+    use crowbar_ui::primitives::keybinding::Platform;
+    use crowbar_ui::surfaces::sidebar::sidebar_project_header::SidebarProjectHeader;
 
     fn cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "sidebar-project-header"];

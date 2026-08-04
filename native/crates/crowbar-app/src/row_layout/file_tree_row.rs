@@ -8,10 +8,14 @@
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::{
-    ALL_GIT_STATUSES, GUIDE_END_INSET, GUIDE_WIDTH, GitStatus, ICON_SIZE, ROW_HEIGHT, RowState,
-    file_tree_row,
-};
+use crowbar_ui::surfaces::rows::ALL_GIT_STATUSES;
+use crowbar_ui::surfaces::rows::GUIDE_END_INSET;
+use crowbar_ui::surfaces::rows::GUIDE_WIDTH;
+use crowbar_ui::surfaces::rows::GitStatus;
+use crowbar_ui::surfaces::rows::ICON_SIZE;
+use crowbar_ui::surfaces::rows::ROW_HEIGHT;
+use crowbar_ui::RowState;
+use crowbar_ui::surfaces::rows::file_tree_row;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

@@ -59,10 +59,12 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::avatar::{
+use crowbar_ui::primitives::avatar::{
     ALL_CALL_SITES, ALL_IMAGE_STATUSES, Avatar, CallSite, ImageStatus, Initials,
 };
-use crowbar_ui::components::{AnchorSink, ContentLength, avatar};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::ContentLength;
+use crowbar_ui::primitives::avatar;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -321,8 +323,8 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{Params, SURFACE};
     use crate::row_surface::{Cell, ParseError, StateFlag};
-    use crowbar_ui::components::avatar;
-    use crowbar_ui::components::avatar::{
+    use crowbar_ui::primitives::avatar;
+    use crowbar_ui::primitives::avatar::{
         ALL_CALL_SITES, ALL_IMAGE_STATUSES, CallSite, ImageStatus, Initials,
     };
 

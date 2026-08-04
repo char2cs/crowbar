@@ -39,7 +39,7 @@
 //! ```
 //!
 //! The file explorer colours a filename by its git status
-//! ([`crowbar_ui::components::GitStatus`]), and a reference fixture whose `a.ts`
+//! ([`crowbar_ui::surfaces::rows::GitStatus`]), and a reference fixture whose `a.ts`
 //! is modified paints it amber while a port with no way to say so paints the
 //! foreground. So the status has to be drivable — but it is **not** part of
 //! §8.3's cell: `SurfaceState` carries width, theme, content and flags, and a
@@ -67,10 +67,15 @@
 
 use std::fmt::Write as _;
 
-use crowbar_ui::components::{
-    ALL_GIT_STATUSES, AnchorSink, Breakpoint, ContentLength, FileTreeRow, GitStatus, GitStatusRow,
-    RowState, TrailingContent,
-};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::GitStatusRow;
+use crowbar_ui::RowState;
+use crowbar_ui::surfaces::rows::ALL_GIT_STATUSES;
+use crowbar_ui::surfaces::rows::Breakpoint;
+use crowbar_ui::surfaces::rows::ContentLength;
+use crowbar_ui::surfaces::rows::FileTreeRow;
+use crowbar_ui::surfaces::rows::GitStatus;
+use crowbar_ui::surfaces::rows::TrailingContent;
 use crowbar_ui::{Appearance, Theme, ui_sans_font};
 use gpui::{
     AnyElement, App, Context, IntoElement, ParentElement as _, Pixels, Render, SharedString, Size,
@@ -990,9 +995,11 @@ mod tests {
         StateFlag, Surface, usage,
     };
     use crowbar_ui::Appearance;
-    use crowbar_ui::components::{
-        ALL_GIT_STATUSES, BREAKPOINT_SM, Breakpoint, ContentLength, GitStatus,
-    };
+    use crowbar_ui::surfaces::rows::ALL_GIT_STATUSES;
+    use crowbar_ui::surfaces::rows::BREAKPOINT_SM;
+    use crowbar_ui::surfaces::rows::Breakpoint;
+    use crowbar_ui::surfaces::rows::ContentLength;
+    use crowbar_ui::surfaces::rows::GitStatus;
 
     fn parse(args: &[&str]) -> Result<Cell, ParseError> {
         Cell::parse(args.iter().map(|arg| (*arg).to_owned()))

@@ -1,5 +1,5 @@
 //! `workspace_switcher::Row` — no `--surface` exists for this content (see
-//! `crowbar_ui::components::workspace_switcher`'s own module docs and
+//! `crowbar_ui::surfaces::workspace::workspace_switcher`'s own module docs and
 //! `native/mapping/workspace-switcher.md`), and this file is the honest
 //! coverage that decision leaves on the table, the `row_layout::
 //! sidebar_tab_bar` shape applied to a second "no root of its own"
@@ -8,10 +8,10 @@
 use super::{assert_px, find, ids, lay_out};
 use crowbar_driver::RawAnchor;
 use crowbar_ui::Theme;
-use crowbar_ui::components::autocomplete;
-use crowbar_ui::components::repo_avatar::{Kind, RepoAvatar, Size};
-use crowbar_ui::components::workspace_branch_icon::Status;
-use crowbar_ui::components::workspace_switcher::Row;
+use crowbar_ui::primitives::autocomplete;
+use crowbar_ui::surfaces::repo::repo_avatar::{Kind, RepoAvatar, Size};
+use crowbar_ui::surfaces::workspace::workspace_branch_icon::Status;
+use crowbar_ui::surfaces::workspace::workspace_switcher::Row;
 use crowbar_ui::ui_sans_font;
 use gpui::{
     Context, IntoElement, ParentElement as _, Render, SharedString, Styled as _, TestAppContext,

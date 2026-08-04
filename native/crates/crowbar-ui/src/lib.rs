@@ -28,12 +28,23 @@
 //! raw colour construction outside `src/theme/`. The two together are the
 //! §4.3 rule 3 guard; either alone is a suggestion.
 
-pub mod components;
+// S0.4 split the former flat `components/` directory (68 files, one level,
+// mixing generic widgets with Crowbar-specific layout) into `primitives/`
+// (would exist unchanged in a UI kit for a different application) and
+// `surfaces/` (knows what a repo, workspace, project or the Crowbar sidebar
+// is), plus `anchor` at this level: crate-wide measurement infrastructure
+// every module in both depends on, and itself neither a primitive nor a
+// surface. See `primitives/mod.rs` and `surfaces/mod.rs` for the split's
+// full rationale, including the classification's borderline calls.
+mod anchor;
+pub mod primitives;
+pub mod surfaces;
 pub mod theme;
 
-pub use components::{AnchorSink, GitStatusRow, RowState, Unanchored};
+pub use anchor::{AnchorId, AnchorSink, Unanchored};
 pub use gpui;
 pub use gpui_component;
+pub use surfaces::rows::{GitStatusRow, RowState};
 pub use theme::{
     Appearance, Color, Duration, FontFamily, FontSize, Radius, Scale, Space, Theme, ui_sans_font,
 };

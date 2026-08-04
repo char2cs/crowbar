@@ -7,7 +7,7 @@
 //! this webview — the same measurement that blocks every `:focus` cell in
 //! `native/oracle/blocked/hover-and-focus-need-an-unlocked-screen.md`. A live
 //! count of `[data-slot="separator"]` was **0** in every reachable state. The
-//! reasoning is at `crowbar_ui::components::separator`; see also
+//! reasoning is at `crowbar_ui::primitives::separator`; see also
 //! `native/mapping/separator.md`.
 //!
 //! **Every value the surface renders is the app's own compiled CSS**, so this is
@@ -51,10 +51,11 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::separator::{
+use crowbar_ui::primitives::separator::{
     ALL_CALL_SITES, ALL_ORIENTATIONS, CallSite, Orientation, Separator,
 };
-use crowbar_ui::components::{AnchorSink, separator};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::separator;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Pixels, Styled as _, div, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

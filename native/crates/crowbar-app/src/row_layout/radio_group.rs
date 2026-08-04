@@ -2,17 +2,17 @@
 //!
 //! **There is no live reference for this surface** — `radio-group.tsx`'s only
 //! importer needs a child branch with an unprotected local parent, and this
-//! item's dev environment has none. See `crowbar_ui::components::radio_group`
+//! item's dev environment has none. See `crowbar_ui::primitives::radio_group`
 //! and `native/mapping/radio-group.md`. What this file establishes instead is
 //! the arithmetic against `radio-group.tsx`'s own compiled classes, measured
 //! by injecting them into the live app's DOM — the same values
-//! `crowbar_ui::components::radio_group`'s constants carry, laid out here in
+//! `crowbar_ui::primitives::radio_group`'s constants carry, laid out here in
 //! a real window rather than only unit-tested against the theme.
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::radio_group;
+use crowbar_ui::primitives::radio_group;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

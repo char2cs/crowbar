@@ -8,8 +8,8 @@
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::badge;
-use crowbar_ui::components::badge::{ALL_CALL_SITES, ALL_SIZES, ALL_VARIANTS, Size};
+use crowbar_ui::primitives::badge;
+use crowbar_ui::primitives::badge::{ALL_CALL_SITES, ALL_SIZES, ALL_VARIANTS, Size};
 use crowbar_ui::theme::Color;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
@@ -194,8 +194,8 @@ fn every_size_resolves_to_its_compiled_box(cx: &mut TestAppContext) {
 
     for size in ALL_SIZES {
         for (viewport, breakpoint) in [
-            ("800", crowbar_ui::components::Breakpoint::Sm),
-            ("600", crowbar_ui::components::Breakpoint::Base),
+            ("800", crowbar_ui::surfaces::rows::Breakpoint::Sm),
+            ("600", crowbar_ui::surfaces::rows::Breakpoint::Base),
         ] {
             let records = measure(
                 cx,
@@ -349,7 +349,7 @@ fn a_glyph_widens_the_badge_by_its_box_and_the_gap(cx: &mut TestAppContext) {
     assert_px(
         with_glyph.bounds.size.width,
         plain.bounds.size.width
-            + Size::Default.glyph(crowbar_ui::components::Breakpoint::Sm)
+            + Size::Default.glyph(crowbar_ui::surfaces::rows::Breakpoint::Sm)
             + px(4.0),
     );
 }

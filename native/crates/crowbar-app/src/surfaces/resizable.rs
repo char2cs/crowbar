@@ -46,8 +46,9 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::resizable::{GroupEntry, Orientation, ResizablePanelGroup};
-use crowbar_ui::components::{AnchorSink, resizable};
+use crowbar_ui::primitives::resizable::{GroupEntry, Orientation, ResizablePanelGroup};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::resizable;
 use gpui::{AnyElement, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -335,7 +336,7 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{DEFAULT_SHELL_HEIGHT_PX, PANEL_COUNT, Params, SURFACE, options};
     use crate::row_surface::{CAPTION_HEIGHT, Cell, ParseError};
-    use crowbar_ui::components::resizable::{
+    use crowbar_ui::primitives::resizable::{
         CONTENT_GROW, DEFAULT_SHELL_HEIGHT, GroupEntry, Handle, Orientation, Panel, SIDEBAR_GROW,
     };
     use gpui::px;

@@ -1,13 +1,13 @@
 //! `--surface alert-dialog` — the second surface drawn by a **wrapped**
 //! `gpui-component` widget with `window`/`App` access, and the first two
 //! surfaces (`dialog`, this one) whose params are otherwise nearly identical
-//! by construction — see `crowbar_ui::components::alert_dialog`'s module docs
+//! by construction — see `crowbar_ui::primitives::alert_dialog`'s module docs
 //! for the finding that makes this so rather than an accident.
 //!
 //! An **open** alert-dialog popup: `AlertDialogPopup` (`AlertDialogContent`)
 //! plus whichever of `AlertDialogHeader`/`AlertDialogTitle`/
 //! `AlertDialogDescription`/`AlertDialogFooter` a call site nests.
-//! `crowbar_ui::components::alert_dialog` carries the division of labour; this
+//! `crowbar_ui::primitives::alert_dialog` carries the division of labour; this
 //! file is the cell.
 //!
 //! # Full-bleed, for the identical reason `dialog`'s is
@@ -31,8 +31,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::alert_dialog::{self, AlertDialog};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::alert_dialog::{self, AlertDialog};
 use gpui::{AnyElement, App, SharedString, Window, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -63,7 +63,7 @@ pub const DEFAULT_MAX_WIDTH: u16 = 512;
 
 /// `--body-height`'s default: the one reachable call site nests no content
 /// between the header and the footer at all — see
-/// `crowbar_ui::components::alert_dialog`'s module docs §3.
+/// `crowbar_ui::primitives::alert_dialog`'s module docs §3.
 pub const DEFAULT_BODY_HEIGHT: u16 = 0;
 
 /// `--footer-height`'s default: `button::Size::Sm`'s own already-ported height
@@ -186,7 +186,7 @@ impl SurfaceParams for Params {
     }
 
     // `render` is never called on this surface — see `dialog`'s identical
-    // arm and `crowbar_ui::components::alert_dialog::AlertDialog::render`'s
+    // arm and `crowbar_ui::primitives::alert_dialog::AlertDialog::render`'s
     // docs for why `GpuiDialog::new` needs `window`/`cx`.
     fn render(&self, _cell: &Cell, _theme: &Theme, _anchors: &dyn AnchorSink) -> AnyElement {
         unreachable!(

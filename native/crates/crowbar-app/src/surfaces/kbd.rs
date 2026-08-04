@@ -40,8 +40,10 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::kbd::{Cap, Kbd, KbdGroup};
-use crowbar_ui::components::{AnchorSink, ContentLength, kbd};
+use crowbar_ui::primitives::kbd::{Cap, Kbd, KbdGroup};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::ContentLength;
+use crowbar_ui::primitives::kbd;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, SharedString, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

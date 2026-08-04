@@ -1,7 +1,7 @@
 //! `--surface sidebar-header` — `sidebar.tsx`'s `SidebarHeader`, drawn through
 //! the **wrapped** `gpui_component::sidebar::SidebarHeader`.
 //!
-//! `crowbar_ui::components::sidebar` carries the division of labour, what had to
+//! `crowbar_ui::surfaces::sidebar::shell` carries the division of labour, what had to
 //! be overridden to reach it, and why the other two boxes in the vendor's
 //! `sidebar/` module cannot be measured at all. This file is the cell.
 //!
@@ -32,8 +32,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::sidebar::{self, Header};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::sidebar::shell::{self as sidebar, Header};
 use gpui::{AnyElement, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

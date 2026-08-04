@@ -1,6 +1,6 @@
 //! `--surface nav-stack`, laid out in a real window.
 //!
-//! Pins the arithmetic `crowbar_ui::components::nav_stack`'s module docs
+//! Pins the arithmetic `crowbar_ui::surfaces::sidebar::nav_stack`'s module docs
 //! describe: the base layer's own recede, the pushed screen's header
 //! reusing `sidebar_project_header`'s own height, and the claim that
 //! neither the base layer nor a pushed screen's body depends on its own
@@ -8,8 +8,8 @@
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
-use crowbar_ui::components::nav_stack;
-use crowbar_ui::components::sidebar_project_header::{HEIGHT_MAC, HEIGHT_OTHER};
+use crowbar_ui::surfaces::sidebar::nav_stack;
+use crowbar_ui::surfaces::sidebar::sidebar_project_header::{HEIGHT_MAC, HEIGHT_OTHER};
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

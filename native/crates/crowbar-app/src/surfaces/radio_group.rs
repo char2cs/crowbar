@@ -1,7 +1,7 @@
 //! `--surface radio-group` — built, not wrapped, and unreached by any parity
 //! run today.
 //!
-//! `crowbar_ui::components::radio_group` carries the seam evidence and the
+//! `crowbar_ui::primitives::radio_group` carries the seam evidence and the
 //! reachability measurement in full; this file is the cell. **There is no
 //! `/tmp/p3-ref-radio-group.json`** — see that module's docs for why, and
 //! `native/mapping/radio-group.md` for the account.
@@ -19,8 +19,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::radio_group::{self, Radio, RadioGroup, Validity};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::radio_group::{self, Radio, RadioGroup, Validity};
 
 use gpui::AnyElement;
 
@@ -180,8 +180,8 @@ mod tests {
     use super::{Params, SURFACE, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
     use crowbar_ui::Theme;
-    use crowbar_ui::components::Breakpoint;
-    use crowbar_ui::components::radio_group::{ID_GROUP, ID_RADIO};
+    use crowbar_ui::surfaces::rows::Breakpoint;
+    use crowbar_ui::primitives::radio_group::{ID_GROUP, ID_RADIO};
     use gpui::px;
 
     fn cell(args: &[&str]) -> Cell {
@@ -233,7 +233,7 @@ mod tests {
         assert!(invalid.validity.invalid);
         assert_ne!(
             invalid.border_color(&Theme::DARK),
-            crowbar_ui::components::radio_group::Radio::fixture().border_color(&Theme::DARK),
+            crowbar_ui::primitives::radio_group::Radio::fixture().border_color(&Theme::DARK),
         );
 
         // `--invalid` is §8.3's `error` under another name.

@@ -2,7 +2,7 @@
 //! dialog` already measures, with a viewport-relative popup height and no
 //! footer at all.
 //!
-//! `crowbar_ui::components::repo_import_dialog` carries the full account,
+//! `crowbar_ui::surfaces::repo::repo_import_dialog` carries the full account,
 //! including why this call site's own `--popup-height` — not `--body-height`
 //! — is the surface's independent variable. This file is the cell.
 //!
@@ -21,8 +21,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::repo_import_dialog::{self, RepoImportDialog, popup_height_at};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::repo::repo_import_dialog::{self, RepoImportDialog, popup_height_at};
 use gpui::{AnyElement, App, SharedString, Window, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -52,7 +52,7 @@ pub static SURFACE: Surface = Surface {
 pub const DEFAULT_MAX_WIDTH: u16 = 448;
 
 /// `--window-height`'s default — see
-/// `crowbar_ui::components::repo_import_dialog::RepoImportDialog::fixture`'s
+/// `crowbar_ui::surfaces::repo::repo_import_dialog::RepoImportDialog::fixture`'s
 /// doc comment for why this is a stated assumption, not a measurement.
 pub const DEFAULT_WINDOW_HEIGHT: u16 = 900;
 
