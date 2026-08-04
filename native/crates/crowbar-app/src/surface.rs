@@ -697,6 +697,17 @@ mod tests {
                 // requires one; see `crowbar_ui::components::sidebar_tab_bar`'s
                 // own module docs and `native/mapping/sidebar-tab-bar.md`.
                 "sidebar-skeleton",
+                // `sidebar_toast_overlay.rs` sorts before `sidebar_toggle_
+                // icon.rs` — `sidebar_to` common, then `a` < `g` (P3.62 —
+                // the live, hand-rolled toast surface `toast.rs`'s own
+                // reference is unreachable from; see that module's own
+                // module docs §0). `sidebar_toast_overlay_fallback.rs`
+                // sorts immediately after it in turn: same stem, then the
+                // shorter name ends the comparison first — the `Toast.
+                // Portal`'d fixed-corner viewport the registry's
+                // unique-root constraint splits into its own entry.
+                "sidebar-toast-overlay",
+                "sidebar-toast-overlay-fallback",
                 "sidebar-toggle-icon",
                 "skeleton",
                 // `slider.rs` sorts before `spinner.rs` — `sl` < `sp`.

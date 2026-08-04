@@ -464,6 +464,13 @@ pub mod workspace_inline_input;
 // (the identical rename, a different surface) would be exactly the collision
 // this file's own docs warn a flattened namespace produces.
 pub mod placeholder_row_actions;
+// `sidebar_toast_overlay` (P3.62) is unflattened for the same reason as the
+// rest, and one further one: it backs **two** registered surfaces
+// (`sidebar-toast-overlay`/`sidebar-toast-overlay-fallback`, the registry's
+// unique-root constraint applied to one component's two DOM shapes — see the
+// module docs §1), and both call sites need `Kind`/`Side`/`ToastFixture`
+// read as this module's own.
+pub mod sidebar_toast_overlay;
 
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
 pub use avatar::Avatar;

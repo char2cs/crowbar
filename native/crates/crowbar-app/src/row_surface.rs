@@ -1668,6 +1668,16 @@ mod tests {
         // their own, so reaching the window's true edges needs the same
         // uninset immediate parent. `Docked` is unaffected either way — see
         // `crowbar_app::surfaces::sidebar_peek`'s module docs.
+        //
+        // **Ten, as of P3.62.** `sidebar-toast-overlay-fallback` joins for
+        // the identical positioning reason: its `Toast.Portal`'d viewport is
+        // `position: fixed`, `.absolute()` with no `.relative()` ancestor,
+        // and needs the same uninset immediate parent to land against the
+        // window's true corner. Its sibling `sidebar-toast-overlay` (the
+        // inline, sidebar-docked viewport) is **not** full-bleed — it docks
+        // to a `.relative()` wrapper the surface builds for itself, not to
+        // the window — see `crowbar_app::surfaces::sidebar_toast_overlay_
+        // fallback`'s module docs for the one that is.
         let bleeding: Vec<&str> = Surface::names()
             .into_iter()
             .filter(|name| a_surface(name).full_bleed)
@@ -1684,6 +1694,7 @@ mod tests {
                 "resizable",
                 "sheet",
                 "sidebar-peek",
+                "sidebar-toast-overlay-fallback",
             ]
         );
 

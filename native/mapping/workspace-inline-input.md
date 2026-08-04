@@ -53,7 +53,7 @@ Icon` (16px) plus its `gap-1.5` (6px): `294 − 24 − 22 = 248`.
 | Probe | Result |
 |---|---|
 | Hint `getBoundingClientRect().width` at every value length tried | **equals the root's** — the button stretches, it does not size to its text |
-| `'main' already has a workspace — open it` (37 chars after `.trim()`) | wraps to **two lines**, `h: 32` |
+| `'main' already has a workspace — open it` (40 chars after `.trim()`) | wraps to **two lines**, `h: 32` |
 | `'x' already has a workspace — open it` (37 chars, one-char branch) | stays on **one line**, `h: 16` |
 
 **`text-left` is the tell.** The root is `flex flex-col` with no

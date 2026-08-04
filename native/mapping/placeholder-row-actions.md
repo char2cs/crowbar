@@ -48,14 +48,31 @@ and `Variant::Default`'s colours), reused rather than re-derived
 
 **`button.rs`'s own module docs say no live call site renders a `Button`
 with a label** ("142 `<Button` elements in `web/src/`, none of them with
-[a label] — `Label` is closed… so labelled controls are hand-built"). This
-component is exactly such a call site — `<Button variant="outline"
-size="sm">Retry</Button>` and `<Button size="sm">Detach…</Button>` are both
-literal text children, not icon-only — so that survey undercounts by two.
-Not a defect in this item's own scope (`button.tsx` is untouched here), but
-worth recording rather than silently reproducing the stale claim: a future
-worker auditing `button`'s own `CONTENT_SIZED`/v1.5 posture should read this
-note before trusting "no live call site" as still exhaustive.
+[a label] — `Label` is closed… so labelled controls are hand-built"). That
+claim is wrong, and not only by this item's own two: a grep for `<Button`
+across every non-test `.tsx` file turns up dozens of literal text children —
+`unsaved-changes-dialog.tsx`'s "Cancel"/"Discard"/"Save",
+`error-boundary.tsx`'s "Try again", `oobe-screen.tsx`'s "Continue", and
+(closer to home) two **already-ported** components in this exact directory:
+`repo-import-dialog.tsx`'s "Import" button
+(`repo_import_dialog.rs`'s own module docs: *"an `Import` button —
+substantial, but every bit of it is [call-site content]"*) and `detach-
+holder-modal.tsx`'s "Cancel"/"Detach" pair, both landed before this item and
+both real, non-test call sites `button.rs`'s survey should already have
+counted. **Both of those resolved it the other way**: `dialog::Dialog::
+footer`'s own precedent — collapse the footer to one opaque, unanchored
+content-height box, never anchor the individual buttons — which is what
+`repo_import_dialog.rs` and `detach_holder_modal.rs` both do. This item is
+the first to take `inline-error`'s alternative path instead (compose from
+`button`'s own values, anchor each one individually), which is why it is
+argued in full here rather than pointed at as settled: two real,
+already-merged counterexamples already existed and neither this file's
+`inline-error` precedent nor `button.rs`'s "no live call site" survey named
+them. Not a defect in this item's own scope (`button.tsx` is untouched
+here), but worth recording precisely rather than reproducing the stale claim
+at whatever scale happened to be convenient: a future worker auditing
+`button`'s own `CONTENT_SIZED`/v1.5 posture, or choosing between the two
+resolutions above for a new call site, should read this note first.
 
 ## 2. The reason line wraps, measured at the real 262px detail width
 
@@ -66,7 +83,7 @@ branch/path filled in):
 
 | Reason | Lines | `h` |
 |---|---|---|
-| held (`` `fix-auth-bug` is checked out at /Users/dev/… `` — 4 sentences worth) | 4 | 76 |
+| held (`` `fix-auth-bug` is checked out at /Users/dev/… `` — one long sentence) | 4 | 76 |
 | generic (`` Crowbar couldn't set up `fix-auth-bug`. Retry… ``) | 2 | 38 |
 
 So — unlike `inline-error.tsx`'s single unbreakable detail run —
