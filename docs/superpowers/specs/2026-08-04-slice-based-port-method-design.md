@@ -176,27 +176,52 @@ and the corpus still passes.
 The app cannot grow while its `main` is a test rig. This is the whole point of
 the slice.
 
-### 5.2 `crowbar-sidecar` — daemon management, shared by both binaries
+### 5.2 `crowbar-sidecar` — the Rust app's own daemon management
 
-Lift `desktop/src-tauri/src/sidecar/` (1,042 lines: `mod.rs` 740,
-`supervisor.rs` 302) into `native/crates/crowbar-sidecar/`. It already carries
-everything needed: socket-path resolution mirroring the Go daemon's order,
-daemon-log rotation, startup health probe, a watchdog with wedge detection, a
-per-window respawn cap against crash loops, and SIGQUIT→SIGKILL shutdown.
+> **Corrected 2026-08-04, mid-item, by the user.** This section said "shared by
+> both binaries" and made `desktop/` a consumer of the new crate. **That was
+> wrong, and the reason is the end state: the Tauri app is deleted and the Rust
+> app is Crowbar's only frontend.** A shared crate points the dependency
+> *backwards* — the codebase with a delete date would own an edge into the one
+> that survives, and that edge has to be unpicked later. Worse,
+> `desktop/src-tauri/src/sidecar/mod.rs` carries 5 `tauri::` references
+> (`AppHandle`, `async_runtime`, managed state), so genuinely sharing it would
+> either drag Tauri concepts into the crate that must **outlive** Tauri, or force
+> a refactor of code we are about to throw away.
+>
+> **Two copies is correct when one of them has a delete date.** `desktop/`'s
+> sidecar works; it gets deleted, not migrated. Same principle as this project's
+> standing rule against writing migration code pre-production.
+
+Build `native/crates/crowbar-sidecar/` for the Rust binary alone, **reproducing
+the behaviours** `desktop/src-tauri/src/sidecar/` (1,042 lines) encodes — they
+are hard-won and each one is a bug someone already hit: socket-path resolution
+mirroring the Go daemon's order, daemon-log capture and rotation, the startup
+health probe, a watchdog with wedge detection and a post-suspension grace probe,
+a per-window respawn cap against crash loops, and SIGQUIT→SIGKILL shutdown
+(SIGQUIT first so Go dumps goroutines to captured stderr).
+
+Reproducing behaviour is not transcribing code: the Tauri module is built on
+`tauri::async_runtime` and Tauri managed state, and the Rust app should use
+`std::process` and its own ownership model instead.
 
 **No external dependency is taken.** The logic is Crowbar-specific — `CROWBAR_HOME`
 resolution, the macOS 104-byte `sun_path` cap that forces overridden homes onto a
 temp-dir socket, the fd-limit workaround, the daemon's own stale-socket reclaim.
 A generic process supervisor would replace none of it.
 
-**One addition:** *adopt-if-healthy*. Probe the socket first; spawn only if
-nothing answers. Both apps must be able to run simultaneously against one
-`CROWBAR_HOME` — that is what makes side-by-side review possible, and it is the
-double-spawn trap QUEUE item 0.4 documents.
+**One behaviour the Tauri module does not have:** *adopt-if-healthy*. Probe the
+socket first; spawn only if nothing answers, and **do not kill on shutdown a
+daemon you did not start**. Both apps must run simultaneously against one
+`CROWBAR_HOME` for as long as `desktop/` still exists — that is what makes
+side-by-side review possible, and it is the double-spawn trap QUEUE item 0.4
+documents. It is also the reason this is not a straight copy: the Tauri app
+always owns its daemon, the Rust app must be able to borrow one.
 
 **Acceptance:** `crowbar-app` starts a daemon when none is running, adopts one
-when Crowbar-React already owns it, and both apps serve the same workspace list
-concurrently. `desktop/` consumes the same crate — one implementation, not two.
+when Crowbar-React already owns it, both apps serve the same workspace list
+concurrently, and quitting the adopting app leaves the other one working.
+`desktop/` is not modified.
 
 ### 5.3 Split `crowbar-ui/src/components/`
 
