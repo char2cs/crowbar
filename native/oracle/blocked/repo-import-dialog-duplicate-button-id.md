@@ -1,8 +1,85 @@
 # Blocked on a React-side prerequisite — `repo-import-dialog` emits two `button` anchors
 
 **Raised:** 2026-08-03, taking `repo-import-dialog`'s verdict.
-**Blocked on:** a one-line-per-call-site change in `web/src`, the same shape as
-P3.51's and P3.54's prerequisites. **Not a port defect.**
+**Fixed:** 2026-08-04, `native/p3.74-dialog-close`. **Not a port defect.**
+
+## Fix landed
+
+`web/src/components/ui/dialog.tsx`'s two `<DialogPrimitive.Close render={<Button
+.../>}>` call sites (`DialogPopup` and `AppDialog`) now pass
+`data-oracle-id="dialog-close"` on the `Button` element itself, the same
+override shape `repo-icon-popover.tsx`'s own Buttons already used. The close
+button no longer inherits `button.tsx`'s bare `"button"` default, so it can no
+longer collide with an unnamed body `Button`.
+
+**Blast radius, established before touching anything:**
+
+* **Rust side: no changes required, anywhere.** `dialog.rs`, `alert_dialog.rs`,
+  `repo_import_dialog.rs` and `detach_holder_modal.rs` (the only four Rust
+  modules that compose this primitive) all call `.close_button(false)` on the
+  vendor `GpuiDialog`, and none of them anchor a body `Button` either — every
+  footer/body is rendered as one opaque, unanchored box. Grepped `"button"`
+  (the literal id) across every file in `native/crates/` and `native/mapping/`:
+  every hit belongs to the standalone `--surface button` control or to two
+  unrelated components (`context_pill.rs`, `project_home_row.rs`) asserting an
+  ARIA `role`, not an oracle id. None reference a dialog close. No
+  `row_layout` test for any of the four surfaces asserts on `"button"` or
+  `"dialog-close"` either — `dialog.rs`'s own
+  `the_wrapped_popup_carries_every_contract_anchor` test checks for
+  `dialog-popup`/`-header`/`-title`/`-footer` only.
+* **`web/src/lib/oracle/extract.ts`'s `oracleSurfaceScope`: no changes
+  required.** `dialog` and `alert-dialog` each declare **only their own root**
+  (`anchors: ['dialog-popup']` / `['alert-dialog-popup']`) — the close button
+  was never in either declared set, before or after this fix, so nothing there
+  needed to name `"button"` and nothing needs to start naming
+  `"dialog-close"`. `repo-import-dialog` and `detach-holder-modal` have **no**
+  entry in that table at all (confirmed by grep), so both remain undeclared,
+  whole-subtree captures — which is exactly the shape this fix unblocks.
+* **A claim in the original diagnosis (directly below, kept for the trail)
+  turned out not to match what the code and its tests currently do**: "the
+  `dialog` surface itself... passes... its fixture has only the close button"
+  reads as if `dialog`'s own automated capture includes the close button's
+  anchor. It doesn't, on either side of this fix: `oracleSelectDeclaredAnchors`
+  drops any anchor not in the declared list (verified by reading it, and
+  independently by the passing `popover`/`select` scope tests in
+  `extract.test.ts`, which exercise the identical code path against a fixture
+  with three `button`-id children and confirm they are dropped, not kept), and
+  `dialog::Dialog::render` never emits a close-button anchor on the captured
+  side either. The historical "PASS 0 deltas over 4 anchors" verdicts recorded
+  for `dialog` throughout `QUEUE.md` line up with a **hand-assembled**
+  reference file (`QUEUE.md` ~line 6120: "`/tmp/p3-ref-dialog.json` was
+  hand-assembled"), not with a capture taken through this tool — so nothing
+  about this fix could have broken a passing `dialog` verdict, because no
+  currently-reachable code path routes the close button into that surface's
+  compared anchor set at all. Reported since a worker finding "nothing breaks"
+  is still a finding, not silence.
+
+**Regression coverage** (all mutation-verified — reverting the id override on
+either call site was actually run and actually failed, then reverted back;
+full failure text is in each file's own doc comment):
+
+* `web/src/__tests__/components/ui/dialog.test.tsx` (new) — direct unit test
+  of both call sites.
+* `web/src/__tests__/components/layout/repo-import-dialog.test.tsx` — added
+  one test against the real, reachable fixture this doc's own diagnosis used.
+* `web/src/__tests__/components/layout/detach-holder-modal.test.tsx` — same,
+  for the two-body-Button case.
+
+No test asserted the old `button` id for a dialog close anywhere in the
+existing suite (checked before writing the fix) — there was nothing to
+un-assert.
+
+**Gates, run in the foreground on `native/p3.74-dialog-close`:** `cargo clippy
+--workspace --all-targets -- -D warnings` clean; `cargo test --workspace`
+2271/2271 (matches trunk baseline exactly); `check-invariants.sh` 7/7; `cd web
+&& bun run test` 364 files / 2718 tests, 0 failures (vitest's own `forks` pool
+is flaky under this sandbox's concurrency at the default worker count —
+`--maxWorkers=2` reproduces cleanly every time; not a defect in the change,
+see the branch's own notes); `bun tsc --noEmit` clean.
+
+---
+
+## Original diagnosis (2026-08-03), preserved as written
 
 ## What happened
 
