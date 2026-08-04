@@ -1562,29 +1562,32 @@ export function oracleSurfaceScope(
     //
     // The row's own conditional slots — `workspace-tree-item-added`/`-deleted`
     // (active + has changes only), `workspace-tree-item-expand` (has children
-    // only, mutually exclusive with `-add-child`), `-placeholder-details`
-    // (placeholder + active only) and `-create-input` (creating a child only,
-    // mutually exclusive with `-new-button`) — are also left undeclared,
-    // `dialog-header`'s own reason: each is real on some reachable cell and
-    // absent on others, and declaring one would refuse every capture where
-    // that particular cell does not happen to show it.
+    // only), `-placeholder-details` (placeholder + active only) and
+    // `-create-input` (creating a child only, mutually exclusive with
+    // `-new-button`) — are left undeclared, `dialog-header`'s own reason:
+    // each is real on some reachable cell and absent on others, and declaring
+    // one would refuse every capture where that particular cell does not
+    // happen to show it. `workspace-tree-item-add-child` is this row's own
+    // button when no children are present — one per row, not a repeated child
+    // element.
     'workspace-tree-item': {
       root: 'workspace-tree-item',
-      anchors: ['workspace-tree-item', 'workspace-branch-icon', 'workspace-tree-item-label'],
+      anchors: ['workspace-tree-item', 'workspace-branch-icon', 'workspace-tree-item-label', 'workspace-tree-item-add-child'],
     },
     // `repo-section.tsx` (P3.61, Cluster 8): the repo header row's own
     // unconditional chrome. `repo-icon-popover-trigger` is real and painted
     // by this composition (not foreign — `repo-icon-popover.tsx`'s own
     // finding, reused here), so it is declared rather than excluded.
+    // `repo-section-add-child` is this row's own conditional button (shown
+    // when `repo.defaultWorkspaceId` exists) — one per row, not a repeated
+    // child element like the `select-item` precedent.
     //
     // Not declared, `workspace-tree-item`'s own two reasons: `workspace-tree-
     // item` (recursive, one per root workspace — count is a cell property)
     // and `pending-create-row` (one per in-flight create at this repo's root
     // — same). `repo-section-label` is declared (present on every capture
     // that is not mid-rename, which is the overwhelmingly common and only
-    // currently-reachable shape); `repo-section-add-child` is cell-
-    // conditional on `repo.defaultWorkspaceId` and left undeclared,
-    // `popover-title`'s own reason.
+    // currently-reachable shape).
     'repo-section': {
       root: 'repo-section',
       anchors: [
@@ -1592,6 +1595,7 @@ export function oracleSurfaceScope(
         'repo-icon-popover-trigger',
         'repo-section-label',
         'repo-section-import',
+        'repo-section-add-child',
         'repo-section-collapse',
       ],
     },
