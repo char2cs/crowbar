@@ -2152,6 +2152,134 @@ without review. Taking `fuzzy_nucleo` gets us nucleo anyway. MPL-2.0 is
 file-level copyleft and is standardly read as compatible with (A)GPL-3.0 via
 MPL 2.0 §3.3 — fold into the same review as the relicense.
 
+### 0.13 — Zed `git`/`git_ui`/diff-hunk extractability audit ✅ · the gap 0.9 left, closed by P3.80
+
+**0.9 never audited this.** Its list was `fuzzy`, `picker`, `util`, `theme`,
+`editor`, `language`, `terminal` (+ `ui` as a bonus row). `git_ui` appears
+exactly once in the whole record before now, incidentally, as one of the 8
+crates that migrated to `fuzzy_nucleo`. The user asked directly why we are
+building `crowbar-diff` (P3.79, in flight) ourselves when Zed already has diff
+machinery, and the honest answer was "nobody checked." This item checks, before
+`crowbar-diff` grows past its current 16-line stub rather than after.
+
+**Source and revision.** `native/vendor/zed-deps` + `native/vendor/probe` are
+*not* a full Zed checkout — they hold only the crates 0.9/0.2 already decided
+to vendor (`gpui` and its own support-crate family), plus a link-smoke-test
+binary scoped to `gpui`/`gpui-component`. Neither contains `git`, `git_ui`,
+`buffer_diff`, or `editor`. No cached full Zed checkout existed anywhere on
+this machine (`~/.cargo/git/checkouts` holds only Zed's *own* patched
+dependencies — font-kit, scap, reqwest, etc. — never `zed-industries/zed`
+itself). Network access was available, so the full source was fetched the same
+way `PINNED.md`'s own re-pin procedure fetches it — a tarball, not a 1GB clone
+— **at 0.9's exact pinned revision**, so the two audits are directly
+comparable:
+
+```
+curl -sSL -o zed.tar.gz https://codeload.github.com/zed-industries/zed/tar.gz/b6b2148b
+# GitHub API confirms the short SHA resolves to the full commit:
+# b6b2148bd0e23f4dc3bfe17468ad1a6fbd89b748
+```
+
+241 workspace members at this revision. Measured with a scratch Python
+closure-walker (not checked in, lived only in the session scratchpad): starting
+from a target crate, recursively follow `path`-based workspace dependencies
+declared in `[dependencies]` / `[build-dependencies]` / macOS-applicable
+`[target.'cfg(...)'.dependencies]` (this machine builds for macOS, matching
+`PINNED.md`'s own environment), **excluding `[dev-dependencies]`** — a
+downstream consumer does not need a crate's own test-only deps. Crate count and
+`.rs` line count (`wc -l`) are totalled over the resulting set. This is
+"compiling/measuring" in the sense that matters here — a mechanical,
+re-runnable graph walk over real manifests, not import-reading — though it is
+not literally `cargo build`, the same posture 0.9 used for its NOT EXTRACTABLE
+verdicts (`picker`/`editor`/`language`/`terminal` were never actually built
+either; only `fuzzy`/`fuzzy_nucleo`/`refineable` were).
+
+**Calibration against 0.9's own numbers, stated honestly.** Re-running this
+walker against 0.9's own crates does not reproduce 0.9's figures exactly:
+
+| Crate | 0.9's number | This walker | 
+|---|---|---|
+| `fuzzy` | 16 crates | 19 crates |
+| `picker` | 90 / 500,945 | 93 / 506,951 |
+| `editor` | 96 / 518,077 | 99 / 681,057 |
+| `language` | 47 / 201,696 | 50 / 228,107 |
+| `terminal` | 41 / 193,535 | 44 / 204,674 |
+
+Crate counts run consistently **+3** over 0.9's figures. Part of this is
+explained by 0.9's *own* recorded gap: its `util` writeup says outright "a path
+map built from `crates/*` misses [`perf`]" because `perf` lives at
+`tooling/perf` — this walker's path map comes from parsing the *whole* root
+`Cargo.toml`, not a `crates/*` glob, so it does not miss `perf` (or anything
+else outside `crates/`). The `editor` **line** gap (681,057 vs 518,077, +31%)
+is disproportionate to its crate-count gap (+3) and does not fully resolve on
+inspection — `editor` itself contributes 161,393 of the 681,057 lines in this
+walker's count, and `681,057 − 161,393 = 519,664` lands within 0.3% of 0.9's
+*whole-closure* figure of 518,077, which is close enough to look like more than
+coincidence but not close enough to declare a solved discrepancy. **Left open,
+not swept under the rug**: something about how 0.9 counted `editor`'s own line
+total differs from this walker, and it wasn't tracked down further because it
+doesn't change any verdict below. What matters for this item is the *shape* of
+the numbers (order of magnitude, and position relative to the `fuzzy`-sized vs
+`editor`-sized poles), which is stable across both measurements, not the last
+digit.
+
+**The crates, and where diff hunks actually live:**
+
+| Crate | Closure (this walker) | gpui? | Verdict |
+|---|---|---|---|
+| `git` | 24 crates / 124,595 lines | **yes, shallow** — `SharedString`, `Task`/`AsyncApp`/`BackgroundExecutor`, one `App`/`Global` (hosting-provider registry); **zero** `Context<T>`, zero `.render()`, zero `Entity<Self>` | Structurally TAKE-shaped (only +6 crates / +21,035 lines over the `gpui`-alone baseline of 18/103,560) — **but not relevant**: `grep -rn "DiffHunk" crates/git/src/` returns **nothing**. This crate is blame/commit/remote/stash/status porcelain, not diff hunks. And even setting relevance aside: the daemon already owns git operations end-to-end; taking this would mean two independent git implementations either side of the IPC boundary. **NOT TAKEN — redundant, not blocked.** |
+| `git_hosting_providers` | 39 / 186,845 | yes | Permalink/blame-URL builders for GitHub/GitLab/etc. Not diff-hunk-relevant; not audited further. |
+| `buffer_diff` (owns `struct DiffHunk`, the **model**) | 51 / 232,433 | **yes, deep** — `BufferDiff` itself holds `base_text_buffer: Entity<language::Buffer>` and `secondary_diff: Option<Entity<BufferDiff>>`; imports `gpui::{App, AppContext, Context, Entity, EventEmitter, Task}` at the top of the file | **NOT EXTRACTABLE.** Its closure includes `language`, `language_core`, `lsp`, `grammars`, `settings`, `telemetry`, `zeta_prompt` — i.e. it pulls in essentially the whole `language` closure (0.9's own NOT-EXTRACTABLE verdict) as a **required**, non-optional dependency. `DiffHunk`'s own fields (`buffer_range: Range<Anchor>`, `diff_base_byte_range: Range<usize>`) are anchored into Zed's live-editing rope/text system (`text::Anchor`), not a portable data shape. |
+| `multi_buffer` (owns `struct MultiBufferDiffHunk`, hunks mapped into multi-file coordinate space) | 52 / 248,764 | yes | **NOT EXTRACTABLE** — same order of magnitude as `language`'s own closure (228,107 by this walker). A third tier in the hunk pipeline, distinct from both `buffer_diff` and `editor`. |
+| `editor` (owns the **rendering** — gutter markers, added/deleted/modified backgrounds) | 99 / 681,057 (0.9: 96 / 518,077) | yes, deep | **NOT EXTRACTABLE, confirmed with citations, not inferred.** `crates/editor/src/git.rs` (3,148 lines) defines `DiffHunkDelegate` (`toggle`/`stage_or_unstage`/`restore`/`render_hunk_controls`) taking `editor: &mut Editor, window: &mut Window, cx: &mut Context<Editor>` — hunk *interaction* is a method on `Editor` itself. `crates/editor/src/element.rs` (12,510 lines, `impl Element for EditorElement`, its `fn paint` at line 9456) branches directly on `DiffHunkStatusKind::{Added,Deleted,Modified}` at multiple sites (e.g. lines 4625–4627, 6060–6066, 8247) to pick gutter colours *inside* the single monolithic paint function — diff rendering is not a separable module, it is interleaved into the same code that paints selections, cursors, folds and blame. |
+| `git_ui` (the panel/UI crate) | 115 / 764,595 | yes, deep — depends directly on `editor`, `multi_buffer`, `project`, `workspace`, `terminal`, `theme`, `picker`, `ui` | **NOT EXTRACTABLE — worse than `editor`.** Larger closure than `editor` on both axes; it depends on `editor` (which already includes `buffer_diff` + `multi_buffer`) *plus* the rest of Zed's window/workspace/project stack. |
+| `streaming_diff` | 12 / 24,550 | **no** | **Not applicable to this question at all.** `grep -rl "streaming_diff::"` shows its only consumers are `crates/agent/src/tools/edit_session.rs` and `crates/agent_ui/src/buffer_codegen.rs` — this is Zed's AI-assistant live character-diff (comparing streamed LLM completion text against the buffer as it arrives), unrelated to git or hunks. The one gpui-free, genuinely lean crate this audit found is a false lead. |
+
+**Direct answer: neither the hunk model nor the rendering is extractable.**
+Both are welded — to different things, which is the finding the brief's premise
+missed by naming only one:
+
+- **Rendering is welded to `editor`**, exactly as expected, and now with
+  file/line evidence rather than an assumption: `element.rs`'s single 12,510-line
+  `EditorElement::paint` implementation branches on hunk status inline, alongside
+  every other thing the editor paints.
+- **The hunk model is welded to `language`, not to `editor` and not to a
+  `git`-adjacent crate.** `buffer_diff::BufferDiff` is a `gpui::Entity`-shaped
+  type that owns an `Entity<language::Buffer>` and calls `language::word_diff_ranges`
+  for its word-level diff. You cannot lift `DiffHunk` out from under `language`
+  any more than 0.9 could lift `editor` out from under `project`/`workspace` —
+  it is the same shape of weld, one layer down. `multi_buffer` is a third,
+  independently NOT-EXTRACTABLE tier between the two.
+- The **diff algorithm** (`imara-diff`, inside `buffer_diff`) is irrelevant
+  either way: the daemon already produces the diff via `git`, so there is no
+  algorithm to take, extractable or not.
+
+**What this means for `crowbar-diff`'s actual scope** (hunk/line data shapes
+from `crowbar-proto`, placeholder hunk-geometry estimation for the virtualiser,
+viewport windowing / `patch-window.ts`, and eventually the review view):
+
+| `crowbar-diff` part | Could Zed serve it? |
+|---|---|
+| Hunk/line data shapes (`crowbar-proto::Hunk`/`DiffLine`/`FileDiff`, already generated from the daemon's Go git wrapper) | **No, and there is nothing to take.** Zed's `DiffHunk` is not a data shape — it is a `gpui::Entity`-backed type anchored into a live rope (`text::Anchor`), the opposite of what we want, which is a plain struct fed from `crowbar-proto`. |
+| Placeholder hunk-geometry estimation (virtualiser sizing) | **No.** The real geometry logic lives inside `EditorElement::paint`'s `DisplayDiffHunk` handling, inline with everything else that function lays out. Nothing to lift; would have to be measured and re-derived, the same way §6.1/§6.3 already do for other GPUI-side layout. |
+| Viewport windowing (`patch-window.ts`, 244 lines) | **No.** Zed's equivalent is `multi_buffer`'s row-range mapping plus `editor`'s display-row folding — inseparable from both NOT-EXTRACTABLE crates above, not a standalone windowing utility. |
+| The review view itself | **No.** This is exactly `editor/src/git.rs`'s `DiffHunkDelegate` (`toggle`/`stage_or_unstage`/`restore`/`render_hunk_controls`) — a set of methods on `Editor`, the least separable part of all four. |
+
+Building `crowbar-diff` ourselves (§5.2) is confirmed the right call by
+evidence, not merely re-asserted: there is no part of Zed's diff machinery, at
+any of its three tiers (`buffer_diff` model / `multi_buffer` mapping / `editor`
+rendering), that is both self-contained and shaped the way our
+already-generated `crowbar-proto` data model needs it to be shaped.
+
+**Premise check.** The brief's stated assumption — "Zed's diff rendering lives
+in `crates/editor`" — is **confirmed**, with the citations above, not refuted.
+What the brief's premise did not anticipate, and what turned out to be the
+actually useful finding, is that the diff hunk *model* does not live there: it
+lives in a separate crate (`buffer_diff`) welded to `language`, a dependency
+`editor` also has but does not own. Framing the question as "is it welded to
+editor" would have gotten a correct yes/no on rendering while missing that the
+model has its own, different weld.
+
 ### 0.6 — `GET`/`PUT /v0/settings/ui` ✅ · the ONE daemon exception, and it is closed
 
 1,228 lines: handlers + `domain/ui_settings.go` + routes on `settingsRG` +
@@ -7168,8 +7296,15 @@ Owner column: `W` = dispatched worker, `O` = orchestrator-only.
 | 0.10 | AX spike, timeboxed 1h: `ZED_EXPERIMENTAL_A11Y=1` + an AX tree dump | §10.4 | W | **done — THIN, dropped** |
 | 0.11 | `cargo tree -i zlog`, for the record | §15 | O | **done — chain absent** |
 | 0.12 | Relicense to AGPL-3.0-only: `LICENSING.md`, `LICENSE`, SPDX, manifests | §15 | W | **done** |
+| 0.13 | Zed `git`/`git_ui`/diff-hunk audit — the gap 0.9 left uncovered | §10.6 | O | **done (2026-08-04, retroactive) — none of it extractable; see item 0.13** |
 
-**Phase 0 exit condition — MET 2026-07-30.** All twelve rows `done`.
+**Phase 0 exit condition — MET 2026-07-30, but stated too broadly.** All twelve
+*named* rows were `done`, and `check-invariants.sh` / `cargo test --workspace`
+were genuinely green — but 0.9's own item text ("`fuzzy`, `picker`, `util`,
+`theme`") never named `git` or `git_ui`, so "Zed extractability audit" as a
+*category* was not actually finished on 2026-07-30. 0.13 closes that,
+retroactively, on 2026-08-04 (P3.80). Nothing above needed to be redone; this
+is an added row, not a correction to the twelve.
 `cargo clippy --workspace --all-targets -- -D warnings` exits 0 from `native/`,
 `cargo test --workspace` is 21/21, and `check-invariants.sh` passes all four
 rules. Two items sit in `blocked/` and neither gates anything.
@@ -7412,3 +7547,10 @@ Append-only. One line per orchestrator iteration.
 
 - `2026-07-30` — Queue created from spec §16. Toolchain blocker resolved
   (`cargo` was installed, just off PATH). Phase 0 wave 1 dispatched.
+- `2026-08-04` — P3.80: closed the gap 0.9 left uncovered (`git`/`git_ui`/diff
+  hunks never audited). Verdict: none of it extractable — hunk model welded to
+  `language` via `buffer_diff`, rendering welded to `editor` as expected but now
+  with citations, `git_ui` closure (115/764,595) exceeds `editor`'s own. `git`
+  itself is structurally lean but redundant with the daemon's own git ops.
+  `crowbar-diff` (P3.79) has nothing to take from Zed at any of its three tiers.
+  See item 0.13.
