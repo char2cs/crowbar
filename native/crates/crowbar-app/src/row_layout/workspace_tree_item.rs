@@ -225,3 +225,31 @@ fn the_labels_own_line_box_is_13px_times_the_row_base_ratio(cx: &mut TestAppCont
     assert_px(label.size.height, row_base::TEXT * row_base::LINE_HEIGHT_RELATIVE);
     assert_px(label.size.height, px(19.5));
 }
+
+/// **The add-child trailing action paints no border** —
+/// `workspace-row-base.ts`'s own `ROW_SUB_ACTION` class list (which
+/// `row_base::sub_action_box` builds this button from) carries no `border`
+/// utility, unlike `ROW_BASE`'s. This is the same defect
+/// `repo_section.rs`'s own `the_trailing_actions_paint_no_border` guards,
+/// traced to the identical shared function
+/// (`native/mapping/workspace-tree-item.md`'s own verdict:
+/// `workspace-tree-item-add-child.border.w: 1.0, expected 0.0`).
+///
+/// **Mutation, run:** restored `.border(button::BORDER_WIDTH)
+/// .border_color(Color::TRANSPARENT)` on `row_base::sub_action_box`.
+/// `the_add_child_action_paints_no_border` failed as predicted:
+///
+/// ```text
+/// thread 'row_layout::workspace_tree_item::the_add_child_action_paints_no_border' panicked at /private/tmp/crowbar-p366-tree/native/crates/crowbar-app/src/row_layout/workspace_tree_item.rs:254:5:
+/// expected 0px, got 1px
+/// ```
+///
+/// Reverted after confirming.
+#[gpui::test]
+fn the_add_child_action_paints_no_border(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&[]));
+    let add_child = super::find(&records, workspace_tree_item::ID_ADD_CHILD);
+
+    assert_px(add_child.border_width, px(0.0));
+}

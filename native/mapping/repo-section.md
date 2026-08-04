@@ -216,3 +216,71 @@ surface already has the fixture flag that `project-switcher-panel`,
 verdict could be taken against a real repo at all.
 
 `repo-section-label.font.line_height` is **19.5** on both sides.
+
+---
+
+## FIXED (2026-08-04, follow-up item)
+
+Three of the four real findings above are closed.
+
+### Findings 3 and 4 — traced to two root causes, fixed at the shared source
+
+**Finding 4** (`repo-section-import`/`repo-section-collapse` `border.w`) turned
+out not to be a per-button paint bug: both buttons are built from
+`row_base::sub_action_box`, which used to chain `.border(button::BORDER_WIDTH)
+.border_color(Color::TRANSPARENT)` onto every box it returns. `ROW_SUB_ACTION`'s
+own class list (`workspace-row-base.ts`) carries no `border` utility at all —
+unlike `ROW_BASE`, which does, and which is exactly what `button.rs`'s "every
+anchored button reports `border.w: 1`" finding is about. That finding does not
+transfer to `ROW_SUB_ACTION`; the two lines were removed from
+`row_base::sub_action_box` (`crates/crowbar-ui/src/components/row_base.rs`).
+The same function backs `repo-section-add-child` (not in this surface's
+declared scope, but painted the same way) and `workspace-tree-item-add-child`
+(`workspace-tree-item.md`'s own defect) — one fix, four call sites.
+
+**Finding 3** (`repo-icon-popover-trigger.radius`): the outer `shell` div in
+`repo_icon_popover::Trigger::render`
+(`crates/crowbar-ui/src/components/repo_icon_popover.rs`) never called
+`.rounded(...)` at all — the picture *inside* it (`image_box`/`letter_box`)
+already read `theme.radius_md`, but the outer box carrying `ID_TRIGGER` did
+not, even though the live `<PopoverTrigger className="… rounded-md …">` does.
+Fixed by adding `.rounded(theme.radius_md.value())` to the non-working
+branch's shell only — the `repo.defaultWorking` spinner span carries no
+`rounded-*` class in the source, so that branch is correctly left unrounded.
+
+### Finding 2 — `repo-section-label` was reading a wrapper's class list onto the wrong element
+
+The React source has **two** boxes where `RepoSection::label` built one:
+an outer, unanchored `flex min-w-0 flex-1 items-baseline gap-1.5` spacer, and
+an inner, anchored `min-w-0 truncate font-mono text-foreground` name span with
+no `flex-1` of its own. `row_base::label_container` (`min-w-0 flex-1
+truncate`) was applied directly to the anchored box, stretching it to the
+row's leftover width — `202.0` against a reference `31.2`, that anchor's own
+`text_width` exactly. Fixed by splitting `RepoSection::label`
+(`crates/crowbar-ui/src/components/repo_section.rs`) into the same two boxes
+the source has: an outer unanchored spacer (still needed, so the trailing
+action buttons keep landing at the row's own trailing edge) wrapping an
+inner, content-sized, anchored span. `project-home-row` and
+`workspace-tree-item` are not this shape — both put `flex-1` directly on
+their own anchored label — and neither was touched.
+
+### Not fixed — finding 1, `repo-section-add-child`'s scope omission
+
+Still open. `web/src/lib/oracle/extract.ts`'s own `repo-section` entry omits
+`repo-section-add-child` from its declared anchor set; the fix is a change to
+the oracle's own extraction contract, out of this item's remit (code fixes
+only — the item brief's hard constraints bar touching
+`native/oracle/corpus/` and running the oracle at all). Recorded here so a
+future worker does not have to re-find it.
+
+### Regressions guarded
+
+`crates/crowbar-app/src/row_layout/repo_section.rs` gained three tests, each
+run against a real mutation of the fix it guards and reverted after
+confirming the real failure: `the_trailing_actions_paint_no_border`,
+`the_composed_trigger_is_rounded`,
+`the_label_content_sizes_rather_than_stretching_to_fill_the_row`.
+`crates/crowbar-app/src/row_layout/workspace_tree_item.rs` gained a fourth,
+`the_add_child_action_paints_no_border`, for the same shared
+`row_base::sub_action_box` fix reached through this surface's own composed
+row.
