@@ -1,7 +1,7 @@
 //! `--surface toast`, laid out in a real window.
 //!
 //! **No reference exists for this surface, and none can — see
-//! `crowbar_ui::components::toast`'s module docs §2**: `toast.tsx`'s own
+//! `crowbar_ui::primitives::toast`'s module docs §2**: `toast.tsx`'s own
 //! render path has zero live producers, not merely an unreached one this
 //! session could not drive. What follows checks the port is internally
 //! consistent — it renders, its padding-derived offsets follow the formula
@@ -21,7 +21,7 @@
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::toast;
+use crowbar_ui::primitives::toast;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

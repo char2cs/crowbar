@@ -1,7 +1,7 @@
 //! `--surface inline-error` — a retry panel with **no reference**, because its
 //! render guard cannot become true.
 //!
-//! See `crowbar_ui::components::inline_error` for the measurement that
+//! See `crowbar_ui::primitives::inline_error` for the measurement that
 //! establishes that, and `native/mapping/inline-error.md`. The short form: the
 //! only writer of the store's error state fires when the fetcher rejects, and the
 //! fetcher's entire I/O is `try { … } catch { return [] }`. Confirmed in the
@@ -53,8 +53,9 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::inline_error::{self, InlineError};
-use crowbar_ui::components::{AnchorSink, ContentLength};
+use crowbar_ui::primitives::inline_error::{self, InlineError};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::ContentLength;
 use gpui::{AnyElement, SharedString};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

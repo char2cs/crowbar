@@ -1,7 +1,7 @@
 //! `--surface sheet`, laid out in a real window.
 //!
 //! **No reference exists for this surface** — see
-//! `crowbar_ui::components::sheet`'s module docs. What follows checks the
+//! `crowbar_ui::primitives::sheet`'s module docs. What follows checks the
 //! port is internally consistent (it renders, its width follows the formula
 //! its own docs claim, `empty` moves what it says it moves) rather than
 //! comparing any number to a React capture, because there is no capture to
@@ -9,7 +9,7 @@
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_ui::Theme;
-use crowbar_ui::components::sheet;
+use crowbar_ui::primitives::sheet;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

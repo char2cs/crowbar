@@ -1,7 +1,7 @@
 //! `--surface textarea` — built, not wrapped, and unreached by any parity run
 //! today.
 //!
-//! `crowbar_ui::components::textarea` carries the seam evidence, the full
+//! `crowbar_ui::primitives::textarea` carries the seam evidence, the full
 //! value tables and the reachability measurement; this file is the cell.
 //! **There is no `/tmp/p3-ref-textarea.json`** — see that module's docs'
 //! §5 for why (a throwaway-element measurement, not a mounted capture), and
@@ -18,8 +18,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::textarea::{self, ALL_SIZES, CallSite, Size, State, Textarea};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::textarea::{self, ALL_SIZES, CallSite, Size, State, Textarea};
 
 use gpui::AnyElement;
 
@@ -202,7 +202,7 @@ mod tests {
     use super::{Params, SURFACE, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
     use crowbar_ui::Theme;
-    use crowbar_ui::components::textarea::{CallSite, ID_CONTROL, ID_FIELD, Size, Textarea};
+    use crowbar_ui::primitives::textarea::{CallSite, ID_CONTROL, ID_FIELD, Size, Textarea};
 
     fn cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "textarea"];

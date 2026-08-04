@@ -5,7 +5,7 @@
 //! claim: base-ui positions `Tabs.Indicator` from a runtime measurement of the
 //! active tab, written into six CSS custom properties, and gpui has neither
 //! custom properties nor a way for a `Div` to read a sibling's laid-out box — so
-//! `crowbar_ui::components::tabs` renders the indicator as an absolutely
+//! `crowbar_ui::primitives::tabs` renders the indicator as an absolutely
 //! positioned child of the active tab, inset by the tab's own border width.
 //!
 //! That is only correct if an inset resolves against the containing block's
@@ -21,7 +21,7 @@
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
-use crowbar_ui::components::tabs;
+use crowbar_ui::primitives::tabs;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

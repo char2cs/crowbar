@@ -8,7 +8,7 @@
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::repo_avatar::{self, ALL_SIZES};
+use crowbar_ui::surfaces::repo::repo_avatar::{self, ALL_SIZES};
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -71,7 +71,7 @@ fn the_default_cell_is_the_letter_fallback(cx: &mut TestAppContext) {
 /// two ports, not an oversight.
 ///
 /// The one-line mutation: change `.rounded(theme.radius_sm.value())` to
-/// `.rounded(crowbar_ui::components::avatar::FULL_RADIUS)` in
+/// `.rounded(crowbar_ui::primitives::avatar::FULL_RADIUS)` in
 /// `RepoAvatar::letter_box` — this test's `assert_ne!` would then read
 /// `f32::MAX == f32::MAX` and fail.
 #[gpui::test]
@@ -87,7 +87,7 @@ fn the_letter_shape_is_a_rounded_square_not_a_circle(cx: &mut TestAppContext) {
     // laid-out `Pixels` value directly is what avoids `clippy::float_cmp`
     // here; converting both sides to `f32` first, the way this line used to,
     // is what triggered it.
-    assert_ne!(record.radius, crowbar_ui::components::avatar::FULL_RADIUS);
+    assert_ne!(record.radius, crowbar_ui::primitives::avatar::FULL_RADIUS);
 }
 
 /// Every size resolves to its own authored box — `16 × 16`, `20 × 20`,

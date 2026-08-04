@@ -47,8 +47,9 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::keybinding::{self, Keybinding, Platform, Source};
-use crowbar_ui::components::{AnchorSink, ContentLength};
+use crowbar_ui::primitives::keybinding::{self, Keybinding, Platform, Source};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::ContentLength;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, SharedString, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -248,8 +249,8 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{DEFAULT_BINDING, Params, SURFACE, binding_of, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
-    use crowbar_ui::components::ContentLength;
-    use crowbar_ui::components::keybinding::{Platform, Source};
+    use crowbar_ui::surfaces::rows::ContentLength;
+    use crowbar_ui::primitives::keybinding::{Platform, Source};
 
     fn cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "keybinding"];

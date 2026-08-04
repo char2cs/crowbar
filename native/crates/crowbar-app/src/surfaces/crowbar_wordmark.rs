@@ -63,13 +63,14 @@
 //! a zero box zero area and report `visible: false`. No live call site does it.
 //! The *bare* primitive — no className at all — is a different picture and is
 //! deliberately not modelled; see
-//! `crowbar_ui::components::crowbar_wordmark::CallSite`.
+//! `crowbar_ui::surfaces::crowbar_wordmark::CallSite`.
 
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::crowbar_wordmark::{ALL_CALL_SITES, CallSite, CrowbarWordmark};
-use crowbar_ui::components::{AnchorSink, crowbar_wordmark};
+use crowbar_ui::surfaces::crowbar_wordmark::{ALL_CALL_SITES, CallSite, CrowbarWordmark};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::crowbar_wordmark;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

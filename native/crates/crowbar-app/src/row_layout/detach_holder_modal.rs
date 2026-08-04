@@ -26,7 +26,7 @@
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::detach_holder_modal;
+use crowbar_ui::surfaces::detach_holder_modal;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -52,7 +52,7 @@ fn at(records: &[RawAnchor], id: &str) -> Bounds<Pixels> {
 
 /// **The wrap renders at all**, carrying every contract anchor the resting
 /// cell has, and none of `dialog`'s own bare `dialog-*` ids — the finding
-/// `crowbar_ui::components::detach_holder_modal`'s module docs record: the
+/// `crowbar_ui::surfaces::detach_holder_modal`'s module docs record: the
 /// *real* DOM this call site paints would carry those, and this surface's own
 /// namespace exists only because the registry requires a unique root.
 #[gpui::test]
@@ -196,7 +196,7 @@ fn the_gap_2_separates_the_title_from_the_description(cx: &mut TestAppContext) {
 /// height, measured on *this* component, must differ from what the
 /// identical string renders at on `dialog`'s own surface (whose
 /// `DESCRIPTION_LINE_HEIGHT` this module's own constant must never equal,
-/// by construction — see `crowbar_ui::components::detach_holder_modal`'s own
+/// by construction — see `crowbar_ui::surfaces::detach_holder_modal`'s own
 /// unit test `the_two_overrides_genuinely_differ_from_dialogs_defaults` for
 /// the source-level half of this same claim). This is what makes the
 /// assertion sensitive to *this* module's own constant rather than to

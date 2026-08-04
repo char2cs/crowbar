@@ -1,6 +1,6 @@
 //! `--surface sidebar-project-header`, laid out in a real window.
 //!
-//! What follows pins the arithmetic `crowbar_ui::components::
+//! What follows pins the arithmetic `crowbar_ui::surfaces::sidebar::
 //! sidebar_project_header`'s module docs describe — the traffic-light
 //! spacer's conditional presence, the mirror `--right` produces, the platform
 //! height switch and the fact that a dimmed back/forward button still
@@ -10,7 +10,7 @@
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
-use crowbar_ui::components::sidebar_project_header;
+use crowbar_ui::surfaces::sidebar::sidebar_project_header;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

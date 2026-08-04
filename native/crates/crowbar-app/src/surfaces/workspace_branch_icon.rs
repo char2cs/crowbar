@@ -1,6 +1,6 @@
 //! `--surface workspace-branch-icon` — the sidebar row's status glyph, one of
 //! two P3.50 foundation leaves. See
-//! `crowbar_ui::components::workspace_branch_icon`'s module docs for the
+//! `crowbar_ui::surfaces::workspace::workspace_branch_icon`'s module docs for the
 //! shape (single swapped element, no persistent wrapper), the "seven statuses,
 //! five pictures" finding, and the exhaustive check backing this surface's
 //! [`SurfaceParams::no_state_axis`] declaration below: this component takes
@@ -28,8 +28,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::workspace_branch_icon::{self, ALL_STATUSES, Status, WorkspaceBranchIcon};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::workspace::workspace_branch_icon::{self, ALL_STATUSES, Status, WorkspaceBranchIcon};
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -204,7 +204,7 @@ mod tests {
     use super::{Params, SURFACE};
     use crate::row_surface::{Cell, StateFlag};
     use crate::surface::SurfaceParams;
-    use crowbar_ui::components::workspace_branch_icon::{self, Glyph, Status};
+    use crowbar_ui::surfaces::workspace::workspace_branch_icon::{self, Glyph, Status};
 
     fn a_cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "workspace-branch-icon"];
@@ -253,7 +253,7 @@ mod tests {
 
     /// `--flags empty` parses (the vocabulary is shared across every
     /// surface) but reaches nothing here — there is no field left on
-    /// [`crowbar_ui::components::workspace_branch_icon::WorkspaceBranchIcon`]
+    /// [`crowbar_ui::surfaces::workspace::workspace_branch_icon::WorkspaceBranchIcon`]
     /// for it to drive, and `Params::icon` never reads `cell` at all. The
     /// cell still cannot fail, which is exactly what an unmodelled flag
     /// means.

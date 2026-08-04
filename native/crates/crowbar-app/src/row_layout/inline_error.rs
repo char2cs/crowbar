@@ -3,16 +3,16 @@
 //!
 //! **There is no reference to compare against** — the store state that renders
 //! this panel cannot be reached, for the reason
-//! `crowbar_ui::components::inline_error` measures. So these assertions are
+//! `crowbar_ui::primitives::inline_error` measures. So these assertions are
 //! against the probe's values (`294 × 128`, `p-6`, `gap-2`, three centred runs
 //! and a `sm:h-7` control) and against the component's own composition, which is
 //! what a layout test can still say when the oracle cannot.
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
-use crowbar_ui::components::button::Size;
-use crowbar_ui::components::git_status_row::{BREAKPOINT_SM, Breakpoint};
-use crowbar_ui::components::inline_error;
+use crowbar_ui::primitives::button::Size;
+use crowbar_ui::surfaces::rows::git_status_row::{BREAKPOINT_SM, Breakpoint};
+use crowbar_ui::primitives::inline_error;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

@@ -2,7 +2,7 @@
 //! wrapped through `gpui_component::popover::Popover` the same way `popover`
 //! (P3.15) is.
 //!
-//! `crowbar_ui::components::dropdown` carries the full division of labour and
+//! `crowbar_ui::primitives::dropdown` carries the full division of labour and
 //! the evidence that this is a distinct primitive from `dropdown-menu`; this
 //! file is the cell.
 //!
@@ -20,7 +20,7 @@
 //! * the **body** is whatever a call site put inside the `role="menu"` div —
 //!   5 of 7 live renders pass `children` outright, and the 2 that pass
 //!   `items` render a different `MenuItem[]` each time. None of it is this
-//!   primitive; see `crowbar_ui::components::dropdown`'s module docs in full.
+//!   primitive; see `crowbar_ui::primitives::dropdown`'s module docs in full.
 //!
 //! **Not spelled `--width`.** That flag is already the driver's own — the
 //! surface's content-area width, `Cell::width_px` — and reusing it here would
@@ -54,8 +54,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::dropdown::{self, Dropdown};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::dropdown::{self, Dropdown};
 use gpui::{AnyElement, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -83,7 +83,7 @@ pub static SURFACE: Surface = Surface {
 };
 
 /// `--shell-width`'s default: `ceil(201.40625)`, the live
-/// `file-explorer-tree.tsx` filter menu at rest. `crowbar_ui::components::dropdown`'s
+/// `file-explorer-tree.tsx` filter menu at rest. `crowbar_ui::primitives::dropdown`'s
 /// module docs carry the measurement and why it is `content_sized` rather
 /// than the locked pixel value `applyLockedWidth` writes.
 pub const DEFAULT_WIDTH: u16 = dropdown::DEFAULT_WIDTH;

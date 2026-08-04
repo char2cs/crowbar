@@ -34,9 +34,9 @@
 //! `--replace` flag is untouched: it still exists, still mounts the row
 //! nested (for the `preserve-case` toggle and the row's own visual
 //! composition to be exercised together), and is still the flag
-//! `crowbar_ui::components::search::SearchReplaceRow::render`'s module docs
+//! `crowbar_ui::surfaces::search::SearchReplaceRow::render`'s module docs
 //! refer to — this surface reuses the identical
-//! [`crowbar_ui::components::search::SearchReplaceRow`] struct and its
+//! [`crowbar_ui::surfaces::search::SearchReplaceRow`] struct and its
 //! `render_root` method (the `AnchorSink::root` sibling of `render`,
 //! added by this item), not a second implementation.
 //!
@@ -57,8 +57,8 @@
 //! restated per flag below.
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::search::{self, SearchReplaceRow};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::search::{self, SearchReplaceRow};
 use gpui::AnyElement;
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

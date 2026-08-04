@@ -2,7 +2,7 @@
 //! sidebar screen: a column of project rows plus the static "Import
 //! project" row.
 //!
-//! `crowbar_ui::components::project_switcher_panel` carries the composition
+//! `crowbar_ui::surfaces::rows::project_switcher_panel` carries the composition
 //! (why `h-full` is not modelled, why row ids are index-parameterized, why
 //! `ImportProjectModal` is not composed); this file is the cell.
 //!
@@ -11,13 +11,13 @@
 //! | flag | here |
 //! |---|---|
 //! | `empty` | **real** — zero projects, only the import row. See `project_switcher_panel.rs`'s own module docs. |
-//! | `loading`, `error`, `hover`, `focus`, `selected` | **unmodelled** — see `crowbar_ui::components::project_switcher_panel`'s own module docs. |
+//! | `loading`, `error`, `hover`, `focus`, `selected` | **unmodelled** — see `crowbar_ui::surfaces::rows::project_switcher_panel`'s own module docs. |
 
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::project_switcher_panel::{ProjectRow, ProjectSwitcherPanel};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::project_switcher_panel::{ProjectRow, ProjectSwitcherPanel};
 use gpui::{AnyElement, SharedString};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -26,7 +26,7 @@ use crate::surface::{Surface, SurfaceParams, index, value};
 /// The registry entry `build.rs` collects.
 pub static SURFACE: Surface = Surface {
     name: "project-switcher-panel",
-    root: crowbar_ui::components::project_switcher_panel::ID_ROOT,
+    root: crowbar_ui::surfaces::rows::project_switcher_panel::ID_ROOT,
     unmodelled: &[
         StateFlag::Loading,
         StateFlag::Error,
@@ -350,7 +350,7 @@ mod tests {
         assert_eq!(SURFACE.name, "project-switcher-panel");
         assert_eq!(
             SURFACE.root,
-            crowbar_ui::components::project_switcher_panel::ID_ROOT
+            crowbar_ui::surfaces::rows::project_switcher_panel::ID_ROOT
         );
         assert!(!SURFACE.full_bleed);
     }

@@ -1,7 +1,7 @@
 //! `--surface tooltip` — the item's finding that `tooltip.tsx` fails the wrap
 //! test `popover` set, drawn as a cell.
 //!
-//! `crowbar_ui::components::tooltip` carries the seam evidence and the
+//! `crowbar_ui::primitives::tooltip` carries the seam evidence and the
 //! reachability measurement; this file is the cell. The default is the live
 //! `Close ⌘W` capture (`tab-bar-item.tsx`'s close button, focused), the one
 //! this item's `/tmp/p3-ref-tooltip.json` is measured from.
@@ -20,8 +20,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::tooltip::{self, Tooltip};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::tooltip::{self, Tooltip};
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, SharedString, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

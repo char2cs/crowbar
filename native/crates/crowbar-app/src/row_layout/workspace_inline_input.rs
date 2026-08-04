@@ -3,7 +3,7 @@
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
-use crowbar_ui::components::workspace_inline_input;
+use crowbar_ui::surfaces::workspace::workspace_inline_input;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

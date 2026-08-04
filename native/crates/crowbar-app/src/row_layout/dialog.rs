@@ -2,7 +2,7 @@
 //!
 //! What this file has to establish that `popover`'s did not: that a wrapped
 //! `gpui-component` widget whose constructor needs `window`/`cx` — see
-//! `crowbar_ui::components::dialog`'s module docs for why `Dialog::new`
+//! `crowbar_ui::primitives::dialog`'s module docs for why `Dialog::new`
 //! differs from `Popover::new` there — still lays out where its React
 //! original does, once `render_ctx` carries the context through. The layers
 //! `dialog` adds over `popover` — an outer box this crate does not hold,
@@ -29,7 +29,7 @@
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::dialog;
+use crowbar_ui::primitives::dialog;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

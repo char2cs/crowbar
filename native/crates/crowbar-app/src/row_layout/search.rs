@@ -1,7 +1,7 @@
 //! `--surface search`, laid out in a real window, against
 //! `/tmp/p3-ref-search.json` (root `search-popover`, replace collapsed) and
 //! `/tmp/p3-ref-search-replace-row.json` (root `search-replace-row`, replace
-//! expanded — measured separately for the reason `crowbar_ui::components::
+//! expanded — measured separately for the reason `crowbar_ui::surfaces::
 //! search`'s module docs give).
 //!
 //! Nothing here is a wrapped `gpui-component` popup — `search` is "built, not
@@ -15,7 +15,7 @@
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::search;
+use crowbar_ui::surfaces::search;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -285,7 +285,7 @@ fn the_replace_row_matches_the_captured_reference(cx: &mut TestAppContext) {
 }
 
 /// **This overturns `button.rs`'s own "no live call site" claim** — see
-/// `crowbar_ui::components::search`'s module docs. Pinned here as a
+/// `crowbar_ui::surfaces::search`'s module docs. Pinned here as a
 /// regression: a future edit that made these buttons author a fixed width
 /// again would silently undo the finding.
 #[gpui::test]

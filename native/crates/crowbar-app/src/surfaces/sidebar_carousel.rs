@@ -42,8 +42,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::sidebar_carousel::{self, SidebarCarousel, SidebarTab, TABS};
-use crowbar_ui::components::AnchorSink;
+use crowbar_ui::surfaces::sidebar::sidebar_carousel::{self, SidebarCarousel, SidebarTab, TABS};
+use crowbar_ui::AnchorSink;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -236,7 +236,7 @@ impl SurfaceParams for Params {
     /// nesting irrelevant, and the root anchor is the scrollport.
     ///
     /// `theme` is unread. This is the one component in the port with no colour,
-    /// no text and no radius; see `crowbar_ui::components::sidebar_carousel`.
+    /// no text and no radius; see `crowbar_ui::surfaces::sidebar::sidebar_carousel`.
     fn render(&self, cell: &Cell, _theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
         div()
             .flex()
@@ -274,7 +274,7 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{DEFAULT_ACTIVE_TAB, DEFAULT_HEIGHT, Params, SURFACE, options};
     use crate::row_surface::{CAPTION_HEIGHT, Cell, ParseError, StateFlag};
-    use crowbar_ui::components::sidebar_carousel::{SidebarTab, TABS};
+    use crowbar_ui::surfaces::sidebar::sidebar_carousel::{SidebarTab, TABS};
     use gpui::px;
 
     fn cell(args: &[&str]) -> Cell {

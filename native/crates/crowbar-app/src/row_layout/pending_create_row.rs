@@ -1,12 +1,12 @@
 //! `--surface pending-create-row`, laid out in a real window.
 //!
-//! Pins the arithmetic `crowbar_ui::components::pending_create_row`'s
+//! Pins the arithmetic `crowbar_ui::surfaces::rows::pending_create_row`'s
 //! module docs describe: the icon slot's mutually-exclusive spinner/error
 //! pictures, and the outer padding wrapper's own offset reaching the root's
 //! absolute origin.
 
 use super::{a_cell, assert_px, find, ids, measure};
-use crowbar_ui::components::pending_create_row;
+use crowbar_ui::surfaces::rows::pending_create_row;
 use gpui::{TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -76,7 +76,7 @@ fn the_error_cell_swaps_the_icon_and_adds_status_and_dismiss(cx: &mut TestAppCon
 /// **The root's own absolute origin reaches the harness's own horizontal
 /// inset plus `--padding-left` plus the row's own `mx-1.5`** — the outer
 /// wrapper's own offset, read through to the anchored row inside it, which
-/// itself carries [`row_base::MARGIN_X`] (`crowbar_ui::components::
+/// itself carries [`row_base::MARGIN_X`] (`crowbar_ui::surfaces::rows::
 /// pending_create_row`'s own module docs — this row always sits beside
 /// siblings, so the margin is real and applied).
 ///
@@ -93,7 +93,7 @@ fn the_root_s_absolute_origin_is_the_inset_plus_padding_left_plus_margin_x(cx: &
 
     assert_px(
         root.bounds.origin.x,
-        px(crate::row_surface::INSET_X) + px(14.0) + crowbar_ui::components::row_base::MARGIN_X,
+        px(crate::row_surface::INSET_X) + px(14.0) + crowbar_ui::surfaces::rows::row_base::MARGIN_X,
     );
 }
 
@@ -106,7 +106,7 @@ fn the_root_keeps_its_authored_height_idle_or_failed(cx: &mut TestAppContext) {
     for args in [[].as_slice(), ["--error"].as_slice()] {
         let records = measure(cx, cell(args));
         let root = find(&records, pending_create_row::ID_ROOT);
-        assert_px(root.bounds.size.height, crowbar_ui::components::row_base::HEIGHT);
+        assert_px(root.bounds.size.height, crowbar_ui::surfaces::rows::row_base::HEIGHT);
     }
 }
 
@@ -119,7 +119,7 @@ fn the_root_keeps_its_authored_height_idle_or_failed(cx: &mut TestAppContext) {
 /// the row's.
 ///
 /// **Mutation, run:** temporarily set
-/// `crowbar_ui::components::row_base::LINE_HEIGHT_RELATIVE` back to its
+/// `crowbar_ui::surfaces::rows::row_base::LINE_HEIGHT_RELATIVE` back to its
 /// pre-fix value (`18.0 / 13.0`, ≈ `1.3846`) to confirm this test would
 /// have caught that exact regression. `cargo test -p crowbar-app --bin
 /// crowbar-app the_labels_own_line_box_is_13px_times_the_row_base_ratio`
@@ -133,7 +133,7 @@ fn the_labels_own_line_box_is_13px_times_the_row_base_ratio(cx: &mut TestAppCont
 
     assert_px(
         label.bounds.size.height,
-        crowbar_ui::components::row_base::TEXT * crowbar_ui::components::row_base::LINE_HEIGHT_RELATIVE,
+        crowbar_ui::surfaces::rows::row_base::TEXT * crowbar_ui::surfaces::rows::row_base::LINE_HEIGHT_RELATIVE,
     );
     assert_px(label.bounds.size.height, px(19.5));
 }

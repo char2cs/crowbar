@@ -30,7 +30,7 @@
 //! caused by the contract rather than by the port.
 //!
 //! The full reasoning, the two rejected repairs and the live measurement are in
-//! `crowbar_ui::components::checkbox`'s module docs and in
+//! `crowbar_ui::primitives::checkbox`'s module docs and in
 //! `native/mapping/checkbox.md`. The consequence for this surface is the one
 //! sentence worth repeating: **the green fill and the tick are painted and not
 //! measured**, so `selected` has one field here where `switch` has two.
@@ -75,8 +75,9 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::checkbox::{ALL_CHECKED, Checkbox, Checked};
-use crowbar_ui::components::{AnchorSink, checkbox};
+use crowbar_ui::primitives::checkbox::{ALL_CHECKED, Checkbox, Checked};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::checkbox;
 use gpui::AnyElement;
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -306,8 +307,8 @@ mod tests {
     use super::{Params, SURFACE, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
     use crowbar_ui::Theme;
-    use crowbar_ui::components::Breakpoint;
-    use crowbar_ui::components::checkbox::{Checkbox, Checked, ID_CHECKBOX};
+    use crowbar_ui::surfaces::rows::Breakpoint;
+    use crowbar_ui::primitives::checkbox::{Checkbox, Checked, ID_CHECKBOX};
     use gpui::px;
 
     fn cell(args: &[&str]) -> Cell {

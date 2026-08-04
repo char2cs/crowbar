@@ -7,13 +7,13 @@
 //! (see the component's own module docs): a box that sets `text_color` but
 //! paints no text run emits no `fg`, `flicker-spinner`'s own finding. So the
 //! geometry tests below assert the box shape, and the colour table is
-//! verified separately, in `crowbar_ui::components::workspace_branch_icon`'s
+//! verified separately, in `crowbar_ui::surfaces::workspace::workspace_branch_icon`'s
 //! own `#[cfg(test)]` module, by reading `WorkspaceBranchIcon::color`
 //! directly — the only place the six colours are comparable to anything.
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
-use crowbar_ui::components::workspace_branch_icon::{self, ALL_STATUSES};
+use crowbar_ui::surfaces::workspace::workspace_branch_icon::{self, ALL_STATUSES};
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

@@ -10,7 +10,7 @@
 //! inline sibling, never windows its own toast list.
 
 use super::{a_cell, find, measure};
-use crowbar_ui::components::sidebar_toast_overlay::{self, SIDEBAR_TOAST_LIMIT};
+use crowbar_ui::surfaces::sidebar::sidebar_toast_overlay::{self, SIDEBAR_TOAST_LIMIT};
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::{Cell, RowSurface};

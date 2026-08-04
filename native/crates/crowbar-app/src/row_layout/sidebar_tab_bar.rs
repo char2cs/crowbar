@@ -1,7 +1,7 @@
 //! `sidebar_tab_bar` — no `--surface` exists for this composition, and this
 //! file is the honest coverage that decision leaves on the table.
 //!
-//! `crowbar_ui::components::sidebar_tab_bar`'s own module docs make the
+//! `crowbar_ui::surfaces::sidebar::sidebar_tab_bar`'s own module docs make the
 //! ruling in full (its final section, "Why this stays a `crowbar-ui` field
 //! rather than becoming its own `--surface`"): `sidebar-tab-bar.tsx`'s own
 //! wrapper `<div>` carries no `data-oracle-id`, so `SidebarTabBar::render`
@@ -25,8 +25,8 @@
 use super::{assert_px, find, ids, lay_out};
 use crowbar_driver::RawAnchor;
 use crowbar_ui::Theme;
-use crowbar_ui::components::sidebar_tab_bar::SidebarTabBar;
-use crowbar_ui::components::tabs;
+use crowbar_ui::surfaces::sidebar::sidebar_tab_bar::SidebarTabBar;
+use crowbar_ui::primitives::tabs;
 use crowbar_ui::ui_sans_font;
 use gpui::{
     Context, IntoElement, ParentElement as _, Pixels, Render, Size, Styled as _, TestAppContext,
@@ -111,7 +111,7 @@ fn no_second_root_is_ever_opted_in(cx: &mut TestAppContext) {
 /// the module docs' hand arithmetic.
 ///
 /// **Mutation:** changing `PADDING_X` from `SPACING * 2.0` to `SPACING` in
-/// `crowbar_ui::components::sidebar_tab_bar` turns this red — the root would
+/// `crowbar_ui::surfaces::sidebar::sidebar_tab_bar` turns this red — the root would
 /// measure 286px, not 278.
 #[gpui::test]
 fn the_fixtures_column_reproduces_tabs_mds_own_278px(cx: &mut TestAppContext) {

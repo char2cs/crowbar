@@ -4,7 +4,7 @@
 //! **No reference exists for this surface at all** — `fps-overlay.tsx` carries
 //! no `data-oracle-id` anywhere in its own file, so there is no anchor id the
 //! React extractor could ever collect here in any build. See
-//! `crowbar_ui::components::fps_overlay`'s module docs and
+//! `crowbar_ui::primitives::fps_overlay`'s module docs and
 //! `native/mapping/fps-overlay.md`.
 //!
 //! # The state axis, and why this is a `no_state_axis` surface
@@ -21,7 +21,7 @@
 //! *row's* trailing edge with no badge or count, modelled on
 //! `git-status-row` alone) does not apply to a fixed-position badge that is
 //! not a row. So there is no edge value left to reach through any
-//! hypothetical caller — see `crowbar_ui::components::fps_overlay`'s own
+//! hypothetical caller — see `crowbar_ui::primitives::fps_overlay`'s own
 //! module docs for the component-side half of the same check.
 //! [`SurfaceParams::no_state_axis`] below is that declaration.
 //!
@@ -77,11 +77,11 @@
 //! surface mounts under `IDEShell`'s own window-sized root, where the
 //! question this section answers never comes up — it is purely an artefact
 //! of the `row_layout` harness's own wrapping, and it belongs here rather than
-//! in `crowbar_ui::components::fps_overlay`, which stays agnostic of it.
+//! in `crowbar_ui::primitives::fps_overlay`, which stays agnostic of it.
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::fps_overlay::{FpsOverlay, FrameStats};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::fps_overlay::{FpsOverlay, FrameStats};
 use gpui::{AnyElement, Div, IntoElement as _, ParentElement as _, Styled as _, div, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -90,7 +90,7 @@ use crate::surface::{Surface, SurfaceParams};
 /// The registry entry `build.rs` collects.
 pub static SURFACE: Surface = Surface {
     name: "fps-overlay",
-    root: crowbar_ui::components::fps_overlay::ID_FPS_OVERLAY,
+    root: crowbar_ui::primitives::fps_overlay::ID_FPS_OVERLAY,
     unmodelled: &[
         // All four non-mandatory flags, including `Empty` — this component
         // has no seam of any kind, checked exhaustively (module docs), so
@@ -255,7 +255,7 @@ mod tests {
     use super::{Params, SURFACE, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
     use crate::surface::SurfaceParams;
-    use crowbar_ui::components::fps_overlay::{FpsTier, ID_FPS_OVERLAY};
+    use crowbar_ui::primitives::fps_overlay::{FpsTier, ID_FPS_OVERLAY};
 
     fn cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "fps-overlay"];

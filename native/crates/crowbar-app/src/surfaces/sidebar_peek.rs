@@ -1,7 +1,7 @@
 //! `--surface sidebar-peek` — the hover-to-peek host, at one of its three
 //! resting `data-state`s.
 //!
-//! `crowbar_ui::components::sidebar_peek` carries the full account of this
+//! `crowbar_ui::surfaces::sidebar::sidebar_peek` carries the full account of this
 //! composition's own arithmetic, the no-anchor-on-the-outer-wrapper
 //! argument and the re-derivation of the cluster's own transition-end-state
 //! reasoning. This file is the cell.
@@ -23,7 +23,7 @@
 //! For the identical reason, [`Params::render`] wraps
 //! [`PeekState::Docked`] in a height-driving column but hands
 //! [`PeekState::Closed`]/[`PeekState::Peeking`] to
-//! [`crowbar_ui::components::sidebar_peek::SidebarPeek::render`] with
+//! [`crowbar_ui::surfaces::sidebar::sidebar_peek::SidebarPeek::render`] with
 //! **no** wrapping element at all: an intervening `div` with its own
 //! authored height would become the absolute box's immediate parent
 //! instead of the harness's own full-window box, and the card's `top`/
@@ -39,8 +39,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::sidebar_peek::{self, PeekState, SidebarPeek};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::sidebar::sidebar_peek::{self, PeekState, SidebarPeek};
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -267,7 +267,7 @@ mod tests {
     use super::{DEFAULT_HEIGHT, DEFAULT_PEEK_WIDTH, Params, SURFACE, options, parse_state};
     use crate::row_surface::{Cell, ParseError, StateFlag};
     use crate::surface::SurfaceParams;
-    use crowbar_ui::components::sidebar_peek::PeekState;
+    use crowbar_ui::surfaces::sidebar::sidebar_peek::PeekState;
     use gpui::px;
 
     fn cell(args: &[&str]) -> Cell {

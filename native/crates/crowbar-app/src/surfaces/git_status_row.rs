@@ -16,7 +16,8 @@
 //! trade worth making. **A new surface does not copy this.**
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::{AnchorSink, git_status_row};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::git_status_row;
 use gpui::AnyElement;
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

@@ -10,7 +10,7 @@
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::dropdown;
+use crowbar_ui::primitives::dropdown;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -72,7 +72,7 @@ fn the_shell_is_the_declared_width(cx: &mut TestAppContext) {
 
 /// **The root declares `content_sized` and says so**, the way `ANCHORS.md`
 /// v1.5 requires: a declaration the differ trusts rather than infers. See
-/// `crowbar_ui::components::dropdown::CONTENT_SIZED`'s doc comment for the
+/// `crowbar_ui::primitives::dropdown::CONTENT_SIZED`'s doc comment for the
 /// live measurement (`min-width: fit-content` beating a locked pixel width)
 /// that overturned this module's first, wrong assumption.
 #[gpui::test]

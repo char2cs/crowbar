@@ -4,7 +4,7 @@
 //! The fixture is `web/src/components/layout/sidebar-tab-bar.tsx`, which is one
 //! of the app's two `Tabs` and the only one whose root contains **its own
 //! anchors and nothing else** — see [`SURFACE`] and
-//! [`crowbar_ui::components::tabs::Tabs::fixture`].
+//! [`crowbar_ui::primitives::tabs::Tabs::fixture`].
 //!
 //! # The state axis, and the one flag that is real
 //!
@@ -46,8 +46,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::tabs::{
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::tabs::{
     self, ListBackground, Orientation, Panel, Tab, TabSizing, Tabs, Variant,
 };
 use gpui::AnyElement;
@@ -429,7 +429,7 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{DEFAULT_ACTIVE, Params, SURFACE, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
-    use crowbar_ui::components::tabs::{
+    use crowbar_ui::primitives::tabs::{
         ID_INDICATOR, ID_LIST, ID_ROOT, ListBackground, Orientation, TabSizing, Tabs, Variant,
     };
 

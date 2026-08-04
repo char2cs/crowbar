@@ -1,6 +1,6 @@
 //! `--surface nav-stack` — the sidebar's push/pop screen stack.
 //!
-//! `crowbar_ui::components::nav_stack` carries the full account of this
+//! `crowbar_ui::surfaces::sidebar::nav_stack` carries the full account of this
 //! composition's own arithmetic, the unbounded-stack-vs-bounded-contract
 //! argument, and the re-derivation of the cluster's own transition-end-state
 //! reasoning. This file is the cell.
@@ -14,9 +14,10 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::keybinding::Platform;
-use crowbar_ui::components::nav_stack::{self, NavStack};
-use crowbar_ui::components::{AnchorSink, ContentLength};
+use crowbar_ui::primitives::keybinding::Platform;
+use crowbar_ui::surfaces::sidebar::nav_stack::{self, NavStack};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::ContentLength;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -215,8 +216,8 @@ mod tests {
     use super::{DEFAULT_HEIGHT, Params, SURFACE, options, parse_platform, title_of};
     use crate::row_surface::{Cell, ParseError, StateFlag};
     use crate::surface::SurfaceParams;
-    use crowbar_ui::components::keybinding::Platform;
-    use crowbar_ui::components::ContentLength;
+    use crowbar_ui::primitives::keybinding::Platform;
+    use crowbar_ui::surfaces::rows::ContentLength;
     use gpui::px;
 
     fn cell(args: &[&str]) -> Cell {

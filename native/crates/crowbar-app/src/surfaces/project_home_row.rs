@@ -1,7 +1,7 @@
 //! `--surface project-home-row` — the sidebar's own "home" row for the
 //! active project.
 //!
-//! `crowbar_ui::components::project_home_row` carries the composition (why
+//! `crowbar_ui::surfaces::rows::project_home_row` carries the composition (why
 //! it does not call `Button::render`, why `AddRepositoryModal` is not
 //! composed, the `size-6` tailwind-merge arithmetic); this file is the cell.
 //!
@@ -10,13 +10,13 @@
 //! | flag | here |
 //! |---|---|
 //! | `selected` | **real**, via `--active` — see `project_home_row.rs`'s own account of why `isActive` maps onto this flag rather than a bespoke option. |
-//! | `empty`, `loading`, `error`, `hover`, `focus` | **unmodelled** — see `crowbar_ui::components::project_home_row`'s own module docs. |
+//! | `empty`, `loading`, `error`, `hover`, `focus` | **unmodelled** — see `crowbar_ui::surfaces::rows::project_home_row`'s own module docs. |
 
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::project_home_row::ProjectHomeRow;
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::project_home_row::ProjectHomeRow;
 use gpui::{AnyElement, SharedString};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -25,7 +25,7 @@ use crate::surface::{Surface, SurfaceParams, value};
 /// The registry entry `build.rs` collects.
 pub static SURFACE: Surface = Surface {
     name: "project-home-row",
-    root: crowbar_ui::components::project_home_row::ID_ROOT,
+    root: crowbar_ui::surfaces::rows::project_home_row::ID_ROOT,
     unmodelled: &[
         StateFlag::Empty,
         StateFlag::Loading,
@@ -136,7 +136,7 @@ mod tests {
     use super::{Params, SURFACE, options};
     use crate::row_surface::{Cell, StateFlag};
     use crate::surface::SurfaceParams;
-    use crowbar_ui::components::project_home_row::ProjectHomeRow;
+    use crowbar_ui::surfaces::rows::project_home_row::ProjectHomeRow;
 
     fn cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "project-home-row"];
@@ -230,7 +230,7 @@ mod tests {
         assert_eq!(SURFACE.name, "project-home-row");
         assert_eq!(
             SURFACE.root,
-            crowbar_ui::components::project_home_row::ID_ROOT
+            crowbar_ui::surfaces::rows::project_home_row::ID_ROOT
         );
         assert!(!SURFACE.full_bleed);
     }

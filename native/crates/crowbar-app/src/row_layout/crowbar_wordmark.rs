@@ -15,7 +15,7 @@
 
 use super::{a_cell, assert_px, assert_within_tolerance, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
-use crowbar_ui::components::crowbar_wordmark;
+use crowbar_ui::surfaces::crowbar_wordmark;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

@@ -1,6 +1,6 @@
 //! `--surface workspace-tree-item`, laid out in a real window.
 //!
-//! Pins the arithmetic `crowbar_ui::components::workspace_tree_item`'s
+//! Pins the arithmetic `crowbar_ui::surfaces::workspace::workspace_tree_item`'s
 //! module docs describe: the leaf/parent trailing-action alternation, the
 //! `depth * 14` indentation between a row and its own child, and the
 //! `mx-1.5`-net-of-margin width every row in this cluster shares — the
@@ -8,7 +8,8 @@
 
 use super::{a_cell, assert_px, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
-use crowbar_ui::components::{row_base, workspace_tree_item};
+use crowbar_ui::surfaces::rows::row_base;
+use crowbar_ui::surfaces::workspace::workspace_tree_item;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -199,7 +200,7 @@ fn the_icon_sits_flush_and_the_label_follows_the_gap(cx: &mut TestAppContext) {
     let icon = at(&records, "workspace-branch-icon");
     let label = at(&records, workspace_tree_item::ID_LABEL);
 
-    let leading_edge = crowbar_ui::components::button::BORDER_WIDTH + row_base::PADDING_X;
+    let leading_edge = crowbar_ui::primitives::button::BORDER_WIDTH + row_base::PADDING_X;
     assert_px(icon.origin.x, leading_edge);
     assert_px(label.origin.x, leading_edge + px(16.0) + row_base::GAP);
 }

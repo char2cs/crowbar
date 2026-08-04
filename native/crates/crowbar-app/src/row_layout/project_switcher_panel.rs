@@ -1,6 +1,6 @@
 //! `--surface project-switcher-panel`, laid out in a real window.
 //!
-//! What follows pins the arithmetic `crowbar_ui::components::
+//! What follows pins the arithmetic `crowbar_ui::surfaces::rows::
 //! project_switcher_panel`'s module docs describe: the wrapper's own `py-1`
 //! before the first row, each row's own `mx-1.5 my-0.5` inset (the numbers
 //! [`super::project_home_row`]'s own module docs argue do *not* apply to a
@@ -9,7 +9,8 @@
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
-use crowbar_ui::components::{project_switcher_panel, row_base};
+use crowbar_ui::surfaces::rows::project_switcher_panel;
+use crowbar_ui::surfaces::rows::row_base;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -142,7 +143,7 @@ fn the_root_fills_whatever_width_it_is_given(cx: &mut TestAppContext) {
 /// **The import row's own label is `font-medium` (500), the same weight as
 /// a project row's label beside it** — `ROW_BASE`'s own `text-[13px]
 /// font-medium` applies to both row kinds
-/// (`crowbar_ui::components::row_base`'s own module docs, and this
+/// (`crowbar_ui::surfaces::rows::row_base`'s own module docs, and this
 /// component's own §1 table in `native/mapping/project-switcher-panel.md`).
 ///
 /// **Mutation, run:** in `ProjectSwitcherPanel::import_row`

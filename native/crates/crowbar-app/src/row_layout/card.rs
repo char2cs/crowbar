@@ -1,14 +1,14 @@
 //! `--surface card`: what taffy resolves a card to, in a real window.
 //!
 //! **There is no reference to compare against** — a Card renders only from a
-//! caught render throw, for the reason `crowbar_ui::components::card` records.
+//! caught render throw, for the reason `crowbar_ui::primitives::card` records.
 //! So these assertions are against the probe's values (`384 × 102`, `radius 18`,
 //! a 1px destructive border, `p-6` with three `in-[…]` overrides) and against the
 //! slot arithmetic, which is the part a layout test can still prove.
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
-use crowbar_ui::components::card;
+use crowbar_ui::primitives::card;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

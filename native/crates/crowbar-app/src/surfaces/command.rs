@@ -2,9 +2,9 @@
 //! switcher, an open `CommandDialogPopup` with `Command`/`CommandInput`/
 //! `CommandPanel`/`CommandList`/`CommandItem`/`CommandFooter` inside it.
 //!
-//! `crowbar_ui::components::command` carries the division of labour (a
+//! `crowbar_ui::primitives::command` carries the division of labour (a
 //! second hand-rolled dialog shell, the same shape `AppDialog` is, wrapping
-//! `crowbar_ui::components::autocomplete`'s own boxes for everything else);
+//! `crowbar_ui::primitives::autocomplete`'s own boxes for everything else);
 //! this file is the cell. No `--surface autocomplete` exists alongside it —
 //! see `autocomplete.rs`'s own module docs for why: `Autocomplete`
 //! (`AutocompletePrimitive.Root`) renders no box of its own, so there is no
@@ -24,9 +24,9 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::autocomplete::{Item, List, ListContent};
-use crowbar_ui::components::command::{self, Command};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::autocomplete::{Item, List, ListContent};
+use crowbar_ui::primitives::command::{self, Command};
 use gpui::{AnyElement, App, Window, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -191,7 +191,7 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{DEFAULT_FOOTER_HEIGHT, DEFAULT_MAX_WIDTH, Params, SURFACE, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
-    use crowbar_ui::components::autocomplete::ListContent;
+    use crowbar_ui::primitives::autocomplete::ListContent;
     use gpui::px;
 
     fn cell(args: &[&str]) -> Cell {

@@ -2,7 +2,7 @@
 //! two-line repo/branch (or project/home) label and a trailing identity
 //! glyph, or a bare project name.
 //!
-//! `crowbar_ui::components::context_pill` carries the full account of this
+//! `crowbar_ui::surfaces::context_pill` carries the full account of this
 //! composition's own arithmetic and of why it does not compose
 //! `button::Button::render`. This file is the cell.
 //!
@@ -15,10 +15,10 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::context_pill::ContextPill;
-use crowbar_ui::components::repo_avatar::{Kind as RepoAvatarKind, RepoAvatar, Size as RepoAvatarSize};
-use crowbar_ui::components::workspace_branch_icon::Status;
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::context_pill::ContextPill;
+use crowbar_ui::surfaces::repo::repo_avatar::{Kind as RepoAvatarKind, RepoAvatar, Size as RepoAvatarSize};
+use crowbar_ui::surfaces::workspace::workspace_branch_icon::Status;
 use gpui::{AnyElement, SharedString};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -27,7 +27,7 @@ use crate::surface::{Surface, SurfaceParams, value};
 /// The registry entry `build.rs` collects.
 pub static SURFACE: Surface = Surface {
     name: "context-pill",
-    root: crowbar_ui::components::context_pill::ID_ROOT,
+    root: crowbar_ui::surfaces::context_pill::ID_ROOT,
     unmodelled: &[
         StateFlag::Empty,
         StateFlag::Loading,
@@ -226,8 +226,8 @@ mod tests {
     use super::{Kind, Params, SURFACE, options, parse_kind, parse_status};
     use crate::row_surface::{Cell, ParseError, StateFlag};
     use crate::surface::SurfaceParams;
-    use crowbar_ui::components::context_pill::ContextPill;
-    use crowbar_ui::components::workspace_branch_icon::Status;
+    use crowbar_ui::surfaces::context_pill::ContextPill;
+    use crowbar_ui::surfaces::workspace::workspace_branch_icon::Status;
 
     fn cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "context-pill"];

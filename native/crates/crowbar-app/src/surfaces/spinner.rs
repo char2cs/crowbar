@@ -19,7 +19,7 @@
 //! The reference was therefore taken with the animation pinned at
 //! `currentTime = 0`; **anyone re-capturing this surface has to do the same**,
 //! and a run that comes back with four deltas on the only anchor should suspect
-//! the instant before the port. See `crowbar_ui::components::spinner`.
+//! the instant before the port. See `crowbar_ui::primitives::spinner`.
 //!
 //! # The native side turns, and needs no pinning at all
 //!
@@ -63,8 +63,9 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::spinner::{ALL_CALL_SITES, CallSite, Extent, Spinner};
-use crowbar_ui::components::{AnchorSink, spinner};
+use crowbar_ui::primitives::spinner::{ALL_CALL_SITES, CallSite, Extent, Spinner};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::spinner;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

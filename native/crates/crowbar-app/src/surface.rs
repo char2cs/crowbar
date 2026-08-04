@@ -36,7 +36,7 @@ use std::any::Any;
 use std::fmt::Debug;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
+use crowbar_ui::AnchorSink;
 use gpui::{AnyElement, App, Window};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -595,7 +595,7 @@ mod tests {
                 // `d`, then `e` < `i` (P3.51 — a call site of `dialog`'s own
                 // primitive, registered separately only because this
                 // registry requires a unique root anchor; see
-                // `crowbar_ui::components::detach_holder_modal`'s module
+                // `crowbar_ui::surfaces::detach_holder_modal`'s module
                 // docs).
                 "detach-holder-modal",
                 "dialog",
@@ -671,7 +671,7 @@ mod tests {
                 // before `search_toggle_icons.rs`: `search_` common, then
                 // `r` < `t` (P3.37 — the standalone row surface, registered
                 // because `search`'s own registry cannot stand in for it;
-                // see `crowbar_ui::components::search::SearchReplaceRow::
+                // see `crowbar_ui::surfaces::search::SearchReplaceRow::
                 // render_root`'s doc comment).
                 "scroll-area",
                 "search",
@@ -687,7 +687,7 @@ mod tests {
                 // cluster 4's other judgment call — the hover-to-peek host,
                 // whose own `data-sidebar-peek` outer wrapper carries no
                 // anchor of its own; see
-                // `crowbar_ui::components::sidebar_peek`'s own module docs
+                // `crowbar_ui::surfaces::sidebar::sidebar_peek`'s own module docs
                 // and `native/mapping/sidebar-peek.md`).
                 "sidebar-peek",
                 // `sidebar_project_header.rs` sorts before `sidebar_skeleton.rs`
@@ -701,7 +701,7 @@ mod tests {
                 // icon` and *after* `sidebar_skeleton` — but there is no
                 // `surfaces/sidebar_tab_bar.rs` to sort: its own wrapper carries
                 // no anchor of its own for a `root` to name, and this registry
-                // requires one; see `crowbar_ui::components::sidebar_tab_bar`'s
+                // requires one; see `crowbar_ui::surfaces::sidebar::sidebar_tab_bar`'s
                 // own module docs and `native/mapping/sidebar-tab-bar.md`.
                 "sidebar-skeleton",
                 // `sidebar_toast_overlay.rs` sorts before `sidebar_toggle_
@@ -738,7 +738,7 @@ mod tests {
                 // there is no anchor for a `root` to name, and every real
                 // anchor its content reaches is `command`'s own
                 // `command-dialog-popup`/`autocomplete-item` (P3.58); see
-                // `crowbar_ui::components::workspace_switcher`'s own module
+                // `crowbar_ui::surfaces::workspace::workspace_switcher`'s own module
                 // docs and `native/mapping/workspace-switcher.md`.
                 "workspace-branch-icon",
                 // `workspace_inline_input.rs` then `workspace_tree.rs` —

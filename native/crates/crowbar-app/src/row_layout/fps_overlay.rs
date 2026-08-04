@@ -12,7 +12,7 @@
 //! exactly the failure mode a passing "the anchor exists" check would miss.
 
 use super::{a_cell, find, measure};
-use crowbar_ui::components::fps_overlay::{self, BOTTOM, RIGHT};
+use crowbar_ui::primitives::fps_overlay::{self, BOTTOM, RIGHT};
 use gpui::{Bounds, Pixels, Size, TestAppContext, px};
 
 use crate::row_surface::{Cell, RowSurface};
@@ -60,7 +60,7 @@ fn badge_bounds(
 /// component paints with the same constant this test would be comparing it
 /// to — the guard-that-tests-its-own-declaration shape. The one-line
 /// mutation this actually catches: change `SPACING * 3.0` (or `* 8.0`) in
-/// `crowbar_ui::components::fps_overlay::RIGHT`/`BOTTOM` to any other
+/// `crowbar_ui::primitives::fps_overlay::RIGHT`/`BOTTOM` to any other
 /// multiple and this fails, because 12/32 are typed in below independently
 /// of whatever the constant says. Confirmed live: mutating `BOTTOM` to
 /// `SPACING * 5.0` and asserting against `BOTTOM` itself (the trap this test

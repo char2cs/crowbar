@@ -7,7 +7,8 @@
 //! `row_snapshot.rs` emits through it behind `--features driver`.
 
 use crowbar_driver::{Declared, RawAnchor};
-use crowbar_ui::components::{AnchorId, AnchorSink};
+use crowbar_ui::AnchorId;
+use crowbar_ui::AnchorSink;
 use gpui::{AnyElement, Div, IntoElement as _, SharedString};
 
 /// What [`DriverAnchors::boxed_text`] appends to an id to record the run inside
@@ -232,7 +233,7 @@ mod tests {
     /// the differ compares it against a target it was never going to hit.
     #[test]
     fn every_combination_of_declarations_survives_the_translation() {
-        use crowbar_ui::components::AnchorId;
+        use crowbar_ui::AnchorId;
 
         for (content, line) in [(false, false), (true, false), (false, true), (true, true)] {
             let mut id = AnchorId::new("git-row-added");

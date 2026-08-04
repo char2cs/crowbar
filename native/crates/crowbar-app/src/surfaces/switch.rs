@@ -45,8 +45,9 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::switch::Switch;
-use crowbar_ui::components::{AnchorSink, switch};
+use crowbar_ui::primitives::switch::Switch;
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::switch;
 use gpui::AnyElement;
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -215,8 +216,8 @@ mod tests {
     use super::{Params, SURFACE, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
     use crowbar_ui::Theme;
-    use crowbar_ui::components::Breakpoint;
-    use crowbar_ui::components::switch::{ID_SWITCH, ID_THUMB, Switch};
+    use crowbar_ui::surfaces::rows::Breakpoint;
+    use crowbar_ui::primitives::switch::{ID_SWITCH, ID_THUMB, Switch};
     use gpui::px;
 
     fn cell(args: &[&str]) -> Cell {

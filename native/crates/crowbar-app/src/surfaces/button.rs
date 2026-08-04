@@ -80,7 +80,7 @@
 //!
 //! `none` is the **primitive's own** radius, and it is reachable — but it has no
 //! visible reference, and the caption says so per cell. See
-//! [`crowbar_ui::components::button::Button::fixture`] for the three groups the
+//! [`crowbar_ui::primitives::button::Button::fixture`] for the three groups the
 //! nine live Buttons fall into.
 //!
 //! # Three options that are not matrix axes
@@ -95,11 +95,13 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::button::{
+use crowbar_ui::primitives::button::{
     ALL_RADIUS_CLASSES, ALL_SIZES, ALL_VARIANTS, Button, ButtonState, Interaction, Label, Props,
     RadiusClass, Size, Variant,
 };
-use crowbar_ui::components::{AnchorSink, ContentLength, button};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::ContentLength;
+use crowbar_ui::primitives::button;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -135,7 +137,7 @@ pub static SURFACE: Surface = Surface {
 /// this surface therefore drives with options of its own.
 ///
 /// A struct rather than three fields on [`Params`] for the reason
-/// [`crowbar_ui::components::button::Props`] is one: five booleans in one bag
+/// [`crowbar_ui::primitives::button::Props`] is one: five booleans in one bag
 /// read as five independent switches, and these three are one kind of thing —
 /// props and pseudo-classes the matrix cannot name. (`struct_excessive_bools`
 /// is what asked the question; the answer is the same either way.)
@@ -531,8 +533,8 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{Params, SURFACE, options};
     use crate::row_surface::{CAPTION_HEIGHT, Cell, ParseError, StateFlag};
-    use crowbar_ui::components::button;
-    use crowbar_ui::components::button::{
+    use crowbar_ui::primitives::button;
+    use crowbar_ui::primitives::button::{
         ALL_RADIUS_CLASSES, ALL_SIZES, ALL_VARIANTS, Button, Label, RadiusClass, Size, Variant,
     };
 

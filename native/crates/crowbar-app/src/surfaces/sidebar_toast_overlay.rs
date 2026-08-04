@@ -1,7 +1,7 @@
 //! `--surface sidebar-toast-overlay` — the inline (`sidebarOpen`) viewport,
 //! docked to the sidebar column's own bottom edge.
 //!
-//! See `crowbar_ui::components::sidebar_toast_overlay` for the port and the
+//! See `crowbar_ui::surfaces::sidebar::sidebar_toast_overlay` for the port and the
 //! four findings this item's brief asked to be verified, and
 //! `native/mapping/sidebar-toast-overlay.md` for the measurement. The
 //! `Toast.Portal`/fixed-corner half of this one React component is the
@@ -37,8 +37,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::sidebar_toast_overlay::{self, SidebarToastOverlay};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::sidebar::sidebar_toast_overlay::{self, SidebarToastOverlay};
 use gpui::{AnyElement, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

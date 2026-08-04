@@ -1,6 +1,6 @@
 //! `--surface workspace-inline-input` — the sidebar's rename/create field.
 //!
-//! See `crowbar_ui::components::workspace_inline_input` for the port itself
+//! See `crowbar_ui::surfaces::workspace::workspace_inline_input` for the port itself
 //! and `native/mapping/workspace-inline-input.md` for the measurement.
 //!
 //! # What each axis can and cannot do here
@@ -32,8 +32,9 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::workspace_inline_input::{self, Kind, WorkspaceInlineInput};
-use crowbar_ui::components::{AnchorSink, ContentLength};
+use crowbar_ui::surfaces::workspace::workspace_inline_input::{self, Kind, WorkspaceInlineInput};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::ContentLength;
 use gpui::{AnyElement, SharedString};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -190,8 +191,8 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{Params, parse_kind, value_of};
     use crate::row_surface::Cell;
-    use crowbar_ui::components::ContentLength;
-    use crowbar_ui::components::workspace_inline_input::Kind;
+    use crowbar_ui::surfaces::rows::ContentLength;
+    use crowbar_ui::surfaces::workspace::workspace_inline_input::Kind;
 
     /// A cell on this surface, via the same CLI-parsing constructor the
     /// binary itself uses — `Cell::params` is private to `row_surface`, so a

@@ -15,7 +15,8 @@
 //! this.**
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::{AnchorSink, file_tree_row};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::file_tree_row;
 use gpui::AnyElement;
 use std::fmt::Write as _;
 

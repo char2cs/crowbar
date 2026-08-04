@@ -9,7 +9,7 @@
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::dropdown_menu;
+use crowbar_ui::primitives::dropdown_menu;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -469,11 +469,11 @@ fn inset_is_invisible_to_this_surfaces_anchor_set(cx: &mut TestAppContext) {
     // The one thing it *would* move — the padding — is spelled in the
     // component and checked there.
     assert_eq!(
-        crowbar_ui::components::dropdown_menu::ROW_INSET_PADDING_LEFT,
+        crowbar_ui::primitives::dropdown_menu::ROW_INSET_PADDING_LEFT,
         px(28.0),
     );
     assert_eq!(
-        crowbar_ui::components::dropdown_menu::ROW_PADDING_X,
+        crowbar_ui::primitives::dropdown_menu::ROW_PADDING_X,
         px(6.0),
     );
 }

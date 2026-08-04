@@ -1,7 +1,7 @@
 //! `--surface alert-dialog`, laid out in a real window.
 //!
 //! **No live pixel reference exists for this surface** — see
-//! `crowbar_ui::components::alert_dialog`'s module docs §3 for what was
+//! `crowbar_ui::primitives::alert_dialog`'s module docs §3 for what was
 //! actually tried (a real review thread opened over the daemon's own REST API,
 //! a route navigated to directly) and for the environmental `IndexedDB` defect
 //! that blocked it, unrelated to this item. What follows checks two things
@@ -14,7 +14,7 @@
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::alert_dialog;
+use crowbar_ui::primitives::alert_dialog;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

@@ -15,7 +15,7 @@
 
 use super::{a_cell, assert_px, assert_within_tolerance, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
-use crowbar_ui::components::search;
+use crowbar_ui::surfaces::search;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -180,7 +180,7 @@ fn the_input_field_insets_from_its_control_by_only_the_border(cx: &mut TestAppCo
 /// `search`'s own `246×32` main field** — proof that this surface never
 /// paints that other `Input` at all, so there is no second record able to
 /// overwrite this one (the failure mode
-/// `crowbar_ui::components::search::SearchReplaceRow::render_root`'s doc
+/// `crowbar_ui::surfaces::search::SearchReplaceRow::render_root`'s doc
 /// comment describes for `--surface search --replace`).
 ///
 /// The control's own **height** is asserted against the reference's exact

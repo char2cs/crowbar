@@ -8,12 +8,12 @@
 //! [`the_anchor_set_is_one_and_does_not_change_with_the_state`]: the surface has
 //! **one** anchor in every cell, which is what keeps the resting cell comparable
 //! against a reference whose `display: none` indicator the DOM extractor emits
-//! and this one does not. See `crowbar_ui::components::checkbox`'s module docs.
+//! and this one does not. See `crowbar_ui::primitives::checkbox`'s module docs.
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::checkbox;
+use crowbar_ui::primitives::checkbox;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

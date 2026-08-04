@@ -155,8 +155,8 @@ impl AnchorRegistry {
     /// snapshot one frame" — which is only true of an anchor that calls
     /// [`anchor_root`]/[`anchor_root_declared`]. A **leaf, embeddable**
     /// component — `spinner`, `loading-spinner` — deliberately does not: its own
-    /// root is a plain [`anchor`]/[`anchor_declared`] (`crowbar_ui::components`'s
-    /// `spinner.rs` docs explain why — the same nested-root-wipes-the-ancestor
+    /// root is a plain [`anchor`]/[`anchor_declared`] (`crowbar_ui::primitives::spinner`'s
+    /// docs explain why — the same nested-root-wipes-the-ancestor
     /// hazard `inline_error.rs` documents for `Button`), so nothing ever calls
     /// `clear` while its window is open. `spinner`'s glyph rotates once a
     /// second, so gpui redraws it forever, and every one of those draws records

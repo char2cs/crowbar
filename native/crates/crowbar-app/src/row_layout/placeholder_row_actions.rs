@@ -3,9 +3,9 @@
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
-use crowbar_ui::components::button::Size;
-use crowbar_ui::components::git_status_row::{BREAKPOINT_SM, Breakpoint};
-use crowbar_ui::components::placeholder_row_actions;
+use crowbar_ui::primitives::button::Size;
+use crowbar_ui::surfaces::rows::git_status_row::{BREAKPOINT_SM, Breakpoint};
+use crowbar_ui::surfaces::rows::placeholder_row_actions;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

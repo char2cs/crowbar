@@ -8,8 +8,8 @@
 
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::RawAnchor;
-use crowbar_ui::components::git_status_row::BREAKPOINT_SM;
-use crowbar_ui::components::label;
+use crowbar_ui::surfaces::rows::git_status_row::BREAKPOINT_SM;
+use crowbar_ui::primitives::label;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;

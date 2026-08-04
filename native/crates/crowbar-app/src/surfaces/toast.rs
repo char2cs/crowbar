@@ -1,7 +1,7 @@
 //! `--surface toast` — a **built, not wrapped**, content-sized surface with no
 //! live producer at all.
 //!
-//! `crowbar_ui::components::toast` carries the seam evidence (§1) and the
+//! `crowbar_ui::primitives::toast` carries the seam evidence (§1) and the
 //! reachability finding (§2: `anchoredToastManager.add` has zero call sites in
 //! `web/src`, so `toast.tsx`'s only rendering export never paints); this file
 //! is the cell. There is no live fixture to default to — every default below
@@ -20,8 +20,8 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::AnchorSink;
-use crowbar_ui::components::toast::{self, Toast, Variant};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::toast::{self, Toast, Variant};
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, SharedString, Styled as _, div, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -221,7 +221,7 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{DEFAULT_DESCRIPTION, DEFAULT_TITLE, Params, SURFACE, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
-    use crowbar_ui::components::toast::Variant;
+    use crowbar_ui::primitives::toast::Variant;
 
     fn cell(args: &[&str]) -> Cell {
         let mut line = vec!["--surface", "toast"];

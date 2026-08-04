@@ -11,7 +11,7 @@
 //! `label.tsx` carries `text-base/4.5 sm:text-sm/4`, so the type step moves at
 //! 640px and this is the first P3.6 surface where `--viewport-width` is real
 //! rather than vacuous. The trap is documented at
-//! `crowbar_ui::components::label`: at every real window width the primitive's
+//! `crowbar_ui::primitives::label`: at every real window width the primitive's
 //! `sm:` step **beats the call site's `ui-text-sm`**, so the rendered size is
 //! 14px and not the 12px the call site's class names.
 //!
@@ -40,8 +40,10 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::label::{ALL_CALL_SITES, CallSite, Label};
-use crowbar_ui::components::{AnchorSink, ContentLength, label};
+use crowbar_ui::primitives::label::{ALL_CALL_SITES, CallSite, Label};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::ContentLength;
+use crowbar_ui::primitives::label;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, SharedString, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

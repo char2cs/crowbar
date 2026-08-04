@@ -12,7 +12,7 @@
 use super::{a_cell, assert_px, assert_within_tolerance, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::slider;
+use crowbar_ui::primitives::slider;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -89,7 +89,7 @@ fn the_resting_cell_is_the_live_reference(cx: &mut TestAppContext) {
 /// read off `/tmp/p3-ref-slider-selected.json`. Both are asserted **within
 /// tolerance**, not exactly: `268.8` and `260.8` are not whole pixels, and
 /// gpui's own layout — unlike the arithmetic in
-/// `crowbar_ui::components::slider` — rounds to one (measured: `269`), the
+/// `crowbar_ui::primitives::slider` — rounds to one (measured: `269`), the
 /// same reason `a_percentage_length_lands_on_a_whole_pixel` exists.
 #[gpui::test]
 fn value_forty_lands_on_the_second_live_references_numbers(cx: &mut TestAppContext) {

@@ -14,7 +14,7 @@
 use super::{a_cell, assert_px, find, ids, measure, relative_to};
 use crowbar_driver::{Paint, RawAnchor};
 use crowbar_ui::Theme;
-use crowbar_ui::components::repo_import_dialog;
+use crowbar_ui::surfaces::repo::repo_import_dialog;
 use gpui::{Bounds, Pixels, TestAppContext, px};
 
 use crate::row_surface::Cell;
@@ -191,7 +191,7 @@ fn the_description_keeps_dialogs_default_line_height(cx: &mut TestAppContext) {
 /// see the module docs), so its own computed height cannot be read back from
 /// rendered geometry at all, and `body_height`'s arithmetic is instead
 /// pinned at the unit level, in
-/// `crowbar_ui::components::repo_import_dialog`'s own
+/// `crowbar_ui::surfaces::repo::repo_import_dialog`'s own
 /// `the_body_is_the_popup_less_its_borders_and_header` test. Recorded here
 /// rather than left implicit — a first draft of this test derived an
 /// "expected" body height from the same three quantities it then re-summed,

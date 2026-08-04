@@ -32,7 +32,7 @@
 use super::{a_cell, assert_px, find, ids, measure};
 use crowbar_driver::Paint;
 use crowbar_ui::Theme;
-use crowbar_ui::components::keybinding;
+use crowbar_ui::primitives::keybinding;
 use gpui::{TestAppContext, px};
 
 use crate::row_surface::Cell;

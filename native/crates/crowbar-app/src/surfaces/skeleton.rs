@@ -6,7 +6,7 @@
 //! `<Suspense>` boundary whose subtree contains **no suspending source**, so the
 //! fallback never mounts and a live count of `[data-slot="skeleton"]` was **0**
 //! in every state including a fresh reload. The reasoning is at
-//! `crowbar_ui::components::skeleton`; see also `native/mapping/skeleton.md`.
+//! `crowbar_ui::primitives::skeleton`; see also `native/mapping/skeleton.md`.
 //!
 //! **Every value the surface renders is the app's own compiled CSS**, so this is
 //! `git-row-dir`'s precedent — rendered by the port, absent from the product —
@@ -51,8 +51,9 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::skeleton::{ALL_CALL_SITES, CallSite, Skeleton};
-use crowbar_ui::components::{AnchorSink, skeleton};
+use crowbar_ui::primitives::skeleton::{ALL_CALL_SITES, CallSite, Skeleton};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::skeleton;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Pixels, Styled as _, div, px};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

@@ -1,7 +1,7 @@
 //! `--surface placeholder-row-actions` — the placeholder row's reconstructed
 //! reason plus Retry/Detach… pair.
 //!
-//! See `crowbar_ui::components::placeholder_row_actions` for the port itself
+//! See `crowbar_ui::surfaces::rows::placeholder_row_actions` for the port itself
 //! and `native/mapping/placeholder-row-actions.md` for the measurement.
 //!
 //! # What each axis can and cannot do here
@@ -30,8 +30,9 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::placeholder_row_actions::{self, PlaceholderRowActions};
-use crowbar_ui::components::{AnchorSink, ContentLength};
+use crowbar_ui::surfaces::rows::placeholder_row_actions::{self, PlaceholderRowActions};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::rows::ContentLength;
 use gpui::{AnyElement, SharedString};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -189,7 +190,7 @@ mod tests {
     use super::{Params, reason_of};
     use crate::row_surface::Cell;
     use crate::surface::SurfaceParams;
-    use crowbar_ui::components::ContentLength;
+    use crowbar_ui::surfaces::rows::ContentLength;
 
     /// `--held` selects between `placeholderReason`'s two reachable arms —
     /// the third (`lastError`, no persisted field, spec §4/B7) is

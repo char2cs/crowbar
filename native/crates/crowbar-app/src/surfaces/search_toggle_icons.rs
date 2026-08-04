@@ -61,8 +61,9 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::search_toggle_icons::{ALL_TOGGLES, SearchToggleIcon, Toggle};
-use crowbar_ui::components::{AnchorSink, search_toggle_icons};
+use crowbar_ui::surfaces::search_toggle_icons::{ALL_TOGGLES, SearchToggleIcon, Toggle};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::search_toggle_icons;
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Styled as _, div};
 
 use crate::row_surface::{Cell, ParseError, StateFlag};

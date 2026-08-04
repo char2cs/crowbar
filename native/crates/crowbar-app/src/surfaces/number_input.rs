@@ -8,7 +8,7 @@
 //! `size="xs"` at `.number` width (`w-28`) — measured at `112×32` at
 //! `innerWidth` 1714.
 //!
-//! See `crowbar_ui::components::number_input`'s module docs for the wrap-or-
+//! See `crowbar_ui::primitives::number_input`'s module docs for the wrap-or-
 //! build seam test, the full value tables and `native/mapping/number-input.md`
 //! for the §6.2 row.
 //!
@@ -35,8 +35,9 @@
 use std::fmt::Write as _;
 
 use crowbar_ui::Theme;
-use crowbar_ui::components::number_input::{ALL_SIZES, ALL_WIDTHS, NumberInput, Size, Width};
-use crowbar_ui::components::{AnchorSink, number_input};
+use crowbar_ui::primitives::number_input::{ALL_SIZES, ALL_WIDTHS, NumberInput, Size, Width};
+use crowbar_ui::AnchorSink;
+use crowbar_ui::primitives::number_input;
 use gpui::AnyElement;
 
 use crate::row_surface::{Cell, ParseError, StateFlag};
@@ -120,8 +121,8 @@ impl Params {
 /// vocabulary, since a field's number and a git row's path are different
 /// kinds of string. **Vacuous**: no anchor here paints text, so the choice
 /// changes nothing the differ compares.
-fn value_of(content: crowbar_ui::components::ContentLength) -> &'static str {
-    use crowbar_ui::components::ContentLength;
+fn value_of(content: crowbar_ui::surfaces::rows::ContentLength) -> &'static str {
+    use crowbar_ui::surfaces::rows::ContentLength;
     match content {
         ContentLength::Short => "5",
         ContentLength::Normal => "15",
@@ -258,7 +259,7 @@ fn options() -> Vec<(String, String)> {
 mod tests {
     use super::{Params, SURFACE, options};
     use crate::row_surface::{Cell, ParseError, StateFlag};
-    use crowbar_ui::components::number_input::{
+    use crowbar_ui::primitives::number_input::{
         ID_DECREMENT, ID_FIELD, ID_INCREMENT, ID_ROOT, NumberInput, Size, Width,
     };
 
