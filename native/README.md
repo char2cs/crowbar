@@ -73,6 +73,53 @@ app is a trap; `QUEUE.md`'s 0.4 section explains why.
 If the daemon is down, the window says so. That is the designed outcome, not a
 failure: a connection error is displayed, never panicked on.
 
+## Side-by-side review capture (S0.6)
+
+`scripts/capture-pair.swift` is the review instrument for the whole port from
+here on — see
+[`docs/superpowers/specs/2026-08-04-slice-based-port-method-design.md`](../docs/superpowers/specs/2026-08-04-slice-based-port-method-design.md)
+§3.3. Per-component parity verdicts stopped being the gate; "the user has seen
+it beside Crowbar-React and accepted it" is the gate, and this script produces
+the two labelled PNGs that review sits on.
+
+```sh
+# 1. Launch both apps against the same CROWBAR_HOME, each already sized to
+#    the same width/height by its own launch mechanism — this script does
+#    not resize windows, see the file's own header comment for why.
+CROWBAR_HOME=<home> make dev-desktop &     # Crowbar-React, owns the daemon
+CROWBAR_HOME=<home> cargo run -p crowbar-app &
+
+# 2. Find each one's pid — pid, not app name, is what disambiguates when a
+#    sibling worktree also has a Crowbar window open (see the script's "WHY
+#    PID, NOT JUST OWNER NAME").
+pgrep -f "Crowbar.app/Contents/MacOS/Crowbar"   # or your dev binary's path
+pgrep -f target/debug/crowbar-app
+
+# 3. Capture the pair.
+swift native/scripts/capture-pair.swift \
+  --a-label react --a-pid <react-pid> \
+  --b-label rust  --b-pid <rust-pid> \
+  --width 1200 --height 800 \
+  --out-dir native/capture-out
+```
+
+Two files land in `--out-dir`: `react-1200x800-<timestamp>.png` and
+`rust-1200x800-<timestamp>.png`, plus a `pair-<timestamp>.json` manifest
+recording each side's resolved window, its settled frame, and the blank-image
+self-check's sampled/distinct pixel counts — the evidence that the capture was
+taken from a settled, non-blank window, not just a filename claiming so.
+
+**Known limit on the machine this was built on, read before assuming a run
+failed silently:** pixel capture goes through `ScreenCaptureKit` (Apple
+removed `CGWindowListCreateImage` in macOS 15; the script's header explains
+what replaced it), which needs Screen Recording granted to whichever app is
+the TCC-responsible ancestor of your shell — check with `ps -o
+pid,ppid,comm= -p $$` up to the first `.app` bundle, then System Settings →
+Privacy & Security → Screen Recording. The script preflights this and fails
+fast with the exact remediation rather than writing a blank image. Pass
+`--dry-run` to exercise window resolution, the settle step and the
+forced-equal-size check without needing that permission at all.
+
 ## The two rules a newcomer will otherwise break
 
 **1. `crowbar-core` has no `gpui`. Ever.** It is the crate that holds all the
@@ -125,7 +172,7 @@ native/
 │   ├── crowbar-driver/   extractor + injector + MCP · feature-gated
 │   └── crowbar-app/      the binary
 ├── oracle/               the parity differ · corpus/ is append-only (§8.4)
-├── scripts/              check-invariants.sh
+├── scripts/              check-invariants.sh, capture-pair.swift (S0.6)
 ├── vendor/               pinned gpui (item 0.2) — committed on purpose,
 │                         excluded from this workspace, never hand-edited
 └── tools/                protogen (item 0.5)
