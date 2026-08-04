@@ -3777,6 +3777,61 @@ gets until that clears. Its brief states that explicitly and asks it to write
 for a reader who cannot re-run the work — which is the honest description of
 what I am able to offer it right now.
 
+## ✅ P3.73 — export-level liveness for the three unported Tier A areas
+
+**4,145 of 4,240 lines (97.8%)** across §2 diff algebra, §5 file-tree and §7
+review threads are correctly LIVE/CONDITIONAL *at export granularity*. Method:
+the **TypeScript compiler API** over one `ts.Program`, resolving symbol identity
+through `export *` shims and rename aliases — not a regex. Four controls,
+including two calibrating the self-file case.
+
+### It sharpened the rule I gave it, and both halves are needed
+
+I told it: an export consumed only by a **sibling export in the same file** is
+LIVE. It added the necessary second half: **pure recursion must be excluded**,
+because a function whose only self-file "use" is calling *itself* proves
+nothing.
+
+| without | consequence |
+|---|---|
+| the first half | `use-review-annotations.tsx`'s six helpers read as **dead** |
+| the second half | `filterHiddenFiles` reads as **alive** |
+
+It also found a gap **its own script could not see** — renamed imports break
+identifier-text matching — via an exhaustive grep sweep, fixed `setMergeStrategy`
+by hand, and said plainly that the script missed it rather than folding the
+correction in silently.
+
+### Findings
+
+- **§5 concentrates 95 dead/test-only lines in 3 of 26 files**, independently
+  re-deriving `file-explorer-tree-utils.ts` at **74% waste**.
+- **New: `getStickyAncestorRow` (singular) is TEST-ONLY.** Verified myself — it
+  appears only in its own declaration and its test file, while the *plural*
+  has 7 real call sites. **Third test-only export found in this codebase**,
+  after `diff-buffer-path` and `getAncestorDirectoryPaths`. This is a pattern,
+  not three accidents.
+- **A file-level verdict corrected**: `findFileInTree` was LIVE; both call sites
+  sit behind named context-menu actions, so it is CONDITIONAL.
+
+### ⚠ A NEW scoping trap, in the two areas that are otherwise clean
+
+§2 and §7 have **0% over-port risk at export granularity** — and a different
+problem: **the survey's prose names private, non-exported helpers as though they
+were individually importable** (`review-code-view.tsx`'s 7 of 9;
+`review-api.ts`'s `mapReply`/`mapConversation`).
+
+So "clean at export granularity" is **not** "safe to scope from". A brief built
+from that prose would ask a worker to port functions that cannot be imported at
+all. Fourth distinct way this survey's prose has misled a scoping decision.
+
+### `file-tree-gitignore.ts` — the dependency answer
+
+ripgrep's `ignore` crate matches the npm package's `.gitignore` semantics
+(`Gitignore` / `Match::{Ignore,Whitelist,None}`), **but** the ancestor-first
+cascade in `isPathGitIgnoredByFileTreeRules` has no crate equivalent and must be
+reimplemented whichever matcher is chosen. That is a port, not a swap.
+
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
 ```
