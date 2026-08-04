@@ -4473,6 +4473,101 @@ disagreed.
 **Standing consequence: when a fix lands on a SHARED helper, re-verify every
 surface that consumes it — not just the ones named in the defect.**
 
+## ✅ P3.81 MERGED (`932b4224`) — the regression is closed, and the reference pipeline was rebuilt from scratch
+
+Verified by my own side-by-side run. **Cell: `width=1684 theme=light
+content=normal`** — a different cell from the `dark` runs above, for a reason
+recorded below. Container `--width 294` on all four (the sidebar panel's own
+width), derived from each reference root rather than assumed.
+
+| surface | verdict | note |
+|---|---|---|
+| `project-home-row` | ✅ **PASS 0/5** | was FAIL 2/5. Regression closed |
+| `workspace-tree-item` | ✅ **PASS 0/4** | **the control** — it had to *stay* passing, and did |
+| `repo-section` | ✅ **PASS 0/6** | 0.8px forgiven by v1.5 now that **both** sides declare `content_sized` |
+| `workspace-tree` | ❌ **FAIL 5/8** | two real defects, neither P3.81's — see the next section |
+
+**The root cause, confirmed in the React source rather than taken from the
+worker's report.** `ui/button-variants.ts`'s base class carries a bare,
+unconditional `border`; `ghost` sets only `border-transparent`. So *every*
+`<Button>` paints a 1px transparent border. `ROW_SUB_ACTION` has no `border*`
+utility, so tailwind-merge leaves the primitive's intact. `repo-section` and
+`workspace-tree-item` render **raw `<button>` elements** and genuinely have no
+border; `project-home-row` renders the **`<Button>` primitive** and genuinely
+does. The two families were never arbitrary — they are two different DOM
+shapes, and the shared helper could not express both.
+
+### 🔁 Six process traps fired in ONE verification, five of them mine
+
+Recorded because the *pipeline*, not the port, consumed this iteration.
+
+1. **`timeout` does not exist on this box.** The control emitted **0 bytes** and
+   I nearly called capture broken. It was `command not found` — exit 127 from
+   the wrapper, invisible because I had piped stdout to `head`. **Never read an
+   empty capture without reading its exit code and stderr.**
+2. **`extractSnapshot`'s width goes in `state.width`, not a top-level `width`.**
+   Passing it at the top level silently defaults `state.width` to *the root's
+   own width* — my first `workspace-tree` reference came back `399`. This is the
+   documented trap, and knowing about it did not stop me spelling it wrong.
+3. **A plain browser cannot be the reference.** The daemon serves a **unix
+   socket only** and vite has no `/v0` proxy, so `fetch('/v0/projects')` returns
+   the SPA's own HTML. The Chrome page rendered a sidebar with *stale
+   cross-build cache data* ("Rabbyte") and would have been captured as a
+   reference. **The reference is the Tauri app, always.**
+4. **An app instance was already running.** Launching a second one made its
+   supervisor fight for the socket until it gave up — the exact failure my own
+   §"Enumerate your own app instances" note describes. Then I over-corrected and
+   killed *mine*, the one that actually had the MCP bridge bound.
+5. **The oracle refused a mislabelled theme, and it was right.** I declared
+   `dark` against a `light` document and it refused rather than emit an archived
+   mislabel. Settings sync overrides `localStorage` on reload, so the honest fix
+   was to take the verdict in `light` — the fields at issue (border *width*, a
+   text-ceil) are theme-independent.
+6. **zsh does not word-split unquoted variables.** `$C` holding four flags
+   arrived as one argument: `unknown option "--viewport-width 1684 --theme …"`.
+
+**And one that was not a trap but a genuine prerequisite:** the reference must
+be built from the **worker's** worktree, because half of P3.81 is a `web/`
+change (`data-oracle-content-sized` on the label). Captured against trunk's
+`web/`, `repo-section` reports `content_sized: true, expected false` — the port
+correctly declaring something the reference build cannot yet say. **A
+contract-declaration fix has two sides, and a reference taken from the wrong
+tree tests neither.**
+
+## 🔎 NEW DEFECT — `workspace-tree` hardcodes its scroll width, and every recorded run hid it
+
+`workspace-tree` FAIL 5/8, correctly driven (`--width 294 --repos 0
+--project-name oracle-fixture --home-active`), two distinct causes:
+
+```
+scroll-area-root.bounds.w:      344.0, expected 294.0   (Δ +50)
+scroll-area-viewport.bounds.w:  344.0, expected 294.0   (Δ +50)
+scroll-area-root.bounds.h:      936.0, expected 932.0   (Δ  +4)
+scroll-area-viewport.bounds.h:  936.0, expected 932.0   (Δ  +4)
+workspace-tree.bounds.h:        976.0, expected 972.0   (Δ  +4)
+```
+
+**A. `crates/crowbar-app/src/surfaces/workspace_tree.rs:124` hardcodes
+`scroll_width: px(344.0)`** while the tree root correctly tracks `--width`. The
+root matched at 294 in the same snapshot, so the surface disagrees with itself.
+
+> **Every previously recorded `workspace-tree` run was driven at `--width 344`,
+> where the hardcoded constant coincidentally equalled the right answer.** The
+> defect was undetectable in that cell and appeared the instant the sidebar was
+> a different width. This is §17.1's "references exist for one cell of most"
+> firing on a *port* constant instead of a reference gap: **a single-cell
+> reference cannot distinguish a value that tracks its input from a constant
+> that happens to match it.** The cheapest guard is to drive any width-bearing
+> surface at two widths, once.
+
+**B. A 4px height overshoot** on the tree and its scroll area. Note the
+direction **inverted** since the pre-P3.66 run (`972` native vs `976` ref; now
+`976` native vs `972` ref), so P3.66's margin work moved it rather than fixing
+it. 4 = 2 × `MARGIN_Y`.
+
+Neither is P3.81's — both predate it and neither was in its brief. Dispatched
+as its own item.
+
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
 ```
@@ -4520,16 +4615,16 @@ taken by me against the live app. **A merge is not a verdict.**
 | `workspace-branch-icon` | ✅ | ✅ **PASS 0/1** | one anchor, geometry only — a thin verdict, but a real one |
 | `detach-holder-modal` | ✅ | ⏸ | needs the modal driven open |
 | `repo-import-dialog` | ✅ | 🚫 **REFUSED** | reference emits **two `button` anchors** — React-side prerequisite, not a port defect |
-| `repo-icon-popover` | ✅ | ⏳ **fixes merged, UNVERIFIED** | 36→15→2→? Both survivors fixed in P3.63's 3rd pass. **Re-verdict blocked by the screen lock** |
+| `repo-icon-popover` | ✅ | ✅ **PASS 0/7** | 36→15→2→**0**; v1.5 forgave 0.61 of 1.04px ceil excess |
 | `sidebar-tab-bar` | ✅ | n/a | no surface by design — measured through `--surface tabs` |
 | `workspace-switcher` | ✅ | n/a | no surface by design — `display: contents`, no box (v1.11) |
 | **`sidebar-skeleton`** | ✅ | 🚫 **UNOBTAINABLE** | never renders — its `Suspense` fallback cannot fire |
-| `project-home-row` | ✅ | ✅ **PASS 0/5** | P3.60; a real line-height defect, found live and fixed |
+| `project-home-row` | ✅ | ✅ **PASS 0/5** | P3.60 → regressed by P3.66 → **re-verified PASS after P3.81** (`light`, w=1684) |
 | `sidebar-carousel` | ✅ | ✅ **PASS 0/5** | drive: `--height 976 --active-tab workspaces`. See the `visible` note below |
 | `project-switcher-panel` | ✅ | ❌ **FAIL 5/5** | **only 1 real** — import label `font.weight` 400 vs 500. Also confirms P3.60 on its 2nd consumer |
-| `repo-section` | ✅ | ⏳ **fixes merged, UNVERIFIED** | P3.66 closed all 3 port defects; scope bug closed by P3.65. **Re-verdict blocked by the screen lock** |
-| `workspace-tree-item` | ✅ | ⏳ **fix merged, UNVERIFIED** | P3.66 removed the phantom border at the shared path. **Re-verdict blocked** |
-| `workspace-tree` | ✅ | ⏳ **fixes merged, UNVERIFIED** | P3.66 added the margins + `--project-name` + `--home-active`. **Re-verdict blocked** |
+| `repo-section` | ✅ | ✅ **PASS 0/6** | P3.81 declared `repo-section-label` `content_sized` on **both** sides; 0.8px ceil forgiven by v1.5 |
+| `workspace-tree-item` | ✅ | ✅ **PASS 0/4** | held as the **control** across P3.81 — raw `<button>`, correctly borderless |
+| `workspace-tree` | ✅ | ❌ **FAIL 5/8** | 19→2→**5** *at a new width*: `scroll_width: px(344.0)` is **hardcoded** and every prior run drove exactly 344. Plus a 4px height overshoot |
 | `pending-create-row` | ✅ | ⏸ | P3.61 — no verdict yet (no pending row in the live app to capture) |
 | `sidebar-toast-overlay` | ✅ | ✅ **PASS 0/1** | liveness proven by firing a real toast; viewport height agrees at 84px |
 | `workspace-inline-input` | ✅ | ⚠ **PASS 0/2 / FAIL 6/3** | plain cell passes (thin — box-only anchors); `--hint` cell has **1 real defect** |
