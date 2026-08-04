@@ -12,7 +12,7 @@ and three of the five can never receive a verdict at all.
 | tier | state |
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
-| **Tier B · `components/layout`** | **22 of 23 targets** — P3.61 (tree chain ×4) and P3.62 (last three) merged. **1 to go.** ⚠ built ≠ verified: **5 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1, `sidebar-carousel` 0/5), **4 FAIL** (`fps-overlay` — a **contract** gap; `repo-icon-popover` 36/6 — one missing wrapper; `repo-avatar` 4/1 — only 1 real; `project-switcher-panel` 5/5 — only 1 real), **1 REFUSED** (`repo-import-dialog` — duplicate `button` anchor id), the rest unverified |
+| **Tier B · `components/layout`** | **22 of 23 targets** (P3.64 closed 3 defects + 3 fixture flags) — P3.61 (tree chain ×4) and P3.62 (last three) merged. **1 to go.** ⚠ built ≠ verified: **5 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1, `sidebar-carousel` 0/5), **4 FAIL** (`fps-overlay` — a **contract** gap; `repo-icon-popover` 36/6 — one missing wrapper; `repo-avatar` 4/1 — only 1 real; `project-switcher-panel` 5/5 — only 1 real), **1 REFUSED** (`repo-import-dialog` — duplicate `button` anchor id), the rest unverified |
 | **Tier A · `crowbar-core`** | **1,648 lines of a ~3,170-line target** — first area merged (workspace scoping, P3.53). Coverage **100.00% over 787 lines**, up from 148 |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
@@ -3380,7 +3380,8 @@ taken by me against the live app. **A merge is not a verdict.**
 | `workspace-tree-item` | ✅ | ❌ **FAIL 1/3** | **the contract's fault** — would PASS 0/3; scope drops `-add-child`. Every other field exact |
 | `workspace-tree` | ✅ | ❌ **FAIL 19/8** | 3 causes; 13 deltas are one omission — the list consumer never applies `MARGIN_X/Y` |
 | `pending-create-row` | ✅ | ⏸ | P3.61 — no verdict yet (no pending row in the live app to capture) |
-| `workspace-inline-input` · `placeholder-row-actions` · `sidebar-toast-overlay`(+`-fallback`) | ✅ | ⏸ | P3.62, merged this iteration — no verdicts yet |
+| `sidebar-toast-overlay` | ✅ | ✅ **PASS 0/1** | liveness proven by firing a real toast; viewport height agrees at 84px |
+| `workspace-inline-input` · `placeholder-row-actions` · `sidebar-toast-overlay-fallback` | ✅ | ⏸ | P3.62 — need driving into their states |
 
 #### ✅ RESOLVED — the four "needs a repo in the fixture" verdicts were never about the repo
 
@@ -3496,7 +3497,7 @@ slip, not two coincidences. `workspace-tree-item` is otherwise a **perfect**
 match, which makes this the only thing between it and a pass. Fix dispatched
 (P3.65, TypeScript only).
 
-**Twelve verdicts taken, five passing** (plus one refused outright). Eleven
+**Thirteen verdicts taken, six passing** (plus one refused outright). Eleven
 surfaces built in this tier;
 that ratio is the honest state and the reason the header now separates the two
 numbers.
