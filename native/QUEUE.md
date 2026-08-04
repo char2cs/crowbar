@@ -4,7 +4,7 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 3 — remainder **measured**, not estimated. **64 surfaces · 2230 tests ·
+**Phase:** 3 — remainder **measured**, not estimated. **64 surfaces · 2271 tests ·
 clippy 0 · 7/7 invariants**, all verified by my own run. Of the 64, **5 measure
 dead code** (liveness audit + `sidebar-skeleton`) — so the honest figure is **59**,
 and three of the five can never receive a verdict at all.
@@ -13,7 +13,7 @@ and three of the five can never receive a verdict at all.
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
 | **Tier B · `components/layout`** | **22 of 23 targets** (P3.64 closed 3 defects + 3 fixture flags) — P3.61 (tree chain ×4) and P3.62 (last three) merged. **1 to go.** ⚠ built ≠ verified: **5 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1, `sidebar-carousel` 0/5), **4 FAIL** (`fps-overlay` — a **contract** gap; `repo-icon-popover` 36/6 — one missing wrapper; `repo-avatar` 4/1 — only 1 real; `project-switcher-panel` 5/5 — only 1 real), **1 REFUSED** (`repo-import-dialog` — duplicate `button` anchor id), the rest unverified |
-| **Tier A · `crowbar-core`** | **two areas merged** — workspace scoping (P3.53) + git logic (P3.67). Coverage **100.00% over 1,435 lines**, up from 787. ⚠ 2 of the 6 git files measure **dead code** — my scoping error, see below. **Denominator settled (P3.71): ~3,170-line Tier A core target confirmed**, not the 9,447-line figure that briefly displaced it — that number measures all seven surveyed areas' *entire* reachable surface (Phase 4 state, `crowbar-diff` logic, presentation, out-of-scope code included), not `crowbar-core`'s alone. **1,435 / ~3,170 ≈ 45%** raw, **~43%** once the 62 known-dead/out-of-scope lines are backed out of the numerator — see `tier-a-denominator.md`'s "Denominator reconciliation (P3.71)". Next recommended area: keymap resolution, 5 files / 516 lines, all LIVE |
+| **Tier A · `crowbar-core`** | **three areas merged** — workspace scoping (P3.53) + git logic (P3.67) + keymap resolution (P3.70). Coverage **100.00% over 1,882 lines**, up from 1,435 (and 787 before that). ⚠ 2 of the 6 git files measure **dead code** — my scoping error, see below. **Denominator settled (P3.71): ~3,170-line Tier A core target confirmed**, not the 9,447-line figure that briefly displaced it — that number measures all seven surveyed areas' *entire* reachable surface (Phase 4 state, `crowbar-diff` logic, presentation, out-of-scope code included), not `crowbar-core`'s alone. **1,882 / ~3,170 ≈ 59%** raw, **~57%** once the 62 known-dead/out-of-scope lines are backed out of the numerator — see `tier-a-denominator.md`'s "Denominator reconciliation (P3.71)". Keymap was that next area and is now merged |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
 Both denominators come from surveys committed this iteration
@@ -3655,6 +3655,36 @@ but part of what shipped in the second one doesn't run in production.
 **Caveat to carry into the brief:** three of the five have **zero existing
 tests**, so that item authors tests rather than porting them — a different and
 slower job than the git area, and one where "100% coverage" would say much less.
+
+## ✅ P3.70 — keymap resolution merged, and two corrections to freshly-audited docs
+
+`crowbar-core` goes **1,435 → 1,882 covered lines**, still 100.00%, 41 new
+tests, 2271 workspace tests, 7/7 invariants. Tier A completion **≈59% raw /
+~57% net**.
+
+**Two findings against documents that had just been re-verified:**
+
+1. **`registry.ts` holds 20 commands, not 19.** The survey said 19; the
+   compiler said otherwise, rejecting a `[Command; 19]` binding for a
+   20-element literal. I verified it myself (20 command objects in the file)
+   and corrected the survey row. **P3.69's liveness pass did not catch this
+   because it was auditing *reachability*, not *counts*** — a row can be right
+   about LIVE and wrong about size, and an audit only checks what it is looking
+   for.
+2. **`chord.ts` has a seventh export, `MOD_ORDER`, with zero importers —
+   including inside its own file.** Not in the survey's "4 of 6", not ported.
+   Verified myself: it appears in no file but its own.
+
+**This item authored most of its tests rather than porting them** — three of
+the five files had none — so the mutation evidence carried more weight than
+usual. One mutation failed **two** tests where one was expected, and that was
+reported rather than trimmed to look tidier. Another caught a real TS behaviour
+worth preserving: an empty-string override still means `source: 'user'` —
+*explicitly unbound*, not absent.
+
+`format_chord` now takes `is_mac` explicitly instead of reading a hidden
+platform global; the TS test file has to `vi.mock` that global, so the seam was
+already a known irritant rather than a gratuitous change.
 
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 

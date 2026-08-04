@@ -423,7 +423,7 @@ exactly — no keymap logic found anywhere outside this directory):
 | file | lines | shape |
 |---|---|---|
 | `types.ts` | 52 | `Command`, `CommandCategory`, `KeymapPreset(Id)`, `KeymapOverrides`, `EffectiveBinding` — the schema |
-| `registry.ts` | 220 | `COMMANDS: Command[]` (19 commands) + `getCommand`, `CATEGORY_ORDER` — static data + lookup |
+| `registry.ts` | 220 | `COMMANDS: Command[]` (**20** commands — this row said 19 until P3.70's compiler rejected a `[Command; 19]` binding; verified independently) + `getCommand`, `CATEGORY_ORDER` — static data + lookup |
 | `defaults/keybinding-presets.ts` | 49 | `KEYMAP_PRESETS` (`default`, `compact`) + `getPreset`, `isKeymapPresetId` |
 | `utils/chord.ts` | 124 | chord grammar: parse/stringify/normalize/format + 2 `KeyboardEvent`-consuming functions |
 | `utils/effective-keymaps.ts` | 71 | **the resolution algorithm**: `resolveBinding`, `getEffectiveBindings`, `getEffectiveChordMap`, `findConflictingCommands` |
