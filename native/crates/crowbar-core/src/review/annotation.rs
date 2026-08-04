@@ -154,10 +154,15 @@ pub fn annotation_to_thread(annotation: &ReviewAnnotation) -> ReviewThread {
 /// reads the map's own iteration order. Same convention as
 /// `crate::git::build_git_folder_tree`'s `GitFolderNode::folders`.
 #[must_use]
-pub fn group_annotations_by_path(threads: &[ReviewThread]) -> HashMap<String, Vec<ReviewAnnotation>> {
+pub fn group_annotations_by_path(
+    threads: &[ReviewThread],
+) -> HashMap<String, Vec<ReviewAnnotation>> {
     let mut by_path: HashMap<String, Vec<&ReviewThread>> = HashMap::new();
     for thread in threads {
-        by_path.entry(thread.file_path.clone()).or_default().push(thread);
+        by_path
+            .entry(thread.file_path.clone())
+            .or_default()
+            .push(thread);
     }
 
     let mut grouped = HashMap::with_capacity(by_path.len());
@@ -208,8 +213,14 @@ mod tests {
 
     #[test]
     fn maps_a_threads_old_side_to_deletions_and_its_new_side_to_additions() {
-        assert_eq!(to_annotation_side(ThreadSide::Old), AnnotationSide::Deletions);
-        assert_eq!(to_annotation_side(ThreadSide::New), AnnotationSide::Additions);
+        assert_eq!(
+            to_annotation_side(ThreadSide::Old),
+            AnnotationSide::Deletions
+        );
+        assert_eq!(
+            to_annotation_side(ThreadSide::New),
+            AnnotationSide::Additions
+        );
     }
 
     #[test]
@@ -253,7 +264,10 @@ mod tests {
                 line_number: 11,
                 metadata: thread("thread-y", "src/pkg/file0.ts", 11, to_thread_side(side)),
             };
-            assert_eq!(thread_to_annotation(&annotation_to_thread(&annotation)), annotation);
+            assert_eq!(
+                thread_to_annotation(&annotation_to_thread(&annotation)),
+                annotation
+            );
         }
     }
 

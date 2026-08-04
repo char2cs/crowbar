@@ -200,7 +200,11 @@ pub fn add_review_message(state: &mut BranchReviewState, thread_id: &str, messag
 /// Two-way: pass `is_resolved: false` to reopen. A no-op for an unknown id.
 /// Mirrors `setReviewThreadResolved`, and (for `is_resolved: true`) also the
 /// now-dropped `resolveReviewThread` — see the module doc.
-pub fn set_review_thread_resolved(state: &mut BranchReviewState, thread_id: &str, is_resolved: bool) {
+pub fn set_review_thread_resolved(
+    state: &mut BranchReviewState,
+    thread_id: &str,
+    is_resolved: bool,
+) {
     if let Some(t) = state.threads.iter_mut().find(|t| t.id == thread_id) {
         t.is_resolved = is_resolved;
     }
@@ -232,9 +236,9 @@ pub fn add_review_conversation(state: &mut BranchReviewState, conversation: Revi
 #[cfg(test)]
 mod tests {
     use super::{
-        BranchReviewState, DiffStatus, ReviewConversation, ReviewMessage, ReviewThread,
-        ThreadSide, add_review_conversation, add_review_message, add_review_thread, reveal_file,
-        remove_review_thread, set_branch_review_conversations, set_branch_review_description,
+        BranchReviewState, DiffStatus, ReviewConversation, ReviewMessage, ReviewThread, ThreadSide,
+        add_review_conversation, add_review_message, add_review_thread, remove_review_thread,
+        reveal_file, set_branch_review_conversations, set_branch_review_description,
         set_branch_review_diff_status, set_branch_review_merge_strategy,
         set_review_thread_resolved, upsert_review_thread,
     };

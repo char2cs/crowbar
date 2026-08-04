@@ -122,7 +122,11 @@ fn parse_side(side: &str) -> ThreadSide {
 fn map_reply(r: &ThreadReplyDTO) -> ReviewMessage {
     ReviewMessage {
         id: r.id.clone(),
-        author: if r.author.is_empty() { None } else { Some(r.author.clone()) },
+        author: if r.author.is_empty() {
+            None
+        } else {
+            Some(r.author.clone())
+        },
         is_agent: r.is_agent,
         body: r.body.clone(),
         created_at: r.created_at.clone(),
@@ -144,7 +148,11 @@ pub fn map_thread(t: &ThreadDTO) -> ReviewThread {
         } else {
             t.message_id.clone()
         },
-        author: if t.author.is_empty() { None } else { Some(t.author.clone()) },
+        author: if t.author.is_empty() {
+            None
+        } else {
+            Some(t.author.clone())
+        },
         is_agent: t.is_agent,
         body: t.body.clone(),
         created_at: t.created_at.clone(),
@@ -161,7 +169,11 @@ pub fn map_thread(t: &ThreadDTO) -> ReviewThread {
         // Prefer startLine/endLine, else fall back to line for both — mirrors
         // TS `t.startLine || t.line` (JS `||` falls back only on the literal
         // falsy `0`, never on a negative number, which `== 0` matches).
-        start_line: if t.start_line == 0 { t.line } else { t.start_line },
+        start_line: if t.start_line == 0 {
+            t.line
+        } else {
+            t.start_line
+        },
         end_line: if t.end_line == 0 { t.line } else { t.end_line },
         side: parse_side(&t.side),
         messages,
@@ -321,19 +333,30 @@ mod tests {
 
     #[test]
     fn derives_is_resolved_from_resolved_true() {
-        let dto = ThreadDTO { resolved: true, ..wire_thread_dto() };
+        let dto = ThreadDTO {
+            resolved: true,
+            ..wire_thread_dto()
+        };
         assert!(map_thread(&dto).is_resolved);
     }
 
     #[test]
     fn derives_is_resolved_false_from_resolved_false() {
-        let dto = ThreadDTO { resolved: false, ..wire_thread_dto() };
+        let dto = ThreadDTO {
+            resolved: false,
+            ..wire_thread_dto()
+        };
         assert!(!map_thread(&dto).is_resolved);
     }
 
     #[test]
     fn falls_back_start_line_end_line_to_line_when_zero() {
-        let dto = ThreadDTO { line: 5, start_line: 0, end_line: 0, ..wire_thread_dto() };
+        let dto = ThreadDTO {
+            line: 5,
+            start_line: 0,
+            end_line: 0,
+            ..wire_thread_dto()
+        };
         let result = map_thread(&dto);
         assert_eq!(result.line_number, 5);
         assert_eq!(result.start_line, 5);
@@ -342,26 +365,43 @@ mod tests {
 
     #[test]
     fn root_message_uses_the_real_message_id_from_the_wire() {
-        let dto = ThreadDTO { id: "abc".to_string(), message_id: "root-real".to_string(), ..wire_thread_dto() };
+        let dto = ThreadDTO {
+            id: "abc".to_string(),
+            message_id: "root-real".to_string(),
+            ..wire_thread_dto()
+        };
         assert_eq!(map_thread(&dto).messages[0].id, "root-real");
     }
 
     #[test]
     fn root_message_falls_back_to_synthetic_id_root_when_message_id_is_empty() {
-        let dto = ThreadDTO { id: "abc".to_string(), message_id: String::new(), ..wire_thread_dto() };
+        let dto = ThreadDTO {
+            id: "abc".to_string(),
+            message_id: String::new(),
+            ..wire_thread_dto()
+        };
         assert_eq!(map_thread(&dto).messages[0].id, "abc:root");
     }
 
     #[test]
     fn empty_replies_produces_a_single_root_message() {
-        let dto = ThreadDTO { replies: Vec::new(), ..wire_thread_dto() };
+        let dto = ThreadDTO {
+            replies: Vec::new(),
+            ..wire_thread_dto()
+        };
         assert_eq!(map_thread(&dto).messages.len(), 1);
     }
 
     #[test]
     fn maps_side_correctly() {
-        let old = ThreadDTO { side: "old".to_string(), ..wire_thread_dto() };
-        let new = ThreadDTO { side: "new".to_string(), ..wire_thread_dto() };
+        let old = ThreadDTO {
+            side: "old".to_string(),
+            ..wire_thread_dto()
+        };
+        let new = ThreadDTO {
+            side: "new".to_string(),
+            ..wire_thread_dto()
+        };
         assert_eq!(map_thread(&old).side, super::super::state::ThreadSide::Old);
         assert_eq!(map_thread(&new).side, super::super::state::ThreadSide::New);
     }
@@ -395,7 +435,10 @@ mod tests {
         // TS's ThreadDTO.side is typed 'old' | 'new' at compile time only;
         // the generated Rust wire type is a plain String. Exercises the
         // fallback this port had to make explicit — see parse_side's doc.
-        let dto = ThreadDTO { side: "sideways".to_string(), ..wire_thread_dto() };
+        let dto = ThreadDTO {
+            side: "sideways".to_string(),
+            ..wire_thread_dto()
+        };
         assert_eq!(map_thread(&dto).side, super::super::state::ThreadSide::New);
     }
 
@@ -421,7 +464,12 @@ mod tests {
                     age: Some("2h".to_string()),
                     is_active: Some(true),
                 },
-                WireBranchChat { id: "c2".to_string(), title: None, age: None, is_active: None },
+                WireBranchChat {
+                    id: "c2".to_string(),
+                    title: None,
+                    age: None,
+                    is_active: None,
+                },
             ]),
         };
 
