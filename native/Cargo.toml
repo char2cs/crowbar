@@ -53,6 +53,12 @@ gpui-component-macros = { path = "vendor/gpui-component-macros" }
 # External.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# crowbar-core::filetree::gitignore's cascading-.gitignore matcher (P3.76).
+# Already present in the lockfile transitively (gpui-component -> rust-i18n
+# -> globwalk -> ignore 0.4.31), so pinning it as a direct dependency of
+# crowbar-core adds no new fetch. ripgrep's own crate; see that module's doc
+# comment for the `Match`-vs-npm-`ignore` equivalence check.
+ignore = "0.4"
 # §10.1: the transport is `reqwest` with a unix connector. 0.13 has native unix
 # socket support (`ClientBuilder::unix_socket`), so no third-party connector
 # crate is needed. `blocking` because gpui does not run a tokio reactor and the

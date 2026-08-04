@@ -17,6 +17,7 @@
 //! into `crowbar-ui` or `crowbar-state` and leave the decision here.
 
 pub mod color;
+pub mod filetree;
 pub mod git;
 pub mod keymap;
 pub mod settings;
