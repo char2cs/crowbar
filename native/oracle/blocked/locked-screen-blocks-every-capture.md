@@ -142,3 +142,55 @@ work can proceed.
 (`1714 · dark · normal · no flags`). The theme and width axes are **unverified**,
 not "assumed fine" — and the attempt to close the theme axis is what surfaced
 both this blocker and a fabricated reference (see QUEUE.md, P3.23).
+
+---
+
+## ‼️ RECURRED — 2026-08-04, and it is blocking a real backlog this time
+
+`CGSSessionScreenIsLocked: True`, confirmed repeatedly over several hours.
+
+The QUEUE.md classification of this file said the lock *"was real when raised
+and can recur; captures work today"*, and treated it as a hazard note rather
+than open work. **It recurred**, and this time it caught the port mid-stride.
+
+### What is stranded behind it
+
+**Four surfaces are merged, gated and UNVERIFIED** — fixes landed with clippy
+clean, 2271 tests and 7/7 invariants, and *none of them compared against the
+running app*:
+
+| surface | state |
+|---|---|
+| `repo-icon-popover` | 36 → 15 → 2 deltas; P3.63's third pass fixed both survivors |
+| `repo-section` | P3.66 closed 3 port defects |
+| `workspace-tree-item` | P3.66 removed the phantom 1px border |
+| `workspace-tree` | P3.66 added `MARGIN_X/Y`, `--project-name`, `--home-active` |
+
+That is exactly the state this project refuses to call done: a green suite is
+not a verdict, and every one of those fixes was *diagnosed* from a live run I
+can no longer repeat.
+
+### What still works, and why the loop has not stalled
+
+The **React half** of the pipeline is driven over the MCP bridge, not the
+display, so reference capture is unaffected. `cargo` gates, merging, dispatch
+and code review are all unaffected. Only the **native** snapshot is blocked —
+and therefore every *comparison*.
+
+Work has continued on that basis: Tier A gained two areas (git logic, keymap
+resolution) and `crowbar-core` went 787 → 1,882 covered lines while this was
+in force.
+
+### The check, and the control
+
+```bash
+python3 -c "
+import subprocess, plistlib
+d = plistlib.loads(subprocess.run(['ioreg','-n','Root','-d1','-a'], capture_output=True).stdout)
+print([u.get('CGSSessionScreenIsLocked') for u in d.get('IOConsoleUsers', [])])"
+```
+
+On unlock, **re-test with `--surface button` first**, not with a surface under
+test. Three different faults produce a byte-identical hang — missing
+`--features driver`, missing `CROWBAR_ROW_SNAPSHOT`, and this lock — and I have
+now been fooled by two of the three in this session alone.
