@@ -44,6 +44,7 @@ use crowbar_ui::Theme;
 use crowbar_ui::components::AnchorSink;
 use crowbar_ui::components::project_home_row::ProjectHomeRow;
 use crowbar_ui::components::repo_section::RepoSection;
+use crowbar_ui::components::row_base;
 use crowbar_ui::components::workspace_tree::WorkspaceTree;
 use gpui::{AnyElement, SharedString, px};
 
@@ -62,8 +63,9 @@ pub static SURFACE: Surface = Surface {
         StateFlag::Focus,
         StateFlag::Selected,
     ],
-    // `project-home-row`'s own `h-9` plus the `ScrollArea` fixture's live
-    // `936` — a floor, not a ceiling; `driven_height` returns `None` below.
+    // `project-home-row`'s own `h-9` plus its margin plus the scroll area's
+    // own share of the column (`Params::tree`'s own derivation) — a floor,
+    // not a ceiling; `driven_height` returns `None` below.
     min_window_height: 980,
     full_bleed: false,
     options,
@@ -103,7 +105,7 @@ impl Params {
     /// override the composed home row's own two fields; see the module
     /// docs.
     #[must_use]
-    pub fn tree(&self, theme: &Theme) -> WorkspaceTree {
+    pub fn tree(&self, cell: &Cell, theme: &Theme) -> WorkspaceTree {
         let sections = (0..self.repos)
             .map(|i| RepoSection {
                 name: SharedString::from(format!("repo-{i}")),
@@ -120,9 +122,34 @@ impl Params {
         WorkspaceTree {
             project_home,
             sections,
-            // `ScrollArea::fixture`'s own live `workspace-tree` measurement.
-            scroll_width: px(344.0),
-            scroll_height: px(936.0),
+            // `ScrollAreaPrimitive.Root` is `size-full` inside the call
+            // site's own `flex-1` column
+            // (`web/src/components/layout/workspace-tree.tsx:71`,
+            // `<ScrollArea className="flex-1">`) — its width *is* the
+            // sidebar column's, the same quantity the tree root already
+            // tracks (`WorkspaceTree::render`'s `.flex_1()`, filling this
+            // cell's own `--width`). A fixed `px(344.0)` here disagreed
+            // with the root the instant a cell drove a different width;
+            // `native/QUEUE.md`'s "workspace-tree hardcodes its scroll
+            // width" entry.
+            scroll_width: cell.width_px(),
+            // The scroll area's own share of vertical space in a column
+            // whose total height is fixed by its container, not by its
+            // children's sum — the same `flex-1`-in-a-fixed-height
+            // reasoning `scroll_width` above just stopped needing (width
+            // there is the containing block's; height here is what is
+            // *left over* after the row above it). `936` was `ScrollArea::
+            // fixture`'s own live measurement, taken before `WorkspaceTree::
+            // home_row` existed: `mx-1.5 my-0.5` has been on `ROW_BASE`
+            // since the file was created
+            // (`web/src/components/layout/workspace-row-base.ts:2`,
+            // `6d7e51f2`), so the live scroll area's real height already
+            // had `row_base::MARGIN_Y * 2` (P3.66, `d7287c76`) taken out of
+            // it — the port's `936` just never had that subtraction done to
+            // it, because P3.66 added the row's own margin without touching
+            // this sibling field. Deriving it from the constant rather than
+            // writing `932` keeps the two in sync if `MARGIN_Y` ever moves.
+            scroll_height: px(936.0) - row_base::MARGIN_Y * 2.0,
         }
     }
 }
@@ -162,8 +189,8 @@ impl SurfaceParams for Params {
         true
     }
 
-    fn render(&self, _cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
-        self.tree(theme).render(theme, anchors)
+    fn render(&self, cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+        self.tree(cell, theme).render(theme, anchors)
     }
 }
 
@@ -214,7 +241,8 @@ mod tests {
         assert_eq!(bag.project_name, None);
         assert!(!bag.home_active);
 
-        let tree = params_of(&cell(&[])).tree(&theme);
+        let bare = cell(&[]);
+        let tree = params_of(&bare).tree(&bare, &theme);
         assert_eq!(tree.sections.len(), 1);
         assert_eq!(tree.sections[0].name, "repo-0");
         assert_eq!(tree.project_home.project_name, "home");
@@ -225,7 +253,7 @@ mod tests {
     fn repos_reaches_the_tree() {
         let theme = Theme::DARK;
         let three_repos = cell(&["--repos", "3"]);
-        let tree = params_of(&three_repos).tree(&theme);
+        let tree = params_of(&three_repos).tree(&three_repos, &theme);
         assert_eq!(tree.sections.len(), 3);
         assert_eq!(tree.sections[2].name, "repo-2");
     }
@@ -239,13 +267,13 @@ mod tests {
         let theme = Theme::DARK;
         let named = cell(&["--project-name", "oracle-fixture"]);
         assert_eq!(
-            params_of(&named).tree(&theme).project_home.project_name,
+            params_of(&named).tree(&named, &theme).project_home.project_name,
             "oracle-fixture"
         );
 
         let unset = cell(&[]);
         assert_eq!(
-            params_of(&unset).tree(&theme).project_home.project_name,
+            params_of(&unset).tree(&unset, &theme).project_home.project_name,
             "home",
             "no --project-name leaves the composed row on its own fixture fallback",
         );
@@ -260,10 +288,10 @@ mod tests {
     fn home_active_reaches_the_composed_row() {
         let theme = Theme::DARK;
         let inactive = cell(&[]);
-        assert!(!params_of(&inactive).tree(&theme).project_home.is_active);
+        assert!(!params_of(&inactive).tree(&inactive, &theme).project_home.is_active);
 
         let active = cell(&["--home-active"]);
-        assert!(params_of(&active).tree(&theme).project_home.is_active);
+        assert!(params_of(&active).tree(&active, &theme).project_home.is_active);
     }
 
     #[test]

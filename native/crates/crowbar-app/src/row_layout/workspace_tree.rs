@@ -10,7 +10,7 @@ use super::{a_cell, assert_px, ids, measure};
 use crowbar_driver::Paint;
 use crowbar_ui::Theme;
 use crowbar_ui::components::{row_base, workspace_tree};
-use gpui::TestAppContext;
+use gpui::{TestAppContext, px};
 
 use crate::row_surface::Cell;
 
@@ -194,4 +194,85 @@ fn home_active_paints_the_composed_row_active(cx: &mut TestAppContext) {
     assert_eq!(active.border_color, Some(theme.background.value()));
     assert_ne!(active.background, inactive.background, "{inactive:?}");
     assert_ne!(active.border_color, inactive.border_color, "{inactive:?}");
+}
+
+/// **The scroll area's own width tracks this cell's `--width`, the same
+/// quantity the tree root already tracks — not a hardcoded `344`.**
+/// `WorkspaceTree::render`'s root is `.flex_1()` inside the harness's own
+/// `--width`-driven column, so the root always moved; `Params::tree` used to
+/// set `scroll_width: px(344.0)` regardless, so the two anchors agreed with
+/// each other only at the one width every previously recorded run happened
+/// to drive (`native/QUEUE.md`'s "workspace-tree hardcodes its scroll
+/// width" entry).
+///
+/// **A single width cannot tell a tracked value from a lucky constant** —
+/// that is exactly how this defect survived every prior run — so this
+/// drives two, `294` (this item's own reference cell) and `500` (arbitrary,
+/// chosen only to differ from both `294` and the old `344`).
+///
+/// **Mutation, run:** reverted `scroll_width: cell.width_px()` back to
+/// `scroll_width: px(344.0)` in `crowbar-app/src/surfaces/workspace_tree.rs`.
+/// Failed as predicted, at the first width in the loop:
+///
+/// ```text
+/// thread 'row_layout::workspace_tree::the_scroll_area_tracks_the_cells_width_at_two_different_widths' panicked at /private/tmp/crowbar-p382-treewidth/native/crates/crowbar-app/src/row_layout/workspace_tree.rs:234:9:
+/// expected 294px, got 344px
+/// ```
+///
+/// Reverted after confirming.
+#[gpui::test]
+fn the_scroll_area_tracks_the_cells_width_at_two_different_widths(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+
+    for width in [294u16, 500] {
+        let records = measure(cx, cell(&["--repos", "0", "--width", &width.to_string()]));
+        let root = super::find(&records, workspace_tree::ID_ROOT);
+        let scroll_root = super::find(&records, "scroll-area-root");
+        let scroll_viewport = super::find(&records, "scroll-area-viewport");
+
+        assert_px(root.bounds.size.width, px(f32::from(width)));
+        assert_px(scroll_root.bounds.size.width, px(f32::from(width)));
+        assert_px(scroll_viewport.bounds.size.width, px(f32::from(width)));
+    }
+}
+
+/// **The scroll area gives up `row_base::MARGIN_Y * 2` of height to the home
+/// row's own margin, out of a column whose total is fixed by its
+/// container** — not a sum that grows when the row's own flow does.
+///
+/// `mx-1.5 my-0.5` has been on `ROW_BASE` since the file was created
+/// (`web/src/components/layout/workspace-row-base.ts:2`, `6d7e51f2`), so the
+/// live scroll area's real height already had the margin's cost taken out
+/// of it before P3.66 ever touched this port: `936` (`ScrollArea::
+/// fixture`'s own live measurement) was captured against that real,
+/// margin-inclusive column, not against a margin-free one. P3.66
+/// (`d7287c76`) added the row's own margin to `WorkspaceTree::home_row`
+/// without subtracting it back out of this sibling field, so the two grew
+/// the tree's own total height by `MARGIN_Y * 2` instead of only
+/// redistributing it — the overshoot `native/QUEUE.md`'s "4px height
+/// overshoot" entry reports, confirmed against the live app at `972` total
+/// / `932` scroll area (`--width 294 --viewport-width 1684 --theme light
+/// --repos 0 --project-name oracle-fixture --home-active`).
+///
+/// **Mutation, run:** reverted `scroll_height: px(936.0) - row_base::
+/// MARGIN_Y * 2.0` back to `scroll_height: px(936.0)`. Both assertions
+/// failed as predicted:
+///
+/// ```text
+/// thread 'row_layout::workspace_tree::the_scroll_area_gives_up_the_home_rows_own_margin_from_a_fixed_total' panicked at /private/tmp/crowbar-p382-treewidth/native/crates/crowbar-app/src/row_layout/workspace_tree.rs:275:5:
+/// expected 932px, got 936px
+/// ```
+///
+/// Reverted after confirming.
+#[gpui::test]
+fn the_scroll_area_gives_up_the_home_rows_own_margin_from_a_fixed_total(cx: &mut TestAppContext) {
+    crowbar_driver::leak_checked!(cx);
+    let records = measure(cx, cell(&["--repos", "0"]));
+    let root = super::find(&records, workspace_tree::ID_ROOT);
+    let scroll_root = super::find(&records, "scroll-area-root");
+    let scroll_viewport = super::find(&records, "scroll-area-viewport");
+
+    assert_px(scroll_root.bounds.size.height, px(932.0));
+    assert_px(scroll_viewport.bounds.size.height, px(932.0));
+    assert_px(root.bounds.size.height, px(972.0));
 }
