@@ -12,7 +12,7 @@ and three of the five can never receive a verdict at all.
 | tier | state |
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
-| **Tier B · `components/layout`** | **15 of 23 targets** — waves 1–3 merged. **8 to go.** ⚠ built ≠ verified: **3 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5), 1 FAIL (`fps-overlay` — a **contract** gap, not a port defect), the rest unverified |
+| **Tier B · `components/layout`** | **15 of 23 targets** — waves 1–3 merged. **8 to go.** ⚠ built ≠ verified: **4 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1), **2 FAIL** (`fps-overlay` — a **contract** gap, not a port defect; `repo-icon-popover` 36/6 — a real one), the rest unverified |
 | **Tier A · `crowbar-core`** | **1,648 lines of a ~3,170-line target** — first area merged (workspace scoping, P3.53). Coverage **100.00% over 787 lines**, up from 148 |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
@@ -3340,10 +3340,10 @@ taken by me against the live app. **A merge is not a verdict.**
 | `context-pill` | ✅ | ✅ **PASS 0/2** | drive: `--kind home`. Fixed a missing 1px transparent border and a font-metrics line box — see the instrument-mismatch note |
 | `fps-overlay` | ✅ | ❌ **FAIL 1/1** | +3px — **contract gap**, not a port defect (7 runs × per-run `ceil`) |
 | `repo-avatar` | ✅ | ⏸ | ✅ **UNBLOCKED** — the repo was never the problem, see below |
-| `workspace-branch-icon` | ✅ | ⏸ | ✅ **UNBLOCKED** — now live in the DOM |
+| `workspace-branch-icon` | ✅ | ✅ **PASS 0/1** | one anchor, geometry only — a thin verdict, but a real one |
 | `detach-holder-modal` | ✅ | ⏸ | needs the modal driven open |
 | `repo-import-dialog` | ✅ | ⏸ | ✅ **UNBLOCKED** — trigger is in `repo-section`, now rendered |
-| `repo-icon-popover` | ✅ | ⏸ | ✅ **UNBLOCKED** — `repo-icon-popover-trigger` now live |
+| `repo-icon-popover` | ✅ | ❌ **FAIL 36/6** | port hand-rolls the popup — no border, no radius, no `popover-viewport`. Needs a worker |
 | `sidebar-tab-bar` | ✅ | n/a | no surface by design — measured through `--surface tabs` |
 | `workspace-switcher` | ✅ | n/a | no surface by design — `display: contents`, no box (v1.11) |
 | **`sidebar-skeleton`** | ✅ | 🚫 **UNOBTAINABLE** | never renders — its `Suspense` fallback cannot fire |
@@ -3377,7 +3377,7 @@ Recovery, needed before any capture on this instance: delete the `crowbar`
 IndexedDB, reload, confirm `getDB()` resolves at version 7. Any build sharing
 the origin can put it back at 9.
 
-**Five verdicts taken, three passing.** Eleven surfaces built in this tier;
+**Seven verdicts taken, four passing.** Eleven surfaces built in this tier;
 that ratio is the honest state and the reason the header now separates the two
 numbers.
 
