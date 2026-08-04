@@ -4,7 +4,7 @@ Source of truth for the Rust-native GPUI port. Spec:
 `docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
 Updated every orchestrator iteration. This file is how a cold session picks up.
 
-**Phase:** 3 — remainder **measured**, not estimated. **64 surfaces · 2271 tests ·
+**Phase:** 3 — remainder **measured**, not estimated. **64 surfaces · 2331 tests ·
 clippy 0 · 7/7 invariants**, all verified by my own run. Of the 64, **5 measure
 dead code** (liveness audit + `sidebar-skeleton`) — so the honest figure is **59**,
 and three of the five can never receive a verdict at all.
@@ -13,7 +13,7 @@ and three of the five can never receive a verdict at all.
 |---|---|
 | **Tier B · `components/ui`** | ✅ **done** — 43 surfaces, 1627 tests, clippy 0, 7/7 invariants, **no held verdicts**, every verdict taken by me |
 | **Tier B · `components/layout`** | **22 of 23 targets** (P3.64 closed 3 defects + 3 fixture flags) — P3.61 (tree chain ×4) and P3.62 (last three) merged. **1 to go.** ⚠ built ≠ verified: **5 PASS** (`sidebar-project-header` 0/5, `context-pill` 0/2, `project-home-row` 0/5, `workspace-branch-icon` 0/1, `sidebar-carousel` 0/5), **4 FAIL** (`fps-overlay` — a **contract** gap; `repo-icon-popover` 36/6 — one missing wrapper; `repo-avatar` 4/1 — only 1 real; `project-switcher-panel` 5/5 — only 1 real), **1 REFUSED** (`repo-import-dialog` — duplicate `button` anchor id), the rest unverified |
-| **Tier A · `crowbar-core`** | **three areas merged** — workspace scoping (P3.53) + git logic (P3.67) + keymap resolution (P3.70). Coverage **100.00% over 1,882 lines**, up from 1,435 (and 787 before that). ⚠ 2 of the 6 git files measure **dead code** — my scoping error, see below. **Denominator settled (P3.71): ~3,170-line Tier A core target confirmed**, not the 9,447-line figure that briefly displaced it — that number measures all seven surveyed areas' *entire* reachable surface (Phase 4 state, `crowbar-diff` logic, presentation, out-of-scope code included), not `crowbar-core`'s alone. **1,882 / ~3,170 ≈ 59%** raw, **~57%** once the 62 known-dead/out-of-scope lines are backed out of the numerator — see `tier-a-denominator.md`'s "Denominator reconciliation (P3.71)". Keymap was that next area and is now merged |
+| **Tier A · `crowbar-core`** | **four areas merged** — workspace scoping (P3.53) + git logic (P3.67) + keymap resolution (P3.70) + settings schema (P3.72). Coverage **100.00% over 2,531 lines**, up from 1,882 → 1,435 → 787. ⚠ 2 of the 6 git files measure **dead code** — my scoping error, see below. **Denominator settled (P3.71): ~3,170-line Tier A core target confirmed**, not the 9,447-line figure that briefly displaced it — that number measures all seven surveyed areas' *entire* reachable surface (Phase 4 state, `crowbar-diff` logic, presentation, out-of-scope code included), not `crowbar-core`'s alone. **2,531 / ~3,170 ≈ 80%** raw, **~78%** once the 62 known-dead/out-of-scope lines are backed out of the numerator — see `tier-a-denominator.md`'s "Denominator reconciliation (P3.71)". Keymap was that next area and is now merged |
 | Tier A · `proto` / `client` | ✅ done (10,127 + 696 lines) |
 
 Both denominators come from surveys committed this iteration
@@ -3831,6 +3831,42 @@ ripgrep's `ignore` crate matches the npm package's `.gitignore` semantics
 (`Gitignore` / `Match::{Ignore,Whitelist,None}`), **but** the ancestor-first
 cascade in `isPathGitIgnoredByFileTreeRules` has no crate equivalent and must be
 reimplemented whichever matcher is chosen. That is a port, not a swap.
+
+## ✅ P3.72 — settings schema merged. Tier A **≈80%** (2,531 / ~3,170)
+
+100.00% over **2,531** lines, up from 1,882. 60 tests, 2331 workspace tests,
+7/7 invariants. The 8-file/554-line reconciliation against the survey's own
+9-file figure came back **clean** — the ninth is CONDITIONAL and correctly out.
+
+### Four behavioural asymmetries in the TS source, none previously surveyed
+
+The one I verified myself, because it is the shape that ports wrong silently:
+
+```ts
+// settings-normalization.ts:52   — non-finite fallback
+function normalizeFileTreeIndentSize(value: number): number {
+  if (!Number.isFinite(value)) return 20      // ← 20
+// default-settings.ts:75
+  fileTreeIndentSize: 16,                     // ← 16
+```
+
+**The fallback is not the default**, and nothing in the schema says so. A port
+that assumed they were equal would be wrong only for non-finite input — which
+no ordinary test would produce. The others: `editorEngine`'s dead
+`customEditorCommand` param, `externalEditor` absent from `normalizeSettingValue`
+entirely, and `themeMode` carrying two unrelated normalizers.
+
+### ⚠ A mutation-testing trap that inverts the evidence
+
+Restoring a mutated file with `mv` from a `cp` backup **preserves the older
+mtime**, so `cargo test` serves a **stale binary** after the revert. The
+mutation then appears *not* to fail — which reads exactly like "this test is
+vacuous" when the test is fine.
+
+This is the first trap here that produces a **false negative in the mutation
+evidence itself**, i.e. it attacks the instrument this project uses to decide
+whether a test is real. Caught through unexpected results rather than assumed
+away. Use `cp` back (fresh mtime) or `touch` the file after restoring.
 
 ## ⛔ NATIVE CAPTURE IS BLOCKED — the screen is locked (2026-08-04 ~00:50)
 
