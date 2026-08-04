@@ -4602,6 +4602,46 @@ make the comparison meaningful cannot be expressed.
 > report its content height against the reference's parent height, and that
 > delta is guaranteed, meaningless, and permanent until the axis exists.
 
+## 🔧 RECIPE — drive any store-gated surface through Vite's dev module graph
+
+Several surfaces sat at ⏸ for the reason "needs the modal driven open" / "needs
+a pending row in the live app". They are gated on a **zustand store**, which is
+a module-local const and is *not* on `window`. In a dev build the module graph
+is reachable, so the store can be driven directly:
+
+```js
+// bridge does NOT await promises — kick off, then read back in a SECOND call
+import('/src/features/window/stores/detach-modal-store.ts')
+  .then(m => m.useDetachModalStore.getState().open({
+    wsId: '…', branch: 'main', heldByPath: '…' }))
+```
+
+This opened `detach-holder-modal` on demand — a surface that had never been
+captured. It should also reach `pending-create-row` and
+`placeholder-row-actions`, both ⏸ for the same class of reason.
+
+**Two caveats, both learned the hard way:**
+
+1. **Every `webview_execute_js` that starts a promise reports a timeout.** The
+   bridge does not await. The call still *ran* — read the result back in a
+   separate call. Four "failures" this session were successful kick-offs.
+2. **A modal opened this way lingers and SHADOWS later captures.** After using
+   it, close it through the same store (`…getState().close()`) and confirm the
+   anchor is gone. The same hazard already recorded for toasts.
+
+## 🩹 The reference window drifts, and it poisons the cell if unread
+
+Across five app restarts the webview came up at 566, 744, 458, 316 and 569 px
+wide with the height pinned at 1119 throughout. There is no window-state plugin;
+`manage_window resize` mostly no-ops (see `blocked/resizable-needs-a-taller-
+display.md`), and `osascript` is refused for want of assistive access.
+
+**So never assume the cell.** Read `window.innerWidth` back immediately before
+every reference capture and pass it as `state.width`, and derive the container
+`--width` from the reference root's own `bounds.w` rather than from a number
+recorded in an earlier run. Two surfaces were re-driven this session purely
+because the window had moved underneath a remembered figure.
+
 ## 🚧 IN FLIGHT + NEXT (2026-08-04, after P3.81)
 
 **Running now (worker cap = 2):**
