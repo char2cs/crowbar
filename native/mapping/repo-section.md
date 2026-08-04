@@ -163,3 +163,56 @@ flex item with no explicit height of its own.
 `workspace-tree.tsx` → `sidebar-carousel.tsx` → `ide-shell.tsx` →
 `routes/_shell.tsx`. One instance per repo, always mounted above the tree
 it wraps.
+
+---
+
+## VERDICT: FAIL — 5 deltas over 5 anchors (2026-08-03, my own run)
+
+Final drive: `--surface repo-section --width 344 --viewport-width 1684 --theme
+dark --content normal --name demo --roots 0`.
+
+**My first drive produced 12 deltas; seven were my own.** Recorded because both
+mistakes are ones this port keeps repeating:
+
+- **`--width` is the CONTAINER, not the row.** I passed `--width 332` (the
+  reference root's own `bounds.w`) and got `repo-section.bounds.w: 320` —
+  because the port applies `row_base::MARGIN_X` (`mx-1.5`, 6px a side) inside
+  the width it is given. The reference row is 332 *because its container is
+  344*. Passing 344 closed that delta and the two action-button `x` deltas
+  that were only ever the same 12px.
+- **`--roots 1` renders a child row the reference's scope excludes**, so the
+  port emitted four anchors (`workspace-tree-item*`, `workspace-branch-icon`)
+  the reference never carries. `--roots 0` is the cell that matches this
+  surface's declared anchor set.
+
+### The four real findings
+
+1. **`repo-section-add-child` is emitted by the port and *dropped* from the
+   reference — and the reference is the one that is wrong.** The scope entry at
+   `extract.ts:1588` declares exactly five anchors and omits it. I checked the
+   live DOM rather than assuming: the element is a **24×24, `display: flex`,
+   `visibility: visible`, `opacity: 1`** box inside every `repo-section`. It is
+   this surface's own chrome, not a repeated child-row family, so the
+   `select-item` precedent the neighbouring entries cite does not cover it.
+   **Left as-is it is permanent**: the port emits a correct anchor and the
+   contract refuses to see it, for ever.
+2. **`repo-section-label.bounds.w` — 202.0 against 31.2.** The reference's
+   label width equals its `text_width` **exactly** (31.2), so it is
+   content-sized; the port stretches it to fill. Note this is the *opposite* of
+   `project-home-row`, whose label legitimately stretches (232 wide against a
+   109.2 `text_width`) because it carries `min-w-0 flex-1 truncate`. Same
+   `row_base` chrome, different sizing — do not transfer one to the other.
+3. **`repo-icon-popover-trigger.radius` — 0.0 against 8.0.** The port does not
+   round the trigger.
+4. **`repo-section-import` and `repo-section-collapse` `border.w` — 1.0 against
+   0.0.** The port paints a 1px border on both action buttons where React has
+   none.
+
+### What passed, and is worth noting
+
+`--name demo` matched the live label exactly — **no `text` delta**. This
+surface already has the fixture flag that `project-switcher-panel`,
+`repo-avatar` and `repo-icon-popover` all lack, and it is the reason this
+verdict could be taken against a real repo at all.
+
+`repo-section-label.font.line_height` is **19.5** on both sides.
