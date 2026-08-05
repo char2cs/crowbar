@@ -43,6 +43,7 @@ import type { FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
  * trip), short enough that a project you actually closed stops costing frames.
  */
 export const SUBSCRIPTION_GRACE_MS = 2000
+const REBUILD_BATCH_MS = 16
 
 const KEY_SEP = '|'
 /** The project-home workspace tracker for the ACTIVE project (see below). */
@@ -80,24 +81,36 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
     // the same time, and rebuilding once per seed meant N full cache reads,
     // N IndexedDB cache writes and N tree replacements to reach one answer.
     let rebuildTimer: ReturnType<typeof setTimeout> | undefined
+    let rebuildInFlight = false
+    let rebuildQueued = false
 
-    function rebuildSidebar(): void {
-      void useWorkspaceListStore
-        .getState()
-        .fetch()
-        .then(() => {
-          if (disposed) return
-          const repos = dataOf(useWorkspaceListStore.getState().data)
-          if (repos) useSidebarStore.getState().setRepos(repos)
-        })
+    async function rebuildSidebar(): Promise<void> {
+      if (rebuildInFlight) {
+        rebuildQueued = true
+        return
+      }
+      rebuildInFlight = true
+      rebuildQueued = false
+      await useWorkspaceListStore.getState().fetch()
+      if (!disposed) {
+        const repos = dataOf(useWorkspaceListStore.getState().data)
+        if (repos) useSidebarStore.getState().setRepos(repos)
+      }
+      rebuildInFlight = false
+      // A seed that landed while IndexedDB was being read may not be present in
+      // that snapshot. Run one debounced follow-up, never one fetch per seed.
+      if (rebuildQueued && !disposed) scheduleRebuild()
     }
 
     function scheduleRebuild(): void {
-      if (disposed || rebuildTimer !== undefined) return
+      if (disposed) return
+      rebuildQueued = true
+      if (rebuildInFlight) return
+      if (rebuildTimer !== undefined) clearTimeout(rebuildTimer)
       rebuildTimer = setTimeout(() => {
         rebuildTimer = undefined
-        if (!disposed) rebuildSidebar()
-      }, 0)
+        if (!disposed) void rebuildSidebar()
+      }, REBUILD_BATCH_MS)
     }
 
     // -- incremental merge, keyed by the frame's entity id -----------------
@@ -262,6 +275,7 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
     // mutation (so a newly seeded repo immediately gets its workspace stream),
     // and the overwhelming majority of those leave the desired set untouched.
     let lastSignature: string | null = null
+    let lastDesired = new Set<string>()
 
     function reconcile(): void {
       if (disposed) return
@@ -269,6 +283,8 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
       const signature = [...desired].sort().join('\n')
       if (signature === lastSignature) return
       lastSignature = signature
+      const isOpening = [...desired].some((key) => !lastDesired.has(key))
+      lastDesired = desired
 
       // Close first, open second. The home tracker clears the shared
       // single-slot store on teardown, so closing the outgoing project's after
@@ -279,9 +295,11 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
         else scheduleClose(key)
       }
       for (const key of desired) ensureOpen(key)
-      // Visibility moved: re-scope the tree so a collapsed project's repos
-      // leave it at once rather than lingering until its stream expires.
-      scheduleRebuild()
+      // Closing a section must be a render-only operation. Its cached rows are
+      // already hidden by the tree, so rebuilding here only throws their object
+      // identities away and makes the next expand wait on IndexedDB. An opening
+      // does need a cache read: the section may have started collapsed at boot.
+      if (isOpening) scheduleRebuild()
     }
 
     async function start(): Promise<void> {

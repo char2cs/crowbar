@@ -102,8 +102,8 @@ function folderDTO(id: string, repoId: string, overrides: Partial<FolderDTO> = {
   return { id, repoId, projectId: 'p1', name: id, order: 0, ...overrides }
 }
 
-/** Let the provider's queued work (seed promises + its 0ms rebuild) settle. */
-async function settle(ms = 0): Promise<void> {
+/** Let the provider's queued work (seed promises + its one-frame rebuild batch) settle. */
+async function settle(ms = 20): Promise<void> {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(ms)
   })
@@ -288,6 +288,29 @@ describe('AppSyncProvider subscribes by visibility', () => {
     expect(p2.unsubscribe).toHaveBeenCalledOnce()
     // The other projects' streams are untouched — subscriptions are keyed.
     expect(streamFor('/v0/projects/p1/repos')!.unsubscribe).not.toHaveBeenCalled()
+  })
+
+  it('does not rebuild the cached tree just because a project or repo closed', async () => {
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await settle()
+    act(() => {
+      useSidebarStore.getState().setRepos([repo('r1', 'p1')])
+    })
+    await settle()
+    const rebuild = useWorkspaceListStore.getState().fetch as ReturnType<typeof vi.fn>
+    rebuild.mockClear()
+
+    act(() => {
+      useSidebarStore.getState().toggleRepo('r1')
+      useSidebarStore.getState().toggleProject('p2')
+    })
+    await settle()
+
+    expect(rebuild).not.toHaveBeenCalled()
   })
 
   it('re-opening inside the grace period keeps the same stream (no reseed)', async () => {

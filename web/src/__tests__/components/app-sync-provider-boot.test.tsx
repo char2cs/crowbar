@@ -294,28 +294,33 @@ describe('AppSyncProvider boot, end to end', () => {
     expect(workspaceIdsOf('r1')).toEqual(['w1'])
   })
 
-  it('collapsing a project drops its repos from the tree', async () => {
+  it('collapsing a project keeps its rows cached for an instant re-open', async () => {
     await boot()
     await waitFor(() => expect(repoIds()).toEqual(['r1', 'r2']))
+    const cached = useSidebarStore.getState().repos.find((repo) => repo.id === 'r2')
 
     await act(async () => {
       useSidebarStore.getState().toggleProject('p2')
     })
-    await waitFor(() => expect(repoIds()).toEqual(['r1']))
+    expect(useSidebarStore.getState().collapsedProjects.has('p2')).toBe(true)
+    expect(repoIds()).toEqual(['r1', 'r2'])
+    expect(useSidebarStore.getState().repos.find((repo) => repo.id === 'r2')).toBe(cached)
     // ...and the active project's rows are still there.
     expect(workspaceIdsOf('r1')).toEqual(['w1'])
   })
 
-  it('re-opening it brings them back', async () => {
+  it('re-opening a project exposes the already-cached rows synchronously', async () => {
     await boot()
+    const cached = useSidebarStore.getState().repos.find((repo) => repo.id === 'r2')
     await act(async () => {
       useSidebarStore.getState().toggleProject('p2')
     })
-    await waitFor(() => expect(repoIds()).toEqual(['r1']))
 
     await act(async () => {
       useSidebarStore.getState().toggleProject('p2')
     })
-    await waitFor(() => expect(repoIds()).toEqual(['r1', 'r2']))
+    expect(useSidebarStore.getState().collapsedProjects.has('p2')).toBe(false)
+    expect(repoIds()).toEqual(['r1', 'r2'])
+    expect(useSidebarStore.getState().repos.find((repo) => repo.id === 'r2')).toBe(cached)
   })
 })
