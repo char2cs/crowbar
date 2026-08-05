@@ -109,6 +109,24 @@ html[data-pane-resizing] [data-pane-content] {
   box-shadow: none !important;
 }
 
+/* The flip-dot spinner's playback (components/ui/flicker-spinner.tsx). The
+   dots' timeline is baked into a horizontal sprite strip, so "animating" is one
+   stepped translate of an already-painted layer — no SMIL timers, no per-step
+   style recalc, no layer-tree rebuild. -100% is the strip's OWN width, i.e.
+   exactly `frames` frame-widths, so steps(frames) lands on frame boundaries.
+
+   Deliberately NOT inside `@theme` with the other keyframes: Tailwind v4 emits
+   @theme keyframes only when the matching `--animate-*` utility is used, and
+   this animation is composed inline (duration and step count differ per asset).
+   Declared there, it would be tree-shaken out of the production stylesheet and
+   the spinner would sit motionless in packaged builds only. Guarded by
+   __tests__/components/ui/flicker-spinner.test.tsx. */
+@keyframes flicker-strip {
+  to {
+    transform: translateX(-100%);
+  }
+}
+
 @layer utilities {
   .scrollbar-hidden {
     scrollbar-width: none;

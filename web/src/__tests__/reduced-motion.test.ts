@@ -78,4 +78,16 @@ describe('spinner exemption hooks in the exempted components', () => {
     expect(toast).toContain('in-data-[type=loading]:animate-spin')
     expect(overlay).toContain('in-data-[type=loading]:animate-spin')
   })
+
+  it('the flip-dot FlickerSpinner carries data-essential-motion', () => {
+    // A REGRESSION HAZARD, not a nicety. These spinners used to animate with
+    // SMIL, which the kill-switch cannot touch — `animation-duration` says
+    // nothing about `<animate>`. Playback is now a CSS animation on a sprite
+    // strip, so without this opt-out every flip-dot spinner in the app freezes
+    // on frame 0 under prefers-reduced-motion, and the workspace rows, chat
+    // glyphs and context pill all report "hung" while work is in flight.
+    const spinner = read('components/ui/flicker-spinner.tsx')
+    expect(spinner).toContain('data-essential-motion')
+    expect(spinner).toContain('flicker-strip ${')
+  })
 })
