@@ -634,3 +634,50 @@ func TestMove_WithNoChangeIsANoOp(t *testing.T) {
 	assert.Equal(t, 1, orderOf(t, folders, created.ID))
 	assert.Empty(t, shifted)
 }
+
+// Error propagation across the placement surface.
+//
+// Every one of these is a store read or write failing under a drag. They matter
+// because the alternative to propagating is a drop that reports success and
+// persists nothing — the sidebar would show the row in its new home until the
+// next refresh put it back, which is the worst possible way to lose a move.
+func TestNextSlot_SurfacesASnapshotError(t *testing.T) {
+	folders, _, uc := newUsecase(t)
+	folders.FindErr = errors.New("boom")
+
+	_, err := uc.NextSlot(context.Background(), projectID, repoID, "")
+	assert.ErrorContains(t, err, "boom")
+}
+
+func TestRename_SurfacesALoadError(t *testing.T) {
+	folders, _, uc := newUsecase(t)
+	folders.FindErr = errors.New("boom")
+
+	_, err := uc.Rename(context.Background(), "f1", "spikes")
+	assert.ErrorContains(t, err, "boom")
+}
+
+func TestRename_RefusesAnEmptyName(t *testing.T) {
+	// Checked before the load: a name that cannot be stored should not cost a
+	// read to find that out.
+	_, _, uc := newUsecase(t)
+
+	_, err := uc.Rename(context.Background(), "f1", "   ")
+	assert.Error(t, err)
+}
+
+func TestMove_SurfacesALoadError(t *testing.T) {
+	folders, _, uc := newUsecase(t)
+	folders.FindErr = errors.New("boom")
+
+	_, _, err := uc.Move(context.Background(), "f1", folder.MoveInput{})
+	assert.ErrorContains(t, err, "boom")
+}
+
+func TestDelete_SurfacesALoadError(t *testing.T) {
+	folders, _, uc := newUsecase(t)
+	folders.FindErr = errors.New("boom")
+
+	_, err := uc.Delete(context.Background(), "f1")
+	assert.ErrorContains(t, err, "boom")
+}

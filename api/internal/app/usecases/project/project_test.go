@@ -257,3 +257,27 @@ func TestProjectUsecase_UpdateUnknownProject(t *testing.T) {
 
 	require.ErrorIs(t, err, apperr.ErrNotFound)
 }
+
+func TestProjectUsecase_UpdateSurfacesAFailedLoad(t *testing.T) {
+	projects, _, uc := newProjectUsecase(t)
+	projects.FindErr = errors.New("store is down")
+
+	name := "harbour"
+	_, err := uc.Update(context.Background(), "p1", project.Update{Name: &name})
+
+	require.Error(t, err)
+}
+
+func TestProjectUsecase_UpdateSurfacesAFailedSave(t *testing.T) {
+	// The read succeeded, so the caller would otherwise get a Project back that
+	// reads as renamed while the store still holds the old row.
+	projects, _, uc := newProjectUsecase(t)
+	ctx := context.Background()
+	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p1", Name: "old"}))
+	projects.SaveErr = errors.New("disk full")
+
+	name := "harbour"
+	_, err := uc.Update(ctx, "p1", project.Update{Name: &name})
+
+	require.Error(t, err)
+}

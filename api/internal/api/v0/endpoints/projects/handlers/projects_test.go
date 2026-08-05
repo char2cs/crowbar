@@ -606,3 +606,54 @@ func TestPatchStillRequiresSomethingToDo(t *testing.T) {
 		t.Fatalf("PATCH = %d, want 400", rec.Code)
 	}
 }
+
+func TestPatchSurfacesAFailedRename(t *testing.T) {
+	// The store refused. Without propagating, the caller gets a 204 and the
+	// sidebar shows the new name until the next WS frame puts the old one back.
+	reader := &fakeReader{updateErr: apperr.ErrNotFound}
+	bc := newRecordingBroadcaster()
+	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"name":"harbour"}`)
+
+	if rec.Code < 400 {
+		t.Fatalf("PATCH = %d, want a 4xx/5xx", rec.Code)
+	}
+	select {
+	case frame := <-bc.ch:
+		t.Errorf("a refused rename broadcast anyway: %+v", frame)
+	default:
+	}
+}
+
+func TestPatchRenamesAndReordersInOneRequest(t *testing.T) {
+	// A drag can rename nothing and reorder, or (from the inline editor) rename
+	// only — but the endpoint accepts both at once, and the reorder's densify is
+	// what re-delivers every row. The rename must NOT also broadcast on its own
+	// or clients apply the same frame either side of a list that moved.
+	reader := &fakeReader{
+		updated: domain.Project{ID: "p1", Name: "harbour"},
+		list:    []domain.Project{{ID: "p1", Name: "harbour"}},
+	}
+	bc := newRecordingBroadcaster()
+	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"name":"harbour","order":0}`)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH = %d, want 204 (body %s)", rec.Code, rec.Body.String())
+	}
+	if reader.updatedWith == nil || reader.updatedWith.Name == nil {
+		t.Fatal("the rename half never reached the store")
+	}
+	if reader.reorderTo != 0 {
+		t.Errorf("reorder index = %d, want 0", reader.reorderTo)
+	}
+	// Exactly one frame: the densify's, not the rename's as well.
+	bc.await(t)
+	select {
+	case extra := <-bc.ch:
+		t.Errorf("a paired rename+reorder broadcast twice: %+v", extra)
+	default:
+	}
+}

@@ -109,3 +109,30 @@ func TestSetLockNeverResurrectsADeletedRow(t *testing.T) {
 		t.Fatalf("status = %q, want deleted to stay terminal", got.Status)
 	}
 }
+
+// The command's contract with the event store. These four are never called by
+// the tests above — they are called by asynx, on replay, which is exactly why a
+// silent change to one is expensive: the event NAME is what an aggregate
+// replays from, and a command that reports the wrong aggregate id writes its
+// event onto someone else's stream.
+func TestSetLockEventContract(t *testing.T) {
+	c := SetLock{ID: "w1"}
+
+	if got := c.AggregateID(); got != "w1" {
+		t.Errorf("AggregateID() = %q, want the workspace id", got)
+	}
+	if got := c.EventName(); got != "workspace.lock_set.w1" {
+		t.Errorf("EventName() = %q", got)
+	}
+	// A lock changes what every later command is allowed to do, so the aggregate
+	// should not have to replay the whole stream to learn it.
+	if !c.ShouldSnapshot() {
+		t.Error("ShouldSnapshot() = false, want true")
+	}
+}
+
+func TestSetLockValidateRefusesAMissingAggregate(t *testing.T) {
+	if err := (SetLock{ID: "w1"}).Validate(nil); err == nil {
+		t.Fatal("expected a validation error for a workspace that is not there")
+	}
+}
