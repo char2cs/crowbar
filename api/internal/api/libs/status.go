@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
@@ -35,7 +36,8 @@ import (
 //     agent chat/segment id the agentic-chat repo has no row for), and
 //     agentrunner.ErrNotFound (a runner id — a `--segment` value — with no
 //     live row, either never spawned or already exited).
-//   - 400 Bad Request    — enginesearch.ErrBadPattern,
+//   - 400 Bad Request    — folder.ErrFolderNameRequired (a folder create or
+//     rename with a blank name), enginesearch.ErrBadPattern,
 //     enginesearch.ErrPathOutsideWorkspace, safepath.ErrPathEscapesWorkspace
 //     (a workspace-relative fs path that is absolute or traverses outside the
 //     workspace root via ".." or a symlink — the fs engine containment guard),
@@ -61,7 +63,10 @@ import (
 //     already imported — one folder belongs to exactly one project),
 //     the worktree lock / non-leaf sentinels (ErrParentLocked,
 //     ErrWorkspaceLocked, ErrRebaseNonLeaf,
-//     ErrChildHasChildren), and the git
+//     ErrChildHasChildren), the sidebar-placement sentinels
+//     (folder.ErrFolderCycle, folder.ErrFolderCrossRepo,
+//     folder.ErrForkChainSplit — a move that would make a row unreachable, cross
+//     a repo boundary, or split a fork chain), and the git
 //     engine's classified conflict sentinels (ErrConflict, ErrDirtyTree,
 //     ErrRejectedNonFastForward, ErrNothingToCommit, ErrStaleHunk,
 //     ErrHasChildren, ErrBranchAlreadyExists, ErrNonFastForward).
@@ -150,6 +155,7 @@ func isBadRequest(
 		errors.Is(err, safepath.ErrPathEscapesWorkspace) ||
 		errors.Is(err, apperr.ErrInvalidArgument) ||
 		errors.Is(err, fs.ErrInvalid) ||
+		errors.Is(err, folder.ErrFolderNameRequired) ||
 		errors.Is(err, enginegit.ErrNoRemote)
 }
 
@@ -176,6 +182,10 @@ func isConflict(
 		return true
 	}
 
+	if isPlacementConflict(err) {
+		return true
+	}
+
 	if errors.Is(err, worktree.ErrRebaseNonLeaf) ||
 		errors.Is(err, worktree.ErrChildHasChildren) ||
 		errors.Is(err, worktree.ErrBranchWorkspaceExists) ||
@@ -185,6 +195,17 @@ func isConflict(
 	}
 
 	return isGitConflict(err)
+}
+
+// isPlacementConflict reports whether err is one of the sidebar-placement
+// sentinels that map to HTTP 409: a move that would make a row unreachable from
+// the repo root, cross a repo boundary, or split a fork chain.
+func isPlacementConflict(
+	err error,
+) bool {
+	return errors.Is(err, folder.ErrFolderCycle) ||
+		errors.Is(err, folder.ErrFolderCrossRepo) ||
+		errors.Is(err, folder.ErrForkChainSplit)
 }
 
 // isGitConflict reports whether err is one of the git engine's classified

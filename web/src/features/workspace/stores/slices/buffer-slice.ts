@@ -28,6 +28,7 @@ import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-
 import { useSettingsStore } from '@/features/settings/store'
 import type { WorkspaceStore } from '../workspace-store'
 import { nanoid } from 'nanoid'
+import { bestEffort } from '@/lib/best-effort'
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -423,15 +424,18 @@ export const createBufferSlice: StateCreator<
         if (buf && buf.type === 'terminal') {
           const { sessionId } = buf as TerminalContent
           const workspaceId = get().workspaceId
-          void import('@/features/terminal/lib/kill-terminal-session').then(
-            async ({ killTerminalSession }) => {
-              await killTerminalSession(sessionId).catch(() => {})
-              // Clear the reconnect map entry so a stale connectionId can't be
-              // picked up if the same tab sessionId is reused in a later session.
-              const { clearReconnect } =
-                await import('@/features/terminal/lib/terminal-reconnect-map')
-              clearReconnect(workspaceId, sessionId)
-            },
+          bestEffort(
+            import('@/features/terminal/lib/kill-terminal-session').then(
+              async ({ killTerminalSession }) => {
+                await killTerminalSession(sessionId).catch(() => {})
+                // Clear the reconnect map entry so a stale connectionId can't be
+                // picked up if the same tab sessionId is reused in a later session.
+                const { clearReconnect } =
+                  await import('@/features/terminal/lib/terminal-reconnect-map')
+                clearReconnect(workspaceId, sessionId)
+              },
+            ),
+            'kill terminal session',
           )
         }
         // Closing an agent-chat tab STOPS its vendor CLI process but KEEPS the chat
@@ -443,9 +447,12 @@ export const createBufferSlice: StateCreator<
         // dormant. Dynamic import avoids a workspace-slice → agent-feature cycle.
         if (buf && buf.type === 'agentChat') {
           const { chatId, wsId } = buf as AgentChatContent
-          void import('@/features/agent/api/agent-api').then(async ({ stopChat }) => {
-            await stopChat(wsId, chatId).catch(() => {})
-          })
+          bestEffort(
+            import('@/features/agent/api/agent-api').then(async ({ stopChat }) => {
+              await stopChat(wsId, chatId).catch(() => {})
+            }),
+            'stop agent chat',
+          )
         }
         if (buf && shouldStartLsp(buf)) {
           set((state) => {
@@ -474,9 +481,12 @@ export const createBufferSlice: StateCreator<
         // used above for terminal/chat to avoid circular slice → git-feature deps.
         if (buf && isEditorContent(buf)) {
           const filePath = buf.path
-          void import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
-            useGitBlameStore.getState().clearBlameForFile(filePath)
-          })
+          bestEffort(
+            import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
+              useGitBlameStore.getState().clearBlameForFile(filePath)
+            }),
+            'clear blame for closed buffer',
+          )
         }
         // Release this buffer's markdown rich/source preference. The view store
         // is keyed by bufferId and nothing else ever removes an entry, so
@@ -583,22 +593,25 @@ export const createBufferSlice: StateCreator<
         // Read from this store's own workspace: the active workspace can change
         // while the read is in flight, and the same relative path in a sibling
         // worktree holds different content.
-        void import('@/features/file-system/controllers/platform').then(
-          async ({ readWorkspaceFile }) => {
-            try {
-              const content = await readWorkspaceFile(get().workspaceId, entry.path)
-              set((state) => {
-                const buf = state.buffers.find((b) => b.id === id)
-                if (buf && buf.type === 'editor' && buf.content === '') {
-                  buf.content = content
-                  buf.savedContent = content
-                  buf.isDirty = false
-                }
-              })
-            } catch {
-              // File no longer exists — leave the empty buffer; saving will recreate it.
-            }
-          },
+        bestEffort(
+          import('@/features/file-system/controllers/platform').then(
+            async ({ readWorkspaceFile }) => {
+              try {
+                const content = await readWorkspaceFile(get().workspaceId, entry.path)
+                set((state) => {
+                  const buf = state.buffers.find((b) => b.id === id)
+                  if (buf && buf.type === 'editor' && buf.content === '') {
+                    buf.content = content
+                    buf.savedContent = content
+                    buf.isDirty = false
+                  }
+                })
+              } catch {
+                // File no longer exists — leave the empty buffer; saving will recreate it.
+              }
+            },
+          ),
+          'refill reopened buffer',
         )
       },
 

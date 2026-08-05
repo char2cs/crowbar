@@ -118,6 +118,14 @@ func (m *mockWorkspace) SetParentFromPR(ctx context.Context, id, parentID string
 	return domain.Workspace{}, nil
 }
 
+func (m *mockWorkspace) SetPlacement(_ context.Context, id, folderID string, order int) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, FolderID: folderID, Order: order}, nil
+}
+
+func (m *mockWorkspace) SetProject(_ context.Context, id, projectID string) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, ProjectID: projectID}, nil
+}
+
 func (m *mockWorkspace) SetLastError(ctx context.Context, id, message string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
@@ -315,6 +323,8 @@ func (g *mockGitEngine) Fetch(ctx context.Context, repoPath string) error { retu
 
 func (g *mockGitEngine) FetchRef(ctx context.Context, repoPath, branch string) error { return nil }
 
+func (g *mockGitEngine) FetchPrune(ctx context.Context, repoPath string) error { return nil }
+
 func (g *mockGitEngine) FastForwardBranch(ctx context.Context, repoPath, branch string) error {
 	return nil
 }
@@ -425,6 +435,11 @@ func (g *mockGitEngine) MergeBase(ctx context.Context, repoPath, a, b string) (s
 }
 
 func (g *mockGitEngine) WorktreeAddBranch(ctx context.Context, repoPath, worktreePath, branch, startPoint string) (string, error) {
+	return "", nil
+}
+
+//nolint:lll // stub signature; wrapping it hides which interface method it stands in for.
+func (g *mockGitEngine) WorktreeAddAtRef(ctx context.Context, repoPath, worktreePath, branch, startRef string) (string, error) {
 	return "", nil
 }
 
@@ -1032,4 +1047,13 @@ func TestBranchReview_GetFiles_InternalGitError_IsNotNotFound(t *testing.T) {
 	_, err := uc.GetFiles(ctx, "ws1", "")
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, apperr.ErrNotFound)
+}
+
+func (m *mockWorkspace) SetLock(
+	_ context.Context,
+	id string,
+	locked *bool,
+	_ bool,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, LockOverride: locked}, nil
 }

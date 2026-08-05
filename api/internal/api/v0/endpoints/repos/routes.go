@@ -20,18 +20,20 @@ func Register(
 	prov repohandlers.BranchProviderEngine,
 	wsReader repohandlers.WorkspaceReader,
 	importer repohandlers.RepoImporter,
-	renamer repohandlers.RepoRenamer,
+	updater repohandlers.RepoUpdater,
+	remote repohandlers.RemoteRefresher,
 	broadcast func(dto.RepoDTO),
 	reposWS gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
 	h := repohandlers.NewWithDeps(store, prov, wsReader, broadcast).
 		WithImporter(importer).
-		WithRenamer(renamer)
+		WithUpdater(updater).
+		WithRemoteRefresher(remote)
 	rg.POST("/repos", h.Create)
 	rg.GET("/repos", dispatch(h.List, reposWS))
 	rg.GET("/repos/:repoId", dispatch(h.Detail, reposWS))
-	rg.PATCH("/repos/:repoId", h.Rename)
+	rg.PATCH("/repos/:repoId", h.Patch)
 	rg.DELETE("/repos/:repoId", h.DeleteRepo)
 	rg.GET("/repos/:repoId/icon", h.Icon)
 	rg.PUT("/repos/:repoId/icon", h.PutIcon)

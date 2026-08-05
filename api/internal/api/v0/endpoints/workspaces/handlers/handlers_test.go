@@ -10,7 +10,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	workspacehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -39,7 +41,13 @@ type fakeReader struct {
 	gotSync              string
 	syncDone             chan struct{}
 	elig                 map[string]workspace.MergeEligibility
-	gotElig              [][]domain.Workspace
+	// The user's own lock decision: what the handler passed down, how often, and
+	// a canned refusal for the paths the daemon rejects (project home, a
+	// placeholder with no worktree of its own).
+	lockCalls int
+	gotLocked *bool
+	lockErr   error
+	gotElig   [][]domain.Workspace
 }
 
 func (f *fakeReader) List(
@@ -259,8 +267,70 @@ func newRouter(
 	hierarchy workspacehandlers.Hierarchy,
 	repos workspacehandlers.Repos,
 ) *gin.Engine {
+	r, _, _ := newRouterWithPlacer(reader, hierarchy, repos, nil)
+	return r
+}
+
+// fakePlacer records the sidebar placement the PATCH handler asked for and
+// returns canned results. `folders` is the repo's folder list the create path
+// resolves a folderId against.
+type fakePlacer struct {
+	placed       domain.Workspace
+	shifted      []domain.Folder
+	folders      []domain.Folder
+	listErr      error
+	err          error
+	gotWS        string
+	gotIn        folder.PlaceInput
+	calls        int
+	nextSlot     int
+	nextSlotErr  error
+	gotContainer string
+}
+
+func (f *fakePlacer) PlaceWorkspace(
+	_ context.Context,
+	_ string,
+	_ string,
+	wsID string,
+	in folder.PlaceInput,
+) (domain.Workspace, []domain.Folder, error) {
+	f.calls++
+	f.gotWS = wsID
+	f.gotIn = in
+	return f.placed, f.shifted, f.err
+}
+
+func (f *fakePlacer) ListInRepo(
+	_ context.Context,
+	_ string,
+	_ string,
+) ([]domain.Folder, error) {
+	return f.folders, f.listErr
+}
+
+func (f *fakePlacer) NextSlot(
+	_ context.Context,
+	_ string,
+	_ string,
+	container string,
+) (int, error) {
+	f.gotContainer = container
+	return f.nextSlot, f.nextSlotErr
+}
+
+// newRouterWithPlacer additionally wires the sidebar placer and captures the
+// folder frames the PATCH handler fans out.
+func newRouterWithPlacer(
+	reader workspacehandlers.Reader,
+	hierarchy workspacehandlers.Hierarchy,
+	repos workspacehandlers.Repos,
+	placer workspacehandlers.Placer,
+) (*gin.Engine, *fakePlacer, *[]dto.FolderDTO) {
+	frames := &[]dto.FolderDTO{}
 	r := gin.New()
-	h := workspacehandlers.New(reader, hierarchy, repos, &fakeLastErrors{}, fakeWork{})
+	h := workspacehandlers.New(reader, hierarchy, repos, &fakeLastErrors{}, fakeWork{}).
+		WithPlacer(placer, func(d dto.FolderDTO) { *frames = append(*frames, d) })
 	// Mount under the hierarchical repo-scoped prefix so the handlers read
 	// :projectId/:repoId/:wsId from the path, mirroring the production router.
 	rg := r.Group("/v0/projects/:projectId/repos/:repoId")
@@ -268,14 +338,16 @@ func newRouter(
 	rg.GET("/workspaces/:wsId", h.Detail)
 	rg.POST("/workspaces", h.Create)
 	rg.POST("/workspaces/import", h.Import)
-	rg.PATCH("/workspaces/:wsId", h.Rename)
+	rg.PATCH("/workspaces/:wsId", h.Patch)
 	rg.DELETE("/workspaces/:wsId", h.Delete)
 	rg.POST("/workspaces/:wsId/sync", h.Sync)
 	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)
 	rg.POST("/workspaces/:wsId/reparent", h.Reparent)
 	rg.POST("/workspaces/:wsId/retry-provision", h.RetryProvision)
 	rg.POST("/workspaces/:wsId/detach-holder", h.DetachHolder)
-	return r
+	rg.POST("/workspaces/:wsId/lock", h.Lock)
+	concrete, _ := placer.(*fakePlacer)
+	return r, concrete, frames
 }
 
 // waitClosed blocks until done is closed. The close IS the "the background work
@@ -307,4 +379,17 @@ func do(
 	}
 	r.ServeHTTP(rec, req)
 	return rec
+}
+
+func (f *fakeReader) SetLock(
+	_ context.Context,
+	id string,
+	locked *bool,
+) (domain.Workspace, error) {
+	f.lockCalls++
+	f.gotLocked = locked
+	if f.lockErr != nil {
+		return domain.Workspace{}, f.lockErr
+	}
+	return domain.Workspace{ID: id, LockOverride: locked}, nil
 }

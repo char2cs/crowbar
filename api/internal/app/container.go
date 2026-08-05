@@ -397,6 +397,7 @@ func toUsecaseStores(
 	return usecases.GORMStores{
 		Projects:                 gormStores.Projects,
 		Repositories:             gormStores.Repositories,
+		Folders:                  gormStores.Folders,
 		TerminalProfiles:         gormStores.TerminalProfiles,
 		TerminalSessions:         gormStores.TerminalSessions,
 		AgentProviderPreferences: gormStores.AgentProviderPreferences,

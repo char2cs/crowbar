@@ -55,7 +55,7 @@ describe('performCreateWorkspace', () => {
 
     await performCreateWorkspace('r1', 'feat/x', 'ws-parent')
 
-    expect(postWorkspace).toHaveBeenCalledWith('p1', 'r1', 'feat/x', 'ws-parent')
+    expect(postWorkspace).toHaveBeenCalledWith('p1', 'r1', 'feat/x', { parentId: 'ws-parent' })
   })
 
   it('does NOT optimistically add a node — the WS DTO drives the cache', async () => {

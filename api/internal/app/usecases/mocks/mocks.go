@@ -27,12 +27,21 @@ func NewProjectStore() *ProjectStore {
 	return &ProjectStore{}
 }
 
+// Save UPSERTS by id, mirroring the real GORM store: re-saving a row replaces
+// it rather than shadowing it with a duplicate the reads would then have to pick
+// between. Anything that renumbers a list writes the same row more than once.
 func (s *ProjectStore) Save(
 	ctx context.Context,
 	item domain.Project,
 ) error {
 	if s.SaveErr != nil {
 		return s.SaveErr
+	}
+	for i := range s.Saved {
+		if s.Saved[i].ID == item.ID {
+			s.Saved[i] = item
+			return nil
+		}
 	}
 	s.Saved = append(s.Saved, item)
 	return nil
@@ -80,12 +89,21 @@ func NewRepositoryStore() *RepositoryStore {
 	return &RepositoryStore{}
 }
 
+// Save UPSERTS by id, mirroring the real GORM store: re-saving a row replaces
+// it rather than shadowing it with a duplicate the reads would then have to pick
+// between. Anything that renumbers a list writes the same row more than once.
 func (s *RepositoryStore) Save(
 	ctx context.Context,
 	item domain.Repository,
 ) error {
 	if s.SaveErr != nil {
 		return s.SaveErr
+	}
+	for i := range s.Saved {
+		if s.Saved[i].ID == item.ID {
+			s.Saved[i] = item
+			return nil
+		}
 	}
 	s.Saved = append(s.Saved, item)
 	return nil
@@ -126,6 +144,186 @@ func (s *RepositoryStore) FindAll(
 		return nil, s.FindErr
 	}
 	return s.Saved, nil
+}
+
+// FindWhere mirrors the real store's prototype-scoped query: it matches on the
+// non-zero fields of match, which for the repository table is the ProjectID the
+// sidebar reorder narrows by.
+func (s *RepositoryStore) FindWhere(
+	ctx context.Context,
+	match domain.Repository,
+) ([]domain.Repository, error) {
+	if s.FindErr != nil {
+		return nil, s.FindErr
+	}
+	rows := make([]domain.Repository, 0, len(s.Saved))
+	for _, r := range s.Saved {
+		if match.ProjectID != "" && r.ProjectID != match.ProjectID {
+			continue
+		}
+		if match.ID != "" && r.ID != match.ID {
+			continue
+		}
+		rows = append(rows, r)
+	}
+	return rows, nil
+}
+
+// WorkspacePlacements is a fake project.WorkspaceRelocator and folder.Workspaces:
+// it holds the workspace rows a repo or folder move has to carry along, and
+// records the placement writes made against them.
+type WorkspacePlacements struct {
+	Rows    []domain.Workspace
+	ListErr error
+	SetErr  error
+}
+
+// NewWorkspacePlacements returns an empty WorkspacePlacements.
+func NewWorkspacePlacements() *WorkspacePlacements {
+	return &WorkspacePlacements{}
+}
+
+func (s *WorkspacePlacements) ListInRepo(
+	ctx context.Context,
+	projectID string,
+	repoID string,
+) ([]domain.Workspace, error) {
+	if s.ListErr != nil {
+		return nil, s.ListErr
+	}
+	rows := make([]domain.Workspace, 0, len(s.Rows))
+	for _, w := range s.Rows {
+		if w.ProjectID == projectID && w.RepoID == repoID {
+			rows = append(rows, w)
+		}
+	}
+	return rows, nil
+}
+
+func (s *WorkspacePlacements) SetPlacement(
+	ctx context.Context,
+	id string,
+	folderID string,
+	order int,
+) (domain.Workspace, error) {
+	if s.SetErr != nil {
+		return domain.Workspace{}, s.SetErr
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == id {
+			s.Rows[i].FolderID = folderID
+			s.Rows[i].Order = order
+			return s.Rows[i], nil
+		}
+	}
+	return domain.Workspace{}, nil
+}
+
+func (s *WorkspacePlacements) SetProject(
+	ctx context.Context,
+	id string,
+	projectID string,
+) (domain.Workspace, error) {
+	if s.SetErr != nil {
+		return domain.Workspace{}, s.SetErr
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == id {
+			s.Rows[i].ProjectID = projectID
+			return s.Rows[i], nil
+		}
+	}
+	return domain.Workspace{}, nil
+}
+
+// FolderStore is a fake folder.Store backed by an in-memory slice.
+//
+// FindErr and FindByKeyErr are separate so a test can fail ONE read: the
+// cross-repo classification path resolves a single row by key after the
+// repo-scoped list has already succeeded, and collapsing the two would make that
+// branch unreachable.
+type FolderStore struct {
+	Rows         []domain.Folder
+	SaveErr      error
+	FindErr      error
+	FindByKeyErr error
+}
+
+// NewFolderStore returns an empty FolderStore.
+func NewFolderStore() *FolderStore {
+	return &FolderStore{}
+}
+
+func (s *FolderStore) FindByKey(
+	ctx context.Context,
+	id string,
+) (*domain.Folder, error) {
+	if s.FindByKeyErr != nil {
+		return nil, s.FindByKeyErr
+	}
+	if s.FindErr != nil {
+		return nil, s.FindErr
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == id {
+			row := s.Rows[i]
+			return &row, nil
+		}
+	}
+	return nil, nil
+}
+
+// FindWhere mirrors the real store's prototype-scoped query over the fields the
+// folder usecase actually narrows by.
+func (s *FolderStore) FindWhere(
+	ctx context.Context,
+	match domain.Folder,
+) ([]domain.Folder, error) {
+	if s.FindErr != nil {
+		return nil, s.FindErr
+	}
+	rows := make([]domain.Folder, 0, len(s.Rows))
+	for _, f := range s.Rows {
+		if match.ProjectID != "" && f.ProjectID != match.ProjectID {
+			continue
+		}
+		if match.RepoID != "" && f.RepoID != match.RepoID {
+			continue
+		}
+		rows = append(rows, f)
+	}
+	return rows, nil
+}
+
+func (s *FolderStore) Save(
+	ctx context.Context,
+	folder domain.Folder,
+) error {
+	if s.SaveErr != nil {
+		return s.SaveErr
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == folder.ID {
+			s.Rows[i] = folder
+			return nil
+		}
+	}
+	s.Rows = append(s.Rows, folder)
+	return nil
+}
+
+func (s *FolderStore) Delete(
+	ctx context.Context,
+	id string,
+) error {
+	kept := s.Rows[:0]
+	for _, f := range s.Rows {
+		if f.ID != id {
+			kept = append(kept, f)
+		}
+	}
+	s.Rows = kept
+	return nil
 }
 
 // WorkspaceRepo is a fake of the subset of workspace.Workspace used on import.
@@ -188,16 +386,18 @@ type GitEngine struct {
 	WorktreeListFn func(repoPath string) ([]gitengine.WorktreeEntry, error)
 
 	// Protected-branch managed-worktree provisioning fakes (project import).
-	Detached               []string          // worktree paths detached to HEAD
-	CheckedOut             []WorktreeAddCall // (path, branch) re-attach calls
-	WorktreeAdds           []WorktreeAddCall // (path, branch) worktrees materialised
-	WorktreeRemoves        []string          // worktree paths force-removed
-	FetchedRefs            []string          // branches fetched from origin (FetchRef)
-	FastForwardedBranches  []string          // branches fast-forwarded from origin (FastForwardBranch)
-	RemoteBranches         map[string]bool   // branch -> exists on origin live (default false)
-	RemoteTrackingBranches map[string]bool   // branch -> local refs/remotes/origin/<branch> present (default false)
-	RevParseShas           map[string]string // rev -> sha (default "")
-	DetachErr              error             // forces DetachWorktree to fail
+	Detached     []string          // worktree paths detached to HEAD
+	CheckedOut   []WorktreeAddCall // (path, branch) re-attach calls
+	WorktreeAdds []WorktreeAddCall // (path, branch) worktrees materialised, by EITHER add
+	//nolint:lll // the trailing note is the point: this log is the -B subset of WorktreeAdds.
+	WorktreeAddAtRefs      []WorktreeAddAtRefCall // the subset added AT a start ref (`git worktree add -B`)
+	WorktreeRemoves        []string               // worktree paths force-removed
+	FetchedRefs            []string               // branches fetched from origin (FetchRef)
+	FastForwardedBranches  []string               // branches fast-forwarded from origin (FastForwardBranch)
+	RemoteBranches         map[string]bool        // branch -> exists on origin live (default false)
+	RemoteTrackingBranches map[string]bool        // branch -> local refs/remotes/origin/<branch> present (default false)
+	RevParseShas           map[string]string      // rev -> sha (default "")
+	DetachErr              error                  // forces DetachWorktree to fail
 	// WorktreeAddErrByBranch forces WorktreeAdd to fail for specific branches.
 	WorktreeAddErrByBranch map[string]error
 	// Pruned records repo paths WorktreePrune was called on.
@@ -207,12 +407,25 @@ type GitEngine struct {
 	DeadRegistrations map[string]string
 	// FastForwardErr forces FastForwardBranch to fail (best-effort FF path).
 	FastForwardErr error
+	// UpstreamsSet records branches linked to origin/<branch> via SetUpstream.
+	UpstreamsSet []string
+	// SetUpstreamErr forces SetUpstream to fail (best-effort tracking path).
+	SetUpstreamErr error
 }
 
 // WorktreeAddCall records a fake WorktreeAdd invocation.
 type WorktreeAddCall struct {
 	Path   string
 	Branch string
+}
+
+// WorktreeAddAtRefCall records a `git worktree add -B <branch> <startRef>`, so a
+// test can assert the checkout started at ORIGIN's ref rather than at whatever
+// the local branch pointed to.
+type WorktreeAddAtRefCall struct {
+	Path     string
+	Branch   string
+	StartRef string
 }
 
 // NewGitEngine returns an empty GitEngine.
@@ -317,6 +530,42 @@ func (g *GitEngine) WorktreeAdd(
 	}
 	g.WorktreeAdds = append(g.WorktreeAdds, WorktreeAddCall{Path: worktreePath, Branch: branch})
 	return nil
+}
+
+// WorktreeAddAtRef records into the SAME WorktreeAdds log as WorktreeAdd and
+// honours the same per-branch error map: to a caller asserting "which branches
+// got a worktree, and where", the two are one outcome — only the start point
+// differs. Keeping them in one log is what lets the existing provisioning tests
+// stay agnostic about which of the two the production path chose.
+// SetUpstream records the branches linked back to origin/<branch>, so a test can
+// assert the tracking info `git worktree add -B` does not create itself was set.
+func (g *GitEngine) SetUpstream(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) error {
+	g.UpstreamsSet = append(g.UpstreamsSet, branch)
+	return g.SetUpstreamErr
+}
+
+func (g *GitEngine) WorktreeAddAtRef(
+	ctx context.Context,
+	repoPath string,
+	worktreePath string,
+	branch string,
+	startRef string,
+) (string, error) {
+	if err := g.WorktreeAddErrByBranch[branch]; err != nil {
+		return "", err
+	}
+	g.WorktreeAdds = append(g.WorktreeAdds, WorktreeAddCall{Path: worktreePath, Branch: branch})
+	g.WorktreeAddAtRefs = append(g.WorktreeAddAtRefs, WorktreeAddAtRefCall{
+		Path: worktreePath, Branch: branch, StartRef: startRef,
+	})
+	if sha, ok := g.RevParseShas[startRef]; ok {
+		return sha, nil
+	}
+	return "", nil
 }
 
 func (g *GitEngine) WorktreeRemove(
@@ -460,6 +709,13 @@ type WorkspaceLifecycleRepo struct {
 	ListInRepoFn func(ctx context.Context, projectID, repoID string) ([]domain.Workspace, error)
 	GetFn        func(ctx context.Context, id string) (domain.Workspace, error)
 
+	SetLockFn func(
+		ctx context.Context,
+		id string,
+		locked *bool,
+		protected bool,
+	) (domain.Workspace, error)
+
 	SetMergeStrategyFn func(
 		ctx context.Context,
 		id string,
@@ -509,6 +765,21 @@ func (r *WorkspaceLifecycleRepo) SetMergeStrategy(
 	strategy gitdomain.MergeStrategy,
 ) (domain.Workspace, error) {
 	return r.SetMergeStrategyFn(ctx, id, strategy)
+}
+
+// SetLock records the lock decision the usecase passed down, so a test can read
+// back what it decided to persist. It answers with the row it was handed rather
+// than a stored one — the usecase resolves the status itself via the command.
+func (r *WorkspaceLifecycleRepo) SetLock(
+	ctx context.Context,
+	id string,
+	locked *bool,
+	protected bool,
+) (domain.Workspace, error) {
+	if r.SetLockFn != nil {
+		return r.SetLockFn(ctx, id, locked, protected)
+	}
+	return domain.Workspace{ID: id, LockOverride: locked}, nil
 }
 
 func (r *WorkspaceLifecycleRepo) SyncWorkingTreeState(

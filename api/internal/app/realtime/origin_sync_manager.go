@@ -2,12 +2,14 @@ package realtime
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
 // OriginSyncWorkspaces is the narrow workspace-lookup surface the origin-sync
@@ -26,6 +28,16 @@ type OriginSyncWorkspaces interface {
 // concrete engine and is trivially fakeable in tests.
 type OriginFetcher interface {
 	FetchRef(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) error
+	// MergeFFOnly runs `git merge --ff-only <ref>` in repoPath. It is git — not
+	// this manager — that decides whether the advance is safe: it refuses rather
+	// than overwrite local changes, so no pre-flight cleanliness check is needed
+	// (and none would be right: `git status` counts untracked files, so a locked
+	// worktree holding build output would never be considered clean).
+	MergeFFOnly(
 		ctx context.Context,
 		repoPath string,
 		branch string,
@@ -58,9 +70,10 @@ type originSyncHandle struct {
 // subscriber on a single protected workspace starts a goroutine that
 // periodically refreshes that workspace's local knowledge of
 // origin/<branch>, and the last unsubscribe stops it. A workspace with a
-// parent (ParentID != "") is left alone every tick — its fork point is
-// already kept fresh by the fork-time FastForwardBranch, and this manager
-// exists only to un-stale a protected root branch's ahead/behind display.
+// parent (ParentID != "") is left alone every tick — a child forks from
+// origin/<parent> at creation and diffs resolve through origin/<base>, so only
+// a protected ROOT needs this. Every tick refreshes that root's origin ref; the
+// OPEN-time tick additionally fast-forwards its worktree (advanceLockedRoot).
 type OriginSyncManager struct {
 	root      context.Context
 	interval  time.Duration
@@ -187,7 +200,7 @@ func (m *OriginSyncManager) run(
 	case <-ctx.Done():
 		return
 	default:
-		m.syncTick(ctx, wsID)
+		m.syncTick(ctx, wsID, true)
 		m.notifyCycle(ctx)
 	}
 
@@ -199,7 +212,7 @@ func (m *OriginSyncManager) run(
 		case <-ctx.Done():
 			return
 		case <-tickC:
-			m.syncTick(ctx, wsID)
+			m.syncTick(ctx, wsID, false)
 			m.notifyCycle(ctx)
 		}
 	}
@@ -276,8 +289,9 @@ func (m *OriginSyncManager) waitRunnersForTest() {
 func (m *OriginSyncManager) syncTick(
 	ctx context.Context,
 	wsID string,
+	advance bool,
 ) {
-	m.syncTickWithTimeout(ctx, wsID, originSyncTimeout)
+	m.syncTickWithTimeout(ctx, wsID, originSyncTimeout, advance)
 }
 
 // syncTickWithTimeout is syncTick with an injectable timeout (the test seam
@@ -287,6 +301,7 @@ func (m *OriginSyncManager) syncTickWithTimeout(
 	ctx context.Context,
 	wsID string,
 	timeout time.Duration,
+	advance bool,
 ) {
 	syncCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
@@ -301,5 +316,49 @@ func (m *OriginSyncManager) syncTickWithTimeout(
 	}
 	if err := m.git.FetchRef(syncCtx, ws.WorktreePath, ws.Branch); err != nil {
 		slog.WarnContext(syncCtx, "origin sync: fetch ref", "workspace_id", wsID, "branch", ws.Branch, "err", err)
+		return
 	}
+	if advance {
+		m.advanceLockedRoot(syncCtx, ws)
+	}
+}
+
+// advanceLockedRoot fast-forwards a locked root's worktree onto the origin ref
+// the caller has just fetched, so the files the user is about to read are the
+// files origin has.
+//
+// It runs ONLY on the open (0->1 subscriber) sync, never on an interval tick.
+// The cadence is the reason: the sync ticks only while a client is subscribed to
+// this workspace — that is, only while the user is looking at it — so advancing
+// on a tick would move files under a live editor or a mid-task agent, and would
+// do nothing during the entire window when advancing is harmless. Doing it once,
+// at open, puts the change before the reading rather than during it.
+//
+// Only a LOCKED, non-default, provisioned root qualifies. Locked is what makes a
+// fast-forward unconditionally safe: Crowbar refuses commits and merges into
+// these branches, so there is no local work for origin to race. The repo home is
+// excluded because it is the user's own folder, which Crowbar does not own, and
+// a placeholder (empty WorktreePath) has no worktree to advance.
+//
+// Every failure is swallowed: an unreachable remote, or a tree dirtied from a
+// terminal (git refuses rather than overwrite), must never break opening a
+// workspace. A refusal is expected and logged quietly; anything else is a Warn.
+func (m *OriginSyncManager) advanceLockedRoot(
+	ctx context.Context,
+	ws domain.Workspace,
+) {
+	if ws.Status != domain.WorkspaceStatusLocked || ws.IsDefault || ws.WorktreePath == "" {
+		return
+	}
+	err := m.git.MergeFFOnly(ctx, ws.WorktreePath, "origin/"+ws.Branch)
+	if err == nil {
+		return
+	}
+	if errors.Is(err, enginegit.ErrDirtyTree) {
+		slog.InfoContext(ctx, "origin sync: locked root has local changes; leaving it where it is",
+			"workspace_id", ws.ID, "branch", ws.Branch)
+		return
+	}
+	slog.WarnContext(ctx, "origin sync: could not fast-forward locked root",
+		"workspace_id", ws.ID, "branch", ws.Branch, "err", err)
 }

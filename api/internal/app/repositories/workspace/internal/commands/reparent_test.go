@@ -36,3 +36,17 @@ func TestReparent_LeavesNonConflictStatusAlone(t *testing.T) {
 	assert.Equal(t, domain.WorkspaceStatusPROpen, got.Status,
 		"reparent does not touch a non-conflict status")
 }
+
+// A reparent gives the workspace a FORK parent, and a workspace with one renders
+// under that parent — it inherits its folder from its fork ancestor. A stale
+// FolderID left behind would be a row claiming two places at once, which is
+// exactly the fork-chain split the folder guards refuse.
+func TestReparent_ClearsTheFolder(t *testing.T) {
+	current := domain.Workspace{ID: "w1", FolderID: "f1", Order: 2}
+
+	got := commands.Reparent{ID: "w1", ParentID: "parent", ForkPointSha: "abc"}.
+		EmitEvent(&current)
+
+	assert.Empty(t, got.FolderID, "a forked child is placed by its parent, not by a folder")
+	assert.Equal(t, "parent", got.ParentID)
+}

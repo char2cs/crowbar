@@ -235,3 +235,55 @@ describe('toSidebarRepo defaultBranch', () => {
     expect(out.defaultBranch).toBeUndefined()
   })
 })
+
+// The sidebar holds several projects at once now, so the builder is deliberately
+// project-agnostic: it groups whatever it is handed and tags each repo with its
+// own project. Deciding WHICH projects to hand it is the visibility layer's job
+// (lib/store/project-visibility.ts), not this one's.
+describe('buildRepoTree is project-agnostic', () => {
+  it('keeps repos from more than one project, each tagged with its own', () => {
+    const tree = buildRepoTree(
+      [repo('r1', 'alpha'), repo('r2', 'beta', { projectId: 'p2' })],
+      [ws('w1', 'r1'), ws('w2', 'r2', { projectId: 'p2' })],
+    )
+    expect(tree.map((r) => [r.id, r.projectId])).toEqual([
+      ['r1', 'p1'],
+      ['r2', 'p2'],
+    ])
+    expect(tree[1].workspaces.map((w) => w.id)).toEqual(['w2'])
+  })
+})
+
+describe('folders and order', () => {
+  it('groups a repo’s folders onto it and leaves another repo’s alone', () => {
+    const tree = buildRepoTree(
+      [repo('r1', 'alpha'), repo('r2', 'beta')],
+      [],
+      [
+        { id: 'f1', repoId: 'r1', name: 'spikes', order: 0 },
+        { id: 'f2', repoId: 'r2', name: 'archive', order: 0 },
+      ],
+    )
+    expect(tree[0].folders?.map((f) => f.id)).toEqual(['f1'])
+    expect(tree[1].folders?.map((f) => f.id)).toEqual(['f2'])
+  })
+
+  it('omits folders entirely when the repo has none', () => {
+    expect(buildRepoTree([repo('r1', 'alpha')], [])[0].folders).toBeUndefined()
+  })
+
+  it('carries folderId and order through from the DTO', () => {
+    const w = toSidebarWorkspace(ws('w1', 'r1', { folderId: 'f1', order: 3 }))
+    expect(w.folderId).toBe('f1')
+    expect(w.order).toBe(3)
+  })
+
+  it('tolerates a frame from a backend that carries neither', () => {
+    // Set rather than omitted, for the same reason as lastError/heldByPath:
+    // applyWorkspaceDTO merges with {...w, ...ws}, so a workspace moved OUT of a
+    // folder has to overwrite the stale id instead of keeping it.
+    const w = toSidebarWorkspace(ws('w1', 'r1'))
+    expect(w.folderId).toBe('')
+    expect(w.order).toBe(0)
+  })
+})

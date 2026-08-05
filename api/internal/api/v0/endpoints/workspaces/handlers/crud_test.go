@@ -340,6 +340,155 @@ func TestCreate_DefaultBranchWorkspace_NotBlocked(t *testing.T) {
 	waitClosed(t, hierarchy.createDone)
 }
 
+// A create started on a folder row carries the folder and NO parent: the row is
+// filed under the folder while it forks from the repo's default branch. The two
+// fields must not be confused, because a folder has no branch to fork from.
+func TestCreate_IntoFolder_FilesTheRowAndForksFromTheDefaultBranch(
+	t *testing.T,
+) {
+	repos := &fakeRepos{repo: &domain.Repository{
+		ID: "r1", ProjectID: "p1", Path: "/repo", DefaultBranch: "main",
+	}}
+	hierarchy := &fakeHierarchy{created: domain.Workspace{ID: "new-ws"}, createDone: make(chan struct{})}
+	placer := &fakePlacer{folders: []domain.Folder{{ID: "f1", RepoID: "r1", ProjectID: "p1"}}}
+	r, _, _ := newRouterWithPlacer(&fakeReader{}, hierarchy, repos, placer)
+
+	rec := do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces",
+		`{"branch":"feat","folderId":"f1"}`)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	waitClosed(t, hierarchy.createDone)
+	assert.Equal(t, "f1", hierarchy.gotCreate.FolderID)
+	assert.Empty(t, hierarchy.gotCreate.ParentID, "a folder is never a fork parent")
+	assert.Equal(t, "main", hierarchy.gotCreate.ParentBranch)
+}
+
+// A folderId nothing renders is refused the way an unresolvable parentId is:
+// synchronously, before the 202, where the caller can still see it. The repo's
+// folder list is repo-scoped, so a folder owned by another repo takes the same
+// answer.
+func TestCreate_UnknownFolder_404(
+	t *testing.T,
+) {
+	repos := &fakeRepos{repo: &domain.Repository{
+		ID: "r1", ProjectID: "p1", Path: "/repo", DefaultBranch: "main",
+	}}
+	hierarchy := &fakeHierarchy{}
+	placer := &fakePlacer{folders: []domain.Folder{{ID: "f1", RepoID: "r1", ProjectID: "p1"}}}
+	r, _, _ := newRouterWithPlacer(&fakeReader{}, hierarchy, repos, placer)
+
+	rec := do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces",
+		`{"branch":"feat","folderId":"from-another-repo"}`)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Empty(t, hierarchy.gotCreate.Branch, "a refused create must not dispatch background work")
+}
+
+// A created row is GIVEN its slot. Folders and fork-root workspaces share one
+// sibling space, so a row left holding the zero value collides with whatever
+// already sits at 0 and surfaces at the top of a level it should have joined at
+// the end.
+func TestCreate_AsksForTheNextSlotInTheLevelItJoins(
+	t *testing.T,
+) {
+	repos := &fakeRepos{repo: &domain.Repository{
+		ID: "r1", ProjectID: "p1", Path: "/repo", DefaultBranch: "main",
+	}}
+	hierarchy := &fakeHierarchy{created: domain.Workspace{ID: "new-ws"}, createDone: make(chan struct{})}
+	placer := &fakePlacer{
+		folders:  []domain.Folder{{ID: "f1", RepoID: "r1", ProjectID: "p1"}},
+		nextSlot: 3,
+	}
+	r, _, _ := newRouterWithPlacer(&fakeReader{}, hierarchy, repos, placer)
+
+	rec := do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces",
+		`{"branch":"feat","folderId":"f1"}`)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	waitClosed(t, hierarchy.createDone)
+	assert.Equal(t, 3, hierarchy.gotCreate.Order)
+	assert.Equal(t, "f1", placer.gotContainer,
+		"a fork root is ordered within the folder it names")
+}
+
+// A forked child is ordered among its fork siblings, so the level it joins is
+// its parent — never the folder, which it does not carry.
+func TestCreate_UnderAParent_CountsTheParentsLevel(
+	t *testing.T,
+) {
+	repos := &fakeRepos{repo: &domain.Repository{
+		ID: "r1", ProjectID: "p1", Path: "/repo", DefaultBranch: "main",
+	}}
+	hierarchy := &fakeHierarchy{created: domain.Workspace{ID: "new-ws"}, createDone: make(chan struct{})}
+	reader := &fakeReader{get: domain.Workspace{ID: "w1", Branch: "feature/parent"}}
+	placer := &fakePlacer{nextSlot: 1}
+	r, _, _ := newRouterWithPlacer(reader, hierarchy, repos, placer)
+
+	rec := do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces",
+		`{"branch":"feat","parentId":"w1"}`)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	waitClosed(t, hierarchy.createDone)
+	assert.Equal(t, "w1", placer.gotContainer)
+	assert.Equal(t, 1, hierarchy.gotCreate.Order)
+}
+
+// The two fields address different things, and a row can only be placed by one
+// of them. Accepting both would let a create reach a state the placement
+// endpoint refuses outright.
+func TestCreate_ParentAndFolderTogether_400(
+	t *testing.T,
+) {
+	repos := &fakeRepos{repo: &domain.Repository{
+		ID: "r1", ProjectID: "p1", Path: "/repo", DefaultBranch: "main",
+	}}
+	hierarchy := &fakeHierarchy{}
+	placer := &fakePlacer{folders: []domain.Folder{{ID: "f1", RepoID: "r1", ProjectID: "p1"}}}
+	r, _, _ := newRouterWithPlacer(&fakeReader{}, hierarchy, repos, placer)
+
+	rec := do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces",
+		`{"branch":"feat","parentId":"w1","folderId":"f1"}`)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Empty(t, hierarchy.gotCreate.Branch, "a refused create must not dispatch background work")
+}
+
+func TestCreate_FolderLookupError_500(
+	t *testing.T,
+) {
+	repos := &fakeRepos{repo: &domain.Repository{
+		ID: "r1", ProjectID: "p1", Path: "/repo", DefaultBranch: "main",
+	}}
+	placer := &fakePlacer{listErr: errors.New("db down")}
+	r, _, _ := newRouterWithPlacer(&fakeReader{}, &fakeHierarchy{}, repos, placer)
+
+	rec := do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces",
+		`{"branch":"feat","folderId":"f1"}`)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// With no folder usecase wired there is nothing to resolve the destination
+// against, so the create is refused rather than silently dropping the folder and
+// filing the row at the repo root.
+func TestCreate_IntoFolderWithoutPlacer_500(
+	t *testing.T,
+) {
+	repos := &fakeRepos{repo: &domain.Repository{
+		ID: "r1", ProjectID: "p1", Path: "/repo", DefaultBranch: "main",
+	}}
+	hierarchy := &fakeHierarchy{}
+	rec := do(
+		newRouter(&fakeReader{}, hierarchy, repos),
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces",
+		`{"branch":"feat","folderId":"f1"}`,
+	)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Empty(t, hierarchy.gotCreate.Branch)
+}
+
 func TestDeleteAsyncErrorBroadcastsLastError(
 	t *testing.T,
 ) {

@@ -159,6 +159,10 @@ export async function hydrateSidebar(): Promise<void> {
     useSidebarStore.setState({
       collapsedRepos: new Set(sidebarUI.collapsedRepos),
       collapsedWorkspaces: new Set(sidebarUI.collapsedWorkspaces ?? []),
+      // Absent on a record written before projects were collapsible — replays
+      // as "nothing collapsed", i.e. every project open, which is the product
+      // default (see sidebar.ts `collapsedProjects`).
+      collapsedProjects: new Set(sidebarUI.collapsedProjects ?? []),
     })
   }
 

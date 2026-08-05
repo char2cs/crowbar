@@ -8,7 +8,7 @@ describe('WorkspaceBranchIcon', () => {
     const status = getByRole('status')
     expect(status).toBeTruthy()
     // Flicker spinner, not the retired @agilek/cli-loaders Spinner.
-    expect(container.querySelector('svg animate')).not.toBeNull()
+    expect(container.querySelector('[data-flicker-spinner]')).not.toBeNull()
     // Theme-token colored, never hardcoded — the wrapper carries the color class
     // since FlickerSpinner inherits via currentColor.
     expect(container.querySelector('.text-foreground')).not.toBeNull()

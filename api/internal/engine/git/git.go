@@ -127,6 +127,15 @@ type Engine interface {
 		branch string,
 	) error
 
+	// FetchPrune refreshes every refs/remotes/origin/* ref and drops the ones
+	// whose remote branch is gone (`git fetch --prune origin`). It is what makes
+	// a remote-branch listing reflect the remote as it is NOW; it moves no local
+	// branch ref.
+	FetchPrune(
+		ctx context.Context,
+		repoPath string,
+	) error
+
 	// FastForwardBranch fetches origin/<branch> and updates the local branch ref
 	// to match via `git fetch origin <branch>:<branch>`. Unlike FetchRef, which
 	// only updates the remote-tracking ref, this ensures the local branch is at
@@ -391,6 +400,19 @@ type Engine interface {
 		worktreePath string,
 		branch string,
 		startPoint string,
+	) (string, error)
+
+	// WorktreeAddAtRef checks branch out into a fresh worktree at worktreePath
+	// with the branch ref RESET to startRef (`git worktree add -B`), returning
+	// the resolved start SHA. This is the import path's checkout: it guarantees
+	// the worktree holds startRef's commits even when a diverged local branch of
+	// the same name already exists.
+	WorktreeAddAtRef(
+		ctx context.Context,
+		repoPath string,
+		worktreePath string,
+		branch string,
+		startRef string,
 	) (string, error)
 
 	// RevParse resolves rev to a full commit SHA (07 §1 / §3.1).

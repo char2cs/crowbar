@@ -50,17 +50,6 @@ vi.mock('@/components/ui/sidebar', () => ({
     <div data-testid="sidebar-provider">{children}</div>
   ),
 }))
-vi.mock('@/components/ui/resizable', () => ({
-  ResizablePanelGroup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  // Surfaces `id` so tests can assert each side gets its own panel identity —
-  // react-resizable-panels keys its saved layout by that id.
-  ResizablePanel: ({ children, id }: { children: React.ReactNode; id?: string }) => (
-    <div data-panel="" data-panel-id={id}>
-      {children}
-    </div>
-  ),
-  ResizableHandle: (props: React.HTMLAttributes<HTMLDivElement>) => <div {...props} />,
-}))
 vi.mock('@/components/error-boundary', () => ({
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
@@ -100,12 +89,9 @@ describe('IDEShell', () => {
     expect(screen.getByTestId('sidebar-resize-handle')).toBeInTheDocument()
   })
 
-  // Regression: moving the sidebar from one side to the other inflated it (321px
-  // on the right came back as 640px — SIDEBAR_MAX_PX — on the left). The two
-  // orderings were separate ternary branches, so React reconciled the panels
-  // POSITIONALLY: slot 0 kept its instance and its auto-generated panel id while
-  // swapping roles with slot 2, and react-resizable-panels' layout map — keyed by
-  // that id — handed the sidebar the content pane's share of the group.
+  // Regression: moving the sidebar from one side to the other must change only
+  // the grid areas. Both expensive subtrees stay in the same DOM nodes, and the
+  // pixel preference stays one value rather than inheriting a panel percentage.
   describe('moving the sidebar to the other side', () => {
     function setSide(side: 'left' | 'right') {
       act(() => {
@@ -115,21 +101,20 @@ describe('IDEShell', () => {
       })
     }
 
-    function panelIds(): (string | null)[] {
-      return Array.from(document.querySelectorAll('[data-panel]')).map((el) =>
-        el.getAttribute('data-panel-id'),
-      )
-    }
-
     afterEach(() => setSide('left'))
 
-    it('gives each side its own panel ids, so neither inherits the other side layout', () => {
+    it('changes grid placement without changing the preferred pixel width', () => {
       setSide('left')
       render(<IDEShell />)
-      expect(panelIds()).toEqual(['sidebar-left', 'content-left'])
+      const split = document.querySelector('[data-sidebar-split-pane]') as HTMLElement
+      const width = split.style.getPropertyValue('--sidebar-track-width')
+      expect(split).toHaveAttribute('data-side', 'left')
+      expect(split.style.gridTemplateAreas).toBe('"sidebar handle content"')
 
       setSide('right')
-      expect(panelIds()).toEqual(['content-right', 'sidebar-right'])
+      expect(split).toHaveAttribute('data-side', 'right')
+      expect(split.style.gridTemplateAreas).toBe('"content handle sidebar"')
+      expect(split.style.getPropertyValue('--sidebar-track-width')).toBe(width)
     })
 
     it('moves the panels rather than destroying and rebuilding their subtrees', () => {

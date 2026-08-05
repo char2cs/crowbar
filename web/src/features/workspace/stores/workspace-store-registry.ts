@@ -7,6 +7,7 @@ import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-hi
 import type { TerminalContent } from '@/features/panes/types/pane-content'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { setActiveScopeWorkspaceId } from '@/lib/workspace-scope'
+import { bestEffort } from '@/lib/best-effort'
 import { clearWorkspaceFreshness } from '../lib/activation-freshness'
 
 const registry = new Map<string, WorkspaceStore>()
@@ -121,12 +122,15 @@ export function destroyWorkspaceStore(wsId: string): void {
     // scrollback replay. killTerminalSession is still used on real tab close.
     const terminalBuffers = buffers.filter((b) => b.type === 'terminal')
     if (terminalBuffers.length > 0) {
-      void import('@/features/terminal/lib/detach-terminal-session').then(
-        ({ detachTerminalSession }) => {
-          for (const buf of terminalBuffers) {
-            void detachTerminalSession(wsId, (buf as TerminalContent).sessionId).catch(() => {})
-          }
-        },
+      bestEffort(
+        import('@/features/terminal/lib/detach-terminal-session').then(
+          ({ detachTerminalSession }) => {
+            for (const buf of terminalBuffers) {
+              void detachTerminalSession(wsId, (buf as TerminalContent).sessionId).catch(() => {})
+            }
+          },
+        ),
+        'detach terminal sessions',
       )
     }
 
@@ -140,12 +144,15 @@ export function destroyWorkspaceStore(wsId: string): void {
       if (isEditorContent(b)) editorPaths.push(b.path)
     }
     if (editorPaths.length > 0) {
-      void import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
-        const { clearBlameForFile } = useGitBlameStore.getState()
-        for (const path of editorPaths) {
-          clearBlameForFile(path)
-        }
-      })
+      bestEffort(
+        import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
+          const { clearBlameForFile } = useGitBlameStore.getState()
+          for (const path of editorPaths) {
+            clearBlameForFile(path)
+          }
+        }),
+        'clear blame for disposed workspace',
+      )
     }
 
     // Cleanup undo tracker and history for each buffer

@@ -8,11 +8,42 @@ import (
 	"sync"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
+
+// Placer is the sidebar-folder surface the handlers need: file a workspace under
+// a folder and reorder it among its siblings, and read a repo's folders so a
+// create can resolve the one it is filed into. It lives in the folder usecase
+// because folders and workspaces share one sibling space, so placing either has
+// to renumber both.
+type Placer interface {
+	PlaceWorkspace(
+		ctx context.Context,
+		projectID string,
+		repoID string,
+		wsID string,
+		in folder.PlaceInput,
+	) (domain.Workspace, []domain.Folder, error)
+	// ListInRepo returns one repo's folders. Scoped to (project, repo), so
+	// membership answers both "does this folder exist" and "is it ours".
+	ListInRepo(
+		ctx context.Context,
+		projectID string,
+		repoID string,
+	) ([]domain.Folder, error)
+	// NextSlot returns the index a row joining container would take.
+	NextSlot(
+		ctx context.Context,
+		projectID string,
+		repoID string,
+		container string,
+	) (int, error)
+}
 
 // Reader is the workspace read surface the handlers need: list every workspace
 // row from the read model, fetch one by id, sync the working-tree state on
@@ -34,6 +65,13 @@ type Reader interface {
 		ctx context.Context,
 		id string,
 		now time.Time,
+	) (domain.Workspace, error)
+	// SetLock records the user's own lock decision; nil hands the question back
+	// to the provider's protected flag. See lock.go.
+	SetLock(
+		ctx context.Context,
+		id string,
+		locked *bool,
 	) (domain.Workspace, error)
 	MergeEligibilityFor(
 		ctx context.Context,
@@ -145,12 +183,36 @@ type WorkSignal interface {
 // worktree hierarchy usecase, the repository store, the workspace error sink
 // that surfaces async-mutation failures on the entity, and the work signal
 // that drives the entity's Working overlay around async mutations.
+// RemoteRefs is the narrow git surface Import uses to refuse a branch that is
+// not on the remote synchronously, on the request path, instead of letting the
+// batch fail in the background where it has no entity to report through.
+type RemoteRefs interface {
+	// FetchPrune refreshes refs/remotes/origin/* so the check below is made
+	// against the remote as it is now, not as the clone last heard it.
+	FetchPrune(
+		ctx context.Context,
+		repoPath string,
+	) error
+	RemoteTrackingBranchExists(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) (bool, error)
+}
+
 type Handlers struct {
 	reader     Reader
 	hierarchy  Hierarchy
 	repos      Repos
 	lastErrors LastErrorSetter
 	working    WorkSignal
+	remote     RemoteRefs
+	placer     Placer
+	// broadcastFolder delivers the FOLDER rows a placement renumbered. Folders
+	// are a plain GORM row with no projection to ride, so this handler fans them
+	// out itself; the workspace rows it touches broadcast through the aggregate's
+	// hub projection like every other workspace write.
+	broadcastFolder func(dto.FolderDTO)
 	// async tracks the detached runAsync ops so callers can block on their real
 	// completion instead of guessing with a sleep (see runAsync / WaitAsync).
 	async sync.WaitGroup
@@ -167,10 +229,40 @@ func New(
 	working WorkSignal,
 ) *Handlers {
 	return &Handlers{
-		reader:     reader,
-		hierarchy:  hierarchy,
-		repos:      repos,
-		lastErrors: lastErrors,
-		working:    working,
+		reader:          reader,
+		hierarchy:       hierarchy,
+		repos:           repos,
+		lastErrors:      lastErrors,
+		working:         working,
+		broadcastFolder: func(dto.FolderDTO) {},
 	}
+}
+
+// WithPlacer wires the sidebar-placement usecase and the folder broadcast the
+// PATCH handler needs. A nil placer leaves placement unavailable (the handler
+// answers 500), matching WithRemoteRefs' degrade-rather-than-panic wiring; a nil
+// broadcast degrades to a no-op.
+func (h *Handlers) WithPlacer(
+	placer Placer,
+	broadcast func(dto.FolderDTO),
+) *Handlers {
+	if placer != nil {
+		h.placer = placer
+	}
+	if broadcast != nil {
+		h.broadcastFolder = broadcast
+	}
+	return h
+}
+
+// WithRemoteRefs wires the git surface Import validates branches against. A nil
+// arg leaves that validation off, which degrades to the pre-existing behaviour:
+// the batch runs and reports per-branch outcomes as placeholder rows.
+func (h *Handlers) WithRemoteRefs(
+	remote RemoteRefs,
+) *Handlers {
+	if remote != nil {
+		h.remote = remote
+	}
+	return h
 }

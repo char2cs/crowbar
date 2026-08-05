@@ -6,6 +6,7 @@ package workspaces
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	workspacehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers"
 )
 
@@ -24,17 +25,23 @@ func Register(
 	repos workspacehandlers.Repos,
 	lastErrors workspacehandlers.LastErrorSetter,
 	working workspacehandlers.WorkSignal,
+	remote workspacehandlers.RemoteRefs,
+	placer workspacehandlers.Placer,
+	broadcastFolder func(dto.FolderDTO),
 	wsHandle gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
-	h := workspacehandlers.New(reader, hierarchy, repos, lastErrors, working)
+	h := workspacehandlers.New(reader, hierarchy, repos, lastErrors, working).
+		WithRemoteRefs(remote).
+		WithPlacer(placer, broadcastFolder)
 	rg.GET("/workspaces", dispatch(h.List, wsHandle))
 	rg.GET("/workspaces/:wsId", dispatch(h.Detail, wsHandle))
 	rg.POST("/workspaces", h.Create)
 	rg.POST("/workspaces/import", h.Import)
-	rg.PATCH("/workspaces/:wsId", h.Rename)
+	rg.PATCH("/workspaces/:wsId", h.Patch)
 	rg.DELETE("/workspaces/:wsId", h.Delete)
 	rg.POST("/workspaces/:wsId/sync", h.Sync)
+	rg.POST("/workspaces/:wsId/lock", h.Lock)
 	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)
 	rg.POST("/workspaces/:wsId/reparent", h.Reparent)
 	rg.POST("/workspaces/:wsId/rebase-onto-parent", h.RebaseOntoParent)

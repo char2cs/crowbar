@@ -38,13 +38,18 @@ const maxOCCAttempts = 16
 
 // CreateInput carries the fields needed to create a workspace.
 type CreateInput struct {
-	ID            string
-	RepoID        string
-	ProjectID     string
-	Branch        string
-	WorktreePath  string
-	ForkPointSha  string
-	ParentID      string
+	ID           string
+	RepoID       string
+	ProjectID    string
+	Branch       string
+	WorktreePath string
+	ForkPointSha string
+	ParentID     string
+	// FolderID is the sidebar folder the new row is filed under, "" for the
+	// repo root. Placement only — see commands.CreateWorkspace.
+	FolderID string
+	// Order is the row's slot among its siblings. See commands.CreateWorkspace.
+	Order         int
 	Protected     bool
 	MergeStrategy gitdomain.MergeStrategy
 	IsDefault     bool
@@ -98,6 +103,16 @@ type Workspace interface {
 		id string,
 		strategy gitdomain.MergeStrategy,
 	) (domain.Workspace, error)
+	// SetLock records the user's own lock decision, which outranks the
+	// provider's protected flag from here on. A nil `locked` hands the question
+	// back to the provider. `protected` is the provider's current answer, used
+	// only to resolve the status when `locked` is nil.
+	SetLock(
+		ctx context.Context,
+		id string,
+		locked *bool,
+		protected bool,
+	) (domain.Workspace, error)
 	TouchActivity(
 		ctx context.Context,
 		id string,
@@ -150,6 +165,22 @@ type Workspace interface {
 		ctx context.Context,
 		id string,
 		parentID string,
+	) (domain.Workspace, error)
+	// SetPlacement writes the sidebar placement — the folder the workspace is
+	// filed under and its dense index within that sibling space — leaving the
+	// fork lineage (ParentID/ForkPointSha) untouched.
+	SetPlacement(
+		ctx context.Context,
+		id string,
+		folderID string,
+		order int,
+	) (domain.Workspace, error)
+	// SetProject re-points the workspace at the project that now owns its
+	// repository, for a repo moved between projects. It moves no worktree.
+	SetProject(
+		ctx context.Context,
+		id string,
+		projectID string,
 	) (domain.Workspace, error)
 	// SetLastError records the message from a failed background operation on the
 	// workspace; the failure surfaces on the entity, never a separate WS frame
@@ -441,6 +472,8 @@ func (w *workspace) Create(
 		WorktreePath:  in.WorktreePath,
 		ForkPointSha:  in.ForkPointSha,
 		ParentID:      in.ParentID,
+		FolderID:      in.FolderID,
+		Order:         in.Order,
 		Protected:     in.Protected,
 		IsDefault:     in.IsDefault,
 		MergeStrategy: in.MergeStrategy,
@@ -524,6 +557,19 @@ func (w *workspace) SetMergeStrategy(
 	evt, err := w.sendWithOCC(ctx, commands.SetMergeStrategy{ID: id, Strategy: strategy})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set merge strategy: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) SetLock(
+	ctx context.Context,
+	id string,
+	locked *bool,
+	protected bool,
+) (domain.Workspace, error) {
+	evt, err := w.sendWithOCC(ctx, commands.SetLock{ID: id, Locked: locked, Protected: protected})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: set lock: %w", err)
 	}
 	return evt.Aggregate, nil
 }
@@ -670,6 +716,31 @@ func (w *workspace) SetParentFromPR(
 	evt, err := w.sendWithOCC(ctx, commands.SetParentFromPR{ID: id, ParentID: parentID})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set parent from pr: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) SetPlacement(
+	ctx context.Context,
+	id string,
+	folderID string,
+	order int,
+) (domain.Workspace, error) {
+	evt, err := w.sendWithOCC(ctx, commands.SetPlacement{ID: id, FolderID: folderID, Order: order})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: set placement: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) SetProject(
+	ctx context.Context,
+	id string,
+	projectID string,
+) (domain.Workspace, error) {
+	evt, err := w.sendWithOCC(ctx, commands.SetProject{ID: id, ProjectID: projectID})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: set project: %w", err)
 	}
 	return evt.Aggregate, nil
 }

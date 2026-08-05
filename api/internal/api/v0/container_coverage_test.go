@@ -92,6 +92,49 @@ func TestContainer_PushRepo_ReachesClient(t *testing.T) {
 	assert.Equal(t, "p1", got["projectId"])
 }
 
+func TestContainer_PushFolder_ReachesClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	a := newAppForSnapshot(t)
+	c := New(a, nil)
+	r := gin.New()
+	r.GET("/v0/projects/:projectId/repos/:repoId/folders", func(ctx *gin.Context) { c.folders.Handle(ctx) })
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/folders")
+	c.folders.WaitRegistered()
+
+	c.PushFolder(dto.FolderDTO{ID: "f1", ProjectID: "p1", RepoID: "r1", Name: "spikes"})
+
+	got := readJSON(t, conn)
+	assert.Equal(t, "f1", got["id"])
+	assert.Equal(t, "spikes", got["name"])
+}
+
+// A folder in a SIBLING repo must never reach a client subscribed to this one:
+// the hierarchical namespace is what scopes the fan-out, and a wrong prefix
+// would surface another repo's rows in this repo's tree.
+func TestContainer_PushFolder_ScopedToTheSubscribedRepo(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	a := newAppForSnapshot(t)
+	c := New(a, nil)
+	r := gin.New()
+	r.GET("/v0/projects/:projectId/repos/:repoId/folders", func(ctx *gin.Context) { c.folders.Handle(ctx) })
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/folders")
+	c.folders.WaitRegistered()
+
+	c.PushFolder(dto.FolderDTO{ID: "other", ProjectID: "p1", RepoID: "r2", Name: "elsewhere"})
+	c.PushFolder(dto.FolderDTO{ID: "mine", ProjectID: "p1", RepoID: "r1", Name: "spikes"})
+
+	// The in-scope frame is the barrier: it travels the same per-connection FIFO,
+	// so once it lands the out-of-scope one has already been dropped or delivered.
+	got := readJSON(t, conn)
+	assert.Equal(t, "mine", got["id"], "a sibling repo's folder must not be delivered")
+}
+
 func TestContainer_PushWorkspace_ReachesClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)

@@ -85,15 +85,7 @@
   font-size: var(--ui-text-xl);
 }
 
-/* Allow content-pane shadow to bleed leftward into the sidebar area.
-   react-resizable-panels injects overflow:hidden/auto via inline styles — override both.
-   pane-container also clips; override so the shadow follows the rounded pane content shape. */
-[data-slot='resizable-panel-group'] {
-  overflow: visible !important;
-}
-[data-slot='resizable-panel'] > div {
-  overflow: visible !important;
-}
+/* Allow content-pane shadows to follow the rounded pane content shape. */
 [data-pane-container] {
   overflow: visible !important;
 }
@@ -107,6 +99,77 @@
 html[data-pane-resizing] [data-pane-content] {
   border-radius: 0 !important;
   box-shadow: none !important;
+}
+
+/* Nothing is selectable while a row is in the air.
+   The `selectstart` listener (armed on pointerdown, workspace-tree-context.tsx)
+   is the primary guard and cancels the selection at its source; this is the
+   backstop for the paths that never fire one — a caret dragged out of an
+   already-focused editor, an engine that re-starts selection mid-gesture.
+   Inherited, so ONE selector covers the document: `user-select` inherits, which
+   the cursor deliberately does not, and that is why this can be a single rule
+   where the cursor needed a real element. Descendants that set their own
+   (Monaco sets `text`) keep it — the listener covers those.
+   Both spellings: WebKit reports this property only as -webkit-user-select. */
+html[data-row-dragging] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* A sidebar row is in the air: say so with the cursor, everywhere.
+   Pointer capture keeps the events on the grabbed row, but the cursor is drawn
+   from whatever the pointer is physically over, so a rule on the row itself
+   would show `grabbing` only while the hand happened to be back over where it
+   started. `!important` and the universal selector because every row declares
+   `cursor-pointer` (ROW_BASE) and the pane declares its own, and a drag in
+   flight outranks both.
+
+   MEASURED, twice, because the universal selector looks like it should be the
+   expensive option and is not. On the live app during a drag: 400 dispatched
+   pointermoves cost 16ms with this rule and 17ms without it, and a 90-frame
+   drag ran at an 8ms median frame either way. It was once replaced by a
+   full-viewport transparent element that owned the cursor by sitting on top —
+   that "cheaper" version cost 42ms PER FRAME (51ms median frame against 9ms
+   with it hidden), because a fixed full-window box overlaps every composited
+   layer in the page. Do not trade this rule for an element again. */
+html[data-row-dragging],
+html[data-row-dragging] * {
+  cursor: grabbing !important;
+}
+
+/* Pin the sidebar's panel carousel while a row is in the air.
+   The carousel (sidebar-carousel.tsx) is the tree's nearest scrollable
+   ancestor: `overflow-x: scroll` with `scroll-snap-type: x mandatory`, four
+   min-w-full panels. Carrying a row rightwards out of it — which is exactly the
+   drag that removes one — leaves a captured pointer travelling past the edge of
+   a horizontally scrollable box, and WebKit answers that by scrolling it. With
+   MANDATORY snapping there is no small version of that: any nudge lands a whole
+   panel away, so the sidebar jumps to Chats or Files mid-drag and the rows the
+   drag came from are gone.
+   `hidden` rather than `clip`: it stops USER and native scrolling while leaving
+   the box programmatically scrollable, so the carousel's own re-align
+   (ResizeObserver) and its activeTab `scrollTo` keep working through a drag.
+   The scrollbar is already display:none, so there is no gutter to shift. */
+html[data-row-dragging] [data-sidebar-carousel] {
+  overflow-x: hidden;
+}
+
+/* The flip-dot spinner's playback (components/ui/flicker-spinner.tsx). The
+   dots' timeline is baked into a horizontal sprite strip, so "animating" is one
+   stepped translate of an already-painted layer — no SMIL timers, no per-step
+   style recalc, no layer-tree rebuild. -100% is the strip's OWN width, i.e.
+   exactly `frames` frame-widths, so steps(frames) lands on frame boundaries.
+
+   Deliberately NOT inside `@theme` with the other keyframes: Tailwind v4 emits
+   @theme keyframes only when the matching `--animate-*` utility is used, and
+   this animation is composed inline (duration and step count differ per asset).
+   Declared there, it would be tree-shaken out of the production stylesheet and
+   the spinner would sit motionless in packaged builds only. Guarded by
+   __tests__/components/ui/flicker-spinner.test.tsx. */
+@keyframes flicker-strip {
+  to {
+    transform: translateX(-100%);
+  }
 }
 
 @layer utilities {

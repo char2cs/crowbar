@@ -257,7 +257,21 @@ func (h *harness) postError(
 	wantStatus int,
 ) {
 	h.t.Helper()
-	resp := h.raw(http.MethodPost, path, body, wantStatus)
+	h.mutationError(http.MethodPost, path, body, wantStatus)
+}
+
+// mutationError issues a mutation with a JSON body, asserts the HTTP status, and
+// requires the error envelope (success=false with a non-empty message). It
+// returns the message so a caller can assert on the reason as well as the code —
+// a refusal the user has to act on is only useful if it says what to do.
+func (h *harness) mutationError(
+	method string,
+	path string,
+	body any,
+	wantStatus int,
+) string {
+	h.t.Helper()
+	resp := h.raw(method, path, body, wantStatus)
 	defer func() { _ = resp.Body.Close() }()
 
 	var env struct {
@@ -265,8 +279,9 @@ func (h *harness) postError(
 		Error   string `json:"error"`
 	}
 	require.NoError(h.t, json.NewDecoder(resp.Body).Decode(&env))
-	require.False(h.t, env.Success, "expected error envelope for POST %s", path)
+	require.False(h.t, env.Success, "expected error envelope for %s %s", method, path)
 	require.NotEmpty(h.t, env.Error, "error envelope must carry a message")
+	return env.Error
 }
 
 func (h *harness) do(

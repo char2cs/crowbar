@@ -463,3 +463,77 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_HomeSkipsGit(t *testing.T) {
 	assert.False(t, captured.HasConflicts)
 	assert.False(t, captured.HasCommits)
 }
+
+// SetLock records the user's own lock decision, which outranks the provider's
+// protected flag from here on. The usecase's whole job is resolving what
+// "protected" currently means so the command can apply the override against it —
+// and the answer has to come from the STORED row, because clearing an override
+// is exactly the case where nobody is passing one in.
+func TestWorkspaceUsecase_SetLockPassesTheDecisionDown(t *testing.T) {
+	repo, _, _, uc := newWorkspaceUsecase(t)
+	ctx := context.Background()
+	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, Status: domain.WorkspaceStatusNew}, nil
+	}
+	var gotLocked *bool
+	var gotProtected bool
+	repo.SetLockFn = func(_ context.Context, id string, locked *bool, protected bool) (domain.Workspace, error) {
+		gotLocked, gotProtected = locked, protected
+		return domain.Workspace{ID: id, LockOverride: locked}, nil
+	}
+
+	unlock := false
+	got, err := uc.SetLock(ctx, "w1", &unlock)
+
+	require.NoError(t, err)
+	require.NotNil(t, gotLocked)
+	assert.False(t, *gotLocked)
+	assert.False(t, gotProtected, "an unlocked, override-free row is not protected")
+	require.NotNil(t, got.LockOverride)
+}
+
+func TestWorkspaceUsecase_SetLockReadsProtectedFromTheStoredRow(t *testing.T) {
+	// A row that is locked while carrying NO override is locked precisely
+	// because the provider said so. That is the only way to answer "is this
+	// protected?" when the override is being cleared.
+	repo, _, _, uc := newWorkspaceUsecase(t)
+	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, Status: domain.WorkspaceStatusLocked}, nil
+	}
+	var gotProtected bool
+	repo.SetLockFn = func(_ context.Context, id string, locked *bool, protected bool) (domain.Workspace, error) {
+		gotProtected = protected
+		return domain.Workspace{ID: id}, nil
+	}
+
+	_, err := uc.SetLock(context.Background(), "w1", nil)
+
+	require.NoError(t, err)
+	assert.True(t, gotProtected)
+}
+
+func TestWorkspaceUsecase_SetLockSurfacesAFailedLoad(t *testing.T) {
+	repo, _, _, uc := newWorkspaceUsecase(t)
+	repo.GetFn = func(_ context.Context, _ string) (domain.Workspace, error) {
+		return domain.Workspace{}, errors.New("boom")
+	}
+
+	_, err := uc.SetLock(context.Background(), "w1", nil)
+
+	require.Error(t, err)
+}
+
+func TestWorkspaceUsecase_SetLockSurfacesAFailedWrite(t *testing.T) {
+	repo, _, _, uc := newWorkspaceUsecase(t)
+	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id}, nil
+	}
+	repo.SetLockFn = func(_ context.Context, _ string, _ *bool, _ bool) (domain.Workspace, error) {
+		return domain.Workspace{}, errors.New("occ conflict")
+	}
+
+	lock := true
+	_, err := uc.SetLock(context.Background(), "w1", &lock)
+
+	require.Error(t, err)
+}

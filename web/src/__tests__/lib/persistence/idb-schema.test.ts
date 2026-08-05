@@ -40,6 +40,18 @@ describe('idb schema v7 entity stores', () => {
     expect(names).toContain('crowbar_threads')
   })
 
+  it('creates the v8 folder store keyed by id', async () => {
+    // A new object store only comes into existence inside an upgrade callback,
+    // so shipping one without bumping the version leaves an existing install
+    // with no store at all — and every entity-cache write swallows that, so it
+    // fails silently at runtime instead of loudly at build time.
+    const db = await getDB()
+    expect(Array.from(db.objectStoreNames)).toContain('crowbar_folders')
+    await db.put('crowbar_folders', { id: 'f1', name: 'spikes' } as never)
+    const rec = await db.get('crowbar_folders', 'f1')
+    expect((rec as { name: string } | undefined)?.name).toBe('spikes')
+  })
+
   it('round-trips an entity keyed by id through crowbar_workspaces', async () => {
     const db = await getDB()
     await db.put('crowbar_workspaces', { id: 'w1', branch: 'main' } as never)

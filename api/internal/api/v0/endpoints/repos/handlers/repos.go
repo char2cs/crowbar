@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -17,13 +18,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/rivo/uniseg"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/icons"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
@@ -102,6 +103,14 @@ type WorkspaceReader interface {
 	List(ctx context.Context) ([]domain.Workspace, error)
 }
 
+// RemoteRefresher is the narrow git surface the Branches handler uses to make
+// its listing reflect the remote as it is now rather than as the clone last
+// heard it. It goes through the git engine (not a bare shell-out) so the fetch
+// takes the same per-clone lock every other git operation does.
+type RemoteRefresher interface {
+	FetchPrune(ctx context.Context, repoPath string) error
+}
+
 // BranchEntry is one item in the GET /v0/projects/:projectId/repos/:repoId/branches response.
 type BranchEntry struct {
 	Name         string `json:"name"`
@@ -138,13 +147,14 @@ type RepoImporter interface {
 	) error
 }
 
-// RepoRenamer updates a repository's display name (and its derived avatar) and
-// returns the updated repo so the handler can broadcast the new RepoDTO.
-type RepoRenamer interface {
-	RenameRepo(
+// RepoUpdater applies a partial repository update — display name (and its
+// derived avatar), sidebar order, owning project — and returns the updated repo
+// so the handler can broadcast the new RepoDTO.
+type RepoUpdater interface {
+	UpdateRepo(
 		ctx context.Context,
 		repoID string,
-		name string,
+		in project.RepoUpdate,
 	) (domain.Repository, error)
 }
 
@@ -157,8 +167,9 @@ type Handlers struct {
 	store       Store
 	provider    BranchProviderEngine
 	wsReader    WorkspaceReader
+	remote      RemoteRefresher
 	importer    RepoImporter
-	renamer     RepoRenamer
+	updater     RepoUpdater
 	crowbarHome func() (string, error)
 	fetchAvatar AvatarBytesFetcher
 	broadcast   func(dto.RepoDTO)
@@ -176,7 +187,7 @@ func New(
 ) *Handlers {
 	return &Handlers{
 		store:       store,
-		crowbarHome: defaultCrowbarHome,
+		crowbarHome: icons.DefaultCrowbarHome,
 		fetchAvatar: fetchGithubAvatarBytes,
 		broadcast:   func(dto.RepoDTO) {},
 		stat:        os.Stat,
@@ -199,11 +210,24 @@ func NewWithDeps(
 		store:       store,
 		provider:    prov,
 		wsReader:    wsReader,
-		crowbarHome: defaultCrowbarHome,
+		crowbarHome: icons.DefaultCrowbarHome,
 		fetchAvatar: fetchGithubAvatarBytes,
 		broadcast:   broadcast,
 		stat:        os.Stat,
 	}
+}
+
+// WithRemoteRefresher wires the git surface the Branches handler uses to
+// refresh origin before listing. A nil arg leaves the handler serving the
+// clone's cached remote-tracking refs (tests, and any wiring without a git
+// engine).
+func (h *Handlers) WithRemoteRefresher(
+	remote RemoteRefresher,
+) *Handlers {
+	if remote != nil {
+		h.remote = remote
+	}
+	return h
 }
 
 // WithImporter wires the full repo-import usecase that Create runs in the
@@ -219,14 +243,15 @@ func (h *Handlers) WithImporter(
 	return h
 }
 
-// WithRenamer wires the repo-rename usecase that the Rename handler calls to
-// update a repo's name and derived avatar. A nil arg leaves rename unavailable
-// (the handler answers 500), matching the bare-handler fallback of WithImporter.
-func (h *Handlers) WithRenamer(
-	renamer RepoRenamer,
+// WithUpdater wires the repo-update usecase the Patch handler calls to change a
+// repo's name, sidebar order or owning project. A nil arg leaves the PATCH
+// unavailable (the handler answers 500), matching the bare-handler fallback of
+// WithImporter.
+func (h *Handlers) WithUpdater(
+	updater RepoUpdater,
 ) *Handlers {
-	if renamer != nil {
-		h.renamer = renamer
+	if updater != nil {
+		h.updater = updater
 	}
 	return h
 }
@@ -269,7 +294,17 @@ func (h *Handlers) List(
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	repos = filterByProject(repos, c.Query("projectId"))
+	// The route is hierarchical, so the project is a PATH parameter. Reading it
+	// from the query string (as this did) meant the filter never ran: the value
+	// was always empty, `filterByProject` returned everything, and every project
+	// listed every repo in the install. One project hides it completely — the
+	// unfiltered answer and the correct one are the same list — which is why it
+	// survived until a second project existed.
+	projectID := c.Param("projectId")
+	if projectID == "" {
+		projectID = c.Query("projectId")
+	}
+	repos = filterByProject(repos, projectID)
 	libs.WriteQueryOK(c, dto.RepoDTOList(repos))
 }
 
@@ -447,9 +482,13 @@ func pathSlug(
 	return leaf
 }
 
-// renameRequest is the PATCH .../repos/:repoId body.
-type renameRequest struct {
-	Name string `json:"name"`
+// patchRequest is the PATCH .../repos/:repoId body. Every field is optional and
+// a nil field is left as it is, so a rename, a sidebar reorder and a move to
+// another project are the same endpoint.
+type patchRequest struct {
+	Name      *string `json:"name"`
+	ProjectID *string `json:"projectId"`
+	Order     *int    `json:"order"`
 }
 
 // unsafeRepoNameMessage is the 400 both name-taking endpoints answer with.
@@ -478,42 +517,106 @@ func safeRepoName(
 	return strings.Trim(name, ".") != ""
 }
 
-// Rename handles PATCH /v0/projects/:projectId/repos/:repoId. It updates the
-// repository's display name (and its derived label/color avatar), then delivers
-// the updated repo as a RepoDTO on the repos WebSocket stream so every client's
-// sidebar refreshes. Validation is synchronous (name present); the rename itself
-// is a single store write, so unlike Create it runs inline and answers 204 — the
-// updated avatar rides the broadcast, not this response (the FE apiFetch throws
+// Patch handles PATCH /v0/projects/:projectId/repos/:repoId: rename, sidebar
+// reorder, and move to another project. It delivers the updated repo as a
+// RepoDTO on the repos WebSocket stream so every client's sidebar refreshes.
+//
+// Validation is synchronous, and so is the write: none of the three is a git
+// operation, so unlike Create this runs inline and answers 204 — the updated
+// avatar and order ride the broadcast, not this response (the FE apiFetch throws
 // on any non-enveloped 200 body, matching the icon mutations).
-func (h *Handlers) Rename(
+//
+// A project move carries the repo's workspaces with it, so every one of them is
+// re-broadcast by the workspace hub projection on its way through; the client
+// needs no second fetch to find them again under the new project.
+func (h *Handlers) Patch(
 	c *gin.Context,
 ) {
-	if h.renamer == nil {
-		libs.WriteErr(c, http.StatusInternalServerError, "rename unavailable")
+	if h.updater == nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "repo update unavailable")
 		return
 	}
-	var body renameRequest
+	var body patchRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	name := strings.TrimSpace(body.Name)
-	if name == "" {
-		libs.WriteErr(c, http.StatusBadRequest, "name is required")
+	update, ok := h.bindRepoUpdate(c, body)
+	if !ok {
 		return
 	}
-	if !safeRepoName(name) {
-		libs.WriteErr(c, http.StatusBadRequest, unsafeRepoNameMessage)
-		return
-	}
-	repo, err := h.renamer.RenameRepo(c.Request.Context(), c.Param("repoId"), name)
+	repo, err := h.updater.UpdateRepo(c.Request.Context(), c.Param("repoId"), update)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
 		return
 	}
+	h.relocateEntityDir(c, c.Param("projectId"), repo)
 	h.broadcast(dto.RepoDTOFrom(repo))
 	c.Status(http.StatusNoContent)
+}
+
+// relocateEntityDir follows a repo that changed projects with its entity
+// directory — the icon store, keyed by <home>/projects/<projectId>/<repoId>.
+// Left behind, the icon would 404 from under the new path and the old directory
+// would outlive every way of reaching it.
+//
+// Worktrees are NOT relocated and do not need to be: their paths were derived
+// once and are stored absolute in both the record and the id↔path index, so they
+// keep resolving from where they are. Only newly derived paths land under the new
+// project.
+//
+// Best-effort: a failed rename costs the custom icon (the repo falls back to its
+// generated avatar) and is logged. It must not fail an otherwise-committed move.
+func (h *Handlers) relocateEntityDir(
+	c *gin.Context,
+	fromProjectID string,
+	repo domain.Repository,
+) {
+	if repo.ProjectID == fromProjectID {
+		return
+	}
+	home, err := h.crowbarHome()
+	if err != nil || home == "" {
+		return
+	}
+	from := repoDir(home, fromProjectID, repo.ID)
+	to := repoDir(home, repo.ProjectID, repo.ID)
+	if mkErr := os.MkdirAll(filepath.Dir(to), 0o755); mkErr != nil { //nolint:gosec // G301: 0o755 matches the perm the daemon already creates its own project directories with.
+		slog.WarnContext(c.Request.Context(), "repo move: could not create the destination project dir",
+			"repo", repo.ID, "to", to, "err", mkErr)
+		return
+	}
+	if rnErr := os.Rename(from, to); rnErr != nil && !os.IsNotExist(rnErr) {
+		slog.WarnContext(c.Request.Context(), "repo move: could not relocate the entity dir; the repo falls back to its generated avatar",
+			"repo", repo.ID, "from", from, "to", to, "err", rnErr)
+	}
+}
+
+// bindRepoUpdate validates the PATCH body into a project.RepoUpdate, writing the
+// 400 and returning ok=false on any rejection. The name rules are the SAME ones
+// create enforces, and for the same reason: a repo with no parseable remote falls
+// back to its name for the on-disk worktree slug, so a separator or a dot-only
+// component would derive worktrees outside the crowbar home.
+func (h *Handlers) bindRepoUpdate(
+	c *gin.Context,
+	body patchRequest,
+) (project.RepoUpdate, bool) {
+	update := project.RepoUpdate{ProjectID: body.ProjectID, Order: body.Order}
+	if body.Name == nil {
+		return update, true
+	}
+	name := strings.TrimSpace(*body.Name)
+	if name == "" {
+		libs.WriteErr(c, http.StatusBadRequest, "name is required")
+		return project.RepoUpdate{}, false
+	}
+	if !safeRepoName(name) {
+		libs.WriteErr(c, http.StatusBadRequest, unsafeRepoNameMessage)
+		return project.RepoUpdate{}, false
+	}
+	update.Name = &name
+	return update, true
 }
 
 // DeleteRepo handles DELETE /v0/projects/:projectId/repos/:repoId. It validates
@@ -589,55 +692,7 @@ func (h *Handlers) Icon(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	// Stat-reject and cap the read: icons are stored by this daemon, but a
-	// corrupted or replaced file should not cause an unbounded heap allocation.
-	info, err := os.Stat(iconPath)
-	if err != nil {
-		c.Status(http.StatusNotFound)
-		return
-	}
-	if info.Size() > maxIconBytes {
-		c.Status(http.StatusNotFound)
-		return
-	}
-	//nolint:gosec // G304: iconPath comes from the daemon's entity-scoped icon store (h.iconPath), already stat-checked and size-capped above, not user-supplied.
-	f, err := os.Open(iconPath)
-	if err != nil {
-		c.Status(http.StatusNotFound)
-		return
-	}
-	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(io.LimitReader(f, maxIconBytes+1))
-	if err != nil {
-		c.Status(http.StatusNotFound)
-		return
-	}
-	// no-cache: revalidate on every use. The bytes change in place behind this
-	// URL (uploads overwrite the same file); the ?v= param on the DTO URL is
-	// the primary cache-buster, this header is the belt-and-braces layer.
-	c.Header("Cache-Control", "no-cache")
-	c.Data(http.StatusOK, iconContentType(data), data)
-}
-
-// iconContentType picks the Content-Type for a stored icon. http.DetectContentType
-// has no SVG signature — it sniffs SVG as text/* — and browsers refuse to render
-// an <img> whose SVG is served as text/*. Some GitHub owner avatars are SVG (e.g.
-// org avatars), so detect SVG explicitly and serve image/svg+xml; otherwise the
-// fetched icon silently degrades to the generated label placeholder. Real raster
-// images keep their sniffed image/* type.
-func iconContentType(data []byte) string {
-	ct := http.DetectContentType(data)
-	if strings.HasPrefix(ct, "image/") {
-		return ct
-	}
-	head := data
-	if len(head) > 512 {
-		head = head[:512]
-	}
-	if strings.Contains(string(head), "<svg") {
-		return "image/svg+xml"
-	}
-	return ct
+	icons.Serve(c, iconPath)
 }
 
 // iconPath resolves the entity-scoped icon file path from the request's
@@ -662,20 +717,6 @@ func repoIconPath(
 	repoID string,
 ) string {
 	return filepath.Join(crowbarHome, "projects", projectID, repoID, "icon")
-}
-
-// defaultCrowbarHome returns the root for all crowbar-managed state: the
-// CROWBAR_HOME env override when set (dev instances point it inside the
-// workspace being developed), otherwise ~/.crowbar.
-func defaultCrowbarHome() (string, error) {
-	if override := os.Getenv(metadata.HomeEnvVar); override != "" {
-		return override, nil
-	}
-	h, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("crowbar home: %w", err)
-	}
-	return filepath.Join(h, ".crowbar"), nil
 }
 
 // fetchGithubAvatarBytes resolves the repo owner avatar URL via git + gh and
@@ -707,11 +748,11 @@ func fetchGithubAvatarBytes(
 		return nil, "", nil
 	}
 	// LimitReader(+1) detects (not silently truncates) an oversize body.
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxIconBytes+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, icons.MaxBytes+1))
 	if err != nil {
 		return nil, "", nil
 	}
-	if len(data) > maxIconBytes {
+	if len(data) > icons.MaxBytes {
 		return nil, "", nil
 	}
 	ct := resp.Header.Get("Content-Type")
@@ -767,11 +808,26 @@ func githubSlugFromURL(
 
 // Branches handles GET /v0/projects/:projectId/repos/:repoId/branches. Returns all remote branches
 // annotated with isProtected and hasWorkspace fields.
+//
+// It refreshes the remote-tracking refs FIRST. `git branch -r` reads only what
+// the clone already knows, and no other part of the daemon does a full fetch on
+// its own (OriginSyncManager refreshes a single subscribed protected branch;
+// Fetch is the user's Git-panel button) — so this list used to report the remote
+// as it stood at clone time: a teammate's branch pushed since the repo was
+// imported never appeared in the import picker, and a branch deleted on the
+// remote was offered forever. The refresh is best-effort: an offline machine
+// still gets the cached list rather than an error.
 func (h *Handlers) Branches(c *gin.Context) {
 	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil || repo == nil {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
+	}
+	if h.remote != nil {
+		if fErr := h.remote.FetchPrune(c.Request.Context(), repo.Path); fErr != nil {
+			slog.WarnContext(c.Request.Context(), "branches: could not refresh origin; listing cached remote-tracking refs",
+				"repo", repo.Name, "err", fErr)
+		}
 	}
 
 	// List remote branches via git branch -r
@@ -857,19 +913,27 @@ func (h *Handlers) PullRequests(c *gin.Context) {
 	libs.WriteQueryOK(c, links)
 }
 
-// parseRemoteBranches strips the "origin/" prefix from git branch -r output
-// and skips HEAD pointer lines.
+// parseRemoteBranches strips the "origin/" prefix from git branch -r output and
+// skips HEAD pointer lines.
+//
+// Only `origin/` refs are kept. `git branch -r` lists EVERY remote, and the old
+// cut-at-the-first-slash rule turned an `upstream/x` into a plain `x` the picker
+// offered as importable — a branch the import then resolved against `origin/x`,
+// which may be a different branch or none at all.
 func parseRemoteBranches(out string) []string {
 	var result []string
+	seen := map[string]bool{}
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.Contains(line, "->") {
 			continue
 		}
-		if idx := strings.Index(line, "/"); idx >= 0 {
-			line = line[idx+1:]
+		name, ok := strings.CutPrefix(line, "origin/")
+		if !ok || name == "" || seen[name] {
+			continue
 		}
-		result = append(result, line)
+		seen[name] = true
+		result = append(result, name)
 	}
 	return result
 }
@@ -908,7 +972,7 @@ func (h *Handlers) PutIconEmoji(c *gin.Context) {
 		return
 	}
 	body.Emoji = strings.TrimSpace(body.Emoji)
-	if !isSingleEmoji(body.Emoji) {
+	if !icons.IsSingleEmoji(body.Emoji) {
 		libs.WriteErr(c, http.StatusBadRequest, "emoji must be a single character")
 		return
 	}
@@ -953,11 +1017,6 @@ func (h *Handlers) DeleteIcon(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// maxIconBytes caps the stored icon at 2 MiB. Any file larger than this is
-// rejected before or immediately after opening, so the daemon never reads an
-// unbounded amount of data from a client-supplied path.
-const maxIconBytes = 2 << 20
-
 // githubAvatarFetchTimeout bounds the outbound GitHub owner-avatar download so a
 // slow host never stalls the icon-refresh path.
 const githubAvatarFetchTimeout = 10 * time.Second
@@ -975,20 +1034,11 @@ func (h *Handlers) PutIcon(c *gin.Context) {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
 	}
-	data, _, ok := h.readIconUpload(c)
+	data, ok := icons.ReadUpload(c)
 	if !ok {
 		return
 	}
-	if len(data) > maxIconBytes {
-		libs.WriteErr(c, http.StatusBadRequest, "icon must be under 2 MB")
-		return
-	}
-	// Always validate by content sniffing (not by trusting the extension or the
-	// caller-supplied Content-Type) so a non-image file cannot be stored by
-	// supplying a .png filename or a JSON path to an arbitrary host file.
-	sniffed := http.DetectContentType(data)
-	if !strings.HasPrefix(sniffed, "image/") {
-		libs.WriteErr(c, http.StatusBadRequest, "icon must be an image file")
+	if !icons.Validate(c, data) {
 		return
 	}
 	if err := h.storeIconBytes(c, data); err != nil {
@@ -1012,95 +1062,7 @@ func (h *Handlers) PutIcon(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// readIconUpload extracts the icon bytes and content-type from the request,
-// dispatching on Content-Type: a JSON {"path"} body (desktop, daemon reads the
-// file) or a multipart "icon" field (web). On any error it writes the response
-// and returns ok=false.
-func (h *Handlers) readIconUpload(c *gin.Context) (data []byte, contentType string, ok bool) {
-	if strings.HasPrefix(c.ContentType(), "application/json") {
-		return readIconFromPath(c)
-	}
-	return readIconFromMultipart(c)
-}
-
-// readIconFromPath reads the icon from an absolute path supplied as JSON.
-//
-// Residual trust assumption: the path is an absolute host path supplied by the
-// desktop client (native file-picker dialog). The daemon and the WKWebView run
-// on the same host, so this is equivalent to the repo-import path trust model:
-// the path is user-chosen, not attacker-controlled from the network. This path
-// should eventually be replaced by a byte-upload (multipart) so the daemon never
-// reads arbitrary host paths at client direction.
-//
-// Hardening applied:
-//   - Stat-reject: file must exist and be ≤ maxIconBytes before any read.
-//   - LimitReader: read at most maxIconBytes+1 so an oversize file is detected.
-//   - Content sniffing: content-type is derived from the first 512 bytes, not
-//     from the file extension, so /etc/passwd styled as photo.png is rejected.
-func readIconFromPath(c *gin.Context) ([]byte, string, bool) {
-	var body struct {
-		Path string `json:"path"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil || body.Path == "" {
-		libs.WriteErr(c, http.StatusBadRequest, "icon path required")
-		return nil, "", false
-	}
-	// Stat-reject before opening: avoids an unbounded read on a huge file.
-	info, err := os.Stat(body.Path)
-	if err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, "could not read icon file")
-		return nil, "", false
-	}
-	if info.Size() > maxIconBytes {
-		libs.WriteErr(c, http.StatusBadRequest, "icon must be under 2 MB")
-		return nil, "", false
-	}
-	f, err := os.Open(body.Path)
-	if err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, "could not read icon file")
-		return nil, "", false
-	}
-	defer func() { _ = f.Close() }()
-	// LimitReader caps the actual read even if the file grows between Stat and Open.
-	data, err := io.ReadAll(io.LimitReader(f, maxIconBytes+1))
-	if err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, "could not read icon file")
-		return nil, "", false
-	}
-	if int64(len(data)) > maxIconBytes {
-		libs.WriteErr(c, http.StatusBadRequest, "icon must be under 2 MB")
-		return nil, "", false
-	}
-	// Derive content-type by sniffing bytes, not by trusting the file extension.
-	ct := http.DetectContentType(data)
-	return data, ct, true
-}
-
-// readIconFromMultipart reads the icon from a multipart "icon" form field.
-// The read is capped at maxIconBytes+1 so an oversize upload is detected without
-// buffering the entire body. Content-type is derived from content sniffing.
-func readIconFromMultipart(c *gin.Context) ([]byte, string, bool) {
-	file, _, err := c.Request.FormFile("icon")
-	if err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, "icon field required")
-		return nil, "", false
-	}
-	defer func() { _ = file.Close() }()
-
-	data, err := io.ReadAll(io.LimitReader(file, maxIconBytes+1))
-	if err != nil {
-		libs.WriteErr(c, http.StatusInternalServerError, "read error")
-		return nil, "", false
-	}
-	// Content-type from content sniffing (not from the caller-supplied MIME header
-	// or filename extension) so the caller cannot sneak a non-image through.
-	ct := http.DetectContentType(data)
-	return data, ct, true
-}
-
-// storeIconBytes writes raw icon bytes to the entity-scoped icon path,
-// creating the parent dir. The single icon file is content-type-agnostic
-// (sniffed on read), so there is no extension to manage.
+// storeIconBytes writes raw icon bytes to this repo's entity-scoped icon path.
 func (h *Handlers) storeIconBytes(
 	c *gin.Context,
 	data []byte,
@@ -1109,15 +1071,7 @@ func (h *Handlers) storeIconBytes(
 	if !ok {
 		return fmt.Errorf("could not resolve icon path")
 	}
-	//nolint:gosec // G301: 0o755 is the intended perm for the daemon's own icon directory; kept as-is to preserve existing behavior.
-	if err := os.MkdirAll(filepath.Dir(iconPath), 0o755); err != nil {
-		return fmt.Errorf("could not create icon directory: %w", err)
-	}
-	//nolint:gosec // G306: icon bytes are non-secret assets served over HTTP; 0o644 is the intended readable perm, kept as-is to preserve behavior.
-	if err := os.WriteFile(iconPath, data, 0o644); err != nil {
-		return fmt.Errorf("write error: %w", err)
-	}
-	return nil
+	return icons.Store(iconPath, data)
 }
 
 // PutIconGithub handles PUT /v0/projects/:projectId/repos/:repoId/icon/github.
@@ -1155,28 +1109,4 @@ func (h *Handlers) PutIconGithub(c *gin.Context) {
 	// store Save alone does not fan out.
 	h.broadcast(dto.RepoDTOFrom(*repo))
 	c.Status(http.StatusNoContent)
-}
-
-// isSingleEmoji returns true when s is a non-empty string containing exactly
-// one user-perceived character (grapheme cluster) that is not a plain ASCII
-// letter. Grapheme clusters — not code points — are the unit that matters:
-// most real emoji are multi-codepoint sequences (❤️ carries a variation
-// selector, 👨‍💻 is a ZWJ sequence, 🇦🇷 is a two-codepoint flag, 👍🏽 carries a
-// skin-tone modifier) and must all be accepted as "a single emoji".
-func isSingleEmoji(s string) bool {
-	if s == "" {
-		return false
-	}
-	g := uniseg.NewGraphemes(s)
-	if !g.Next() {
-		return false
-	}
-	if g.Next() {
-		return false // more than one user-perceived character
-	}
-	r, _ := utf8.DecodeRuneInString(s)
-	if r == utf8.RuneError {
-		return false
-	}
-	return !unicode.IsLetter(r) || r > 127
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -33,6 +34,22 @@ func (stubReader) List(
 func (stubReader) Get(
 	_ context.Context,
 	_ string,
+) (domain.Project, error) {
+	return domain.Project{}, nil
+}
+
+func (stubReader) Update(
+	_ context.Context,
+	_ string,
+	_ project.Update,
+) (domain.Project, error) {
+	return domain.Project{}, nil
+}
+
+func (stubReader) Reorder(
+	_ context.Context,
+	_ string,
+	_ int,
 ) (domain.Project, error) {
 	return domain.Project{}, nil
 }
@@ -84,6 +101,7 @@ func TestRegisterMountsRoutes(
 		path   string
 	}{
 		{http.MethodGet, "/v0/projects"},
+		{http.MethodPatch, "/v0/projects/p1"},
 		{http.MethodPost, "/v0/projects"},
 		{http.MethodGet, "/v0/projects/abc"},
 		{http.MethodDelete, "/v0/projects/abc"},

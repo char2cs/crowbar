@@ -21,16 +21,18 @@ async function seedAllStores(): Promise<void> {
   await upsertEntity('crowbar_repos', { id: 'r' })
   await upsertEntity('crowbar_workspaces', { id: 'w' })
   await upsertEntity('crowbar_threads', { id: 't' })
+  await upsertEntity('crowbar_folders', { id: 'f' })
 }
 
 describe('wipeEntityCache', () => {
-  it('clears all four crowbar_* entity stores', async () => {
+  it('clears every crowbar_* entity store', async () => {
     await seedAllStores()
     await wipeEntityCache()
     expect(await getAllEntities('crowbar_projects')).toHaveLength(0)
     expect(await getAllEntities('crowbar_repos')).toHaveLength(0)
     expect(await getAllEntities('crowbar_workspaces')).toHaveLength(0)
     expect(await getAllEntities('crowbar_threads')).toHaveLength(0)
+    expect(await getAllEntities('crowbar_folders')).toHaveLength(0)
   })
 })
 
@@ -43,6 +45,7 @@ describe('maybeWipeOnVersionChange', () => {
 
     expect(await getAllEntities('crowbar_projects')).toHaveLength(0)
     expect(await getAllEntities('crowbar_workspaces')).toHaveLength(0)
+    expect(await getAllEntities('crowbar_folders')).toHaveLength(0)
     expect(localStorage.getItem(VERSION_KEY)).toBe(CROWBAR_CACHE_VERSION)
   })
 
@@ -56,6 +59,7 @@ describe('maybeWipeOnVersionChange', () => {
     expect(await getAllEntities('crowbar_repos')).toHaveLength(1)
     expect(await getAllEntities('crowbar_workspaces')).toHaveLength(1)
     expect(await getAllEntities('crowbar_threads')).toHaveLength(1)
+    expect(await getAllEntities('crowbar_folders')).toHaveLength(1)
   })
 
   it('wipes and records the version on first run (no stored version)', async () => {

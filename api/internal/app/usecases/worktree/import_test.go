@@ -49,3 +49,95 @@ func TestChainFor_BuildsAncestorsFirstStoppingAtTerminals(t *testing.T) {
 		t.Fatalf("default branch must yield an empty chain: %v", got5)
 	}
 }
+
+// TestResolveImportParent covers the decision the import dialog's whole value
+// rests on: an imported branch hangs off the workspace for the branch its PR
+// targets, and off the default branch's workspace when there is no PR.
+//
+// The regression it pins: `base == defaultBranch` used to short-circuit to an
+// empty ParentID — the repo home — BEFORE the existing-workspace lookup ran. A
+// PR into develop/main, which is nearly every PR, therefore landed its branch at
+// the REPO ROOT as a sibling of the branch it is based on. The lookup would have
+// succeeded: repo import gives every protected branch, the default included, its
+// own locked managed workspace, and existingBranchWorkspaces excludes only the
+// repo home. Only a PR into a non-default protected branch parented correctly.
+func TestResolveImportParent(t *testing.T) {
+	const dev = "dev"
+	existing := map[string]string{
+		dev:            "ws-dev",     // the default branch's LOCKED managed workspace
+		"release/1.x":  "ws-release", // another protected branch, also locked
+		"feat/adopted": "ws-adopted", // an ordinary branch imported earlier
+	}
+
+	cases := []struct {
+		name       string
+		branch     string
+		base       map[string]string
+		existing   map[string]string
+		created    map[string]string
+		wantID     string
+		wantBranch string
+	}{{
+		name:       "PR into the default branch nests under its locked workspace",
+		branch:     "feat/x",
+		base:       map[string]string{"feat/x": dev},
+		existing:   existing,
+		wantID:     "ws-dev",
+		wantBranch: dev,
+	}, {
+		name:       "no PR at all also nests under the default branch's workspace",
+		branch:     "feat/x",
+		base:       map[string]string{},
+		existing:   existing,
+		wantID:     "ws-dev",
+		wantBranch: dev,
+	}, {
+		name:       "PR into a non-default locked branch nests under THAT branch",
+		branch:     "feat/x",
+		base:       map[string]string{"feat/x": "release/1.x"},
+		existing:   existing,
+		wantID:     "ws-release",
+		wantBranch: "release/1.x",
+	}, {
+		name:       "PR into a branch created earlier in the same batch",
+		branch:     "feat/leaf",
+		base:       map[string]string{"feat/leaf": "feat/mid"},
+		existing:   existing,
+		created:    map[string]string{"feat/mid": "ws-mid"},
+		wantID:     "ws-mid",
+		wantBranch: "feat/mid",
+	}, {
+		name:       "PR into a base nobody has imported falls back to the default workspace",
+		branch:     "feat/x",
+		base:       map[string]string{"feat/x": "feat/never-imported"},
+		existing:   existing,
+		wantID:     "ws-dev",
+		wantBranch: dev,
+	}, {
+		// The repo home is the ONLY remaining home for a branch, and only when the
+		// default branch has no workspace of its own (a provider failure at repo
+		// import left it unprovisioned).
+		name:       "no default-branch workspace is the one case that parents at the repo root",
+		branch:     "feat/x",
+		base:       map[string]string{"feat/x": dev},
+		existing:   map[string]string{},
+		wantID:     "",
+		wantBranch: dev,
+	}}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			created := tc.created
+			if created == nil {
+				created = map[string]string{}
+			}
+			gotID, gotBranch := resolveImportParent(tc.branch, dev, tc.base, tc.existing, created)
+			if gotID != tc.wantID {
+				t.Errorf("parentID = %q, want %q", gotID, tc.wantID)
+			}
+			if gotBranch != tc.wantBranch {
+				t.Errorf("parentBranch = %q, want %q", gotBranch, tc.wantBranch)
+			}
+		})
+	}
+}

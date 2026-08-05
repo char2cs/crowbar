@@ -1,10 +1,18 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { resetDB } from '@/lib/persistence/idb'
-import { dataOf } from '@/lib/loadable'
+import { dataOf, idle, success } from '@/lib/loadable'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
-import { useProjectStore } from '@/lib/store/projects'
-import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
+import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Project, RepoDTO, WorkspaceDTO } from '@/lib/types'
+
+const project = (id: string): Project => ({
+  id,
+  name: id,
+  path: `/p/${id}`,
+  lastActivity: new Date(0),
+})
 
 const repoDTO: RepoDTO = {
   id: 'r1',
@@ -42,9 +50,13 @@ const wsDTO: WorkspaceDTO = {
 beforeEach(() => {
   resetDB()
   globalThis.indexedDB = new IDBFactory()
-  // The entity cache is cross-project; the sidebar tree is scoped to the active
-  // project. Set one so the tree isn't empty.
+  // The entity cache is cross-project; the sidebar tree is scoped to the VISIBLE
+  // projects. Make one active (always visible) so the tree isn't empty, start
+  // from nothing collapsed, and start with the project list still unlanded so
+  // each test says explicitly which projects are KNOWN.
   useProjectStore.setState({ activeProjectId: 'p1' })
+  useProjectDataStore.setState({ data: idle() })
+  useSidebarStore.setState({ collapsedProjects: new Set<string>() })
 })
 
 describe('useWorkspaceListStore', () => {
@@ -69,20 +81,12 @@ describe('useWorkspaceListStore', () => {
   })
 
   // Regression: the entity cache deliberately accumulates repos from EVERY
-  // project (each project's repo stream prunes only its own scope), so the
-  // sidebar tree must filter to the active project. Before this fix, switching
-  // to project p2 still showed p1's repos because the tree was built from the
-  // whole cache.
-  it('fetch scopes the tree to the active project, excluding other projects repos', async () => {
-    await upsertEntity('crowbar_repos', repoDTO) // r1 in p1
-    await upsertEntity('crowbar_workspaces', wsDTO) // w1 in r1/p1
-    await upsertEntity('crowbar_repos', {
-      ...repoDTO,
-      id: 'r2',
-      projectId: 'p2',
-      name: 'other',
-    })
-    await upsertEntity('crowbar_workspaces', { ...wsDTO, id: 'w2', repoId: 'r2', projectId: 'p2' })
+  // project (each project's repo stream prunes only its own scope, and rows
+  // survive across sessions so an expand is instant), so the sidebar tree must
+  // scope to the VISIBLE projects. Before this fix, switching to project p2
+  // still showed p1's repos because the tree was built from the whole cache.
+  it('fetch excludes a project the project list has not delivered yet', async () => {
+    await seedTwoProjects()
 
     useProjectStore.setState({ activeProjectId: 'p2' })
     const { useWorkspaceListStore } = await import('@/lib/store/workspace-list')
@@ -92,7 +96,36 @@ describe('useWorkspaceListStore', () => {
     expect(repos.map((r) => r.id)).toEqual(['r2'])
   })
 
-  it('fetch yields an empty tree when there is no active project', async () => {
+  // The sidebar shows every project at once now: once the project list has
+  // landed, every project's repos belong in the tree without anything being
+  // expanded first.
+  it('fetch includes every known project, not just the active one', async () => {
+    await seedTwoProjects()
+
+    useProjectStore.setState({ activeProjectId: 'p1' })
+    useProjectDataStore.setState({ data: success([project('p1'), project('p2')]) })
+    const { useWorkspaceListStore } = await import('@/lib/store/workspace-list')
+    await useWorkspaceListStore.getState().fetch()
+
+    const repos = dataOf(useWorkspaceListStore.getState().data)!
+    expect(repos.map((r) => r.id).sort()).toEqual(['r1', 'r2'])
+    expect(repos.map((r) => r.projectId).sort()).toEqual(['p1', 'p2'])
+  })
+
+  it('fetch drops a project once it is folded away', async () => {
+    await seedTwoProjects()
+
+    useProjectStore.setState({ activeProjectId: 'p1' })
+    useProjectDataStore.setState({ data: success([project('p1'), project('p2')]) })
+    useSidebarStore.getState().toggleProject('p2')
+    const { useWorkspaceListStore } = await import('@/lib/store/workspace-list')
+    await useWorkspaceListStore.getState().fetch()
+
+    const repos = dataOf(useWorkspaceListStore.getState().data)!
+    expect(repos.map((r) => r.id)).toEqual(['r1'])
+  })
+
+  it('fetch yields an empty tree when no project is visible', async () => {
     await upsertEntity('crowbar_repos', repoDTO)
     useProjectStore.setState({ activeProjectId: '' })
 
@@ -102,3 +135,10 @@ describe('useWorkspaceListStore', () => {
     expect(dataOf(useWorkspaceListStore.getState().data)).toEqual([])
   })
 })
+
+async function seedTwoProjects(): Promise<void> {
+  await upsertEntity('crowbar_repos', repoDTO) // r1 in p1
+  await upsertEntity('crowbar_workspaces', wsDTO) // w1 in r1/p1
+  await upsertEntity('crowbar_repos', { ...repoDTO, id: 'r2', projectId: 'p2', name: 'other' })
+  await upsertEntity('crowbar_workspaces', { ...wsDTO, id: 'w2', repoId: 'r2', projectId: 'p2' })
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -56,6 +57,17 @@ func (h *Handlers) Import(c *gin.Context) {
 			return
 		}
 	}
+	// Same reasoning for a branch that is not on the remote at all — a stale
+	// picker offering a branch deleted since the list was fetched, or a
+	// hand-crafted request. Importing means "give me origin's branch", so
+	// without one there is nothing to import: the batch would fail deep in the
+	// background, where the only channel it has is runAsync's blank workspace id
+	// (a no-op in broadcastLastError), and the caller's row would spin forever.
+	if missing := h.branchesMissingFromRemote(c.Request.Context(), repo.Path, body.Branches); len(missing) > 0 {
+		libs.WriteErr(c, http.StatusBadRequest, fmt.Sprintf(
+			"not found on the remote: %s", strings.Join(missing, ", ")))
+		return
+	}
 	in := worktree.ImportInput{
 		RepoID:        repo.ID,
 		ProjectID:     repo.ProjectID,
@@ -79,4 +91,48 @@ func (h *Handlers) Import(c *gin.Context) {
 			return nil
 		},
 	)
+}
+
+// branchesMissingFromRemote refreshes the remote-tracking refs and returns the
+// requested branches origin does not have, so Import can refuse them
+// synchronously.
+//
+// The refresh runs HERE rather than trusting the picker's own GET …/branches:
+// the check has to hold for any caller, and the branch may have been deleted on
+// the remote between listing and importing. It is the same fetch the import
+// would perform per branch anyway, hoisted ahead of the 202 so its result can
+// still be an HTTP error. Refusal is then decided on the LOCAL refs it just
+// wrote, never a second live `ls-remote` — a hiccup in that query must never
+// veto a branch the refs confirm (the bug that once fabricated a fresh fork off
+// the default branch).
+//
+// Every uncertainty resolves to "not missing": a failed fetch (offline — absence
+// is unprovable), an unreadable ref, or no git surface wired at all (tests). The
+// usecase's per-branch placeholder rows stay the backstop for those.
+func (h *Handlers) branchesMissingFromRemote(
+	ctx context.Context,
+	repoPath string,
+	branches []string,
+) []string {
+	if h.remote == nil || repoPath == "" {
+		return nil
+	}
+	if err := h.remote.FetchPrune(ctx, repoPath); err != nil {
+		slog.WarnContext(ctx, "import: could not refresh origin; importing without the branch-exists check",
+			"repo", repoPath, "err", err)
+		return nil
+	}
+	var missing []string
+	for _, b := range branches {
+		exists, err := h.remote.RemoteTrackingBranchExists(ctx, repoPath, b)
+		if err != nil {
+			slog.WarnContext(ctx, "import: could not check remote-tracking ref; not refusing the branch",
+				"branch", b, "err", err)
+			continue
+		}
+		if !exists {
+			missing = append(missing, b)
+		}
+	}
+	return missing
 }

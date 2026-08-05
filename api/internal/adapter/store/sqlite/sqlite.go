@@ -19,10 +19,12 @@ type gormStore[T any, K comparable] struct {
 	pkCol string
 }
 
-// New opens (or creates) a SQLite-backed Store[T, K] at path, auto-migrating T.
+// New opens (or creates) a SQLite-backed ScopedStore[T, K] at path,
+// auto-migrating T. Like NewFromDB it returns the wider ScopedStore, which
+// satisfies Store everywhere the narrow surface is all that is wanted.
 func New[T any, K comparable](
 	path string,
-) (store.Store[T, K], error) {
+) (store.ScopedStore[T, K], error) {
 	db, err := OpenDB(path)
 	if err != nil {
 		return nil, err
@@ -95,10 +97,13 @@ func openWithMaxConns(
 	return db, nil
 }
 
-// NewFromDB builds a Store[T, K] over an already-open DB, auto-migrating T.
+// NewFromDB builds a ScopedStore[T, K] over an already-open DB, auto-migrating
+// T. The return type is the wider ScopedStore rather than Store so callers that
+// need a narrowed list (FindWhere) get one without a type assertion; it
+// satisfies Store everywhere the narrow surface is all that is wanted.
 func NewFromDB[T any, K comparable](
 	db *gorm.DB,
-) (store.Store[T, K], error) {
+) (store.ScopedStore[T, K], error) {
 	var zero T
 	if err := db.AutoMigrate(&zero); err != nil {
 		return nil, fmt.Errorf("sqlite: migrate: %w", err)
@@ -162,6 +167,21 @@ func (s *gormStore[T, K]) FindAll(
 ) ([]T, error) {
 	var items []T
 	if err := s.db.WithContext(ctx).Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// FindWhere implements store.ScopedStore: it pushes the equality predicate down
+// to SQL as a GORM struct condition, so only the matching rows are read. Zero
+// fields in match are ignored (GORM's struct-condition semantics) — see the
+// interface doc for what that does and does not let a caller express.
+func (s *gormStore[T, K]) FindWhere(
+	ctx context.Context,
+	match T,
+) ([]T, error) {
+	var items []T
+	if err := s.db.WithContext(ctx).Where(&match).Find(&items).Error; err != nil {
 		return nil, err
 	}
 	return items, nil

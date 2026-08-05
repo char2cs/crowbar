@@ -23,6 +23,16 @@ export interface Project {
   name: string
   path: string
   lastActivity: Date
+  /** Dense index in the sidebar. Absent on frames from a daemon that predates
+   *  ordering, in which case the list keeps arrival order. */
+  order?: number
+  /** The icon proxy URL, present only when the project has an uploaded image.
+   *  Absent means "no image"; see avatarEmoji for the other custom state, and
+   *  the Library glyph for the default. */
+  avatarUrl?: string
+  /** The emoji icon, rendered directly. Wins over avatarUrl — the daemon clears
+   *  one when the other is set, so both are never live at once. */
+  avatarEmoji?: string
 }
 
 export interface Prerequisites {
@@ -74,6 +84,12 @@ export interface WorkspaceDTO {
   heldByPath?: string
   /** "home" for the project home workspace; absent or "git" for normal git workspaces. */
   kind?: 'git' | 'home'
+  /** Sidebar grouping folder this workspace belongs to, or absent for the repo
+   *  root. A SEPARATE field from parentId, which stays the fork parent. */
+  folderId?: string
+  /** Dense sibling sort key within its level. Absent on frames from a daemon
+   *  that predates ordering. */
+  order?: number
 }
 
 export interface RepoDTO {
@@ -86,6 +102,26 @@ export interface RepoDTO {
   avatarColor: string
   avatarUrl: string // proxied /v0/projects/:p/repos/:r/icon endpoint
   avatarEmoji: string
+  /** Dense index within its project's sidebar section. Absent on frames from a
+   *  daemon that predates ordering. */
+  order?: number
+}
+
+export interface FolderDTO {
+  id: string
+  repoId: string
+  projectId: string
+  /** A workspace id, another folder id, or absent for the repo root. Note this
+   *  is the SIDEBAR parent — a folder has no branch, so it is never a fork
+   *  parent. */
+  parentId?: string
+  name: string
+  /** Dense sibling sort key. Folders and workspaces share one sibling space, so
+   *  this is compared against WorkspaceDTO.order at the same level. */
+  order: number
+  /** Tombstone marker on a broadcast frame: '' (or absent) for a live folder,
+   *  'deleted' for a removal frame. Read-path DTOs leave it empty. */
+  status?: string
 }
 
 export interface ProjectDTO {
@@ -94,6 +130,16 @@ export interface ProjectDTO {
   path: string
   status: string // "" | "deleted"
   lastActivity: string
+  /** Dense index in the sidebar. Absent on frames from a daemon that predates
+   *  ordering. */
+  order?: number
+  /** The icon proxy URL, present only when the project has an uploaded image.
+   *  Absent means "no image"; see avatarEmoji for the other custom state, and
+   *  the Library glyph for the default. */
+  avatarUrl?: string
+  /** The emoji icon, rendered directly. Wins over avatarUrl — the daemon clears
+   *  one when the other is set, so both are never live at once. */
+  avatarEmoji?: string
 }
 
 /** Which agent wrote a review message, and out of which chat.

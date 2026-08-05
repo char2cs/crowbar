@@ -18,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	projecthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -29,10 +30,32 @@ func TestMain(
 }
 
 type fakeReader struct {
-	list    []domain.Project
-	listErr error
-	get     domain.Project
-	getErr  error
+	list       []domain.Project
+	listErr    error
+	get        domain.Project
+	getErr     error
+	reordered  domain.Project
+	reorderErr error
+	// reorderTo records the index the last Reorder call asked for, so a test can
+	// assert the handler passed the body's order through untouched.
+	reorderTo int
+	// updated is what Update answers with, and updatedWith records the partial it
+	// was handed — what a rename or an icon change is asserted through.
+	updated     domain.Project
+	updateErr   error
+	updatedWith *project.Update
+}
+
+func (f *fakeReader) Update(
+	_ context.Context,
+	_ string,
+	in project.Update,
+) (domain.Project, error) {
+	f.updatedWith = &in
+	if f.updateErr != nil {
+		return domain.Project{}, f.updateErr
+	}
+	return f.updated, nil
 }
 
 func (f *fakeReader) List(
@@ -46,6 +69,15 @@ func (f *fakeReader) Get(
 	_ string,
 ) (domain.Project, error) {
 	return f.get, f.getErr
+}
+
+func (f *fakeReader) Reorder(
+	_ context.Context,
+	_ string,
+	order int,
+) (domain.Project, error) {
+	f.reorderTo = order
+	return f.reordered, f.reorderErr
 }
 
 type fakeImporter struct {
@@ -174,6 +206,7 @@ func newRouterWithHandlers(
 	rg.GET("/projects", h.List)
 	rg.POST("/projects", h.Import)
 	rg.GET("/projects/:projectId", h.Detail)
+	rg.PATCH("/projects/:projectId", h.Patch)
 	rg.DELETE("/projects/:projectId", h.Delete)
 	return r, h
 }
@@ -449,4 +482,178 @@ func TestDeleteProject_UsecaseError_NoBroadcast(
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	assertNoBroadcast(t, h, bc)
+}
+
+// The reorder densifies the whole list, so every project has to reach the
+// client: told only about the row that was dragged, a client holds stale orders
+// for the rest until the next reconnect.
+func TestPatch_ReordersAndBroadcastsTheWholeList(t *testing.T) {
+	reader := &fakeReader{
+		reordered: domain.Project{ID: "p2", Order: 0},
+		list: []domain.Project{
+			{ID: "p2", Order: 0},
+			{ID: "p1", Order: 1},
+		},
+	}
+	bc := newRecordingBroadcaster()
+	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p2", `{"order":0}`)
+
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, 0, reader.reorderTo)
+	first := <-bc.ch
+	second := <-bc.ch
+	assert.Equal(t, "p2", first.ID)
+	assert.Equal(t, "p1", second.ID)
+	assert.Equal(t, 1, second.Order, "the shifted row's new order reaches the client")
+}
+
+func TestPatch_MissingOrderIs400(t *testing.T) {
+	reader := &fakeReader{}
+	r := newRouter(reader, &fakeImporter{})
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{}`)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestPatch_MalformedBodyIs400(t *testing.T) {
+	r := newRouter(&fakeReader{}, &fakeImporter{})
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{`)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestPatch_UnknownProjectIs404(t *testing.T) {
+	reader := &fakeReader{reorderErr: apperr.ErrNotFound}
+	bc := newRecordingBroadcaster()
+	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+
+	rec := do(r, http.MethodPatch, "/v0/projects/missing", `{"order":0}`)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Empty(t, bc.ch, "a refused reorder broadcasts nothing")
+}
+
+// The reorder already committed; a list that then fails must not turn a
+// successful write into an error response. The client re-reads on reconnect.
+func TestPatch_ListFailureAfterTheWriteStillAnswers204(t *testing.T) {
+	reader := &fakeReader{
+		reordered: domain.Project{ID: "p1"},
+		listErr:   errors.New("read model down"),
+	}
+	bc := newRecordingBroadcaster()
+	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"order":0}`)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Empty(t, bc.ch)
+}
+
+// The sidebar's inline rename, which PATCH grew alongside the reorder it used to
+// be the only reason for. Both are single store writes, so both answer 204 and
+// deliver the change on the WS stream rather than in the response body.
+func TestPatchRenamesAProject(t *testing.T) {
+	reader := &fakeReader{updated: domain.Project{ID: "p1", Name: "harbour"}}
+	bc := newRecordingBroadcaster()
+	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"name":"  harbour  "}`)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH = %d, want 204 (body %s)", rec.Code, rec.Body.String())
+	}
+	if reader.updatedWith == nil || reader.updatedWith.Name == nil {
+		t.Fatal("the handler never passed a name through")
+	}
+	// Trimmed at the edge, so the store never holds a name with the whitespace
+	// an inline editor makes it far too easy to leave behind.
+	if *reader.updatedWith.Name != "harbour" {
+		t.Errorf("name = %q, want %q", *reader.updatedWith.Name, "harbour")
+	}
+	// A rename shifts nobody, so it delivers the one row it changed — not the
+	// whole list a reorder's densify has to re-broadcast.
+	if got := bc.await(t).ID; got != "p1" {
+		t.Errorf("broadcast project = %q, want p1", got)
+	}
+	select {
+	case extra := <-bc.ch:
+		t.Errorf("a rename broadcast a second frame: %+v", extra)
+	default:
+	}
+}
+
+func TestPatchRejectsABlankName(t *testing.T) {
+	reader := &fakeReader{}
+	r := newRouter(reader, &fakeImporter{})
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"name":"   "}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH = %d, want 400", rec.Code)
+	}
+	if reader.updatedWith != nil {
+		t.Error("a blank name must never reach the store")
+	}
+}
+
+func TestPatchStillRequiresSomethingToDo(t *testing.T) {
+	r := newRouter(&fakeReader{}, &fakeImporter{})
+	if rec := do(r, http.MethodPatch, "/v0/projects/p1", `{}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH = %d, want 400", rec.Code)
+	}
+}
+
+func TestPatchSurfacesAFailedRename(t *testing.T) {
+	// The store refused. Without propagating, the caller gets a 204 and the
+	// sidebar shows the new name until the next WS frame puts the old one back.
+	reader := &fakeReader{updateErr: apperr.ErrNotFound}
+	bc := newRecordingBroadcaster()
+	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"name":"harbour"}`)
+
+	if rec.Code < 400 {
+		t.Fatalf("PATCH = %d, want a 4xx/5xx", rec.Code)
+	}
+	select {
+	case frame := <-bc.ch:
+		t.Errorf("a refused rename broadcast anyway: %+v", frame)
+	default:
+	}
+}
+
+func TestPatchRenamesAndReordersInOneRequest(t *testing.T) {
+	// A drag can rename nothing and reorder, or (from the inline editor) rename
+	// only — but the endpoint accepts both at once, and the reorder's densify is
+	// what re-delivers every row. The rename must NOT also broadcast on its own
+	// or clients apply the same frame either side of a list that moved.
+	reader := &fakeReader{
+		updated: domain.Project{ID: "p1", Name: "harbour"},
+		list:    []domain.Project{{ID: "p1", Name: "harbour"}},
+	}
+	bc := newRecordingBroadcaster()
+	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"name":"harbour","order":0}`)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH = %d, want 204 (body %s)", rec.Code, rec.Body.String())
+	}
+	if reader.updatedWith == nil || reader.updatedWith.Name == nil {
+		t.Fatal("the rename half never reached the store")
+	}
+	if reader.reorderTo != 0 {
+		t.Errorf("reorder index = %d, want 0", reader.reorderTo)
+	}
+	// Exactly one frame: the densify's, not the rename's as well.
+	bc.await(t)
+	select {
+	case extra := <-bc.ch:
+		t.Errorf("a paired rename+reorder broadcast twice: %+v", extra)
+	default:
+	}
 }

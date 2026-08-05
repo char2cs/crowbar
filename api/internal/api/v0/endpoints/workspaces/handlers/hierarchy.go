@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -9,8 +10,15 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
+
+// errBadRequest is the internal signal that a helper has already written the
+// response and the handler must stop. It never reaches a client.
+var errBadRequest = errors.New("workspaces: request rejected")
 
 // mergeRequest is the POST .../workspaces/:wsId/merge-into-parent body: the
 // merge strategy to apply when folding the child branch into its parent, and
@@ -26,42 +34,101 @@ type reparentRequest struct {
 	NewParentID string `json:"newParentId"`
 }
 
-// renameRequest is the PATCH .../workspaces/:wsId body: the branch name the
-// workspace is renamed to.
-type renameRequest struct {
-	Branch string `json:"branch"`
+// patchRequest is the PATCH .../workspaces/:wsId body. Branch renames the
+// workspace's branch; FolderID and Order are its SIDEBAR placement — which
+// folder it is filed under and where it sits among its siblings. The two travel
+// on one endpoint because they are the two things a user edits about a row in
+// place, and a nil field is left as it is.
+//
+// FolderID is never a fork parent. Re-parenting a fork is a git operation with
+// its own endpoint (POST .../reparent) because it rebases; filing a row into a
+// folder moves nothing on disk.
+type patchRequest struct {
+	Branch   *string `json:"branch"`
+	FolderID *string `json:"folderId"`
+	Order    *int    `json:"order"`
 }
 
-// Rename handles PATCH /v0/projects/:projectId/repos/:repoId/workspaces/:wsId.
-// It renames the workspace's branch and relocates its workspace root to match.
+// Patch handles PATCH /v0/projects/:projectId/repos/:repoId/workspaces/:wsId. It
+// renames the workspace's branch (relocating its workspace root to match) and/or
+// files it into a folder at a given position.
 //
 // Unlike the other hierarchy mutations this answers SYNCHRONOUSLY. A rename is
-// one directory rename rather than a long-running git operation, and every way
-// it can be refused (the name is taken, the destination is occupied, the
-// workspace is locked or adopted) is something the user has to see while the
-// inline editor is still in front of them — a 202 would strand those behind a
+// one directory rename rather than a long-running git operation and a placement
+// is one row write, and every way either can be refused (the name is taken, the
+// destination is occupied, the workspace is locked or adopted, the move would
+// split a fork chain) is something the user has to see while the inline editor or
+// the drag is still in front of them — a 202 would strand those behind a
 // LastError frame. The updated workspace still arrives on the WebSocket stream,
 // so callers do not patch their own cache.
-func (h *Handlers) Rename(
+func (h *Handlers) Patch(
 	c *gin.Context,
 ) {
-	var body renameRequest
+	var body patchRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if strings.TrimSpace(body.Branch) == "" {
-		libs.WriteErr(c, http.StatusBadRequest, "branch is required")
+	id := c.Param("wsId")
+	if err := h.applyRename(c, id, body.Branch); err != nil {
 		return
 	}
-	id := c.Param("wsId")
-	renamed, err := h.hierarchy.RenameBranch(c.Request.Context(), id, body.Branch)
+	if body.FolderID == nil && body.Order == nil {
+		libs.WriteMutationOK(c, http.StatusOK, id)
+		return
+	}
+	if h.placer == nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "workspace placement unavailable")
+		return
+	}
+	_, shifted, err := h.placer.PlaceWorkspace(
+		c.Request.Context(),
+		c.Param("projectId"),
+		c.Param("repoId"),
+		id,
+		folder.PlaceInput{FolderID: body.FolderID, Order: body.Order},
+	)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	libs.WriteMutationOK(c, http.StatusOK, renamed.ID)
+	h.broadcastFolders(shifted)
+	libs.WriteMutationOK(c, http.StatusOK, id)
+}
+
+// applyRename runs the branch half of the PATCH, writing the error response and
+// returning non-nil when the caller must stop. A nil branch is a no-op.
+func (h *Handlers) applyRename(
+	c *gin.Context,
+	id string,
+	branch *string,
+) error {
+	if branch == nil {
+		return nil
+	}
+	if strings.TrimSpace(*branch) == "" {
+		libs.WriteErr(c, http.StatusBadRequest, "branch is required")
+		return errBadRequest
+	}
+	if _, err := h.hierarchy.RenameBranch(c.Request.Context(), id, *branch); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return err
+	}
+	return nil
+}
+
+// broadcastFolders delivers the folder rows a placement renumbered. The
+// workspace rows it touched need no such handling — every one is an aggregate
+// write, and the hub projection broadcasts each on the way through — but folders
+// are a plain GORM row whose only fan-out is this call.
+func (h *Handlers) broadcastFolders(
+	rows []domain.Folder,
+) {
+	for _, row := range rows {
+		h.broadcastFolder(dto.FolderDTOFrom(row))
+	}
 }
 
 // MergeIntoParent handles

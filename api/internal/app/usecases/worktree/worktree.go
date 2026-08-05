@@ -32,6 +32,14 @@ type CreateChildInput struct {
 	Branch       string
 	ParentID     string
 	ParentBranch string
+	// FolderID is the sidebar folder the new row is filed under. It travels
+	// alongside ParentID rather than through it: ParentID is the fork parent
+	// (what a later rebase acts on) and this is where the row is shown, so a
+	// create inside a folder still forks from the branch it should.
+	FolderID string
+	// Order is the row's slot among its siblings, computed by the caller against
+	// the level the row is joining. See commands.CreateWorkspace.
+	Order int
 	// ForceLocked overrides the provider-driven locked check and marks the
 	// workspace locked regardless of whether the branch is protected. Useful
 	// when the caller knows the workspace should be immutable (e.g. the repo's
@@ -165,6 +173,8 @@ func (u *worktreeUsecase) CreateChild(
 			ProjectID: in.ProjectID,
 			Branch:    in.Branch,
 			ParentID:  in.ParentID,
+			FolderID:  in.FolderID,
+			Order:     in.Order,
 			Protected: in.ForceLocked,
 		}, u.now())
 	}
@@ -234,6 +244,8 @@ func (u *worktreeUsecase) CreateChild(
 		WorktreePath: path,
 		ForkPointSha: startSha,
 		ParentID:     in.ParentID,
+		FolderID:     in.FolderID,
+		Order:        in.Order,
 		Protected:    locked || in.ForceLocked,
 	}, u.now())
 	if err != nil { //nolint:nestif // orphan worktree+branch cleanup after a failed row create; flattening risks the rollback ordering
@@ -401,9 +413,17 @@ func (u *worktreeUsecase) addWorktree(
 //
 // FetchRef updates ONLY refs/remotes/origin/<parent> (`git fetch origin <parent>`),
 // which git always allows regardless of checkouts; the child then forks from the
-// resolved origin/<parent> SHA. Advancing the local parent ref (and its locked
-// worktree) is OriginSyncManager's job, never ours — so we never pass
-// --update-head-ok.
+// resolved origin/<parent> SHA. We never pass --update-head-ok, so the parent's
+// local ref and its locked worktree are left exactly where they were.
+//
+// Creating a child never moves the parent. The one thing that does is
+// OriginSyncManager.advanceLockedRoot, and only when the user OPENS the locked
+// root — never on an interval tick, and never from here. Between opens a locked
+// root's working tree sits at whatever commit it was last advanced to, which is
+// deliberate and mostly invisible: everything DERIVED from the parent already
+// resolves through origin/<parent> — children fork from the SHA above, and
+// resolveDiffBase prefers origin/<base> over the local ref — so only the files
+// on disk in that worktree go stale.
 //
 // Every step degrades to the local parent tip and warns: a no-remote/offline
 // machine, a parent not on origin, a fetch failure, or an unresolved origin ref
@@ -463,60 +483,93 @@ func (u *worktreeUsecase) branchIsRemoteBranch(
 	return remote, nil
 }
 
-// checkoutRemoteBranch fast-forwards the local copy of an existing remote
-// branch and adds a worktree checking it out. The fork point is the resolved
-// origin/<branch> tip. Using FastForwardBranch (rather than FetchRef) ensures
-// the worktree starts at the same commit as origin when the network is up.
+// checkoutRemoteBranch refreshes origin/<branch> and checks the branch out into
+// a fresh worktree AT THAT REF. The fork point is the resolved origin/<branch>
+// tip, and — because the checkout is `git worktree add -B <branch> <origin tip>`
+// — it is genuinely the commit the worktree holds.
 //
-// Moving the local branch ref is correct HERE — unlike parentStartPoint, which
-// must never move the parent's ref — because WorktreeAdd checks out `in.Branch`
-// ITSELF, so that local ref has to sit at origin's tip. This path CAN still hit
-// the "refusing to fetch into branch … checked out at …" refusal (the default
-// branch held by the repo's MAIN folder on a fresh import); CreateChild's
-// detach-the-holder-and-retry is what recovers it, so do not weaken that path.
+// Importing means "give me origin's branch", so origin is authoritative over any
+// local ref of the same name. The previous shape could not honour that: it
+// fast-forwarded via `git fetch origin <b>:<b>`, which git REJECTS as
+// non-fast-forward the moment the local <b> has diverged (a leftover local branch
+// from before the folder was adopted, or a force-push on the remote), then
+// swallowed the rejection as a best-effort warning and let plain `git worktree
+// add <path> <b>` check out the LOCAL branch. The user got their own stale
+// commits under a row claiming to be origin's branch, with a ForkPointSha that
+// the checked-out history did not even contain — so every diff, ahead/behind and
+// merge decision downstream read against a base that was not there.
+//
+// FetchRef (`git fetch origin <b>`) replaces FastForwardBranch for the same
+// reason parentStartPoint uses it: it only moves refs/remotes/origin/<b>, which
+// git allows unconditionally, so the "refusing to fetch into branch … checked out
+// at …" refusal disappears from this path entirely. The holder recovery it used
+// to trigger is not weakened — a branch held by a live worktree now fails on the
+// worktree add instead, which is the same error CreateChild's
+// detach-the-holder-and-retry (and the placeholder fallback) already handles.
 //
 // A fetch failure is BEST-EFFORT when the local remote-tracking ref
-// origin/<branch> is already present: we check the branch out from that local ref
+// origin/<branch> is already present: the checkout proceeds from that local ref
 // (losing only the freshest commits, not correctness) rather than aborting the
-// whole import — the same swallowed-live-failure conditions that route us here can
-// also break the fetch. Only when there is NEITHER a successful fetch NOR a local
-// origin/<branch> to resolve is the failure fatal. `git worktree add <path>
-// <branch>` then DWIMs a local branch tracking origin/<branch> (the local <branch>
-// is absent but origin/<branch> exists), so PR detection keeps working.
+// whole import. Only when there is NEITHER a successful fetch NOR a local
+// origin/<branch> to resolve is the failure fatal.
 func (u *worktreeUsecase) checkoutRemoteBranch(
 	ctx context.Context,
 	in CreateChildInput,
 	path string,
 ) (string, error) {
-	if ffErr := u.git.FastForwardBranch(ctx, in.RepoPath, in.Branch); ffErr != nil {
+	if fetchErr := u.git.FetchRef(ctx, in.RepoPath, in.Branch); fetchErr != nil {
 		tracking, trErr := u.git.RemoteTrackingBranchExists(ctx, in.RepoPath, in.Branch)
 		if trErr != nil || !tracking {
-			return "", fmt.Errorf("create child: fast-forward branch: %w", ffErr)
+			return "", fmt.Errorf("create child: fetch origin branch: %w", fetchErr)
 		}
 		slog.WarnContext(ctx, "create child: could not fetch origin branch; checking out from local remote-tracking ref",
-			"branch", in.Branch, "err", ffErr)
+			"branch", in.Branch, "err", fetchErr)
 	}
-	forkPoint, err := u.git.RevParse(ctx, in.RepoPath, "origin/"+in.Branch)
+	// Read BEFORE the reset moves it; reported after, once origin's tip is known.
+	localTip, _ := u.git.RevParse(ctx, in.RepoPath, "refs/heads/"+in.Branch)
+	forkPoint, err := u.git.WorktreeAddAtRef(ctx, in.RepoPath, path, in.Branch, "origin/"+in.Branch)
 	if err != nil {
-		return "", fmt.Errorf("create child: resolve remote ref: %w", err)
-	}
-	if err := u.git.WorktreeAdd(ctx, in.RepoPath, path, in.Branch); err != nil {
 		return "", fmt.Errorf("create child: worktree checkout: %w", err)
 	}
+	u.warnOnDiscardedLocalTip(ctx, in.RepoPath, in.Branch, localTip, forkPoint)
 	// Link the checked-out branch back to origin/<branch> so it is recognised as
 	// origin's branch — a proper branch-review target (its PR is looked up by
 	// branch NAME, its base by the parent/default branch, but a tracked branch is
 	// the git-hygiene contract for "this IS origin's <branch>", and drives
-	// ahead/behind reporting). The origin-reachable path created the local branch
-	// via `git fetch origin <b>:<b>`, which sets NO upstream; the offline-fallback
-	// path DWIMs tracking when `git worktree add` materialises <b> from origin/<b>.
-	// Setting it explicitly on BOTH paths makes them consistent. Best-effort: the
-	// content is already correct, so a failure here must never abort the import.
+	// ahead/behind reporting). `git worktree add -B <b> <sha>` sets no upstream —
+	// it resolves a SHA, not a remote ref — so this is the only thing that
+	// establishes tracking. Best-effort: the content is already correct, so a
+	// failure here must never abort the import.
 	if err := u.git.SetUpstream(ctx, in.RepoPath, in.Branch); err != nil {
 		slog.WarnContext(ctx, "create child: could not set upstream on imported branch; content is correct but ahead/behind may not report",
 			"branch", in.Branch, "err", err)
 	}
 	return forkPoint, nil
+}
+
+// warnOnDiscardedLocalTip logs the local branch tip the import's `-B` reset just
+// moved off, when that tip was NOT already contained in origin's.
+//
+// The reset moves a ref, it does not rewrite history — the old commits stay
+// reachable through the reflog — but a user who had unpushed work on a
+// same-named local branch deserves the SHA in the log to recover it from.
+// Purely diagnostic: every failure is ignored, and it runs after the checkout,
+// so it can never influence whether the import proceeds.
+func (u *worktreeUsecase) warnOnDiscardedLocalTip(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+	localTip string,
+	originTip string,
+) {
+	if localTip == "" || localTip == originTip {
+		return // no local branch of this name, or it was already at origin's tip
+	}
+	if base, err := u.git.MergeBase(ctx, repoPath, localTip, originTip); err == nil && base == localTip {
+		return // a plain fast-forward; nothing was left behind
+	}
+	slog.WarnContext(ctx, "import: local branch had diverged from origin and was reset to origin's tip (old tip recoverable via reflog)",
+		"branch", branch, "old_local_tip", localTip, "origin_tip", originTip)
 }
 
 // adoptMainWorktree registers the repository's main worktree as a workspace
@@ -542,6 +595,8 @@ func (u *worktreeUsecase) adoptMainWorktree(
 		WorktreePath: in.RepoPath,
 		ForkPointSha: startSha,
 		ParentID:     in.ParentID,
+		FolderID:     in.FolderID,
+		Order:        in.Order,
 		Protected:    locked || in.ForceLocked,
 		// The adopted main worktree IS the repo's default workspace. Marking it
 		// keeps IsDefault reliable for the one-managed-workspace-per-branch guard,
@@ -1014,20 +1069,25 @@ func (u *worktreeUsecase) RetryProvision(
 	return provisioned, nil
 }
 
-// materializeProtectedWorktree fast-forwards the protected branch best-effort
-// then checks it out into a fresh worktree at path, returning the branch tip SHA.
-// Mirrors the import path's addProtectedWorktree.
+// materializeProtectedWorktree checks a branch out into a fresh worktree at path
+// and returns the tip SHA it landed on. When the branch is on origin it is
+// checked out AT origin's ref, exactly like checkoutRemoteBranch — see that
+// function for why a plain `WorktreeAdd` of the local ref silently imports a
+// diverged local copy instead of the remote branch. This path is reached by
+// Retry on a failed import and by Detach…, i.e. the SAME user action as an
+// import, so it must produce the same content.
+//
+// A branch that is not on origin (a local-only protected branch, an offline
+// machine) still checks out from the local ref: there is no remote content to
+// prefer, and refusing would strand the placeholder with no way forward.
 func (u *worktreeUsecase) materializeProtectedWorktree(
 	ctx context.Context,
 	repoPath string,
 	branch string,
 	path string,
 ) (string, error) {
-	if exists, err := u.git.RemoteBranchExists(ctx, repoPath, branch); err == nil && exists {
-		if ffErr := u.git.FastForwardBranch(ctx, repoPath, branch); ffErr != nil {
-			slog.WarnContext(ctx, "retry provision: could not fast-forward protected branch; using local tip",
-				"branch", branch, "err", ffErr)
-		}
+	if u.originHasBranch(ctx, repoPath, branch) {
+		return u.materializeFromOrigin(ctx, repoPath, branch, path)
 	}
 	if err := u.git.WorktreeAdd(ctx, repoPath, path, branch); err != nil {
 		return "", fmt.Errorf("retry provision: worktree add: %w", err)
@@ -1037,6 +1097,54 @@ func (u *worktreeUsecase) materializeProtectedWorktree(
 		return "", nil // fork point non-essential; the worktree is valid
 	}
 	return sha, nil
+}
+
+// materializeFromOrigin checks branch out AT origin's ref and links it back to
+// origin/<branch>. The explicit SetUpstream is required because
+// `git worktree add -B <branch> <sha>` starts from a SHA and so creates no
+// tracking info of its own — without it `git pull` in the provisioned worktree
+// fails with "There is no tracking information for the current branch".
+func (u *worktreeUsecase) materializeFromOrigin(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+	path string,
+) (string, error) {
+	localTip, _ := u.git.RevParse(ctx, repoPath, "refs/heads/"+branch)
+	sha, err := u.git.WorktreeAddAtRef(ctx, repoPath, path, branch, "origin/"+branch)
+	if err != nil {
+		return "", fmt.Errorf("retry provision: worktree add: %w", err)
+	}
+	u.warnOnDiscardedLocalTip(ctx, repoPath, branch, localTip, sha)
+	if upErr := u.git.SetUpstream(ctx, repoPath, branch); upErr != nil {
+		slog.WarnContext(ctx, "retry provision: could not set upstream; pull/ahead-behind may not work",
+			"branch", branch, "err", upErr)
+	}
+	return sha, nil
+}
+
+// originHasBranch reports whether origin/<branch> is resolvable, refreshing it
+// first when it is. It answers the one question the checkout needs — "is there
+// remote content to prefer?" — from the LOCAL remote-tracking ref, so a fetch
+// that fails (offline) still yields true when the clone already knows the
+// branch, and a live-query hiccup can never veto it.
+//
+// The local read comes FIRST so a repo with no remote never pays for a network
+// round-trip under the per-clone lock just to be told what the ref already said.
+func (u *worktreeUsecase) originHasBranch(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) bool {
+	tracking, err := u.git.RemoteTrackingBranchExists(ctx, repoPath, branch)
+	if err != nil || !tracking {
+		return false
+	}
+	if fErr := u.git.FetchRef(ctx, repoPath, branch); fErr != nil {
+		slog.WarnContext(ctx, "provision: could not refresh origin branch; using the local remote-tracking ref",
+			"branch", branch, "err", fErr)
+	}
+	return true
 }
 
 // DetachHolder frees a live holder off a placeholder's branch with consent, then

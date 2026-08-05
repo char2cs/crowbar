@@ -46,3 +46,19 @@ func TestProjectDTOList(
 	assert.Equal(t, "p1", got[0].ID)
 	assert.Equal(t, "p2", got[1].ID)
 }
+
+// The list is ordered by the converter itself, which is what makes the REST list
+// and the WS snapshot — the two callers — incapable of disagreeing about the
+// sidebar order.
+func TestProjectDTOList_OrdersByIndexThenID(
+	t *testing.T,
+) {
+	got := dto.ProjectDTOList([]domain.Project{
+		{ID: "c", Order: 2},
+		{ID: "b"},
+		{ID: "a"},
+	})
+	require.Len(t, got, 3)
+	assert.Equal(t, []string{"a", "b", "c"}, []string{got[0].ID, got[1].ID, got[2].ID})
+	assert.Equal(t, 2, got[2].Order, "the order reaches the wire")
+}

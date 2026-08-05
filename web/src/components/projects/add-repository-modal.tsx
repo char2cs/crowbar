@@ -23,9 +23,18 @@ import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 interface AddRepositoryModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /**
+   * Which project the repo lands in. Required wherever the caller is not the
+   * active project: the sidebar now shows a row per project, and each of those
+   * rows offers this modal — reading the active project here would silently
+   * import into whichever project happened to be open instead of the one whose
+   * row was clicked. Omitted, it keeps the old behaviour for the callers that
+   * genuinely mean "the current project".
+   */
+  projectId?: string
 }
 
-export function AddRepositoryModal({ open, onOpenChange }: AddRepositoryModalProps) {
+export function AddRepositoryModal({ open, onOpenChange, projectId }: AddRepositoryModalProps) {
   const [path, setPath] = useState('')
   const [name, setName] = useState('')
   const [loading, setLoading] = useState(false)
@@ -53,7 +62,7 @@ export function AddRepositoryModal({ open, onOpenChange }: AddRepositoryModalPro
     if (!pathLooksAbsolute) return
     setLoading(true)
     try {
-      const activeProjectId = useProjectStore.getState().activeProjectId
+      const activeProjectId = projectId || useProjectStore.getState().activeProjectId
       const fallbackName =
         trimmedPath
           .replace(/[\\/]+$/, '')

@@ -29,9 +29,11 @@ interface RepoImportDialogProps {
 
 /**
  * Branch-import modal: a virtualized, searchable list of the repo's remote
- * branches with a live "creates N parents" hint. Fetches branches (fast, local
- * git) and the open-PR graph (slower, network) in parallel on open — the list
- * renders immediately and the graph only enriches the hint. Import posts the
+ * branches with a live "creates N parents" hint. Fetches branches and the
+ * open-PR graph in parallel on open; both are network calls (the branch list
+ * refreshes origin server-side before listing, so it reports the remote as it
+ * is now rather than as the clone last heard it), so the list carries a real
+ * loading state instead of rendering as momentarily empty. Import posts the
  * whole selection in one batch; the daemon PR-parents and creates missing
  * ancestors server-side (the client hint is advisory).
  */
@@ -45,24 +47,43 @@ export function RepoImportDialog({
 }: RepoImportDialogProps) {
   const repoBase = `/v0/projects/${projectId}/repos/${repoId}`
   const [branches, setBranches] = useState<BranchEntry[]>([])
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'failed'>('loading')
   const [prLinks, setPrLinks] = useState<PRLink[]>([])
   const [filter, setFilter] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Fetch on open; the branch list and PR graph load independently so the list
-  // never waits on the network call.
+  // Fetch on open; the branch list and PR graph load independently so the hint
+  // never holds the list back. A reopen re-fetches rather than showing the
+  // previous open's branches — the whole point of the server-side refresh is
+  // that the remote may have moved since.
+  //
+  // react-doctor-disable-next-line no-reset-all-state-on-prop-change -- the harm the rule names ("users briefly see stale state") cannot happen here: `loadState` is reset to 'loading' in this same synchronous body and is what gates the list's render below, so a reopen shows "Fetching branches from the remote…" and never the previous open's branches. The prescribed fix — mount/key the body on `open` — would unmount it during the Dialog's exit animation, leaving an empty popup for the length of the close.
   useEffect(() => {
     if (!open) return
     setSelected(new Set())
     setFilter('')
     setPrLinks([])
+    setBranches([])
+    setLoadState('loading')
+    let live = true
     apiFetch<BranchEntry[]>(`${repoBase}/branches`)
-      .then(setBranches)
-      .catch(() => setBranches([]))
+      .then((list) => {
+        if (!live) return
+        setBranches(list)
+        setLoadState('ready')
+      })
+      .catch(() => {
+        if (!live) return
+        setBranches([])
+        setLoadState('failed')
+      })
     getRepoPullRequests(projectId, repoId)
-      .then(setPrLinks)
-      .catch(() => setPrLinks([]))
+      .then((links) => live && setPrLinks(links))
+      .catch(() => live && setPrLinks([]))
+    return () => {
+      live = false
+    }
   }, [open, repoBase, projectId, repoId])
 
   const visible = useMemo(() => {
@@ -116,6 +137,15 @@ export function RepoImportDialog({
     onOpenChange(false)
   }
 
+  // Shown in place of the (virtualized) rows whenever there is nothing to show:
+  // the fetch failed, the remote has no branches, or the filter matched none.
+  const emptyMessage =
+    loadState === 'failed'
+      ? "Couldn't reach the remote to list branches."
+      : branches.length === 0
+        ? 'No branches on the remote.'
+        : 'No branches match that search.'
+
   const hint =
     plan.parentCount > 0
       ? `Imports ${plan.importCount} branch${plan.importCount === 1 ? '' : 'es'} · creates ${plan.parentCount} parent branch${plan.parentCount === 1 ? '' : 'es'}`
@@ -136,6 +166,11 @@ export function RepoImportDialog({
             className="h-7 shrink-0 text-xs"
           />
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
+            {visible.length === 0 && (
+              <p className="px-1 py-2 text-xs text-muted-foreground">
+                {loadState === 'loading' ? 'Fetching branches from the remote…' : emptyMessage}
+              </p>
+            )}
             <div
               style={{ height: rowVirtualizer.getTotalSize(), position: 'relative', width: '100%' }}
             >

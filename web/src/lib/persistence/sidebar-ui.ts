@@ -4,11 +4,12 @@ import type { SidebarUI } from './schemas'
 export async function saveSidebarUI(
   collapsedRepos: string[],
   collapsedWorkspaces: string[],
+  collapsedProjects: string[] = [],
 ): Promise<void> {
   const db = await getDB()
   await db.put(
     'sidebar-ui',
-    { collapsedRepos, collapsedWorkspaces, updatedAt: Date.now() },
+    { collapsedRepos, collapsedWorkspaces, collapsedProjects, updatedAt: Date.now() },
     'global',
   )
 }

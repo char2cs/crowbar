@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
 // fakeOriginWorkspaces is an in-memory OriginSyncWorkspaces fake keyed by
@@ -50,10 +51,26 @@ func (f *fakeOriginWorkspaces) Get(
 // the REAL "a fetch happened" signal instead of sleeping.
 type fakeOriginFetcher struct {
 	calls chan string
+	// ffCalls records `merge --ff-only` invocations as "<repoPath>:<ref>", so a
+	// test can assert both that an advance happened and that it targeted origin's
+	// ref. Buffered like calls so a fetcher never blocks a run goroutine.
+	ffCalls chan string
+	// ffErr, when set, is what MergeFFOnly returns — the seam for "git refused
+	// because the tree is dirty".
+	ffErr error
 }
 
 func newFakeOriginFetcher() *fakeOriginFetcher {
-	return &fakeOriginFetcher{calls: make(chan string, 64)}
+	return &fakeOriginFetcher{calls: make(chan string, 64), ffCalls: make(chan string, 64)}
+}
+
+func (f *fakeOriginFetcher) MergeFFOnly(
+	_ context.Context,
+	repoPath string,
+	ref string,
+) error {
+	f.ffCalls <- repoPath + ":" + ref
+	return f.ffErr
 }
 
 func (f *fakeOriginFetcher) FetchRef(
@@ -104,6 +121,16 @@ func protectedWorkspace(
 	id string,
 ) domain.Workspace {
 	return domain.Workspace{ID: id, WorktreePath: "/repo/" + id, Branch: "develop"}
+}
+
+// lockedRootWorkspace is a provisioned, LOCKED protected root — the only shape
+// the open-time sync is allowed to fast-forward.
+func lockedRootWorkspace(
+	id string,
+) domain.Workspace {
+	ws := protectedWorkspace(id)
+	ws.Status = domain.WorkspaceStatusLocked
+	return ws
 }
 
 func childWorkspace(
@@ -309,6 +336,14 @@ func newBlockingFetcher() *blockingFetcher {
 	return &blockingFetcher{released: make(chan error, 8)}
 }
 
+func (b *blockingFetcher) MergeFFOnly(
+	_ context.Context,
+	_ string,
+	_ string,
+) error {
+	return nil
+}
+
 func (b *blockingFetcher) FetchRef(
 	ctx context.Context,
 	_ string,
@@ -333,7 +368,7 @@ func TestOriginSyncManager_SyncTick_CancelsHungFetch(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		m.syncTickWithTimeout(context.Background(), "w1", 10*time.Millisecond)
+		m.syncTickWithTimeout(context.Background(), "w1", 10*time.Millisecond, false)
 	}()
 
 	assert.ErrorIs(t, <-b.released, context.DeadlineExceeded,
@@ -359,7 +394,7 @@ func TestOriginSyncManager_SyncTick_DecoupledFromConnCtx(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		m.syncTickWithTimeout(connCtx, "w1", 10*time.Millisecond)
+		m.syncTickWithTimeout(connCtx, "w1", 10*time.Millisecond, false)
 	}()
 
 	assert.ErrorIs(t, <-b.released, context.DeadlineExceeded,
@@ -373,3 +408,111 @@ var (
 	_ OriginFetcher        = (*fakeOriginFetcher)(nil)
 	_ OriginFetcher        = (*blockingFetcher)(nil)
 )
+
+// TestOriginSyncManager_OpenFastForwardsLockedRoot pins the open-time advance: a
+// locked root's worktree is fast-forwarded onto origin's ref when the user opens
+// it, so the files they are about to read are the files origin has.
+//
+// A locked root is never advanced automatically otherwise — see the tick test
+// below — so this is the ONLY moment its working tree moves without the user
+// asking. Nothing else in the daemon advances it: FetchRef (every tick) touches
+// only refs/remotes/origin/<branch>, and a child forking off the parent
+// deliberately leaves the parent's ref alone.
+func TestOriginSyncManager_OpenFastForwardsLockedRoot(t *testing.T) {
+	w := newFakeOriginWorkspaces()
+	w.set(lockedRootWorkspace("w1"))
+	g := newFakeOriginFetcher()
+	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, g)
+	d := driveOriginSyncs(m)
+
+	m.Acquire("w1")
+	t.Cleanup(func() { m.Release("w1"); m.waitRunnersForTest() })
+
+	assert.Equal(t, "/repo/w1:develop", <-g.calls, "the open sync refreshes origin/<branch> first")
+	assert.Equal(t, "/repo/w1:origin/develop", <-g.ffCalls,
+		"then fast-forwards the worktree onto ORIGIN's ref, not the local one")
+	<-d.cycles
+}
+
+// TestOriginSyncManager_IntervalTickDoesNotFastForward is the other half of the
+// contract, and the reason the advance is gated on open at all.
+//
+// The sync ticks only while a client is SUBSCRIBED to this workspace — i.e. only
+// while the user is looking at it. Advancing on a tick would therefore move files
+// under a live editor or a mid-task agent, and would do nothing during the whole
+// window when advancing is harmless. The tick must refresh the ref and stop there.
+func TestOriginSyncManager_IntervalTickDoesNotFastForward(t *testing.T) {
+	w := newFakeOriginWorkspaces()
+	w.set(lockedRootWorkspace("w1"))
+	g := newFakeOriginFetcher()
+	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, g)
+	d := driveOriginSyncs(m)
+
+	m.Acquire("w1")
+	t.Cleanup(func() { m.Release("w1"); m.waitRunnersForTest() })
+
+	// Drain the open sync (which legitimately advances).
+	<-g.calls
+	<-g.ffCalls
+	<-d.cycles
+
+	// Now a real interval tick: it must fetch, and must NOT advance.
+	d.ticks <- time.Now()
+	assert.Equal(t, "/repo/w1:develop", <-g.calls, "the tick still refreshes the origin ref")
+	<-d.cycles // the cycle RAN to completion...
+	assert.Empty(t, g.ffCalls, "...and it fast-forwarded nothing")
+}
+
+// TestOriginSyncManager_OpenSkipsWorkspacesItDoesNotOwn proves the advance is
+// confined to provisioned, locked, non-default roots. The repo home is the
+// user's own folder, which Crowbar does not own; a placeholder has no worktree
+// to advance; an unlocked root could carry local commits a fast-forward has no
+// business touching. Each still gets its ref refreshed.
+func TestOriginSyncManager_OpenSkipsWorkspacesItDoesNotOwn(t *testing.T) {
+	home := lockedRootWorkspace("home")
+	home.IsDefault = true
+	placeholder := lockedRootWorkspace("ph")
+	placeholder.WorktreePath = ""
+	unlocked := protectedWorkspace("unlocked") // no locked status
+
+	for _, ws := range []domain.Workspace{home, placeholder, unlocked} {
+		t.Run(ws.ID, func(t *testing.T) {
+			w := newFakeOriginWorkspaces()
+			w.set(ws)
+			g := newFakeOriginFetcher()
+			m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, g)
+			d := driveOriginSyncs(m)
+
+			m.Acquire(ws.ID)
+			t.Cleanup(func() { m.Release(ws.ID); m.waitRunnersForTest() })
+
+			if ws.WorktreePath != "" {
+				assert.Equal(t, ws.WorktreePath+":develop", <-g.calls, "the ref is still refreshed")
+			} else {
+				<-g.calls // a placeholder still fetches; only the advance is skipped
+			}
+			<-d.cycles
+			assert.Empty(t, g.ffCalls, "this workspace must never be fast-forwarded")
+		})
+	}
+}
+
+// TestOriginSyncManager_OpenSurvivesRefusedFastForward proves a refused advance
+// is inert. git refuses rather than overwrite local changes, which is exactly
+// why no pre-flight cleanliness check is needed — and a refusal must never break
+// opening a workspace.
+func TestOriginSyncManager_OpenSurvivesRefusedFastForward(t *testing.T) {
+	w := newFakeOriginWorkspaces()
+	w.set(lockedRootWorkspace("w1"))
+	g := newFakeOriginFetcher()
+	g.ffErr = enginegit.ErrDirtyTree
+	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, g)
+	d := driveOriginSyncs(m)
+
+	m.Acquire("w1")
+	t.Cleanup(func() { m.Release("w1"); m.waitRunnersForTest() })
+
+	<-g.calls
+	<-g.ffCalls
+	<-d.cycles // the cycle completed despite the refusal
+}

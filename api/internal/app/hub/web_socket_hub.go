@@ -17,6 +17,12 @@ type WebSocketHub interface {
 	BroadcastRepo(
 		r dto.RepoDTO,
 	)
+	// BroadcastFolder fans a FolderDTO out on the Folders topic. Folders are a
+	// plain GORM row with no projection to ride, so the mutating handler calls
+	// this itself, right after the save.
+	BroadcastFolder(
+		f dto.FolderDTO,
+	)
 	BroadcastWorkspace(
 		w dto.WorkspaceDTO,
 	)

@@ -6,6 +6,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
+	foldersPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/folders"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/health"
 	homePkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home"
@@ -87,6 +88,7 @@ func (c *Container) Register(
 		c.app.Repositories.Workspace,
 		c.app.Usecases.ProjectImport,
 		c.app.Usecases.Project,
+		c.eng.Git,
 		c.app.Hub.BroadcastRepo,
 		c.repos.Handle,
 		ws.DualServe,
@@ -126,7 +128,17 @@ func (c *Container) Register(
 		c.app.GORM.Repositories,
 		c.app.Repositories.Workspace,
 		c.app.Repositories,
+		c.eng.Git,
+		c.app.Usecases.Folder,
+		c.app.Hub.BroadcastFolder,
 		c.workspaces.Handle,
+		ws.DualServe,
+	)
+	foldersPkg.Register(
+		repoScoped,
+		c.app.Usecases.Folder,
+		c.app.Hub.BroadcastFolder,
+		c.folders.Handle,
 		ws.DualServe,
 	)
 	files.Register(

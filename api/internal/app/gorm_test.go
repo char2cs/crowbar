@@ -108,25 +108,58 @@ func TestNewGORMStores_RepositoryStoreError(t *testing.T) {
 	assert.ErrorContains(t, err, "app: repository store:")
 }
 
-// TestNewGORMStores_TerminalProfileStoreError triggers the "terminal profile
-// store" error branch by allowing the first two ExecContext calls (Project and
-// Repository CREATE TABLE) to succeed before injecting a failure.
-func TestNewGORMStores_TerminalProfileStoreError(t *testing.T) {
+// TestNewGORMStores_FolderStoreError triggers the "folder store" error branch by
+// allowing the first two ExecContext calls (Project and Repository CREATE TABLE)
+// to succeed before injecting a failure.
+func TestNewGORMStores_FolderStoreError(t *testing.T) {
 	db := newFailAfterExecDB(t, 2)
+	_, err := newGORMStores(db)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "app: folder store:")
+}
+
+// TestNewGORMStores_TerminalProfileStoreError triggers the "terminal profile
+// store" error branch by allowing the first three ExecContext calls (Project,
+// Repository and Folder CREATE TABLE) to succeed before injecting a failure.
+func TestNewGORMStores_TerminalProfileStoreError(t *testing.T) {
+	db := newFailAfterExecDB(t, 3)
 	_, err := newGORMStores(db)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "app: terminal profile store:")
 }
 
 // TestNewGORMStores_TerminalSessionStoreError triggers the "terminal session
-// store" error branch by allowing the first three ExecContext calls (Project,
-// Repository, and TerminalProfile CREATE TABLE) to succeed before injecting a
-// failure.
+// store" error branch by allowing the first four ExecContext calls (Project,
+// Repository, Folder, and TerminalProfile CREATE TABLE) to succeed before
+// injecting a failure.
 func TestNewGORMStores_TerminalSessionStoreError(t *testing.T) {
-	db := newFailAfterExecDB(t, 3)
+	db := newFailAfterExecDB(t, 4)
 	_, err := newGORMStores(db)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "app: terminal session store:")
+}
+
+func TestNewGORMStores_FolderRoundTrips(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	stores, err := newGORMStores(db)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, stores.Folders.Save(ctx, domain.Folder{
+		ID: "f1", ProjectID: "p1", RepoID: "r1", Name: "spikes", Order: 3,
+	}))
+	require.NoError(t, stores.Folders.Save(ctx, domain.Folder{
+		ID: "f2", ProjectID: "p1", RepoID: "r2", Name: "elsewhere",
+	}))
+
+	// The repo-scoped query is the sidebar read path: it must narrow at the DB,
+	// not hand back the whole table for the caller to filter.
+	scoped, err := stores.Folders.FindWhere(ctx, domain.Folder{ProjectID: "p1", RepoID: "r1"})
+	require.NoError(t, err)
+	require.Len(t, scoped, 1)
+	assert.Equal(t, "spikes", scoped[0].Name)
+	assert.Equal(t, 3, scoped[0].Order, "order survives the round trip through a reserved-word column")
 }
 
 func TestNewGORMStores_TerminalSessionRoundTrip(t *testing.T) {

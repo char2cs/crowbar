@@ -92,7 +92,6 @@
     "react-dnd-html5-backend": "^16.0.1",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
-    "react-resizable-panels": "^4.11.2",
     "react-textarea-autosize": "^8.5.9",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",

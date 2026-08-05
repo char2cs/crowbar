@@ -1,9 +1,27 @@
-import type { Project, Prerequisites, RepoDTO, WorkspaceDTO } from './types'
+import type { FolderDTO, Project, Prerequisites, RepoDTO, WorkspaceDTO } from './types'
 import type { PRLink } from '@/lib/import/parent-plan'
 import { useChaosStore } from '@/lib/store/chaos'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
+
+/**
+ * Turn a daemon-relative asset path into one the webview can actually load.
+ *
+ * Only for URLs handed to the BROWSER — an `<img src>`, not an `apiFetch` (which
+ * applies API_BASE itself). A DTO's icon URL arrives as a bare `/v0/...` path,
+ * and the desktop webview is served from its own origin: on the dev server that
+ * path resolves to Vite, in a packaged build to the app bundle. Either way it is
+ * not the daemon, so the request 404s and the <img> quietly falls back to the
+ * entity's default mark — a broken icon that looks exactly like an icon nobody
+ * set.
+ *
+ * Defined here, beside API_BASE, so the repo avatar and the project icon cannot
+ * resolve the same kind of URL two different ways.
+ */
+export function assetURL(path: string): string {
+  return `${API_BASE}${path}`
+}
 
 /** Error thrown by apiFetch carrying the HTTP status, so callers can make
  *  status-specific decisions (e.g. a 404 is terminal — never retried). */
@@ -151,6 +169,12 @@ export function fetchWorkspaces(projectId: string, repoId: string): Promise<Work
   return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces`)
 }
 
+/** One repo's sidebar folders, in sidebar order. The seed half of the folders
+ *  stream — a WebSocket upgrade on this same path gets the live frames. */
+export function fetchFolders(projectId: string, repoId: string): Promise<FolderDTO[]> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/folders`)
+}
+
 export function fetchWorkspace(
   projectId: string,
   repoId: string,
@@ -197,17 +221,75 @@ export function renameRepo(projectId: string, repoId: string, name: string): Pro
   })
 }
 
-// parentId omitted/empty = fork from the repo's default branch.
+/**
+ * Rename a project. The renamed ProjectDTO arrives on the projects WS stream, so
+ * no caller patches its own cache from this — same contract as renameRepo.
+ */
+export function renameProject(projectId: string, name: string): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
+/** Delete a project, and with it every repo and workspace inside. */
+export function deleteProject(projectId: string): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}`, { method: 'DELETE' })
+}
+
+/**
+ * Set (or clear) a workspace's lock.
+ *
+ * `locked` null is the third state, not a synonym for false: it drops the user's
+ * override and hands the question back to the provider, so a branch goes back to
+ * being locked exactly when it is protected. Automatic locking is unaffected
+ * either way — this only decides whether the user is overruling it.
+ */
+export function setWorkspaceLock(
+  projectId: string,
+  repoId: string,
+  wsId: string,
+  locked: boolean | null,
+): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}/lock`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ locked }),
+  })
+}
+
+/**
+ * Where a new workspace goes, in the two independent senses the sidebar has.
+ *
+ * `parentId` is the FORK parent — the workspace whose branch the new one is cut
+ * from, and the edge a later rebase acts on. `folderId` is placement only: which
+ * sidebar folder the row is filed under, moving nothing on disk. They are
+ * separate fields so a folder can never be mistaken for a fork parent, and a
+ * create carries one or the other: a row started on a folder forks from the
+ * repo's default branch (no parentId), and a row started on a workspace inherits
+ * its placement through that fork ancestor (no folderId).
+ */
+export interface WorkspacePlacement {
+  parentId?: string
+  folderId?: string
+}
+
+// Both fields omitted = fork from the repo's default branch, at the repo root.
 export function postWorkspace(
   projectId: string,
   repoId: string,
   branch: string,
-  parentId?: string,
+  placement: WorkspacePlacement = {},
 ): Promise<void> {
   return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ branch, ...(parentId ? { parentId } : {}) }),
+    body: JSON.stringify({
+      branch,
+      ...(placement.parentId ? { parentId: placement.parentId } : {}),
+      ...(placement.folderId ? { folderId: placement.folderId } : {}),
+    }),
   })
 }
 
@@ -237,6 +319,14 @@ export function deleteWorkspace(projectId: string, repoId: string, wsId: string)
   return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}`, {
     method: 'DELETE',
   })
+}
+
+// Remove a repository from the project, worktrees and all. The removed RepoDTO
+// and its workspaces' tombstones arrive on the entity streams; nothing here
+// writes the sidebar tree. This is the one removal the sidebar asks the user to
+// confirm — everything under the repo goes with it.
+export function deleteRepo(projectId: string, repoId: string): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}`, { method: 'DELETE' })
 }
 
 // Rename a workspace's branch. The daemon renames the git branch AND relocates

@@ -27,5 +27,12 @@ func Register(
 	rg.GET("/projects", dispatch(h.List, projectsWS))
 	rg.POST("/projects", h.Import)
 	rg.GET("/projects/:projectId", dispatch(h.Detail, projectsWS))
+	rg.PATCH("/projects/:projectId", h.Patch)
 	rg.DELETE("/projects/:projectId", h.Delete)
+	// The icon routes mirror the repo ones a level up, minus /icon/github: a
+	// project has no origin remote to read an owner avatar from. See icon.go.
+	rg.GET("/projects/:projectId/icon", h.Icon)
+	rg.PUT("/projects/:projectId/icon", h.PutIcon)
+	rg.DELETE("/projects/:projectId/icon", h.DeleteIcon)
+	rg.PUT("/projects/:projectId/icon/emoji", h.PutIconEmoji)
 }

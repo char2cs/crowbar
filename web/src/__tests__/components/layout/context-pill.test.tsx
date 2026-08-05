@@ -248,7 +248,7 @@ describe('ContextPill working overlay', () => {
 
     expect(spinner()).toBeInTheDocument()
     // Real flicker spinner, theme-token colored — never a hardcoded color.
-    expect(container.querySelector('svg animate')).not.toBeNull()
+    expect(container.querySelector('[data-flicker-spinner]')).not.toBeNull()
     expect(container.querySelector('.text-foreground')).not.toBeNull()
   })
 

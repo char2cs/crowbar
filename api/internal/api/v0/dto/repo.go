@@ -1,7 +1,9 @@
 package dto
 
 import (
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -26,6 +28,8 @@ type RepoDTO struct {
 	// (00 §6, one-type-per-channel, mirroring ProjectDTO). Read-path DTOs leave
 	// it empty.
 	Status string `json:"status,omitempty"`
+	// Order is the repository's dense index within its project's sidebar section.
+	Order int `json:"order"`
 }
 
 // RepoDTOFrom maps a domain Repository onto the wire DTO. Icon precedence is
@@ -51,13 +55,37 @@ func RepoDTOFrom(r domain.Repository) RepoDTO {
 		AvatarColor:   r.AvatarColor,
 		AvatarURL:     avatarURL,
 		AvatarEmoji:   r.AvatarEmoji,
+		Order:         r.Order,
 	}
 }
 
+// RepoDTOList converts a slice of domain Repositories into wire DTOs in sidebar
+// order, returning a non-nil empty slice when the input is empty so the envelope
+// carries [].
+//
+// The sort lives HERE, in the converter both the REST list handler and the WS
+// snapshot go through, because those are the two answers to the same question
+// and a client that got different orders from them would watch its sidebar
+// reshuffle on every reconnect.
 func RepoDTOList(repos []domain.Repository) []RepoDTO {
 	dtos := make([]RepoDTO, 0, len(repos))
 	for _, r := range repos {
 		dtos = append(dtos, RepoDTOFrom(r))
 	}
+	slices.SortFunc(dtos, compareRepoDTOs)
 	return dtos
+}
+
+// compareRepoDTOs orders repositories by their dense index within a project,
+// then by id. Order is only meaningful within one project, so a cross-project
+// list is every project's sequence interleaved; the client groups by projectId
+// and reads each group in this order.
+func compareRepoDTOs(
+	a RepoDTO,
+	b RepoDTO,
+) int {
+	if a.Order != b.Order {
+		return a.Order - b.Order
+	}
+	return strings.Compare(a.ID, b.ID)
 }

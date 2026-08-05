@@ -173,6 +173,14 @@ func (f *fakeWorkspace) SetParentFromPR(_ context.Context, _, _ string) (domain.
 	return domain.Workspace{}, nil
 }
 
+func (f *fakeWorkspace) SetPlacement(_ context.Context, id, folderID string, order int) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, FolderID: folderID, Order: order}, nil
+}
+
+func (f *fakeWorkspace) SetProject(_ context.Context, id, projectID string) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, ProjectID: projectID}, nil
+}
+
 func (f *fakeWorkspace) SetLastError(_ context.Context, _, _ string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
@@ -205,6 +213,8 @@ type fakeGit struct {
 	addErr                 error
 	revParseSha            string
 	revParseErr            error
+	mergeBaseSha           string
+	mergeBaseErr           error
 	mergeErr               error
 	squashErr              error
 	rebaseErr              error
@@ -385,6 +395,25 @@ func (f *fakeGit) WorktreeAdd(
 	return f.worktreeAddErr
 }
 
+func (f *fakeGit) WorktreeAddAtRef(
+	_ context.Context,
+	repoPath string,
+	worktreePath string,
+	branch string,
+	startRef string,
+) (string, error) {
+	f.record("WorktreeAddAtRef", repoPath, worktreePath, branch, startRef)
+	if f.addConflictUntilDetach != nil && !f.detachCalled {
+		return "", f.addConflictUntilDetach
+	}
+	if f.worktreeAddErr != nil {
+		return "", f.worktreeAddErr
+	}
+	// The real engine resolves startRef and returns that SHA; the fake's
+	// revParseSha stands in for it so the fork-point assertions keep working.
+	return f.revParseSha, f.revParseErr
+}
+
 func (f *fakeGit) RevParse(
 	_ context.Context,
 	repoPath string,
@@ -392,6 +421,16 @@ func (f *fakeGit) RevParse(
 ) (string, error) {
 	f.record("RevParse", repoPath, rev)
 	return f.revParseSha, f.revParseErr
+}
+
+func (f *fakeGit) MergeBase(
+	_ context.Context,
+	repoPath string,
+	a string,
+	b string,
+) (string, error) {
+	f.record("MergeBase", repoPath, a, b)
+	return f.mergeBaseSha, f.mergeBaseErr
 }
 
 func (f *fakeGit) Merge(
@@ -741,11 +780,15 @@ func TestCreateChild_RemoteBranchAbsent_CreatesLocal(t *testing.T) {
 }
 
 // TestCreateChild_RemoteBranchExists_ChecksOut verifies the spec-§3 decision:
-// when the branch already exists on the remote, CreateChild fast-forwards it
-// and checks out the existing remote branch (WorktreeAdd), and the fork point
-// comes from RevParse of the resolved origin/<branch> ref — NOT WorktreeAddBranch.
-// The parent is never touched on this path: its start point is resolved past the
-// checkout early-return, so the checkout pays no parent query and no network fetch.
+// when the branch already exists on the remote, CreateChild refreshes
+// origin/<branch> (FetchRef, which git never refuses) and checks the branch out
+// AT that ref (WorktreeAddAtRef, i.e. `git worktree add -B`), so the worktree
+// holds origin's commits even when a diverged local branch of the same name
+// exists — NOT WorktreeAddBranch, and not a plain WorktreeAdd of the local ref.
+// The fork point is the SHA that checkout resolved, so it is by construction the
+// commit the worktree is on. The parent is never touched on this path: its start
+// point is resolved past the checkout early-return, so the checkout pays no
+// parent query and no parent fetch.
 func TestCreateChild_RemoteBranchExists_ChecksOut(t *testing.T) {
 	// Both the child branch AND the parent branch exist on the remote.
 	g := &fakeGit{remoteExists: true, revParseSha: "remotefork"}
@@ -772,27 +815,31 @@ func TestCreateChild_RemoteBranchExists_ChecksOut(t *testing.T) {
 	})
 	require.NoError(t, err)
 	// Op sequence: the child decision (local remote-tracking ref absent → falls
-	// back to the live query, which says true), then fast-forward + rev-parse +
-	// worktree-add. No parent op at all.
+	// back to the live query, which says true), then fetch the child's remote ref,
+	// read the local tip about to be reset, and check out AT origin/<branch>.
 	assert.Equal(t, []string{
 		"RemoteTrackingBranchExists", // child local remote-tracking ref? → false
 		"RemoteBranchExists",         // child exists live? → true
-		"FastForwardBranch",          // fast-forward child
-		"RevParse",
-		"WorktreeAdd",
+		"FetchRef",                   // refresh origin/<child>; never refused by git
+		"RevParse",                   // local tip, read before the -B reset moves it
+		"WorktreeAddAtRef",
 		"SetUpstream", // link the checked-out branch to origin/<branch>
 	}, g.ops())
 	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[0].args)
 	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[1].args)
 	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[2].args)
-	assert.Equal(t, []string{"/repo", "origin/feature/x"}, g.calls[3].args)
-	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x"}, g.calls[4].args)
+	assert.Equal(t, []string{"/repo", "refs/heads/feature/x"}, g.calls[3].args)
+	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "origin/feature/x"}, g.calls[4].args,
+		"the checkout must start AT origin's ref, not at whatever the local branch points to")
 	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[5].args,
 		"the imported branch is linked back to origin/feature/x")
-	// WorktreeAddBranch must NOT be called on the checkout path.
+	// WorktreeAddBranch must NOT be called on the checkout path, and neither may
+	// a plain WorktreeAdd, which would check out the LOCAL ref.
 	assert.NotContains(t, g.ops(), "WorktreeAddBranch")
-	// Nor may the checkout path pay for the parent's network fetch.
-	assert.NotContains(t, g.ops(), "FetchRef")
+	assert.NotContains(t, g.ops(), "WorktreeAdd")
+	// The local branch ref must never be moved by a fetch on this path: `git fetch
+	// origin <b>:<b>` is refused whenever <b> is checked out anywhere.
+	assert.NotContains(t, g.ops(), "FastForwardBranch")
 	assert.Equal(t, "remotefork", created.ForkPointSha)
 }
 
@@ -920,9 +967,9 @@ func TestCreateChild_LocalRemoteTrackingRef_ChecksOutDespiteLiveMiss(t *testing.
 	// live query is short-circuited, and the parent is never consulted at all.
 	assert.Equal(t, []string{
 		"RemoteTrackingBranchExists", // child local remote-tracking ref? → true
-		"FastForwardBranch",          // fast-forward child
-		"RevParse",
-		"WorktreeAdd",
+		"FetchRef",                   // refresh origin/<child>
+		"RevParse",                   // local tip, read before the -B reset moves it
+		"WorktreeAddAtRef",
 		"SetUpstream", // link the checked-out branch to origin/<branch>
 	}, g.ops())
 	assert.NotContains(t, g.ops(), "WorktreeAddBranch",
@@ -931,13 +978,13 @@ func TestCreateChild_LocalRemoteTrackingRef_ChecksOutDespiteLiveMiss(t *testing.
 }
 
 // TestCreateChild_CheckoutBestEffortWhenFetchFailsButTrackingRefPresent proves
-// the checkout is resilient: when the fetch (FastForwardBranch) fails but the
-// local origin/<branch> ref is present, the branch is still checked out from that
-// ref rather than aborting the import.
+// the checkout is resilient: when the fetch (FetchRef) fails but the local
+// origin/<branch> ref is present, the branch is still checked out AT that ref
+// rather than aborting the import.
 func TestCreateChild_CheckoutBestEffortWhenFetchFailsButTrackingRefPresent(t *testing.T) {
 	g := &fakeGit{
 		trackingExistsByBranch: map[string]bool{"feature/x": true},
-		fastForwardBranchErr:   errBoom, // offline fetch failure
+		fetchRefErr:            errBoom, // offline fetch failure
 		revParseSha:            "remotefork",
 	}
 	var created workspace.CreateInput
@@ -960,10 +1007,10 @@ func TestCreateChild_CheckoutBestEffortWhenFetchFailsButTrackingRefPresent(t *te
 	require.NoError(t, err, "a fetch failure must be best-effort when origin/<branch> is present locally")
 	assert.Equal(t, []string{
 		"RemoteTrackingBranchExists", // child local remote-tracking ref? → true → checkout
-		"FastForwardBranch",          // fetch → fails
+		"FetchRef",                   // fetch → fails
 		"RemoteTrackingBranchExists", // re-check: local ref present → continue best-effort
-		"RevParse",
-		"WorktreeAdd",
+		"RevParse",                   // local tip, read before the -B reset moves it
+		"WorktreeAddAtRef",
 		"SetUpstream", // link the checked-out branch to origin/<branch>
 	}, g.ops())
 	assert.Equal(t, "remotefork", created.ForkPointSha)
@@ -989,11 +1036,11 @@ func TestCreateChild_RemoteBranchExistsError(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-func TestCreateChild_FastForwardBranchError(t *testing.T) {
-	// FastForwardBranch failing on the CHILD branch (checkoutRemoteBranch path) is fatal.
-	// remoteExists=true means both parent and child are "on remote", so both
-	// fast-forward calls run; the child fast-forward error surfaces.
-	g := &fakeGit{remoteExists: true, fastForwardBranchErr: errBoom}
+func TestCreateChild_FetchRefError(t *testing.T) {
+	// FetchRef failing on the CHILD branch (checkoutRemoteBranch path) is fatal
+	// when there is no local origin/<branch> to fall back on: without either,
+	// there is no remote content to import.
+	g := &fakeGit{remoteExists: true, fetchRefErr: errBoom}
 	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoPath: "/r", ProjectID: "p1", Branch: "b", ParentBranch: "develop",
@@ -1139,7 +1186,7 @@ func TestCreateChild_DetachesMainToFreeDefaultBranch(t *testing.T) {
 	assert.Contains(t, g.ops(), "DetachWorktree", "the main folder must be detached to free the branch")
 	var addCount int
 	for _, op := range g.ops() {
-		if op == "WorktreeAdd" {
+		if op == "WorktreeAddAtRef" {
 			addCount++
 		}
 	}
@@ -2272,4 +2319,13 @@ func TestRetryProvision_HeldByManaged_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "/tmp/crowbar-test/projects/p1/r1/develop/worktree",
 		"the refusal names the worktree holding the branch")
 	assert.False(t, provisionCalled, "no provision while the branch is held")
+}
+
+func (f *fakeWorkspace) SetLock(
+	_ context.Context,
+	id string,
+	locked *bool,
+	_ bool,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, LockOverride: locked}, nil
 }

@@ -95,6 +95,7 @@
   --color-code: var(--code);
   --color-code-foreground: var(--code-foreground);
   --color-code-highlight: var(--code-highlight);
+  --color-brand: var(--brand);
   --color-chrome-bg: var(--chrome-bg);
   --color-git-added: var(--git-added);
   --color-git-deleted: var(--git-deleted);
@@ -102,6 +103,11 @@
   --color-git-modified-staged: var(--git-modified-staged);
   --color-git-untracked: var(--git-untracked);
   --color-git-renamed: var(--git-renamed);
+  --color-sidebar-count-added: var(--sidebar-count-added);
+  --color-sidebar-count-deleted: var(--sidebar-count-deleted);
+  --color-sidebar-drop-line: var(--sidebar-drop-line);
+  --color-sidebar-drop-nest: var(--sidebar-drop-nest);
+  --color-sidebar-drop-nest-edge: var(--sidebar-drop-nest-edge);
   --font-editor: var(--editor-font-family);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
@@ -117,6 +123,19 @@
   --animate-toast-error-odd: toast-error-odd 0.28s cubic-bezier(0.5, 1, 0.89, 1);
   --animate-toast-error-even: toast-error-even 0.28s cubic-bezier(0.5, 1, 0.89, 1);
   --animate-label-in: label-in 140ms cubic-bezier(0, 0, 0.2, 1) both;
+  /* A row action that is out of the flow at rest and appears on hover/focus.
+     `display` is what gives the branch name back the button's 24px box and the
+     row's 6px gap, and `display` cannot transition — so the fade rides a
+     keyframe, which starts the moment the element becomes displayed. Short
+     enough to read as the row responding rather than as a thing arriving. */
+  --animate-row-action-in: row-action-in 120ms ease;
+  /* The hairline draining along a held row in the removal tray. ONE animation
+     for the whole eight seconds — the alternative is a timer re-rendering a
+     countdown thirty times a second to move a bar the compositor can move on
+     its own. `forwards` so the drained state survives the last frame; `linear`
+     because the bar IS the clock and an eased one would misreport how much of
+     it is left. */
+  --animate-tray-drain: tray-drain 8s linear forwards;
   @keyframes skeleton {
     to {
       background-position: -200% 0;
@@ -195,6 +214,22 @@
       translate: 0 0;
     }
   }
+  @keyframes row-action-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes tray-drain {
+    from {
+      transform: scaleX(1);
+    }
+    to {
+      transform: scaleX(0);
+    }
+  }
   @keyframes label-in {
     from {
       opacity: 0;
@@ -238,6 +273,17 @@
   --accent-foreground: var(--color-neutral-800);
   /* Editor text-selection wash (needs real opacity, unlike the 4% --accent) */
   --editor-selection: oklch(0.62 0.13 235 / 0.3);
+  /* Selection/emphasis accent for the Plate registry components copied from
+     platejs.org — block selection, table cell selection, the table drop line,
+     a selected equation. Those files ship `bg-brand/…` utilities against a
+     token Plate's own theme declares and ours did not, so every one of them
+     compiled to nothing and the affordance was invisible; Cmd+A in the rich
+     markdown editor block-selected the whole document and painted no pixel.
+     Same hue as --editor-selection (Monaco's selection wash) so a selection
+     reads the same in Rich and Source view. Deliberately OPAQUE: every
+     consumer supplies its own alpha (/[.13], /5, /15, /50), and baking one in
+     here would multiply the two. */
+  --brand: oklch(0.62 0.13 235);
   --destructive: var(--color-red-500);
   --destructive-foreground: var(--color-red-700);
   --info: var(--color-blue-500);
@@ -280,6 +326,32 @@
   --git-untracked: var(--color-lime-600);
   --git-deleted: var(--destructive);
   --git-renamed: var(--color-sky-600);
+
+  /* The +/- figures on a sidebar row's second line. NOT --git-added/--git-deleted:
+     those resolve to emerald-500/red-500, which lose contrast against the raised
+     active surface the second line only ever appears on. The pale pair reads
+     there; on the light theme it is taken down to 60% so it reads against a light
+     surface for the same reason. */
+  --sidebar-count-added: color-mix(in srgb, var(--color-green-300) 60%, black);
+  --sidebar-count-deleted: color-mix(in srgb, var(--color-red-300) 60%, black);
+
+  /* The two drag-and-drop marks on a sidebar row: the hairline that says
+     "between these rows" and the fill that says "inside this one".
+
+     Built on --secondary rather than --primary. --primary is the app's most
+     emphatic surface (the active pane ring, the count badge); a drop mark is a
+     transient hint that has to read over a row already wearing its own hover or
+     active treatment without competing with either. The line takes a share of
+     --foreground on top so it stays legible where --secondary and the sidebar
+     glass are close in lightness.
+
+     Declared ONCE. Every theme class lands on the same <html> element as :root,
+     so the mix resolves against whichever --secondary/--foreground won the
+     cascade — unlike --sidebar-count-* above, which needs a per-theme value
+     because its formula differs between light and dark. */
+  --sidebar-drop-line: color-mix(in oklch, var(--secondary) 55%, var(--foreground));
+  --sidebar-drop-nest: color-mix(in oklch, var(--secondary) 30%, transparent);
+  --sidebar-drop-nest-edge: color-mix(in oklch, var(--secondary) 65%, transparent);
 
   /* ── Crowbar UI-layer tokens (not in Cross/UI) ── */
   /* Window backdrop tint (on <body>, over the native window vibrancy). A light
@@ -381,6 +453,11 @@
   --accent: oklch(1 0 0 / 4%);
   --accent-foreground: var(--color-neutral-100);
   --editor-selection: oklch(0.7 0.13 235 / 0.32);
+  /* Lighter than the light theme's (see :root): a 13% wash of the L 0.62 blue
+     over an L 0.239 background lifts it by ~0.03, which is under the 4%-white
+     --muted chips already on that surface — the selection would read as less
+     than an inline code span. L 0.7 doubles the lift. */
+  --brand: oklch(0.7 0.13 235);
   --destructive: oklch(0.65 0.22 24);
   --destructive-foreground: var(--color-red-400);
   --info: var(--color-blue-500);
@@ -419,6 +496,10 @@
   --git-untracked: var(--color-lime-400);
   --git-deleted: var(--destructive);
   --git-renamed: var(--color-sky-400);
+
+  /* Full strength here — see the light-theme note. */
+  --sidebar-count-added: var(--color-green-300);
+  --sidebar-count-deleted: var(--color-red-300);
 
   /* ── Crowbar UI-layer dark overrides ── */
   /* Window backdrop tint (applied to <body>, behind every pane). Was a 40% black

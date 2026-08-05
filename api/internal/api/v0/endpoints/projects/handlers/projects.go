@@ -5,17 +5,21 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/icons"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ListGetter is the read surface the projects handlers need: list every project
-// and fetch one by id.
+// ListGetter is the read surface the projects handlers need — list every
+// project, fetch one by id — plus the one write that is not an import or a
+// delete: the sidebar reorder.
 type ListGetter interface {
 	List(
 		ctx context.Context,
@@ -23,6 +27,18 @@ type ListGetter interface {
 	Get(
 		ctx context.Context,
 		id string,
+	) (domain.Project, error)
+	Reorder(
+		ctx context.Context,
+		projectID string,
+		order int,
+	) (domain.Project, error)
+	// Update applies a partial project update: the display name, and the icon
+	// fields the icon handlers below persist through.
+	Update(
+		ctx context.Context,
+		projectID string,
+		in project.Update,
 	) (domain.Project, error)
 }
 
@@ -57,6 +73,9 @@ type Handlers struct {
 	deleter   Deleter
 	broadcast func(dto.ProjectDTO)
 	stat      func(string) (os.FileInfo, error)
+	// Where the project's icon bytes live. Overridable for tests, exactly as the
+	// repo handlers' equivalent is.
+	crowbarHome func() (string, error)
 	// async tracks the detached runAsync ops so callers can block on their real
 	// completion instead of guessing with a sleep (see runAsync / WaitAsync).
 	async sync.WaitGroup
@@ -76,11 +95,12 @@ func New(
 		broadcast = func(dto.ProjectDTO) {}
 	}
 	return &Handlers{
-		reader:    reader,
-		importer:  importer,
-		deleter:   deleter,
-		broadcast: broadcast,
-		stat:      os.Stat,
+		reader:      reader,
+		importer:    importer,
+		deleter:     deleter,
+		broadcast:   broadcast,
+		stat:        os.Stat,
+		crowbarHome: icons.DefaultCrowbarHome,
 	}
 }
 
@@ -91,6 +111,17 @@ func (h *Handlers) WithStat(
 ) *Handlers {
 	if stat != nil {
 		h.stat = stat
+	}
+	return h
+}
+
+// WithIconStorage overrides the crowbar-home resolver the icon handlers store
+// and serve through. Intended for tests; a nil arg leaves the default in place.
+func (h *Handlers) WithIconStorage(
+	home func() (string, error),
+) *Handlers {
+	if home != nil {
+		h.crowbarHome = home
 	}
 	return h
 }
@@ -126,6 +157,86 @@ func (h *Handlers) Detail(
 		return
 	}
 	libs.WriteQueryOK(c, dto.ProjectDTOFrom(project))
+}
+
+// patchRequest is the PATCH /v0/projects/:projectId body. Every field is
+// optional; the ones present are the ones applied.
+type patchRequest struct {
+	// Order is the project's new index in the sidebar.
+	Order *int `json:"order"`
+	// Name is the project's new display label — the sidebar's inline rename.
+	Name *string `json:"name"`
+}
+
+// Patch handles PATCH /v0/projects/:projectId: a sidebar reorder, a rename, or
+// both. Unlike an import either is a single store write, so it runs inline and
+// answers 204 — the updated project rides the Projects WS stream, not this
+// response.
+//
+// A reorder densifies the whole list, so every project it shifts is broadcast
+// too: a client told only about the row that was dragged would hold stale orders
+// for the rest until the next reconnect. A rename shifts nobody, so it
+// broadcasts the one row it changed.
+func (h *Handlers) Patch(
+	c *gin.Context,
+) {
+	var body patchRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Order == nil && body.Name == nil {
+		libs.WriteErr(c, http.StatusBadRequest, "order or name is required")
+		return
+	}
+	ctx := c.Request.Context()
+	projectID := c.Param("projectId")
+
+	if body.Name != nil {
+		name := strings.TrimSpace(*body.Name)
+		if name == "" {
+			libs.WriteErr(c, http.StatusBadRequest, "name must not be empty")
+			return
+		}
+		updated, err := h.reader.Update(ctx, projectID, project.Update{Name: &name})
+		if err != nil {
+			status, msg := libs.StatusAndMessage(err)
+			libs.WriteErr(c, status, msg)
+			return
+		}
+		// Broadcast now only when this request is a rename ALONE. Paired with a
+		// reorder the densify below re-delivers every row anyway, and sending
+		// this one twice would have clients apply the same frame either side of
+		// a list that moved under it.
+		if body.Order == nil {
+			h.broadcast(dto.ProjectDTOFrom(updated))
+		}
+	}
+
+	if body.Order != nil {
+		if _, err := h.reader.Reorder(ctx, projectID, *body.Order); err != nil {
+			status, msg := libs.StatusAndMessage(err)
+			libs.WriteErr(c, status, msg)
+			return
+		}
+		h.broadcastAll(ctx)
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// broadcastAll re-delivers every project after a reorder. The list is a handful
+// of rows and the reorder already read all of them, so re-broadcasting the set
+// is cheaper than tracking which ones the densify happened to shift.
+func (h *Handlers) broadcastAll(
+	ctx context.Context,
+) {
+	rows, err := h.reader.List(ctx)
+	if err != nil {
+		return
+	}
+	for _, row := range rows {
+		h.broadcast(dto.ProjectDTOFrom(row))
+	}
 }
 
 // Import handles POST /v0/projects. It validates the request synchronously (body
