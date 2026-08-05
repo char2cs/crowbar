@@ -95,6 +95,7 @@
   --color-code: var(--code);
   --color-code-foreground: var(--code-foreground);
   --color-code-highlight: var(--code-highlight);
+  --color-brand: var(--brand);
   --color-chrome-bg: var(--chrome-bg);
   --color-git-added: var(--git-added);
   --color-git-deleted: var(--git-deleted);
@@ -272,6 +273,17 @@
   --accent-foreground: var(--color-neutral-800);
   /* Editor text-selection wash (needs real opacity, unlike the 4% --accent) */
   --editor-selection: oklch(0.62 0.13 235 / 0.3);
+  /* Selection/emphasis accent for the Plate registry components copied from
+     platejs.org — block selection, table cell selection, the table drop line,
+     a selected equation. Those files ship `bg-brand/…` utilities against a
+     token Plate's own theme declares and ours did not, so every one of them
+     compiled to nothing and the affordance was invisible; Cmd+A in the rich
+     markdown editor block-selected the whole document and painted no pixel.
+     Same hue as --editor-selection (Monaco's selection wash) so a selection
+     reads the same in Rich and Source view. Deliberately OPAQUE: every
+     consumer supplies its own alpha (/[.13], /5, /15, /50), and baking one in
+     here would multiply the two. */
+  --brand: oklch(0.62 0.13 235);
   --destructive: var(--color-red-500);
   --destructive-foreground: var(--color-red-700);
   --info: var(--color-blue-500);
@@ -441,6 +453,11 @@
   --accent: oklch(1 0 0 / 4%);
   --accent-foreground: var(--color-neutral-100);
   --editor-selection: oklch(0.7 0.13 235 / 0.32);
+  /* Lighter than the light theme's (see :root): a 13% wash of the L 0.62 blue
+     over an L 0.239 background lifts it by ~0.03, which is under the 4%-white
+     --muted chips already on that surface — the selection would read as less
+     than an inline code span. L 0.7 doubles the lift. */
+  --brand: oklch(0.7 0.13 235);
   --destructive: oklch(0.65 0.22 24);
   --destructive-foreground: var(--color-red-400);
   --info: var(--color-blue-500);
