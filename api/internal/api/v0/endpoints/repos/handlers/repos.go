@@ -18,14 +18,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/rivo/uniseg"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/icons"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
@@ -188,7 +187,7 @@ func New(
 ) *Handlers {
 	return &Handlers{
 		store:       store,
-		crowbarHome: defaultCrowbarHome,
+		crowbarHome: icons.DefaultCrowbarHome,
 		fetchAvatar: fetchGithubAvatarBytes,
 		broadcast:   func(dto.RepoDTO) {},
 		stat:        os.Stat,
@@ -211,7 +210,7 @@ func NewWithDeps(
 		store:       store,
 		provider:    prov,
 		wsReader:    wsReader,
-		crowbarHome: defaultCrowbarHome,
+		crowbarHome: icons.DefaultCrowbarHome,
 		fetchAvatar: fetchGithubAvatarBytes,
 		broadcast:   broadcast,
 		stat:        os.Stat,
@@ -693,55 +692,7 @@ func (h *Handlers) Icon(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	// Stat-reject and cap the read: icons are stored by this daemon, but a
-	// corrupted or replaced file should not cause an unbounded heap allocation.
-	info, err := os.Stat(iconPath)
-	if err != nil {
-		c.Status(http.StatusNotFound)
-		return
-	}
-	if info.Size() > maxIconBytes {
-		c.Status(http.StatusNotFound)
-		return
-	}
-	//nolint:gosec // G304: iconPath comes from the daemon's entity-scoped icon store (h.iconPath), already stat-checked and size-capped above, not user-supplied.
-	f, err := os.Open(iconPath)
-	if err != nil {
-		c.Status(http.StatusNotFound)
-		return
-	}
-	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(io.LimitReader(f, maxIconBytes+1))
-	if err != nil {
-		c.Status(http.StatusNotFound)
-		return
-	}
-	// no-cache: revalidate on every use. The bytes change in place behind this
-	// URL (uploads overwrite the same file); the ?v= param on the DTO URL is
-	// the primary cache-buster, this header is the belt-and-braces layer.
-	c.Header("Cache-Control", "no-cache")
-	c.Data(http.StatusOK, iconContentType(data), data)
-}
-
-// iconContentType picks the Content-Type for a stored icon. http.DetectContentType
-// has no SVG signature — it sniffs SVG as text/* — and browsers refuse to render
-// an <img> whose SVG is served as text/*. Some GitHub owner avatars are SVG (e.g.
-// org avatars), so detect SVG explicitly and serve image/svg+xml; otherwise the
-// fetched icon silently degrades to the generated label placeholder. Real raster
-// images keep their sniffed image/* type.
-func iconContentType(data []byte) string {
-	ct := http.DetectContentType(data)
-	if strings.HasPrefix(ct, "image/") {
-		return ct
-	}
-	head := data
-	if len(head) > 512 {
-		head = head[:512]
-	}
-	if strings.Contains(string(head), "<svg") {
-		return "image/svg+xml"
-	}
-	return ct
+	icons.Serve(c, iconPath)
 }
 
 // iconPath resolves the entity-scoped icon file path from the request's
@@ -766,20 +717,6 @@ func repoIconPath(
 	repoID string,
 ) string {
 	return filepath.Join(crowbarHome, "projects", projectID, repoID, "icon")
-}
-
-// defaultCrowbarHome returns the root for all crowbar-managed state: the
-// CROWBAR_HOME env override when set (dev instances point it inside the
-// workspace being developed), otherwise ~/.crowbar.
-func defaultCrowbarHome() (string, error) {
-	if override := os.Getenv(metadata.HomeEnvVar); override != "" {
-		return override, nil
-	}
-	h, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("crowbar home: %w", err)
-	}
-	return filepath.Join(h, ".crowbar"), nil
 }
 
 // fetchGithubAvatarBytes resolves the repo owner avatar URL via git + gh and
@@ -811,11 +748,11 @@ func fetchGithubAvatarBytes(
 		return nil, "", nil
 	}
 	// LimitReader(+1) detects (not silently truncates) an oversize body.
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxIconBytes+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, icons.MaxBytes+1))
 	if err != nil {
 		return nil, "", nil
 	}
-	if len(data) > maxIconBytes {
+	if len(data) > icons.MaxBytes {
 		return nil, "", nil
 	}
 	ct := resp.Header.Get("Content-Type")
@@ -1035,7 +972,7 @@ func (h *Handlers) PutIconEmoji(c *gin.Context) {
 		return
 	}
 	body.Emoji = strings.TrimSpace(body.Emoji)
-	if !isSingleEmoji(body.Emoji) {
+	if !icons.IsSingleEmoji(body.Emoji) {
 		libs.WriteErr(c, http.StatusBadRequest, "emoji must be a single character")
 		return
 	}
@@ -1080,11 +1017,6 @@ func (h *Handlers) DeleteIcon(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// maxIconBytes caps the stored icon at 2 MiB. Any file larger than this is
-// rejected before or immediately after opening, so the daemon never reads an
-// unbounded amount of data from a client-supplied path.
-const maxIconBytes = 2 << 20
-
 // githubAvatarFetchTimeout bounds the outbound GitHub owner-avatar download so a
 // slow host never stalls the icon-refresh path.
 const githubAvatarFetchTimeout = 10 * time.Second
@@ -1102,20 +1034,11 @@ func (h *Handlers) PutIcon(c *gin.Context) {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
 	}
-	data, _, ok := h.readIconUpload(c)
+	data, ok := icons.ReadUpload(c)
 	if !ok {
 		return
 	}
-	if len(data) > maxIconBytes {
-		libs.WriteErr(c, http.StatusBadRequest, "icon must be under 2 MB")
-		return
-	}
-	// Always validate by content sniffing (not by trusting the extension or the
-	// caller-supplied Content-Type) so a non-image file cannot be stored by
-	// supplying a .png filename or a JSON path to an arbitrary host file.
-	sniffed := http.DetectContentType(data)
-	if !strings.HasPrefix(sniffed, "image/") {
-		libs.WriteErr(c, http.StatusBadRequest, "icon must be an image file")
+	if !icons.Validate(c, data) {
 		return
 	}
 	if err := h.storeIconBytes(c, data); err != nil {
@@ -1139,95 +1062,7 @@ func (h *Handlers) PutIcon(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// readIconUpload extracts the icon bytes and content-type from the request,
-// dispatching on Content-Type: a JSON {"path"} body (desktop, daemon reads the
-// file) or a multipart "icon" field (web). On any error it writes the response
-// and returns ok=false.
-func (h *Handlers) readIconUpload(c *gin.Context) (data []byte, contentType string, ok bool) {
-	if strings.HasPrefix(c.ContentType(), "application/json") {
-		return readIconFromPath(c)
-	}
-	return readIconFromMultipart(c)
-}
-
-// readIconFromPath reads the icon from an absolute path supplied as JSON.
-//
-// Residual trust assumption: the path is an absolute host path supplied by the
-// desktop client (native file-picker dialog). The daemon and the WKWebView run
-// on the same host, so this is equivalent to the repo-import path trust model:
-// the path is user-chosen, not attacker-controlled from the network. This path
-// should eventually be replaced by a byte-upload (multipart) so the daemon never
-// reads arbitrary host paths at client direction.
-//
-// Hardening applied:
-//   - Stat-reject: file must exist and be ≤ maxIconBytes before any read.
-//   - LimitReader: read at most maxIconBytes+1 so an oversize file is detected.
-//   - Content sniffing: content-type is derived from the first 512 bytes, not
-//     from the file extension, so /etc/passwd styled as photo.png is rejected.
-func readIconFromPath(c *gin.Context) ([]byte, string, bool) {
-	var body struct {
-		Path string `json:"path"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil || body.Path == "" {
-		libs.WriteErr(c, http.StatusBadRequest, "icon path required")
-		return nil, "", false
-	}
-	// Stat-reject before opening: avoids an unbounded read on a huge file.
-	info, err := os.Stat(body.Path)
-	if err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, "could not read icon file")
-		return nil, "", false
-	}
-	if info.Size() > maxIconBytes {
-		libs.WriteErr(c, http.StatusBadRequest, "icon must be under 2 MB")
-		return nil, "", false
-	}
-	f, err := os.Open(body.Path)
-	if err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, "could not read icon file")
-		return nil, "", false
-	}
-	defer func() { _ = f.Close() }()
-	// LimitReader caps the actual read even if the file grows between Stat and Open.
-	data, err := io.ReadAll(io.LimitReader(f, maxIconBytes+1))
-	if err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, "could not read icon file")
-		return nil, "", false
-	}
-	if int64(len(data)) > maxIconBytes {
-		libs.WriteErr(c, http.StatusBadRequest, "icon must be under 2 MB")
-		return nil, "", false
-	}
-	// Derive content-type by sniffing bytes, not by trusting the file extension.
-	ct := http.DetectContentType(data)
-	return data, ct, true
-}
-
-// readIconFromMultipart reads the icon from a multipart "icon" form field.
-// The read is capped at maxIconBytes+1 so an oversize upload is detected without
-// buffering the entire body. Content-type is derived from content sniffing.
-func readIconFromMultipart(c *gin.Context) ([]byte, string, bool) {
-	file, _, err := c.Request.FormFile("icon")
-	if err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, "icon field required")
-		return nil, "", false
-	}
-	defer func() { _ = file.Close() }()
-
-	data, err := io.ReadAll(io.LimitReader(file, maxIconBytes+1))
-	if err != nil {
-		libs.WriteErr(c, http.StatusInternalServerError, "read error")
-		return nil, "", false
-	}
-	// Content-type from content sniffing (not from the caller-supplied MIME header
-	// or filename extension) so the caller cannot sneak a non-image through.
-	ct := http.DetectContentType(data)
-	return data, ct, true
-}
-
-// storeIconBytes writes raw icon bytes to the entity-scoped icon path,
-// creating the parent dir. The single icon file is content-type-agnostic
-// (sniffed on read), so there is no extension to manage.
+// storeIconBytes writes raw icon bytes to this repo's entity-scoped icon path.
 func (h *Handlers) storeIconBytes(
 	c *gin.Context,
 	data []byte,
@@ -1236,15 +1071,7 @@ func (h *Handlers) storeIconBytes(
 	if !ok {
 		return fmt.Errorf("could not resolve icon path")
 	}
-	//nolint:gosec // G301: 0o755 is the intended perm for the daemon's own icon directory; kept as-is to preserve existing behavior.
-	if err := os.MkdirAll(filepath.Dir(iconPath), 0o755); err != nil {
-		return fmt.Errorf("could not create icon directory: %w", err)
-	}
-	//nolint:gosec // G306: icon bytes are non-secret assets served over HTTP; 0o644 is the intended readable perm, kept as-is to preserve behavior.
-	if err := os.WriteFile(iconPath, data, 0o644); err != nil {
-		return fmt.Errorf("write error: %w", err)
-	}
-	return nil
+	return icons.Store(iconPath, data)
 }
 
 // PutIconGithub handles PUT /v0/projects/:projectId/repos/:repoId/icon/github.
@@ -1282,28 +1109,4 @@ func (h *Handlers) PutIconGithub(c *gin.Context) {
 	// store Save alone does not fan out.
 	h.broadcast(dto.RepoDTOFrom(*repo))
 	c.Status(http.StatusNoContent)
-}
-
-// isSingleEmoji returns true when s is a non-empty string containing exactly
-// one user-perceived character (grapheme cluster) that is not a plain ASCII
-// letter. Grapheme clusters — not code points — are the unit that matters:
-// most real emoji are multi-codepoint sequences (❤️ carries a variation
-// selector, 👨‍💻 is a ZWJ sequence, 🇦🇷 is a two-codepoint flag, 👍🏽 carries a
-// skin-tone modifier) and must all be accepted as "a single emoji".
-func isSingleEmoji(s string) bool {
-	if s == "" {
-		return false
-	}
-	g := uniseg.NewGraphemes(s)
-	if !g.Next() {
-		return false
-	}
-	if g.Next() {
-		return false // more than one user-perceived character
-	}
-	r, _ := utf8.DecodeRuneInString(s)
-	if r == utf8.RuneError {
-		return false
-	}
-	return !unicode.IsLetter(r) || r > 127
 }

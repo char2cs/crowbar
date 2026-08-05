@@ -172,3 +172,88 @@ func TestProjectUsecase_TouchProjectActivity_SaveFails_LogsNotPanics(t *testing.
 	// must not panic
 	uc.TouchProjectActivity(ctx, "r1", now)
 }
+
+// Update is the partial write behind the sidebar's project rename and its icon.
+// Both go through one load-mutate-save so the fields a change must NOT disturb
+// travel through untouched — Path above all, which is where the project's repos
+// actually live and which a rename must never follow.
+func TestProjectUsecase_UpdateRenames(t *testing.T) {
+	projects, _, uc := newProjectUsecase(t)
+	ctx := context.Background()
+	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p1", Name: "old", Path: "/on/disk"}))
+
+	name := "  harbour  "
+	got, err := uc.Update(ctx, "p1", project.Update{Name: &name})
+
+	require.NoError(t, err)
+	// Trimmed at the edge, so no name reaches the store wearing the whitespace
+	// an inline editor makes it easy to leave behind.
+	assert.Equal(t, "harbour", got.Name)
+	// The rename touches the LABEL only.
+	assert.Equal(t, "/on/disk", got.Path)
+
+	stored, err := projects.FindByKey(ctx, "p1")
+	require.NoError(t, err)
+	assert.Equal(t, "harbour", stored.Name)
+}
+
+func TestProjectUsecase_UpdateRejectsABlankName(t *testing.T) {
+	projects, _, uc := newProjectUsecase(t)
+	ctx := context.Background()
+	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p1", Name: "harbour"}))
+
+	blank := "   "
+	_, err := uc.Update(ctx, "p1", project.Update{Name: &blank})
+
+	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	stored, _ := projects.FindByKey(ctx, "p1")
+	assert.Equal(t, "harbour", stored.Name, "a refused rename must not have been written")
+}
+
+func TestProjectUsecase_UpdateSetsTheIconAsOneChoice(t *testing.T) {
+	// Emoji and stored image are one three-state choice, not two independent
+	// flags: setting either has to clear the other, or a project shows an emoji
+	// it was told to replace with an image.
+	projects, _, uc := newProjectUsecase(t)
+	ctx := context.Background()
+	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p1", Name: "harbour", AvatarEmoji: "🦊"}))
+
+	hasIcon, cleared := true, ""
+	got, err := uc.Update(ctx, "p1", project.Update{
+		AvatarHasIcon:     &hasIcon,
+		AvatarEmoji:       &cleared,
+		BumpAvatarVersion: true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, got.AvatarHasIcon)
+	assert.Empty(t, got.AvatarEmoji)
+	// New bytes behind a stable URL: the version has to move or the webview's
+	// image cache keeps serving the icon that was replaced.
+	assert.Equal(t, int64(1), got.AvatarVersion)
+}
+
+func TestProjectUsecase_UpdateLeavesUnsetFieldsAlone(t *testing.T) {
+	projects, _, uc := newProjectUsecase(t)
+	ctx := context.Background()
+	require.NoError(t, projects.Save(ctx, domain.Project{
+		ID: "p1", Name: "harbour", AvatarEmoji: "🦊", AvatarVersion: 3, Order: 2,
+	}))
+
+	name := "atlas"
+	got, err := uc.Update(ctx, "p1", project.Update{Name: &name})
+
+	require.NoError(t, err)
+	assert.Equal(t, "🦊", got.AvatarEmoji, "a rename must not disturb the icon")
+	assert.Equal(t, int64(3), got.AvatarVersion, "nor the cache-busting version")
+	assert.Equal(t, 2, got.Order, "nor the sidebar order")
+}
+
+func TestProjectUsecase_UpdateUnknownProject(t *testing.T) {
+	_, _, uc := newProjectUsecase(t)
+
+	name := "nope"
+	_, err := uc.Update(context.Background(), "missing", project.Update{Name: &name})
+
+	require.ErrorIs(t, err, apperr.ErrNotFound)
+}

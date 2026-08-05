@@ -87,11 +87,23 @@ describe('what a removal takes with it', () => {
   })
 })
 
-describe('what the pane promises while it is armed', () => {
-  it('names the one row, and the eight seconds', () => {
+describe('what the pane promises', () => {
+  it('names the one row, and the eight seconds, once armed', () => {
     expect(describeRemoval(planRemoval([WS('a')], [repo()]))).toEqual({
       title: 'Release to remove alpha',
       detail: 'You will have 8 seconds to undo',
+      armed: true,
+    })
+  })
+
+  it('says DROP HERE, not release, while the zone is merely available', () => {
+    // The veil is up for the whole drag now, and for most of it the pointer is
+    // somewhere else — telling the user to release then would be an instruction
+    // to do the one thing that reorders instead.
+    expect(describeRemoval(planRemoval([WS('a')], [repo()]), false)).toEqual({
+      title: 'Drop here to remove alpha',
+      detail: 'You will have 8 seconds to undo',
+      armed: false,
     })
   })
 

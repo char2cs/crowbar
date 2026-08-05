@@ -150,14 +150,19 @@ export function findDrop(x: number, y: number, subjects: readonly DragSubject[])
 /**
  * Whether these rows may leave through the editor pane.
  *
- * A project may not: it is the container the pane's own work lives in, and the
- * design gives it no removal affordance at all rather than one that sometimes
- * refuses. A protected branch may not either — its worktree is pinned to the
- * branch, and the daemon refuses the delete, so offering the overlay would be
- * promising something that cannot happen.
+ * A project MAY, now that it is removable at all: it goes to the tray like a
+ * repo, with no clock and a confirmation naming everything inside it. It was
+ * excluded here when the sidebar had no way to delete one by any gesture, and
+ * leaving it excluded afterwards was worse than either answer — the pane's veil
+ * is drawn from what a removal would PLAN, so it began offering to remove a
+ * project and then refusing on release.
+ *
+ * A LOCKED row may not: its worktree is pinned to the branch and the daemon
+ * refuses the delete, so offering the veil would be promising something that
+ * cannot happen. Unlock it first — that is a gesture now too.
  */
 export function isRemovableByDrag(subjects: readonly DragSubject[]): boolean {
-  return subjects.length > 0 && subjects.every((s) => s.kind !== 'project' && !s.locked)
+  return subjects.length > 0 && subjects.every((s) => !s.locked)
 }
 
 /** Whether two resolved drops would draw and commit the same thing. */

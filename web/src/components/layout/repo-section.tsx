@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { memo, useCallback, useState } from 'react'
 import { DownloadCloud } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -11,6 +11,7 @@ import {
   ROW_NEST_TARGET,
 } from './workspace-row-base'
 import { dropRowProps } from './drop-target-dom'
+import { RowDisclosureButton } from './row-disclosure-button'
 import { WorkspaceInlineInput } from './workspace-inline-input'
 import { CollapseSection } from './collapse-section'
 import { FoldAwayButton } from './fold-away-button'
@@ -59,7 +60,7 @@ interface RepoSectionProps {
  * default workspace's row) plus the subtree beneath it — the inline create
  * input, any optimistic pending-create rows, and the workspace tree itself.
  */
-export function RepoSection({
+export const RepoSection = memo(function RepoSection({
   repo,
   tree,
   isCollapsed,
@@ -204,7 +205,7 @@ export function RepoSection({
               {repo.name}
             </span>
             {repo.defaultWorkspaceId && (
-              <span className="hidden shrink-0 font-mono text-[11px] text-foreground/40 group-hover:inline">
+              <span className="invisible shrink-0 font-mono text-[11px] text-foreground/40 group-hover:visible">
                 - default
               </span>
             )}
@@ -255,28 +256,7 @@ export function RepoSection({
           <FoldAwayButton label={repo.name} onFold={() => foldAwayRows(repo.id, tree.index)} />
         )}
 
-        <button
-          type="button"
-          aria-label={isCollapsed ? 'Expand repo' : 'Collapse repo'}
-          className={ROW_SUB_ACTION}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation()
-            toggle()
-          }}
-        >
-          <svg
-            aria-hidden="true"
-            className={cn('size-3 transition-transform', !isCollapsed && 'rotate-90')}
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-          >
-            <path d="M6 3l5 5-5 5" />
-          </svg>
-        </button>
+        <RowDisclosureButton expanded={!isCollapsed} label="repo" onToggle={toggle} />
       </div>
 
       {/* What a folded repo is still showing, outside the box that closes. */}
@@ -328,4 +308,4 @@ export function RepoSection({
       />
     </div>
   )
-}
+})

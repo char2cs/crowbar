@@ -1,5 +1,5 @@
 import { useEffect, type RefObject } from 'react'
-import { FolderPlus, Trash2 } from 'lucide-react'
+import { FolderPlus, Lock, LockOpen, Trash2 } from 'lucide-react'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { dragSubjectsFor, readDropRow, readSelectedSubjects } from './drop-target-dom'
 import { rowMenuFor } from './row-menu-model'
@@ -27,7 +27,7 @@ import type { DragSubject } from './drop-rules'
  */
 export function RowContextMenu({ treeRef }: { treeRef: RefObject<HTMLElement | null> }) {
   const menu = useContextMenu<DragSubject[]>()
-  const { removeRows, groupIntoFolder } = useWorkspaceTreeActions()
+  const { removeRows, groupIntoFolder, setRowsLocked } = useWorkspaceTreeActions()
   const { openAt } = menu
 
   useEffect(() => {
@@ -52,22 +52,39 @@ export function RowContextMenu({ treeRef }: { treeRef: RefObject<HTMLElement | n
   if (!menu.isOpen) return null
 
   const subjects = menu.data ?? []
-  const items: ContextMenuItem[] = rowMenuFor(subjects).map((entry) =>
-    entry.id === 'group'
-      ? {
+  const items: ContextMenuItem[] = rowMenuFor(subjects).map((entry) => {
+    switch (entry.id) {
+      case 'group':
+        return {
           id: entry.id,
           label: entry.label,
           icon: <FolderPlus />,
           onClick: () => groupIntoFolder(subjects),
         }
-      : {
+      case 'lock':
+        return {
+          id: entry.id,
+          label: entry.label,
+          icon: <Lock />,
+          onClick: () => setRowsLocked(subjects, true),
+        }
+      case 'unlock':
+        return {
+          id: entry.id,
+          label: entry.label,
+          icon: <LockOpen />,
+          onClick: () => setRowsLocked(subjects, false),
+        }
+      default:
+        return {
           id: entry.id,
           label: entry.label,
           icon: <Trash2 />,
           className: 'text-destructive',
           onClick: () => removeRows(subjects),
-        },
-  )
+        }
+    }
+  })
 
   return <ContextMenu isOpen items={items} position={menu.position} onClose={menu.close} />
 }

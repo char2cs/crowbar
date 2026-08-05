@@ -1048,3 +1048,12 @@ func TestBranchReview_GetFiles_InternalGitError_IsNotNotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, apperr.ErrNotFound)
 }
+
+func (m *mockWorkspace) SetLock(
+	_ context.Context,
+	id string,
+	locked *bool,
+	_ bool,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, LockOverride: locked}, nil
+}

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from 'react'
-import { Folder } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Folder } from '@phosphor-icons/react'
+import { Library } from 'lucide-react'
 import { useNavigate, useRouter } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -8,6 +9,7 @@ import { ROW_BASE, ROW_GLYPH_BOX, ROW_INACTIVE, ROW_SUB_ACTION } from './workspa
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
 import { RepoAvatar } from './repo-avatar'
 import { commitRemoval, type RemovalNavigate } from './removal-commit'
+import { RemovalConfirmDialog } from './removal-confirm-dialog'
 
 /**
  * The removal tray at the sidebar's foot: rows on their way out, held where you
@@ -54,10 +56,22 @@ function TrayGlyph({ entry }: { entry: RemovalEntry }) {
     )
   }
 
-  if (entry.kind === 'folder') {
+  if (entry.kind === 'project') {
+    // The project row's own default mark. A held row must look like the row it
+    // was, and a project's is the Library glyph — see project-icon-popover.tsx.
     return (
       <span className={ROW_GLYPH_BOX}>
-        <Folder aria-hidden="true" className="size-4" />
+        <Library aria-hidden="true" className="size-4" />
+      </span>
+    )
+  }
+
+  if (entry.kind === 'folder') {
+    return (
+      // Same glyph, same weight, as the folder row in the tree (folder-row.tsx):
+      // a row held for removal must look like the row it was.
+      <span className={ROW_GLYPH_BOX}>
+        <Folder aria-hidden="true" className="size-4" weight="duotone" />
       </span>
     )
   }
@@ -100,8 +114,10 @@ function TrayRow({ entry, onCancel, onCommit }: TrayRowProps) {
       {entry.extra > 0 && <GoesWith n={entry.extra} />}
 
       {deadlineAt === null ? (
-        // A repo takes every worktree under it, so it asks rather than counts
-        // down: two real controls, and nothing happens until one is pressed.
+        // A repo takes every worktree under it and a project takes every repo,
+        // so both ask rather than count down: two real controls, and nothing
+        // happens until one is pressed — and Remove then asks once more, in a
+        // dialog that spells the cascade out (removal-confirm-dialog.tsx).
         <>
           <button
             type="button"
@@ -192,9 +208,35 @@ export function RemovalTray() {
 
   const commit = useCallback((entry: RemovalEntry) => commitRef.current(entry), [])
 
+  // The entry whose Remove has been pressed and which is now waiting on the
+  // confirmation dialog. Held here rather than per row so only one can be open,
+  // and so a row that leaves the tray under it (a Cancel from elsewhere) takes
+  // the dialog with it — see the guard on `pending` below.
+  const [pendingId, setPendingId] = useState<string | null>(null)
+  const pending = entries.find((e) => e.entryId === pendingId) ?? null
+
   const cancel = useCallback((entryId: string) => {
     useRemovalTrayStore.getState().cancel(entryId)
   }, [])
+
+  /**
+   * Press Remove on a held row.
+   *
+   * Only the rows that never ran a clock reach this — a draining row commits
+   * itself when the clock runs out, and its one control is Keep. Those are
+   * exactly the rows whose removal cascades (a repo, a project), so this asks
+   * once more before anything is sent. Everything else goes straight through.
+   */
+  const askThenCommit = useCallback(
+    (entry: RemovalEntry) => {
+      if (entry.kind === 'repo' || entry.kind === 'project') {
+        setPendingId(entry.entryId)
+        return
+      }
+      commit(entry)
+    },
+    [commit],
+  )
 
   // ONE timer for the whole tray, aimed at whichever deadline comes first.
   //
@@ -271,15 +313,30 @@ export function RemovalTray() {
   if (entries.length === 0) return null
 
   return (
-    <div className="shrink-0 border-t border-border bg-background/40 pt-1 pb-1.5">
+    // NO background of its own. Every other surface in this sidebar — the
+    // panels, the tree, the rows at rest — paints nothing and lets the window's
+    // translucent chrome show through; a fill here made the tray the one opaque
+    // slab in a glass sidebar, and it read as a panel bolted on rather than as
+    // the foot of the list. The `border-t` stays: separating the held rows from
+    // the live ones is the job, and that is the same hairline the tree already
+    // draws between its own sections.
+    <div className="shrink-0 border-t border-border pt-1 pb-1.5">
       <div className="px-3 pt-1 pb-0.5 text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
         {entries.some((e) => e.deadlineAt === null) ? 'Waiting on you' : 'Removing'}
       </div>
       <div ref={listRef}>
         {entries.map((entry) => (
-          <TrayRow key={entry.entryId} entry={entry} onCancel={cancel} onCommit={commit} />
+          <TrayRow key={entry.entryId} entry={entry} onCancel={cancel} onCommit={askThenCommit} />
         ))}
       </div>
+      <RemovalConfirmDialog
+        entry={pending}
+        onCancel={() => setPendingId(null)}
+        onConfirm={(entry) => {
+          setPendingId(null)
+          commit(entry)
+        }}
+      />
     </div>
   )
 }

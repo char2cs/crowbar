@@ -26,6 +26,13 @@ export interface Project {
   /** Dense index in the sidebar. Absent on frames from a daemon that predates
    *  ordering, in which case the list keeps arrival order. */
   order?: number
+  /** The icon proxy URL, present only when the project has an uploaded image.
+   *  Absent means "no image"; see avatarEmoji for the other custom state, and
+   *  the Library glyph for the default. */
+  avatarUrl?: string
+  /** The emoji icon, rendered directly. Wins over avatarUrl — the daemon clears
+   *  one when the other is set, so both are never live at once. */
+  avatarEmoji?: string
 }
 
 export interface Prerequisites {
@@ -126,6 +133,13 @@ export interface ProjectDTO {
   /** Dense index in the sidebar. Absent on frames from a daemon that predates
    *  ordering. */
   order?: number
+  /** The icon proxy URL, present only when the project has an uploaded image.
+   *  Absent means "no image"; see avatarEmoji for the other custom state, and
+   *  the Library glyph for the default. */
+  avatarUrl?: string
+  /** The emoji icon, rendered directly. Wins over avatarUrl — the daemon clears
+   *  one when the other is set, so both are never live at once. */
+  avatarEmoji?: string
 }
 
 /** Which agent wrote a review message, and out of which chat.

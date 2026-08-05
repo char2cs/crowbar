@@ -17,6 +17,7 @@ type MockWorkspace struct {
 	SyncWorkingFn       func(ctx context.Context, in workspace.SyncInput, now time.Time) (domain.Workspace, error)
 	SyncProviderFn      func(ctx context.Context, in workspace.ProviderInput, now time.Time) (domain.Workspace, error)
 	SetMergeStrategyFn  func(ctx context.Context, id string, s gitdomain.MergeStrategy) (domain.Workspace, error)
+	SetLockFn           func(ctx context.Context, id string, locked *bool, protected bool) (domain.Workspace, error)
 	TouchActivityFn     func(ctx context.Context, id string, now time.Time) (domain.Workspace, error)
 	ReparentFn          func(ctx context.Context, id, parentID, forkPointSha string, now time.Time) (domain.Workspace, error)
 	ResolveConflictsFn  func(ctx context.Context, id string, now time.Time) (domain.Workspace, error)
@@ -61,6 +62,18 @@ func (m *MockWorkspace) SetMergeStrategy(
 	s gitdomain.MergeStrategy,
 ) (domain.Workspace, error) {
 	return m.SetMergeStrategyFn(ctx, id, s)
+}
+
+func (m *MockWorkspace) SetLock(
+	ctx context.Context,
+	id string,
+	locked *bool,
+	protected bool,
+) (domain.Workspace, error) {
+	if m.SetLockFn == nil {
+		return domain.Workspace{}, nil
+	}
+	return m.SetLockFn(ctx, id, locked, protected)
 }
 
 func (m *MockWorkspace) TouchActivity(

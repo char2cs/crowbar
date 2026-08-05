@@ -1,8 +1,6 @@
-import { useRef, useEffect } from 'react'
+import { useEffect } from 'react'
 import { Outlet, useRouterState } from '@tanstack/react-router'
 import { SidebarProvider } from '@/components/ui/sidebar'
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
-import type { PanelImperativeHandle } from 'react-resizable-panels'
 import { SidebarProjectHeader } from './sidebar-project-header'
 import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
 import { SidebarTabBar } from './sidebar-tab-bar'
@@ -25,6 +23,7 @@ import { SidebarToastOverlay } from './sidebar-toast-overlay'
 import { SidebarPeek } from './sidebar-peek'
 import { EditorRemovalOverlay } from './editor-removal-overlay'
 import { useSidebarPanel, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from './use-sidebar-panel'
+import { SidebarSplitPane } from './sidebar-split-pane'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import { recordWorkspaceScopeFromPath, setWorkspaceScope } from '@/lib/workspace-scope'
 import { useWorkspaceProviderStream } from '@/features/workspace/stores/hooks/use-workspace-provider-stream'
@@ -35,14 +34,9 @@ import {
   useHomeWorkspaceState,
 } from '@/features/workspace/lib/home-workspace-resolver'
 
-// Keyed, like the two panels it sits between, so that flipping the sidebar's
-// side reorders the group's children rather than reconciling them by position.
-const RESIZE_HANDLE = <ResizableHandle key="handle" data-testid="sidebar-resize-handle" />
-
 export function IDEShell() {
   const routerState = useRouterState()
   const pathname = routerState.location.pathname
-  const repos = useSidebarStore((s) => s.repos)
   // Feeds the sidebar header's back/forward arrows. Mounted here rather than in
   // SidebarProjectHeader so history keeps accruing while the header is hidden
   // (nav screens) and survives the header unmounting.
@@ -50,16 +44,7 @@ export function IDEShell() {
   const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
   const sidebarSide = sidebarPosition === 'right' ? 'right' : 'left'
-  const sidebarPanelRef = useRef<PanelImperativeHandle | null>(null)
-  const panelGroupRef = useRef<HTMLDivElement | null>(null)
-  const {
-    sidebarOpen,
-    setSidebarOpen,
-    preferredWidth,
-    notePointerDown,
-    handleSidebarResize,
-    commitPreferredWidth,
-  } = useSidebarPanel(panelGroupRef)
+  const { sidebarOpen, setSidebarOpen, preferredWidth, commitPreferredWidth } = useSidebarPanel()
 
   // §7: the TanStack /ide/:projectId/:repoId/:wsId route params are the
   // canonical source for the active project/repo/workspace — read them directly
@@ -100,47 +85,39 @@ export function IDEShell() {
   // this is what starts the daemon's per-connection provider poll so a branch with
   // an open PR flips to the green pr-open icon (the list stream never starts it).
   useWorkspaceProviderStream(activeProjectIdFromRoute, activeRepoIdFromRoute, activeWorkspaceId)
-  const activeRepo = repos.find((r) => r.id === activeRepoIdFromRoute)
-  // Use the on-disk worktree path from the backend DTO so that "Copy Path" and
-  // other filesystem operations produce real paths regardless of how workspaces
-  // are created. Non-default workspaces expose localPath on their WorkspaceDTO;
-  // the default (main-worktree) workspace falls back to the repo's root path
-  // (RepoDTO.path), which is the same directory.
-  const activeWorkspace = activeRepo?.workspaces.find((w) => w.id === activeWorkspaceId)
+  // The shell only needs one scalar from the sidebar tree. Subscribing to the
+  // whole repos array made every live status/count frame rebuild the complete
+  // IDE shell — sidebar provider, carousel, offscreen panels and workspace host
+  // included. Returning the resolved path lets Zustand bail out unless the
+  // active workspace's actual filesystem scope changed.
+  const sidebarWorkspacePath = useSidebarStore((s) => {
+    const activeRepo = s.repos.find((r) => r.id === activeRepoIdFromRoute)
+    const activeWorkspace = activeRepo?.workspaces.find((w) => w.id === activeWorkspaceId)
+    if (activeWorkspace?.localPath) return activeWorkspace.localPath
+    if (activeRepo?.localPath) return activeRepo.localPath
+    if (!homeRouteMatch) return ''
+    return s.repos.find((r) => r.projectId === activeProjectIdFromRoute)?.localPath ?? ''
+  })
   // For the home route there is no repoId, so fall back to any repo under the
   // active project, then to the project's own path (the home workspace root).
   const allProjects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
   const projectFallbackPath = homeRouteMatch
-    ? (repos.find((r) => r.projectId === activeProjectIdFromRoute)?.localPath ??
-      allProjects.find((p) => p.id === activeProjectIdFromRoute)?.path ??
-      '')
+    ? (allProjects.find((p) => p.id === activeProjectIdFromRoute)?.path ?? '')
     : ''
-  const activeWorkspaceRepoPath =
-    activeWorkspace?.localPath ?? activeRepo?.localPath ?? projectFallbackPath
+  const activeWorkspaceRepoPath = sidebarWorkspacePath || projectFallbackPath
 
   const hasNavScreen = useSidebarNavStore((s) => s.stack.length > 0)
 
   // BUG-003: when landing directly on a workspace route, the header project
   // button showed "Select project" — the active project was never derived from
   // the route. Keep the active project in sync with the route's projectId.
-  const workspaceProjectId = activeProjectIdFromRoute ?? activeRepo?.projectId
+  const workspaceProjectId = activeProjectIdFromRoute
   useEffect(() => {
     if (!workspaceProjectId) return
     if (useProjectStore.getState().activeProjectId !== workspaceProjectId) {
       useProjectStore.getState().setActiveProject(workspaceProjectId)
     }
   }, [workspaceProjectId])
-
-  // Drive panel collapse/expand from sidebarOpen state (set by SidebarProvider's toggleSidebar)
-  useEffect(() => {
-    const panel = sidebarPanelRef.current
-    if (!panel) return
-    if (sidebarOpen) {
-      panel.expand()
-    } else {
-      panel.collapse()
-    }
-  }, [sidebarOpen])
 
   // SidebarPeek is a wrapper, not a branch: it renders in every state and only
   // restyles itself, so hiding the sidebar never rebuilds the subtree below it.
@@ -197,75 +174,29 @@ export function IDEShell() {
     </div>
   )
 
-  // Moving the sidebar to the other side must MOVE these panels, not renumber
-  // them. Rendered as two ordered branches of a ternary they were reconciled
-  // POSITIONALLY: the panel in slot 0 kept its instance — and, because panel ids
-  // fall back to useId, its entry in react-resizable-panels' id-keyed layout map
-  // — while swapping roles with slot 2. So the sidebar inherited the content
-  // pane's share of the group (measured: 321px on the right became 640px on the
-  // left, maxSize being the only thing that stopped it), and that inherited width
-  // was then persisted. Worse, slot 0's children changed identity, so both
-  // subtrees — WorkspaceHost, its terminals and Monaco models included — were
-  // destroyed and cold-remounted on every flip.
-  //
-  // Explicit keys make the flip a keyed reorder, which keeps each panel's React
-  // subtree alive; the side-qualified ids give each orientation its own entry in
-  // that layout map (and force the panels to re-register in their new DOM order),
-  // so neither side can inherit the other's size and the sidebar comes back at
-  // `defaultSize` — the user's remembered width.
-  const sidebarPanel = (
-    <ResizablePanel
-      key="sidebar"
-      id={`sidebar-${sidebarSide}`}
-      ref={sidebarPanelRef}
-      collapsible
-      defaultSize={preferredWidth}
-      minSize={SIDEBAR_MIN_PX}
-      maxSize={SIDEBAR_MAX_PX}
-      collapsedSize={0}
-      groupResizeBehavior="preserve-pixel-size"
-      onResize={handleSidebarResize}
-    >
-      {sidebarContent}
-    </ResizablePanel>
-  )
-  const contentPanel = (
-    <ResizablePanel key="content" id={`content-${sidebarSide}`} minSize="20%" className="min-w-0">
-      {contentEl}
-    </ResizablePanel>
-  )
-
   return (
     <SidebarProvider
       className="h-screen bg-transparent text-foreground"
       open={sidebarOpen}
       onOpenChange={setSidebarOpen}
     >
-      <ResizablePanelGroup
-        elementRef={panelGroupRef}
-        orientation="horizontal"
-        className="h-full w-full"
-        // Clears the window-driven latch: the resizes that follow a pointer
-        // going down may be a separator drag, which is the one thing allowed to
-        // redefine the sidebar's remembered width. Deliberately the whole group
-        // rather than the separator — the library's drag hit target extends past
-        // that 1px element onto the adjacent panel edges.
-        onPointerDown={notePointerDown}
-        onLayoutChange={() => {
-          document.documentElement.setAttribute('data-pane-resizing', '1')
-        }}
-        onLayoutChanged={() => {
-          document.documentElement.removeAttribute('data-pane-resizing')
-          window.dispatchEvent(new CustomEvent('pane-resize-end'))
-          // Fires once the layout settles — after the pointer is released for a
-          // drag — which is the right moment to record the width the user chose.
-          commitPreferredWidth()
-        }}
+      {/* Grid areas move the two already-mounted regions when the side changes;
+          neither the sidebar tree nor WorkspaceHost is reconciled into a new
+          position. The separator owns pointer tracking only while it is being
+          dragged, so ordinary pointer movement over either region has no split
+          layout work to do. */}
+      <SidebarSplitPane
+        side={sidebarSide}
+        open={sidebarOpen}
+        preferredWidth={preferredWidth}
+        minWidth={SIDEBAR_MIN_PX}
+        maxWidth={SIDEBAR_MAX_PX}
+        sidebar={sidebarContent}
+        onOpenChange={setSidebarOpen}
+        onWidthCommit={commitPreferredWidth}
       >
-        {sidebarSide === 'right'
-          ? [contentPanel, RESIZE_HANDLE, sidebarPanel]
-          : [sidebarPanel, RESIZE_HANDLE, contentPanel]}
-      </ResizablePanelGroup>
+        {contentEl}
+      </SidebarSplitPane>
       <SettingsDialog
         isOpen={isSettingsOpen}
         onClose={() => useUIState.getState().setIsSettingsDialogVisible(false)}

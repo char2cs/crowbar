@@ -29,7 +29,11 @@ export const DropIndicator = forwardRef<HTMLDivElement>(function DropIndicator(_
       aria-hidden="true"
       data-drop-indicator=""
       className={cn(
-        'pointer-events-none fixed z-40 hidden h-0.5 rounded-full bg-sidebar-drop-line',
+        // Above the ghost (z-50), not below it. The ghost is anchored to the
+        // point the row was grabbed by, so it now sits under the cursor rather
+        // than beside it — and the line marking where the drop lands is the one
+        // thing in a drag that must never be the thing covered up.
+        'pointer-events-none fixed z-[60] hidden h-0.5 rounded-full bg-sidebar-drop-line',
         // It slides between slots rather than jumping: the line is the same
         // object throughout a drag, so the move reads as one mark tracking the
         // pointer instead of several appearing in turn.

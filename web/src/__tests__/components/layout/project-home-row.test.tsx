@@ -1,20 +1,25 @@
 /**
  * Contract pins for the project row.
  *
- * Two gestures share one row and must not blur into each other: the leading
- * slot folds the project's whole tree, everything else opens project home. The
- * slot holds the Library glyph and the collapse chevron, and exactly ONE of them
- * is ever in the flow — `display`, never opacity, or the label would shift as
- * they cross-fade. The chevron stays put for as long as the project is closed,
- * hover or not, because a folded project whose only affordance appeared on hover
- * would be a dead end.
+ * It discloses exactly like every other row in the tree: a leading mark that
+ * only says what the row IS, and the shared trailing chevron
+ * (RowDisclosureButton) that folds it. The row body opens project home.
  *
- * There is no trailing chevron and no "Switch project" button: every project has
- * a row now, so the pushed switcher panel had nothing left to show.
+ * The pins below are the ones that regressed once already. The leading slot used
+ * to BE the collapse button, swapping Library⇄chevron on `display` at hover —
+ * two collapse affordances in one row, neither of them where the repo header one
+ * row below put its own. If that swap ever comes back these tests fail: the
+ * leading mark must carry no hover-`display` classes and no collapse label, and
+ * the chevron must be the row's LAST child. The mark is a button again, but for
+ * a different job: it opens the icon editor, the same one the repo avatar has.
+ *
+ * No "Switch project" button: every project has a row now, so the pushed
+ * switcher panel had nothing left to show.
  */
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ProjectHomeRow } from '@/components/layout/project-home-row'
+import { DISCLOSURE_GLYPH_PATH, ROW_SUB_ACTION } from '@/components/layout/workspace-row-base'
 import { useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
@@ -70,6 +75,7 @@ function homeDTO(working: boolean): WorkspaceDTO {
 
 beforeEach(() => {
   navigateMock.mockClear()
+  actions.onPointerDownDrag.mockClear()
   mockMatch = null
   useProjectStore.setState({ activeProjectId: 'p1', projects: [] })
   useHomeWorkspaceStore.setState({ workspace: null })
@@ -146,8 +152,8 @@ describe('ProjectHomeRow', () => {
   })
 })
 
-describe('ProjectHomeRow glyph ⇄ chevron swap', () => {
-  it('folds the project when the glyph slot is clicked, and does not navigate', () => {
+describe('ProjectHomeRow trailing disclosure', () => {
+  it('folds the project from the trailing chevron, and does not navigate', () => {
     renderRow()
 
     fireEvent.click(screen.getByLabelText('Collapse home'))
@@ -156,7 +162,7 @@ describe('ProjectHomeRow glyph ⇄ chevron swap', () => {
     expect(navigateMock).not.toHaveBeenCalled()
   })
 
-  it('re-opens from the same slot while collapsed', () => {
+  it('re-opens from the same control while collapsed', () => {
     useSidebarStore.setState({ collapsedProjects: new Set(['p1']) })
     renderRow(true)
 
@@ -165,76 +171,84 @@ describe('ProjectHomeRow glyph ⇄ chevron swap', () => {
     expect(useSidebarStore.getState().collapsedProjects.has('p1')).toBe(false)
   })
 
-  it('shows the glyph at rest and swaps to the chevron on hover — by display', () => {
-    const { container } = renderRow()
-
-    const glyph = container.querySelector(LEAD_GLYPH)!
-    const chevron = screen
-      .getByLabelText('Collapse home')
-      .querySelector('svg:not(.lucide-library)')!
-
-    // Rest: glyph in the flow, chevron out of it.
-    expect(glyph.getAttribute('class')).toContain('group-hover:hidden')
-    expect(glyph.getAttribute('class')).not.toMatch(/(^|\s)hidden(\s|$)/)
-    expect(chevron.getAttribute('class')).toMatch(/(^|\s)hidden(\s|$)/)
-    expect(chevron.getAttribute('class')).toContain('group-hover:block')
-
-    // Neither mark fades: opacity would leave both boxes in the flow.
-    expect(glyph.getAttribute('class')).not.toMatch(/\bopacity-0\b/)
-    expect(chevron.getAttribute('class')).not.toMatch(/\bopacity-0\b/)
-  })
-
-  it('keeps the chevron visible while collapsed, hover or not', () => {
-    // A folded project must not be a dead end.
-    const { container } = renderRow(true)
-
-    const chevron = screen.getByLabelText('Expand home').querySelector('svg:not(.lucide-library)')!
-    expect(chevron.getAttribute('class')).toMatch(/(^|\s)block(\s|$)/)
-    expect(chevron.getAttribute('class')).not.toContain('group-hover:block')
-    // ...and the Library glyph is gone entirely while it is.
-    expect(container.querySelector(LEAD_GLYPH)?.getAttribute('class')).toContain('hidden')
-  })
-
-  it('rotates the chevron 90° open and 0° collapsed', () => {
+  it('does not arm a row drag when the chevron is pressed', () => {
     renderRow()
-    expect(
-      screen
-        .getByLabelText('Collapse home')
-        .querySelector('svg:not(.lucide-library)')!
-        .getAttribute('class'),
-    ).toContain('rotate-90')
 
-    renderRow(true)
-    expect(
-      screen
-        .getByLabelText('Expand home')
-        .querySelector('svg:not(.lucide-library)')!
-        .getAttribute('class'),
-    ).toContain('rotate-0')
+    fireEvent.pointerDown(screen.getByLabelText('Collapse home'), { bubbles: true })
+
+    expect(actions.onPointerDownDrag).not.toHaveBeenCalled()
   })
 
-  it('animates the swap at the spec’s timings', () => {
-    const { container } = renderRow()
-    expect(container.querySelector(LEAD_GLYPH)!.getAttribute('class')).toContain(
-      '[transition:transform_0.1s,opacity_0.15s]',
-    )
+  it('closes the row — the chevron is its LAST child, as on every other row', () => {
+    renderRow()
+
+    const row = screen.getByRole('treeitem')
+    expect(row.lastElementChild).toBe(screen.getByLabelText('Collapse home'))
   })
 
-  it('carries no trailing chevron — the leading slot is the only collapse control', () => {
+  it('is the row’s ONLY collapse control', () => {
     renderRow()
 
     const row = screen.getByRole('treeitem')
     const collapseControls = Array.from(row.querySelectorAll('button')).filter((b) =>
-      /^(Collapse|Expand) /.test(b.getAttribute('aria-label') ?? ''),
+      /^(Collapse|Expand)\b/.test(b.getAttribute('aria-label') ?? ''),
     )
     expect(collapseControls).toHaveLength(1)
-    // ...and it leads the row rather than closing it.
-    expect(row.firstElementChild).toBe(collapseControls[0])
+  })
+
+  it('rotates the chevron 90° open and back closed', () => {
+    renderRow()
+    expect(
+      screen.getByLabelText('Collapse home').querySelector('svg')!.getAttribute('class'),
+    ).toContain('rotate-90')
+
+    renderRow(true)
+    expect(
+      screen.getByLabelText('Expand home').querySelector('svg')!.getAttribute('class'),
+    ).not.toContain('rotate-90')
+  })
+
+  it('draws the same chevron, from the same shared control, as the tree below it', () => {
+    renderRow()
+
+    const chevron = screen.getByLabelText('Collapse home').querySelector('svg path')!
+    expect(chevron.getAttribute('d')).toBe(DISCLOSURE_GLYPH_PATH)
+    expect(screen.getByLabelText('Collapse home').className).toBe(ROW_SUB_ACTION)
   })
 
   it('has dropped the "Switch project" button — every project has a row now', () => {
     renderRow()
     expect(screen.queryByLabelText('Switch project')).toBeNull()
+  })
+})
+
+describe('ProjectHomeRow leading mark', () => {
+  it('is identity and its editor — never a second collapse control', () => {
+    // It IS a button: the mark is the trigger for the icon editor, the same
+    // mechanism the repo avatar has. What it must never be again is a COLLAPSE
+    // control — that lived here once, giving the row two of them.
+    renderRow()
+
+    const trigger = screen.getByLabelText('Edit home icon')
+    expect(trigger).toBeInTheDocument()
+    expect(/^(Collapse|Expand)\b/.test(trigger.getAttribute('aria-label') ?? '')).toBe(false)
+  })
+
+  it('never swaps on hover — the swap forced a layout on every row crossed', () => {
+    // The regression this file exists to catch: `display:none/block` toggled by
+    // `group-hover` changed which box sat in the row's flex flow, so merely
+    // passing the pointer over a project relaid the row out.
+    const { container } = renderRow()
+
+    const glyph = container.querySelector(LEAD_GLYPH)!
+    expect(glyph.getAttribute('class') ?? '').not.toMatch(/group-hover:(hidden|block)/)
+    expect(container.querySelector('[class*="group-hover:hidden"]')).toBeNull()
+  })
+
+  it('stays put while the project is collapsed', () => {
+    // The mark says which project this is; folding it does not change that.
+    const { container } = renderRow(true)
+    expect(container.querySelector(LEAD_GLYPH)).not.toBeNull()
   })
 })
 

@@ -163,6 +163,66 @@ describe('nesting', () => {
     ])
   })
 
+  it('files a fork child into a folder under the same fork parent without rebasing it', () => {
+    const withFolder = repo({
+      folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', parentId: 'a', order: 0 }],
+      workspaces: [
+        { id: 'a', branch: 'a', age: '', order: 0 },
+        { id: 'c', branch: 'c', parentId: 'a', age: '', order: 1 },
+      ],
+    })
+    const plan = planDrop(
+      [WS('c', { parentId: 'a' })],
+      target({ kind: 'folder', id: 'f1', parentId: 'a', mode: 'into' }),
+      snap({ repos: [withFolder] }),
+    )
+
+    expect(plan?.calls).toEqual([
+      { kind: 'workspace', projectId: 'p1', repoId: 'r1', id: 'c', folderId: 'f1', order: 0 },
+    ])
+  })
+
+  it('unfiles a fork child when it lands directly beside its fork siblings', () => {
+    const withFolder = repo({
+      folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', parentId: 'a', order: 0 }],
+      workspaces: [
+        { id: 'a', branch: 'a', age: '', order: 0 },
+        { id: 'b', branch: 'b', parentId: 'a', age: '', order: 1 },
+        { id: 'c', branch: 'c', parentId: 'a', folderId: 'f1', age: '', order: 0 },
+      ],
+    })
+    const plan = planDrop(
+      [WS('c', { parentId: 'f1' })],
+      target({ id: 'b', parentId: 'a', mode: 'after' }),
+      snap({ repos: [withFolder] }),
+    )
+
+    expect(plan?.calls).toEqual([
+      { kind: 'workspace', projectId: 'p1', repoId: 'r1', id: 'c', folderId: '', order: 2 },
+    ])
+  })
+
+  it('reparents first when a folder belongs to a different workspace', () => {
+    const withFolder = repo({
+      folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', parentId: 'b', order: 0 }],
+      workspaces: [
+        { id: 'a', branch: 'a', age: '', order: 0 },
+        { id: 'b', branch: 'b', age: '', order: 1 },
+        { id: 'c', branch: 'c', parentId: 'a', age: '', order: 0 },
+      ],
+    })
+    const plan = planDrop(
+      [WS('c', { parentId: 'a' })],
+      target({ kind: 'folder', id: 'f1', parentId: 'b', mode: 'into' }),
+      snap({ repos: [withFolder] }),
+    )
+
+    expect(plan?.calls).toEqual([
+      { kind: 'reparent', projectId: 'p1', repoId: 'r1', id: 'c', parentId: 'b' },
+      { kind: 'workspace', projectId: 'p1', repoId: 'r1', id: 'c', folderId: 'f1', order: 0 },
+    ])
+  })
+
   it('moves a folder by its own endpoint, never by a fork re-parent', () => {
     const withFolder = repo({
       folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', order: 0 }],

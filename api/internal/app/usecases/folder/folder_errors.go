@@ -15,12 +15,10 @@ var ErrFolderCycle = errors.New("usecases: a folder cannot be moved inside itsel
 // a cross-repo edge is a row that is simply never drawn. Handlers map it to 409.
 var ErrFolderCrossRepo = errors.New("usecases: a folder and its parent must be in the same repository")
 
-// ErrForkChainSplit is returned when filing a workspace into a folder would
-// separate it from its fork parent. A workspace with a fork parent renders under
-// that parent and inherits its folder from its fork ancestor — that is what makes
-// the diff base, the merge eligibility and the reparent leaf-check agree with what
-// is on screen. Only a FORK ROOT may carry a folder of its own, so moving a
-// forked child into a folder is refused here rather than left to the UI to avoid.
+// ErrForkChainSplit is returned when filing a workspace, or moving a folder
+// containing one, would carry the row outside its real fork-parent space. A
+// folder may organise children under that same parent without rewriting git
+// lineage; crossing to another workspace still requires the reparent endpoint.
 // Handlers map it to 409.
 var ErrForkChainSplit = errors.New("usecases: a workspace cannot be filed away from its fork parent")
 

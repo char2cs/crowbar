@@ -90,6 +90,24 @@ function membersOf(roots: SidebarTreeNode[], containerId: string): SidebarTreeNo
   return findNode(roots, containerId)?.children ?? []
 }
 
+/** The visible workspace whose sibling space owns `containerId`. Root folders
+ * have no workspace anchor. This is the organisational half of the invariant:
+ * a folder may sit between a workspace and its fork child without rewriting
+ * the child's git `parentId`, but it may not carry that child under a different
+ * workspace. */
+function workspaceAnchor(repo: Repo, containerId: string): string {
+  const workspaceIds = new Set(repo.workspaces.map((workspace) => workspace.id))
+  const folderById = new Map((repo.folders ?? []).map((folder) => [folder.id, folder]))
+  const visited = new Set<string>()
+  let cursor = containerId
+  while (cursor !== '' && !visited.has(cursor)) {
+    if (workspaceIds.has(cursor)) return cursor
+    visited.add(cursor)
+    cursor = folderById.get(cursor)?.parentId ?? ''
+  }
+  return ''
+}
+
 export function planDrop(
   subjects: readonly DragSubject[],
   target: ResolvedDrop,
@@ -241,12 +259,18 @@ function planRowDrop(
     // A fork parent only counts when it is a row in this tree: a root workspace
     // names the repo-home workspace, which is the header rather than a row.
     const forked = currentFork !== '' && repo.workspaces.some((w) => w.id === currentFork)
+    const visibleCurrentFork = forked ? currentFork : ''
+    const visibleNextFork = containerKind === 'root' ? '' : workspaceAnchor(repo, containerId)
+    // Crossing to a different visible fork-parent space is the same lineage
+    // move as dropping onto that workspace directly. A root-level destination
+    // reparents to repo home, which is hidden from the tree but is the real git
+    // base the existing root-drop path already uses.
     const nextFork =
-      containerKind === 'workspace'
-        ? containerId
-        : containerKind === 'root' && forked
-          ? (repo.defaultWorkspaceId ?? '')
-          : ''
+      visibleNextFork === visibleCurrentFork
+        ? currentFork
+        : visibleNextFork || repo.defaultWorkspaceId || ''
+    const folderId =
+      containerKind === 'folder' ? containerId : containerKind === 'root' ? '' : undefined
 
     if (nextFork !== '' && nextFork !== currentFork) {
       // A fork move is a rebase behind a 202, so the slot the indicator promised
@@ -255,19 +279,42 @@ function planRowDrop(
       // the row landing at the right depth in the wrong place. The reparent's
       // own promise is what holds this back (see reparent-settle.ts); the
       // reparent also clears the folder, so this one only carries the index.
+      const reparentFolderId = containerKind === 'folder' ? containerId : undefined
       calls.push({ kind: 'reparent', projectId, repoId, id: subject.id, parentId: nextFork })
-      calls.push({ kind: 'workspace', projectId, repoId, id: subject.id, order })
-      workspaces.push({ id: subject.id, parentId: nextFork, order })
+      calls.push({
+        kind: 'workspace',
+        projectId,
+        repoId,
+        id: subject.id,
+        ...(reparentFolderId !== undefined && { folderId: reparentFolderId }),
+        order,
+      })
+      workspaces.push({
+        id: subject.id,
+        parentId: nextFork,
+        ...(reparentFolderId !== undefined && { folderId: reparentFolderId }),
+        order,
+      })
       return
     }
 
-    // Only a fork ROOT is filed in a folder; a forked child is ordered among its
-    // fork siblings and its folder stays where it is (the server refuses a move
-    // that would split the chain).
-    const folderId =
-      containerKind === 'folder' ? containerId : containerKind === 'root' ? '' : undefined
-    calls.push({ kind: 'workspace', projectId, repoId, id: subject.id, folderId, order })
-    workspaces.push({ id: subject.id, ...(folderId !== undefined && { folderId }), order })
+    // A drop directly into the current fork parent removes any folder edge;
+    // a drop into one of that parent's folders writes the folder edge while
+    // preserving the git parent. Those two edges are independent on purpose.
+    const directFolderId = containerKind === 'workspace' && ws?.folderId ? '' : folderId
+    calls.push({
+      kind: 'workspace',
+      projectId,
+      repoId,
+      id: subject.id,
+      ...(directFolderId !== undefined && { folderId: directFolderId }),
+      order,
+    })
+    workspaces.push({
+      id: subject.id,
+      ...(directFolderId !== undefined && { folderId: directFolderId }),
+      order,
+    })
   })
 
   // Renumber the siblings the move displaced, or the level paints in its old

@@ -2320,3 +2320,12 @@ func TestRetryProvision_HeldByManaged_ReturnsError(t *testing.T) {
 		"the refusal names the worktree holding the branch")
 	assert.False(t, provisionCalled, "no provision while the branch is held")
 }
+
+func (f *fakeWorkspace) SetLock(
+	_ context.Context,
+	id string,
+	locked *bool,
+	_ bool,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, LockOverride: locked}, nil
+}

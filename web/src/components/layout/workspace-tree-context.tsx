@@ -12,9 +12,10 @@ import {
   DragGhost,
   DragGhostRows,
   cloneGhostRows,
-  DRAG_GHOST_OFFSET_X,
-  DRAG_GHOST_OFFSET_Y,
+  ghostTransform,
+  grabOffsetFrom,
   type GhostRows,
+  type GrabOffset,
 } from './drag-ghost'
 import { capturePlacement, useSidebarStore, type SidebarPlacement } from '@/lib/store/sidebar'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
@@ -28,12 +29,13 @@ import {
   placeRepo,
   placeWorkspace,
 } from '@/lib/api/sidebar-placement'
-import { postWorkspace, type WorkspacePlacement } from '@/lib/api'
+import { postWorkspace, setWorkspaceLock, type WorkspacePlacement } from '@/lib/api'
 import { toast } from '@/features/window/stores/toast-store'
 import { projectIdForRepo, performRenameRow, performImportBranches } from './workspace-tree-actions'
 import {
   dragSubjectsFor,
   findDrop,
+  isRemovableByDrag,
   readSelectedSubjects,
   rowElementFor,
   sameDrop,
@@ -77,15 +79,25 @@ const DRAG_THRESHOLD_PX = 5
  * How long the pointer must rest inside the editor pane before a drop there
  * means removal.
  *
- * The pane is a very large target directly beside the sidebar, and a reorder
- * that travels from one end of a long list to the other crosses it on the way.
- * A transit like that is over in well under this; a deliberate move onto the
- * pane still arms before the hand has settled.
+ * Short, because the dwell is no longer the only thing standing between a
+ * pointer and a deletion. It was 400ms when the zone was INVISIBLE until it
+ * armed: the wait was the whole guard, and it had to be long enough to sit out
+ * an accidental transit. Now the veil is up from the first frame of the drag,
+ * naming what would go, so arriving over the pane confirms something the user
+ * has already been told — and 400ms of nothing happening on arrival read as lag
+ * rather than as caution.
+ *
+ * Not zero: a flick that clips the pane on its way somewhere else must still not
+ * arm. 150ms is under the ~200ms most people register as a delay while still
+ * being far longer than a pointer crossing an edge.
  */
-const PANE_ARM_MS = 400
+export const PANE_ARM_MS = 150
 
 /** What a folder is called until the user says otherwise. */
 const NEW_FOLDER_NAME = 'New folder'
+
+/** Stable identity, so add/removeEventListener pair up across a drag. */
+const preventDefault = (e: Event) => e.preventDefault()
 
 /**
  * The slow-changing slice: action callbacks (stable identities) plus the
@@ -122,6 +134,11 @@ interface WorkspaceTreeActionsContextValue {
   removeRows: (subjects: readonly DragSubject[]) => void
   /** Put rows in a new folder, named by the user. */
   groupIntoFolder: (subjects: readonly DragSubject[]) => void
+  /**
+   * Lock or unlock rows — the user's own decision, which outranks the provider's
+   * protected flag from here on and survives the next poll.
+   */
+  setRowsLocked: (subjects: readonly DragSubject[], locked: boolean) => void
 }
 
 /**
@@ -328,6 +345,12 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   // that moved the list under a held-still pointer.
   const pointerRef = useRef<{ x: number; y: number } | null>(null)
   const edgeScrollerRef = useRef<EdgeScroller | null>(null)
+  // The scroller's horizontal span, measured once with its box at drag start.
+  // Edge scroll is gated on it — see onPointerMove.
+  const scrollerXRef = useRef<{ left: number; right: number } | null>(null)
+  // Where the pointer took hold of the row, in that row's own box. Subtracted
+  // from the pointer on every move so the ghost stays under the grab point.
+  const grabRef = useRef<GrabOffset>({ dx: 0, dy: 0 })
 
   const pendingRef = useRef<{
     subject: DragSubject
@@ -446,7 +469,11 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   // WITH them; nothing here calls a delete, and cancelling is a matter of
   // dropping the ids the tray is holding.
   const removeRows = useCallback((subjects: readonly DragSubject[]) => {
-    const drafts = planRemoval(subjects, useSidebarStore.getState().repos)
+    const drafts = planRemoval(
+      subjects,
+      useSidebarStore.getState().repos,
+      dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS,
+    )
     if (drafts.length === 0) return
     useRemovalTrayStore.getState().hold(drafts)
   }, [])
@@ -464,6 +491,35 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
    * name is a detail they can type into the row they can now see, over the
    * default, with the rows already inside it.
    */
+  /**
+   * Lock or unlock rows.
+   *
+   * Fired sequentially rather than together for the same reason every other
+   * multi-row write in this file is: each call is one aggregate write under
+   * optimistic-concurrency control, and firing a selection at once is how two of
+   * them collide and one silently loses. There is no optimistic write here — the
+   * updated workspaces arrive on their repo's WS stream, which is also what
+   * re-renders the rows' glyphs.
+   */
+  const setRowsLocked = useCallback((subjects: readonly DragSubject[], locked: boolean) => {
+    const rows = subjects.filter((s) => s.kind === 'workspace' && s.repoId)
+    if (rows.length === 0) return
+    void (async () => {
+      try {
+        for (const row of rows) {
+          const projectId = projectIdForRepo(row.repoId!)
+          if (!projectId) continue
+          // react-doctor-disable-next-line async-await-in-loop -- deliberate: one aggregate write each under OCC; firing a selection together is how two of them collide and one is silently dropped.
+          await setWorkspaceLock(projectId, row.repoId!, row.id, locked)
+        }
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : `Failed to ${locked ? 'lock' : 'unlock'} workspace`,
+        )
+      }
+    })()
+  }, [])
+
   const groupIntoFolder = useCallback((subjects: readonly DragSubject[]) => {
     const rows = subjects.filter((s) => s.kind === 'workspace' || s.kind === 'folder')
     const repoId = rows[0]?.repoId
@@ -515,6 +571,15 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   const onPointerDownDrag = useCallback((subject: DragSubject, e: React.PointerEvent) => {
     if (e.button !== 0) return
     if (draggingRef.current) return // ignore second pointer mid-drag
+    // Block text selection from the PRESS, not from the drag.
+    //
+    // `selectstart` fires once, as the selection begins — which is on this
+    // pointerdown and the first move after it, both BEFORE the 5px threshold
+    // promotes the press into a drag. Arming this in beginDrag (where it was)
+    // was arming it after the only event it can cancel had already fired, so a
+    // drag across the editor went on painting a selection under the shield. The
+    // shield cannot help either: it mounts a render later still.
+    document.addEventListener('selectstart', preventDefault)
     // Don't capture here — deferring setPointerCapture to the pointermove threshold
     // prevents it from swallowing the dblclick event used for rename.
     pendingRef.current = {
@@ -550,8 +615,15 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
      *
      * The dwell is the whole point: a long reorder crosses the pane on its way
      * between two ends of the sidebar, and a pane that removed on release would
-     * make that transit a loaded gun. Nothing is drawn and nothing can be
-     * dropped until the dwell elapses.
+     * make that transit a loaded gun. Nothing can be DROPPED until the dwell
+     * elapses.
+     *
+     * What the dwell no longer gates is whether the zone is drawn at all. The
+     * veil goes up when the drag starts (see beginDrag) and stays up for its
+     * whole length; this only steps it between `available` and `armed`. Hiding
+     * it until the pointer had already found the pane and waited made the one
+     * gesture that deletes anything discoverable only to someone who already
+     * knew it was there.
      */
     function trackPane(over: boolean): void {
       const pane = paneRef.current
@@ -559,22 +631,52 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
         if (pane.state === 'off') return
         if (pane.timer !== null) clearTimeout(pane.timer)
         paneRef.current = { state: 'off', timer: null }
-        paintRemovalOverlay(null)
+        // Back to available, NOT away: the row is still in the air and the pane
+        // is still where it would go.
+        paintRemovalTarget(false)
         return
       }
       if (pane.state !== 'off') return
       const timer = window.setTimeout(() => {
-        const drag = draggingRef.current
-        if (!drag) return
-        const drafts = planRemoval(drag.subjects, useSidebarStore.getState().repos)
-        if (drafts.length === 0) {
+        if (!draggingRef.current) return
+        if (!paintRemovalTarget(true)) {
           paneRef.current = { state: 'off', timer: null }
           return
         }
         paneRef.current = { state: 'armed', timer: null }
-        paintRemovalOverlay(describeRemoval(drafts))
       }, PANE_ARM_MS)
       paneRef.current = { state: 'waiting', timer }
+    }
+
+    /**
+     * Draw the pane's removal zone in one of its two states, and say whether
+     * there was anything to draw.
+     *
+     * Returns false when this drag cannot remove anything — a locked branch, a
+     * row whose repo has gone — in which case the veil stays down and the pane
+     * never arms. Better to offer no target than one that refuses on release.
+     */
+    function paintRemovalTarget(armed: boolean): boolean {
+      const drag = draggingRef.current
+      if (!drag) return false
+      // The SAME gate the drop itself uses, asked first. The veil is a promise
+      // about what a release will do, so deriving it from a second rule is how
+      // it ends up offering a removal the drop then refuses.
+      if (!isRemovableByDrag(drag.subjects)) {
+        paintRemovalOverlay(null)
+        return false
+      }
+      const drafts = planRemoval(
+        drag.subjects,
+        useSidebarStore.getState().repos,
+        dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS,
+      )
+      if (drafts.length === 0) {
+        paintRemovalOverlay(null)
+        return false
+      }
+      paintRemovalOverlay(describeRemoval(drafts, armed))
+      return true
     }
 
     function beginDrag(e: PointerEvent) {
@@ -592,12 +694,23 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
         .filter((el): el is HTMLElement => el !== null)
       const scroller = findScrollParent(pending.target)
       const scrollerBox = scroller?.getBoundingClientRect()
+      // The row the hand is actually on — not elements[0], which is whichever
+      // row of a multi-row selection happens to be drawn at the front of the
+      // stack. Measured here, in the same batch as every other read this drag
+      // takes, and never again.
+      const grabbed = rowElementFor(pending.subject) ?? pending.target
+      grabRef.current = grabOffsetFrom(
+        grabbed.getBoundingClientRect(),
+        pending.startX,
+        pending.startY,
+      )
 
       const rows = cloneGhostRows(
         elements.length > 0 ? elements : [pending.target],
         subjects.length,
       )
       if (scroller && scrollerBox) {
+        scrollerXRef.current = { left: scrollerBox.left, right: scrollerBox.right }
         edgeScrollerRef.current = createEdgeScroller(
           scroller,
           { top: scrollerBox.top, height: scrollerBox.height },
@@ -621,9 +734,23 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       pointerRef.current = { x: e.clientX, y: e.clientY }
       // Store position before triggering the React re-render so the ghost
       // div mounts at the correct location on its first render.
-      lastDragPosRef.current = { x: e.clientX, y: e.clientY }
+      lastDragPosRef.current = {
+        x: e.clientX - grabRef.current.dx,
+        y: e.clientY - grabRef.current.dy,
+      }
+      // Whatever the pointer is over for the rest of this drag, it is holding a
+      // row. The attribute drives the carousel lock in index.css; the cursor and
+      // the selection block are the shield's job (drag-ghost.tsx).
+      document.documentElement.setAttribute('data-row-dragging', '')
+      // Anything the press managed to select before the threshold goes now: the
+      // listener above stops a selection STARTING, this drops one that already
+      // did (a press that lands on a text node can carry a caret with it).
+      window.getSelection()?.removeAllRanges()
       setGhostRows(rows)
       setDraggingWs({ subjects })
+      // The removal zone, up front. `publish` below may immediately arm it if
+      // the drag started with the pointer already over the pane.
+      paintRemovalTarget(false)
       publish(findDrop(e.clientX, e.clientY, subjects))
     }
 
@@ -640,11 +767,28 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       // READS before WRITES. The hit test forces layout; writing the ghost's
       // position first would make every move a read-after-write reflow.
       const hit = findDrop(e.clientX, e.clientY, drag.subjects)
-      edgeScrollerRef.current?.update(e.clientY)
+
+      // Edge scroll only while the pointer is still OVER the sidebar.
+      //
+      // The band is a function of Y alone, so carrying a row sideways into the
+      // editor pane — which is how a row is removed, and which asks the hand to
+      // hold still for the arming dwell — kept driving the scroller from a
+      // pointer that had left the sidebar entirely. The list ran out from under
+      // the drag at 14px a frame while the user was trying to hold still over
+      // something else, and the rows they were aiming at were gone by the time
+      // it armed.
+      const span = scrollerXRef.current
+      const overScroller = span !== null && e.clientX >= span.left && e.clientX <= span.right
+      if (overScroller) edgeScrollerRef.current?.update(e.clientY)
+      else edgeScrollerRef.current?.stop()
 
       if (ghostRef.current) {
-        ghostRef.current.style.left = `${e.clientX + DRAG_GHOST_OFFSET_X}px`
-        ghostRef.current.style.top = `${e.clientY + DRAG_GHOST_OFFSET_Y}px`
+        // One composited transform, not two layout-triggering offsets. See
+        // ghostTransform in drag-ghost.tsx for the measurement.
+        ghostRef.current.style.transform = ghostTransform(
+          e.clientX - grabRef.current.dx,
+          e.clientY - grabRef.current.dy,
+        )
       }
 
       publish(hit)
@@ -653,7 +797,17 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
     function endDrag() {
       edgeScrollerRef.current?.stop()
       edgeScrollerRef.current = null
+      scrollerXRef.current = null
+      grabRef.current = { dx: 0, dy: 0 }
+      document.documentElement.removeAttribute('data-row-dragging')
+      document.removeEventListener('selectstart', preventDefault)
       trackPane(false)
+      // Explicitly, not as a side effect of trackPane: leaving the pane now
+      // drops the veil back to `available` rather than taking it away, and
+      // trackPane returns early when the pointer had already left. Relying on it
+      // left the zone drawn over the editor after every drag that ended
+      // anywhere but the pane.
+      paintRemovalOverlay(null)
       draggingRef.current = null
       dropTargetRef.current = null
       lastDragPosRef.current = null
@@ -666,6 +820,9 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
 
     function onPointerUp(e: PointerEvent) {
       pendingRef.current = null
+      // Unconditionally: the listener is armed on every press, including the
+      // ones that turn out to be plain clicks and never reach endDrag.
+      document.removeEventListener('selectstart', preventDefault)
       const drag = draggingRef.current
       if (!drag) return
 
@@ -762,6 +919,11 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
     return () => {
       edgeScrollerRef.current?.stop()
       trackPane(false)
+      paintRemovalOverlay(null)
+      // A teardown mid-drag would otherwise leave the carousel pinned and the
+      // selection blocked, with no drag left to end and clear them.
+      document.documentElement.removeAttribute('data-row-dragging')
+      document.removeEventListener('selectstart', preventDefault)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('pointercancel', endDrag)
@@ -787,6 +949,7 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       onPointerDownDrag,
       removeRows,
       groupIntoFolder,
+      setRowsLocked,
     }),
     [
       creatingChildOf,
@@ -802,6 +965,7 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       onPointerDownDrag,
       removeRows,
       groupIntoFolder,
+      setRowsLocked,
     ],
   )
 

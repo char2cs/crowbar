@@ -56,10 +56,19 @@ const repo = (): Repo => ({
   folders: [{ id: 'f-rev', repoId: 'r1', parentId: 'w-develop', name: 'Reviewing', order: 0 }],
   workspaces: [
     { id: 'w-develop', branch: 'develop', status: 'locked', age: '1d', order: 0 },
-    { id: 'w-plate', branch: 'feat/plate', folderId: 'f-rev', status: 'new', age: '1d', order: 0 },
+    {
+      id: 'w-plate',
+      branch: 'feat/plate',
+      parentId: 'w-develop',
+      folderId: 'f-rev',
+      status: 'new',
+      age: '1d',
+      order: 0,
+    },
     {
       id: 'w-sidebar',
       branch: 'feat/sidebar',
+      parentId: 'w-develop',
       folderId: 'f-rev',
       status: 'new',
       age: '1d',
@@ -273,11 +282,7 @@ describe('the keep set is a snapshot, and it survives', () => {
     expect(screen.getByLabelText('Fold away the rows Reviewing is holding')).toBeInTheDocument()
   })
 
-  it('keeps the fold-away control out of the flow at rest AND fades it in', () => {
-    // Both, not one or the other. `hidden` is what gives the branch name back
-    // the button's 24px box and the row's 6px gap; the keyframe is what stops it
-    // snapping in, since `display` cannot transition and an animation starts the
-    // moment an element becomes displayed.
+  it('keeps fold-away row geometry stable and fades the control in', () => {
     render(<WorkspaceTree />)
     cmdClick(wsRow('w-plate')!)
     collapseReviewing()
@@ -285,10 +290,13 @@ describe('the keep set is a snapshot, and it survives', () => {
     const classes = screen
       .getByLabelText('Fold away the rows Reviewing is holding')
       .className.split(/\s+/)
-    expect(classes).toContain('hidden')
-    expect(classes).toContain('group-hover:inline-flex')
-    expect(classes).toContain('group-focus-within:inline-flex')
-    expect(classes).toContain('animate-row-action-in')
+    expect(classes).toContain('invisible')
+    expect(classes).toContain('inline-flex')
+    expect(classes).toContain('group-hover:visible')
+    expect(classes).toContain('group-focus-within:visible')
+    expect(classes).toContain('group-hover:animate-row-action-in')
+    expect(classes).toContain('group-focus-within:animate-row-action-in')
+    expect(classes).not.toContain('hidden')
   })
 
   it('marks the folded folder with the three-dot state', () => {

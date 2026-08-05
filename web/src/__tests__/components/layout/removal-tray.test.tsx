@@ -348,7 +348,10 @@ describe('a repo, which takes every worktree under it', () => {
     expect(deleteRepo).not.toHaveBeenCalled()
   })
 
-  it('removes it only when Remove is pressed', async () => {
+  it('asks once more before removing, and does not delete on Remove alone', async () => {
+    // Eight seconds of undo is not a proportionate safety net for every worktree
+    // in a repo, so this row never ran a clock — and pressing Remove opens a
+    // dialog that spells the cascade out rather than sending the delete.
     render(<WorkspaceTree />)
     hold({ kind: 'repo', id: 'r1' })
 
@@ -356,6 +359,44 @@ describe('a repo, which takes every worktree under it', () => {
       fireEvent.click(screen.getByText('Remove'))
     })
 
+    expect(deleteRepo).not.toHaveBeenCalled()
+    expect(screen.getByText(/All workspaces in this repository will be deleted/)).toBeVisible()
+  })
+
+  it('removes it once the confirmation is accepted', async () => {
+    render(<WorkspaceTree />)
+    hold({ kind: 'repo', id: 'r1' })
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Remove'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('Delete repository'))
+    })
+
     expect(deleteRepo).toHaveBeenCalledExactlyOnceWith('p1', 'r1')
+  })
+
+  it('deletes nothing when the confirmation is dismissed, and keeps the row held', async () => {
+    render(<WorkspaceTree />)
+    hold({ kind: 'repo', id: 'r1' })
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Remove'))
+    })
+    // Scoped to the dialog: the tray row has a Cancel of its own, and the two
+    // mean different things — this one backs out of the confirmation, that one
+    // keeps the row.
+    const dialog = document.querySelector('[data-slot="alert-dialog-popup"]')!
+    await act(async () => {
+      fireEvent.click(
+        [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!,
+      )
+    })
+
+    expect(deleteRepo).not.toHaveBeenCalled()
+    // Backing out of the dialog is not the same as keeping the row: the tray row
+    // is still there, still offering both answers.
+    expect(screen.getByText('Remove')).toBeVisible()
   })
 })

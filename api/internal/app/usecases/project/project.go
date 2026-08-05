@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	store "github.com/char2cs/crowbar/api/internal/adapter/store"
@@ -53,6 +54,35 @@ type Usecase interface {
 		projectID string,
 		order int,
 	) (domain.Project, error)
+
+	// Update applies a partial project update — display name, icon — in one
+	// load-mutate-save, returning the updated Project so the caller can broadcast
+	// its DTO. Returns apperr.ErrNotFound when no project has the given id.
+	//
+	// A rename touches the LABEL only. Project.Path — where the project actually
+	// lives on disk, chosen once at import — is deliberately left as loaded, for
+	// the same reason a repo rename leaves its PathSlug alone: the name is what
+	// the sidebar shows, not what anything on disk is keyed on.
+	Update(
+		ctx context.Context,
+		projectID string,
+		in Update,
+	) (domain.Project, error)
+}
+
+// Update is a partial project update: a nil field is left as it is.
+//
+// The icon fields travel together because they are one three-state choice, not
+// three independent ones (emoji > on-disk image > the sidebar's default glyph),
+// and setting one without clearing the others is how a project ends up showing
+// an emoji it was told to replace with an image.
+type Update struct {
+	Name          *string
+	AvatarEmoji   *string
+	AvatarHasIcon *bool
+	// BumpAvatarVersion moves the DTO's cache-busting ?v= param. Set it whenever
+	// new bytes have been written behind the stable icon URL.
+	BumpAvatarVersion bool
 }
 
 // RepoUpdate is a partial repository update: a nil field is left as it is.
@@ -290,4 +320,39 @@ func (u *projectUsecase) Reorder(
 		return domain.Project{}, fmt.Errorf("project: reorder: id %s: %w", projectID, apperr.ErrNotFound)
 	}
 	return *updated, nil
+}
+
+// Update applies a partial project update in one load-mutate-save.
+func (u *projectUsecase) Update(
+	ctx context.Context,
+	projectID string,
+	in Update,
+) (domain.Project, error) {
+	row, err := u.projects.FindByKey(ctx, projectID)
+	if err != nil {
+		return domain.Project{}, fmt.Errorf("project: update: load %s: %w", projectID, err)
+	}
+	if row == nil {
+		return domain.Project{}, fmt.Errorf("project: update: id %s: %w", projectID, apperr.ErrNotFound)
+	}
+	if in.Name != nil {
+		name := strings.TrimSpace(*in.Name)
+		if name == "" {
+			return domain.Project{}, fmt.Errorf("project: update: name is empty: %w", apperr.ErrInvalidArgument)
+		}
+		row.Name = name
+	}
+	if in.AvatarEmoji != nil {
+		row.AvatarEmoji = *in.AvatarEmoji
+	}
+	if in.AvatarHasIcon != nil {
+		row.AvatarHasIcon = *in.AvatarHasIcon
+	}
+	if in.BumpAvatarVersion {
+		row.AvatarVersion++
+	}
+	if err := u.projects.Save(ctx, *row); err != nil {
+		return domain.Project{}, fmt.Errorf("project: update: save %s: %w", projectID, err)
+	}
+	return *row, nil
 }

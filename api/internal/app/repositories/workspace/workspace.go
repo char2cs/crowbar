@@ -103,6 +103,16 @@ type Workspace interface {
 		id string,
 		strategy gitdomain.MergeStrategy,
 	) (domain.Workspace, error)
+	// SetLock records the user's own lock decision, which outranks the
+	// provider's protected flag from here on. A nil `locked` hands the question
+	// back to the provider. `protected` is the provider's current answer, used
+	// only to resolve the status when `locked` is nil.
+	SetLock(
+		ctx context.Context,
+		id string,
+		locked *bool,
+		protected bool,
+	) (domain.Workspace, error)
 	TouchActivity(
 		ctx context.Context,
 		id string,
@@ -547,6 +557,19 @@ func (w *workspace) SetMergeStrategy(
 	evt, err := w.sendWithOCC(ctx, commands.SetMergeStrategy{ID: id, Strategy: strategy})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set merge strategy: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) SetLock(
+	ctx context.Context,
+	id string,
+	locked *bool,
+	protected bool,
+) (domain.Workspace, error) {
+	evt, err := w.sendWithOCC(ctx, commands.SetLock{ID: id, Locked: locked, Protected: protected})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: set lock: %w", err)
 	}
 	return evt.Aggregate, nil
 }

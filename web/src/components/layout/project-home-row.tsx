@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Library, FolderSymlink } from 'lucide-react'
+import { memo, useState } from 'react'
+import { FolderSymlink } from 'lucide-react'
 import { useNavigate, useMatch } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -14,40 +14,56 @@ import { useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useSidebarSelectionStore } from '@/lib/store/sidebar-selection'
 import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
-import { WorkspaceAgentSpinner } from './workspace-branch-icon'
 import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
+import { ProjectIconPopover } from './project-icon-popover'
+import { RowDisclosureButton } from './row-disclosure-button'
+import { WorkspaceInlineInput } from './workspace-inline-input'
+import { renameProject } from '@/lib/api'
+import { toast } from '@/features/window/stores/toast-store'
 import { useWorkspaceTreeActions, useWorkspaceTreeDrag } from './workspace-tree-context'
 import { dropRowProps } from './drop-target-dom'
 
-/**
- * The icon⇄chevron swap, at the spec's measured timings: `transform 0.1s`,
- * `opacity 0.15s`. Both marks share one slot and exactly one of them is ever in
- * the flow, so the label never moves as the swap happens.
- */
-const GLYPH_SWAP = '[transition:transform_0.1s,opacity_0.15s]'
-
 interface ProjectHomeRowProps {
   /** The project this row stands for. Every project has a row now, not just the active one. */
-  project: { id: string; name: string }
+  project: { id: string; name: string; avatarUrl?: string; avatarEmoji?: string }
   /** Whether this project's whole tree is folded away. */
   isCollapsed: boolean
   /** Whether it has repos to fold — what the keyboard's Left/Right act on. */
   hasRepos?: boolean
+  /**
+   * Whether THIS row's name is in inline-rename mode. Owned by the parent so
+   * only one row across the whole tree can be renaming at a time — the same
+   * arrangement the repo rows' `renamingRepoId` uses.
+   */
+  isRenaming?: boolean
+  startRenaming?: (projectId: string) => void
+  stopRenaming?: () => void
 }
 
 /**
  * One project's row: the head of its section of the sidebar.
  *
- * Two gestures, one row. The leading slot folds the project's entire tree;
- * everything else opens project home. There is no trailing chevron — a second
- * collapse control at the far end of the row would be a second answer to a
- * question the glyph already answers, and the row is only 36px wide of meaning.
+ * It discloses the way EVERY other row in this tree discloses — a leading mark
+ * that only ever says what the row is, and a trailing chevron that folds it
+ * (RowDisclosureButton). It used to do neither: the leading slot was itself the
+ * collapse button, swapping Library⇄chevron on hover, and there was no trailing
+ * chevron at all. That made the sidebar's most-repeated control mean two
+ * different things one row apart — on a project you pressed the left edge and
+ * had to hover to learn that you could, on the repo directly beneath it you
+ * pressed the right edge and could see it at rest.
  *
- * The chevron stays visible for as long as the project is closed, hover or not:
- * a folded project whose only affordance appeared on hover would read as a dead
- * end.
+ * The swap is gone with it. It was a `display:none/block` toggle on hover, so
+ * crossing a project row changed which box was in the flex flow and forced a
+ * layout on a row the pointer was only passing over.
  */
-export function ProjectHomeRow({ project, isCollapsed, hasRepos = false }: ProjectHomeRowProps) {
+function ProjectHomeRowComponent({
+  project,
+  isCollapsed,
+  hasRepos = false,
+  isRenaming = false,
+  startRenaming,
+  stopRenaming,
+}: ProjectHomeRowProps) {
   const navigate = useNavigate()
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const homeMatch = useMatch({ from: '/_shell/ide/$projectId/home', shouldThrow: false })
@@ -80,8 +96,9 @@ export function ProjectHomeRow({ project, isCollapsed, hasRepos = false }: Proje
     setAddRepoOpen(true)
   }
 
-  function handleToggle(e: React.MouseEvent) {
-    e.stopPropagation()
+  // No stopPropagation here: RowDisclosureButton already stops both the click
+  // and the pointerdown, so the row neither navigates nor arms a drag.
+  function handleToggle() {
     useSidebarStore.getState().toggleProject(project.id)
   }
 
@@ -107,7 +124,11 @@ export function ProjectHomeRow({ project, isCollapsed, hasRepos = false }: Proje
           draggingIds.has(project.id) && 'opacity-40',
           dropMode === 'into' && ROW_NEST_TARGET,
         )}
-        onClick={handleClick}
+        onClick={() => {
+          // Clicks inside the inline rename editor must not navigate.
+          if (isRenaming) return
+          handleClick()
+        }}
         onKeyDown={(e) => {
           if (e.target !== e.currentTarget) return
           if (e.key === 'Enter' || e.key === ' ') {
@@ -117,53 +138,63 @@ export function ProjectHomeRow({ project, isCollapsed, hasRepos = false }: Proje
         }}
         onPointerDown={(e) => onPointerDownDrag({ kind: 'project', id: project.id }, e)}
       >
-        {/* ONE slot, 20px (h-5 w-5) so it shares the repo avatars' centre line —
+        {/* Identity, and the editor for it — the collapse gesture lives at the
+            other end of the row. Not a collapse button: while the leading mark
+            was one, this row had two collapse affordances competing for the same
+            20px and neither of them where every row below put its own.
+
+            ONE slot, 20px (h-5 w-5) so it shares the repo avatars' centre line —
             the two section-header row types line up with each other, and the
             16px glyphs of everything below line up with each other.
 
-            Library rather than a house: this row is a project holding many
-            repos, and a shelf of spines says "collection" where a roof says
-            "dwelling". Outline in both states — the row already signals
-            selection with its raised surface (ROW_ACTIVE), so a filled glyph was
-            a second, louder signal and the only solid mark in an otherwise
-            all-outline sidebar. */}
-        <button
-          type="button"
-          aria-label={isCollapsed ? `Expand ${project.name}` : `Collapse ${project.name}`}
-          className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          onClick={handleToggle}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          {working ? (
-            <WorkspaceAgentSpinner />
-          ) : (
-            <>
-              {/* `display`, not opacity: exactly one mark occupies the slot at a
-                  time, so neither can nudge the other. */}
-              <Library
-                size={16}
-                className={cn(GLYPH_SWAP, isCollapsed ? 'hidden' : 'group-hover:hidden')}
-              />
-              <svg
-                aria-hidden="true"
-                className={cn(
-                  'size-3',
-                  GLYPH_SWAP,
-                  isCollapsed ? 'block rotate-0' : 'hidden rotate-90 group-hover:block',
-                )}
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              >
-                <path d="M6 3l5 5-5 5" />
-              </svg>
-            </>
-          )}
-        </button>
+            Library as the DEFAULT rather than the only mark: a project holding
+            many repos is a collection, and a shelf of spines says that where a
+            roof says "dwelling". Outline, because the row already signals
+            selection with its raised surface (ROW_ACTIVE) and a filled glyph was
+            a second, louder signal in an otherwise all-outline sidebar. */}
+        <ProjectIconPopover project={project} working={working} />
 
-        <span className="min-w-0 flex-1 truncate font-mono text-left">{project.name}</span>
+        {isRenaming ? (
+          <WorkspaceInlineInput
+            defaultValue={project.name}
+            placeholder="project-name"
+            // No `kind` — the default is mono, which is what this row's LABEL is
+            // (see the span below). That is the whole rule: the editor reads in
+            // the same face as the text it replaced, so the row does not change
+            // typeface under the cursor the moment you start typing.
+            //
+            // It was briefly `prose` on the reasoning that a project name is free
+            // text rather than a git ref. True, but beside the point — the folder
+            // row can take prose because its label is prose too, and this label
+            // is not. Change them together or not at all.
+            onConfirm={(name) => {
+              stopRenaming?.()
+              // The renamed ProjectDTO arrives on the projects WS stream and
+              // merges into the store, refreshing this row's name — no
+              // optimistic write here; only surface a failure.
+              void renameProject(project.id, name).catch((err) => {
+                toast.error(err instanceof Error ? err.message : 'Failed to rename project')
+              })
+            }}
+            onCancel={() => stopRenaming?.()}
+          />
+        ) : (
+          /* Clicks bubble, as they do on every other renameable row: `dblclick`
+             is delivered only AFTER both of its `click` events, so renaming
+             opens project home on the way to the editor and lands back where it
+             started. The alternative is holding every row click open for a
+             double-click window, which puts a stall in front of the sidebar's
+             most-used gesture to pay for its rarest. */
+          <span
+            className="min-w-0 flex-1 truncate font-mono text-left"
+            onDoubleClick={(e) => {
+              e.stopPropagation()
+              startRenaming?.(project.id)
+            }}
+          >
+            {project.name}
+          </span>
+        )}
 
         {/* The shared UI Button, so it gets a real tooltip — this is an icon-only
             24px control with no visible label, and without one the only way to
@@ -194,6 +225,13 @@ export function ProjectHomeRow({ project, isCollapsed, hasRepos = false }: Proje
               nothing about the mark does.) */}
           <FolderSymlink className="size-3" />
         </Button>
+
+        {/* Last in the row, after the row's own actions — the same slot the repo
+            header beneath it, and every folder and branch below that, close
+            with. The label names the project because this row's own accessible
+            name is the project name, and "Collapse" alone would repeat once per
+            project in the tree. */}
+        <RowDisclosureButton expanded={!isCollapsed} label={project.name} onToggle={handleToggle} />
       </div>
       {/* Explicitly scoped: this row is one of several, so the modal must not
           fall back to whichever project happens to be active. */}
@@ -201,3 +239,5 @@ export function ProjectHomeRow({ project, isCollapsed, hasRepos = false }: Proje
     </>
   )
 }
+
+export const ProjectHomeRow = memo(ProjectHomeRowComponent)

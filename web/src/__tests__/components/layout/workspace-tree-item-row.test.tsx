@@ -1,13 +1,11 @@
 /**
- * Contract pins for the workspace row's own chrome, after Wave 4 gave the width
- * back to the branch name.
+ * Contract pins for the workspace row's own chrome.
  *
  * Two rules, both of which look like styling and are not:
  *
- *  1. The add-child "+" leaves the FLOW at rest. `opacity: 0` returns no width
- *     at all — a hidden-but-present button still holds its 24px box and the
- *     row's 6px flex gap — so the only way the name actually gets those 30px
- *     back is `display`.
+ *  1. The add-child "+" keeps a stable flex slot at rest. Changing its display
+ *     on hover resizes the label and forces layout for every crossed row, so
+ *     visibility and pointer events alone change during interaction.
  *  2. The change counts moved to a second line INSIDE the unchanged 36px row.
  *     If the active row grew to fit them, every row below it would shift each
  *     time you switched workspaces.
@@ -89,24 +87,33 @@ beforeEach(() => {
   })
 })
 
-describe('the add-child "+" leaves the flow at rest', () => {
-  it('is display:none until the row is hovered or focused, never opacity-0', () => {
+describe('the add-child "+" keeps row geometry stable', () => {
+  it('stays in layout while hidden and becomes interactive on hover or focus', () => {
     renderRow()
 
     const classes = screen.getByLabelText('Add child workspace').className.split(/\s+/)
-    expect(classes).toContain('hidden')
-    expect(classes).toContain('group-hover:inline-flex')
-    expect(classes).toContain('group-focus-within:inline-flex')
-    // The failure this pins: a faded button still occupies its box and gap.
-    expect(classes.filter((c) => /opacity/.test(c))).toEqual([])
+    expect(classes).toContain('inline-flex')
+    expect(classes).toContain('invisible')
+    expect(classes).toContain('pointer-events-none')
+    expect(classes).toContain('group-hover:visible')
+    expect(classes).toContain('group-hover:pointer-events-auto')
+    expect(classes).toContain('group-focus-within:visible')
+    expect(classes).toContain('group-focus-within:pointer-events-auto')
+    expect(classes).not.toContain('hidden')
+    expect(classes).not.toContain('group-hover:inline-flex')
   })
 
-  it('never carries a bare `inline-flex` that would out-rank the `hidden`', () => {
-    // The shared ROW_SUB_ACTION chrome is unconditionally inline-flex; composing
-    // the two would make the resting state depend on class ordering.
+  it('changes visibility and hit testing without changing display', () => {
     renderRow()
-    expect(screen.getByLabelText('Add child workspace').className.split(/\s+/)).not.toContain(
-      'inline-flex',
+    const variants = screen
+      .getByLabelText('Add child workspace')
+      .className.split(/\s+/)
+      .filter((className) => className.startsWith('group-hover:'))
+    expect(variants).toEqual(
+      expect.arrayContaining(['group-hover:visible', 'group-hover:pointer-events-auto']),
+    )
+    expect(variants.some((className) => /(?:hidden|flex|inline|block)$/.test(className))).toBe(
+      false,
     )
   })
 

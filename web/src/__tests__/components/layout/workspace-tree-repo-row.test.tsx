@@ -182,10 +182,13 @@ describe('repo header row: rename guard', () => {
 })
 
 describe('repo header row: row chrome', () => {
-  it('keeps the `group` class the hover-only "- default" hint depends on', () => {
+  it('keeps the hover-only "- default" hint in layout', () => {
     render(<WorkspaceTree />)
 
-    expect(screen.getByLabelText('Open crowbar').className.split(/\s+/)).toContain('group')
+    const classes = screen.getByText('- default').className.split(/\s+/)
+    expect(classes).toContain('invisible')
+    expect(classes).toContain('group-hover:visible')
+    expect(classes).not.toContain('hidden')
   })
 
   it('wears the shared active-row surface when the repo home is the open workspace', () => {

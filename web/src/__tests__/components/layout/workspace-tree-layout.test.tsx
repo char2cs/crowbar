@@ -3,7 +3,7 @@
  *
  * Every project lives in ONE scroller, separated by a rule, with its repos at
  * the project's own indent — the first indent step belongs to a repo's
- * workspaces, not to the repo row. One "Import project" row closes the list;
+ * workspaces, not to the repo row. One "New Project" row closes the list;
  * that row is what replaced the pushed project-switcher panel.
  *
  * Two structural things are pinned because breaking them is silent:
@@ -82,9 +82,11 @@ describe('every project in one scroll', () => {
   })
 
   it('separates the projects with an <hr>, and never leads with one', () => {
-    const { container } = render(<WorkspaceTree />)
+    render(<WorkspaceTree />)
 
-    const rules = container.querySelectorAll('hr')
+    // Scoped to the TREE: the rule closing the list sits outside it, above the
+    // New Project row, and is asserted with that row instead.
+    const rules = screen.getByRole('tree').querySelectorAll('hr')
     // Two projects, one rule between them.
     expect(rules).toHaveLength(1)
     // Decorative: the rows either side already announce the section change.
@@ -129,13 +131,16 @@ describe('indentation', () => {
   })
 })
 
-describe('the list closes with one Import project row', () => {
-  it('offers exactly one, immediately after the tree', () => {
+describe('the list closes with one New Project row', () => {
+  it('offers exactly one, separated from the last project by a rule', () => {
     render(<WorkspaceTree />)
 
-    expect(screen.getAllByText('Import project')).toHaveLength(1)
+    expect(screen.getAllByText('New Project')).toHaveLength(1)
+    // The rule marks a bigger change of kind than the one between two project
+    // sections: a section, then an action.
     const tree = screen.getByRole('tree')
-    expect(tree.nextElementSibling?.textContent).toBe('Import project')
+    expect(tree.nextElementSibling?.tagName).toBe('HR')
+    expect(tree.nextElementSibling?.nextElementSibling?.textContent).toBe('New Project')
   })
 
   it('sits OUTSIDE the tree — it is an action, not a node', () => {
@@ -144,16 +149,18 @@ describe('the list closes with one Import project row', () => {
     render(<WorkspaceTree />)
 
     const tree = screen.getByRole('tree')
-    expect(tree.textContent).not.toContain('Import project')
-    expect(screen.getByText('Import project').closest('[role="tree"]')).toBeNull()
+    expect(tree.textContent).not.toContain('New Project')
+    expect(screen.getByText('New Project').closest('[role="tree"]')).toBeNull()
   })
 
-  it('is offered even with no projects at all', () => {
+  it('is offered even with no projects at all — and draws no rule above nothing', () => {
     useProjectDataStore.setState({ data: success([]) })
     useSidebarStore.setState({ repos: [] })
     render(<WorkspaceTree />)
 
-    expect(screen.getByText('Import project')).toBeInTheDocument()
+    expect(screen.getByText('New Project')).toBeInTheDocument()
+    // A rule under an empty list would hang off the top of the sidebar.
+    expect(screen.getByRole('tree').nextElementSibling?.tagName).not.toBe('HR')
   })
 })
 

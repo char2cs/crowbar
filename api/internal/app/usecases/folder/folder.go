@@ -82,7 +82,8 @@ type MoveInput struct {
 }
 
 // PlaceInput is a partial workspace placement change, mirroring MoveInput.
-// FolderID is meaningful only on a fork root; see ErrForkChainSplit.
+// FolderID may organise a fork child when the folder lives in the same visible
+// fork-parent space; see ErrForkChainSplit.
 type PlaceInput struct {
 	FolderID *string
 	Order    *int
@@ -326,15 +327,10 @@ func (u *folderUsecase) PlaceWorkspace(
 	if err != nil {
 		return domain.Workspace{}, nil, err
 	}
-	origin := containerOf(current)
-	// The folder a workspace names and the sibling space it is ordered within are
-	// not the same thing: a workspace WITH a fork parent renders under that
-	// parent, so it is ordered among its fork siblings and its folder stays "".
-	// Only a fork root is ordered within the folder it names.
-	container := current.ParentID
-	if container == "" {
-		container = destination
-	}
+	origin := snapshot.containerOf(current)
+	// Organisation and lineage are separate edges. A compatible folder is the
+	// visible sibling space, while ParentID remains the git fork parent.
+	container := snapshot.containerFor(current, destination)
 	target := placementTarget(in.Order, snapshot, origin, container, wsID)
 	snapshot.setWorkspaceFolder(wsID, destination)
 	snapshot.reorder(container, wsID, target)
@@ -348,10 +344,9 @@ func (u *folderUsecase) PlaceWorkspace(
 	return *snapshot.workspace(wsID), written, nil
 }
 
-// resolvePlacement returns the container a workspace should end up in and
-// refuses the two placements the tree cannot render: filing a forked child away
-// from its fork parent, and filing a workspace into a folder that hangs off its
-// own subtree.
+// resolvePlacement returns the folder a workspace should carry and refuses the
+// two placements the tree cannot render: filing it into a different visible
+// fork-parent space, and filing it into a folder hanging off its own subtree.
 func (u *folderUsecase) resolvePlacement(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -364,14 +359,14 @@ func (u *folderUsecase) resolvePlacement(
 	if *requested == "" {
 		return "", nil
 	}
-	if current.ParentID != "" {
-		return "", fmt.Errorf("folder: place workspace %s: %w", current.ID, ErrForkChainSplit)
-	}
 	if err := u.checkFolderTarget(ctx, snapshot, current, *requested); err != nil {
 		return "", err
 	}
 	if snapshot.reaches(*requested, current.ID) {
 		return "", fmt.Errorf("folder: place workspace %s under %s: %w", current.ID, *requested, ErrFolderCycle)
+	}
+	if snapshot.folderWorkspaceAnchor(*requested) != snapshot.visibleWorkspaceParent(current) {
+		return "", fmt.Errorf("folder: place workspace %s: %w", current.ID, ErrForkChainSplit)
 	}
 	return *requested, nil
 }
@@ -392,6 +387,9 @@ func (u *folderUsecase) checkMove(
 	}
 	if snapshot.reaches(destination, current.ID) {
 		return fmt.Errorf("folder: move %s under %s: %w", current.ID, destination, ErrFolderCycle)
+	}
+	if !snapshot.folderMovePreservesForks(current.ID, destination) {
+		return fmt.Errorf("folder: move %s: %w", current.ID, ErrForkChainSplit)
 	}
 	return nil
 }

@@ -37,10 +37,27 @@ import type { Project } from '@/lib/types'
  */
 const EMPTY_REPOS: Repo[] = []
 
+// Store updates preserve unchanged Repo objects. Cache the expensive tree +
+// descendant indexes on that identity so one workspace frame cannot rebuild
+// every other repo's graph before React even gets a chance to bail out.
+const repoTreeCache = new WeakMap<Repo, SidebarRepoTree>()
+
+function indexedTreeFor(repo: Repo): SidebarRepoTree {
+  const cached = repoTreeCache.get(repo)
+  if (cached) return cached
+  const roots = buildSidebarTree(repo.workspaces, repo.folders ?? EMPTY_FOLDERS)
+  const tree = indexSidebarTree(roots, repo.id)
+  repoTreeCache.set(repo, tree)
+  return tree
+}
+
 interface ProjectGroup {
   id: string
   name: string
   repos: Repo[]
+  /** The project's custom icon, when it has one. Absent means the default mark. */
+  avatarUrl?: string
+  avatarEmoji?: string
 }
 
 function WorkspaceTreeInner() {
@@ -72,8 +89,16 @@ function WorkspaceTreeInner() {
   // mirroring the branch rows' renamingId — null when none. Owned here, not per
   // RepoSection, so opening one row's rename editor closes any other's.
   const [renamingRepoId, setRenamingRepoId] = useState<string | null>(null)
+  // The project row's inline rename, held here for the same reason the repo
+  // one is: one editor open across the whole tree, never two.
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
   const [importProjectOpen, setImportProjectOpen] = useState(false)
-  const wsListData = useWorkspaceListStore((s) => s.data)
+  // Cache rebuilds pass through loading/success even when the rows are
+  // byte-for-byte unchanged. The tree only needs the error object, so subscribe
+  // to that scalar instead of repainting on every fetch lifecycle transition.
+  const wsListError = useWorkspaceListStore((s) =>
+    s.data.status === 'error' ? s.data.error : null,
+  )
   const retryWorkspaces = useCallback(() => {
     void useWorkspaceListStore.getState().fetch()
   }, [])
@@ -98,8 +123,7 @@ function WorkspaceTreeInner() {
   const treeByRepo = useMemo(() => {
     const map = new Map<string, SidebarRepoTree>()
     for (const repo of repos) {
-      const roots = buildSidebarTree(repo.workspaces, repo.folders ?? EMPTY_FOLDERS)
-      map.set(repo.id, indexSidebarTree(roots, repo.id))
+      map.set(repo.id, indexedTreeFor(repo))
     }
     return map
   }, [repos])
@@ -120,11 +144,18 @@ function WorkspaceTreeInner() {
     const out: ProjectGroup[] = []
     const placed = new Set<string>()
     for (const project of projects) {
+      // A project held in the removal tray leaves the tree with everything under
+      // it, exactly as a held repo does. Filtering here rather than inside
+      // applyPendingRemovals because that one projects over REPOS, and a project
+      // with no repos of its own has no row there to take out.
+      if (hiddenIds.has(project.id)) continue
       placed.add(project.id)
       out.push({
         id: project.id,
         name: project.name,
         repos: reposByProject.get(project.id) ?? EMPTY_REPOS,
+        avatarUrl: project.avatarUrl,
+        avatarEmoji: project.avatarEmoji,
       })
     }
     for (const [projectId, list] of reposByProject) {
@@ -132,7 +163,18 @@ function WorkspaceTreeInner() {
       out.push({ id: projectId, name: 'home', repos: list })
     }
     return out
-  }, [projects, repos])
+    // `hiddenIds` is read INSIDE (a held project leaves the tree with everything
+    // under it) and so has to be declared. It survives today only by luck:
+    // `repos` above is itself derived from hiddenIds and hands back a new array
+    // whenever the set is non-empty, so this memo has always happened to
+    // recompute alongside it. That is a property of applyPendingRemovals'
+    // current implementation, not of this hook — the day it returns the same
+    // reference for a no-op projection, a held project silently stays on screen.
+  }, [projects, repos, hiddenIds])
+
+  // Stable identity so ProjectHomeRow's memo holds: it is a prop on every
+  // project row, and a fresh closure per render would reconcile all of them.
+  const clearProjectRename = useCallback(() => setRenamingProjectId(null), [])
 
   const handleWorkspaceClick = useCallback(
     (wsId: string, projectId: string, repoId: string) => {
@@ -179,10 +221,10 @@ function WorkspaceTreeInner() {
     onRemove: handleRemove,
   })
 
-  if (wsListData.status === 'error' && repos.length === 0) {
+  if (wsListError && repos.length === 0) {
     return (
       <div className="flex flex-1 flex-col overflow-hidden">
-        <InlineError error={wsListData.error} onRetry={retryWorkspaces} />
+        <InlineError error={wsListError} onRetry={retryWorkspaces} />
       </div>
     )
   }
@@ -228,6 +270,9 @@ function WorkspaceTreeInner() {
                   project={group}
                   isCollapsed={isCollapsed}
                   hasRepos={group.repos.length > 0}
+                  isRenaming={renamingProjectId === group.id}
+                  startRenaming={setRenamingProjectId}
+                  stopRenaming={clearProjectRename}
                 />
                 {!isCollapsed && (
                   // Repos sit at the PROJECT's own indent: the first indent step
@@ -259,9 +304,9 @@ function WorkspaceTreeInner() {
           })}
         </div>
 
-        {/* One row closes the list. This is what the pushed "Projects" panel used
-            to be reached for; with every project already on screen there is
-            nothing left for that screen to show.
+        {/* One row closes the list — "New Project". This is what the pushed
+            "Projects" panel used to be reached for; with every project already on
+            screen there is nothing left for that screen to show.
 
             Deliberately OUTSIDE the tree, though inside the same scroller: it is
             an action, not a node. A tree announces its children by position
@@ -269,19 +314,37 @@ function WorkspaceTreeInner() {
             that count and claim a place in a hierarchy it has no depth in. Same
             reasoning that made the rows treeitems in the first place, applied
             the other way round. */}
-        <button
-          type="button"
-          className={cn(
-            ROW_BASE,
-            'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
-          )}
-          onClick={() => setImportProjectOpen(true)}
-        >
-          <span className="inline-flex size-5 shrink-0 items-center justify-center">
-            <Plus className="size-3.5" />
-          </span>
-          <span className="min-w-0 flex-1 truncate text-left">Import project</span>
-        </button>
+        {/* The wrapper carries the row's horizontal inset so the button itself can
+            take `w-full`. A <button> with `display:flex` still resolves
+            `width:auto` to shrink-to-fit — form controls do, where the <div> rows
+            above simply fill — so this row's hover surface stopped at the end of
+            its label instead of spanning the sidebar like every other row's.
+            `w-full` on ROW_BASE's own `mx-1.5` would overflow the scroller by
+            those 12px, hence the inset moving out to the wrapper. */}
+        {/* The same rule the tree draws between two project sections, drawn once
+            more between the last of them and this row — it separates a section
+            from an action, which is a bigger change of kind than the one it
+            already marks between two sections.
+
+            Only when there is a project above it: a rule under nothing is a rule
+            hanging off the top of an empty sidebar. Decorative either way, so it
+            stays out of the a11y tree — the button announces itself. */}
+        {groups.length > 0 && <hr aria-hidden="true" className="mx-3 my-1.5 border-border" />}
+        <div className="px-1.5">
+          <button
+            type="button"
+            className={cn(
+              ROW_BASE,
+              'mx-0 w-full border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
+            )}
+            onClick={() => setImportProjectOpen(true)}
+          >
+            <span className="inline-flex size-5 shrink-0 items-center justify-center">
+              <Plus className="size-3.5" />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-left">New Project</span>
+          </button>
+        </div>
       </ScrollArea>
       <RemovalTray />
       <ImportProjectModal

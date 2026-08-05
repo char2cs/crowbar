@@ -170,14 +170,17 @@ describe('FolderRow — chrome', () => {
     }
   })
 
-  it('takes the shared icon family’s own stroke weight, never an override', () => {
-    // The rule workspace-row-base.ts spells out: the family's default IS the
-    // sidebar's weight. Override it and the folder becomes the boldest mark in
-    // a column of branch glyphs it is supposed to sit level with.
+  it('draws its folder from the same icon family as the branch rows beside it', () => {
+    // Phosphor, whose viewBox is 256 — not Lucide's 24. The folder pair was the
+    // last Lucide mark in this column, and an outline folder between filled
+    // Phosphor branch glyphs (workspace-branch-icon.tsx) read as two icon sets
+    // in one list.
     renderFolder()
     const svg = folderRow().querySelector('svg')!
-    expect(svg.getAttribute('viewBox')).toBe('0 0 24 24')
-    expect(svg.getAttribute('stroke-width')).toBe('2')
+    expect(svg.getAttribute('viewBox')).toBe('0 0 256 256')
+    // No stroke override: the family's own weight IS the sidebar's weight, the
+    // rule workspace-row-base.ts spells out.
+    expect(svg.getAttribute('stroke-width')).toBeNull()
   })
 
   it('swaps between two marks for open and closed rather than tweening one', () => {

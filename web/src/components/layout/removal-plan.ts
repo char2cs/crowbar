@@ -8,6 +8,12 @@ import {
 import type { RemovalDraft } from '@/lib/store/sidebar-removal'
 import type { DragSubject } from './drop-rules'
 
+/** The little a removal needs to know about a project: which one, and its label. */
+export interface ProjectRow {
+  id: string
+  name: string
+}
+
 /**
  * What a removal means, worked out before anything is hidden.
  *
@@ -32,16 +38,20 @@ import type { DragSubject } from './drop-rules'
  *   confirmation where a repo does.
  * - **A repo** takes every worktree under it, which is exactly why it waits on
  *   an answer rather than on a clock.
+ * - **A project** takes every repo, and therefore every worktree under every one
+ *   of them. It waits on an answer for the same reason, and on a modal after
+ *   that.
  */
 export function planRemoval(
   subjects: readonly DragSubject[],
   repos: readonly Repo[],
+  projects: readonly ProjectRow[] = [],
 ): RemovalDraft[] {
   const drafts: RemovalDraft[] = []
   const claimed = new Set<string>()
 
   for (const subject of subjects) {
-    const draft = draftFor(subject, repos)
+    const draft = draftFor(subject, repos, projects)
     // A row already inside another subject's subtree is not a second removal —
     // it is part of the first one, and holding it twice would put two rows in
     // the tray for one disappearance.
@@ -53,8 +63,30 @@ export function planRemoval(
   return drafts
 }
 
-function draftFor(subject: DragSubject, repos: readonly Repo[]): RemovalDraft | null {
-  if (subject.kind === 'project') return null
+function draftFor(
+  subject: DragSubject,
+  repos: readonly Repo[],
+  projects: readonly ProjectRow[],
+): RemovalDraft | null {
+  if (subject.kind === 'project') {
+    const project = projects.find((p) => p.id === subject.id)
+    if (!project) return null
+    const owned = repos.filter((r) => r.projectId === project.id)
+    return {
+      kind: 'project',
+      id: project.id,
+      label: project.name,
+      projectId: project.id,
+      // A project spans every repo under it, so there is no single owning one.
+      repoId: '',
+      // The project's own row AND every repo row inside it: the delete cascades
+      // server-side, so hiding only the header would leave its repos on screen
+      // with nothing above them.
+      hiddenIds: [project.id, ...owned.map((r) => r.id)],
+      extra: owned.reduce((n, r) => n + 1 + r.workspaces.length, 0),
+      fallbackWsId: null,
+    }
+  }
 
   if (subject.kind === 'repo') {
     const repo = repos.find((r) => r.id === subject.id)
@@ -120,23 +152,35 @@ function draftFor(subject: DragSubject, repos: readonly Repo[]): RemovalDraft | 
  * arrives — "release to remove" alone leaves the user to remember which rows
  * they picked up.
  */
-export function describeRemoval(drafts: readonly RemovalDraft[]): {
+export function describeRemoval(
+  drafts: readonly RemovalDraft[],
+  armed = true,
+): {
   title: string
   detail: string
+  armed: boolean
 } {
+  // "Drop here" while the zone is merely AVAILABLE, "Release" only once a
+  // release really would remove. The pane is up for the whole drag now, and for
+  // most of it the pointer is somewhere else entirely — telling the user to
+  // release then would be an instruction to do the one thing that reorders.
+  const verb = armed ? 'Release to remove' : 'Drop here to remove'
+
   if (drafts.length === 1) {
     const [only] = drafts
     return {
-      title: `Release to remove ${only.label}`,
+      title: `${verb} ${only.label}`,
       detail:
-        only.kind === 'repo'
+        only.kind === 'repo' || only.kind === 'project'
           ? 'You will confirm it in the sidebar before anything is deleted'
           : 'You will have 8 seconds to undo',
+      armed,
     }
   }
   return {
-    title: `Release to remove ${drafts.length} rows`,
+    title: `${verb} ${drafts.length} rows`,
     detail: 'You will have 8 seconds to undo',
+    armed,
   }
 }
 

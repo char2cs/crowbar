@@ -33,13 +33,11 @@ const NO_ORDER = Number.MAX_SAFE_INTEGER
  *
  * Placement follows one rule, in this order:
  *
- *   1. `parentId` — the FORK parent. Lineage is authoritative: a workspace
- *      always renders under the workspace it was forked from, because that
- *      edge is what `git rebase --onto` acts on. This is why a folder can
- *      never split a fork chain.
- *   2. `folderId` — only consulted when a workspace has no fork parent inside
- *      this repo, i.e. it is a fork-root. Descendants inherit their folder by
- *      hanging off their fork ancestor rather than carrying one themselves.
+ *   1. `folderId` — when that folder lives in the same visible fork-parent
+ *      space. A child of `develop` may therefore sit in a folder that also
+ *      hangs off `develop`, while `parentId` still records its real lineage.
+ *   2. `parentId` — the FORK parent. An incompatible or stale folder edge is
+ *      ignored rather than letting organisation visually split a fork chain.
  *   3. otherwise the repo root.
  *
  * Siblings sort by `order`, then by arrival, so an un-ordered repo (nothing
@@ -70,11 +68,32 @@ export function buildSidebarTree(
   }
 
   for (const folder of folders) parentOf.set(folder.id, folder.parentId || undefined)
+
+  // The workspace that owns a folder's visible sibling space. Root-level
+  // folders have no anchor. Walking rather than looking only at the immediate
+  // parent lets nested folders remain useful without weakening the lineage
+  // check.
+  const folderWorkspaceAnchor = (folderId: string): string | undefined => {
+    const visited = new Set<string>()
+    let cursor: string | undefined = folderId
+    while (cursor && !visited.has(cursor)) {
+      visited.add(cursor)
+      const node = nodes.get(cursor)
+      if (!node) return undefined
+      if (node.kind === 'workspace') return node.id
+      cursor = node.folder.parentId || undefined
+    }
+    return undefined
+  }
+
   for (const ws of workspaces) {
-    // Rule 1 then 2 then 3, as documented above.
+    // A parent absent from this rendered repo (for example the hidden repo-home
+    // workspace) is the visible root, matching a root folder's empty anchor.
     const forkParent = ws.parentId && nodes.has(ws.parentId) ? ws.parentId : undefined
     const folderParent = ws.folderId && nodes.has(ws.folderId) ? ws.folderId : undefined
-    parentOf.set(ws.id, forkParent ?? folderParent)
+    const compatibleFolder =
+      folderParent && folderWorkspaceAnchor(folderParent) === forkParent ? folderParent : undefined
+    parentOf.set(ws.id, compatibleFolder ?? forkParent)
   }
 
   const closesCycle = (id: string): boolean => {

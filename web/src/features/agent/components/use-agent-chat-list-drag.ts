@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
-import { DRAG_GHOST_OFFSET_X, DRAG_GHOST_OFFSET_Y } from '@/components/layout/drag-ghost'
 import {
   AGENT_CHAT_ROW_HEIGHT,
   autoScrollDelta,
@@ -13,6 +12,17 @@ import type { AgentChat } from '@/features/agent/api/agent-api'
 type DropTarget = { kind: 'trash' } | { kind: 'slot'; index: number }
 
 const DRAG_THRESHOLD_PX = 5
+
+/**
+ * Where the chip rides relative to the cursor.
+ *
+ * Its own constants rather than the workspace tree's grab-offset anchoring: this
+ * list is windowed, so what follows the pointer is a DragGhostChip — a small
+ * label, not a clone of the row. Anchoring a chip by the point a full-width row
+ * was grabbed at would leave the cursor off the end of it.
+ */
+const CHIP_OFFSET_X = 12
+const CHIP_OFFSET_Y = -10
 // Edge auto-scroll while dragging: within this many px of the scroll container's
 // top/bottom, scroll toward it by this many px per animation frame, so a drag can
 // reach rows the windowed list hasn't painted.
@@ -166,6 +176,7 @@ export function useAgentChatListDrag({
       stopAutoScroll()
       dragRef.current = null
       ghostOriginRef.current = null
+      document.documentElement.removeAttribute('data-row-dragging')
       setDraggingId(null)
       setHoverTarget(null)
     }
@@ -179,12 +190,15 @@ export function useAgentChatListDrag({
         drag.active = true
         // Seed the ghost's first paint before the render that mounts it.
         ghostOriginRef.current = { x: e.clientX, y: e.clientY }
+        // The same grabbing cursor the workspace tree raises, from the same
+        // attribute — a chat row in the air is a row in the air. See index.css.
+        document.documentElement.setAttribute('data-row-dragging', '')
         setDraggingId(drag.id)
         startAutoScroll()
       }
       if (ghostRef.current) {
-        ghostRef.current.style.left = `${e.clientX + DRAG_GHOST_OFFSET_X}px`
-        ghostRef.current.style.top = `${e.clientY + DRAG_GHOST_OFFSET_Y}px`
+        ghostRef.current.style.left = `${e.clientX + CHIP_OFFSET_X}px`
+        ghostRef.current.style.top = `${e.clientY + CHIP_OFFSET_Y}px`
       }
       autoScrollPointerRef.current = { x: e.clientX, y: e.clientY }
       setHoverTarget(resolveTarget(e.clientX, e.clientY))
@@ -209,6 +223,9 @@ export function useAgentChatListDrag({
     window.addEventListener('pointercancel', endDrag)
     return () => {
       stopAutoScroll()
+      // Never leave the window stuck on the grabbing cursor with no drag left
+      // to end and clear it.
+      document.documentElement.removeAttribute('data-row-dragging')
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('pointercancel', endDrag)

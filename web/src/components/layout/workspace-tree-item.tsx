@@ -13,13 +13,13 @@ import {
   ROW_GLYPH_BOX,
   ROW_INDENT_STEP,
   ROW_INDENT_TRANSITION,
-  ROW_SUB_ACTION,
   ROW_SUB_ACTION_HOVER,
   ROW_SUBLABEL,
   ROW_SUBLABEL_ADD,
   ROW_SUBLABEL_DEL,
   ROW_NEST_TARGET,
 } from './workspace-row-base'
+import { RowDisclosureButton } from './row-disclosure-button'
 import { useWorkspaceTreeActions, useWorkspaceTreeDrag } from './workspace-tree-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useSidebarSelectionStore } from '@/lib/store/sidebar-selection'
@@ -92,12 +92,12 @@ function WorkspaceRowLabel({ workspace, showCounts, onRename }: WorkspaceRowLabe
 }
 
 /**
- * The row's add-child "+", which leaves the flow at rest.
+ * The row's add-child "+", which keeps a stable flex slot at rest.
  *
- * `display` rather than opacity (see ROW_SUB_ACTION_HOVER): an opacity-0 button
- * still holds its 24px box and the row's 6px gap, so fading it gives the branch
- * name back exactly nothing. The pointerdown is stopped so pressing the control
- * does not arm a drag of the row under it.
+ * Keeping the invisible button in layout (see ROW_SUB_ACTION_HOVER) prevents
+ * the branch label from resizing whenever the pointer crosses a row. The
+ * pointerdown is stopped so pressing the control does not arm a drag of the row
+ * under it.
  */
 function AddChildButton({ onAdd }: { onAdd: () => void }) {
   return (
@@ -121,34 +121,6 @@ function AddChildButton({ onAdd }: { onAdd: () => void }) {
         strokeLinecap="round"
       >
         <path d={ADD_GLYPH_PATH} />
-      </svg>
-    </button>
-  )
-}
-
-/** The row's trailing chevron, shown only once the row has something to show. */
-function DisclosureButton({ expanded, onToggle }: { expanded: boolean; onToggle: () => void }) {
-  return (
-    <button
-      type="button"
-      className={ROW_SUB_ACTION}
-      onClick={(e) => {
-        e.stopPropagation()
-        onToggle()
-      }}
-      onPointerDown={(e) => e.stopPropagation()}
-      aria-label={expanded ? 'Collapse' : 'Expand'}
-    >
-      <svg
-        aria-hidden="true"
-        className={cn('size-3 transition-transform', expanded && 'rotate-90')}
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      >
-        <path d="M6 3l5 5-5 5" />
       </svg>
     </button>
   )
@@ -367,7 +339,7 @@ export function WorkspaceTreeItem({
             />
           )}
 
-          {hasChildren && <DisclosureButton expanded={expanded} onToggle={toggle} />}
+          {hasChildren && <RowDisclosureButton expanded={expanded} onToggle={toggle} />}
         </div>
 
         {showPlaceholderDetails && (

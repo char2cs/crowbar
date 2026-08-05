@@ -1,11 +1,10 @@
 /**
  * Contract pins for the folder-aware, ordered sidebar tree.
  *
- * The rule under test is placement precedence: fork lineage (`parentId`) beats
- * folder membership (`folderId`), always. That is not a preference — the fork
- * edge is what `git rebase --onto` acts on, so a folder that could re-seat a
- * workspace off its fork parent would corrupt lineage. It is also why only a
- * fork-root ever carries a `folderId`.
+ * The rule under test keeps organisation and lineage independent: a folder may
+ * sit between a workspace and one of its fork children when both belong to the
+ * same visible sibling space. An incompatible folder edge falls back to the
+ * real fork parent instead of visually splitting the chain.
  *
  * The other pin is ordering: an un-ordered repo must come out in exactly the
  * order the backend sent it, or the sidebar would shuffle itself the first time
@@ -33,8 +32,15 @@ const folder = (id: string, over: Partial<SidebarFolder> = {}): SidebarFolder =>
 })
 
 const ids = (nodes: SidebarTreeNode[]) => nodes.map((n) => n.id)
-const childOf = (nodes: SidebarTreeNode[], id: string) =>
-  nodes.find((n) => n.id === id)?.children ?? []
+const findNode = (nodes: SidebarTreeNode[], id: string): SidebarTreeNode | undefined => {
+  for (const node of nodes) {
+    if (node.id === id) return node
+    const nested = findNode(node.children, id)
+    if (nested) return nested
+  }
+  return undefined
+}
+const childOf = (nodes: SidebarTreeNode[], id: string) => findNode(nodes, id)?.children ?? []
 
 describe('buildSidebarTree — placement', () => {
   test('a workspace with no parent and no folder sits at the repo root', () => {
@@ -53,12 +59,19 @@ describe('buildSidebarTree — placement', () => {
     expect(ids(childOf(tree, 'f1'))).toEqual(['root'])
   })
 
-  test('fork lineage wins over folder membership', () => {
-    // A child that somehow carries both must still render under its fork
-    // parent — the folder may not split the chain.
+  test('a fork child can be organised inside a folder under its fork parent', () => {
     const tree = buildSidebarTree(
       [ws('parent'), ws('child', { parentId: 'parent', folderId: 'f1' })],
-      [folder('f1')],
+      [folder('f1', { parentId: 'parent' })],
+    )
+    expect(ids(childOf(tree, 'parent'))).toEqual(['f1'])
+    expect(ids(childOf(tree, 'f1'))).toEqual(['child'])
+  })
+
+  test('an incompatible folder edge falls back to the real fork parent', () => {
+    const tree = buildSidebarTree(
+      [ws('parent'), ws('other'), ws('child', { parentId: 'parent', folderId: 'f1' })],
+      [folder('f1', { parentId: 'other' })],
     )
     expect(ids(childOf(tree, 'f1'))).toEqual([])
     expect(ids(childOf(tree, 'parent'))).toEqual(['child'])
@@ -82,11 +95,12 @@ describe('buildSidebarTree — placement', () => {
 
   test('a folder can hang off a protected branch', () => {
     const tree = buildSidebarTree(
-      [ws('develop', { status: 'locked' }), ws('feat', { folderId: 'f1' })],
+      [ws('develop', { status: 'locked' }), ws('feat', { parentId: 'develop', folderId: 'f1' })],
       [folder('f1', { parentId: 'develop' })],
     )
     expect(ids(tree)).toEqual(['develop'])
     expect(ids(childOf(tree, 'develop'))).toEqual(['f1'])
+    expect(ids(childOf(tree, 'f1'))).toEqual(['feat'])
   })
 
   test('an unresolvable folderId falls back to the repo root, not a dropped row', () => {

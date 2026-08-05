@@ -206,3 +206,11 @@ func TestRegisterMountsRoutes(
 	}
 	assert.False(t, wsHit)
 }
+
+func (stubReader) SetLock(
+	_ context.Context,
+	id string,
+	locked *bool,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, LockOverride: locked}, nil
+}

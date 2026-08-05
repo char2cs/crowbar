@@ -41,7 +41,13 @@ type fakeReader struct {
 	gotSync              string
 	syncDone             chan struct{}
 	elig                 map[string]workspace.MergeEligibility
-	gotElig              [][]domain.Workspace
+	// The user's own lock decision: what the handler passed down, how often, and
+	// a canned refusal for the paths the daemon rejects (project home, a
+	// placeholder with no worktree of its own).
+	lockCalls int
+	gotLocked *bool
+	lockErr   error
+	gotElig   [][]domain.Workspace
 }
 
 func (f *fakeReader) List(
@@ -339,6 +345,7 @@ func newRouterWithPlacer(
 	rg.POST("/workspaces/:wsId/reparent", h.Reparent)
 	rg.POST("/workspaces/:wsId/retry-provision", h.RetryProvision)
 	rg.POST("/workspaces/:wsId/detach-holder", h.DetachHolder)
+	rg.POST("/workspaces/:wsId/lock", h.Lock)
 	concrete, _ := placer.(*fakePlacer)
 	return r, concrete, frames
 }
@@ -372,4 +379,17 @@ func do(
 	}
 	r.ServeHTTP(rec, req)
 	return rec
+}
+
+func (f *fakeReader) SetLock(
+	_ context.Context,
+	id string,
+	locked *bool,
+) (domain.Workspace, error) {
+	f.lockCalls++
+	f.gotLocked = locked
+	if f.lockErr != nil {
+		return domain.Workspace{}, f.lockErr
+	}
+	return domain.Workspace{ID: id, LockOverride: locked}, nil
 }

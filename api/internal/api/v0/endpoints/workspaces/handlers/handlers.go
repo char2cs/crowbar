@@ -66,6 +66,13 @@ type Reader interface {
 		id string,
 		now time.Time,
 	) (domain.Workspace, error)
+	// SetLock records the user's own lock decision; nil hands the question back
+	// to the provider's protected flag. See lock.go.
+	SetLock(
+		ctx context.Context,
+		id string,
+		locked *bool,
+	) (domain.Workspace, error)
 	MergeEligibilityFor(
 		ctx context.Context,
 		ws domain.Workspace,

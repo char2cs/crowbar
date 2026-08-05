@@ -18,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	projecthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -38,6 +39,23 @@ type fakeReader struct {
 	// reorderTo records the index the last Reorder call asked for, so a test can
 	// assert the handler passed the body's order through untouched.
 	reorderTo int
+	// updated is what Update answers with, and updatedWith records the partial it
+	// was handed — what a rename or an icon change is asserted through.
+	updated     domain.Project
+	updateErr   error
+	updatedWith *project.Update
+}
+
+func (f *fakeReader) Update(
+	_ context.Context,
+	_ string,
+	in project.Update,
+) (domain.Project, error) {
+	f.updatedWith = &in
+	if f.updateErr != nil {
+		return domain.Project{}, f.updateErr
+	}
+	return f.updated, nil
 }
 
 func (f *fakeReader) List(
@@ -533,4 +551,58 @@ func TestPatch_ListFailureAfterTheWriteStillAnswers204(t *testing.T) {
 
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 	assert.Empty(t, bc.ch)
+}
+
+// The sidebar's inline rename, which PATCH grew alongside the reorder it used to
+// be the only reason for. Both are single store writes, so both answer 204 and
+// deliver the change on the WS stream rather than in the response body.
+func TestPatchRenamesAProject(t *testing.T) {
+	reader := &fakeReader{updated: domain.Project{ID: "p1", Name: "harbour"}}
+	bc := newRecordingBroadcaster()
+	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"name":"  harbour  "}`)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH = %d, want 204 (body %s)", rec.Code, rec.Body.String())
+	}
+	if reader.updatedWith == nil || reader.updatedWith.Name == nil {
+		t.Fatal("the handler never passed a name through")
+	}
+	// Trimmed at the edge, so the store never holds a name with the whitespace
+	// an inline editor makes it far too easy to leave behind.
+	if *reader.updatedWith.Name != "harbour" {
+		t.Errorf("name = %q, want %q", *reader.updatedWith.Name, "harbour")
+	}
+	// A rename shifts nobody, so it delivers the one row it changed — not the
+	// whole list a reorder's densify has to re-broadcast.
+	if got := bc.await(t).ID; got != "p1" {
+		t.Errorf("broadcast project = %q, want p1", got)
+	}
+	select {
+	case extra := <-bc.ch:
+		t.Errorf("a rename broadcast a second frame: %+v", extra)
+	default:
+	}
+}
+
+func TestPatchRejectsABlankName(t *testing.T) {
+	reader := &fakeReader{}
+	r := newRouter(reader, &fakeImporter{})
+
+	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"name":"   "}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH = %d, want 400", rec.Code)
+	}
+	if reader.updatedWith != nil {
+		t.Error("a blank name must never reach the store")
+	}
+}
+
+func TestPatchStillRequiresSomethingToDo(t *testing.T) {
+	r := newRouter(&fakeReader{}, &fakeImporter{})
+	if rec := do(r, http.MethodPatch, "/v0/projects/p1", `{}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH = %d, want 400", rec.Code)
+	}
 }

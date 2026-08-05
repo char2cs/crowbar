@@ -281,6 +281,62 @@ function isSameRow<T extends object>(existing: T, incoming: T): boolean {
   return true
 }
 
+function isSameCompleteRow<T extends object>(existing: T, incoming: T): boolean {
+  return (
+    Object.keys(existing).length === Object.keys(incoming).length && isSameRow(existing, incoming)
+  )
+}
+
+/**
+ * Reuse rows that an authoritative cache rebuild recreated without changing.
+ * Entity-cache reads deserialize every object afresh; handing those identities
+ * straight to Zustand made a no-op seed look like a change to every row.
+ */
+function reconcileRows<T extends { id: string }>(existing: T[], incoming: T[]): T[] {
+  const byId = new Map(existing.map((row) => [row.id, row]))
+  const next = incoming.map((row) => {
+    const current = byId.get(row.id)
+    return current && isSameCompleteRow(current, row) ? current : row
+  })
+  return next.length === existing.length && next.every((row, index) => row === existing[index])
+    ? existing
+    : next
+}
+
+function sameRepoFields(existing: Repo, incoming: Repo): boolean {
+  const keys = new Set([...Object.keys(existing), ...Object.keys(incoming)])
+  keys.delete('workspaces')
+  keys.delete('folders')
+  for (const key of keys as Set<keyof Repo>) {
+    if (existing[key] !== incoming[key]) return false
+  }
+  return true
+}
+
+function reconcileRepos(existing: Repo[], incoming: Repo[]): Repo[] {
+  const byId = new Map(existing.map((repo) => [repo.id, repo]))
+  const next = incoming.map((repo) => {
+    const current = byId.get(repo.id)
+    if (!current) return repo
+    const workspaces = reconcileRows(current.workspaces, repo.workspaces)
+    const folders =
+      repo.folders === undefined
+        ? undefined
+        : reconcileRows(current.folders ?? EMPTY_FOLDERS, repo.folders)
+    if (
+      workspaces === current.workspaces &&
+      folders === current.folders &&
+      sameRepoFields(current, repo)
+    ) {
+      return current
+    }
+    return { ...repo, workspaces, ...(folders === undefined ? {} : { folders }) }
+  })
+  return next.length === existing.length && next.every((repo, index) => repo === existing[index])
+    ? existing
+    : next
+}
+
 /**
  * Whether `wsId` is a locked (protected-branch) workspace. Locked worktrees
  * refuse every daemon write (409 "workspace locked"), so mutation UI gates on
@@ -579,7 +635,10 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
 
   setRepos: (repos) => {
     recordRepoScopes(repos)
-    set({ repos })
+    set((s) => {
+      const next = reconcileRepos(s.repos, repos)
+      return next === s.repos ? s : { repos: next }
+    })
   },
 
   mergeRepos: (incoming) =>

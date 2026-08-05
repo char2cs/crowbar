@@ -9,7 +9,7 @@ import type { DragSubject } from './drop-rules'
  * wait.
  */
 
-export type RowMenuAction = 'group' | 'remove'
+export type RowMenuAction = 'group' | 'lock' | 'unlock' | 'remove'
 
 export interface RowMenuEntry {
   id: RowMenuAction
@@ -22,13 +22,15 @@ export interface RowMenuEntry {
  * `dragSubjectsFor()`, the same function the drag uses, so a right-click and a
  * drag can never disagree about what they are acting on.
  *
- * An empty list means no menu at all rather than a menu of disabled items: a
- * project row offers neither action, and opening an empty popup on it would be a
- * worse answer than not opening one.
+ * An empty list means no menu at all rather than a menu of disabled items:
+ * opening an empty popup is a worse answer than the row simply not having one.
  */
 export function rowMenuFor(subjects: readonly DragSubject[]): RowMenuEntry[] {
   if (subjects.length === 0) return []
-  if (subjects.some((s) => s.kind === 'project')) return []
+  // A project never joins a multiselection, so it is either the only subject or
+  // it is mixed in with rows from inside itself — and "remove this project and
+  // also this branch within it" is not a coherent action to offer.
+  if (subjects.some((s) => s.kind === 'project') && subjects.length > 1) return []
 
   const entries: RowMenuEntry[] = []
   const n = subjects.length
@@ -38,11 +40,48 @@ export function rowMenuFor(subjects: readonly DragSubject[]): RowMenuEntry[] {
     entries.push({ id: 'group', label: n > 1 ? `Group ${n} into a folder` : 'Group into a folder' })
   }
 
+  entries.push(...lockEntries(subjects))
+
   if (subjects.every((s) => !s.locked)) {
     entries.push({ id: 'remove', label: removeLabel(subjects) })
   }
 
   return entries
+}
+
+/**
+ * Lock and unlock, offered for whichever of the two would actually change
+ * something.
+ *
+ * Locking used to be the provider's alone: a protected branch was created locked
+ * and re-locked on every poll, and there was no way to disagree. The user's
+ * decision now outranks that (domain.Workspace.LockOverride), in BOTH directions
+ * — main can be unlocked, an ordinary fork child can be locked — and it survives
+ * the next poll. Automatic locking is untouched: a protected branch still starts
+ * locked, this is only the ability to overrule it afterwards.
+ *
+ * Only workspaces. A folder holds rows and has nothing to protect; a repo's
+ * header row is its default workspace, which is the one branch that must stay
+ * locked — it IS the repo's own checkout, and handing it out for editing under
+ * the sidebar's rules is not what the lock is for.
+ *
+ * On a homogeneous selection exactly one entry appears. On a mixed one both do,
+ * each acting on the whole selection — which is the honest offer, since either
+ * verb genuinely applies to part of it.
+ */
+function lockEntries(subjects: readonly DragSubject[]): RowMenuEntry[] {
+  const rows = subjects.filter((s) => s.kind === 'workspace')
+  if (rows.length === 0 || rows.length !== subjects.length) return []
+
+  const out: RowMenuEntry[] = []
+  const n = rows.length
+  if (rows.some((s) => !s.locked)) {
+    out.push({ id: 'lock', label: n > 1 ? `Lock ${n} workspaces` : 'Lock workspace' })
+  }
+  if (rows.some((s) => s.locked)) {
+    out.push({ id: 'unlock', label: n > 1 ? `Unlock ${n} workspaces` : 'Unlock workspace' })
+  }
+  return out
 }
 
 function removeLabel(subjects: readonly DragSubject[]): string {
@@ -51,6 +90,8 @@ function removeLabel(subjects: readonly DragSubject[]): string {
     switch (subjects[0].kind) {
       case 'repo':
         return 'Remove repository'
+      case 'project':
+        return 'Delete project'
       case 'folder':
         return 'Delete folder'
       default:

@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { FolderRow } from './folder-row'
 import { WorkspaceTreeItem } from './workspace-tree-item'
 import type { SidebarRepoTree, SidebarTreeNode } from './workspace-tree-utils'
@@ -22,13 +23,13 @@ export interface SidebarNodeProps {
   tree: SidebarRepoTree
 }
 
-export function SidebarNode({ node, ...rest }: SidebarNodeProps) {
+export const SidebarNode = memo(function SidebarNode({ node, ...rest }: SidebarNodeProps) {
   return node.kind === 'folder' ? (
     <FolderRow node={node} {...rest} />
   ) : (
     <WorkspaceTreeItem node={node} {...rest} />
   )
-}
+})
 
 interface HeldRowsProps extends Omit<SidebarNodeProps, 'node' | 'containerId'> {
   /** The outermost kept ids under the folded row, from {@link useKeptRows}. */

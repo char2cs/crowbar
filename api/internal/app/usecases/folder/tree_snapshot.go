@@ -132,7 +132,7 @@ func (t *treeSnapshot) members(
 		}
 	}
 	for _, w := range t.workspaces {
-		if containerOf(w) == container {
+		if t.containerOf(w) == container {
 			rows = append(rows, member{id: w.ID, order: w.Order, created: w.CreatedAt})
 		}
 	}
@@ -283,7 +283,7 @@ func (t *treeSnapshot) parentOf(
 		return row.ParentID
 	}
 	if row := t.workspace(id); row != nil {
-		return containerOf(*row)
+		return t.containerOf(*row)
 	}
 	return ""
 }
@@ -299,14 +299,106 @@ func (t *treeSnapshot) dirtyIDs() []string {
 	return ids
 }
 
-// containerOf returns the sibling space a workspace renders in: its fork
-// parent's children when it has one, otherwise the folder it is filed under
-// (or the repo root).
-func containerOf(
+// visibleWorkspaceParent returns the lineage parent that is also a row in this
+// sidebar tree. Repo home is deliberately absent from the snapshot, so a row
+// forked from it belongs to the visible root just like a row with no ParentID.
+func (t *treeSnapshot) visibleWorkspaceParent(
 	ws domain.Workspace,
 ) string {
-	if ws.ParentID != "" {
+	if ws.ParentID != "" && t.workspace(ws.ParentID) != nil {
 		return ws.ParentID
 	}
-	return ws.FolderID
+	return ""
+}
+
+// folderWorkspaceAnchor returns the nearest workspace above a folder. Empty is
+// the repo root. The visited set makes corrupt persisted folder cycles degrade
+// to root instead of spinning while a placement is being validated.
+func (t *treeSnapshot) folderWorkspaceAnchor(
+	folderID string,
+) string {
+	visited := map[string]bool{}
+	for at := folderID; at != "" && !visited[at]; {
+		visited[at] = true
+		if row := t.folder(at); row != nil {
+			at = row.ParentID
+			continue
+		}
+		if t.workspace(at) != nil {
+			return at
+		}
+		return ""
+	}
+	return ""
+}
+
+// containerFor resolves the sibling space for ws if it carried folderID. A
+// compatible folder may sit between a workspace and its fork child, while the
+// git ParentID remains untouched. An incompatible stale edge falls back to the
+// real visible fork parent so the tree remains renderable.
+func (t *treeSnapshot) containerFor(
+	ws domain.Workspace,
+	folderID string,
+) string {
+	parent := t.visibleWorkspaceParent(ws)
+	if folderID != "" && t.folder(folderID) != nil && t.folderWorkspaceAnchor(folderID) == parent {
+		return folderID
+	}
+	return parent
+}
+
+func (t *treeSnapshot) containerOf(
+	ws domain.Workspace,
+) string {
+	return t.containerFor(ws, ws.FolderID)
+}
+
+// folderAnchorAfterMove answers the workspace anchor a folder chain would have
+// after moving `moved` to `destination`, plus whether that chain actually
+// crosses the moved row. A workspace encountered first owns the deeper folder
+// space and shields it from an ancestor folder move.
+func (t *treeSnapshot) folderAnchorAfterMove(
+	folderID string,
+	moved string,
+	destination string,
+) (string, bool) {
+	visited := map[string]bool{}
+	touched := false
+	for at := folderID; at != "" && !visited[at]; {
+		visited[at] = true
+		if at == moved {
+			touched = true
+			at = destination
+			continue
+		}
+		if row := t.folder(at); row != nil {
+			at = row.ParentID
+			continue
+		}
+		if t.workspace(at) != nil {
+			return at, touched
+		}
+		return "", touched
+	}
+	return "", touched
+}
+
+// folderMovePreservesForks keeps a folder move from carrying any filed
+// workspace away from its real fork-parent space. Empty folders remain freely
+// movable; folders containing rows can still move anywhere under the same
+// workspace anchor.
+func (t *treeSnapshot) folderMovePreservesForks(
+	moved string,
+	destination string,
+) bool {
+	for _, ws := range t.workspaces {
+		if ws.FolderID == "" {
+			continue
+		}
+		anchor, touched := t.folderAnchorAfterMove(ws.FolderID, moved, destination)
+		if touched && anchor != t.visibleWorkspaceParent(ws) {
+			return false
+		}
+	}
+	return true
 }

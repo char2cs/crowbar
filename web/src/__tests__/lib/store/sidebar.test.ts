@@ -133,6 +133,44 @@ test('toggleRepo flips collapsed state', () => {
   expect(useSidebarStore.getState().collapsedRepos.has('crowbar')).toBe(false)
 })
 
+test('setRepos is silent when a cache rebuild only recreated object identities', () => {
+  const before = useSidebarStore.getState().repos
+  const rebuilt = before.map((repo) => ({
+    ...repo,
+    workspaces: repo.workspaces.map((workspace) => ({ ...workspace })),
+  }))
+  let notifications = 0
+  const unsubscribe = useSidebarStore.subscribe(() => {
+    notifications += 1
+  })
+
+  useSidebarStore.getState().setRepos(rebuilt)
+
+  expect(useSidebarStore.getState().repos).toBe(before)
+  expect(notifications).toBe(0)
+  unsubscribe()
+})
+
+test('setRepos preserves unaffected repos and rows when one workspace changed', () => {
+  const before = useSidebarStore.getState().repos
+  const rebuilt = before.map((repo, repoIndex) => ({
+    ...repo,
+    workspaces: repo.workspaces.map((workspace, workspaceIndex) => ({
+      ...workspace,
+      ...(repoIndex === 0 && workspaceIndex === 0 ? { working: true } : {}),
+    })),
+  }))
+
+  useSidebarStore.getState().setRepos(rebuilt)
+
+  const after = useSidebarStore.getState().repos
+  expect(after).not.toBe(before)
+  expect(after[0]).not.toBe(before[0])
+  expect(after[0].workspaces[0]).not.toBe(before[0].workspaces[0])
+  expect(after[0].workspaces[1]).toBe(before[0].workspaces[1])
+  expect(after[1]).toBe(before[1])
+})
+
 test('addWorkspace stores parentId when provided', () => {
   useSidebarStore.getState().addWorkspace('crowbar', 'ws-child', 'feature/child', 'ws-develop')
   const ws = useSidebarStore

@@ -41,6 +41,7 @@ func Register(
 	rg.PATCH("/workspaces/:wsId", h.Patch)
 	rg.DELETE("/workspaces/:wsId", h.Delete)
 	rg.POST("/workspaces/:wsId/sync", h.Sync)
+	rg.POST("/workspaces/:wsId/lock", h.Lock)
 	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)
 	rg.POST("/workspaces/:wsId/reparent", h.Reparent)
 	rg.POST("/workspaces/:wsId/rebase-onto-parent", h.RebaseOntoParent)

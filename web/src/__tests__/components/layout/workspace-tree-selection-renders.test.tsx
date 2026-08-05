@@ -125,3 +125,14 @@ describe('a selection click re-renders the rows it changed, and no others', () =
     expect(renders.count).toBe(0)
   })
 })
+
+describe('disclosure controls do not repaint rows whose data did not change', () => {
+  it('collapses a repo without rendering any workspace row again', () => {
+    render(<WorkspaceTree />)
+    renders.count = 0
+
+    useSidebarStore.getState().toggleRepo('r1')
+
+    expect(renders.count).toBe(0)
+  })
+})

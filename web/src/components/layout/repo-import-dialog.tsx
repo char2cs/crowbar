@@ -57,6 +57,8 @@ export function RepoImportDialog({
   // never holds the list back. A reopen re-fetches rather than showing the
   // previous open's branches — the whole point of the server-side refresh is
   // that the remote may have moved since.
+  //
+  // react-doctor-disable-next-line no-reset-all-state-on-prop-change -- the harm the rule names ("users briefly see stale state") cannot happen here: `loadState` is reset to 'loading' in this same synchronous body and is what gates the list's render below, so a reopen shows "Fetching branches from the remote…" and never the previous open's branches. The prescribed fix — mount/key the body on `open` — would unmount it during the Dialog's exit animation, leaving an empty popup for the length of the close.
   useEffect(() => {
     if (!open) return
     setSelected(new Set())

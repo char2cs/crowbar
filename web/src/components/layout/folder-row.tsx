@@ -1,4 +1,4 @@
-import { Folder, FolderOpen } from 'lucide-react'
+import { Folder, FolderOpen } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useSidebarSelectionStore } from '@/lib/store/sidebar-selection'
@@ -9,11 +9,11 @@ import {
   ROW_GLYPH_BOX,
   ROW_INDENT_STEP,
   ROW_INDENT_TRANSITION,
-  ROW_SUB_ACTION,
   ROW_SUB_ACTION_HOVER,
   ROW_NEST_TARGET,
   ADD_GLYPH_PATH,
 } from './workspace-row-base'
+import { RowDisclosureButton } from './row-disclosure-button'
 import { useWorkspaceTreeActions, useWorkspaceTreeDrag } from './workspace-tree-context'
 import { CollapseSection } from './collapse-section'
 import { InlineCreateRow } from './inline-create-row'
@@ -169,26 +169,32 @@ export function FolderRow({
           {/* Open and closed are two glyphs, swapped, rather than one glyph
               animating between them. At 16px an open folder is a few pixels of
               shear away from a closed one, so a tween spends 200ms saying
-              something the swap says instantly — and the swapped pair is drawn
-              at the same weight as the branch glyph this row interleaves with,
-              which a filled or tinted mark of our own could not be. No
-              strokeWidth override: the default IS the sidebar's weight (see
-              workspace-row-base.ts).
+              something the swap says instantly.
 
-              The holding dots ride INSIDE the glyph rather than beside it,
-              because they are a state of the folder, not a second mark. They
-              only ever appear on the closed one — a row can hold rows only
-              while it is folded. */}
+              Phosphor, like the branch glyph this row interleaves with
+              (workspace-branch-icon.tsx) — the folder pair was the last Lucide
+              mark left in the tree column, and an outline folder beside a filled
+              branch read as two different icon sets in one list, which is what it
+              was. Duotone rather than that file's `fill`: the holding dots below
+              sit INSIDE this glyph, and a solid folder leaves them nowhere to be
+              seen. Duotone's 20%-opacity body is exactly the interior they need,
+              and it is what the file explorer already draws a folder as.
+
+              The dots ride inside the glyph rather than beside it because they
+              are a state of the folder, not a second mark, and they appear only
+              on the closed one — a row can hold rows only while it is folded.
+              Their coordinates are Phosphor's 256-unit viewBox, not Lucide's 24;
+              carried over unscaled they were a third of a pixel across. */}
           <span className={ROW_GLYPH_BOX}>
             {expanded ? (
-              <FolderOpen aria-hidden="true" className="size-4" />
+              <FolderOpen aria-hidden="true" className="size-4" weight="duotone" />
             ) : (
-              <Folder aria-hidden="true" className="size-4">
+              <Folder aria-hidden="true" className="size-4" weight="duotone">
                 {held.holding && (
                   <g data-holding-rows="" fill="currentColor" stroke="none">
-                    <circle cx="8" cy="13.5" r="1.1" />
-                    <circle cx="12" cy="13.5" r="1.1" />
-                    <circle cx="16" cy="13.5" r="1.1" />
+                    <circle cx="85" cy="160" r="12" />
+                    <circle cx="128" cy="160" r="12" />
+                    <circle cx="171" cy="160" r="12" />
                   </g>
                 )}
               </Folder>
@@ -267,30 +273,7 @@ export function FolderRow({
             </svg>
           </button>
 
-          {hasChildren && (
-            <button
-              type="button"
-              className={ROW_SUB_ACTION}
-              aria-label={expanded ? 'Collapse' : 'Expand'}
-              onClick={(e) => {
-                e.stopPropagation()
-                toggle()
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <svg
-                aria-hidden="true"
-                className={cn('size-3 transition-transform', expanded && 'rotate-90')}
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              >
-                <path d="M6 3l5 5-5 5" />
-              </svg>
-            </button>
-          )}
+          {hasChildren && <RowDisclosureButton expanded={expanded} onToggle={toggle} />}
         </div>
       </div>
 

@@ -75,7 +75,7 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
 /** Give every workspace row a rect, stacked in render order. */
 function stubRowRects(): Map<string, HTMLElement> {
   const rows = new Map<string, HTMLElement>()
-  document.querySelectorAll<HTMLElement>('[data-ws-drop]').forEach((el, i) => {
+  document.querySelectorAll<HTMLElement>('[data-ws-drop],[data-folder-drop]').forEach((el, i) => {
     const top = i * ROW_HEIGHT
     el.getBoundingClientRect = () =>
       ({
@@ -86,7 +86,7 @@ function stubRowRects(): Map<string, HTMLElement> {
         right: 200,
         width: 200,
       }) as DOMRect
-    rows.set(el.getAttribute('data-ws-drop')!, el)
+    rows.set(el.getAttribute('data-ws-drop') ?? `folder:${el.getAttribute('data-folder-drop')}`, el)
   })
   return rows
 }
@@ -107,9 +107,9 @@ const rowFor = (branch: string) => screen.getByText(branch).closest('[data-ws-dr
 /** The one hairline the whole drag shares, portalled to the body. */
 const dropLine = () => document.querySelector('[data-drop-indicator]') as HTMLElement
 
-function pointerDown(el: HTMLElement, y: number): void {
+function pointerDown(el: HTMLElement, y: number, x = 0): void {
   el.dispatchEvent(
-    new MouseEvent('pointerdown', { button: 0, clientX: 0, clientY: y, bubbles: true }),
+    new MouseEvent('pointerdown', { button: 0, clientX: x, clientY: y, bubbles: true }),
   )
 }
 function pointerMove(y: number, x = 0): void {
@@ -193,6 +193,44 @@ describe('the ghost', () => {
     expect(ghost.textContent).toContain('alpha')
   })
 
+  it('carries an INACTIVE row as a lifted, active-styled card', () => {
+    // A row in the air is lifted, and lifted is what ROW_ACTIVE already draws.
+    // ROW_INACTIVE is a transparent border with no fill — legible in the sidebar
+    // where it sits on the sidebar's own surface, close to invisible the moment
+    // it is flown over the editor pane.
+    render(<WorkspaceTree />)
+    const rows = stubRowRects()
+    hitTestByY(rows)
+
+    const source = rowFor('alpha')
+    expect(source.className).toContain('border-transparent')
+
+    pointerDown(source, 10)
+    pointerMove(30)
+
+    const carried = document.querySelector('[data-drag-ghost] [data-ws-drop]')!
+    expect(carried.className).toContain('bg-background')
+    expect(carried.className).not.toContain('border-transparent')
+
+    pointerUp(30)
+  })
+
+  it('says nothing about which workspace is OPEN — only the clone is promoted', () => {
+    render(<WorkspaceTree />)
+    const rows = stubRowRects()
+    hitTestByY(rows)
+
+    pointerDown(rowFor('alpha'), 10)
+    pointerMove(30)
+
+    // The row still in the list keeps its own styling; it is faded, not promoted.
+    const source = document.querySelector('[role="tree"] [data-ws-drop="a"]')!
+    expect(source.className).toContain('border-transparent')
+    expect(source.className).toContain('opacity-40')
+
+    pointerUp(30)
+  })
+
   it('carries no count badge for a single row', () => {
     render(<WorkspaceTree />)
     const rows = stubRowRects()
@@ -212,13 +250,146 @@ describe('the ghost', () => {
     const rows = stubRowRects()
     hitTestByY(rows)
 
-    pointerDown(rowFor('alpha'), 10)
-    pointerMove(30)
+    // 'alpha' is the first row: rect top 0, left 0, 36px tall. Grabbing it at
+    // (30, 10) takes hold 30px in and 10px down.
+    pointerDown(rowFor('alpha'), 10, 30)
+    pointerMove(30, 30)
     const ghost = document.querySelector<HTMLElement>('[data-drag-ghost]')!
     pointerMove(77, 40)
 
-    expect(ghost.style.top).toBe('67px')
-    expect(ghost.style.left).toBe('52px')
+    // Pointer less the grab offset — the row stays under the point it was taken
+    // by. It used to pin its top-left to the cursor plus a fixed (12, -10), so
+    // whichever part of a row you grabbed, the row's corner jumped to your hand.
+    //
+    // A TRANSFORM, not left/top: this moves every frame, and offsets put the
+    // ghost back through layout and repaint whatever it is over. See
+    // ghostTransform.
+    expect(ghost.style.transform).toBe('translate3d(10px, 67px, 0)')
+  })
+
+  it('keeps the grab offset it was given, not one of its own', () => {
+    // The same drag taken by a different part of the same row lands the ghost
+    // somewhere else — which is the whole point, and what a fixed offset could
+    // never do.
+    render(<WorkspaceTree />)
+    const rows = stubRowRects()
+    hitTestByY(rows)
+
+    pointerDown(rowFor('alpha'), 30, 120) // 120px in, 30px down
+    pointerMove(50, 120)
+    const ghost = document.querySelector<HTMLElement>('[data-drag-ghost]')!
+    pointerMove(77, 40)
+
+    expect(ghost.style.transform).toBe('translate3d(-80px, 47px, 0)')
+  })
+
+  it('blocks text selection from the PRESS, before the drag threshold', () => {
+    // The bug this pins: `selectstart` fires as the selection begins — on the
+    // pointerdown and the first move — both BEFORE the 5px threshold promotes
+    // the press into a drag. Armed in beginDrag, the guard was attached after
+    // the only event it can cancel had already fired, so dragging a row across
+    // the editor went on painting a selection under it.
+    render(<WorkspaceTree />)
+    const rows = stubRowRects()
+    hitTestByY(rows)
+
+    pointerDown(rowFor('alpha'), 10)
+
+    const early = new Event('selectstart', { bubbles: true, cancelable: true })
+    document.dispatchEvent(early)
+    expect(early.defaultPrevented).toBe(true)
+
+    pointerUp(10)
+  })
+
+  it('lets selection work again after a press that never became a drag', () => {
+    // The leak the guard's new home creates if it is only released in endDrag:
+    // one click on any row would kill text selection for the rest of the
+    // session.
+    render(<WorkspaceTree />)
+    const rows = stubRowRects()
+    hitTestByY(rows)
+
+    pointerDown(rowFor('alpha'), 10)
+    pointerUp(10)
+
+    const after = new Event('selectstart', { bubbles: true, cancelable: true })
+    document.dispatchEvent(after)
+    expect(after.defaultPrevented).toBe(false)
+  })
+
+  it('lets selection work again once a real drag ends', () => {
+    render(<WorkspaceTree />)
+    const rows = stubRowRects()
+    hitTestByY(rows)
+
+    pointerDown(rowFor('alpha'), 10)
+    pointerMove(30)
+    const during = new Event('selectstart', { bubbles: true, cancelable: true })
+    document.dispatchEvent(during)
+    expect(during.defaultPrevented).toBe(true)
+
+    pointerUp(30)
+    const after = new Event('selectstart', { bubbles: true, cancelable: true })
+    document.dispatchEvent(after)
+    expect(after.defaultPrevented).toBe(false)
+  })
+
+  it('positions itself with a transform, never with layout offsets', () => {
+    // The ghost moves every frame of a drag, usually over the editor pane, which
+    // on the New Tab surface holds a 51,281-character <pre>. `left`/`top` put it
+    // through layout and repaint what is beneath; a translate composites.
+    render(<WorkspaceTree />)
+    const rows = stubRowRects()
+    hitTestByY(rows)
+
+    pointerDown(rowFor('alpha'), 10)
+    pointerMove(30)
+    const ghost = document.querySelector<HTMLElement>('[data-drag-ghost]')!
+
+    expect(ghost.style.transform).toContain('translate3d')
+    expect(ghost.style.left).toBe('')
+    expect(ghost.style.top).toBe('')
+    // And NO permanent `will-change`: it hinted a promotion the moving transform
+    // already earns, and measurement put the transform's whole contribution at
+    // ~3ms of a 60ms frame — the 42ms was a full-window overlay, since deleted.
+    expect(ghost.style.willChange).toBe('')
+
+    pointerUp(30)
+  })
+
+  it('raises no full-window overlay — it costs 42ms a frame', () => {
+    // A transparent fixed box covering the viewport once owned the drag cursor.
+    // Measured on the live app it took the median frame from 9ms to 51ms, because
+    // it overlaps every composited layer in the page. The cursor comes from a CSS
+    // rule instead (index.css), which measured free.
+    render(<WorkspaceTree />)
+    const rows = stubRowRects()
+    hitTestByY(rows)
+
+    pointerDown(rowFor('alpha'), 10)
+    pointerMove(30)
+    expect(document.querySelector('[data-drag-shield]')).toBeNull()
+
+    pointerUp(30)
+  })
+
+  it('raises the grabbing cursor for the whole drag, and drops it on release', () => {
+    // Pointer capture keeps events on the grabbed row, but the cursor is drawn
+    // from whatever the pointer is physically over — so this is a document-level
+    // flag, not a class on the row. See the rule in index.css.
+    render(<WorkspaceTree />)
+    const rows = stubRowRects()
+    hitTestByY(rows)
+
+    expect(document.documentElement.hasAttribute('data-row-dragging')).toBe(false)
+
+    pointerDown(rowFor('alpha'), 10)
+    pointerMove(30)
+    expect(document.documentElement.hasAttribute('data-row-dragging')).toBe(true)
+
+    pointerUp(30)
+    expect(document.documentElement.hasAttribute('data-row-dragging')).toBe(false)
   })
 
   it('goes away when the drag ends', () => {
@@ -354,6 +525,32 @@ describe('committing the drop', () => {
     dragTo('gamma', ROW_HEIGHT * 0.5) // the middle of `alpha`
 
     expect(reparentWorkspace).toHaveBeenCalledWith('p1', 'r1', 'c', 'a')
+  })
+
+  it('files a fork child into a folder under the same parent without rebasing it', () => {
+    useSidebarStore.setState({
+      repos: [
+        repo({
+          folders: [{ id: 'f1', repoId: 'r1', name: 'Backlog', parentId: 'a', order: 0 }],
+          workspaces: [
+            { id: 'a', branch: 'alpha', status: 'new', age: '', order: 0 },
+            { id: 'b', branch: 'beta', parentId: 'a', status: 'new', age: '', order: 1 },
+          ],
+        }),
+      ],
+    })
+    render(<WorkspaceTree />)
+    const rows = stubRowRects()
+    hitTestByY(rows)
+
+    dragTo('beta', ROW_HEIGHT * 1.5) // middle of the folder row
+
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+    expect(placeWorkspace).toHaveBeenCalledWith('p1', 'r1', 'b', {
+      folderId: 'f1',
+      order: 0,
+    })
+    expect(rowFor('beta')).toHaveAttribute('data-drop-parent', 'f1')
   })
 
   // The re-parent is 202 + an async rebase, so the slot cannot go out with it:

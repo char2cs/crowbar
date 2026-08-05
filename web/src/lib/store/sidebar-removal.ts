@@ -31,13 +31,14 @@ const NO_IDS: ReadonlySet<string> = new Set<string>()
  * store depends on nothing in `components/`.
  */
 export interface RemovalDraft {
-  kind: 'workspace' | 'folder' | 'repo'
-  /** The row itself: a workspace id, a folder id, or a repo id. */
+  kind: 'workspace' | 'folder' | 'repo' | 'project'
+  /** The row itself: a workspace, folder, repo or project id. */
   id: string
   /** What the row reads as, for the tray row and the pane's overlay. */
   label: string
   projectId: string
-  /** The owning repo; for a repo removal this is the repo itself. */
+  /** The owning repo; for a repo removal this is the repo itself, and for a
+   *  project removal there is no single one, so it is ''. */
   repoId: string
   /** Every row hidden while this waits — the row and whatever it takes with it. */
   hiddenIds: readonly string[]
@@ -56,8 +57,11 @@ export interface RemovalEntry extends RemovalDraft {
   /**
    * When the removal fires, or null when it waits on an answer instead.
    *
-   * A repo takes every worktree under it, so it never runs a clock that can run
-   * out while you are looking somewhere else.
+   * A repo takes every worktree under it, and a project takes every repo — so
+   * neither runs a clock that could run out while you are looking somewhere
+   * else. Both ask instead, and both then ask AGAIN in a modal that spells out
+   * the cascade, because eight seconds of undo is not a proportionate safety net
+   * for deleting a whole project's worth of work.
    */
   deadlineAt: number | null
 }
@@ -91,8 +95,9 @@ export const useRemovalTrayStore = create<RemovalTrayState>()((set) => ({
       const entries = drafts.map((draft) => ({
         ...draft,
         entryId: crypto.randomUUID(),
-        // A repo waits on Cancel / Remove; everything else drains.
-        deadlineAt: draft.kind === 'repo' ? null : now + REMOVAL_DRAIN_MS,
+        // A repo or a project waits on Cancel / Remove; everything else drains.
+        deadlineAt:
+          draft.kind === 'repo' || draft.kind === 'project' ? null : now + REMOVAL_DRAIN_MS,
       }))
       const hiddenIds = new Set(s.hiddenIds)
       for (const entry of entries) for (const id of entry.hiddenIds) hiddenIds.add(id)

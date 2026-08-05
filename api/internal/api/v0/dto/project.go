@@ -5,6 +5,7 @@ package dto
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,18 +25,36 @@ type ProjectDTO struct {
 	LastActivity time.Time `json:"lastActivity"`
 	// Order is the project's dense index in the sidebar.
 	Order int `json:"order"`
+	// AvatarURL is the icon proxy "/v0/projects/<id>/icon", set only when the
+	// project has an on-disk icon (AvatarHasIcon). Empty otherwise — a project
+	// without one falls back to the sidebar's Library glyph rather than to a
+	// generated letter tile, which is why there is no label/colour pair here.
+	AvatarURL string `json:"avatarUrl,omitempty"`
+	// AvatarEmoji passes the emoji icon through to the client, which renders it
+	// directly. Empty when the project uses an on-disk image or the default.
+	AvatarEmoji string `json:"avatarEmoji,omitempty"`
 }
 
 // ProjectDTOFrom converts a domain Project into its wire DTO.
 func ProjectDTOFrom(
 	p domain.Project,
 ) ProjectDTO {
+	avatarURL := ""
+	if p.AvatarHasIcon {
+		// The ?v=<AvatarVersion> query param cache-busts the otherwise-stable
+		// icon URL: uploads replace the bytes in place, and without a changing
+		// URL the webview's image cache keeps serving the old icon. Same rule,
+		// same reason, as RepoDTOFrom.
+		avatarURL = "/v0/projects/" + p.ID + "/icon?v=" + strconv.FormatInt(p.AvatarVersion, 10)
+	}
 	return ProjectDTO{
 		ID:           p.ID,
 		Name:         p.Name,
 		Path:         p.Path,
 		LastActivity: p.LastActivity,
 		Order:        p.Order,
+		AvatarURL:    avatarURL,
+		AvatarEmoji:  p.AvatarEmoji,
 	}
 }
 

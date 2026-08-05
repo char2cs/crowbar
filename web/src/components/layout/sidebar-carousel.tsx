@@ -52,8 +52,8 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
     isUserGesture.current = true
   }
 
-  // Re-align scroll when the container is resized (sidebar panel drag via
-  // react-resizable-panels, sidebar collapse/expand, window resize). Each
+  // Re-align scroll when the container is resized (sidebar separator drag,
+  // sidebar collapse/expand, window resize). Each
   // carousel panel is min-w-full, so scrollLeft must stay at
   // tabIndex * containerWidth.
   useEffect(() => {

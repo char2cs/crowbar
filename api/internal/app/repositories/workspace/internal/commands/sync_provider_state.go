@@ -57,6 +57,7 @@ func (c SyncProviderState) EmitEvent(
 	}
 	ws.Status = nextProviderStatus(
 		ws.Status,
+		ws.LockOverride,
 		c.Protected,
 		c.HasPR,
 		c.PRStatus,
@@ -72,6 +73,7 @@ func (c SyncProviderState) EmitEvent(
 //   - otherwise an open/merged/closed PR maps to the matching pr-* status.
 func nextProviderStatus(
 	current domain.WorkspaceStatus,
+	lockOverride *bool,
 	protected bool,
 	hasPR bool,
 	prStatus string,
@@ -79,6 +81,13 @@ func nextProviderStatus(
 	if current == domain.WorkspaceStatusDeleted ||
 		current == domain.WorkspaceStatusPRConflicts {
 		return current
+	}
+	// The user's own lock decision outranks the provider's protected flag, in
+	// BOTH directions. Without this branch the poll below would re-lock a branch
+	// the user deliberately unlocked, every minute, forever — and would let an
+	// incoming pr-* status quietly unlock one they deliberately locked.
+	if lockOverride != nil {
+		return nextLockStatus(current, lockOverride, protected)
 	}
 	if protected {
 		return domain.WorkspaceStatusLocked
@@ -88,6 +97,39 @@ func nextProviderStatus(
 	}
 	if hasPR {
 		return prStatusToWorkspace(prStatus)
+	}
+	return current
+}
+
+// nextLockStatus resolves a workspace's status against a lock decision.
+//
+// Shared by SetLock (applying the user's choice now) and nextProviderStatus
+// (defending it on every subsequent poll), because those are the same question
+// asked twice and the two drifting apart is precisely how an unlocked branch
+// finds itself locked again.
+//
+// Unlocking has to put SOMETHING in place of `locked`. It cannot leave the
+// status alone — that is the very value being removed — so it falls back to the
+// lifecycle status the branch would have carried had it never been protected:
+// `new`, which is also what create.go seeds an ordinary branch with. The next
+// provider poll refines that into a pr-* status if there is a PR.
+func nextLockStatus(
+	current domain.WorkspaceStatus,
+	lockOverride *bool,
+	protected bool,
+) domain.WorkspaceStatus {
+	if current == domain.WorkspaceStatusDeleted {
+		return current
+	}
+	locked := protected
+	if lockOverride != nil {
+		locked = *lockOverride
+	}
+	if locked {
+		return domain.WorkspaceStatusLocked
+	}
+	if current == domain.WorkspaceStatusLocked {
+		return domain.WorkspaceStatusNew
 	}
 	return current
 }

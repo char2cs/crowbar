@@ -95,7 +95,11 @@ describe('what the menu acts on', () => {
 
     fireEvent.contextMenu(rowEl('b'))
 
-    expect(menuItems()).toEqual(['Group 2 into a folder', 'Remove 2 workspaces'])
+    expect(menuItems()).toEqual([
+      'Group 2 into a folder',
+      'Lock 2 workspaces',
+      'Remove 2 workspaces',
+    ])
   })
 
   // Pressing on an unselected row is not a way to extend a selection, and it
@@ -106,16 +110,18 @@ describe('what the menu acts on', () => {
 
     fireEvent.contextMenu(rowEl('c'))
 
-    expect(menuItems()).toEqual(['Group into a folder', 'Remove workspace'])
+    expect(menuItems()).toEqual(['Group into a folder', 'Lock workspace', 'Remove workspace'])
     expect([...useSidebarSelectionStore.getState().selected]).toEqual(['a'])
   })
 
-  it('opens no menu on a project row', () => {
+  it('offers a project row its deletion', () => {
+    // It used to offer nothing at all, so no menu opened here and a project
+    // could not be deleted from the sidebar by any gesture.
     render(<WorkspaceTree />)
 
     fireEvent.contextMenu(rowEl('p1'))
 
-    expect(menuItems()).toEqual([])
+    expect(menuItems()).toEqual(['Delete project'])
   })
 })
 

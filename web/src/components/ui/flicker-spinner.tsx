@@ -97,6 +97,8 @@ export function FlickerSpinner({
             // Promotes the strip so playback is a compositor transform on an
             // already-painted layer: no style recalc, no layer-tree rebuild,
             // and it keeps running while the window is unfocused.
+            //
+            // react-doctor-disable-next-line no-permanent-will-change -- the rule's fix (add on animationstart, remove on animationend) does not apply: this animation is `infinite` and runs for the element's entire mounted lifetime, and the element is mounted only while something is loading. There is no "end" to remove the hint at, and dropping it costs the promotion this spinner was rebuilt from SMIL to get (−59% main thread, measured).
             willChange: 'transform',
           }}
           // react-doctor-disable-next-line dangerous-html-sink -- `markup` is derived from a static build-time SVG asset from ./spinners/*.svg (import.meta.glob '?raw'), never attacker-influenceable. DOMPurify would strip the load-bearing currentColor markup.

@@ -36,6 +36,15 @@ export const ROW_NEST_TARGET = 'border-sidebar-drop-nest-edge bg-sidebar-drop-ne
 // the repo header's fork button is visually identical to a workspace row's.
 export const ADD_GLYPH_PATH = 'M8 3v10M3 8h10'
 
+// The disclosure chevron, drawn once. Every expandable row in the sidebar —
+// project, repo, folder, workspace — closes with the same mark in the same
+// trailing slot, rotated 90° when open. It used to be copy-pasted at four call
+// sites, and the project row had drifted into a different gesture entirely (a
+// LEADING glyph that swapped to a chevron on hover), which made the one control
+// the tree repeats most often the one control it drew two ways. Render it
+// through RowDisclosureButton (row-disclosure-button.tsx), never by hand.
+export const DISCLOSURE_GLYPH_PATH = 'M6 3l5 5-5 5'
+
 // The fold-away control on a row that is holding others: a bar with a chevron
 // rising into it — fold up, into the parent. Two inward chevrons were tried and
 // reverted; at 12px they close into an X, which beside a folder reads as delete.
@@ -95,39 +104,23 @@ export const ROW_SUB_ACTION =
 // input). Same token as ROW_SUB_ACTION, without the button affordances.
 export const ROW_SUB_ACTION_GLYPH = 'shrink-0 text-muted-foreground'
 
-// Trailing action that leaves the flow until the row is hovered or focused —
-// the workspace/folder rows' add-child "+".
-//
-// `display`, never opacity. A hidden-but-present button still occupies its 24px
-// box AND the row's 6px flex gap, so `opacity: 0` gives the branch name back
-// exactly nothing — 30px of the row stays reserved for a control you cannot
-// see. Removing it from the flow is the whole point: the label is what the
-// sidebar is for.
-//
-// Spelled out rather than composed from ROW_SUB_ACTION because the two disagree
-// on `display` (that one is unconditionally `inline-flex`), and resolving that
-// conflict through tailwind-merge would make the resting state depend on class
-// ordering in a string concatenation.
-//
-// `group-focus-within` covers both halves of "hovered or focused": the row
-// itself taking keyboard focus, and the button being tabbed to directly.
+// Trailing action that keeps a permanent layout slot and becomes visible when
+// the workspace/folder row is hovered or focused. Keeping the box in the flex
+// row avoids resizing the label and re-laying out the branch on every pointer
+// transition. Pointer events stay disabled while the control is invisible.
 export const ROW_SUB_ACTION_HOVER =
-  'hidden shrink-0 cursor-pointer rounded-lg p-1.5 text-muted-foreground ' +
-  'group-hover:inline-flex group-focus-within:inline-flex ' +
+  'invisible pointer-events-none inline-flex shrink-0 cursor-pointer rounded-lg p-1.5 text-muted-foreground ' +
+  'group-hover:visible group-hover:pointer-events-auto ' +
+  'group-focus-within:visible group-focus-within:pointer-events-auto ' +
   'hover:bg-sidebar-element-hover hover:text-foreground ' +
   'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
 // The same rule, plus a fade as the control arrives — the fold-away button on a
 // row that is holding others.
 //
-// Out of the flow at rest for the reason above; `display` alone, though, snaps
-// it in beside the three dots that just announced the state, which reads as a
-// second thing happening rather than the row answering. `display` cannot
-// transition, so the fade is a KEYFRAME: an animation applied to a display:none
-// element does not run, and starts the moment the element becomes displayed —
-// which is exactly when this one appears, on hover or on focus, and again on
-// every subsequent appearance. Out of the flow AND fading in, rather than
-// choosing between them.
+// The animation is attached to the hover/focus states so it begins when the
+// permanently-mounted control becomes visible, instead of running invisibly on
+// mount and being finished by the time the user reaches the row.
 //
 // Only this control fades. The add-child "+" is on every row of the tree at
 // once, so a pointer travelling down the column would leave a trail of fades
@@ -135,7 +128,9 @@ export const ROW_SUB_ACTION_HOVER =
 //
 // The reduced-motion kill-switch in index.css zeroes the duration app-wide, so
 // the control simply appears.
-export const ROW_SUB_ACTION_FOLD_AWAY = ROW_SUB_ACTION_HOVER + ' animate-row-action-in'
+export const ROW_SUB_ACTION_FOLD_AWAY =
+  ROW_SUB_ACTION_HOVER +
+  ' group-hover:animate-row-action-in group-focus-within:animate-row-action-in'
 
 // Every LEADING glyph on a row sits in this box. One label position per level:
 // a box that differs by 2px between row types puts a visible wobble down the

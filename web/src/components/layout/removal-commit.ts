@@ -1,4 +1,4 @@
-import { deleteRepo, deleteWorkspace } from '@/lib/api'
+import { deleteProject, deleteRepo, deleteWorkspace } from '@/lib/api'
 import { deleteFolder } from '@/lib/api/sidebar-placement'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
@@ -24,11 +24,20 @@ export interface RemovalContext {
   navigate: RemovalNavigate
 }
 
-/** Whether any of `ids` is still a row the sidebar knows about. */
+/**
+ * Whether any of `ids` is still a row the sidebar knows about.
+ *
+ * Projects are matched through the repos that carry their id rather than through
+ * the project list: this module watches the sidebar store, and a deleted project
+ * takes its repos with it, so the last repo leaving IS the project being gone.
+ * A project that held no repos has nothing here to wait on and releases at once,
+ * which is correct — there was never a row to flash back.
+ */
 function stillPresent(repos: Repo[], ids: readonly string[]): boolean {
   return ids.some(
     (id) =>
-      repos.some((r) => r.id === id) || repos.some((r) => r.workspaces.some((w) => w.id === id)),
+      repos.some((r) => r.id === id || r.projectId === id) ||
+      repos.some((r) => r.workspaces.some((w) => w.id === id)),
   )
 }
 
@@ -61,6 +70,8 @@ function sendRemoval(entry: RemovalEntry): Promise<void> {
       return deleteFolder(entry.projectId, entry.repoId, entry.id)
     case 'repo':
       return deleteRepo(entry.projectId, entry.repoId)
+    case 'project':
+      return deleteProject(entry.projectId)
   }
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -33,6 +34,14 @@ func (stubReader) List(
 func (stubReader) Get(
 	_ context.Context,
 	_ string,
+) (domain.Project, error) {
+	return domain.Project{}, nil
+}
+
+func (stubReader) Update(
+	_ context.Context,
+	_ string,
+	_ project.Update,
 ) (domain.Project, error) {
 	return domain.Project{}, nil
 }

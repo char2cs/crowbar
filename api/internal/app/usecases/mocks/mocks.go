@@ -709,6 +709,13 @@ type WorkspaceLifecycleRepo struct {
 	ListInRepoFn func(ctx context.Context, projectID, repoID string) ([]domain.Workspace, error)
 	GetFn        func(ctx context.Context, id string) (domain.Workspace, error)
 
+	SetLockFn func(
+		ctx context.Context,
+		id string,
+		locked *bool,
+		protected bool,
+	) (domain.Workspace, error)
+
 	SetMergeStrategyFn func(
 		ctx context.Context,
 		id string,
@@ -758,6 +765,21 @@ func (r *WorkspaceLifecycleRepo) SetMergeStrategy(
 	strategy gitdomain.MergeStrategy,
 ) (domain.Workspace, error) {
 	return r.SetMergeStrategyFn(ctx, id, strategy)
+}
+
+// SetLock records the lock decision the usecase passed down, so a test can read
+// back what it decided to persist. It answers with the row it was handed rather
+// than a stored one — the usecase resolves the status itself via the command.
+func (r *WorkspaceLifecycleRepo) SetLock(
+	ctx context.Context,
+	id string,
+	locked *bool,
+	protected bool,
+) (domain.Workspace, error) {
+	if r.SetLockFn != nil {
+		return r.SetLockFn(ctx, id, locked, protected)
+	}
+	return domain.Workspace{ID: id, LockOverride: locked}, nil
 }
 
 func (r *WorkspaceLifecycleRepo) SyncWorkingTreeState(

@@ -180,6 +180,20 @@ func extraRoutes() []string {
 		"DELETE " + repo + "/icon",
 		"PUT " + repo + "/icon/emoji",
 		"PUT " + repo + "/icon/github",
+		// Project icon: the same three states a repo's has (uploaded image,
+		// emoji, or the client's default mark) on the same routes one level up.
+		// No /icon/github counterpart — that one reads the repo's `origin`
+		// remote for an owner avatar, and a project has no remote of its own.
+		"GET /v0/projects/:projectId/icon",
+		"PUT /v0/projects/:projectId/icon",
+		"DELETE /v0/projects/:projectId/icon",
+		"PUT /v0/projects/:projectId/icon/emoji",
+		// The user's own lock decision for a workspace, which outranks the
+		// provider's protected flag and survives the next poll. A verb route
+		// rather than a PATCH field: it is one aggregate write with no git in it,
+		// and it answers synchronously so a refusal (the project home, a
+		// placeholder with no worktree) reaches the menu that fired it.
+		"POST " + ws + "/lock",
 		"GET " + repo + "/branches",
 		// Two routes that shipped without ever being declared here — the exact
 		// drift this audit exists to catch, caught late because the audit is

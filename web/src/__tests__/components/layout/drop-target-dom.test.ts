@@ -296,13 +296,16 @@ describe('the editor pane, as the removal target', () => {
     expect(findDrop(0, 0, [{ kind: 'folder', id: 'f1', repoId: 'r1' }])).toEqual({ kind: 'pane' })
   })
 
-  // Projects are not removable this way at all, so the pane never offers to
-  // take one; a protected branch's worktree is pinned to its branch, and the
-  // daemon refuses the delete.
-  it('offers nothing for a project', () => {
+  // A project IS removable this way now — it goes to the tray like a repo, with
+  // a confirmation naming everything inside it. It was excluded when the sidebar
+  // had no way to delete one by any gesture; leaving it excluded afterwards was
+  // worse than either answer, because the pane's veil is drawn from what a
+  // removal would PLAN — so it offered to remove a project and then refused on
+  // release.
+  it('takes a project too', () => {
     pane()
 
-    expect(findDrop(0, 0, [{ kind: 'project', id: 'p1' }])).toBeNull()
+    expect(findDrop(0, 0, [{ kind: 'project', id: 'p1' }])).toEqual({ kind: 'pane' })
   })
 
   it('offers nothing for a protected branch', () => {

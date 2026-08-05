@@ -29,6 +29,12 @@ type WorkspaceLifecycleRepo interface {
 		id string,
 		strategy gitdomain.MergeStrategy,
 	) (domain.Workspace, error)
+	SetLock(
+		ctx context.Context,
+		id string,
+		locked *bool,
+		protected bool,
+	) (domain.Workspace, error)
 	SyncWorkingTreeState(
 		ctx context.Context,
 		in wsrepo.SyncInput,
@@ -103,6 +109,21 @@ type Usecase interface {
 		ctx context.Context,
 		id string,
 		strategy gitdomain.MergeStrategy,
+	) (domain.Workspace, error)
+
+	// SetLock records the user's own lock decision for a workspace, which
+	// outranks the provider's protected flag from here on. `locked` nil hands the
+	// question back to the provider.
+	//
+	// Automatic locking is untouched by this: a protected branch is still created
+	// locked and still re-locked by every provider poll. What the override adds is
+	// the ability to disagree — to unlock main, or to lock a fork child the
+	// provider has no opinion about — and to have that disagreement survive the
+	// next poll.
+	SetLock(
+		ctx context.Context,
+		id string,
+		locked *bool,
 	) (domain.Workspace, error)
 
 	// SyncWorkingTreeState recomputes the working-tree summary from git, issues
@@ -202,6 +223,29 @@ func (u *workspaceUsecase) SetMergeStrategy(
 		return domain.Workspace{}, fmt.Errorf("workspace: set merge strategy: %w", err)
 	}
 	return ws, nil
+}
+
+// SetLock records the user's own lock decision for a workspace.
+//
+// The provider's current protected answer is read off the stored row rather than
+// polled: it is only needed to resolve the status when the override is being
+// CLEARED, and a workspace whose status is locked while it carries no override
+// is locked precisely because the provider said so.
+func (u *workspaceUsecase) SetLock(
+	ctx context.Context,
+	id string,
+	locked *bool,
+) (domain.Workspace, error) {
+	ws, err := u.repo.Get(ctx, id)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: set lock: get: %w", err)
+	}
+	protected := ws.LockOverride == nil && ws.Status == domain.WorkspaceStatusLocked
+	updated, err := u.repo.SetLock(ctx, id, locked, protected)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: set lock: %w", err)
+	}
+	return updated, nil
 }
 
 // SyncWorkingTreeState recomputes the working-tree summary from git, issues the

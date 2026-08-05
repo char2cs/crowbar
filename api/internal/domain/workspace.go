@@ -61,16 +61,32 @@ type Workspace struct {
 	// signal from which the frontend reconstructs the placeholder reason; a
 	// successful Retry clears it. Empty on every healthy workspace (00 §4, spec §4).
 	HeldByPath string `json:"heldByPath,omitempty"`
+	// LockOverride is the user's own answer to "is this workspace locked",
+	// outranking the provider's protected flag. nil — the default, and what every
+	// row replays as — means "no opinion": the branch is locked iff the provider
+	// says it is protected, which is the automatic locking that has always been
+	// here and stays exactly as it was.
+	//
+	// It has to be a THIRD state rather than a plain bool, because the provider
+	// re-answers the protected question on every poll (see nextProviderStatus).
+	// With only true/false there is no way to say "I have not chosen", so a
+	// default-false would read as "the user unlocked this" and quietly strip the
+	// lock off every protected branch on the next sync.
+	//
+	// *true locks a branch the provider does not protect; *false unlocks one it
+	// does. Both survive provider polls, which is the entire point: a user who
+	// unlocked main must not find it locked again a minute later.
+	LockOverride *bool `json:"lockOverride,omitempty"`
 	// FolderID is the sidebar Folder this workspace has been filed under, or ""
 	// for the repo root. It is DELIBERATELY not ParentID: that field is the fork
 	// lineage, and three things resolve it back to a workspace (merge
 	// eligibility, the diff base, the reparent leaf guard), so a folder id in
 	// there is a silent corruption rather than an error.
 	//
-	// It is meaningful only on a FORK ROOT (ParentID == ""). A workspace with a
-	// fork parent renders under that parent and inherits its folder from its fork
-	// ancestor, so filing one away separately would split the fork chain —
-	// refused server-side, and cleared by Reparent. Old persisted records without
+	// A fork child may carry one when the folder belongs to the same visible
+	// fork-parent space. This keeps organisation independent from lineage without
+	// letting a folder visually split the chain; incompatible moves are refused
+	// server-side, and Reparent clears the field. Old persisted records without
 	// this field replay as "" (the read model is a JSON blob), exactly as Kind
 	// documents above.
 	FolderID string `json:"folderId,omitempty"`

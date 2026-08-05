@@ -1,4 +1,4 @@
-import { API_BASE } from '@/lib/api'
+import { assetURL } from '@/lib/api'
 import type { Folder, Repo, Workspace, WorkspaceStatus } from '@/lib/store/sidebar'
 import type { FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
@@ -44,11 +44,11 @@ export function toSidebarStatus(ws: WorkspaceDTO): WorkspaceStatus {
 
 // repoAvatar resolves the sidebar avatar source from the §5 RepoDTO: a custom
 // emoji takes precedence (rendered as an `emoji:<char>` marker the sidebar
-// understands), otherwise the proxied /icon URL (prefixed with API_BASE so
+// understands), otherwise the proxied /icon URL (resolved through assetURL so
 // WKWebView can load it cross-origin), otherwise undefined → initials fallback.
 function repoAvatarURL(repo: RepoDTO): string | undefined {
   if (repo.avatarEmoji) return `emoji:${repo.avatarEmoji}`
-  if (repo.avatarUrl) return `${API_BASE}${repo.avatarUrl}`
+  if (repo.avatarUrl) return assetURL(repo.avatarUrl)
   return undefined
 }
 

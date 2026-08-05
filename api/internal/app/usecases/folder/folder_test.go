@@ -272,6 +272,53 @@ func TestMove_RefusesACycleThroughAWorkspace(t *testing.T) {
 	assert.ErrorIs(t, err, folder.ErrFolderCycle)
 }
 
+func TestMove_RefusesToCarryForkChildrenUnderAnotherWorkspace(t *testing.T) {
+	_, workspaces, uc := newUsecase(t)
+	ctx := context.Background()
+	seedWorkspace(workspaces, "host", 1)
+	seedWorkspace(workspaces, "other", 2)
+	workspaces.Rows = append(workspaces.Rows, domain.Workspace{
+		ID: "child", ProjectID: projectID, RepoID: repoID, Branch: "child", ParentID: "host",
+	})
+	box, _, err := uc.Create(ctx, folder.CreateInput{
+		ProjectID: projectID, RepoID: repoID, ParentID: "host", Name: "box",
+	})
+	require.NoError(t, err)
+	_, _, err = uc.PlaceWorkspace(ctx, projectID, repoID, "child",
+		folder.PlaceInput{FolderID: &box.ID})
+	require.NoError(t, err)
+
+	other := "other"
+	_, _, err = uc.Move(ctx, box.ID, folder.MoveInput{ParentID: &other})
+	assert.ErrorIs(t, err, folder.ErrForkChainSplit)
+}
+
+func TestMove_AllowsAFiledForkChildToStayWithinItsParentSpace(t *testing.T) {
+	_, workspaces, uc := newUsecase(t)
+	ctx := context.Background()
+	seedWorkspace(workspaces, "host", 1)
+	workspaces.Rows = append(workspaces.Rows, domain.Workspace{
+		ID: "child", ProjectID: projectID, RepoID: repoID, Branch: "child", ParentID: "host",
+	})
+	outer, _, err := uc.Create(ctx, folder.CreateInput{
+		ProjectID: projectID, RepoID: repoID, ParentID: "host", Name: "outer",
+	})
+	require.NoError(t, err)
+	inner, _, err := uc.Create(ctx, folder.CreateInput{
+		ProjectID: projectID, RepoID: repoID, ParentID: "host", Name: "inner",
+	})
+	require.NoError(t, err)
+	_, _, err = uc.PlaceWorkspace(ctx, projectID, repoID, "child",
+		folder.PlaceInput{FolderID: &inner.ID})
+	require.NoError(t, err)
+
+	outerID := outer.ID
+	moved, _, err := uc.Move(ctx, inner.ID, folder.MoveInput{ParentID: &outerID})
+	require.NoError(t, err)
+	assert.Equal(t, outer.ID, moved.ParentID)
+	assert.Equal(t, inner.ID, workspaceRow(t, workspaces, "child").FolderID)
+}
+
 func TestMove_RefusesACrossRepoParent(t *testing.T) {
 	folders, _, uc := newUsecase(t)
 	ctx := context.Background()
@@ -327,15 +374,16 @@ func TestDelete_ReparentsChildrenRatherThanCascading(t *testing.T) {
 	assert.Contains(t, ids, inner.ID, "the reparented rows are returned for broadcast")
 }
 
-// A folder can hang off a WORKSPACE, and a workspace's only expressible
-// containers are a folder or the repo root — the other edge into a workspace is
-// the fork lineage, which a sidebar gesture must never rewrite. So a workspace
-// filed in such a folder surfaces at the root rather than acquiring a fork parent.
-func TestDelete_UnderAWorkspaceSurfacesItsWorkspacesAtTheRoot(t *testing.T) {
+// Deleting a folder under a workspace removes only the organisational edge. A
+// fork child surfaces directly under the same parent; its git lineage is never
+// rewritten by a folder delete.
+func TestDelete_UnderAWorkspaceSurfacesItsForkChildrenUnderThatWorkspace(t *testing.T) {
 	folders, workspaces, uc := newUsecase(t)
 	ctx := context.Background()
 	seedWorkspace(workspaces, "host", 1)
-	seedWorkspace(workspaces, "filed", 2)
+	workspaces.Rows = append(workspaces.Rows, domain.Workspace{
+		ID: "filed", ProjectID: projectID, RepoID: repoID, Branch: "filed", ParentID: "host",
+	})
 	box, _, err := uc.Create(ctx, folder.CreateInput{
 		ProjectID: projectID, RepoID: repoID, ParentID: "host", Name: "box",
 	})
@@ -357,7 +405,7 @@ func TestDelete_UnderAWorkspaceSurfacesItsWorkspacesAtTheRoot(t *testing.T) {
 
 	filed := workspaceRow(t, workspaces, "filed")
 	assert.Equal(t, "", filed.FolderID)
-	assert.Equal(t, "", filed.ParentID, "the fork lineage is never written by a folder delete")
+	assert.Equal(t, "host", filed.ParentID, "the fork lineage is never written by a folder delete")
 }
 
 func TestDelete_NotFound(t *testing.T) {
@@ -386,9 +434,10 @@ func TestPlaceWorkspace_FilesAForkRootAndDensifies(t *testing.T) {
 		"the level it left closes its gap")
 }
 
-// The invariant the spec names explicitly, enforced server-side rather than
-// merely by the UI that happens to prevent it.
-func TestPlaceWorkspace_RefusesToSplitAForkChain(t *testing.T) {
+// A folder may organise siblings inside one fork-parent space without changing
+// their git lineage. This is the ordinary sidebar gesture: feature branches
+// under `develop` can be collected into a folder also under `develop`.
+func TestPlaceWorkspace_FilesAForkChildUnderItsExistingParent(t *testing.T) {
 	_, workspaces, uc := newUsecase(t)
 	ctx := context.Background()
 	seedWorkspace(workspaces, "root", 1)
@@ -396,17 +445,38 @@ func TestPlaceWorkspace_RefusesToSplitAForkChain(t *testing.T) {
 		ID: "child", ProjectID: projectID, RepoID: repoID, Branch: "child", ParentID: "root",
 	})
 	box, _, err := uc.Create(ctx, folder.CreateInput{
-		ProjectID: projectID, RepoID: repoID, Name: "box",
+		ProjectID: projectID, RepoID: repoID, ParentID: "root", Name: "box",
+	})
+	require.NoError(t, err)
+
+	placed, _, err := uc.PlaceWorkspace(ctx, projectID, repoID, "child",
+		folder.PlaceInput{FolderID: &box.ID})
+	require.NoError(t, err)
+	assert.Equal(t, box.ID, placed.FolderID)
+	assert.Equal(t, "root", placed.ParentID, "filing is organisation, never a rebase")
+}
+
+// The invariant the spec names explicitly, enforced server-side rather than
+// merely by the UI: a folder under some OTHER workspace cannot carry this fork
+// child there without the reparent endpoint moving its lineage first.
+func TestPlaceWorkspace_RefusesToSplitAForkChain(t *testing.T) {
+	_, workspaces, uc := newUsecase(t)
+	ctx := context.Background()
+	seedWorkspace(workspaces, "root", 1)
+	seedWorkspace(workspaces, "other", 2)
+	workspaces.Rows = append(workspaces.Rows, domain.Workspace{
+		ID: "child", ProjectID: projectID, RepoID: repoID, Branch: "child", ParentID: "root",
+	})
+	box, _, err := uc.Create(ctx, folder.CreateInput{
+		ProjectID: projectID, RepoID: repoID, ParentID: "other", Name: "box",
 	})
 	require.NoError(t, err)
 
 	_, _, err = uc.PlaceWorkspace(ctx, projectID, repoID, "child",
 		folder.PlaceInput{FolderID: &box.ID})
 	assert.ErrorIs(t, err, folder.ErrForkChainSplit)
-	assert.Equal(t, "", workspaceRow(t, workspaces, "child").FolderID,
-		"the refusal leaves the row untouched")
-	assert.Equal(t, "root", workspaceRow(t, workspaces, "child").ParentID,
-		"and never rewrites the fork lineage")
+	assert.Equal(t, "", workspaceRow(t, workspaces, "child").FolderID)
+	assert.Equal(t, "root", workspaceRow(t, workspaces, "child").ParentID)
 }
 
 // A forked child may still be REORDERED among its fork siblings; only the folder

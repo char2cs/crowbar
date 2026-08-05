@@ -5,6 +5,24 @@ import { useChaosStore } from '@/lib/store/chaos'
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
 
+/**
+ * Turn a daemon-relative asset path into one the webview can actually load.
+ *
+ * Only for URLs handed to the BROWSER — an `<img src>`, not an `apiFetch` (which
+ * applies API_BASE itself). A DTO's icon URL arrives as a bare `/v0/...` path,
+ * and the desktop webview is served from its own origin: on the dev server that
+ * path resolves to Vite, in a packaged build to the app bundle. Either way it is
+ * not the daemon, so the request 404s and the <img> quietly falls back to the
+ * entity's default mark — a broken icon that looks exactly like an icon nobody
+ * set.
+ *
+ * Defined here, beside API_BASE, so the repo avatar and the project icon cannot
+ * resolve the same kind of URL two different ways.
+ */
+export function assetURL(path: string): string {
+  return `${API_BASE}${path}`
+}
+
 /** Error thrown by apiFetch carrying the HTTP status, so callers can make
  *  status-specific decisions (e.g. a 404 is terminal — never retried). */
 export class ApiError extends Error {
@@ -200,6 +218,44 @@ export function renameRepo(projectId: string, repoId: string, name: string): Pro
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
+  })
+}
+
+/**
+ * Rename a project. The renamed ProjectDTO arrives on the projects WS stream, so
+ * no caller patches its own cache from this — same contract as renameRepo.
+ */
+export function renameProject(projectId: string, name: string): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
+/** Delete a project, and with it every repo and workspace inside. */
+export function deleteProject(projectId: string): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}`, { method: 'DELETE' })
+}
+
+/**
+ * Set (or clear) a workspace's lock.
+ *
+ * `locked` null is the third state, not a synonym for false: it drops the user's
+ * override and hands the question back to the provider, so a branch goes back to
+ * being locked exactly when it is protected. Automatic locking is unaffected
+ * either way — this only decides whether the user is overruling it.
+ */
+export function setWorkspaceLock(
+  projectId: string,
+  repoId: string,
+  wsId: string,
+  locked: boolean | null,
+): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}/lock`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ locked }),
   })
 }
 
