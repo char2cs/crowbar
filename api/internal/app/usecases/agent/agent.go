@@ -46,11 +46,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/core/config"
+	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
+	enginemcp "github.com/char2cs/crowbar/api/internal/engine/mcp"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
@@ -151,12 +154,29 @@ type Usecase struct {
 	// turns is the in-flight-turn registry a provider switch BLOCKS on, so it never quits
 	// a CLI mid-answer. See turnWaits.
 	turns *turnWaits
+	// tools is the agent-facing capability surface DispatchMCP builds a per-call
+	// ToolSet from. Its Chats port is always this usecase (set in New), so the one
+	// dependency a caller can get wrong is the Resolver — and DispatchMCP refuses
+	// to serve without it rather than quietly advertising an empty tool list.
+	tools agenttools.Deps
+	// minter issues the per-runner token an MCP call is authenticated by. It is
+	// held here because the spawn path is what hands a runner its token, and a
+	// runner's token must be minted by the same secret DispatchMCP verifies
+	// against.
+	minter *agenttools.TokenMinter
 }
 
 // New builds a Usecase over the two aggregates and the engine seams. registry is
 // no longer a placement index — it holds only the per-spawn injected-context echo
 // guard (see engineagent.Registry); every placement question is answered by the
 // runner aggregate.
+//
+// minter and tools are the agent capability surface DispatchMCP serves. Both are
+// optional: a Usecase built without them still runs chats, and DispatchMCP fails
+// loudly instead of serving a tool-less agent. tools.Chats and tools.ChatLogs are
+// deliberately NOT a caller's responsibility — the usecase IS the ChatRenamer AND
+// the ChatLogReader (see ReadChatLog), so New fills both in and no caller can drop
+// either tool by forgetting to hand the usecase back to itself.
 func New(
 	chats agentchat.EventStore,
 	runners agentrunner.EventStore,
@@ -166,11 +186,13 @@ func New(
 	providerPrefs store.Store[domain.AgentProviderPreference, string],
 	home func() (string, error),
 	connected func(cmd string) bool,
+	minter *agenttools.TokenMinter,
+	tools agenttools.Deps,
 ) *Usecase {
 	if connected == nil {
 		connected = engineagent.Connected
 	}
-	return &Usecase{
+	u := &Usecase{
 		chats:         chats,
 		runners:       runners,
 		registry:      registry,
@@ -181,7 +203,17 @@ func New(
 		connected:     connected,
 		spawns:        newChatGate(),
 		turns:         newTurnWaits(),
+		tools:         tools,
+		minter:        minter,
 	}
+	u.tools.Chats = u
+	u.tools.ChatLogs = u
+	// The per-provider tool switch, wired as a LIVE port rather than read once at
+	// spawn: without it a chat spawned with tools on keeps them for the life of
+	// its CLI, whatever the user does in Settings afterwards. See
+	// agenttools.Deps.ToolAccess.
+	u.tools.ToolAccess = u.providerMCPEnabled
+	return u
 }
 
 // SpawnChat creates a fresh AgentChat and starts a runner on it, launching the
@@ -196,7 +228,7 @@ func (u *Usecase) SpawnChat(
 	chatID = uuid.NewString()
 	defer u.spawns.lock(chatID)()
 
-	runnerID, err = u.spawnRunner(ctx, chatID, workspaceID, providerID, nil, "", "", true, false, true)
+	runnerID, err = u.spawnRunner(ctx, chatID, workspaceID, providerID, nil, "", "", false, true)
 	if err != nil {
 		return "", "", err
 	}
@@ -245,10 +277,10 @@ func (u *Usecase) RenameChat(
 // RenameByRunner resolves runnerID to the chat it is placed on RIGHT NOW and
 // applies RenameChat to it — the same runnerID → runner → CurrentChatID
 // resolution IngestHook uses for every hook (see its doc comment). It is what
-// the `crowbar chat rename --segment <segid>` CLI calls: the chat id is never
-// baked into the agent's spawn-time instruction, so a CLI that has since moved
-// to a different chat (a /clear or /resume issued inside it) can never rename
-// the chat it used to be on.
+// the agent's own set_chat_title tool calls, and its ONLY caller: the agent is
+// never told a chat id, so a CLI that has since moved to a different chat (a
+// /clear or /resume issued inside it) can never rename the chat it used to be
+// on.
 //
 // A displaced runner (CurrentChatID == "" — Crowbar has taken it off its chat
 // and is killing it, but the process has not yet died) has nowhere to write
@@ -267,6 +299,80 @@ func (u *Usecase) RenameByRunner(
 		return nil
 	}
 	return u.RenameChat(ctx, runner.CurrentChatID, title, source)
+}
+
+// ReadChatLog returns chatID's whole ledger as turns for the get_chat_log tool.
+// It is this usecase's implementation of agenttools.ChatLogReader — see New's
+// doc comment for why tools.ChatLogs is filled in there rather than by a caller:
+// the ledger lives behind this package's own storage, so the usecase IS the
+// reader, the same way it is its own ChatRenamer.
+//
+// Turns, not rendered text: get_chat_log CAPS what it hands a model and states
+// how many turns it left out, and a count taken from re-split text would be
+// wrong (a turn's body contains blank lines, which is what the rendering
+// separates turns with). Rendering the window it keeps is the tool's job; this
+// method's is to report what there is. The whole ledger is returned rather than
+// a pre-cut window because the cap and its wording belong with the other two
+// caps on the tool surface, not spread across the usecases behind them.
+//
+// Scope is NOT checked here: get_chat_log's tool handler already confirmed
+// chatID's workspace is in the caller's visible set before this is ever
+// called (a chat id is not itself an authorization), so this method trusts
+// its caller the same way openLedger's other callers do.
+//
+// An empty ledger — a chat that has not spoken yet — is returned as no turns,
+// not an error. Turning that into agenttools.NoChatTurnsText is the TOOL's job
+// (getChatLog), not this method's: get_chat_log is the only caller today, and
+// duplicating that normalization here would just be a second place the exact
+// wording could drift from the tool's.
+func (u *Usecase) ReadChatLog(
+	ctx context.Context,
+	chatID string,
+) ([]agenttools.ChatTurn, error) {
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("agent: read chat log: chat: %w", err)
+	}
+	led, err := u.openLedger(ctx, chat)
+	if err != nil {
+		return nil, fmt.Errorf("agent: read chat log: %w", err)
+	}
+	turns, err := led.Turns()
+	if err != nil {
+		return nil, fmt.Errorf("agent: read chat log: turns: %w", err)
+	}
+	out := make([]agenttools.ChatTurn, 0, len(turns))
+	for _, t := range turns {
+		out = append(out, agenttools.ChatTurn{Speaker: t.Speaker(), Body: t.Text})
+	}
+	return out, nil
+}
+
+// DispatchMCP runs one MCP message on behalf of the runner named by runnerID.
+//
+// It is the ONLY entry point to the agent tool surface, which is what keeps
+// authorization in one place: the relay process that carries these bytes never
+// decides anything, and the ToolSet is constructed around this caller's
+// credentials so no tool handler is reachable without a successful Resolve.
+//
+// The ToolSet is built PER CALL rather than cached per runner because the
+// credentials are what the tools close over — a cached set would outlive the
+// runner it was minted for.
+//
+// The bool reports whether a reply should be sent: a JSON-RPC notification is
+// answered with silence.
+func (u *Usecase) DispatchMCP(
+	ctx context.Context,
+	runnerID, token string,
+	message []byte,
+) ([]byte, bool, error) {
+	if u.minter == nil || u.tools.Resolver == nil {
+		return nil, false, fmt.Errorf("agent: dispatch mcp: tool surface not configured")
+	}
+	tools := agenttools.NewToolSet(u.tools, runnerID, token)
+	server := enginemcp.NewServer("crowbar", metadata.GetVersion(), tools)
+	out, send := server.Handle(ctx, message)
+	return out, send, nil
 }
 
 // PurgeChat hard-deletes chatID via asynx Forget: the aggregate's event log AND
@@ -464,10 +570,34 @@ func (u *Usecase) displace(
 // the turn's CLI is gone (dead, or displaced and dying) and no successor has taken the chat
 // over, so the turn_stop hook that would have closed it is never coming.
 //
-// The guards are all "is there still someone whose turn this is?": a chat somebody else is
-// now on (a provider switch spawns the incoming CLI before the outgoing one has fallen
-// over) keeps ITS turn; a chat that no longer exists is not written to at all; and a chat
-// that is not Working has nothing to close.
+// The guard here is the one thing only THIS layer knows: "is there still someone whose turn
+// this is?" — a chat somebody else is now on (a provider switch spawns the incoming CLI
+// before the outgoing one has fallen over) keeps ITS turn. An empty chatID means NOWHERE — a
+// runner that is already displaced — and nowhere is never written to.
+//
+// IT DOES NOT ASK WHETHER THE CHAT IS WORKING, and that omission is the fix for a wedge that
+// shipped. It used to, reading domain.AgentChat.Working via GetChat and returning early when
+// it said idle — but GetChat serves the READ MODEL, which an ASYNCHRONOUS projection folds,
+// while the turn that opened is durable in the event log the instant StartTurn returns. So
+// the guard was a read-then-act against state that lags the truth it decides on: the outgoing
+// CLI's last prompt lands microseconds before the displace, the projection has not caught up,
+// the guard reads a stale false, and the turn is closed by NOTHING — the chat spins forever,
+// and the workspace's whole overlay spins with it. It is not self-healing: only the user
+// resuming that chat and completing another turn ever clears it. Measured in test at roughly
+// 1 displace in 7 on an idle machine — the production rate is unknown and depends on how the
+// projection is scheduled against the teardown, but one loss is one chat wedged for good.
+//
+// The question was not wrong, only asked in the wrong place. It is now asked inside the
+// command (commands.StopTurn.Validate), which asynx evaluates against the authoritative fold
+// of the event log and commits atomically with the append at that same version — so an idle
+// chat still emits no event, and a turn opening concurrently collides on the version and is
+// re-validated by the OCC retry. There is no window left to lose, because there is no longer
+// a gap between the question and the act.
+//
+// ErrValidation is therefore ordinary and expected: it is the command saying "there is
+// nothing here to close", or "this chat is gone" (PurgeChat Forgets the chat before retiring
+// its runners) — the same benign signal displace already reads it as for an already-exited
+// runner.
 //
 // KNOWN ASYMMETRY, deliberately not fixed. On the SWITCH path this closes the outgoing CLI's
 // turn (the chat is momentarily empty when we run). On the EVICTION path it does not: the
@@ -479,9 +609,6 @@ func (u *Usecase) displace(
 // would mean asserting "the evicted CLI is not working" about a process that is still alive
 // and that we have merely asked to leave — a liveness claim, which is precisely what this
 // model refuses to make. A visible spinner that resolves beats an invented fact.
-//
-// An empty chatID means NOWHERE — a runner that is already displaced — and nowhere is never
-// looked up.
 func (u *Usecase) closeAbandonedTurn(
 	ctx context.Context,
 	chatID string,
@@ -491,16 +618,6 @@ func (u *Usecase) closeAbandonedTurn(
 	}
 	if _, err := u.runners.LiveRunnerForChat(ctx, chatID); err == nil {
 		return // someone else is on this chat now: its turn is not ours to close
-	}
-	chat, err := u.chats.GetChat(ctx, chatID)
-	if err != nil {
-		if !errors.Is(err, agentchat.ErrNotFound) {
-			slog.WarnContext(ctx, "agent: close abandoned turn: get chat", "chat_id", chatID, "err", err)
-		}
-		return
-	}
-	if !chat.Working {
-		return
 	}
 	// AbandonTurn, not StopTurn: the CLI is GONE, so it will never restate the level of
 	// async work it last reported outstanding, and a plain StopTurn would leave that
@@ -512,9 +629,11 @@ func (u *Usecase) closeAbandonedTurn(
 	// chat: measured against claude 2.1.212, a SIGKILL mid-background-work sends no
 	// SessionEnd and no final Stop — the last word is a turn_stop reporting work still
 	// running, and in an event-sourced aggregate that word outlives the restart.
-	if _, err := u.chats.AbandonTurn(ctx, chat.ID, time.Now()); err != nil {
-		slog.WarnContext(ctx, "agent: close abandoned turn: abandon turn", "chat_id", chatID, "err", err)
+	_, err := u.chats.AbandonTurn(ctx, chatID, time.Now())
+	if err == nil || errors.Is(err, asynxModels.ErrValidation) {
+		return
 	}
+	slog.WarnContext(ctx, "agent: close abandoned turn: abandon turn", "chat_id", chatID, "err", err)
 }
 
 // ReconcileRunnersOnBoot runs ONCE at startup. A PTY does not survive a daemon restart, so
@@ -644,6 +763,21 @@ func deriveTitle(prompt string) string {
 	return ""
 }
 
+// mintRunnerToken issues the credential runnerID's in-PTY `crowbar mcp` relay
+// authenticates with.
+//
+// A Usecase built WITHOUT a minter is legal (the tool surface is optional — see
+// New), and such a runner must still spawn: chats are the product, tools are an
+// addition to it. It carries an empty token instead, which Verify rejects
+// unconditionally, so the tool surface fails closed rather than the chat failing to
+// open.
+func (u *Usecase) mintRunnerToken(runnerID string) string {
+	if u.minter == nil {
+		return ""
+	}
+	return u.minter.Mint(runnerID)
+}
+
 // spawnRunner is the single spawn seam: it launches providerID's vendor CLI in a
 // PTY and records the runner that results, pointed at chatID. Every path that
 // starts a CLI goes through it — SpawnChat (create=true, minting the chat too),
@@ -657,11 +791,11 @@ func deriveTitle(prompt string) string {
 //
 // conversation is the already-wrapped handoff document (the full ledger for a
 // provider new to this chat, the gap only for one resumed into its own session, ""
-// for a brand-new chat); injectTitle asks for the title instruction. Both are
-// composed into the ONE {context} document the descriptor injects, because a
-// provider may only have a single such channel — codex delivers title and handoff
-// through the same developer_instructions key, so injecting them separately would
-// have the second silently overwrite the first.
+// for a brand-new chat). It is composed with the capability preamble into the ONE
+// {context} document the descriptor injects, because a provider may only have a
+// single such channel — codex delivers both through the same
+// developer_instructions key, so injecting them separately would have the second
+// silently overwrite the first.
 //
 // resuming selects WHICH descriptor channel carries that document: ContextInject
 // for a fresh session, ResumeContextInject for one resumed via session.resume. The
@@ -676,13 +810,24 @@ func (u *Usecase) spawnRunner(
 	extraSteps []engineagent.InjectStep,
 	conversation string,
 	ledgerCut string,
-	injectTitle bool,
 	resuming bool,
 	create bool,
 ) (string, error) {
 	// This is the ONE seam every vendor CLI is launched through, which makes it
 	// the only place a disabled provider can actually be stopped.
 	if err := u.requireProviderEnabled(ctx, providerID); err != nil {
+		return "", err
+	}
+	// WHETHER to register Crowbar's own tool surface with this CLI — a per-provider
+	// switch, and a SEPARATE one from whether the provider is enabled at all: a CLI
+	// spawned with its tools off still comes up, still fires its hooks and still
+	// holds a normal chat.
+	//
+	// Read here, beside the enabled check and before any of this function's IO, so
+	// a preference the daemon cannot read fails the spawn without having created a
+	// tmp dir or a process to unwind.
+	mcpOn, err := u.providerMCPEnabled(ctx, providerID)
+	if err != nil {
 		return "", err
 	}
 	// The runner's id IS the crowbarSegmentID passed to every hook, minted here,
@@ -710,6 +855,12 @@ func (u *Usecase) spawnRunner(
 	if err != nil {
 		return "", fmt.Errorf("agent: spawn runner: resolve descriptor: %w", err)
 	}
+	// The tool surface is switched off by rendering a descriptor that does not
+	// declare one, rather than by filtering steps at the injection site: WHERE
+	// those steps land is the descriptor's business (claude's --mcp-config is
+	// variadic and needs the --settings pair immediately behind it), and this
+	// function has no business knowing that.
+	descriptor = withMCPInject(descriptor, mcpOn)
 
 	// Under the workspace's chats dir (always beneath crowbar home), keyed by the RUNNER —
 	// id + provider — and NOT by the chat. The chat pointer is erasable (Displace clears it
@@ -735,6 +886,11 @@ func (u *Usecase) spawnRunner(
 		Cwd:         worktree,
 		CrowbarHook: u.crowbarHookPath(crowbarHome),
 		Segid:       runnerID,
+		// The credential the descriptors hand `crowbar mcp` so this runner's tool
+		// calls can be attributed to it. Minted here because this is where the
+		// runner id is born, and by the SAME minter DispatchMCP verifies against —
+		// a token minted anywhere else would authenticate nothing.
+		RunnerToken: u.mintRunnerToken(runnerID),
 		Provider:    providerID,
 		ProjectID:   projectID,
 		RepoID:      repoID,
@@ -748,20 +904,32 @@ func (u *Usecase) spawnRunner(
 	// would dump the whole handed-off exchange into the chat for the user to scroll
 	// past. An agent reads files.
 	tctx.ContextPointer = engineagent.Expand(config.GetPrompts().HandoffPointer, tctx)
-	// Compose the single {context} document: title instruction (only while the chat
-	// has no title — a chat switched before it was ever titled would otherwise never
-	// get one) followed by the handed-off conversation.
-	var parts []string
-	if injectTitle {
-		parts = append(parts, engineagent.Expand(config.GetPrompts().TitleInstruction, tctx))
-	}
-	if conversation != "" {
-		parts = append(parts, conversation)
-	}
-	tctx.Context = strings.Join(parts, "\n\n")
+	tctx.Context = composeContext(
+		engineagent.Expand(config.GetPrompts().CapabilitiesInstruction, tctx),
+		conversation,
+	)
+	// WHETHER to deliver that document at all, which is a separate question from what
+	// it says.
+	//
+	// A handoff is something that HAPPENED and is always worth delivering. The
+	// capability preamble is standing orientation, so it may only drive delivery down a
+	// SILENT channel: a fresh spawn's ContextInject is a config key or a flag, but a
+	// resume's ResumeContextInject can be a USER MESSAGE — a resumed codex can be
+	// reached no other way (see codex.yaml) — and reopening a closed tab resumes a
+	// provider with nothing recorded in between. Letting the preamble deliver there
+	// would open every revived codex chat with a "while you were away" pointer about
+	// nothing, and codex answers its opening message on sight.
+	//
+	// The cost is that a provider whose resume channel IS silent (claude's is a flag)
+	// also loses the preamble on a gapless revive. That is deliberate over the
+	// alternative: whether a resume channel speaks out loud is the DESCRIPTOR's
+	// knowledge, and inventing a "this channel is silent" field to recover one
+	// directive would put a provider's manners in this package. Its tools are still
+	// registered on that spawn either way — only the directive is missing.
+	inject := conversation != "" || !resuming
 
 	steps := extraSteps
-	if tctx.Context != "" {
+	if inject {
 		steps = append(steps, contextInject(descriptor, resuming)...)
 	}
 
@@ -769,7 +937,15 @@ func (u *Usecase) spawnRunner(
 	// resume channel is a user message (codex) fires its user-prompt hook with this
 	// exact text the moment it starts, and that echo must never be recorded as a
 	// ledger turn — that is what made handoffs nest inside themselves.
-	u.registry.SetInjectedContext(runnerID, tctx.Context, tctx.ContextPointer)
+	//
+	// Only when something was ACTUALLY injected. contextInject is the sole channel for
+	// both the document and the pointer, so an un-injected spawn has nothing that can
+	// echo — and since the capability preamble makes tctx.Context non-empty on every
+	// spawn, registering unconditionally would leave a guard behind for text no CLI
+	// was ever given.
+	if inject {
+		u.registry.SetInjectedContext(runnerID, tctx.Context, tctx.ContextPointer)
+	}
 
 	plan, err := engineagent.BuildSpawnPlan(descriptor, tctx, os.Environ(), steps)
 	if err != nil {
@@ -1118,6 +1294,25 @@ func (u *Usecase) IngestHook(
 	payload, err := descriptor.ParsePayload(rawPayload)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: ingest hook: parse payload", "err", err, "runner_id", runnerID)
+		return nil
+	}
+
+	// A hook that reached us through this CLI's hooks is not automatically ABOUT this
+	// CLI's conversation. A provider runs work of its own — codex 0.146's memory
+	// consolidation is the one that bit us — as an internal session in the same
+	// process, and it fires the same injected hook commands, with a session id nobody
+	// has seen and a source label indistinguishable from the user typing /new. Left
+	// alone it took the chat: the announcement minted a phantom chat and moved the
+	// runner into it, then the internal session's own prompt was titled and filed as
+	// the user's, while the CLI on screen never left the conversation the user was in.
+	//
+	// Dropped, never failed: this is a hook, and a hook must never break the vendor
+	// CLI's turn (spec §4.7). The provider decides what qualifies
+	// (hooks.require_payload_fields); a provider that declares nothing is unaffected.
+	if field, ok := descriptor.OwnsConversation(payload); !ok {
+		slog.DebugContext(ctx, "agent: ingest hook: dropping a hook that is not this CLI's own conversation",
+			"missing_field", field, "event", canonicalEvent,
+			"provider", runner.ProviderID, "runner_id", runnerID)
 		return nil
 	}
 
@@ -1597,7 +1792,7 @@ func (u *Usecase) switchProviderLocked(
 	// context; order is irrelevant for claude's flag pair.
 	return u.spawnRunner(
 		ctx, chatID, chat.WorkspaceID, targetProviderID,
-		resumeSteps, conversation, ledgerCut, chat.Title == "", resuming, false,
+		resumeSteps, conversation, ledgerCut, resuming, false,
 	)
 }
 
@@ -1938,6 +2133,34 @@ func (u *Usecase) assembleConversation(
 	return strings.ReplaceAll(wrapper, "{conversation}", string(blob)), nil
 }
 
+// composeContext builds the ONE {context} document a spawning CLI is given.
+//
+// One document, not one per concern, because a provider may only have a single such
+// channel — codex delivers preamble and handoff through the same
+// developer_instructions key, so two independent injections would collide and the
+// second would silently win.
+//
+// The preamble LEADS the document it joins: it says which tools this CLI has and when
+// to prefer them, and a model should read that before it reads a handoff it is
+// explicitly told not to act on.
+//
+// Either half may be empty — a user can blank capabilities_instruction in their own
+// config.yaml, and a brand-new chat has no conversation — so the pieces are joined
+// rather than formatted, and an absent one leaves no stray blank line for a model to
+// read as a missing section. WHETHER the result is delivered is spawnRunner's
+// decision, not this function's: it turns on whether the CLI is being resumed, which
+// nothing in the text can say.
+func composeContext(preamble, conversation string) string {
+	parts := make([]string, 0, 2)
+	if preamble != "" {
+		parts = append(parts, preamble)
+	}
+	if conversation != "" {
+		parts = append(parts, conversation)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
 // contextInject picks the descriptor channel that carries the {context} document:
 // the resume channel when the CLI is being resumed into its own native session, the
 // fresh-spawn channel otherwise. Which argv/config/file mechanism each of those
@@ -1948,6 +2171,27 @@ func contextInject(d *engineagent.Descriptor, resuming bool) []engineagent.Injec
 		return d.ResumeContextInject
 	}
 	return d.ContextInject
+}
+
+// withMCPInject returns the descriptor a spawn should render: the provider's own
+// when its tool surface is switched on, or a copy with mcp_injection emptied when
+// it is not.
+//
+// It COPIES rather than clearing the field in place. ResolveDescriptor may hand
+// back a descriptor other spawns share, and a switch that emptied it would turn
+// one chat's preference into every later chat's — the exact class of bug a
+// per-provider toggle must not have. The copy is shallow because only that one
+// slice header is replaced; nothing here mutates through the others.
+func withMCPInject(
+	d *engineagent.Descriptor,
+	on bool,
+) *engineagent.Descriptor {
+	if on {
+		return d
+	}
+	stripped := *d
+	stripped.MCPInject = nil
+	return &stripped
 }
 
 // requireProviderEnabled refuses a provider the user has switched OFF, and is
@@ -1969,6 +2213,40 @@ func (u *Usecase) requireProviderEnabled(
 		return fmt.Errorf("%w (%q)", ErrProviderDisabled, providerID)
 	}
 	return nil
+}
+
+// providerMCPEnabled reports whether Crowbar's tool surface should be registered
+// with this provider, and mirrors requireProviderEnabled: same store, same
+// "no row means the default", same negative column so a freshly migrated table
+// does not silently switch every provider's tools off.
+//
+// It has TWO callers, and they are two different questions about one preference.
+// spawnRunner asks whether to RENDER the registration into a CLI's argv, once,
+// at spawn. agenttools.Deps.ToolAccess asks whether to SERVE a tool call, on
+// every call — because the registration a spawn rendered outlives any later
+// change of mind, so the spawn-time read alone would make the switch a
+// decoration on every chat that was already running. The switch is described to
+// the user as a permission; only the per-call read makes that true.
+//
+// It ANSWERS rather than refuses, which is the whole difference between the two
+// switches. Disabling a provider stops the spawn; disabling its tools does not —
+// the CLI comes up, its hooks fire and the chat behaves normally, it simply has
+// no Crowbar tools. A guard that returned an error here would have made the
+// weaker switch the stronger one.
+//
+// A read failure fails the spawn rather than defaulting either way. It is not
+// reachable in practice — requireProviderEnabled has already read the same row
+// off the same store a few lines earlier — but guessing at a preference the user
+// set is worse than saying the daemon could not read it.
+func (u *Usecase) providerMCPEnabled(
+	ctx context.Context,
+	providerID string,
+) (bool, error) {
+	pref, err := u.providerPrefs.FindByKey(ctx, providerID)
+	if err != nil {
+		return false, fmt.Errorf("agent: provider mcp preference %q: %w", providerID, err)
+	}
+	return pref == nil || !pref.MCPDisabled, nil
 }
 
 // ListProviders enumerates the registered agent providers for the workspace's
@@ -2032,6 +2310,7 @@ func (u *Usecase) ResolveProviders(
 			Icon:        d.Icon,
 			Connected:   u.connected(d.Spawn.Cmd),
 			Enabled:     !p.Disabled,
+			MCPEnabled:  !p.MCPDisabled,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {

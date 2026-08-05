@@ -51,3 +51,14 @@ func SetNowForTest(
 	nowFn = fn
 	return func() { nowFn = prev }
 }
+
+// SetGitResolverForTest replaces the pair of functions that decide which binary
+// a git invocation exec's, and returns a restore func.
+func SetGitResolverForTest(
+	bin func() string,
+	recover func() bool,
+) func() {
+	prevBin, prevRecover := gitBin, recoverGit
+	gitBin, recoverGit = bin, recover
+	return func() { gitBin, recoverGit = prevBin, prevRecover }
+}

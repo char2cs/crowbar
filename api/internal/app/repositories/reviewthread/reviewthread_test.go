@@ -158,7 +158,7 @@ func TestReviewThread_OpenReplyList(t *testing.T) {
 	}, now)
 	require.NoError(t, err)
 
-	replied, err := repo.Reply(ctx, "t1", "m2", "", false, "second", now)
+	replied, err := repo.Reply(ctx, reviewthread.ReplyInput{ID: "t1", MessageID: "m2", Body: "second"}, now)
 	require.NoError(t, err)
 	require.Len(t, replied.Messages, 2)
 	assert.Equal(t, "second", replied.Messages[1].Body)
@@ -171,6 +171,52 @@ func TestReviewThread_OpenReplyList(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, byWs, 1)
 	assert.Equal(t, "t1", byWs[0].ID)
+}
+
+// TestReviewThread_AttributionSurvivesTheEventLog drives the real aggregate:
+// attribution written on an open and on a reply must come back off the event log
+// (Get folds from the log) and off the read model (List reads the JSON blob), on
+// the right message each time. Two providers and two chats, because one of each
+// would pass even if the fields were stored per THREAD instead of per message.
+func TestReviewThread_AttributionSurvivesTheEventLog(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1, 0)
+	_, err := repo.Open(ctx, reviewthread.OpenInput{
+		ID: "t1", WsID: "w1", MessageID: "m1", FilePath: "b.go", Body: "finding",
+		Author: "claude", IsAgent: true, ProviderID: "claude", ChatID: "chat-1",
+	}, now)
+	require.NoError(t, err)
+	_, err = repo.Reply(ctx, reviewthread.ReplyInput{
+		ID: "t1", MessageID: "m2", Body: "addressed",
+		Author: "codex", IsAgent: true, ProviderID: "codex", ChatID: "chat-2",
+	}, now)
+	require.NoError(t, err)
+	// A human reply on the same thread: the read path must distinguish it from the
+	// two agent messages by the absence of attribution, not by position.
+	_, err = repo.Reply(ctx, reviewthread.ReplyInput{ID: "t1", MessageID: "m3", Body: "thanks"}, now)
+	require.NoError(t, err)
+
+	got, err := repo.Get(ctx, "t1")
+	require.NoError(t, err)
+	require.Len(t, got.Messages, 3)
+	assert.Equal(t, "claude", got.Messages[0].ProviderID)
+	assert.Equal(t, "chat-1", got.Messages[0].ChatID)
+	assert.Equal(t, "codex", got.Messages[1].ProviderID)
+	assert.Equal(t, "chat-2", got.Messages[1].ChatID)
+	assert.Empty(t, got.Messages[2].ProviderID)
+	assert.Empty(t, got.Messages[2].ChatID)
+
+	// List reads the read model, which the store projection fills ASYNCHRONOUSLY —
+	// Send returns before it runs (decision 4). Drain the dispatch queue first;
+	// this is the deterministic read-your-writes barrier, not a wait.
+	reviewthread.WaitQuiescentForTest(repo)
+	list, err := repo.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	require.Len(t, list[0].Messages, 3)
+	assert.Equal(t, "claude", list[0].Messages[0].ProviderID)
+	assert.Equal(t, "chat-2", list[0].Messages[1].ChatID)
+	assert.Empty(t, list[0].Messages[2].ProviderID)
 }
 
 func TestReviewThread_ListByWorkspace_FiltersWsID(t *testing.T) {
@@ -193,7 +239,7 @@ func TestReviewThread_ListByWorkspace_FiltersWsID(t *testing.T) {
 
 func TestReviewThread_Reply_ErrorOnMissing(t *testing.T) {
 	ctx, repo := newRepo(t)
-	_, err := repo.Reply(ctx, "no-thread", "m1", "", false, "body", time.Unix(1, 0))
+	_, err := repo.Reply(ctx, reviewthread.ReplyInput{ID: "no-thread", MessageID: "m1", Body: "body"}, time.Unix(1, 0))
 	assert.Error(t, err)
 }
 
@@ -233,7 +279,9 @@ func TestReviewThread_ConcurrentReplies_NoWriteMu_OCC(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			_, errs[idx] = repo.Reply(ctx, "t1", fmt.Sprintf("m-%d", idx), "", false, "reply", now)
+			_, errs[idx] = repo.Reply(ctx, reviewthread.ReplyInput{
+				ID: "t1", MessageID: fmt.Sprintf("m-%d", idx), Body: "reply",
+			}, now)
 		}(i)
 	}
 	wg.Wait()

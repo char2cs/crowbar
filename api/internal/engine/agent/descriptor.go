@@ -32,7 +32,25 @@ type Descriptor struct {
 		Resume *ArgSpec `yaml:"resume"`
 	} `yaml:"session"`
 	ConfigInjection []InjectStep `yaml:"config_injection"`
-	Hooks           HookSpec     `yaml:"hooks"`
+	// MCPInject registers Crowbar's own tool surface with this CLI, and is a
+	// SEPARATE list from ConfigInjection because it is the one group of steps that
+	// is conditional: the user can switch the tool surface off per provider
+	// (AgentProviderPreference.MCPDisabled) while the CLI still spawns and its
+	// hooks still fire.
+	//
+	// Naming the group is the only mechanism that can express that. Filtering
+	// ConfigInjection by template token was the obvious alternative and is wrong:
+	// {runner_token} appears in exactly one of codex's four MCP steps, so
+	// mcp_servers.crowbar.command, .env_vars and .default_tools_approval_mode
+	// would all survive the filter and register a server with no arguments — a
+	// half-configured tool surface, which is worse than either state the switch
+	// is meant to choose between.
+	//
+	// Validate does NOT require it. A descriptor that declares none simply
+	// registers no tools, which is the correct reading for a third-party CLI
+	// Crowbar has no MCP wiring for.
+	MCPInject []InjectStep `yaml:"mcp_injection"`
+	Hooks     HookSpec     `yaml:"hooks"`
 	// ContextInject delivers Crowbar's {context} document — the chat-title
 	// instruction and/or the handed-off conversation, composed by the usecase —
 	// to a CLI starting a FRESH provider session. Every provider must deliver it
@@ -70,6 +88,33 @@ type ArgSpec struct {
 type HookSpec struct {
 	Format string                       `yaml:"format"`
 	Events map[string]map[string]string `yaml:"events"`
+	// RequirePayloadFields names payload paths that EVERY hook of the CLI's own
+	// user-facing conversation carries. A payload missing any of them is not a
+	// conversation Crowbar hosts and is DROPPED before the reducer ever sees it.
+	//
+	// It exists because a CLI's hooks are not only its user's. A modern CLI runs
+	// work of its own through the very hook commands Crowbar injected — same
+	// process, same config — and those runs look, to a hook listener, exactly like
+	// the user opening a new conversation. Verified live against codex 0.146.0 with
+	// `[features] memories = true`: its Memory Writing Agent runs as an INTERNAL
+	// session that fires SessionStart / UserPromptSubmit / Stop / SessionEnd with a
+	// fresh session id and `source: startup` — byte-identical to a real /new — so
+	// nothing in the move vocabulary can tell them apart (which is exactly why
+	// Decide must not try; see reducer.go).
+	//
+	// What DOES tell them apart is that they are not conversations at all: they have
+	// no rollout on disk (`transcript_path: null`). That is the right thing to test
+	// rather than a convenient one — a session with no transcript is a session
+	// Crowbar cannot resume and cannot hand off, so hosting it was never possible.
+	//
+	// The guard is per-PAYLOAD, not per-event, and it has to be: dropping only the
+	// announcement would leave the internal session's user_prompt and turn_stop to
+	// route by the runner's placement into the USER'S chat — the consolidation
+	// prompt landing in their ledger as something they said, and its title derived
+	// from it.
+	//
+	// A provider that names nothing here keeps exactly its previous behaviour.
+	RequirePayloadFields []string `yaml:"require_payload_fields"`
 }
 
 // InjectStep is one declarative injection verb, e.g. `- pass_arg: {arg: --settings, value: x}`.

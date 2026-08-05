@@ -128,7 +128,19 @@ export interface ProjectDTO {
   order?: number
 }
 
-export interface ThreadReplyDTO {
+/** Which agent wrote a review message, and out of which chat.
+ *
+ *  Both are omitempty on the wire and ABSENT far more often than present: every
+ *  human message has neither, and so does every agent message written before
+ *  attribution existed. A client renders exactly as it did before this pair when
+ *  they are missing, and resolves them against the providers and chats it already
+ *  holds when they are not — never branching on a particular id's value. */
+interface AgentAttribution {
+  providerId?: string
+  chatId?: string
+}
+
+export interface ThreadReplyDTO extends AgentAttribution {
   id: string
   threadId: string
   body: string
@@ -137,7 +149,11 @@ export interface ThreadReplyDTO {
   createdAt: string
 }
 
-export interface ThreadDTO {
+/** The root message's attribution rides on the THREAD, alongside its body, author
+ *  and agent flag — the root is flattened onto the thread rather than appearing in
+ *  `replies`, so without it an agent-opened thread would render attributed on every
+ *  reply and anonymous on the finding itself. */
+export interface ThreadDTO extends AgentAttribution {
   id: string
   projectId: string
   repoId: string

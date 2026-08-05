@@ -18,15 +18,31 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
-// mustJSON marshals m to raw JSON bytes for IngestHook's rawPayload argument.
+// mustJSON encodes one vendor hook payload. Every payload in this package is a hook
+// payload, so it stamps the field every real hook of a real conversation carries and
+// no test should have to remember: the transcript it belongs to.
+//
+// That is not decoration. Verified against codex 0.146.0, transcript_path is present
+// on a fresh start, on a resume, and on every turn hook in between — and NULL on the
+// internal session codex runs to write its memories, which is the only thing
+// separating that session from the user typing /new (see the codex descriptor's
+// require_payload_fields, and TestOwnsConversation_CodexInternalMemorySession). A
+// payload with no transcript is therefore a MEANINGFUL payload here, not a shorthand,
+// and a test that wants one says so by setting transcript_path to nil itself.
 func mustJSON(t *testing.T, m map[string]any) []byte {
 	t.Helper()
+	if _, set := m["transcript_path"]; !set {
+		m["transcript_path"] = "/rollouts/transcript.jsonl"
+	}
 	b, err := json.Marshal(m)
 	require.NoError(t, err)
 	return b
@@ -307,11 +323,45 @@ func (f *fakeWorkspace) AgentChatsDir(
 // mutation/read to fail, exercising the usecase's error-wrap guard clauses without
 // a fault-injecting database. A nil field delegates to the real store, so only the
 // targeted call fails.
+//
+// It also RECORDS the chat ids AbandonTurn was called with. Recording, not faulting, is
+// what that one needs: closeAbandonedTurn is best-effort and swallows every error it gets,
+// so a fault there would be invisible to the test — the only observable fact is whether
+// the call happened at all, and for which id.
 type fakeChatStore struct {
 	agentchat.EventStore
 	failGetChat   error
 	failCreate    error
 	failListChats error
+
+	mu           sync.Mutex
+	abandonedIDs []string
+}
+
+func (s *fakeChatStore) AbandonTurn(
+	ctx context.Context,
+	chatID string,
+	now time.Time,
+) (domain.AgentChat, error) {
+	s.mu.Lock()
+	s.abandonedIDs = append(s.abandonedIDs, chatID)
+	s.mu.Unlock()
+	return s.EventStore.AbandonTurn(ctx, chatID, now)
+}
+
+// abandonTurnIDs returns every chat id AbandonTurn has been asked to close.
+func (s *fakeChatStore) abandonTurnIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string{}, s.abandonedIDs...)
+}
+
+// forget drops what has been recorded so far, so a test can assert on ONE step of a
+// scenario without the setup's own calls counting against it.
+func (s *fakeChatStore) forget() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.abandonedIDs = nil
 }
 
 func (s *fakeChatStore) GetChat(ctx context.Context, id string) (domain.AgentChat, error) {
@@ -335,7 +385,9 @@ func (s *fakeChatStore) ListChats(ctx context.Context) ([]domain.AgentChat, erro
 	return s.EventStore.ListChats(ctx)
 }
 
-// fakeRunnerStore is the same fault-injecting wrapper for the runner aggregate.
+// fakeRunnerStore is the same fault-injecting wrapper for the runner aggregate, and
+// records the chat ids LiveRunnerForChat was asked about (see fakeChatStore for why
+// recording rather than faulting).
 type fakeRunnerStore struct {
 	agentrunner.EventStore
 	failStart      error
@@ -346,6 +398,33 @@ type fakeRunnerStore struct {
 	// them. Real signals, never a sleep: the goroutines hand off to each other.
 	afterMove  func()
 	afterStart func()
+
+	mu         sync.Mutex
+	lookedUpAt []string
+}
+
+func (s *fakeRunnerStore) LiveRunnerForChat(
+	ctx context.Context,
+	chatID string,
+) (domain.AgentRunner, error) {
+	s.mu.Lock()
+	s.lookedUpAt = append(s.lookedUpAt, chatID)
+	s.mu.Unlock()
+	return s.EventStore.LiveRunnerForChat(ctx, chatID)
+}
+
+// liveRunnerForChatIDs returns every chat id the live-runner query has been asked about.
+func (s *fakeRunnerStore) liveRunnerForChatIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string{}, s.lookedUpAt...)
+}
+
+// forget drops what has been recorded so far — see fakeChatStore.forget.
+func (s *fakeRunnerStore) forget() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lookedUpAt = nil
 }
 
 func (s *fakeRunnerStore) ForgetChat(ctx context.Context, chatID string) error {
@@ -408,7 +487,110 @@ type testFixture struct {
 	// the host or a real PATH.
 	providerPrefs store.Store[domain.AgentProviderPreference, string]
 	connected     map[string]bool
+	// minter is the SAME token minter the usecase's MCP seam verifies against, so
+	// a test can mint the token a spawned runner would have been handed.
+	minter *agenttools.TokenMinter
 }
+
+// fixtureChatReader adapts the chat EventStore into agenttools.ChatReader, whose
+// Get is the store's GetChat under a shorter name.
+type fixtureChatReader struct {
+	chats agentchat.EventStore
+}
+
+func (r fixtureChatReader) Get(
+	ctx context.Context,
+	chatID string,
+) (domain.AgentChat, error) {
+	return r.chats.GetChat(ctx, chatID)
+}
+
+func (r fixtureChatReader) ListChats(
+	ctx context.Context,
+) ([]domain.AgentChat, error) {
+	return r.chats.ListChats(ctx)
+}
+
+// fixtureWorkspaceLister answers for the single workspace the fixture spawns
+// into ("ws1"): a plain child workspace, so the resolver's visibility set is
+// exactly itself.
+type fixtureWorkspaceLister struct{}
+
+func (fixtureWorkspaceLister) Get(
+	_ context.Context,
+	wsID string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: wsID, ProjectID: "p1", RepoID: "r1"}, nil
+}
+
+func (fixtureWorkspaceLister) List(
+	_ context.Context,
+) ([]domain.Workspace, error) {
+	return []domain.Workspace{{ID: "ws1", ProjectID: "p1", RepoID: "r1"}}, nil
+}
+
+// fixtureReviewReader, fixtureThreadReader and fixtureThreadWriter exist only
+// so DispatchMCP's tool surface registers post_review_comment,
+// list_review_threads, get_review_scope, reply_to_review_thread and
+// resolve_review_thread — none of these tests CALL a review tool, so every
+// method here is an empty-returning stand-in. What matters is that the ports
+// are non-nil: the full 8-tool surface has to come from a REAL *agent.Usecase
+// built through agent.New for TestDispatchMCP_ListsTheChatTools to be a
+// meaningful guard on New's own internal wiring (see that test's doc comment).
+type fixtureReviewReader struct{}
+
+func (fixtureReviewReader) GetScope(
+	context.Context,
+	domain.Workspace,
+) (gitdomain.ReviewScope, error) {
+	return gitdomain.ReviewScope{}, nil
+}
+
+func (fixtureReviewReader) GetOutline(
+	context.Context,
+	string,
+	string,
+) ([]gitdomain.FileOutline, error) {
+	return nil, nil
+}
+
+type fixtureThreadReader struct{}
+
+func (fixtureThreadReader) ListByWorkspace(context.Context, string) ([]domain.ReviewThread, error) {
+	return nil, nil
+}
+
+func (fixtureThreadReader) Get(context.Context, string) (domain.ReviewThread, error) {
+	return domain.ReviewThread{}, nil
+}
+
+type fixtureThreadWriter struct{}
+
+func (fixtureThreadWriter) Open(
+	context.Context,
+	reviewthread.OpenInput,
+	time.Time,
+) (domain.ReviewThread, error) {
+	return domain.ReviewThread{}, nil
+}
+
+func (fixtureThreadWriter) Reply(
+	context.Context,
+	reviewthread.ReplyInput,
+	time.Time,
+) (domain.ReviewThread, error) {
+	return domain.ReviewThread{}, nil
+}
+
+func (fixtureThreadWriter) Resolve(context.Context, string) (domain.ReviewThread, error) {
+	return domain.ReviewThread{}, nil
+}
+
+// noopThreadBroadcast stands in for the app layer's hub fan-out. These tests
+// never call a write tool, so nothing ever observes a broadcast; it only needs
+// to be non-nil so canWriteReviewThread and canPostReviewComment register their
+// tools.
+func noopThreadBroadcast(domain.ReviewThread, string, string) {}
 
 // setPrefs saves global provider preferences into the fixture's real store, so a
 // following ResolveProviders reads them back.
@@ -455,6 +637,11 @@ func (f testFixture) spawn(t *testing.T, provider string) (chatID, runnerID stri
 // it is now in. This is the ONLY way a conversation change ever reaches Crowbar —
 // nothing inspects terminal input — so every /clear, /new and /resume in these tests
 // is expressed exactly as the real CLI expresses it.
+//
+// transcript_path is part of "exactly": every real hook of a real conversation
+// carries the rollout/transcript it belongs to (verified against codex 0.146.0 on a
+// fresh start, on a resume, and on the internal memory session that DOESN'T have one
+// — see the codex descriptor's require_payload_fields). mustJSON stamps it.
 func (f testFixture) announce(t *testing.T, runnerID, sessionID string) {
 	t.Helper()
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "", "session_start",
@@ -670,7 +857,41 @@ func newFixtureUsing(
 	connected := map[string]bool{}
 	homeFn := func() (string, error) { return home, nil }
 	probe := func(cmd string) bool { return connected[cmd] }
-	u := agentusecase.New(usedChats, usedRunners, reg, term, ws, providerPrefs, homeFn, probe)
+	// The tool surface is wired over the SAME real stores the rest of the fixture
+	// reads, so an MCP tool call lands in the aggregates every other test asserts
+	// on. Only the workspace lister is a fake: these tests own no workspace
+	// repository, and the resolver only needs the caller's workspace to exist.
+	//
+	// Every port that CAN be supplied here is, so the usecase this fixture builds
+	// advertises the complete production tool surface — the same reason
+	// agenttools' own toolsetOn fixture wires every port with stubs (see its doc
+	// comment): a port left out here would silently narrow
+	// TestDispatchMCP_ListsTheChatTools back to a vacuous guard.
+	//
+	// Chats and ChatLogs are NOT set in this Deps literal: both are self-assigned
+	// by agent.New once u exists (see its doc comment), the same chicken-and-egg
+	// every caller of New faces, so wiring them here would just be re-doing what
+	// New itself is responsible for — which is exactly the wiring
+	// TestDispatchMCP_ListsTheChatTools exists to guard.
+	minter, err := agenttools.NewTokenMinter()
+	require.NoError(t, err)
+	chatReader := fixtureChatReader{chats: usedChats}
+	resolver := agenttools.NewResolver(
+		minter,
+		usedRunners,
+		chatReader,
+		fixtureWorkspaceLister{},
+	)
+	u := agentusecase.New(usedChats, usedRunners, reg, term, ws, providerPrefs, homeFn, probe,
+		minter, agenttools.Deps{
+			Resolver:        resolver,
+			ChatReads:       chatReader,
+			Review:          fixtureReviewReader{},
+			Threads:         fixtureThreadReader{},
+			ThreadWrites:    fixtureThreadWriter{},
+			Idempotency:     agenttools.NewIdempotency(),
+			ThreadBroadcast: noopThreadBroadcast,
+		})
 	f := testFixture{
 		ctx:           context.Background(),
 		usecase:       u,
@@ -684,6 +905,7 @@ func newFixtureUsing(
 		registry:      reg,
 		providerPrefs: providerPrefs,
 		connected:     connected,
+		minter:        minter,
 	}
 	return f, realChats, realRunners
 }

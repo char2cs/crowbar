@@ -210,11 +210,12 @@ func (configurableListGetUsecase) RenameChat(
 	return nil
 }
 
-func (configurableListGetUsecase) RenameByRunner(
+func (configurableListGetUsecase) DispatchMCP(
 	_ context.Context,
-	_, _, _ string,
-) error {
-	return nil
+	_, _ string,
+	_ []byte,
+) ([]byte, bool, error) {
+	return nil, false, nil
 }
 
 func (configurableListGetUsecase) PurgeChat(
@@ -695,68 +696,6 @@ func TestDelete_UsecaseError(
 	ctx.Params = gin.Params{{Key: "id", Value: "missing"}}
 
 	h.Delete(ctx)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// TestRenameByRunner_PostsTitleAndSource proves RenameByRunner decodes
-// {title}, forwards the :segid path param, decoded title, and the `source`
-// query param to RenameByRunner, and responds 202 with an empty body on
-// success. Unlike Rename it makes NO by-id workspace scope check first: :segid
-// names a RUNNER, resolved straight off the runner aggregate, exactly like the
-// Hooks route.
-func TestRenameByRunner_PostsTitleAndSource(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{}
-	h := handlers.New(uc)
-
-	body := []byte(`{"title":"New Title"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/seg-1/rename?source=agent", body)
-	ctx.Params = gin.Params{{Key: "segid", Value: "seg-1"}}
-
-	h.RenameByRunner(ctx)
-
-	require.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Empty(t, rec.Body.Bytes())
-
-	require.Len(t, uc.renameByRunnerCalls, 1)
-	assert.Equal(t, "seg-1", uc.renameByRunnerCalls[0].runnerID)
-	assert.Equal(t, "New Title", uc.renameByRunnerCalls[0].title)
-	assert.Equal(t, "agent", uc.renameByRunnerCalls[0].source)
-}
-
-// TestRenameByRunner_BadJSON proves a malformed body is rejected 400 without
-// reaching the usecase.
-func TestRenameByRunner_BadJSON(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{}
-	h := handlers.New(uc)
-
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/seg-1/rename", []byte("{not json"))
-	ctx.Params = gin.Params{{Key: "segid", Value: "seg-1"}}
-
-	h.RenameByRunner(ctx)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Empty(t, uc.renameByRunnerCalls)
-}
-
-// TestRenameByRunner_UnknownRunner404s proves a RenameByRunner failure
-// (agentrunner.ErrNotFound — an unknown or already-exited runner) surfaces as
-// a mapped 404 rather than a 202.
-func TestRenameByRunner_UnknownRunner404s(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{renameByRunnerErr: agentrunner.ErrNotFound}
-	h := handlers.New(uc)
-
-	body := []byte(`{"title":"New Title"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/missing/rename", body)
-	ctx.Params = gin.Params{{Key: "segid", Value: "missing"}}
-
-	h.RenameByRunner(ctx)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

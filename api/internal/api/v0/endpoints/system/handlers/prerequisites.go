@@ -61,7 +61,8 @@ func (h *Handler) Prerequisites(c *gin.Context) {
 
 func (h *Handler) checkGit(ctx context.Context) GitStatus {
 	var out bytes.Buffer
-	cmd := exec.CommandContext(ctx, "git", "--version")
+	//nolint:gosec // G204: fixed git subcommand against a binpath-resolved binary; no user input reaches the command.
+	cmd := exec.CommandContext(ctx, binpath.Git(), "--version")
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
 		return GitStatus{}

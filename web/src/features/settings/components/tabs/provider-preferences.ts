@@ -4,27 +4,46 @@ import type { AgentProvider, ProviderPreference } from '@/features/agent/api/age
 // Pure mappings behind the Providers settings tab. The tab reads its live list
 // from the active workspace store and, on any change, PUTs the COMPLETE ordered
 // preference set (spec §3.2) — so both a reorder and a toggle funnel through the
-// same "ordered ids + per-id disabled flags → payload" shape. Factored out here
-// (rather than driving a real @dnd-kit pointer drag, which is brittle in jsdom)
-// so the reorder→payload and toggle→payload mappings are unit-testable directly,
+// same "ordered ids + per-id flags → payload" shape. Factored out here (rather
+// than driving a real @dnd-kit pointer drag, which is brittle in jsdom) so the
+// reorder→payload and toggle→payload mappings are unit-testable directly,
 // mirroring how the tab bar's `reorderIds` helper is tested.
 
-/** The disabled-by-id map for the current provider list (disabled = !enabled) —
- *  the baseline a toggle flips one entry of and a reorder carries unchanged. */
-export function providerDisabledMap(providers: AgentProvider[]): Record<string, boolean> {
-  const map: Record<string, boolean> = {}
-  for (const p of providers) map[p.id] = !p.enabled
+/** The two per-provider switches, in the NEGATIVE polarity the backend stores and
+ *  the payload carries: `disabled` is the provider itself, `mcpDisabled` is
+ *  Crowbar's tool surface inside it. They are independent axes — a provider can be
+ *  offered with its tools off, and an unavailable provider keeps whatever tool
+ *  setting it had. */
+export interface ProviderFlags {
+  disabled: boolean
+  mcpDisabled: boolean
+}
+
+/** The flags-by-id map for the current provider list (each flag = !its positive
+ *  reading) — the baseline a toggle flips ONE FIELD of one entry of, and a reorder
+ *  carries through unchanged.
+ *
+ *  It carries BOTH flags because the write it feeds replaces whole rows: a map of
+ *  `disabled` alone would leave every reorder and every enable/disable PUTting a
+ *  zero `mcpDisabled`, quietly switching the tool surface back on behind the user. */
+export function providerDisabledMap(providers: AgentProvider[]): Record<string, ProviderFlags> {
+  const map: Record<string, ProviderFlags> = {}
+  for (const p of providers) map[p.id] = { disabled: !p.enabled, mcpDisabled: !p.mcpEnabled }
   return map
 }
 
 /** Build the COMPLETE ordered preference set the backend replaces its table with:
- *  array index becomes the new priority; `disabled` comes from the toggle map
- *  (an id absent from the map defaults to enabled — spec §3.1). */
+ *  array index becomes the new priority; both flags come from the flags map (an id
+ *  absent from the map defaults to enabled, with its tools on — spec §3.1). */
 export function buildProviderPreferences(
   orderedIds: string[],
-  disabledById: Record<string, boolean>,
+  flagsById: Record<string, ProviderFlags>,
 ): ProviderPreference[] {
-  return orderedIds.map((id) => ({ id, disabled: disabledById[id] ?? false }))
+  return orderedIds.map((id) => ({
+    id,
+    disabled: flagsById[id]?.disabled ?? false,
+    mcpDisabled: flagsById[id]?.mcpDisabled ?? false,
+  }))
 }
 
 /** Apply the SAME intent the payload carries to the live provider list — the
@@ -37,18 +56,28 @@ export function buildProviderPreferences(
 export function applyProviderPreferences(
   providers: AgentProvider[],
   orderedIds: string[],
-  disabledById: Record<string, boolean>,
+  flagsById: Record<string, ProviderFlags>,
 ): AgentProvider[] {
   const byId = new Map(providers.map((p) => [p.id, p]))
   return orderedIds.flatMap((id) => {
     const provider = byId.get(id)
-    return provider ? [{ ...provider, enabled: !(disabledById[id] ?? false) }] : []
+    if (!provider) return []
+    return [
+      {
+        ...provider,
+        enabled: !(flagsById[id]?.disabled ?? false),
+        mcpEnabled: !(flagsById[id]?.mcpDisabled ?? false),
+      },
+    ]
   })
 }
 
 /** Move `activeId` into `overId`'s slot — the reorder a dnd-kit `onDragEnd`
  *  performs, expressed as a pure id transform (no-op when the drag didn't move,
- *  or either id is unknown). */
+ *  or either id is unknown).
+ *
+ *  Ids only: a drag changes priority and nothing else, and the flags ride to the
+ *  payload untouched through the map `buildProviderPreferences` is given. */
 export function reorderProviderIds(
   orderedIds: string[],
   activeId: string,

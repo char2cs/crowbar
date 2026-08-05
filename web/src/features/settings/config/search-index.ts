@@ -287,11 +287,11 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
 
   // Provider Settings
   //
-  // Both controls the Providers tab exposes. Without them the tab was invisible
+  // Every control the Providers tab exposes. Without them the tab was invisible
   // to this search: typing "provider" scored nothing, the rail filtered down to
-  // "No matching settings", and the search HID the one tab that matched. The two
-  // records share a keyword set because a user hunting for either says the same
-  // words — the CLI's name as often as the concept's.
+  // "No matching settings", and the search HID the one tab that matched. The
+  // records share a keyword set because a user hunting for any of them says the
+  // same words — the CLI's name as often as the concept's.
   {
     id: 'providers-priority-order',
     tab: 'providers',
@@ -317,6 +317,27 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     label: 'Enable Provider',
     description: 'Turn a provider off to hide it from every New chat surface',
     keywords: ['provider', 'agent', 'cli', 'claude', 'codex', 'enable', 'disable', 'off', 'hide'],
+  },
+  {
+    // The row calls this "Tools" and never says MCP — the transport is not what
+    // the user is deciding. A KEYWORD may say it, because someone who knows the
+    // term will type it, and keywords are never shown.
+    id: 'providers-tools',
+    tab: 'providers',
+    section: 'Providers',
+    label: 'Crowbar Tools',
+    description: "Let a provider's agent use Crowbar itself — your workspaces and review comments",
+    keywords: [
+      'provider',
+      'agent',
+      'cli',
+      'claude',
+      'codex',
+      'tools',
+      'mcp',
+      'access',
+      'permission',
+    ],
   },
 
   // Terminal Settings

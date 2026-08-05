@@ -149,6 +149,49 @@ describe('mapThread', () => {
     expect(mapThread(wireThreadDTO({ side: 'old' })).side).toBe('old')
     expect(mapThread(wireThreadDTO({ side: 'new' })).side).toBe('new')
   })
+
+  // ── Agent attribution ───────────────────────────────────────────────
+  // The ROOT's attribution rides on the thread itself (the root is flattened onto
+  // ThreadDTO, not carried in replies[]), so reading it only off replies would
+  // leave every agent-opened thread attributed on its replies and anonymous on
+  // the finding.
+  it('carries providerId + chatId on the root and on each reply', () => {
+    const result = mapThread(
+      wireThreadDTO({
+        isAgent: true,
+        providerId: 'zeta-cli',
+        chatId: 'chat-1',
+        replies: [
+          {
+            id: 'r1',
+            threadId: 't1',
+            body: 'reply',
+            author: '',
+            isAgent: true,
+            providerId: 'zeta-cli',
+            chatId: 'chat-2',
+            createdAt: '2026-01-01T01:00:00Z',
+          },
+        ],
+      }),
+    )
+
+    expect(result.messages[0]).toMatchObject({ providerId: 'zeta-cli', chatId: 'chat-1' })
+    expect(result.messages[1]).toMatchObject({ providerId: 'zeta-cli', chatId: 'chat-2' })
+  })
+
+  // Absent is the NORMAL case: every human message, and every agent message
+  // written before attribution existed. `undefined`, never '' — an empty string
+  // would look like a real id to every lookup downstream.
+  it('leaves attribution undefined when the wire omits it or sends it empty', () => {
+    const omitted = mapThread(wireThreadDTO())
+    expect(omitted.messages[0].providerId).toBeUndefined()
+    expect(omitted.messages[0].chatId).toBeUndefined()
+
+    const empty = mapThread(wireThreadDTO({ providerId: '', chatId: '' }))
+    expect(empty.messages[0].providerId).toBeUndefined()
+    expect(empty.messages[0].chatId).toBeUndefined()
+  })
 })
 
 describe('review-api request shapes', () => {

@@ -97,7 +97,10 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 }))
 
 import { useWorkspaceAgentChatsStream } from '@/features/workspace/stores/hooks/use-workspace-agent-chats-stream'
-import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import {
+  beginProviderWrite,
+  useAgentProvidersStore,
+} from '@/features/settings/stores/agent-providers-store'
 
 type Frame = {
   chatId?: string
@@ -279,6 +282,39 @@ describe('useWorkspaceAgentChatsStream', () => {
       await flush()
 
       expect(setAgentProviders).toHaveBeenLastCalledWith(providers)
+    })
+
+    // A reseed is a GET, so it is a snapshot of the server BEFORE any
+    // preferences PUT it overlaps. Sequencing reads against reads (the test
+    // above) cannot see that: this read IS the latest read, and publishing it
+    // would still undo the write — in the workspace copy the chat surfaces read
+    // and in the global one the Settings tab renders, so the user watches their
+    // Tools switch flip back on. See the write generation in
+    // agent-providers-store.
+    it('does not publish a reseed that a preferences write overtook', async () => {
+      // The global store is module state a previous test in this file has
+      // already written; start from a known empty list so "unchanged" is a fact
+      // this test can assert exactly.
+      useAgentProvidersStore.setState({ providers: [], status: 'idle' })
+      let landReseed: (p: unknown[]) => void = () => {}
+      listProvidersFn.mockReturnValueOnce(
+        new Promise((resolve) => {
+          landReseed = resolve as (p: unknown[]) => void
+        }),
+      )
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      expect(setAgentProviders).not.toHaveBeenCalled()
+
+      // The user toggles a provider's Tools switch: a write is issued while this
+      // reseed is still in flight.
+      beginProviderWrite()
+
+      landReseed([{ id: 'claude', displayName: 'Claude', icon: '<svg/>', mcpEnabled: true }])
+      await flush()
+
+      expect(setAgentProviders).not.toHaveBeenCalled()
+      expect(useAgentProvidersStore.getState().providers).toEqual([])
     })
   })
 

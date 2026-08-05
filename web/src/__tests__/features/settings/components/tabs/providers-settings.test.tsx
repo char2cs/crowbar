@@ -12,7 +12,7 @@
  * drag is NOT driven here (brittle in jsdom) — the reorder→payload mapping is
  * unit-tested in provider-preferences.test.ts.
  */
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -41,6 +41,7 @@ if (typeof window.PointerEvent !== 'function') {
 }
 
 import { ProvidersSettings } from '@/features/settings/components/tabs/providers-settings'
+import { PROVIDER_COLUMN_CELL } from '@/features/settings/components/tabs/provider-columns'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import {
   destroyWorkspaceStore,
@@ -55,7 +56,15 @@ const provider = (
   displayName: string,
   connected: boolean,
   enabled: boolean,
-): AgentProvider => ({ id, displayName, icon: `<svg data-p="${id}"></svg>`, connected, enabled })
+  mcpEnabled = true,
+): AgentProvider => ({
+  id,
+  displayName,
+  icon: `<svg data-p="${id}"></svg>`,
+  connected,
+  enabled,
+  mcpEnabled,
+})
 
 function store() {
   return getOrCreateWorkspaceStore('w1')
@@ -170,6 +179,132 @@ describe('ProvidersSettings', () => {
     expect(screen.getByText(/agentic CLIs Crowbar runs your chats on/i)).toBeInTheDocument()
   })
 
+  // ── The column header ───────────────────────────────────────────────
+  // The row ends in a dot and two switches. Two unlabelled switches side by side
+  // is a guessing game, and the row could only ever afford one inline word
+  // ("Tools") — repeated on every row, with the other switch still anonymous.
+  // The columns are titled once, above the list, like a table header.
+  describe('the column header', () => {
+    /** The three trailing control cells of a row, in render order. */
+    const rowColumns = (id: string) => [
+      screen.getByTestId(`provider-connected-${id}`).parentElement,
+      screen.getByTestId(`provider-tools-toggle-${id}`).parentElement,
+      screen.getByTestId(`provider-toggle-${id}`).parentElement,
+    ]
+
+    /** The `w-*` token an element carries — the thing that has to match. */
+    const widthClass = (el: Element | null | undefined) =>
+      el?.className.split(/\s+/).find((c) => /^w-/.test(c))
+
+    it('titles each control column above the list', () => {
+      seedProviders([
+        provider('codex', 'Codex', true, true),
+        provider('claude', 'Claude', true, true),
+      ])
+      render(<ProvidersSettings />)
+
+      const header = screen.getByTestId('provider-columns-header')
+      expect(within(header).getByText('Installed')).toBeInTheDocument()
+      expect(within(header).getByText('Tools')).toBeInTheDocument()
+      expect(within(header).getByText('Enabled')).toBeInTheDocument()
+    })
+
+    // THE POINT OF THE HEADER: the word "Tools" used to be printed on every row
+    // because that was the only legend the row could carry. With a titled column
+    // it is noise — and two rows meant two copies of it.
+    it('retires the per-row Tools caption now the column is titled', () => {
+      seedProviders([
+        provider('codex', 'Codex', true, true),
+        provider('claude', 'Claude', true, true),
+      ])
+      render(<ProvidersSettings />)
+
+      const captions = screen.getAllByText('Tools')
+      expect(captions).toHaveLength(1)
+      expect(captions[0]).toBe(
+        within(screen.getByTestId('provider-columns-header')).getByText('Tools'),
+      )
+    })
+
+    // ALIGNMENT, STRUCTURALLY. `Switch` is `w-[calc(var(--thumb-size)*2-2px)]`
+    // and `--thumb-size` drops from `--spacing(5)` to `--spacing(4)` at `sm:`, so
+    // the switch is ~38px on a narrow settings pane and ~30px on a wide one. A
+    // header label with its own hardcoded width would sit off-centre at one of
+    // those. Header and row must therefore render the SAME column box — asserted
+    // here against each other, not against a copy of the expected value, so
+    // hardcoding a width into either side fails this test.
+    it('lays the header labels out in the same column box as the row controls', () => {
+      seedProviders([provider('codex', 'Codex', true, true)])
+      render(<ProvidersSettings />)
+
+      const header = screen.getByTestId('provider-columns-header')
+      const labels = ['Installed', 'Tools', 'Enabled'].map((t) => within(header).getByText(t))
+      const cells = rowColumns('codex')
+
+      labels.forEach((label, i) => {
+        expect(widthClass(label)).toBeDefined()
+        expect(widthClass(label)).toBe(widthClass(cells[i]))
+        // …and both come from the one shared definition, rather than two
+        // literals that happen to agree today.
+        expect(label.className).toContain(PROVIDER_COLUMN_CELL)
+        expect(cells[i]?.className).toContain(PROVIDER_COLUMN_CELL)
+      })
+    })
+
+    // Presentational only. Every control already carries its own aria-label
+    // ("Let X use Crowbar's tools", "Enable X", "Installed"/"Not installed"); a
+    // header in the accessibility tree would announce each column twice.
+    it('stays out of the accessibility tree without weakening the per-switch labels', () => {
+      seedProviders([provider('codex', 'Codex', true, true)])
+      render(<ProvidersSettings />)
+
+      expect(screen.getByTestId('provider-columns-header')).toHaveAttribute('aria-hidden', 'true')
+      expect(screen.getByLabelText("Let Codex use Crowbar's tools")).toBeInTheDocument()
+      expect(screen.getByLabelText('Enable Codex')).toBeInTheDocument()
+      expect(screen.getByTestId('provider-connected-codex')).toHaveAttribute(
+        'aria-label',
+        'Installed',
+      )
+    })
+
+    // A header titles columns that exist. None of these three states has a
+    // single row under it, and a legend floating over a spinner or an error is
+    // just furniture.
+    it('does not appear over the empty state', () => {
+      seedProviders([])
+      render(<ProvidersSettings />)
+
+      expect(screen.getByText('No providers available.')).toBeInTheDocument()
+      expect(screen.queryByTestId('provider-columns-header')).toBeNull()
+    })
+
+    it('does not appear while the first fetch is in flight', () => {
+      act(() => {
+        setActiveWorkspaceStoreRef(store())
+        setActiveWorkspaceId('w1')
+      })
+      listProvidersFn.mockReturnValue(deferred<AgentProvider[]>().promise)
+
+      render(<ProvidersSettings />)
+
+      expect(screen.getByTestId('providers-loading')).toBeInTheDocument()
+      expect(screen.queryByTestId('provider-columns-header')).toBeNull()
+    })
+
+    it('does not appear when the list could not be loaded', async () => {
+      act(() => {
+        setActiveWorkspaceStoreRef(store())
+        setActiveWorkspaceId('w1')
+      })
+      listProvidersFn.mockRejectedValue(new Error('daemon is down'))
+
+      render(<ProvidersSettings />)
+
+      await waitFor(() => expect(screen.getByTestId('providers-unavailable')).toBeInTheDocument())
+      expect(screen.queryByTestId('provider-columns-header')).toBeNull()
+    })
+  })
+
   // ── The tab is GLOBAL; the workspace store is not ───────────────────
   // Reported live: "No providers available." with both CLIs installed, both rows
   // enabled in the daemon's own sqlite, and the workspace-scoped GET returning
@@ -255,13 +390,219 @@ describe('ProvidersSettings', () => {
     await userEvent.click(screen.getByTestId('provider-toggle-codex'))
 
     expect(updateProviderPreferencesFn).toHaveBeenCalledWith([
-      { id: 'codex', disabled: true },
-      { id: 'claude', disabled: false },
+      { id: 'codex', disabled: true, mcpDisabled: false },
+      { id: 'claude', disabled: false, mcpDisabled: false },
     ])
 
     // Store reconciled from the mocked response, not from local optimism.
     await waitFor(() => {
       expect(store().getState().agentChats.providers[0].enabled).toBe(false)
+    })
+  })
+
+  // ── Crowbar's tools, per provider ───────────────────────────────────
+  // A SECOND, INDEPENDENT axis: a provider with its tools off still spawns and
+  // still holds a normal chat — the agent just cannot reach into Crowbar. The row
+  // never says "MCP"; the transport is not what the user is deciding.
+  describe('the tools switch', () => {
+    it('renders one per row, reflecting mcpEnabled', () => {
+      seedProviders([
+        provider('codex', 'Codex', true, true, true),
+        provider('claude', 'Claude', true, true, false),
+      ])
+      render(<ProvidersSettings />)
+
+      expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
+        'aria-checked',
+        'true',
+      )
+      expect(screen.getByTestId('provider-tools-toggle-claude')).toHaveAttribute(
+        'aria-checked',
+        'false',
+      )
+    })
+
+    it('is labelled for what it does, not for the protocol behind it', () => {
+      seedProviders([provider('codex', 'Codex', true, true)])
+      render(<ProvidersSettings />)
+
+      expect(screen.getByLabelText("Let Codex use Crowbar's tools")).toBeInTheDocument()
+      expect(document.body.textContent).not.toMatch(/MCP/i)
+    })
+
+    it('turning it off PUTs mcpDisabled for that provider and leaves the others alone', async () => {
+      seedProviders([
+        provider('codex', 'Codex', true, true),
+        provider('claude', 'Claude', true, true),
+      ])
+      updateProviderPreferencesFn.mockResolvedValueOnce([
+        provider('codex', 'Codex', true, true, false),
+        provider('claude', 'Claude', true, true, true),
+      ])
+
+      render(<ProvidersSettings />)
+      await userEvent.click(screen.getByTestId('provider-tools-toggle-codex'))
+
+      expect(updateProviderPreferencesFn).toHaveBeenCalledWith([
+        { id: 'codex', disabled: false, mcpDisabled: true },
+        { id: 'claude', disabled: false, mcpDisabled: false },
+      ])
+
+      // Round trip: the reconciled store, and the switch, both say off.
+      await waitFor(() => {
+        expect(store().getState().agentChats.providers[0].mcpEnabled).toBe(false)
+      })
+      expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
+        'aria-checked',
+        'false',
+      )
+      // …and the provider itself is untouched by a tools toggle.
+      expect(screen.getByTestId('provider-toggle-codex')).toHaveAttribute('aria-checked', 'true')
+    })
+
+    // THE LANDMINE. The PUT replaces whole rows, so any later write that forgot
+    // this flag would write its zero value back over the user's choice. Every
+    // write carries both flags — here, an enable toggle taken after a tools
+    // toggle still says mcpDisabled.
+    //
+    // BOTH CLICKS ARE ON THE SAME PROVIDER, deliberately. The pair that has to
+    // survive is "turn this provider's tools off, then turn this provider off":
+    // handleToggle carries mcpDisabled through from the row it is flipping, so
+    // aiming the second click at a DIFFERENT provider tested nothing — claude's
+    // mcpDisabled was already false, and dropping the flag from handleToggle's
+    // payload left the assertion passing.
+    it("survives a later toggle of the same provider's enable switch", async () => {
+      seedProviders([
+        provider('codex', 'Codex', true, true),
+        provider('claude', 'Claude', true, true),
+      ])
+      updateProviderPreferencesFn
+        .mockResolvedValueOnce([
+          provider('codex', 'Codex', true, true, false),
+          provider('claude', 'Claude', true, true, true),
+        ])
+        .mockResolvedValueOnce([
+          provider('codex', 'Codex', true, false, false),
+          provider('claude', 'Claude', true, true, true),
+        ])
+
+      render(<ProvidersSettings />)
+      await userEvent.click(screen.getByTestId('provider-tools-toggle-codex'))
+      await waitFor(() =>
+        expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
+          'aria-checked',
+          'false',
+        ),
+      )
+      await userEvent.click(screen.getByTestId('provider-toggle-codex'))
+
+      expect(updateProviderPreferencesFn).toHaveBeenNthCalledWith(2, [
+        { id: 'codex', disabled: true, mcpDisabled: true },
+        { id: 'claude', disabled: false, mcpDisabled: false },
+      ])
+      // And the tools switch is still off afterwards, which is what the user
+      // would actually see go wrong.
+      await waitFor(() =>
+        expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
+          'aria-checked',
+          'false',
+        ),
+      )
+    })
+  })
+
+  // ── A READ THAT OVERTAKES A WRITE ───────────────────────────────────
+  // The rows are interactive from the workspace seed, so the user can toggle
+  // while the mount GET is still in flight. That GET is a snapshot of the server
+  // BEFORE the PUT, and publishing it re-installs the pre-write list: the switch
+  // visibly flips back, and — because every write PUTs the complete set built
+  // from whatever the store now says — the next drag or toggle writes the stale
+  // flag back to the daemon. Sequencing writes against writes cannot see this;
+  // the fence has to cover reads.
+  describe('a stale read landing after a write', () => {
+    /** Both copies seeded, with the mount GET deliberately left in flight. */
+    function seedWithGetInFlight(providers: AgentProvider[]) {
+      const inflight = deferred<AgentProvider[]>()
+      listProvidersFn.mockReturnValue(inflight.promise)
+      act(() => {
+        store().getState().setAgentProviders(providers)
+        setActiveWorkspaceStoreRef(store())
+        setActiveWorkspaceId('w1')
+        useAgentProvidersStore.setState({ providers, status: 'ready' })
+      })
+      return inflight
+    }
+
+    it('does not let the mount refetch undo a tools toggle taken while it was in flight', async () => {
+      const seeded = [
+        provider('codex', 'Codex', true, true),
+        provider('claude', 'Claude', true, true),
+      ]
+      const mountGet = seedWithGetInFlight(seeded)
+      updateProviderPreferencesFn.mockResolvedValueOnce([
+        provider('codex', 'Codex', true, true, false),
+        provider('claude', 'Claude', true, true, true),
+      ])
+
+      render(<ProvidersSettings />)
+      await userEvent.click(screen.getByTestId('provider-tools-toggle-codex'))
+      await waitFor(() =>
+        expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
+          'aria-checked',
+          'false',
+        ),
+      )
+
+      // The mount GET, issued before the PUT, now answers with the pre-PUT list.
+      await act(async () => {
+        mountGet.resolve(seeded)
+      })
+
+      expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
+        'aria-checked',
+        'false',
+      )
+      expect(useAgentProvidersStore.getState().providers[0].mcpEnabled).toBe(false)
+      // The workspace copy — what the chat surfaces read — must not be reinstated
+      // either, or the next write is built from a list that still says tools-on.
+      expect(store().getState().agentChats.providers[0].mcpEnabled).toBe(false)
+    })
+
+    it('still settles the status, so the tab never strands a spinner', async () => {
+      const seeded = [provider('codex', 'Codex', true, true)]
+      const mountGet = seedWithGetInFlight(seeded)
+      updateProviderPreferencesFn.mockResolvedValueOnce([
+        provider('codex', 'Codex', true, true, false),
+      ])
+
+      render(<ProvidersSettings />)
+      await userEvent.click(screen.getByTestId('provider-tools-toggle-codex'))
+      await act(async () => {
+        mountGet.resolve(seeded)
+      })
+
+      expect(useAgentProvidersStore.getState().status).toBe('ready')
+      expect(screen.queryByTestId('providers-loading')).toBeNull()
+    })
+
+    it('still adopts a read that finishes with no write racing it', async () => {
+      // The fence must not simply refuse every read: this is the ordinary mount
+      // refresh, and it has to keep repairing a stale list.
+      const mountGet = seedWithGetInFlight([provider('codex', 'Codex', true, true)])
+
+      render(<ProvidersSettings />)
+      await act(async () => {
+        mountGet.resolve([
+          provider('codex', 'Codex', true, true, false),
+          provider('claude', 'Claude', true, true),
+        ])
+      })
+
+      expect(screen.getByText('Claude')).toBeInTheDocument()
+      expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
+        'aria-checked',
+        'false',
+      )
     })
   })
 
@@ -288,8 +629,8 @@ describe('ProvidersSettings', () => {
       await userEvent.click(screen.getByTestId('provider-toggle-claude'))
 
       expect(updateProviderPreferencesFn).toHaveBeenNthCalledWith(2, [
-        { id: 'codex', disabled: true },
-        { id: 'claude', disabled: true },
+        { id: 'codex', disabled: true, mcpDisabled: false },
+        { id: 'claude', disabled: true, mcpDisabled: false },
       ])
     })
 

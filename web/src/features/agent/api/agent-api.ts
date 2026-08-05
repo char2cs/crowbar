@@ -61,13 +61,26 @@ export interface AgentProvider {
   /** The provider is offered — `!disabled` in the global preference. A disabled
    *  provider drops out of every New-chat surface. Defaults to `true`. */
   enabled: boolean
+  /** Crowbar registers its own tool surface with this provider — `!mcpDisabled` in
+   *  the global preference. A SEPARATE axis from `enabled`: a provider with its
+   *  tools switched off still spawns, still fires its hooks and still holds a
+   *  normal chat; it just cannot reach into Crowbar. Defaults to `true`. */
+  mcpEnabled: boolean
 }
 
-/** One row of the global provider preference set: an id and whether it is disabled.
- *  The submission order (index) defines the priority — see updateProviderPreferences. */
+/** One row of the global provider preference set: an id and both of its NEGATIVE
+ *  flags. Negative because that is what the row stores rather than what the switch
+ *  shows, so an omitted field means the default in the same direction the DB does.
+ *  The submission order (index) defines the priority — see updateProviderPreferences.
+ *
+ *  BOTH flags travel on EVERY row of EVERY write. The backend replaces whole rows,
+ *  so a payload that names only `disabled` does not leave `mcpDisabled` alone — it
+ *  writes the zero value over it, and a reorder would silently switch a provider's
+ *  tool surface back on. */
 export interface ProviderPreference {
   id: string
   disabled: boolean
+  mcpDisabled: boolean
 }
 
 // ── Mappers (wire → store types). Identity today, but kept explicit so a
@@ -95,10 +108,14 @@ export async function getChat(wsId: string, id: string): Promise<AgentChatDetail
   return { ...mapChat(raw), conversations: raw.conversations ?? [] }
 }
 
-// Map a wire provider into the store shape, defaulting the two enrichment flags so
-// a backend row that omits them still reads sanely: never connected (install is
-// never assumed) and enabled (a provider with no stored preference is offered —
-// spec §3.1). The backend always sends both today; the defaults are belt-and-braces.
+// Map a wire provider into the store shape, defaulting the three enrichment flags
+// so a backend row that omits them still reads sanely: never connected (install is
+// never assumed), enabled (a provider with no stored preference is offered —
+// spec §3.1), and with its tool surface on (the backend stores the NEGATIVE
+// mcpDisabled, so an absent field there means enabled here — a default in the
+// other direction would silently strip Crowbar's tools from an older daemon's
+// providers). The backend always sends all three today; the defaults are
+// belt-and-braces.
 function mapProvider(p: AgentProvider): AgentProvider {
   return {
     id: p.id,
@@ -106,6 +123,7 @@ function mapProvider(p: AgentProvider): AgentProvider {
     icon: p.icon,
     connected: p.connected ?? false,
     enabled: p.enabled ?? true,
+    mcpEnabled: p.mcpEnabled ?? true,
   }
 }
 

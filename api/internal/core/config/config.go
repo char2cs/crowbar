@@ -19,9 +19,24 @@ var (
 )
 
 // Prompts holds Crowbar's agent-facing prompt templates. Placeholders
-// ({crowbar}, {segid}, {conversation}) are expanded by Crowbar at injection time.
+// ({conversation}, {ledger_dir}, {ledger_cut}) are expanded by Crowbar at
+// injection time.
+//
+// Every prompt here is CONTEXT, never a capability: a prompt can only ask a model
+// to do something, and a model that ignores it leaves no trace. Anything Crowbar
+// needs an agent to be able to DO is a tool on the MCP surface instead — which is
+// why the shell titling instruction that used to live here is gone.
 type Prompts struct {
-	TitleInstruction string `yaml:"title_instruction"`
+	// CapabilitiesInstruction tells a model that Crowbar's tools exist and, more
+	// importantly, WHEN to prefer them. Tool descriptions alone do not override a
+	// model's prior — asked to "review this branch" it reaches for gh or writes
+	// prose — so this is a directive, not a capability list.
+	//
+	// It must never name a capability that is not registered. A directive pointing at
+	// an absent tool family, while forbidding the fallback the model would otherwise
+	// reach for, is worse than no directive at all — so the review-tools directive
+	// was held back until the review tools it names actually existed (Task 13).
+	CapabilitiesInstruction string `yaml:"capabilities_instruction"`
 	// HandoffWrapper wraps the WHOLE conversation for a provider joining the chat
 	// fresh (it has no session of its own to resume, so it has no history).
 	HandoffWrapper string `yaml:"handoff_wrapper"`

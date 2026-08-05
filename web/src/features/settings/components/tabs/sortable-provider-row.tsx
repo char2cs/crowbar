@@ -5,21 +5,34 @@ import { ProviderIcon } from '@/features/agent/components/provider-icon'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/utils/cn'
+import { PROVIDER_COLUMN_CELL } from './provider-columns'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
 
 interface SortableProviderRowProps {
   provider: AgentProvider
   onToggle: (id: string, enabled: boolean) => void
+  /** Flip whether this provider's agent can use Crowbar's own tools. */
+  onToggleTools: (id: string, enabled: boolean) => void
 }
 
 /**
  * One provider row in the Providers settings tab: a drag handle for priority,
- * the provider glyph + name, a connected (installed) indicator, and an enable
- * toggle. Extracted from the tab so the tab stays within react-doctor's
- * `no-giant-component`; the `useSortable` wiring mirrors `sortable-editor-tab.tsx`
- * but puts the drag listeners on the handle alone so the Switch stays clickable.
+ * the provider glyph + name, a connected (installed) indicator, a Crowbar-tools
+ * toggle, and an enable toggle. Extracted from the tab so the tab stays within
+ * react-doctor's `no-giant-component`; the `useSortable` wiring mirrors
+ * `sortable-editor-tab.tsx` but puts the drag listeners on the handle alone so
+ * the switches stay clickable.
+ *
+ * The two switches are independent axes, and the order they sit in says so: tools
+ * first (a narrower thing you can take away), then the provider itself. Neither
+ * says "MCP" anywhere a user can read — the transport is not what is being
+ * decided here; whether the agent can reach into Crowbar is.
  */
-export function SortableProviderRow({ provider, onToggle }: SortableProviderRowProps) {
+export function SortableProviderRow({
+  provider,
+  onToggle,
+  onToggleTools,
+}: SortableProviderRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: provider.id,
   })
@@ -51,24 +64,48 @@ export function SortableProviderRow({ provider, onToggle }: SortableProviderRowP
         {provider.displayName}
       </Label>
 
-      <span
-        data-testid={`provider-connected-${provider.id}`}
-        data-connected={provider.connected ? 'true' : 'false'}
-        aria-label={connectedLabel}
-        title={connectedLabel}
-        className={cn(
-          'size-2 shrink-0 rounded-full',
-          provider.connected ? 'bg-success' : 'border border-muted-foreground/50 bg-transparent',
-        )}
-      />
+      {/* THE THREE CONTROL COLUMNS. Each control sits in the shared
+          PROVIDER_COLUMN_CELL box that ProviderColumnHeader labels — same string,
+          so the label above a control cannot drift off it. */}
+      <span className={PROVIDER_COLUMN_CELL}>
+        <span
+          data-testid={`provider-connected-${provider.id}`}
+          data-connected={provider.connected ? 'true' : 'false'}
+          aria-label={connectedLabel}
+          title={connectedLabel}
+          className={cn(
+            'size-2 shrink-0 rounded-full',
+            provider.connected ? 'bg-success' : 'border border-muted-foreground/50 bg-transparent',
+          )}
+        />
+      </span>
 
-      <Switch
-        data-testid={`provider-toggle-${provider.id}`}
-        aria-label={`Enable ${provider.displayName}`}
-        checked={provider.enabled}
-        onChange={(checked) => onToggle(provider.id, checked)}
-        size="sm"
-      />
+      {/* Crowbar's own tools, not the provider. A row with this off still opens
+          chats and still runs the CLI — the agent just cannot read the workspace
+          or leave review comments through Crowbar. The row no longer spells that
+          out inline: the header names the column once, and the intro paragraph
+          above the list carries what the one word cannot. */}
+      <span className={PROVIDER_COLUMN_CELL}>
+        <Switch
+          data-testid={`provider-tools-toggle-${provider.id}`}
+          aria-label={`Let ${provider.displayName} use Crowbar's tools`}
+          title={`Let ${provider.displayName} use Crowbar's tools`}
+          checked={provider.mcpEnabled}
+          onChange={(checked) => onToggleTools(provider.id, checked)}
+          size="sm"
+        />
+      </span>
+
+      <span className={PROVIDER_COLUMN_CELL}>
+        <Switch
+          data-testid={`provider-toggle-${provider.id}`}
+          aria-label={`Enable ${provider.displayName}`}
+          title={`Offer ${provider.displayName} when starting a chat`}
+          checked={provider.enabled}
+          onChange={(checked) => onToggle(provider.id, checked)}
+          size="sm"
+        />
+      </span>
     </div>
   )
 }

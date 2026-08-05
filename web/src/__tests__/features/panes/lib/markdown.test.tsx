@@ -1,5 +1,6 @@
 import { render, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import type { Mock } from 'vitest'
 import { MarkdownPreview } from '@/features/panes/lib/markdown'
 
 // ── Shiki mock ────────────────────────────────────────────────────────────────
@@ -107,10 +108,11 @@ describe('MarkdownPreview', () => {
   it('does not throw when shiki fails for unknown language', async () => {
     // Override loadLanguage to throw for this test only.
     const { getSingletonHighlighter } = await import('shiki/bundle/full')
-    const hl = await (getSingletonHighlighter as ReturnType<typeof vi.fn>)()
-    ;(hl.loadLanguage as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error('unknown language'),
-    )
+    // `Mock`, not `ReturnType<typeof vi.fn>`: under Vitest 4 the latter widens
+    // to Mock<Procedure | Constructable>, and a union with a construct
+    // signature is not callable.
+    const hl = await (getSingletonHighlighter as unknown as Mock)()
+    ;(hl.loadLanguage as Mock).mockRejectedValueOnce(new Error('unknown language'))
 
     expect(() => {
       render(<MarkdownPreview>{'```unknownlang\ncode here\n```'}</MarkdownPreview>)

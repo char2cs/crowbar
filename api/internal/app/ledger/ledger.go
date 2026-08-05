@@ -21,6 +21,21 @@ type Turn struct {
 	At       time.Time `json:"at"`
 }
 
+// Speaker is the attribution this turn is rendered under: the bare role, or
+// "assistant (<provider>)" when a vendor CLI produced it and named itself.
+//
+// It is a method rather than a fmt call at each render site because a ledger has
+// more than one consumer now — RenderConversation, and the agent tool surface's
+// get_chat_log, which reads Turns directly so it can COUNT turns before
+// rendering them. Both must attribute a speaker identically, or the same
+// conversation reads as two different ones depending on who asked.
+func (t Turn) Speaker() string {
+	if t.Role == "assistant" && t.Provider != "" {
+		return fmt.Sprintf("assistant (%s)", t.Provider)
+	}
+	return t.Role
+}
+
 // Ledger is a per-chat, append-only store of conversation turns.
 type Ledger struct{ dir string }
 
@@ -77,6 +92,42 @@ func (l *Ledger) nextSeq() (int, error) {
 	return len(names) + 1, nil
 }
 
+func (l *Ledger) readTurn(name string) (Turn, error) {
+	data, err := os.ReadFile(filepath.Join(l.dir, name)) //nolint:gosec // name comes from entries() listing l.dir, not external input
+	if err != nil {
+		return Turn{}, fmt.Errorf("ledger: read %s: %w", name, err)
+	}
+	var tn Turn
+	if err := json.Unmarshal(data, &tn); err != nil {
+		return Turn{}, fmt.Errorf("ledger: unmarshal %s: %w", name, err)
+	}
+	return tn, nil
+}
+
+// Turns reads every recorded turn, oldest first.
+//
+// It exists for the agent tool surface's get_chat_log, which CAPS how much of a
+// sibling chat it hands a model and therefore has to count turns before it
+// renders any. Counting them back out of RenderConversation's text is not
+// possible: turns are joined by a blank line and a turn's own body is free-form
+// model prose containing blank lines routinely, so a reader splitting the
+// rendering apart would report a turn count that is not true.
+func (l *Ledger) Turns() ([]Turn, error) {
+	names, err := l.entries()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Turn, 0, len(names))
+	for _, n := range names {
+		tn, err := l.readTurn(n)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, tn)
+	}
+	return out, nil
+}
+
 // RenderConversation reads every turn in order and renders a legible plain-text
 // conversation for a receiving model.
 func (l *Ledger) RenderConversation() ([]byte, error) {
@@ -108,13 +159,9 @@ func (l *Ledger) LastEntryAt(cut time.Time) (string, error) {
 	}
 	last := ""
 	for _, n := range names {
-		data, err := os.ReadFile(filepath.Join(l.dir, n)) //nolint:gosec // n comes from entries() listing l.dir, not external input
+		tn, err := l.readTurn(n)
 		if err != nil {
-			return "", fmt.Errorf("ledger: read %s: %w", n, err)
-		}
-		var tn Turn
-		if err := json.Unmarshal(data, &tn); err != nil {
-			return "", fmt.Errorf("ledger: unmarshal %s: %w", n, err)
+			return "", err
 		}
 		if cut.IsZero() || !tn.At.After(cut) {
 			last = n
@@ -146,13 +193,9 @@ func (l *Ledger) LastTurnAt(provider string) (time.Time, error) {
 	}
 	var last time.Time
 	for _, n := range names {
-		data, err := os.ReadFile(filepath.Join(l.dir, n)) //nolint:gosec // n comes from entries() listing l.dir, not external input
+		tn, err := l.readTurn(n)
 		if err != nil {
-			return time.Time{}, fmt.Errorf("ledger: read %s: %w", n, err)
-		}
-		var tn Turn
-		if err := json.Unmarshal(data, &tn); err != nil {
-			return time.Time{}, fmt.Errorf("ledger: unmarshal %s: %w", n, err)
+			return time.Time{}, err
 		}
 		if tn.Provider == provider && tn.At.After(last) {
 			last = tn.At
@@ -162,28 +205,16 @@ func (l *Ledger) LastTurnAt(provider string) (time.Time, error) {
 }
 
 func (l *Ledger) render(cut time.Time) ([]byte, error) {
-	names, err := l.entries()
+	turns, err := l.Turns()
 	if err != nil {
 		return nil, err
 	}
 	var out []byte
-	for _, n := range names {
-		data, err := os.ReadFile(filepath.Join(l.dir, n)) //nolint:gosec // n comes from entries() listing l.dir, not external input
-		if err != nil {
-			return nil, fmt.Errorf("ledger: read %s: %w", n, err)
-		}
-		var tn Turn
-		if err := json.Unmarshal(data, &tn); err != nil {
-			return nil, fmt.Errorf("ledger: unmarshal %s: %w", n, err)
-		}
+	for _, tn := range turns {
 		if !cut.IsZero() && !tn.At.After(cut) {
 			continue
 		}
-		header := tn.Role
-		if tn.Role == "assistant" && tn.Provider != "" {
-			header = fmt.Sprintf("assistant (%s)", tn.Provider)
-		}
-		out = append(out, []byte(header+": "+tn.Text+"\n\n")...)
+		out = append(out, []byte(tn.Speaker()+": "+tn.Text+"\n\n")...)
 	}
 	return out, nil
 }

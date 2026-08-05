@@ -10,13 +10,19 @@ import (
 )
 
 // ReplyReviewThread appends a message to an existing thread (09 §3).
+//
+// ProviderID and ChatID attribute the appended message to the agent that wrote
+// it; a human reply leaves both empty. Like OpenReviewThread's, they are not
+// validated — attribution is decoration on a message, never authority.
 type ReplyReviewThread struct {
-	ID        string
-	MessageID string
-	Author    string
-	IsAgent   bool
-	Body      string
-	Now       time.Time
+	ID         string
+	MessageID  string
+	Author     string
+	IsAgent    bool
+	ProviderID string
+	ChatID     string
+	Body       string
+	Now        time.Time
 }
 
 func (c ReplyReviewThread) AggregateID() string {
@@ -48,11 +54,13 @@ func (c ReplyReviewThread) EmitEvent(
 ) domain.ReviewThread {
 	thread := *current
 	thread.Messages = append(thread.Messages, domain.ReviewMessage{
-		ID:        c.MessageID,
-		Author:    c.Author,
-		IsAgent:   c.IsAgent,
-		Body:      c.Body,
-		CreatedAt: c.Now,
+		ID:         c.MessageID,
+		Author:     c.Author,
+		IsAgent:    c.IsAgent,
+		ProviderID: c.ProviderID,
+		ChatID:     c.ChatID,
+		Body:       c.Body,
+		CreatedAt:  c.Now,
 	})
 	return thread
 }

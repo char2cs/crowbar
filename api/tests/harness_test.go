@@ -18,6 +18,7 @@ import (
 	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
@@ -367,9 +368,18 @@ func readUntil(
 	match func(map[string]any) bool,
 ) map[string]any {
 	t.Helper()
+	// A FAILURE BOUND, not a wait. The awaited frame either arrives promptly or
+	// it is never coming: this helper's whole failure mode is a frame broadcast
+	// BEFORE the caller subscribed, and no amount of further blocking recovers
+	// it. Unbounded, that costs the entire PACKAGE — Go's 4m timeout kills every
+	// other test in ./tests and leaves a goroutine dump as the only evidence of
+	// which one was at fault. Bounded, the test names itself in 30s.
+	deadline := time.Now().Add(30 * time.Second)
 	for {
+		require.NoError(t, conn.SetReadDeadline(deadline))
 		mt, raw, err := conn.ReadMessage()
-		require.NoError(t, err, "ws closed before the awaited frame arrived")
+		require.NoError(t, err, "no matching frame within 30s — it was most "+
+			"likely broadcast before this connection subscribed")
 		if mt != websocket.TextMessage {
 			continue
 		}

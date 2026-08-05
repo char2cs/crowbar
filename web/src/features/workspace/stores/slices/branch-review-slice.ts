@@ -9,6 +9,14 @@ export interface ReviewMessage {
   isAgent: boolean
   body: string
   createdAt: string
+  /** The agent provider that wrote this message, resolved against the workspace's
+   *  provider list. Absent on every human message and on every agent message
+   *  written before attribution existed — which is most of them, forever. */
+  providerId?: string
+  /** The chat the message came out of. Lives on the message permanently, but the
+   *  chat itself is deletable, so an id here is not a promise the chat still
+   *  exists. */
+  chatId?: string
 }
 
 export interface ReviewThread {

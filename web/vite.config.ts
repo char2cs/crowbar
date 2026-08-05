@@ -74,7 +74,20 @@ export default defineConfig({
       // Ratchet floor, not a target: set just under measured coverage so the
       // gate is green yet still fails on regressions. Raise as tests grow
       // (long-term goal: 70 across the board).
-      thresholds: { lines: 28, functions: 50, branches: 70, statements: 28 },
+      //
+      // Re-baselined for @vitest/coverage-v8 4.x, which makes AST-aware
+      // remapping (`ast-v8-to-istanbul`) unconditional — it was opt-in behind
+      // `experimentalAstAwareRemapping` in 3.x and the opt-out is gone. Mapping
+      // v8 ranges through the AST instead of raw byte offsets re-attributes
+      // every counter, so the SAME 2519 tests now measure:
+      //   statements 58.09 -> 68.37   branches 79.84 -> 58.87
+      //   functions  64.66 -> 64.58   lines     58.09 -> 69.74
+      // Nothing was un-tested — v8's raw ranges credited whole statements from
+      // partial coverage (understating statements/lines) while collapsing
+      // branch arms it could not see (overstating branches). Floors track the
+      // new, more accurate numbers with a couple of points of headroom, so the
+      // gate is net STRONGER than the old 28/28 statement and line floors.
+      thresholds: { lines: 66, functions: 60, branches: 56, statements: 65 },
     },
   },
 })

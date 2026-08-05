@@ -9,8 +9,50 @@ export CARGO_HOME := $(HOME)/.cargo
 # in src-tauri/src/sidecar/mod.rs, which covers the dev-bundle .app launched by
 # `open` (launchd does not inherit this env).
 dev: export CROWBAR_HOME ?= $(abspath ..)/.crowbar
+
+# Worktree label for the dev window title (see root Makefile). Repeated here so
+# a bare `cd desktop && make dev` is labelled too; `?=` leaves the root
+# Makefile's value alone when it delegates here.
+crowbar_root := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+dev: export CROWBAR_DEV_LABEL ?= $(shell git -C $(crowbar_root) rev-parse --abbrev-ref HEAD 2>/dev/null)
+
+# ORIGIN ISOLATION — the second half of dev isolation, and the one that was
+# missing. CROWBAR_HOME above isolates the DAEMON (projects, store, socket,
+# logs). It does nothing for the WEBVIEW: IndexedDB, localStorage and service
+# worker registrations are keyed by ORIGIN, and every dev app used to be served
+# from the same hardcoded http://localhost:5173. Several worktrees running at
+# once therefore shared one browser storage and quietly corrupted each other —
+# observed as an entity cache holding 16 repos across 16 project ids from
+# instances this worktree never ran, a sidebar that renders empty because the
+# tree is built from that cache, and every /ide/<proj>/<repo>/<ws> deep link
+# bouncing to /home because the route guard reads it too. Nothing surfaced,
+# because a failed cache seed is deliberately swallowed (lib/ws/entity-stream.ts).
+#
+# Deriving the port from THIS worktree's path gives each one its own origin and
+# therefore its own storage. It is a hash, not a counter, so the port is stable
+# across restarts (a moving port would orphan storage on every launch) and needs
+# no coordination between worktrees. Override with CROWBAR_DEV_PORT to pin one.
+#
+# cksum is POSIX and agrees on macOS and Linux for the first field; 600 ports
+# starting at 5300 stays clear of Vite's own 5173 default, so a colleague still
+# on the old config does not land on top of us.
+#
+# Hashed from the WORKTREE ROOT, not this directory, so `make dev-desktop` from
+# the root and `cd desktop && make dev` derive the SAME port. They must: a
+# different port is a different origin, and the same worktree would otherwise
+# keep two divergent entity caches depending on which way it was launched.
+crowbar_ws_root := $(abspath $(crowbar_root)/..)
+crowbar_dev_port := $(shell printf '%s' '$(crowbar_ws_root)' | cksum | awk '{print 5300 + ($$1 % 600)}')
+dev: export CROWBAR_DEV_PORT ?= $(crowbar_dev_port)
+
+# --strictPort is load-bearing: without it Vite silently takes the next free
+# port while devUrl below still points at the requested one, and the window
+# loads nothing. Failing loudly names the conflict instead. Note there is
+# deliberately NO `pkill -f vite` here — the committed beforeDevCommand used to
+# carry one, and it killed every OTHER worktree's dev server on the machine.
 dev: fetch-sidecar
-	bunx @tauri-apps/cli dev
+	@echo "dev origin: http://localhost:$(CROWBAR_DEV_PORT)  (isolated per worktree)"
+	bunx @tauri-apps/cli dev --config '{"build":{"devUrl":"http://localhost:$(CROWBAR_DEV_PORT)","beforeDevCommand":"cd ../web && npm run dev -- --port $(CROWBAR_DEV_PORT) --strictPort"}}'
 
 # Same as `dev`, but safe to run while OTHER checkouts are running their own.
 #

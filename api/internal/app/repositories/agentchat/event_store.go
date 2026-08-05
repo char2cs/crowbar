@@ -89,6 +89,13 @@ type EventStore interface {
 	// only ever restated by the CLI's own next turn_stop, so a CLI that dies with work
 	// outstanding leaves its last report standing with nobody left to correct it — and
 	// in an event-sourced aggregate that outlives the restart too.
+	//
+	// It may be called UNCONDITIONALLY, and that is the point: a chat with nothing to
+	// close is refused by the command with ErrValidation and no event is written, so
+	// callers must not pre-check Working themselves. Deciding it out here would mean
+	// deciding it on the read model, which lags the event log the command validates
+	// against — the exact race that left a switched-away chat spinning forever.
+	// ErrValidation from this call is ordinary: nothing to close, or no such chat.
 	AbandonTurn(
 		ctx context.Context,
 		chatID string,

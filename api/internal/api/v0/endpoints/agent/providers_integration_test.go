@@ -15,6 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -35,7 +36,7 @@ func newProviderServer(
 	homeFn := func() (string, error) { return home, nil }
 	probe := func(cmd string) bool { return cmd == "codex" }
 
-	uc := agentusecase.New(nil, nil, nil, nil, nil, prefs, homeFn, probe)
+	uc := agentusecase.New(nil, nil, nil, nil, nil, prefs, homeFn, probe, nil, agenttools.Deps{})
 
 	r := gin.New()
 	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
@@ -120,6 +121,56 @@ func TestAgentProviders_EnrichedAndPreferences(t *testing.T) {
 		{"id": "nope", "disabled": false},
 	}})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// The MCP toggle's whole round trip, and its polarity in every direction: the DB
+// stores mcpDisabled, the PUT body takes mcpDisabled, and the wire reports
+// mcpEnabled. A single inversion anywhere in that chain reads as a working
+// feature in one direction and switches the tool surface off for everyone in the
+// other, which is exactly why the default case is asserted first.
+func TestAgentProviders_MCPToggleRoundTrip(t *testing.T) {
+	r := newProviderServer(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet,
+		"/v0/projects/p1/repos/r1/workspaces/ws-1/agent/providers", http.NoBody)
+	r.ServeHTTP(rec, req)
+	for _, p := range decodeProviderList(t, rec) {
+		assert.True(t, p.MCPEnabled, "%s must default to having its tool surface on", p.ID)
+	}
+
+	// A body that says nothing about MCP — the shape every client sent before this
+	// existed — must leave the tool surface ON rather than writing a false that
+	// reads as off.
+	rec = putProviders(t, r, map[string]any{"providers": []map[string]any{
+		{"id": "claude", "disabled": false},
+		{"id": "codex", "disabled": false},
+	}})
+	require.Equal(t, http.StatusOK, rec.Code)
+	for _, p := range decodeProviderList(t, rec) {
+		assert.True(t, p.MCPEnabled, "%s lost its tool surface to a body that never mentioned it", p.ID)
+	}
+
+	// Switching one off leaves the other alone, and leaves the PROVIDER enabled.
+	rec = putProviders(t, r, map[string]any{"providers": []map[string]any{
+		{"id": "claude", "disabled": false, "mcpDisabled": true},
+		{"id": "codex", "disabled": false},
+	}})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resolved := decodeProviderList(t, rec)
+	require.Equal(t, []string{"claude", "codex"}, providerIDsFromDTO(resolved))
+	assert.False(t, resolved[0].MCPEnabled, "claude's tool surface must be off")
+	assert.True(t, resolved[0].Enabled, "switching the tools off must not disable the provider")
+	assert.True(t, resolved[1].MCPEnabled, "codex's tool surface must be untouched")
+
+	// And it persisted, rather than only being echoed back off the request body.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet,
+		"/v0/projects/p1/repos/r1/workspaces/ws-1/agent/providers", http.NoBody)
+	r.ServeHTTP(rec, req)
+	after := decodeProviderList(t, rec)
+	assert.False(t, after[0].MCPEnabled)
+	assert.True(t, after[1].MCPEnabled)
 }
 
 func providerIDsFromDTO(

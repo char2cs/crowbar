@@ -40,9 +40,32 @@ func (c StopTurn) AggregateID() string  { return c.ChatID }
 func (c StopTurn) EventName() string    { return "agentchat.turn_stopped." + c.ChatID }
 func (c StopTurn) ShouldSnapshot() bool { return false }
 
+// Validate refuses a chat that does not exist and — for an ABANDON only — a chat that
+// has nothing to close.
+//
+// That second refusal is where the "is there a turn here?" decision lives, and it lives
+// here because here is the only place it can be asked without a race. asynx loads the
+// aggregate and its version together and appends the event at that same version, so a
+// condition evaluated in Validate is evaluated against the authoritative fold of the
+// event log and committed atomically with it: a turn opening in between collides on the
+// version and the caller's OCC retry re-validates against the new state.
+//
+// It used to be asked by the caller instead (agent.closeAbandonedTurn read
+// domain.AgentChat.Working off the READ MODEL and returned early when it said idle) —
+// and the read model is folded by an ASYNCHRONOUS projection, so a turn that was already
+// durable in the log could still read as idle. The caller took the early return, nothing
+// ever closed the turn, and the chat spun forever. A reconcile must not decide on
+// projected state.
+//
+// An ordinary turn_stop is NOT held to this: the hook is the CLI restating its async-work
+// level, and a level arriving on a chat the read model calls idle is exactly the report
+// that must be recorded.
 func (c StopTurn) Validate(current *domain.AgentChat) error {
 	if current == nil {
 		return fmt.Errorf("stop turn: no chat: %w", asynxModels.ErrValidation)
+	}
+	if c.Abandoned && !foldWorking(current) {
+		return fmt.Errorf("stop turn: nothing to abandon: %w", asynxModels.ErrValidation)
 	}
 	return nil
 }

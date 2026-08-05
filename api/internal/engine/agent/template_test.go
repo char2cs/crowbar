@@ -15,10 +15,21 @@ func TestExpand_ReplacesKnownTokens(t *testing.T) {
 	require.Equal(t,
 		"/bin/crowbar hook turn_stop --segment seg1 --provider claude",
 		agent.Expand("{crowbar_hook} hook turn_stop --segment {segid} --provider {provider}", ctx))
+	// {crowbar} is the same binary as {crowbar_hook}, spelled for the callbacks that
+	// are not hooks.
 	require.Equal(t,
-		"/bin/crowbar chat rename --segment seg1 \"x\"",
-		agent.Expand("{crowbar} chat rename --segment {segid} \"x\"",
-			agent.TemplateCtx{CrowbarHook: "/bin/crowbar", Segid: "seg1"}))
+		"/bin/crowbar handoff dump chat-1",
+		agent.Expand("{crowbar} handoff dump {id}",
+			agent.TemplateCtx{CrowbarHook: "/bin/crowbar", ID: "chat-1"}))
+}
+
+// {runner_token} is what an in-PTY `crowbar mcp` relay authenticates with. It is a
+// token of its own rather than a reuse of {segid} because the agent controls the
+// process holding the segment id and can read its own argv: a segment id alone
+// would let an agent that learned a sibling's id assume that sibling's scope.
+func TestExpand_RunnerToken(t *testing.T) {
+	got := agent.Expand("tok={runner_token}", agent.TemplateCtx{RunnerToken: "abc123"})
+	require.Equal(t, "tok=abc123", got)
 }
 
 func TestExpand_ReplacesScopeTokens(t *testing.T) {
@@ -28,11 +39,11 @@ func TestExpand_ReplacesScopeTokens(t *testing.T) {
 		agent.Expand("--project {project_id} --repo {repo_id} --workspace {workspace_id}", ctx))
 }
 
-// {scope_flags} is the token the shipped descriptors and the title instruction
-// use. Its contract is the one that keeps project-home callbacks alive: the `=`
-// form (so an empty value can never swallow the following token when the flat
-// hook command is word-split by the shell) and NO --repo at all when there is no
-// repo id. cmd/crowbar/scope_roundtrip_test.go proves the end of that chain.
+// {scope_flags} is the token the shipped descriptors use. Its contract is the one
+// that keeps project-home callbacks alive: the `=` form (so an empty value can never
+// swallow the following token when the flat hook command is word-split by the shell)
+// and NO --repo at all when there is no repo id.
+// cmd/crowbar/scope_roundtrip_test.go proves the end of that chain.
 func TestExpand_ScopeFlagsOmitsRepoWhenEmpty(t *testing.T) {
 	require.Equal(t,
 		"--project=p1 --workspace=w1",

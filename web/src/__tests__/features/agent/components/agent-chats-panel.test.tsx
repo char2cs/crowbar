@@ -116,6 +116,7 @@ const PROVIDERS = [
     icon: '<svg data-p="claude"></svg>',
     connected: true,
     enabled: true,
+    mcpEnabled: true,
   },
   {
     id: 'codex',
@@ -123,6 +124,7 @@ const PROVIDERS = [
     icon: '<svg data-p="codex"></svg>',
     connected: true,
     enabled: true,
+    mcpEnabled: true,
   },
 ]
 
@@ -509,6 +511,7 @@ describe('AgentChatsPanel', () => {
           icon: '<svg data-p="claude"></svg>',
           connected: true,
           enabled: false,
+          mcpEnabled: true,
         },
         {
           id: 'codex',
@@ -516,6 +519,7 @@ describe('AgentChatsPanel', () => {
           icon: '<svg data-p="codex"></svg>',
           connected: true,
           enabled: true,
+          mcpEnabled: true,
         },
       ]),
     )
@@ -532,8 +536,22 @@ describe('AgentChatsPanel', () => {
   function disableAllProviders() {
     act(() =>
       state().setAgentProviders([
-        { id: 'claude', displayName: 'Claude', icon: '', connected: true, enabled: false },
-        { id: 'codex', displayName: 'Codex', icon: '', connected: true, enabled: false },
+        {
+          id: 'claude',
+          displayName: 'Claude',
+          icon: '',
+          connected: true,
+          enabled: false,
+          mcpEnabled: true,
+        },
+        {
+          id: 'codex',
+          displayName: 'Codex',
+          icon: '',
+          connected: true,
+          enabled: false,
+          mcpEnabled: true,
+        },
       ]),
     )
   }

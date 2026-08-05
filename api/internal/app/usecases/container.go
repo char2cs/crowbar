@@ -7,6 +7,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
@@ -66,6 +67,26 @@ type Container struct {
 	// into repositories.New itself: the reader is built from repos.Workspace,
 	// which does not exist until repositories.New returns.
 	AgentWorkspaceReader agent.WorkspaceReader
+
+	// agentToolMetrics is the SAME *agenttools.Metrics instance the agent tool
+	// surface records through — held here only so AgentToolMetrics can read it
+	// back out. It is buried inside agenttools.Deps otherwise, which is a
+	// write-only counter: nothing in the daemon could reach the numbers.
+	agentToolMetrics *agenttools.Metrics
+}
+
+// AgentToolMetrics reports how many times each agent tool was called and how
+// many of those calls failed, over this daemon's lifetime.
+//
+// It exists because a counter nothing can read answers nothing: instrumenting
+// this surface was a day-one requirement precisely so "do agents actually use
+// these tools?" is settled by a number rather than an impression. The daemon
+// logs the summary at shutdown (see app.Container.Shutdown).
+//
+// Deliberately NOT an HTTP route: these are a daemon-lifetime diagnostic, not a
+// resource, and nothing in the product consumes them.
+func (c *Container) AgentToolMetrics() map[string]agenttools.ToolStat {
+	return c.agentToolMetrics.Snapshot()
 }
 
 // New builds the usecases container. It takes the aggregate repositories, the
@@ -80,6 +101,7 @@ func New(
 	gormStores GORMStores,
 	engines *engine.Container,
 	crowbarHome func() (string, error),
+	threadBroadcast agenttools.ThreadBroadcast,
 ) (*Container, error) {
 	projectUsecase := project.New(
 		gormStores.Projects,
@@ -147,6 +169,14 @@ func New(
 		repos:       gormStores.Repositories,
 		crowbarHome: crowbarHome,
 	}
+	agentMinter, err := agenttools.NewTokenMinter()
+	if err != nil {
+		return nil, fmt.Errorf("usecases: new container: %w", err)
+	}
+	agentToolDeps, err := newAgentToolDeps(agentMinter, repos, branchReview, threadBroadcast)
+	if err != nil {
+		return nil, err
+	}
 	agentUsecase := agent.New(
 		repos.AgentChat,
 		repos.AgentRunner,
@@ -158,6 +188,8 @@ func New(
 		// nil probe → the usecase defaults to engineagent.Connected, the real
 		// install probe. Only tests inject a stub to isolate from the host PATH.
 		nil,
+		agentMinter,
+		agentToolDeps,
 	)
 	return &Container{
 		Project:              projectUsecase,
@@ -174,6 +206,7 @@ func New(
 		TerminalMeta:         terminalMeta,
 		Agent:                agentUsecase,
 		AgentWorkspaceReader: agentWSReader,
+		agentToolMetrics:     agentToolDeps.Metrics,
 	}, nil
 }
 
@@ -197,6 +230,103 @@ func newProjectImport(
 		Now:         nowFunc,
 		CrowbarHome: crowbarHome,
 	})
+}
+
+// newAgentToolDeps assembles the production agent capability surface and REFUSES
+// to return a partial one.
+//
+// agenttools registers no tool whose dependency is missing, which is the right
+// default for the package but a terrible one to discover in production: a daemon
+// wired with a nil port would boot clean, serve chats normally, and hand every
+// agent an empty tool list with nothing anywhere reporting why. Checking here
+// turns that silent degradation into a failed start.
+// The review ports need no adapter: branchreview.Usecase already has
+// GetScope/GetOutline with agenttools.ReviewReader's exact signatures, and
+// reviewthread.ReviewThread already satisfies BOTH the read and the write half of
+// the thread port, so the same repository is handed to Threads and ThreadWrites.
+// The Idempotency map is built HERE, once, because it must outlive the per-request
+// ToolSet for a retried post_review_comment to be recognized as a retry.
+//
+// threadBroadcast is injected from the app layer rather than derived here: fanning
+// a thread out needs the wire DTO, and a usecase must not import the api layer's
+// wire types. See agenttools.ThreadBroadcast.
+//
+// ChatLogs is deliberately NOT set here, unlike ChatReads: get_chat_log's ledger
+// read (agenttools.ChatLogReader) is implemented on *agent.Usecase itself
+// (agent.Usecase.ReadChatLog), which does not exist yet at this point in
+// construction — the exact chicken-and-egg agent.New already resolves for
+// Deps.Chats by assigning the usecase to itself once built. See its doc comment.
+//
+// Metrics is wired here too but, unlike every port above, is deliberately
+// ABSENT from the refusal switch: agenttools.Metrics is the one fail-OPEN
+// dependency in Deps — losing the call counters is never a reason to fail
+// daemon startup or narrow the tool surface, so there is nothing to refuse.
+func newAgentToolDeps(
+	minter *agenttools.TokenMinter,
+	repos *repositories.Container,
+	review agenttools.ReviewReader,
+	threadBroadcast agenttools.ThreadBroadcast,
+) (agenttools.Deps, error) {
+	switch {
+	case minter == nil:
+		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no token minter")
+	case repos.AgentRunner == nil:
+		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no runner store")
+	case repos.AgentChat == nil:
+		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no chat store")
+	case repos.Workspace == nil:
+		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no workspace store")
+	case repos.ReviewThread == nil:
+		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no review thread store")
+	case review == nil:
+		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no branch review usecase")
+	case threadBroadcast == nil:
+		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no thread broadcaster")
+	}
+	chatReader := agentChatReader{chats: repos.AgentChat}
+	return agenttools.Deps{
+		Resolver: agenttools.NewResolver(
+			minter,
+			repos.AgentRunner,
+			chatReader,
+			repos.Workspace,
+		),
+		Review:          review,
+		Threads:         repos.ReviewThread,
+		ThreadWrites:    repos.ReviewThread,
+		Idempotency:     agenttools.NewIdempotency(),
+		ThreadBroadcast: threadBroadcast,
+		ChatReads:       chatReader,
+		Metrics:         agenttools.NewMetrics(),
+	}, nil
+}
+
+// chatGetter is the minimal chat-read surface agentChatReader adapts.
+type chatGetter interface {
+	GetChat(ctx context.Context, id string) (domain.AgentChat, error)
+	ListChats(ctx context.Context) ([]domain.AgentChat, error)
+}
+
+// agentChatReader adapts the chat repository into agenttools.ChatReader. Only
+// the name differs: the repository says GetChat because it also serves runners,
+// while the tool surface's port is a plain Get.
+type agentChatReader struct {
+	chats chatGetter
+}
+
+// Get implements agenttools.ChatReader.
+func (r agentChatReader) Get(
+	ctx context.Context,
+	chatID string,
+) (domain.AgentChat, error) {
+	return r.chats.GetChat(ctx, chatID)
+}
+
+// ListChats implements agenttools.ChatReader.
+func (r agentChatReader) ListChats(
+	ctx context.Context,
+) ([]domain.AgentChat, error) {
+	return r.chats.ListChats(ctx)
 }
 
 // workspaceGetter is the minimal workspace-read surface agentWorkspaceReader
