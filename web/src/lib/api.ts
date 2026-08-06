@@ -234,8 +234,8 @@ export function renameProject(projectId: string, name: string): Promise<void> {
 }
 
 /** Delete a project, and with it every repo and workspace inside. */
-export function deleteProject(projectId: string): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}`, { method: 'DELETE' })
+export function deleteProject(projectId: string, init?: RequestInit): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}`, { method: 'DELETE', ...init })
 }
 
 /**
@@ -315,9 +315,15 @@ export function importBranches(
   })
 }
 
-export function deleteWorkspace(projectId: string, repoId: string, wsId: string): Promise<void> {
+export function deleteWorkspace(
+  projectId: string,
+  repoId: string,
+  wsId: string,
+  init?: RequestInit,
+): Promise<void> {
   return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}`, {
     method: 'DELETE',
+    ...init,
   })
 }
 
@@ -325,8 +331,8 @@ export function deleteWorkspace(projectId: string, repoId: string, wsId: string)
 // and its workspaces' tombstones arrive on the entity streams; nothing here
 // writes the sidebar tree. This is the one removal the sidebar asks the user to
 // confirm — everything under the repo goes with it.
-export function deleteRepo(projectId: string, repoId: string): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}`, { method: 'DELETE' })
+export function deleteRepo(projectId: string, repoId: string, init?: RequestInit): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}`, { method: 'DELETE', ...init })
 }
 
 // Rename a workspace's branch. The daemon renames the git branch AND relocates

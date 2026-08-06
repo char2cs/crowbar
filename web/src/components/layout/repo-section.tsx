@@ -8,6 +8,7 @@ import {
   ADD_GLYPH_PATH,
   ROW_INDENT_STEP,
   ROW_SUB_ACTION,
+  ROW_SUB_ACTION_HOVER,
   ROW_NEST_TARGET,
 } from './workspace-row-base'
 import { dropRowProps } from './drop-target-dom'
@@ -135,6 +136,12 @@ export const RepoSection = memo(function RepoSection({
           hasChildren: roots.length > 0,
         })}
         aria-label={`Open ${repo.name}`}
+        // Presence-only marker for ROW_SUB_ACTION_HOVER: the open row keeps its
+        // actions on screen. ROW_ACTIVE is a class string, which no variant can
+        // select, so the state has to be readable from the DOM as well.
+        {...(activeWorkspaceId !== '' && activeWorkspaceId === repo.defaultWorkspaceId
+          ? { 'data-active': '' }
+          : {})}
         onPointerDown={(e) =>
           onPointerDownDrag({ kind: 'repo', id: repo.id, parentId: repo.projectId ?? '' }, e)
         }
@@ -204,33 +211,29 @@ export const RepoSection = memo(function RepoSection({
             >
               {repo.name}
             </span>
-            {repo.defaultWorkspaceId && (
-              <span className="invisible shrink-0 font-mono text-[11px] text-foreground/40 group-hover:visible">
-                - default
-              </span>
-            )}
           </span>
         )}
 
-        <button
-          type="button"
-          aria-label="Import branches"
-          title="Import branches"
-          className={ROW_SUB_ACTION}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation()
-            setImportOpen(true)
-          }}
-        >
-          <DownloadCloud className="size-3" />
-        </button>
+        {/* Fold-away leads the trailing cluster, as it does on a folder row
+            (folder-row.tsx). It is the only control here that appears because of
+            what the row is DOING rather than what it is, so it reads first and
+            never shifts the three fixed slots behind it. */}
+        {held.holding && (
+          <FoldAwayButton label={repo.name} onFold={() => foldAwayRows(repo.id, tree.index)} />
+        )}
 
+        {/* Add-child, only on hover — the same control, with the same reveal, as
+            every workspace row's (workspace-tree-item.tsx). This row IS a
+            workspace (the repo's default), so it had no business ordering its
+            actions differently from the rows it sits above.
+
+            ROW_SUB_ACTION_HOVER keeps the box in the flex flow while invisible,
+            so the name does not resize as the pointer crosses the row. */}
         {repo.defaultWorkspaceId && (
           <button
             type="button"
             aria-label="Add child workspace"
-            className={ROW_SUB_ACTION}
+            className={ROW_SUB_ACTION_HOVER}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation()
@@ -252,9 +255,22 @@ export const RepoSection = memo(function RepoSection({
           </button>
         )}
 
-        {held.holding && (
-          <FoldAwayButton label={repo.name} onFold={() => foldAwayRows(repo.id, tree.index)} />
-        )}
+        {/* Import branches: the repo-ONLY action, so it comes after everything
+            this row shares with the workspace rows and before the disclosure
+            that closes every row. */}
+        <button
+          type="button"
+          aria-label="Import branches"
+          title="Import branches"
+          className={ROW_SUB_ACTION}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation()
+            setImportOpen(true)
+          }}
+        >
+          <DownloadCloud className="size-3" />
+        </button>
 
         <RowDisclosureButton expanded={!isCollapsed} label="repo" onToggle={toggle} />
       </div>

@@ -400,3 +400,40 @@ describe('a repo, which takes every worktree under it', () => {
     expect(screen.getByText('Remove')).toBeVisible()
   })
 })
+
+describe('a page that ends mid-drain', () => {
+  it('sends the removal it was holding, rather than losing it', async () => {
+    // The bug this pins: the tray holds a row for eight seconds before sending
+    // the delete, and the tray is memory. A reload inside that window — or an
+    // HMR update, or quitting — used to drop the intent silently. The row had
+    // already been hidden, so it LOOKED deleted, and the next boot read it
+    // straight back off the daemon.
+    render(<WorkspaceTree />)
+    hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
+    expect(deleteWorkspace).not.toHaveBeenCalled()
+
+    await act(async () => {
+      window.dispatchEvent(new Event('pagehide'))
+    })
+
+    expect(deleteWorkspace).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'a', {
+      // Without keepalive the request is cancelled with the document, which is
+      // the whole reason a pagehide handler normally cannot do this.
+      keepalive: true,
+    })
+  })
+
+  it('does NOT fire a removal that was waiting on an answer', async () => {
+    // A repo (and a project) sits in the tray with no clock, waiting on an
+    // explicit confirmation. An unload is not that answer, and these are the two
+    // removals that cascade — so the safe direction is to drop them.
+    render(<WorkspaceTree />)
+    hold({ kind: 'repo', id: 'r1' })
+
+    await act(async () => {
+      window.dispatchEvent(new Event('pagehide'))
+    })
+
+    expect(deleteRepo).not.toHaveBeenCalled()
+  })
+})

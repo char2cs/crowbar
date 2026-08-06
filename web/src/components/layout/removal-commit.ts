@@ -62,16 +62,48 @@ function releaseWhenGone(ids: readonly string[]): void {
   })
 }
 
-function sendRemoval(entry: RemovalEntry): Promise<void> {
+function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
+  // Spread rather than pass `init` straight through: the ordinary commit has no
+  // options at all, and handing every delete an explicit `undefined` would put
+  // an argument on the wire-facing signature that only the unload flush uses.
+  const opts: [RequestInit] | [] = init ? [init] : []
   switch (entry.kind) {
     case 'workspace':
-      return deleteWorkspace(entry.projectId, entry.repoId, entry.id)
+      return deleteWorkspace(entry.projectId, entry.repoId, entry.id, ...opts)
     case 'folder':
-      return deleteFolder(entry.projectId, entry.repoId, entry.id)
+      return deleteFolder(entry.projectId, entry.repoId, entry.id, ...opts)
     case 'repo':
-      return deleteRepo(entry.projectId, entry.repoId)
+      return deleteRepo(entry.projectId, entry.repoId, ...opts)
     case 'project':
-      return deleteProject(entry.projectId)
+      return deleteProject(entry.projectId, ...opts)
+  }
+}
+
+/**
+ * Send every removal that was only waiting on its clock, because the page is
+ * going away.
+ *
+ * The tray holds a row for eight seconds before the delete is sent, and the tray
+ * is memory. Anything that ends the page inside that window — a reload, an HMR
+ * update, quitting the app — used to drop the intent silently: the row had
+ * already been hidden, so the removal LOOKED done, and the next boot read it
+ * straight back off the daemon. That is not an undo, it is a lost write, and the
+ * user has no way to tell the two apart.
+ *
+ * Only the draining entries go. A repo or a project sits in the tray with no
+ * clock, waiting on an explicit answer, and an unload is not that answer — those
+ * are dropped, which is the safe direction for the two removals that cascade.
+ *
+ * `keepalive` is what makes this work at all: a request issued from a pagehide
+ * handler is normally cancelled with the document. It caps the body at 64KB,
+ * which a DELETE with no body is comfortably inside.
+ */
+export function flushDrainingRemovals(): void {
+  for (const entry of useRemovalTrayStore.getState().entries) {
+    if (entry.deadlineAt === null) continue
+    // No await and no catch: the document is unloading, there is nobody left to
+    // tell and nothing left to roll back to.
+    void sendRemoval(entry, { keepalive: true }).catch(() => {})
   }
 }
 

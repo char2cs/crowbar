@@ -72,9 +72,10 @@ type Usecase interface {
 		childID string,
 		newParentID string,
 	) (domain.Workspace, error)
-	// RenameBranch renames a managed workspace's branch and relocates its
-	// workspace root to the directory the new name derives, so git, the
-	// filesystem and the record stay in agreement.
+	// RenameBranch renames a managed workspace's branch and republishes the
+	// navigable alias that names it. The workspace itself does not move: its root
+	// is keyed by workspace id, so git, the filesystem and the record stay in
+	// agreement without a directory ever changing hands.
 	RenameBranch(
 		ctx context.Context,
 		wsID string,
@@ -102,6 +103,22 @@ type Usecase interface {
 	DeleteCascade(
 		ctx context.Context,
 		rootID string,
+	) error
+	// DeleteRepoWorkspaces removes every workspace of a repo, taking the repo's
+	// path from the CALLER rather than resolving it from the repo row.
+	//
+	// That is the whole point: a repo delete has to broadcast its tombstone the
+	// moment the row is gone, and the teardown below removes a worktree per
+	// workspace with synchronous git work in each. Holding the frame behind all
+	// of it made a client wait the length of the cascade for a repo it had
+	// already deleted. Running the cascade AFTER the row is deleted is only safe
+	// if it no longer needs that row — otherwise removeOne cannot resolve the
+	// repo, skips `git worktree remove`, and leaves a live registration in the
+	// user's own repository for every workspace.
+	DeleteRepoWorkspaces(
+		ctx context.Context,
+		repoID string,
+		repoPath string,
 	) error
 }
 
@@ -213,7 +230,15 @@ func (u *worktreeUsecase) CreateChild(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("create child: locked: %w", err)
 	}
-	path, err := u.deriveWorktreePath(ctx, home, in.ProjectID, in.RepoID, in.RemoteURL, in.Branch)
+	// The worktree lands at its IDENTITY, not at its name. The navigable
+	// <slug>/<branch> path is a symlink published after the worktree exists, so a
+	// later rename swaps a link instead of moving a live git worktree.
+	root, err := worktreepath.WorkspaceRootByID(home, in.ProjectID, wsID)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	path := worktreepath.WorktreeLeaf(root)
+	alias, err := u.deriveAlias(ctx, home, in.ProjectID, in.RepoID, in.RemoteURL, in.Branch)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
@@ -235,6 +260,14 @@ func (u *worktreeUsecase) CreateChild(
 			u.reattachMain(ctx, detached, in.RepoPath, in.Branch)
 			return domain.Workspace{}, err
 		}
+	}
+	// Only now that the worktree is real: an alias pointing at nothing would be a
+	// broken link in the navigable tree. A failure here is not fatal to the
+	// workspace — the record's own path is the real one — so it is logged and the
+	// create stands; the next rename or the boot pass republishes it.
+	if linkErr := worktreepath.LinkAlias(alias, root); linkErr != nil {
+		slog.Warn("create child: could not publish the navigable alias",
+			"ws", wsID, "alias", alias, "root", root, "err", linkErr)
 	}
 	ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
 		ID:           wsID,
@@ -282,7 +315,7 @@ func (u *worktreeUsecase) CreateChild(
 // worktree path (which would never case-match a sibling root now that both
 // carry a trailing "/worktree" leaf only on the CANDIDATE side before that
 // dereference).
-func (u *worktreeUsecase) deriveWorktreePath(
+func (u *worktreeUsecase) deriveAlias(
 	ctx context.Context,
 	home string,
 	projectID string,
@@ -294,7 +327,7 @@ func (u *worktreeUsecase) deriveWorktreePath(
 	if err != nil {
 		return "", fmt.Errorf("resolve worktree slug: %w", err)
 	}
-	path, err := worktreepath.Derive(home, projectID, slug, branch)
+	alias, err := worktreepath.AliasDir(home, projectID, slug, branch)
 	if err != nil {
 		return "", err
 	}
@@ -302,10 +335,10 @@ func (u *worktreeUsecase) deriveWorktreePath(
 	if err != nil {
 		return "", fmt.Errorf("scan sibling worktrees: %w", err)
 	}
-	if clashErr := worktreepath.DetectClash(siblings, worktreepath.WorkspaceRoot(path)); clashErr != nil {
+	if clashErr := worktreepath.DetectClash(siblings, alias); clashErr != nil {
 		return "", fmt.Errorf("%w: %v", apperr.ErrInvalidArgument, clashErr)
 	}
-	return path, nil
+	return alias, nil
 }
 
 // resolveSlug resolves the repo's on-disk identity slug (spec §3.9). It always
@@ -1048,13 +1081,24 @@ func (u *worktreeUsecase) RetryProvision(
 		return domain.Workspace{}, fmt.Errorf(
 			"%w (%s at %s)", ErrBranchHeldByManagedWorkspace, ws.Branch, outcome.HeldByPath)
 	}
-	path, err := u.deriveWorktreePath(ctx, home, ws.ProjectID, ws.RepoID, "", ws.Branch)
+	// A placeholder being provisioned late lands at its identity like any other
+	// workspace; the alias is published once the worktree is real.
+	root, err := worktreepath.WorkspaceRootByID(home, ws.ProjectID, ws.ID)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	path := worktreepath.WorktreeLeaf(root)
+	alias, err := u.deriveAlias(ctx, home, ws.ProjectID, ws.RepoID, "", ws.Branch)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
 	startSha, err := u.materializeProtectedWorktree(ctx, repoPath, ws.Branch, path)
 	if err != nil {
 		return domain.Workspace{}, err
+	}
+	if linkErr := worktreepath.LinkAlias(alias, root); linkErr != nil {
+		slog.WarnContext(ctx, "retry provision: could not publish the navigable alias",
+			"ws", ws.ID, "alias", alias, "err", linkErr)
 	}
 	provisioned, err := u.workspaces.ProvisionInPlace(ctx, ws.ID, path, startSha)
 	if err != nil {
@@ -1250,8 +1294,84 @@ func (u *worktreeUsecase) DeleteCascade(
 	}
 	order := cascade.Plan(rootID, nodesFrom(all))
 	for _, id := range order {
-		if removeErr := u.removeOne(ctx, index[id]); removeErr != nil {
+		if removeErr := u.removeOne(ctx, index[id], ""); removeErr != nil {
 			return fmt.Errorf("delete cascade: remove %s: %w", id, removeErr)
+		}
+	}
+	return nil
+}
+
+// unpublishAlias removes the <slug>/<branch> symlink for a workspace being torn
+// down, and the alias directories that leaves empty. Best effort: a workspace
+// must still be removable when its repo row or slug can no longer be resolved,
+// and a stale alias is a broken link, not lost data — the boot sweep clears any
+// that survive.
+func (u *worktreeUsecase) unpublishAlias(
+	ctx context.Context,
+	ws domain.Workspace,
+) {
+	if ws.Branch == "" || ws.ProjectID == "" {
+		return
+	}
+	home, err := u.crowbarHome()
+	if err != nil {
+		return
+	}
+	slug, err := u.resolveSlug(ctx, ws.RepoID, "")
+	if err != nil {
+		return
+	}
+	alias, err := worktreepath.AliasDir(home, ws.ProjectID, slug, ws.Branch)
+	if err != nil {
+		return
+	}
+	if unlinkErr := worktreepath.UnlinkAlias(
+		alias, worktreepath.SlugDir(home, ws.ProjectID, slug),
+	); unlinkErr != nil {
+		slog.WarnContext(ctx, "delete: could not withdraw the navigable alias",
+			"ws", ws.ID, "alias", alias, "err", unlinkErr)
+	}
+}
+
+// DeleteRepoWorkspaces removes every workspace of a repo, using the repo path
+// the caller supplies so it works after the repo row is already gone.
+//
+// It walks ROOTS only — a workspace whose parent is another of the same repo is
+// taken by that one's cascade — and tolerates individual failures so one wedged
+// worktree cannot strand the rest. A LOCKED workspace is removed here rather
+// than refused: the guard exists so a user cannot delete a protected branch's
+// worktree on its own, and that reason is gone once the repo it belongs to is.
+func (u *worktreeUsecase) DeleteRepoWorkspaces(
+	ctx context.Context,
+	repoID string,
+	repoPath string,
+) error {
+	all, err := u.workspaces.List(ctx)
+	if err != nil {
+		return fmt.Errorf("delete repo workspaces: list: %w", err)
+	}
+	mine := make(map[string]struct{}, len(all))
+	for _, ws := range all {
+		if ws.RepoID == repoID {
+			mine[ws.ID] = struct{}{}
+		}
+	}
+	for _, ws := range all {
+		if ws.RepoID != repoID {
+			continue
+		}
+		if _, parentIsMine := mine[ws.ParentID]; parentIsMine {
+			continue
+		}
+		for _, id := range cascade.Plan(ws.ID, nodesFrom(all)) {
+			target, ok := indexByID(all)[id]
+			if !ok {
+				continue
+			}
+			if removeErr := u.removeOne(ctx, target, repoPath); removeErr != nil {
+				slog.ErrorContext(ctx, "delete repo workspaces: remove",
+					"repo", repoID, "ws", id, "err", removeErr)
+			}
 		}
 	}
 	return nil
@@ -1260,6 +1380,7 @@ func (u *worktreeUsecase) DeleteCascade(
 func (u *worktreeUsecase) removeOne(
 	ctx context.Context,
 	ws domain.Workspace,
+	repoPathFallback string,
 ) error {
 	// Kill the workspace's live PTY sessions FIRST, before the worktree is removed.
 	// They are keyed by workspace id and otherwise survive the delete as orphaned
@@ -1268,15 +1389,33 @@ func (u *worktreeUsecase) removeOne(
 	// cascade. Runs even when the repo path can't be resolved below.
 	u.reapTerminals(ctx, ws.ID)
 
+	// Withdraw the navigable alias here, where the slug and branch that NAME it
+	// are still resolvable. The fs teardown downstream only ever sees a path, so
+	// it would have to find the alias by walking the project tree looking for a
+	// broken link — work proportional to the whole project on every single
+	// delete, to rediscover something this layer already knows.
+	u.unpublishAlias(ctx, ws)
+
+	// defaultBranch is only consulted to decide whether to reattach the repo's
+	// main checkout, which needs the row. A caller-supplied path means the row is
+	// already gone, and then there is no main checkout left to reattach to.
+	repoPath, defaultBranch := repoPathFallback, ""
 	repo, err := u.repos.FindByKey(ctx, ws.RepoID)
-	if err != nil || repo == nil {
+	switch {
+	case err == nil && repo != nil:
+		repoPath, defaultBranch = repo.Path, repo.DefaultBranch
+	case repoPath != "":
+		// The caller already held the path — a repo delete that has removed its
+		// own row and still owes its workspaces a git teardown. Without this the
+		// unresolvable repo below would skip WorktreeRemove and strand a live
+		// registration in the user's repository.
+	default:
 		// Can't resolve the repo — still drop the read-model row so the cascade
 		// doesn't leave a ghost workspace pointing at an unreachable worktree.
 		slog.WarnContext(ctx, "cascade: repo unresolved; dropping row best-effort",
 			"ws", ws.ID, "err", err)
 		return u.workspaces.Delete(ctx, ws.ID)
 	}
-	repoPath := repo.Path
 	// A placeholder (empty WorktreePath) has no worktree, no managed branch
 	// checkout, and its real branch must never be git-touched: drop the row only.
 	// Defense-in-depth — the locked status already blocks DeleteCascade, but a
@@ -1293,7 +1432,7 @@ func (u *worktreeUsecase) removeOne(
 		slog.WarnContext(ctx, "cascade: worktree remove failed (continuing)",
 			"ws", ws.ID, "worktree", ws.WorktreePath, "err", removeErr)
 	}
-	if ws.Branch != "" && ws.Branch == repo.DefaultBranch { //nolint:nestif // default-branch reattach vs force-delete teardown; the branch guard is load-bearing
+	if ws.Branch != "" && ws.Branch == defaultBranch { //nolint:nestif // default-branch reattach vs force-delete teardown; the branch guard is load-bearing
 		// The default branch is the unmanaged main folder's branch and the shared
 		// integration branch — NEVER delete it on workspace removal. If the main
 		// folder was detached to free it for this managed worktree, re-attach it

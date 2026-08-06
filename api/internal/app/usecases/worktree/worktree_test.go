@@ -37,7 +37,7 @@ type fakeWorkspace struct {
 	SyncFn             func(ctx context.Context, in workspace.SyncInput, now time.Time) (domain.Workspace, error)
 	ProvisionInPlaceFn func(id, worktreePath, forkPointSha string) (domain.Workspace, error)
 	ClearBranchFn      func(id string) (domain.Workspace, error)
-	RenameBranchFn     func(id, branch, worktreePath string) (domain.Workspace, error)
+	RenameBranchFn     func(id, branch string) (domain.Workspace, error)
 }
 
 func (f *fakeWorkspace) Create(
@@ -115,16 +115,23 @@ func (f *fakeWorkspace) ClearBranch(
 	return domain.Workspace{ID: id}, nil
 }
 
+func (f *fakeWorkspace) Relocate(
+	_ context.Context,
+	id string,
+	worktreePath string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, WorktreePath: worktreePath}, nil
+}
+
 func (f *fakeWorkspace) RenameBranch(
 	_ context.Context,
 	id string,
 	branch string,
-	worktreePath string,
 ) (domain.Workspace, error) {
 	if f.RenameBranchFn != nil {
-		return f.RenameBranchFn(id, branch, worktreePath)
+		return f.RenameBranchFn(id, branch)
 	}
-	return domain.Workspace{ID: id, Branch: branch, WorktreePath: worktreePath}, nil
+	return domain.Workspace{ID: id, Branch: branch}, nil
 }
 
 func (f *fakeWorkspace) Delete(
@@ -587,8 +594,21 @@ func newNow() func() time.Time {
 	return func() time.Time { return time.Unix(0, 0) }
 }
 
-func fakeHome() func() (string, error) {
-	return func() (string, error) { return "/tmp/crowbar-test", nil }
+// A home PER TEST. It used to be a fixed /tmp/crowbar-test shared by every test
+// in the package, which was invisible only for as long as nothing wrote to it —
+// creates now publish a real alias symlink there, and a leftover from one test
+// (or from a previous run of the suite) then collided with the next.
+func fakeHome(t *testing.T) func() (string, error) {
+	t.Helper()
+	dir := t.TempDir()
+	// RESOLVED: on macOS t.TempDir() hands back /var/folders/... while the real
+	// path is /private/var/folders/..., and the under-the-home checks resolve
+	// symlinks before comparing. An unresolved home makes a managed worktree look
+	// external.
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolved
+	}
+	return func() (string, error) { return dir, nil }
 }
 
 // --- CreateChild ---
@@ -606,7 +626,7 @@ func TestCreateChild_RecordsForkPointAndLocked(t *testing.T) {
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{protected: []string{"main"}}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{protected: []string{"main"}}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	out, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID:       "r1",
@@ -656,9 +676,21 @@ func TestCreateChild_DerivesHumanReadableWorktreePath(t *testing.T) {
 		ParentBranch: "develop",
 	})
 	require.NoError(t, err)
+	// The worktree lands at the workspace's IDENTITY, so no later rename has to
+	// move a live git worktree.
 	assert.Equal(t,
-		filepath.Join(home, "projects", "p1", "github.com", "test", "repo", "feature", "x", "worktree"),
+		filepath.Join(home, "projects", "p1", "workspaces", created.ID, "worktree"),
 		created.WorktreePath)
+
+	// The human-readable name survives as a symlink, which is what keeps the
+	// layout navigable and keeps every path recorded against it resolving.
+	alias := filepath.Join(home, "projects", "p1", "github.com", "test", "repo", "feature", "x")
+	info, lstatErr := os.Lstat(alias)
+	require.NoError(t, lstatErr, "the navigable alias must be published")
+	assert.NotZero(t, info.Mode()&os.ModeSymlink, "the alias is a symlink, never a real directory")
+	target, readErr := os.Readlink(alias)
+	require.NoError(t, readErr)
+	assert.Equal(t, filepath.Join(home, "projects", "p1", "workspaces", created.ID), target)
 }
 
 // TestCreateChild_RejectsCaseOnlyClash proves a create whose derived worktree
@@ -704,7 +736,7 @@ func TestCreateChild_CleansUpWorktreeOnCreateFailure(t *testing.T) {
 			return domain.Workspace{}, errBoom
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID:       "r1",
@@ -734,7 +766,7 @@ func TestCreateChild_LocksProtectedBranch(t *testing.T) {
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{protected: []string{"feature/x"}}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{protected: []string{"feature/x"}}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoPath: "/repo", ProjectID: "p1", RemoteURL: "https://github.com/test/repo.git", Branch: "feature/x", ParentBranch: "develop",
@@ -759,7 +791,7 @@ func TestCreateChild_RemoteBranchAbsent_CreatesLocal(t *testing.T) {
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID:       "r1",
@@ -803,7 +835,7 @@ func TestCreateChild_RemoteBranchExists_ChecksOut(t *testing.T) {
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID:       "r1",
@@ -863,7 +895,7 @@ func TestCreateChild_NewBranch_ForksFromOriginParentTip(t *testing.T) {
 		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
 			return domain.Workspace{ID: in.ID}, nil
 		},
-	}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID:       "r1",
@@ -908,7 +940,7 @@ func TestCreateChild_ParentFetchFails_FallsBackToLocalTip(t *testing.T) {
 			created = in
 			return domain.Workspace{ID: in.ID}, nil
 		},
-	}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID:       "r1",
@@ -952,7 +984,7 @@ func TestCreateChild_LocalRemoteTrackingRef_ChecksOutDespiteLiveMiss(t *testing.
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID:       "r1",
@@ -994,7 +1026,7 @@ func TestCreateChild_CheckoutBestEffortWhenFetchFailsButTrackingRefPresent(t *te
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID:       "r1",
@@ -1020,7 +1052,7 @@ func TestCreateChild_CheckoutBestEffortWhenFetchFailsButTrackingRefPresent(t *te
 // local remote-tracking check (a broken repo) is surfaced, not swallowed.
 func TestCreateChild_RemoteTrackingBranchExistsError(t *testing.T) {
 	g := &fakeGit{trackingExistsErr: errBoom}
-	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoPath: "/r", ProjectID: "p1", Branch: "b", ParentBranch: "develop",
 	})
@@ -1029,7 +1061,7 @@ func TestCreateChild_RemoteTrackingBranchExistsError(t *testing.T) {
 
 func TestCreateChild_RemoteBranchExistsError(t *testing.T) {
 	g := &fakeGit{remoteExistsErr: errBoom}
-	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoPath: "/r", ProjectID: "p1", Branch: "b", ParentBranch: "develop",
 	})
@@ -1041,7 +1073,7 @@ func TestCreateChild_FetchRefError(t *testing.T) {
 	// when there is no local origin/<branch> to fall back on: without either,
 	// there is no remote content to import.
 	g := &fakeGit{remoteExists: true, fetchRefErr: errBoom}
-	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoPath: "/r", ProjectID: "p1", Branch: "b", ParentBranch: "develop",
 	})
@@ -1050,7 +1082,7 @@ func TestCreateChild_FetchRefError(t *testing.T) {
 
 func TestCreateChild_CheckoutWorktreeAddError(t *testing.T) {
 	g := &fakeGit{remoteExists: true, revParseSha: "s", worktreeAddErr: errBoom}
-	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoPath: "/r", ProjectID: "p1", Branch: "b", ParentBranch: "develop",
 	})
@@ -1059,7 +1091,7 @@ func TestCreateChild_CheckoutWorktreeAddError(t *testing.T) {
 
 func TestCreateChild_CheckoutRevParseError(t *testing.T) {
 	g := &fakeGit{remoteExists: true, revParseErr: errBoom}
-	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoPath: "/r", ProjectID: "p1", Branch: "b", ParentBranch: "develop",
 	})
@@ -1084,7 +1116,7 @@ func TestCreateChild_AdoptMainWorktreeUnchanged(t *testing.T) {
 		// No workspace yet adopts the main worktree, so the first adoption proceeds.
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, nil },
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID:       "r1",
@@ -1106,7 +1138,7 @@ func TestCreateChild_AdoptMainWorktree_RevParseError(t *testing.T) {
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, nil },
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoPath: "/repo", Branch: "main", ParentBranch: "main",
 	})
@@ -1138,7 +1170,7 @@ func TestCreateChild_DefaultWorkspaceDoesNotBlockImport(t *testing.T) {
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", RemoteURL: "https://github.com/test/repo.git",
@@ -1175,7 +1207,7 @@ func TestCreateChild_DetachesMainToFreeDefaultBranch(t *testing.T) {
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", RemoteURL: "https://github.com/test/repo.git",
@@ -1218,7 +1250,7 @@ func TestCreateChild_RollsBackDetachWhenRetryFails(t *testing.T) {
 			return domain.Workspace{}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", RemoteURL: "https://github.com/test/repo.git",
@@ -1245,7 +1277,7 @@ func TestRemoveOne_DefaultBranchWorkspace_ReattachesMainAndKeepsBranch(t *testin
 		},
 		DeleteFn: func(_ context.Context, _ string) error { return nil },
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, repos, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, repos, newNow(), fakeHome(t))
 
 	require.NoError(t, uc.DeleteCascade(context.Background(), "w1"))
 
@@ -1267,7 +1299,7 @@ func TestRemoveOne_FeatureBranchWorkspace_ForceDeletesBranch(t *testing.T) {
 		},
 		DeleteFn: func(_ context.Context, _ string) error { return nil },
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, repos, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, repos, newNow(), fakeHome(t))
 
 	require.NoError(t, uc.DeleteCascade(context.Background(), "w1"))
 
@@ -1290,7 +1322,7 @@ func TestCreateChild_RejectsDuplicateBranch_ChildPath(t *testing.T) {
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", RemoteURL: "https://github.com/test/repo.git",
@@ -1318,7 +1350,7 @@ func TestCreateChild_AdoptMainWorktree_IgnoresDeletedAdoption(t *testing.T) {
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", Branch: "develop", ParentBranch: "develop",
@@ -1330,7 +1362,7 @@ func TestCreateChild_AdoptMainWorktree_IgnoresDeletedAdoption(t *testing.T) {
 func TestCreateChild_WorktreeAddError(t *testing.T) {
 	g := &fakeGit{addErr: errBoom}
 	ws := &fakeWorkspace{}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{RepoPath: "/r", ProjectID: "p1", RemoteURL: "https://github.com/test/repo.git", Branch: "b"})
 	require.ErrorIs(t, err, errBoom)
 }
@@ -1338,7 +1370,7 @@ func TestCreateChild_WorktreeAddError(t *testing.T) {
 func TestCreateChild_ProviderError(t *testing.T) {
 	g := &fakeGit{addStartSha: "s"}
 	ws := &fakeWorkspace{}
-	uc := worktree.New(ws, g, &fakeProvider{err: errBoom}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{err: errBoom}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{RepoPath: "/r", ProjectID: "p1", RemoteURL: "https://github.com/test/repo.git", Branch: "b"})
 	require.ErrorIs(t, err, errBoom)
 }
@@ -1382,7 +1414,7 @@ func TestMergeIntoParent_RejectsLockedParent(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", Status: domain.WorkspaceStatusLocked, WorktreePath: "/pw"}
 	g := &fakeGit{}
-	uc := worktree.New(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.ErrorIs(t, err, worktree.ErrParentLocked)
 	assert.Empty(t, g.calls)
@@ -1393,7 +1425,7 @@ func TestMergeIntoParent_RejectsRebaseForNonLeafChild(t *testing.T) {
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
 	grandchild := domain.Workspace{ID: "gc", ParentID: "c"}
 	g := &fakeGit{}
-	uc := worktree.New(mergeWS(child, parent, []domain.Workspace{grandchild}), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(mergeWS(child, parent, []domain.Workspace{grandchild}), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyRebase)
 	require.ErrorIs(t, err, worktree.ErrRebaseNonLeaf)
 	assert.Empty(t, g.calls)
@@ -1409,7 +1441,7 @@ func TestMergeIntoParent_MergeStrategy_RunsInParentThenUpdatesForkPoint(t *testi
 		updatedID, updatedSha = id, sha
 		return domain.Workspace{}, nil
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.NoError(t, err)
@@ -1435,7 +1467,7 @@ func TestMergeIntoParent_ResyncsParentAndChildSummaries(t *testing.T) {
 		synced = append(synced, in)
 		return domain.Workspace{}, nil
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.NoError(t, err)
@@ -1465,7 +1497,7 @@ func TestMergeIntoParent_ResyncSummaryError(t *testing.T) {
 		forkUpdated = true
 		return domain.Workspace{}, nil
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.NoError(t, err, "summary resync failure must not fail a durable merge")
 	assert.Equal(t, "ptip", res.ParentTipSha)
@@ -1481,7 +1513,7 @@ func TestMergeIntoParent_SquashStrategy_RunsInParent(t *testing.T) {
 	ws.UpdateForkPointFn = func(_ context.Context, _, _ string) (domain.Workspace, error) {
 		return domain.Workspace{}, nil
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategySquash)
 	require.NoError(t, err)
@@ -1498,7 +1530,7 @@ func TestMergeIntoParent_RebaseStrategy_RebasesChildThenFFMerges(t *testing.T) {
 	ws.UpdateForkPointFn = func(_ context.Context, _, _ string) (domain.Workspace, error) {
 		return domain.Workspace{}, nil
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyRebase)
 	require.NoError(t, err)
@@ -1521,7 +1553,7 @@ func TestMergeIntoParent_Conflict_SetsPRConflicts(t *testing.T) {
 		synced = append(synced, in)
 		return domain.Workspace{}, nil
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.NoError(t, err)
@@ -1548,7 +1580,7 @@ func TestMergeIntoParent_RebaseConflict_SetsPRConflicts(t *testing.T) {
 		synced = append(synced, in)
 		return domain.Workspace{}, nil
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyRebase)
 	require.NoError(t, err)
 	assert.True(t, res.ConflictsPending)
@@ -1572,7 +1604,7 @@ func TestMergeIntoParent_SquashConflict_AbortsInParent(t *testing.T) {
 		synced = append(synced, in)
 		return domain.Workspace{}, nil
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategySquash)
 	require.NoError(t, err)
 	assert.True(t, res.ConflictsPending)
@@ -1597,7 +1629,7 @@ func TestMergeIntoParent_Conflict_AbortFailure_FlagsParentAndChild(t *testing.T)
 		synced = append(synced, in)
 		return domain.Workspace{}, nil
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.NoError(t, err)
 	assert.True(t, res.ConflictsPending)
@@ -1624,7 +1656,7 @@ func TestMergeIntoParent_Conflict_AbortSuccess_FlagsOnlyChild(t *testing.T) {
 		synced = append(synced, in)
 		return domain.Workspace{}, nil
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.NoError(t, err)
 	assert.True(t, res.ConflictsPending)
@@ -1637,7 +1669,7 @@ func TestMergeIntoParent_NonConflictError_Propagates(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
 	g := &fakeGit{mergeErr: errBoom}
-	uc := worktree.New(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.ErrorIs(t, err, errBoom)
 }
@@ -1648,7 +1680,7 @@ func TestMergeIntoParent_GetChildError(t *testing.T) {
 			return domain.Workspace{}, errBoom
 		},
 	}
-	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.ErrorIs(t, err, errBoom)
 }
@@ -1662,7 +1694,7 @@ func TestMergeIntoParent_GetParentError(t *testing.T) {
 			return domain.Workspace{}, errBoom
 		},
 	}
-	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.ErrorIs(t, err, errBoom)
 }
@@ -1675,7 +1707,7 @@ func TestReparent_RejectsNonLeafChild(t *testing.T) {
 	grandchild := domain.Workspace{ID: "gc", ParentID: "c"}
 	ws := reparentWS(child, newParent, []domain.Workspace{grandchild})
 	g := &fakeGit{}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, worktree.ErrChildHasChildren)
 	assert.Empty(t, g.calls)
@@ -1688,7 +1720,7 @@ func TestReparent_RejectsSelfParent(t *testing.T) {
 	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw"}
 	ws := reparentWS(child, child, nil)
 	g := &fakeGit{}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.Reparent(context.Background(), "c", "c")
 	require.ErrorIs(t, err, worktree.ErrSelfParent)
 	assert.Empty(t, g.calls)
@@ -1705,7 +1737,7 @@ func TestReparent_SelfLoopedChildIsStillALeaf(t *testing.T) {
 		return domain.Workspace{ID: id, ParentID: parentID}, nil
 	}
 	g := &fakeGit{revParseSha: "ntip"}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.NoError(t, err) // not blocked by a phantom self-child
 }
@@ -1721,7 +1753,7 @@ func TestReparent_AllowsLockedNewParent(t *testing.T) {
 		return domain.Workspace{ID: id}, nil
 	}
 	g := &fakeGit{revParseSha: "ntip"}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"RevParse", "RebaseOnto", "WorkingTreeSummary"}, g.ops())
@@ -1737,7 +1769,7 @@ func TestReparent_RebasesOntoNewTipAndUpdatesAggregate(t *testing.T) {
 		return domain.Workspace{ID: id}, nil
 	}
 	g := &fakeGit{revParseSha: "ntip"}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.NoError(t, err)
@@ -1758,7 +1790,7 @@ func TestReparent_RebaseOntoError(t *testing.T) {
 	newParent := domain.Workspace{ID: "np", WorktreePath: "/np"}
 	ws := reparentWS(child, newParent, nil)
 	g := &fakeGit{revParseSha: "ntip", rebaseOnto: errBoom}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, errBoom)
 }
@@ -1769,7 +1801,7 @@ func TestReparent_GetChildError(t *testing.T) {
 			return domain.Workspace{}, errBoom
 		},
 	}
-	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, errBoom)
 }
@@ -1783,7 +1815,7 @@ func TestReparent_GetNewParentError(t *testing.T) {
 			return domain.Workspace{}, errBoom
 		},
 	}
-	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, errBoom)
 }
@@ -1847,7 +1879,7 @@ func TestDeleteCascade_KillsTerminalSessions(t *testing.T) {
 		"root":  {"root-sess"},
 		"child": {"child-sess-1", "child-sess-2"},
 	}}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome(),
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome(t),
 		worktree.WithTerminalReaper(reaper))
 
 	require.NoError(t, uc.DeleteCascade(context.Background(), "root"))
@@ -1871,7 +1903,7 @@ func TestDeleteCascade_SkipsLockedStatus(t *testing.T) {
 			return nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome(t))
 
 	require.NoError(t, uc.DeleteCascade(context.Background(), "root"))
 	assert.Equal(t, []string{"c", "a", "root"}, deleted)
@@ -1894,7 +1926,7 @@ func TestDeleteCascade_RejectsLockedRootStatus(t *testing.T) {
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome(t))
 	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root"), worktree.ErrWorkspaceLocked)
 	assert.Empty(t, g.calls)
 }
@@ -1903,7 +1935,7 @@ func TestDeleteCascade_ListError(t *testing.T) {
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, errBoom },
 	}
-	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root"), errBoom)
 }
 
@@ -1919,7 +1951,7 @@ func TestDeleteCascade_RepoPathError_DropsRowBestEffort(t *testing.T) {
 		ListFn:   func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
 		DeleteFn: func(_ context.Context, id string) error { deleted = append(deleted, id); return nil },
 	}
-	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{err: errBoom}, newNow(), fakeHome())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{err: errBoom}, newNow(), fakeHome(t))
 	require.NoError(t, uc.DeleteCascade(context.Background(), "root"))
 	assert.Equal(t, []string{"root"}, deleted)
 }
@@ -1933,7 +1965,7 @@ func TestDeleteCascade_MissingRepoRow_DropsRowNoPanic(t *testing.T) {
 	}
 	// FindByKey returns (nil, nil) for a missing repo row (must not panic); the
 	// repo is gone so the worktree is unreachable, so the row is dropped best-effort.
-	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow(), fakeHome())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow(), fakeHome(t))
 	require.NoError(t, uc.DeleteCascade(context.Background(), "root"))
 	assert.Equal(t, []string{"root"}, deleted)
 }
@@ -1946,7 +1978,7 @@ func TestDeleteCascade_WorktreeRemoveError_DropsRowBestEffort(t *testing.T) {
 		DeleteFn: func(_ context.Context, id string) error { deleted = append(deleted, id); return nil },
 	}
 	g := &fakeGit{removeErr: errBoom}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome(t))
 	require.NoError(t, uc.DeleteCascade(context.Background(), "root"))
 	assert.Equal(t, []string{"root"}, deleted)
 }
@@ -1959,7 +1991,7 @@ func TestDeleteCascade_BranchDeleteError_DropsRowBestEffort(t *testing.T) {
 		DeleteFn: func(_ context.Context, id string) error { deleted = append(deleted, id); return nil },
 	}
 	g := &fakeGit{deleteErr: errBoom}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome(t))
 	require.NoError(t, uc.DeleteCascade(context.Background(), "root"))
 	assert.Equal(t, []string{"root"}, deleted)
 }
@@ -1972,7 +2004,7 @@ func TestMergeIntoParent_SetPRConflictsError(t *testing.T) {
 	ws.SyncFn = func(_ context.Context, _ workspace.SyncInput, _ time.Time) (domain.Workspace, error) {
 		return domain.Workspace{}, errBoom
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.ErrorIs(t, err, errBoom)
 }
@@ -1985,7 +2017,7 @@ func TestMergeIntoParent_UpdateForkPointError(t *testing.T) {
 	ws.UpdateForkPointFn = func(_ context.Context, _, _ string) (domain.Workspace, error) {
 		return domain.Workspace{}, errBoom
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.ErrorIs(t, err, errBoom)
 }
@@ -2002,7 +2034,7 @@ func TestMergeIntoParent_GuardListError(t *testing.T) {
 		},
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, errBoom },
 	}
-	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyRebase)
 	require.ErrorIs(t, err, errBoom)
 }
@@ -2019,7 +2051,7 @@ func TestReparent_GuardListError(t *testing.T) {
 		},
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, errBoom },
 	}
-	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, errBoom)
 }
@@ -2028,7 +2060,7 @@ func TestMergeIntoParent_RevParseError(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
 	g := &fakeGit{revParseErr: errBoom}
-	uc := worktree.New(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.ErrorIs(t, err, errBoom)
 }
@@ -2037,7 +2069,7 @@ func TestReparent_RevParseError(t *testing.T) {
 	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw"}
 	newParent := domain.Workspace{ID: "np", WorktreePath: "/np"}
 	g := &fakeGit{revParseErr: errBoom}
-	uc := worktree.New(reparentWS(child, newParent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(reparentWS(child, newParent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, errBoom)
 }
@@ -2050,7 +2082,7 @@ func TestMergeIntoParent_RejectsUnprovisionedParent(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw"}
 	parent := domain.Workspace{ID: "p", Status: domain.WorkspaceStatusLocked, WorktreePath: ""}
 	g := &fakeGit{}
-	uc := worktree.New(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.Error(t, err)
 	assert.Empty(t, g.calls, "no git runs against an unprovisioned parent")
@@ -2073,7 +2105,7 @@ func TestReparent_RejectsUnprovisionedNewParent(t *testing.T) {
 		},
 	}
 	g := &fakeGit{}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, worktree.ErrParentUnprovisioned)
 	assert.Empty(t, g.calls)
@@ -2093,7 +2125,7 @@ func TestRebaseOntoParent_RejectsUnprovisionedParent(t *testing.T) {
 		},
 	}
 	g := &fakeGit{}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 	_, err := uc.RebaseOntoParent(context.Background(), "c")
 	require.ErrorIs(t, err, worktree.ErrParentUnprovisioned)
 	assert.Empty(t, g.calls)
@@ -2116,7 +2148,7 @@ func TestRemoveOne_PlaceholderSkipsGitTeardown(t *testing.T) {
 		},
 		DeleteFn: func(_ context.Context, _ string) error { return nil },
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, repos, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, repos, newNow(), fakeHome(t))
 
 	require.NoError(t, uc.DeleteCascade(context.Background(), "ph"))
 
@@ -2147,7 +2179,7 @@ func TestCreateChild_UsesHolderResolveForDetach(t *testing.T) {
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", RemoteURL: "https://github.com/test/repo.git",
@@ -2176,7 +2208,7 @@ func TestRetryProvision_FreeBranch_ProvisionsInPlace(t *testing.T) {
 			return domain.Workspace{ID: id, WorktreePath: path, ForkPointSha: sha, Status: domain.WorkspaceStatusLocked}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome(t))
 
 	out, err := uc.RetryProvision(context.Background(), "ph")
 	require.NoError(t, err)
@@ -2204,7 +2236,7 @@ func TestRetryProvision_StillHeld_ReturnsError(t *testing.T) {
 			return domain.Workspace{}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome(t))
 
 	_, err := uc.RetryProvision(context.Background(), "ph")
 	require.ErrorIs(t, err, worktree.ErrBranchStillHeld)
@@ -2246,7 +2278,7 @@ func TestDetachHolder_Home_ClearsBranchThenProvisions(t *testing.T) {
 			return domain.Workspace{ID: id, WorktreePath: path, ForkPointSha: sha, Status: domain.WorkspaceStatusLocked}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome(t))
 
 	_, err := uc.DetachHolder(context.Background(), "ph")
 	require.NoError(t, err)
@@ -2277,7 +2309,7 @@ func TestDetachHolder_DetachFails_NoPartialState(t *testing.T) {
 		ClearBranchFn:      func(_ string) (domain.Workspace, error) { cleared = true; return domain.Workspace{}, nil },
 		ProvisionInPlaceFn: func(_, _, _ string) (domain.Workspace, error) { provisioned = true; return domain.Workspace{}, nil },
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome(t))
 
 	_, err := uc.DetachHolder(context.Background(), "ph")
 	require.Error(t, err)
@@ -2293,8 +2325,14 @@ func TestDetachHolder_DetachFails_NoPartialState(t *testing.T) {
 // stopped silently dropping a protected branch held by a managed worktree that
 // outlived its repo row — exactly the row that lands here.
 func TestRetryProvision_HeldByManaged_ReturnsError(t *testing.T) {
+	// The holder has to be INSIDE this test's crowbar home for holder.Resolve to
+	// classify it as managed rather than external.
+	home := fakeHome(t)
+	homeDir, homeErr := home()
+	require.NoError(t, homeErr)
+	holderPath := filepath.Join(homeDir, "projects", "p1", "r1", "develop", "worktree")
 	g := &fakeGit{worktrees: []enginegit.WorktreeEntry{
-		{Path: "/tmp/crowbar-test/projects/p1/r1/develop/worktree", Branch: "develop"},
+		{Path: holderPath, Branch: "develop"},
 	}}
 	provisionCalled := false
 	ws := &fakeWorkspace{
@@ -2309,14 +2347,14 @@ func TestRetryProvision_HeldByManaged_ReturnsError(t *testing.T) {
 			return domain.Workspace{}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), home)
 
 	_, err := uc.RetryProvision(context.Background(), "ph")
 
 	require.ErrorIs(t, err, worktree.ErrBranchHeldByManagedWorkspace)
 	assert.NotErrorIs(t, err, worktree.ErrBranchStillHeld,
 		"a managed holder cannot be detached, so it must not offer that remedy")
-	assert.Contains(t, err.Error(), "/tmp/crowbar-test/projects/p1/r1/develop/worktree",
+	assert.Contains(t, err.Error(), holderPath,
 		"the refusal names the worktree holding the branch")
 	assert.False(t, provisionCalled, "no provision while the branch is held")
 }
@@ -2328,4 +2366,120 @@ func (f *fakeWorkspace) SetLock(
 	_ bool,
 ) (domain.Workspace, error) {
 	return domain.Workspace{ID: id, LockOverride: locked}, nil
+}
+
+// DeleteRepoWorkspaces exists so a repo delete can broadcast its tombstone the
+// moment the ROW is gone and tear the workspaces down behind it. That only works
+// if the cascade no longer needs the row — so it takes the repo path from the
+// caller, and must still run the git teardown with it.
+func TestDeleteRepoWorkspaces_UsesTheCallersPathWhenTheRepoRowIsGone(t *testing.T) {
+	all := []domain.Workspace{
+		{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "alpha", WorktreePath: "/wt/a/worktree"},
+		{ID: "w2", RepoID: "r2", ProjectID: "p1", Branch: "other", WorktreePath: "/wt/b/worktree"},
+	}
+	deleted := []string{}
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			for _, w := range all {
+				if w.ID == id {
+					return w, nil
+				}
+			}
+			return domain.Workspace{}, apperr.ErrNotFound
+		},
+		DeleteFn: func(_ context.Context, id string) error {
+			deleted = append(deleted, id)
+			return nil
+		},
+	}
+	g := &fakeGit{}
+	// The repo store answers NOTHING: the row is already deleted, which is the
+	// whole situation this method is for.
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow(), fakeHome(t))
+
+	require.NoError(t, uc.DeleteRepoWorkspaces(context.Background(), "r1", "/repo"))
+
+	assert.Equal(t, []string{"w1"}, deleted, "only the repo's own workspaces are removed")
+	assert.Contains(t, g.ops(), "WorktreeRemove",
+		"the git teardown must still run — skipping it strands a live worktree "+
+			"registration in the user's own repository")
+	for _, c := range g.calls {
+		if c.op == "WorktreeRemove" {
+			assert.Equal(t, "/repo", c.args[0],
+				"and it must use the path the caller handed over")
+		}
+	}
+}
+
+// A workspace must still be removable when the alias cannot be worked out — the
+// alias is derived state, and a broken link is litter the boot sweep clears, not
+// a reason to strand a workspace.
+func TestDeleteRepoWorkspaces_RemovesEvenWhenTheAliasCannotBeResolved(t *testing.T) {
+	all := []domain.Workspace{
+		{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "alpha", WorktreePath: "/wt/a/worktree"},
+	}
+	deleted := []string{}
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			return all[0], nil
+		},
+		DeleteFn: func(_ context.Context, id string) error {
+			deleted = append(deleted, id)
+			return nil
+		},
+	}
+	// The repo store fails outright: no slug, so no alias can be named.
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{},
+		&fakeRepoStore{err: assert.AnError}, newNow(), fakeHome(t))
+
+	require.NoError(t, uc.DeleteRepoWorkspaces(context.Background(), "r1", "/repo"))
+	assert.Equal(t, []string{"w1"}, deleted)
+}
+
+// A workspace with no branch has no alias to withdraw, and a placeholder has no
+// worktree to remove — both still lose their row.
+func TestDeleteRepoWorkspaces_HandlesPlaceholdersAndBranchlessRows(t *testing.T) {
+	all := []domain.Workspace{
+		{ID: "w-placeholder", RepoID: "r1", ProjectID: "p1", Branch: "held", WorktreePath: ""},
+		{ID: "w-branchless", RepoID: "r1", ProjectID: "p1", WorktreePath: "/wt/b/worktree"},
+	}
+	deleted := []string{}
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			for _, w := range all {
+				if w.ID == id {
+					return w, nil
+				}
+			}
+			return domain.Workspace{}, apperr.ErrNotFound
+		},
+		DeleteFn: func(_ context.Context, id string) error {
+			deleted = append(deleted, id)
+			return nil
+		},
+	}
+	g := &fakeGit{}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow(), fakeHome(t))
+
+	require.NoError(t, uc.DeleteRepoWorkspaces(context.Background(), "r1", "/repo"))
+
+	assert.ElementsMatch(t, []string{"w-placeholder", "w-branchless"}, deleted)
+	// The placeholder contributes no git at all: it has no worktree of its own,
+	// and its branch is held by something else that must not be touched.
+	assert.Equal(t, 1, countOp(g.ops(), "WorktreeRemove"),
+		"only the row that actually has a worktree reaches git")
+}
+
+// A listing failure is the one thing that stops the cascade: without the list
+// there is nothing to walk, and reporting success would claim work never done.
+func TestDeleteRepoWorkspaces_ReportsAListingFailure(t *testing.T) {
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, assert.AnError },
+	}
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(t))
+
+	require.Error(t, uc.DeleteRepoWorkspaces(context.Background(), "r1", "/repo"))
 }

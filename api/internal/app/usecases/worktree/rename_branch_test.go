@@ -77,14 +77,19 @@ func newRenameFixture(t *testing.T, branch string, all []domain.Workspace) *rena
 	t.Helper()
 	home := t.TempDir()
 	slugDir := filepath.Join(home, "projects", "p1", "github.com", "test", "repo")
-	oldRoot := filepath.Join(slugDir, filepath.FromSlash(branch))
-	require.NoError(t, os.MkdirAll(filepath.Join(oldRoot, "worktree"), 0o755))
+	// A workspace as a create leaves it: the real root is the workspace id, and
+	// the navigable <slug>/<branch> path is a symlink to it.
+	root := filepath.Join(home, "projects", "p1", "workspaces", "w1")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "worktree"), 0o755))
+	alias := filepath.Join(slugDir, filepath.FromSlash(branch))
+	require.NoError(t, os.MkdirAll(filepath.Dir(alias), 0o755))
+	require.NoError(t, os.Symlink(root, alias))
 
-	f := &renameFixture{git: &fakeGit{branchNow: branch}, home: home, oldRoot: oldRoot}
+	f := &renameFixture{git: &fakeGit{branchNow: branch}, home: home, oldRoot: root}
 
 	self := domain.Workspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: branch,
-		WorktreePath: filepath.Join(oldRoot, "worktree"),
+		WorktreePath: filepath.Join(root, "worktree"),
 		Status:       domain.WorkspaceStatusNew,
 	}
 	if len(all) == 0 {
@@ -101,13 +106,17 @@ func newRenameFixture(t *testing.T, branch string, all []domain.Workspace) *rena
 			return domain.Workspace{}, apperr.ErrNotFound
 		},
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
-		RenameBranchFn: func(id, b, p string) (domain.Workspace, error) {
+		RenameBranchFn: func(id, b string) (domain.Workspace, error) {
 			f.renamed.called = true
-			f.renamed.id, f.renamed.branch, f.renamed.worktreePath = id, b, p
+			f.renamed.id, f.renamed.branch = id, b
 			if f.recordErr != nil {
 				return domain.Workspace{}, f.recordErr
 			}
-			return domain.Workspace{ID: id, Branch: b, WorktreePath: p}, nil
+			// The real aggregate KEEPS its path through a rename; a fake that
+			// dropped it would hide the very thing these tests assert.
+			return domain.Workspace{
+				ID: id, Branch: b, WorktreePath: filepath.Join(root, "worktree"),
+			}, nil
 		},
 	}
 	f.uc = worktree.New(ws, f.git, &fakeProvider{},
@@ -116,29 +125,31 @@ func newRenameFixture(t *testing.T, branch string, all []domain.Workspace) *rena
 	return f
 }
 
-func TestRenameBranch_RenamesBranchMovesRootAndRecordsBoth(t *testing.T) {
+func TestRenameBranch_SwapsTheAliasAndLeavesTheWorkspaceWhereItIs(t *testing.T) {
 	f := newRenameFixture(t, "testing", nil)
+	slugDir := filepath.Join(f.home, "projects", "p1", "github.com", "test", "repo")
 
 	got, err := f.uc.RenameBranch(context.Background(), "w1", "feature/x")
 	require.NoError(t, err)
 
-	newRoot := filepath.Join(f.home, "projects", "p1", "github.com", "test", "repo", "feature", "x")
-	newWorktree := filepath.Join(newRoot, "worktree")
-
-	// git was told to rename the branch and then to repair the relocated tree.
+	// git renamed the ref. Nothing was moved on disk, so there is no relocation
+	// to undo and no window in which git, the tree and the record disagree.
 	assert.Contains(t, f.git.ops(), "RenameBranch")
-	assert.Contains(t, f.git.ops(), "WorktreeRepair")
+	assert.DirExists(t, filepath.Join(f.oldRoot, "worktree"),
+		"the workspace stays at its identity root")
 
-	// The whole workspace root moved, not just the worktree leaf.
-	assert.NoDirExists(t, f.oldRoot, "old workspace root must not be left behind")
-	assert.DirExists(t, newWorktree)
+	// The navigable name moved instead: new alias published, old one withdrawn.
+	newAlias := filepath.Join(slugDir, "feature", "x")
+	target, readErr := os.Readlink(newAlias)
+	require.NoError(t, readErr, "the new name must be published as a symlink")
+	assert.Equal(t, f.oldRoot, target)
+	_, statErr := os.Lstat(filepath.Join(slugDir, "testing"))
+	assert.True(t, os.IsNotExist(statErr), "the previous alias must be withdrawn")
 
-	// The record follows git, carrying both halves.
+	// The record carries the new branch against the SAME path.
 	assert.True(t, f.renamed.called, "aggregate must record the rename")
 	assert.Equal(t, "feature/x", f.renamed.branch)
-	assert.Equal(t, newWorktree, f.renamed.worktreePath)
 	assert.Equal(t, "feature/x", got.Branch)
-	assert.Equal(t, newWorktree, got.WorktreePath)
 }
 
 // The agent chats tree is a SIBLING of the worktree inside the workspace root.
@@ -311,19 +322,17 @@ func TestRenameBranch_ClientDisconnectLeavesNoSplitState(t *testing.T) {
 
 	got, err := f.uc.RenameBranch(ctx, "w1", "feature/x")
 
-	newRoot := filepath.Join(f.home, "projects", "p1", "github.com", "test", "repo", "feature", "x")
+	// Whichever end it reaches, git and the record agree — and the workspace is
+	// where it always was, because a rename never moves it.
+	assert.DirExists(t, filepath.Join(f.oldRoot, "worktree"))
 	if err != nil {
 		assert.Equal(t, "testing", f.git.branchNow, "an aborted rename must restore the branch")
 		assert.False(t, f.renamed.called, "an aborted rename must not touch the record")
-		assert.DirExists(t, filepath.Join(f.oldRoot, "worktree"))
-		assert.NoDirExists(t, newRoot)
 		return
 	}
 	assert.Equal(t, "feature/x", f.git.branchNow)
 	assert.Equal(t, "feature/x", f.renamed.branch, "the record must carry the completed rename")
 	assert.Equal(t, "feature/x", got.Branch)
-	assert.DirExists(t, filepath.Join(newRoot, "worktree"))
-	assert.NoDirExists(t, f.oldRoot)
 }
 
 // A nested branch name (feature/x) nests its workspace root a directory deeper,
@@ -339,7 +348,7 @@ func TestRenameBranch_PrunesTheEmptyNestedParentItLeaves(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NoDirExists(t, filepath.Join(slugDir, "feature"),
-		"the emptied nested parent must not be left squatting the name")
+		"the emptied nested alias parent must not be left squatting the name")
 	assert.DirExists(t, slugDir, "the prune must stop at the slug directory")
 }
 
@@ -413,17 +422,22 @@ func TestRenameBranch_RecordWriteFailure_RestoresTheNestedLayout(t *testing.T) {
 // git's worktree registration was already repaired onto the new path by the time
 // the record write failed, so the unwind has to point it back at the old one —
 // otherwise the tree sits where the record says while git looks somewhere else.
-func TestRenameBranch_RecordWriteFailure_RepairsGitBackOntoTheOldPath(t *testing.T) {
+func TestRenameBranch_RecordWriteFailure_WithdrawsTheAliasAndTheBranch(t *testing.T) {
 	f := newRenameFixture(t, "testing", nil)
 	f.recordErr = errors.New("aggregate refused")
+	slugDir := filepath.Join(f.home, "projects", "p1", "github.com", "test", "repo")
 
 	_, err := f.uc.RenameBranch(context.Background(), "w1", "feature/x")
 
 	require.Error(t, err)
-	repaired := f.git.repairedPaths()
-	require.NotEmpty(t, repaired)
-	assert.Equal(t, filepath.Join(f.oldRoot, "worktree"), repaired[len(repaired)-1],
-		"the last repair must re-register the worktree at the path the record still names")
+	// The record is the last step and the only one that can still refuse, so the
+	// two before it come back: git returns to the old name and the alias it
+	// published is withdrawn. There is no tree to move back.
+	assert.Equal(t, "testing", f.git.branchNow, "git must be back on the original branch")
+	_, statErr := os.Lstat(filepath.Join(slugDir, "feature", "x"))
+	assert.True(t, os.IsNotExist(statErr), "the abandoned alias must not survive")
+	assert.DirExists(t, filepath.Join(f.oldRoot, "worktree"),
+		"the workspace never moved, so it is still where the record names it")
 }
 
 // repairedPaths returns the worktree path of every WorktreeRepair call, in order.
@@ -435,4 +449,88 @@ func (f *fakeGit) repairedPaths() []string {
 		}
 	}
 	return paths
+}
+
+// Regression: renaming a branch INTO its own namespace — testing -> testing/x —
+// derives a destination directory inside the source directory. The move was a
+// bare os.Rename, and no directory can become its own descendant, so the kernel
+// answered EINVAL ("invalid argument") AFTER git had already renamed the
+// branch. Git performs this rename happily (one ref transaction drops `testing`
+// and creates `testing/x` together), so the layout has to follow it.
+func TestRegression_RenameBranch_IntoItsOwnNamespace(t *testing.T) {
+	// testing -> testing/x used to derive a destination directory INSIDE the
+	// source directory, and os.Rename answers that with EINVAL: no directory can
+	// become its own descendant. It failed after git had already renamed the
+	// branch. Nothing is renamed on disk any more, so the case is unremarkable —
+	// which is the point of keying the root by identity.
+	f := newRenameFixture(t, "testing", nil)
+	chats := filepath.Join(f.oldRoot, "chats")
+	require.NoError(t, os.MkdirAll(chats, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(chats, "c1.json"), []byte("history"), 0o600))
+
+	got, err := f.uc.RenameBranch(context.Background(), "w1", "testing/really-big-branch-name")
+	require.NoError(t, err, "a branch may be renamed into its own namespace")
+
+	assert.Equal(t, "testing/really-big-branch-name", got.Branch)
+	assert.Equal(t, filepath.Join(f.oldRoot, "worktree"), got.WorktreePath,
+		"the workspace does not move, so its path is unchanged")
+
+	// The alias tree carries the nesting instead, and the chats are untouched
+	// because nothing was relocated.
+	slugDir := filepath.Join(f.home, "projects", "p1", "github.com", "test", "repo")
+	target, readErr := os.Readlink(
+		filepath.Join(slugDir, "testing", "really-big-branch-name"))
+	require.NoError(t, readErr)
+	assert.Equal(t, f.oldRoot, target)
+	body, chatErr := os.ReadFile(filepath.Join(chats, "c1.json"))
+	require.NoError(t, chatErr)
+	assert.Equal(t, "history", string(body))
+}
+
+// The unwind performs the SAME overlapping move in reverse — testing/x back to
+// testing, where the destination is the source's own parent — so it needs the
+// staged move just as much as the forward path does. Without it the rollback
+// hits ENOTEMPTY and strands the tree at the abandoned destination.
+func TestRegression_RenameBranch_IntoItsOwnNamespace_UnwindsOnRecordFailure(t *testing.T) {
+	f := newRenameFixture(t, "testing", nil)
+	f.recordErr = errors.New("aggregate refused")
+	slugDir := filepath.Join(f.home, "projects", "p1", "github.com", "test", "repo")
+
+	_, err := f.uc.RenameBranch(context.Background(), "w1", "testing/really-big-branch-name")
+
+	require.Error(t, err)
+	assert.Equal(t, "testing", f.git.branchNow, "git must be back on the original branch")
+	assert.DirExists(t, filepath.Join(f.oldRoot, "worktree"),
+		"the workspace root must be back where the record still points")
+	assert.NoDirExists(t, filepath.Join(slugDir, "testing", "really-big-branch-name"),
+		"nothing may be left at the abandoned destination")
+}
+
+// The alias step is the last thing before the record, and its failure is the one
+// that has to take git back. A file where the new alias needs a directory is the
+// deterministic way to reach it.
+func TestRenameBranch_AliasFailure_PutsTheBranchBack(t *testing.T) {
+	f := newRenameFixture(t, "testing", nil)
+	slugDir := filepath.Join(f.home, "projects", "p1", "github.com", "test", "repo")
+	require.NoError(t, os.WriteFile(filepath.Join(slugDir, "blocked"), []byte("file"), 0o600))
+
+	_, err := f.uc.RenameBranch(context.Background(), "w1", "blocked/x")
+
+	require.Error(t, err)
+	assert.Equal(t, "testing", f.git.branchNow,
+		"git must be restored when the alias cannot be published")
+	assert.False(t, f.renamed.called, "the record is never reached")
+}
+
+// A workspace whose branch is already the requested one is a no-op that touches
+// nothing.
+func TestRenameBranch_SameBranchTouchesNothing(t *testing.T) {
+	f := newRenameFixture(t, "testing", nil)
+
+	got, err := f.uc.RenameBranch(context.Background(), "w1", "testing")
+
+	require.NoError(t, err)
+	assert.Equal(t, "testing", got.Branch)
+	assert.False(t, f.renamed.called)
+	assert.NotContains(t, f.git.ops(), "RenameBranch")
 }

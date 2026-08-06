@@ -100,13 +100,20 @@ func (m *mockWorkspace) ClearBranch(
 	return domain.Workspace{ID: id}, nil
 }
 
+func (m *mockWorkspace) Relocate(
+	_ context.Context,
+	id string,
+	worktreePath string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, WorktreePath: worktreePath}, nil
+}
+
 func (m *mockWorkspace) RenameBranch(
 	_ context.Context,
 	id string,
 	branch string,
-	worktreePath string,
 ) (domain.Workspace, error) {
-	return domain.Workspace{ID: id, Branch: branch, WorktreePath: worktreePath}, nil
+	return domain.Workspace{ID: id, Branch: branch}, nil
 }
 
 func (m *mockWorkspace) Delete(ctx context.Context, id string) error { return nil }

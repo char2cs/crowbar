@@ -86,7 +86,11 @@ export function FlickerSpinner({
         <span
           ref={stripRef}
           aria-hidden="true"
-          className="absolute inset-y-0 left-0 [&>svg]:block [&>svg]:size-full"
+          // `mx-0!` cancels the `[&_svg]:-mx-0.5` that Button and Tabs put on
+          // every descendant icon: unlike their sizing rule that one has no
+          // :not() opt-out, and a 2px horizontal pull on the strip slides a
+          // sliver of the neighbouring frame into the window.
+          className="absolute inset-y-0 left-0 [&>svg]:block [&>svg]:size-full [&>svg]:mx-0!"
           style={{
             // N frames wide, stepped one frame-width per tick. translateX(-100%)
             // is the strip's own width, so steps(N) lands exactly on frame
@@ -110,7 +114,10 @@ export function FlickerSpinner({
         // never wrong.
         <span
           aria-hidden="true"
-          className="size-full [&>svg]:size-full"
+          // This path inlines the asset verbatim, so there is no baked
+          // `class="size-full"` to make a host's `:not([class*='size-'])` sizing
+          // rule stand down — hence the `!` here rather than the opt-out.
+          className="size-full [&>svg]:size-full! [&>svg]:mx-0!"
           // react-doctor-disable-next-line dangerous-html-sink -- static build-time SVG asset, as above.
           dangerouslySetInnerHTML={{ __html: SPINNERS[index] ?? '' }}
         />

@@ -266,16 +266,40 @@ func TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsAR
 	require.Equal(t, "locked", orphan.Status, "the first import claims main as a locked workspace")
 	require.NotEmpty(t, orphan.LocalPath, "the first import gets a real managed worktree for main")
 
-	// Remove the repository. Its locked worktree is deliberately left on disk (the
-	// removal guard never touches a locked row), so the branch stays checked out.
+	// Remove the repository, then put a holder for the branch back.
+	//
+	// This used to rely on the delete LEAVING one: the removal guard never
+	// touched a locked row, so a repo's locked worktrees outlived its record.
+	// That is the leak repo-delete now closes — it cascades through the
+	// workspaces, so no worktree and no registration in the user's own
+	// repository survives the repo that owned them.
+	//
+	// The condition under test is still perfectly real, it just is not reached
+	// that way any more: a worktree can hold a protected branch because a crash
+	// orphaned it, or because the user made one by hand. So the test makes one.
+	//
+	// It goes at a path NOTHING derives — under crowbar home, so holder.Resolve
+	// still classifies it as managed, but not the <slug>/<branch> path the
+	// import would compute. Recreating it at the derived path raced the delete's
+	// own async teardown: a lagging step removed the new worktree too, main went
+	// free, and the import adopted it as the repo HOME, which is filed under
+	// "(default)" — so the wait for a "main" row never returned.
 	resp := h.raw(http.MethodDelete,
 		"/v0/projects/"+projectID+"/repos/"+firstRepoID, nil, http.StatusAccepted)
 	_ = resp.Body.Close()
 	readUntil(t, reposWS, func(m map[string]any) bool {
 		return m["id"] == firstRepoID && m["status"] == "deleted"
 	})
-	require.DirExists(t, orphan.LocalPath,
-		"the locked worktree outlives the repo row — that is what makes this reachable")
+	h.QuiesceReactors()
+	// --force, so this does not have to wait for the delete's teardown. The
+	// tombstone now arrives as soon as the repo ROW is gone and the worktrees are
+	// removed behind it, so the branch is still checked out at this moment;
+	// --force lets a second worktree hold it anyway. Polling for the old
+	// directory to disappear instead worked, and cost the suite a minute.
+	holderPath := filepath.Join(h.home, "projects", projectID, "orphan-holder")
+	runGit(t, repoDir, "worktree", "add", "--force", holderPath, "main")
+	require.DirExists(t, holderPath,
+		"a worktree holding the protected branch is what makes this reachable")
 
 	// Re-add the folder. Allowed: the row that owned it is gone.
 	secondRepoID := addRepo(t, h, reposWS, projectID, repoDir, firstRepoID)
@@ -305,9 +329,9 @@ func TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsAR
 	assert.Equal(t, "locked", mainRow.Status, "the row is locked like every protected-branch row")
 	assert.False(t, mainRow.IsDefault, "it is not the repo home")
 	assert.Empty(t, mainRow.LocalPath, "it is a placeholder — the branch is checked out elsewhere")
-	assert.True(t, samePathResolved(t, orphan.LocalPath, mainRow.HeldByPath),
+	assert.True(t, samePathResolved(t, holderPath, mainRow.HeldByPath),
 		"the placeholder names the holder so it can explain itself: want %s, got %s",
-		orphan.LocalPath, mainRow.HeldByPath)
+		holderPath, mainRow.HeldByPath)
 	assert.NotEqual(t, orphan.ID, mainRow.ID, "each repo aggregate owns its own row")
 }
 

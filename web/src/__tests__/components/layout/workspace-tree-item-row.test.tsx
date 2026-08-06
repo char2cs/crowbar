@@ -87,34 +87,29 @@ beforeEach(() => {
   })
 })
 
-describe('the add-child "+" keeps row geometry stable', () => {
-  it('stays in layout while hidden and becomes interactive on hover or focus', () => {
+describe('the add-child "+" gives its width back to the label', () => {
+  it('takes no space while hidden and joins the row on hover or focus', () => {
     renderRow()
 
     const classes = screen.getByLabelText('Add child workspace').className.split(/\s+/)
-    expect(classes).toContain('inline-flex')
-    expect(classes).toContain('invisible')
-    expect(classes).toContain('pointer-events-none')
-    expect(classes).toContain('group-hover:visible')
-    expect(classes).toContain('group-hover:pointer-events-auto')
-    expect(classes).toContain('group-focus-within:visible')
-    expect(classes).toContain('group-focus-within:pointer-events-auto')
-    expect(classes).not.toContain('hidden')
-    expect(classes).not.toContain('group-hover:inline-flex')
+    // `hidden`, so the control is out of layout entirely and the branch name
+    // measures against the WHOLE row. Reserving the slot with `invisible`
+    // truncated a name at the same place whether or not anything was drawn.
+    expect(classes).toContain('hidden')
+    expect(classes).toContain('group-hover:inline-flex')
+    expect(classes).toContain('group-focus-within:inline-flex')
+    expect(classes).toContain('group-data-[active]:inline-flex')
+    expect(classes).not.toContain('invisible')
   })
 
-  it('changes visibility and hit testing without changing display', () => {
+  it('is the label that shrinks, not the text that gets painted over', () => {
     renderRow()
-    const variants = screen
-      .getByLabelText('Add child workspace')
-      .className.split(/\s+/)
-      .filter((className) => className.startsWith('group-hover:'))
-    expect(variants).toEqual(
-      expect.arrayContaining(['group-hover:visible', 'group-hover:pointer-events-auto']),
-    )
-    expect(variants.some((className) => /(?:hidden|flex|inline|block)$/.test(className))).toBe(
-      false,
-    )
+    const add = screen.getByLabelText('Add child workspace')
+    // The control returns to the FLEX FLOW, so the label loses exactly its
+    // width. Floating it out of flow instead fixed the idle width and then
+    // painted the button on top of the very text it had made room for.
+    expect(add.className.split(/\s+/)).not.toContain('absolute')
+    expect(add.parentElement!.className).not.toContain('absolute')
   })
 
   it('needs the row to be a `group` for the hover rule to resolve', () => {

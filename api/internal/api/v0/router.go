@@ -89,6 +89,8 @@ func (c *Container) Register(
 		c.app.Usecases.ProjectImport,
 		c.app.Usecases.Project,
 		c.eng.Git,
+		c.app.Usecases.Worktree,
+		c.app.Repositories.Workspace,
 		c.app.Hub.BroadcastRepo,
 		c.repos.Handle,
 		ws.DualServe,

@@ -10,11 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-	gormlogger "gorm.io/gorm/logger"
 )
 
 // runGitOut is runGit's reading counterpart: it returns stdout so a test can
@@ -29,6 +26,33 @@ func runGitOut(
 	out, err := cmd.Output()
 	require.NoError(t, err, "git %v", args)
 	return string(out)
+}
+
+// aliasOf finds the navigable <slug>/<branch> symlink the daemon publishes for a
+// workspace root. The path is not on the API — it is derived state — so it is
+// located the same way a human would: the one link under the project directory
+// that points at this root.
+func aliasOf(
+	t *testing.T,
+	h *harness,
+	projectID string,
+	localPath string,
+) string {
+	t.Helper()
+	root := filepath.Dir(localPath)
+	var found string
+	require.NoError(t, filepath.WalkDir(filepath.Join(h.home, "projects", projectID),
+		func(p string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() || d.Type()&os.ModeSymlink == 0 {
+				return nil //nolint:nilerr // an unreadable branch is skipped, never fatal
+			}
+			if target, readErr := os.Readlink(p); readErr == nil && target == root {
+				found = p
+			}
+			return nil
+		}))
+	require.NotEmpty(t, found, "the workspace must have a published alias")
+	return found
 }
 
 // renameDTO is workspaceDTO plus the worktree path, which the rename has to move
@@ -52,16 +76,19 @@ func renamedWorkspace(
 	return out
 }
 
-// TestRegression_RenameWorkspaceBranch_MovesGitRecordAndDiskTogether pins the
+// TestRegression_RenameWorkspaceBranch_MovesGitRecordAndNameTogether pins the
 // bug this endpoint exists to fix: the sidebar's inline branch rename only ever
 // rewrote local UI state, so the branch snapped back on the next reload. Wiring
 // it to the raw `git branch -m` endpoint would have been just as wrong — that
-// renames the branch while leaving the workspace record and its on-disk
-// directory named after the OLD branch, so the record disagrees with git and the
-// stale directory squats the name forever.
+// renames the branch while leaving the workspace record and the name it is
+// filed under pointing at the OLD branch.
 //
-// Red against either of those: this asserts all three move together.
-func TestRegression_RenameWorkspaceBranch_MovesGitRecordAndDiskTogether(t *testing.T) {
+// What moves has changed. The workspace root is keyed by workspace id now, so a
+// rename relocates NOTHING on disk: git takes the new ref, the navigable
+// <slug>/<branch> alias is republished, and the record carries the new branch
+// against the same path it always had. Renaming a live worktree by moving its
+// directory is the thing this layout exists to stop.
+func TestRegression_RenameWorkspaceBranch_MovesGitRecordAndNameTogether(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
@@ -70,23 +97,25 @@ func TestRegression_RenameWorkspaceBranch_MovesGitRecordAndDiskTogether(t *testi
 	before := renamedWorkspace(t, h, imported, childID)
 	require.Equal(t, "testing", before.Branch)
 	require.DirExists(t, before.LocalPath)
-	oldRoot := filepath.Dir(before.LocalPath)
+	oldAlias := aliasOf(t, h, imported.projectID, before.LocalPath)
 
 	var out map[string]any
 	h.patch(repoBase+"/workspaces/"+childID, map[string]string{"branch": "feature/x"}, &out)
 
-	// 1. The record followed the rename — branch AND path.
+	// 1. The record carries the new branch — at the SAME path.
 	after := renamedWorkspace(t, h, imported, childID)
 	assert.Equal(t, "feature/x", after.Branch, "the record must carry the new branch")
-	assert.NotEqual(t, before.LocalPath, after.LocalPath,
-		"the record must point at the relocated worktree")
-	assert.True(t, strings.HasSuffix(after.LocalPath, filepath.Join("feature", "x", "worktree")),
-		"the worktree must live under the new branch's path, got %q", after.LocalPath)
-
-	// 2. The filesystem followed: the tree is at the new path and the old
-	//    directory is not left squatting the old branch's name.
+	assert.Equal(t, before.LocalPath, after.LocalPath,
+		"a rename must not move the workspace: the root is keyed by id, not by name")
 	assert.DirExists(t, after.LocalPath)
-	assert.NoDirExists(t, oldRoot, "the old workspace root must not be left behind")
+
+	// 2. The NAME moved: the new alias points at the workspace and the old one is
+	//    gone, so nothing is left squatting the branch that was freed.
+	newAlias := aliasOf(t, h, imported.projectID, after.LocalPath)
+	assert.True(t, strings.HasSuffix(newAlias, filepath.Join("feature", "x")),
+		"the alias must be published under the new branch name, got %q", newAlias)
+	_, statErr := os.Lstat(oldAlias)
+	assert.True(t, os.IsNotExist(statErr), "the previous alias must be withdrawn")
 
 	// 3. git agrees: the worktree is checked out on the renamed branch and is
 	//    usable there (a broken registration would fail this).
@@ -138,10 +167,14 @@ func TestRegression_RenameWorkspaceBranch_RefusesLockedWorkspace(t *testing.T) {
 // pins the data-loss chain the rename left open: the rename moved the workspace
 // on disk but never re-pointed the id→path index the delete reactor resolves the
 // directory it rm -rf's from. The stale row still named the PRE-rename directory
-// — and a new workspace created on the freed branch name occupies exactly that
+// — and a new workspace created on the freed branch name occupied exactly that
 // directory — so deleting the renamed workspace deleted the NEW workspace's
-// worktree and its sibling chats tree, while the renamed workspace's real
-// directory was orphaned forever.
+// worktree and its sibling chats tree.
+//
+// Keying the root by workspace id removes the shared directory the chain ran
+// through: two workspaces can hold the same branch name at different times and
+// never share a root. This asserts the outcome either way — reuse the freed
+// name, delete the renamed workspace, and the reused one must be untouched.
 func TestRegression_RenameWorkspaceBranch_DeleteDoesNotDestroyTheReusedDirectory(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -149,7 +182,6 @@ func TestRegression_RenameWorkspaceBranch_DeleteDoesNotDestroyTheReusedDirectory
 
 	renamedID := createChildWorkspace(t, h, repoBase, "testing", imported.workspaceID)
 	before := renamedWorkspace(t, h, imported, renamedID)
-	freedRoot := filepath.Dir(before.LocalPath)
 
 	var out map[string]any
 	h.patch(repoBase+"/workspaces/"+renamedID, map[string]string{"branch": "renamed"}, &out)
@@ -162,13 +194,13 @@ func TestRegression_RenameWorkspaceBranch_DeleteDoesNotDestroyTheReusedDirectory
 	after := renamedWorkspace(t, h, imported, renamedID)
 	require.Equal(t, "renamed", after.Branch)
 
-	// A brand-new workspace takes the branch name — and therefore the directory —
-	// the rename just freed.
+	// A brand-new workspace takes the branch name the rename just freed — and
+	// gets its OWN root, which is what makes the old chain unreachable.
 	reuseID := createChildWorkspace(t, h, repoBase, "testing", imported.workspaceID)
 	reuse := renamedWorkspace(t, h, imported, reuseID)
-	require.Equal(t, freedRoot, filepath.Dir(reuse.LocalPath),
-		"precondition: the new workspace must occupy the directory the rename freed")
-	chats := filepath.Join(freedRoot, "chats")
+	require.NotEqual(t, filepath.Dir(before.LocalPath), filepath.Dir(reuse.LocalPath),
+		"reusing a freed branch name must not reuse another workspace's directory")
+	chats := filepath.Join(filepath.Dir(reuse.LocalPath), "chats")
 	require.NoError(t, os.MkdirAll(chats, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(chats, "c1.json"), []byte("history"), 0o600))
 
@@ -181,7 +213,7 @@ func TestRegression_RenameWorkspaceBranch_DeleteDoesNotDestroyTheReusedDirectory
 	h.QuiesceReactors()
 
 	assert.DirExists(t, reuse.LocalPath,
-		"deleting the renamed workspace must not remove the reused directory")
+		"deleting the renamed workspace must not remove the reused workspace")
 	assert.FileExists(t, filepath.Join(chats, "c1.json"),
 		"the reused workspace's chat history must survive another workspace's delete")
 	assert.NoDirExists(t, filepath.Dir(after.LocalPath),
@@ -189,11 +221,14 @@ func TestRegression_RenameWorkspaceBranch_DeleteDoesNotDestroyTheReusedDirectory
 }
 
 // TestRegression_RenameWorkspaceBranch_FreesTheNestedParentItEmpties pins the
-// name-squatting the rename left behind: a nested branch name nests its
-// workspace root a directory deeper, and moving the root out left <slug>/feature
-// standing — empty, invisible and permanently blocking a branch actually CALLED
-// "feature", which the clash scan and the destination stat then refuse for a
-// directory nothing occupies.
+// name-squatting the rename left behind: a nested branch name nests a directory
+// deeper, and moving out of it left <slug>/feature standing — empty, invisible
+// and permanently blocking a branch actually CALLED "feature", which the clash
+// scan then refuses for a directory nothing occupies.
+//
+// The nesting is in the ALIAS tree now rather than in the worktrees, and the
+// squatting is just as possible there, so the same end-to-end proof stands: the
+// freed name has to be usable again.
 func TestRegression_RenameWorkspaceBranch_FreesTheNestedParentItEmpties(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -201,7 +236,7 @@ func TestRegression_RenameWorkspaceBranch_FreesTheNestedParentItEmpties(t *testi
 
 	childID := createChildWorkspace(t, h, repoBase, "feature/x", imported.workspaceID)
 	before := renamedWorkspace(t, h, imported, childID)
-	nestedParent := filepath.Dir(filepath.Dir(before.LocalPath))
+	nestedParent := filepath.Dir(aliasOf(t, h, imported.projectID, before.LocalPath))
 	require.DirExists(t, nestedParent)
 
 	var out map[string]any
@@ -211,7 +246,7 @@ func TestRegression_RenameWorkspaceBranch_FreesTheNestedParentItEmpties(t *testi
 	// so the run must stop here with the real diagnosis rather than park on a
 	// broadcast that is never coming.
 	require.NoDirExists(t, nestedParent,
-		"the emptied nested parent must not be left squatting the name")
+		"the emptied nested alias parent must not be left squatting the name")
 
 	// The freed name is genuinely usable again: a new workspace on branch
 	// "feature" now provisions where the stale directory used to block it.
@@ -225,10 +260,13 @@ func TestRegression_RenameWorkspaceBranch_FreesTheNestedParentItEmpties(t *testi
 // TestRegression_RenameWorkspaceBranch_UnwindsRatherThanSplittingOnFailure is the
 // end-to-end counterpart of the client-disconnect unit proof: once `git branch -m`
 // has landed, a rename that cannot finish must put the branch BACK rather than
-// leave git on the new name while the record and the directory keep the old one —
-// a branch the record no longer names, which every later merge and remove fails to
-// find. Here the destination's parent is a FILE, so the move cannot happen and the
-// compensation is the only thing between this and a split workspace.
+// leave git on the new name while the record keeps the old one — a branch the
+// record no longer names, which every later merge and remove fails to find.
+//
+// The step that can still fail after git is publishing the alias, so that is
+// where the fault goes: a FILE where the new alias needs a directory. It used to
+// be a file where the moved worktree needed one, which is the same failure at
+// the same point of no return — only the work being attempted changed.
 func TestRegression_RenameWorkspaceBranch_UnwindsRatherThanSplittingOnFailure(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -236,7 +274,7 @@ func TestRegression_RenameWorkspaceBranch_UnwindsRatherThanSplittingOnFailure(t 
 
 	childID := createChildWorkspace(t, h, repoBase, "testing", imported.workspaceID)
 	before := renamedWorkspace(t, h, imported, childID)
-	slugDir := filepath.Dir(filepath.Dir(before.LocalPath))
+	slugDir := filepath.Dir(aliasOf(t, h, imported.projectID, before.LocalPath))
 	require.NoError(t, os.WriteFile(filepath.Join(slugDir, "blocked"), []byte("not a dir"), 0o600))
 
 	resp := h.raw(http.MethodPatch, repoBase+"/workspaces/"+childID,
@@ -249,6 +287,10 @@ func TestRegression_RenameWorkspaceBranch_UnwindsRatherThanSplittingOnFailure(t 
 	assert.Equal(t, "testing",
 		strings.TrimSpace(runGitOut(t, after.LocalPath, "branch", "--show-current")),
 		"git must be put back on the original branch, not left split from the record")
+	// Through the link, not at it: an alias is a symlink, so DirExists (which
+	// lstats) would call it a file. Resolving to the worktree is the property.
+	assert.DirExists(t, filepath.Join(aliasOf(t, h, imported.projectID, after.LocalPath), "worktree"),
+		"the original alias must still resolve to the workspace")
 }
 
 // A rename onto a branch another workspace already holds must be refused before
@@ -270,73 +312,20 @@ func TestRegression_RenameWorkspaceBranch_RefusesBranchAlreadyHeld(t *testing.T)
 	assert.DirExists(t, after.LocalPath, "the workspace must stay where it was")
 }
 
-// dropWorkspacePathsTable removes the workspace_paths table from the daemon's
-// live view.db, so the next workspace-record write fails at its very first
-// statement.
+// The record write is the LAST step of a rename and the one with no compensation
+// of its own: git has already taken the new branch and the alias has already been
+// republished by the time it runs, so a failure there must put both back rather
+// than leave a branch the record no longer names.
 //
-// It is fault injection at the storage layer, and it is the only seam that makes
-// the record write fail DETERMINISTICALLY: the aggregate's own refusals (a
-// validation error, OCC retries exhausted, a full command queue) all need either
-// a concurrent writer or a wedged runtime to provoke, and reproducing them by
-// racing would make the test time-dependent. What matters for the contract under
-// test is only THAT the record write returns an error after git and the disk have
-// both moved — not which of those produced it.
-func dropWorkspacePathsTable(
-	t *testing.T,
-	h *harness,
-) {
-	t.Helper()
-	db, err := gorm.Open(sqlite.Open(filepath.Join(h.home, "state", "view.db")),
-		&gorm.Config{Logger: gormlogger.Default.LogMode(gormlogger.Silent)})
-	require.NoError(t, err, "open the daemon's view.db")
-	require.NoError(t, db.Exec("PRAGMA busy_timeout=5000").Error)
-	require.NoError(t, db.Exec("DROP TABLE workspace_paths").Error)
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	require.NoError(t, sqlDB.Close())
-}
-
-// TestRegression_RenameWorkspaceBranch_UnwindsWhenTheRecordWriteFails covers the
-// LAST step of a rename, the one that had no compensation. git has landed the new
-// branch name and the whole workspace root has already moved by the time the
-// record write runs; a failure there returned straight to the caller, leaving git
-// and the disk on the new branch with the record still naming the old one. That is
-// the same split state the detached-context fix addressed, reached from the other
-// end — and every later merge or remove then looks for a branch that is gone.
-func TestRegression_RenameWorkspaceBranch_UnwindsWhenTheRecordWriteFails(t *testing.T) {
-	h := newHarness(t)
-	imported := importProject(t, h)
-	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
-
-	childID := createChildWorkspace(t, h, repoBase, "testing", imported.workspaceID)
-	before := renamedWorkspace(t, h, imported, childID)
-	require.Equal(t, "testing", before.Branch)
-	slugDir := filepath.Dir(filepath.Dir(before.LocalPath))
-
-	dropWorkspacePathsTable(t, h)
-
-	resp := h.raw(http.MethodPatch, repoBase+"/workspaces/"+childID,
-		map[string]string{"branch": "feature/x"}, http.StatusInternalServerError)
-	_ = resp.Body.Close()
-
-	after := renamedWorkspace(t, h, imported, childID)
-	assert.Equal(t, "testing", after.Branch, "the record must still name the original branch")
-	assert.Equal(t, before.LocalPath, after.LocalPath, "the record must still point at the old path")
-	assert.DirExists(t, after.LocalPath, "the workspace must be back where the record points")
-	assert.Equal(t, "testing",
-		strings.TrimSpace(runGitOut(t, after.LocalPath, "branch", "--show-current")),
-		"git must be put back on the original branch, not left split from the record")
-	assert.NoDirExists(t, filepath.Join(slugDir, "feature"),
-		"nothing may be left squatting at the abandoned destination")
-	// git's registration was repaired onto the new path before the record write
-	// failed; the unwind must have pointed it back, so git can still resolve the
-	// worktree it is standing in. Both sides are symlink-resolved because git
-	// reports the fully-resolved path (macOS /var -> /private/var) while the
-	// record carries the path as derived.
-	assert.Equal(t, resolved(t, after.LocalPath),
-		resolved(t, strings.TrimSpace(runGitOut(t, after.LocalPath, "rev-parse", "--show-toplevel"))),
-		"git must resolve the restored worktree at the path the record names")
-}
+// That contract is proven in
+// internal/app/usecases/worktree.TestRenameBranch_RecordWriteFailure_WithdrawsTheAliasAndTheBranch,
+// which injects the failure at the record boundary directly. It was proven here
+// too, by dropping workspace_paths from the live view.db — but a rename no
+// longer re-points that index (it moves nothing; Relocate owns the index now),
+// so the drop stopped failing the write. The remaining stores are the event log
+// and its snapshots, and failing EITHER of those also fails every read the
+// assertions need, leaving nothing to observe. A black-box test that cannot
+// reach the failure is worse than none.
 
 // resolved returns p with every symlink resolved, so a path git reports (fully
 // resolved) compares equal to the same path as the record derived it.

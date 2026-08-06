@@ -1,6 +1,6 @@
 import type { Repo, WorkspaceStatus } from '@/lib/store/sidebar'
 import type { Project } from '@/lib/types'
-import type { RepoAvatarData } from './repo-avatar'
+import type { RepoIconSource } from './repo-icon-mark'
 
 export type ContextPillModel =
   | {
@@ -9,11 +9,21 @@ export type ContextPillModel =
       working?: boolean
       repoName: string
       branchName: string
-      /** Only set for the default (imported folder) workspace. */
-      repoAvatar?: RepoAvatarData
+      /** Only set for the default (imported folder) workspace. Carries the repo
+       *  record's own fields rather than a second, pill-shaped copy of them —
+       *  the mark is drawn by RepoIconMark, the same component the repo row and
+       *  the New Tab heading use. */
+      repoAvatar?: RepoIconSource
     }
   | { kind: 'project'; projectName: string }
-  | { kind: 'home'; projectName: string; working?: boolean }
+  | {
+      kind: 'home'
+      projectName: string
+      working?: boolean
+      /** The project's own mark, so the pill agrees with its sidebar row. */
+      projectAvatarUrl?: string
+      projectAvatarEmoji?: string
+    }
   | { kind: 'empty' }
 
 interface DeriveArgs {
@@ -41,7 +51,15 @@ export function deriveContextPillModel({
 }: DeriveArgs): ContextPillModel {
   if (isHomeRoute) {
     const project = projects.find((p) => p.id === activeProjectId)
-    if (project) return { kind: 'home', projectName: project.name, working: homeWorking }
+    if (project) {
+      return {
+        kind: 'home',
+        projectName: project.name,
+        working: homeWorking,
+        projectAvatarUrl: project.avatarUrl,
+        projectAvatarEmoji: project.avatarEmoji,
+      }
+    }
   }
 
   if (activeWorkspaceId) {
@@ -75,9 +93,10 @@ export function deriveContextPillModel({
         repoName: defaultRepo.name,
         branchName: 'default',
         repoAvatar: {
-          url: defaultRepo.avatarURL,
-          label: defaultRepo.avatarLabel,
-          color: defaultRepo.avatarColor,
+          name: defaultRepo.name,
+          avatarURL: defaultRepo.avatarURL,
+          avatarLabel: defaultRepo.avatarLabel,
+          avatarColor: defaultRepo.avatarColor,
         },
       }
     }

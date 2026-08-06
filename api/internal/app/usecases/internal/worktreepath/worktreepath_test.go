@@ -12,19 +12,19 @@ import (
 )
 
 func TestStorageDir(t *testing.T) {
-	dir := StorageDir("/crow", "proj-1", "repo-1", "ws-abc")
+	dir := StorageDir("/crow", "proj-1", "ws-abc")
 	assert.Equal(
 		t,
-		"/crow/projects/proj-1/repo-1/workspaces/ws-abc/storages",
+		"/crow/projects/proj-1/workspaces/ws-abc/storages",
 		dir,
 	)
 }
 
 func TestThreadsStorageDir(t *testing.T) {
-	dir := ThreadsStorageDir("/crow", "proj-1", "repo-1", "ws-abc")
+	dir := ThreadsStorageDir("/crow", "proj-1", "ws-abc")
 	assert.Equal(
 		t,
-		"/crow/projects/proj-1/repo-1/workspaces/ws-abc/threads/storages",
+		"/crow/projects/proj-1/workspaces/ws-abc/threads/storages",
 		dir,
 	)
 }

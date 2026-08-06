@@ -790,11 +790,119 @@ func worktreeRemover(
 				"root", root, "path", path, "home", crowbarHome)
 			return nil
 		}
+		// The parent is only the right thing to delete when the path really is an
+		// identity-keyed worktree. A workspace still recorded at its pre-leaf path
+		// (<slug>/<branch>, the shape used before the worktree leaf existed) has
+		// the SLUG directory as its parent — the directory holding every branch of
+		// that repo — so removing one such workspace would take all of them.
+		//
+		// "Under the home" cannot catch that: the slug directory is under the home.
+		// The shape is what distinguishes them, and there is exactly one shape a
+		// managed worktree can have.
+		if !isWorkspaceWorktree(path) {
+			slog.Warn("repositories: refusing to rm a path that is not a workspace worktree",
+				"path", path, "root", root)
+			return nil
+		}
 		if err := os.RemoveAll(root); err != nil {
 			return fmt.Errorf("repositories: remove workspace root %q: %w", root, err)
 		}
+		// The root IS the workspace's whole on-disk footprint — worktree, chats
+		// and storages — so the rm above took everything the workspace owned. The
+		// navigable alias that pointed into it is withdrawn by the delete usecase,
+		// which knows the slug and branch that name it; anything that outlives a
+		// crash is cleared by SweepDanglingAliases at boot.
+		pruneEmptiedWorkspaceParents(root, crowbarHome)
 		return nil
 	}
+}
+
+// SweepDanglingAliases removes every navigable alias under crowbarHome whose
+// target no longer exists, and the directories that leaves empty.
+//
+// The delete path withdraws a workspace's alias itself, where the slug and
+// branch that name it are known. This is the crash net: a daemon killed between
+// removing a root and withdrawing its alias leaves a broken link in the tree a
+// human browses. Running it ONCE at boot costs one walk of the projects tree
+// instead of one per delete.
+//
+// A dangling link is the only signature it acts on, so a live alias — one
+// pointing at a root that still exists — is never a candidate.
+func SweepDanglingAliases(crowbarHome string) int {
+	if crowbarHome == "" {
+		return 0
+	}
+	projects := filepath.Join(crowbarHome, "projects")
+	var emptied []string
+	removed := 0
+	_ = filepath.WalkDir(projects, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || d.Type()&os.ModeSymlink == 0 {
+			return nil //nolint:nilerr // an unreadable branch of the tree is skipped, never fatal
+		}
+		if _, statErr := os.Stat(path); statErr == nil {
+			return nil
+		}
+		if rmErr := os.Remove(path); rmErr != nil {
+			slog.Warn("repositories: unlink dangling alias", "path", path, "err", rmErr)
+			return nil
+		}
+		removed++
+		emptied = append(emptied, filepath.Dir(path))
+		return nil
+	})
+	for _, dir := range emptied {
+		for d := dir; managedWorktreePath(d, projects); d = filepath.Dir(d) {
+			if os.Remove(d) != nil {
+				break
+			}
+		}
+	}
+	if removed > 0 {
+		slog.Info("repositories: cleared dangling workspace aliases", "count", removed)
+	}
+	return removed
+}
+
+// pruneEmptiedWorkspaceParents removes the directories a workspace-root removal
+// emptied, walking up from the root's parent.
+//
+// It cannot delete anything it did not empty and it cannot climb out of the
+// project. os.Remove only ever succeeds on an EMPTY directory, so a slug still
+// holding a sibling workspace stops the walk on its own; and the floor is
+// <home>/projects/<projectID>, which is never a candidate — that level holds the
+// project's icon, its `workspaces` state and its repo directories beside the
+// slug trees, so climbing into it would delete live state rather than litter.
+func pruneEmptiedWorkspaceParents(
+	root string,
+	crowbarHome string,
+) {
+	floor, ok := projectDirOf(root, crowbarHome)
+	if !ok {
+		return
+	}
+	for dir := filepath.Dir(root); managedWorktreePath(dir, floor); dir = filepath.Dir(dir) {
+		if err := os.Remove(dir); err != nil {
+			return
+		}
+	}
+}
+
+// projectDirOf returns <home>/projects/<projectID> for a path beneath it, and
+// false for anything not laid out that way — an adopted checkout, or a path the
+// managed layout does not explain, neither of which may be climbed.
+func projectDirOf(
+	path string,
+	crowbarHome string,
+) (string, bool) {
+	rel, err := filepath.Rel(crowbarHome, path)
+	if err != nil {
+		return "", false
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	if len(parts) < 2 || parts[0] != "projects" || parts[1] == "" || parts[1] == ".." {
+		return "", false
+	}
+	return filepath.Join(crowbarHome, parts[0], parts[1]), true
 }
 
 // managedWorktreePath reports whether path is strictly under the crowbar home: a
@@ -812,6 +920,21 @@ func managedWorktreePath(
 		return false
 	}
 	return strings.HasPrefix(path, strings.TrimRight(crowbarHome, "/")+"/")
+}
+
+// isWorkspaceWorktree reports whether a path is a worktree whose PARENT is a
+// workspace root — the one thing that makes deleting that parent safe.
+//
+// The test is the "worktree" leaf, and it holds for both managed layouts: the
+// identity-keyed <...>/workspaces/<id>/worktree and the older name-keyed
+// <slug>/<branch>/worktree both put the worktree inside its own workspace's
+// root. What it excludes is the PRE-LEAF shape, <slug>/<branch>, whose parent is
+// the slug directory holding every branch of the repo.
+//
+// A shape test, not a location test — managedWorktreePath already answers "is
+// this ours".
+func isWorkspaceWorktree(path string) bool {
+	return filepath.Base(path) == "worktree"
 }
 
 // ListWorkspacesInRepo returns every workspace row scoped to one project+repo,

@@ -236,6 +236,10 @@ export function WorkspaceTreeItem({
       >
         <div
           role="treeitem"
+          // Presence-only marker for ROW_SUB_ACTION_HOVER: the open row keeps
+          // its actions on screen. ROW_ACTIVE is a class string, which no CSS
+          // variant can select.
+          {...(isActive ? { 'data-active': '' } : {})}
           // Every row is -1; the tree promotes exactly one to 0 (see
           // use-tree-keyboard.ts). A tree is ONE stop in the tab order, not one
           // per branch you happen to have open.

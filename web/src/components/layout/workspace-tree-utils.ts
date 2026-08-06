@@ -33,9 +33,11 @@ const NO_ORDER = Number.MAX_SAFE_INTEGER
  *
  * Placement follows one rule, in this order:
  *
- *   1. `folderId` — when that folder lives in the same visible fork-parent
- *      space. A child of `develop` may therefore sit in a folder that also
- *      hangs off `develop`, while `parentId` still records its real lineage.
+ *   1. `folderId` — for a fork ROOT, always; for a forked child, when that
+ *      folder lives in the same visible fork-parent space. A child of `develop`
+ *      may therefore sit in a folder that also hangs off `develop`, while
+ *      `parentId` still records its real lineage. A fork root has no lineage to
+ *      protect, so it goes wherever it is filed.
  *   2. `parentId` — the FORK parent. An incompatible or stale folder edge is
  *      ignored rather than letting organisation visually split a fork chain.
  *   3. otherwise the repo root.
@@ -91,8 +93,20 @@ export function buildSidebarTree(
     // workspace) is the visible root, matching a root folder's empty anchor.
     const forkParent = ws.parentId && nodes.has(ws.parentId) ? ws.parentId : undefined
     const folderParent = ws.folderId && nodes.has(ws.folderId) ? ws.folderId : undefined
+    // A row with no visible fork parent is a fork ROOT, and a fork root has no
+    // chain for a folder to split — so its folder is honoured wherever that
+    // folder sits. Comparing anchors for these too admitted them into root-level
+    // folders ONLY, which silently re-rooted every workspace created on a folder
+    // row nested under a workspace: the daemon files such a create as a fork root
+    // (folderId set, parentId empty — the pairing is mutually exclusive there),
+    // so the edge was dropped and the row appeared outside the folder it was
+    // created in. Rows that DO have a fork parent still require the anchors to
+    // agree, which is what keeps organisation from splitting a fork chain.
     const compatibleFolder =
-      folderParent && folderWorkspaceAnchor(folderParent) === forkParent ? folderParent : undefined
+      folderParent &&
+      (forkParent === undefined || folderWorkspaceAnchor(folderParent) === forkParent)
+        ? folderParent
+        : undefined
     parentOf.set(ws.id, compatibleFolder ?? forkParent)
   }
 

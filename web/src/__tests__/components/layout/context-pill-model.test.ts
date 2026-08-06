@@ -72,7 +72,14 @@ describe('deriveContextPillModel', () => {
       repoName: 'crowbar',
       branchName: 'default',
       // The default (imported-folder) workspace shows the repo avatar in the pill.
-      repoAvatar: { url: undefined, label: 'C', color: 'bg-indigo-700' },
+      // The repo record's OWN fields, not a second pill-shaped copy of them:
+      // RepoIconMark draws this on the row, the pill and the New Tab heading.
+      repoAvatar: {
+        name: 'crowbar',
+        avatarURL: undefined,
+        avatarLabel: 'C',
+        avatarColor: 'bg-indigo-700',
+      },
     })
   })
 

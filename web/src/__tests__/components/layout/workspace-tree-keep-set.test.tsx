@@ -290,13 +290,12 @@ describe('the keep set is a snapshot, and it survives', () => {
     const classes = screen
       .getByLabelText('Fold away the rows Reviewing is holding')
       .className.split(/\s+/)
-    expect(classes).toContain('invisible')
-    expect(classes).toContain('inline-flex')
-    expect(classes).toContain('group-hover:visible')
-    expect(classes).toContain('group-focus-within:visible')
+    expect(classes).toContain('hidden')
+    expect(classes).toContain('group-hover:inline-flex')
+    expect(classes).toContain('group-focus-within:inline-flex')
     expect(classes).toContain('group-hover:animate-row-action-in')
     expect(classes).toContain('group-focus-within:animate-row-action-in')
-    expect(classes).not.toContain('hidden')
+    expect(classes).not.toContain('invisible')
   })
 
   it('marks the folded folder with the three-dot state', () => {

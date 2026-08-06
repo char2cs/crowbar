@@ -196,11 +196,12 @@ func TestSessionMetaStore_StorageDir_ResolvesPath(t *testing.T) {
 
 	dir, err := ms.StorageDir(ctx, "ws-1")
 	require.NoError(t, err)
-	// Expected: /home/.crowbar/projects/proj-1/repo-1/workspaces/ws-1/storages
-	assert.Contains(t, dir, "proj-1")
-	assert.Contains(t, dir, "repo-1")
-	assert.Contains(t, dir, "ws-1")
-	assert.Contains(t, dir, "storages")
+	// Storages live INSIDE the identity-keyed workspace root, beside worktree/
+	// and chats/, so one rm -rf of that root is the whole footprint. The repo id
+	// is deliberately absent: it named a second home for the same workspace, and
+	// the storages there outlived every workspace that owned them.
+	assert.Equal(t, "/home/.crowbar/projects/proj-1/workspaces/ws-1/storages", dir)
+	assert.NotContains(t, dir, "repo-1")
 }
 
 func TestSessionMetaStore_StorageDir_WorkspaceError(t *testing.T) {

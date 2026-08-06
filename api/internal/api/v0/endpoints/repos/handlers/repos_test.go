@@ -359,10 +359,25 @@ func (f *fakeBranchProvider) OpenPullRequests(_ context.Context, _ string) ([]pr
 
 type fakeWSReader struct {
 	workspaces []domain.Workspace
+	deleted    []string
 }
 
 func (f *fakeWSReader) List(_ context.Context) ([]domain.Workspace, error) {
 	return f.workspaces, nil
+}
+
+func (f *fakeWSReader) Delete(_ context.Context, id string) error {
+	f.deleted = append(f.deleted, id)
+	// A FRESH slice: List hands out the backing array, so filtering in place
+	// would mutate the snapshot a caller is still ranging over.
+	kept := make([]domain.Workspace, 0, len(f.workspaces))
+	for _, w := range f.workspaces {
+		if w.ID != id {
+			kept = append(kept, w)
+		}
+	}
+	f.workspaces = kept
+	return nil
 }
 
 func TestBranches_AnnotatesProtectionAndWorkspace(t *testing.T) {

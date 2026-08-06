@@ -29,6 +29,16 @@ interface IconPopoverProps {
   /** The same default, drawn large for the popover's preview. */
   fallbackLarge: ReactNode
   /**
+   * Replaces the composed emoji/image/fallback mark on the trigger. Pass this
+   * when the same mark is drawn somewhere else too (the project mark is also in
+   * the context pill) so both surfaces render ONE component and cannot drift.
+   * `emoji`/`iconUrl` are still required — the popover body reads them for its
+   * preview and for whether there is anything to remove. Receives the cache-bust
+   * version so the shared mark refetches after an upload — the proxy URL is
+   * stable, so without it a mounted <img> keeps the old bytes.
+   */
+  trigger?: (version: number) => ReactNode
+  /**
    * Offer the GitHub owner-avatar button. Repos only: it reads the repo's
    * `origin` remote, and a project has none of its own.
    */
@@ -55,6 +65,7 @@ export function IconPopover({
   iconUrl,
   fallback,
   fallbackLarge,
+  trigger: triggerOverride,
   github = false,
 }: IconPopoverProps) {
   const [emojiInput, setEmojiInput] = useState('')
@@ -154,7 +165,9 @@ export function IconPopover({
     mutate(() => apiFetch(`${base}/icon`, { method: 'DELETE' }), 'Failed to reset icon')
 
   // The 20px trigger mark, matching the row's own glyph sizing.
-  const trigger = emoji ? (
+  const trigger = triggerOverride ? (
+    triggerOverride(version)
+  ) : emoji ? (
     <span className="inline-flex h-5 w-5 items-center justify-center text-lg leading-none">
       {emoji}
     </span>

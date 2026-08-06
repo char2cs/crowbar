@@ -62,6 +62,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
 import { WorkspaceTree } from '@/components/layout/workspace-tree'
 import { idle } from '@/lib/loadable'
 import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
+import { useSidebarSelectionStore } from '@/lib/store/sidebar-selection'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 
@@ -90,6 +91,7 @@ beforeEach(() => {
   useWorkspaceListStore.setState({ data: idle() })
   useHomeWorkspaceStore.setState({ workspace: null })
   useSidebarStore.setState({ repos: [repo()], collapsedRepos: new Set<string>() })
+  useSidebarSelectionStore.setState({ kept: new Set<string>() })
 })
 
 describe('repo header row: drag-and-drop surface', () => {
@@ -182,13 +184,86 @@ describe('repo header row: rename guard', () => {
 })
 
 describe('repo header row: row chrome', () => {
-  it('keeps the hover-only "- default" hint in layout', () => {
+  it('spends no row width on a "- default" hint', () => {
     render(<WorkspaceTree />)
 
-    const classes = screen.getByText('- default').className.split(/\s+/)
-    expect(classes).toContain('invisible')
-    expect(classes).toContain('group-hover:visible')
-    expect(classes).not.toContain('hidden')
+    // The hint used to sit between the name and the trailing buttons, so a long
+    // repo name truncated earlier than it had to. The row's only destination IS
+    // the repo home, which made the label redundant with where you already are.
+    expect(screen.queryByText('- default')).toBeNull()
+  })
+
+  it('orders its trailing actions like every other workspace row', () => {
+    render(<WorkspaceTree />)
+
+    const row = screen.getByLabelText('Open crowbar')
+    const labels = [...row.querySelectorAll('button')].map((b) => b.getAttribute('aria-label'))
+    expect(labels).toEqual([
+      // Leading: the avatar doubles as the icon-editing trigger.
+      'Edit crowbar icon',
+      'Add child workspace',
+      // The repo-ONLY action comes after everything this row shares with the
+      // workspace rows, and before the disclosure that closes every row.
+      'Import branches',
+      'Collapse repo',
+    ])
+  })
+
+  it('leads the trailing cluster with fold-away, as a folder row does', () => {
+    // Only a FOLDED row still showing kept rows grows this button, so the plain
+    // order test above never reaches it. Fold-away is the one control here that
+    // appears because of what the row is DOING rather than what it is, so it
+    // reads first and never shifts the three fixed slots behind it.
+    useSidebarStore.setState({ repos: [repo()], collapsedRepos: new Set(['r1']) })
+    useSidebarSelectionStore.setState({ kept: new Set(['ws1']) })
+    render(<WorkspaceTree />)
+
+    const row = screen.getByLabelText('Open crowbar')
+    const labels = [...row.querySelectorAll('button')].map((b) => b.getAttribute('aria-label'))
+    expect(labels).toEqual([
+      'Edit crowbar icon',
+      'Fold away the rows crowbar is holding',
+      'Add child workspace',
+      'Import branches',
+      'Expand repo',
+    ])
+  })
+
+  it('marks the open row so its actions can stay on screen', () => {
+    // ROW_ACTIVE is a class string, which no CSS variant can select — the
+    // reveal-when-active rule in ROW_SUB_ACTION_HOVER reads this attribute
+    // instead. jsdom applies no Tailwind, so the attribute IS the contract here;
+    // the CSS half was verified against the running app.
+    router.pathname = '/ide/p1/r1/w-default'
+    render(<WorkspaceTree />)
+
+    const row = screen.getByLabelText('Open crowbar')
+    expect(row).toHaveAttribute('data-active')
+    expect(row.querySelector('button[aria-label="Add child workspace"]')!.className).toContain(
+      'group-data-[active]:inline-flex',
+    )
+  })
+
+  it('leaves the marker off a row that is not the open one', () => {
+    render(<WorkspaceTree />)
+
+    expect(screen.getByLabelText('Open crowbar')).not.toHaveAttribute('data-active')
+  })
+
+  it("reveals add-child on hover with the branch rows' own reveal", () => {
+    render(<WorkspaceTree />)
+
+    const adds = screen
+      .getAllByLabelText('Add child workspace')
+      .map((b) => (b as HTMLElement).className)
+    // This row IS a workspace (the repo's default), so it had no business
+    // revealing its controls differently from the rows beneath it. Comparing
+    // against a real branch row's button keeps the two in lockstep rather than
+    // asserting a class list this test would have to be taught twice.
+    expect(adds.length).toBeGreaterThan(1)
+    expect(new Set(adds).size).toBe(1)
+    expect(adds[0]).toContain('hidden')
+    expect(adds[0]).toContain('group-hover:inline-flex')
   })
 
   it('wears the shared active-row surface when the repo home is the open workspace', () => {
@@ -253,5 +328,30 @@ describe('repo-root create rows: indentation', () => {
     // repo root — the repo-root filter is `parentId === defaultWorkspaceId`.
     const label = screen.queryByText('feature/nested')
     expect(label?.parentElement?.parentElement).not.toHaveStyle({ marginInlineStart: '14px' })
+  })
+})
+
+// The hover-only controls take NO space while hidden, so the row's name measures
+// against the whole row. They used to reserve their slot permanently, which
+// truncated a branch name at the same place on a row showing no controls at all.
+//
+// They are not floated out of flow to achieve that either: that fixed the idle
+// width and then painted the button on top of the very text it had made room
+// for. Returning to the flex flow is what makes the LABEL shrink instead.
+describe('repo header row: trailing controls', () => {
+  it('gives the name its width back and never paints over it', () => {
+    render(<WorkspaceTree />)
+    const row = screen.getByLabelText('Open crowbar')
+
+    const add = row.querySelector('button[aria-label="Add child workspace"]')!
+    expect(add.className).toContain('hidden')
+    expect(add.className).toContain('group-hover:inline-flex')
+    expect(add.className).not.toContain('invisible')
+    expect(add.className).not.toContain('absolute')
+    expect(add.parentElement!.className).not.toContain('absolute')
+
+    // The always-visible controls never left the flow to begin with.
+    const disclosure = row.querySelector('button[aria-label="Collapse repo"]')!
+    expect(disclosure.className).not.toContain('absolute')
   })
 })

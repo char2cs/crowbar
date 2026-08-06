@@ -253,7 +253,6 @@ function WorkspaceTreeInner() {
           ref={treeRef}
           role="tree"
           aria-label="Workspaces"
-          className="pb-1"
           onKeyDown={onKeyDown}
           onFocus={onFocus}
         >
@@ -265,7 +264,7 @@ function WorkspaceTreeInner() {
                     already announced by their own rows, so it stays out of the
                     a11y tree rather than injecting a `separator` between
                     treeitems. */}
-                {index > 0 && <hr aria-hidden="true" className="mx-3 my-1.5 border-border" />}
+                {index > 0 && <hr aria-hidden="true" className={SECTION_RULE} />}
                 <ProjectHomeRow
                   project={group}
                   isCollapsed={isCollapsed}
@@ -329,7 +328,7 @@ function WorkspaceTreeInner() {
             Only when there is a project above it: a rule under nothing is a rule
             hanging off the top of an empty sidebar. Decorative either way, so it
             stays out of the a11y tree — the button announces itself. */}
-        {groups.length > 0 && <hr aria-hidden="true" className="mx-3 my-1.5 border-border" />}
+        {groups.length > 0 && <hr aria-hidden="true" className={SECTION_RULE} />}
         <div className="px-1.5">
           <button
             type="button"
@@ -356,6 +355,16 @@ function WorkspaceTreeInner() {
     </div>
   )
 }
+
+// The rule between sidebar sections. One value, because every one of these gaps
+// has to read as the same gap.
+//
+// `my-1.5` is 6px, and it is the ONLY vertical spacing around a rule: a project
+// row's own 2px bottom margin collapses into it, leaving 6. That collapse is
+// also why the tree element carries no bottom padding — padding does not
+// collapse, and the last rule sits OUTSIDE the tree, so 4px there stacked with
+// both margins and made that one gap 12px against every other rule's 6.
+const SECTION_RULE = 'mx-3 my-1.5 border-border'
 
 export function WorkspaceTree() {
   return (

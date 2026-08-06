@@ -218,21 +218,41 @@ func (r *deleteReactor) tombstonePresent(
 	return err == nil && ws != nil && ws.Status == domain.WorkspaceStatusDeleted
 }
 
-// resolvePath returns the last-known worktree path for the workspace. A missing
-// id↔path row is an idempotent no-op (empty path, ok=true) — there is nothing to
-// rm; a real store error aborts the purge so the tombstone survives for the boot
-// sweep to re-drive.
+// resolvePath returns the worktree path to remove.
+//
+// The id↔path row is consulted first because it survives a workspace whose
+// aggregate is already gone, but it is NOT the source of truth: it can be missing
+// and it can hold an EMPTY path, and an empty path used to end the purge right
+// here — reported as success, with the whole workspace root (worktree, chats and
+// every agent ledger in them) left on disk forever. The record's own
+// WorktreePath is the authority, so fall back to it before concluding there is
+// nothing to remove.
+//
+// Only when BOTH are empty is there genuinely nothing to rm — an unprovisioned
+// placeholder — and that is said out loud rather than passed off as a removal
+// that happened. A real store error aborts the purge so the tombstone survives
+// for the boot sweep to re-drive.
 func (r *deleteReactor) resolvePath(
 	ctx context.Context,
 	wsID string,
 ) (string, bool) {
 	path, err := r.pathsStore.Get(ctx, wsID)
-	if errors.Is(err, wspaths.ErrNotFound) {
-		return "", true
-	}
-	if err != nil {
+	switch {
+	case errors.Is(err, wspaths.ErrNotFound):
+		path = ""
+	case err != nil:
 		slog.ErrorContext(ctx, "workspace delete reactor: resolve id-path row", "id", wsID, "err", err)
 		return "", false
+	}
+	if path != "" {
+		return path, true
+	}
+	if ws, getErr := r.storeReader.Get(ctx, wsID); getErr == nil && ws != nil {
+		path = ws.WorktreePath
+	}
+	if path == "" {
+		slog.InfoContext(ctx, "workspace delete reactor: no worktree path to remove",
+			"id", wsID)
 	}
 	return path, true
 }

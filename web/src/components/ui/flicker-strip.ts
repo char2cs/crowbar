@@ -142,9 +142,22 @@ export function buildFlickerStrip(source: string): FlickerStrip | null {
 
   const stripViewBox = `${num(minX)} ${num(minY)} ${num(width * frames)} ${num(height)}`
   // width/height would fight the CSS box the strip is stretched into.
-  const stripAttrs = withAttr(rootAttrs, 'viewBox', stripViewBox).filter(
-    ([name]) => name !== 'width' && name !== 'height',
-  )
+  //
+  // `class="size-full"` is not decoration, it is the opt-out token every themed
+  // host in components/ui keys off: Button, Tabs, Select, Badge, Toolbar and the
+  // menus all size their descendant icons with
+  // `[&_svg:not([class*='size-'])]:size-4`, which outspecifies the strip's own
+  // `[&>svg]:size-full` and would crush this N-frames-wide strip into a 16px
+  // square — the whole animation then slides out of the frame window and the
+  // spinner reads as a missing glyph (it did, in the context pill's <Button>).
+  // Carrying a `size-` class makes that :not() stop matching, which is exactly
+  // the escape hatch those rules provide, and the class sizes the strip
+  // correctly on its own.
+  const stripAttrs = withAttr(
+    withAttr(rootAttrs, 'viewBox', stripViewBox),
+    'class',
+    'size-full',
+  ).filter(([name]) => name !== 'width' && name !== 'height')
 
   return { markup: `<svg${serialize(stripAttrs)}>${body}</svg>`, frames, duration }
 }
