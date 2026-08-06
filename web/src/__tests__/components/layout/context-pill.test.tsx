@@ -6,6 +6,7 @@ import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
 import { success } from '@/lib/loadable'
+import { assetURL } from '@/lib/api'
 import type { WorkspaceDTO } from '@/lib/types'
 
 // @base-ui/react ships pure ESM (.mjs) and pnpm gives it its own React copy
@@ -285,5 +286,92 @@ describe('ContextPill working overlay', () => {
 
     expect(spinner()).toBeNull()
     expect(screen.getByText('default')).toBeInTheDocument()
+  })
+})
+
+// The pill's mark IS the project's mark. It used to hardcode <Library>, so a
+// project that had set an icon showed that icon on its sidebar row and the
+// default glyph in the pill directly above it.
+describe('ContextPill project mark', () => {
+  const setProject = (over: Record<string, unknown>) =>
+    useProjectDataStore.setState({
+      data: success([
+        { id: 'p1', name: 'Crowbar', path: '/x', lastActivity: new Date(0), ...over },
+      ]),
+    })
+
+  beforeEach(() => {
+    mockPathname = '/ide/p1/home'
+    useHomeWorkspaceStore.setState({ workspace: homeDTO(false) })
+  })
+
+  it('shows the project emoji when one is set', () => {
+    setProject({ avatarEmoji: '🚀' })
+
+    const { container } = render(<ContextPill />)
+
+    expect(screen.getByText('🚀')).toBeInTheDocument()
+    expect(container.querySelector('.lucide-library')).toBeNull()
+  })
+
+  it('shows the uploaded icon, resolved for the browser rather than left bare', () => {
+    // A bare `/v0/...` path would 404 against the webview's own origin and
+    // degrade to the Library glyph — an uploaded icon looking like no icon.
+    setProject({ avatarUrl: '/v0/projects/p1/icon?v=3' })
+
+    const { container } = render(<ContextPill />)
+
+    const img = container.querySelector('img')
+    expect(img?.getAttribute('src')).toBe(assetURL('/v0/projects/p1/icon?v=3'))
+    expect(container.querySelector('.lucide-library')).toBeNull()
+  })
+
+  it('keeps the emoji ahead of an image, the precedence the daemon enforces', () => {
+    setProject({ avatarEmoji: '🚀', avatarUrl: '/v0/projects/p1/icon?v=3' })
+
+    const { container } = render(<ContextPill />)
+
+    expect(screen.getByText('🚀')).toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('rides the daemon-versioned URL without adding a second cache-bust', () => {
+    // Read-only surface: the popover's own counter is for the surface that can
+    // CHANGE the icon, and stacking it here would only add a dead `&v=0`.
+    setProject({ avatarUrl: '/v0/projects/p1/icon?v=3' })
+
+    const { container } = render(<ContextPill />)
+
+    expect(container.querySelector('img')?.getAttribute('src')).not.toContain('&v=')
+  })
+})
+
+// The pill shows two kinds of home — a repo's and a project's — in the SAME
+// slot. They rendered at different weights: the project's mark was a size step
+// smaller and sat under a text opacity its own component overrides anyway, so
+// the one control that shows both made them look like different things.
+describe('ContextPill home marks', () => {
+  const slotOf = (container: HTMLElement) => container.querySelector('span.scale-110')!
+
+  it('gives a project home the same slot and mark size as a repo home', () => {
+    mockPathname = '/ide/p1/home'
+    useHomeWorkspaceStore.setState({ workspace: homeDTO(false) })
+    const project = render(<ContextPill />)
+    const projectSlot = slotOf(project.container)
+    const projectMark = projectSlot.firstElementChild!
+
+    project.unmount()
+
+    mockPathname = '/ide/p1/r1/default-ws'
+    useSidebarStore.setState({
+      repos: [{ ...repos[0], defaultWorkspaceId: 'default-ws', defaultWorking: false }],
+    })
+    const repo = render(<ContextPill />)
+    const repoSlot = slotOf(repo.container)
+    const repoMark = repoSlot.firstElementChild!
+
+    expect(projectSlot.className).toBe(repoSlot.className)
+    expect(projectMark.className).toContain('size-5')
+    expect(repoMark.className).toContain('size-5')
   })
 })

@@ -17,7 +17,7 @@ import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/stor
 import { dataOf } from '@/lib/loadable'
 import { fuzzyMatch } from '@/utils/search-match'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
-import { RepoAvatar } from './repo-avatar'
+import { RepoIconMark } from './repo-icon-mark'
 import { formatChangeCount } from './format-change-count'
 import { flattenWorkspaces, type WorkspaceSwitcherItem } from './workspace-switcher-model'
 
@@ -160,7 +160,7 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
                   {/* Spinner beats the avatar: a repo-home row with a working agent
                       must show its loading state, not its repo icon. */}
                   {item.repoAvatar && !item.working ? (
-                    <RepoAvatar avatar={item.repoAvatar} name={item.repoName} />
+                    <RepoIconMark repo={item.repoAvatar} size="sm" />
                   ) : (
                     <WorkspaceBranchIcon status={item.status} working={item.working} />
                   )}

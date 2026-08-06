@@ -22,6 +22,8 @@ func Register(
 	importer repohandlers.RepoImporter,
 	updater repohandlers.RepoUpdater,
 	remote repohandlers.RemoteRefresher,
+	wsRemover repohandlers.WorkspaceRemover,
+	wsPurger repohandlers.WorkspacePurger,
 	broadcast func(dto.RepoDTO),
 	reposWS gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
@@ -29,7 +31,8 @@ func Register(
 	h := repohandlers.NewWithDeps(store, prov, wsReader, broadcast).
 		WithImporter(importer).
 		WithUpdater(updater).
-		WithRemoteRefresher(remote)
+		WithRemoteRefresher(remote).
+		WithWorkspaceRemover(wsRemover, wsPurger)
 	rg.POST("/repos", h.Create)
 	rg.GET("/repos", dispatch(h.List, reposWS))
 	rg.GET("/repos/:repoId", dispatch(h.Detail, reposWS))

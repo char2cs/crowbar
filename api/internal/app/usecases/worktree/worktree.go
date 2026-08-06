@@ -103,6 +103,28 @@ type Usecase interface {
 		ctx context.Context,
 		rootID string,
 	) error
+	// DeleteRepoWorkspaces removes every workspace of a repo, taking the repo's
+	// path from the CALLER rather than resolving it from the repo row.
+	//
+	// That is the whole point: a repo delete has to broadcast its tombstone the
+	// moment the row is gone, and the teardown below removes a worktree per
+	// workspace with synchronous git work in each. Holding the frame behind all
+	// of it made a client wait the length of the cascade for a repo it had
+	// already deleted. Running the cascade AFTER the row is deleted is only safe
+	// if it no longer needs that row — otherwise removeOne cannot resolve the
+	// repo, skips `git worktree remove`, and leaves a live registration in the
+	// user's own repository for every workspace.
+	//
+	// It returns the ids it deleted, so a caller that sweeps up afterwards does
+	// not delete them a SECOND time: the read model it would sweep from lags the
+	// aggregate, so a row still reads as live when its aggregate is already gone,
+	// and deleting it again emits a second tombstone whose reactor loses the
+	// version race and leaves the drain gate open.
+	DeleteRepoWorkspaces(
+		ctx context.Context,
+		repoID string,
+		repoPath string,
+	) ([]string, error)
 }
 
 // TerminalReaper is the narrow terminal-engine surface the cascade delete uses to
@@ -1250,16 +1272,63 @@ func (u *worktreeUsecase) DeleteCascade(
 	}
 	order := cascade.Plan(rootID, nodesFrom(all))
 	for _, id := range order {
-		if removeErr := u.removeOne(ctx, index[id]); removeErr != nil {
+		if removeErr := u.removeOne(ctx, index[id], ""); removeErr != nil {
 			return fmt.Errorf("delete cascade: remove %s: %w", id, removeErr)
 		}
 	}
 	return nil
 }
 
+// DeleteRepoWorkspaces removes every workspace of a repo, using the repo path
+// the caller supplies so it works after the repo row is already gone.
+//
+// It walks ROOTS only — a workspace whose parent is another of the same repo is
+// taken by that one's cascade — and tolerates individual failures so one wedged
+// worktree cannot strand the rest. A LOCKED workspace is removed here rather
+// than refused: the guard exists so a user cannot delete a protected branch's
+// worktree on its own, and that reason is gone once the repo it belongs to is.
+func (u *worktreeUsecase) DeleteRepoWorkspaces(
+	ctx context.Context,
+	repoID string,
+	repoPath string,
+) ([]string, error) {
+	all, err := u.workspaces.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("delete repo workspaces: list: %w", err)
+	}
+	handled := []string{}
+	mine := make(map[string]struct{}, len(all))
+	for _, ws := range all {
+		if ws.RepoID == repoID {
+			mine[ws.ID] = struct{}{}
+		}
+	}
+	for _, ws := range all {
+		if ws.RepoID != repoID {
+			continue
+		}
+		if _, parentIsMine := mine[ws.ParentID]; parentIsMine {
+			continue
+		}
+		for _, id := range cascade.Plan(ws.ID, nodesFrom(all)) {
+			target, ok := indexByID(all)[id]
+			if !ok {
+				continue
+			}
+			handled = append(handled, id)
+			if removeErr := u.removeOne(ctx, target, repoPath); removeErr != nil {
+				slog.ErrorContext(ctx, "delete repo workspaces: remove",
+					"repo", repoID, "ws", id, "err", removeErr)
+			}
+		}
+	}
+	return handled, nil
+}
+
 func (u *worktreeUsecase) removeOne(
 	ctx context.Context,
 	ws domain.Workspace,
+	repoPathFallback string,
 ) error {
 	// Kill the workspace's live PTY sessions FIRST, before the worktree is removed.
 	// They are keyed by workspace id and otherwise survive the delete as orphaned
@@ -1268,15 +1337,26 @@ func (u *worktreeUsecase) removeOne(
 	// cascade. Runs even when the repo path can't be resolved below.
 	u.reapTerminals(ctx, ws.ID)
 
+	// defaultBranch is only consulted to decide whether to reattach the repo's
+	// main checkout, which needs the row. A caller-supplied path means the row is
+	// already gone, and then there is no main checkout left to reattach to.
+	repoPath, defaultBranch := repoPathFallback, ""
 	repo, err := u.repos.FindByKey(ctx, ws.RepoID)
-	if err != nil || repo == nil {
+	switch {
+	case err == nil && repo != nil:
+		repoPath, defaultBranch = repo.Path, repo.DefaultBranch
+	case repoPath != "":
+		// The caller already held the path — a repo delete that has removed its
+		// own row and still owes its workspaces a git teardown. Without this the
+		// unresolvable repo below would skip WorktreeRemove and strand a live
+		// registration in the user's repository.
+	default:
 		// Can't resolve the repo — still drop the read-model row so the cascade
 		// doesn't leave a ghost workspace pointing at an unreachable worktree.
 		slog.WarnContext(ctx, "cascade: repo unresolved; dropping row best-effort",
 			"ws", ws.ID, "err", err)
 		return u.workspaces.Delete(ctx, ws.ID)
 	}
-	repoPath := repo.Path
 	// A placeholder (empty WorktreePath) has no worktree, no managed branch
 	// checkout, and its real branch must never be git-touched: drop the row only.
 	// Defense-in-depth — the locked status already blocks DeleteCascade, but a
@@ -1293,7 +1373,7 @@ func (u *worktreeUsecase) removeOne(
 		slog.WarnContext(ctx, "cascade: worktree remove failed (continuing)",
 			"ws", ws.ID, "worktree", ws.WorktreePath, "err", removeErr)
 	}
-	if ws.Branch != "" && ws.Branch == repo.DefaultBranch { //nolint:nestif // default-branch reattach vs force-delete teardown; the branch guard is load-bearing
+	if ws.Branch != "" && ws.Branch == defaultBranch { //nolint:nestif // default-branch reattach vs force-delete teardown; the branch guard is load-bearing
 		// The default branch is the unmanaged main folder's branch and the shared
 		// integration branch — NEVER delete it on workspace removal. If the main
 		// folder was detached to free it for this managed worktree, re-attach it

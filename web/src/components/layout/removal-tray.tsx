@@ -7,8 +7,8 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
 import { ROW_BASE, ROW_GLYPH_BOX, ROW_INACTIVE, ROW_SUB_ACTION } from './workspace-row-base'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
-import { RepoAvatar } from './repo-avatar'
-import { commitRemoval, type RemovalNavigate } from './removal-commit'
+import { RepoIconMark } from './repo-icon-mark'
+import { commitRemoval, flushDrainingRemovals, type RemovalNavigate } from './removal-commit'
 import { RemovalConfirmDialog } from './removal-confirm-dialog'
 
 /**
@@ -45,13 +45,14 @@ function TrayGlyph({ entry }: { entry: RemovalEntry }) {
 
   if (entry.kind === 'repo') {
     return (
-      <RepoAvatar
-        avatar={{
-          url: repo?.avatarURL,
-          label: repo?.avatarLabel ?? entry.label.slice(0, 1).toUpperCase(),
-          color: repo?.avatarColor ?? 'bg-neutral-500',
+      <RepoIconMark
+        repo={{
+          name: entry.label,
+          avatarURL: repo?.avatarURL,
+          avatarLabel: repo?.avatarLabel ?? entry.label.slice(0, 1).toUpperCase(),
+          avatarColor: repo?.avatarColor ?? 'bg-neutral-500',
         }}
-        name={entry.label}
+        size="sm"
       />
     )
   }
@@ -237,6 +238,19 @@ export function RemovalTray() {
     },
     [commit],
   )
+
+  // The page can end mid-drain, and the intent must not end with it.
+  //
+  // `pagehide` rather than `beforeunload`: it fires on a reload, a navigation and
+  // an app quit alike, and unlike beforeunload it is not skipped when the
+  // document goes into the back/forward cache. Registered once for the tray's
+  // life — the flush reads the store itself, so it never needs re-binding as
+  // entries come and go.
+  useEffect(() => {
+    const flush = () => flushDrainingRemovals()
+    window.addEventListener('pagehide', flush)
+    return () => window.removeEventListener('pagehide', flush)
+  }, [])
 
   // ONE timer for the whole tray, aimed at whichever deadline comes first.
   //

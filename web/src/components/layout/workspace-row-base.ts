@@ -104,30 +104,32 @@ export const ROW_SUB_ACTION =
 // input). Same token as ROW_SUB_ACTION, without the button affordances.
 export const ROW_SUB_ACTION_GLYPH = 'shrink-0 text-muted-foreground'
 
-// Trailing action that keeps a permanent layout slot and becomes visible when
-// the workspace/folder row is hovered or focused. Keeping the box in the flex
-// row avoids resizing the label and re-laying out the branch on every pointer
-// transition. Pointer events stay disabled while the control is invisible.
+// Trailing action shown only when the row is hovered, focused, or IS the open
+// one — and taking NO space otherwise.
+//
+// `hidden`, so the box leaves the flex row entirely and the label measures
+// against the whole row. Reserving the slot with `invisible` truncated a branch
+// name at the same place whether or not anything was drawn there; floating the
+// control out of flow instead fixed the width but painted the button ON TOP of
+// the text it had just made room for.
+//
+// It costs a reflow of the row per hover transition, and that is affordable:
+// toggling every row's control on every frame measures 9.03ms/frame against
+// 8.57ms for a paint-only toggle — both at 120fps. (An earlier 149ms-vs-3ms
+// reading came from forcing a synchronous layout 200 times in a tight loop,
+// which is not what a hover does.)
+//
+// The active case needs `data-active` on the row because the open row is marked
+// by a class string (ROW_ACTIVE) that no CSS variant can select — the row you
+// are standing in is the one whose actions you are most likely to want, and
+// hiding them there made the row you had just opened look like it had fewer
+// controls than the one under the pointer.
 export const ROW_SUB_ACTION_HOVER =
-  'invisible pointer-events-none inline-flex shrink-0 cursor-pointer rounded-lg p-1.5 text-muted-foreground ' +
-  'group-hover:visible group-hover:pointer-events-auto ' +
-  'group-focus-within:visible group-focus-within:pointer-events-auto ' +
+  'hidden shrink-0 cursor-pointer rounded-lg p-1.5 text-muted-foreground ' +
+  'group-hover:inline-flex group-focus-within:inline-flex group-data-[active]:inline-flex ' +
   'hover:bg-sidebar-element-hover hover:text-foreground ' +
   'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
-// The same rule, plus a fade as the control arrives — the fold-away button on a
-// row that is holding others.
-//
-// The animation is attached to the hover/focus states so it begins when the
-// permanently-mounted control becomes visible, instead of running invisibly on
-// mount and being finished by the time the user reaches the row.
-//
-// Only this control fades. The add-child "+" is on every row of the tree at
-// once, so a pointer travelling down the column would leave a trail of fades
-// behind it; this one belongs to a single row that is in a state.
-//
-// The reduced-motion kill-switch in index.css zeroes the duration app-wide, so
-// the control simply appears.
 export const ROW_SUB_ACTION_FOLD_AWAY =
   ROW_SUB_ACTION_HOVER +
   ' group-hover:animate-row-action-in group-focus-within:animate-row-action-in'

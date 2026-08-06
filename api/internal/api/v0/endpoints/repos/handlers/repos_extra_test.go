@@ -988,3 +988,141 @@ func TestPutIconGithub_SaveError_Returns500(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
+
+// Regression: DeleteRepo removed its own row and its id-keyed directory and
+// stopped. Every worktree stayed on disk, every workspace record was orphaned,
+// and each worktree stayed REGISTERED in the user's own repository. The cascade
+// has to go through the workspace path, which unregisters git before removing
+// the tree — and then purge whatever that path refuses, or a locked
+// protected-branch placeholder outlives the repo as an unreachable record.
+func TestRegression_DeleteRepo_CascadesThroughTheWorkspaces(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	reader := &fakeWSReader{workspaces: []domain.Workspace{
+		{ID: "w-root", RepoID: "r1", ProjectID: "p1", Branch: "alpha"},
+		{ID: "w-locked", RepoID: "r1", ProjectID: "p1", Branch: "main"},
+		{ID: "w-other", RepoID: "r2", ProjectID: "p1", Branch: "untouched"},
+	}}
+	remover := &fakeWSRemover{}
+	h := repohandlers.NewWithDeps(
+		&fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}},
+		nil, reader, nil,
+	).WithWorkspaceRemover(remover, reader)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "projectId", Value: "p1"}, {Key: "repoId", Value: "r1"}}
+	c.Request = httptest.NewRequest(http.MethodDelete, "/v0/projects/p1/repos/r1", nil)
+	h.DeleteRepo(c)
+	h.WaitAsync()
+
+	assert.Equal(t, []string{"r1"}, remover.repos, "the repo's workspaces go through the cascade")
+	// The path is handed over because the ROW is already gone by then — without
+	// it the cascade cannot resolve the repo and skips the git teardown, leaving
+	// a live worktree registration in the user's own repository.
+	assert.Equal(t, []string{"/repo"}, remover.repoPaths,
+		"the cascade must be given the repo path the deleted row carried")
+
+	// Nothing of this repo may survive as a record.
+	for _, ws := range reader.workspaces {
+		assert.NotEqual(t, "r1", ws.RepoID, "no workspace row of the deleted repo may remain")
+	}
+	assert.Contains(t, reader.deleted, "w-locked",
+		"a locked placeholder the cascade refuses must still be purged with its repo")
+}
+
+type fakeWSRemover struct {
+	repos     []string
+	repoPaths []string
+	// handled is what the cascade reports it already took, so the purge below can
+	// be asserted to skip exactly those.
+	handled []string
+}
+
+func (f *fakeWSRemover) DeleteRepoWorkspaces(
+	_ context.Context, repoID, repoPath string,
+) ([]string, error) {
+	f.repos = append(f.repos, repoID)
+	f.repoPaths = append(f.repoPaths, repoPath)
+	return f.handled, nil
+}
+
+// The cascade is optional wiring: a Handlers built without it still deletes the
+// repo rather than panicking, which is what every test that never creates a
+// workspace relies on.
+func TestDeleteRepo_WithoutACascade_StillDeletesTheRepo(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}}
+	h := repohandlers.NewWithDeps(store, nil, nil, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "projectId", Value: "p1"}, {Key: "repoId", Value: "r1"}}
+	c.Request = httptest.NewRequest(http.MethodDelete, "/v0/projects/p1/repos/r1", nil)
+	h.DeleteRepo(c)
+	h.WaitAsync()
+
+	assert.Equal(t, http.StatusAccepted, w.Code)
+}
+
+// A cascade that fails must not stop the repo going: the row is already deleted
+// by then, and leaving the handler mid-teardown would strand it.
+func TestDeleteRepo_CascadeFailure_DoesNotStopTheRowPurge(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	reader := &fakeWSReader{workspaces: []domain.Workspace{
+		{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "a"},
+	}}
+	h := repohandlers.NewWithDeps(
+		&fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}},
+		nil, reader, nil,
+	).WithWorkspaceRemover(&failingWSRemover{}, reader)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "projectId", Value: "p1"}, {Key: "repoId", Value: "r1"}}
+	c.Request = httptest.NewRequest(http.MethodDelete, "/v0/projects/p1/repos/r1", nil)
+	h.DeleteRepo(c)
+	h.WaitAsync()
+
+	assert.Contains(t, reader.deleted, "w1",
+		"the row purge still runs so the repo leaves no unreachable workspace behind")
+}
+
+type failingWSRemover struct{}
+
+func (f *failingWSRemover) DeleteRepoWorkspaces(
+	_ context.Context, _, _ string,
+) ([]string, error) {
+	return nil, assert.AnError
+}
+
+// TestRegression_DeleteRepo_DoesNotPurgeWhatTheCascadeAlreadyTook pins the
+// double-delete that wedged the drain gate.
+//
+// The sweep after the cascade reads a LIST — a read model, which lags the
+// aggregate. A workspace the cascade has just deleted still reads as live there,
+// so the sweep deleted it a second time; the two delete reactors then raced, the
+// loser failed its Forget on a version conflict, and the gate it held open never
+// went idle. Anything waiting on reactor quiescence blocked for two minutes.
+func TestRegression_DeleteRepo_DoesNotPurgeWhatTheCascadeAlreadyTook(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	// The reader still reports BOTH rows as live — that is the whole point.
+	reader := &fakeWSReader{workspaces: []domain.Workspace{
+		{ID: "taken", RepoID: "r1", ProjectID: "p1", Branch: "alpha"},
+		{ID: "left-behind", RepoID: "r1", ProjectID: "p1", Branch: "main"},
+	}}
+	h := repohandlers.NewWithDeps(
+		&fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}},
+		nil, reader, nil,
+	).WithWorkspaceRemover(&fakeWSRemover{handled: []string{"taken"}}, reader)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "projectId", Value: "p1"}, {Key: "repoId", Value: "r1"}}
+	c.Request = httptest.NewRequest(http.MethodDelete, "/v0/projects/p1/repos/r1", nil)
+	h.DeleteRepo(c)
+	h.WaitAsync()
+
+	assert.Equal(t, []string{"left-behind"}, reader.deleted,
+		"only the row the cascade could not take is purged; deleting one it already "+
+			"took emits a second tombstone and wedges the delete reactor")
+}

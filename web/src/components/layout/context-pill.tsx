@@ -1,5 +1,4 @@
 import { useCallback, useState } from 'react'
-import { Library } from 'lucide-react'
 import { useRouterState } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { CommandDialog, CommandDialogTrigger, CommandDialogPopup } from '@/components/ui/command'
@@ -8,9 +7,10 @@ import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/stor
 import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
 import { dataOf } from '@/lib/loadable'
 import { WorkspaceBranchIcon, WorkspaceAgentSpinner } from './workspace-branch-icon'
+import { ProjectIconMark } from './project-icon-mark'
 import { deriveContextPillModel } from './context-pill-model'
 import { WorkspaceSwitcherMenu } from './workspace-switcher'
-import { RepoAvatar } from './repo-avatar'
+import { RepoIconMark } from './repo-icon-mark'
 import { parseWorkspaceScopeFromPath } from '@/lib/workspace-scope'
 import { useWorkspaceSwitcherKeyboard } from '@/features/keymaps/hooks/use-workspace-switcher-keyboard'
 
@@ -74,7 +74,7 @@ export function ContextPill() {
                     agent must still spin its icon — so the spinner (rendered by
                     WorkspaceBranchIcon when `working`) takes precedence over it. */}
                 {model.repoAvatar && !model.working ? (
-                  <RepoAvatar avatar={model.repoAvatar} name={model.repoName} size="lg" />
+                  <RepoIconMark repo={model.repoAvatar} size="lg" />
                 ) : (
                   <WorkspaceBranchIcon status={model.status} working={model.working} />
                 )}
@@ -92,10 +92,24 @@ export function ContextPill() {
                   home
                 </span>
               </span>
-              <span className="flex shrink-0 scale-110 text-foreground/70">
-                {/* Same mark as the home row's leading glyph, at Lucide's default
-                    weight like every other Lucide icon in the sidebar. */}
-                {model.working ? <WorkspaceAgentSpinner /> : <Library size={14} />}
+              {/* The SAME slot the repo-home pill uses above: same box, same
+                  scale, same mark size. A project's mark was rendering a step
+                  smaller here (and under a text opacity its own component
+                  overrides anyway), so the two kinds of home read as different
+                  weights in the one control that shows them both. */}
+              <span className="flex shrink-0 scale-110">
+                {model.working ? (
+                  <WorkspaceAgentSpinner />
+                ) : (
+                  <ProjectIconMark
+                    project={{
+                      name: model.projectName,
+                      avatarUrl: model.projectAvatarUrl,
+                      avatarEmoji: model.projectAvatarEmoji,
+                    }}
+                    size="lg"
+                  />
+                )}
               </span>
             </span>
           ) : (
