@@ -8,18 +8,19 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// RenameBranch records a branch rename on an existing aggregate: the new branch
-// name AND the worktree path it moved to, which travel together because a
-// managed worktree's leaf directory is derived from its branch name. Setting
-// one without the other is what leaves the record disagreeing with git, so this
-// command refuses a rename that carries only half of it.
+// RenameBranch records a branch rename on an existing aggregate.
+//
+// It carries the branch and NOTHING else. The worktree used to travel with it,
+// because the leaf directory was derived from the branch name and the two had to
+// move together or the record would disagree with git. The root is keyed by the
+// workspace id now, so a rename moves no directory at all — see Relocate for the
+// one operation that does change a path.
 //
 // Identity, lineage and status are untouched — children reference this
 // workspace by ID, not by branch, so a rename never re-parents anything.
 type RenameBranch struct {
-	ID           string
-	Branch       string
-	WorktreePath string
+	ID     string
+	Branch string
 }
 
 func (c RenameBranch) AggregateID() string {
@@ -43,9 +44,6 @@ func (c RenameBranch) Validate(
 	if c.Branch == "" {
 		return fmt.Errorf("rename branch: missing branch: %w", asynxModels.ErrValidation)
 	}
-	if c.WorktreePath == "" {
-		return fmt.Errorf("rename branch: missing worktree path: %w", asynxModels.ErrValidation)
-	}
 	return nil
 }
 
@@ -54,6 +52,5 @@ func (c RenameBranch) EmitEvent(
 ) domain.Workspace {
 	ws := *current
 	ws.Branch = c.Branch
-	ws.WorktreePath = c.WorktreePath
 	return ws
 }

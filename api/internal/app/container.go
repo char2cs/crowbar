@@ -18,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
+	"github.com/char2cs/crowbar/api/internal/app/layout"
 	"github.com/char2cs/crowbar/api/internal/app/realtime"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -134,6 +135,9 @@ func New(
 	repos.ReapChatFiles = reapAgentChatFiles(ucs.AgentWorkspaceReader)
 
 	startProviderSweep(ctx, engines, repos, ucs)
+	// BEFORE the sweep and before anything serves: the sweep resolves paths from
+	// the record, so it must see the layout the rest of the daemon assumes.
+	migrateLayout(ctx, adapters.CrowbarHome(), repos, gormStores, engines.Git)
 	if err := startBootSweep(ctx, adapters, repos, axWorkspace); err != nil {
 		return nil, err
 	}
@@ -415,6 +419,94 @@ func startProviderSweep(
 		sweepTargets(repos.Workspace),
 		sweepCallback(ctx, ucs),
 	)
+}
+
+// migrateLayout converts any workspace still at its old name-derived path to
+// the identity-keyed layout, once, before the daemon serves.
+//
+// It is best-effort by design: a home with nothing to convert costs one list, a
+// failure converts what it can and logs the rest, and a daemon that refused to
+// boot over it would be strictly worse than one workspace still sitting at a
+// path its own record still names correctly.
+func migrateLayout(
+	ctx context.Context,
+	crowbarHome string,
+	repos *repositories.Container,
+	gormStores *GORMStores,
+	git layout.GitRepairer,
+) {
+	if crowbarHome == "" {
+		return
+	}
+	rows, err := repos.Workspace.List(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "app: layout migration: list workspaces", "err", err)
+		return
+	}
+	repoPaths := map[string]string{}
+	if all, repoErr := gormStores.Repositories.FindAll(ctx); repoErr == nil {
+		for _, r := range all {
+			repoPaths[r.ID] = r.Path
+		}
+	}
+	projectPaths := map[string]string{}
+	if all, projErr := gormStores.Projects.FindAll(ctx); projErr == nil {
+		for _, pr := range all {
+			projectPaths[pr.ID] = pr.Path
+		}
+	}
+	candidates := make([]layout.Workspace, 0, len(rows))
+	for _, ws := range rows {
+		// Adoption is read off the RECORD, never inferred from the path: a repo
+		// home's directory IS the repository and a project home's IS the project
+		// folder, and Crowbar owns neither.
+		adopted := ""
+		switch {
+		case ws.Kind == domain.WorkspaceKindHome:
+			adopted = projectPaths[ws.ProjectID]
+		case ws.IsDefault:
+			adopted = repoPaths[ws.RepoID]
+		}
+		// Chats are needed only by the pre-leaf shape, whose ledgers sit in the
+		// slug-level chats dir SHARED with every other pre-leaf workspace of the
+		// repo — nothing in a path says which conversation belongs to whom. Read
+		// for every candidate anyway: the migration decides the shape, and a list
+		// per workspace at boot is a handful of indexed reads.
+		var chatIDs []string
+		if chats, chatErr := repos.AgentChat.ListByWorkspace(ctx, ws.ID); chatErr == nil {
+			for _, ch := range chats {
+				chatIDs = append(chatIDs, ch.ID)
+			}
+		} else {
+			slog.WarnContext(ctx, "app: layout migration: list chats",
+				"ws", ws.ID, "err", chatErr)
+		}
+		candidates = append(candidates, layout.Workspace{
+			ID:           ws.ID,
+			ProjectID:    ws.ProjectID,
+			WorktreePath: ws.WorktreePath,
+			RepoPath:     repoPaths[ws.RepoID],
+			AdoptedPath:  adopted,
+			ChatIDs:      chatIDs,
+		})
+	}
+	layout.Run(ctx, crowbarHome, candidates, git, workspaceRelocator{repos.Workspace})
+	// Aliases orphaned by a crash between removing a root and withdrawing its
+	// link. Once per boot, rather than a project-wide walk on every delete.
+	repositories.SweepDanglingAliases(crowbarHome)
+}
+
+// workspaceRelocator adapts the workspace repository to layout.Relocator: the
+// migration only needs "record this new path", not the aggregate it returns.
+type workspaceRelocator struct{ ws workspace.Workspace }
+
+func (w workspaceRelocator) Relocate(
+	ctx context.Context,
+	id string,
+	worktreePath string,
+) error {
+	_, err := w.ws.Relocate(ctx, id, worktreePath)
+	return err
 }
 
 // startBootSweep runs the cheap, proactive boot orphan-sweep (spec §3.8)

@@ -133,9 +133,16 @@ func (m *MockWorkspace) RenameBranch(
 	_ context.Context,
 	id string,
 	branch string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, Branch: branch}, nil
+}
+
+func (m *MockWorkspace) Relocate(
+	_ context.Context,
+	id string,
 	worktreePath string,
 ) (domain.Workspace, error) {
-	return domain.Workspace{ID: id, Branch: branch, WorktreePath: worktreePath}, nil
+	return domain.Workspace{ID: id, WorktreePath: worktreePath}, nil
 }
 
 func (m *MockWorkspace) SetPlacement(

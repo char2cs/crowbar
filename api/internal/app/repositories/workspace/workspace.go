@@ -157,6 +157,14 @@ type Workspace interface {
 		ctx context.Context,
 		id string,
 		branch string,
+	) (domain.Workspace, error)
+	// Relocate records the same workspace at a NEW worktree path, leaving branch,
+	// lineage and status alone. Renaming a branch no longer moves anything — the
+	// root is keyed by workspace id — so this is the only way a path changes, and
+	// its one caller is the boot pass that converts the old name-derived layout.
+	Relocate(
+		ctx context.Context,
+		id string,
 		worktreePath string,
 	) (domain.Workspace, error)
 	// SetParentFromPR sets ParentID from an open PR's target branch without
@@ -664,27 +672,37 @@ func (w *workspace) RenameBranch(
 	ctx context.Context,
 	id string,
 	branch string,
+) (domain.Workspace, error) {
+	evt, err := w.sendWithOCC(ctx, commands.RenameBranch{ID: id, Branch: branch})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: rename branch: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+// Relocate re-points the aggregate AND the id→path index at a new worktree path.
+//
+// §3.9 write-point (b). The index is not bookkeeping: the delete reactor resolves
+// the directory it rm -rf's from the record and this index, so a row still naming
+// the old directory makes a later delete destroy whatever now occupies that name
+// while this workspace's real tree is orphaned.
+//
+// It is written BEFORE the command, never after: the caller has already moved the
+// tree, so the new path is the one that exists on disk and the index must never
+// trail it. A refused command rolls the row back, mirroring Create — a failed
+// relocate leaves the index agreeing with the untouched record instead of
+// advertising a move the record never took.
+func (w *workspace) Relocate(
+	ctx context.Context,
+	id string,
 	worktreePath string,
 ) (domain.Workspace, error) {
-	// §3.9 write-point (b): the rename MOVED the workspace on disk before this
-	// call, so the id→path row is already stale when we get here and has to be
-	// re-pointed. It is not bookkeeping — the delete reactor resolves the
-	// directory it rm -rf's from this index alone, so a row still naming the
-	// pre-rename directory makes a later delete of this workspace destroy
-	// whatever now occupies that name (a new workspace on the old branch takes
-	// exactly that path) while this workspace's real tree is orphaned.
-	//
-	// It is written BEFORE the command, never after: the caller has already
-	// moved the tree, so the new path is the one that exists on disk and the
-	// index must never trail it. A refused command rolls the row back, mirroring
-	// Create — a failed rename leaves the index agreeing with the untouched
-	// record instead of advertising a move the record never took.
 	previousPath, previousErr := w.pathsStore.Get(ctx, id)
 	if previousErr != nil && !errors.Is(previousErr, wspaths.ErrNotFound) {
-		return domain.Workspace{}, fmt.Errorf("workspace: rename branch: paths: %w", previousErr)
+		return domain.Workspace{}, fmt.Errorf("workspace: relocate: paths: %w", previousErr)
 	}
 	if err := w.pathsStore.Put(ctx, id, worktreePath); err != nil {
-		return domain.Workspace{}, fmt.Errorf("workspace: rename branch: paths: %w", err)
+		return domain.Workspace{}, fmt.Errorf("workspace: relocate: paths: %w", err)
 	}
 	committed := false
 	defer func() {
@@ -697,12 +715,9 @@ func (w *workspace) RenameBranch(
 		}
 		_ = w.pathsStore.Put(ctx, id, previousPath)
 	}()
-	evt, err := w.sendWithOCC(
-		ctx,
-		commands.RenameBranch{ID: id, Branch: branch, WorktreePath: worktreePath},
-	)
+	evt, err := w.sendWithOCC(ctx, commands.Relocate{ID: id, WorktreePath: worktreePath})
 	if err != nil {
-		return domain.Workspace{}, fmt.Errorf("workspace: rename branch: %w", err)
+		return domain.Workspace{}, fmt.Errorf("workspace: relocate: %w", err)
 	}
 	committed = true
 	return evt.Aggregate, nil

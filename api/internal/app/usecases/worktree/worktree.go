@@ -72,9 +72,10 @@ type Usecase interface {
 		childID string,
 		newParentID string,
 	) (domain.Workspace, error)
-	// RenameBranch renames a managed workspace's branch and relocates its
-	// workspace root to the directory the new name derives, so git, the
-	// filesystem and the record stay in agreement.
+	// RenameBranch renames a managed workspace's branch and republishes the
+	// navigable alias that names it. The workspace itself does not move: its root
+	// is keyed by workspace id, so git, the filesystem and the record stay in
+	// agreement without a directory ever changing hands.
 	RenameBranch(
 		ctx context.Context,
 		wsID string,
@@ -235,7 +236,15 @@ func (u *worktreeUsecase) CreateChild(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("create child: locked: %w", err)
 	}
-	path, err := u.deriveWorktreePath(ctx, home, in.ProjectID, in.RepoID, in.RemoteURL, in.Branch)
+	// The worktree lands at its IDENTITY, not at its name. The navigable
+	// <slug>/<branch> path is a symlink published after the worktree exists, so a
+	// later rename swaps a link instead of moving a live git worktree.
+	root, err := worktreepath.WorkspaceRootByID(home, in.ProjectID, wsID)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	path := worktreepath.WorktreeLeaf(root)
+	alias, err := u.deriveAlias(ctx, home, in.ProjectID, in.RepoID, in.RemoteURL, in.Branch)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
@@ -257,6 +266,14 @@ func (u *worktreeUsecase) CreateChild(
 			u.reattachMain(ctx, detached, in.RepoPath, in.Branch)
 			return domain.Workspace{}, err
 		}
+	}
+	// Only now that the worktree is real: an alias pointing at nothing would be a
+	// broken link in the navigable tree. A failure here is not fatal to the
+	// workspace — the record's own path is the real one — so it is logged and the
+	// create stands; the next rename or the boot pass republishes it.
+	if linkErr := worktreepath.LinkAlias(alias, root); linkErr != nil {
+		slog.Warn("create child: could not publish the navigable alias",
+			"ws", wsID, "alias", alias, "root", root, "err", linkErr)
 	}
 	ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
 		ID:           wsID,
@@ -304,7 +321,7 @@ func (u *worktreeUsecase) CreateChild(
 // worktree path (which would never case-match a sibling root now that both
 // carry a trailing "/worktree" leaf only on the CANDIDATE side before that
 // dereference).
-func (u *worktreeUsecase) deriveWorktreePath(
+func (u *worktreeUsecase) deriveAlias(
 	ctx context.Context,
 	home string,
 	projectID string,
@@ -316,7 +333,7 @@ func (u *worktreeUsecase) deriveWorktreePath(
 	if err != nil {
 		return "", fmt.Errorf("resolve worktree slug: %w", err)
 	}
-	path, err := worktreepath.Derive(home, projectID, slug, branch)
+	alias, err := worktreepath.AliasDir(home, projectID, slug, branch)
 	if err != nil {
 		return "", err
 	}
@@ -324,10 +341,10 @@ func (u *worktreeUsecase) deriveWorktreePath(
 	if err != nil {
 		return "", fmt.Errorf("scan sibling worktrees: %w", err)
 	}
-	if clashErr := worktreepath.DetectClash(siblings, worktreepath.WorkspaceRoot(path)); clashErr != nil {
+	if clashErr := worktreepath.DetectClash(siblings, alias); clashErr != nil {
 		return "", fmt.Errorf("%w: %v", apperr.ErrInvalidArgument, clashErr)
 	}
-	return path, nil
+	return alias, nil
 }
 
 // resolveSlug resolves the repo's on-disk identity slug (spec §3.9). It always
@@ -1070,13 +1087,24 @@ func (u *worktreeUsecase) RetryProvision(
 		return domain.Workspace{}, fmt.Errorf(
 			"%w (%s at %s)", ErrBranchHeldByManagedWorkspace, ws.Branch, outcome.HeldByPath)
 	}
-	path, err := u.deriveWorktreePath(ctx, home, ws.ProjectID, ws.RepoID, "", ws.Branch)
+	// A placeholder being provisioned late lands at its identity like any other
+	// workspace; the alias is published once the worktree is real.
+	root, err := worktreepath.WorkspaceRootByID(home, ws.ProjectID, ws.ID)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	path := worktreepath.WorktreeLeaf(root)
+	alias, err := u.deriveAlias(ctx, home, ws.ProjectID, ws.RepoID, "", ws.Branch)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
 	startSha, err := u.materializeProtectedWorktree(ctx, repoPath, ws.Branch, path)
 	if err != nil {
 		return domain.Workspace{}, err
+	}
+	if linkErr := worktreepath.LinkAlias(alias, root); linkErr != nil {
+		slog.WarnContext(ctx, "retry provision: could not publish the navigable alias",
+			"ws", ws.ID, "alias", alias, "err", linkErr)
 	}
 	provisioned, err := u.workspaces.ProvisionInPlace(ctx, ws.ID, path, startSha)
 	if err != nil {
@@ -1279,6 +1307,38 @@ func (u *worktreeUsecase) DeleteCascade(
 	return nil
 }
 
+// unpublishAlias removes the <slug>/<branch> symlink for a workspace being torn
+// down, and the alias directories that leaves empty. Best effort: a workspace
+// must still be removable when its repo row or slug can no longer be resolved,
+// and a stale alias is a broken link, not lost data — the boot sweep clears any
+// that survive.
+func (u *worktreeUsecase) unpublishAlias(
+	ctx context.Context,
+	ws domain.Workspace,
+) {
+	if ws.Branch == "" || ws.ProjectID == "" {
+		return
+	}
+	home, err := u.crowbarHome()
+	if err != nil {
+		return
+	}
+	slug, err := u.resolveSlug(ctx, ws.RepoID, "")
+	if err != nil {
+		return
+	}
+	alias, err := worktreepath.AliasDir(home, ws.ProjectID, slug, ws.Branch)
+	if err != nil {
+		return
+	}
+	if unlinkErr := worktreepath.UnlinkAlias(
+		alias, worktreepath.SlugDir(home, ws.ProjectID, slug),
+	); unlinkErr != nil {
+		slog.WarnContext(ctx, "delete: could not withdraw the navigable alias",
+			"ws", ws.ID, "alias", alias, "err", unlinkErr)
+	}
+}
+
 // DeleteRepoWorkspaces removes every workspace of a repo, using the repo path
 // the caller supplies so it works after the repo row is already gone.
 //
@@ -1336,6 +1396,13 @@ func (u *worktreeUsecase) removeOne(
 	// every workspace/cascade delete. Best-effort: a kill failure must not abort the
 	// cascade. Runs even when the repo path can't be resolved below.
 	u.reapTerminals(ctx, ws.ID)
+
+	// Withdraw the navigable alias here, where the slug and branch that NAME it
+	// are still resolvable. The fs teardown downstream only ever sees a path, so
+	// it would have to find the alias by walking the project tree looking for a
+	// broken link — work proportional to the whole project on every single
+	// delete, to rediscover something this layer already knows.
+	u.unpublishAlias(ctx, ws)
 
 	// defaultBranch is only consulted to decide whether to reattach the repo's
 	// main checkout, which needs the row. A caller-supplied path means the row is

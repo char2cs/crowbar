@@ -101,7 +101,7 @@ func (s *sessionMetaStoreImpl) StorageDir(
 		return "", fmt.Errorf("terminal: metastore: storage dir: resolve workspace: %w", err)
 	}
 
-	return worktreepath.StorageDir(home, ws.ProjectID, ws.RepoID, workspaceID), nil
+	return worktreepath.StorageDir(home, ws.ProjectID, workspaceID), nil
 }
 
 // List returns all persisted terminal session rows. Called at daemon start

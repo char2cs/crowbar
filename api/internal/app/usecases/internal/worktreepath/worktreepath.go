@@ -73,6 +73,64 @@ func Derive(
 // the chats tree as siblings, given the worktree path.
 func WorkspaceRoot(worktreePath string) string { return filepath.Dir(worktreePath) }
 
+// WorkspaceRootByID returns the REAL, identity-keyed workspace root:
+// <home>/projects/<project>/workspaces/<workspaceID>, holding worktree/, chats/
+// and storages/ side by side.
+//
+// The root is keyed by the workspace's UUID and NOTHING else, which is the whole
+// point: a branch name is mutable and a repo slug is derived from a remote that
+// can change, so a root named after either has to be physically moved whenever
+// the name moves — and every rename then became a live directory move with its
+// own failure and rollback modes, while every delete had to re-derive a path
+// that could already be stale. An id never moves. Renaming is metadata plus a
+// symlink swap, and removal is one rm -rf of a location that cannot drift.
+//
+// The navigable name lives on as a symlink; see AliasDir.
+func WorkspaceRootByID(
+	home string,
+	project string,
+	workspaceID string,
+) (string, error) {
+	if home == "" || project == "" || workspaceID == "" {
+		return "", fmt.Errorf(
+			"worktreepath: workspace root requires non-empty home, project and workspace id")
+	}
+	root := filepath.Join(home, "projects", project, "workspaces", workspaceID)
+	// Same escape guard Derive applies: an id carrying a traversal component
+	// would resolve the root out of the layout, where every removal guard then
+	// refuses to touch it.
+	if !UnderHome(root, filepath.Join(home, "projects", project)) {
+		return "", fmt.Errorf("worktreepath: workspace id %q escapes the project directory", workspaceID)
+	}
+	return root, nil
+}
+
+// WorktreeLeaf returns the git worktree inside an identity-keyed workspace root.
+func WorktreeLeaf(root string) string { return filepath.Join(root, "worktree") }
+
+// AliasDir returns the NAVIGABLE path for a workspace:
+// <home>/projects/<project>/<slug>/<branch>. It is a symlink to the root above,
+// never a real directory — it exists so a human, a shell prompt, an editor title
+// bar and an agent cwd all see host/owner/repo/branch instead of a UUID, and so
+// every absolute path recorded before this layout existed still resolves.
+//
+// Branch separators map to nested directories exactly as before, so the alias
+// tree is byte-for-byte the layout the old real directories occupied.
+func AliasDir(
+	home string,
+	project string,
+	slug string,
+	branch string,
+) (string, error) {
+	alias, err := Derive(home, project, slug, branch)
+	if err != nil {
+		return "", err
+	}
+	// Derive appends the worktree leaf; the alias is the root it hangs off, so
+	// the pre-existing absolute "<slug>/<branch>/worktree" keeps resolving.
+	return WorkspaceRoot(alias), nil
+}
+
 // SlugDir returns the repo's on-disk identity directory
 // <home>/projects/<project>/<slug> — the parent every one of that repo's
 // workspace roots hangs off, and the FLOOR for anything that walks the layout
@@ -217,33 +275,25 @@ func Move(
 
 // StorageDir returns the per-workspace storage directory.
 //
-// Path: .../workspaces/<workspaceID>/storages
+// Path: <home>/projects/<projectID>/workspaces/<workspaceID>/storages
 func StorageDir(
 	crowbarHome string,
 	projectID string,
-	repoID string,
 	workspaceID string,
 ) string {
-	return filepath.Join(
-		workspaceDir(crowbarHome, projectID, repoID, workspaceID),
-		"storages",
-	)
+	return filepath.Join(workspaceDir(crowbarHome, projectID, workspaceID), "storages")
 }
 
 // ThreadsStorageDir returns the per-workspace thread storage directory.
 //
-// Path: .../workspaces/<workspaceID>/threads/storages
+// Path: <home>/projects/<projectID>/workspaces/<workspaceID>/threads/storages
 func ThreadsStorageDir(
 	crowbarHome string,
 	projectID string,
-	repoID string,
 	workspaceID string,
 ) string {
 	return filepath.Join(
-		workspaceDir(crowbarHome, projectID, repoID, workspaceID),
-		"threads",
-		"storages",
-	)
+		workspaceDir(crowbarHome, projectID, workspaceID), "threads", "storages")
 }
 
 // RepoDir returns the per-repo directory.
@@ -320,15 +370,19 @@ func DefaultCrowbarHome() (string, error) {
 	return filepath.Join(h, ".crowbar"), nil
 }
 
+// workspaceDir is the identity-keyed workspace root — the SAME directory
+// WorkspaceRootByID returns, reached without the error return for the storage
+// helpers below.
+//
+// It used to hang off RepoDir, which put a workspace's storages under
+// <projectID>/<repoID>/workspaces/<id> while its worktree and chats lived under
+// <projectID>/<slug>/<branch>. Two homes for one workspace meant the rm -rf of
+// the root — documented as the whole on-disk footprint — silently was not, and
+// the storages outlived every workspace that owned them. One root, one removal.
 func workspaceDir(
 	crowbarHome string,
 	projectID string,
-	repoID string,
 	workspaceID string,
 ) string {
-	return filepath.Join(
-		RepoDir(crowbarHome, projectID, repoID),
-		"workspaces",
-		workspaceID,
-	)
+	return filepath.Join(crowbarHome, "projects", projectID, "workspaces", workspaceID)
 }

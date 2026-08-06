@@ -112,7 +112,6 @@ func (m *mockWorkspace) RenameBranch(
 	_ context.Context,
 	id string,
 	branch string,
-	_ string,
 ) (domain.Workspace, error) {
 	return domain.Workspace{ID: id, Branch: branch}, nil
 }
