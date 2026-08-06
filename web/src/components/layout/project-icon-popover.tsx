@@ -1,5 +1,6 @@
 import { Library } from 'lucide-react'
 import { IconPopover } from './icon-popover'
+import { ProjectIconMark } from './project-icon-mark'
 import { WorkspaceAgentSpinner } from './workspace-branch-icon'
 import { assetURL } from '@/lib/api'
 
@@ -42,6 +43,10 @@ export function ProjectIconPopover({ project, working = false }: ProjectIconPopo
       // icon at all. The repo avatar goes through the same helper in
       // build-repo-tree.ts; a project has no DTO→domain mapper to do it in.
       iconUrl={project.avatarUrl ? assetURL(project.avatarUrl) : undefined}
+      // The row's mark and the context pill's are ONE component, so a project
+      // with an icon can never show it in the sidebar and the Library default in
+      // the pill directly above it (it did).
+      trigger={(version) => <ProjectIconMark project={project} size="lg" version={version} />}
       fallback={
         <span className="inline-flex size-5 items-center justify-center text-foreground">
           <Library size={16} />

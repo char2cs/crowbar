@@ -1,4 +1,5 @@
 import { IconPopover } from './icon-popover'
+import { RepoIconMark } from './repo-icon-mark'
 import { WorkspaceAgentSpinner } from './workspace-branch-icon'
 import { cn } from '@/lib/utils'
 import type { Repo } from '@/lib/store/sidebar'
@@ -52,6 +53,10 @@ export function RepoIconPopover({ repo }: { repo: Repo }) {
       name={repo.name}
       emoji={emoji}
       iconUrl={iconUrl}
+      // The row, the context pill and the New Tab heading draw ONE component,
+      // so a repo with an emoji icon cannot show the emoji here and a letter
+      // tile in the pill directly above it.
+      trigger={(version) => <RepoIconMark repo={repo} size="lg" version={version} />}
       fallback={letterTile('h-5 w-5 text-[11px]')}
       fallbackLarge={letterTile('size-14 rounded-xl text-sm')}
       github

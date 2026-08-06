@@ -77,6 +77,21 @@ describe('buildSidebarTree — placement', () => {
     expect(ids(childOf(tree, 'parent'))).toEqual(['child'])
   })
 
+  test('a workspace created ON a folder row lands inside it, however deep the folder', () => {
+    // The daemon files a create started on a folder row as a fork ROOT: folderId
+    // set and parentId empty, the two being mutually exclusive by design (the
+    // create endpoint 400s the pairing). Requiring the folder's anchor to equal
+    // the fork parent then admits such a row into a ROOT-level folder only, so
+    // creating inside any folder that hangs under a workspace dropped the edge
+    // and re-rooted the row to the repo root — "created inside, appears outside".
+    const tree = buildSidebarTree(
+      [ws('main'), ws('created', { folderId: 'backlog' })],
+      [folder('backlog', { parentId: 'main' })],
+    )
+    expect(ids(childOf(tree, 'backlog'))).toEqual(['created'])
+    expect(ids(tree)).not.toContain('created')
+  })
+
   test('descendants follow their fork ancestor into a folder', () => {
     const tree = buildSidebarTree(
       [ws('root', { folderId: 'f1' }), ws('kid', { parentId: 'root' })],

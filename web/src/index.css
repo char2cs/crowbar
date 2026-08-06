@@ -149,9 +149,25 @@ html[data-row-dragging] * {
    `hidden` rather than `clip`: it stops USER and native scrolling while leaving
    the box programmatically scrollable, so the carousel's own re-align
    (ResizeObserver) and its activeTab `scrollTo` keep working through a drag.
-   The scrollbar is already display:none, so there is no gutter to shift. */
+   The scrollbar is already display:none, so there is no gutter to shift.
+
+   `will-change: transform` is NOT a speculative hint here, it is what makes this
+   rule affordable. `overflow-x: scroll` earns the carousel a composited
+   scrolling layer; dropping to `hidden` takes that promotion away, and the whole
+   315x976 sidebar — 295 descendants — falls back onto the page layer, where
+   every per-frame write a drag makes (the drop line, row classes, the ghost)
+   repaints it on the main thread. Measured on the live app, one pointermove per
+   frame across 125 frames: 8.3ms/frame idle, 28-39ms/frame dragging with this
+   rule alone, 8.3ms/frame with the rule deleted, and 8.3ms/frame with the rule
+   KEPT and this line added. Bisected against the alternatives — hiding the
+   removal overlay changed nothing (41.6ms), deleting the cursor rule below
+   changed nothing (31.0ms), and `scroll-snap-type: none` changed nothing
+   (31.8ms). It is the lost layer, nothing else.
+   Scoped to the drag by the same attribute, so there is no permanent hint: the
+   layer exists anyway whenever the carousel is its normal scrollable self. */
 html[data-row-dragging] [data-sidebar-carousel] {
   overflow-x: hidden;
+  will-change: transform;
 }
 
 /* The flip-dot spinner's playback (components/ui/flicker-spinner.tsx). The

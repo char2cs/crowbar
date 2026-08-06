@@ -1,8 +1,8 @@
 import { lazy, Suspense, useCallback, useMemo } from 'react'
 import { File as FileIcon, TerminalWindow, ChatCircle } from '@phosphor-icons/react'
-import { Library } from 'lucide-react'
 import { CrowbarWordmark } from '@/components/ui/crowbar-wordmark'
-import { RepoAvatar, type RepoAvatarData } from '@/components/layout/repo-avatar'
+import { RepoIconMark, type RepoIconSource } from '@/components/layout/repo-icon-mark'
+import { ProjectIconMark, type ProjectIconSource } from '@/components/layout/project-icon-mark'
 import { AgentChatGlyph } from '@/features/agent/components/agent-chat-glyph'
 import { createChat } from '@/features/agent/api/agent-api'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
@@ -62,7 +62,10 @@ const HISTORY_CAP = 3
 function useContextHeading(): {
   eyebrow: string
   title: string
-  avatar?: RepoAvatarData
+  avatar?: RepoIconSource
+  /** Set on Project Home: the project's own mark, drawn by the same component
+   *  the sidebar row and the context pill use. */
+  project?: ProjectIconSource
   isHome: boolean
 } {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
@@ -91,14 +94,30 @@ function useContextHeading(): {
       // No repo row (a workspace the sidebar hasn't loaded yet) → no mark, and
       // the heading falls back to the bare two-line stack rather than an empty box.
       avatar: repo && {
-        url: repo.avatarURL,
-        label: repo.avatarLabel,
-        color: repo.avatarColor,
+        name: repo.name,
+        avatarURL: repo.avatarURL,
+        avatarLabel: repo.avatarLabel,
+        avatarColor: repo.avatarColor,
       },
       isHome: false,
     }
   }
-  if (model.kind === 'home') return { eyebrow: model.projectName, title: 'home', isHome: true }
+  if (model.kind === 'home') {
+    return {
+      eyebrow: model.projectName,
+      title: 'home',
+      // Project Home marks itself with the PROJECT's icon, off the same model
+      // the pill reads. It used to hardcode the Library glyph here, so a project
+      // that had set an icon showed it in the sidebar and the pill and the
+      // default mark on this surface.
+      project: {
+        name: model.projectName,
+        avatarUrl: model.projectAvatarUrl,
+        avatarEmoji: model.projectAvatarEmoji,
+      },
+      isHome: true,
+    }
+  }
   if (model.kind === 'project') return { eyebrow: '', title: model.projectName, isHome: false }
   return { eyebrow: '', title: '', isHome: false }
 }
@@ -284,11 +303,9 @@ export function NewTabView({ paneId }: { paneId: string }) {
               same-named branches in different repos apart at a glance. */}
           <div className="flex items-center gap-2.5 px-2.5">
             {heading.avatar ? (
-              <RepoAvatar avatar={heading.avatar} name={heading.eyebrow} size="xl" />
-            ) : heading.isHome ? (
-              // Project Home has no repo to mark — the pill draws the Library
-              // there, so this does too.
-              <Library aria-hidden="true" className="size-6 shrink-0 text-foreground/70" />
+              <RepoIconMark repo={heading.avatar} size="xl" />
+            ) : heading.project ? (
+              <ProjectIconMark project={heading.project} size="xl" />
             ) : null}
             <div className="flex min-w-0 flex-col items-start gap-0.5">
               {heading.eyebrow && (

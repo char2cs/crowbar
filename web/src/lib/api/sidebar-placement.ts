@@ -86,8 +86,16 @@ export function placeFolder(
 
 /** Delete a folder. Its children reparent to the folder's own parent — a
  *  folder holds no worktrees, so removing one is not removing what it held. */
-export function deleteFolder(projectId: string, repoId: string, folderId: string): Promise<void> {
-  return apiFetch(`${repoBase(projectId, repoId)}/folders/${folderId}`, { method: 'DELETE' })
+export function deleteFolder(
+  projectId: string,
+  repoId: string,
+  folderId: string,
+  init?: RequestInit,
+): Promise<void> {
+  return apiFetch(`${repoBase(projectId, repoId)}/folders/${folderId}`, {
+    method: 'DELETE',
+    ...init,
+  })
 }
 
 /** A repo's owning project and its index within that project's section. */
