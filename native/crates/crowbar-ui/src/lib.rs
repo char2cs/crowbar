@@ -36,11 +36,13 @@
 // every module in both depends on, and itself neither a primitive nor a
 // surface. See `primitives/mod.rs` and `surfaces/mod.rs` for the split's
 // full rationale, including the classification's borderline calls.
+pub mod action;
 mod anchor;
 pub mod primitives;
 pub mod surfaces;
 pub mod theme;
 
+pub use action::{ActionId, ActionSink, Dispatch, Inert};
 pub use anchor::{AnchorId, AnchorSink, Unanchored};
 pub use gpui;
 pub use gpui_component;

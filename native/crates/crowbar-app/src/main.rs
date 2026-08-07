@@ -80,6 +80,10 @@ mod driver_surface;
 /// nobody tests.
 #[cfg(any(feature = "driver", test))]
 mod row_snapshot;
+/// The shipping window's content (S1a). Not built under `--features driver`:
+/// that build's `main` opens a matrix cell, and the sidebar is not one.
+#[cfg(not(feature = "driver"))]
+mod shell;
 
 /// The driver-backed [`crowbar_ui::AnchorSink`]. A driver build
 /// emits through it; `row_layout.rs` measures through it under a plain
@@ -242,7 +246,7 @@ fn main() -> ExitCode {
         .detach();
 
         let caption = format!("{} · {fonts}", report.summary());
-        if let Err(err) = open_placeholder(caption, cx) {
+        if let Err(err) = open_shell(&report, caption, cx) {
             // No window means nothing can display the failure, so stderr is the
             // only channel left. Quitting beats sitting in a run loop with no UI.
             eprintln!("crowbar-app: could not open a window: {err}");
@@ -360,11 +364,45 @@ fn window_options(cell: &Cell) -> WindowOptions {
 /// drops into the real Crowbar frame from its first frame, not a bare one a
 /// later item would have to retrofit.
 #[cfg(not(feature = "driver"))]
-fn open_placeholder(caption: String, cx: &mut App) -> gpui::Result<()> {
+fn open_shell(report: &Report, caption: String, cx: &mut App) -> gpui::Result<()> {
+    // No resolvable home means nothing to stream from. The window still
+    // opens — a connection error is displayed, never panicked on, which is
+    // the rule item 0.4 set and every slice since has kept.
+    let socket = report.socket().map(std::path::Path::to_path_buf);
+
+    // Restored from the daemon's own `global` UI rows rather than from a file
+    // of this app's own, so both frontends come up at the same width against
+    // one CROWBAR_HOME — which is what makes a side-by-side capture a
+    // comparison rather than a coincidence of defaults. S1a reads the
+    // defaults; writing them back is the settings slice's own item.
+    let store = crowbar_state::SidebarStore::build(cx, None, None, None);
+
+    if let Some(socket) = socket {
+        let mut sync = crowbar_state::DaemonSync::new(&socket, &store);
+
+        // The project list first: it is what tells the app a project exists at
+        // all. Everything else is opened by the coordinator once there is an
+        // active project to scope it to.
+        shell::coordinator::reconcile(&store, &mut sync, cx);
+
+        // Re-run the decision on every store change. `observe` rather than a
+        // hand-rolled notify chain so a mutation cannot forget to re-scope: a
+        // repo arriving on the repo stream has to open its own workspace
+        // stream, and that repo arrives as a frame, not as a user action.
+        cx.observe(&store, move |store, cx| {
+            shell::coordinator::adopt_first_project(&store, cx);
+            shell::coordinator::reconcile(&store, &mut sync, cx);
+        })
+        .detach();
+    }
+
     cx.open_window(placeholder_window_options(), move |window, cx| {
         decorate_window(window);
-        cx.new(|_| Placeholder {
+        let sidebar = shell::Sidebar::build(&store, cx);
+        cx.new(|_| shell::Shell {
+            sidebar,
             caption: caption.into(),
+            store,
         })
     })?;
     cx.activate(true);
@@ -413,7 +451,7 @@ fn placeholder_window_options() -> WindowOptions {
 /// and `inspect` are `crowbar-platform`'s own, proven unsafe).
 ///
 /// `dark: true` is hardcoded rather than read from a theme store because
-/// Slice 0 builds no settings surface and [`Placeholder::render`] itself
+/// Slice 1a builds no settings surface and the shell's own root view
 /// hardcodes `crowbar_ui::Theme::DARK` — pinning the frost to match is
 /// "theme applied at app level" for exactly as much theme as this slice has.
 /// A real theme switcher (slice 2) re-pins on change; nothing here prevents
@@ -451,37 +489,6 @@ fn decorate_window(window: &gpui::Window) {
 /// "macos"))] fn decorate_window` no-op.
 #[cfg(all(not(feature = "driver"), not(target_os = "macos")))]
 fn decorate_window(_window: &gpui::Window) {}
-
-/// The shipping build's whole view: [`Report::summary`] and the loaded font
-/// names, centred in the window. Nothing else — see [`open_placeholder`]'s
-/// doc comment for why.
-#[cfg(not(feature = "driver"))]
-struct Placeholder {
-    caption: SharedString,
-}
-
-#[cfg(not(feature = "driver"))]
-impl gpui::Render for Placeholder {
-    fn render(
-        &mut self,
-        _window: &mut gpui::Window,
-        _cx: &mut gpui::Context<Self>,
-    ) -> impl gpui::IntoElement {
-        use gpui::{ParentElement as _, Styled as _};
-
-        let theme = crowbar_ui::Theme::DARK;
-        gpui::div()
-            .size_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(theme.background)
-            .text_color(theme.muted_foreground)
-            .font(crowbar_ui::ui_sans_font(&theme))
-            .text_size(theme.ui_text_xs.value())
-            .child(self.caption.clone())
-    }
-}
 
 /// The family the row declares, and therefore the family the snapshot reports.
 ///
@@ -815,6 +822,11 @@ fn load_ui_mono_font(cx: &mut App) -> String {
 /// formatting is not the view's job.
 struct Report {
     lines: Vec<SharedString>,
+    /// The socket the probe dialled, kept so the shell can stream from the
+    /// same daemon the caption describes. `None` when no home could be
+    /// resolved at all, which is the one case where there is nothing to
+    /// stream from.
+    socket: Option<std::path::PathBuf>,
 }
 
 impl Report {
@@ -829,8 +841,14 @@ impl Report {
                     "no daemon socket could be derived".into(),
                     err.to_string().into(),
                 ],
+                socket: None,
             },
         }
+    }
+
+    /// The daemon this report probed, when one could be resolved.
+    fn socket(&self) -> Option<&std::path::Path> {
+        self.socket.as_deref()
     }
 
     fn from_probe(probe: &Probe) -> Self {
@@ -840,7 +858,10 @@ impl Report {
             Err(err) => Self::describe_failure(err),
         };
         lines.push(socket);
-        Self { lines }
+        Self {
+            lines,
+            socket: Some(probe.socket.clone()),
+        }
     }
 
     fn describe(health: &Health) -> Vec<SharedString> {
