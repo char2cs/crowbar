@@ -71,6 +71,29 @@ reqwest = { version = "0.13", default-features = false, features = ["blocking", 
 # Already present in the lockfile transitively before this item, so pinning it
 # as a direct dependency adds no new fetch.
 sysinfo = "0.31"
+# §10.1 names `tungstenite` as the WebSocket half of the transport, and S1a is
+# the item that needs it: the sidebar is fed by the daemon's dual-served
+# entity streams, so a seeded-but-static tree would go stale the moment the
+# other app created a workspace.
+#
+# The SYNC crate, not `tokio-tungstenite`. `reqwest` is already pinned
+# `blocking` here because gpui runs no tokio reactor, and introducing one for
+# the sidebar would put a second runtime in a process that has none — see
+# `crowbar-client::stream` for the thread-per-channel model that replaces it.
+#
+# `default-features = false` drops the TLS stacks (`native-tls`,
+# `rustls`) — the transport is a unix socket, so there is nothing to
+# negotiate — and keeps `handshake`, which is the whole reason not to
+# hand-roll RFC 6455's key exchange, masking and control frames.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+
+# How a stream's frames cross from its own OS thread into gpui's executor.
+# Already in the lockfile — gpui's async stack pulls it in — so this pins a
+# crate the build already carries rather than adding a fetch. Runtime-agnostic
+# on purpose: `send_blocking` is what the reader thread needs and `recv().await`
+# is what a `cx.background_spawn` task needs, and neither end has to know which
+# executor the other is on.
+async-channel = "2"
 # `crowbar-sidecar`'s EMFILE/ENFILE constants (for telling "this process is
 # out of descriptors" apart from "the daemon is unserved" in a probe
 # failure) — the constant lookup only, no FFI call, so no `unsafe` is

@@ -7,15 +7,17 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-# §4.2: `proto` only (plus the transport crates named in §10.1 — `reqwest` with
-# the unix connector and `tungstenite` — when the transport actually lands).
-# `tungstenite` is not here yet: item 0.4 needs one HTTP GET, and an unused WS
-# stack would be dead configuration.
+# §4.2: `proto` only, plus the two transport crates §10.1 names — `reqwest`
+# with the unix connector, and `tungstenite`. The latter landed with S1a, the
+# first item with a caller for it; until then an unused WS stack would have
+# been dead configuration.
 [dependencies]
+async-channel.workspace = true
 crowbar-proto.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tungstenite.workspace = true
 
 [lints]
 workspace = true

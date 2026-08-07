@@ -2,9 +2,15 @@
 
 //! `crowbar-client` — the only thing in the tree that talks to the daemon.
 //!
-//! Owns the unix-socket HTTP client, and will own the WebSocket connection,
-//! reconnect and backoff (spec §9.1). No domain logic lives here; it belongs in
-//! `crowbar-core`.
+//! Owns the unix-socket HTTP client ([`transport`], [`health`]) and the
+//! WebSocket connection, reconnect and backoff (spec §9.1, landed with S1a in
+//! [`stream`]). No domain logic lives here; it belongs in `crowbar-core`.
+//!
+//! The split between the two is worth stating, because the daemon **dual-serves
+//! the same path**: [`transport::get`] seeds a scope and [`stream::Subscription`]
+//! subscribes to it. What a path's frames *mean* — which DTO they carry, which
+//! cached rows a reseed is authoritative over — is the subscriber's knowledge,
+//! not this crate's.
 //!
 //! Dependency contract (§4.2): `crowbar-proto`, plus the §10.1 transport crates.
 //!
@@ -24,10 +30,12 @@
 
 pub mod health;
 pub mod socket;
+pub mod stream;
 pub mod transport;
 
 pub use health::{Health, HealthError, fetch_health, fetch_health_with_timeout};
 pub use socket::{Location, NoHome, RawEnv, fnv1a64};
+pub use stream::{BACKOFF_BASE, BACKOFF_MAX, Frame, Subscription};
 pub use transport::{RawResponse, TransportError, get};
 
 use std::fmt;
