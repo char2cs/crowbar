@@ -1,5 +1,17 @@
 # Rust-Native Port — Operating Prompts
 
+> **⚠️ DEPRECATED — 2026-08-07. Do not paste these prompts.** This file is the
+> autonomous runner for the retired method: `/goal` once, `/loop` to grind the
+> queue to completion with no human in the loop. Both halves are dead — the
+> queue it drives (`native/QUEUE.md`) and the completion criterion it optimises
+> (per-component parity verdicts, which measure whether a component *can* render
+> a cell and never whether the app ever *does*).
+>
+> **The port is now built one system at a time**, in user-reviewed vertical
+> slices, per [`2026-08-04-slice-based-port-method-design.md`](2026-08-04-slice-based-port-method-design.md).
+> The user's review is the serialisation point, so an unattended loop cannot
+> express the method at all. Kept as the record of what was tried.
+
 Companion to `2026-07-30-rust-native-desktop-port-design.md`.
 Paste `/goal` once. Paste `/loop` to run.
 

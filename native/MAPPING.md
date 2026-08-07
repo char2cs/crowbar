@@ -1,5 +1,15 @@
 # The §6.2 primitive mapping table
 
+> **⚠️ THE METHOD IS DEPRECATED — 2026-08-07; the translations are not.** §6.2's
+> one-primitive-at-a-time march, and the per-component parity verdict that closed
+> each row, are retired. The port is now built **one system at a time** in
+> user-reviewed vertical slices
+> ([`2026-08-04-slice-based-port-method-design.md`](../docs/superpowers/specs/2026-08-04-slice-based-port-method-design.md)).
+>
+> **Keep reading the Traps.** Every row below is a Tailwind→gpui translation that
+> was paid for once, and a slice that *composes* these components hits the same
+> ones. Nothing here needs to be re-derived — it needs to be assembled.
+
 Spec §6.2 makes this a Phase 2 deliverable: *"Each of the 46 portable
 `components/ui` primitives maps to exactly one `crowbar-ui` module."* What the
 spec does not say, and what actually costs the time, is **how each Tailwind

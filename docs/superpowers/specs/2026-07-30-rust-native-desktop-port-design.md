@@ -3,6 +3,19 @@
 **Status:** Approved for execution · **Date:** 2026-07-30 · **Baseline:** `7bb9e829`
 **Supersedes:** the draft feature spec of the same date.
 
+> **⚠️ PARTIALLY SUPERSEDED — 2026-08-07.** §11 (the execution loop) and §16 (the
+> phase order) are dead, along with the per-component parity verdict as the gate
+> for anything. They are replaced by
+> [`2026-08-04-slice-based-port-method-design.md`](2026-08-04-slice-based-port-method-design.md),
+> which builds the app **one system at a time** — sidebar, tabs, panes,
+> settings, terminal, editor, diff, markdown —
+> each shipped in the real binary and accepted by the user beside Crowbar-React.
+>
+> **Everything else in this spec stands.** §4.2 (the crate dependency graph),
+> §4.3 (the invariants) and §12 (the coverage gate) are still enforced, by
+> `native/scripts/check-invariants.sh` and the workspace lints. Read this file
+> for the architecture; read the slice spec for how the work is run.
+
 > This spec is **self-sufficient**. It is written on the assumption that no
 > further design conversation happens before the native client is complete.
 > Every decision that was open in the draft is closed here. Where a decision

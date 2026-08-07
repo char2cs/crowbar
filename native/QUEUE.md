@@ -1,8 +1,30 @@
 # Port Queue
 
-Source of truth for the Rust-native GPUI port. Spec:
-`docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`.
-Updated every orchestrator iteration. This file is how a cold session picks up.
+> **⚠️ DEPRECATED AS A PLAN — 2026-08-07. This is a findings ARCHIVE, not a work
+> queue.** The method it drives — port every component, take a per-component
+> parity verdict, run the queue to completion automatically — is retired, and it
+> was retired by its own finding: **component parity is NOT app parity.** Ten
+> `components/layout` surfaces held a PASS verdict while the assembled app was a
+> bare text list.
+>
+> **The port is now built one system at a time**, by hand and under review: the
+> vertical slices in [`2026-08-04-slice-based-port-method-design.md`](../docs/superpowers/specs/2026-08-04-slice-based-port-method-design.md)
+> §4 — sidebar, then tabs, then panes, then settings, terminal, editor, diff
+> viewer, markdown editor. A slice
+> is done when it runs in the real `crowbar-app` binary, against the real
+> daemon, and the user has accepted it beside Crowbar-React. There is no loop
+> that runs past that review.
+>
+> **Do not resume work from the item list below.** Every *in flight*, *next* and
+> *blocked* item in this file is dead. The **findings are not**, and they are why
+> the file is kept: the four oracle blind spots, the settled-app and carousel
+> capture rules, the double-spawn daemon trap, the environment facts, and every
+> recorded translation hazard are all still true.
+
+Written as the source of truth for the Rust-native GPUI port, against spec
+`docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`, and
+updated every orchestrator iteration until 2026-08-04. A cold session picks up
+from the slice spec above; it reads this file for what was already learned.
 
 **Phase:** 3 — remainder **measured**, not estimated. **64 surfaces · 2469 tests ·
 clippy 0 · 7/7 invariants**, all verified by my own run. Of the 64, **5 measure

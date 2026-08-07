@@ -1,8 +1,11 @@
 # `native/` — the Rust-native GPUI port
 
 Spec: [`docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md`](../docs/superpowers/specs/2026-07-30-rust-native-desktop-port-design.md).
-Live state and the work queue: [`QUEUE.md`](QUEUE.md) — read it before starting
-anything.
+How the work is run: [`2026-08-04-slice-based-port-method-design.md`](../docs/superpowers/specs/2026-08-04-slice-based-port-method-design.md)
+— **one system at a time**, in user-reviewed vertical slices.
+[`QUEUE.md`](QUEUE.md) is the **findings archive** of the retired
+component-parity method: read it for the hazards it records, never for its item
+list.
 
 This is a **second** desktop client for the same Go daemon. `api/`, `web/` and
 `desktop/` are untouched by this workspace.

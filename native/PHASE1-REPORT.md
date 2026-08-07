@@ -2,6 +2,19 @@
 
 **Date:** 2026-07-31 · **Verdict: the gate holds. The spec is not void.**
 
+> **⚠️ HISTORIC — 2026-08-07. The gate this report passes is no longer the
+> gate.** It answers §16's Phase 1 question — does a GPUI driver plus an
+> anchored-geometry oracle converge on a real row — and the answer, *yes*, still
+> holds. What changed is that convergence stopped being how the port is judged:
+> a per-component verdict measures whether a component **can** render a cell, and
+> never whether the app **ever does**.
+>
+> The port is now built **one system at a time**, judged by the user seeing a
+> slice run beside Crowbar-React
+> ([`2026-08-04-slice-based-port-method-design.md`](../docs/superpowers/specs/2026-08-04-slice-based-port-method-design.md)).
+> The oracle survives as a frozen regression net over the components already
+> verified. This report is kept as the evidence that the instrument works.
+
 Spec §16's gate asks one question: does a GPUI driver plus an anchored-geometry
 oracle converge on a real row, across the §8.3 state matrix? If not, the spec is
 void and Phase 2 does not start.
