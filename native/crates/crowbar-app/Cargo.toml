@@ -20,6 +20,11 @@ crowbar-diff.workspace = true
 crowbar-webview.workspace = true
 crowbar-platform.workspace = true
 crowbar-driver = { workspace = true, optional = true }
+# `--inspect`'s JSON report (S1a). Optional and pulled in by the same feature
+# as the driver, so §10.4's "a default build links none of it" stays true of
+# the encoder as well as of the extractor.
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 # The binary is the one crate that owns the platform: `gpui_platform` is where
 # `application()` lives, and nothing upstream can supply it. `gpui` and
 # `gpui-component` are direct rather than via crowbar-ui's re-export because
@@ -45,7 +50,7 @@ gpui = { workspace = true, features = ["test-support"] }
 # build must not link it.
 [features]
 default = []
-driver = ["dep:crowbar-driver"]
+driver = ["dep:serde", "dep:serde_json", "dep:crowbar-driver"]
 
 [lints]
 workspace = true

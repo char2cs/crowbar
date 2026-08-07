@@ -20,13 +20,17 @@
 //! for &H`) already satisfies the bound, so no adapter type is needed at the
 //! call site in `crowbar-app`.
 
+use std::ffi::c_void;
 use std::fmt;
+use std::ptr::NonNull;
 
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSView,
 };
-use raw_window_handle::{HandleError, HasWindowHandle, RawWindowHandle};
+use raw_window_handle::{
+    AppKitWindowHandle, HandleError, HasWindowHandle, RawWindowHandle, WindowHandle,
+};
 
 /// `window-vibrancy` `macos/vibrancy.rs:13`'s own comment: "`NSView::tag` for
 /// `NSVisualEffectViewTagged`, just a random number." Not re-exported by the
@@ -45,21 +49,135 @@ const NS_VIEW_TAG_BLUR_VIEW: isize = 91_376_254;
 /// window-creation time) — this only inserts the effect view behind it, it
 /// does not make the window transparent itself.
 ///
-/// No `unsafe` here: `window_vibrancy::apply_vibrancy` is a safe function.
+/// # The frost has to be a SIBLING of GPUI's view, not its child
+///
+/// This is the whole reason this function is more than a one-line forward, and
+/// it was a shipped bug: **the app rendered a complete sidebar and the window
+/// showed nothing but blurred wallpaper.**
+///
+/// `window-vibrancy` ends with
+/// `view.addSubview_positioned_relativeTo(&blurred_view, Below, None)`, where
+/// `view` is whatever the raw window handle names. For GPUI that is
+/// `AppKitWindowHandle::new(native_view)` — **GPUI's own Metal-backed render
+/// view**, not the window's `contentView` (`vendor/zed-deps/gpui_macos/src/
+/// window.rs`, which adds `native_view` as a subview of `contentView`). So the
+/// effect view was installed as a *child* of the view being rendered into, and
+/// on `AppKit` a subview always composites **above** its superview's own layer
+/// content. `Below` only orders it against sibling subviews, and GPUI's view
+/// has none — so the frost covered the entire UI.
+///
+/// Walking `view.window().contentView()` makes the effect view a sibling of
+/// GPUI's view, which is the arrangement `Below` was written for and the one
+/// `desktop/src-tauri` gets for free because Tauri hands Tauri's own content
+/// view to the same call.
+///
+/// S0.5 predicted the hazard in the abstract — *"the handle wraps the
+/// `NSView`, not the `NSWindow`, so anything reaching for window-level
+/// properties must walk `view.window()` itself"* — and then shipped on
+/// [`inspect`] reporting `blur_view_present: true`, which was true and said
+/// nothing about **where**. [`Inspection::blur_is_sibling_of_render_view`] is
+/// the field that would have caught it, and now does.
+///
+/// # Safety
+///
+/// The one `unsafe` here casts the handle's `ns_view` to `&NSView`. It is
+/// GPUI-constructed, non-null, and outlives this synchronous main-thread call
+/// — the same obligation [`pin_appearance`] discharges, in the same way and
+/// for the same handle. The main-thread check above is what makes the
+/// subsequent `AppKit` messaging sound.
 ///
 /// # Errors
 ///
 /// `window_vibrancy::Error` — `window` has no `AppKit` raw handle (wrong
 /// platform), or `apply_vibrancy` was not called from the main thread, or the
 /// running macOS is older than 10.10.
-pub fn apply_vibrancy(window: impl HasWindowHandle) -> Result<(), window_vibrancy::Error> {
+pub fn apply_vibrancy(window: impl HasWindowHandle) -> Result<(), VibrancyError> {
+    let handle = window.window_handle().map_err(VibrancyError::NoHandle)?;
+    let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+        return Err(VibrancyError::NotAppKit);
+    };
+    let Some(_main) = MainThreadMarker::new() else {
+        return Err(VibrancyError::NotMainThread);
+    };
+
+    // SAFETY: see this function's doc comment.
+    let view: &NSView = unsafe { handle.ns_view.cast::<NSView>().as_ref() };
+    let content_view = view
+        .window()
+        .and_then(|win| win.contentView())
+        .ok_or(VibrancyError::NoContentView)?;
+
+    let raw = NonNull::from(&*content_view).cast::<c_void>();
+    let target = ContentView(AppKitWindowHandle::new(raw));
+
     window_vibrancy::apply_vibrancy(
-        window,
+        target,
         window_vibrancy::NSVisualEffectMaterial::HudWindow,
         Some(window_vibrancy::NSVisualEffectState::FollowsWindowActiveState),
         None,
     )
+    .map_err(VibrancyError::Vibrancy)
 }
+
+/// A [`HasWindowHandle`] over the window's `contentView`.
+///
+/// Exists so [`apply_vibrancy`] can hand `window-vibrancy` the **content
+/// view** rather than the view GPUI hands out, which is the whole fix — see
+/// that function's doc comment.
+struct ContentView(AppKitWindowHandle);
+
+impl HasWindowHandle for ContentView {
+    /// # Safety
+    ///
+    /// `WindowHandle::borrow_raw` requires the handle to be valid for the
+    /// borrow's lifetime and the window not to be destroyed while it is held.
+    /// Both hold here by construction:
+    ///
+    /// 1. The pointer is taken from a `Retained<NSView>` that
+    ///    [`apply_vibrancy`] holds alive across the entire
+    ///    `window_vibrancy::apply_vibrancy` call — the only thing that ever
+    ///    borrows this handle — so it cannot be deallocated underneath it.
+    /// 2. A window's `contentView` is owned by the `NSWindow`, which is owned
+    ///    by GPUI and outlives this synchronous, main-thread call. Nothing in
+    ///    the call closes a window.
+    /// 3. The borrow never escapes: `window_vibrancy::apply_vibrancy` takes
+    ///    `impl HasWindowHandle` by value, reads the handle, and returns.
+    fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
+        // SAFETY: see this method's own doc comment.
+        Ok(unsafe { WindowHandle::borrow_raw(RawWindowHandle::AppKit(self.0)) })
+    }
+}
+
+/// Why [`apply_vibrancy`] could not apply the frost.
+#[derive(Debug)]
+pub enum VibrancyError {
+    /// `window` could not hand back a raw window handle at all.
+    NoHandle(HandleError),
+    /// `window`'s raw handle exists but is not an `AppKit` handle.
+    NotAppKit,
+    /// Called off the main thread. `AppKit` view manipulation is main-thread
+    /// only.
+    NotMainThread,
+    /// The view is not in a window, or the window has no content view — so
+    /// there is nothing to attach the frost to as a sibling.
+    NoContentView,
+    /// `window-vibrancy` itself refused.
+    Vibrancy(window_vibrancy::Error),
+}
+
+impl fmt::Display for VibrancyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoHandle(err) => write!(f, "the window has no raw handle: {err}"),
+            Self::NotAppKit => write!(f, "the window's raw handle is not an AppKit handle"),
+            Self::NotMainThread => write!(f, "vibrancy must be applied on the main thread"),
+            Self::NoContentView => write!(f, "the view is not in a window with a content view"),
+            Self::Vibrancy(err) => write!(f, "window-vibrancy refused: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for VibrancyError {}
 
 /// Why [`pin_appearance`] could not pin the frost.
 #[derive(Debug)]
@@ -215,6 +333,17 @@ pub struct Inspection {
     /// view (if present) visible at all: an opaque window paints over
     /// whatever sits behind its content, blur view included.
     pub window_is_opaque: bool,
+    /// Whether the blur view is a **sibling** of GPUI's render view rather
+    /// than its child.
+    ///
+    /// The field that would have caught S0.5's shipped bug. A blur view
+    /// installed as a child of the view being rendered into composites *above*
+    /// it — `AppKit` always draws subviews over their superview's own layer —
+    /// so the app renders a complete UI and the window shows nothing but
+    /// blurred wallpaper. [`blur_view_present`] was `true` throughout.
+    ///
+    /// [`blur_view_present`]: Inspection::blur_view_present
+    pub blur_is_sibling_of_render_view: bool,
 }
 
 /// Reads back the state [`apply_vibrancy`] and [`pin_appearance`] leave in
@@ -250,7 +379,17 @@ pub fn inspect(window: impl HasWindowHandle) -> Result<Inspection, PinAppearance
     // SAFETY: see this function's doc comment.
     let view: &NSView = unsafe { handle.ns_view.cast::<NSView>().as_ref() };
 
-    let blur_view_present = view.viewWithTag(NS_VIEW_TAG_BLUR_VIEW).is_some();
+    let blur_view_present = view
+        .window()
+        .and_then(|win| win.contentView())
+        .and_then(|content| content.viewWithTag(NS_VIEW_TAG_BLUR_VIEW))
+        .is_some();
+    // A blur view found *under GPUI's own view* is the bug: it would paint
+    // over everything rendered into that view. Found under the content view
+    // and not under GPUI's, it is a sibling, which is the arrangement that
+    // works.
+    let blur_is_sibling_of_render_view =
+        blur_view_present && view.viewWithTag(NS_VIEW_TAG_BLUR_VIEW).is_none();
     // `view.window()` is `None` only if `view` has been detached from any
     // window, which none of this crate's callers do — a conservative `true`
     // (opaque) is the safer default if that assumption is ever wrong, since
@@ -263,5 +402,6 @@ pub fn inspect(window: impl HasWindowHandle) -> Result<Inspection, PinAppearance
     Ok(Inspection {
         blur_view_present,
         window_is_opaque,
+        blur_is_sibling_of_render_view,
     })
 }

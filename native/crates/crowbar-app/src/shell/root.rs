@@ -7,7 +7,7 @@
 //! empty: tabs and panes are slices 1b and 1c.
 
 use crowbar_state::SidebarStore;
-use crowbar_ui::Unanchored;
+use crowbar_ui::AnchorSink;
 use crowbar_ui::gpui::{
     Context, Entity, IntoElement, ParentElement as _, Render, SharedString, Styled as _, Window,
     div, px,
@@ -15,6 +15,7 @@ use crowbar_ui::gpui::{
 use crowbar_ui::primitives::separator::{CallSite, Orientation, Separator};
 use crowbar_ui::surfaces::rows::row_base;
 use crowbar_ui::theme::Theme;
+use std::rc::Rc;
 
 use super::Sidebar;
 
@@ -28,6 +29,9 @@ pub struct Shell {
     pub caption: SharedString,
     /// The store, read for the panel's width and open state.
     pub store: Entity<SidebarStore>,
+    /// How this view's elements opt into an oracle snapshot. See
+    /// [`super::Sidebar`]'s own field.
+    pub anchors: Rc<dyn AnchorSink>,
 }
 
 impl Render for Shell {
@@ -56,7 +60,7 @@ impl Render for Shell {
                         orientation: Orientation::Vertical,
                         call_site: CallSite::None,
                     }
-                    .render(&theme, &Unanchored),
+                    .render(&theme, &*self.anchors),
                 );
         }
 

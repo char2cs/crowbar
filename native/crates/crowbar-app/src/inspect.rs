@@ -1,0 +1,127 @@
+//! Reading the **running** app back without looking at it.
+//!
+//! The Rust half of what the Tauri MCP bridge did for the React app —
+//! `webview_dom_snapshot` and friends — minus the screenshot. Screen capture
+//! needs an OS permission no process in this tree can grant itself, and a
+//! workflow where a human squints at a window does not scale and is not
+//! evidence anyone can diff.
+//!
+//! # What this is, in one line
+//!
+//! `cargo run -p crowbar-app --features driver -- --inspect` opens the **real**
+//! shell against the **real** daemon, waits for the frame to settle, prints the
+//! laid-out element tree as JSON, and quits.
+//!
+//! # Why it measures the shipping view rather than a copy
+//!
+//! Because `crowbar_ui::anchor` was built for exactly this: every surface takes
+//! an [`AnchorSink`] and the binary decides which one it gets. The shipping
+//! path passes `Unanchored`, whose methods are the identity, so the element
+//! tree is **byte-for-byte the same tree** either way. Building a second,
+//! inspectable view instead would mean the thing measured is not the thing
+//! shipped — which is the failure this whole arrangement exists to prevent.
+//!
+//! # Why the frame has to settle first
+//!
+//! A window's first draw is one draw. Anything deferred — a popup that sizes
+//! itself in `prepaint`, a stream frame that has not arrived — is not in it,
+//! and a snapshot taken there reports a window that never existed for a user.
+//! [`crowbar_driver::on_settled_frame`] fires on the first completed draw that
+//! reproduced the previous one's anchors, which is the same signal the capture
+//! harness stops on.
+
+use std::rc::Rc;
+
+use crowbar_driver::{Observation, RawAnchor};
+use crowbar_ui::AnchorSink;
+use gpui::App;
+
+use crate::driver_anchors::{DriverAnchors, fold_text_halves};
+
+/// The argument that selects this mode.
+pub const FLAG: &str = "--inspect";
+
+/// Whether `args` asks for an inspection run.
+pub fn requested(args: &[String]) -> bool {
+    args.iter().any(|arg| arg == FLAG)
+}
+
+/// One element, as the inspector reports it.
+///
+/// Deliberately flat and JSON-shaped: the consumer is a tool reading stdout,
+/// and a nested tree would make "is this row visible and where" a traversal
+/// rather than a grep.
+#[derive(Debug, serde::Serialize)]
+pub struct Element {
+    /// The anchor's stable semantic id.
+    pub id: String,
+    /// Window-relative left edge, logical pixels.
+    pub x: f32,
+    /// Window-relative top edge.
+    pub y: f32,
+    /// Border-box width.
+    pub w: f32,
+    /// Border-box height.
+    pub h: f32,
+    /// Whether gpui would actually paint it.
+    pub visible: bool,
+    /// The string it paints, when it paints one.
+    pub text: Option<String>,
+}
+
+impl Element {
+    fn of(record: &RawAnchor) -> Self {
+        Self {
+            id: record.id.to_string(),
+            x: f32::from(record.bounds.origin.x),
+            y: f32::from(record.bounds.origin.y),
+            w: f32::from(record.bounds.size.width),
+            h: f32::from(record.bounds.size.height),
+            visible: record.visible,
+            text: record.text.as_ref().map(|text| text.content.to_string()),
+        }
+    }
+}
+
+/// What one inspection run reports.
+#[derive(Debug, serde::Serialize)]
+pub struct Report {
+    /// Whether the frame settled, or the run gave up watching it move.
+    pub settled: bool,
+    /// The window's own logical size, so a caller can tell "off-screen" from
+    /// "zero-sized".
+    pub window: [f32; 2],
+    /// Every anchor the frame recorded.
+    pub elements: Vec<Element>,
+}
+
+/// The sink an inspection run renders through.
+#[must_use]
+pub fn sink() -> Rc<dyn AnchorSink> {
+    Rc::new(DriverAnchors)
+}
+
+/// Print `report` as JSON on stdout, and quit.
+///
+/// stdout, not a file: the caller is a tool that ran this process, and a path
+/// it then has to find is one more thing to get wrong.
+pub fn emit(report: &Report, cx: &mut App) {
+    match serde_json::to_string_pretty(report) {
+        Ok(json) => println!("{json}"),
+        Err(err) => eprintln!("crowbar-app: could not serialise the inspection: {err}"),
+    }
+    cx.quit();
+}
+
+/// Build the report from a settled frame's records.
+#[must_use]
+pub fn report(observation: Observation, window: [f32; 2], records: &[RawAnchor]) -> Report {
+    Report {
+        settled: matches!(observation, Observation::Settled),
+        window,
+        elements: fold_text_halves(records.to_vec())
+            .iter()
+            .map(Element::of)
+            .collect(),
+    }
+}

@@ -19,7 +19,7 @@
 
 use crowbar_core::sidebar::tabs::Tab;
 use crowbar_state::SidebarStore;
-use crowbar_ui::Unanchored;
+use crowbar_ui::AnchorSink;
 use crowbar_ui::gpui::{
     AnyElement, App, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Pixels,
     Render, Styled as _, Window, div, px,
@@ -28,6 +28,7 @@ use crowbar_ui::surfaces::sidebar::sidebar_tab_bar::SidebarTabBar;
 use crowbar_ui::surfaces::workspace::workspace_tree::WorkspaceTree;
 use crowbar_ui::theme::Theme;
 use crowbar_ui::{ActionId, ActionSink, Dispatch};
+use std::rc::Rc;
 
 use super::model;
 
@@ -42,11 +43,24 @@ const PART_TAB: &str = "sidebar-tab";
 pub struct Sidebar {
     store: Entity<SidebarStore>,
     theme: Theme,
+    /// How this view's elements opt into an oracle snapshot.
+    ///
+    /// `Unanchored` on the shipping path and the driver's sink under
+    /// `--inspect`, which is what lets the **real** window be read back
+    /// without a screenshot. Injected rather than hardcoded because the
+    /// alternative — a second view built for inspection — would mean the thing
+    /// measured is not the thing shipped, which is the whole failure mode
+    /// `crowbar_ui::anchor` exists to prevent.
+    anchors: Rc<dyn AnchorSink>,
 }
 
 impl Sidebar {
     /// Build the sidebar over `store`.
-    pub fn build(store: &Entity<SidebarStore>, cx: &mut App) -> Entity<Self> {
+    pub fn build(
+        store: &Entity<SidebarStore>,
+        anchors: Rc<dyn AnchorSink>,
+        cx: &mut App,
+    ) -> Entity<Self> {
         let store = store.clone();
         cx.new(|cx| {
             // Re-render whenever the store changes: every daemon frame, every
@@ -56,6 +70,7 @@ impl Sidebar {
             Self {
                 store,
                 theme: Theme::DARK,
+                anchors,
             }
         })
     }
@@ -132,7 +147,7 @@ impl Sidebar {
                         ActionId::new(PART_REPO, repo.id.clone()),
                         div().w_full().flex().flex_col(),
                     )
-                    .child(section.render(&self.theme, &Unanchored)),
+                    .child(section.render(&self.theme, &*self.anchors)),
             );
         }
 
@@ -142,7 +157,7 @@ impl Sidebar {
             .flex_1()
             .min_h(px(0.0))
             .overflow_hidden()
-            .child(tree.project_home.render(&self.theme, &Unanchored))
+            .child(tree.project_home.render(&self.theme, &*self.anchors))
             .child(rows)
             .into_any_element()
     }
@@ -195,7 +210,7 @@ impl Render for Sidebar {
             .h_full()
             .w(panel_width)
             .overflow_hidden()
-            .child(tab_bar.render(&self.theme, &Unanchored))
+            .child(tab_bar.render(&self.theme, &*self.anchors))
             .child(tabs)
             .child(strip)
     }

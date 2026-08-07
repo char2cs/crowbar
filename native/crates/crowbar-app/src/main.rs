@@ -51,7 +51,6 @@ use crowbar_client::{Health, HealthError, Probe};
 /// Only the shipping (non-driver) window options need this — the driver
 /// build's own `window_options` below never sets `window_background`, so
 /// under `--features driver` this import would otherwise be unused.
-#[cfg(not(feature = "driver"))]
 use gpui::WindowBackgroundAppearance;
 use gpui::{App, AppContext as _, SharedString, TitlebarOptions, WindowOptions};
 
@@ -80,9 +79,11 @@ mod driver_surface;
 /// nobody tests.
 #[cfg(any(feature = "driver", test))]
 mod row_snapshot;
-/// The shipping window's content (S1a). Not built under `--features driver`:
-/// that build's `main` opens a matrix cell, and the sidebar is not one.
-#[cfg(not(feature = "driver"))]
+/// The shipping window's content (S1a).
+///
+/// Compiled in **both** builds since `--inspect` landed: the driver build
+/// renders this same view through the extractor's sink, which is the whole
+/// point — the tree that is read back has to be the tree that ships.
 mod shell;
 
 /// The driver-backed [`crowbar_ui::AnchorSink`]. A driver build
@@ -90,6 +91,10 @@ mod shell;
 /// `cargo test`, which is why it is not behind the feature alone.
 #[cfg(any(feature = "driver", test))]
 mod driver_anchors;
+/// Reading the running app back without a screenshot (S1a). Driver-only:
+/// the extractor is the driver.
+#[cfg(feature = "driver")]
+mod inspect;
 
 #[cfg(test)]
 mod row_layout;
@@ -118,7 +123,12 @@ mod ui_font_weight;
 /// proving surface instead — see [`driver_surface`]).
 #[cfg(feature = "driver")]
 fn main() -> ExitCode {
-    let cell = match Cell::parse(std::env::args().skip(1)) {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if inspect::requested(&args) {
+        return run_inspection();
+    }
+
+    let cell = match Cell::parse(args) {
         Ok(cell) => cell,
         Err(ParseError::HelpRequested) => {
             print!("{}", row_surface::usage());
@@ -252,6 +262,87 @@ fn main() -> ExitCode {
             eprintln!("crowbar-app: could not open a window: {err}");
             cx.quit();
         }
+    });
+
+    ExitCode::SUCCESS
+}
+
+/// `--inspect`: open the real shell against the real daemon, wait for the
+/// frame to settle, print the laid-out element tree as JSON, and quit.
+///
+/// This is the Rust answer to what the Tauri MCP bridge did for the React app,
+/// minus the screenshot — screen capture needs an OS permission no process in
+/// this tree can grant itself, and "a human looks at a window" is neither
+/// scalable nor diffable. See [`inspect`]'s own module docs.
+///
+/// # Why the capture is armed on data rather than on the first settle
+///
+/// The first frame is drawn before the daemon has answered, so it settles on
+/// an empty sidebar — a true picture of a moment no user sees, and a useless
+/// one to diff. The capture is therefore armed the first time the store
+/// reports a repo. A daemon with no projects at all never arms it and the run
+/// reports that, rather than silently emitting an empty tree that reads like a
+/// rendering failure.
+#[cfg(feature = "driver")]
+fn run_inspection() -> ExitCode {
+    let report = Report::probe();
+    let socket = report.socket().map(std::path::Path::to_path_buf);
+
+    gpui_platform::application().run(move |cx: &mut App| {
+        gpui_component::init(cx);
+        let _ = load_ui_font(cx);
+        let _ = load_ui_mono_font(cx);
+        let registry = crowbar_driver::install(cx);
+
+        let store = crowbar_state::SidebarStore::build(cx, None, None, None);
+        let sync = socket.map(|socket| crowbar_state::DaemonSync::new(&socket, &store));
+        if let Some(mut sync) = sync {
+            shell::coordinator::reconcile(&store, &mut sync, cx);
+            cx.observe(&store, move |store, cx| {
+                shell::coordinator::adopt_first_project(&store, cx);
+                shell::coordinator::reconcile(&store, &mut sync, cx);
+            })
+            .detach();
+        }
+
+        let anchors = inspect::sink();
+        let opened = cx.open_window(placeholder_window_options(), |_window, cx| {
+            let sidebar = shell::Sidebar::build(&store, anchors.clone(), cx);
+            cx.new(|_| shell::Shell {
+                sidebar,
+                caption: SharedString::new_static("inspection"),
+                store: store.clone(),
+                anchors,
+            })
+        });
+
+        let Ok(handle) = opened else {
+            eprintln!("crowbar-app: could not open a window to inspect");
+            cx.quit();
+            return;
+        };
+
+        // Armed once, the first time the store has something worth reporting.
+        let armed = std::rc::Rc::new(std::cell::Cell::new(false));
+        cx.observe(&store, move |store, cx| {
+            if armed.get() || store.read(cx).repos().is_empty() {
+                return;
+            }
+            armed.set(true);
+            let registry = registry.clone();
+            let _ = handle.update(cx, |_view, window, cx| {
+                let size = window.viewport_size();
+                let window_size = [f32::from(size.width), f32::from(size.height)];
+                let watched = registry.clone();
+                crowbar_driver::on_settled_frame(window, &watched, move |observation, _w, cx| {
+                    let records = registry.records();
+                    let report = inspect::report(observation, window_size, &records);
+                    inspect::emit(&report, cx);
+                });
+                cx.notify();
+            });
+        })
+        .detach();
     });
 
     ExitCode::SUCCESS
@@ -398,11 +489,17 @@ fn open_shell(report: &Report, caption: String, cx: &mut App) -> gpui::Result<()
 
     cx.open_window(placeholder_window_options(), move |window, cx| {
         decorate_window(window);
-        let sidebar = shell::Sidebar::build(&store, cx);
+        // `Unanchored` on the shipping path: its methods are the identity, so
+        // the element tree here is byte-for-byte the one `--inspect` reads
+        // back through the driver's sink.
+        let anchors: std::rc::Rc<dyn crowbar_ui::AnchorSink> =
+            std::rc::Rc::new(crowbar_ui::Unanchored);
+        let sidebar = shell::Sidebar::build(&store, anchors.clone(), cx);
         cx.new(|_| shell::Shell {
             sidebar,
             caption: caption.into(),
             store,
+            anchors,
         })
     })?;
     cx.activate(true);
@@ -429,7 +526,6 @@ fn open_shell(report: &Report, caption: String, cx: &mut App) -> gpui::Result<()
 /// borderless-window shape `gpui_macos` builds when `titlebar` is absent)
 /// already draws; nothing about `appears_transparent` or the vibrancy view
 /// changes the window's own corner shape.
-#[cfg(not(feature = "driver"))]
 fn placeholder_window_options() -> WindowOptions {
     WindowOptions {
         titlebar: Some(TitlebarOptions {
@@ -476,8 +572,10 @@ fn decorate_window(window: &gpui::Window) {
     }
     match crowbar_platform::inspect(window) {
         Ok(inspection) => eprintln!(
-            "crowbar-app: window chrome: blur_view_present={} window_is_opaque={}",
-            inspection.blur_view_present, inspection.window_is_opaque
+            "crowbar-app: window chrome: blur_view_present={} window_is_opaque={} blur_is_sibling={}",
+            inspection.blur_view_present,
+            inspection.window_is_opaque,
+            inspection.blur_is_sibling_of_render_view,
         ),
         Err(err) => eprintln!("crowbar-app: could not inspect the window chrome: {err}"),
     }
