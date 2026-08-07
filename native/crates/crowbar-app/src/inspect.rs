@@ -38,6 +38,13 @@ use gpui::App;
 
 use crate::driver_anchors::{AppAnchors, fold_text_halves};
 
+/// How long an inspection waits for the daemon before reporting anyway.
+///
+/// Without a deadline the run waits for ever when the daemon is down or the
+/// home is empty, which reads as the tool hanging rather than as a daemon that
+/// is not running.
+pub const DEADLINE: std::time::Duration = std::time::Duration::from_secs(8);
+
 /// The argument that selects this mode.
 pub const FLAG: &str = "--inspect";
 

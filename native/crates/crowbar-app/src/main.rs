@@ -322,25 +322,58 @@ fn run_inspection() -> ExitCode {
             return;
         };
 
-        // Armed once, the first time the store has something worth reporting.
+        // Armed once: on the first store update that has something worth
+        // reporting, or on a deadline, whichever comes first.
+        //
+        // **The deadline is not belt-and-braces.** Without it this process
+        // waits for ever when the daemon is down or the home has no projects —
+        // which is exactly what happened, repeatedly, and looked like the tool
+        // hanging rather than like a daemon that was not running. An
+        // instrument that can hang is an instrument nobody can put in a
+        // script.
         let armed = std::rc::Rc::new(std::cell::Cell::new(false));
+        let capture = {
+            let armed = std::rc::Rc::clone(&armed);
+            move |_store: &gpui::Entity<crowbar_state::SidebarStore>, cx: &mut App| {
+                if armed.get() {
+                    return;
+                }
+                armed.set(true);
+                let registry = registry.clone();
+                let _ = handle.update(cx, |_view, window, cx| {
+                    let size = window.viewport_size();
+                    let window_size = [f32::from(size.width), f32::from(size.height)];
+                    let watched = registry.clone();
+                    crowbar_driver::on_settled_frame(
+                        window,
+                        &watched,
+                        move |observation, _w, cx| {
+                            let records = registry.records();
+                            let report = inspect::report(observation, window_size, &records);
+                            inspect::emit(&report, cx);
+                        },
+                    );
+                    cx.notify();
+                });
+            }
+        };
+
+        let on_data = capture.clone();
         cx.observe(&store, move |store, cx| {
-            if armed.get() || store.read(cx).repos().is_empty() {
+            if store.read(cx).repos().is_empty() {
                 return;
             }
-            armed.set(true);
-            let registry = registry.clone();
-            let _ = handle.update(cx, |_view, window, cx| {
-                let size = window.viewport_size();
-                let window_size = [f32::from(size.width), f32::from(size.height)];
-                let watched = registry.clone();
-                crowbar_driver::on_settled_frame(window, &watched, move |observation, _w, cx| {
-                    let records = registry.records();
-                    let report = inspect::report(observation, window_size, &records);
-                    inspect::emit(&report, cx);
-                });
-                cx.notify();
-            });
+            on_data(&store, cx);
+        })
+        .detach();
+
+        // The deadline. Generous enough that a slow seed still reports real
+        // data, short enough that a dead daemon reports promptly instead of
+        // never.
+        let deadline = store.clone();
+        cx.spawn(async move |cx: &mut gpui::AsyncApp| {
+            cx.background_executor().timer(inspect::DEADLINE).await;
+            cx.update(|cx| capture(&deadline, cx));
         })
         .detach();
     });
@@ -533,7 +566,23 @@ fn placeholder_window_options() -> WindowOptions {
             appears_transparent: true,
             traffic_light_position: Some(gpui::point(gpui::px(12.0), gpui::px(23.0))),
         }),
-        window_background: WindowBackgroundAppearance::Transparent,
+        // `Blurred`, not `Transparent` + `window-vibrancy`.
+        //
+        // S0.5 chose the latter and it fights gpui's own view ordering, which
+        // was measured rather than argued this session:
+        //
+        //   blur attached to GPUI's render view   -> blur renders, UI hidden
+        //   blur attached to the content view     -> UI renders, blur gone
+        //
+        // Neither is usable, because `window-vibrancy` inserts its effect view
+        // relative to whatever the raw window handle names, and for gpui that
+        // handle is the Metal-backed render view rather than the window's
+        // content view. gpui already implements this itself for exactly this
+        // reason (`gpui_macos/src/window.rs`): on `Blurred` it inserts its own
+        // `NSVisualEffectView` into the content view, orders it below, and
+        // sets the window's background colour to match — all of it inside the
+        // framework that owns the view ordering.
+        window_background: WindowBackgroundAppearance::Blurred,
         ..WindowOptions::default()
     }
 }
@@ -562,20 +611,25 @@ fn placeholder_window_options() -> WindowOptions {
 /// `crowbar_platform::vibrancy::Inspection`'s doc comment).
 #[cfg(all(not(feature = "driver"), target_os = "macos"))]
 fn decorate_window(window: &gpui::Window) {
-    if let Err(err) = crowbar_platform::apply_vibrancy(window) {
-        eprintln!("crowbar-app: failed to apply window vibrancy: {err}");
-        return;
-    }
+    // No `apply_vibrancy` call: the blur is `WindowBackgroundAppearance::
+    // Blurred`'s, managed by gpui itself — see `placeholder_window_options`.
+    // What remains here is the appearance pin, which is still ours: gpui
+    // chooses the material but nothing in it pins the frost to the app's own
+    // theme rather than the OS's.
     if let Err(err) = crowbar_platform::pin_appearance(window, true) {
         eprintln!("crowbar-app: failed to pin the vibrancy appearance: {err}");
         return;
     }
     match crowbar_platform::inspect(window) {
         Ok(inspection) => eprintln!(
-            "crowbar-app: window chrome: blur_view_present={} window_is_opaque={} blur_is_sibling={}",
+            "crowbar-app: window chrome: blur_present={} window_opaque={} blur_sibling={} blur_frame={:?} blur_index={:?} render_frame={:?} render_opaque={:?}",
             inspection.blur_view_present,
             inspection.window_is_opaque,
             inspection.blur_is_sibling_of_render_view,
+            inspection.blur_frame,
+            inspection.blur_index_in_superview,
+            inspection.render_view_frame,
+            inspection.render_view_is_opaque,
         ),
         Err(err) => eprintln!("crowbar-app: could not inspect the window chrome: {err}"),
     }

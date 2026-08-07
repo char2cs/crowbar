@@ -52,4 +52,6 @@
 mod vibrancy;
 
 #[cfg(target_os = "macos")]
-pub use vibrancy::{Inspection, PinAppearanceError, apply_vibrancy, inspect, pin_appearance};
+pub use vibrancy::{
+    Inspection, Opacity, PinAppearanceError, VibrancyError, apply_vibrancy, inspect, pin_appearance,
+};

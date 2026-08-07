@@ -25,6 +25,7 @@ use crowbar_ui::gpui::{
     Styled as _, Window, div, px,
 };
 use crowbar_ui::primitives::keybinding::Platform;
+use crowbar_ui::surfaces::context_pill::ContextPill;
 use crowbar_ui::surfaces::rows::git_status_row::Breakpoint;
 use crowbar_ui::surfaces::sidebar::sidebar_carousel::{SidebarCarousel, SidebarTab};
 use crowbar_ui::surfaces::sidebar::sidebar_project_header::SidebarProjectHeader;
@@ -136,8 +137,18 @@ impl Sidebar {
             .find(|project| Some(project.id.as_str()) == store.active_project_id())
             .map_or_else(String::new, |project| project.name.clone());
 
+        // Active on the project-home route, which is where the app sits until
+        // a workspace is chosen. The captured reference paints this row
+        // `#1f1f1eff` and this file drew it idle — which is, precisely, the
+        // finding the archive recorded against the old shell: the component
+        // holds a PASS in its `selected` cell and the app never produces that
+        // cell. A home route is one with no repo.
+        let on_home = store
+            .active_scope()
+            .is_none_or(|scope| scope.repo_id.is_empty());
+
         WorkspaceTree {
-            project_home: model::project_home_row(&project_name, false, false),
+            project_home: model::project_home_row(&project_name, on_home, false),
             sections,
             // The scroll area's own extent. Zero here collapsed the whole list
             // — the surface authors a `w`/`h` on it, so it has to be the real
@@ -154,6 +165,11 @@ impl Render for Sidebar {
         let actions = self.actions();
         let store = self.store.read(cx);
         let width = px(store.panel().preferred_width());
+        let project_name = store
+            .projects()
+            .iter()
+            .find(|project| Some(project.id.as_str()) == store.active_project_id())
+            .map_or_else(String::new, |project| project.name.clone());
 
         // `ide-shell.tsx`'s sidebar subtree, in its own order:
         //
@@ -220,6 +236,25 @@ impl Render for Sidebar {
 
         let panels = vec![Some(self.workspace_panel(&actions, cx))];
 
+        // NOT wrapped in `NavStack`. The reference does wrap the carousel in
+        // one, and this did too for one build — and the tree vanished. The
+        // stack's base layer sizes itself for the picture it was authored to
+        // draw, so nesting a real, flex-sized carousel inside it collapses the
+        // carousel to nothing. Re-adding it needs the base layer to grow with
+        // its content, which is a change to that surface and not to this file.
+        // Until then an empty stack contributes no visible box anyway: the
+        // captured reference has `nav-stack` and `nav-stack-base` at exactly
+        // the carousel's own bounds, painting nothing.
+
+        // `<ContextPill />`, the row between the header and the tab bar. On the
+        // project-home route the reference renders the Home variant; the
+        // captured reference has it at 52.25px tall with a `#f5f5f51c`
+        // trigger, and this file simply did not render it at all.
+        let pill = ContextPill::Home {
+            project_name: project_name.clone().into(),
+            working: false,
+        };
+
         div()
             .relative()
             .flex()
@@ -228,6 +263,7 @@ impl Render for Sidebar {
             .w(width)
             .overflow_hidden()
             .child(header.render(&self.theme, &*self.anchors))
+            .child(pill.render(&self.theme, &*self.anchors))
             .child(tab_bar.render(&self.theme, &*self.anchors))
             .child(carousel.render_with(&*self.anchors, panels))
     }

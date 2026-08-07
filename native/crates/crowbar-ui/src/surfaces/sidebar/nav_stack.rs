@@ -346,8 +346,30 @@ impl NavStack {
     /// Renders the stack, opting every contract anchor into `anchors`.
     #[must_use]
     pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+        self.render_with(theme, anchors, None)
+    }
+
+    /// The same stack, carrying **real base content**.
+    ///
+    /// See `sidebar_carousel::SidebarCarousel::render_with` for why every
+    /// container in this design system needed one of these: a surface built to
+    /// be photographed has a filler where content goes, and an app assembled
+    /// from such surfaces has to re-implement each container's CSS by hand.
+    ///
+    /// `content` replaces the filler in the base layer only — a pushed screen
+    /// is the stack's own picture and is unaffected. `None` reproduces
+    /// [`Self::render`] exactly, so every corpus cell is untouched.
+    #[must_use]
+    pub fn render_with(
+        &self,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        content: Option<AnyElement>,
+    ) -> AnyElement {
         let mut base = self.base_shell();
-        if let Some(filler) = self.filler() {
+        if let Some(content) = content {
+            base = base.child(content);
+        } else if let Some(filler) = self.filler() {
             base = base.child(filler);
         }
         let mut children: Vec<AnyElement> = vec![anchors.boxed(AnchorId::from(ID_BASE), base)];

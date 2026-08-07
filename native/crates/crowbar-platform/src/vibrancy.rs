@@ -26,7 +26,8 @@ use std::ptr::NonNull;
 
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
-    NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSView,
+    NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
+    NSView, NSVisualEffectView,
 };
 use raw_window_handle::{
     AppKitWindowHandle, HandleError, HasWindowHandle, RawWindowHandle, WindowHandle,
@@ -322,7 +323,7 @@ pub fn pin_appearance(window: impl HasWindowHandle, dark: bool) -> Result<(), Pi
 /// non-pixel substitute — it reads the same `AppKit` objects [`apply_vibrancy`]
 /// and [`pin_appearance`] wrote to, from inside the same process, which needs
 /// no screen-recording or accessibility permission at all.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Inspection {
     /// Whether a subview tagged `91_376_254` exists anywhere under `window`'s
     /// view — [`apply_vibrancy`] having actually run and inserted
@@ -344,6 +345,40 @@ pub struct Inspection {
     ///
     /// [`blur_view_present`]: Inspection::blur_view_present
     pub blur_is_sibling_of_render_view: bool,
+
+    /// The blur view's own frame, `[x, y, w, h]`, or all zeroes when absent.
+    ///
+    /// A blur view that exists but measures 0x0 renders nothing, and reads in
+    /// every other field exactly like one that works.
+    pub blur_frame: [f64; 4],
+    /// Where the blur sits among its superview's subviews, and how many there
+    /// are: `[index, count]`. `[-1, n]` when absent.
+    ///
+    /// Order is what decides whether the frost is behind the UI or over it,
+    /// and it is the one thing no boolean can express.
+    pub blur_index_in_superview: [i32; 2],
+    /// GPUI's render view's frame, for comparison with the blur's.
+    pub render_view_frame: [f64; 4],
+    /// Whether GPUI's render view is marked opaque. An opaque view over the
+    /// blur hides it completely, which looks identical to no blur at all.
+    ///
+    /// Grouped with [`Self::window_is_opaque`] rather than left as a fourth
+    /// bare `bool`, because four of them in one struct is a call site where
+    /// every argument is `true, false, true, false` and nobody can read it.
+    pub render_view_is_opaque: Opacity,
+}
+
+/// Whether a layer paints over what is behind it.
+///
+/// A named pair rather than a bool: "opaque" and "transparent" are the two
+/// things a reader of this report is actually asking about, and a `false`
+/// here has been misread once already.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Opacity {
+    /// Paints over whatever is behind it — a blur underneath is invisible.
+    Opaque,
+    /// Lets what is behind it through.
+    Transparent,
 }
 
 /// Reads back the state [`apply_vibrancy`] and [`pin_appearance`] leave in
@@ -379,11 +414,20 @@ pub fn inspect(window: impl HasWindowHandle) -> Result<Inspection, PinAppearance
     // SAFETY: see this function's doc comment.
     let view: &NSView = unsafe { handle.ns_view.cast::<NSView>().as_ref() };
 
-    let blur_view_present = view
-        .window()
-        .and_then(|win| win.contentView())
-        .and_then(|content| content.viewWithTag(NS_VIEW_TAG_BLUR_VIEW))
-        .is_some();
+    // By CLASS, not by tag. `window-vibrancy` tags the view it inserts;
+    // gpui's own `WindowBackgroundAppearance::Blurred` inserts an
+    // `NSVisualEffectView` of its own with no such tag, so a tag lookup
+    // reports "no blur" for a window that is in fact blurred — which is a
+    // false negative in the one field the chrome is judged by.
+    let blur_view_present =
+        view.window()
+            .and_then(|win| win.contentView())
+            .is_some_and(|content| {
+                content
+                    .subviews()
+                    .iter()
+                    .any(|sub| sub.downcast_ref::<NSVisualEffectView>().is_some())
+            });
     // A blur view found *under GPUI's own view* is the bug: it would paint
     // over everything rendered into that view. Found under the content view
     // and not under GPUI's, it is a sibling, which is the arrangement that
@@ -399,9 +443,62 @@ pub fn inspect(window: impl HasWindowHandle) -> Result<Inspection, PinAppearance
         None => true,
     };
 
+    let content = view.window().and_then(|win| win.contentView());
+    let blur = content.as_ref().and_then(|content| {
+        content
+            .subviews()
+            .iter()
+            .find(|sub| sub.downcast_ref::<NSVisualEffectView>().is_some())
+    });
+
+    let blur_frame = blur.as_ref().map_or([0.0; 4], |blur| {
+        let frame = blur.frame();
+        [
+            frame.origin.x,
+            frame.origin.y,
+            frame.size.width,
+            frame.size.height,
+        ]
+    });
+
+    // Where the blur sits among its siblings. `subviews` is back-to-front, so
+    // a lower index is further back — which is what "behind the UI" means.
+    // SAFETY: `superview` is `unsafe` in `objc2-app-kit` only because it is
+    // main-thread-only — checked above — and returns an autoreleased view
+    // owned by the hierarchy, which outlives this synchronous read. Same
+    // obligation, same discharge, as every other AppKit call in this module.
+    let blur_index_in_superview = blur.as_ref().map_or([-1, 0], |blur| {
+        unsafe { blur.superview() }.map_or([-1, 0], |parent| {
+            let subviews = parent.subviews();
+            let count = i32::try_from(subviews.len()).unwrap_or(i32::MAX);
+            let index = subviews
+                .iter()
+                .position(|sibling| std::ptr::eq(&raw const *sibling, &raw const **blur))
+                .and_then(|index| i32::try_from(index).ok())
+                .unwrap_or(-1);
+            [index, count]
+        })
+    });
+
+    let render_frame = view.frame();
+    let render_view_frame = [
+        render_frame.origin.x,
+        render_frame.origin.y,
+        render_frame.size.width,
+        render_frame.size.height,
+    ];
+
     Ok(Inspection {
         blur_view_present,
         window_is_opaque,
         blur_is_sibling_of_render_view,
+        blur_frame,
+        blur_index_in_superview,
+        render_view_frame,
+        render_view_is_opaque: if view.isOpaque() {
+            Opacity::Opaque
+        } else {
+            Opacity::Transparent
+        },
     })
 }
