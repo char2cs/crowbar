@@ -185,7 +185,22 @@ impl Render for Sidebar {
 
         let tab_bar = SidebarTabBar {
             active: store.active_tab().as_str().into(),
-            include_git: true,
+            // `visibleTabs = isHomeRoute ? TABS.filter(t => t.tab !== 'git') :
+            // TABS` — the git tab is hidden on the project-home route, and
+            // this is **geometry**, not decoration: three tabs against four
+            // moves every tab's width and the indicator's reach. The port's
+            // own tab-bar docs call it "a real geometry-affecting axis".
+            //
+            // Caught by diffing the live app against the captured React
+            // reference in `oracle/runs/p3.2-tabs/ref-tabs.json`: the
+            // reference draws three tabs at 90px, this drew four at 67px,
+            // because it was hardcoded `true`.
+            //
+            // A home route is one with no repo — `scope_url`'s own
+            // `isHomeWorkspace` test, which is `repoId === ''`.
+            include_git: store
+                .active_scope()
+                .is_some_and(|scope| !scope.repo_id.is_empty()),
             column_width: width,
             viewport_breakpoint: Breakpoint::Sm,
         };
