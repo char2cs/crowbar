@@ -21,9 +21,13 @@ use crowbar_core::sidebar::tabs::Tab;
 use crowbar_state::SidebarStore;
 use crowbar_ui::AnchorSink;
 use crowbar_ui::gpui::{
-    AnyElement, App, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Pixels,
-    Render, Styled as _, Window, div, px,
+    AnyElement, App, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render,
+    Styled as _, Window, div, px,
 };
+use crowbar_ui::primitives::keybinding::Platform;
+use crowbar_ui::surfaces::rows::git_status_row::Breakpoint;
+use crowbar_ui::surfaces::sidebar::sidebar_carousel::{SidebarCarousel, SidebarTab};
+use crowbar_ui::surfaces::sidebar::sidebar_project_header::SidebarProjectHeader;
 use crowbar_ui::surfaces::sidebar::sidebar_tab_bar::SidebarTabBar;
 use crowbar_ui::surfaces::workspace::workspace_tree::WorkspaceTree;
 use crowbar_ui::theme::Theme;
@@ -101,11 +105,16 @@ impl Sidebar {
         })
     }
 
-    /// The workspace panel: the real tree, from real daemon data.
-    fn workspace_panel(&self, actions: &dyn ActionSink, cx: &Context<Self>) -> AnyElement {
+    /// The workspace panel: the ported [`WorkspaceTree`], carrying real
+    /// daemon data.
+    ///
+    /// The tree surface owns the project-home row, the scroll area and the
+    /// repo list — all three of which this file used to build by hand, badly.
+    fn workspace_panel(&self, _actions: &dyn ActionSink, cx: &Context<Self>) -> AnyElement {
         let store = self.store.read(cx);
         let active = store.active_workspace_id().map(str::to_owned);
         let collapsed = store.collapsed();
+        let width = px(store.panel().preferred_width());
 
         let sections = store
             .repos()
@@ -127,104 +136,84 @@ impl Sidebar {
             .find(|project| Some(project.id.as_str()) == store.active_project_id())
             .map_or_else(String::new, |project| project.name.clone());
 
-        let tree = WorkspaceTree {
+        WorkspaceTree {
             project_home: model::project_home_row(&project_name, false, false),
             sections,
-            scroll_width: px(0.0),
+            // The scroll area's own extent. Zero here collapsed the whole list
+            // — the surface authors a `w`/`h` on it, so it has to be the real
+            // panel size, not a placeholder.
+            scroll_width: width,
             scroll_height: px(0.0),
-        };
-
-        // Hit targets are wrapped around the rendered rows rather than being
-        // reached inside them: the surfaces are pure value types with no
-        // handlers of their own, and `ActionSink` attaches to the boxes they
-        // build. See `crowbar_ui::action`.
-        let mut rows = div().flex().flex_col().w_full();
-        for (index, repo) in store.repos().iter().enumerate() {
-            let section = &tree.sections[index];
-            rows = rows.child(
-                actions
-                    .clickable(
-                        ActionId::new(PART_REPO, repo.id.clone()),
-                        div().w_full().flex().flex_col(),
-                    )
-                    .child(section.render(&self.theme, &*self.anchors)),
-            );
         }
-
-        div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h(px(0.0))
-            .overflow_hidden()
-            .child(tree.project_home.render(&self.theme, &*self.anchors))
-            .child(rows)
-            .into_any_element()
+        .render(&self.theme, &*self.anchors)
     }
-}
-
-/// A panel whose contents belong to a later slice.
-fn blank_panel() -> AnyElement {
-    div().flex().flex_col().flex_1().into_any_element()
 }
 
 impl Render for Sidebar {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let actions = self.actions();
         let store = self.store.read(cx);
-        let active_tab = store.active_tab();
-        let width = store.panel().preferred_width();
+        let width = px(store.panel().preferred_width());
 
-        let tab_bar = SidebarTabBar {
-            active: active_tab.as_str().into(),
-            include_git: true,
-            column_width: px(width),
-            viewport_breakpoint: crowbar_ui::surfaces::rows::git_status_row::Breakpoint::Sm,
+        // `ide-shell.tsx`'s sidebar subtree, in its own order:
+        //
+        //     <div className="relative flex h-full flex-col overflow-hidden
+        //                     bg-transparent select-none">
+        //       {!hasNavScreen && <SidebarProjectHeader />}
+        //       {!hasNavScreen && <SidebarTabBar />}
+        //       <SidebarCarousel />
+        //     </div>
+        //
+        // Every one of those is the ported surface, rendered by the ported
+        // code — not a hand-written approximation of its CSS. That is the
+        // whole correction: the containers were re-implemented here before,
+        // and a re-implemented container is where a port stops looking like
+        // the thing it ports.
+        let header = SidebarProjectHeader {
+            is_right: false,
+            platform: Platform::Mac,
+            // Nothing pushes a nav screen yet, so neither arrow is live. They
+            // are rendered disabled rather than omitted, which is what the
+            // reference does with an empty history.
+            can_go_back: false,
+            can_go_forward: false,
+            toggle_id: "sidebar-project-header-toggle".into(),
+            back_id: "sidebar-project-header-back".into(),
+            forward_id: "sidebar-project-header-forward".into(),
+            settings_id: "sidebar-project-header-settings".into(),
         };
 
-        let mut tabs = div().flex().w_full();
-        for tab in Tab::ALL {
-            tabs = tabs.child(actions.clickable(
-                ActionId::new(PART_TAB, tab.as_str()),
-                div().flex_1().h(px(28.0)),
-            ));
-        }
+        let tab_bar = SidebarTabBar {
+            active: store.active_tab().as_str().into(),
+            include_git: true,
+            column_width: width,
+            viewport_breakpoint: Breakpoint::Sm,
+        };
 
-        // The strip: four full-width panels, offset so the active one is in
-        // view. `Tab::offset` owns the arithmetic.
-        let panel_width = px(width);
-        let strip = div()
-            .flex()
-            .flex_1()
-            .min_h(px(0.0))
-            .ml(px(-active_tab.offset(width)))
-            .child(panel(panel_width, self.workspace_panel(&actions, cx)))
-            .child(panel(panel_width, blank_panel()))
-            .child(panel(panel_width, blank_panel()))
-            .child(panel(panel_width, blank_panel()));
+        let carousel = SidebarCarousel {
+            active: match store.active_tab() {
+                Tab::Workspaces => SidebarTab::Workspaces,
+                Tab::Chats => SidebarTab::Chats,
+                Tab::Files => SidebarTab::Files,
+                Tab::Git => SidebarTab::Git,
+            },
+            // Zero: the filler is what an empty panel draws, and panels 1..3
+            // are empty until slices 3, 4 and 5. Panel 0 carries real content
+            // and ignores it.
+            panel_content_width: px(0.0),
+        };
+
+        let panels = vec![Some(self.workspace_panel(&actions, cx))];
 
         div()
             .relative()
             .flex()
             .flex_col()
             .h_full()
-            .w(panel_width)
+            .w(width)
             .overflow_hidden()
+            .child(header.render(&self.theme, &*self.anchors))
             .child(tab_bar.render(&self.theme, &*self.anchors))
-            .child(tabs)
-            .child(strip)
+            .child(carousel.render_with(&*self.anchors, panels))
     }
-}
-
-/// One carousel panel: full width, never shrinking, so the strip's offset
-/// arithmetic holds.
-fn panel(width: Pixels, content: AnyElement) -> AnyElement {
-    div()
-        .w(width)
-        .flex_shrink_0()
-        .flex()
-        .flex_col()
-        .overflow_hidden()
-        .child(content)
-        .into_any_element()
 }

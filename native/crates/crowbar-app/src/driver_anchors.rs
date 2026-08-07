@@ -138,6 +138,53 @@ pub fn fold_text_halves(records: Vec<RawAnchor>) -> Vec<RawAnchor> {
     folded
 }
 
+/// [`DriverAnchors`] for an **assembled app**, where there is no single root.
+///
+/// # Why the ordinary sink cannot be used
+///
+/// `crowbar_driver::anchor_root` *clears the registry* — the driver's own
+/// `the_root_anchor_clears_the_previous_frame` test names the behaviour, and it
+/// is right for the capture harness, whose every frame is exactly one surface
+/// and whose root is that surface's frame boundary.
+///
+/// An app is not one surface. `shell::sidebar` renders a project header, a tab
+/// bar and a carousel, and the carousel renders a workspace tree — four
+/// surfaces, each declaring its own root. Under the ordinary sink each root
+/// wiped everything recorded before it, so `--inspect` reported the last
+/// subtree and silently dropped the rest. A dump that quietly truncates is
+/// worse than no dump: it reads as "the app renders this and nothing else".
+///
+/// So here a root is recorded like any other box. Nothing else changes — the
+/// same declarations, the same geometry, the same ids — and `--inspect` is the
+/// only caller, so the corpus keeps the one-root-per-frame contract it was
+/// measured under.
+#[cfg(feature = "driver")]
+pub struct AppAnchors;
+
+#[cfg(feature = "driver")]
+impl AnchorSink for AppAnchors {
+    fn root(&self, id: AnchorId, element: Div) -> AnyElement {
+        // Deliberately `boxed`, not `root`. See the type's own docs.
+        DriverAnchors.boxed(id, element)
+    }
+
+    fn boxed(&self, id: AnchorId, element: Div) -> AnyElement {
+        DriverAnchors.boxed(id, element)
+    }
+
+    fn text(&self, id: AnchorId, content: SharedString) -> AnyElement {
+        DriverAnchors.text(id, content)
+    }
+
+    fn boxed_text(&self, id: AnchorId, element: Div, content: SharedString) -> AnyElement {
+        DriverAnchors.boxed_text(id, element, content)
+    }
+
+    fn text_half(&self, id: &AnchorId, content: SharedString) -> AnyElement {
+        DriverAnchors.text_half(id, content)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crowbar_driver::{FontFacts, Paint, RawAnchor, TextFacts};

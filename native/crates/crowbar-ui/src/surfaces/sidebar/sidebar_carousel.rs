@@ -283,9 +283,37 @@ impl SidebarCarousel {
     /// `WebKit` should show up, not be pre-empted.
     #[must_use]
     pub fn render(&self, anchors: &dyn AnchorSink) -> AnyElement {
+        self.render_with(anchors, Vec::new())
+    }
+
+    /// The same carousel, carrying **real panel content**.
+    ///
+    /// # Why this exists
+    ///
+    /// Until S1a nothing in this design system accepted children. Every
+    /// surface rendered a self-contained picture with a *filler* standing in
+    /// for content, because the retired component-parity method photographed
+    /// one component at a time and a photograph needs no slot. That made the
+    /// system impossible to assemble: an app built from it had to re-implement
+    /// every container's CSS by hand, and the hand-written copy is exactly
+    /// where a port stops looking like the thing it ports.
+    ///
+    /// `contents` is positional, one per [`TABS`] entry, and short or absent
+    /// entries fall back to the filler — so [`Self::render`] and every corpus
+    /// cell keep the picture they always had, byte for byte.
+    #[must_use]
+    pub fn render_with(
+        &self,
+        anchors: &dyn AnchorSink,
+        mut contents: Vec<Option<AnyElement>>,
+    ) -> AnyElement {
         let panels: Vec<AnyElement> = TABS
             .into_iter()
-            .map(|tab| anchors.boxed(AnchorId::from(tab.anchor()), self.panel(tab)))
+            .enumerate()
+            .map(|(index, tab)| {
+                let content = contents.get_mut(index).and_then(Option::take);
+                anchors.boxed(AnchorId::from(tab.anchor()), self.panel_with(tab, content))
+            })
             .collect();
         anchors.root(AnchorId::from(ID_SCROLLPORT), scrollport().children(panels))
     }
@@ -298,7 +326,8 @@ impl SidebarCarousel {
     /// `scrollLeft` has no element to live on in a declarative tree, and a
     /// negative margin on the first flex item shifts it and every sibling after
     /// it by exactly the same amount, which is what a scroll offset does.
-    fn panel(self, tab: SidebarTab) -> Div {
+    /// [`Self::panel`] with the caller's content in place of the filler.
+    fn panel_with(self, tab: SidebarTab, content: Option<AnyElement>) -> Div {
         let mut element = div()
             // `min-w-full`. The floor that freezes every panel at the
             // scrollport's width, whatever its content wants.
@@ -312,7 +341,11 @@ impl SidebarCarousel {
         if tab.index() == 0 {
             element = element.ml(relative(self.active.scroll_fraction()));
         }
-        if self.panel_content_width > px(0.0) {
+        // Real content wins over the filler; the filler is what a cell with no
+        // content to show has always drawn.
+        if let Some(content) = content {
+            element = element.child(content);
+        } else if self.panel_content_width > px(0.0) {
             element = element.child(div().w(self.panel_content_width));
         }
         element

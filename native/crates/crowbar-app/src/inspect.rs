@@ -36,7 +36,7 @@ use crowbar_driver::{Observation, Paint, RawAnchor, hex};
 use crowbar_ui::AnchorSink;
 use gpui::App;
 
-use crate::driver_anchors::{DriverAnchors, fold_text_halves};
+use crate::driver_anchors::{AppAnchors, fold_text_halves};
 
 /// The argument that selects this mode.
 pub const FLAG: &str = "--inspect";
@@ -139,7 +139,7 @@ pub struct Report {
 /// The sink an inspection run renders through.
 #[must_use]
 pub fn sink() -> Rc<dyn AnchorSink> {
-    Rc::new(DriverAnchors)
+    Rc::new(AppAnchors)
 }
 
 /// Print `report` as JSON on stdout, and quit.
