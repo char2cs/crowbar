@@ -5,6 +5,7 @@
 //!
 //! | this module | ported from |
 //! |---|---|
+//! | [`cache`] | `web/src/lib/ws/entity-stream.ts` (the cache half) |
 //! | [`tree`] | `web/src/lib/store/build-repo-tree.ts` |
 //! | [`hierarchy`] | `web/src/components/layout/workspace-tree-utils.ts` |
 //! | [`panel`] | `web/src/components/layout/use-sidebar-panel.ts` |
@@ -25,6 +26,7 @@
 //! coverage gate applies. `crowbar-state` wraps the results in `Entity<T>` and
 //! owns nothing else.
 
+pub mod cache;
 pub mod collapse;
 pub mod drag;
 pub mod hierarchy;
