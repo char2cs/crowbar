@@ -155,29 +155,31 @@ fn main() -> ExitCode {
     // unix socket a few hundred microseconds away and this is a single request.
     let report = Report::probe();
 
-    gpui_platform::application().run(move |cx: &mut App| {
-        gpui_component::init(cx);
-        let sans_fonts = load_ui_font(cx);
-        let mono_fonts = load_ui_mono_font(cx);
-        let fonts = format!("{sans_fonts}; {mono_fonts}");
-        // On stderr as well as in the caption: a parity run that is silently
-        // shaping with a fallback face would produce `text_width` deltas with
-        // no visible cause.
-        eprintln!("crowbar-app: {fonts}");
+    gpui_platform::application()
+        .with_assets(Assets)
+        .run(move |cx: &mut App| {
+            gpui_component::init(cx);
+            let sans_fonts = load_ui_font(cx);
+            let mono_fonts = load_ui_mono_font(cx);
+            let fonts = format!("{sans_fonts}; {mono_fonts}");
+            // On stderr as well as in the caption: a parity run that is silently
+            // shaping with a fallback face would produce `text_width` deltas with
+            // no visible cause.
+            eprintln!("crowbar-app: {fonts}");
 
-        if let Some(request) = driver_surface::Request::from_env() {
-            driver_surface::run(request, cx);
-            return;
-        }
+            if let Some(request) = driver_surface::Request::from_env() {
+                driver_surface::run(request, cx);
+                return;
+            }
 
-        let caption = format!("{} · {} · {fonts}", cell.describe(), report.summary());
-        if let Err(err) = open(cell.clone(), caption, cx) {
-            // No window means nothing can display the failure, so stderr is the
-            // only channel left. Quitting beats sitting in a run loop with no UI.
-            eprintln!("crowbar-app: could not open a window: {err}");
-            cx.quit();
-        }
-    });
+            let caption = format!("{} · {} · {fonts}", cell.describe(), report.summary());
+            if let Err(err) = open(cell.clone(), caption, cx) {
+                // No window means nothing can display the failure, so stderr is the
+                // only channel left. Quitting beats sitting in a run loop with no UI.
+                eprintln!("crowbar-app: could not open a window: {err}");
+                cx.quit();
+            }
+        });
 
     ExitCode::SUCCESS
 }
@@ -231,38 +233,40 @@ fn main() -> ExitCode {
     // unix socket a few hundred microseconds away and this is a single request.
     let report = Report::probe();
 
-    gpui_platform::application().run(move |cx: &mut App| {
-        gpui_component::init(cx);
-        let sans_fonts = load_ui_font(cx);
-        let mono_fonts = load_ui_mono_font(cx);
-        let fonts = format!("{sans_fonts}; {mono_fonts}");
-        // On stderr as well as in the caption: a parity run that is silently
-        // shaping with a fallback face would produce `text_width` deltas with
-        // no visible cause.
-        eprintln!("crowbar-app: {fonts}");
+    gpui_platform::application()
+        .with_assets(Assets)
+        .run(move |cx: &mut App| {
+            gpui_component::init(cx);
+            let sans_fonts = load_ui_font(cx);
+            let mono_fonts = load_ui_mono_font(cx);
+            let fonts = format!("{sans_fonts}; {mono_fonts}");
+            // On stderr as well as in the caption: a parity run that is silently
+            // shaping with a fallback face would produce `text_width` deltas with
+            // no visible cause.
+            eprintln!("crowbar-app: {fonts}");
 
-        // `on_quit`'s body runs synchronously before it returns a future, so
-        // the blocking SIGTERM-then-grace-then-SIGKILL sequence inside
-        // `shutdown` completes before this closure hands anything back to
-        // gpui — `App::SHUTDOWN_TIMEOUT` (200ms) budgets the *future*, which
-        // by then is already `Ready`, so it never has to race the shutdown.
-        let quit_daemon = std::rc::Rc::clone(&daemon);
-        cx.on_app_quit(move |_cx| {
-            if let Some(handle) = quit_daemon.as_ref() {
-                handle.shutdown("app quit");
+            // `on_quit`'s body runs synchronously before it returns a future, so
+            // the blocking SIGTERM-then-grace-then-SIGKILL sequence inside
+            // `shutdown` completes before this closure hands anything back to
+            // gpui — `App::SHUTDOWN_TIMEOUT` (200ms) budgets the *future*, which
+            // by then is already `Ready`, so it never has to race the shutdown.
+            let quit_daemon = std::rc::Rc::clone(&daemon);
+            cx.on_app_quit(move |_cx| {
+                if let Some(handle) = quit_daemon.as_ref() {
+                    handle.shutdown("app quit");
+                }
+                std::future::ready(())
+            })
+            .detach();
+
+            let caption = format!("{} · {fonts}", report.summary());
+            if let Err(err) = open_shell(&report, caption, cx) {
+                // No window means nothing can display the failure, so stderr is the
+                // only channel left. Quitting beats sitting in a run loop with no UI.
+                eprintln!("crowbar-app: could not open a window: {err}");
+                cx.quit();
             }
-            std::future::ready(())
-        })
-        .detach();
-
-        let caption = format!("{} · {fonts}", report.summary());
-        if let Err(err) = open_shell(&report, caption, cx) {
-            // No window means nothing can display the failure, so stderr is the
-            // only channel left. Quitting beats sitting in a run loop with no UI.
-            eprintln!("crowbar-app: could not open a window: {err}");
-            cx.quit();
-        }
-    });
+        });
 
     ExitCode::SUCCESS
 }
@@ -288,95 +292,97 @@ fn run_inspection() -> ExitCode {
     let report = Report::probe();
     let socket = report.socket().map(std::path::Path::to_path_buf);
 
-    gpui_platform::application().run(move |cx: &mut App| {
-        gpui_component::init(cx);
-        let _ = load_ui_font(cx);
-        let _ = load_ui_mono_font(cx);
-        let registry = crowbar_driver::install(cx);
+    gpui_platform::application()
+        .with_assets(Assets)
+        .run(move |cx: &mut App| {
+            gpui_component::init(cx);
+            let _ = load_ui_font(cx);
+            let _ = load_ui_mono_font(cx);
+            let registry = crowbar_driver::install(cx);
 
-        let store = crowbar_state::SidebarStore::build(cx, None, None, None);
-        let sync = socket.map(|socket| crowbar_state::DaemonSync::new(&socket, &store));
-        if let Some(mut sync) = sync {
-            shell::coordinator::reconcile(&store, &mut sync, cx);
-            cx.observe(&store, move |store, cx| {
-                shell::coordinator::adopt_first_project(&store, cx);
+            let store = crowbar_state::SidebarStore::build(cx, None, None, None);
+            let sync = socket.map(|socket| crowbar_state::DaemonSync::new(&socket, &store));
+            if let Some(mut sync) = sync {
                 shell::coordinator::reconcile(&store, &mut sync, cx);
-            })
-            .detach();
-        }
+                cx.observe(&store, move |store, cx| {
+                    shell::coordinator::adopt_first_project(&store, cx);
+                    shell::coordinator::reconcile(&store, &mut sync, cx);
+                })
+                .detach();
+            }
 
-        let anchors = inspect::sink();
-        let opened = cx.open_window(placeholder_window_options(), |_window, cx| {
-            let sidebar = shell::Sidebar::build(&store, anchors.clone(), cx);
-            cx.new(|_| shell::Shell {
-                sidebar,
-                caption: SharedString::new_static("inspection"),
-                store: store.clone(),
-                anchors,
-            })
-        });
+            let anchors = inspect::sink();
+            let opened = cx.open_window(placeholder_window_options(), |_window, cx| {
+                let sidebar = shell::Sidebar::build(&store, anchors.clone(), cx);
+                cx.new(|_| shell::Shell {
+                    sidebar,
+                    caption: SharedString::new_static("inspection"),
+                    store: store.clone(),
+                    anchors,
+                })
+            });
 
-        let Ok(handle) = opened else {
-            eprintln!("crowbar-app: could not open a window to inspect");
-            cx.quit();
-            return;
-        };
+            let Ok(handle) = opened else {
+                eprintln!("crowbar-app: could not open a window to inspect");
+                cx.quit();
+                return;
+            };
 
-        // Armed once: on the first store update that has something worth
-        // reporting, or on a deadline, whichever comes first.
-        //
-        // **The deadline is not belt-and-braces.** Without it this process
-        // waits for ever when the daemon is down or the home has no projects —
-        // which is exactly what happened, repeatedly, and looked like the tool
-        // hanging rather than like a daemon that was not running. An
-        // instrument that can hang is an instrument nobody can put in a
-        // script.
-        let armed = std::rc::Rc::new(std::cell::Cell::new(false));
-        let capture = {
-            let armed = std::rc::Rc::clone(&armed);
-            move |_store: &gpui::Entity<crowbar_state::SidebarStore>, cx: &mut App| {
-                if armed.get() {
+            // Armed once: on the first store update that has something worth
+            // reporting, or on a deadline, whichever comes first.
+            //
+            // **The deadline is not belt-and-braces.** Without it this process
+            // waits for ever when the daemon is down or the home has no projects —
+            // which is exactly what happened, repeatedly, and looked like the tool
+            // hanging rather than like a daemon that was not running. An
+            // instrument that can hang is an instrument nobody can put in a
+            // script.
+            let armed = std::rc::Rc::new(std::cell::Cell::new(false));
+            let capture = {
+                let armed = std::rc::Rc::clone(&armed);
+                move |_store: &gpui::Entity<crowbar_state::SidebarStore>, cx: &mut App| {
+                    if armed.get() {
+                        return;
+                    }
+                    armed.set(true);
+                    let registry = registry.clone();
+                    let _ = handle.update(cx, |_view, window, cx| {
+                        let size = window.viewport_size();
+                        let window_size = [f32::from(size.width), f32::from(size.height)];
+                        let watched = registry.clone();
+                        crowbar_driver::on_settled_frame(
+                            window,
+                            &watched,
+                            move |observation, _w, cx| {
+                                let records = registry.records();
+                                let report = inspect::report(observation, window_size, &records);
+                                inspect::emit(&report, cx);
+                            },
+                        );
+                        cx.notify();
+                    });
+                }
+            };
+
+            let on_data = capture.clone();
+            cx.observe(&store, move |store, cx| {
+                if store.read(cx).repos().is_empty() {
                     return;
                 }
-                armed.set(true);
-                let registry = registry.clone();
-                let _ = handle.update(cx, |_view, window, cx| {
-                    let size = window.viewport_size();
-                    let window_size = [f32::from(size.width), f32::from(size.height)];
-                    let watched = registry.clone();
-                    crowbar_driver::on_settled_frame(
-                        window,
-                        &watched,
-                        move |observation, _w, cx| {
-                            let records = registry.records();
-                            let report = inspect::report(observation, window_size, &records);
-                            inspect::emit(&report, cx);
-                        },
-                    );
-                    cx.notify();
-                });
-            }
-        };
+                on_data(&store, cx);
+            })
+            .detach();
 
-        let on_data = capture.clone();
-        cx.observe(&store, move |store, cx| {
-            if store.read(cx).repos().is_empty() {
-                return;
-            }
-            on_data(&store, cx);
-        })
-        .detach();
-
-        // The deadline. Generous enough that a slow seed still reports real
-        // data, short enough that a dead daemon reports promptly instead of
-        // never.
-        let deadline = store.clone();
-        cx.spawn(async move |cx: &mut gpui::AsyncApp| {
-            cx.background_executor().timer(inspect::DEADLINE).await;
-            cx.update(|cx| capture(&deadline, cx));
-        })
-        .detach();
-    });
+            // The deadline. Generous enough that a slow seed still reports real
+            // data, short enough that a dead daemon reports promptly instead of
+            // never.
+            let deadline = store.clone();
+            cx.spawn(async move |cx: &mut gpui::AsyncApp| {
+                cx.background_executor().timer(inspect::DEADLINE).await;
+                cx.update(|cx| capture(&deadline, cx));
+            })
+            .detach();
+        });
 
     ExitCode::SUCCESS
 }
@@ -1038,6 +1044,26 @@ impl Report {
             .map(SharedString::to_string)
             .collect::<Vec<_>>()
             .join(" ")
+    }
+}
+
+/// The app's asset source: the design system's vendored artwork.
+///
+/// gpui resolves every `svg()` path through this. `crowbar-ui` owns the bytes
+/// — it is the crate the artwork belongs to — and this owns the platform
+/// wiring, so neither has to know the other's file layout.
+struct Assets;
+
+impl gpui::AssetSource for Assets {
+    fn load(&self, path: &str) -> gpui::Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        Ok(crowbar_ui::icon::asset_bytes(path).map(std::borrow::Cow::Borrowed))
+    }
+
+    fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
+        Ok(crowbar_ui::icon::asset_paths()
+            .into_iter()
+            .filter(|asset| asset.starts_with(path))
+            .collect())
     }
 }
 

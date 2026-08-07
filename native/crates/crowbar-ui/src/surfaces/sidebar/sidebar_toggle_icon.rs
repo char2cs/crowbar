@@ -42,6 +42,8 @@
 use gpui::{AnyElement, Div, Pixels, Styled as _, div, px};
 
 use crate::anchor::{AnchorId, AnchorSink};
+use crate::icon::IconName;
+use gpui::ParentElement as _;
 
 /// The single anchor this surface carries.
 pub const ID_SIDEBAR_TOGGLE_ICON: &str = "sidebar-toggle-icon";
@@ -168,7 +170,13 @@ impl SidebarToggleIcon {
     /// docs. The reference agrees on all three.
     fn shell(self) -> Div {
         let extent = self.extent();
-        div().flex_shrink_0().w(extent).h(extent)
+        let mut element = div().flex_shrink_0().w(extent).h(extent);
+        // The panel mark itself. `empty` is the call site that draws the box
+        // and no artwork, so it stays empty; every other one draws.
+        if !self.empty {
+            element = element.child(IconName::SidebarToggle.render_uncoloured(extent));
+        }
+        element
     }
 
     /// The element, with its one anchor.

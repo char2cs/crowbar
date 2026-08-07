@@ -123,6 +123,7 @@ use gpui::{
 };
 
 use crate::anchor::AnchorSink;
+use crate::icon::IconName;
 use crate::primitives::tabs::{ListBackground, Orientation, Tab, TabSizing, Tabs, Variant};
 use crate::surfaces::rows::git_status_row::Breakpoint;
 use crate::theme::Theme;
@@ -243,6 +244,21 @@ impl SidebarTabBar {
     /// The `Tabs` value this wrapper composes — `crowbar_ui::components::tabs`
     /// already owns every one of its own anchors; this method only decides
     /// which tabs exist and which carry a label.
+    /// The glyph each tab draws — `sidebar-tab-bar.tsx:3`'s own imports.
+    ///
+    /// `git` falls back to its own branch mark rather than to nothing: an
+    /// unknown value here would render an empty square, which is the failure
+    /// `crate::icon` exists to end.
+    #[must_use]
+    fn glyph(value: &str) -> IconName {
+        match value {
+            "chats" => IconName::ChatsCircle,
+            "files" => IconName::FolderOpen,
+            "git" => IconName::GitBranch,
+            _ => IconName::SquaresFour,
+        }
+    }
+
     #[must_use]
     pub fn tabs(&self) -> Tabs {
         let tabs = self
@@ -252,6 +268,7 @@ impl SidebarTabBar {
                 let mut tab = Tab::new(value);
                 tab.selected = self.active == value;
                 tab.label = self.shows_label(value).then(|| value.into());
+                tab.icon = Some(Self::glyph(value));
                 tab
             })
             .collect();

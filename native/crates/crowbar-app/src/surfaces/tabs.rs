@@ -45,6 +45,7 @@
 
 use std::fmt::Write as _;
 
+use crowbar_ui::IconName;
 use crowbar_ui::Theme;
 use crowbar_ui::AnchorSink;
 use crowbar_ui::primitives::tabs::{
@@ -152,6 +153,15 @@ impl Params {
                 let mut tab = Tab::new(value.clone());
                 tab.selected = value == active;
                 tab.label = self.labels.then(|| value.clone().into());
+                // The same glyph the sidebar's own tab bar draws, so this
+                // cell measures the tab the app renders rather than an
+                // iconless one — `sidebar_tab_bar::glyph`'s mapping.
+                tab.icon = Some(match value.as_str() {
+                    "chats" => IconName::ChatsCircle,
+                    "files" => IconName::FolderOpen,
+                    "git" => IconName::GitBranch,
+                    _ => IconName::SquaresFour,
+                });
                 tab
             })
             .collect();

@@ -48,8 +48,10 @@
 
 use gpui::{Div, FontWeight, Pixels, Styled as _, div, px, relative};
 
+use crate::icon::IconName;
 use crate::primitives::button;
 use crate::theme::{Color, Theme};
+use gpui::ParentElement as _;
 
 /// `--spacing`, Tailwind's stock `0.25rem` at a 16px root.
 const SPACING: f32 = 4.0;
@@ -255,10 +257,28 @@ pub fn sub_action_box(theme: &Theme) -> Div {
         .text_color(theme.muted_foreground)
 }
 
-/// A `ROW_SUB_ACTION` button's own empty glyph box — the call site's own
-/// `size-3` `<svg>`, unpainted (no native equivalent; drawing a substitute
-/// would put a shape on screen for a perceptual oracle to converge on, the
-/// convention every icon in this port already follows).
+/// A `ROW_SUB_ACTION` button's glyph box, **carrying its artwork**.
+///
+/// [`sub_action_glyph`] is the same box empty, and remains for the call sites
+/// that genuinely draw nothing (an inline-create row's leading gutter). Every
+/// call site that draws an icon in the reference should use this one — an
+/// empty box of the right size is exactly the failure `crate::icon`'s own
+/// module docs describe, and it is invisible to the anchor contract.
+#[must_use]
+pub fn sub_action_icon(icon: IconName, color: Color) -> Div {
+    sub_action_glyph().child(icon.render(SUB_ACTION_GLYPH, color))
+}
+
+/// A `ROW_SUB_ACTION` button's glyph box, **empty**.
+///
+/// Kept for the call sites that genuinely draw nothing — an inline-create
+/// row's leading gutter. It used to be what *every* call site used, on the
+/// reasoning that "drawing a substitute would put a shape on screen for a
+/// perceptual oracle to converge on". That reasoning is now wrong twice over:
+/// the artwork is no longer a substitute (`native/assets/icons/` is the
+/// reference's own), and an empty box was never neutral — it is a hole the
+/// anchor contract cannot see, because it compares bounds and colour and has
+/// no field for what is inside.
 #[must_use]
 pub fn sub_action_glyph() -> Div {
     div()

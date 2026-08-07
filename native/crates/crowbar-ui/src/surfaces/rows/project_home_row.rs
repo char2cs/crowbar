@@ -105,6 +105,7 @@ use gpui::{
 
 use super::row_base;
 use crate::anchor::{AnchorId, AnchorSink};
+use crate::icon::IconName;
 use crate::primitives::button;
 use crate::surfaces::workspace::workspace_branch_icon::{self, WorkspaceBranchIcon};
 use crate::theme::{Color, Theme};
@@ -182,11 +183,8 @@ impl ProjectHomeRow {
             }
             .render(theme, anchors)
         } else {
-            div()
-                .flex_shrink_0()
-                .w(LIBRARY_GLYPH_SIZE)
-                .h(LIBRARY_GLYPH_SIZE)
-                .into_any_element()
+            // `<Library />`, `project-home-row.tsx:2`.
+            IconName::Library.render(LIBRARY_GLYPH_SIZE, theme.foreground)
         };
         anchors.boxed(AnchorId::from(ID_ICON), Self::icon_wrapper().child(inner))
     }
@@ -242,13 +240,18 @@ impl ProjectHomeRow {
     /// so the border this call site needs is added here, mirroring
     /// `Button::render`'s own `shell()`: [`button::BORDER_WIDTH`] wide,
     /// [`Color::TRANSPARENT`] (`Variant::Ghost`'s own resting colour).
-    fn sub_action(theme: &Theme, anchors: &dyn AnchorSink, id: &'static str) -> AnyElement {
+    fn sub_action(
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        id: &'static str,
+        icon: IconName,
+    ) -> AnyElement {
         anchors.boxed(
             AnchorId::from(id),
             row_base::sub_action_box(theme)
                 .border(button::BORDER_WIDTH)
                 .border_color(Color::TRANSPARENT)
-                .child(row_base::sub_action_glyph()),
+                .child(row_base::sub_action_icon(icon, theme.muted_foreground)),
         )
     }
 
@@ -288,8 +291,18 @@ impl ProjectHomeRow {
                 .w_full()
                 .child(self.icon(theme, anchors))
                 .child(self.label(theme, anchors))
-                .child(Self::sub_action(theme, anchors, ID_IMPORT))
-                .child(Self::sub_action(theme, anchors, ID_SWITCH)),
+                .child(Self::sub_action(
+                    theme,
+                    anchors,
+                    ID_IMPORT,
+                    IconName::FolderSymlink,
+                ))
+                .child(Self::sub_action(
+                    theme,
+                    anchors,
+                    ID_SWITCH,
+                    IconName::LayoutGrid,
+                )),
         )
     }
 }

@@ -74,6 +74,7 @@ use gpui::{
 };
 
 use crate::anchor::{AnchorId, AnchorSink};
+use crate::icon::IconName;
 use crate::primitives::button;
 use crate::primitives::keybinding::Platform;
 use crate::surfaces::rows::git_status_row::Breakpoint;
@@ -183,7 +184,15 @@ impl SidebarProjectHeader {
     /// and `button::BORDER_WIDTH` directly — the same numbers `Button::fixture`
     /// itself is built from, without going through `Button::render`'s own
     /// anchor machinery (see the module docs for why).
-    fn button_box(theme: &Theme, disabled: bool) -> Div {
+    /// The glyph inside a header button.
+    ///
+    /// 16px in a 28px button — the size the captured reference reports for
+    /// `sidebar-toggle-icon`, which is the one header glyph the React app
+    /// anchors and therefore the one whose size is measured rather than
+    /// inferred.
+    const GLYPH: Pixels = px(16.0);
+
+    fn button_box(theme: &Theme, disabled: bool, glyph: Option<IconName>) -> Div {
         let extent = button::Size::IconSm.extent(Breakpoint::Sm);
         let mut element = div()
             .flex_shrink_0()
@@ -194,6 +203,13 @@ impl SidebarProjectHeader {
             .border_color(Color::TRANSPARENT.value());
         if disabled {
             element = element.opacity(button::DISABLED_OPACITY);
+        }
+        if let Some(glyph) = glyph {
+            element = element
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(glyph.render(Self::GLYPH, theme.muted_foreground));
         }
         element
     }
@@ -228,15 +244,15 @@ impl SidebarProjectHeader {
             .gap(CLUSTER_GAP)
             .child(anchors.boxed(
                 AnchorId::new(self.back_id.clone()),
-                Self::button_box(theme, !self.can_go_back),
+                Self::button_box(theme, !self.can_go_back, Some(IconName::ArrowLeft)),
             ))
             .child(anchors.boxed(
                 AnchorId::new(self.forward_id.clone()),
-                Self::button_box(theme, !self.can_go_forward),
+                Self::button_box(theme, !self.can_go_forward, Some(IconName::ArrowRight)),
             ))
             .child(anchors.boxed(
                 AnchorId::new(self.settings_id.clone()),
-                Self::button_box(theme, false),
+                Self::button_box(theme, false, Some(IconName::Settings)),
             ))
             .into_any_element()
     }
@@ -255,7 +271,13 @@ impl SidebarProjectHeader {
         }
         children.push(anchors.boxed(
             AnchorId::new(self.toggle_id.clone()),
-            Self::button_box(theme, false),
+            // The panel mark is DRAWN here but deliberately NOT anchored: it
+            // is `sidebar-toggle-icon`, a separately registered surface, and
+            // `oracleSurfaceScope` keeps it out of this surface's own capture
+            // — `row_layout::sidebar_project_header` asserts exactly that.
+            // So the artwork goes in through the plain glyph slot rather than
+            // through `SidebarToggleIcon::render`, which would anchor it.
+            Self::button_box(theme, false, Some(IconName::SidebarToggle)),
         ));
         children.push(div().flex_grow_1().into_any_element());
         children.push(self.cluster(theme, anchors));

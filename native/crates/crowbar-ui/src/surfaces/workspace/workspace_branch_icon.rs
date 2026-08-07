@@ -120,6 +120,7 @@
 use gpui::{AnyElement, Div, ParentElement as _, Pixels, Styled as _, div, px};
 
 use crate::anchor::{AnchorId, AnchorSink};
+use crate::icon::IconName;
 use crate::primitives::flicker_spinner::{CallSite as SpinnerCallSite, FlickerSpinner};
 use crate::theme::{Color, Theme};
 
@@ -237,6 +238,25 @@ pub struct WorkspaceBranchIcon {
     pub is_placeholder: bool,
 }
 
+impl Glyph {
+    /// The vendored artwork this glyph draws.
+    ///
+    /// The same icon the React call site imports, so the two apps paint the
+    /// same shape rather than merely the same box — see
+    /// `native/assets/icons/PROVENANCE.md`.
+    #[must_use]
+    pub const fn icon(self) -> IconName {
+        match self {
+            Self::Lock => IconName::Lock,
+            Self::GitBranch => IconName::GitBranch,
+            Self::Warning => IconName::Warning,
+            Self::GitFork => IconName::GitFork,
+            Self::GitPullRequest => IconName::GitPullRequest,
+            Self::GitMerge => IconName::GitMerge,
+        }
+    }
+}
+
 impl WorkspaceBranchIcon {
     /// A representative cell: `new`, idle — the branch glyph, no spinner, no
     /// placeholder warning.
@@ -333,8 +353,14 @@ impl WorkspaceBranchIcon {
     /// plain div child of a div" case, not `git_status_row`'s icon.
     fn glyph_box(self, theme: &Theme) -> Div {
         let mut node = div().flex_shrink_0().w(SIZE_4).h(SIZE_4);
+        // The colour is set on the box *and* handed to the glyph: the box's
+        // `text_color` is what the reference's `text-*` class does, and the
+        // artwork paints in `currentColor`, so the two agree by construction.
         if let Some(color) = self.color(theme) {
             node = node.text_color(color);
+            if let Some(glyph) = self.glyph() {
+                node = node.child(glyph.icon().render(SIZE_4, color));
+            }
         }
         node
     }

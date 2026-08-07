@@ -71,6 +71,7 @@ use gpui::{
 
 use super::repo_icon_popover::Trigger;
 use crate::anchor::{AnchorId, AnchorSink};
+use crate::icon::IconName;
 use crate::surfaces::rows::pending_create_row::PendingCreateRow;
 use crate::surfaces::rows::row_base;
 use crate::surfaces::workspace::workspace_tree_item::WorkspaceTreeItem;
@@ -267,21 +268,33 @@ impl RepoSection {
         .my(row_base::MARGIN_Y)
         .child(self.trigger.render(theme, anchors))
         .child(self.label(theme, anchors))
+        // `<DownloadCloud />`, `repo-section.tsx:2`.
         .child(anchors.boxed(
             AnchorId::from(ID_IMPORT),
-            row_base::sub_action_box(theme).child(row_base::sub_action_glyph()),
+            row_base::sub_action_box(theme).child(row_base::sub_action_icon(
+                IconName::DownloadCloud,
+                theme.muted_foreground,
+            )),
         ));
 
         if self.has_default_workspace {
+            // The inline `ADD_GLYPH_PATH` plus.
             shell = shell.child(anchors.boxed(
                 AnchorId::from(ID_ADD_CHILD),
-                row_base::sub_action_box(theme).child(row_base::sub_action_glyph()),
+                row_base::sub_action_box(theme).child(row_base::sub_action_icon(
+                    IconName::RowAdd,
+                    theme.muted_foreground,
+                )),
             ));
         }
 
+        // The inline disclosure chevron.
         shell = shell.child(anchors.boxed(
             AnchorId::from(ID_COLLAPSE),
-            row_base::sub_action_box(theme).child(row_base::sub_action_glyph()),
+            row_base::sub_action_box(theme).child(row_base::sub_action_icon(
+                IconName::RowChevron,
+                theme.muted_foreground,
+            )),
         ));
 
         div()

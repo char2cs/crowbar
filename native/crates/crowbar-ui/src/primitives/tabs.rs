@@ -78,6 +78,7 @@ use gpui::{
 };
 
 use crate::anchor::{AnchorId, AnchorSink};
+use crate::icon::IconName;
 use crate::surfaces::rows::git_status_row::Breakpoint;
 use crate::theme::{Color, Theme};
 
@@ -447,13 +448,13 @@ pub struct Tab {
     /// this component that moves an anchored box — it decides where the indicator
     /// is.
     pub selected: bool,
-    /// Whether the call site puts a leading icon in this tab.
+    /// The leading glyph this tab draws, when the call site gives it one.
     ///
     /// An **empty box**, as on every surface so far: the icon is an SVG a call
     /// site chooses, there is no native equivalent, and drawing a substitute
     /// would put a shape on screen for the oracle to converge on. It carries no
     /// anchor, and under [`TabSizing::Fill`] it cannot move one either.
-    pub icon: bool,
+    pub icon: Option<IconName>,
     /// The call site's label span, where it renders one.
     ///
     /// `None` in the fixture, and that is the *live* picture rather than a
@@ -472,9 +473,19 @@ impl Tab {
         Self {
             value: value.into(),
             selected: false,
-            icon: true,
+            // No glyph by default. A tab that should draw one says which; the
+            // old `bool` could only say "reserve a box", which is how three
+            // sidebar tabs came to be empty squares.
+            icon: None,
             label: None,
         }
+    }
+
+    /// The same tab, drawing `icon` as its leading glyph.
+    #[must_use]
+    pub fn with_icon(mut self, icon: IconName) -> Self {
+        self.icon = Some(icon);
+        self
     }
 
     /// The same tab, selected.
@@ -566,10 +577,15 @@ impl Tabs {
             list_background: ListBackground::SidebarElementIdle,
             tab_sizing: TabSizing::Fill,
             breakpoint: Breakpoint::Sm,
+            // The live sidebar tab bar, glyphs included — every one of these
+            // draws an icon in the reference, which is what
+            // `the_fixture_is_the_live_sidebar_tab_bar` asserts.
             tabs: vec![
-                Tab::new("workspaces").selected(),
-                Tab::new("chats"),
-                Tab::new("files"),
+                Tab::new("workspaces")
+                    .with_icon(IconName::SquaresFour)
+                    .selected(),
+                Tab::new("chats").with_icon(IconName::ChatsCircle),
+                Tab::new("files").with_icon(IconName::FolderOpen),
             ],
             panel: None,
         }
@@ -679,8 +695,11 @@ impl Tabs {
     /// One `TabsTab`, plus the indicator when this is the active one.
     fn tab(&self, theme: &Theme, anchors: &dyn AnchorSink, tab: &Tab) -> AnyElement {
         let mut element = self.tab_box(theme, tab);
-        if tab.icon {
-            element = element.child(self.icon());
+        if let Some(glyph) = tab.icon {
+            element = element.child(
+                self.icon()
+                    .child(glyph.render(self.icon_size(), theme.muted_foreground)),
+            );
         }
         if let Some(label) = &tab.label {
             // **Deliberately unanchored, and not through `AnchorSink` at all.**
@@ -920,7 +939,7 @@ mod tests {
 
         // The live cell shows a leading icon and no label on every tab — the
         // sidebar's query container is 278px, under `@[280px]`.
-        assert!(tabs.tabs.iter().all(|tab| tab.icon));
+        assert!(tabs.tabs.iter().all(|tab| tab.icon.is_some()));
         assert!(tabs.tabs.iter().all(|tab| tab.label.is_none()));
 
         // At `sm:`, which is the only side of 640px a real window is on.

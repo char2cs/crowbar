@@ -84,6 +84,7 @@ use gpui::{
 
 use super::workspace_branch_icon::{self, WorkspaceBranchIcon};
 use crate::anchor::{AnchorId, AnchorSink};
+use crate::icon::IconName;
 use crate::surfaces::rows::pending_create_row::PendingCreateRow;
 use crate::surfaces::rows::row_base;
 use crate::theme::{Color, Theme};
@@ -309,14 +310,22 @@ impl WorkspaceTreeItem {
     /// instead).
     fn trailing_button(&self, theme: &Theme, anchors: &dyn AnchorSink) -> Option<AnyElement> {
         if self.has_children() {
+            // The inline disclosure chevron, `workspace-tree-item.tsx:209`.
             Some(anchors.boxed(
                 AnchorId::from(ID_EXPAND),
-                row_base::sub_action_box(theme).child(row_base::sub_action_glyph()),
+                row_base::sub_action_box(theme).child(row_base::sub_action_icon(
+                    IconName::RowChevron,
+                    theme.muted_foreground,
+                )),
             ))
         } else if !self.mode.is_creating_child() {
+            // The inline `ADD_GLYPH_PATH` plus, `workspace-tree-item.tsx:234`.
             Some(anchors.boxed(
                 AnchorId::from(ID_ADD_CHILD),
-                row_base::sub_action_box(theme).child(row_base::sub_action_glyph()),
+                row_base::sub_action_box(theme).child(row_base::sub_action_icon(
+                    IconName::RowAdd,
+                    theme.muted_foreground,
+                )),
             ))
         } else {
             None
