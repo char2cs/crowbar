@@ -10,11 +10,28 @@ publish.workspace = true
 [dependencies]
 crowbar-core.workspace = true
 crowbar-client.workspace = true
-# §4.2: `core`, `client`, `gpui`. The §12 gate for this crate is `#[gpui::test]`
-# on a seeded TestDispatcher; the `test-support` dev-dependency lands with the
-# first such test, not before — it drags in a rev-pinned `proptest` git fork
-# (vendor/PINNED.md) that nothing here needs yet.
+# §4.2: `core`, `client`, `gpui`. Note there is no `crowbar-proto` edge and no
+# `serde` edge: the DTOs arrive through `crowbar-core`'s re-export, and the
+# wire format — envelope unwrapping, frame decoding — stays in `crowbar-client`
+# where it belongs.
 gpui.workspace = true
+
+# The §12 gate for this crate is `#[gpui::test]` on a seeded TestDispatcher,
+# which landed with S1a. `test-support` is what provides it.
+#
+# `crowbar-driver` is here for `leak_checked!` alone (§4.3 rule 6: every
+# `#[gpui::test]` arms it first). That is a dev-dependency cycle — driver
+# depends on this crate — which Cargo permits precisely because a
+# dev-dependency is not part of the published graph. The alternative, copying
+# the macro, would mean two leak detectors that can drift apart.
+[dev-dependencies]
+crowbar-driver.workspace = true
+# The dual-serving fake daemon in `sync`'s tests: it answers a plain GET on a
+# path and upgrades the SAME path to a WebSocket, which is the one behaviour
+# the sync engine is built around and the one a hand-written stub cannot fake.
+# Dev-only, like `crowbar-driver` above.
+tungstenite.workspace = true
+gpui = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

@@ -21,6 +21,17 @@
 //! here appears to need `gpui`, it is not logic — split the rendering half out
 //! into `crowbar-ui` or `crowbar-state` and leave the decision here.
 
+/// The wire DTOs, re-exported.
+///
+/// §4.2 gives `crowbar-state` an edge to this crate and to `crowbar-client`,
+/// but **not** to `crowbar-proto` — and every store above this layer holds
+/// daemon records. Rather than widen that row of the table, the types arrive
+/// through the crate that already owns the domain meaning attached to them,
+/// which is the same shape `crowbar-ui` uses to hand `gpui` to the leaf view
+/// crates: one re-export in the layer that owns the concept, instead of one
+/// manifest edge per consumer.
+pub use crowbar_proto as proto;
+
 pub mod color;
 pub mod file_tree;
 pub mod git;

@@ -3,7 +3,8 @@
 //! `crowbar-state` — `Entity<T>` stores, the event graph and subscription
 //! wiring.
 //!
-//! Scaffold only (item 0.1). Awaiting the vendored `gpui` from item 0.2.
+//! First code landed with S1a: [`sidebar::SidebarStore`], the entity the
+//! sidebar renders from, and the stream wiring that feeds it.
 //!
 //! Dependency contract (§4.2): `crowbar-core`, `crowbar-client`, plus `gpui`
 //! when it lands.
@@ -11,3 +12,9 @@
 //! §7.1: domain state lives in `crowbar-core` as plain Rust. This crate holds
 //! the `Entity<T>` wrapper and the subscription graph, nothing more. If a
 //! store's logic can be tested without `gpui`, it belongs in `core` (D2).
+
+pub mod sidebar;
+pub mod sync;
+
+pub use sidebar::{Connection, Decoded, SidebarStore};
+pub use sync::DaemonSync;

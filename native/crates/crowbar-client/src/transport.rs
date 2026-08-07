@@ -121,6 +121,76 @@ pub fn get(socket: &Path, path: &str, timeout: Duration) -> Result<RawResponse, 
     Ok(RawResponse { status, body })
 }
 
+/// The daemon's uniform response envelope, `{"success":…,"data":…}`.
+///
+/// A second copy of the shape [`crate::health`] decodes, and duplicated for
+/// the same reason that module gives for `UNIX_AUTHORITY`: sharing one
+/// four-line private type would mean one of the two modules importing the
+/// other for it.
+#[derive(serde::Deserialize)]
+struct Envelope<T> {
+    success: bool,
+    data: T,
+}
+
+/// Why a typed GET did not produce a value.
+#[derive(Debug)]
+pub enum ListError {
+    /// The request itself failed. The daemon may simply be down.
+    Transport(TransportError),
+    /// The daemon answered with a non-2xx status.
+    Status(u16),
+    /// The daemon answered `{"success": false}`.
+    Unsuccessful,
+    /// The body did not decode into the expected shape — a DTO skew between
+    /// this build and the daemon's, which is a real state during development
+    /// and not a panic.
+    Decode(serde_json::Error),
+}
+
+impl fmt::Display for ListError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Transport(err) => write!(f, "{err}"),
+            Self::Status(status) => write!(f, "the daemon answered {status}"),
+            Self::Unsuccessful => write!(f, "the daemon reported the request unsuccessful"),
+            Self::Decode(err) => write!(f, "the daemon's response did not decode: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for ListError {}
+
+/// `GET {path}`, decoding the envelope's `data` into `T`.
+///
+/// This is the **seed** half of a subscription: the daemon dual-serves every
+/// entity path, so a caller seeds with this and streams the same path with
+/// [`crate::stream::Subscription`]. Decoding lives here rather than above
+/// because §4.2 gives `crowbar-state` no edge to `serde` or to
+/// `crowbar-proto`, and the envelope is a property of the transport in any
+/// case.
+///
+/// # Errors
+///
+/// [`ListError`] — the daemon may be down, refuse, or answer with a shape this
+/// build does not recognise. None of those is a fault of the caller.
+pub fn get_json<T: serde::de::DeserializeOwned>(
+    socket: &Path,
+    path: &str,
+    timeout: Duration,
+) -> Result<T, ListError> {
+    let response = get(socket, path, timeout).map_err(ListError::Transport)?;
+    if !response.is_success() {
+        return Err(ListError::Status(response.status));
+    }
+    let envelope: Envelope<T> =
+        serde_json::from_slice(&response.body).map_err(ListError::Decode)?;
+    if !envelope.success {
+        return Err(ListError::Unsuccessful);
+    }
+    Ok(envelope.data)
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::{BufRead as _, BufReader, Write as _};
@@ -138,14 +208,14 @@ mod tests {
     /// A unix socket in a fresh temp directory, serving exactly one canned
     /// HTTP/1.1 response — [`crate::health`]'s own `OneShot` fixture, copied
     /// rather than shared across a `#[cfg(test)]` boundary between modules.
-    struct OneShot {
+    pub(super) struct OneShot {
         dir: PathBuf,
-        socket: PathBuf,
+        pub(super) socket: PathBuf,
         server: Option<JoinHandle<()>>,
     }
 
     impl OneShot {
-        fn serving(response: String) -> Self {
+        pub(super) fn serving(response: String) -> Self {
             let dir = std::env::temp_dir().join(format!(
                 "crowbar-transport-{}-{:?}",
                 std::process::id(),
@@ -237,5 +307,77 @@ mod tests {
 
         assert!(err.to_string().starts_with("could not reach the daemon"));
         assert!(std::error::Error::source(&err).is_some());
+    }
+}
+
+#[cfg(test)]
+mod json_tests {
+    use std::time::Duration;
+
+    use super::{ListError, get_json};
+
+    const TEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+    #[derive(Debug, PartialEq, serde::Deserialize)]
+    struct Row {
+        id: String,
+    }
+
+    fn envelope(body: &str) -> String {
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len(),
+        )
+    }
+
+    #[test]
+    fn a_list_comes_back_out_of_the_envelope() {
+        let server = super::tests::OneShot::serving(envelope(
+            r#"{"success":true,"data":[{"id":"a"},{"id":"b"}]}"#,
+        ));
+
+        let rows: Vec<Row> =
+            get_json(&server.socket, "/v0/projects", TEST_TIMEOUT).expect("served");
+
+        assert_eq!(rows, vec![Row { id: "a".into() }, Row { id: "b".into() }]);
+    }
+
+    #[test]
+    fn an_unsuccessful_envelope_is_an_error_even_at_200() {
+        let server = super::tests::OneShot::serving(envelope(r#"{"success":false,"data":[]}"#));
+        let result: Result<Vec<Row>, _> = get_json(&server.socket, "/v0/projects", TEST_TIMEOUT);
+        assert!(matches!(result, Err(ListError::Unsuccessful)));
+    }
+
+    #[test]
+    fn a_non_success_status_is_reported_with_its_code() {
+        let server = super::tests::OneShot::serving(
+            "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                .to_string(),
+        );
+        let result: Result<Vec<Row>, _> = get_json(&server.socket, "/v0/projects", TEST_TIMEOUT);
+        assert!(matches!(result, Err(ListError::Status(503))));
+    }
+
+    /// A DTO skew between this build and the daemon's is a real development
+    /// state, so it decodes to an error rather than a panic.
+    #[test]
+    fn a_shape_skew_is_a_decode_error() {
+        let server = super::tests::OneShot::serving(envelope(r#"{"success":true,"data":"nope"}"#));
+        let result: Result<Vec<Row>, _> = get_json(&server.socket, "/v0/projects", TEST_TIMEOUT);
+        assert!(matches!(result, Err(ListError::Decode(_))));
+        let Err(err) = result else { unreachable!() };
+        assert!(
+            err.to_string()
+                .starts_with("the daemon's response did not decode")
+        );
+    }
+
+    #[test]
+    fn a_dead_socket_is_a_transport_error() {
+        let missing = std::env::temp_dir().join("crowbar-getjson-nothing-here.sock");
+        let _ = std::fs::remove_file(&missing);
+        let result: Result<Vec<Row>, _> = get_json(&missing, "/v0/projects", TEST_TIMEOUT);
+        assert!(matches!(result, Err(ListError::Transport(_))));
     }
 }

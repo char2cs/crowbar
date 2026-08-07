@@ -262,6 +262,22 @@ fn run(socket: &Path, path: &str, tx: &async_channel::Sender<Frame>, control: &A
     }
 }
 
+/// Decode one [`Frame::Data`] payload into the DTO its path carries.
+///
+/// Lives here, not above, because §4.2 gives `crowbar-state` no edge to
+/// `serde` and the wire format is this crate's concern in any case — the same
+/// reason [`crate::transport::get_json`] unwraps the envelope here.
+///
+/// A record that does not decode yields `None` rather than an error. The
+/// React stream does the same — it checks `typeof frame.id !== 'string'` and
+/// ignores anything that fails — and the reasoning holds: one malformed
+/// record, or one field this build does not know yet, must not take down a
+/// live subscription carrying every other row.
+#[must_use]
+pub fn decode_frame<T: serde::de::DeserializeOwned>(raw: &str) -> Option<T> {
+    serde_json::from_str(raw).ok()
+}
+
 /// The delay after `delay`: doubled, saturating at [`BACKOFF_MAX`].
 ///
 /// Extracted so the schedule can be asserted without a test that waits for

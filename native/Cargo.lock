@@ -1411,7 +1411,9 @@ version = "0.1.0"
 dependencies = [
  "crowbar-client",
  "crowbar-core",
+ "crowbar-driver",
  "gpui",
+ "tungstenite",
 ]
 
 [[package]]
