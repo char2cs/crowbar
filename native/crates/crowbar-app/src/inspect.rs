@@ -32,7 +32,7 @@
 
 use std::rc::Rc;
 
-use crowbar_driver::{Observation, RawAnchor};
+use crowbar_driver::{Observation, Paint, RawAnchor, hex};
 use crowbar_ui::AnchorSink;
 use gpui::App;
 
@@ -67,6 +67,28 @@ pub struct Element {
     pub visible: bool,
     /// The string it paints, when it paints one.
     pub text: Option<String>,
+    /// Its own background fill, in the contract's `#rrggbbaa` spelling.
+    /// `null` where gpui would paint no background at all — which is
+    /// different from painting transparent, and the difference is exactly the
+    /// kind of thing a styling bug hides in.
+    pub bg: Option<String>,
+    /// Corner radius, logical pixels.
+    pub radius: f32,
+    /// Border width, logical pixels.
+    pub border_w: f32,
+    /// Border colour, or `null` where gpui would paint no border.
+    pub border_color: Option<String>,
+    /// The colour the text is painted in.
+    pub text_color: Option<String>,
+    /// Font size, weight, family and line height — the four things a "the
+    /// styling is wrong" report needs and geometry alone cannot answer.
+    pub font_size: Option<f32>,
+    /// Font weight.
+    pub font_weight: Option<f32>,
+    /// Font family, as resolved.
+    pub font_family: Option<String>,
+    /// Line height, logical pixels.
+    pub line_height: Option<f32>,
 }
 
 impl Element {
@@ -79,6 +101,25 @@ impl Element {
             h: f32::from(record.bounds.size.height),
             visible: record.visible,
             text: record.text.as_ref().map(|text| text.content.to_string()),
+            bg: match record.background {
+                Paint::Solid(color) => Some(hex(color)),
+                Paint::None => None,
+                Paint::Unrepresentable => Some("unrepresentable".to_owned()),
+            },
+            radius: f32::from(record.radius),
+            border_w: f32::from(record.border_width),
+            border_color: record.border_color.map(hex),
+            text_color: record.text.as_ref().map(|text| hex(text.color)),
+            font_size: record.text.as_ref().map(|text| f32::from(text.font.size)),
+            font_weight: record.text.as_ref().map(|text| text.font.weight),
+            font_family: record
+                .text
+                .as_ref()
+                .map(|text| text.font.family.to_string()),
+            line_height: record
+                .text
+                .as_ref()
+                .map(|text| f32::from(text.font.line_height)),
         }
     }
 }

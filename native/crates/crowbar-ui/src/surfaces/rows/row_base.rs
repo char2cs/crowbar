@@ -288,7 +288,26 @@ pub fn label_container(color: Color) -> Div {
     div()
         .min_w(px(0.0))
         .flex_1()
-        .overflow_hidden()
+        // `truncate`, not `overflow-hidden` alone. All three consumers carry
+        // Tailwind's `truncate` — `workspace-tree-item.tsx:157`,
+        // `project-home-row.tsx:83`, `repo-section.tsx:167`, each
+        // `min-w-0 flex-1 truncate` — and `truncate` is *three* declarations:
+        // `overflow: hidden`, `white-space: nowrap` and
+        // `text-overflow: ellipsis`. Only the first was modelled, so a name
+        // wider than its slot **wrapped** instead of being cut.
+        //
+        // Measured in the running app before this line existed:
+        // `feature/better-workspace-sidebar` laid out at h=58.5 — three line
+        // boxes — inside a row whose authored height is 36, and
+        // `enhancement/masive-deps-update` at h=39. Two rows overflowed their
+        // own box and the tree below them was pushed down.
+        //
+        // The oracle could not have caught it. Its reference workspace's
+        // branch names all fit, so no capture ever reached the overflow path
+        // — the same shape as the `button` finding (nine icon-only buttons,
+        // whole content-sized path untested by construction). It took reading
+        // the geometry back out of the live app.
+        .truncate()
         .text_size(TEXT)
         .line_height(relative(LINE_HEIGHT_RELATIVE))
         .font_weight(FontWeight::MEDIUM)

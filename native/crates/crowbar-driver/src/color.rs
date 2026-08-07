@@ -17,7 +17,11 @@ use crowbar_ui::gpui::{Hsla, Rgba};
 pub(crate) const TRANSPARENT: &str = "#00000000";
 
 /// Formats a gpui colour as the contract's `#rrggbbaa` sRGB hex string.
-pub(crate) fn hex(color: Hsla) -> String {
+/// Public since S1a: `crowbar-app`'s `--inspect` reports colours too, and it
+/// has to spell them the way a snapshot does or a report cannot be compared
+/// against one.
+#[must_use]
+pub fn hex(color: Hsla) -> String {
     let rgba = Rgba::from(color);
     format!(
         "#{:02x}{:02x}{:02x}{:02x}",

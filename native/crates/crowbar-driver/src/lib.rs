@@ -147,6 +147,7 @@ mod leak;
 mod record;
 mod schema;
 
+pub use color::hex;
 pub use element::{
     AnchorRegistry, AnchoredBox, AnchoredText, Declared, anchor, anchor_declared, anchor_root,
     anchor_root_declared, anchor_text, anchor_text_declared, install, registry,
