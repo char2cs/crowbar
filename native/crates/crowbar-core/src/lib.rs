@@ -11,7 +11,9 @@
 //! doc for what was ported and what wasn't, including the settings/file-tree
 //! `FileTreeDensity` reconciliation `settings`'s own doc had flagged.
 //! [`review`] is the sixth — see its module doc for what was ported and what
-//! wasn't.
+//! wasn't. [`sidebar`] is the seventh, and the first added by a *slice*
+//! rather than by the retired component-parity method: it holds everything
+//! the sidebar decides without a window (Slice 1a).
 //!
 //! Dependency contract (§4.2): `crowbar-proto`, `crowbar-client`.
 //!
@@ -25,6 +27,7 @@ pub mod git;
 pub mod keymap;
 pub mod review;
 pub mod settings;
+pub mod sidebar;
 pub mod workspace;
 
 #[cfg(test)]
