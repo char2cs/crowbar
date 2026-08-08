@@ -709,9 +709,21 @@ impl Tabs {
             element = element.child(anchors.boxed(ID_INDICATOR.into(), self.indicator(theme)));
         }
         if let Some(glyph) = tab.icon {
+            // **The glyph follows the tab's own colour, not the list's.**
+            //
+            // In the source the svg has no colour of its own: it inherits
+            // `currentColor`, so `data-active:text-foreground` moves the glyph
+            // and the label together. Here the icon takes an explicit colour,
+            // and this passed `theme.muted_foreground` unconditionally — so
+            // the active tab's glyph painted `rgb(164, 164, 164)` where the
+            // live window paints `rgb(245, 245, 245)`, a third of the way to
+            // the background on the one tab that is supposed to be brightest.
+            //
+            // The text branch below already had the rule right; only the glyph
+            // was missing it. Both now read the same source of truth.
             element = element.child(
                 self.icon()
-                    .child(glyph.render(self.icon_size(), theme.muted_foreground)),
+                    .child(glyph.render(self.icon_size(), self.glyph_color(theme, tab))),
             );
         }
         if let Some(label) = &tab.label {
@@ -767,6 +779,20 @@ impl Tabs {
             element.text_color(theme.foreground)
         } else {
             element
+        }
+    }
+
+    /// What a tab paints its glyph and its label in.
+    ///
+    /// One function because the source has one rule: the svg inherits
+    /// `currentColor`, so whatever `data-active:text-foreground` does to the
+    /// label it does to the glyph. Spelling it twice is how they drifted.
+    #[must_use]
+    fn glyph_color(&self, theme: &Theme, tab: &Tab) -> Color {
+        if tab.selected {
+            theme.foreground
+        } else {
+            self.list_background.foreground(theme)
         }
     }
 
