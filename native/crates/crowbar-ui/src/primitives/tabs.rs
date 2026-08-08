@@ -73,8 +73,8 @@
 //! indicator is an `Option`: no active tab, no element.
 
 use gpui::{
-    AnyElement, Div, FontWeight, Length, ParentElement as _, Pixels, SharedString, Styled as _,
-    div, px, relative,
+    AnyElement, Div, FontWeight, InteractiveElement as _, Length, ParentElement as _, Pixels,
+    SharedString, Styled as _, div, px, relative,
 };
 
 use crate::anchor::{AnchorId, AnchorSink};
@@ -754,6 +754,9 @@ impl Tabs {
             .border_color(Color::TRANSPARENT.value())
             .px(TAB_PADDING_X)
             .font_weight(FontWeight::MEDIUM)
+            // `hover:text-muted-foreground` — on every tab, active included.
+            .hover(|style| style.text_color(theme.muted_foreground))
+            .cursor_pointer()
             .text_size(self.text_size(theme));
         let element = match self.tab_sizing {
             // `flex: 1` — `flex-grow: 1; flex-shrink: 1; flex-basis: 0%`.

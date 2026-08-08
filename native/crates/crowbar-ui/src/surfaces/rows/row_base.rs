@@ -46,7 +46,7 @@
 //! resting picture only; each surface's own `unmodelled` list is where that
 //! is formally declared.
 
-use gpui::{Div, FontWeight, Pixels, Styled as _, div, px, relative};
+use gpui::{Div, FontWeight, InteractiveElement as _, Pixels, Styled as _, div, px, relative};
 
 use crate::icon::IconName;
 use crate::primitives::button;
@@ -181,15 +181,22 @@ pub fn active(theme: &Theme) -> Div {
 }
 
 /// `ROW_INACTIVE`: `border-transparent text-foreground hover:bg-accent`.
-/// The hover rule is not modelled — see the module docs. Resting: no
-/// background at all (there is no un-prefixed `bg-*` in this class), a
-/// transparent but still one-pixel-wide border (`button.rs`'s own
+///
+/// Resting: no background at all (there is no un-prefixed `bg-*` in this
+/// class), a transparent but still one-pixel-wide border (`button.rs`'s own
 /// `border-transparent` finding), `theme.foreground` text.
+///
+/// The hover rule **is** modelled now. It used not to be, on the grounds that
+/// the anchor contract captures one resting state and a hover cannot appear in
+/// it — but a row that never lights up under the pointer is a row the app
+/// visibly does not have, and gpui carries the rule on a plain `Div` with no
+/// element id and no change to the tree.
 #[must_use]
 pub fn inactive(theme: &Theme) -> Div {
     base(theme)
         .border_color(Color::TRANSPARENT)
         .text_color(theme.foreground)
+        .hover(|style| style.bg(theme.accent))
 }
 
 /// One `ROW_SUB_ACTION` button, as this item's two call sites override it:
@@ -262,6 +269,15 @@ pub fn sub_action_box(theme: &Theme) -> Div {
         .h(SUB_ACTION_SIZE)
         .rounded(button::RadiusClass::Lg.value(theme))
         .text_color(theme.muted_foreground)
+        // `hover:bg-sidebar-element-hover hover:text-foreground`. The glyph
+        // takes its colour explicitly rather than inheriting, so the hover
+        // colour has to reach it too — see `sub_action_icon`.
+        .hover(|style| {
+            style
+                .bg(theme.sidebar_element_hover)
+                .text_color(theme.foreground)
+        })
+        .cursor_pointer()
 }
 
 /// A `ROW_SUB_ACTION` button's glyph box, **carrying its artwork**.

@@ -74,8 +74,8 @@
 //! their side, and the opposite of `sidebar-project-header`'s toggle icon.
 
 use gpui::{
-    AnyElement, Div, FontWeight, IntoElement as _, ParentElement as _, Pixels, SharedString,
-    Styled as _, div, px, relative,
+    AnyElement, Div, FontWeight, InteractiveElement as _, IntoElement as _, ParentElement as _,
+    Pixels, SharedString, Styled as _, div, px, relative,
 };
 
 use crate::anchor::{AnchorId, AnchorSink};
@@ -309,6 +309,9 @@ impl ContextPill {
             .gap(TRIGGER_GAP)
             .rounded(theme.radius_lg.value())
             .bg(theme.sidebar_element_idle)
+            // `hover:bg-sidebar-element-hover`, and `data-pressed:bg-accent`.
+            .hover(|style| style.bg(theme.sidebar_element_hover))
+            .cursor_pointer()
             .px(TRIGGER_PADDING_X)
             .py(TRIGGER_PADDING_Y)
             .border(button::BORDER_WIDTH)
