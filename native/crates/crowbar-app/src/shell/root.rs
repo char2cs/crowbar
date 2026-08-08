@@ -41,7 +41,17 @@ impl Render for Shell {
         let open = panel.is_open();
         let width = panel.preferred_width();
 
-        let mut row = div().flex().size_full();
+        // `body { @apply bg-chrome-bg }` — `web/src/index.css:54`.
+        //
+        // **The tint.** `--chrome-bg` is
+        // `color-mix(in oklch, var(--color-neutral-800) 65%, transparent)`,
+        // i.e. neutral-800 at 65% over whatever is behind the window — the
+        // vibrancy. The app painted nothing at all here, so the frost came
+        // through raw and every surface above it sat on the wrong ground.
+        // Every colour in the sidebar is composited against this; without it
+        // the whole picture reads as a different theme, which is exactly what
+        // it looked like.
+        let mut row = div().flex().size_full().bg(theme.chrome_bg);
 
         // Hidden is rendered as zero width rather than as an absent child:
         // `SidebarPeek` is a wrapper and not a branch in the reference, so

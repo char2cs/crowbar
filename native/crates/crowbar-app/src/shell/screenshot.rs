@@ -31,9 +31,48 @@ use std::sync::Arc;
 use crowbar_core::proto::api_v0_dto::{ProjectDTO, RepoDTO, WorkspaceDTO};
 use crowbar_core::sidebar::cache::{Scope, Seed};
 use crowbar_state::SidebarStore;
-use crowbar_ui::gpui::{HeadlessAppContext, Pixels, size};
+use crowbar_ui::gpui::{AppContext as _, HeadlessAppContext, Pixels, size};
 
-use super::Sidebar;
+use super::{Shell, Sidebar};
+
+/// The desktop, stood in for.
+///
+/// The real window is transparent and its ground is the desktop seen through
+/// vibrancy. A headless render has no desktop, and gpui's headless renderer
+/// clears **opaque**, so there is no alpha to composite against afterwards
+/// either — everything the app paints semi-transparently would land on black
+/// and the whole image would read ~14 levels too dark.
+///
+/// L ≈ 0.16 in sRGB, derived rather than chosen: the Tauri app's own capture
+/// reads `#272727` on bare sidebar ground, and `chrome_bg` is L 0.149 at
+/// α 0.65, so whatever shows through the remaining 35% must be
+/// `(0.153 - 0.149 * 0.65) / 0.35 ≈ 0.16`.
+struct Backdrop {
+    shell: crowbar_ui::gpui::Entity<Shell>,
+}
+
+impl crowbar_ui::gpui::Render for Backdrop {
+    fn render(
+        &mut self,
+        _window: &mut crowbar_ui::gpui::Window,
+        _cx: &mut crowbar_ui::gpui::Context<Self>,
+    ) -> impl crowbar_ui::gpui::IntoElement {
+        use crowbar_ui::gpui::{ParentElement as _, Styled as _, div};
+        use crowbar_ui::theme::Color;
+
+        // Derived from a token, not written as a literal — §4.3 rule 3, and
+        // the check script is right to insist: a colour literal at a call
+        // site is the one bypass a sealed newtype cannot catch.
+        //
+        // 16% white over black is L 0.16, which is what the arithmetic above
+        // says must be behind `chrome_bg` for the composite to read `#272727`
+        // as the Tauri app's own capture does.
+        div()
+            .size_full()
+            .bg(Color::BLACK.mix(84.0, Color::WHITE).value())
+            .child(self.shell.clone())
+    }
+}
 
 /// Render the sidebar at `width` x `height` and write it to `out`.
 ///
@@ -70,9 +109,23 @@ pub fn render_sidebar_png(
 
     let window = cx
         .open_window(size(width, height), |_window, cx| {
+            // The whole **Shell**, not the sidebar alone. The shell is what
+            // paints `chrome_bg` — the app's tint — and a picture of the
+            // sidebar without it is a picture of the wrong ground, which is
+            // how this instrument managed to look right while the app did
+            // not.
+            //
             // `Unanchored`, exactly as the shipping window uses: the image
             // has to be of the tree that ships, not of an instrumented one.
-            Sidebar::build(&store, std::rc::Rc::new(crowbar_ui::Unanchored), cx)
+            let anchors = std::rc::Rc::new(crowbar_ui::Unanchored);
+            let sidebar = Sidebar::build(&store, anchors.clone(), cx);
+            let shell = cx.new(|_| Shell {
+                sidebar,
+                caption: "".into(),
+                store: store.clone(),
+                anchors,
+            });
+            cx.new(|_| Backdrop { shell })
         })
         .expect("a headless window opens");
 
@@ -81,6 +134,20 @@ pub fn render_sidebar_png(
     let image = cx
         .capture_screenshot(window.into())
         .expect("the headless renderer produced a frame");
+
+    // Composited over a backdrop before it is written.
+    //
+    // The window is transparent and its frost is the *desktop* seen through
+    // vibrancy — which a headless render has none of, so everything the app
+    // paints semi-transparently lands on black and the whole picture reads
+    // ~14 levels too dark. Measured against the Tauri app's own capture:
+    // every region differed by exactly the ground's difference and no more,
+    // and the one opaque element (the active project row) matched outright.
+    //
+    // So the difference was the missing desktop, not the painting. This
+    // composites over a neutral stand-in for it, which is what makes the
+    // image comparable to a capture of the real window — and what makes it a
+    // fair picture of the app rather than a flattering or a damning one.
     image.save(out).expect("the png is written");
 }
 
