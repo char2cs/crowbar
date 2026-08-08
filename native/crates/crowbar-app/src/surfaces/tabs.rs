@@ -163,6 +163,9 @@ impl Params {
             .collect();
 
         Tabs {
+            // A capture surface renders one resting frame; a slide has no
+            // meaning in it and would make the cell non-deterministic.
+            slide_from: None,
             orientation: self.orientation,
             variant: self.variant,
             list_background: self.list_background,

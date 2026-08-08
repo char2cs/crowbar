@@ -57,6 +57,23 @@ pub struct Sidebar {
     /// measured is not the thing shipped, which is the whole failure mode
     /// `crowbar_ui::anchor` exists to prevent.
     anchors: Rc<dyn AnchorSink>,
+    /// The tab this view rendered last, and the transition it is playing.
+    ///
+    /// The indicator's slide is a *transition*, so it needs the tab it comes
+    /// **from**; the store only holds the one it is going to. Kept here rather
+    /// than in the store because it belongs to this view's last paint, not to
+    /// the app — two views on one store animate their own indicators.
+    ///
+    /// Two cells, not one, and that distinction is the whole bug this fixed:
+    /// a transition computed as "did the tab change since the previous render"
+    /// is true for exactly **one** render and `None` on the next, so the
+    /// animated element vanished a frame after it appeared and the indicator
+    /// jumped. `slide` therefore holds the transition until the destination
+    /// changes again. Re-rendering with the same value is free: gpui keys the
+    /// animation by element id and keeps its own start time, so a one-shot
+    /// runs once and rests at its end state.
+    last_active_tab: std::cell::Cell<Option<Tab>>,
+    slide: std::cell::Cell<Option<(Tab, Tab)>>,
 }
 
 impl Sidebar {
@@ -76,6 +93,8 @@ impl Sidebar {
                 store,
                 theme: Theme::DARK,
                 anchors,
+                last_active_tab: std::cell::Cell::new(None),
+                slide: std::cell::Cell::new(None),
             }
         })
     }
@@ -199,8 +218,30 @@ impl Render for Sidebar {
             settings_id: "sidebar-project-header-settings".into(),
         };
 
+        // How far the indicator has to travel, in whole tabs, and in which
+        // direction. `None` on the first paint and whenever the tab has not
+        // changed — an indicator that slides in from nowhere on first paint is
+        // not what the reference does.
+        let active_tab = store.active_tab();
+        if let Some(last) = self.last_active_tab.replace(Some(active_tab))
+            && last != active_tab
+        {
+            self.slide.set(Some((last, active_tab)));
+        }
+        let slide_from = self
+            .slide
+            .get()
+            .filter(|(_, destination)| *destination == active_tab)
+            .map(|(from, to)| {
+                let travel = i32::try_from(from.index()).unwrap_or(0)
+                    - i32::try_from(to.index()).unwrap_or(0);
+                // `i16` -> `f32` is exact, and a tab count never leaves it.
+                f32::from(i16::try_from(travel).unwrap_or(0))
+            });
+
         let tab_bar = SidebarTabBar {
-            active: store.active_tab().as_str().into(),
+            slide_from,
+            active: active_tab.as_str().into(),
             // `visibleTabs = isHomeRoute ? TABS.filter(t => t.tab !== 'git') :
             // TABS` — the git tab is hidden on the project-home route, and
             // this is **geometry**, not decoration: three tabs against four

@@ -441,6 +441,126 @@ mod tests {
     /// ```sh
     /// cargo test -p crowbar-app clicking_a_tab -- --ignored --test-threads=1 --nocapture
     /// ```
+    /// **Does the indicator slide, or jump?**
+    ///
+    /// Presses the Chats tab, then advances the clock through the 200ms
+    /// transition, reading the indicator's left edge out of each frame. A jump
+    /// shows two positions; a slide shows a monotone sweep between them.
+    ///
+    /// ```sh
+    /// cargo test -p crowbar-app the_indicator_slides -- --ignored --test-threads=1 --nocapture
+    /// ```
+    #[test]
+    #[ignore = "drives Metal, which is main-thread only"]
+    fn the_indicator_slides_between_tabs_rather_than_jumping() {
+        use super::{Backdrop, Shell, Sidebar, SidebarStore};
+        use crowbar_ui::gpui::{
+            AppContext as _, HeadlessAppContext, Modifiers, MouseButton, MouseDownEvent,
+            MouseUpEvent, PlatformInput, point, px, size,
+        };
+
+        let platform = gpui_platform::current_platform(true);
+        let mut cx = HeadlessAppContext::with_platform(
+            platform.text_system(),
+            std::sync::Arc::new(crate::Assets),
+            gpui_platform::current_headless_renderer,
+        );
+        cx.update(|cx| {
+            crate::load_ui_font(cx);
+            crate::load_ui_mono_font(cx);
+            gpui_component::init(cx);
+        });
+        let store = cx.update(|cx| {
+            let store = SidebarStore::build(cx, None, None, None);
+            store.update(cx, |store, cx| fixture_seed()(store, cx));
+            store
+        });
+        let window = cx
+            .open_window(size(px(294.0), px(400.0)), |_window, cx| {
+                let anchors = std::rc::Rc::new(crowbar_ui::Unanchored);
+                let sidebar = Sidebar::build(&store, anchors.clone(), cx);
+                let shell = cx.new(|_| Shell {
+                    sidebar,
+                    caption: "".into(),
+                    store: store.clone(),
+                    anchors,
+                });
+                cx.new(|_| Backdrop { shell })
+            })
+            .expect("a headless window opens");
+        cx.run_until_parked();
+
+        // The indicator is the one opaque dark box on the tab strip: find its
+        // left edge by scanning the strip's middle row for `rgb(31, 31, 30)`.
+        let indicator_left = |image: &image::RgbaImage| -> Option<u32> {
+            let scale = image.width() / 294;
+            let row = 119 * scale;
+            (0..image.width())
+                .find(|x| {
+                    let pixel = image.get_pixel(*x, row).0;
+                    pixel[0] == 31 && pixel[1] == 31 && pixel[2] == 30
+                })
+                .map(|x| x / scale)
+        };
+
+        let resting = cx
+            .capture_screenshot(window.into())
+            .expect("a resting frame");
+        let start = indicator_left(&resting);
+
+        let target = point(px(147.0), px(119.0));
+        cx.update_window(window.into(), |_view, window, cx| {
+            window.simulate_mouse_move(target, cx);
+            let _ = window.draw(cx);
+            window.dispatch_event(
+                PlatformInput::MouseDown(MouseDownEvent {
+                    button: MouseButton::Left,
+                    position: target,
+                    modifiers: Modifiers::default(),
+                    click_count: 1,
+                    first_mouse: false,
+                }),
+                cx,
+            );
+            window.dispatch_event(
+                PlatformInput::MouseUp(MouseUpEvent {
+                    button: MouseButton::Left,
+                    position: target,
+                    modifiers: Modifiers::default(),
+                    click_count: 1,
+                }),
+                cx,
+            );
+        })
+        .expect("the press is delivered");
+        cx.run_until_parked();
+
+        let mut positions = Vec::new();
+        for step in 0..8 {
+            cx.update_window(window.into(), |_view, window, cx| {
+                let _ = window.draw(cx);
+            })
+            .expect("a frame");
+            cx.advance_clock(std::time::Duration::from_millis(25));
+            cx.run_until_parked();
+            let frame = cx.capture_screenshot(window.into()).expect("a frame");
+            let left = indicator_left(&frame);
+            println!("  t={:>3}ms  indicator left = {left:?}", step * 25);
+            if let Some(left) = left {
+                positions.push(left);
+            }
+        }
+
+        println!("resting left = {start:?}, sweep = {positions:?}");
+        let distinct: std::collections::BTreeSet<u32> = positions.iter().copied().collect();
+        assert!(
+            distinct.len() > 2,
+            "the indicator occupied only {} position(s) across the transition — it is \
+             jumping, not sliding: {positions:?}",
+            distinct.len()
+        );
+    }
+
     #[test]
     #[ignore = "drives Metal, which is main-thread only"]
     fn clicking_a_tab_moves_the_active_tab() {

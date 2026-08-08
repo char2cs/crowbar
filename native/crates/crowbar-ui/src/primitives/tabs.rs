@@ -72,6 +72,9 @@
 //! before layout settles reports `visible: false` on the React side. Here the
 //! indicator is an `Option`: no active tab, no element.
 
+use std::time::Duration;
+
+use gpui::{Animation, AnimationExt as _, ElementId, IntoElement as _};
 use gpui::{
     AnyElement, Div, FontWeight, InteractiveElement as _, Length, ParentElement as _, Pixels,
     SharedString, Styled as _, div, px, relative,
@@ -436,6 +439,50 @@ impl TabSizing {
     }
 }
 
+/// How long the indicator takes to slide between tabs.
+///
+/// `transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1), translate 0.2s
+/// cubic-bezier(0.4, 0, 0.2, 1)`, read off the live window's own
+/// `tab-indicator`.
+pub const INDICATOR_SLIDE: Duration = Duration::from_millis(200);
+
+/// `cubic-bezier(0.4, 0, 0.2, 1)` — the standard-easing curve the whole app
+/// animates on.
+///
+/// Solved rather than approximated: a cubic Bezier's `x(t)` is not `t`, so
+/// easing a value by feeding it straight into `y(t)` is a different curve.
+/// Newton on `x(t) = progress` converges in a handful of steps over `[0, 1]`,
+/// and the endpoints are exact by construction.
+#[must_use]
+pub fn standard_easing(progress: f32) -> f32 {
+    const X1: f32 = 0.4;
+    const Y1: f32 = 0.0;
+    const X2: f32 = 0.2;
+    const Y2: f32 = 1.0;
+
+    let bezier = |a: f32, b: f32, t: f32| {
+        let inv = 1.0 - t;
+        3.0 * inv * inv * t * a + 3.0 * inv * t * t * b + t * t * t
+    };
+    let slope = |a: f32, b: f32, t: f32| {
+        let inv = 1.0 - t;
+        3.0 * inv * inv * a + 6.0 * inv * t * (b - a) + 3.0 * t * t * (1.0 - b)
+    };
+
+    let progress = progress.clamp(0.0, 1.0);
+    let mut t = progress;
+    for _ in 0..8 {
+        let error = bezier(X1, X2, t) - progress;
+        let derivative = slope(X1, X2, t);
+        if derivative.abs() < 1e-6 {
+            break;
+        }
+        t -= error / derivative;
+        t = t.clamp(0.0, 1.0);
+    }
+    bezier(Y1, Y2, t)
+}
+
 /// The action `part` a tab press dispatches under. The `subject` is the tab's
 /// own `value`, so one handler covers the whole strip and no tab needs to know
 /// what pressing it does.
@@ -533,7 +580,11 @@ impl Panel {
 
 /// A `Tabs` root with its list, its tabs and — where a call site renders one —
 /// its panel.
-#[derive(Clone, Debug, PartialEq, Eq)]
+// `Eq` is gone: `slide_from` is an `f32`. Every use of this type compares
+// with `assert_eq!`, which needs `PartialEq` only.
+// `Eq` is gone: `slide_from` is an `f32`. Everything that compares this type
+// uses `assert_eq!`, which needs `PartialEq` only.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Tabs {
     /// `orientation` on the root.
     pub orientation: Orientation,
@@ -546,6 +597,22 @@ pub struct Tabs {
     /// Which side of `sm:` (640px) the **viewport** is on, which decides the
     /// tab's height and an icon's size.
     pub breakpoint: Breakpoint,
+    /// Where the indicator slides **from**, in whole tabs, when the active tab
+    /// changes: `-1.0` starts it one tab to the left of the new one.
+    ///
+    /// `None` parks it, which is what every measurement path wants and what a
+    /// first paint wants — an indicator that slides in from nowhere on the
+    /// first frame is not what the reference does.
+    ///
+    /// Measured in **tab widths, not tab pitches**: the wrapper this drives is
+    /// the selected tab's own box, so one unit is 90px where the real pitch is
+    /// 92. That is a 2px error at the *start* of a 200ms slide, decaying to
+    /// zero — the resting position, which is the one every instrument checks,
+    /// is exact. Carrying the true pitch would mean handing this primitive its
+    /// own laid-out width, which is the one thing `tab-indicator`'s bounds are
+    /// deliberately an output of.
+    pub slide_from: Option<f32>,
+
     /// The tabs, in DOM order. At most one is [`Tab::selected`].
     pub tabs: Vec<Tab>,
     /// The mounted panel, where the call site has one.
@@ -583,6 +650,7 @@ impl Tabs {
             list_background: ListBackground::SidebarElementIdle,
             tab_sizing: TabSizing::Fill,
             breakpoint: Breakpoint::Sm,
+            slide_from: None,
             // The live sidebar tab bar, glyphs included — every one of these
             // draws an icon in the reference, which is what
             // `the_fixture_is_the_live_sidebar_tab_bar` asserts.
@@ -731,7 +799,35 @@ impl Tabs {
         // could see that: the indicator's own record was correct, the glyph's
         // was correct, and neither carries paint order.
         if tab.selected && self.active().is_some_and(|first| first.value == tab.value) {
-            element = element.child(anchors.boxed(ID_INDICATOR.into(), self.indicator(theme)));
+            let indicator = anchors.boxed(ID_INDICATOR.into(), self.indicator(theme));
+            element = element.child(match self.slide_from {
+                // Parked: the indicator sits in the tab exactly as before, and
+                // the wrapper is not built at all — so the resting tree, which
+                // is the tree every anchor and pixel instrument compares, is
+                // byte-for-byte the one that shipped.
+                None => indicator,
+                // Sliding: a wrapper with the selected tab's own box carries
+                // the travel, and the indicator keeps its own px insets inside
+                // it. At rest (`t = 1`) the wrapper's offset is zero and the
+                // geometry is identical to the parked case.
+                Some(from) => div()
+                    .absolute()
+                    .top_0()
+                    .w(relative(1.0))
+                    .h(relative(1.0))
+                    .child(indicator)
+                    .with_animation(
+                        // Keyed by the destination, so switching tabs restarts
+                        // the slide rather than continuing the old one.
+                        ElementId::from(SharedString::from(format!(
+                            "tab-indicator-slide-{}",
+                            tab.value
+                        ))),
+                        Animation::new(INDICATOR_SLIDE).with_easing(standard_easing),
+                        move |wrapper, t| wrapper.left(relative(from * (1.0 - t))),
+                    )
+                    .into_any_element(),
+            });
         }
         if let Some(glyph) = tab.icon {
             // **The glyph follows the tab's own colour, not the list's.**
@@ -910,6 +1006,38 @@ impl Tabs {
 
 #[cfg(test)]
 mod tests {
+
+    /// `cubic-bezier(0.4, 0, 0.2, 1)` at known points.
+    ///
+    /// The trap this pins: a cubic Bezier's `x(t)` is **not** `t`, so easing a
+    /// progress value by feeding it straight into `y(t)` gives a different,
+    /// noticeably wrong curve — `y(0.5)` is 0.5 where the real easing of 0.5 is
+    /// 0.776. The values here come from solving `x(t) = progress` first.
+    #[test]
+    fn the_standard_easing_is_the_curve_the_app_animates_on() {
+        for (progress, expected) in [
+            (0.0, 0.0),
+            (0.25, 0.2366),
+            (0.5, 0.7756),
+            (0.75, 0.9594),
+            (1.0, 1.0),
+        ] {
+            let actual = super::standard_easing(progress);
+            assert!(
+                (actual - expected).abs() < 0.002,
+                "easing({progress}) was {actual}, expected {expected}"
+            );
+        }
+
+        // Monotone, which a wrong Newton solve is not.
+        let mut previous = 0.0;
+        for step in 0..=100 {
+            #[expect(clippy::cast_precision_loss, reason = "0..=100 is exact in f32")]
+            let value = super::standard_easing(step as f32 / 100.0);
+            assert!(value >= previous - 1e-6, "not monotone at {step}");
+            previous = value;
+        }
+    }
     use super::{
         CONTENT_SIZED, ICON_MARGIN_X, ICON_SIZE_BASE, ICON_SIZE_SM, ID_INDICATOR, ID_LIST, ID_ROOT,
         INDICATOR_INSET, LINE_SIZED, LIST_GAP, LIST_MUTED_ALPHA, LIST_PADDING, ListBackground,

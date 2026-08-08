@@ -167,6 +167,11 @@ pub const ALL_TABS: [(&str, &str); 4] = [
 pub struct SidebarTabBar {
     /// The active tab's value — `useSidebarStore`'s `activeTab`.
     pub active: SharedString,
+
+    /// Where the indicator slides from, in whole tabs — see
+    /// [`crate::primitives::tabs::Tabs::slide_from`]. `None` parks it, which is
+    /// what a first paint and every measurement path want.
+    pub slide_from: Option<f32>,
     /// `!isHomeRoute` — whether the `git` tab is in the set at all. A real
     /// geometry axis; see the module docs.
     pub include_git: bool,
@@ -203,6 +208,7 @@ impl SidebarTabBar {
     pub fn fixture() -> Self {
         Self {
             active: "workspaces".into(),
+            slide_from: None,
             include_git: false,
             column_width: px(294.0),
             viewport_breakpoint: Breakpoint::Sm,
@@ -284,6 +290,9 @@ impl SidebarTabBar {
             .collect();
 
         Tabs {
+            // Passed straight through: the bar knows which tab became active,
+            // the primitive knows how to slide.
+            slide_from: self.slide_from,
             orientation: Orientation::Horizontal,
             variant: Variant::Default,
             list_background: ListBackground::SidebarElementIdle,
