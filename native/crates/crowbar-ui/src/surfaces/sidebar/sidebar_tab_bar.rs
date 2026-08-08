@@ -249,13 +249,22 @@ impl SidebarTabBar {
     /// `git` falls back to its own branch mark rather than to nothing: an
     /// unknown value here would render an empty square, which is the failure
     /// `crate::icon` exists to end.
+    ///
+    /// `selected` picks the weight, because the call site does:
+    /// `<Icon size={14} weight={isActive ? 'fill' : 'regular'} />`. Shipping
+    /// the regular artwork for the active tab drew a hollow grid where the
+    /// app draws a solid one — invisible to every anchor field there is.
     #[must_use]
-    fn glyph(value: &str) -> IconName {
-        match value {
-            "chats" => IconName::ChatsCircle,
-            "files" => IconName::FolderOpen,
-            "git" => IconName::GitBranch,
-            _ => IconName::SquaresFour,
+    pub fn glyph(value: &str, selected: bool) -> IconName {
+        match (value, selected) {
+            ("chats", false) => IconName::ChatsCircle,
+            ("chats", true) => IconName::ChatsCircleFill,
+            ("files", false) => IconName::FolderOpen,
+            ("files", true) => IconName::FolderOpenFill,
+            ("git", false) => IconName::GitBranch,
+            ("git", true) => IconName::GitBranchFill,
+            (_, false) => IconName::SquaresFour,
+            (_, true) => IconName::SquaresFourFill,
         }
     }
 
@@ -268,7 +277,7 @@ impl SidebarTabBar {
                 let mut tab = Tab::new(value);
                 tab.selected = self.active == value;
                 tab.label = self.shows_label(value).then(|| value.into());
-                tab.icon = Some(Self::glyph(value));
+                tab.icon = Some(Self::glyph(value, tab.selected));
                 tab
             })
             .collect();
@@ -314,6 +323,7 @@ mod tests {
     use super::{
         LABEL_ACTIVE_BREAKPOINT, LABEL_ALL_BREAKPOINT, PADDING_X, PADDING_Y, SidebarTabBar,
     };
+    use crate::IconName;
     use gpui::px;
 
     #[test]
@@ -414,6 +424,48 @@ mod tests {
         let built = without_git.tabs();
         assert_eq!(built.tabs.len(), 3);
         assert!(built.tabs.iter().all(|tab| tab.value != "git"));
+    }
+
+    /// The **selected** tab draws the fill weight and every other tab draws
+    /// the regular one — `weight={isActive ? 'fill' : 'regular'}`.
+    ///
+    /// Asserted on the glyphs themselves rather than on a fixture equality,
+    /// because a fixture comparison passes just as happily when both sides are
+    /// wrong together. That is exactly how this shipped: the port drew the
+    /// regular grid for the active tab, and the fixture it was compared
+    /// against drew the regular grid too.
+    #[test]
+    fn the_selected_tab_draws_the_fill_weight_and_the_others_do_not() {
+        for (value, regular, fill) in [
+            (
+                "workspaces",
+                IconName::SquaresFour,
+                IconName::SquaresFourFill,
+            ),
+            ("chats", IconName::ChatsCircle, IconName::ChatsCircleFill),
+            ("files", IconName::FolderOpen, IconName::FolderOpenFill),
+            ("git", IconName::GitBranch, IconName::GitBranchFill),
+        ] {
+            assert_eq!(SidebarTabBar::glyph(value, false), regular, "{value} idle");
+            assert_eq!(SidebarTabBar::glyph(value, true), fill, "{value} active");
+            assert_ne!(regular, fill, "{value}: the two weights must be two files");
+        }
+
+        // And through the built value, so the wiring is covered and not just
+        // the mapping: exactly the active tab gets a fill glyph.
+        let built = SidebarTabBar::fixture().tabs();
+        for tab in &built.tabs {
+            let expected = SidebarTabBar::glyph(&tab.value, tab.selected);
+            assert_eq!(tab.icon, Some(expected), "{}", tab.value);
+        }
+        assert_eq!(
+            built
+                .tabs
+                .iter()
+                .filter(|tab| tab.icon == Some(IconName::SquaresFourFill))
+                .count(),
+            1,
+        );
     }
 
     /// The built `Tabs` value carries the sidebar's own overrides — matching

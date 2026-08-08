@@ -45,9 +45,9 @@
 
 use std::fmt::Write as _;
 
-use crowbar_ui::IconName;
 use crowbar_ui::Theme;
 use crowbar_ui::AnchorSink;
+use crowbar_ui::surfaces::sidebar::sidebar_tab_bar::SidebarTabBar;
 use crowbar_ui::primitives::tabs::{
     self, ListBackground, Orientation, Panel, Tab, TabSizing, Tabs, Variant,
 };
@@ -153,15 +153,11 @@ impl Params {
                 let mut tab = Tab::new(value.clone());
                 tab.selected = value == active;
                 tab.label = self.labels.then(|| value.clone().into());
-                // The same glyph the sidebar's own tab bar draws, so this
-                // cell measures the tab the app renders rather than an
-                // iconless one — `sidebar_tab_bar::glyph`'s mapping.
-                tab.icon = Some(match value.as_str() {
-                    "chats" => IconName::ChatsCircle,
-                    "files" => IconName::FolderOpen,
-                    "git" => IconName::GitBranch,
-                    _ => IconName::SquaresFour,
-                });
+                // The sidebar's own mapping, **called** rather than copied.
+                // It was copied, and then the two drifted the moment the
+                // active tab's weight changed: this surface kept drawing the
+                // regular grid after the tab bar had moved to the fill one.
+                tab.icon = Some(SidebarTabBar::glyph(value, tab.selected));
                 tab
             })
             .collect();

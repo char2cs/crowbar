@@ -289,7 +289,10 @@ mod tests {
     #[ignore = "drives Metal, which is main-thread only; see the doc comment"]
     fn write_the_sidebar_png() {
         let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/sidebar.png");
-        render_sidebar_png(px(294.0), px(600.0), fixture_seed(), &out);
+        // 294x1119 — the Tauri window's own logical size when the reference
+        // was captured. The comparison is pixel-for-pixel over the same
+        // columns and rows, so the two images have to be the same shape.
+        render_sidebar_png(px(294.0), px(1119.0), fixture_seed(), &out);
         assert!(out.exists(), "no image was written to {}", out.display());
     }
 }

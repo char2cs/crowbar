@@ -366,8 +366,19 @@ impl WorkspaceTreeItem {
         } else {
             row_base::inactive(theme)
         }
+        // **`mt`, not `my` — taffy does not collapse margins and CSS does.**
+        //
+        // Every row here carries `my-0.5`. In a browser two adjacent rows'
+        // vertical margins COLLAPSE to one 2px gap; taffy sums them to 4, so
+        // every row boundary drifted by 2px and the error accumulated down the
+        // tree. Measured against the Tauri app's own extract: its gaps are
+        // 2 / 4 / 2 and this produced 4 / 8 / 4.
+        //
+        // Reproducing collapsing exactly for this arrangement means the top
+        // margin only, with the section carrying the bottom one — see
+        // `RepoSection::render`'s own `mb`.
         .mx(row_base::MARGIN_X)
-        .my(row_base::MARGIN_Y)
+        .mt(row_base::MARGIN_Y)
         .child(self.icon(theme, anchors))
         .child(self.label(theme, anchors));
 

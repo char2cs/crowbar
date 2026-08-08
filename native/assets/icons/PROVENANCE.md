@@ -29,20 +29,49 @@ two apps draw the same shape and not merely the same box.
 | `folder-symlink.svg` | `lucide-react` `folder-symlink` | ISC |
 | `layout-grid.svg` | `lucide-react` `layout-grid` | ISC |
 | `download-cloud.svg` | `lucide-react` `cloud-download` (the package re-exports it as `DownloadCloud`, which is the name the app imports) | ISC |
-| `git-branch.svg` | `@phosphor-icons/react` `GitBranch`, **regular** weight | MIT |
-| `git-fork.svg` | `@phosphor-icons/react` `GitFork`, regular | MIT |
-| `git-merge.svg` | `@phosphor-icons/react` `GitMerge`, regular | MIT |
-| `git-pull-request.svg` | `@phosphor-icons/react` `GitPullRequest`, regular | MIT |
-| `lock.svg` | `@phosphor-icons/react` `Lock`, regular | MIT |
-| `warning.svg` | `@phosphor-icons/react` `Warning`, regular | MIT |
+| `git-branch.svg` | `@phosphor-icons/react` `GitBranch`, regular | MIT |
+| `git-branch-fill.svg` | `@phosphor-icons/react` `GitBranch`, **fill** | MIT |
+| `git-fork-fill.svg` | `@phosphor-icons/react` `GitFork`, fill | MIT |
+| `git-merge-fill.svg` | `@phosphor-icons/react` `GitMerge`, fill | MIT |
+| `git-pull-request-fill.svg` | `@phosphor-icons/react` `GitPullRequest`, fill | MIT |
+| `lock-fill.svg` | `@phosphor-icons/react` `Lock`, fill | MIT |
+| `warning-fill.svg` | `@phosphor-icons/react` `Warning`, fill | MIT |
 | `squares-four.svg` | `@phosphor-icons/react` `SquaresFour`, regular | MIT |
+| `squares-four-fill.svg` | `@phosphor-icons/react` `SquaresFour`, fill | MIT |
 | `chats-circle.svg` | `@phosphor-icons/react` `ChatsCircle`, regular | MIT |
+| `chats-circle-fill.svg` | `@phosphor-icons/react` `ChatsCircle`, fill | MIT |
 | `folder-open.svg` | `@phosphor-icons/react` `FolderOpen`, regular | MIT |
+| `folder-open-fill.svg` | `@phosphor-icons/react` `FolderOpen`, fill | MIT |
 | `row-add.svg` | **not an import** — `web/src/components/layout/workspace-row-base.ts`'s `ADD_GLYPH_PATH`, an inline path | this repo |
 | `row-chevron.svg` | **not an import** — the inline disclosure path in `repo-section.tsx` / `workspace-tree-item.tsx` | this repo |
 
-`regular` is Phosphor's default weight, which is what `<Lock />` with no
-`weight` prop renders — the shape the app actually shows.
+## Weights: which, and how that was got wrong once
+
+`regular` is Phosphor's default weight — but **this app almost never uses the
+default.** `workspace-branch-icon.tsx` passes `weight="fill"` on every one of
+its six arms, and `sidebar-tab-bar.tsx` passes
+`weight={isActive ? 'fill' : 'regular'}`.
+
+The first extraction took the default for all nine and recorded, right here,
+that the default "is the shape the app actually shows". It is not. A Phosphor
+glyph is a *filled path* at every weight — `regular` fills a stroke-shaped path
+to look like an outline, and `fill` is a different path — so the wrong weight
+is the wrong artwork, not a wrong style. The app drew a **hollow** lock, a
+hollow warning triangle and a hollow active-tab grid where the reference draws
+solid ones.
+
+Nothing in the anchor contract could see it: `bounds`, `bg`, `radius`, `border`
+and the text facts are identical for both weights. It was found by
+`shell::compare`'s per-pixel differ and its magnified panels, which is why that
+instrument exists.
+
+Only the weights that actually ship are vendored. `Lock`, `Warning`, `GitFork`,
+`GitMerge` and `GitPullRequest` are branch marks only, so only `fill` is here;
+the four tab glyphs carry both, because the tab bar picks between them.
+
+Regenerate with `scripts/extract-phosphor-icons.py` (run by hand, never at
+build time — rule 7). It is validated by round-tripping: re-extracting a
+committed file at its recorded weight reproduces it byte for byte.
 
 ## Licences
 

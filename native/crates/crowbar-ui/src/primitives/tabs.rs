@@ -581,8 +581,12 @@ impl Tabs {
             // draws an icon in the reference, which is what
             // `the_fixture_is_the_live_sidebar_tab_bar` asserts.
             tabs: vec![
+                // `SquaresFourFill`, not `SquaresFour`: this tab is the
+                // selected one, and `sidebar-tab-bar.tsx` draws the selected
+                // tab at `weight="fill"`. The two are different artwork, not
+                // one shape styled two ways — see `IconName`'s own docs.
                 Tab::new("workspaces")
-                    .with_icon(IconName::SquaresFour)
+                    .with_icon(IconName::SquaresFourFill)
                     .selected(),
                 Tab::new("chats").with_icon(IconName::ChatsCircle),
                 Tab::new("files").with_icon(IconName::FolderOpen),

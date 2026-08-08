@@ -37,6 +37,25 @@ use gpui::{
 
 use crate::theme::Color;
 
+/// # Phosphor's `weight` is part of the artwork, not a style
+///
+/// A Phosphor glyph is a *filled path* at every weight — `regular` draws an
+/// outline-looking shape by filling a stroke-shaped path, and `fill` is a
+/// different path entirely. So a weight is a different **file**, not a render
+/// option, and the two cannot be interconverted here.
+///
+/// This mattered: every branch mark and the active tab's glyph are
+/// `weight="fill"` at their React call sites, and this port shipped the
+/// `regular` artwork for all of them. A filled lock against a hollow one is
+/// the single most visible difference the pixel differ found, and no anchor
+/// contract can see it — `bounds`, `bg`, `radius` and `border` are identical
+/// for both.
+///
+/// Only the weights the app actually renders are vendored. `Lock`, `Warning`,
+/// `GitFork`, `GitMerge` and `GitPullRequest` appear **only** as branch marks,
+/// so only their `fill` is here; the four tab glyphs are drawn at both, since
+/// `sidebar-tab-bar.tsx` picks `isActive ? 'fill' : 'regular'`.
+///
 /// One glyph.
 ///
 /// The name is the port's, chosen to say what the icon *is here* rather than
@@ -58,24 +77,32 @@ pub enum IconName {
     LayoutGrid,
     /// Clone/pull action on a repo row.
     DownloadCloud,
-    /// A plain branch.
+    /// A plain branch — the inactive Git tab.
     GitBranch,
+    /// A plain branch, as a branch mark.
+    GitBranchFill,
     /// A branch with a parent.
-    GitFork,
+    GitForkFill,
     /// A merged branch.
-    GitMerge,
+    GitMergeFill,
     /// A branch with an open PR.
-    GitPullRequest,
+    GitPullRequestFill,
     /// A protected branch.
-    Lock,
+    LockFill,
     /// A branch in a conflicted or errored state.
-    Warning,
-    /// Workspaces tab.
+    WarningFill,
+    /// Workspaces tab, inactive.
     SquaresFour,
-    /// Chats tab.
+    /// Workspaces tab, active.
+    SquaresFourFill,
+    /// Chats tab, inactive.
     ChatsCircle,
-    /// Files tab.
+    /// Chats tab, active.
+    ChatsCircleFill,
+    /// Files tab, inactive.
     FolderOpen,
+    /// Files tab, active.
+    FolderOpenFill,
     /// The `+` on a row's trailing actions.
     RowAdd,
     /// The disclosure chevron on a row.
@@ -87,7 +114,7 @@ pub enum IconName {
 
 /// Every glyph, so a gallery or a test can walk them without a hand-kept list
 /// that drifts from the enum.
-pub const ALL_ICONS: [IconName; 19] = [
+pub const ALL_ICONS: [IconName; 23] = [
     IconName::ArrowLeft,
     IconName::ArrowRight,
     IconName::Settings,
@@ -96,14 +123,18 @@ pub const ALL_ICONS: [IconName; 19] = [
     IconName::LayoutGrid,
     IconName::DownloadCloud,
     IconName::GitBranch,
-    IconName::GitFork,
-    IconName::GitMerge,
-    IconName::GitPullRequest,
-    IconName::Lock,
-    IconName::Warning,
+    IconName::GitBranchFill,
+    IconName::GitForkFill,
+    IconName::GitMergeFill,
+    IconName::GitPullRequestFill,
+    IconName::LockFill,
+    IconName::WarningFill,
     IconName::SquaresFour,
+    IconName::SquaresFourFill,
     IconName::ChatsCircle,
+    IconName::ChatsCircleFill,
     IconName::FolderOpen,
+    IconName::FolderOpenFill,
     IconName::RowAdd,
     IconName::RowChevron,
     IconName::SidebarToggle,
@@ -136,14 +167,18 @@ impl IconName {
             Self::LayoutGrid => "icons/layout-grid.svg",
             Self::DownloadCloud => "icons/download-cloud.svg",
             Self::GitBranch => "icons/git-branch.svg",
-            Self::GitFork => "icons/git-fork.svg",
-            Self::GitMerge => "icons/git-merge.svg",
-            Self::GitPullRequest => "icons/git-pull-request.svg",
-            Self::Lock => "icons/lock.svg",
-            Self::Warning => "icons/warning.svg",
+            Self::GitBranchFill => "icons/git-branch-fill.svg",
+            Self::GitForkFill => "icons/git-fork-fill.svg",
+            Self::GitMergeFill => "icons/git-merge-fill.svg",
+            Self::GitPullRequestFill => "icons/git-pull-request-fill.svg",
+            Self::LockFill => "icons/lock-fill.svg",
+            Self::WarningFill => "icons/warning-fill.svg",
             Self::SquaresFour => "icons/squares-four.svg",
+            Self::SquaresFourFill => "icons/squares-four-fill.svg",
             Self::ChatsCircle => "icons/chats-circle.svg",
+            Self::ChatsCircleFill => "icons/chats-circle-fill.svg",
             Self::FolderOpen => "icons/folder-open.svg",
+            Self::FolderOpenFill => "icons/folder-open-fill.svg",
             Self::RowAdd => "icons/row-add.svg",
             Self::RowChevron => "icons/row-chevron.svg",
             Self::SidebarToggle => "icons/sidebar-toggle.svg",
@@ -162,11 +197,15 @@ impl IconName {
             Self::LayoutGrid => icon_bytes!("layout-grid.svg"),
             Self::DownloadCloud => icon_bytes!("download-cloud.svg"),
             Self::GitBranch => icon_bytes!("git-branch.svg"),
-            Self::GitFork => icon_bytes!("git-fork.svg"),
-            Self::GitMerge => icon_bytes!("git-merge.svg"),
-            Self::GitPullRequest => icon_bytes!("git-pull-request.svg"),
-            Self::Lock => icon_bytes!("lock.svg"),
-            Self::Warning => icon_bytes!("warning.svg"),
+            Self::GitBranchFill => icon_bytes!("git-branch-fill.svg"),
+            Self::GitForkFill => icon_bytes!("git-fork-fill.svg"),
+            Self::GitMergeFill => icon_bytes!("git-merge-fill.svg"),
+            Self::GitPullRequestFill => icon_bytes!("git-pull-request-fill.svg"),
+            Self::LockFill => icon_bytes!("lock-fill.svg"),
+            Self::WarningFill => icon_bytes!("warning-fill.svg"),
+            Self::SquaresFourFill => icon_bytes!("squares-four-fill.svg"),
+            Self::ChatsCircleFill => icon_bytes!("chats-circle-fill.svg"),
+            Self::FolderOpenFill => icon_bytes!("folder-open-fill.svg"),
             Self::SquaresFour => icon_bytes!("squares-four.svg"),
             Self::ChatsCircle => icon_bytes!("chats-circle.svg"),
             Self::FolderOpen => icon_bytes!("folder-open.svg"),
@@ -253,6 +292,47 @@ pub fn asset_paths() -> Vec<SharedString> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Every vendored file is reachable from a variant, and every variant
+    /// resolves to a file that exists.
+    ///
+    /// The five `regular`-weight Phosphor files this port shipped by mistake
+    /// sat in `assets/` unreferenced after the fix, which nothing would have
+    /// noticed: an orphan asset is invisible to the compiler, and a variant
+    /// pointing at a missing file is a runtime blank box, which is the exact
+    /// failure `crate::icon` exists to end.
+    #[test]
+    fn every_vendored_file_is_reachable_and_every_variant_resolves() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/icons");
+        let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+            .expect("the icon directory is readable")
+            .filter_map(std::result::Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| {
+                std::path::Path::new(name)
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("svg"))
+            })
+            .collect();
+        on_disk.sort();
+
+        let mut referenced: Vec<String> = super::ALL_ICONS
+            .iter()
+            .map(|icon| {
+                icon.path()
+                    .strip_prefix("icons/")
+                    .unwrap_or(icon.path())
+                    .to_owned()
+            })
+            .collect();
+        referenced.sort();
+        referenced.dedup();
+
+        assert_eq!(on_disk, referenced);
+        for icon in super::ALL_ICONS {
+            assert!(!icon.bytes().is_empty(), "{icon:?} has no artwork");
+        }
+    }
     use super::{ALL_ICONS, IconName, asset_bytes, asset_paths};
 
     /// A glyph whose file is missing is a hole in the UI that renders as

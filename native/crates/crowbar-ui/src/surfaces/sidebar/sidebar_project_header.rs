@@ -48,17 +48,21 @@
 //! own **public, independently-verified values** — reusing what `button.rs`
 //! measured, without reusing the anchor machinery that would collide.
 //!
-//! # The toggle's real glyph is a separately-ported primitive, and this port
-//! does not compose it
+//! # The toggle's real glyph is drawn here, but anchored elsewhere
 //!
 //! `<SidebarToggleIcon />` is `crowbar_ui::components::sidebar_toggle_icon`,
-//! already ported with its own anchor and its own surface. For the same
-//! reason above — this file does not reach into another component's
-//! anchoring — the toggle's glyph is left unpainted, exactly as `button.rs`
-//! already leaves every icon-only button's glyph unpainted ("there is no
-//! native equivalent, and drawing a substitute would put a shape on screen
-//! for the oracle to converge on"). Nothing about this composition has a
-//! live reference to be wrong about either way.
+//! ported with its own anchor and its own surface. Those are two separable
+//! things, and this file separates them: it **paints** the panel mark, and it
+//! does **not** anchor it. `oracleSurfaceScope` keeps `sidebar-toggle-icon`
+//! out of this surface's capture, and `row_layout::sidebar_project_header`
+//! asserts exactly that — so the artwork goes in through `button_box`'s plain
+//! glyph slot rather than through `SidebarToggleIcon::render`, which would
+//! anchor it.
+//!
+//! It was left unpainted until S1a, on the reasoning that drawing a
+//! substitute would give the oracle a shape to converge on. That reasoning
+//! held only while there was no real artwork: `crate::icon` vendors the app's
+//! own mark, so what is drawn here is the reference's shape, not a stand-in.
 //!
 //! # `IS_MAC` is unconditionally true on the one platform this ships to
 //!

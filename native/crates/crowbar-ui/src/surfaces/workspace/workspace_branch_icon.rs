@@ -247,12 +247,15 @@ impl Glyph {
     #[must_use]
     pub const fn icon(self) -> IconName {
         match self {
-            Self::Lock => IconName::Lock,
-            Self::GitBranch => IconName::GitBranch,
-            Self::Warning => IconName::Warning,
-            Self::GitFork => IconName::GitFork,
-            Self::GitPullRequest => IconName::GitPullRequest,
-            Self::GitMerge => IconName::GitMerge,
+            // `weight="fill"` on every arm — `workspace-branch-icon.tsx`
+            // passes it unconditionally, and Phosphor's fill is a different
+            // path, not a different style. See `IconName`'s own docs.
+            Self::Lock => IconName::LockFill,
+            Self::GitBranch => IconName::GitBranchFill,
+            Self::Warning => IconName::WarningFill,
+            Self::GitFork => IconName::GitForkFill,
+            Self::GitPullRequest => IconName::GitPullRequestFill,
+            Self::GitMerge => IconName::GitMergeFill,
         }
     }
 }

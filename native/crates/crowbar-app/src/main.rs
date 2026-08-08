@@ -350,6 +350,17 @@ fn run_inspection() -> ExitCode {
                         let size = window.viewport_size();
                         let window_size = [f32::from(size.width), f32::from(size.height)];
                         let watched = registry.clone();
+                        // Drop everything recorded before the daemon's data
+                        // landed. `AppAnchors` deliberately does not clear on
+                        // a root (that truncated the tree to whatever the last
+                        // root drew), so records accumulate across frames —
+                        // and the frames drawn while the store was still empty
+                        // are a different picture of the same app. They showed
+                        // up as a second `project-home-row-label` carrying an
+                        // empty string beside the real one, which is a report
+                        // that quietly contains two frames and says so
+                        // nowhere.
+                        watched.clear();
                         crowbar_driver::on_settled_frame(
                             window,
                             &watched,

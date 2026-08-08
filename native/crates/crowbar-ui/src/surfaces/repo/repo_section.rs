@@ -264,8 +264,19 @@ impl RepoSection {
         } else {
             row_base::inactive(theme)
         }
+        // **`mt`, not `my` — taffy does not collapse margins and CSS does.**
+        //
+        // Every row here carries `my-0.5`. In a browser two adjacent rows'
+        // vertical margins COLLAPSE to one 2px gap; taffy sums them to 4, so
+        // every row boundary drifted by 2px and the error accumulated down the
+        // tree. Measured against the Tauri app's own extract: its gaps are
+        // 2 / 4 / 2 and this produced 4 / 8 / 4.
+        //
+        // Reproducing collapsing exactly for this arrangement means the top
+        // margin only, with the section carrying the bottom one — see
+        // `RepoSection::render`'s own `mb`.
         .mx(row_base::MARGIN_X)
-        .my(row_base::MARGIN_Y)
+        .mt(row_base::MARGIN_Y)
         .child(self.trigger.render(theme, anchors))
         .child(self.label(theme, anchors))
         // `<DownloadCloud />`, `repo-section.tsx:2`.
@@ -335,7 +346,13 @@ impl RepoSection {
     /// Renders the section, opting every contract anchor into `anchors`.
     #[must_use]
     pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
-        let mut outer = div().mb(px(4.0)).child(self.header(theme, anchors));
+        // `MARGIN_Y`, not 4px. With the rows carrying only a top margin (see
+        // `header`), the gap between this section's last row and the next
+        // section's header is this margin plus that header's — 2 + 2 = 4,
+        // which is what the reference measures. A 4 here would make it 6.
+        let mut outer = div()
+            .mb(row_base::MARGIN_Y)
+            .child(self.header(theme, anchors));
 
         if !self.is_collapsed {
             let mut group = div();
