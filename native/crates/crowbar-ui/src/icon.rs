@@ -31,7 +31,9 @@
 //! bytes are `include_bytes!`-ed at compile time, and a missing file is a
 //! build error rather than a blank square.
 
-use gpui::{AnyElement, IntoElement as _, Pixels, SharedString, Styled as _, svg};
+use gpui::{
+    AnyElement, IntoElement as _, Pixels, SharedString, Styled as _, Transformation, radians, svg,
+};
 
 use crate::theme::Color;
 
@@ -187,6 +189,26 @@ impl IconName {
             .w(size)
             .h(size)
             .flex_shrink_0()
+            .into_any_element()
+    }
+
+    /// Render this glyph at `size` in `color`, rotated a quarter turn
+    /// clockwise.
+    ///
+    /// The disclosure chevron's whole expanded state: the reference draws one
+    /// right-pointing path and rotates it — `cn('size-3 transition-transform',
+    /// !isCollapsed && 'rotate-90')` — rather than shipping a second glyph.
+    /// Reproducing that as a rotation keeps one file for one shape, and keeps
+    /// the collapsed and expanded marks from drifting apart.
+    #[must_use]
+    pub fn render_quarter_turned(self, size: Pixels, color: Color) -> AnyElement {
+        svg()
+            .path(SharedString::new_static(self.path()))
+            .w(size)
+            .h(size)
+            .flex_shrink_0()
+            .text_color(color)
+            .with_transformation(Transformation::rotate(radians(std::f32::consts::FRAC_PI_2)))
             .into_any_element()
     }
 

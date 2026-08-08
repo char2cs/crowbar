@@ -288,13 +288,17 @@ impl RepoSection {
             ));
         }
 
-        // The inline disclosure chevron.
+        // The inline disclosure chevron, turned a quarter when the section is
+        // open — `cn('size-3 transition-transform', !isCollapsed &&
+        // 'rotate-90')`, `repo-section.tsx:238`.
+        let chevron = if self.is_collapsed {
+            row_base::sub_action_icon(IconName::RowChevron, theme.muted_foreground)
+        } else {
+            row_base::sub_action_icon_turned(IconName::RowChevron, theme.muted_foreground)
+        };
         shell = shell.child(anchors.boxed(
             AnchorId::from(ID_COLLAPSE),
-            row_base::sub_action_box(theme).child(row_base::sub_action_icon(
-                IconName::RowChevron,
-                theme.muted_foreground,
-            )),
+            row_base::sub_action_box(theme).child(chevron),
         ));
 
         div()

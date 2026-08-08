@@ -269,6 +269,15 @@ pub fn sub_action_icon(icon: IconName, color: Color) -> Div {
     sub_action_glyph().child(icon.render(SUB_ACTION_GLYPH, color))
 }
 
+/// [`sub_action_icon`], a quarter turn clockwise.
+///
+/// The disclosure chevron when its section is **open** — the reference
+/// rotates the one right-pointing glyph rather than shipping a second.
+#[must_use]
+pub fn sub_action_icon_turned(icon: IconName, color: Color) -> Div {
+    sub_action_glyph().child(icon.render_quarter_turned(SUB_ACTION_GLYPH, color))
+}
+
 /// A `ROW_SUB_ACTION` button's glyph box, **empty**.
 ///
 /// Kept for the call sites that genuinely draw nothing — an inline-create

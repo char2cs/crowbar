@@ -310,13 +310,17 @@ impl WorkspaceTreeItem {
     /// instead).
     fn trailing_button(&self, theme: &Theme, anchors: &dyn AnchorSink) -> Option<AnyElement> {
         if self.has_children() {
-            // The inline disclosure chevron, `workspace-tree-item.tsx:209`.
+            // The inline disclosure chevron, turned a quarter when the row is
+            // expanded — `cn('size-3 transition-transform', expanded &&
+            // 'rotate-90')`, `workspace-tree-item.tsx:202`.
+            let chevron = if self.expanded {
+                row_base::sub_action_icon_turned(IconName::RowChevron, theme.muted_foreground)
+            } else {
+                row_base::sub_action_icon(IconName::RowChevron, theme.muted_foreground)
+            };
             Some(anchors.boxed(
                 AnchorId::from(ID_EXPAND),
-                row_base::sub_action_box(theme).child(row_base::sub_action_icon(
-                    IconName::RowChevron,
-                    theme.muted_foreground,
-                )),
+                row_base::sub_action_box(theme).child(chevron),
             ))
         } else if !self.mode.is_creating_child() {
             // The inline `ADD_GLYPH_PATH` plus, `workspace-tree-item.tsx:234`.
