@@ -125,7 +125,7 @@ mod ui_font_weight;
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if inspect::requested(&args) {
-        return run_inspection();
+        return run_inspection(inspect::pointer(&args));
     }
 
     let cell = match Cell::parse(args) {
@@ -288,7 +288,7 @@ fn main() -> ExitCode {
 /// reports that, rather than silently emitting an empty tree that reads like a
 /// rendering failure.
 #[cfg(feature = "driver")]
-fn run_inspection() -> ExitCode {
+fn run_inspection(pointer: Option<(f32, f32)>) -> ExitCode {
     let report = Report::probe();
     let socket = report.socket().map(std::path::Path::to_path_buf);
 
@@ -360,6 +360,18 @@ fn run_inspection() -> ExitCode {
                         // empty string beside the real one, which is a report
                         // that quietly contains two frames and says so
                         // nowhere.
+                        // Park the pointer first, if one was asked for, so the
+                        // frame that settles is the frame under it.
+                        if let Some((x, y)) = pointer {
+                            window.dispatch_event(
+                                gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                                    position: gpui::point(gpui::px(x), gpui::px(y)),
+                                    modifiers: gpui::Modifiers::default(),
+                                    pressed_button: None,
+                                }),
+                                cx,
+                            );
+                        }
                         watched.clear();
                         crowbar_driver::on_settled_frame(
                             window,

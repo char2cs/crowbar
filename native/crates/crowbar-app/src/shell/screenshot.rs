@@ -298,6 +298,223 @@ mod tests {
     /// ```sh
     /// cargo test -p crowbar-app an_inset_shadow -- --ignored --test-threads=1 --nocapture
     /// ```
+    /// **Does hovering a row actually change it?**
+    ///
+    /// Written after reporting hover states as "done and measured" on the
+    /// strength of a clean build and an unchanged *resting* render. Neither is
+    /// evidence about hover: a resting diff is precisely the instrument that
+    /// cannot see one. This moves a pointer and reads the pixels under it.
+    ///
+    /// ```sh
+    /// cargo test -p crowbar-app hovering_a_row -- --ignored --test-threads=1 --nocapture
+    /// ```
+    /// Control for [`hovering_a_row_changes_what_is_painted`]: does a bare
+    /// `div().hover(...)` change colour under a simulated pointer at all?
+    ///
+    /// If this passes and the row test fails, the fault is in the surfaces. If
+    /// both fail, `simulate_mouse_move` is not a usable stand-in for a pointer
+    /// and the instrument is wrong, not the app.
+    #[test]
+    #[ignore = "drives Metal, which is main-thread only"]
+    fn a_bare_div_changes_colour_under_a_simulated_pointer() {
+        use crowbar_ui::gpui::{
+            AppContext as _, HeadlessAppContext, InteractiveElement as _, ParentElement as _,
+            Render, StatefulInteractiveElement as _, Styled as _, div, point, px, size,
+        };
+
+        struct Probe;
+        impl Render for Probe {
+            fn render(
+                &mut self,
+                _window: &mut crowbar_ui::gpui::Window,
+                _cx: &mut crowbar_ui::gpui::Context<Self>,
+            ) -> impl crowbar_ui::gpui::IntoElement {
+                let fill = crowbar_ui::theme::Color::BLACK
+                    .mix(88.0, crowbar_ui::theme::Color::WHITE)
+                    .value();
+                let lit = crowbar_ui::theme::Color::WHITE.value();
+                div()
+                    .size_full()
+                    .bg(crowbar_ui::theme::Color::BLACK.value())
+                    // Left box: stateless, exactly how the surfaces build.
+                    .child(
+                        div()
+                            .absolute()
+                            .top(px(10.0))
+                            .left(px(5.0))
+                            .w(px(40.0))
+                            .h(px(40.0))
+                            .bg(fill)
+                            .hover(move |style| style.bg(lit)),
+                    )
+                    // Right box: identical but **stateful**. If only this one
+                    // lights up, gpui wants an element id for interaction
+                    // states and the surfaces have to carry one.
+                    .child(
+                        div()
+                            .id("stateful-probe")
+                            .absolute()
+                            .top(px(10.0))
+                            .left(px(55.0))
+                            .w(px(40.0))
+                            .h(px(40.0))
+                            .bg(fill)
+                            .hover(move |style| style.bg(lit)),
+                    )
+            }
+        }
+
+        let platform = gpui_platform::current_platform(true);
+        let mut cx = HeadlessAppContext::with_platform(
+            platform.text_system(),
+            std::sync::Arc::new(crate::Assets),
+            gpui_platform::current_headless_renderer,
+        );
+        let window = cx
+            .open_window(size(px(100.0), px(60.0)), |_window, cx| cx.new(|_| Probe))
+            .expect("a headless window opens");
+        cx.run_until_parked();
+
+        let resting = cx
+            .capture_screenshot(window.into())
+            .expect("a resting frame");
+        cx.update_window(window.into(), |_view, window, cx| {
+            window.simulate_mouse_move(point(px(75.0), px(30.0)), cx);
+        })
+        .expect("the pointer moves");
+        cx.update_window(window.into(), |_view, window, _cx| {
+            println!(
+                "  after the move, window.mouse_position() = {:?}",
+                window.mouse_position()
+            );
+        })
+        .expect("read back");
+        cx.run_until_parked();
+        cx.update_window(window.into(), |_view, window, _cx| {
+            println!(
+                "  after a draw,    window.mouse_position() = {:?}",
+                window.mouse_position()
+            );
+        })
+        .expect("read back");
+        // An extra draw. gpui computes `mouse_hit_test` at the *end* of a
+        // frame, so the frame the move itself draws still hit-tests the old
+        // position; the hover only lands on the frame after it.
+        // **No forced draw.** This is the running app's situation: gpui's
+        // `dispatch_mouse_event` updates the hit test and resets the cursor but
+        // does not `refresh()`, so a hover only reaches the screen if something
+        // asks for a repaint. Stateful elements register a listener that does;
+        // stateless ones have nothing to. Forcing `window.draw` here would hide
+        // exactly the difference this test exists to show.
+        cx.run_until_parked();
+        let hovered = cx
+            .capture_screenshot(window.into())
+            .expect("a hovered frame");
+
+        let scale = resting.width() / 100;
+        let at = |image: &image::RgbaImage, x: u32| image.get_pixel(x * scale, 30 * scale).0;
+        // The pointer is parked at (25, 30): inside the stateless box only.
+        println!(
+            "stateless  resting {:?}  hovered {:?}   (pointer is NOT over this one)",
+            at(&resting, 25),
+            at(&hovered, 25)
+        );
+        println!(
+            "stateful   resting {:?}  hovered {:?}   <- pointer is here",
+            at(&resting, 75),
+            at(&hovered, 75)
+        );
+        assert_ne!(
+            at(&resting, 75),
+            at(&hovered, 75),
+            "a stateful div did not repaint its hover without a forced draw"
+        );
+    }
+
+    #[test]
+    #[ignore = "drives Metal, which is main-thread only"]
+    fn hovering_a_row_changes_what_is_painted() {
+        use super::{Backdrop, Shell, Sidebar, SidebarStore};
+        use crowbar_ui::gpui::{AppContext as _, HeadlessAppContext, point, px, size};
+
+        let platform = gpui_platform::current_platform(true);
+        let mut cx = HeadlessAppContext::with_platform(
+            platform.text_system(),
+            std::sync::Arc::new(crate::Assets),
+            gpui_platform::current_headless_renderer,
+        );
+        cx.update(|cx| {
+            crate::load_ui_font(cx);
+            crate::load_ui_mono_font(cx);
+            gpui_component::init(cx);
+        });
+        let store = cx.update(|cx| {
+            let store = SidebarStore::build(cx, None, None, None);
+            store.update(cx, |store, cx| fixture_seed()(store, cx));
+            store
+        });
+        let window = cx
+            .open_window(size(px(294.0), px(400.0)), |_window, cx| {
+                let anchors = std::rc::Rc::new(crowbar_ui::Unanchored);
+                let sidebar = Sidebar::build(&store, anchors.clone(), cx);
+                let shell = cx.new(|_| Shell {
+                    sidebar,
+                    caption: "".into(),
+                    store: store.clone(),
+                    anchors,
+                });
+                cx.new(|_| Backdrop { shell })
+            })
+            .expect("a headless window opens");
+        cx.run_until_parked();
+
+        // A workspace row: logical y 223..259, x 20..288. Sample clear of its
+        // label and of its trailing button.
+        let (probe_x, probe_y): (u32, u32) = (200, 241);
+        let resting = cx
+            .capture_screenshot(window.into())
+            .expect("a frame before the pointer moves");
+
+        cx.update_window(window.into(), |_view, window, cx| {
+            let at = |value: u32| px(f32::from(u16::try_from(value).unwrap_or(0)));
+            window.simulate_mouse_move(point(at(probe_x), at(probe_y)), cx);
+        })
+        .expect("the pointer moves");
+        cx.run_until_parked();
+
+        // Captured repeatedly: gpui computes `mouse_hit_test` *after* painting
+        // a frame, so the first frame drawn after a move still hit-tests the
+        // previous pointer position. If hover needs a second frame to appear,
+        // that is a fact worth seeing rather than a reason to give up.
+        let mut frames = Vec::new();
+        for _ in 0..3 {
+            cx.update_window(window.into(), |_view, window, cx| {
+                let _ = window.draw(cx);
+            })
+            .expect("a frame is drawn");
+            cx.run_until_parked();
+            frames.push(
+                cx.capture_screenshot(window.into())
+                    .expect("a frame while the pointer rests on the row"),
+            );
+        }
+        let hovered = frames.last().cloned().expect("three frames were captured");
+
+        let scale = resting.width() / 294;
+        let at = |image: &image::RgbaImage| image.get_pixel(probe_x * scale, probe_y * scale).0;
+        let (before, after) = (at(&resting), at(&hovered));
+        for (index, frame) in frames.iter().enumerate() {
+            println!("  frame {index} after the move: {:?}", at(frame));
+        }
+        println!("row pixel  resting {before:?}  hovered {after:?}");
+
+        assert_ne!(
+            before, after,
+            "the row painted identically with the pointer on it — `hover:bg-accent` \
+             is not reaching the screen"
+        );
+    }
+
     #[test]
     #[ignore = "drives Metal, which is main-thread only"]
     fn an_inset_shadow_paints_a_hairline_inside_the_top_edge() {

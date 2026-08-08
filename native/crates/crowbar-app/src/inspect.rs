@@ -53,6 +53,27 @@ pub fn requested(args: &[String]) -> bool {
     args.iter().any(|arg| arg == FLAG)
 }
 
+/// `--pointer X,Y`: where to park a synthetic pointer before capturing.
+///
+/// # Why the inspector needs a pointer at all
+///
+/// Every instrument in this tree captures one **resting** frame, and a resting
+/// frame cannot show a hover, a press, or anything else the pointer causes.
+/// That gap is how a whole set of hover rules shipped, were reported as
+/// verified on the strength of a clean build and an unchanged resting render,
+/// and did nothing at all.
+///
+/// `Window::dispatch_event` is public and ungated, so the shipping driver
+/// build can put the pointer somewhere and then record what the app paints —
+/// through the real window, the real Metal renderer and the real paint path,
+/// not a test double.
+#[must_use]
+pub fn pointer(args: &[String]) -> Option<(f32, f32)> {
+    let index = args.iter().position(|arg| arg == "--pointer")?;
+    let (x, y) = args.get(index + 1)?.split_once(',')?;
+    Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+}
+
 /// One element, as the inspector reports it.
 ///
 /// Deliberately flat and JSON-shaped: the consumer is a tool reading stdout,
