@@ -53,5 +53,6 @@ mod vibrancy;
 
 #[cfg(target_os = "macos")]
 pub use vibrancy::{
-    Inspection, Opacity, PinAppearanceError, VibrancyError, apply_vibrancy, inspect, pin_appearance,
+    Inspection, Opacity, PinAppearanceError, RetuneError, VibrancyError, apply_vibrancy, inspect,
+    pin_appearance, retune_blur,
 };

@@ -27,7 +27,7 @@ use std::ptr::NonNull;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
-    NSView, NSVisualEffectView,
+    NSView, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
 };
 use raw_window_handle::{
     AppKitWindowHandle, HandleError, HasWindowHandle, RawWindowHandle, WindowHandle,
@@ -42,7 +42,7 @@ use raw_window_handle::{
 const NS_VIEW_TAG_BLUR_VIEW: isize = 91_376_254;
 
 /// Applies the Crowbar-React window's blur material behind `window`: a heavy,
-/// smooth `HudWindow` material (`NSVisualEffectMaterial::HudWindow`) whose
+/// smooth `HudWindow` material (`NSVisualEffectMaterial::HUDWindow`) whose
 /// vibrancy state follows the window's own active/inactive state
 /// (`NSVisualEffectState::FollowsWindowActiveState`), matching
 /// `desktop/src-tauri/src/lib.rs`'s `decorate_window` exactly. `window` must
@@ -118,6 +118,128 @@ pub fn apply_vibrancy(window: impl HasWindowHandle) -> Result<(), VibrancyError>
         None,
     )
     .map_err(VibrancyError::Vibrancy)
+}
+
+/// What went wrong when [`retune_blur`] could not reach the effect view.
+#[derive(Debug)]
+pub enum RetuneError {
+    /// The window handle could not be borrowed.
+    NoHandle(HandleError),
+    /// Not an `AppKit` window.
+    NotAppKit,
+    /// Called off the main thread.
+    NotMainThread,
+    /// The window has no `contentView`.
+    NoContentView,
+    /// `contentView` has no `NSVisualEffectView` sibling — the window was not
+    /// opened with `WindowBackgroundAppearance::Blurred`, or gpui changed how
+    /// it installs the blur.
+    NoBlurView,
+}
+
+impl core::fmt::Display for RetuneError {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::NoHandle(err) => write!(formatter, "no window handle: {err}"),
+            Self::NotAppKit => write!(formatter, "not an AppKit window"),
+            Self::NotMainThread => write!(formatter, "not on the main thread"),
+            Self::NoContentView => write!(formatter, "window has no contentView"),
+            Self::NoBlurView => write!(formatter, "no NSVisualEffectView under contentView"),
+        }
+    }
+}
+
+impl std::error::Error for RetuneError {}
+
+/// Retune **gpui's own** blur view to the React window's material.
+///
+/// # Why this exists, and why it is not `apply_vibrancy`
+///
+/// The two apps do not blur the same way, and the difference is visible on
+/// screen rather than in any anchor:
+///
+/// | | material | state |
+/// |---|---|---|
+/// | `desktop/src-tauri/src/lib.rs` | `HudWindow` | `FollowsWindowActiveState` |
+/// | gpui `WindowBackgroundAppearance::Blurred` | **`Selection`** | `Active` |
+///
+/// `gpui_macos/src/window.rs`'s `BlurredView` hard-codes the second pair. The
+/// materials are not interchangeable: measured against the React window over
+/// the same desktop, `Selection` let through enough that the window ground
+/// read `rgb(64, 73, 82)` where React's read `rgb(49, 57, 67)` — about fifteen
+/// levels lighter across the entire chrome, which is exactly the "washed out"
+/// difference a screenshot shows and a headless render cannot, because a
+/// headless render has no desktop behind it to let through.
+///
+/// [`apply_vibrancy`] *inserts a second* effect view, which is the wrong
+/// shape of fix once gpui already installs one: two stacked effect views
+/// composite twice. This reaches the view gpui installed and changes the two
+/// properties that differ, leaving its geometry, layer and lifetime to gpui.
+///
+/// Call it **after** the window is open, on the main thread.
+///
+/// # Safety
+///
+/// One `unsafe` construct: `handle.ns_view.cast::<NSView>().as_ref()`, which
+/// requires the pointer to be non-null, aligned, and to point at a live
+/// `NSView` for the borrow's lifetime — and, because it goes on to send
+/// `-subviews`, `-window`, `-contentView`, `-setMaterial:` and `-setState:`,
+/// requires the main thread.
+///
+/// * **Non-null, aligned, live.** `ns_view` comes from a `RawWindowHandle::
+///   AppKit` that `raw-window-handle` obtained from the open gpui window; the
+///   `WindowHandle` borrow that produced it is still alive on this stack
+///   frame, which is precisely the guarantee that type carries. The borrow
+///   ends when this function returns, before the window can be closed.
+/// * **Class.** `ns_view` is documented by `raw-window-handle` as an `NSView*`,
+///   so the cast is to its actual class, not a reinterpretation. The one
+///   downcast that could be wrong — to `NSVisualEffectView` — goes through
+///   `Retained::downcast`, which is checked at runtime and yields `Err` rather
+///   than a mistyped pointer.
+/// * **Thread.** `MainThreadMarker::new()` is checked above and returns
+///   `NotMainThread` otherwise, so every selector below is sent on the main
+///   thread, which is where `AppKit` requires view mutation.
+///
+/// This is the same obligation [`apply_vibrancy`] discharges, on the same
+/// pointer from the same source; only the selectors sent afterwards differ.
+///
+/// # Errors
+///
+/// See [`RetuneError`]. Every variant means the material was left alone, so a
+/// caller that logs and continues gets gpui's default blur rather than none.
+pub fn retune_blur(window: impl HasWindowHandle) -> Result<(), RetuneError> {
+    let handle = window.window_handle().map_err(RetuneError::NoHandle)?;
+    let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+        return Err(RetuneError::NotAppKit);
+    };
+    if MainThreadMarker::new().is_none() {
+        return Err(RetuneError::NotMainThread);
+    }
+
+    // SAFETY: identical to `apply_vibrancy`'s — `ns_view` is a live `NSView`
+    // owned by the window gpui opened, borrowed only for this call, and this
+    // thread is the main thread (checked above), which is where AppKit
+    // requires view mutation to happen.
+    let view: &NSView = unsafe { handle.ns_view.cast::<NSView>().as_ref() };
+    let content = view
+        .window()
+        .and_then(|win| win.contentView())
+        .ok_or(RetuneError::NoContentView)?;
+
+    // By class, for the reason `inspect` documents: gpui's view carries no
+    // `window-vibrancy` tag, so a tag lookup finds nothing on a window that
+    // is in fact blurred.
+    // `downcast`, not `downcast_ref`: `subviews().iter()` yields owned
+    // `Retained<NSView>`s, so a borrow of one cannot outlive the closure.
+    let blur = content
+        .subviews()
+        .iter()
+        .find_map(|sub| sub.downcast::<NSVisualEffectView>().ok())
+        .ok_or(RetuneError::NoBlurView)?;
+
+    blur.setMaterial(NSVisualEffectMaterial::HUDWindow);
+    blur.setState(NSVisualEffectState::FollowsWindowActiveState);
+    Ok(())
 }
 
 /// A [`HasWindowHandle`] over the window's `contentView`.
@@ -359,6 +481,16 @@ pub struct Inspection {
     pub blur_index_in_superview: [i32; 2],
     /// GPUI's render view's frame, for comparison with the blur's.
     pub render_view_frame: [f64; 4],
+    /// The blur view's `material`, as the raw `NSVisualEffectMaterial`.
+    ///
+    /// Read back from `AppKit` rather than assumed, because
+    /// [`retune_blur`] setting it and the window *showing* it are two facts
+    /// and only the second one matters. `HudWindow` is 13; gpui's own default,
+    /// `Selection`, is 4. `-1` means there was no blur view to ask.
+    pub blur_material: isize,
+    /// The blur view's `state`. `FollowsWindowActiveState` is 0, `Active` is
+    /// 1, `Inactive` is 2. `-1` means there was no blur view to ask.
+    pub blur_state: isize,
     /// Whether GPUI's render view is marked opaque. An opaque view over the
     /// blur hides it completely, which looks identical to no blur at all.
     ///
@@ -451,6 +583,13 @@ pub fn inspect(window: impl HasWindowHandle) -> Result<Inspection, PinAppearance
             .find(|sub| sub.downcast_ref::<NSVisualEffectView>().is_some())
     });
 
+    let (blur_material, blur_state) = blur.as_ref().map_or((-1, -1), |blur| {
+        let blur: &NSVisualEffectView = blur
+            .downcast_ref::<NSVisualEffectView>()
+            .unwrap_or_else(|| unreachable!("`blur` was found by downcasting to this type"));
+        (blur.material().0, blur.state().0)
+    });
+
     let blur_frame = blur.as_ref().map_or([0.0; 4], |blur| {
         let frame = blur.frame();
         [
@@ -495,6 +634,8 @@ pub fn inspect(window: impl HasWindowHandle) -> Result<Inspection, PinAppearance
         blur_frame,
         blur_index_in_superview,
         render_view_frame,
+        blur_material,
+        blur_state,
         render_view_is_opaque: if view.isOpaque() {
             Opacity::Opaque
         } else {

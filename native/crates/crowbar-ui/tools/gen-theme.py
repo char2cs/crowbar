@@ -60,8 +60,32 @@ UI_CRATE = HERE.parent.parent
 NATIVE = UI_CRATE.parent.parent
 REPO = NATIVE.parent
 
-THEME_CSS = REPO / "web/src/styles/theme.css"
-FILE_TREE_CSS = REPO / "web/src/features/file-explorer/styles/file-explorer-tree.css"
+# The **vendored** CSS under `native/assets/theme/`, not `web/`'s copy. See
+# that directory's PROVENANCE.md: the CSS is the token source of truth and has
+# to outlive `web/`, or the tokens survive only as Rust literals nobody can
+# re-derive. `--check-vendored` diffs the two while `web/` still exists.
+THEME_CSS = REPO / "native/assets/theme/theme.css"
+FILE_TREE_CSS = REPO / "native/assets/theme/file-explorer-tree.css"
+
+UPSTREAM = {
+    THEME_CSS: REPO / "web/src/styles/theme.css",
+    FILE_TREE_CSS: REPO / "web/src/features/file-explorer/styles/file-explorer-tree.css",
+}
+
+
+def check_vendored() -> int:
+    """Diff the vendored CSS against `web/`'s, while `web/` still exists."""
+    drifted = 0
+    for vendored, upstream in UPSTREAM.items():
+        if not upstream.exists():
+            print(f"{upstream.relative_to(REPO)}: gone — vendored copy is now the only source")
+            continue
+        if vendored.read_bytes() == upstream.read_bytes():
+            print(f"{vendored.relative_to(REPO)}: matches upstream")
+        else:
+            print(f"{vendored.relative_to(REPO)}: DIFFERS from {upstream.relative_to(REPO)}")
+            drifted += 1
+    return drifted
 OUT = UI_CRATE / "src/theme/generated.rs"
 
 # The measured shape of theme.css, from the item brief. Drift here means the
@@ -741,4 +765,8 @@ def main() -> None:
 TAILWIND_SRC = {k: v[0] for k, v in TAILWIND.items()}
 
 if __name__ == "__main__":
+    import sys as _sys
+
+    if "--check-vendored" in _sys.argv:
+        raise SystemExit(check_vendored())
     sys.exit(main())

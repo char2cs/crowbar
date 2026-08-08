@@ -630,19 +630,30 @@ fn placeholder_window_options() -> WindowOptions {
 fn decorate_window(window: &gpui::Window) {
     // No `apply_vibrancy` call: the blur is `WindowBackgroundAppearance::
     // Blurred`'s, managed by gpui itself — see `placeholder_window_options`.
-    // What remains here is the appearance pin, which is still ours: gpui
-    // chooses the material but nothing in it pins the frost to the app's own
-    // theme rather than the OS's.
+    // Two things remain ours, because gpui installs the view but chooses its
+    // own material and leaves the frost following the OS appearance.
+    //
+    // `retune_blur` first: gpui's `BlurredView` is `Selection`/`Active` where
+    // the React window is `HudWindow`/`FollowsWindowActiveState`, and
+    // `Selection` let through about fifteen levels more of the desktop across
+    // the whole chrome. That difference is invisible to every instrument that
+    // does not photograph the real window over a real desktop, which is why it
+    // survived a headless render matching the reference exactly.
+    if let Err(err) = crowbar_platform::retune_blur(window) {
+        eprintln!("crowbar-app: failed to retune the blur material: {err}");
+    }
     if let Err(err) = crowbar_platform::pin_appearance(window, true) {
         eprintln!("crowbar-app: failed to pin the vibrancy appearance: {err}");
         return;
     }
     match crowbar_platform::inspect(window) {
         Ok(inspection) => eprintln!(
-            "crowbar-app: window chrome: blur_present={} window_opaque={} blur_sibling={} blur_frame={:?} blur_index={:?} render_frame={:?} render_opaque={:?}",
+            "crowbar-app: window chrome: blur_present={} window_opaque={} blur_sibling={} blur_material={} (HudWindow=13, gpui default Selection=4) blur_state={} (FollowsWindowActiveState=0) blur_frame={:?} blur_index={:?} render_frame={:?} render_opaque={:?}",
             inspection.blur_view_present,
             inspection.window_is_opaque,
             inspection.blur_is_sibling_of_render_view,
+            inspection.blur_material,
+            inspection.blur_state,
             inspection.blur_frame,
             inspection.blur_index_in_superview,
             inspection.render_view_frame,
