@@ -138,6 +138,7 @@
 
 use gpui::{AnyElement, IntoElement as _, ParentElement as _, Pixels, Styled as _, div, px};
 
+use crate::action::ActionSink;
 use crate::anchor::{AnchorId, AnchorSink};
 use crate::primitives::scroll_area;
 use crate::surfaces::repo::repo_section::RepoSection;
@@ -181,22 +182,32 @@ impl WorkspaceTree {
     /// `project_home`, inset by `row_base::MARGIN_X`/`MARGIN_Y` — see the
     /// module docs for why the inset lives on this outer wrapper rather
     /// than inside `ProjectHomeRow::render` itself.
-    fn home_row(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+    fn home_row(
+        &self,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        actions: &dyn ActionSink,
+    ) -> AnyElement {
         div()
             .flex()
             .flex_col()
             .mx(row_base::MARGIN_X)
             .my(row_base::MARGIN_Y)
-            .child(self.project_home.render(theme, anchors))
+            .child(self.project_home.render(theme, anchors, actions))
             .into_any_element()
     }
 
     /// The scrolling repo list: `ScrollArea`'s own two ids, hand-built. See
     /// the module docs.
-    fn scroll_area(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+    fn scroll_area(
+        &self,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        actions: &dyn ActionSink,
+    ) -> AnyElement {
         let mut list = div();
         for section in &self.sections {
-            list = list.child(section.render(theme, anchors));
+            list = list.child(section.render(theme, anchors, actions));
         }
 
         let viewport = anchors.boxed(
@@ -218,7 +229,12 @@ impl WorkspaceTree {
 
     /// Renders the tree, opting every contract anchor into `anchors`.
     #[must_use]
-    pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+    pub fn render(
+        &self,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        actions: &dyn ActionSink,
+    ) -> AnyElement {
         anchors.root(
             AnchorId::from(ID_ROOT),
             div()
@@ -226,8 +242,8 @@ impl WorkspaceTree {
                 .flex_col()
                 .flex_1()
                 .overflow_hidden()
-                .child(self.home_row(theme, anchors))
-                .child(self.scroll_area(theme, anchors)),
+                .child(self.home_row(theme, anchors, actions))
+                .child(self.scroll_area(theme, anchors, actions)),
         )
     }
 }

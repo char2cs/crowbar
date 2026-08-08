@@ -51,7 +51,7 @@ impl Render for Stage {
         // TOFU font off the table the same way that root does.
         div()
             .font(ui_sans_font(&self.theme))
-            .child(self.bar.render(&self.theme, &DriverAnchors))
+            .child(self.bar.render(&self.theme, &DriverAnchors, &crowbar_ui::Inert))
     }
 }
 

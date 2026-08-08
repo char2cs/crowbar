@@ -15,6 +15,7 @@ use crowbar_ui::gpui::{
 use crowbar_ui::primitives::separator::{CallSite, Orientation, Separator};
 use crowbar_ui::surfaces::rows::row_base;
 use crowbar_ui::theme::Theme;
+use gpui::InteractiveElement as _;
 use std::rc::Rc;
 
 use super::Sidebar;
@@ -51,7 +52,27 @@ impl Render for Shell {
         // Every colour in the sidebar is composited against this; without it
         // the whole picture reads as a different theme, which is exactly what
         // it looked like.
-        let mut row = div().flex().size_full().bg(theme.chrome_bg);
+        let mut row = div()
+            .flex()
+            .size_full()
+            .bg(theme.chrome_bg)
+            // **The repaint that makes every hover visible.**
+            //
+            // gpui's `dispatch_mouse_event` updates `mouse_hit_test` and resets
+            // the cursor, and does *not* `refresh()`. A stateful element keeps a
+            // `hover_state` and registers the listener that forces a repaint; a
+            // stateless one has nothing to, so its `hover_style` is computed on
+            // every paint and never triggers one. Every surface in `crowbar-ui`
+            // is stateless by design — the anchor contract compares a tree that
+            // must be the shipping tree, and element ids would have to be unique
+            // among siblings where anchor ids deliberately are not (there are two
+            // `repo-section`s).
+            //
+            // So the repaint is asked for here, once, at the root. The hit test
+            // is already current by the time handlers run (gpui updates it at the
+            // top of `dispatch_mouse_event`), so the next frame paints the right
+            // hover. This is what a browser does for `:hover` anyway.
+            .on_mouse_move(|_event, window, _cx| window.refresh());
 
         // Hidden is rendered as zero width rather than as an absent child:
         // `SidebarPeek` is a wrapper and not a branch in the reference, so

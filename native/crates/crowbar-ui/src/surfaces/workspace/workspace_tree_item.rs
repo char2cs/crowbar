@@ -83,6 +83,7 @@ use gpui::{
 };
 
 use super::workspace_branch_icon::{self, WorkspaceBranchIcon};
+use crate::action::{ActionId, ActionSink};
 use crate::anchor::{AnchorId, AnchorSink};
 use crate::icon::IconName;
 use crate::surfaces::rows::pending_create_row::PendingCreateRow;
@@ -431,7 +432,12 @@ impl WorkspaceTreeItem {
     /// The children section: recursive children (if expanded), this node's
     /// own pending creates, then the create-input/"+ New" row. `None`
     /// unless [`Self::show_children_section`].
-    fn children_section(&self, theme: &Theme, anchors: &dyn AnchorSink) -> Option<AnyElement> {
+    fn children_section(
+        &self,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        actions: &dyn ActionSink,
+    ) -> Option<AnyElement> {
         if !self.show_children_section() {
             return None;
         }
@@ -439,7 +445,7 @@ impl WorkspaceTreeItem {
         let mut group = div();
         if self.has_children() && self.expanded {
             for child in &self.children {
-                group = group.child(child.render(theme, anchors));
+                group = group.child(child.render(theme, anchors, actions));
             }
         }
         for pending in &self.pending_creates {
@@ -459,7 +465,12 @@ impl WorkspaceTreeItem {
     /// Renders the row (and, recursively, everything beneath it), opting
     /// every contract anchor into `anchors`.
     #[must_use]
-    pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+    pub fn render(
+        &self,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        actions: &dyn ActionSink,
+    ) -> AnyElement {
         let mut padded = div()
             .flex()
             .flex_col()
@@ -470,7 +481,7 @@ impl WorkspaceTreeItem {
         }
 
         let mut outer = div().child(padded);
-        if let Some(section) = self.children_section(theme, anchors) {
+        if let Some(section) = self.children_section(theme, anchors, actions) {
             outer = outer.child(section);
         }
         outer.into_any_element()

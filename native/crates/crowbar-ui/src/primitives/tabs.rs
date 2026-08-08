@@ -77,6 +77,7 @@ use gpui::{
     SharedString, Styled as _, div, px, relative,
 };
 
+use crate::action::{ActionId, ActionSink};
 use crate::anchor::{AnchorId, AnchorSink};
 use crate::icon::IconName;
 use crate::surfaces::rows::git_status_row::Breakpoint;
@@ -435,6 +436,11 @@ impl TabSizing {
     }
 }
 
+/// The action `part` a tab press dispatches under. The `subject` is the tab's
+/// own `value`, so one handler covers the whole strip and no tab needs to know
+/// what pressing it does.
+pub const TAB_ACTION_PART: &str = "sidebar-tab";
+
 /// One `TabsTab`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tab {
@@ -631,8 +637,16 @@ impl Tabs {
     /// draws the surface inside a `--width` box and every height on this component
     /// is authored.
     #[must_use]
-    pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
-        let mut children: Vec<AnyElement> = vec![self.list(theme, anchors)];
+    /// Renders the strip. `actions` arms each tab; pass
+    /// [`crate::action::Inert`] to render the same tree without behaviour,
+    /// which is what every measurement path does.
+    pub fn render(
+        &self,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        actions: &dyn ActionSink,
+    ) -> AnyElement {
+        let mut children: Vec<AnyElement> = vec![self.list(theme, anchors, actions)];
         if let Some(panel) = &self.panel {
             children.push(anchors.boxed(AnchorId::new(panel.anchor()), Self::panel()));
         }
@@ -654,11 +668,16 @@ impl Tabs {
     }
 
     /// `TabsList`, its tabs, and the indicator under the active one.
-    fn list(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+    fn list(
+        &self,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        actions: &dyn ActionSink,
+    ) -> AnyElement {
         let children: Vec<AnyElement> = self
             .tabs
             .iter()
-            .map(|tab| self.tab(theme, anchors, tab))
+            .map(|tab| self.tab(theme, anchors, actions, tab))
             .collect();
         anchors.boxed(ID_LIST.into(), self.list_box(theme).children(children))
     }
@@ -697,8 +716,14 @@ impl Tabs {
     }
 
     /// One `TabsTab`, plus the indicator when this is the active one.
-    fn tab(&self, theme: &Theme, anchors: &dyn AnchorSink, tab: &Tab) -> AnyElement {
-        let mut element = self.tab_box(theme, tab);
+    fn tab(
+        &self,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        actions: &dyn ActionSink,
+        tab: &Tab,
+    ) -> AnyElement {
+        let mut element = self.tab_box(theme, actions, tab);
         // **The indicator goes in FIRST.** It is absolutely positioned and
         // opaque, so a later sibling paints over it — but appended last it
         // painted over the tab's own glyph instead, and the active tab was the
@@ -741,7 +766,7 @@ impl Tabs {
     }
 
     /// A tab's own box.
-    fn tab_box(&self, theme: &Theme, tab: &Tab) -> Div {
+    fn tab_box(&self, theme: &Theme, actions: &dyn ActionSink, tab: &Tab) -> Div {
         let element = div()
             .relative()
             .flex()
@@ -776,13 +801,17 @@ impl Tabs {
             Orientation::Vertical => element.w(relative(1.0)).justify_start(),
             Orientation::Horizontal => element.justify_center(),
         };
-        if tab.selected {
+        let element = if tab.selected {
             // `data-active:text-foreground`, which beats the list's inherited
             // muted colour.
             element.text_color(theme.foreground)
         } else {
             element
-        }
+        };
+        // Pressing a tab is what moves the carousel. The sink decides what that
+        // means, so this primitive stays free of app state — and `Inert` gives
+        // the identical tree back, which is what every measurement path uses.
+        actions.clickable(ActionId::new(TAB_ACTION_PART, tab.value.clone()), element)
     }
 
     /// What a tab paints its glyph and its label in.

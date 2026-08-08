@@ -431,6 +431,96 @@ mod tests {
         );
     }
 
+    /// **Does clicking a tab change the active tab?**
+    ///
+    /// Behaviour, not pixels: a press is only real if it moves the store. The
+    /// window is built exactly as the shipping one is, through
+    /// `Sidebar::build`, so the sink under test is the app's own dispatch and
+    /// not a stand-in.
+    ///
+    /// ```sh
+    /// cargo test -p crowbar-app clicking_a_tab -- --ignored --test-threads=1 --nocapture
+    /// ```
+    #[test]
+    #[ignore = "drives Metal, which is main-thread only"]
+    fn clicking_a_tab_moves_the_active_tab() {
+        use super::{Backdrop, Shell, Sidebar, SidebarStore};
+        use crowbar_ui::gpui::{
+            AppContext as _, HeadlessAppContext, Modifiers, MouseButton, MouseDownEvent,
+            MouseUpEvent, PlatformInput, point, px, size,
+        };
+
+        let platform = gpui_platform::current_platform(true);
+        let mut cx = HeadlessAppContext::with_platform(
+            platform.text_system(),
+            std::sync::Arc::new(crate::Assets),
+            gpui_platform::current_headless_renderer,
+        );
+        cx.update(|cx| {
+            crate::load_ui_font(cx);
+            crate::load_ui_mono_font(cx);
+            gpui_component::init(cx);
+        });
+        let store = cx.update(|cx| {
+            let store = SidebarStore::build(cx, None, None, None);
+            store.update(cx, |store, cx| fixture_seed()(store, cx));
+            store
+        });
+        let window = cx
+            .open_window(size(px(294.0), px(400.0)), |_window, cx| {
+                let anchors = std::rc::Rc::new(crowbar_ui::Unanchored);
+                let sidebar = Sidebar::build(&store, anchors.clone(), cx);
+                let shell = cx.new(|_| Shell {
+                    sidebar,
+                    caption: "".into(),
+                    store: store.clone(),
+                    anchors,
+                });
+                cx.new(|_| Backdrop { shell })
+            })
+            .expect("a headless window opens");
+        cx.run_until_parked();
+
+        let before = cx.update(|cx| store.read(cx).active_tab());
+        println!("active tab before: {before:?}");
+
+        // The Chats tab: x 102..192, y 103..135 — its centre.
+        let target = point(px(147.0), px(119.0));
+        cx.update_window(window.into(), |_view, window, cx| {
+            window.simulate_mouse_move(target, cx);
+            let _ = window.draw(cx);
+            window.dispatch_event(
+                PlatformInput::MouseDown(MouseDownEvent {
+                    button: MouseButton::Left,
+                    position: target,
+                    modifiers: Modifiers::default(),
+                    click_count: 1,
+                    first_mouse: false,
+                }),
+                cx,
+            );
+            window.dispatch_event(
+                PlatformInput::MouseUp(MouseUpEvent {
+                    button: MouseButton::Left,
+                    position: target,
+                    modifiers: Modifiers::default(),
+                    click_count: 1,
+                }),
+                cx,
+            );
+        })
+        .expect("the press is delivered");
+        cx.run_until_parked();
+
+        let after = cx.update(|cx| store.read(cx).active_tab());
+        println!("active tab after:  {after:?}");
+        assert_ne!(
+            before, after,
+            "pressing the Chats tab left the active tab where it was — the press \
+             is not reaching the store"
+        );
+    }
+
     #[test]
     #[ignore = "drives Metal, which is main-thread only"]
     fn hovering_a_row_changes_what_is_painted() {
@@ -488,10 +578,9 @@ mod tests {
         // that is a fact worth seeing rather than a reason to give up.
         let mut frames = Vec::new();
         for _ in 0..3 {
-            cx.update_window(window.into(), |_view, window, cx| {
-                let _ = window.draw(cx);
-            })
-            .expect("a frame is drawn");
+            // **No forced draw.** The shell asks for the repaint itself, so if
+            // hover only appears when this test draws by hand, the app does not
+            // have it. See `Shell::render`'s `on_mouse_move`.
             cx.run_until_parked();
             frames.push(
                 cx.capture_screenshot(window.into())

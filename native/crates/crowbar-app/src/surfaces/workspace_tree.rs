@@ -190,7 +190,7 @@ impl SurfaceParams for Params {
     }
 
     fn render(&self, cell: &Cell, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
-        self.tree(cell, theme).render(theme, anchors)
+        self.tree(cell, theme).render(theme, anchors, &crowbar_ui::Inert)
     }
 }
 

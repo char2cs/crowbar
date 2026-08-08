@@ -156,7 +156,7 @@ impl Sidebar {
             scroll_width: width,
             scroll_height: px(0.0),
         }
-        .render(&self.theme, &*self.anchors)
+        .render(&self.theme, &*self.anchors, &self.actions())
     }
 }
 
@@ -264,7 +264,7 @@ impl Render for Sidebar {
             .overflow_hidden()
             .child(header.render(&self.theme, &*self.anchors))
             .child(pill.render(&self.theme, &*self.anchors))
-            .child(tab_bar.render(&self.theme, &*self.anchors))
+            .child(tab_bar.render(&self.theme, &*self.anchors, &self.actions()))
             .child(carousel.render_with(&*self.anchors, panels))
     }
 }

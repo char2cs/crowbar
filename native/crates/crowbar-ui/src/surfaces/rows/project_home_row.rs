@@ -104,6 +104,7 @@ use gpui::{
 };
 
 use super::row_base;
+use crate::action::{ActionId, ActionSink};
 use crate::anchor::{AnchorId, AnchorSink};
 use crate::icon::IconName;
 use crate::primitives::button;
@@ -278,7 +279,12 @@ impl ProjectHomeRow {
     /// on the reset either, since `row_layout.rs`'s own harness opens a
     /// fresh, empty registry per test.
     #[must_use]
-    pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+    pub fn render(
+        &self,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        actions: &dyn ActionSink,
+    ) -> AnyElement {
         let shell = if self.is_active {
             row_base::active(theme)
         } else {

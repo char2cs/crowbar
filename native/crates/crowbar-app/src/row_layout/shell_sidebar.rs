@@ -77,7 +77,7 @@ impl Render for Stage {
             .h_full()
             .flex()
             .flex_col()
-            .child(self.section.render(&theme, &DriverAnchors))
+            .child(self.section.render(&theme, &DriverAnchors, &crowbar_ui::Inert))
     }
 }
 
@@ -99,7 +99,7 @@ impl Render for NestedStage {
             .flex_1()
             .min_h(px(0.0))
             .overflow_hidden()
-            .child(self.section.render(&theme, &DriverAnchors));
+            .child(self.section.render(&theme, &DriverAnchors, &crowbar_ui::Inert));
 
         let panel = div()
             .w(px(294.0))

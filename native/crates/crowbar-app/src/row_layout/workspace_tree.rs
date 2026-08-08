@@ -88,7 +88,7 @@ fn repos_0_carries_the_scaffold_with_no_repo_sections(cx: &mut TestAppContext) {
 ///
 /// **Mutation, run:** in `WorkspaceTree::render`, swapped
 /// `.child(self.home_row(theme, anchors))` back for
-/// `.child(self.project_home.render(theme, anchors))` (the pre-fix direct
+/// `.child(self.project_home.render(theme, anchors, &crowbar_ui::Inert))` (the pre-fix direct
 /// composition, no margin wrapper). `project_home_is_inset_by_row_base_
 /// margin_on_both_axes` failed as predicted:
 ///

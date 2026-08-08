@@ -122,6 +122,7 @@ use gpui::{
     AnyElement, IntoElement as _, ParentElement as _, Pixels, SharedString, Styled as _, div, px,
 };
 
+use crate::action::ActionSink;
 use crate::anchor::AnchorSink;
 use crate::icon::IconName;
 use crate::primitives::tabs::{ListBackground, Orientation, Tab, TabSizing, Tabs, Variant};
@@ -311,9 +312,14 @@ impl SidebarTabBar {
     /// [`ID_SIDEBAR_TAB_BAR`]'s doc comment — so every anchor this element
     /// carries is `tabs.rs`'s own, at the offset this wrapper's padding
     /// produces.
-    pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+    pub fn render(
+        &self,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        actions: &dyn ActionSink,
+    ) -> AnyElement {
         self.shell()
-            .child(self.tabs().render(theme, anchors))
+            .child(self.tabs().render(theme, anchors, actions))
             .into_any_element()
     }
 }

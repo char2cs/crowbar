@@ -70,6 +70,7 @@ use gpui::{
 };
 
 use super::repo_icon_popover::Trigger;
+use crate::action::{ActionId, ActionSink};
 use crate::anchor::{AnchorId, AnchorSink};
 use crate::icon::IconName;
 use crate::surfaces::rows::pending_create_row::PendingCreateRow;
@@ -345,7 +346,12 @@ impl RepoSection {
 
     /// Renders the section, opting every contract anchor into `anchors`.
     #[must_use]
-    pub fn render(&self, theme: &Theme, anchors: &dyn AnchorSink) -> AnyElement {
+    pub fn render(
+        &self,
+        theme: &Theme,
+        anchors: &dyn AnchorSink,
+        actions: &dyn ActionSink,
+    ) -> AnyElement {
         // `MARGIN_Y`, not 4px. With the rows carrying only a top margin (see
         // `header`), the gap between this section's last row and the next
         // section's header is this margin plus that header's — 2 + 2 = 4,
@@ -363,7 +369,7 @@ impl RepoSection {
                 group = group.child(pending.render(theme, anchors));
             }
             for root in &self.roots {
-                group = group.child(root.render(theme, anchors));
+                group = group.child(root.render(theme, anchors, actions));
             }
             outer = outer.child(group);
         }

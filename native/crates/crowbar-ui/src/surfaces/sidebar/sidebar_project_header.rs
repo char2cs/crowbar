@@ -73,8 +73,8 @@
 //! reachable — the same posture `keybinding.rs` already takes.
 
 use gpui::{
-    AnyElement, Div, IntoElement as _, ParentElement as _, Pixels, SharedString, Styled as _, div,
-    px,
+    AnyElement, Div, InteractiveElement as _, IntoElement as _, ParentElement as _, Pixels,
+    SharedString, Styled as _, div, px,
 };
 
 use crate::anchor::{AnchorId, AnchorSink};
@@ -207,6 +207,17 @@ impl SidebarProjectHeader {
             .border_color(Color::TRANSPARENT.value());
         if disabled {
             element = element.opacity(button::DISABLED_OPACITY);
+        } else {
+            // `variant="ghost"` is `border-transparent text-foreground
+            // hover:bg-accent`. `button.rs` recorded hover as having "no
+            // reference: synthetic pointer events are denied on this project's
+            // machines" and left it out — which is why these four were the one
+            // cluster with no hover at all. There is an instrument now
+            // (`screenshot.rs`'s `hovering_a_row_changes_what_is_painted`), so
+            // the rule goes in.
+            element = element
+                .hover(|style| style.bg(theme.accent))
+                .cursor_pointer();
         }
         if let Some(glyph) = glyph {
             element = element
