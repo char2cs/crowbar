@@ -285,6 +285,118 @@ mod tests {
     /// ```sh
     /// cargo test -p crowbar-app write_the_sidebar_png -- --ignored --test-threads=1
     /// ```
+    /// Does gpui paint an **inset** box shadow at all?
+    ///
+    /// Isolation probe, written when `elevation::raised()`'s drop-shadow layer
+    /// rendered and its inset layer did not. Everything upstream checked out —
+    /// the colour arithmetic (`elevation`'s own tests), `paint_inset_shadows`
+    /// being called unconditionally after the background, the Metal shader's
+    /// zero-blur fast path, and the scene's `(order, kind)` sort — so the
+    /// question left is whether a pixel comes out, and only a render answers
+    /// that.
+    ///
+    /// ```sh
+    /// cargo test -p crowbar-app an_inset_shadow -- --ignored --test-threads=1 --nocapture
+    /// ```
+    #[test]
+    #[ignore = "drives Metal, which is main-thread only"]
+    fn an_inset_shadow_paints_a_hairline_inside_the_top_edge() {
+        use crowbar_ui::gpui::{
+            AppContext as _, BoxShadow, HeadlessAppContext, ParentElement as _, Render,
+            Styled as _, div, point, px, size,
+        };
+
+        /// The border width the probe draws, in whole logical pixels. An
+        /// integer because it is also used as a row *index*, and a float
+        /// round-tripped through `as u32` is a truncation the lint is right
+        /// to refuse.
+        const BORDER: u32 = 1;
+
+        /// [`BORDER`] as a `Pixels`, in one place.
+        fn border() -> crowbar_ui::gpui::Pixels {
+            px(f32::from(u16::try_from(BORDER).unwrap_or(1)))
+        }
+
+        struct Probe;
+        impl Render for Probe {
+            fn render(
+                &mut self,
+                _window: &mut crowbar_ui::gpui::Window,
+                _cx: &mut crowbar_ui::gpui::Context<Self>,
+            ) -> impl crowbar_ui::gpui::IntoElement {
+                div()
+                    .size_full()
+                    .bg(crowbar_ui::theme::Color::BLACK.value())
+                    .child(
+                        div()
+                            .absolute()
+                            .top(px(10.0))
+                            .left(px(10.0))
+                            .w(px(80.0))
+                            .h(px(40.0))
+                            // Dark, like the real active row: a 16% white highlight over a light
+                            // fill is only ~8 levels, which is too small to assert on.
+                            .bg(crowbar_ui::theme::Color::BLACK
+                                .mix(88.0, crowbar_ui::theme::Color::WHITE)
+                                .value())
+                            // **Bordered**, which is the case that failed: gpui
+                            // paints the border after the inset shadows, so a
+                            // highlight offset by less than the border width is
+                            // painted and then covered. `elevation::raised` takes
+                            // the border width for exactly this reason, and this
+                            // probe reproduces the geometry it has to survive.
+                            .border(border())
+                            .border_color(
+                                crowbar_ui::theme::Color::BLACK
+                                    .mix(88.0, crowbar_ui::theme::Color::WHITE)
+                                    .value(),
+                            )
+                            .shadow(crowbar_ui::elevation::raised(border())),
+                    )
+            }
+        }
+
+        let platform = gpui_platform::current_platform(true);
+        let mut cx = HeadlessAppContext::with_platform(
+            platform.text_system(),
+            std::sync::Arc::new(crate::Assets),
+            gpui_platform::current_headless_renderer,
+        );
+        let window = cx
+            .open_window(size(px(100.0), px(60.0)), |_window, cx| cx.new(|_| Probe))
+            .expect("a headless window opens");
+        cx.run_until_parked();
+        let image = cx
+            .capture_screenshot(window.into())
+            .expect("the headless renderer produced a frame");
+
+        let scale = image.width() / 100;
+        let column = 50 * scale;
+        let sample = |y: u32| image.get_pixel(column, y).0;
+        let rows: Vec<[u8; 4]> = (9 * scale..14 * scale).map(sample).collect();
+        println!("rows 9..14 (logical) at x=50: {rows:?}");
+
+        // The box's top edge is at logical 10; logical 10 is its border, so the
+        // highlight must land at logical 11, *inside* it — which is where CSS
+        // puts an inset shadow, and where this rendered nothing until the
+        // offset absorbed the border width.
+        //
+        // Compared against the box's **own background**, not against the
+        // border. Comparing against the border is the vacuous version of this
+        // test: with the highlight painted under a black border, the row
+        // inside it is simply the box's fill, which is still far brighter than
+        // black — so it passed with the bug in place. Asserted here by
+        // mutation: dropping `border_width` from the offset must fail this.
+        let fill = sample(20 * scale)[0];
+        let highlight = sample((10 + BORDER) * scale)[0];
+        assert!(
+            highlight > fill + 20,
+            "no inset hairline inside the border: the row inside the border read {highlight} \
+             and the box's own fill reads {fill}, so nothing was painted there. The highlight \
+             is landing under the border. rows = {rows:?}"
+        );
+    }
+
     #[test]
     #[ignore = "drives Metal, which is main-thread only; see the doc comment"]
     fn write_the_sidebar_png() {

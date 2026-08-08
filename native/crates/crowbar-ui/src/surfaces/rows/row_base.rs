@@ -161,16 +161,23 @@ pub fn base(theme: &Theme) -> Div {
 
 /// `ROW_ACTIVE`: `border-background bg-background text-foreground shadow-xs
 /// shadow-black/10 not-disabled:inset-shadow-[…] active:inset-shadow-[…]
-/// active:shadow-none`. The three shadow layers are invisible
-/// (`ANCHORS.md` §6, the same call `button.rs`'s own `::before` overlay
-/// shadows make); the modelled fields are the border colour, the
-/// background and the text colour.
+/// active:shadow-none`.
+///
+/// # The shadow layers are painted, and used not to be
+///
+/// This doc used to say they "are invisible (`ANCHORS.md` §6)" and skip them.
+/// They are invisible to the **anchor contract**, which has no shadow field —
+/// not to anyone looking at the window. The active row rendered as a flat
+/// rectangle where the reference draws a lit, raised surface, and the one
+/// pixel that gives it away is a `rgb(67, 67, 66)` hairline one logical pixel
+/// inside the row's top edge. [`crate::elevation`] carries the stack.
 #[must_use]
 pub fn active(theme: &Theme) -> Div {
     base(theme)
         .border_color(theme.background)
         .bg(theme.background)
         .text_color(theme.foreground)
+        .shadow(crate::elevation::raised(button::BORDER_WIDTH))
 }
 
 /// `ROW_INACTIVE`: `border-transparent text-foreground hover:bg-accent`.

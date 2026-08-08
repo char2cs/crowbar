@@ -810,14 +810,18 @@ impl Tabs {
                 .border(TAB_BORDER)
                 .border_color(theme.background.value())
                 .bg(theme.background)
-                // `shadow-xs`. gpui's preset carries Tailwind's own offset and
-                // blur; the app overrides `--tw-shadow-color` to `black/10` where
-                // the preset is `rgb(0 0 0 / .05)`, and there is no black token to
-                // mint that from. `inset-shadow-[0_1px_--theme(--color-white/16%)]`
-                // is dropped for the same reason. `ANCHORS.md` §6 has no field for
-                // a shadow, so the differ sees neither the layer nor the
-                // difference — recorded in `native/mapping/tabs.md`.
-                .shadow_xs(),
+                // The **same** raised stack `ROW_ACTIVE` carries, and for the
+                // same reason: the live app computes an identical
+                // `box-shadow` on `tab-indicator` and on `project-home-row`.
+                //
+                // This used to be a bare `shadow_xs()`, on the reasoning that
+                // `black/10` had "no black token to mint from" and that
+                // `ANCHORS.md` §6 "has no field for a shadow, so the differ
+                // sees neither the layer nor the difference". `Color::BLACK`
+                // exists, and the second half is the argument that also
+                // shipped 23 empty icon boxes — the differ not seeing a thing
+                // is not the thing being absent.
+                .shadow(crate::elevation::raised(TAB_BORDER)),
             Variant::Underline => {
                 let element = element.bg(theme.primary);
                 match self.orientation {

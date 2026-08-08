@@ -630,18 +630,14 @@ fn placeholder_window_options() -> WindowOptions {
 fn decorate_window(window: &gpui::Window) {
     // No `apply_vibrancy` call: the blur is `WindowBackgroundAppearance::
     // Blurred`'s, managed by gpui itself — see `placeholder_window_options`.
-    // Two things remain ours, because gpui installs the view but chooses its
-    // own material and leaves the frost following the OS appearance.
+    // What remains here is the appearance pin: gpui chooses the material but
+    // nothing in it pins the frost to the app's own theme rather than the OS's.
     //
-    // `retune_blur` first: gpui's `BlurredView` is `Selection`/`Active` where
-    // the React window is `HudWindow`/`FollowsWindowActiveState`, and
-    // `Selection` let through about fifteen levels more of the desktop across
-    // the whole chrome. That difference is invisible to every instrument that
-    // does not photograph the real window over a real desktop, which is why it
-    // survived a headless render matching the reference exactly.
-    if let Err(err) = crowbar_platform::retune_blur(window) {
-        eprintln!("crowbar-app: failed to retune the blur material: {err}");
-    }
+    // `crowbar_platform::retune_blur` is deliberately **not** called, on the
+    // user's instruction. It exists and is tested; see its own doc comment for
+    // the measured difference between gpui's `Selection` material and the
+    // React window's `HudWindow`, and turn it on by calling it here.
+    //
     if let Err(err) = crowbar_platform::pin_appearance(window, true) {
         eprintln!("crowbar-app: failed to pin the vibrancy appearance: {err}");
         return;

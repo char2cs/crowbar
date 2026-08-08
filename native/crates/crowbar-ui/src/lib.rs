@@ -38,6 +38,7 @@
 // full rationale, including the classification's borderline calls.
 pub mod action;
 mod anchor;
+pub mod elevation;
 pub mod icon;
 pub mod primitives;
 pub mod surfaces;
