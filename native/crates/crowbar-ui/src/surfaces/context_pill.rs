@@ -72,6 +72,7 @@ use gpui::{
 };
 
 use crate::anchor::{AnchorId, AnchorSink};
+use crate::icon::IconName;
 use crate::primitives::button;
 use crate::surfaces::repo::repo_avatar::RepoAvatar;
 use crate::surfaces::workspace::workspace_branch_icon::{self, WorkspaceBranchIcon};
@@ -386,12 +387,9 @@ impl ContextPill {
             }
             .render(theme, anchors)
         } else {
-            div()
-                .flex_shrink_0()
-                .w(LIBRARY_SIZE)
-                .h(LIBRARY_SIZE)
-                .text_color(theme.foreground.mix(70.0, Color::TRANSPARENT))
-                .into_any_element()
+            // `<Library size={14} />`, `context-pill.tsx:98` — the same mark
+            // the project-home row draws as its leading glyph.
+            IconName::Library.render(LIBRARY_SIZE, theme.foreground.mix(70.0, Color::TRANSPARENT))
         };
         Self::glyph_wrapper().child(inner).into_any_element()
     }

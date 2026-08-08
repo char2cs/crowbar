@@ -7,6 +7,8 @@
 pub mod coordinator;
 pub mod model;
 pub mod root;
+#[cfg(test)]
+pub mod screenshot;
 pub mod sidebar;
 
 pub use root::Shell;

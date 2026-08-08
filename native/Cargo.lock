@@ -1316,6 +1316,7 @@ dependencies = [
  "gpui",
  "gpui-component",
  "gpui_platform",
+ "image",
  "serde",
  "serde_json",
 ]
@@ -3153,6 +3154,7 @@ dependencies = [
  "qoi",
  "ravif",
  "rayon",
+ "rgb",
  "tiff",
  "zune-core 0.5.1",
  "zune-jpeg 0.5.15",

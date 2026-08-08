@@ -695,6 +695,15 @@ impl Tabs {
     /// One `TabsTab`, plus the indicator when this is the active one.
     fn tab(&self, theme: &Theme, anchors: &dyn AnchorSink, tab: &Tab) -> AnyElement {
         let mut element = self.tab_box(theme, tab);
+        // **The indicator goes in FIRST.** It is absolutely positioned and
+        // opaque, so a later sibling paints over it — but appended last it
+        // painted over the tab's own glyph instead, and the active tab was the
+        // one tab in the bar with no icon. Nothing in the anchor contract
+        // could see that: the indicator's own record was correct, the glyph's
+        // was correct, and neither carries paint order.
+        if tab.selected && self.active().is_some_and(|first| first.value == tab.value) {
+            element = element.child(anchors.boxed(ID_INDICATOR.into(), self.indicator(theme)));
+        }
         if let Some(glyph) = tab.icon {
             element = element.child(
                 self.icon()
@@ -711,9 +720,6 @@ impl Tabs {
             // `FieldPresence` deltas on every tab, in the shape `ANCHORS.md` §3
             // records for `git-row-badge` and with the sides swapped.
             element = element.child(div().child(label.clone()));
-        }
-        if tab.selected && self.active().is_some_and(|first| first.value == tab.value) {
-            element = element.child(anchors.boxed(ID_INDICATOR.into(), self.indicator(theme)));
         }
         anchors.boxed(AnchorId::new(tab.anchor()), element)
     }
