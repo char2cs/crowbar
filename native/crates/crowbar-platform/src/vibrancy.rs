@@ -27,7 +27,7 @@ use std::ptr::NonNull;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
-    NSView, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
+    NSView, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindowButton,
 };
 use raw_window_handle::{
     AppKitWindowHandle, HandleError, HasWindowHandle, RawWindowHandle, WindowHandle,
@@ -491,6 +491,16 @@ pub struct Inspection {
     /// The blur view's `state`. `FollowsWindowActiveState` is 0, `Active` is
     /// 1, `Inactive` is 2. `-1` means there was no blur view to ask.
     pub blur_state: isize,
+    /// The close button's frame in **window** coordinates with a **top-left**
+    /// origin: `[x, y, w, h]`. All zero if the window has no close button.
+    ///
+    /// Reported because the traffic lights are positioned through
+    /// `TitlebarOptions::traffic_light_position`, whose `y` is measured from
+    /// the bottom of a titlebar container gpui sizes as
+    /// `button_height + 2 * y` — so what that number means on screen depends
+    /// on a button height only `AppKit` knows. Asking for it turns "the lights
+    /// look low" into arithmetic.
+    pub close_button_frame: [f64; 4],
     /// Whether GPUI's render view is marked opaque. An opaque view over the
     /// blur hides it completely, which looks identical to no blur at all.
     ///
@@ -583,6 +593,24 @@ pub fn inspect(window: impl HasWindowHandle) -> Result<Inspection, PinAppearance
             .find(|sub| sub.downcast_ref::<NSVisualEffectView>().is_some())
     });
 
+    // Window coordinates are bottom-left origin; flip to top-left so the
+    // number is comparable with everything the UI is laid out in.
+    let close_button_frame = view
+        .window()
+        .and_then(|win| {
+            let button = win.standardWindowButton(NSWindowButton::CloseButton)?;
+            let bounds = button.bounds();
+            let in_window = button.convertRect_toView(bounds, None);
+            let height = win.frame().size.height;
+            Some([
+                in_window.origin.x,
+                height - in_window.origin.y - in_window.size.height,
+                in_window.size.width,
+                in_window.size.height,
+            ])
+        })
+        .unwrap_or([0.0; 4]);
+
     let (blur_material, blur_state) = blur.as_ref().map_or((-1, -1), |blur| {
         let blur: &NSVisualEffectView = blur
             .downcast_ref::<NSVisualEffectView>()
@@ -636,6 +664,7 @@ pub fn inspect(window: impl HasWindowHandle) -> Result<Inspection, PinAppearance
         render_view_frame,
         blur_material,
         blur_state,
+        close_button_frame,
         render_view_is_opaque: if view.isOpaque() {
             Opacity::Opaque
         } else {

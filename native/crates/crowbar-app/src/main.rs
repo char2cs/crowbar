@@ -576,12 +576,36 @@ fn open_shell(report: &Report, caption: String, cx: &mut App) -> gpui::Result<()
 /// borderless-window shape `gpui_macos` builds when `titlebar` is absent)
 /// already draws; nothing about `appears_transparent` or the vibrancy view
 /// changes the window's own corner shape.
+/// The traffic lights' left inset, matching `tauri.conf.json`'s own `x: 12`.
+const TRAFFIC_LIGHT_X: gpui::Pixels = gpui::px(12.0);
+
+/// The traffic lights' offset, chosen so they sit **exactly** on the header's
+/// own button row.
+///
+/// Not `tauri.conf.json`'s `y: 23`. That value was copied across verbatim and
+/// it is wrong here twice over. gpui's `y` is measured from the bottom of a
+/// titlebar container it sizes as `button_height + 2 * y`, which centres the
+/// button in that container — so the button's centre lands at
+/// `y + button_height / 2` below the window top, a different quantity from
+/// whatever Tauri's `y` means. Read back from `AppKit`, `y: 23` put a 14pt
+/// button's centre at **30**.
+///
+/// The header's own controls are 28pt boxes at `y: 8`, so their centre is
+/// **22**. `22 - 14 / 2 = 15`. That the container is then exactly 44pt — the
+/// header's own height — is the arithmetic agreeing with itself.
+///
+/// This deliberately does **not** reproduce the reference: the React window's
+/// lights are about a pixel off its own header row, and the instruction was to
+/// nail it rather than copy the drift. `crowbar_platform::inspect` reports
+/// `close_button_frame` so the result is checked rather than assumed.
+const TRAFFIC_LIGHT_Y: gpui::Pixels = gpui::px(15.0);
+
 fn placeholder_window_options() -> WindowOptions {
     WindowOptions {
         titlebar: Some(TitlebarOptions {
             title: Some(SharedString::new_static("Crowbar (native)")),
             appears_transparent: true,
-            traffic_light_position: Some(gpui::point(gpui::px(12.0), gpui::px(23.0))),
+            traffic_light_position: Some(gpui::point(TRAFFIC_LIGHT_X, TRAFFIC_LIGHT_Y)),
         }),
         // `Blurred`, not `Transparent` + `window-vibrancy`.
         //
@@ -630,13 +654,20 @@ fn placeholder_window_options() -> WindowOptions {
 fn decorate_window(window: &gpui::Window) {
     // No `apply_vibrancy` call: the blur is `WindowBackgroundAppearance::
     // Blurred`'s, managed by gpui itself — see `placeholder_window_options`.
-    // What remains here is the appearance pin: gpui chooses the material but
-    // nothing in it pins the frost to the app's own theme rather than the OS's.
+    // Two things remain ours: gpui installs the blur view but picks its own
+    // material, and nothing in it pins the frost to the app's theme.
     //
-    // `crowbar_platform::retune_blur` is deliberately **not** called, on the
-    // user's instruction. It exists and is tested; see its own doc comment for
-    // the measured difference between gpui's `Selection` material and the
-    // React window's `HudWindow`, and turn it on by calling it here.
+    // `retune_blur` was reverted once, then restored on evidence. The report
+    // it was reverted for turned out to be a different defect (a row's inset
+    // top highlight), but the next one — "the selected item's colour is not
+    // the same" — measured back to exactly this: across three separate
+    // screenshot pairs the selected pill's own fill is byte-identical
+    // `rgb(31, 31, 30)` in both apps, while the ground *around* it reads
+    // `rgb(53, 62, 71)` in the React window and `rgb(68, 78, 89)` here. A
+    // surface reads as the wrong colour when the ground behind it does.
+    if let Err(err) = crowbar_platform::retune_blur(window) {
+        eprintln!("crowbar-app: failed to retune the blur material: {err}");
+    }
     //
     if let Err(err) = crowbar_platform::pin_appearance(window, true) {
         eprintln!("crowbar-app: failed to pin the vibrancy appearance: {err}");
@@ -644,7 +675,7 @@ fn decorate_window(window: &gpui::Window) {
     }
     match crowbar_platform::inspect(window) {
         Ok(inspection) => eprintln!(
-            "crowbar-app: window chrome: blur_present={} window_opaque={} blur_sibling={} blur_material={} (HudWindow=13, gpui default Selection=4) blur_state={} (FollowsWindowActiveState=0) blur_frame={:?} blur_index={:?} render_frame={:?} render_opaque={:?}",
+            "crowbar-app: window chrome: blur_present={} window_opaque={} blur_sibling={} blur_material={} (HudWindow=13, gpui default Selection=4) blur_state={} (FollowsWindowActiveState=0) blur_frame={:?} blur_index={:?} render_frame={:?} render_opaque={:?} close_button={:?} centre_y={:.1}",
             inspection.blur_view_present,
             inspection.window_is_opaque,
             inspection.blur_is_sibling_of_render_view,
@@ -654,6 +685,8 @@ fn decorate_window(window: &gpui::Window) {
             inspection.blur_index_in_superview,
             inspection.render_view_frame,
             inspection.render_view_is_opaque,
+            inspection.close_button_frame,
+            inspection.close_button_frame[1] + inspection.close_button_frame[3] / 2.0,
         ),
         Err(err) => eprintln!("crowbar-app: could not inspect the window chrome: {err}"),
     }

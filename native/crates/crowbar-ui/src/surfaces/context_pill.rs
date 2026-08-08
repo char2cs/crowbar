@@ -28,21 +28,28 @@
 //! the React source carries a name that will never collide with the generic
 //! `button` surface.
 //!
-//! # `scale-110` on the trailing icon is not modelled
+//! # `scale-110` on the trailing icon is baked into the drawn size
 //!
 //! `context-pill.tsx` wraps its trailing glyph in `<span className="flex
-//! shrink-0 scale-110">`. CSS `transform: scale()` does not participate in
-//! layout at all — the scaled element keeps its own *layout* box for every
-//! purpose taffy or Blink's box tree cares about — but it **does** move
-//! `getBoundingClientRect()`'s answer, because that call reports the
-//! *painted*, post-transform box. gpui has no paint-time-only scale on
-//! `Styled` that leaves the layout box alone the way CSS's does (its
-//! `Element::paint`-level facilities are lower-level than this port's
-//! `Div`-only vocabulary), so this port renders the icon at its own natural
-//! extent and the differ will see a `bounds` delta of `size × 0.10` on this
-//! one anchor's `w`/`h` — recorded here rather than silently absorbed by a
-//! constant, so a reader who sees that delta on this specific anchor knows
-//! why before reaching for the port.
+//! shrink-0 scale-110">`, and the icon inside it is **not** the `size={14}`
+//! the prop asks for: the button's own
+//! `sm:[&_svg:not([class*='size-'])]:size-4` wins, so the svg is 16, and
+//! `scale-110` paints it at **17.6**. Read off the live window:
+//! `getBoundingClientRect()` reports `17.6 x 17.6` for a `16px` svg.
+//!
+//! This used to render 14 and record the difference as an accepted `bounds`
+//! delta of `size x 0.10` on one anchor. Two things were wrong with that: the
+//! base was 14 rather than 16, so the real gap was 17.6 against 14 — a quarter
+//! again, not a tenth — and "the differ sees a delta" is not the same as
+//! "nobody can see it". It is the largest glyph in the sidebar and the
+//! difference is obvious side by side.
+//!
+//! gpui has no paint-only scale that leaves the layout box alone, so the
+//! **painted** size is what is modelled here and the layout box is corrected
+//! back with the negative margin the button already applies to every svg
+//! inside it (`[&_svg]:-mx-0.5`). The reference's own layout box is 12 wide
+//! (`16 - 2 * 2`) against a 17.6 paint, and the trailing edge lands 10.2 from
+//! the pill's right edge; this reproduces that.
 //!
 //! # `kind: 'empty'` is not modelled
 //!
@@ -220,7 +227,11 @@ pub const LARGE_TEXT: Pixels = px(13.0);
 pub const PROJECT_LINE_HEIGHT: f32 = 1.25 / 0.875; // calc(1.25 / 0.875)
 
 /// `Library`'s own `size={14}` on the home row.
-pub const LIBRARY_SIZE: Pixels = px(14.0);
+pub const LIBRARY_SIZE: Pixels = px(17.6);
+
+/// `[&_svg]:-mx-0.5` — the button applies it to every svg inside it, so the
+/// glyph's *layout* width is 4 less than what is drawn. See the module docs.
+pub const GLYPH_MARGIN_X: Pixels = px(-2.0);
 
 /// The pill.
 #[derive(Clone, Debug, PartialEq)]
@@ -347,10 +358,11 @@ impl ContextPill {
             )
     }
 
-    /// `<span className="flex shrink-0 scale-110">…</span>` — the scale is
-    /// not modelled; see the module docs.
+    /// `<span className="flex shrink-0 scale-110">…</span>`, plus the
+    /// button's own `[&_svg]:-mx-0.5` on what it wraps. The scale is baked
+    /// into the drawn size rather than applied here; see the module docs.
     fn glyph_wrapper() -> Div {
-        div().flex().flex_shrink_0()
+        div().flex().flex_shrink_0().mx(GLYPH_MARGIN_X)
     }
 
     /// The trailing glyph: the avatar beats the status icon, matching
@@ -387,8 +399,9 @@ impl ContextPill {
             }
             .render(theme, anchors)
         } else {
-            // `<Library size={14} />`, `context-pill.tsx:98` — the same mark
-            // the project-home row draws as its leading glyph.
+            // `<Library />` at the button's own `size-4`, painted through
+            // `scale-110` — 17.6, not the `size={14}` the prop asks for. See
+            // the module docs.
             IconName::Library.render(LIBRARY_SIZE, theme.foreground.mix(70.0, Color::TRANSPARENT))
         };
         Self::glyph_wrapper().child(inner).into_any_element()
@@ -465,7 +478,7 @@ mod tests {
         // The two text sizes, literals rather than spacing multiples.
         assert_eq!(SMALL_TEXT, px(12.0));
         assert_eq!(LARGE_TEXT, px(13.0));
-        assert_eq!(LIBRARY_SIZE, px(14.0));
+        assert_eq!(LIBRARY_SIZE, px(17.6), "16 * 1.1 — see the module docs");
         // The small line's own measured box height — a literal, not a
         // ratio; see its own doc for why.
         assert_eq!(SMALL_LINE_BOX_HEIGHT, px(15.0));
