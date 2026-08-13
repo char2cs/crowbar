@@ -396,9 +396,15 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
   // hoisted row is drawn as a kept row or in its own place, never both.
   const selectionSubjects = useCallback((): ChatDragSubject[] => {
     const model = modelRef.current
-    return model.rows
-      .filter((r) => model.selected.has(r.id))
-      .map((r) => ({ kind: r.kind, id: r.id, parentId: r.parentId }))
+    // One pass: this is read at POINTER time — on every drag start, and again on
+    // every pane crossing during one — over the whole row model.
+    const subjects: ChatDragSubject[] = []
+    for (const row of model.rows) {
+      if (model.selected.has(row.id)) {
+        subjects.push({ kind: row.kind, id: row.id, parentId: row.parentId })
+      }
+    }
+    return subjects
   }, [])
 
   const onDrop = useCallback(

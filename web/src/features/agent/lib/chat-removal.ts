@@ -204,10 +204,18 @@ export function applyPendingChatRemovals<C extends ChatLike, F extends FolderLik
     return rehomed.has(parentId) ? { ...row, parentId: rehomed.get(parentId) } : row
   }
 
-  return {
-    chats: chats.filter((c) => !hiddenIds.has(c.id)).map(rehome),
-    folders: folders.filter((f) => !hiddenIds.has(f.id)).map(rehome),
+  // One pass per array rather than filter-then-map: this sits inside the panel's
+  // tree memo, so it is on the path of every keystroke and every drop for as long
+  // as the tray is holding anything.
+  const surviving = <R extends { id: string; parentId?: string }>(rows: readonly R[]): R[] => {
+    const out: R[] = []
+    for (const row of rows) {
+      if (!hiddenIds.has(row.id)) out.push(rehome(row))
+    }
+    return out
   }
+
+  return { chats: surviving(chats), folders: surviving(folders) }
 }
 
 /**
@@ -270,15 +278,22 @@ async function sendSubtreeRemoval(
   // `hiddenIds` is already deepest-first with the subject last (planChatRemoval).
   const doomedChats = entry.hiddenIds.filter((id) => chatIds.has(id))
   const doomedFolders = entry.hiddenIds.filter((id) => !chatIds.has(id))
+  // Membership sets BESIDE the ordered lists, never instead of them: the ORDER of
+  // `doomedChats` is load-bearing (deepest-first, so a parent never goes before
+  // the threads hanging off it), while the three tests below only ask whether a
+  // row is in the set — and as `includes` each of them rescanned the whole list
+  // once per row it was tested against.
+  const doomedChatIds = new Set(doomedChats)
+  const doomedFolderIds = new Set(doomedFolders)
 
-  const previous = st.agentChats.chats.filter((c) => doomedChats.includes(c.id))
-  const previousFolders = st.agentChats.folders.filter((f) => doomedFolders.includes(f.id))
+  const previous = st.agentChats.chats.filter((c) => doomedChatIds.has(c.id))
+  const previousFolders = st.agentChats.folders.filter((f) => doomedFolderIds.has(f.id))
   const wasActive = st.agentChats.activeChatId
   // Captured as {id, chatId, name} rather than as buffers: the restore below
   // reopens them by chat, and carrying the union through would make it re-narrow
   // a type it has already established.
   const openBuffers = st.buffers.flatMap((b) =>
-    b.type === 'agentChat' && doomedChats.includes(b.chatId)
+    b.type === 'agentChat' && doomedChatIds.has(b.chatId)
       ? [{ id: b.id, chatId: b.chatId, name: b.name }]
       : [],
   )

@@ -18,6 +18,17 @@
  *     the tree holding its own open state, because with that state inside the
  *     tree every row re-rendered to draw a popup that is not part of it.
  *  G5 ONE SEARCH KEYSTROKE AT 1000 CHATS LANDS INSIDE A FRAME.
+ *  G6 SCROLLING RE-RENDERS ONLY THE ROWS THAT ENTER THE WINDOW. Every other
+ *     gate here fires on a STORE event; this one fires on the virtualizer's own
+ *     range change, which is the panel's hottest render by far — one per frame
+ *     for as long as a finger is moving. The rows that merely stay on screen
+ *     must not re-render, and that holds only while every prop TreeRow hands
+ *     down is a primitive off the row model or a callback that outlives the
+ *     render. One inline closure (`onSelect={() => open(row.id)}`) or one fresh
+ *     object (`style={{...}}`, a per-row `subject`) silently converts a scroll
+ *     from "mount the row that appeared" into "re-render the whole viewport,
+ *     every frame" — measured at ~330us per row mount in the live WKWebView, so
+ *     a viewport of 32 rows is an instant dropped frame.
  *
  * These deliberately use the REAL virtualizer — the other panel tests stand it
  * in with one that renders every row, which is the right trade for asserting
@@ -256,6 +267,39 @@ describe('Chats panel performance gates', () => {
     // …and not one row was re-rendered to draw it. The menu lives beside the
     // tree and holds its own open state, so it re-renders itself.
     for (const [icon, count] of before) expect(rowRenders.get(icon)).toBe(count)
+  })
+
+  it('G6: scrolling re-renders only the rows that enter the window', () => {
+    seedAndRender(manyChats(CHAT_COUNT))
+    const scroller = document.querySelector<HTMLElement>('[data-agent-chat-scroll]')!
+    const before = new Map(rowRenders)
+    const onScreenBefore = new Set(before.keys())
+    expect(onScreenBefore.size).toBeGreaterThan(0)
+
+    // jsdom keeps no scroll position of its own, so the offset the virtualizer
+    // reads is defined outright — this is the same element property its default
+    // `observeElementOffset` reads on every real scroll event.
+    act(() => {
+      Object.defineProperty(scroller, 'scrollTop', {
+        value: AGENT_CHAT_ROW_HEIGHT * 5,
+        configurable: true,
+        writable: true,
+      })
+      fireEvent.scroll(scroller)
+    })
+
+    // The window MOVED — rows that were past the fold are mounted now. Without
+    // this the rest of the gate would pass over a scroll that did nothing.
+    const entered = [...rowRenders.keys()].filter((icon) => !onScreenBefore.has(icon))
+    expect(entered.length).toBeGreaterThan(0)
+    // …and it is still a WINDOW. Scrolling must not accumulate rows behind it.
+    expect(mountedRows().length).toBeLessThan(40)
+
+    // The property: every row that was already on screen kept its EXACT render
+    // count. Five rows entered, so five rows rendered — the other ~21 did not.
+    for (const [icon, count] of before) {
+      expect(rowRenders.get(icon)).toBe(count)
+    }
   })
 
   it('G5: one search keystroke at a thousand chats lands inside a frame', () => {
