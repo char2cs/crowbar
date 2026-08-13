@@ -16,6 +16,24 @@ var (
 	// ErrOutOfScope means the caller is real but asked about something outside
 	// what its position in the workspace tree permits.
 	ErrOutOfScope = errors.New("agenttools: out of scope")
+	// ErrOwnThread means the caller asked for a chat that hangs BELOW its own in
+	// the Chats tree: one of its threads, or a thread of one.
+	//
+	// It is a separate refusal from ErrOutOfScope because it refuses for the
+	// opposite reason. The caller can see that chat's workspace perfectly well
+	// and would be served any other chat in it — sibling chats included, which is
+	// what this tool was built for. What it may not do is read DOWNWARD, because
+	// a thread already reads this chat: serving the descendant would close the
+	// loop and make a parent and its own threads one conversation with two
+	// windows onto it. Three threads off one chat are three independent attempts,
+	// and they only stay independent while the chat that spawned them cannot look
+	// into any of them.
+	//
+	// The wording is what the MODEL reads — a tool error rides back as result
+	// text — so it says which direction is closed rather than reporting a generic
+	// refusal the model would retry against.
+	ErrOwnThread = errors.New(
+		"agenttools: that chat is a thread of this one; a chat reads the chats ABOVE it, never below")
 	// ErrToolsDisabled means the caller is real and in scope, but the user has
 	// switched Crowbar's tool surface off for the provider it runs on.
 	//

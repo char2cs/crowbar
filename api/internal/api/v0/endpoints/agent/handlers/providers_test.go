@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -23,7 +22,7 @@ func TestProviders_Success(t *testing.T) {
 		{ID: "codex", DisplayName: "Codex", Icon: "<svg/>", Connected: true, Enabled: true},
 		{ID: "claude", DisplayName: "Claude", Icon: "<svg/>", Connected: false, Enabled: false},
 	}}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws-1/agent/providers", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
@@ -49,7 +48,7 @@ func TestProviders_Success(t *testing.T) {
 // mapped error response rather than a 200.
 func TestProviders_UsecaseError(t *testing.T) {
 	uc := &fakeAgentUsecase{resolveErr: assert.AnError}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws-1/agent/providers", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
@@ -67,7 +66,7 @@ func TestUpdateProviderPreferences_ForwardsOrderedPrefs(t *testing.T) {
 		{ID: "codex", DisplayName: "Codex", Enabled: true},
 		{ID: "claude", DisplayName: "Claude", Enabled: false},
 	}}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	body := []byte(`{"providers":[{"id":"codex","disabled":false},{"id":"claude","disabled":true}]}`)
 	ctx, rec := newTestContext(t, http.MethodPut, "/v0/settings/agent/providers", body)
@@ -94,7 +93,7 @@ func TestUpdateProviderPreferences_ForwardsOrderedPrefs(t *testing.T) {
 // without reaching the usecase.
 func TestUpdateProviderPreferences_BadJSON(t *testing.T) {
 	uc := &fakeAgentUsecase{}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodPut, "/v0/settings/agent/providers", []byte("{not json"))
 
@@ -109,7 +108,7 @@ func TestUpdateProviderPreferences_BadJSON(t *testing.T) {
 // a 400.
 func TestUpdateProviderPreferences_UnknownProvider_MapsTo400(t *testing.T) {
 	uc := &fakeAgentUsecase{replaceErr: apperr.ErrInvalidArgument}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	body := []byte(`{"providers":[{"id":"nope","disabled":false}]}`)
 	ctx, rec := newTestContext(t, http.MethodPut, "/v0/settings/agent/providers", body)

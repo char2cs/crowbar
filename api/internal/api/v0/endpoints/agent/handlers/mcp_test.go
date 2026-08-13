@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 )
 
@@ -27,7 +26,7 @@ func TestMCP_ReturnsRPCResponseInEnvelope(
 		dispatchMCPOut:  []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`),
 		dispatchMCPSend: true,
 	}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	body := []byte(`{"token":"TOK","rpc":{"jsonrpc":"2.0","id":1,"method":"ping"}}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/seg-1/mcp", body)
@@ -59,7 +58,7 @@ func TestMCP_NotificationGets204(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{dispatchMCPSend: false}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	body := []byte(`{"token":"TOK","rpc":{"jsonrpc":"2.0","method":"notifications/initialized"}}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/seg-1/mcp", body)
@@ -78,7 +77,7 @@ func TestMCP_MissingRPCIs400(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/seg-1/mcp", []byte(`{"token":"TOK"}`))
 	ctx.Params = gin.Params{{Key: "segid", Value: "seg-1"}}
@@ -95,7 +94,7 @@ func TestMCP_BadJSONIs400(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/seg-1/mcp", []byte("{not json"))
 	ctx.Params = gin.Params{{Key: "segid", Value: "seg-1"}}
@@ -120,7 +119,7 @@ func TestMCP_MapsUsecaseErrorsThroughStatusAndMessage(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{dispatchMCPErr: agentrunner.ErrNotFound}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	body := []byte(`{"token":"TOK","rpc":{"jsonrpc":"2.0","id":1,"method":"ping"}}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/seg-1/mcp", body)
@@ -138,7 +137,7 @@ func TestMCP_DispatchErrorIs500(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{dispatchMCPErr: errors.New("tool surface not configured")}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	body := []byte(`{"token":"TOK","rpc":{"jsonrpc":"2.0","id":1,"method":"ping"}}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/seg-1/mcp", body)

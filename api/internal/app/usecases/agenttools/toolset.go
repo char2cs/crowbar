@@ -35,6 +35,12 @@ type Deps struct {
 	// c.CanSee — see getChatLog — so a nil ChatLogs simply means the tool that
 	// would read it does not exist.
 	ChatLogs ChatLogReader
+	// Lineage is the Chats-tree authority get_chat_log refuses a caller's own
+	// descendants with (see refuseOwnThread). It is an authority port, not a
+	// convenience: without it the tool cannot tell a thread from a sibling, so a
+	// nil Lineage withdraws get_chat_log entirely rather than serving it with the
+	// one refusal it owes silently switched off.
+	Lineage ChatLineageReader
 	// Metrics counts calls and failures per tool. Unlike every port above, a nil
 	// Metrics must NOT suppress a tool's registration — losing observability is
 	// never a reason to lose capability — so it is read only through

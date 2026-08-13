@@ -319,6 +319,28 @@ func (c *Container) PushAgentChat(
 	})
 }
 
+// PushAgentChatFolder implements hub.Subscriber. It fans a chat-folder lifecycle
+// event (folder_created/folder_updated/folder_deleted) out on the SAME
+// workspace-scoped agent-chat WebSocket as PushAgentChat — one feed for "what
+// changed about this workspace's chats panel", whether the row that changed was
+// a chat or one of the folders it shares a sibling space with. Two feeds would
+// have to be kept in order with each other, and one gesture writes both kinds.
+//
+// The frame carries the folder id and no row, which is what the stream's own
+// shape requires: it has no snapshot, so a client reads folders over REST and a
+// frame here means "read them again".
+func (c *Container) PushAgentChatFolder(
+	folderID string,
+	workspaceID string,
+	kind string,
+) {
+	c.agentChats.Push(dto.AgentChatEvent{
+		FolderID:    folderID,
+		WorkspaceID: workspaceID,
+		Kind:        kind,
+	})
+}
+
 // PushAgentRunner implements hub.Subscriber. It fans a runner lifecycle event
 // (started/session_bound/moved/exited) out on the SAME workspace-scoped
 // agent-chat WebSocket as PushAgentChat (GET .../workspaces/:wsId/agent/ws/chats)

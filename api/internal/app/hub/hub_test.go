@@ -22,6 +22,14 @@ type fakeSubscriber struct {
 	fileEvents  []domain.FileChangeEvent
 	agentChats  []agentChatPush
 	agentRunner []agentRunnerPush
+
+	agentChatFolders []agentChatFolderPush
+}
+
+type agentChatFolderPush struct {
+	folderID    string
+	workspaceID string
+	kind        string
 }
 
 type agentChatPush struct {
@@ -98,6 +106,18 @@ func (f *fakeSubscriber) PushAgentChat(
 		workspaceID: workspaceID,
 		kind:        kind,
 		working:     working,
+	})
+}
+
+func (f *fakeSubscriber) PushAgentChatFolder(
+	folderID string,
+	workspaceID string,
+	kind string,
+) {
+	f.agentChatFolders = append(f.agentChatFolders, agentChatFolderPush{
+		folderID:    folderID,
+		workspaceID: workspaceID,
+		kind:        kind,
 	})
 }
 

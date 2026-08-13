@@ -47,6 +47,7 @@ func toolsetOn(t *testing.T, renamer agenttools.ChatRenamer) (*agenttools.ToolSe
 		Idempotency:     agenttools.NewIdempotency(),
 		ChatReads:       stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		ChatLogs:        &stubChatLogs{},
+		Lineage:         &stubLineage{},
 		ThreadBroadcast: (&spyThreadBroadcast{}).fn(),
 	}
 	return agenttools.NewToolSet(deps, "RUN", tok), tok

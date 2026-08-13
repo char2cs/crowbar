@@ -32,6 +32,19 @@ import (
 // route the vendor CLI shelled out to, and it is gone — titling is a tool on this
 // MCP surface now, so there is nothing for an agent to retype.
 //
+// The chat FOLDER routes mount on the same group and for the same reason: a chat
+// folder is workspace-scoped, it shares one sibling space with the chats above
+// it, and .../agent/folders is where a client already looks for everything about
+// this panel. They are re-mounted under the home group too (home.Register) — the
+// project home accumulates more chats than any workspace and is precisely where
+// folders are needed, so mounting them once would have left the surface that
+// needs them most without them.
+//
+// .../agent/chats/:id/placement is the chat half of the same gesture the folder
+// PATCH serves. It is a separate route from the chat's own rename because it
+// writes something different in kind: a chat's parent IS its context lineage, so
+// this endpoint can turn a standalone chat into a thread of another and back.
+//
 // settingsRG is the top-level /v0 group. Provider PRIORITY + enable/disable is a
 // GLOBAL user setting (per user/machine, not per workspace — the CLIs are
 // machine-level), so its write route mounts there at /settings/agent/providers,
@@ -42,9 +55,11 @@ func Register(
 	wsScoped *gin.RouterGroup,
 	settingsRG *gin.RouterGroup,
 	usecase agenthandlers.AgentUsecase,
+	folders agenthandlers.ChatTreeUsecase,
+	broadcastFolder func(folderID, workspaceID, kind string),
 	wsHandle gin.HandlerFunc,
 ) {
-	h := agenthandlers.New(usecase)
+	h := agenthandlers.New(usecase, folders, broadcastFolder)
 
 	wsScoped.POST("/agent/chats", h.Create)
 	wsScoped.GET("/agent/chats", h.List)
@@ -54,7 +69,12 @@ func Register(
 	wsScoped.POST("/agent/chats/:id/stop", h.Stop)
 	wsScoped.POST("/agent/chats/:id/rename", h.Rename)
 	wsScoped.GET("/agent/chats/:id/handoff", h.Handoff)
+	wsScoped.PATCH("/agent/chats/:id/placement", h.PlaceChat)
 	wsScoped.DELETE("/agent/chats/:id", h.Delete)
+	wsScoped.GET("/agent/folders", h.ListFolders)
+	wsScoped.POST("/agent/folders", h.CreateFolder)
+	wsScoped.PATCH("/agent/folders/:folderId", h.PatchFolder)
+	wsScoped.DELETE("/agent/folders/:folderId", h.DeleteFolder)
 	wsScoped.POST("/agent/runners/:segid/mcp", h.MCP)
 	wsScoped.POST("/agent/hooks", h.Hooks)
 	wsScoped.GET("/agent/providers", h.Providers)

@@ -36,12 +36,12 @@ func newProviderServer(
 	homeFn := func() (string, error) { return home, nil }
 	probe := func(cmd string) bool { return cmd == "codex" }
 
-	uc := agentusecase.New(nil, nil, nil, nil, nil, prefs, homeFn, probe, nil, agenttools.Deps{})
+	uc := agentusecase.New(nil, nil, nil, nil, nil, nil, prefs, homeFn, probe, nil, agenttools.Deps{})
 
 	r := gin.New()
 	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
 	settingsRG := r.Group("/v0")
-	agent.Register(wsScoped, settingsRG, uc, func(c *gin.Context) { c.Status(http.StatusOK) })
+	agent.Register(wsScoped, settingsRG, uc, nil, nil, func(c *gin.Context) { c.Status(http.StatusOK) })
 	return r
 }
 

@@ -398,6 +398,7 @@ func toUsecaseStores(
 		Projects:                 gormStores.Projects,
 		Repositories:             gormStores.Repositories,
 		Folders:                  gormStores.Folders,
+		AgentChatFolders:         gormStores.AgentChatFolders,
 		TerminalProfiles:         gormStores.TerminalProfiles,
 		TerminalSessions:         gormStores.TerminalSessions,
 		AgentProviderPreferences: gormStores.AgentProviderPreferences,

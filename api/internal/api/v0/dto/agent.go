@@ -58,6 +58,22 @@ type AgentChatDTO struct {
 	// bring back. Empty only on a chat no runner has ever been placed on.
 	ActiveProviderID string `json:"activeProviderId"`
 
+	// ParentID is the row this chat hangs off in the Chats tree — another chat, a
+	// folder, or "" at the panel root — and Order is its dense index within that
+	// parent's sibling space, which chats SHARE with chat folders.
+	//
+	// Both are always present rather than omitted, because "" and 0 are both
+	// MEANINGFUL: "" is the panel root and 0 is the first slot. A client that had
+	// to tell an absent key from a zero value would be guessing at the two
+	// commonest placements there are.
+	//
+	// A parent that names a CHAT means this row is a THREAD of it and reads that
+	// chat's turns; one that names a FOLDER is organisation only. The wire shape
+	// does not distinguish them: the client already holds both lists and resolves
+	// the id against them.
+	ParentID string `json:"parentId"`
+	Order    int    `json:"order"`
+
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -73,6 +89,8 @@ func AgentChatDTOFrom(
 		WorkspaceID:      c.WorkspaceID,
 		Title:            c.Title,
 		ActiveProviderID: activeProviderID(rt),
+		ParentID:         c.ParentID,
+		Order:            c.Order,
 		CreatedAt:        c.CreatedAt,
 	}
 	if rt.LiveRunner != nil {
@@ -178,10 +196,11 @@ type AgentProviderDTO struct {
 }
 
 // AgentChatEvent is the wire frame pushed on the agent-chat lifecycle WebSocket
-// (GET .../workspaces/:wsId/agent/ws/chats): the chat that changed, the workspace it
+// (GET .../workspaces/:wsId/agent/ws/chats): the thing that changed, the workspace it
 // belongs to, and the lifecycle kind — chat kinds (created/turn_started/turn_stopped/
-// title_set/deleted) and runner kinds (started/session_bound/moved/displaced/exited),
-// which ride this same workspace-scoped feed. It carries no snapshot; the stream is a
+// title_set/placement_set/deleted), runner kinds (started/session_bound/moved/
+// displaced/exited), and folder kinds (folder_created/folder_updated/folder_deleted),
+// all of which ride this same workspace-scoped feed. It carries no snapshot; the stream is a
 // bare event feed, not a full-state resource stream. WorkspaceID both scopes the feed
 // (agentChatDef's wsId Filter) and rides along on the wire frame.
 //
@@ -201,6 +220,20 @@ type AgentChatEvent struct {
 	// itself and name no process. A `moved` frame's ChatID is the chat the runner
 	// moved INTO, so a client re-points the tab that was following RunnerID.
 	RunnerID string `json:"runnerId,omitempty"`
+	// FolderID names the CHAT FOLDER a frame is about, and is set ONLY on the
+	// folder kinds (folder_created/folder_updated/folder_deleted), which ride this
+	// same workspace-scoped feed rather than a second socket — the same reason the
+	// runner kinds do.
+	//
+	// It carries the id and nothing else, deliberately. This stream is a bare event
+	// feed, not a full-state resource stream: it has no snapshot, so a client
+	// cannot hold folders from it alone and must read the list anyway. Putting the
+	// row on the frame would create a second way to learn a folder's placement,
+	// and the two would disagree the moment a frame was dropped. A folder frame
+	// therefore means exactly "re-read this workspace's folders" — which is also
+	// what a reconnect does, so the outage path and the live path repair
+	// identically.
+	FolderID string `json:"folderId,omitempty"`
 	// Working is the chat's folded busy state (domain.AgentChat.Working) as of this
 	// event — the spinner, answered by the server. Set on the CHAT kinds; meaningless
 	// on runner kinds, which are about a process and not about a conversation.

@@ -21,6 +21,14 @@ func TestGetPrompts_FromEmbeddedDefaults(t *testing.T) {
 	assert.Contains(t, p.HandoffResumeWrapper, "{conversation}")
 	assert.Contains(t, p.HandoffPointer, "{ledger_dir}")
 
+	// A thread is handed IDS and told to fetch the conversations itself. The
+	// placeholder is the whole difference between a thread and a fork: a prompt
+	// that carried the ancestors' turns instead would freeze them at the instant
+	// the thread spawned, and nothing could ever refresh them.
+	assert.Contains(t, p.ThreadLineage, "{lineage}")
+	assert.Contains(t, p.ThreadLineage, "get_chat_log")
+	assert.NotContains(t, p.ThreadLineage, "{conversation}")
+
 	// No prompt may ask the agent to run a `crowbar` command. Titling used to be
 	// exactly that, and it COMPETED with the set_chat_title tool: handed both, a
 	// model would read the tool list and then type the shell command instead. Every
@@ -30,6 +38,7 @@ func TestGetPrompts_FromEmbeddedDefaults(t *testing.T) {
 		"handoff_wrapper":          p.HandoffWrapper,
 		"handoff_resume_wrapper":   p.HandoffResumeWrapper,
 		"handoff_pointer":          p.HandoffPointer,
+		"thread_lineage":           p.ThreadLineage,
 	} {
 		assert.NotContains(t, text, "{crowbar}", "%s must not ask the agent to shell out", name)
 	}

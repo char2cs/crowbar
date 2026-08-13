@@ -77,6 +77,12 @@ type agentChatDTO struct {
 	// attaches to. Empty exactly when LiveRunnerID is.
 	TerminalSessionID string `json:"terminalSessionId"`
 	ActiveProviderID  string `json:"activeProviderId"`
+	// ParentID is where the chat hangs in the Chats tree — another chat (making
+	// this one a THREAD that reads its turns), a folder, or "" at the panel root —
+	// and Order is its dense index within that parent's sibling space, which chats
+	// share with chat folders.
+	ParentID string `json:"parentId"`
+	Order    int    `json:"order"`
 }
 
 // agentChatConversation mirrors one domain.ChatConversation on the wire: a

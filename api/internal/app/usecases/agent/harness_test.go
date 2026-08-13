@@ -21,7 +21,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chatlineage"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
@@ -234,6 +236,8 @@ type fakeBroadcaster struct {
 	mu    sync.Mutex
 	calls []broadcastCall
 }
+
+func (f *fakeBroadcaster) BroadcastAgentChatFolder(_, _, _ string) {}
 
 func (f *fakeBroadcaster) BroadcastAgentChat(chatID, workspaceID, kind string, working bool) {
 	f.mu.Lock()
@@ -490,6 +494,9 @@ type testFixture struct {
 	// minter is the SAME token minter the usecase's MCP seam verifies against, so
 	// a test can mint the token a spawned runner would have been handed.
 	minter *agenttools.TokenMinter
+	// folders is the in-memory chat-folder table the lineage resolver reads, so a
+	// test can file a thread inside folders and prove the walk steps through them.
+	folders *mocks.AgentChatFolderStore
 }
 
 // fixtureChatReader adapts the chat EventStore into agenttools.ChatReader, whose
@@ -882,10 +889,17 @@ func newFixtureUsing(
 		chatReader,
 		fixtureWorkspaceLister{},
 	)
-	u := agentusecase.New(usedChats, usedRunners, reg, term, ws, providerPrefs, homeFn, probe,
+	// The REAL lineage resolver, over the same chat store and an in-memory folder
+	// table, so a threaded chat in this package resolves its ancestors exactly the
+	// way production does — folders and all. A stub here would have let the walk
+	// and the spawn path agree with each other while both were wrong.
+	folders := mocks.NewAgentChatFolderStore()
+	lineage := chatlineage.New(folders, usedChats)
+	u := agentusecase.New(usedChats, usedRunners, reg, term, ws, lineage, providerPrefs, homeFn, probe,
 		minter, agenttools.Deps{
 			Resolver:        resolver,
 			ChatReads:       chatReader,
+			Lineage:         lineage,
 			Review:          fixtureReviewReader{},
 			Threads:         fixtureThreadReader{},
 			ThreadWrites:    fixtureThreadWriter{},
@@ -906,6 +920,7 @@ func newFixtureUsing(
 		providerPrefs: providerPrefs,
 		connected:     connected,
 		minter:        minter,
+		folders:       folders,
 	}
 	return f, realChats, realRunners
 }

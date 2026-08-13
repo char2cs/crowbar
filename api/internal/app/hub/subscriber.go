@@ -45,6 +45,17 @@ type Subscriber interface {
 		kind string,
 		working bool,
 	)
+	// PushAgentChatFolder receives a CHAT FOLDER lifecycle frame
+	// (folder_created/folder_updated/folder_deleted). It carries the folder id and
+	// nothing else: the Chats socket is a bare event feed with no snapshot, so a
+	// frame here means "re-read this workspace's chat folders" — the same thing a
+	// reconnect does, which is what makes the live and outage paths repair
+	// identically.
+	PushAgentChatFolder(
+		folderID string,
+		workspaceID string,
+		kind string,
+	)
 	// PushAgentRunner receives a runner lifecycle frame
 	// (started/session_bound/moved/exited). chatID is the chat the runner is
 	// pointed at as of the event — placement, never liveness.

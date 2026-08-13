@@ -18,6 +18,17 @@ import (
 // launching the provider's vendor CLI in a PTY. It responds with the new
 // chat's id; the spawned runner id is not surfaced here (the client reads it
 // back as liveRunnerId via GET .../agent/chats or .../agent/chats/:id).
+//
+// The optional parentId names where the chat is BORN in the Chats tree: another
+// chat (making it a thread of that chat), a folder ("new chat in this folder"), or
+// absent/"" for the panel root, which is the original behaviour exactly. It is
+// routed through the tree usecase rather than straight to a spawn because the
+// placement has to be written BEFORE the CLI starts — a thread is told what it
+// reads at spawn, and a thread placed afterwards spends its first session, the one
+// the user just asked for, not knowing it is one.
+//
+// A parentId that names nothing, or a row in another workspace, is refused with the
+// same errors a placement returns, and nothing is created.
 func (h *Handlers) Create(
 	ctx *gin.Context,
 ) {
@@ -26,13 +37,14 @@ func (h *Handlers) Create(
 
 	var body struct {
 		Provider string `json:"provider"`
+		ParentID string `json:"parentId"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	chatID, _, err := h.usecase.SpawnChat(rctx, wsID, body.Provider)
+	chatID, _, err := h.folders.CreateChat(rctx, wsID, body.Provider, body.ParentID)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -190,28 +202,45 @@ func (h *Handlers) Rename(
 	libs.WriteAccepted(ctx)
 }
 
-// Delete handles DELETE .../workspaces/:wsId/agent/chats/:id: hard-deletes
-// the chat via usecase.PurgeChat (best-effort active-segment PTY teardown,
-// then asynx Forget): the chat's event log itself is erased, not merely
-// tombstoned, so it is gone from every subsequent read, including a direct
-// GetChat by id. The scoped "deleted" broadcast every client sees comes from
-// the hub projection's OnForget (Task 5), not from here. 404s (via
-// requireChatInWorkspace) when id names a chat anchored to a DIFFERENT
+// Delete handles DELETE .../workspaces/:wsId/agent/chats/:id: hard-deletes the
+// chat AND EVERY CHAT THREADED BELOW IT, each through PurgeChat (best-effort PTY
+// teardown, then asynx Forget), plus any folder caught inside that subtree. Each
+// chat's event log is erased, not merely tombstoned, so it is gone from every
+// subsequent read, including a direct GetChat by id.
+//
+// The cascade is the panel's rule and it is the OPPOSITE of deleting a folder,
+// which promotes what it held. A thread is not filed under its parent, it
+// CONTINUES it — it reads that chat's turns whenever it asks — so promoting it
+// would leave a conversation whose entire premise has been deleted and which no
+// drag can restore. That is why this goes through the tree usecase rather than
+// straight to PurgeChat: only something holding the tree knows which chats those
+// are.
+//
+// The scoped "deleted" broadcast every client sees for each purged chat comes
+// from the hub projection's OnForget (Task 5), not from here; the folders taken
+// with them have no projection to ride, so those frames ARE sent from here. 404s
+// (via requireChatInWorkspace) when id names a chat anchored to a DIFFERENT
 // workspace than :wsId.
 func (h *Handlers) Delete(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
 	id := ctx.Param("id")
+	wsID := ctx.Param("wsId")
 
 	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {
 		return
 	}
 
-	if err := h.usecase.PurgeChat(rctx, id); err != nil {
+	removed, err := h.folders.DeleteChat(rctx, id)
+	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
 		return
 	}
+	for _, folderID := range removed.Folders {
+		h.broadcastFolder(folderID, wsID, "folder_deleted")
+	}
+	h.announceFolders(wsID, removed.Shifted, "folder_updated")
 	libs.WriteAccepted(ctx)
 }

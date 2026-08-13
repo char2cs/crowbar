@@ -107,6 +107,21 @@ type EventStore interface {
 		title string,
 		source string,
 	) (domain.AgentChat, error)
+	// SetPlacement writes where the chat sits in the Chats tree: the row it hangs
+	// off and its dense index within that sibling space.
+	//
+	// It is on the ordinary async Send path, and it has to be: a single drag
+	// renumbers a whole level, so one gesture is N of these, and blocking each on
+	// its projection would serialise the drag behind the read model. Nothing reads
+	// back through the read model to decide the next write — the caller planned the
+	// whole move from ONE snapshot before the first command went out — so there is
+	// no barrier to owe.
+	SetPlacement(
+		ctx context.Context,
+		chatID string,
+		parentID string,
+		order int,
+	) (domain.AgentChat, error)
 	// Forget purges the chat aggregate outright via ax.Forget: its synchronous
 	// OnForget drops the read-model row AND the underlying event log is
 	// erased, so a subsequent GetChat/ListByWorkspace genuinely reports not
@@ -282,6 +297,19 @@ func (r *eventSourced) SetTitle(
 	evt, err := r.sendWithOCC(ctx, commands.SetTitle{ChatID: chatID, Title: title, Source: source})
 	if err != nil {
 		return domain.AgentChat{}, fmt.Errorf("agentchat: set title: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (r *eventSourced) SetPlacement(
+	ctx context.Context,
+	chatID string,
+	parentID string,
+	order int,
+) (domain.AgentChat, error) {
+	evt, err := r.sendWithOCC(ctx, commands.SetPlacement{ID: chatID, ParentID: parentID, Order: order})
+	if err != nil {
+		return domain.AgentChat{}, fmt.Errorf("agentchat: set placement: %w", err)
 	}
 	return evt.Aggregate, nil
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	asynxModels "github.com/char2cs/asynx/models"
+
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )

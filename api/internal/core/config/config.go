@@ -37,6 +37,18 @@ type Prompts struct {
 	// reach for, is worse than no directive at all — so the review-tools directive
 	// was held back until the review tools it names actually existed (Task 13).
 	CapabilitiesInstruction string `yaml:"capabilities_instruction"`
+	// ThreadLineage is the standing directive a THREAD is spawned with: which
+	// chats sit above it in the Chats panel ({lineage}, nearest parent first) and
+	// the instruction to go and read them rather than wait to be handed them.
+	//
+	// It carries IDS, never turns, and that is the whole difference between a
+	// thread and a fork. Pasting the ancestors' conversation here would freeze
+	// them at the instant this chat spawned; pointing at them leaves the thread
+	// reading its parent as it stands whenever it asks, which is what the parent
+	// edge means. A chat with no chat ancestors — the panel root, or one merely
+	// filed in a folder — is injected nothing at all, and must not pay a token
+	// for a relationship it does not have.
+	ThreadLineage string `yaml:"thread_lineage"`
 	// HandoffWrapper wraps the WHOLE conversation for a provider joining the chat
 	// fresh (it has no session of its own to resume, so it has no history).
 	HandoffWrapper string `yaml:"handoff_wrapper"`

@@ -254,6 +254,20 @@ func extraRoutes() []string {
 		"POST " + ws + "/agent/chats/:id/rename",
 		"GET " + ws + "/agent/chats/:id/handoff",
 		"DELETE " + ws + "/agent/chats/:id",
+		// Chat placement: where a chat hangs in the Chats tree and where it sits
+		// among its siblings. A route of its own rather than a field on the chat
+		// PATCH-equivalents, because it writes something different in kind — a
+		// chat's parent IS its context lineage, so this is what turns a standalone
+		// chat into a THREAD of another and back.
+		"PATCH " + ws + "/agent/chats/:id/placement",
+		// Chat folder CRUD: the Chats panel's organisation layer. Workspace-scoped,
+		// and sharing ONE dense sibling space with the chats above — a folder and a
+		// chat interleave at every level, which is why the placement route above and
+		// these four are the two halves of the same gesture.
+		"GET " + ws + "/agent/folders",
+		"POST " + ws + "/agent/folders",
+		"PATCH " + ws + "/agent/folders/:folderId",
+		"DELETE " + ws + "/agent/folders/:folderId",
 		"POST " + ws + "/agent/hooks",
 		"GET " + ws + "/agent/providers",
 		"GET " + ws + "/agent/ws/chats",
@@ -333,6 +347,15 @@ func extraRoutes() []string {
 		// And the same close-is-not-delete stop, for the same reason: a home chat's
 		// tab closes exactly like any other chat's.
 		"POST " + home + "/agent/chats/:id/stop",
+		// Placement and chat FOLDERS re-mounted on the home group. This is the
+		// mount that matters most: the project home accumulates more chats than any
+		// worktree workspace, so the surface that most needs somewhere to put them
+		// is exactly the one a single mount would have left without folders.
+		"PATCH " + home + "/agent/chats/:id/placement",
+		"GET " + home + "/agent/folders",
+		"POST " + home + "/agent/folders",
+		"PATCH " + home + "/agent/folders/:folderId",
+		"DELETE " + home + "/agent/folders/:folderId",
 		// The home hosts a file tree, so it hosts the file tree's duplicate op too.
 		"POST " + home + "/files/copy",
 		// The daemon's timing-ring read/arm seam. Process-wide, not scoped to a

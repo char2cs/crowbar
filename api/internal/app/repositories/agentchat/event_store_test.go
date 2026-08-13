@@ -30,7 +30,7 @@ type captureBroadcast struct {
 	rows []string
 }
 
-func (c *captureBroadcast) push(chatID string, workspaceID string, kind string, _ bool) {
+func (c *captureBroadcast) push(chatID, workspaceID, kind string, _ bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.rows = append(c.rows, chatID+":"+workspaceID+":"+kind)
