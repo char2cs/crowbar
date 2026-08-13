@@ -397,6 +397,41 @@ func TestLoadChat_AnswersWhileTheProjectionIsStillBehind(t *testing.T) {
 	assert.Equal(t, 0, loaded.Order)
 }
 
+// TestSetOrder_RenumbersWithoutMoving pins the split at the repository boundary.
+//
+// The two placement writes exist because a drag decides a parent for ONE row and
+// an index for a whole level. This is the second of them, and the guarantee is
+// that it cannot express a parent at all: the aggregate applies it to the chat
+// folded from the log, so the row keeps the parent the log has whatever the
+// caller believed when it planned the renumber.
+func TestSetOrder_RenumbersWithoutMoving(t *testing.T) {
+	ctx, repo, _, _ := newRepoWithDeps(t)
+
+	_, err := repo.Create(ctx, agentchat.CreateInput{ID: "c1", WorkspaceID: "ws-1", Now: time.Now()})
+	require.NoError(t, err)
+	_, err = repo.Create(ctx, agentchat.CreateInput{ID: "c2", WorkspaceID: "ws-1", Now: time.Now()})
+	require.NoError(t, err)
+	_, err = repo.SetPlacement(ctx, "c2", "c1", 0)
+	require.NoError(t, err)
+
+	renumbered, err := repo.SetOrder(ctx, "c2", 3)
+	require.NoError(t, err)
+	assert.Equal(t, "c1", renumbered.ParentID)
+	assert.Equal(t, 3, renumbered.Order)
+
+	loaded, err := repo.LoadChat(ctx, "c2")
+	require.NoError(t, err)
+	assert.Equal(t, "c1", loaded.ParentID, "the chat is still threaded off the one it was filed under")
+	assert.Equal(t, 3, loaded.Order)
+}
+
+func TestSetOrder_RefusesAChatThatDoesNotExist(t *testing.T) {
+	ctx, repo, _, _ := newRepoWithDeps(t)
+
+	_, err := repo.SetOrder(ctx, "no-such-chat", 0)
+	assert.Error(t, err)
+}
+
 // A miss arrives as this package's own sentinel whichever read served it, so no
 // caller has to know that one folds from the log and the other reads a table.
 func TestLoadChat_UnknownChatIsTheSameNotFoundGetChatReports(t *testing.T) {

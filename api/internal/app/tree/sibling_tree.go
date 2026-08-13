@@ -3,9 +3,10 @@ package tree
 import "slices"
 
 type siblingTree struct {
-	nodes []Node
-	at    map[string]int
-	dirty map[string]bool
+	nodes      []Node
+	at         map[string]int
+	dirty      map[string]bool
+	reparented map[string]bool
 }
 
 func (t *siblingTree) Node(
@@ -57,6 +58,7 @@ func (t *siblingTree) Add(
 	t.at[node.ID] = len(t.nodes)
 	t.nodes = append(t.nodes, node)
 	t.dirty[node.ID] = true
+	t.reparented[node.ID] = true
 }
 
 func (t *siblingTree) Drop(
@@ -66,6 +68,7 @@ func (t *siblingTree) Drop(
 		return
 	}
 	delete(t.dirty, id)
+	delete(t.reparented, id)
 	t.nodes = slices.DeleteFunc(t.nodes, func(node Node) bool { return node.ID == id })
 	t.at = make(map[string]int, len(t.nodes))
 	for i, node := range t.nodes {
@@ -83,6 +86,7 @@ func (t *siblingTree) SetParent(
 	}
 	t.nodes[at].ParentID = parentID
 	t.dirty[id] = true
+	t.reparented[id] = true
 }
 
 func (t *siblingTree) Touch(
@@ -138,6 +142,12 @@ func (t *siblingTree) Dirty() []string {
 	}
 	slices.Sort(ids)
 	return ids
+}
+
+func (t *siblingTree) Reparented(
+	id string,
+) bool {
+	return t.reparented[id]
 }
 
 func (t *siblingTree) setOrder(

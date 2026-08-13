@@ -1239,7 +1239,9 @@ type AgentChatPlacements struct {
 	Started   []StartCall
 	ListErr   error
 	GetErr    error
+	LoadErr   error
 	SetErr    error
+	OrderErr  error
 	PurgeErr  error
 	NoteErr   error
 	SpawnErr  error
@@ -1247,6 +1249,16 @@ type AgentChatPlacements struct {
 	StartErr  error
 	SetCalls  int
 	MissingID string
+	// Placed and Ordered record the two placement writes SEPARATELY, because the
+	// difference between them is the contract: a renumber may write an index and
+	// must be unable to write a parent.
+	Placed  []PlacementWrite
+	Ordered []OrderWrite
+	// Stale is the PROJECTED placement of a chat — what ListByWorkspace and
+	// GetChat answer while the read model is behind the log. A placement write
+	// returns as soon as the aggregate has it, so this is the daemon's ordinary
+	// state for the microseconds after every one, not an exotic interleaving.
+	Stale map[string]domain.AgentChat
 	// NextID is the id the next MintChat hands back, so a test can name the chat a
 	// create is about to make instead of discovering it from the return value.
 	NextID string
@@ -1265,6 +1277,21 @@ type StartCall struct {
 	ChatID        string
 	ProviderID    string
 	ParentAtStart string
+}
+
+// PlacementWrite is one recorded call to SetPlacement: a row the caller MOVED,
+// and where to.
+type PlacementWrite struct {
+	ChatID   string
+	ParentID string
+	Order    int
+}
+
+// OrderWrite is one recorded call to SetOrder: a row a densify renumbered, and
+// the index it was given. It carries no parent, which is the whole point.
+type OrderWrite struct {
+	ChatID string
+	Order  int
 }
 
 // LineageNote is one recorded call to NoteThreadLineage: which chat was told,
@@ -1289,10 +1316,22 @@ func (s *AgentChatPlacements) ListByWorkspace(
 	rows := make([]domain.AgentChat, 0, len(s.Rows))
 	for _, c := range s.Rows {
 		if c.WorkspaceID == workspaceID && c.ID != s.MissingID {
-			rows = append(rows, c)
+			rows = append(rows, s.projected(c))
 		}
 	}
 	return rows, nil
+}
+
+// projected answers with the row as the READ MODEL has it, which is the row
+// itself unless a test is holding the projection behind the log.
+func (s *AgentChatPlacements) projected(
+	row domain.AgentChat,
+) domain.AgentChat {
+	stale, ok := s.Stale[row.ID]
+	if !ok {
+		return row
+	}
+	return stale
 }
 
 func (s *AgentChatPlacements) GetChat(
@@ -1301,6 +1340,23 @@ func (s *AgentChatPlacements) GetChat(
 ) (domain.AgentChat, error) {
 	if s.GetErr != nil {
 		return domain.AgentChat{}, s.GetErr
+	}
+	for _, c := range s.Rows {
+		if c.ID == id {
+			return s.projected(c), nil
+		}
+	}
+	return domain.AgentChat{}, apperr.ErrNotFound
+}
+
+// LoadChat is the log fold: it answers with the row as it actually stands,
+// whatever the projection is still serving.
+func (s *AgentChatPlacements) LoadChat(
+	ctx context.Context,
+	id string,
+) (domain.AgentChat, error) {
+	if s.LoadErr != nil {
+		return domain.AgentChat{}, s.LoadErr
 	}
 	for _, c := range s.Rows {
 		if c.ID == id {
@@ -1320,9 +1376,31 @@ func (s *AgentChatPlacements) SetPlacement(
 	if s.SetErr != nil {
 		return domain.AgentChat{}, s.SetErr
 	}
+	s.Placed = append(s.Placed, PlacementWrite{ChatID: chatID, ParentID: parentID, Order: order})
 	for i := range s.Rows {
 		if s.Rows[i].ID == chatID {
 			s.Rows[i].ParentID = parentID
+			s.Rows[i].Order = order
+			return s.Rows[i], nil
+		}
+	}
+	return domain.AgentChat{}, nil
+}
+
+// SetOrder writes the index and leaves the parent exactly as it stands, like the
+// command it stands in for: the aggregate applies it to the row folded from the
+// log, so there is no parent in the call to be stale.
+func (s *AgentChatPlacements) SetOrder(
+	ctx context.Context,
+	chatID string,
+	order int,
+) (domain.AgentChat, error) {
+	if s.OrderErr != nil {
+		return domain.AgentChat{}, s.OrderErr
+	}
+	s.Ordered = append(s.Ordered, OrderWrite{ChatID: chatID, Order: order})
+	for i := range s.Rows {
+		if s.Rows[i].ID == chatID {
 			s.Rows[i].Order = order
 			return s.Rows[i], nil
 		}

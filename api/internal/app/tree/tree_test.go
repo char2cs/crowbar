@@ -318,3 +318,83 @@ func TestDirty_IsEmptyForAPlanThatChangedNothing(t *testing.T) {
 
 	assert.Empty(t, plan.Dirty())
 }
+
+// The distinction Dirty cannot draw: a renumbered row is dirty and NOT
+// reparented, and a caller that writes a parent for it writes one it read rather
+// than one it decided.
+func TestReparented_ARenumberIsNotAReparent(t *testing.T) {
+	plan := tree.New(level("", "a", "b"))
+
+	plan.Reorder("", "b", 0)
+
+	assert.Equal(t, []string{"a", "b"}, plan.Dirty(), "both rows took a new index")
+	assert.False(t, plan.Reparented("a"), "neither of them changed level")
+	assert.False(t, plan.Reparented("b"))
+}
+
+func TestReparented_ReportsARowThatChangedContainer(t *testing.T) {
+	plan := tree.New([]tree.Node{{ID: "a"}, {ID: "b"}})
+
+	plan.SetParent("b", "a")
+
+	assert.True(t, plan.Reparented("b"))
+	assert.False(t, plan.Reparented("a"))
+}
+
+// SetParent onto the container a row already sits in changes nothing, and must
+// not claim otherwise: the caller would then write a parent it never decided.
+func TestReparented_IgnoresAMoveOntoTheSameContainer(t *testing.T) {
+	plan := tree.New(level("", "a", "b"))
+
+	plan.SetParent("b", "")
+
+	assert.False(t, plan.Reparented("b"))
+}
+
+// Reparent promotes a container's children, so each of them changed level even
+// though nothing named them individually.
+func TestReparented_CoversTheChildrenAReparentPromoted(t *testing.T) {
+	plan := tree.New([]tree.Node{{ID: "f"}, {ID: "a", ParentID: "f"}})
+
+	plan.Reparent("f", "")
+
+	assert.True(t, plan.Reparented("a"))
+}
+
+// A row the plan invented has a container the store has never been told, so it
+// is reparented by construction.
+func TestReparented_CoversAnAddedRow(t *testing.T) {
+	plan := tree.New(nil)
+
+	plan.Add(tree.Node{ID: "f", ParentID: "c1"})
+
+	assert.True(t, plan.Reparented("f"))
+}
+
+// A dropped row is not a row to write, by either question.
+func TestReparented_ForgetsADroppedRow(t *testing.T) {
+	plan := tree.New([]tree.Node{{ID: "a"}, {ID: "b"}})
+	plan.SetParent("b", "a")
+
+	plan.Drop("b")
+
+	assert.False(t, plan.Reparented("b"))
+	assert.Empty(t, plan.Dirty())
+}
+
+// Touch says a caller's own edge moved behind a container that did not, so it
+// must not be mistaken for a re-parenting.
+func TestReparented_IsNotSetByTouch(t *testing.T) {
+	plan := tree.New(level("", "a"))
+
+	plan.Touch("a")
+
+	assert.Equal(t, []string{"a"}, plan.Dirty())
+	assert.False(t, plan.Reparented("a"))
+}
+
+func TestReparented_IsFalseForARowTheForestNeverHeld(t *testing.T) {
+	plan := tree.New(level("", "a"))
+
+	assert.False(t, plan.Reparented("missing"))
+}

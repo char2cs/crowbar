@@ -143,6 +143,21 @@ type EventStore interface {
 		parentID string,
 		order int,
 	) (domain.AgentChat, error)
+	// SetOrder writes a chat's index within the sibling space it is already in
+	// and leaves its parent alone — the write a DENSIFY owes, as against a move.
+	//
+	// A drag renumbers a whole level and re-parents one row. Writing the rest of
+	// that level through SetPlacement made every renumber restate a parent the
+	// caller had read rather than decided, and the caller reads the asynchronous
+	// projection: a second drag landing inside the first one's projection window
+	// wrote a stale parent back and returned a just-filed thread to the panel
+	// root. The parent this preserves comes from the log fold the command
+	// validates against, so it is current rather than merely untouched.
+	SetOrder(
+		ctx context.Context,
+		chatID string,
+		order int,
+	) (domain.AgentChat, error)
 	// Forget purges the chat aggregate outright via ax.Forget: its synchronous
 	// OnForget drops the read-model row AND the underlying event log is
 	// erased, so a subsequent GetChat/ListByWorkspace genuinely reports not
@@ -342,6 +357,18 @@ func (r *eventSourced) SetPlacement(
 	evt, err := r.sendWithOCC(ctx, commands.SetPlacement{ID: chatID, ParentID: parentID, Order: order})
 	if err != nil {
 		return domain.AgentChat{}, fmt.Errorf("agentchat: set placement: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (r *eventSourced) SetOrder(
+	ctx context.Context,
+	chatID string,
+	order int,
+) (domain.AgentChat, error) {
+	evt, err := r.sendWithOCC(ctx, commands.SetOrder{ID: chatID, Order: order})
+	if err != nil {
+		return domain.AgentChat{}, fmt.Errorf("agentchat: set order: %w", err)
 	}
 	return evt.Aggregate, nil
 }

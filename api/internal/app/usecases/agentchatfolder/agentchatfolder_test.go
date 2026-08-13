@@ -82,6 +82,20 @@ func chatRow(
 	return domain.AgentChat{}
 }
 
+// folderRows is every folder the store still holds for this workspace.
+func folderRows(
+	t *testing.T,
+	folders *mocks.AgentChatFolderStore,
+) []domain.AgentChatFolder {
+	t.Helper()
+	rows, err := folders.FindWhere(context.Background(), domain.AgentChatFolder{WorkspaceID: workspaceID})
+	require.NoError(t, err)
+	return rows
+}
+
+// errNoLog stands in for the event log being unreachable.
+var errNoLog = errors.New("log unavailable")
+
 func name(v string) *string { return &v }
 func index(v int) *int      { return &v }
 
@@ -235,11 +249,13 @@ func TestCreate_SurfacesASaveFailure(t *testing.T) {
 	assert.ErrorContains(t, err, "disk full")
 }
 
-func TestCreate_SurfacesAChatPlacementFailure(t *testing.T) {
+// A folder create renumbers the chats already at that level and moves none of
+// them, so the chat write it can fail on is the renumber.
+func TestCreate_SurfacesAChatRenumberFailure(t *testing.T) {
 	_, chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	seedChat(chats, "c2", 2)
-	chats.SetErr = errors.New("aggregate down")
+	chats.OrderErr = errors.New("aggregate down")
 
 	_, _, err := uc.Create(context.Background(), agentchatfolder.CreateInput{
 		WorkspaceID: workspaceID, Name: "spikes",
@@ -583,6 +599,19 @@ func TestPlaceChat_SurfacesASnapshotFailure(t *testing.T) {
 	assert.ErrorContains(t, err, "boom")
 }
 
+// A reorder inside one level writes indices and no parents, so the write it can
+// fail on is the renumber — for the subject as much as for the rows it passed.
+func TestPlaceChat_SurfacesARenumberWriteFailure(t *testing.T) {
+	_, chats, uc := newUsecase(t)
+	seedChat(chats, "c1", 1)
+	seedChat(chats, "c2", 2)
+	chats.OrderErr = errors.New("aggregate down")
+
+	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c2",
+		agentchatfolder.PlaceInput{Order: index(0)})
+	assert.ErrorContains(t, err, "aggregate down")
+}
+
 func TestPlaceChat_SurfacesAPlacementWriteFailure(t *testing.T) {
 	_, chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
@@ -590,7 +619,7 @@ func TestPlaceChat_SurfacesAPlacementWriteFailure(t *testing.T) {
 	chats.SetErr = errors.New("aggregate down")
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c2",
-		agentchatfolder.PlaceInput{Order: index(0)})
+		agentchatfolder.PlaceInput{ParentID: name("c1")})
 	assert.ErrorContains(t, err, "aggregate down")
 }
 

@@ -115,6 +115,18 @@ type Tree interface {
 	// Dirty returns the ids whose placement the plan changed, sorted, so a caller
 	// whose writes fail halfway fails reproducibly rather than arbitrarily.
 	Dirty() []string
+	// Reparented reports whether the plan moved this row into a DIFFERENT
+	// container, as against merely renumbering it where it already sat.
+	//
+	// Dirty alone cannot tell a caller that, and the difference decides what a
+	// write may ASSERT. A densify decides nothing about any row's container, so a
+	// caller whose store takes field-level writes must write only the index for
+	// those rows: restating the parent restates it from the snapshot, and a
+	// snapshot read from an asynchronous projection can still be serving the
+	// container a row had before the operation just before this one moved it.
+	Reparented(
+		id string,
+	) bool
 }
 
 // New builds a plan over rows already read from wherever they live. The rows are
@@ -128,9 +140,10 @@ func New(
 	nodes []Node,
 ) Tree {
 	t := &siblingTree{
-		nodes: make([]Node, len(nodes)),
-		at:    make(map[string]int, len(nodes)),
-		dirty: map[string]bool{},
+		nodes:      make([]Node, len(nodes)),
+		at:         make(map[string]int, len(nodes)),
+		dirty:      map[string]bool{},
+		reparented: map[string]bool{},
 	}
 	copy(t.nodes, nodes)
 	for i, node := range t.nodes {

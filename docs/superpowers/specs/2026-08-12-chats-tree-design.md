@@ -169,11 +169,30 @@ changes what a chat *reads*, so it is domain truth, not a view preference.
   parentage, as workspaces and folders already do in the workspace tree — so a
   chat's `ParentID` may name either a chat or a folder, and lineage resolution
   must filter the chain to chats rather than assuming the parent is one.
-- **Sibling order** stays client-side, extended from one array to one array per
-  container. Order is a view preference; parentage is not.
+- **Sibling order** moved to the daemon with parentage rather than staying in
+  `localStorage`. Chats and folders interleave at every level, so an order held
+  on one side of that pair cannot arrange the other, and the level a drop lands
+  in has to be dense for the drop index to mean anything. `Order int` therefore
+  joins the aggregate beside `ParentID`, and an operation renumbers every level
+  it disturbs.
 
 Cycles are refused at the command, not the UI: re-parenting under a descendant is
 rejected server-side as well as drawn as a refusal.
+
+**A move decides one parent and many indices, and the writes say exactly that.**
+An operation plans from a single snapshot, and the chat half of that snapshot is
+the asynchronous read model — so it can still be serving the placement a chat had
+before the operation immediately before this one. Two rules keep that from
+deciding anything:
+
+- The SUBJECT's own row is read from the event log (`LoadChat`) and stamped over
+  what the list said, because its stored parent is what the plan compares the
+  destination against.
+- Every OTHER row a densify touched is written with `SetOrder`, which carries an
+  index and no parent at all. A renumber that restated the parent restated the
+  snapshot's, and a multi-row drag is several placement calls in a row: the
+  second one's renumber put the first one's chat back where it had just come
+  from, silently un-threading it.
 
 ---
 
